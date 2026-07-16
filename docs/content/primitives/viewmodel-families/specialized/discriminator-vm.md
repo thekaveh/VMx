@@ -1,13 +1,13 @@
 # 6.2.8.3. DiscriminatorVM
 
-## When To Use It
+## 6.2.8.3.1. When To Use It
 
 Use `DiscriminatorVM<TKey>` when one VM needs a single source of truth for an
 active pane, editor mode, route, focus target, or modal precedence stack.
 
 It is intentionally small: state coordination, not child ownership.
 
-## Shape And Ownership
+## 6.2.8.3.2. Shape And Ownership
 
 `DiscriminatorVM` owns one `ActiveKey` plus an internal modal stack used by
 `ModalOpen(...)` and `ModalClose()`. It does not own the panes, routes, or
@@ -22,7 +22,7 @@ Core members:
 - `ModalOpen(modalKey)`
 - `ModalClose()`
 
-## Lifecycle And Messaging
+## 6.2.8.3.3. Lifecycle And Messaging
 
 The behavior is straightforward and important:
 
@@ -32,7 +32,7 @@ The behavior is straightforward and important:
 - modal closes restore keys in LIFO order
 - dispose completes the change stream and makes later mutations inert
 
-## Cross-Language Surface
+## 6.2.8.3.4. Cross-Language Surface
 
 | Concept       | C#               | Python            | TypeScript       | Swift            |
 | ------------- | ---------------- | ----------------- | ---------------- | ---------------- |
@@ -40,7 +40,7 @@ The behavior is straightforward and important:
 | Change stream | `ActiveChanged`  | `active_changed`  | `activeChanged`  | `activeChanged`  |
 | Open modal    | `ModalOpen(...)` | `modal_open(...)` | `modalOpen(...)` | `modalOpen(...)` |
 
-## Example
+## 6.2.8.3.5. Example
 
 The Notes Workspace editor mode is the concrete showcase feature:
 
@@ -90,7 +90,7 @@ spreading active-mode booleans across unrelated properties.
     }
     ```
 
-## Common Pitfalls
+## 6.2.8.3.6. Common Pitfalls
 
 - Using a discriminator as a container. It coordinates keys; it does not own
   child VMs.
@@ -99,7 +99,7 @@ spreading active-mode booleans across unrelated properties.
 - Forgetting that modal precedence is stack-based; nested modal restore order is
   LIFO by contract.
 
-## Related Primitives
+## 6.2.8.3.7. Related Primitives
 
 - [FormVM](form-vm.md)
 - [ModalVM](modal-vm.md)

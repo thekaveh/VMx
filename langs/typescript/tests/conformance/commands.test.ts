@@ -286,6 +286,76 @@ describe("CMD-013", () => {
 // ---------------------------------------------------------------------------
 
 describe("CMD-012", () => {
+  it("removes the external abort listener after normal completion", async () => {
+    const external = new AbortController();
+    const addSpy = vi.spyOn(external.signal, "addEventListener");
+    const removeSpy = vi.spyOn(external.signal, "removeEventListener");
+    const cmd = AsyncRelayCommand.builder()
+      .task(() => Promise.resolve())
+      .build();
+
+    await cmd.executeAsync(external.signal);
+
+    const abortRegistration = addSpy.mock.calls.find(([type]) => type === "abort");
+    expect(abortRegistration).toBeDefined();
+    expect(removeSpy).toHaveBeenCalledWith("abort", abortRegistration?.[1]);
+    cmd.dispose();
+  });
+
+  it("removes the external abort listener after a task fault", async () => {
+    const external = new AbortController();
+    const addSpy = vi.spyOn(external.signal, "addEventListener");
+    const removeSpy = vi.spyOn(external.signal, "removeEventListener");
+    const failure = new Error("task failed");
+    const cmd = AsyncRelayCommand.builder()
+      .task(() => Promise.reject(failure))
+      .build();
+
+    await expect(cmd.executeAsync(external.signal)).rejects.toBe(failure);
+
+    const abortRegistration = addSpy.mock.calls.find(([type]) => type === "abort");
+    expect(abortRegistration).toBeDefined();
+    expect(removeSpy).toHaveBeenCalledWith("abort", abortRegistration?.[1]);
+    cmd.dispose();
+  });
+
+  it("removes the external abort listener after disposal cancels execution", async () => {
+    const external = new AbortController();
+    const addSpy = vi.spyOn(external.signal, "addEventListener");
+    const removeSpy = vi.spyOn(external.signal, "removeEventListener");
+    let startedResolve!: () => void;
+    const started = new Promise<void>((resolve) => {
+      startedResolve = resolve;
+    });
+    const cmd = AsyncRelayCommand.builder()
+      .task(
+        (signal) =>
+          new Promise<void>((_, reject) => {
+            startedResolve();
+            signal.addEventListener(
+              "abort",
+              () =>
+                reject(
+                  signal.reason instanceof Error
+                    ? signal.reason
+                    : new DOMException("Aborted", "AbortError"),
+                ),
+              { once: true },
+            );
+          }),
+      )
+      .build();
+
+    const run = cmd.executeAsync(external.signal);
+    await started;
+    cmd.dispose();
+    await expect(run).resolves.toBeUndefined();
+
+    const abortRegistration = addSpy.mock.calls.find(([type]) => type === "abort");
+    expect(abortRegistration).toBeDefined();
+    expect(removeSpy).toHaveBeenCalledWith("abort", abortRegistration?.[1]);
+  });
+
   it("cancel() cancels an in-flight async task; returns to non-executing; no throw by default", async () => {
     let observedAbort = false;
     let startedResolve!: () => void;

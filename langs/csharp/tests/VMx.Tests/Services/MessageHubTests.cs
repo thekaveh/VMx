@@ -116,6 +116,211 @@ public class MessageHubTests
     }
 
     [Fact]
+    public async Task Concurrent_Producer_Waits_For_Active_Drain_Then_Delivers_On_Its_Own_Thread()
+    {
+        using var hub = new MessageHub();
+        using var drainEntered = new ManualResetEventSlim();
+        using var releaseDrain = new ManualResetEventSlim();
+        using var sendStarted = new ManualResetEventSlim();
+        using var sendFinished = new ManualResetEventSlim();
+        var producerThread = 0;
+        var deliveryThread = 0;
+        using var subscription = hub.Messages.OfType<Stub>().Subscribe(message =>
+        {
+            if (message.Tag == "blocker")
+            {
+                drainEntered.Set();
+                releaseDrain.Wait();
+            }
+            else if (message.Tag == "concurrent")
+            {
+                deliveryThread = Environment.CurrentManagedThreadId;
+            }
+        });
+
+        var drainer = Task.Run(() => hub.Send(new Stub("blocker")));
+        drainEntered.Wait();
+        var producer = Task.Run(() =>
+        {
+            producerThread = Environment.CurrentManagedThreadId;
+            sendStarted.Set();
+            hub.Send(new Stub("concurrent"));
+            sendFinished.Set();
+        });
+        sendStarted.Wait();
+
+        var wasBlocked = false;
+        try
+        {
+            wasBlocked = !sendFinished.Wait(TimeSpan.FromMilliseconds(50));
+        }
+        finally
+        {
+            releaseDrain.Set();
+            await Task.WhenAll(drainer, producer);
+        }
+
+        wasBlocked.Should().BeTrue("the active drain serializes other producers");
+        deliveryThread.Should().Be(producerThread);
+    }
+
+    [Fact]
+    public async Task Concurrent_Dispose_Waits_For_Active_Delivery_Before_Completing_Stream()
+    {
+        var hub = new MessageHub();
+        using var deliveryEntered = new ManualResetEventSlim();
+        using var releaseDelivery = new ManualResetEventSlim();
+        using var disposeStarted = new ManualResetEventSlim();
+        var inDelivery = 0;
+        var completionDuringDelivery = 0;
+        var completionCount = 0;
+        using var subscription = hub.Messages.Subscribe(
+            _ =>
+            {
+                Volatile.Write(ref inDelivery, 1);
+                deliveryEntered.Set();
+                releaseDelivery.Wait();
+                Volatile.Write(ref inDelivery, 0);
+            },
+            () =>
+            {
+                if (Volatile.Read(ref inDelivery) != 0)
+                    Interlocked.Exchange(ref completionDuringDelivery, 1);
+                Interlocked.Increment(ref completionCount);
+            });
+
+        var send = Task.Run(() => hub.Send(new Stub("blocking")));
+        deliveryEntered.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue();
+        var dispose = Task.Run(() =>
+        {
+            disposeStarted.Set();
+            hub.Dispose();
+        });
+        disposeStarted.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue();
+
+        var disposeReturnedBeforeRelease = false;
+        try
+        {
+            disposeReturnedBeforeRelease = await Task.WhenAny(
+                dispose,
+                Task.Delay(TimeSpan.FromMilliseconds(50))) == dispose;
+        }
+        finally
+        {
+            releaseDelivery.Set();
+        }
+        await Task.WhenAll(send, dispose).WaitAsync(TimeSpan.FromSeconds(5));
+
+        disposeReturnedBeforeRelease.Should().BeFalse(
+            "terminal delivery must serialize behind the active OnNext callback");
+        completionDuringDelivery.Should().Be(0);
+        completionCount.Should().Be(1);
+    }
+
+    [Fact]
+    public void Reentrant_Dispose_Completes_After_InFlight_Message_Reaches_Subscribers()
+    {
+        var hub = new MessageHub();
+        var trace = new List<string>();
+        using var first = hub.Messages.Subscribe(
+            _ =>
+            {
+                trace.Add("first:start");
+                hub.Dispose();
+                trace.Add("first:end");
+            },
+            () => trace.Add("first:completed"));
+        using var second = hub.Messages.Subscribe(
+            _ => trace.Add("second:message"),
+            () => trace.Add("second:completed"));
+
+        hub.Send(new Stub("dispose"));
+
+        trace.Should().Equal(
+            "first:start",
+            "first:end",
+            "second:message",
+            "first:completed",
+            "second:completed");
+    }
+
+    [Fact]
+    public async Task Opposing_Hub_Callbacks_Do_Not_Deadlock()
+    {
+        using var left = new MessageHub();
+        using var right = new MessageHub();
+        using var callbacksEntered = new Barrier(2);
+        var innerDeliveries = 0;
+        using var leftSubscription = left.Messages.OfType<Stub>().Subscribe(message =>
+        {
+            if (message.Tag == "outer")
+            {
+                callbacksEntered.SignalAndWait();
+                right.Send(new Stub("inner"));
+            }
+            else
+            {
+                Interlocked.Increment(ref innerDeliveries);
+            }
+        });
+        using var rightSubscription = right.Messages.OfType<Stub>().Subscribe(message =>
+        {
+            if (message.Tag == "outer")
+            {
+                callbacksEntered.SignalAndWait();
+                left.Send(new Stub("inner"));
+            }
+            else
+            {
+                Interlocked.Increment(ref innerDeliveries);
+            }
+        });
+
+        var sends = Task.WhenAll(
+            Task.Run(() => left.Send(new Stub("outer"))),
+            Task.Run(() => right.Send(new Stub("outer"))));
+
+        var completed = await Task.WhenAny(sends, Task.Delay(TimeSpan.FromSeconds(2)));
+        completed.Should().BeSameAs(sends, "nested cross-hub sends must not form a wait cycle");
+        await sends;
+        innerDeliveries.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task Opposing_Hub_Callbacks_Can_Dispose_Each_Other_Without_Deadlock()
+    {
+        var left = new MessageHub();
+        var right = new MessageHub();
+        using var callbacksEntered = new Barrier(2);
+        var leftCompletions = 0;
+        var rightCompletions = 0;
+        using var leftSubscription = left.Messages.Subscribe(
+            _ =>
+            {
+                callbacksEntered.SignalAndWait();
+                right.Dispose();
+            },
+            () => Interlocked.Increment(ref leftCompletions));
+        using var rightSubscription = right.Messages.Subscribe(
+            _ =>
+            {
+                callbacksEntered.SignalAndWait();
+                left.Dispose();
+            },
+            () => Interlocked.Increment(ref rightCompletions));
+
+        var sends = Task.WhenAll(
+            Task.Run(() => left.Send(new Stub("outer"))),
+            Task.Run(() => right.Send(new Stub("outer"))));
+
+        var completed = await Task.WhenAny(sends, Task.Delay(TimeSpan.FromSeconds(2)));
+        completed.Should().BeSameAs(sends, "terminal deferral must not form a cross-hub wait cycle");
+        await sends;
+        leftCompletions.Should().Be(1);
+        rightCompletions.Should().Be(1);
+    }
+
+    [Fact]
     public void Development_Drain_Diagnostic_Names_Message_Type()
     {
 #if DEBUG

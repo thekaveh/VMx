@@ -26,9 +26,10 @@ public sealed class TokenPagedComposition<TVM, TToken> :
     // Shared re-signal for BOTH commands: a change driven by one command (e.g.
     // RefreshCommand flipping HasMore) must re-raise the other's CanExecuteChanged,
     // matching Python/TypeScript/Swift (a bound "Load More" re-enables immediately).
-    private readonly Subject<Unit> _commandChanged = new();
+    private readonly ISubject<Unit> _commandChanged = Subject.Synchronize(new Subject<Unit>());
     private TToken? _currentToken;
     private bool _loadedOnce;
+    private long _operationGeneration;
     private bool _disposed;
 
     /// <summary>
@@ -43,25 +44,52 @@ public sealed class TokenPagedComposition<TVM, TToken> :
         _autoConstructOnAdd = autoConstructOnAdd;
         _pagesEqual = pagesEqual ?? DefaultPagesEqual;
         LoadMoreCommand = AsyncRelayCommand.Builder()
-            .Predicate(() => HasMore && !_disposed)
+            .Predicate(CanLoadMore)
             .Task(_ => LoadMoreAsync())
             .Triggers(_commandChanged)
             .Build();
         RefreshCommand = AsyncRelayCommand.Builder()
-            .Predicate(() => !_disposed)
+            .Predicate(IsLive)
             .Task(_ => RefreshAsync())
             .Triggers(_commandChanged)
             .Build();
     }
 
     /// <summary>Accumulated items loaded so far.</summary>
-    public IReadOnlyList<TVM> Items => _items.ToArray();
+    public IReadOnlyList<TVM> Items
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _items.ToArray();
+            }
+        }
+    }
 
     /// <summary>The token to pass to the next load, or null after the terminal page.</summary>
-    public TToken? CurrentToken => _currentToken;
+    public TToken? CurrentToken
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _currentToken;
+            }
+        }
+    }
 
     /// <summary>True before the first fetch or while the current token is non-null.</summary>
-    public bool HasMore => !_loadedOnce || _currentToken is not null;
+    public bool HasMore
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return !_loadedOnce || _currentToken is not null;
+            }
+        }
+    }
 
     /// <summary>Loads the next page and appends it to <see cref="Items"/>.</summary>
     public AsyncRelayCommand LoadMoreCommand { get; }
@@ -77,40 +105,68 @@ public sealed class TokenPagedComposition<TVM, TToken> :
 
     private async Task LoadMoreAsync()
     {
-        var page = await _fetchNext(_currentToken).ConfigureAwait(false);
+        TToken? token;
+        long generation;
         lock (_gate)
         {
             if (_disposed) return;
-            _items.AddRange(page.Items);
-            ConstructIfNeeded(page.Items);
+            generation = ++_operationGeneration;
+            token = _currentToken;
+        }
+        var page = await _fetchNext(token).ConfigureAwait(false);
+        var additions = page.Items.ToArray();
+        lock (_gate)
+        {
+            if (_disposed || generation != _operationGeneration) return;
+        }
+        ConstructIfNeeded(additions);
+        lock (_gate)
+        {
+            if (_disposed || generation != _operationGeneration) return;
+            _items.AddRange(additions);
             _currentToken = page.NextToken;
             _loadedOnce = true;
-            NotifyReset();
         }
+        NotifyResetIfLive();
     }
 
     private async Task RefreshAsync()
     {
-        var page = await _fetchNext(default).ConfigureAwait(false);
+        long generation;
         lock (_gate)
         {
             if (_disposed) return;
-            var head = _items.Take(page.Items.Count).ToArray();
-            if (_pagesEqual(page.Items, head))
-            {
-                _currentToken = page.NextToken;
-                _loadedOnce = true;
-                NotifyProperties();
-                return;
-            }
+            generation = ++_operationGeneration;
+        }
+        var page = await _fetchNext(default).ConfigureAwait(false);
+        var fresh = page.Items.ToArray();
+        TVM[] head;
+        lock (_gate)
+        {
+            if (_disposed || generation != _operationGeneration) return;
+            head = _items.Take(fresh.Length).ToArray();
+        }
 
-            _items.Clear();
-            _items.AddRange(page.Items);
-            ConstructIfNeeded(page.Items);
+        var pagesMatch = _pagesEqual(fresh, head);
+        if (!pagesMatch)
+            ConstructIfNeeded(fresh);
+
+        lock (_gate)
+        {
+            if (_disposed || generation != _operationGeneration) return;
+            if (!pagesMatch)
+            {
+                _items.Clear();
+                _items.AddRange(fresh);
+            }
             _currentToken = page.NextToken;
             _loadedOnce = true;
-            NotifyReset();
         }
+
+        if (pagesMatch)
+            NotifyPropertiesIfLive();
+        else
+            NotifyResetIfLive();
     }
 
     private void ConstructIfNeeded(IReadOnlyList<TVM> items)
@@ -123,21 +179,41 @@ public sealed class TokenPagedComposition<TVM, TToken> :
         }
     }
 
-    private void NotifyReset()
+    private void NotifyResetIfLive()
     {
+        if (!IsLive()) return;
         CollectionChanged?.Invoke(
             this,
             new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
-        NotifyProperties();
+        NotifyPropertiesIfLive();
     }
 
-    private void NotifyProperties()
+    private void NotifyPropertiesIfLive()
     {
-        OnPropertyChanged(nameof(Items));
-        OnPropertyChanged(nameof(CurrentToken));
-        OnPropertyChanged(nameof(HasMore));
+        foreach (var name in new[] { nameof(Items), nameof(CurrentToken), nameof(HasMore) })
+        {
+            if (!IsLive()) return;
+            OnPropertyChanged(name);
+        }
+        if (!IsLive()) return;
         // Re-signal both commands' CanExecuteChanged (parity with Python/TS/Swift).
         _commandChanged.OnNext(Unit.Default);
+    }
+
+    private bool CanLoadMore()
+    {
+        lock (_gate)
+        {
+            return !_disposed && (!_loadedOnce || _currentToken is not null);
+        }
+    }
+
+    private bool IsLive()
+    {
+        lock (_gate)
+        {
+            return !_disposed;
+        }
     }
 
     private void OnPropertyChanged(string name) =>
@@ -157,6 +233,5 @@ public sealed class TokenPagedComposition<TVM, TToken> :
         LoadMoreCommand.Dispose();
         RefreshCommand.Dispose();
         _commandChanged.OnCompleted();
-        _commandChanged.Dispose();
     }
 }

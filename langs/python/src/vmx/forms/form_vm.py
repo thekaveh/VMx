@@ -8,12 +8,15 @@ from __future__ import annotations
 import asyncio
 import copy
 from collections.abc import Awaitable, Callable, Mapping
+from concurrent.futures import Future
+from threading import Condition, RLock, get_ident
 from typing import Any, Generic, TypeVar
 
 import reactivex as rx
 from reactivex import operators as ops
 from reactivex.subject import Subject
 
+from vmx._asyncio_runner import submit_background
 from vmx.commands.relay_command import RelayCommand
 from vmx.forms.builders import FormVMBuilder
 from vmx.messages.form_reverted import FormRevertedMessage
@@ -80,6 +83,13 @@ class FormVM(Generic[TM]):
         self._validators: dict[str, FieldValidator[TM]] = dict(validators or {})
         self._model_validator = model_validator
         self._reset_on_approved = reset_on_approved
+        self._state_changed = Condition(RLock())
+        self._approval_publishing = False
+        self._approval_pre_publishing = False
+        self._approval_publisher_thread: int | None = None
+        self._deferred_approval_models: list[TM] = []
+        self._active_mutations = 0
+        self._mutation_teardown_pending = False
 
         self._model: TM = initial
         self._snapshot: TM = self._snapshotter(initial)
@@ -119,27 +129,32 @@ class FormVM(Generic[TM]):
     @property
     def model(self) -> TM:
         """Live, editable model."""
-        return self._model
+        with self._state_changed:
+            return self._model
 
     @property
     def snapshot(self) -> TM:
         """Read-only snapshot captured at construction (until next approve)."""
-        return self._snapshot
+        with self._state_changed:
+            return self._snapshot
 
     @property
     def is_dirty(self) -> bool:
         """``True`` when ``model`` is structurally not equal to ``snapshot``."""
-        return self._model != self._snapshot
+        with self._state_changed:
+            return self._model != self._snapshot
 
     @property
     def errors(self) -> dict[str, str]:
         """Current validation errors keyed by field name."""
-        return dict(self._errors)
+        with self._state_changed:
+            return dict(self._errors)
 
     @property
     def is_valid(self) -> bool:
         """``True`` when the current model has no validation errors."""
-        return not self._errors
+        with self._state_changed:
+            return not self._errors
 
     @property
     def deny_command(self) -> RelayCommand:
@@ -175,7 +190,8 @@ class FormVM(Generic[TM]):
 
     def field_error(self, field: str) -> str | None:
         """Return the current validation error for ``field``, if any."""
-        return self._errors.get(field)
+        with self._state_changed:
+            return self._errors.get(field)
 
     # ── Mutation ──────────────────────────────────────────────────────────────
 
@@ -185,27 +201,51 @@ class FormVM(Generic[TM]):
         If in strict mode and ``is_dirty`` changes, fires ``can_execute_changed``.
         Inert after :meth:`dispose` (like :meth:`approve_async`/:meth:`deny`): a
         post-dispose call would otherwise ``on_next`` a disposed reactivex Subject
-        via ``_revalidate`` and raise (parity with the TS/Swift no-op).
+        during validation publication and raise (parity with the TS/Swift no-op).
         """
-        if self._disposed:
-            return
-        if model is None:
-            raise ValueError("model must not be None")
-        if self._model == model:
-            return
-        was_dirty = self.is_dirty
-        was_valid = self.is_valid
-        self._model = model
-        self._revalidate()
-        if (self._strict and self.is_dirty != was_dirty) or self.is_valid != was_valid:
-            self._can_execute_trigger.on_next(None)
-        self._hub.send(
-            PropertyChangedMessage.create(
-                sender=self,
-                sender_name="FormVM",
-                property_name="model",
+        caller = get_ident()
+        admitted = False
+        try:
+            with self._state_changed:
+                while (
+                    self._approval_publishing
+                    and self._approval_publisher_thread != caller
+                    and not self._disposed
+                ):
+                    self._state_changed.wait()
+                if self._disposed:
+                    return
+                if self._approval_publishing and self._approval_pre_publishing:
+                    self._deferred_approval_models.append(model)
+                    return
+                self._active_mutations += 1
+                admitted = True
+                if model is None:
+                    raise ValueError("model must not be None")
+                if self._model == model:
+                    return
+                was_dirty = self._model != self._snapshot
+                was_valid = not self._errors
+                self._model = model
+                next_errors = self._validate(model)
+                is_dirty = model != self._snapshot
+                errors_changed = next_errors != self._errors
+                self._errors = next_errors
+                is_valid = not self._errors
+                if errors_changed:
+                    self._errors_changed.on_next(dict(next_errors))
+                if (self._strict and is_dirty != was_dirty) or is_valid != was_valid:
+                    self._can_execute_trigger.on_next(None)
+            self._hub.send(
+                PropertyChangedMessage.create(
+                    sender=self,
+                    sender_name="FormVM",
+                    property_name="model",
+                )
             )
-        )
+        finally:
+            if admitted:
+                self._end_mutation()
 
     # ── Async core ────────────────────────────────────────────────────────────
 
@@ -217,11 +257,10 @@ class FormVM(Generic[TM]):
         A disposed form is a full no-op — the persister is not invoked
         (symmetric with the deny guard).
         """
-        if self._disposed:
-            return
-        if not self.is_valid:
-            return
-        current = self._model
+        with self._state_changed:
+            if self._disposed or self._errors:
+                return
+            current = self._model
 
         # May raise — intentional.  No state mutation if this raises.
         await self._persister(current)
@@ -229,13 +268,12 @@ class FormVM(Generic[TM]):
         # dispose() may have run during the await; the subjects below are
         # completed and disposed, so emitting would raise DisposedException
         # (mirrors the C# guard).
-        if self._disposed:
-            return
+        with self._state_changed:
+            if self._disposed:
+                return
 
         # Success: atomically install the configured reset state, or preserve
         # the legacy snapshot-advance behavior when no reset is configured.
-        was_dirty = self.is_dirty
-        was_valid = self.is_valid
         if self._reset_on_approved is not None:
             # Prepare callback output, independent live/snapshot values, and
             # validation before committing any local state.
@@ -244,21 +282,69 @@ class FormVM(Generic[TM]):
             next_snapshot = self._snapshotter(reset)
             next_errors = self._validate(next_model)
 
-            self._model = next_model
-            self._snapshot = next_snapshot
-            if next_errors != self._errors:
-                self._errors = next_errors
-                self._errors_changed.on_next(dict(next_errors))
+            reset_state: tuple[TM, TM, dict[str, str]] | None = (
+                next_model,
+                next_snapshot,
+                next_errors,
+            )
         else:
-            self._snapshot = self._snapshotter(current)
+            reset_state = None
+            next_snapshot = self._snapshotter(current)
 
-        if (self._strict and self.is_dirty != was_dirty) or self.is_valid != was_valid:
-            self._can_execute_trigger.on_next(None)
+        caller = get_ident()
+        with self._state_changed:
+            while self._approval_publishing and self._approval_publisher_thread != caller:
+                self._state_changed.wait()
+            if self._disposed:
+                return
+            self._approval_publishing = True
+            self._approval_pre_publishing = True
+            self._approval_publisher_thread = caller
+            was_dirty = self._model != self._snapshot
+            was_valid = not self._errors
+            errors_changed = False
+            published_errors: dict[str, str] | None = None
+            if reset_state is not None:
+                next_model, next_snapshot, next_errors = reset_state
+                self._model = next_model
+                self._snapshot = next_snapshot
+                if next_errors != self._errors:
+                    self._errors = next_errors
+                    errors_changed = True
+                    published_errors = dict(next_errors)
+            else:
+                self._snapshot = next_snapshot
+            is_dirty = self._model != self._snapshot
+            is_valid = not self._errors
 
-        # Emit the value that was actually persisted (parity with C#'s
-        # captured `current`): a set_model racing the persister await must
-        # not swap the approved payload for a newer un-persisted model.
-        self._on_approved.on_next(current)
+        try:
+            if errors_changed:
+                assert published_errors is not None
+                self._errors_changed.on_next(published_errors)
+                if self._disposed:
+                    return
+            if (self._strict and is_dirty != was_dirty) or is_valid != was_valid:
+                self._can_execute_trigger.on_next(None)
+                if self._disposed:
+                    return
+
+            with self._state_changed:
+                self._approval_pre_publishing = False
+
+            # Emit the value that was actually persisted (parity with C#'s
+            # captured `current`): a set_model racing the persister await must
+            # not swap the approved payload for a newer un-persisted model.
+            self._on_approved.on_next(current)
+        finally:
+            with self._state_changed:
+                self._approval_pre_publishing = False
+                self._approval_publishing = False
+                self._approval_publisher_thread = None
+                deferred_models = self._deferred_approval_models
+                self._deferred_approval_models = []
+                self._state_changed.notify_all()
+            for deferred_model in deferred_models:
+                self.set_model(deferred_model)
 
     # ── Dispose ───────────────────────────────────────────────────────────────
 
@@ -266,9 +352,36 @@ class FormVM(Generic[TM]):
         """Complete the ``on_approved`` observable and dispose resources. Idempotent."""
         # reactivex Subjects raise DisposedException on a second on_completed,
         # unlike rxjs (no-op) and the guarded C# FormVM — guard for parity.
-        if self._disposed:
-            return
-        self._disposed = True
+        caller = get_ident()
+        tear_down = False
+        with self._state_changed:
+            while (
+                self._approval_publishing
+                and self._approval_publisher_thread != caller
+                and not self._disposed
+            ):
+                self._state_changed.wait()
+            if self._disposed:
+                return
+            self._disposed = True
+            if self._active_mutations == 0:
+                tear_down = True
+            else:
+                self._mutation_teardown_pending = True
+        if tear_down:
+            self._tear_down()
+
+    def _end_mutation(self) -> None:
+        tear_down = False
+        with self._state_changed:
+            self._active_mutations -= 1
+            if self._active_mutations == 0 and self._mutation_teardown_pending:
+                self._mutation_teardown_pending = False
+                tear_down = True
+        if tear_down:
+            self._tear_down()
+
+    def _tear_down(self) -> None:
         self._on_approved.on_completed()
         self._on_approved.dispose()
         self._approve_errors.on_completed()
@@ -283,24 +396,50 @@ class FormVM(Generic[TM]):
     # ── Internal ──────────────────────────────────────────────────────────────
 
     def _deny(self) -> None:
-        if self._disposed:
-            return
-        was_dirty = self.is_dirty
-        was_valid = self.is_valid
-        self._model = self._snapshotter(self._snapshot)
-        self._revalidate()
+        caller = get_ident()
+        admitted = False
+        try:
+            with self._state_changed:
+                while (
+                    self._approval_publishing
+                    and self._approval_publisher_thread != caller
+                    and not self._disposed
+                ):
+                    self._state_changed.wait()
+                if self._disposed:
+                    return
+                self._active_mutations += 1
+                admitted = True
+                was_dirty = self._model != self._snapshot
+                was_valid = not self._errors
+                next_model = self._snapshotter(self._snapshot)
+                self._model = next_model
+                next_errors = self._validate(next_model)
+                is_dirty = next_model != self._snapshot
+                errors_changed = next_errors != self._errors
+                self._errors = next_errors
+                is_valid = not self._errors
 
-        self._hub.send(FormRevertedMessage(sender=self, sender_name="FormVM"))
-        self._hub.send(
-            PropertyChangedMessage.create(
-                sender=self,
-                sender_name="FormVM",
-                property_name="model",
+                if errors_changed:
+                    self._errors_changed.on_next(dict(next_errors))
+                can_execute_changed = (
+                    self._strict and was_dirty != is_dirty
+                ) or is_valid != was_valid
+
+            self._hub.send(FormRevertedMessage(sender=self, sender_name="FormVM"))
+            self._hub.send(
+                PropertyChangedMessage.create(
+                    sender=self,
+                    sender_name="FormVM",
+                    property_name="model",
+                )
             )
-        )
-
-        if (self._strict and was_dirty != self.is_dirty) or self.is_valid != was_valid:
-            self._can_execute_trigger.on_next(None)
+            if can_execute_changed:
+                with self._state_changed:
+                    self._can_execute_trigger.on_next(None)
+        finally:
+            if admitted:
+                self._end_mutation()
 
     def _validate(self, model: TM) -> dict[str, str]:
         errors: dict[str, str] = {}
@@ -316,13 +455,6 @@ class FormVM(Generic[TM]):
                     errors[field] = error
         return errors
 
-    def _revalidate(self) -> None:
-        errors = self._validate(self._model)
-        if errors == self._errors:
-            return
-        self._errors = errors
-        self._errors_changed.on_next(dict(errors))
-
     def _approve_fire_and_forget(self) -> None:
         """Synchronous wrapper that schedules the async approve.
 
@@ -333,13 +465,8 @@ class FormVM(Generic[TM]):
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
-            # No running loop: run to completion synchronously, routing a
-            # persister failure to the error channel (parity with the
-            # running-loop path rather than propagating to the sync caller).
-            try:
-                asyncio.run(self.approve_async())
-            except Exception as exc:
-                self._emit_approve_error(exc)
+            future = submit_background(self.approve_async())
+            future.add_done_callback(self._on_approve_done)
             return
         task = loop.create_task(self.approve_async())
         # Mirror the C# continuation: surface the persister failure on the error
@@ -347,7 +474,7 @@ class FormVM(Generic[TM]):
         # for those, which would error the loop's callback.
         task.add_done_callback(self._on_approve_done)
 
-    def _on_approve_done(self, task: asyncio.Future[None]) -> None:
+    def _on_approve_done(self, task: asyncio.Future[None] | Future[None]) -> None:
         if task.cancelled():
             return
         exc = task.exception()
@@ -357,6 +484,7 @@ class FormVM(Generic[TM]):
     def _emit_approve_error(self, exc: BaseException) -> None:
         # The subject is completed+disposed on dispose(); a persister failure
         # arriving after dispose must not raise reactivex DisposedException.
-        if self._disposed:
-            return
-        self._approve_errors.on_next(exc)
+        with self._state_changed:
+            if self._disposed:
+                return
+            self._approve_errors.on_next(exc)

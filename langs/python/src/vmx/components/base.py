@@ -14,7 +14,8 @@ from __future__ import annotations
 
 import threading
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
+from concurrent.futures import Future
 from typing import TYPE_CHECKING, Protocol
 
 import reactivex as rx
@@ -33,11 +34,35 @@ from vmx.services.dispatcher import Dispatcher
 from vmx.services.message_hub import MessageHubProto
 
 if TYPE_CHECKING:
-    from vmx.components.protocols import ViewModelType
+    from vmx.components.protocols import ComponentVMProto, ViewModelType
 
 
 class _Disposable(Protocol):
     def dispose(self) -> None: ...
+
+
+def _dispose_children_then_self(
+    children: Iterable[_Disposable | None], dispose_self: Callable[[], None]
+) -> None:
+    """Finish a LIFE-013 cascade and then re-raise its first failure."""
+    first_error: BaseException | None = None
+    for child in children:
+        if child is None:
+            continue
+        try:
+            child.dispose()
+        except BaseException as error:
+            if first_error is None:
+                first_error = error
+
+    try:
+        dispose_self()
+    except BaseException as error:
+        if first_error is None:
+            first_error = error
+
+    if first_error is not None:
+        raise first_error
 
 
 # ---------------------------------------------------------------------------
@@ -50,6 +75,14 @@ class _ParentCompositeVM(ABC):
 
     Implemented by composite and group base classes. Not part of the public API.
     """
+
+    @property
+    @abstractmethod
+    def owner(self) -> _ComponentVMBase: ...
+
+    @property
+    @abstractmethod
+    def owner_parent(self) -> _ParentCompositeVM | None: ...
 
     @property
     @abstractmethod
@@ -71,6 +104,49 @@ class _ParentCompositeVM(ABC):
 
     @abstractmethod
     def deselect_child(self, vm: _ComponentVMBase) -> None: ...
+
+    @abstractmethod
+    def contains_child(self, vm: _ComponentVMBase) -> bool: ...
+
+    @abstractmethod
+    def detach_for_transfer(self, vm: _ComponentVMBase) -> _ParentTransfer: ...
+
+
+class _ParentTransfer:
+    """One-shot staged removal that can be committed or rolled back."""
+
+    def __init__(self, commit: Callable[[], None], rollback: Callable[[], None]) -> None:
+        self._commit = commit
+        self._rollback = rollback
+        self._finished = False
+
+    def commit(self) -> None:
+        if self._finished:
+            raise RuntimeError("parent transfer is already finished")
+        self._finished = True
+        self._commit()
+
+    def rollback(self) -> None:
+        if self._finished:
+            raise RuntimeError("parent transfer is already finished")
+        self._finished = True
+        self._rollback()
+
+
+def _begin_parent_transfer(
+    child: _ComponentVMBase, destination: _ParentCompositeVM
+) -> _ParentTransfer | None:
+    """Validate exclusive ownership/cycles and stage any old-parent removal."""
+    if destination.contains_child(child):
+        raise ValueError(f"Cannot add {child.name!r}: destination already contains that identity")
+
+    cursor: _ParentCompositeVM | None = destination
+    while cursor is not None:
+        if cursor.owner is child:
+            raise ValueError(f"Cannot add {child.name!r}: operation would create a parent cycle")
+        cursor = cursor.owner_parent
+
+    return None if child._parent is None else child._parent.detach_for_transfer(child)
 
 
 # ---------------------------------------------------------------------------
@@ -111,6 +187,8 @@ class _ComponentVMBase(ABC):
         # ── Lifecycle state ──────────────────────────────────────────────────
         self._status: ConstructionStatus = ConstructionStatus.DESTRUCTED
         self._in_flight: bool = False
+        self._lifecycle_waiters: list[Future[None]] = []
+        self._deferred_lifecycle_future: Future[None] | None = None
 
         # Serializes every lifecycle state transition — the ``_status`` RMW, the
         # hub publish, and the status-trigger emission inside ``_set_status`` —
@@ -375,6 +453,15 @@ class _ComponentVMBase(ABC):
                     self._dispatcher.foreground.schedule(_fg_rollback)
                     raise
 
+                deferred = self._take_deferred_lifecycle_future()
+                if deferred is not None:
+                    self._complete_deferred_lifecycle(
+                        deferred,
+                        success=ConstructionStatus.CONSTRUCTED,
+                        rollback=ConstructionStatus.DESTRUCTED,
+                    )
+                    return
+
                 # VMX-025: marshal the terminal Constructed emission onto the
                 # foreground scheduler so subscribers observe the status change on
                 # the foreground (UI) thread, not the background (pool) thread.
@@ -392,6 +479,7 @@ class _ComponentVMBase(ABC):
 
             self._dispatcher.background.schedule(_bg_construct)
         else:
+            completion_deferred = False
             try:
                 try:
                     self._on_construct()
@@ -402,9 +490,19 @@ class _ComponentVMBase(ABC):
                     # left recoverable instead of wedged in Constructing.
                     self._set_status(ConstructionStatus.DESTRUCTED)
                     raise
+                deferred = self._take_deferred_lifecycle_future()
+                if deferred is not None:
+                    completion_deferred = True
+                    self._complete_deferred_lifecycle(
+                        deferred,
+                        success=ConstructionStatus.CONSTRUCTED,
+                        rollback=ConstructionStatus.DESTRUCTED,
+                    )
+                    return
                 self._set_status(ConstructionStatus.CONSTRUCTED)
             finally:
-                self._clear_in_flight()
+                if not completion_deferred:
+                    self._clear_in_flight()
 
     # ── Lifecycle: destruct ──────────────────────────────────────────────────
     def destruct(self) -> None:
@@ -453,6 +551,15 @@ class _ComponentVMBase(ABC):
                     self._dispatcher.foreground.schedule(_fg_rollback)
                     raise
 
+                deferred = self._take_deferred_lifecycle_future()
+                if deferred is not None:
+                    self._complete_deferred_lifecycle(
+                        deferred,
+                        success=ConstructionStatus.DESTRUCTED,
+                        rollback=ConstructionStatus.CONSTRUCTED,
+                    )
+                    return
+
                 # VMX-025: marshal the terminal Destructed emission onto the
                 # foreground scheduler so subscribers observe the status change on
                 # the foreground (UI) thread, not the background (pool) thread.
@@ -470,6 +577,7 @@ class _ComponentVMBase(ABC):
 
             self._dispatcher.background.schedule(_bg_destruct)
         else:
+            completion_deferred = False
             try:
                 try:
                     self._on_destruct()
@@ -479,9 +587,19 @@ class _ComponentVMBase(ABC):
                     # recoverable instead of wedged in Destructing.
                     self._set_status(ConstructionStatus.CONSTRUCTED)
                     raise
+                deferred = self._take_deferred_lifecycle_future()
+                if deferred is not None:
+                    completion_deferred = True
+                    self._complete_deferred_lifecycle(
+                        deferred,
+                        success=ConstructionStatus.DESTRUCTED,
+                        rollback=ConstructionStatus.CONSTRUCTED,
+                    )
+                    return
                 self._set_status(ConstructionStatus.DESTRUCTED)
             finally:
-                self._clear_in_flight()
+                if not completion_deferred:
+                    self._clear_in_flight()
 
     # ── Lifecycle: reconstruct ───────────────────────────────────────────────
     def reconstruct(self) -> None:
@@ -499,6 +617,7 @@ class _ComponentVMBase(ABC):
             # Destruct phase
             self._set_status(ConstructionStatus.DESTRUCTING)
 
+        completion_deferred = False
         try:
             try:
                 self._on_destruct()
@@ -507,20 +626,60 @@ class _ComponentVMBase(ABC):
                 # (the state reconstruct started from) so the VM stays recoverable.
                 self._set_status(ConstructionStatus.CONSTRUCTED)
                 raise
-            self._set_status(ConstructionStatus.DESTRUCTED)
+            deferred_destruct = self._take_deferred_lifecycle_future()
+            if deferred_destruct is not None:
+                completion_deferred = True
+                self._continue_reconstruct_after_deferred_destruct(deferred_destruct)
+                return
 
-            # Construct phase
-            self._set_status(ConstructionStatus.CONSTRUCTING)
-            try:
-                self._on_construct()
-            except Exception:
-                # VMX-007: a failed construct phase rolls back to Destructed (the
-                # destruct phase already completed) so the VM stays recoverable.
-                self._set_status(ConstructionStatus.DESTRUCTED)
-                raise
-            self._set_status(ConstructionStatus.CONSTRUCTED)
+            completion_deferred = self._continue_reconstruct_with_construct_phase()
         finally:
-            self._clear_in_flight()
+            if not completion_deferred:
+                self._clear_in_flight()
+
+    def _continue_reconstruct_with_construct_phase(self) -> bool:
+        self._set_status(ConstructionStatus.DESTRUCTED)
+        self._set_status(ConstructionStatus.CONSTRUCTING)
+        try:
+            self._on_construct()
+        except Exception:
+            self._set_status(ConstructionStatus.DESTRUCTED)
+            raise
+
+        deferred_construct = self._take_deferred_lifecycle_future()
+        if deferred_construct is not None:
+            self._complete_deferred_lifecycle(
+                deferred_construct,
+                success=ConstructionStatus.CONSTRUCTED,
+                rollback=ConstructionStatus.DESTRUCTED,
+            )
+            return True
+
+        self._set_status(ConstructionStatus.CONSTRUCTED)
+        return False
+
+    def _continue_reconstruct_after_deferred_destruct(self, future: Future[None]) -> None:
+        def settled(completed: Future[None]) -> None:
+            def resume(_scheduler: SchedulerBase, _state: object | None) -> None:
+                if self._is_disposed():
+                    self._clear_in_flight()
+                    return
+                try:
+                    completed.result()
+                except BaseException:
+                    self._set_status(ConstructionStatus.CONSTRUCTED)
+                    self._clear_in_flight()
+                    return
+
+                try:
+                    if not self._continue_reconstruct_with_construct_phase():
+                        self._clear_in_flight()
+                except BaseException:
+                    self._clear_in_flight()
+
+            self._dispatcher.foreground.schedule(resume)
+
+        future.add_done_callback(settled)
 
     # ── Lifecycle: dispose ───────────────────────────────────────────────────
     def dispose(self) -> None:
@@ -529,31 +688,49 @@ class _ComponentVMBase(ABC):
         Disposes commands and completes the status trigger / property_changed
         subjects.
         """
+        first_error: BaseException | None = None
+
+        def attempt(action: Callable[[], None]) -> None:
+            nonlocal first_error
+            try:
+                action()
+            except BaseException as error:
+                if first_error is None:
+                    first_error = error
+
         with self._lifecycle_lock:
             if self._status == ConstructionStatus.DISPOSED:
                 return
 
-            # _set_status flips _status to Disposed atomically under _lifecycle_lock.
-            self._set_status(ConstructionStatus.DISPOSED)
-        try:
-            self._on_dispose()
-        finally:
-            self._dispose_owned_resources()
+            # Terminal notification is best-effort: an observer failure must not
+            # prevent the remaining channels or mandatory cleanup from running.
+            self._status = ConstructionStatus.DISPOSED
+            attempt(
+                lambda: self._hub.send(
+                    ConstructionStatusChangedMessage.create(
+                        self, self._name, ConstructionStatus.DISPOSED
+                    )
+                )
+            )
+            attempt(lambda: self._raise_property_changed("status"))
+            attempt(lambda: self._raise_property_changed("is_constructed"))
+            if not self._trigger_disposed:
+                attempt(lambda: self._status_trigger.on_next(None))
+            self._complete_lifecycle_waiters_locked()
+
+        attempt(self._on_dispose)
+        attempt(self._dispose_owned_resources)
 
         # Tear down the status trigger / property_changed subjects under the lock
-        # so the flag flip and the Subject disposal cannot interleave with an
-        # in-flight background _set_status: that transition either completes its
-        # guarded on_next before this runs, or observes Disposed/_trigger_disposed
-        # under the same lock and skips it — never an on_next on a disposed
-        # Subject (VMX-004).
+        # so terminal state and Subject disposal cannot race a background transition.
         with self._lifecycle_lock:
             if not self._trigger_disposed:
                 self._trigger_disposed = True
-                self._status_trigger.on_completed()
-                self._status_trigger.dispose()
+                attempt(self._status_trigger.on_completed)
+                attempt(self._status_trigger.dispose)
                 if self._active_property_notifications == 0:
-                    self._property_changed_subject.on_completed()
-                    self._property_changed_subject.dispose()
+                    attempt(self._property_changed_subject.on_completed)
+                    attempt(self._property_changed_subject.dispose)
                 else:
                     self._property_notification_teardown_pending = True
 
@@ -567,7 +744,10 @@ class _ComponentVMBase(ABC):
             self._reconstruct_command,
         ):
             if command is not None:
-                command.dispose()
+                attempt(command.dispose)
+
+        if first_error is not None:
+            raise first_error
 
     # ── Selection predicates ─────────────────────────────────────────────────
     def can_select(self) -> bool:
@@ -615,6 +795,90 @@ class _ComponentVMBase(ABC):
         """
         if self._on_destruct_cb is not None:
             self._on_destruct_cb()
+
+    def _complete_lifecycle_hook_after(self, future: Future[None]) -> None:
+        """Keep the parent transient until asynchronous child work settles."""
+        if future.done():
+            future.result()
+            return
+        with self._lifecycle_lock:
+            if self._deferred_lifecycle_future is not None:
+                raise RuntimeError("a lifecycle hook already deferred completion")
+            self._deferred_lifecycle_future = future
+
+    @staticmethod
+    def _transition_children(
+        children: Iterable[ComponentVMProto],
+        *,
+        construct: bool,
+        after: Callable[[], None] | None = None,
+    ) -> Future[None]:
+        """Transition children sequentially and validate each settled state."""
+        result: Future[None] = Future()
+        iterator = iter(children)
+
+        def advance() -> None:
+            while not result.done():
+                try:
+                    child = next(iterator)
+                except StopIteration:
+                    try:
+                        if after is not None:
+                            after()
+                    except BaseException as error:
+                        result.set_exception(error)
+                    else:
+                        result.set_result(None)
+                    return
+
+                try:
+                    if isinstance(child, _ComponentVMBase):
+                        pending = (
+                            child._construct_future() if construct else child._destruct_future()
+                        )
+                    else:
+                        pending = Future()
+                        if construct:
+                            child.construct()
+                        else:
+                            child.destruct()
+                        pending.set_result(None)
+                except BaseException as error:
+                    result.set_exception(error)
+                    return
+
+                def child_settled(
+                    completed: Future[None],
+                    current: ComponentVMProto = child,
+                ) -> None:
+                    try:
+                        completed.result()
+                        expected = (
+                            ConstructionStatus.CONSTRUCTED
+                            if construct
+                            else ConstructionStatus.DESTRUCTED
+                        )
+                        if current.status is not expected:
+                            raise RuntimeError(
+                                f"child '{current.name}' did not reach {expected.name}"
+                            )
+                    except BaseException as error:
+                        if not result.done():
+                            result.set_exception(error)
+                    else:
+                        advance()
+
+                if pending.done():
+                    child_settled(pending)
+                    if result.done():
+                        return
+                    continue
+
+                pending.add_done_callback(child_settled)
+                return
+
+        advance()
+        return result
 
     def _on_dispose(self) -> None:  # noqa: B027  — intentional override hook
         """Called by dispose() after status reaches Disposed. Override for cleanup."""
@@ -678,6 +942,96 @@ class _ComponentVMBase(ABC):
         """Clear the lifecycle in-flight guard under the lifecycle lock."""
         with self._lifecycle_lock:
             self._in_flight = False
+            self._complete_lifecycle_waiters_locked()
+
+    def _construct_future(self) -> Future[None]:
+        with self._lifecycle_lock:
+            if self._status is ConstructionStatus.CONSTRUCTED:
+                completed: Future[None] = Future()
+                completed.set_result(None)
+                return completed
+            if self._status is ConstructionStatus.CONSTRUCTING:
+                waiter: Future[None] = Future()
+                self._lifecycle_waiters.append(waiter)
+                return waiter
+        return self._start_lifecycle_future(self.construct)
+
+    def _destruct_future(self) -> Future[None]:
+        with self._lifecycle_lock:
+            if self._status is ConstructionStatus.DESTRUCTED:
+                completed: Future[None] = Future()
+                completed.set_result(None)
+                return completed
+            if self._status is ConstructionStatus.DESTRUCTING:
+                waiter: Future[None] = Future()
+                self._lifecycle_waiters.append(waiter)
+                return waiter
+        return self._start_lifecycle_future(self.destruct)
+
+    def _start_lifecycle_future(self, operation: Callable[[], None]) -> Future[None]:
+        waiter: Future[None] = Future()
+        with self._lifecycle_lock:
+            self._lifecycle_waiters.append(waiter)
+        try:
+            operation()
+        except BaseException:
+            with self._lifecycle_lock:
+                if waiter in self._lifecycle_waiters:
+                    self._lifecycle_waiters.remove(waiter)
+            raise
+        with self._lifecycle_lock:
+            if not self._in_flight and self._is_settled(self._status):
+                if waiter in self._lifecycle_waiters:
+                    self._lifecycle_waiters.remove(waiter)
+                if not waiter.done():
+                    waiter.set_result(None)
+        return waiter
+
+    @staticmethod
+    def _is_settled(status: ConstructionStatus) -> bool:
+        return status in (
+            ConstructionStatus.CONSTRUCTED,
+            ConstructionStatus.DESTRUCTED,
+            ConstructionStatus.DISPOSED,
+        )
+
+    def _complete_lifecycle_waiters_locked(self) -> None:
+        if not self._is_settled(self._status):
+            return
+        waiters = self._lifecycle_waiters
+        self._lifecycle_waiters = []
+        for waiter in waiters:
+            if not waiter.done():
+                waiter.set_result(None)
+
+    def _take_deferred_lifecycle_future(self) -> Future[None] | None:
+        with self._lifecycle_lock:
+            future = self._deferred_lifecycle_future
+            self._deferred_lifecycle_future = None
+            return future
+
+    def _complete_deferred_lifecycle(
+        self,
+        future: Future[None],
+        *,
+        success: ConstructionStatus,
+        rollback: ConstructionStatus,
+    ) -> None:
+        def settled(completed: Future[None]) -> None:
+            def finalize(_scheduler: SchedulerBase, _state: object | None) -> None:
+                try:
+                    try:
+                        completed.result()
+                    except BaseException:
+                        self._set_status(rollback)
+                    else:
+                        self._set_status(success)
+                finally:
+                    self._clear_in_flight()
+
+            self._dispatcher.foreground.schedule(finalize)
+
+        future.add_done_callback(settled)
 
     def _set_status(self, new_status: ConstructionStatus) -> None:
         """Update status, emit hub message, and fire command trigger."""

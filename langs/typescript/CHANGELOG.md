@@ -4,6 +4,78 @@ All notable changes to the TypeScript flavor of vmx are documented here. The
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- Packed npm artifacts now include the repository's byte-identical Apache-2.0
+  `LICENSE` and `NOTICE` files.
+- Token pagination now treats reentrant disposal during page comparison,
+  child construction, or reset notification as terminal without committing
+  losing state or publishing later notifications.
+
+- `ServicedObservableCollection.splice` now distinguishes an omitted
+  `deleteCount` from explicit `undefined`, matching native array removal and
+  insertion semantics (ADR-0115).
+- `PagedComposition` now rejects non-finite or fractional page sizes and indexes
+  before mutation or notification while retaining zero clamping for negative
+  integers (COL-016, ADR-0114).
+- `FormVM` structural equality now compares binary buffers and views by concrete
+  constructor and visible bytes, so `ArrayBuffer`/`DataView` edits are no longer
+  suppressed as equal empty-enumerable objects (FORM-003, ADR-0113).
+- Common VM options factories now retain each independently supplied service
+  through the builder's combined services validation (BLD-006, ADR-0112).
+- `ObservableDictionary` now preserves native `Map` equality independently on
+  both key axes, so differently typed primitives and distinct object or symbol
+  identities cannot collide through string coercion (COL-010, ADR-0111).
+
+## [3.23.0] — 2026-07-14
+
+Implements `spec-v3.22.0` with 395/395 library conformance IDs covered.
+
+### Fixed
+
+- Terminal disposal now attempts every child and all base teardown before
+  rethrowing the first failure, so one faulty child or subclass hook cannot
+  strand siblings, commands, resources, or streams (LIFE-013, ADR-0108).
+
+## [3.22.0] — 2026-07-14
+
+Implements `spec-v3.21.0` with 395/395 library conformance IDs covered.
+
+### Changed
+
+- Components now have one authoritative owning parent. Mutable composite and
+  group attachment transfers ownership atomically; fixed aggregate slots reject
+  transfers, duplicate identities, and ownership cycles (COMP-038..041,
+  ADR-0107).
+
+### Fixed
+
+- Form reset publication now defers model edits requested by validation
+  observers until `onApproved` has observed the pristine committed state.
+- Hierarchy cache invalidation now detaches discarded children so retained
+  nodes have a truthful parent and can be attached again.
+- A newer token-page refresh now supersedes an older in-flight load, preventing
+  stale results from being appended after the refreshed first page.
+- `FormVM` now completes admitted synchronous assignment, reset, revert, and
+  error-publication work before reentrant disposal tears down its RxJS signals.
+- `NotificationHub` serializes reentrant pending snapshots in mutation order
+  and gives late subscribers one current snapshot without queued history.
+
+## [3.21.1] — 2026-07-14
+
+Implements `spec-v3.20.1` with 391/391 library conformance IDs covered.
+
+### Fixed
+
+- `AsyncRelayCommand.executeAsync` now detaches an external `AbortSignal`
+  listener after success, fault, or disposal-driven cancellation.
+- `HierarchicalVM.addChild` rejects cycles and atomically transfers an attached
+  child (HIER-018, ADR-0105).
+- `ForwardingCompositeVM` delegates hub, parent selection, snapshots,
+  membership subscriptions, and moves in addition to the existing surface.
+
 ## [3.21.0] — 2026-07-12
 
 Continues to implement `spec-v3.20.0` with 391/391 library conformance IDs.

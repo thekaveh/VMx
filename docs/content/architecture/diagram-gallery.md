@@ -6,9 +6,9 @@ standalone HTML pages for zoomable browsing and the PNG exports for sharing.
 Example-app diagrams have their own page:
 [Example Diagram Gallery](../examples/example-diagram-gallery.md).
 
-## Architecture
+## 5.5.1. Architecture
 
-### VMx System Architecture
+### 5.5.1.1. VMx System Architecture
 
 <img src="../../assets/diagrams/system-architecture.svg" alt="VMx System Architecture" class="vmx-diagram" />
 
@@ -20,7 +20,7 @@ Example-app diagrams have their own page:
   <a href="../../assets/diagrams/system-architecture.png">PNG</a>
 </p>
 
-### Class Architecture Map
+### 5.5.1.2. Class Architecture Map
 
 <img src="../../assets/diagrams/class-architecture.svg" alt="Class Architecture Map" class="vmx-diagram" />
 
@@ -32,7 +32,7 @@ Example-app diagrams have their own page:
   <a href="../../assets/diagrams/class-architecture.png">PNG</a>
 </p>
 
-### Lifecycle And Messaging Flow
+### 5.5.1.3. Lifecycle And Messaging Flow
 
 <img src="../../assets/diagrams/lifecycle-messaging.svg" alt="Lifecycle And Messaging Flow" class="vmx-diagram" />
 
@@ -44,9 +44,9 @@ Example-app diagrams have their own page:
   <a href="../../assets/diagrams/lifecycle-messaging.png">PNG</a>
 </p>
 
-## Primitives And Examples
+## 5.5.2. Primitives And Examples
 
-### ViewModel Families Map
+### 5.5.2.1. ViewModel Families Map
 
 <img src="../../assets/diagrams/viewmodel-families.svg" alt="ViewModel Families Map" class="vmx-diagram" />
 
@@ -58,7 +58,7 @@ Example-app diagrams have their own page:
   <a href="../../assets/diagrams/viewmodel-families.png">PNG</a>
 </p>
 
-### Component Family Map
+### 5.5.2.2. Component Family Map
 
 <img src="../../assets/diagrams/component-family.svg" alt="Component Family Map" class="vmx-diagram" />
 
@@ -70,7 +70,7 @@ Example-app diagrams have their own page:
   <a href="../../assets/diagrams/component-family.png">PNG</a>
 </p>
 
-### Aggregate Family Map
+### 5.5.2.3. Aggregate Family Map
 
 <img src="../../assets/diagrams/aggregate-family.svg" alt="Aggregate Family Map" class="vmx-diagram" />
 
@@ -82,7 +82,7 @@ Example-app diagrams have their own page:
   <a href="../../assets/diagrams/aggregate-family.png">PNG</a>
 </p>
 
-### Group Family Map
+### 5.5.2.4. Group Family Map
 
 <img src="../../assets/diagrams/group-family.svg" alt="Group Family Map" class="vmx-diagram" />
 
@@ -94,7 +94,7 @@ Example-app diagrams have their own page:
   <a href="../../assets/diagrams/group-family.png">PNG</a>
 </p>
 
-### Composite Family Deep Dive
+### 5.5.2.5. Composite Family Deep Dive
 
 <img src="../../assets/diagrams/composite-family.svg" alt="Composite Family Deep Dive" class="vmx-diagram" />
 
@@ -106,7 +106,7 @@ Example-app diagrams have their own page:
   <a href="../../assets/diagrams/composite-family.png">PNG</a>
 </p>
 
-### Hierarchical Family Map
+### 5.5.2.6. Hierarchical Family Map
 
 <img src="../../assets/diagrams/hierarchical-family.svg" alt="Hierarchical Family Map" class="vmx-diagram" />
 
@@ -118,7 +118,7 @@ Example-app diagrams have their own page:
   <a href="../../assets/diagrams/hierarchical-family.png">PNG</a>
 </p>
 
-### Forwarding Wrapper Family Map
+### 5.5.2.7. Forwarding Wrapper Family Map
 
 <img src="../../assets/diagrams/forwarding-wrapper-family.svg" alt="Forwarding Wrapper Family Map" class="vmx-diagram" />
 
@@ -130,7 +130,7 @@ Example-app diagrams have their own page:
   <a href="../../assets/diagrams/forwarding-wrapper-family.png">PNG</a>
 </p>
 
-### Specialized ViewModel Coordinator Map
+### 5.5.2.8. Specialized ViewModel Coordinator Map
 
 <img src="../../assets/diagrams/specialized-vm-family.svg" alt="Specialized ViewModel Coordinator Map" class="vmx-diagram" />
 
@@ -142,7 +142,7 @@ Example-app diagrams have their own page:
   <a href="../../assets/diagrams/specialized-vm-family.png">PNG</a>
 </p>
 
-### Commands And Capabilities Map
+### 5.5.2.9. Commands And Capabilities Map
 
 <img src="../../assets/diagrams/commands-capabilities.svg" alt="Commands And Capabilities Map" class="vmx-diagram" />
 
@@ -154,7 +154,7 @@ Example-app diagrams have their own page:
   <a href="../../assets/diagrams/commands-capabilities.png">PNG</a>
 </p>
 
-### Forms Dialogs And Notifications Flow
+### 5.5.2.10. Forms Dialogs And Notifications Flow
 
 <img src="../../assets/diagrams/forms-dialogs-notifications.svg" alt="Forms Dialogs And Notifications Flow" class="vmx-diagram" />
 
@@ -166,7 +166,7 @@ Example-app diagrams have their own page:
   <a href="../../assets/diagrams/forms-dialogs-notifications.png">PNG</a>
 </p>
 
-### Examples VM Layer Map
+### 5.5.2.11. Examples VM Layer Map
 
 <img src="../../assets/diagrams/examples-vm-layer.svg" alt="Examples VM Layer Map" class="vmx-diagram" />
 
@@ -178,7 +178,7 @@ Example-app diagrams have their own page:
   <a href="../../assets/diagrams/examples-vm-layer.png">PNG</a>
 </p>
 
-### Rust TUI Notes Showcase VM Layer
+### 5.5.2.12. Rust TUI Notes Showcase VM Layer
 
 <img src="../../assets/diagrams/rust-tui-notes-showcase.svg" alt="Rust TUI Notes Showcase VM Layer" class="vmx-diagram" />
 

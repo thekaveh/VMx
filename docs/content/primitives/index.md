@@ -1,6 +1,6 @@
 # 6.1. Framework Primitives
 
-## When To Use It
+## 6.1.1. When To Use It
 
 VMx is one language-neutral framework surface expressed through five idiomatic
 source flavors. These pages are the
@@ -11,7 +11,7 @@ Workspace examples use it.
 Use this overview when you are choosing a starting area rather than looking up a
 single API. It is the top-level index for the primitive families.
 
-## Shape And Ownership
+## 6.1.2. Shape And Ownership
 
 The primitives catalog is organized by responsibility:
 
@@ -32,7 +32,7 @@ families own hierarchy and child relationships; command and capability families
 own behavior surfaces; the remaining sections cover coordination and utility
 layers.
 
-## Lifecycle And Messaging
+## 6.1.3. Lifecycle And Messaging
 
 Lifecycle and messaging rules are described on the family pages, but they follow
 one common pattern here: choose the primitive family first, then confirm how it
@@ -42,7 +42,7 @@ dispatcher wiring.
 The overview pages deliberately stay at that routing level so they do not
 invent surface APIs that belong on the concrete primitive pages.
 
-## Cross-Language Surface
+## 6.1.4. Cross-Language Surface
 
 The conceptual shape is identical across C#, Python, TypeScript, Swift, and
 Rust. The surface idiom changes:
@@ -57,7 +57,7 @@ The goal of these pages is not to restate the spec chapter by chapter. The goal
 is to help you pick the right primitive quickly and then follow through with the
 correct lifecycle, services, and related helpers.
 
-## Example
+## 6.1.5. Example
 
 A typical reading path is:
 
@@ -69,14 +69,14 @@ A typical reading path is:
    [Services, Messages & Dispatching](services-messages-dispatching.md) when the
    remaining work is host coordination
 
-## Common Pitfalls
+## 6.1.6. Common Pitfalls
 
 - Treating the overview as an API reference instead of a routing page.
 - Starting with commands or helpers before choosing the owning VM shape.
 - Assuming a surface-name difference across languages implies a conceptual
   difference.
 
-## Related Primitives
+## 6.1.7. Related Primitives
 
 If the VM is:
 

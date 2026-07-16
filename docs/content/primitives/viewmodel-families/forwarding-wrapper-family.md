@@ -1,6 +1,6 @@
 # 6.2.7. Forwarding & Wrapper Family
 
-## When To Use It
+## 6.2.7.1. When To Use It
 
 Use forwarding wrappers when you need to instrument, adapt, or selectively
 override a shipped VM without rewriting its whole surface. Logging, policy
@@ -16,7 +16,7 @@ checks, caching, and host-specific decoration are the common cases.
   <a href="../../../assets/diagrams/forwarding-wrapper-family.png">PNG</a>
 </p>
 
-## Shape And Ownership
+## 6.2.7.2. Shape And Ownership
 
 VMx ships two forwarding families:
 
@@ -26,7 +26,7 @@ VMx ships two forwarding families:
 By default every property, method, command, and iterator call delegates to the
 wrapped instance. You override only the members you need to change.
 
-## Lifecycle And Messaging
+## 6.2.7.3. Lifecycle And Messaging
 
 Forwarding decorators do not add their own lifecycle semantics. They inherit the
 inner VM's behavior unless an override changes it. In practice this means:
@@ -35,7 +35,7 @@ inner VM's behavior unless an override changes it. In practice this means:
 - iteration over forwarded composites still reflects the wrapped child list
 - `dispose()` should usually forward so lifetime ownership remains explicit
 
-## Cross-Language Surface
+## 6.2.7.4. Cross-Language Surface
 
 | Concept                    | C#                                     | Python                        | TypeScript                      | Swift                            |
 | -------------------------- | -------------------------------------- | ----------------------------- | ------------------------------- | -------------------------------- |
@@ -43,7 +43,7 @@ inner VM's behavior unless an override changes it. In practice this means:
 | Composite wrapper          | `ForwardingCompositeVM<VM>`            | `ForwardingCompositeVM[VM]`   | `ForwardingCompositeVM<VM>`     | `ForwardingCompositeVM<Child>`   |
 | Canonical wrapped contract | `IComponentVM<M>` / `ICompositeVM<VM>` | component/composite protocols | component/composite base shapes | component/composite base classes |
 
-## Example
+## 6.2.7.5. Example
 
 The key design point is that the wrapper changes behavior by composition, not by
 copying or re-implementing the wrapped VM:
@@ -89,7 +89,7 @@ Swift is the explicit divergence here: `name` and `hint` are stored `let`
 properties on `ComponentVMBase`, so the nearest overridable analog is
 `modeledHint`, not `hint`.
 
-## Common Pitfalls
+## 6.2.7.6. Common Pitfalls
 
 - Re-implementing the entire VM instead of forwarding and overriding the one
   member that actually differs.
@@ -98,7 +98,7 @@ properties on `ComponentVMBase`, so the nearest overridable analog is
 - Treating forwarding as a new hierarchy root. It is a wrapper around an
   existing contract, not a separate primitive family.
 
-## Related Primitives
+## 6.2.7.7. Related Primitives
 
 - [Component Family](component-family.md)
 - [Composite Family](composite-family.md)

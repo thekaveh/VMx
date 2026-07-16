@@ -1,5 +1,6 @@
 using NotesShowcase.Models;
 using NotesShowcase.ViewModels;
+using VMx.Commands;
 using VMx.Dialogs;
 using VMx.Lifecycle;
 using Xunit;
@@ -8,7 +9,7 @@ namespace NotesShowcase.Tests.ViewModels;
 
 /// <summary>
 /// Test-only dialog service whose <see cref="Confirm"/> returns a pre-canned
-/// boolean. Used by the Round-4 Important-1 "select then delete clears form"
+/// boolean. Used by the cleared-selection form behavior "select then delete clears form"
 /// test which needs the in-list delete confirmation to accept.
 /// </summary>
 file sealed class AlwaysAcceptDialogService : IDialogService
@@ -102,9 +103,7 @@ public sealed class WorkspaceVMTests
         {
             var nbId = ws.NotebooksRoot.Current!.Model.Id;
             var before = ws.NotesView.FilteredItems.Count;
-            ws.NewNoteCommand.Execute(null);
-            // NewNote is fire-and-forget; wait for the added note to appear.
-            await TestWait.WaitUntilAsync(() => ws.NotesView.FilteredItems.Count > before);
+            await Assert.IsType<AsyncRelayCommand>(ws.NewNoteCommand).ExecuteAsync();
             Assert.True(ws.NotesView.FilteredItems.Count >= before);
             // After rebind, all visible notes belong to the current notebook.
             Assert.All(ws.NotesView.FilteredItems, n => Assert.Equal(nbId, n.Model.NotebookId));
@@ -167,13 +166,18 @@ public sealed class WorkspaceVMTests
     [Fact]
     public async Task NewNotebookCommand_appends_a_notebook()
     {
-        var ws = BuildWorkspace();
+        var ws = WorkspaceVM.Builder()
+            .Repository(new InMemoryNoteRepository(
+                SeedData.Build(),
+                loadAllDelay: TimeSpan.Zero,
+                loadNotesDelay: TimeSpan.Zero,
+                addNotebookDelay: TimeSpan.FromMilliseconds(25)))
+            .Build();
         await ws.ConstructAsync();
         try
         {
             var before = ws.NotebooksRoot.All.Count;
-            ws.NewNotebookCommand.Execute(null);
-            await TestWait.WaitUntilAsync(() => ws.NotebooksRoot.All.Count > before);
+            await Assert.IsType<AsyncRelayCommand>(ws.NewNotebookCommand).ExecuteAsync();
             Assert.True(ws.NotebooksRoot.All.Count > before);
         }
         finally
@@ -185,7 +189,7 @@ public sealed class WorkspaceVMTests
     [Fact]
     public async Task Selecting_a_note_then_deleting_it_clears_the_form()
     {
-        // Round-4 Important-1: when NotesView.Current transitions to null
+        // cleared-selection form behavior: when NotesView.Current transitions to null
         // (because the user deletes the selected note), the WorkspaceVM
         // subscription must call NoteForm.Unbind so the right pane does
         // not display ghost data from the just-removed note.
@@ -231,7 +235,7 @@ public sealed class WorkspaceVMTests
         }
     }
 
-    // ── Pass-6 real-wiring regressions ───────────────────────────────────
+    // ── Live-binding regressions ─────────────────────────────────────────
 
     [Fact]
     public async Task Selecting_another_notebook_rebinds_the_notes_view()
@@ -427,7 +431,7 @@ public sealed class WorkspaceVMTests
     public async Task Capability_save_and_close_act_on_the_focused_note()
     {
         // Pins the OnSave/OnClose wiring in NotesViewVM.ReplaceItems — both
-        // capability-bar actions were silent no-ops before pass 6.
+        // capability-bar actions were silent no-ops before the handler wiring was added.
         var spy = new SaveSpyRepository(new InMemoryNoteRepository(
             SeedData.Build(),
             loadAllDelay: TimeSpan.Zero,
@@ -483,7 +487,7 @@ public sealed class WorkspaceVMTests
     [Fact]
     public async Task A_failed_notebook_bind_does_not_pin_the_selection()
     {
-        // Pass-7: a throwing bind must clear _requestedNotebookId so the
+        // failure recovery: a throwing bind must clear _requestedNotebookId so the
         // notebook stays selectable, and the fault must be observed.
         var repo = new FailingLoadRepository(
             new InMemoryNoteRepository(
@@ -556,8 +560,7 @@ public sealed class WorkspaceVMTests
         await ws.ConstructAsync();
         try
         {
-            ws.ExportCommand.Execute(null);
-            await TestWait.WaitUntilAsync(() => File.Exists(path));
+            await Assert.IsType<AsyncRelayCommand>(ws.ExportCommand).ExecuteAsync();
             Assert.True(File.Exists(path), "export must write through the picked path");
         }
         finally

@@ -9,11 +9,12 @@ See spec §14.4 (capability dispatch).
 from __future__ import annotations
 
 import dataclasses
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 
 from reactivex.subject import BehaviorSubject
 
 from vmx import (
+    AsyncRelayCommand,
     ComponentVM,
     DerivedProperty,
     IApprovable,
@@ -53,7 +54,7 @@ class CapabilityActionsVM(ComponentVM):
         hub: MessageHubProto[Message],
         dispatcher: Dispatcher,
         focused_getter: Callable[[], object | None],
-        add_note_action: Callable[[], None] | None = None,
+        add_note_action: Callable[[], Awaitable[None] | None] | None = None,
         can_add_note: Callable[[], bool] | None = None,
     ) -> None:
         super().__init__(name=name, hint=hint, hub=hub, dispatcher=dispatcher)
@@ -71,12 +72,12 @@ class CapabilityActionsVM(ComponentVM):
         # :class:`WorkspaceVM`) typically wires this to
         # ``not notes_view.current_notebook_is_readonly``. Defaults stay
         # backward-compatible: a no-op action and an always-true predicate.
-        self._add_note_action_cb: Callable[[], None] = add_note_action or (lambda: None)
+        self._add_note_action_cb = add_note_action or (lambda: None)
         self._can_add_note_cb: Callable[[], bool] = can_add_note or (lambda: True)
-        self._add_note_command: RelayCommand = (
-            RelayCommand.builder()
+        self._add_note_command: AsyncRelayCommand = (
+            AsyncRelayCommand.builder()
             .predicate(self._can_add_note_cb)
-            .task(self._add_note_action_cb)
+            .task(self._invoke_add_note)
             .build()
         )
 
@@ -94,7 +95,7 @@ class CapabilityActionsVM(ComponentVM):
         return self._actions
 
     @property
-    def add_note_command(self) -> RelayCommand:
+    def add_note_command(self) -> AsyncRelayCommand:
         """Host-driven "Add Note" command.
 
         Edge-case backfill (readonly notebook gating): ``can_execute``
@@ -104,6 +105,11 @@ class CapabilityActionsVM(ComponentVM):
         adding notes to readonly notebooks.
         """
         return self._add_note_command
+
+    async def _invoke_add_note(self) -> None:
+        pending = self._add_note_action_cb()
+        if pending is not None:
+            await pending
 
     def recompute_actions(self) -> None:
         """Refresh the projection from the focus-getter delegate."""
@@ -274,7 +280,7 @@ class CapabilityActionsVMBuilder:
     _hub: MessageHubProto[Message] | None = None
     _dispatcher: Dispatcher | None = None
     _focused_getter: Callable[[], object | None] | None = None
-    _add_note_action: Callable[[], None] | None = None
+    _add_note_action: Callable[[], Awaitable[None] | None] | None = None
     _can_add_note: Callable[[], bool] | None = None
 
     def name(self, value: str) -> CapabilityActionsVMBuilder:
@@ -293,7 +299,9 @@ class CapabilityActionsVMBuilder:
     ) -> CapabilityActionsVMBuilder:
         return dataclasses.replace(self, _focused_getter=getter)
 
-    def add_note_action(self, action: Callable[[], None]) -> CapabilityActionsVMBuilder:
+    def add_note_action(
+        self, action: Callable[[], Awaitable[None] | None]
+    ) -> CapabilityActionsVMBuilder:
         """Wire the *Add Note* command body (edge-case backfill)."""
         return dataclasses.replace(self, _add_note_action=action)
 

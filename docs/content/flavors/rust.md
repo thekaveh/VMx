@@ -3,20 +3,52 @@
 Rust is the fifth VMx source flavor. It lives under `langs/rust/` as the
 `vmx-rs` Cargo package while exposing the crate namespace `vmx`.
 
-## Status
+## 7.6.1. Status
 
 - Source tree: `langs/rust/`
 - Package: `vmx-rs`
-- Current source line: `vmx-rs` 0.20.0 implementing spec 3.20.0
+- Current source line: `vmx-rs` 0.25.0 implementing spec 3.22.0
 - Publication status: crates.io release channel not published yet
-- Reactive primitive: VMx-owned facade over `rxrust`
+- License packaging: the crate ships the repository's Apache-2.0 text
+- Reactive primitive: VMx-owned hot-stream facade
 - Naming: Rust type names such as `ComponentVm`, snake_case methods such as
   `construct()` and `dispose()`
-- Conformance: all 391 library IDs are covered by behavioral Rust tests
+- Conformance: all 395 library IDs are covered by behavioral Rust tests
+- Hub concurrency: ordinary producers retain synchronous calling-thread
+  delivery while nested cross-hub callbacks enqueue without a wait cycle
 - Property notifications: `notify_property_changed` publishes to the hub and
   then the per-instance `property_changed` stream
+- Hint surfaces: `hint()` is immutable fixed metadata; `modeled_hint()` is
+  recomputed from the model and publishes `modeled_hint` changes
+- Async commands: `AsyncRelayCommand::builder()` owns its task, predicate,
+  additive triggers, cancellation mode, and fire-and-forget error stream
 
-## Serviced Collections
+## 7.6.2. Fixed Aggregates
+
+`AggregateVm1` through `AggregateVm6` expose immutable builders whose required
+component factories run at construct time. Typed `component_1` through
+`component_6` accessors return `None` before construction and the populated
+component afterward:
+
+```rust
+let aggregate = AggregateVm2::<ComponentVm, ComponentVm>::builder()
+    .name("workspace")
+    .hint("Two fixed child surfaces")
+    .services(MessageHub::new(), NullDispatcher::new())
+    .component_1(|| ComponentVm::new("navigation"))
+    .component_2(|| ComponentVm::new("content"))
+    .build()?;
+
+assert!(aggregate.component_1().is_none());
+aggregate.construct()?;
+assert!(aggregate.component_1().is_some());
+```
+
+Factories are all evaluated and ownership-validated before any previous slot
+changes. Failed validation preserves the prior slots and parent links;
+reconstruction invokes the factories again and disposes replaced children.
+
+## 7.6.3. Serviced Collections
 
 Rust's `ServicedObservableCollection<T>` is distinct from `ObservableList<T>`.
 It owns an always-present local `MessageHub` stream and may also forward to an
@@ -69,7 +101,7 @@ hub publication; a hub transaction defers only external delivery. The keyed
 type has no batch or VM lifecycle interface and never owns stored-item
 lifecycle.
 
-## Imperative Engine Bridge
+## 7.6.4. Imperative Engine Bridge
 
 Rust expresses the fixed source as `hub + sender_id`. `subscribe_value` returns
 VMx's `Subscription`; `SubscribeValueOptions::default()` uses `PartialEq`, while
@@ -99,7 +131,7 @@ the initial value for both. The host adapter owns the subscription, and the
 selector reevaluates after every property message carrying this fixed sender
 ID rather than on every render frame.
 
-## Local Use
+## 7.6.5. Local Use
 
 === "Cargo.toml"
 
@@ -124,18 +156,18 @@ ID rather than on every render frame.
     }
     ```
 
-## Development
+## 7.6.6. Development
 
 ```bash
 cargo fmt --manifest-path langs/rust/Cargo.toml -- --check
-cargo clippy --manifest-path langs/rust/Cargo.toml --all-targets -- -D warnings
-cargo test --manifest-path langs/rust/Cargo.toml
-cargo run --manifest-path examples/rust/console/hello-vmx/Cargo.toml
-cargo test --manifest-path examples/rust/tui/notes-showcase/Cargo.toml
-cargo run --manifest-path examples/rust/tui/notes-showcase/Cargo.toml -- --smoke
+cargo clippy --locked --manifest-path langs/rust/Cargo.toml --all-targets -- -D warnings
+cargo test --locked --manifest-path langs/rust/Cargo.toml
+cargo run --locked --manifest-path examples/rust/console/hello-vmx/Cargo.toml
+cargo test --locked --manifest-path examples/rust/tui/notes-showcase/Cargo.toml
+cargo run --locked --manifest-path examples/rust/tui/notes-showcase/Cargo.toml -- --smoke
 ```
 
-## Showcase
+## 7.6.7. Showcase
 
 Rust now ships a Ratatui Notes Showcase at
 `examples/rust/tui/notes-showcase/`. The host is intentionally a renderer and

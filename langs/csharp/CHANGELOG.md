@@ -4,6 +4,88 @@ All notable changes to the C# flavor are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- NuGet packages now include the repository's Apache-2.0 `LICENSE` and `NOTICE`
+  files alongside the existing SPDX metadata.
+- Command and component disposal now attempts every terminal notification,
+  subscription release, stream teardown, and owned command before rethrowing the
+  first observer failure.
+
+- Common VM options factories now retain a supplied hub or dispatcher
+  independently, so builder validation identifies the actual missing service
+  counterpart (BLD-006, ADR-0112).
+- C# release tags now select exactly one package: core retains `csharp-v*`,
+  while notifications and DI use package-specific namespaces that cannot
+  collide when independently versioned projects share a version number.
+- Notification rendering VMs now serialize expiry, explicit resolution, and
+  disposal through one terminal claim, preventing a timer that loses to
+  disposal from resolving the hub or publishing post-dispose state.
+- Message-hub disposal now serializes stream completion behind active message
+  delivery, including re-entrant and opposing cross-hub disposal, so Rx
+  terminal callbacks never overlap an in-flight message callback.
+- Nested sends from one active message-hub callback to another hub now enqueue
+  instead of waiting on the foreign drainer, preventing opposing-hub deadlocks
+  while ordinary producers retain synchronous calling-thread delivery.
+- `ConstructAsync`, `DestructAsync`, and deferred container lifecycle tasks now
+  preserve hook and child-cascade failures after publishing transactional
+  rollback instead of completing successfully (ADR-0109).
+
+## [3.22.0] — 2026-07-14
+
+Implements `spec-v3.22.0` with 395/395 library conformance IDs covered.
+
+### Changed
+
+- The existing best-effort disposal cascade is now part of the normative
+  cross-flavor contract (LIFE-013, ADR-0108).
+
+## [3.21.0] — 2026-07-14
+
+Implements `spec-v3.21.0` with 395/395 library conformance IDs covered.
+
+### Changed
+
+- Components now have one authoritative owning parent. Mutable composite and
+  group attachment transfers ownership atomically; fixed aggregate slots reject
+  transfers, duplicate identities, and ownership cycles (COMP-038..041,
+  ADR-0107).
+
+### Fixed
+
+- Form reset publication now defers model edits requested by validation
+  observers until `OnApproved` has observed the pristine committed state.
+- Hierarchy cache invalidation now detaches discarded children so retained
+  nodes have a truthful parent and can be attached again.
+- A newer token-page refresh now supersedes an older in-flight load, preventing
+  stale results from being appended after the refreshed first page.
+- Container construction, destruction, and reconstruction now wait for
+  background-dispatched child lifecycle transitions before the parent settles,
+  including when a null message hub is injected.
+- Confirmation and form error channels now serialize terminal teardown with
+  active error publication so disposal cannot race a continuation.
+
+## [3.20.1] — 2026-07-14
+
+Implements `spec-v3.20.1` with 391/391 library conformance IDs covered.
+
+### Changed
+
+- Unit and conformance suites now execute against both .NET 8 and .NET 9.
+
+### Fixed
+
+- Lazy composite children roll back a failed factory attempt so a later access
+  can retry instead of retaining partial state.
+- Component teardown always performs base cleanup after a throwing override,
+  and composite, group, and aggregate disposal isolates child failures while
+  still disposing every sibling and the parent.
+- `HierarchicalVM.AddChild` now preflights cycles and atomically transfers a
+  child from its old parent instead of leaving the identity in two child lists
+  (HIER-018, ADR-0105).
+
 ## [VMx.Extensions.DependencyInjection 2.1.1] — 2026-07-13
 
 ### Changed

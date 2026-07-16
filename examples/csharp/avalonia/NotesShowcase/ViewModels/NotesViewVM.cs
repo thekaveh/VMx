@@ -233,7 +233,7 @@ public sealed class NotesViewVM
             if (cts.IsCancellationRequested) return;
             // ReplaceItems raises INPC into live XAML bindings and this
             // continuation runs off the UI thread (ConfigureAwait(false)) —
-            // marshal (real-wiring audit, pass 6). With the test dispatcher
+            // marshal (live binding). With the test dispatcher
             // (Immediate) this runs inline, keeping awaited binds
             // deterministic.
             _dispatcher.Foreground.Schedule(() =>
@@ -287,15 +287,15 @@ public sealed class NotesViewVM
                 .Name($"note:{note.Id}")
                 .Services(_hub, _dispatcher)
                 .Model(note)
-                .OnDelete(DeleteNote)
-                // Real-wiring audit, pass 6: the capability bar projects
+                .OnDelete(DeleteNoteAsyncInternal)
+                // Live-binding invariant: the capability bar projects
                 // NoteVM.SaveCommand/CloseCommand, but nothing wired the
                 // handlers — both actions were silent no-ops.
                 .OnClose(vm =>
                 {
                     if (ReferenceEquals(Current, vm)) Current = null;
                 })
-                .OnSave(vm => _ = _repo.SaveNoteAsync(vm.Model));
+                .OnSave(vm => _repo.SaveNoteAsync(vm.Model));
             if (_dialogService is not null)
             {
                 builder = builder.ConfirmDelete(n =>
@@ -319,30 +319,12 @@ public sealed class NotesViewVM
         _paged.MoveToFirstPage();
     }
 
-    private void DeleteNote(NoteVM note)
-    {
-        // Fire-and-forget removal: persist via the repo, remove from the inner
-        // collection, and clear current if it pointed at the deleted note.
-        // Errors are swallowed (the host wires logging via the message hub).
-        _ = DeleteNoteAsyncInternal(note);
-    }
-
     private async Task DeleteNoteAsyncInternal(NoteVM note)
     {
-        try
-        {
-            await _repo.DeleteNoteAsync(note.Model.Id).ConfigureAwait(false);
-        }
-        catch
-        {
-            // Persistence failures are surfaced via the dialog/notification
-            // hub in production; tests pass a synchronous repo so this branch
-            // is dead code under test.
-            return;
-        }
+        await _repo.DeleteNoteAsync(note.Model.Id).ConfigureAwait(false);
         // The continuation runs off the UI thread (ConfigureAwait(false));
         // the mutations below raise INPC into live XAML bindings — marshal
-        // (real-wiring audit, pass 6).
+        // (live binding).
         _dispatcher.Foreground.Schedule(() =>
         {
             var index = -1;
@@ -481,8 +463,7 @@ public sealed class NotesViewVM
         }
     }
 
-    /// <inheritdoc/>
-    protected override void OnDestruct()
+    private void ReleaseChildren()
     {
         for (var i = _inner.Count - 1; i >= 0; i--)
         {
@@ -490,6 +471,15 @@ public sealed class NotesViewVM
             _inner.RemoveAt(i);
             prev.Dispose();
         }
+        _filtered.Clear();
+        _current = null;
+        BoundNotebookId = null;
+    }
+
+    /// <inheritdoc/>
+    protected override void OnDestruct()
+    {
+        ReleaseChildren();
         base.OnDestruct();
     }
 
@@ -500,6 +490,7 @@ public sealed class NotesViewVM
         _ownDisposed = true;
         _activeFetchCts?.Cancel();
         _activeFetchCts?.Dispose();
+        ReleaseChildren();
         _paged.PropertyChanged -= OnPagedPropertyChanged;
         _paged.Dispose();
         _search.Dispose();

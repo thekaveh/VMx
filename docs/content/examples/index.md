@@ -4,7 +4,7 @@ VMx ships a small set of examples with two jobs: prove the minimal surface in
 small demos and prove the full cross-language contract in the flagship Notes
 Workspace portfolio.
 
-## Start Here
+## 8.1.1. Start Here
 
 - [Notes Workspace](notes-workspace.md) for the full stable four-flavor scenario.
 - [Example Diagram Gallery](example-diagram-gallery.md) for one generated VMx
@@ -16,7 +16,7 @@ Workspace portfolio.
 - [Smaller Examples](smaller-examples.md) for console, WPF, tkinter, and
   inspector demos.
 
-## Current Portfolio
+## 8.1.2. Current Portfolio
 
 | Flavor     | Small demos                                          | Flagship app             |
 | ---------- | ---------------------------------------------------- | ------------------------ |
@@ -26,7 +26,7 @@ Workspace portfolio.
 | Swift      | none beyond the flagship today                       | SwiftUI Notes Workspace  |
 | Rust       | Console `hello-vmx`                                  | Ratatui Notes Showcase   |
 
-## Reading Strategy
+## 8.1.3. Reading Strategy
 
 - Use the smaller examples when you want the minimum lifecycle, hub, and
   builder shape.

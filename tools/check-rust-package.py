@@ -14,11 +14,34 @@ CHANGELOG.md
 Cargo.lock
 Cargo.toml
 Cargo.toml.orig
+LICENSE
+NOTICE
 README.md
 src/aggregate_change_stream.rs
+src/aggregates.rs
 src/async_resource_vm.rs
+src/async_value.rs
+src/capabilities.rs
+src/commands.rs
+src/composites.rs
+src/components.rs
+src/collections.rs
+src/derived_property.rs
+src/discriminator.rs
+src/dialogs.rs
 src/fixtures/lifecycle-transitions.json
+src/forms.rs
+src/forwarding.rs
+src/groups.rs
+src/hierarchical.rs
 src/lib.rs
+src/modeled_crud.rs
+src/notifications.rs
+src/paged_composition.rs
+src/runtime.rs
+src/searchable_state.rs
+src/specialized_vms.rs
+src/token_paging.rs
 tests/conformance.rs
 tests/conformance/aggregate_change_stream.rs
 tests/conformance/aggregate_vm.rs
@@ -74,6 +97,7 @@ def package_paths(package_dir: Path) -> set[str]:
             "package",
             "--manifest-path",
             str(package_dir / "Cargo.toml"),
+            "--locked",
             "--list",
         ],
         check=True,

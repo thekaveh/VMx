@@ -69,6 +69,11 @@ public sealed class CompositeVMBuilder<VM>
     public CompositeVMBuilder<VM> Services(IMessageHub hub, IDispatcher dispatcher)
         => With(hub: hub, dispatcher: dispatcher);
 
+    internal CompositeVMBuilder<VM> OptionHub(IMessageHub hub) => With(hub: hub);
+
+    internal CompositeVMBuilder<VM> OptionDispatcher(IDispatcher dispatcher)
+        => With(dispatcher: dispatcher);
+
     /// <summary>
     /// Sets the required Services by resolving <see cref="IMessageHub"/> and
     /// <see cref="IDispatcher"/> from <paramref name="serviceProvider"/> (VMX-021).

@@ -2,12 +2,11 @@
 
 See scenario §7.1 (DialogService) and plan §4.b / 5.b.
 
-Phase 5.b completes the adapter: every method drives a real
+Every operation required by the save-only showcase scenario drives a real
 :class:`~textual.screen.ModalScreen` defined under
-``notes_showcase.views.modals``. The file-open path stays at
-:class:`NotImplementedError` because the showcase scenario only requires
-file-save (see ``WorkspaceVM._export_internal``); wiring a load-flow is a
-Phase 7 polish item.
+``notes_showcase.views.modals``. The file-open path is explicitly unsupported
+because the scenario has no load flow; export uses file-save through
+``WorkspaceVM._export_internal``.
 """
 
 from __future__ import annotations
@@ -40,8 +39,8 @@ class TextualDialogService(IDialogService):
     ) -> str | None:
         # Not exercised by the notes-showcase flow; export is save-only.
         raise NotImplementedError(
-            "TextualDialogService.pick_file_to_open is not wired in Phase 5.b "
-            "(showcase scenario only requires save). Polish item for Phase 7."
+            "TextualDialogService.pick_file_to_open is unsupported because "
+            "the showcase scenario exposes export/save only."
         )
 
     async def pick_file_to_save(

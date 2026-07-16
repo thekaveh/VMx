@@ -6,8 +6,7 @@
 // (spec/09-forwarding.md §1). Subclasses override an individual member; the
 // rest keep delegating. Mirrors `forwardingComponentVM.ts`.
 //
-// Swift port notes (verified against the source — see the Task-10 divergence
-// ADR):
+// Swift port notes (verified against the source; see ADR-0059 §2.1):
 // - `name`/`hint` are `public let` on `ComponentVMBase` (stored constants),
 //   so they are NOT overridable. They are immutable on both the decorator and
 //   the wrapped instance, so they never diverge: the wrapped's values are

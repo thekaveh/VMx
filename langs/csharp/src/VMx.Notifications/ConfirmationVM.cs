@@ -62,12 +62,12 @@ public sealed class ConfirmationVM : NotificationVM
     /// <inheritdoc/>
     protected override void Dispose(bool disposing)
     {
+        base.Dispose(disposing);
+
         if (disposing)
         {
             if (ApproveCommand is IDisposable a) a.Dispose();
             if (RejectCommand is IDisposable r) r.Dispose();
         }
-
-        base.Dispose(disposing);
     }
 }

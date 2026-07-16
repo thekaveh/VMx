@@ -9,13 +9,17 @@ render on GitHub, in browsers, and through `rsvg-convert` for PNG exports.
 
 from __future__ import annotations
 
+import argparse
 import re
+import subprocess
+import tempfile
 from dataclasses import dataclass
 from html import escape
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC_VERSION = (ROOT / "spec" / "VERSION").read_text(encoding="utf-8").strip()
+SPEC_CHAPTER_COUNT = len(list((ROOT / "spec").glob("[0-9][0-9]-*.md")))
 ADR_COUNT = len(list((ROOT / "spec" / "ADRs").glob("[0-9][0-9][0-9][0-9]-*.md")))
 CONFORMANCE_IDS = re.findall(
     r"^### ([A-Z]+-\d{3})\b",
@@ -24,6 +28,13 @@ CONFORMANCE_IDS = re.findall(
 )
 THEME_COUNT = sum(item.startswith("THEME-") for item in CONFORMANCE_IDS)
 LIBRARY_COUNT = len(CONFORMANCE_IDS) - THEME_COUNT
+PNG_WIDTH = 3200
+TRIPLET_BASES = (
+    Path("assets/architecture"),
+    Path("assets/class-diagram"),
+    Path("examples/assets/notes-showcase-vm-hierarchy"),
+    Path("examples/assets/notes-showcase-vmx-components"),
+)
 
 
 COLORS = {
@@ -65,6 +76,13 @@ def text(
 
 
 def box(b: Box) -> str:
+    for value, font_size in ((b.title, 18), *((line, 14) for line in b.lines)):
+        estimated_width = len(value) * font_size * 0.61
+        if estimated_width > b.w - 24:
+            raise ValueError(f"{b.title!r} text overflows its box: {value!r}")
+    last_line_baseline = b.y + 58 + (len(b.lines) - 1) * 24
+    if last_line_baseline > b.y + b.h - 2:
+        raise ValueError(f"{b.title!r} body overflows its box vertically")
     fill, stroke = COLORS[b.kind]
     dash = ' stroke-dasharray="8 6"' if b.dash else ""
     parts = [
@@ -78,12 +96,27 @@ def box(b: Box) -> str:
 
 
 def arrow(
-    x1: int, y1: int, x2: int, y2: int, label: str = "", color: str = "#64748b", dash: bool = False
+    x1: int,
+    y1: int,
+    x2: int,
+    y2: int,
+    label: str = "",
+    color: str = "#64748b",
+    dash: bool = False,
+    label_dy: int = 0,
 ) -> str:
     dash_attr = ' stroke-dasharray="8 6"' if dash else ""
     mid_x = (x1 + x2) // 2
-    mid_y = (y1 + y2) // 2 - 10
-    label_svg = text(mid_x, mid_y, label, 12, color) if label else ""
+    mid_y = (y1 + y2) // 2 - 10 + label_dy
+    if label:
+        label_width = len(label) * 7.5 + 12
+        label_svg = (
+            f'<rect x="{mid_x - label_width / 2:.1f}" y="{mid_y - 15}" '
+            f'width="{label_width:.1f}" height="20" rx="3" fill="#020617"/>'
+            f"\n{text(mid_x, mid_y, label, 12, color)}"
+        )
+    else:
+        label_svg = ""
     return (
         f'<path d="M{x1},{y1} C{mid_x},{y1} {mid_x},{y2} {x2},{y2}" '
         f'fill="none" stroke="{color}" stroke-width="2.2" marker-end="url(#arrowhead)"{dash_attr}/>'
@@ -155,14 +188,50 @@ def html_doc(title: str, subtitle: str, svg_name: str, cards: list[tuple[str, li
     <div class="cards">
 {card_html}
     </div>
-    <footer>Generated for VMx spec {SPEC_VERSION} documentation.</footer>
+    <footer>VMx spec {SPEC_VERSION} · repository contract summary.</footer>
   </main>
 </body>
 </html>
 '''
 
 
-def write_pair(
+def render_png(svg_path: Path, png_path: Path) -> None:
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_file:
+        tmp_path = Path(tmp_file.name)
+    try:
+        subprocess.run(
+            [
+                "rsvg-convert",
+                "-w",
+                str(PNG_WIDTH),
+                "-f",
+                "png",
+                "-o",
+                str(tmp_path),
+                str(svg_path),
+            ],
+            check=True,
+        )
+        subprocess.run(
+            [
+                "pngquant",
+                "--force",
+                "--output",
+                str(png_path),
+                "--quality",
+                "70-95",
+                "--speed",
+                "1",
+                str(tmp_path),
+            ],
+            check=True,
+        )
+    finally:
+        tmp_path.unlink(missing_ok=True)
+
+
+def write_triplet(
+    output_root: Path,
     path: Path,
     title: str,
     subtitle: str,
@@ -171,13 +240,16 @@ def write_pair(
     body: str,
     cards: list[tuple[str, list[str]]],
 ) -> None:
-    svg_path = ROOT / path.with_suffix(".svg")
-    html_path = ROOT / path.with_suffix(".html")
+    svg_path = output_root / path.with_suffix(".svg")
+    html_path = output_root / path.with_suffix(".html")
+    png_path = output_root / path.with_suffix(".png")
+    svg_path.parent.mkdir(parents=True, exist_ok=True)
     svg_path.write_text(svg_doc(title, subtitle, width, height, body), encoding="utf-8")
     html_path.write_text(html_doc(title, subtitle, svg_path.name, cards), encoding="utf-8")
+    render_png(svg_path, png_path)
 
 
-def architecture() -> None:
+def architecture(output_root: Path) -> None:
     boxes = [
         Box(
             60,
@@ -186,7 +258,7 @@ def architecture() -> None:
             160,
             "Spec Source",
             (
-                "23 chapters",
+                f"{SPEC_CHAPTER_COUNT} chapters",
                 f"{ADR_COUNT} ADRs",
                 f"{len(CONFORMANCE_IDS)} conformance IDs",
                 "4 JSON fixtures",
@@ -215,7 +287,7 @@ def architecture() -> None:
             "State + Data Helpers",
             (
                 "DerivedProperty",
-                "SearchableState / ExpandableState",
+                "Searchable / Expandable state",
                 "Observable collections",
                 "Paged + token-paged views",
             ),
@@ -276,7 +348,7 @@ def architecture() -> None:
             220,
             145,
             "Rust Flavor",
-            ("rxrust facade", "UI-neutral core", f"Full {LIBRARY_COUNT}+{THEME_COUNT} parity"),
+            ("VMx-owned facade", "UI-neutral core", f"{LIBRARY_COUNT} library IDs"),
             "frontend",
         ),
         Box(
@@ -343,7 +415,8 @@ def architecture() -> None:
             ],
         ),
     ]
-    write_pair(
+    write_triplet(
+        output_root,
         Path("assets/architecture"),
         "VMx Architecture",
         f"spec {SPEC_VERSION} · five full-parity flavors · examples as contract probes",
@@ -354,7 +427,7 @@ def architecture() -> None:
     )
 
 
-def class_diagram() -> None:
+def class_diagram(output_root: Path) -> None:
     boxes = [
         Box(
             60,
@@ -388,7 +461,7 @@ def class_diagram() -> None:
             740,
             130,
             300,
-            145,
+            165,
             "Services",
             ("MessageHub", "Dispatcher", "ILocalizer", "IDialogService", "Null* variants"),
             "security",
@@ -424,7 +497,7 @@ def class_diagram() -> None:
             "Containers",
             (
                 "CompositeVM / GroupVM",
-                "shared collection capability",
+                "shared collection surface",
                 "identity-safe atomic move",
                 "Aggregate / Hierarchical",
             ),
@@ -515,8 +588,8 @@ def class_diagram() -> None:
             arrow(210, 275, 490, 350),
             arrow(210, 275, 790, 350),
             arrow(550, 275, 550, 350, "hub events"),
-            arrow(890, 275, 1090, 350, "service owns"),
-            arrow(1230, 275, 790, 350, "builds", "#fbbf24"),
+            arrow(890, 295, 1090, 350),
+            arrow(1230, 275, 790, 350, "builds", "#fbbf24", label_dy=22),
             arrow(520, 520, 320, 610, "commands"),
             arrow(790, 520, 710, 610, "capabilities"),
             arrow(1090, 520, 1100, 610, "derived state"),
@@ -550,7 +623,8 @@ def class_diagram() -> None:
             ],
         ),
     ]
-    write_pair(
+    write_triplet(
+        output_root,
         Path("assets/class-diagram"),
         "VMx Library Class Map",
         f"cluster-level class families for spec {SPEC_VERSION}",
@@ -561,7 +635,7 @@ def class_diagram() -> None:
     )
 
 
-def showcase_hierarchy() -> None:
+def showcase_hierarchy(output_root: Path) -> None:
     boxes = [
         Box(
             80,
@@ -582,7 +656,8 @@ def showcase_hierarchy() -> None:
             295,
             "NotebooksRootVM",
             (
-                "HierarchicalVM<NotebookModel, NotebookVM>",
+                "HierarchicalVM<NotebookModel,",
+                "NotebookVM>",
                 "recursive notebooks",
                 "current notebook selection",
                 "expand/collapse state",
@@ -624,9 +699,10 @@ def showcase_hierarchy() -> None:
             295,
             "GlobalSearchVM",
             (
-                "TokenPagedComposition<NoteVM,string>",
-                "cursor-based search all notes",
-                "refresh + load-more commands",
+                "TokenPagedComposition",
+                "<NoteVM, string>",
+                "cursor search across notes",
+                "refresh + load more",
                 "auto-constructs result VMs",
             ),
             "database",
@@ -718,7 +794,8 @@ def showcase_hierarchy() -> None:
             ],
         ),
     ]
-    write_pair(
+    write_triplet(
+        output_root,
         Path("examples/assets/notes-showcase-vm-hierarchy"),
         "Notes Showcase VM Hierarchy",
         "19-feature flagship hierarchy across C#, Python, TypeScript, and Swift",
@@ -729,7 +806,7 @@ def showcase_hierarchy() -> None:
     )
 
 
-def showcase_components() -> None:
+def showcase_components(output_root: Path) -> None:
     boxes = [
         Box(
             80,
@@ -839,7 +916,7 @@ def showcase_components() -> None:
             arrow(1170, 212, 1250, 212, "binds"),
             arrow(1015, 295, 745, 430, "page/filter signals"),
             arrow(1405, 295, 745, 430, "valid/dirty"),
-            arrow(1015, 295, 1165, 430, "messages"),
+            arrow(1015, 295, 1165, 430),
             arrow(325, 595, 415, 710, "button bridges"),
             arrow(745, 595, 415, 710, "observable bridges"),
             arrow(1165, 595, 875, 710, "async IO"),
@@ -873,7 +950,8 @@ def showcase_components() -> None:
             ],
         ),
     ]
-    write_pair(
+    write_triplet(
+        output_root,
         Path("examples/assets/notes-showcase-vmx-components"),
         "Notes Showcase VMx Component Map",
         "how the example VM layer is shaped from VMx primitives",
@@ -884,12 +962,58 @@ def showcase_components() -> None:
     )
 
 
-def main() -> None:
-    architecture()
-    class_diagram()
-    showcase_hierarchy()
-    showcase_components()
+def generate(output_root: Path) -> None:
+    architecture(output_root)
+    class_diagram(output_root)
+    showcase_hierarchy(output_root)
+    showcase_components(output_root)
+
+
+def check_generated(candidate_root: Path) -> list[Path]:
+    # HTML and SVG are deterministic textual outputs, so byte-equality reliably
+    # detects staleness. PNG is rasterized via rsvg-convert + pngquant, whose
+    # bytes depend on the host librsvg/cairo/pango/fontconfig/pngquant stack and
+    # legitimately differ between a macOS dev host and the Ubuntu CI runner.
+    # Assert PNG presence only, or the check becomes environment-fragile.
+    stale: list[Path] = []
+    for base in TRIPLET_BASES:
+        for suffix in (".html", ".svg"):
+            relative_path = base.with_suffix(suffix)
+            committed = ROOT / relative_path
+            candidate = candidate_root / relative_path
+            if not committed.exists() or committed.read_bytes() != candidate.read_bytes():
+                stale.append(relative_path)
+        png_path = base.with_suffix(".png")
+        if not (ROOT / png_path).exists():
+            stale.append(png_path)
+    return stale
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="verify deterministic HTML/SVG outputs and PNG presence without modifying the worktree",
+    )
+    args = parser.parse_args()
+
+    if not args.check:
+        generate(ROOT)
+        return 0
+
+    with tempfile.TemporaryDirectory(prefix="vmx-doc-diagrams-") as tmp_dir:
+        candidate_root = Path(tmp_dir)
+        generate(candidate_root)
+        stale = check_generated(candidate_root)
+    if stale:
+        for path in stale:
+            print(f"stale generated diagram: {path}")
+        print("run: python tools/generate-doc-diagrams.py")
+        return 1
+    print("root and example diagram triplets are current")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

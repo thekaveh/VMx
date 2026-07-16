@@ -13,6 +13,7 @@
 import { Subject, Subscription, type Observable } from "rxjs";
 
 import {
+  AsyncRelayCommand,
   ComponentVMBase,
   declareCapabilities,
   DiscriminatorVM,
@@ -53,7 +54,7 @@ const EMPTY: NoteModel = {
 export class NoteFormVM extends ComponentVMBase {
   readonly #repo: INoteRepository;
   readonly #notificationHub: INotificationHub | null;
-  readonly #approveCommand: RelayCommand;
+  readonly #approveCommand: AsyncRelayCommand;
   readonly #addTagCommand: RelayCommand;
   readonly #removeTagCommand: RelayCommandOf<string>;
   readonly #denyCommand: RelayCommand;
@@ -101,7 +102,7 @@ export class NoteFormVM extends ComponentVMBase {
       scheduler: opts.dispatcher.foreground,
     });
 
-    // Stable deny delegate (real-wiring audit, pass 6): the inner FormVM's
+    // Stable deny delegate: the inner FormVM's
     // denyCommand publishes with sender = FormVM, which useVm's sender
     // filter drops — the DOM never re-rendered a revert. One stable command
     // delegates to the live form and re-emits this VM's own draft channels.
@@ -112,11 +113,9 @@ export class NoteFormVM extends ComponentVMBase {
       })
       .build();
 
-    this.#approveCommand = RelayCommand.builder()
+    this.#approveCommand = AsyncRelayCommand.builder()
       .predicate(() => this.isDirty && this.isValid)
-      .task(() => {
-        void this.approveAsync();
-      })
+      .task(async () => { await this.approveAsync(); })
       .build();
     this.#addTagCommand = RelayCommand.builder()
       .predicate(
@@ -213,7 +212,7 @@ export class NoteFormVM extends ComponentVMBase {
 
   /** Comma-joined tag list — bind UI text labels to this so the rendered
    * string is "alpha, beta" instead of an array repr. Mirrors Py
-   * ``tags_text`` (Round-3 Important C-I1) and C# ``TagsText``. */
+   * ``tags_text`` (flattened tag binding) and C# ``TagsText``. */
   get tagsText(): string {
     return this.draft.tags.join(", ");
   }
@@ -283,13 +282,13 @@ export class NoteFormVM extends ComponentVMBase {
    * FormVM, resets `hasBoundNote` to `false`, and emits PropertyChanged so
    * widgets re-read (draft / snapshot / tagsText flip to EMPTY).
    *
-   * Round-4 Important-1: called by `WorkspaceVM` when `notesView.current`
+   * cleared-selection form behavior: called by `WorkspaceVM` when `notesView.current`
    * transitions to `null` (e.g. the selected note is deleted in
    * `NotesViewVM.#deleteNoteAsync`) so the right-pane editor does not show
    * ghost data from the just-removed note. Mirrors C# `NoteFormVM.Unbind`
    * and Python `NoteFormVM.unbind`.
    *
-   * Round-5 Minor: also reset ``tagDraft``. The user-typed tag input
+   * complete form reset: also reset ``tagDraft``. The user-typed tag input
    * buffer is part of the editor state, so a binding transition must
    * clear it too — otherwise the chip input still shows the orphan text
    * after the note disappears. Cross-flavor parity with C# `TagDraft =
@@ -330,14 +329,19 @@ export class NoteFormVM extends ComponentVMBase {
   async refreshTagSuggestionsAsync(): Promise<void> {
     try {
       const snapshot = await this.#repo.loadAll();
-      this.#tagCatalog = Array.from(
-        new Set(
-          snapshot.notes
-            .flatMap((note) => note.tags)
-            .map((tag) => tag.trim())
-            .filter(Boolean),
-        ),
-      ).sort((left, right) => left.localeCompare(right));
+      const seen = new Map<string, string>();
+      for (const raw of snapshot.notes.flatMap((note) => note.tags)) {
+        const tag = raw.trim();
+        const key = tag.toLowerCase();
+        if (tag.length > 0 && !seen.has(key)) seen.set(key, tag);
+      }
+      this.#tagCatalog = [...seen.values()].sort((left, right) => {
+        const leftKey = left.toLowerCase();
+        const rightKey = right.toLowerCase();
+        if (leftKey < rightKey) return -1;
+        if (leftKey > rightKey) return 1;
+        return left < right ? -1 : left > right ? 1 : 0;
+      });
       this.#tagSearch.search();
     } catch {
       this.#tagCatalog = [];
@@ -371,12 +375,12 @@ export class NoteFormVM extends ComponentVMBase {
   }
 
   #emitDraftChanges(): void {
-    // Round-3 Important B-I2 parity: also fire for ``approveCommand`` /
+    // stable-command rebinding: also fire for ``approveCommand`` /
     // ``denyCommand`` whose getters delegate to the inner ``#form`` (and to
     // ``#noopCommand`` before bindTo). Without this, bindings keep the
     // stale references after the form is rebound.
     //
-    // Round-4 Minor-2 (cross-flavor parity): ``tagsText`` is a derived
+    // derived-tag notification parity (cross-flavor parity): ``tagsText`` is a derived
     // accessor that re-projects on every draft mutation; without firing
     // PropertyChanged here any consumer subscribed specifically to
     // ``tagsText`` (e.g. a chip-strip label) would miss notifications.

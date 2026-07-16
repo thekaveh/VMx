@@ -9,6 +9,12 @@ open class AggregateVM4<
     C1: ComponentVMBase, C2: ComponentVMBase,
     C3: ComponentVMBase, C4: ComponentVMBase
 >: ComponentVMBase {
+    private lazy var aggregateParent = AggregateParent(owner: self) { [unowned self] in
+        [
+            self.component1 as ComponentVMBase?, self.component2 as ComponentVMBase?,
+            self.component3 as ComponentVMBase?, self.component4 as ComponentVMBase?
+        ].compactMap { $0 }
+    }
     private let factory1: () -> C1
     private let factory2: () -> C2
     private let factory3: () -> C3
@@ -35,15 +41,20 @@ open class AggregateVM4<
 
     open override func _onConstruct() throws {
         try super._onConstruct()
+        let c1 = factory1(); let c2 = factory2()
+        let c3 = factory3(); let c4 = factory4()
+        try validateAggregateSlots(parent: aggregateParent, children: [c1, c2, c3, c4])
+        let previous: [ComponentVMBase?] = [component1, component2, component3, component4]
         component1?.dispose(); component2?.dispose()
         component3?.dispose(); component4?.dispose()
-        let c1 = factory1(); component1 = c1
+        component1 = c1
         _notifyPropertyChanged("component1")
-        let c2 = factory2(); component2 = c2
+        component2 = c2
         _notifyPropertyChanged("component2")
-        let c3 = factory3(); component3 = c3
+        component3 = c3
         _notifyPropertyChanged("component3")
-        let c4 = factory4(); component4 = c4
+        component4 = c4
+        commitAggregateSlots(parent: aggregateParent, previous: previous, next: [c1, c2, c3, c4])
         _notifyPropertyChanged("component4")
         try c1.construct(); try c2.construct(); try c3.construct(); try c4.construct()
     }

@@ -53,6 +53,8 @@ describe("HIER-018", () => {
 
     // Reparenting an ancestor under its own descendant raises.
     expect(() => leaf.reparentChild(root)).toThrow(/HIER-018/);
+    expect(() => leaf.addChild(leaf)).toThrow(/HIER-018/);
+    expect(() => leaf.addChild(root)).toThrow(/HIER-018/);
 
     // Tree structure unchanged; no message published.
     expect(root.parent).toBeNull();
@@ -60,5 +62,12 @@ describe("HIER-018", () => {
     expect(leaf.parent).toBe(mid);
     expect(leaf.depth).toBe(2);
     expect(structureMessages).toBe(0);
+
+    const newParent = new MyNode({ hub, name: "new-parent" });
+    newParent.addChild(leaf);
+    expect(mid.children).toEqual([]);
+    expect(newParent.children).toEqual([leaf]);
+    expect(leaf.parent).toBe(newParent);
+    expect(structureMessages).toBe(1);
   });
 });

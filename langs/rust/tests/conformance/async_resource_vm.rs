@@ -99,6 +99,29 @@ fn async_resource_failure_becomes_state() {
     assert!(vm.reload_command().can_execute());
 }
 
+#[test]
+fn async_resource_loader_panic_restores_stable_state_and_remains_retryable() {
+    let attempt = Arc::new(AtomicUsize::new(0));
+    let counter = attempt.clone();
+    let vm = AsyncResourceVm::new("resource", move |_| {
+        if counter.fetch_add(1, Ordering::SeqCst) == 0 {
+            panic!("loader panic");
+        }
+        Ok(17)
+    });
+
+    let panic = vm
+        .load_async()
+        .join()
+        .expect_err("the public load handle must preserve the loader panic");
+    assert_eq!(panic.downcast_ref::<&str>(), Some(&"loader panic"));
+    assert_eq!(vm.state(), AsyncResourceState::Idle);
+    assert!(vm.load_command().can_execute());
+
+    vm.load_async().join().unwrap().unwrap();
+    assert_eq!(vm.state(), AsyncResourceState::Ready { value: 17 });
+}
+
 /// ARES-004 — Retry replaces error with ready
 #[test]
 fn async_resource_retry_replaces_error() {
@@ -305,4 +328,21 @@ fn async_resource_dispose_cancels_and_late_completion_is_inert() {
     vm.reload_async().join().unwrap().unwrap();
     vm.cancel();
     assert_eq!(changes.load(Ordering::SeqCst), notifications);
+}
+
+#[test]
+fn dropping_async_resource_releases_command_captures() {
+    let marker = Arc::new(());
+    let released = Arc::downgrade(&marker);
+    let vm = AsyncResourceVm::new("resource", move |_| {
+        let _keep_alive = &marker;
+        Ok(1)
+    });
+
+    drop(vm);
+
+    assert!(
+        released.upgrade().is_none(),
+        "cached commands must not strongly retain their owner"
+    );
 }

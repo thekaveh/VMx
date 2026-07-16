@@ -49,4 +49,6 @@ async function bootstrap(): Promise<void> {
   );
 }
 
-void bootstrap();
+void bootstrap().catch((error: unknown) => {
+  console.error("Notes Showcase failed to start", error);
+});

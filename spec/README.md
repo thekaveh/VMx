@@ -28,7 +28,7 @@ before any flavor releases a stable version.
 - `09-forwarding.md` — forwarding decorators.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
-- `12-conformance.md` — cross-language conformance test catalog (396 IDs).
+- `12-conformance.md` — cross-language conformance test catalog (400 IDs).
 - `13-tree-utilities.md` — `walk` / `find` / `walk_expanded` tree introspection.
 
 ### 1.2 Chapters (v2.0 additions)
@@ -187,7 +187,7 @@ public-surface breaks are catalogued in ADRs 0052/0053/0054 and each flavor's
   (`11 §3/§4`); the `LIFE-008` enforcement primitive is named; a post-dispose
   `IsCurrent` change is a silent no-op (`02` invariant 3); and a throwing
   `OnConstruct`/`OnDestruct` hook rolls `Status` back to the prior settled state
-  (`02 §2.4`, the new **`LIFE-014`**).
+  (`02 §2.5`, the new **`LIFE-014`**).
 
 - `02-lifecycle.md` and `11-threading.md` are revised accordingly.
 
@@ -541,7 +541,7 @@ one asynchronously acquired value. Immutable idle/loading/ready/error state,
 existing async relay command cancellation, monotonic latest-start-wins
 admission, discard-by-default or retained previous values, and acquisition-based
 optional cleanup replace repeated consumer-owned race policy. `ARES-001..011`
-raise the catalog from 385 to 396 total IDs (391 library + 5 THEME scenario
+raise the catalog from 385 to 400 total IDs (395 library + 5 THEME scenario
 IDs).
 
 See ADR-0100 and chapter 23.
@@ -555,11 +555,17 @@ ADR-0102 defines the non-normative consumer conformance adapter schema and the
 TypeScript factory runner. It adds no behavior chapter, spec version bump, or
 conformance ID; the supporting schema versions independently.
 
+ADR-0109 clarifies the C#-specific async lifecycle affordance on the current
+3.22.0 source line: background hook and deferred child-cascade failures fault
+the returned task only after transactional rollback is published. It adds no
+cross-flavor API or conformance ID and records Swift's existing no-awaiter
+limitation explicitly.
+
 ### 1.30 Supporting artefacts
 
-- `VERSION` — current spec SemVer (`3.20.0`).
+- `VERSION` — current spec SemVer (`3.22.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0102); see
+- `ADRs/` — Architecture Decision Records (0001-0115); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `schemas/` — versioned supporting machine contracts. The consumer
   conformance v1 schema is non-normative; see ADR-0102.

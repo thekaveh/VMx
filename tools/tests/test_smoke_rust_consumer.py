@@ -35,6 +35,24 @@ def test_public_add_command_is_exact() -> None:
     ]
 
 
+def test_local_package_generation_uses_lockfile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: list[str] = []
+
+    def fake_run(args: list[str], *, cwd: Path) -> None:
+        captured.extend(args)
+        tarball = cwd / "target/package/vmx-rs-0.20.0.crate"
+        tarball.parent.mkdir(parents=True)
+        tarball.touch()
+
+    monkeypatch.setattr(smoke, "_run", fake_run)
+
+    smoke._package(tmp_path, "0.20.0", "cargo")
+
+    assert captured[:3] == ["cargo", "package", "--locked"]
+
+
 def test_invalid_release_version_is_rejected() -> None:
     with pytest.raises(ValueError, match=r"X\.Y\.Z"):
         smoke.render_smoke("main")

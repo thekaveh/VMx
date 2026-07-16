@@ -14,48 +14,61 @@
   <rect width="100%" height="100%" fill="url(#grid)"/>
   <text x="40" y="54" fill="#f8fafc" font-size="28" font-weight="700" text-anchor="start">Commands And Capabilities Map</text>
   <text x="40" y="82" fill="#94a3b8" font-size="15" font-weight="400" text-anchor="start">reactive ICommand primitives and the 22 opt-in behavior contracts</text>
-  <polyline points="540,229 690,229" fill="none" stroke="#34d399" stroke-width="2.2" marker-end="url(#arrowhead)"/>
-<polyline points="540,381 690,381" fill="none" stroke="#34d399" stroke-width="2.2" marker-end="url(#arrowhead)"/>
-<polyline points="540,533 690,533" fill="none" stroke="#34d399" stroke-width="2.2" marker-end="url(#arrowhead)"/>
-<polyline points="540,685 690,685 690,588" fill="none" stroke="#34d399" stroke-width="2.2" marker-end="url(#arrowhead)"/>
-<polyline points="540,837 1030,837" fill="none" stroke="#fb7185" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+  <polyline points="208,268 208,300" fill="none" stroke="#fb923c" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="452,268 580,268 580,488 540,488" fill="none" stroke="#fb923c" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="540,351 610,351 610,236 690,236" fill="none" stroke="#34d399" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="540,488 690,412" fill="none" stroke="#34d399" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="540,629 690,588" fill="none" stroke="#34d399" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="540,759 620,759 620,620 690,620" fill="none" stroke="#34d399" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="540,889 820,889" fill="none" stroke="#fb7185" stroke-width="2.2" marker-end="url(#arrowhead)"/>
 <polyline points="1180,654 1180,730" fill="none" stroke="#a78bfa" stroke-width="2.2" marker-end="url(#arrowhead)"/>
 <polyline points="1520,478 1520,730" fill="none" stroke="#a78bfa" stroke-width="2.2" marker-end="url(#arrowhead)"/>
 <polyline points="840,654 840,730" fill="none" stroke="#a78bfa" stroke-width="2.2" marker-end="url(#arrowhead)"/>
 <polyline points="1520,302 1520,346" fill="none" stroke="#94a3b8" stroke-width="2.2" marker-end="url(#arrowhead)"/>
 <polyline points="1180,302 1180,346" fill="none" stroke="#94a3b8" stroke-width="2.2" marker-end="url(#arrowhead)"/>
 <polyline points="840,302 840,346" fill="none" stroke="#94a3b8" stroke-width="2.2" marker-end="url(#arrowhead)"/>
-<rect x="70" y="118" width="520" height="820" rx="12" fill="rgba(2, 6, 23, 0.12)" stroke="#fb923c" stroke-width="1.2" stroke-dasharray="8 4"/>
+<rect x="70" y="118" width="520" height="840" rx="12" fill="rgba(2, 6, 23, 0.12)" stroke="#fb923c" stroke-width="1.2" stroke-dasharray="8 4"/>
 <text x="84" y="140" fill="#fb923c" font-size="12" font-weight="700" text-anchor="start">Command primitives</text>
 <rect x="630" y="118" width="1080" height="820" rx="12" fill="rgba(2, 6, 23, 0.12)" stroke="#22d3ee" stroke-width="1.2" stroke-dasharray="8 4"/>
 <text x="644" y="140" fill="#22d3ee" font-size="12" font-weight="700" text-anchor="start">Capability families</text>
-<rect x="120" y="170" width="420" height="118" rx="8" fill="#0f172a"/>
-<rect x="120" y="170" width="420" height="118" rx="8" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.8"/>
-<text x="330" y="198" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">ICommand / ICommand&lt;T&gt;</text>
-<text x="330" y="224" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">CanExecute / Execute / CanExecuteChanged</text>
-<text x="330" y="243" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">parameterized variant when payload is needed</text>
-<rect x="120" y="322" width="420" height="118" rx="8" fill="#0f172a"/>
-<rect x="120" y="322" width="420" height="118" rx="8" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.8"/>
-<text x="330" y="350" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">RelayCommand</text>
-<text x="330" y="376" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">optional predicate + task</text>
-<text x="330" y="395" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">trigger + imperative CanExecuteChanged</text>
-<text x="330" y="414" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">disposed command becomes inert</text>
-<rect x="120" y="474" width="420" height="118" rx="8" fill="#0f172a"/>
-<rect x="120" y="474" width="420" height="118" rx="8" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.8"/>
-<text x="330" y="502" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">CompositeCommand</text>
-<text x="330" y="528" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">execute every enabled inner command</text>
-<text x="330" y="547" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">aggregate CanExecute over children</text>
-<rect x="120" y="626" width="420" height="118" rx="8" fill="#0f172a"/>
-<rect x="120" y="626" width="420" height="118" rx="8" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.8"/>
-<text x="330" y="654" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">DecoratorCommand</text>
-<text x="330" y="680" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">inner command + extra gate</text>
-<text x="330" y="699" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">optional pre/post actions</text>
-<rect x="120" y="778" width="420" height="118" rx="8" fill="#0f172a"/>
-<rect x="120" y="778" width="420" height="118" rx="8" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.8"/>
-<text x="330" y="806" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">ConfirmationDecoratorCommand</text>
-<text x="330" y="832" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">confirm delegate before Execute</text>
-<text x="330" y="851" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">ExecuteAsync and errors channel</text>
-<text x="330" y="870" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">fluent Confirm helper overloads</text>
+<rect x="100" y="160" width="215" height="108" rx="8" fill="#0f172a"/>
+<rect x="100" y="160" width="215" height="108" rx="8" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.8"/>
+<text x="207" y="188" fill="#f8fafc" font-size="14.23" font-weight="700" text-anchor="middle">ICommand / ICommand&lt;T&gt;</text>
+<text x="207" y="214" fill="#cbd5e1" font-size="12" font-weight="400" text-anchor="middle">sync execute + predicate</text>
+<text x="207" y="232" fill="#cbd5e1" font-size="12" font-weight="400" text-anchor="middle">generic payload variant</text>
+<rect x="345" y="160" width="215" height="108" rx="8" fill="#0f172a"/>
+<rect x="345" y="160" width="215" height="108" rx="8" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.8"/>
+<text x="452" y="188" fill="#f8fafc" font-size="16" font-weight="700" text-anchor="middle">IAsyncCommand</text>
+<text x="452" y="214" fill="#cbd5e1" font-size="12" font-weight="400" text-anchor="middle">cancellable ExecuteAsync</text>
+<text x="452" y="232" fill="#cbd5e1" font-size="12" font-weight="400" text-anchor="middle">in-flight state + errors</text>
+<rect x="120" y="300" width="420" height="102" rx="8" fill="#0f172a"/>
+<rect x="120" y="300" width="420" height="102" rx="8" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.8"/>
+<text x="330" y="328" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">RelayCommand</text>
+<text x="330" y="354" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">optional predicate + task</text>
+<text x="330" y="373" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">trigger + imperative CanExecuteChanged</text>
+<text x="330" y="392" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">disposed command becomes inert</text>
+<rect x="120" y="430" width="420" height="116" rx="8" fill="#0f172a"/>
+<rect x="120" y="430" width="420" height="116" rx="8" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.8"/>
+<text x="330" y="458" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">AsyncRelayCommand</text>
+<text x="330" y="484" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">async task + cancellation token</text>
+<text x="330" y="503" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">single-flight execution state</text>
+<text x="330" y="522" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">errors channel + trigger support</text>
+<rect x="120" y="578" width="420" height="102" rx="8" fill="#0f172a"/>
+<rect x="120" y="578" width="420" height="102" rx="8" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.8"/>
+<text x="330" y="606" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">CompositeCommand</text>
+<text x="330" y="632" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">execute every enabled inner command</text>
+<text x="330" y="651" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">aggregate CanExecute over children</text>
+<rect x="120" y="708" width="420" height="102" rx="8" fill="#0f172a"/>
+<rect x="120" y="708" width="420" height="102" rx="8" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.8"/>
+<text x="330" y="736" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">DecoratorCommand</text>
+<text x="330" y="762" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">inner command + extra gate</text>
+<text x="330" y="781" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">optional pre/post actions</text>
+<rect x="120" y="838" width="420" height="102" rx="8" fill="#0f172a"/>
+<rect x="120" y="838" width="420" height="102" rx="8" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.8"/>
+<text x="330" y="866" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">ConfirmationDecoratorCommand</text>
+<text x="330" y="892" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">confirm delegate before Execute</text>
+<text x="330" y="911" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">ExecuteAsync and errors channel</text>
+<text x="330" y="930" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">fluent Confirm helper overloads</text>
 <rect x="690" y="170" width="300" height="132" rx="8" fill="#0f172a"/>
 <rect x="690" y="170" width="300" height="132" rx="8" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.8"/>
 <text x="840" y="198" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Selection family</text>
@@ -106,7 +119,7 @@
 <rect x="1370" y="522" width="300" height="132" rx="8" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.8"/>
 <text x="1520" y="550" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Management escape hatch</text>
 <text x="1520" y="576" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">IManagable&lt;T&gt;</text>
-<text x="1520" y="595" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">consumer-specific management action</text>
+<text x="1520" y="595" fill="#cbd5e1" font-size="12.92" font-weight="400" text-anchor="middle">consumer-specific management action</text>
 <rect x="820" y="730" width="720" height="166" rx="8" fill="#0f172a"/>
 <rect x="820" y="730" width="720" height="166" rx="8" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.8"/>
 <text x="1180" y="758" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Typical compositions</text>
@@ -118,16 +131,16 @@
 <rect x="130" y="948" width="1540" height="94" rx="8" fill="rgba(15, 23, 42, 0.94)" stroke="#fb923c" stroke-width="1.2"/>
 <text x="146" y="972" fill="#f8fafc" font-size="13" font-weight="700" text-anchor="start">Why micro-interfaces matter</text>
 <text x="146" y="994" fill="#cbd5e1" font-size="12" font-weight="400" text-anchor="start">Capability interfaces advertise exactly the verbs a VM supports, so command bars and view adapters can stay capability-based without reshaping the core VM hierarchy.</text>
-<rect x="506" y="201" width="228" height="20" rx="10" fill="#0f172a" stroke="#34d399" stroke-width="1"/>
-<text x="620" y="215" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">commands call capability verbs</text>
-<rect x="545" y="353" width="151" height="20" rx="10" fill="#0f172a" stroke="#34d399" stroke-width="1"/>
-<text x="620" y="367" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">bind UI affordances</text>
-<rect x="564" y="505" width="81" height="20" rx="10" fill="#0f172a" stroke="#34d399" stroke-width="1"/>
-<text x="604" y="519" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">gate CRUD</text>
-<rect x="572" y="657" width="88" height="20" rx="10" fill="#0f172a" stroke="#34d399" stroke-width="1"/>
-<text x="616" y="671" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">extra gate</text>
-<rect x="679" y="809" width="214" height="20" rx="10" fill="#0f172a" stroke="#fb7185" stroke-width="1"/>
-<text x="786" y="823" fill="#fb7185" font-size="11" font-weight="700" text-anchor="middle">confirm / dialog integration</text>
+<rect x="543" y="208" width="165" height="20" rx="10" fill="#0f172a" stroke="#34d399" stroke-width="1"/>
+<text x="625" y="222" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">sync capability verbs</text>
+<rect x="559" y="421" width="123" height="20" rx="10" fill="#0f172a" stroke="#34d399" stroke-width="1"/>
+<text x="620" y="435" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">async workflows</text>
+<rect x="569" y="578" width="102" height="20" rx="10" fill="#0f172a" stroke="#34d399" stroke-width="1"/>
+<text x="620" y="592" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">compose CRUD</text>
+<rect x="561" y="685" width="88" height="20" rx="10" fill="#0f172a" stroke="#34d399" stroke-width="1"/>
+<text x="605" y="699" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">extra gate</text>
+<rect x="573" y="861" width="214" height="20" rx="10" fill="#0f172a" stroke="#fb7185" stroke-width="1"/>
+<text x="680" y="875" fill="#fb7185" font-size="11" font-weight="700" text-anchor="middle">confirm / dialog integration</text>
 <rect x="1174" y="684" width="172" height="20" rx="10" fill="#0f172a" stroke="#a78bfa" stroke-width="1"/>
 <text x="1260" y="698" fill="#a78bfa" font-size="11" font-weight="700" text-anchor="middle">implemented by helpers</text>
 </svg>

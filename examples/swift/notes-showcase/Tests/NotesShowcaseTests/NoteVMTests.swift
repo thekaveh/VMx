@@ -54,6 +54,10 @@ private final class NotificationMessageRecorder {
     }
 }
 
+private enum PersistenceFailure: Error {
+    case diskFull
+}
+
 // MARK: - NoteVMTests
 
 final class NoteVMTests: XCTestCase {
@@ -173,7 +177,7 @@ final class NoteVMTests: XCTestCase {
 
     // MARK: - SaveCommand
 
-    func testSaveCommand_invokesOnSaveCallback() throws {
+    func testSaveCommand_invokesOnSaveCallback() async throws {
         let hub = MessageHub()
         let dispatcher = ImmediateDispatcher.INSTANCE
         let recorder = NoteVMCallbackRecorder()
@@ -185,7 +189,7 @@ final class NoteVMTests: XCTestCase {
             .build()
         try vm.construct()
 
-        vm.saveCommand.execute()
+        try await vm.saveCommand.executeAsync()
 
         XCTAssertEqual(1, recorder.savedItems.count)
         XCTAssertTrue(recorder.savedItems.first === vm)
@@ -193,7 +197,7 @@ final class NoteVMTests: XCTestCase {
 
     // MARK: - DeleteCommand (plain — no confirm delegate)
 
-    func testDeleteCommand_invokesOnDeleteCallback() throws {
+    func testDeleteCommand_invokesOnDeleteCallback() async throws {
         let hub = MessageHub()
         let dispatcher = ImmediateDispatcher.INSTANCE
         let recorder = NoteVMCallbackRecorder()
@@ -205,7 +209,8 @@ final class NoteVMTests: XCTestCase {
             .build()
         try vm.construct()
 
-        vm.deleteCommand.execute()
+        let command = try XCTUnwrap(vm.deleteCommand as? AsyncRelayCommand)
+        try await command.executeAsync()
 
         XCTAssertEqual(1, recorder.deletedItems.count)
         XCTAssertTrue(recorder.deletedItems.first === vm)
@@ -229,6 +234,7 @@ final class NoteVMTests: XCTestCase {
         let dc = try XCTUnwrap(vm.deleteCommand as? ConfirmationDecoratorCommand,
                                "Expected ConfirmationDecoratorCommand")
         try await dc.executeAsync()
+        try? await Task.sleep(nanoseconds: 1_000_000)
 
         XCTAssertTrue(recorder.deletedItems.isEmpty,
                       "Delete should be blocked by confirm-false gate")
@@ -317,5 +323,74 @@ final class NoteVMTests: XCTestCase {
             recorder.anyMessage { $0.contains("Note deleted") },
             "Expected no notification when confirm returns false"
         )
+    }
+
+    func testSaveCommand_awaitsAsyncCallbackAndPropagatesFailure() async throws {
+        let vm = try NoteVM.builder()
+            .name("note")
+            .services(hub: MessageHub(), dispatcher: ImmediateDispatcher.INSTANCE)
+            .model(makeModel())
+            .onSave({ _ in
+                await Task.yield()
+                throw PersistenceFailure.diskFull
+            })
+            .build()
+        try vm.construct()
+
+        do {
+            try await vm.saveCommand.executeAsync()
+            XCTFail("Expected persistence failure")
+        } catch PersistenceFailure.diskFull {
+            // Expected: the awaitable command owns and surfaces repository work.
+        }
+    }
+
+    func testDeleteSuccessNotificationWaitsForAsyncCallback() async throws {
+        let notificationHub = NotificationHub()
+        let recorder = NotificationMessageRecorder()
+        notificationHub.pending
+            .sink { [weak recorder] snapshot in recorder?.record(snapshot) }
+            .store(in: &recorder.cancellables)
+        let vm = try NoteVM.builder()
+            .name("note")
+            .services(hub: MessageHub(), dispatcher: ImmediateDispatcher.INSTANCE)
+            .model(makeModel(title: "Important"))
+            .onDelete({ _ in try await Task.sleep(nanoseconds: 20_000_000) })
+            .confirmDelete({ true })
+            .notificationHub(notificationHub)
+            .build()
+        try vm.construct()
+
+        try await (vm.deleteCommand as! ConfirmationDecoratorCommand).executeAsync()
+
+        XCTAssertFalse(recorder.anyMessage { $0.contains("Note deleted") })
+        try await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertTrue(recorder.anyMessage { $0.contains("Note deleted") })
+    }
+
+    func testDeleteFailureDoesNotPublishSuccess() async throws {
+        let notificationHub = NotificationHub()
+        let recorder = NotificationMessageRecorder()
+        notificationHub.pending
+            .sink { [weak recorder] snapshot in recorder?.record(snapshot) }
+            .store(in: &recorder.cancellables)
+        let vm = try NoteVM.builder()
+            .name("note")
+            .services(hub: MessageHub(), dispatcher: ImmediateDispatcher.INSTANCE)
+            .model(makeModel())
+            .onDelete({ _ in throw PersistenceFailure.diskFull })
+            .notificationHub(notificationHub)
+            .build()
+        try vm.construct()
+        let command = try XCTUnwrap(vm.deleteCommand as? AsyncRelayCommand)
+
+        do {
+            try await command.executeAsync()
+            XCTFail("Expected persistence failure")
+        } catch PersistenceFailure.diskFull {
+            // Expected.
+        }
+
+        XCTAssertFalse(recorder.anyMessage { $0.contains("Note deleted") })
     }
 }

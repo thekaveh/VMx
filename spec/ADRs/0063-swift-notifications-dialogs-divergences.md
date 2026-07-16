@@ -123,30 +123,32 @@ making `ObjectIdentifier`-based keying impossible.
 **`post` suspends via `withCheckedContinuation`:** `NotificationHub.post(_:)`
 stores the caller's `CheckedContinuation<NotificationReaction, Never>` in a
 `[ObjectIdentifier: [CheckedContinuation<NotificationReaction, Never>]]` dictionary
-— a *list* of continuations per key — (protected by `NSLock`) before emitting the
-updated pending snapshot. Re-posting a still-pending instance appends another awaiter
-to the list rather than overwriting (and leaking) the first, so every double-post
-caller resolves with the same reaction (double-post SHOULD, ADR-0020 §2.3). The
+— a *list* of continuations per key — (protected by `NSRecursiveLock`) before
+enqueueing the updated pending snapshot. Re-posting a still-pending instance
+appends another awaiter to the list rather than overwriting (and leaking) the
+first, so every double-post caller resolves with the same reaction (double-post
+SHOULD, ADR-0020 §2.3). The
 store-then-emit ordering guarantees that a subscriber that calls `resolve` in
 response to the `pending` snapshot always finds the waiter registered.
 
-**`pending` via Combine `CurrentValueSubject` (replay-latest):** The
-`pending: AnyPublisher<[Notification], Never>` channel is backed by a
-`CurrentValueSubject<[Notification], Never>`. This gives new subscribers the
-current snapshot on subscription (replay-latest), matching the spec contract
-(a subscriber that attaches after some notifications have been posted still
-sees the current pending set).
+**`pending` via subscriber-local Combine replay subjects:** The
+`pending: AnyPublisher<[Notification], Never>` channel attaches each subscriber
+to a `CurrentValueSubject` initialized with the current snapshot. A sequence gate
+prevents that subscriber from receiving mutation records that were already
+reflected in its initial value. This preserves replay-latest behavior without
+replaying queued pre-subscription history when posting and resolving race.
 
-**Snapshots emitted outside the `NSLock`:** All `subject.send` calls and
-`continuation.resume` calls happen after the lock is released. This prevents
-re-entrancy deadlock in the case where a sink attached via `pending.sink` calls
-`hub.resolve` synchronously in response to a `send` (which would try to
-re-acquire `NSLock` on the same thread if the send were inside the lock).
+**Snapshots emitted outside the lock in mutation order:** State mutation and
+delivery-record enqueueing are one locked operation. A single ordered drainer
+then sends snapshots, completes subscribers, and resumes continuations after the
+lock is released. Re-entrant operations append behind the current callback. This
+prevents sink re-entrancy deadlocks while ensuring that concurrent `post`,
+`resolve`, and `dispose` calls cannot expose snapshots out of mutation order.
 
 **Consequence:** Future maintenance passes that see `Notification` as a `final class` (not a struct) must consult this ADR. The reference-type choice is
-load-bearing for NOTIF-001/008 (identity-keyed waiters). Future passes that see
-`subject.send` outside the lock must not move it inside — the unlock-then-send
-ordering prevents the re-entrancy deadlock described above.
+load-bearing for NOTIF-001/008 (identity-keyed waiters). Future passes must keep
+subscriber callbacks outside the lock and preserve the locked enqueue / ordered
+drain boundary; direct unlock-then-send code loses cross-thread mutation order.
 
 ### 2.4 Hand-rolled `VirtualTimeScheduler` — `NOTIF-011..016`
 

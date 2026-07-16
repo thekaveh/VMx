@@ -1,6 +1,6 @@
 use vmx::{
-    Command, Notification, NotificationHub, NotificationReaction, NotificationType, NotificationVm,
-    NullNotificationHub,
+    make_confirm, Command, Notification, NotificationHub, NotificationReaction, NotificationType,
+    NotificationVm, NullNotificationHub,
 };
 
 /// NOTIF-001 — Post returns an awaitable that completes when Resolve is called
@@ -12,6 +12,39 @@ fn post_waiter_yields_resolved_reaction() {
     hub.resolve(notification.id, NotificationReaction::Approve);
 
     assert_eq!(waiter.wait(), NotificationReaction::Approve);
+}
+
+#[test]
+fn post_waiter_remains_pending_until_resolve() {
+    let hub = NotificationHub::new();
+    let (notification, waiter) = hub.post_with_waiter(NotificationType::Notification, "info");
+    let completed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let completed_by_waiter = completed.clone();
+    let waiting = std::thread::spawn(move || {
+        let reaction = waiter.wait();
+        completed_by_waiter.store(true, std::sync::atomic::Ordering::SeqCst);
+        reaction
+    });
+
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    assert!(!completed.load(std::sync::atomic::Ordering::SeqCst));
+    hub.resolve(notification.id, NotificationReaction::Reject);
+
+    assert_eq!(waiting.join().unwrap(), NotificationReaction::Reject);
+}
+
+#[test]
+fn reposting_same_notification_reuses_pending_completion() {
+    let hub = NotificationHub::new();
+    let notification = Notification::new(NotificationType::Notification, "info");
+    let first = hub.post_notification(notification.clone());
+    let second = hub.post_notification(notification.clone());
+
+    assert_eq!(hub.pending().len(), 1);
+    hub.resolve(notification.id, NotificationReaction::Approve);
+
+    assert_eq!(first.wait(), NotificationReaction::Approve);
+    assert_eq!(second.wait(), NotificationReaction::Approve);
 }
 
 /// NOTIF-002 — Post adds the notification to Pending
@@ -127,11 +160,13 @@ fn null_notification_hub_resolves_approve() {
 #[test]
 fn make_confirm_style_flow_maps_approve_to_true() {
     let hub = NotificationHub::new();
-    let (notification, waiter) = hub.post_with_waiter(NotificationType::Confirmation, "ok?");
+    let confirm = make_confirm(hub.clone(), "ok?");
+    let decision = confirm();
+    let notification = hub.pending().into_iter().next().unwrap();
 
     hub.resolve(notification.id, NotificationReaction::Approve);
 
-    assert!(waiter.wait() == NotificationReaction::Approve);
+    assert!(decision.wait());
 }
 
 /// NOTIF-011 — NotificationVM opacity decays linearly from 1.0 to 0.0 over Lifespan
@@ -260,5 +295,46 @@ fn concurrent_notification_hub_dispose_publishes_one_terminal_snapshot() {
         }
 
         assert_eq!(hub.pending_snapshots().len(), before + 1);
+    }
+}
+
+#[test]
+fn post_racing_dispose_never_orphans_its_waiter() {
+    use std::sync::{mpsc, Arc, Barrier};
+    use std::time::Duration;
+
+    for iteration in 0..200 {
+        let hub = NotificationHub::new();
+        let notification = Notification::new(NotificationType::Notification, "race");
+        let barrier = Arc::new(Barrier::new(3));
+        let (waiter_tx, waiter_rx) = mpsc::channel();
+        let poster = {
+            let hub = hub.clone();
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                waiter_tx.send(hub.post_notification(notification)).unwrap();
+            })
+        };
+        let disposer = {
+            let hub = hub.clone();
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                hub.dispose();
+            })
+        };
+        barrier.wait();
+        poster.join().unwrap();
+        disposer.join().unwrap();
+        let waiter = waiter_rx.recv().unwrap();
+        let (reaction_tx, reaction_rx) = mpsc::channel();
+        std::thread::spawn(move || reaction_tx.send(waiter.wait()).unwrap());
+
+        assert_eq!(
+            reaction_rx.recv_timeout(Duration::from_secs(1)),
+            Ok(NotificationReaction::Pending),
+            "iteration {iteration} orphaned a waiter"
+        );
     }
 }

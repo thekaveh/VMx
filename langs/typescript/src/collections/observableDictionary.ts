@@ -57,24 +57,20 @@ export interface DictionaryItemReplacedEvent<TKey1, TKey2, TValue> {
   readonly oldValue: TValue;
 }
 
-// ── Serialisation helper ──────────────────────────────────────────────────────
+interface StoredDictionaryEntry<TKey1, TKey2, TValue> {
+  readonly key1: TKey1;
+  readonly key2: TKey2;
+  value: TValue;
+}
 
-/**
- * Serialise a key pair to a collision-proof string map key.
- *
- * Uses a length-prefix encoding: `"<len(k1)>:<k1><k2>"`.
- * Because the boundary between k1 and k2 is fixed by the numeric prefix,
- * two key pairs are equal only when both components are equal — regardless
- * of whether the string representations of k1 or k2 contain separator
- * characters (including NUL).
- *
- * Examples:
- *   serializeKey("a\x00", "b")   → "2:a\x00b"
- *   serializeKey("a",     "\x00b") → "1:a\x00b"   ← different prefix!
- */
-function serializeKey(key1: unknown, key2: unknown): string {
-  const s1 = String(key1);
-  return String(s1.length) + ":" + s1 + String(key2);
+function sameValueZero(left: unknown, right: unknown): boolean {
+  return (
+    left === right ||
+    (typeof left === "number" &&
+      typeof right === "number" &&
+      Number.isNaN(left) &&
+      Number.isNaN(right))
+  );
 }
 
 // ── ObservableDictionary ──────────────────────────────────────────────────────
@@ -82,12 +78,13 @@ function serializeKey(key1: unknown, key2: unknown): string {
 export class ObservableDictionary<TKey1, TKey2, TValue> {
   readonly #hub: IMessageHub | null;
 
-  /** Insertion-ordered list of composite keys (as string tokens). */
-  readonly #keyOrder: string[] = [];
-  /** Map from serialised key to value. */
-  readonly #data = new Map<string, TValue>();
-  /** Map from serialised key to original key pair (for enumeration). */
-  readonly #keyPairs = new Map<string, [TKey1, TKey2]>();
+  /** Insertion-ordered entry identities (backs enumeration). */
+  readonly #keyOrder: StoredDictionaryEntry<TKey1, TKey2, TValue>[] = [];
+  /** Native nested maps preserve each key axis' standard Map equality. */
+  readonly #data = new Map<
+    TKey1,
+    Map<TKey2, StoredDictionaryEntry<TKey1, TKey2, TValue>>
+  >();
 
   /** Reference counts for distinct key1 values (for O(1) key-axis upkeep). */
   readonly #key1Counts = new Map<TKey1, number>();
@@ -162,7 +159,7 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
 
   /** Total number of entries. */
   get size(): number {
-    return this.#data.size;
+    return this.#keyOrder.length;
   }
 
   // ── Mutations ────────────────────────────────────────────────────────────────
@@ -175,10 +172,10 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
    */
   set(key1: TKey1, key2: TKey2, value: TValue): void {
     this.#requireKeys(key1, key2);
-    const token = serializeKey(key1, key2);
-    if (this.#data.has(token)) {
-      const oldValue = this.#valueAt(token);
-      this.#data.set(token, value);
+    const entry = this.#entryAt(key1, key2);
+    if (entry !== undefined) {
+      const oldValue = entry.value;
+      entry.value = value;
       // 1. Local granular event first.
       this.#itemReplaced.next({ key1, key2, newValue: value, oldValue });
       // 2. Publish to hub (if present). Element type includes both keys so
@@ -192,7 +189,7 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
         ),
       );
     } else {
-      this.#internalAdd(token, key1, key2, value);
+      this.#internalAdd(key1, key2, value);
     }
   }
 
@@ -205,11 +202,10 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
    */
   add(key1: TKey1, key2: TKey2, value: TValue): void {
     this.#requireKeys(key1, key2);
-    const token = serializeKey(key1, key2);
-    if (this.#data.has(token)) {
+    if (this.#entryAt(key1, key2) !== undefined) {
       throw new Error(`Key (${String(key1)}, ${String(key2)}) already exists`);
     }
-    this.#internalAdd(token, key1, key2, value);
+    this.#internalAdd(key1, key2, value);
   }
 
   /**
@@ -218,19 +214,26 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
    */
   delete(key1: TKey1, key2: TKey2): boolean {
     this.#requireKeys(key1, key2);
-    const token = serializeKey(key1, key2);
-    if (!this.#data.has(token)) return false;
+    const bucket = this.#data.get(key1);
+    const entry = bucket?.get(key2);
+    if (entry === undefined) return false;
 
-    const value = this.#valueAt(token);
-    this.#data.delete(token);
-    this.#keyPairs.delete(token);
-    this.#keyOrder.splice(this.#keyOrder.indexOf(token), 1);
+    const value = entry.value;
+    bucket?.delete(key2);
+    if (bucket?.size === 0) this.#data.delete(key1);
+    const orderIndex = this.#keyOrder.indexOf(entry);
+    if (orderIndex < 0) {
+      throw new Error(
+        "ObservableDictionary invariant violated: entry missing from insertion order",
+      );
+    }
+    this.#keyOrder.splice(orderIndex, 1);
 
     // Update key-axis views: decrement refcount; drop from list when count reaches 0.
     const newKey1Count = (this.#key1Counts.get(key1) ?? 1) - 1;
     if (newKey1Count <= 0) {
       this.#key1Counts.delete(key1);
-      this.#keys1.remove(key1);
+      this.#removeAxisKey(this.#keys1, key1);
     } else {
       this.#key1Counts.set(key1, newKey1Count);
     }
@@ -238,7 +241,7 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
     const newKey2Count = (this.#key2Counts.get(key2) ?? 1) - 1;
     if (newKey2Count <= 0) {
       this.#key2Counts.delete(key2);
-      this.#keys2.remove(key2);
+      this.#removeAxisKey(this.#keys2, key2);
     } else {
       this.#key2Counts.set(key2, newKey2Count);
     }
@@ -263,7 +266,7 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
    */
   get(key1: TKey1, key2: TKey2): TValue | undefined {
     this.#requireKeys(key1, key2);
-    return this.#data.get(serializeKey(key1, key2));
+    return this.#entryAt(key1, key2)?.value;
   }
 
   /**
@@ -275,9 +278,9 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
     key2: TKey2,
   ): { found: boolean; value: TValue | undefined } {
     this.#requireKeys(key1, key2);
-    const token = serializeKey(key1, key2);
-    if (this.#data.has(token)) {
-      return { found: true, value: this.#data.get(token) };
+    const entry = this.#entryAt(key1, key2);
+    if (entry !== undefined) {
+      return { found: true, value: entry.value };
     }
     return { found: false, value: undefined };
   }
@@ -285,13 +288,12 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
   /** Returns true if an entry exists for (key1, key2). */
   has(key1: TKey1, key2: TKey2): boolean {
     this.#requireKeys(key1, key2);
-    return this.#data.has(serializeKey(key1, key2));
+    return this.#entryAt(key1, key2) !== undefined;
   }
 
   /** Remove all entries and emit reset. Does NOT fire per-entry itemRemoved events. */
   clear(): void {
     this.#data.clear();
-    this.#keyPairs.clear();
     this.#keyOrder.length = 0;
     this.#key1Counts.clear();
     this.#key2Counts.clear();
@@ -311,37 +313,20 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
    */
   [Symbol.iterator](): IterableIterator<[TKey1, TKey2, TValue]> {
     const keyOrder = this.#keyOrder;
-    const data = this.#data;
-    const keyPairs = this.#keyPairs;
     let index = 0;
     return {
       next(): IteratorResult<[TKey1, TKey2, TValue]> {
         if (index >= keyOrder.length) return { done: true, value: undefined };
-        const token = keyOrder[index++];
-        // VMX-090: #keyOrder, #data and #keyPairs are kept in sync. Surface any
-        // desync loudly rather than letting an `as` cast pass `undefined` off
-        // as a valid token / pair / value.
-        if (token === undefined) {
+        const entry = keyOrder[index++];
+        if (entry === undefined) {
           throw new Error(
-            "ObservableDictionary invariant violated: missing key token",
+            "ObservableDictionary invariant violated: missing ordered entry",
           );
         }
-        const pair = keyPairs.get(token);
-        if (pair === undefined) {
-          throw new Error(
-            `ObservableDictionary invariant violated: no key pair for token`,
-          );
-        }
-        if (!data.has(token)) {
-          throw new Error(
-            `ObservableDictionary invariant violated: no value for token`,
-          );
-        }
-        // The cast is now the single localized narrowing — TValue may itself
-        // legitimately include `undefined`, so `has()` (not `!== undefined`) is
-        // the membership oracle.
-        const v = data.get(token) as TValue;
-        return { done: false, value: [pair[0], pair[1], v] };
+        return {
+          done: false,
+          value: [entry.key1, entry.key2, entry.value],
+        };
       },
       [Symbol.iterator]() {
         return this;
@@ -351,32 +336,44 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
 
   // ── Internal ─────────────────────────────────────────────────────────────────
 
-  /**
-   * VMX-090: localized value accessor for a token the caller has already
-   * confirmed present. The backing maps are kept in sync, so a token in #data
-   * has a value; this re-asserts that invariant loudly instead of silently
-   * casting a `Map.get` miss to TValue. The single `as TValue` here is
-   * unavoidable because TValue may itself include `undefined` — `has()` is the
-   * membership oracle, not `!== undefined`.
-   */
-  #valueAt(token: string): TValue {
-    if (!this.#data.has(token)) {
-      throw new Error(
-        "ObservableDictionary invariant violated: no value for token",
-      );
+  #entryAt(
+    key1: TKey1,
+    key2: TKey2,
+  ): StoredDictionaryEntry<TKey1, TKey2, TValue> | undefined {
+    return this.#data.get(key1)?.get(key2);
+  }
+
+  #removeAxisKey<Key>(keys: ObservableList<Key>, key: Key): void {
+    let index = 0;
+    for (const candidate of keys) {
+      if (sameValueZero(candidate, key)) {
+        keys.removeAt(index);
+        return;
+      }
+      index += 1;
     }
-    return this.#data.get(token) as TValue;
+    throw new Error(
+      "ObservableDictionary invariant violated: counted key missing from axis view",
+    );
   }
 
   #internalAdd(
-    token: string,
     key1: TKey1,
     key2: TKey2,
     value: TValue,
   ): void {
-    this.#keyOrder.push(token);
-    this.#data.set(token, value);
-    this.#keyPairs.set(token, [key1, key2]);
+    const entry: StoredDictionaryEntry<TKey1, TKey2, TValue> = {
+      key1,
+      key2,
+      value,
+    };
+    this.#keyOrder.push(entry);
+    let bucket = this.#data.get(key1);
+    if (bucket === undefined) {
+      bucket = new Map();
+      this.#data.set(key1, bucket);
+    }
+    bucket.set(key2, entry);
 
     // Update key-axis views and refcounts: push to list only on first appearance.
     const key1Count = this.#key1Counts.get(key1) ?? 0;

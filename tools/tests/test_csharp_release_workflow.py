@@ -52,8 +52,19 @@ def test_release_builds_and_validates_before_protected_authentication() -> None:
     assert "dotnet format langs/csharp/VMx.sln --verify-no-changes" in jobs
     assert "python3 tools/check-nuget-package.py" in jobs
     assert "python3 tools/smoke-nuget-consumer.py" in jobs
-    assert "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02" in jobs
+    assert "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a" in jobs
     assert jobs.index("csharp-build:") < jobs.index("csharp-publish:")
+
+
+def test_release_tags_select_one_explicit_csharp_package_namespace() -> None:
+    workflow = _workflow("release.yml")
+    jobs = _csharp_release_jobs()
+
+    assert '- "csharp-v*"' in workflow
+    assert '- "csharp-notifications-v*"' in workflow
+    assert '- "csharp-dependency-injection-v*"' in workflow
+    assert "python3 tools/select-csharp-release.py" in jobs
+    assert "project_version == version" not in jobs
 
 
 def test_release_uses_protected_nuget_oidc_without_long_lived_key() -> None:

@@ -29,6 +29,7 @@ final class FormVMSetModelHubPublicationTests: XCTestCase {
             trace.append("can_execute")
         }
         var observed: [(String, Bool, Bool)] = []
+        var statesAfterNestedReturn: [String] = []
         var reentered = false
         let hubCancellable = hub.messages.sink { message in
             guard let changed = message as? PropertyChangedMessage,
@@ -39,6 +40,7 @@ final class FormVMSetModelHubPublicationTests: XCTestCase {
             if !reentered {
                 reentered = true
                 form.setModel(HubFormModel(value: "nested"))
+                statesAfterNestedReturn.append(form.model.value)
             }
         }
 
@@ -47,6 +49,7 @@ final class FormVMSetModelHubPublicationTests: XCTestCase {
         XCTAssertEqual(observed.map(\.0), ["outer", "nested"])
         XCTAssertEqual(observed.map(\.1), [true, true])
         XCTAssertEqual(observed.map(\.2), [true, true])
+        XCTAssertEqual(statesAfterNestedReturn, ["nested"])
         XCTAssertEqual(
             trace,
             ["validate", "errors", "can_execute", "model", "validate", "model"]

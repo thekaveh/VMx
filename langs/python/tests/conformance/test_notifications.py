@@ -5,7 +5,9 @@ Per spec/16-notifications.md, ADR-0013, ADR-0031.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import timedelta
+from threading import Barrier, Thread
 
 import pytest
 from reactivex.testing import TestScheduler
@@ -427,6 +429,45 @@ async def test_resolve_is_thread_safe() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Concurrent hub delivery
+# ---------------------------------------------------------------------------
+
+
+def test_opposing_notification_hub_callbacks_do_not_deadlock() -> None:
+    first = NotificationHub()
+    second = NotificationHub()
+    first_notification = Notification(NotificationType.NOTIFICATION, "first")
+    second_notification = Notification(NotificationType.NOTIFICATION, "second")
+    callbacks_ready = Barrier(2)
+
+    def on_first(snapshot: list[Notification]) -> None:
+        if first_notification in snapshot:
+            callbacks_ready.wait(timeout=1)
+            second.resolve(second_notification, NotificationReaction.APPROVE)
+
+    def on_second(snapshot: list[Notification]) -> None:
+        if second_notification in snapshot:
+            callbacks_ready.wait(timeout=1)
+            first.resolve(first_notification, NotificationReaction.APPROVE)
+
+    first.pending.subscribe(on_first)
+    second.pending.subscribe(on_second)
+    senders = [
+        Thread(target=lambda: asyncio.run(_post_once(first, first_notification)), daemon=True),
+        Thread(target=lambda: asyncio.run(_post_once(second, second_notification)), daemon=True),
+    ]
+    for sender in senders:
+        sender.start()
+    for sender in senders:
+        sender.join(timeout=1)
+
+    assert all(not sender.is_alive() for sender in senders)
+
+
+async def _post_once(hub: NotificationHub, notification: Notification) -> None:
+    hub.post(notification)
+
+
 # NOTIF-017 — Hub dispose resolves in-flight waiters with Pending
 # ---------------------------------------------------------------------------
 

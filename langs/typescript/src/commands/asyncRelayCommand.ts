@@ -107,13 +107,15 @@ export class AsyncRelayCommand implements IAsyncCommand {
 
     const controller = new AbortController();
     this.#controller = controller;
+    let externalAbortListener: (() => void) | null = null;
     if (externalSignal !== undefined) {
       if (externalSignal.aborted) {
         controller.abort(externalSignal.reason);
       } else {
+        externalAbortListener = () => controller.abort(externalSignal.reason);
         externalSignal.addEventListener(
           "abort",
-          () => controller.abort(externalSignal.reason),
+          externalAbortListener,
           { once: true },
         );
       }
@@ -141,6 +143,9 @@ export class AsyncRelayCommand implements IAsyncCommand {
         throw err;
       }
     } finally {
+      if (externalAbortListener !== null) {
+        externalSignal?.removeEventListener("abort", externalAbortListener);
+      }
       this.#isExecuting = false;
       this.#controller = null;
       this.raiseCanExecuteChanged();

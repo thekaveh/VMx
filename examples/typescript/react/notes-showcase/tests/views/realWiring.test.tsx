@@ -1,7 +1,7 @@
 /**
  * Real-wiring regression tests — the golden path through actual DOM events.
  *
- * The pass-6 real-wiring audit found the React showcase broken at several
+ * Live-binding tests found the React showcase broken at several
  * view/VM seams in ways the VM-level suite masked (tests called VM methods
  * directly and asserted VM state). These tests fire DOM events and assert
  * rendered DOM, so a regression in the wiring fails here even when every

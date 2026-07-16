@@ -60,6 +60,11 @@ public sealed class GroupVMBuilder<VM>
     public GroupVMBuilder<VM> Services(IMessageHub hub, IDispatcher dispatcher)
         => With(hub: hub, dispatcher: dispatcher);
 
+    internal GroupVMBuilder<VM> OptionHub(IMessageHub hub) => With(hub: hub);
+
+    internal GroupVMBuilder<VM> OptionDispatcher(IDispatcher dispatcher)
+        => With(dispatcher: dispatcher);
+
     /// <summary>
     /// Sets the required Services by resolving <see cref="IMessageHub"/> and
     /// <see cref="IDispatcher"/> from <paramref name="serviceProvider"/> (VMX-021).

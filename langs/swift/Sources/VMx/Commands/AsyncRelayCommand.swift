@@ -118,11 +118,16 @@ public final class AsyncRelayCommand: AsyncCommand {
 
         // Wrap the body in a Task so `cancel()` can cancel it independently of
         // the calling Task's lifetime.
-        let bodyTask = Task { [body] in
-            try await body?()
+        let transferableBody = UncheckedSendableBox(body)
+        let bodyTask = Task { [transferableBody] in
+            try await transferableBody.value?()
         }
-        stateQueue.sync {
+        let cancelDuringAdmission = stateQueue.sync { () -> Bool in
             cancelHandle = { bodyTask.cancel() }
+            return cancelRequested
+        }
+        if cancelDuringAdmission {
+            bodyTask.cancel()
         }
 
         defer {
@@ -137,7 +142,11 @@ public final class AsyncRelayCommand: AsyncCommand {
         }
 
         do {
-            try await bodyTask.value
+            try await withTaskCancellationHandler {
+                try await bodyTask.value
+            } onCancel: {
+                bodyTask.cancel()
+            }
         } catch is CancellationError {
             // Command-initiated cancel (cancelRequested == true) is swallowed by
             // default (DIA-007 non-throwing alignment).
@@ -159,15 +168,18 @@ public final class AsyncRelayCommand: AsyncCommand {
     /// instead of being swallowed or becoming an unobserved faulted Task.
     public func execute() {
         guard canExecute() else { return }
-        Task {
+        let command = UncheckedSendableBox(self)
+        Task { [command] in
             do {
-                try await self.executeAsync()
+                try await command.value.executeAsync()
             } catch is CancellationError {
                 return
             } catch {
-                let isDisposed = self.stateQueue.sync { self.disposed }
+                let isDisposed = command.value.stateQueue.sync {
+                    command.value.disposed
+                }
                 guard !isDisposed else { return }
-                self.errorsSubject.send(error)
+                command.value.errorsSubject.send(error)
             }
         }
     }
@@ -221,6 +233,7 @@ public final class AsyncRelayCommand: AsyncCommand {
         let result = stateQueue.sync { () -> (Bool, (() -> Void)?) in
             guard !disposed else { return (false, nil) }
             disposed = true
+            cancelRequested = true
             let handle = cancelHandle
             cancelHandle = nil
             return (true, handle)

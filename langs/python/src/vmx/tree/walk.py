@@ -64,15 +64,16 @@ def walk_expanded(root: _ComponentVMBase) -> Iterator[_ComponentVMBase]:
 def _children(node: _ComponentVMBase) -> Iterator[_ComponentVMBase]:
     if hasattr(node, "__iter__"):
         try:
-            for child in iter(node):
+            iterator = iter(node)
+        except TypeError:
+            # A guarded proxy may advertise __iter__ but reject iterator
+            # acquisition. Fall through to aggregate slot probing below.
+            pass
+        else:
+            for child in iterator:
                 if isinstance(child, _ComponentVMBase):
                     yield child
             return
-        except TypeError:
-            # Swallow — a node may advertise __iter__ but raise on iter()
-            # (e.g. a guarded proxy); fall through to aggregate slot probing
-            # below, same as nodes with no iterator at all.
-            pass
 
     # Aggregates expose a typed ``components()`` accessor (VMX-137) — no
     # per-arity ``component_{i}`` slot-name reflection, so AggregateVM7+ would be

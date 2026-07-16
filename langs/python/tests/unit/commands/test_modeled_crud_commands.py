@@ -6,6 +6,8 @@ tests/conformance/test_modeled_crud.py under COMP-019..024.
 
 from __future__ import annotations
 
+import pytest
+
 from vmx.commands import ConfirmationDecoratorCommand, ModeledCrudCommands
 
 
@@ -25,6 +27,31 @@ def test_dispose_releases_inner_relay_commands() -> None:
 
     # Dispose must not raise; double dispose is safe (idempotent).
     crud.dispose()
+    crud.dispose()
+
+
+def test_dispose_attempts_every_command_and_preserves_first_failure() -> None:
+    vm1 = object()
+    crud: ModeledCrudCommands[object, object] = ModeledCrudCommands(
+        current=lambda: vm1,
+        create_new=lambda: None,
+        update_current=lambda _vm: None,
+        delete_current=lambda _vm: None,
+    )
+
+    def fail_first(_: object) -> None:
+        raise RuntimeError("first terminal failure")
+
+    def fail_later(_: object) -> None:
+        raise ValueError("later terminal failure")
+
+    crud.create_new_command.can_execute_changed.subscribe(fail_first)
+    crud.update_current_command.can_execute_changed.subscribe(fail_later)
+
+    with pytest.raises(RuntimeError, match="first terminal failure"):
+        crud.dispose()
+
+    assert all(command._disposed for command in crud._inner_relays)  # type: ignore[attr-defined]
     crud.dispose()
 
 

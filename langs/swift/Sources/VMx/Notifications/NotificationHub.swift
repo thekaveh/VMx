@@ -7,24 +7,48 @@
 // `ObjectIdentifier(n)` so two `Notification` instances with the same type
 // and message are still resolved independently.
 //
-// Thread safety: all mutable state is protected by `lock`. The `pending`
-// snapshot is captured under the lock but emitted (`subject.send`) AFTER the
-// lock is released, so a subscriber that synchronously calls `post`/`resolve`
-// from within its sink handler does not re-enter the lock — no deadlock.
+// Thread safety: all mutable state and an ordered delivery FIFO are protected
+// by `lock`. Snapshot/completion records are enqueued at the state mutation's
+// linearization point, then one drainer invokes subscribers after releasing the
+// lock. Re-entrant operations append behind the current callback.
 //
 // Dispose semantics (NOTIF-017, ADR-0037):
 //   dispose() is idempotent. Under the lock it captures all stored
-//   continuations, clears the waiters map, clears pendingList, and sets
-//   `disposed = true`. Outside the lock it resumes every captured continuation
-//   with `.pending` and sends `.finished` on the subject — the same
-//   send-outside-lock discipline used for normal post/resolve to avoid
-//   sink re-entrancy deadlocks.
+//   continuations, clears the waiters map, clears pendingList, sets
+//   `disposed = true`, and enqueues terminal delivery. Outside the lock the
+//   ordered drainer finishes the subject and resolves every captured waiter
+//   with `.pending`.
 //   After dispose:
 //   - post(_:) returns `.pending` immediately without storing a continuation.
 //   - resolve(_:_:) is a no-op.
 //
 import Foundation
 import Combine
+
+private enum NotificationDeliveryContext {
+    private static let depthKey = "org.vmx.notification-hub.delivery-depth"
+
+    static var depth: Int {
+        get { Thread.current.threadDictionary[depthKey] as? Int ?? 0 }
+        set { Thread.current.threadDictionary[depthKey] = newValue }
+    }
+}
+
+private final class NotificationHubDelivery {
+    enum Event {
+        case snapshot([Notification], UInt64)
+        case finished(UInt64)
+    }
+
+    let event: Event
+    let afterDelivery: () -> Void
+    let completed = DispatchSemaphore(value: 0)
+
+    init(event: Event, afterDelivery: @escaping () -> Void = {}) {
+        self.event = event
+        self.afterDelivery = afterDelivery
+    }
+}
 
 // MARK: - Protocol
 
@@ -55,20 +79,73 @@ public protocol NotificationHubProtocol: AnyObject {
 // MARK: - Default implementation
 
 /// Combine + Swift Concurrency `NotificationHubProtocol`.
-public final class NotificationHub: NotificationHubProtocol {
-    private let subject = CurrentValueSubject<[Notification], Never>([])
+public final class NotificationHub: NotificationHubProtocol, @unchecked Sendable {
+    private final class PendingSubscriberRecord {
+        let subject: CurrentValueSubject<[Notification], Never>
+        let startSequence: UInt64
+
+        init(
+            subject: CurrentValueSubject<[Notification], Never>,
+            startSequence: UInt64
+        ) {
+            self.subject = subject
+            self.startSequence = startSequence
+        }
+    }
+
+    private final class PendingPublisher: Publisher {
+        typealias Output = [Notification]
+        typealias Failure = Never
+
+        private weak var hub: NotificationHub?
+
+        init(hub: NotificationHub) {
+            self.hub = hub
+        }
+
+        func receive<S>(subscriber: S)
+        where S: Subscriber, S.Input == Output, S.Failure == Failure {
+            guard let hub else {
+                Empty<Output, Failure>(completeImmediately: true)
+                    .receive(subscriber: subscriber)
+                return
+            }
+            hub.attachPendingSubscriber(subscriber)
+        }
+    }
+
     private var pendingList: [Notification] = []
     // A LIST of continuations per notification: re-posting the same still-pending
     // instance attaches another awaiter rather than overwriting (and leaking) the
     // first continuation (double-post SHOULD, ADR-0020 §2.3).
     private var waiters: [ObjectIdentifier: [CheckedContinuation<NotificationReaction, Never>]] = [:]
     private var disposed = false
-    private let lock = NSLock()
+    private let lock = NSRecursiveLock()
+    private var pendingSequence: UInt64 = 0
+    private var pendingSubscribers: [UUID: PendingSubscriberRecord] = [:]
+    private var deliveries: [NotificationHubDelivery] = []
+    private var deliveryHead = 0
+    private var drainerThread: UInt64 = 0
+    private let beforeDeliveryDrain: (() -> Void)?
+    private let afterDeliveryEnqueued: (() -> Void)?
 
-    public init() {}
+    public init() {
+        self.beforeDeliveryDrain = nil
+        self.afterDeliveryEnqueued = nil
+    }
+
+    /// Deterministic concurrency seam used only by `@testable` regression
+    /// tests. Production construction uses `init()` above.
+    init(
+        beforeDeliveryDrain: @escaping () -> Void,
+        afterDeliveryEnqueued: @escaping () -> Void
+    ) {
+        self.beforeDeliveryDrain = beforeDeliveryDrain
+        self.afterDeliveryEnqueued = afterDeliveryEnqueued
+    }
 
     public var pending: AnyPublisher<[Notification], Never> {
-        subject.eraseToAnyPublisher()
+        PendingPublisher(hub: self).eraseToAnyPublisher()
     }
 
     /// Post `n`: append to pending, store the continuation, emit snapshot.
@@ -100,8 +177,11 @@ public final class NotificationHub: NotificationHubProtocol {
             pendingList.append(n)
             waiters[key] = [continuation]  // stored before the snapshot is emitted
             let snapshot = pendingList
+            pendingSequence &+= 1
+            let delivery = enqueueLocked(.snapshot(snapshot, pendingSequence))
             lock.unlock()
-            subject.send(snapshot)  // emitted outside the lock (no sink re-entrancy)
+            afterDeliveryEnqueued?()
+            publish(delivery)
         }
     }
 
@@ -110,26 +190,27 @@ public final class NotificationHub: NotificationHubProtocol {
     /// All continuations awaiting `n` (including double-post re-posters) are
     /// resumed with `reaction` *after* releasing the lock.
     public func resolve(_ n: Notification, _ reaction: NotificationReaction) {
-        let continuations: [CheckedContinuation<NotificationReaction, Never>]?
-        var snapshot: [Notification]?
         lock.lock()
         guard !disposed else {
             lock.unlock()
             return
         }
         let key = ObjectIdentifier(n)
-        continuations = waiters.removeValue(forKey: key)
-        if continuations != nil {
-            pendingList.removeAll { ObjectIdentifier($0) == key }
-            snapshot = pendingList
+        guard let continuations = waiters.removeValue(forKey: key) else {
+            lock.unlock()
+            return
+        }
+        pendingList.removeAll { ObjectIdentifier($0) == key }
+        let snapshot = pendingList
+        pendingSequence &+= 1
+        let delivery = enqueueLocked(.snapshot(snapshot, pendingSequence)) {
+            for continuation in continuations {
+                continuation.resume(returning: reaction)
+            }
         }
         lock.unlock()
-        // Emit + resume outside the lock so a synchronous re-entrant
-        // post/resolve from a subscriber or the continuation body cannot deadlock.
-        if let snapshot { subject.send(snapshot) }
-        for continuation in continuations ?? [] {
-            continuation.resume(returning: reaction)
-        }
+        afterDeliveryEnqueued?()
+        publish(delivery)
     }
 
     /// Resolve all in-flight waiters with `.pending`, complete `pending`,
@@ -144,12 +225,144 @@ public final class NotificationHub: NotificationHubProtocol {
         let capturedWaiters = waiters.values.flatMap { $0 }
         waiters.removeAll()
         pendingList.removeAll()
-        lock.unlock()
-        // Resume and complete outside the lock — mirrors the send-outside-lock
-        // discipline to prevent sink re-entrancy deadlocks.
-        for continuation in capturedWaiters {
-            continuation.resume(returning: .pending)
+        pendingSequence &+= 1
+        let delivery = enqueueLocked(.finished(pendingSequence)) {
+            for continuation in capturedWaiters {
+                continuation.resume(returning: .pending)
+            }
         }
-        subject.send(completion: .finished)
+        lock.unlock()
+        afterDeliveryEnqueued?()
+        publish(delivery)
+    }
+
+    private typealias DeliveryPlan = (
+        delivery: NotificationHubDelivery,
+        shouldDrain: Bool,
+        shouldWait: Bool
+    )
+
+    /// Enqueue while `lock` is held so observable delivery order is the same as
+    /// the pending-state mutation order. Subscriber callbacks still run after
+    /// the lock is released.
+    private func enqueueLocked(
+        _ event: NotificationHubDelivery.Event,
+        afterDelivery: @escaping () -> Void = {}
+    ) -> DeliveryPlan {
+        let delivery = NotificationHubDelivery(
+            event: event,
+            afterDelivery: afterDelivery
+        )
+        deliveries.append(delivery)
+        let caller = Self.currentThreadID
+        if drainerThread == 0 {
+            drainerThread = caller
+            return (delivery, true, false)
+        }
+        let shouldWait = drainerThread != caller && NotificationDeliveryContext.depth == 0
+        return (delivery, false, shouldWait)
+    }
+
+    private func publish(_ plan: DeliveryPlan) {
+        if plan.shouldDrain {
+            beforeDeliveryDrain?()
+            drainDeliveries()
+        } else if plan.shouldWait {
+            plan.delivery.completed.wait()
+        }
+    }
+
+    /// Drain outside `lock`. Re-entrant operations append behind the current
+    /// callback; producers on another thread wait for their own record unless
+    /// they are already inside another notification-hub delivery. That global
+    /// thread-local exception prevents opposing hubs from waiting on each
+    /// other's Combine downstream locks.
+    private func drainDeliveries() {
+        while true {
+            lock.lock()
+            guard deliveryHead < deliveries.count else {
+                deliveries.removeAll(keepingCapacity: true)
+                deliveryHead = 0
+                drainerThread = 0
+                lock.unlock()
+                return
+            }
+            let delivery = deliveries[deliveryHead]
+            deliveryHead += 1
+            lock.unlock()
+
+            NotificationDeliveryContext.depth += 1
+            switch delivery.event {
+            case .snapshot(let snapshot, let sequence):
+                deliverSnapshot(snapshot, sequence: sequence)
+            case .finished(let sequence):
+                finishPendingSubscribers(sequence: sequence)
+            }
+            delivery.afterDelivery()
+            NotificationDeliveryContext.depth -= 1
+            delivery.completed.signal()
+        }
+    }
+
+    private static var currentThreadID: UInt64 {
+        UInt64(pthread_mach_thread_np(pthread_self()))
+    }
+
+    private func attachPendingSubscriber<S>(_ subscriber: S)
+    where S: Subscriber, S.Input == [Notification], S.Failure == Never {
+        lock.lock()
+        guard !disposed else {
+            lock.unlock()
+            Empty<[Notification], Never>(completeImmediately: true)
+                .receive(subscriber: subscriber)
+            return
+        }
+
+        let id = UUID()
+        let subject = CurrentValueSubject<[Notification], Never>(pendingList)
+        pendingSubscribers[id] = PendingSubscriberRecord(
+            subject: subject,
+            startSequence: pendingSequence
+        )
+        lock.unlock()
+
+        // CurrentValueSubject synchronously replays its current value from
+        // receive(subscriber:). Attach only after the record is registered and
+        // the hub lock is released so initial subscriber code cannot form an
+        // opposing-hub lock cycle. Any mutation in this gap updates or finishes
+        // the registered subject before its downstream attaches.
+        subject
+            .handleEvents(receiveCancel: { [weak self] in
+                self?.detachPendingSubscriber(id)
+            })
+            .receive(subscriber: subscriber)
+    }
+
+    private func detachPendingSubscriber(_ id: UUID) {
+        lock.lock()
+        pendingSubscribers.removeValue(forKey: id)
+        lock.unlock()
+    }
+
+    private func deliverSnapshot(
+        _ snapshot: [Notification],
+        sequence: UInt64
+    ) {
+        lock.lock()
+        let targets = pendingSubscribers.values
+            .filter { $0.startSequence < sequence }
+            .map(\.subject)
+        lock.unlock()
+        for target in targets { target.send(snapshot) }
+    }
+
+    private func finishPendingSubscribers(sequence: UInt64) {
+        lock.lock()
+        let targets = pendingSubscribers.values
+            .filter { $0.startSequence < sequence }
+            .map(\.subject)
+        pendingSubscribers.removeAll()
+        lock.unlock()
+        for target in targets { target.send(completion: .finished) }
     }
 }

@@ -81,5 +81,7 @@ private struct NotebookRowView: View {
             )
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(nb.notebookName)
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
 }

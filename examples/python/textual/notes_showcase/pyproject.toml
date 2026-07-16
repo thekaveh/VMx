@@ -29,10 +29,10 @@ dev = [
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-# Coverage gate is split into two scopes (audit pass #1, C2):
+# Coverage is split into two scopes according to runtime responsibility:
 #   * `models` + `viewmodels` carry the spec-relevant logic and must
 #     stay at ≥90 % per VM (the floor `--cov-fail-under=90` enforces
-#     the union; per-VM is enforced by the audit checklist).
+#     the union; per-VM is enforced by the maintenance checklist).
 #   * `views` rely on a live Textual app to exercise modals / dispatchers
 #     and intentionally sit at a lower floor — they would skew the
 #     viewmodel ratio otherwise. See examples/notes-showcase-parity.md.

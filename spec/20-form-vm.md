@@ -181,9 +181,11 @@ the `JSON.stringify` comparison used before v3 it:
   (guarded with a visited-pair set) — the previous `JSON.stringify` path *crashed*
   on both;
 - compares `Date` by instant, `Map`/`Set` by contents, `RegExp` by source/flags,
-  arrays and plain objects by value — the previous path was *silently wrong* on
-  all of these (`JSON.stringify` renders every `Map`/`Set` as `{}` and stringifies
-  `Date`, so distinct values compared equal);
+  binary buffers/views by concrete constructor and visible bytes, and arrays and
+  plain objects by value — the previous path was *silently wrong* on several of
+  these (`JSON.stringify` renders every `Map`/`Set` as `{}` and stringifies
+  `Date`, so distinct values compared equal); binary comparison closes the
+  empty-enumerable `ArrayBuffer`/`DataView` gap clarified by ADR-0113;
 - preserves an `undefined`-valued key as distinct from a missing key (matching what
   `structuredClone` preserves), and treats `NaN` as equal to `NaN` and `+0`/`-0` as
   equal, for stable dirty-tracking;
@@ -304,8 +306,7 @@ accepted unequal assignment.
 The null/default hub keeps null-object behavior: the local edit transaction still
 settles and no exception is raised. Validator failures retain their existing
 flavor behavior; this contract does not add rollback. Intentional publication of
-an equal/current model is outside this method and is tracked separately by issue
-#89.
+an equal/current FormVM model is outside this method by decision (ADR-0093).
 
 ## 6. Lifecycle state diagram
 

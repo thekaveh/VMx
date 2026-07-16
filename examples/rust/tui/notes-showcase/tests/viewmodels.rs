@@ -92,13 +92,12 @@ fn editor_mode_and_delete_confirmation_are_vm_commands() {
     let repository = InMemoryNoteRepository::seeded();
     let workspace = WorkspaceVm::new(repository.clone()).expect("workspace builds");
 
-    workspace
-        .editor()
-        .show_preview()
-        .expect("preview mode allowed");
+    workspace.editor().show_preview();
     assert_eq!(workspace.editor().mode(), "preview");
-    workspace.editor().show_edit().expect("edit mode allowed");
+    workspace.editor().show_edit();
     assert_eq!(workspace.editor().mode(), "edit");
+    workspace.editor().toggle();
+    assert_eq!(workspace.editor().mode(), "preview");
 
     workspace.request_delete_current();
     assert_eq!(

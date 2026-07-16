@@ -1,5 +1,6 @@
 using FluentAssertions;
 using Microsoft.Reactive.Testing;
+using System.Reactive.Concurrency;
 using VMx.Notifications;
 using Xunit;
 
@@ -267,5 +268,68 @@ public class NOTIF_011_to_016_RenderingVMs_Tests
         scheduler.AdvanceBy(TimeSpan.FromSeconds(2).Ticks);
 
         sawOpacity.Should().BeTrue("ConfirmationVM must forward the tick interval to NotificationVM");
+    }
+
+    [Fact]
+    public async Task Dispose_Wins_Against_Admitted_Expiry_Before_Terminal_Claim()
+    {
+        var scheduler = new TestScheduler();
+        using var hub = new NotificationHub();
+        var notification = new Notification(NotificationType.Notification, "dispose race");
+        var completion = hub.Post(notification);
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        using var sut = new BlockingExpiryNotificationVM(
+            notification, hub, scheduler, entered, release);
+        var propertyChanges = 0;
+        sut.PropertyChanged += (_, _) => Interlocked.Increment(ref propertyChanges);
+
+        var expiry = Task.Run(sut.ExpireNow);
+        try
+        {
+            entered.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue();
+            sut.Dispose();
+        }
+        finally
+        {
+            release.Set();
+        }
+        await expiry.WaitAsync(TimeSpan.FromSeconds(5));
+
+        sut.IsResolved.Should().BeFalse();
+        completion.IsCompleted.Should().BeFalse(
+            "disposal claimed the terminal state before expiry resumed");
+        propertyChanges.Should().Be(0,
+            "a timer that loses to disposal cannot publish resolved state");
+
+        hub.Resolve(notification, NotificationReaction.Pending);
+        await completion;
+    }
+
+    private sealed class BlockingExpiryNotificationVM : NotificationVM
+    {
+        private readonly ManualResetEventSlim _entered;
+        private readonly ManualResetEventSlim _release;
+
+        public BlockingExpiryNotificationVM(
+            Notification notification,
+            INotificationHub hub,
+            IScheduler scheduler,
+            ManualResetEventSlim entered,
+            ManualResetEventSlim release)
+            : base(notification, hub, scheduler, lifespan: TimeSpan.FromHours(1))
+        {
+            _entered = entered;
+            _release = release;
+        }
+
+        public void ExpireNow() => OnExpire();
+
+        protected override void OnExpire()
+        {
+            _entered.Set();
+            _release.Wait();
+            base.OnExpire();
+        }
     }
 }

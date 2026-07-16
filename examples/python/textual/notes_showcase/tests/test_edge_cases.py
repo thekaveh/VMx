@@ -1,6 +1,6 @@
 """Edge-case backfill — Notes-Showcase flagship app.
 
-Covers four edge cases that the original test pass missed (audit task D):
+Covers four boundary cases that the main scenario does not exercise:
 
 1. Empty-on-startup     — workspace constructs cleanly with zero notebooks.
 2. Async failure mode   — repo failures are swallowed by VMs (no crash).

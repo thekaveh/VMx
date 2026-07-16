@@ -54,7 +54,7 @@ public sealed class HeadlessSmokeTests
             .Build();
         await workspace.ConstructAsync();
         // ConstructAsync and BindToAsync marshal their INPC-raising tails
-        // onto the UI dispatcher (pass-6 threading fixes) — drain it so the
+        // onto the UI dispatcher (foreground-dispatch contract) — drain it so the
         // queued work runs before assertions.
         Avalonia.Threading.Dispatcher.UIThread.RunJobs();
 
@@ -80,7 +80,7 @@ public sealed class HeadlessSmokeTests
         workspace.Dispose();
     }
 
-    // ── Round-3 Critical-2: WorkspaceVM observes NotesView.Current changes
+    // ── current-selection rebinding: WorkspaceVM observes NotesView.Current changes
     // and re-binds NoteForm — without this the right-pane editor stays
     // empty when the user clicks a note in the centre pane.
     [Trait("Category", "Smoke")]
@@ -103,7 +103,7 @@ public sealed class HeadlessSmokeTests
             .Build();
         await workspace.ConstructAsync();
         // ConstructAsync and BindToAsync marshal their INPC-raising tails
-        // onto the UI dispatcher (pass-6 threading fixes) — drain it so the
+        // onto the UI dispatcher (foreground-dispatch contract) — drain it so the
         // queued work runs before assertions.
         Avalonia.Threading.Dispatcher.UIThread.RunJobs();
         Assert.False(workspace.NoteForm.HasBoundNote);
@@ -114,7 +114,7 @@ public sealed class HeadlessSmokeTests
         var first = workspace.NotesView.Inner[0];
         workspace.NotesView.Current = first;
 
-        // Round-4 Important-2: the WorkspaceVM subscription now uses
+        // foreground dispatch: the WorkspaceVM subscription now uses
         // ObserveOn(_dispatcher.Foreground), so the BindTo handler is
         // queued onto Dispatcher.UIThread instead of running inline.
         // Drain the UI dispatcher so the queued post executes.
@@ -154,7 +154,7 @@ public sealed class HeadlessSmokeTests
             .Build();
         await workspace.ConstructAsync();
         // ConstructAsync and BindToAsync marshal their INPC-raising tails
-        // onto the UI dispatcher (pass-6 threading fixes) — drain it so the
+        // onto the UI dispatcher (foreground-dispatch contract) — drain it so the
         // queued work runs before assertions.
         Avalonia.Threading.Dispatcher.UIThread.RunJobs();
 

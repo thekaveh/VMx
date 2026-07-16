@@ -53,8 +53,8 @@ public sealed class CompositeVM<VM> : CompositeVMBase<VM>, ICompositeVM<VM>
             .AsyncSelection(options.AsyncSelection)
             .AutoConstructOnAdd(options.AutoConstructOnAdd);
         if (options.Name is not null) b = b.Name(options.Name);
-        if (options.Hub is not null && options.Dispatcher is not null)
-            b = b.Services(options.Hub, options.Dispatcher);
+        if (options.Hub is not null) b = b.OptionHub(options.Hub);
+        if (options.Dispatcher is not null) b = b.OptionDispatcher(options.Dispatcher);
         if (options.Children is not null) b = b.Children(options.Children);
         if (options.Current is not null) b = b.Current(options.Current);
         if (options.OnCurrentChanged is not null) b = b.OnCurrentChanged(options.OnCurrentChanged);
@@ -82,8 +82,7 @@ public sealed class CompositeVM<VM> : CompositeVMBase<VM>, ICompositeVM<VM>
     protected override void PopulateChildren()
     {
         if (_populated || _childrenFactory is null) return;
+        AttachPopulation(_childrenFactory());
         _populated = true;
-        foreach (var child in _childrenFactory())
-            Add(child);
     }
 }

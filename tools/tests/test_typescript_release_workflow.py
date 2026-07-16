@@ -73,11 +73,11 @@ def test_release_runs_every_gate_before_publish() -> None:
 def test_release_has_mutually_exclusive_bootstrap_and_oidc_publish_steps() -> None:
     jobs = _typescript_release_jobs()
 
-    assert "if: env.NPM_TOKEN != ''" in jobs
-    assert "NODE_AUTH_TOKEN: ${{ env.NPM_TOKEN }}" in jobs
+    assert "if: steps.npm-auth.outputs.bootstrap == 'true'" in jobs
+    assert "NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}" in jobs
     assert "npm publish --access public --provenance" in jobs
     assert "name: Publish with npm trusted publishing" in jobs
-    assert "if: env.NPM_TOKEN == ''" in jobs
+    assert "if: steps.npm-auth.outputs.bootstrap != 'true'" in jobs
     assert "npm publish --access public" in jobs
 
 

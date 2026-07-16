@@ -8,6 +8,8 @@ import { ViewModelType } from "../components/types.js";
 import type { IMessageHub } from "../services/messageHub.js";
 import type { IDispatcher } from "../services/dispatcher.js";
 import { BuilderValidationError } from "../builders/exceptions.js";
+import { AggregateParent, commitAggregateSlots, validateAggregateSlots } from "./ownership.js";
+import { disposeBestEffort } from "../components/disposal.js";
 
 const SENTINEL = Symbol("not-set");
 
@@ -19,6 +21,7 @@ export class AggregateVM6<
   VM5 extends ComponentVMBase,
   VM6 extends ComponentVMBase,
 > extends ComponentVMBase {
+  readonly #aggregateParent: AggregateParent;
   readonly #factory1: () => VM1;
   readonly #factory2: () => VM2;
   readonly #factory3: () => VM3;
@@ -38,6 +41,7 @@ export class AggregateVM6<
     factory4: () => VM4; factory5: () => VM5; factory6: () => VM6;
   }) {
     super(opts);
+    this.#aggregateParent = new AggregateParent(this, () => this.components());
     this.#factory1 = opts.factory1; this.#factory2 = opts.factory2;
     this.#factory3 = opts.factory3; this.#factory4 = opts.factory4;
     this.#factory5 = opts.factory5; this.#factory6 = opts.factory6;
@@ -68,6 +72,14 @@ export class AggregateVM6<
   }
 
   protected override _onConstruct(): void {
+    const next1 = this.#factory1();
+    const next2 = this.#factory2();
+    const next3 = this.#factory3();
+    const next4 = this.#factory4();
+    const next5 = this.#factory5();
+    const next6 = this.#factory6();
+    validateAggregateSlots(this.#aggregateParent, [next1, next2, next3, next4, next5, next6]);
+    const previous = [this.#component1, this.#component2, this.#component3, this.#component4, this.#component5, this.#component6];
     // On Reconstruct, dispose previous slot instances before overwriting
     // so their hub subscriptions and command Subjects don't leak.
     this.#component1?.dispose();
@@ -77,22 +89,23 @@ export class AggregateVM6<
     this.#component5?.dispose();
     this.#component6?.dispose();
 
-    this.#component1 = this.#factory1();
+    this.#component1 = next1;
     this._notifyPropertyChanged("component1");
 
-    this.#component2 = this.#factory2();
+    this.#component2 = next2;
     this._notifyPropertyChanged("component2");
 
-    this.#component3 = this.#factory3();
+    this.#component3 = next3;
     this._notifyPropertyChanged("component3");
 
-    this.#component4 = this.#factory4();
+    this.#component4 = next4;
     this._notifyPropertyChanged("component4");
 
-    this.#component5 = this.#factory5();
+    this.#component5 = next5;
     this._notifyPropertyChanged("component5");
 
-    this.#component6 = this.#factory6();
+    this.#component6 = next6;
+    commitAggregateSlots(this.#aggregateParent, previous, [next1, next2, next3, next4, next5, next6]);
     this._notifyPropertyChanged("component6");
 
     this.#component1.construct();
@@ -117,13 +130,15 @@ export class AggregateVM6<
     // Mirrors AggregateVM1..AggregateVM5 so subscribers observe child Disposed
     // transitions before the aggregate's own Disposed transition — a single
     // dispose-ordering rule across all aggregate arities.
-    this.#component1?.dispose();
-    this.#component2?.dispose();
-    this.#component3?.dispose();
-    this.#component4?.dispose();
-    this.#component5?.dispose();
-    this.#component6?.dispose();
-    super.dispose();
+    disposeBestEffort([
+      () => this.#component1?.dispose(),
+      () => this.#component2?.dispose(),
+      () => this.#component3?.dispose(),
+      () => this.#component4?.dispose(),
+      () => this.#component5?.dispose(),
+      () => this.#component6?.dispose(),
+      () => super.dispose(),
+    ]);
   }
 
   static builder<

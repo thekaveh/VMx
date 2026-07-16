@@ -7,6 +7,7 @@ from reactivex.scheduler import ImmediateScheduler
 from reactivex.testing import TestScheduler
 
 from vmx import (
+    ConstructionStatus,
     Filterable,
     IReconstructable,
     ISearchable,
@@ -215,7 +216,40 @@ def test_dispose_releases_resources() -> None:
     assert vm.status == ConstructionStatus.DISPOSED
 
 
-# ── Audit pass #1, B1/B2 symmetric coverage: delete-with-confirm wiring ───
+async def test_destruct_and_direct_dispose_release_all_note_children() -> None:
+    from vmx import ConstructionStatus
+
+    destructed = _build()
+    destructed.construct()
+    await destructed.bind_to_async("nb-personal")
+    destructed_children = list(destructed.inner)
+    destructed.current = destructed_children[0]
+
+    destructed.destruct()
+
+    assert destructed.inner.count == 0
+    assert destructed.current is None
+    assert destructed.bound_notebook_id is None
+    assert all(
+        child.status == ConstructionStatus.DISPOSED for child in destructed_children
+    )
+    destructed.dispose()
+
+    disposed = _build()
+    disposed.construct()
+    await disposed.bind_to_async("nb-personal")
+    disposed_children = list(disposed.inner)
+
+    disposed.dispose()
+
+    assert disposed.inner.count == 0
+    assert disposed.bound_notebook_id is None
+    assert all(
+        child.status == ConstructionStatus.DISPOSED for child in disposed_children
+    )
+
+
+# ── delete-confirmation symmetry: delete-with-confirm wiring ───
 
 
 class _AcceptDialog:
@@ -289,8 +323,8 @@ async def test_capability_save_persists_the_focused_note() -> None:
 
     Regression guard: Python previously omitted the ``.on_save`` wiring on the
     per-note builder, so ``NoteVM.save()`` early-returned and the action-bar
-    Save was a silent no-op — while C#/TS/Swift all wired it (real-wiring
-    audit). The existing capability-actions test only asserted the "Save"
+    Save was a silent no-op — while C#/TS/Swift all wired it. The existing
+    capability-actions test only asserted the "Save"
     label was present, not that pressing it persisted.
     """
     import asyncio
@@ -344,6 +378,17 @@ async def test_repository_search_notes_returns_token_pages_over_all_notes() -> N
     assert second[0][0].id != first[0][0].id
 
 
+async def test_repository_search_notes_rejects_malformed_and_extreme_offsets() -> None:
+    repo = InMemoryNoteRepository(build_seed(), load_notes_delay=0.0)
+    first = await repo.search_notes("review", token=None, page_size=2)
+
+    malformed = await repo.search_notes("review", token="2junk", page_size=2)
+    extreme = await repo.search_notes("review", token=str(10**100), page_size=10**100)
+
+    assert malformed[0] == first[0]
+    assert extreme == ([], None)
+
+
 async def test_global_search_vm_refreshes_resets_terms_and_loads_more() -> None:
     from notes_showcase.viewmodels.global_search_vm import GlobalSearchVM
 
@@ -369,8 +414,14 @@ async def test_global_search_vm_refreshes_resets_terms_and_loads_more() -> None:
 
     await vm.load_more_command.execute_async()
     assert len(vm.results) > 2
+    replaced_results = list(vm.results)
 
     vm.search_term = "travel"
     await vm.refresh_command.execute_async()
     assert all(n.model.notebook_id == "nb-personal" for n in vm.results)
+    final_results = list(vm.results)
     vm.dispose()
+    assert all(
+        result.status is ConstructionStatus.DISPOSED
+        for result in [*replaced_results, *final_results]
+    )

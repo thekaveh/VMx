@@ -13,7 +13,7 @@ primitives into the flagship app shape.
   <a href="../../assets/diagrams/examples-vm-layer.png">PNG</a>
 </p>
 
-## Canonical Hierarchy
+## 8.4.1. Canonical Hierarchy
 
 The language-neutral VM hierarchy diagram lives in the examples tree:
 [examples/assets/notes-showcase-vm-hierarchy.svg](../../../examples/assets/notes-showcase-vm-hierarchy.svg).
@@ -24,7 +24,7 @@ The Rust TUI showcase has its own VM-layer map because its terminal host is a
 Rust-specific adapter rather than one of the four GUI-backed flagship hosts:
 [Rust TUI Notes Showcase](rust-tui-notes-showcase.md).
 
-## Layer Walk
+## 8.4.2. Layer Walk
 
 - `WorkspaceVM` is the composition root. In the current flagship apps it wraps
   an `AggregateVM6` over the six primary children.
@@ -37,7 +37,7 @@ Rust-specific adapter rather than one of the four GUI-backed flagship hosts:
 - `NotificationsVM`, `StatusBarVM`, and capability actions wire the supporting
   surfaces around the editor core.
 
-## Where To Verify
+## 8.4.3. Where To Verify
 
 - Parity matrix:
   [examples/notes-showcase-parity.md](../../../examples/notes-showcase-parity.md)

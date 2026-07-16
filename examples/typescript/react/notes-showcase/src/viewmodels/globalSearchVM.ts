@@ -13,11 +13,14 @@ import { NoteVM } from "./noteVM.js";
 
 const SENTINEL = Symbol("not-set");
 
+/** Token-paged search and lifetime owner for every result VM it creates. */
 export class GlobalSearchVM extends ComponentVMBase {
   readonly #repo: INoteRepository;
   readonly #pageSize: number;
   readonly #search: SearchableState<string>;
   readonly #paged: TokenPagedComposition<NoteVM, string>;
+  readonly #ownedResults = new Set<NoteVM>();
+  #ownedResultsDisposed = false;
 
   constructor(opts: {
     name: string;
@@ -47,11 +50,13 @@ export class GlobalSearchVM extends ComponentVMBase {
         const page = await this.#repo.searchNotes(this.searchTerm, token, this.#pageSize);
         return {
           items: page.items.map((model) =>
-            NoteVM.builder()
-              .name(`global-${model.id}`)
-              .services(this._hub, this._dispatcher)
-              .model(model)
-              .build(),
+            this.#ownResult(
+              NoteVM.builder()
+                .name(`global-${model.id}`)
+                .services(this._hub, this._dispatcher)
+                .model(model)
+                .build(),
+            ),
           ),
           nextToken: page.nextToken,
         };
@@ -116,10 +121,21 @@ export class GlobalSearchVM extends ComponentVMBase {
     return this.#paged.loadMoreCommand;
   }
 
+  #ownResult(result: NoteVM): NoteVM {
+    if (this.#ownedResultsDisposed) {
+      result.dispose();
+    } else {
+      this.#ownedResults.add(result);
+    }
+    return result;
+  }
+
   protected override _onDispose(): void {
+    this.#ownedResultsDisposed = true;
+    for (const result of this.#ownedResults) result.dispose();
+    this.#ownedResults.clear();
     this.#search.dispose();
     this.#paged.dispose();
-    for (const result of this.#paged.items) result.dispose();
     super._onDispose();
   }
 

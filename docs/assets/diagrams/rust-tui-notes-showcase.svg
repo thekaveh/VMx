@@ -69,7 +69,7 @@
 <text x="1420" y="432" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">confirmation messages</text>
 <rect x="1570" y="340" width="150" height="150" rx="8" fill="#0f172a"/>
 <rect x="1570" y="340" width="150" height="150" rx="8" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.8"/>
-<text x="1645" y="368" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">EditorModeVm</text>
+<text x="1645" y="368" fill="#f8fafc" font-size="17.21" font-weight="700" text-anchor="middle">EditorModeVm</text>
 <text x="1645" y="394" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">DiscriminatorVm</text>
 <text x="1645" y="413" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">edit</text>
 <text x="1645" y="432" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">preview</text>

@@ -8,6 +8,23 @@ namespace VMx.Conformance.Tests;
 
 public class COMP_028_to_037_FilteredCompositeTests
 {
+    private sealed class EqualByNameVM(string name)
+        : ComponentVMBase(
+            name,
+            "",
+            NullMessageHub.Instance,
+            NullDispatcher.Instance,
+            null,
+            null)
+    {
+        public override ViewModelType Type => ViewModelType.Component;
+
+        public override bool Equals(object? obj) =>
+            obj is EqualByNameVM other && other.Name == Name;
+
+        public override int GetHashCode() => Name.GetHashCode(StringComparison.Ordinal);
+    }
+
     private static ComponentVM Child(string name) =>
         ComponentVM.Builder().Name(name).WithNullServices().Build();
 
@@ -43,6 +60,25 @@ public class COMP_028_to_037_FilteredCompositeTests
         var sut = new FilteredCompositeVM<ComponentVM>(src, vm => vm.Name.Contains('a'));
         sut.Current = sut.Visible[0];
         sut.Current.Should().BeSameAs(src[0]);
+    }
+
+    [Fact, Trait("Conformance", "COMP-030")]
+    public void COMP_030_CurrentRejectsEqualButForeignIdentity()
+    {
+        var child = new EqualByNameVM("same");
+        var foreign = new EqualByNameVM("same");
+        var source = CompositeVM<EqualByNameVM>.Builder()
+            .Name("source")
+            .Services(NullMessageHub.Instance, NullDispatcher.Instance)
+            .Children(() => [])
+            .Build();
+        source.Add(child);
+        var sut = new FilteredCompositeVM<EqualByNameVM>(source);
+
+        Action setForeign = () => sut.Current = foreign;
+
+        setForeign.Should().Throw<InvalidOperationException>();
+        sut.Current.Should().BeSameAs(child);
     }
 
     [Fact, Trait("Conformance", "COMP-031")]

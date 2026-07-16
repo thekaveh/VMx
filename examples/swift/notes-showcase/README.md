@@ -21,11 +21,15 @@ The package has three targets:
 ```bash
 cd examples/swift/notes-showcase
 swift build
+swift build -c release \
+  -Xswiftc -strict-concurrency=complete \
+  -Xswiftc -warn-concurrency \
+  -Xswiftc -warnings-as-errors
 swift test
 ```
 
 `swift test` requires XCTest from a full Xcode installation. CI runs the Swift
-library and example on `macos-latest`.
+library and example on `macos-15`, including the strict-concurrency build.
 
 ## 3. Scenario Contract
 
@@ -47,3 +51,12 @@ theme state, edit/preview mode through `DiscriminatorVM`, and tag suggestions
 through `SearchableState<String>`. Core VM code lives under
 `Sources/NotesShowcaseCore/ViewModels/`; SwiftUI projections live under
 `Sources/NotesShowcase/Views/`.
+
+## 5. Foreground Execution
+
+The production composition root uses VMx's `DefaultDispatcher`. Async VM
+operations await persistence away from the UI and then use the dispatcher-backed
+foreground bridge for observable collection, selection, form, and command-state
+mutations. Notification posts are awaited directly. This keeps UI state on the
+host's foreground executor without imposing `MainActor` on language-neutral VMx
+capability protocols.

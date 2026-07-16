@@ -1,6 +1,6 @@
 # 6.2.3. Aggregate Family
 
-## When To Use It
+## 6.2.3.1. When To Use It
 
 Use `AggregateVM1` through `AggregateVM6` when the parent owns a fixed set of
 heterogeneous children and each slot has a stable semantic role: workspace
@@ -19,7 +19,7 @@ things and variable-length child lists would weaken the contract.
   <a href="../../../assets/diagrams/aggregate-family.png">PNG</a>
 </p>
 
-## Shape And Ownership
+## 6.2.3.2. Shape And Ownership
 
 An aggregate is a component-shaped parent with named child slots:
 
@@ -31,7 +31,13 @@ The explicit arity surface is deliberate. VMx keeps `AggregateVM1` through
 `AggregateVM6` rather than a variadic abstraction so every flavor preserves the
 same compile-time slot contract.
 
-## Lifecycle And Messaging
+Aggregate slots are fixed ownership positions. All factories are evaluated and
+validated before any existing slot is overwritten. A duplicate identity, an
+already-owned component, or an ownership cycle rejects the population without
+changing prior slots. A populated aggregate child cannot be transferred into a
+mutable container because that would leave an invalid empty slot.
+
+## 6.2.3.3. Lifecycle And Messaging
 
 Construction and destruction cascade through the slot children:
 
@@ -42,7 +48,7 @@ Construction and destruction cascade through the slot children:
 Each successful slot population publishes a property-changed message for that
 slot (`Component1`, `component_1`, `component1`, and so on).
 
-## Cross-Language Surface
+## 6.2.3.4. Cross-Language Surface
 
 | Concept              | C#                  | Python              | TypeScript          | Swift               |
 | -------------------- | ------------------- | ------------------- | ------------------- | ------------------- |
@@ -50,7 +56,7 @@ slot (`Component1`, `component_1`, `component1`, and so on).
 | Slot builder setters | `Component1(...)`   | `component_1(...)`  | `component1(...)`   | `component1(...)`   |
 | Slot property        | `Component1`        | `component_1`       | `component1`        | `component1`        |
 
-## Example
+## 6.2.3.5. Example
 
 - `C#`: `AggregateVM6<...>.Builder().Name("workspace").Services(hub, dispatcher).Component1(() => notebooks).Component2(() => notes).Build()`
 - `Python`: `AggregateVM6Builder[...]().name("workspace").services(hub, dispatcher).component_1(lambda: notebooks).component_2(lambda: notes).build()`
@@ -60,16 +66,18 @@ slot (`Component1`, `component_1`, `component1`, and so on).
 The Notes Workspace shell uses this pattern as its six-pane root in the C#,
 Python, TypeScript, and Swift examples.
 
-## Common Pitfalls
+## 6.2.3.6. Common Pitfalls
 
 - Using an aggregate when the child set is variable or homogeneous. Prefer
   `CompositeVM` or `GroupVM`.
 - Expecting slot factories to run at build time. They run at construct time.
+- Passing a component that is still owned by a composite or group. Remove it
+  explicitly before returning it from an aggregate factory.
 - Flattening semantic slots into a list and losing explicit ownership names.
 - Treating slot children as selectable peers. Aggregates own structure, not a
   `Current` selection slot.
 
-## Related Primitives
+## 6.2.3.7. Related Primitives
 
 - [Component Family](component-family.md)
 - [Composite Family](composite-family.md)

@@ -63,7 +63,11 @@ final class DisposalInvariantTests: XCTestCase {
 
         command.dispose()
         command.dispose()
-        try? await run.value
+        do {
+            try await run.value
+        } catch {
+            XCTFail("default disposal cancellation must complete without throwing: \(error)")
+        }
 
         XCTAssertEqual(cancellations.value, 1)
         XCTAssertFalse(command.canExecute())
@@ -88,15 +92,15 @@ final class DisposalInvariantTests: XCTestCase {
         let pending = Task { await hub.post(notification) }
         await fulfillment(of: [appeared], timeout: 2.0)
 
-        let group = DispatchGroup()
+        let disposed = expectation(description: "all disposers returned")
+        disposed.expectedFulfillmentCount = 64
         for _ in 0..<64 {
-            group.enter()
             DispatchQueue.global().async {
                 hub.dispose()
-                group.leave()
+                disposed.fulfill()
             }
         }
-        group.wait()
+        await fulfillment(of: [disposed], timeout: 2.0)
 
         let pendingResult = await pending.value
         XCTAssertEqual(pendingResult, .pending)

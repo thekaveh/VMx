@@ -194,4 +194,41 @@ final class AggregateVMTests: XCTestCase {
         XCTAssertEqual(a.component6?.status, .destructed)
         XCTAssertEqual(a.status, .destructed, "aggregate itself must be Destructed")
     }
+
+    func testAlreadyOwnedFactoryResultIsRejectedWithoutMutation() throws {
+        let child = leaf("child")
+        let composite = try CompositeVM<ComponentVM>.builder()
+            .name("composite").withNullServices().children { [child] }.build()
+        try composite.construct()
+        let aggregate = try AggregateVM1<ComponentVM>.builder()
+            .name("aggregate").withNullServices().component1 { child }.build()
+
+        XCTAssertThrowsError(try aggregate.construct()) { error in
+            guard let ownershipError = error as? ContainerOwnershipError,
+                  case .inconsistentParent = ownershipError else {
+                return XCTFail("expected inconsistentParent, got \(error)")
+            }
+        }
+        XCTAssertEqual(composite.count, 1)
+        XCTAssertTrue(composite.at(0) === child)
+        XCTAssertNil(aggregate.component1)
+    }
+
+    func testFixedAggregateSlotCannotTransferToMutableContainer() throws {
+        let child = leaf("child")
+        let aggregate = try AggregateVM1<ComponentVM>.builder()
+            .name("aggregate").withNullServices().component1 { child }.build()
+        try aggregate.construct()
+        let composite = try CompositeVM<ComponentVM>.builder()
+            .name("composite").withNullServices().children { [] }.build()
+        try composite.construct()
+
+        if case .failure(.inconsistentParent) = composite.addResult(child) {
+            // Expected.
+        } else {
+            XCTFail("fixed aggregate child must not transfer")
+        }
+        XCTAssertTrue(aggregate.component1 === child)
+        XCTAssertEqual(composite.count, 0)
+    }
 }

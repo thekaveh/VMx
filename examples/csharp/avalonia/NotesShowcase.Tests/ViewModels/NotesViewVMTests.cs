@@ -2,6 +2,7 @@ using System.Reactive.Concurrency;
 using Microsoft.Reactive.Testing;
 using NotesShowcase.Models;
 using NotesShowcase.ViewModels;
+using VMx.Lifecycle;
 using VMx.Services;
 using Xunit;
 
@@ -192,7 +193,7 @@ public sealed class NotesViewVMTests
         Assert.Equal(before, vm.FilteredItems.Count);
     }
 
-    // ── Round-3 Important B-I1: end-to-end delete pathway coverage ────────
+    // ── end-to-end delete-path coverage: end-to-end delete pathway coverage ────────
     // The full pathway (repo.DeleteNoteAsync → remove from _inner → clear
     // Current → dispose) had 0 % coverage. Drive it through NoteVM's
     // DeleteCommand (the only public entry-point to NotesViewVM.DeleteNote).
@@ -256,6 +257,42 @@ public sealed class NotesViewVMTests
     }
 
     [Fact]
+    public async Task Repository_search_notes_rejects_malformed_and_extreme_offsets()
+    {
+        var repo = new InMemoryNoteRepository(
+            SeedData.Build(),
+            loadNotesDelay: TimeSpan.Zero);
+        var first = await repo.SearchNotesAsync("review", token: null, pageSize: 2);
+
+        var malformed = await repo.SearchNotesAsync("review", token: "2junk", pageSize: 2);
+        var extreme = await repo.SearchNotesAsync(
+            "review", token: int.MaxValue.ToString(), pageSize: int.MaxValue);
+
+        Assert.Equal(first.Items, malformed.Items);
+        Assert.Empty(extreme.Items);
+        Assert.Null(extreme.NextToken);
+    }
+
+    [Fact]
+    public async Task Direct_dispose_releases_live_note_children_and_binding_state()
+    {
+        var repo = new InMemoryNoteRepository(
+            SeedData.Build(),
+            loadNotesDelay: TimeSpan.Zero);
+        var vm = BuildVM(repo);
+        vm.Construct();
+        await vm.BindToAsync("nb-personal");
+        var children = vm.Inner.ToArray();
+
+        vm.Dispose();
+
+        Assert.NotEmpty(children);
+        Assert.All(children, child => Assert.Equal(ConstructionStatus.Disposed, child.Status));
+        Assert.Empty(vm.Inner);
+        Assert.Null(vm.BoundNotebookId);
+    }
+
+    [Fact]
     public async Task GlobalSearchVM_refreshes_resets_terms_and_loads_more()
     {
         var hub = new MessageHub();
@@ -278,10 +315,14 @@ public sealed class NotesViewVMTests
 
         await vm.LoadMoreCommand.ExecuteAsync();
         Assert.True(vm.Results.Count > 2);
+        var replacedResults = vm.Results.ToArray();
 
         vm.SearchTerm = "travel";
         await vm.RefreshCommand.ExecuteAsync();
         Assert.All(vm.Results, n => Assert.Equal("nb-personal", n.Model.NotebookId));
+        var finalResults = vm.Results.ToArray();
         vm.Dispose();
+        Assert.All(replacedResults.Concat(finalResults), result =>
+            Assert.Equal(ConstructionStatus.Disposed, result.Status));
     }
 }

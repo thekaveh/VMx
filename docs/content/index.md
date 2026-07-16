@@ -6,29 +6,29 @@ keeps C#, Python, TypeScript, Swift, and Rust aligned.
 
 <div class="vmx-card-grid">
   <div class="vmx-card">
-    <h3><a href="installation/">Install</a></h3>
+    <p class="vmx-card-title"><a href="installation/">Install</a></p>
     <p>Check source-tree version status and package commands for each flavor.</p>
   </div>
   <div class="vmx-card">
-    <h3><a href="quickstart/">Quickstart</a></h3>
+    <p class="vmx-card-title"><a href="getting-started/">Quickstart</a></p>
     <p>Build the same component-plus-composite shape across the full-parity flavors.</p>
   </div>
   <div class="vmx-card">
-    <h3><a href="architecture/">Architecture Map</a></h3>
+    <p class="vmx-card-title"><a href="architecture/">Architecture Map</a></p>
     <p>Walk the system, class, and lifecycle diagrams, then browse the full gallery.</p>
   </div>
 </div>
 
-## Why VMx
+## 1.1. Why VMx
 
 - `spec/` is the source of truth for behavior, lifecycle, and conformance.
 - Every flavor keeps the same conceptual shape while following native naming conventions.
-- The conformance catalog keeps 391 library IDs aligned across all five
+- The conformance catalog keeps 395 library IDs aligned across all five
   full-parity source flavors, plus 5 scenario IDs for flagship examples.
 
-## Start Here
+## 1.2. Start Here
 
 - Read [Installation](installation.md) for source-tree status and package availability.
-- Use [Quickstart](quickstart.md) for the smallest multi-language setup.
+- Use [Quickstart](getting-started/index.md) for the smallest multi-language setup.
 - Read [Core Concepts](core-concepts.md) before choosing VM families or extension points.
 - Use [Architecture Map](architecture/index.md) when you want the system view first.

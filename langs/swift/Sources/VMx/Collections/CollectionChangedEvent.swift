@@ -6,7 +6,7 @@
 //
 // See spec/21-collections.md. Consumed by CompositeVM.collectionChanged,
 // GroupVM.collectionChanged (COMP-001/002, GRP-001), and
-// ServicedObservableCollection (COL-001..004, Phase 3, Inc 2).
+// ServicedObservableCollection (COL-001..004).
 //
 
 /// The kind of mutation that triggered a CollectionChanged event.

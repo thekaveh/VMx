@@ -80,8 +80,10 @@ public actor InMemoryNoteRepository: NoteRepository {
                 .lowercased()
             return haystack.contains(normalized)
         }
-        let end = min(matches.count, start + safePageSize)
-        let items = start < matches.count ? Array(matches[start..<end]) : []
+        guard start < matches.count else { return ([], nil) }
+        let count = min(safePageSize, matches.count - start)
+        let end = start + count
+        let items = Array(matches[start..<end])
         return (items, end < matches.count ? String(end) : nil)
     }
 

@@ -80,7 +80,7 @@ public class FilteredCompositeVM<VM> : IDisposable
     /// <summary>Set current to null or a currently visible item.</summary>
     public void SetCurrent(VM? item)
     {
-        if (item is not null && !_visible.Contains(item))
+        if (item is not null && VisibleIndexOf(item) < 0)
             throw new InvalidOperationException("Current must be null or a visible item.");
         if (ReferenceEquals(_current, item)) return;
         _current = item;
@@ -95,12 +95,17 @@ public class FilteredCompositeVM<VM> : IDisposable
             SetCurrent(null);
             return;
         }
-        if (_current is null || !_visible.Contains(_current))
+        if (_current is null)
         {
             SetCurrent(_visible[0]);
             return;
         }
-        var index = _visible.IndexOf(_current);
+        var index = VisibleIndexOf(_current);
+        if (index < 0)
+        {
+            SetCurrent(_visible[0]);
+            return;
+        }
         SetCurrent(_visible[Math.Min(index + 1, _visible.Count - 1)]);
     }
 
@@ -112,12 +117,17 @@ public class FilteredCompositeVM<VM> : IDisposable
             SetCurrent(null);
             return;
         }
-        if (_current is null || !_visible.Contains(_current))
+        if (_current is null)
         {
             SetCurrent(_visible[0]);
             return;
         }
-        var index = _visible.IndexOf(_current);
+        var index = VisibleIndexOf(_current);
+        if (index < 0)
+        {
+            SetCurrent(_visible[0]);
+            return;
+        }
         SetCurrent(_visible[Math.Max(index - 1, 0)]);
     }
 
@@ -130,7 +140,7 @@ public class FilteredCompositeVM<VM> : IDisposable
     {
         _visible.Clear();
         _visible.AddRange(OrderedVisible());
-        if (_current is not null && !_visible.Contains(_current))
+        if (_current is not null && VisibleIndexOf(_current) < 0)
         {
             _current = _cursorPolicy == FilteredCursorPolicy.SnapToFirst
                 ? _visible.FirstOrDefault()
@@ -142,6 +152,9 @@ public class FilteredCompositeVM<VM> : IDisposable
         }
         Changed?.Invoke(this, EventArgs.Empty);
     }
+
+    private int VisibleIndexOf(VM item) =>
+        _visible.FindIndex(candidate => ReferenceEquals(candidate, item));
 
     private void OnSourceCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e) => Recompute();
 

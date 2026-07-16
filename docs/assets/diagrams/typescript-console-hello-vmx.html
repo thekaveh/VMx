@@ -55,12 +55,6 @@
     }
     .svg-frame { min-width: 1180px; }
     .svg-frame svg { display: block; width: 100%; height: auto; }
-    .diagram-caption {
-      margin: 12px 4px 0;
-      color: var(--text-secondary);
-      font-size: 12px;
-      line-height: 1.45;
-    }
     .cards {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -174,8 +168,8 @@
 <text x="1420" y="498" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">name</text>
 <text x="1420" y="517" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">age</text>
 <text x="1420" y="536" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">structural payload</text>
-<rect x="250" y="738" width="350" height="90" rx="8" fill="#0f172a"/>
-<rect x="250" y="738" width="350" height="90" rx="8" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.8"/>
+<rect x="250" y="738" width="350" height="96" rx="8" fill="#0f172a"/>
+<rect x="250" y="738" width="350" height="96" rx="8" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.8"/>
 <text x="425" y="766" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Manual smoke</text>
 <text x="425" y="792" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">npm ci</text>
 <text x="425" y="811" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">npm start</text>
@@ -183,7 +177,7 @@
 <rect x="760" y="738" width="620" height="90" rx="8" fill="#0f172a"/>
 <rect x="760" y="738" width="620" height="90" rx="8" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.8"/>
 <text x="1070" y="766" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Best-fit use</text>
-<text x="1070" y="792" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Use this as the shortest TypeScript path before adding React adapters or child containers.</text>
+<text x="1070" y="792" fill="#cbd5e1" font-size="10.85" font-weight="400" text-anchor="middle">Use this as the shortest TypeScript path before adding React adapters or child containers.</text>
 <rect x="120" y="884" width="1460" height="58" rx="8" fill="#0f172a"/>
 <rect x="120" y="884" width="1460" height="58" rx="8" fill="rgba(15, 23, 42, 0.94)" stroke="#22d3ee" stroke-width="1.2"/>
 <text x="136" y="908" fill="#f8fafc" font-size="13" font-weight="700" text-anchor="start">Reading rule</text>
@@ -215,7 +209,6 @@
 </svg>
 
       </div>
-      <p class="diagram-caption">Dark SVG source uses the VMx architecture palette and keeps arrows behind masked component boxes.</p>
     </div>
     <div class="cards">
       <section class="card">
@@ -240,7 +233,7 @@
         <ul><li>Move to the React showcase when host hooks and adapters matter.</li></ul>
       </section>
     </div>
-    <footer>Generated for examples/typescript/console/hello-vmx.</footer>
+
   </main>
 </body>
 </html>

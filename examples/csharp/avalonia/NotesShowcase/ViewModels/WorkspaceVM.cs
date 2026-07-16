@@ -48,16 +48,16 @@ public sealed class WorkspaceVM : IDisposable
     private readonly ThemeVM _theme;
     private readonly GlobalSearchVM _globalSearch;
 
-    // Round-3 Critical-2: subscription that rebinds NoteForm whenever
+    // current-selection rebinding: subscription that rebinds NoteForm whenever
     // NotesView.Current changes (e.g. user clicks a different note in the
     // list). Without this the right-pane editor stays empty in the running
     // app — unit tests called BindTo directly, masking the gap.
     private readonly IDisposable _currentNoteSubscription;
-    // Pass-6 real-wiring audit: tree selection (TwoWay SelectedItem →
+    // live binding: tree selection (TwoWay SelectedItem →
     // NotebooksRoot.Current) previously updated nothing — the centre pane
     // stayed on the first notebook forever.
     private readonly IDisposable _notebookSubscription;
-    // Pass-6 real-wiring audit: refresh the saved note's list row.
+    // live binding: refresh the saved note's list row.
     private readonly IDisposable _savedNoteSubscription;
     // Pushed whenever toolbar-command predicates may have flipped — without
     // a trigger CanExecuteChanged never fired and Avalonia cached
@@ -170,7 +170,7 @@ public sealed class WorkspaceVM : IDisposable
             .Name("capabilities").Services(hub, dispatcher)
             .FocusedGetter(() => _focused)
             .CanAddNote(() => IsConstructed && NotebooksRoot.Current is not null && !NotesView.CurrentNotebookIsReadOnly)
-            .AddNoteAction(() => _ = AddNewNoteToCurrentAsync())
+            .AddNoteAction(AddNewNoteToCurrentAsync)
             .Build();
         var globalSearch = GlobalSearchVM.Builder()
             .Name("global-search").Services(hub, dispatcher)
@@ -198,19 +198,19 @@ public sealed class WorkspaceVM : IDisposable
             .Build();
         _globalSearch = globalSearch;
 
-        // Round-3 Critical-2: when the user selects a note in the centre
+        // current-selection rebinding: when the user selects a note in the centre
         // pane, rebind the right-pane editor so it shows the selected note's
         // fields. NotesListView two-way binds SelectedItem={Binding Current}
         // — observing the hub PropertyChanged for "Current" keeps the
         // observation off the leaf VMs and matches the StatusBarVM pattern.
         //
-        // Round-4 Important-1: when Current transitions to null (e.g. the
+        // cleared-selection form behavior: when Current transitions to null (e.g. the
         // selected note is deleted in NotesViewVM.DeleteNoteAsyncInternal,
         // or the host explicitly clears selection) the form must be
         // unbound — otherwise the right pane keeps the title/body of the
         // deleted note and Save would attempt to persist a ghost.
         //
-        // Round-4 Important-2: marshal the handler onto the foreground
+        // foreground dispatch: marshal the handler onto the foreground
         // scheduler so BindTo/Unbind (which raise PropertyChanged for the
         // XAML binding engine) always run on the UI thread. Today Current
         // is set from XAML TwoWay binding (already UI-thread) so this is
@@ -236,7 +236,7 @@ public sealed class WorkspaceVM : IDisposable
                 }
             });
 
-        // Pass-6 real-wiring audit: mirror the _currentNoteSubscription
+        // live binding: mirror the _currentNoteSubscription
         // pattern for notebook selection — the tree's TwoWay SelectedItem
         // binding sets NotebooksRoot.Current, and everything downstream
         // (focus, capability projection, notes rebind) flows from here.
@@ -255,25 +255,25 @@ public sealed class WorkspaceVM : IDisposable
                 _ = BindNotesObservedAsync(nb.Model.Id);
             });
 
-        // Pass-6 real-wiring audit: row labels (Title proxy / star marker)
+        // live binding: row labels (Title proxy / star marker)
         // were construction-time snapshots and went stale after every save.
         _savedNoteSubscription = noteForm.OnSaved
             .ObserveOn(_dispatcher.Foreground)
             .Subscribe(notesView.RefreshNote);
 
-        NewNotebookCommand = RelayCommand.Builder()
+        NewNotebookCommand = AsyncRelayCommand.Builder()
             .Predicate(() => IsConstructed)
-            .Task(() => _ = NotebooksRoot.AddNotebookAsync(parentId: null, name: "New Notebook"))
+            .Task(_ => NotebooksRoot.AddNotebookAsync(parentId: null, name: "New Notebook"))
             .Triggers(_commandTrigger)
             .Build();
-        NewNoteCommand = RelayCommand.Builder()
+        NewNoteCommand = AsyncRelayCommand.Builder()
             .Predicate(() => IsConstructed && NotebooksRoot.Current is not null)
-            .Task(() => _ = AddNewNoteToCurrentAsync())
+            .Task(_ => AddNewNoteToCurrentAsync())
             .Triggers(_commandTrigger)
             .Build();
-        ExportCommand = RelayCommand.Builder()
+        ExportCommand = AsyncRelayCommand.Builder()
             .Predicate(() => IsConstructed)
-            .Task(() => _ = ExportInternalAsync())
+            .Task(_ => ExportInternalAsync())
             .Triggers(_commandTrigger)
             .Build();
     }
@@ -289,7 +289,7 @@ public sealed class WorkspaceVM : IDisposable
             // A failed bind must not pin _requestedNotebookId to the failed
             // id (the notebook would become permanently unselectable), and
             // the fire-and-forget discard must not leave the fault
-            // unobserved (pass-7 review).
+            // unobserved (failure-recovery review).
             if (string.Equals(_requestedNotebookId, notebookId, StringComparison.Ordinal))
             {
                 _requestedNotebookId = null;
@@ -351,7 +351,7 @@ public sealed class WorkspaceVM : IDisposable
             // dedupes on _requestedNotebookId), and marshal the
             // INPC-raising tail — this continuation runs on a pool thread
             // after ConfigureAwait(false) and Current feeds a TwoWay
-            // TreeView binding (real-wiring audit, pass 6).
+            // TreeView binding (live binding).
             _requestedNotebookId = first.Model.Id;
             await NotesView.BindToAsync(first.Model.Id).ConfigureAwait(false);
             await NoteForm.RefreshTagSuggestionsAsync().ConfigureAwait(false);

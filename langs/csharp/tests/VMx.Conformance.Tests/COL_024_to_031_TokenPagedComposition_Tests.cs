@@ -131,6 +131,33 @@ public class COL_024_to_031_TokenPagedCompositionTests
     }
 
     [Fact]
+    public async Task Refresh_Supersedes_An_Older_InFlight_LoadMore()
+    {
+        var pages = new[]
+        {
+            new TaskCompletionSource<TokenPage<int, string>>(
+                TaskCreationOptions.RunContinuationsAsynchronously),
+            new TaskCompletionSource<TokenPage<int, string>>(
+                TaskCreationOptions.RunContinuationsAsynchronously),
+        };
+        var call = -1;
+        var sut = new TokenPagedComposition<int, string>(
+            _ => pages[Interlocked.Increment(ref call)].Task);
+
+        var load = sut.LoadMoreCommand.ExecuteAsync();
+        var refresh = sut.RefreshCommand.ExecuteAsync();
+        pages[1].SetResult(new TokenPage<int, string>([9], "fresh"));
+        await refresh;
+        sut.Items.Should().Equal(9);
+
+        pages[0].SetResult(new TokenPage<int, string>([1], "stale"));
+        await load;
+
+        sut.Items.Should().Equal(9);
+        sut.CurrentToken.Should().Be("fresh");
+    }
+
+    [Fact]
     public async Task Refresh_Does_Not_Mutate_Or_Notify_When_Disposed_During_Fetch()
     {
         var page = new TaskCompletionSource<TokenPage<int, string>>(
@@ -192,6 +219,73 @@ public class COL_024_to_031_TokenPagedCompositionTests
         await sut.LoadMoreCommand.ExecuteAsync();
 
         child.IsConstructed.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task AutoConstruct_ReentrantDispose_DoesNotCommitOrFault()
+    {
+        TokenPagedComposition<ComponentVM, string>? sut = null;
+        var child = ComponentVM.Builder()
+            .Name("child")
+            .WithNullServices()
+            .OnConstruct(() => sut!.Dispose())
+            .Build();
+        sut = new TokenPagedComposition<ComponentVM, string>(
+            _ => Task.FromResult(new TokenPage<ComponentVM, string>([child], "next")),
+            autoConstructOnAdd: true);
+        var collectionEvents = 0;
+        var propertyEvents = 0;
+        sut.CollectionChanged += (_, _) => collectionEvents++;
+        sut.PropertyChanged += (_, _) => propertyEvents++;
+
+        var act = () => sut.LoadMoreCommand.ExecuteAsync();
+
+        await act.Should().NotThrowAsync();
+        child.IsConstructed.Should().BeTrue();
+        sut.Items.Should().BeEmpty("disposal won before the fetched page was committed");
+        sut.CurrentToken.Should().BeNull();
+        sut.HasMore.Should().BeTrue();
+        collectionEvents.Should().Be(0);
+        propertyEvents.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Refresh_PageComparer_DoesNotRunUnderStateGate()
+    {
+        TokenPagedComposition<int, string>? sut = null;
+        var comparerReadCompleted = false;
+        sut = new TokenPagedComposition<int, string>(
+            _ => Task.FromResult(new TokenPage<int, string>([1], null)),
+            pagesEqual: (left, right) =>
+            {
+                var read = Task.Run(() => sut!.Items.Count);
+                comparerReadCompleted = read.Wait(TimeSpan.FromSeconds(2));
+                return comparerReadCompleted && left.SequenceEqual(right);
+            });
+
+        await sut.LoadMoreCommand.ExecuteAsync();
+        await sut.RefreshCommand.ExecuteAsync();
+
+        comparerReadCompleted.Should().BeTrue(
+            "custom comparers must not be invoked while the composition state gate is held");
+    }
+
+    [Fact]
+    public async Task CollectionObserver_ReentrantDispose_DoesNotFaultOrPublishProperties()
+    {
+        var sut = new TokenPagedComposition<int, string>(_ =>
+            Task.FromResult(new TokenPage<int, string>([1], null)));
+        var propertyEvents = 0;
+        sut.CollectionChanged += (_, _) => sut.Dispose();
+        sut.PropertyChanged += (_, _) => propertyEvents++;
+
+        var act = () => sut.LoadMoreCommand.ExecuteAsync();
+
+        await act.Should().NotThrowAsync();
+        sut.Items.Should().ContainSingle().Which.Should().Be(
+            1,
+            "the page committed before its reset observer disposed the pager");
+        propertyEvents.Should().Be(0, "disposal is terminal for later notifications");
     }
 
     [Fact, Trait("Conformance", "COL-031")]

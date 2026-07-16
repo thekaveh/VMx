@@ -8,7 +8,7 @@
 // An independent, opt-in contract for VMs that expose a "manage this item"
 // affordance (e.g. open a detail / settings surface for the item). Generic over
 // the item type via `associatedtype Item` (Swift protocols cannot be generic —
-// mirrors the `<T>` of the other flavors; see the Task-10 ADR).
+// mirrors the `<T>` of the other flavors; see ADR-0059 §2.3).
 //
 // Swift idiom: bare protocol names (no `I`-prefix), camelCase members.
 //

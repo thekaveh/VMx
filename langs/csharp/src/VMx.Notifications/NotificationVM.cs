@@ -26,6 +26,7 @@ namespace VMx.Notifications;
 /// </summary>
 public class NotificationVM : IDisposable, INotifyPropertyChanged
 {
+    private readonly object _gate = new();
     private readonly INotificationHub _hub;
     private readonly IScheduler _scheduler;
     private readonly TimeSpan _lifespan;
@@ -76,23 +77,29 @@ public class NotificationVM : IDisposable, INotifyPropertyChanged
         // asynchronous (the production default is): a synchronous scheduler
         // would block this constructor for the whole lifespan and invoke the
         // virtual OnExpire on a partially-constructed derived instance.
-        _timerSub = _scheduler.Schedule(_lifespan, OnExpire);
+        AttachSubscription(
+            ref _timerSub,
+            _scheduler.Schedule(_lifespan, OnExpire));
 
         // VMX-135: when a tick cadence is requested, periodically raise
         // PropertyChanged for the decaying state so bound views repaint the
         // fade-out. The recurring action self-terminates once the notification
         // resolves, is disposed, or the decay completes (RemainingTime hits 0).
         if (_emitsDecayTicks)
-            _tickSub = _scheduler.Schedule(_tickInterval, DecayTick);
+            AttachSubscription(
+                ref _tickSub,
+                _scheduler.Schedule(_tickInterval, DecayTick));
 
         // Subscribe to hub Pending: if our notification was present and then disappears
         // (external resolve), stop the timer and mark resolved.
-        _pendingSub = hub.Pending
-            .SkipWhile(list => !list.Contains(notification))
-            .Skip(1)
-            .Where(list => !list.Contains(notification))
-            .Take(1)
-            .Subscribe(_ => NotifyExternalResolve());
+        AttachSubscription(
+            ref _pendingSub,
+            hub.Pending
+                .SkipWhile(list => !list.Contains(notification))
+                .Skip(1)
+                .Where(list => !list.Contains(notification))
+                .Take(1)
+                .Subscribe(_ => NotifyExternalResolve()));
     }
 
     /// <summary>The notification datum consumed by this VM.</summary>
@@ -122,7 +129,14 @@ public class NotificationVM : IDisposable, INotifyPropertyChanged
             : RemainingTime.TotalMilliseconds / _lifespan.TotalMilliseconds;
 
     /// <summary>True once the notification has been resolved (manually or by timer).</summary>
-    public bool IsResolved => _isResolved;
+    public bool IsResolved
+    {
+        get
+        {
+            lock (_gate)
+                return _isResolved;
+        }
+    }
 
     /// <summary>
     /// Resolves the notification with <see cref="NotificationReaction.Approve"/>
@@ -139,12 +153,8 @@ public class NotificationVM : IDisposable, INotifyPropertyChanged
     /// </summary>
     public void NotifyExternalResolve()
     {
-        if (_isResolved) return;
-        _isResolved = true;
-        _timerSub?.Dispose();
-        _timerSub = null;
-        _tickSub?.Dispose();
-        _tickSub = null;
+        if (!TryClaimResolution(out var timerSub, out var tickSub)) return;
+        DisposeResolutionSubscriptions(timerSub, tickSub);
         RaiseResolvedChanges();
     }
 
@@ -157,18 +167,27 @@ public class NotificationVM : IDisposable, INotifyPropertyChanged
     /// <summary>Subclasses override to perform additional dispose work.</summary>
     protected virtual void Dispose(bool disposing)
     {
-        if (_disposed) return;
-        _disposed = true;
-        if (disposing)
+        IDisposable? timerSub = null;
+        IDisposable? pendingSub = null;
+        IDisposable? tickSub = null;
+        lock (_gate)
         {
-            _timerSub?.Dispose();
+            if (_disposed) return;
+            _disposed = true;
+            if (!disposing) return;
+
+            timerSub = _timerSub;
             _timerSub = null;
-            _pendingSub?.Dispose();
+            pendingSub = _pendingSub;
             _pendingSub = null;
-            _tickSub?.Dispose();
+            tickSub = _tickSub;
             _tickSub = null;
-            if (DismissCommand is IDisposable d) d.Dispose();
         }
+
+        timerSub?.Dispose();
+        pendingSub?.Dispose();
+        tickSub?.Dispose();
+        if (DismissCommand is IDisposable d) d.Dispose();
     }
 
     /// <summary>
@@ -178,7 +197,10 @@ public class NotificationVM : IDisposable, INotifyPropertyChanged
     /// </summary>
     private void DecayTick(Action<TimeSpan> recurse)
     {
-        if (_disposed || _isResolved) return;
+        lock (_gate)
+        {
+            if (_disposed || _isResolved) return;
+        }
         RaisePropertyChanged(nameof(RemainingTime));
         RaisePropertyChanged(nameof(Opacity));
         if (RemainingTime > TimeSpan.Zero)
@@ -210,12 +232,8 @@ public class NotificationVM : IDisposable, INotifyPropertyChanged
     /// </summary>
     protected void Dismiss()
     {
-        if (_isResolved) return;
-        _isResolved = true;
-        _timerSub?.Dispose();
-        _timerSub = null;
-        _tickSub?.Dispose();
-        _tickSub = null;
+        if (!TryClaimResolution(out var timerSub, out var tickSub)) return;
+        DisposeResolutionSubscriptions(timerSub, tickSub);
         _hub.Resolve(Notification, NotificationReaction.Approve);
         RaiseResolvedChanges();
     }
@@ -226,13 +244,63 @@ public class NotificationVM : IDisposable, INotifyPropertyChanged
     /// </summary>
     protected void ResolveWith(NotificationReaction reaction)
     {
-        if (_isResolved) return;
-        _isResolved = true;
-        _timerSub?.Dispose();
-        _timerSub = null;
-        _tickSub?.Dispose();
-        _tickSub = null;
+        if (!TryClaimResolution(out var timerSub, out var tickSub)) return;
+        DisposeResolutionSubscriptions(timerSub, tickSub);
         _hub.Resolve(Notification, reaction);
         RaiseResolvedChanges();
+    }
+
+    /// <summary>
+    /// Atomically claims the unresolved, undisposed terminal state. External
+    /// callbacks and subscription disposal happen after the lock is released.
+    /// </summary>
+    private bool TryClaimResolution(out IDisposable? timerSub, out IDisposable? tickSub)
+    {
+        lock (_gate)
+        {
+            if (_disposed || _isResolved)
+            {
+                timerSub = null;
+                tickSub = null;
+                return false;
+            }
+
+            _isResolved = true;
+            timerSub = _timerSub;
+            _timerSub = null;
+            tickSub = _tickSub;
+            _tickSub = null;
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Stores a constructor-created subscription under the same gate as terminal
+    /// claims. If a callback reached a terminal state before its scheduling or
+    /// subscription API returned, the late handle is disposed instead.
+    /// </summary>
+    private void AttachSubscription(
+        ref IDisposable? target,
+        IDisposable subscription)
+    {
+        var disposeImmediately = false;
+        lock (_gate)
+        {
+            if (_disposed || _isResolved)
+                disposeImmediately = true;
+            else
+                target = subscription;
+        }
+
+        if (disposeImmediately)
+            subscription.Dispose();
+    }
+
+    private static void DisposeResolutionSubscriptions(
+        IDisposable? timerSub,
+        IDisposable? tickSub)
+    {
+        timerSub?.Dispose();
+        tickSub?.Dispose();
     }
 }

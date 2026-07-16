@@ -1,6 +1,6 @@
 # 6.2.6. Hierarchical Family
 
-## When To Use It
+## 6.2.6.1. When To Use It
 
 Use `HierarchicalVM<TModel, TVM>` when the domain is intrinsically recursive:
 folders, notebooks, comment threads, taxonomies, or any tree whose nodes need
@@ -19,7 +19,7 @@ rebuild tree bookkeeping in every app.
   <a href="../../../assets/diagrams/hierarchical-family.png">PNG</a>
 </p>
 
-## Shape And Ownership
+## 6.2.6.2. Shape And Ownership
 
 A hierarchical node owns:
 
@@ -34,7 +34,7 @@ The structural root also owns a small pending set for `attachMany` batch
 hydration. Pending nodes are not part of `Children` until their selected parent
 is materialized.
 
-## Lifecycle And Messaging
+## 6.2.6.3. Lifecycle And Messaging
 
 The important differences from manual recursive composites are:
 
@@ -45,7 +45,7 @@ The important differences from manual recursive composites are:
 
 The family integrates directly with `walk` and `walk_expanded`.
 
-## Progressive Batch Hydration
+## 6.2.6.4. Progressive Batch Hydration
 
 Use `attachMany` / `AttachMany` / `attach_many` when windows can overlap or
 arrive out of order. The consumer supplies the domain key and parent-key
@@ -77,7 +77,7 @@ them. Cycles, already-attached nodes, and selector/attachment failures are
 terminal structured results rather than batch-stopping exceptions. Disposing
 the root clears its parked set.
 
-## Tableau Pilot Result
+## 6.2.6.5. Tableau Pilot Result
 
 The issue's motivating Tableau helper was piloted in a temporary clone at
 `0b53010065f71277d5c3504120e23442a46e30cb`, using the local VMx 3.8 source and
@@ -104,7 +104,7 @@ the pilot. Adopting a single synthetic hierarchy root could reduce that adapter,
 but would change Tableau's public root/path semantics and was deliberately not
 performed in an external repository.
 
-## Cross-Language Surface
+## 6.2.6.6. Cross-Language Surface
 
 | Concept            | C#                                   | Python                               | TypeScript                           | Swift                                   | Rust                              |
 | ------------------ | ------------------------------------ | ------------------------------------ | ------------------------------------ | --------------------------------------- | --------------------------------- |
@@ -116,7 +116,7 @@ performed in an external repository.
 | Root parent key    | `BatchParentKey<TKey>.Root`          | `None`                               | `null`                               | `nil`                                   | `None`                            |
 | Parked count       | `ParkedAttachCount`                  | `parked_attach_count`                | `parkedAttachCount`                  | `parkedAttachCount`                     | `parked_attach_count()`           |
 
-## Example
+## 6.2.6.7. Example
 
 The current Notes Workspace examples do **not** subclass `HierarchicalVM` in
 any flavor. Each `NotebooksRootVM` owns a flat notebook collection plus
@@ -191,7 +191,7 @@ when a subclass is required.
 That split is the practical rule: use the tree primitive when the tree is real,
 not simply because the UI displays indentation.
 
-## Common Pitfalls
+## 6.2.6.8. Common Pitfalls
 
 - Recursing `CompositeVM` instead of using the tree primitive and then having to
   rebuild `Parent`, `Depth`, and `Path` yourself.
@@ -205,7 +205,7 @@ not simply because the UI displays indentation.
 - Treating `park` as a general retry queue. Only missing-parent items park;
   duplicates, cycles, and invalid links are terminal results.
 
-## Related Primitives
+## 6.2.6.9. Related Primitives
 
 - [Composite Family](composite-family.md)
 - [State & Reactive Helpers](../state-reactive-helpers.md)

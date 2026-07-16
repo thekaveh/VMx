@@ -1,13 +1,13 @@
 # 6.2.8.6. ModalVM
 
-## When To Use It
+## 6.2.8.6.1. When To Use It
 
 Use `ModalVM` when a modal interaction should be represented as a VM-backed
 result that host services can present and await. It fits domain-specific modal
 flows that do not belong in the fixed `PickFile*`, `Confirm`, or `Notify`
 methods on `IDialogService`.
 
-## Shape And Ownership
+## 6.2.8.6.2. Shape And Ownership
 
 The core contract is small:
 
@@ -20,7 +20,7 @@ The core contract is small:
 Swift exposes the contract as `ModalVM` plus the concrete `BasicModalVM<Result>`
 helper; the other flavors ship `ModalVM<T>` directly.
 
-## Lifecycle And Messaging
+## 6.2.8.6.3. Lifecycle And Messaging
 
 Modal completion is single-winner and host-driven:
 
@@ -32,15 +32,15 @@ Modal completion is single-winner and host-driven:
 Repeated disposal never replaces a prior result or resumes awaiters twice. See
 the [Disposal Contract](../../disposal-contract.md).
 
-## Cross-Language Surface
+## 6.2.8.6.4. Cross-Language Surface
 
-| Concept          | C#             | Python          | TypeScript     | Swift                  |
-| ---------------- | -------------- | --------------- | -------------- | ---------------------- |
-| Concrete helper  | `ModalVM<T>`   | `ModalVM[T]`    | `ModalVM<T>`   | `BasicModalVM<Result>` |
-| Awaitable result | `Completion`   | `wait_result()` | `completion`   | `waitResult()`         |
-| Dismiss method   | `Dismiss(...)` | `dismiss(...)`  | `dismiss(...)` | `dismiss(...)`         |
+| Concept          | C#             | Python          | TypeScript     | Swift                  | Rust                         |
+| ---------------- | -------------- | --------------- | -------------- | ---------------------- | ---------------------------- |
+| Concrete helper  | `ModalVM<T>`   | `ModalVM[T]`    | `ModalVM<T>`   | `BasicModalVM<Result>` | `ModalVm<T>`                 |
+| Awaitable result | `Completion`   | `wait_result()` | `completion`   | `waitResult()`         | `completion()` → `AsyncValue` |
+| Dismiss method   | `Dismiss(...)` | `dismiss(...)`  | `dismiss(...)` | `dismiss(...)`         | `dismiss(...)`               |
 
-## Example
+## 6.2.8.6.5. Example
 
 The Notes Workspace adapters mostly use the closed `Confirm` and `Notify`
 dialog-service methods, but the modal primitive is the extension point behind
@@ -52,6 +52,7 @@ Relevant shipped surfaces:
 - Python: `vmx.dialogs.ModalVM`
 - TypeScript: `src/dialogs/modalVM.ts`
 - Swift: `ModalVM` protocol plus `BasicModalVM<Result>`
+- Rust: `ModalVm<T>` with executor-neutral `AsyncValue<T>` completion
 
 Use this primitive when you need a VM-backed modal result instead of a fixed
 host dialog verb.
@@ -88,7 +89,16 @@ host dialog verb.
     let result = await modal.waitResult()
     ```
 
-## Common Pitfalls
+=== "Rust"
+
+    ```rust
+    let modal = ModalVm::new("cancel");
+    let completion = modal.completion();
+    modal.dismiss("save");
+    let result = completion.await;
+    ```
+
+## 6.2.8.6.6. Common Pitfalls
 
 - Reaching for a modal VM when `Confirm`, `PickFileToOpen`, `PickFileToSave`, or
   `Notify` already matches the interaction.
@@ -96,7 +106,7 @@ host dialog verb.
 - Assuming Swift's concrete helper is named exactly like the protocol. The
   helper is `BasicModalVM`.
 
-## Related Primitives
+## 6.2.8.6.7. Related Primitives
 
 - [DiscriminatorVM](discriminator-vm.md)
 - [Services, Messages & Dispatching](../../services-messages-dispatching.md)

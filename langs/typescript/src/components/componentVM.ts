@@ -11,6 +11,9 @@ import { NullMessageHub } from "../services/nullMessageHub.js";
 import { NullDispatcher } from "../services/nullDispatcher.js";
 import { BuilderValidationError } from "../builders/exceptions.js";
 
+const optionHub = Symbol("optionHub");
+const optionDispatcher = Symbol("optionDispatcher");
+
 /**
  * Options for the additive {@link ComponentVM.create} construction form
  * (ADR-0055 / VMX-020). A one-call alternative to the fluent
@@ -56,7 +59,8 @@ export class ComponentVM extends ComponentVMBase {
     let b = new ComponentVMBuilder();
     if (o.name !== undefined) b = b.name(o.name);
     if (o.hint !== undefined) b = b.hint(o.hint);
-    if (o.hub !== undefined && o.dispatcher !== undefined) b = b.services(o.hub, o.dispatcher);
+    if (o.hub !== undefined) b = b[optionHub](o.hub);
+    if (o.dispatcher !== undefined) b = b[optionDispatcher](o.dispatcher);
     if (o.onConstruct !== undefined) b = b.onConstruct(o.onConstruct);
     if (o.onDestruct !== undefined) b = b.onDestruct(o.onDestruct);
     if (o.background !== undefined) b = b.background(o.background);
@@ -104,6 +108,18 @@ export class ComponentVMBuilder {
   services(hub: IMessageHub, dispatcher: IDispatcher): ComponentVMBuilder {
     const b = new ComponentVMBuilder(this);
     b.#hub = hub;
+    b.#dispatcher = dispatcher;
+    return b;
+  }
+
+  [optionHub](hub: IMessageHub): ComponentVMBuilder {
+    const b = new ComponentVMBuilder(this);
+    b.#hub = hub;
+    return b;
+  }
+
+  [optionDispatcher](dispatcher: IDispatcher): ComponentVMBuilder {
+    const b = new ComponentVMBuilder(this);
     b.#dispatcher = dispatcher;
     return b;
   }

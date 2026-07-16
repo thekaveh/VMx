@@ -11,6 +11,7 @@
  */
 import {
   ComponentVMBase,
+  AsyncRelayCommand,
   ConfirmationDecoratorCommand,
   ConstructionStatus,
   declareCapabilities,
@@ -30,7 +31,7 @@ import type { NoteModel } from "../models/noteModel.js";
 
 const SENTINEL = Symbol("not-set");
 
-type NoteHandler = (vm: NoteVM) => void;
+type NoteHandler = (vm: NoteVM) => void | Promise<void>;
 
 export class NoteVM extends ComponentVMBase {
   readonly #onClose: NoteHandler | null;
@@ -39,8 +40,8 @@ export class NoteVM extends ComponentVMBase {
   readonly #confirmDelete: ((vm: NoteVM) => Promise<boolean>) | null;
   readonly #notificationHub: INotificationHub | null;
   readonly #closeCommand: RelayCommand;
-  readonly #saveCommand: RelayCommand;
-  readonly #innerDeleteCommand: RelayCommand;
+  readonly #saveCommand: AsyncRelayCommand;
+  readonly #innerDeleteCommand: AsyncRelayCommand;
   readonly #deleteCommand: ICommand;
   #model: NoteModel;
 
@@ -81,17 +82,17 @@ export class NoteVM extends ComponentVMBase {
       .predicate(() => this.canClose())
       .task(() => this.close())
       .build();
-    this.#saveCommand = RelayCommand.builder()
+    this.#saveCommand = AsyncRelayCommand.builder()
       .predicate(() => this.canSave(this))
-      .task(() => this.save(this))
+      .task(async () => { await this.#performSave(this); })
       .build();
     // Spec §5.2.8 / §6.2: when a confirm-delete delegate is wired, wrap the
     // delete in a ConfirmationDecoratorCommand. The inner command invokes
     // `#performDelete`, which posts a "Note deleted" notification (if a hub
     // is wired) and calls the host delete callback.
-    this.#innerDeleteCommand = RelayCommand.builder()
+    this.#innerDeleteCommand = AsyncRelayCommand.builder()
       .predicate(() => this.canDelete(this))
-      .task(() => this.#performDelete(this))
+      .task(async () => { await this.#performDelete(this); })
       .build();
     this.#deleteCommand =
       this.#confirmDelete !== null
@@ -102,9 +103,9 @@ export class NoteVM extends ComponentVMBase {
         : this.#innerDeleteCommand;
   }
 
-  #performDelete(item: NoteVM): void {
+  async #performDelete(item: NoteVM): Promise<void> {
     if (!this.canDelete(item)) return;
-    if (this.#onDelete !== null) this.#onDelete(item);
+    if (this.#onDelete !== null) await this.#onDelete(item);
     if (this.#notificationHub !== null) {
       void this.#notificationHub.post(
         new Notification(NotificationType.Notification, `Note deleted: “${item.title}”`),
@@ -177,7 +178,7 @@ export class NoteVM extends ComponentVMBase {
 
   delete(item: NoteVM): void {
     if (!this.canDelete(item)) return;
-    if (this.#onDelete !== null) this.#onDelete(item);
+    this.#innerDeleteCommand.execute();
   }
 
   // ── ISavable<NoteVM> ──────────────────────────────────────────────────────
@@ -188,7 +189,12 @@ export class NoteVM extends ComponentVMBase {
 
   save(item: NoteVM): void {
     if (!this.canSave(item)) return;
-    if (this.#onSave !== null) this.#onSave(item);
+    this.#saveCommand.execute();
+  }
+
+  async #performSave(item: NoteVM): Promise<void> {
+    if (!this.canSave(item)) return;
+    if (this.#onSave !== null) await this.#onSave(item);
   }
 
   get closeCommand(): ICommand {
@@ -207,7 +213,7 @@ export class NoteVM extends ComponentVMBase {
     this.#closeCommand.dispose();
     this.#saveCommand.dispose();
     // ConfirmationDecoratorCommand is not Disposable in VMx-TS; dispose the
-    // raw inner RelayCommand explicitly to avoid leaking its CanExecute
+    // raw inner AsyncRelayCommand explicitly to avoid leaking its CanExecute
     // subscriptions.
     this.#innerDeleteCommand.dispose();
     super._onDispose();

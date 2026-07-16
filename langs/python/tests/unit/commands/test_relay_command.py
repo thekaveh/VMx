@@ -118,6 +118,29 @@ def test_multiple_triggers_are_additive() -> None:
     assert len(fired) == 2
 
 
+@pytest.mark.parametrize("parameterized", [False, True])
+def test_dispose_releases_triggers_when_terminal_observer_raises(
+    parameterized: bool,
+) -> None:
+    trigger: Subject[None] = Subject()
+    command: RelayCommand | RelayCommandOf[str]
+    if parameterized:
+        command = RelayCommandOf[str].builder().triggers(trigger).build()
+    else:
+        command = RelayCommand.builder().triggers(trigger).build()
+
+    def fail(_: object) -> None:
+        raise RuntimeError("terminal observer")
+
+    command.can_execute_changed.subscribe(fail)
+
+    with pytest.raises(RuntimeError, match="terminal observer"):
+        command.dispose()
+
+    assert trigger.observers == []
+    command.dispose()
+
+
 def test_no_trigger_can_execute_changed_does_not_fire() -> None:
     cmd = RelayCommand.builder().build()
     fired: list[int] = []

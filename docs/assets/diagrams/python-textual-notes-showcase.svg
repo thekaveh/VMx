@@ -80,8 +80,8 @@
 <text x="1420" y="498" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">in-memory notes</text>
 <text x="1420" y="517" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">seed notebooks</text>
 <text x="1420" y="536" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">theme model</text>
-<rect x="250" y="738" width="350" height="90" rx="8" fill="#0f172a"/>
-<rect x="250" y="738" width="350" height="90" rx="8" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.8"/>
+<rect x="250" y="738" width="350" height="96" rx="8" fill="#0f172a"/>
+<rect x="250" y="738" width="350" height="96" rx="8" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.8"/>
 <text x="425" y="766" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">VM + view tests</text>
 <text x="425" y="792" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">uv run pytest</text>
 <text x="425" y="811" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">Pure-VM contract</text>

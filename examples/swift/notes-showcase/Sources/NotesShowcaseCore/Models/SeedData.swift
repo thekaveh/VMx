@@ -8,7 +8,7 @@ import Foundation
 public enum SeedData {
     /// Builds the canonical seed: 5 notebooks (1 nested), 12 notes, 3 starred.
     public static func build() -> (notebooks: [NotebookModel], notes: [NoteModel]) {
-        // Deterministic base date so the audit hash is stable across runs.
+        // Deterministic base date so the parity hash is stable across runs.
         // Mirrors C# `new DateTimeOffset(2026, 5, 29, 12, 0, 0, TimeSpan.Zero)`.
         let fmt = ISO8601DateFormatter()
         let base = fmt.date(from: "2026-05-29T12:00:00Z")!

@@ -13,13 +13,15 @@
  * **Architecture** (§6.1 Pure-VM contract):
  *   - The dialog service holds a `BehaviorSubject<DialogRequest | null>` of
  *     the current open dialog request — a pure data record (no React types).
+ *     Concurrent calls wait in a FIFO queue, satisfying DIA-006 without
+ *     replacing an active request or orphaning its promise.
  *   - A `DialogOverlay` component reads the subject through the
  *     `useDialogOverlay` hook (see `useDialogOverlay.ts`), which wraps
  *     `useSyncExternalStore` over the subject. That keeps `Layout.tsx` and
  *     every other component free of `useState` / `useReducer`.
  *   - Modal components (`ConfirmModal`, `SaveFileModal`) invoke `onResolve`
- *     callbacks that the service set up when opening — the promise resolves,
- *     the subject clears.
+ *     callbacks that the service set up when opening — the current promise
+ *     settles and the subject advances to the next queued request or clears.
  *
  * **Why a `BehaviorSubject` and not a setter binding?**
  *   The setter-binding approach in the plan's initial sketch required a
@@ -60,8 +62,15 @@ const noopBool = (_: boolean): void => {};
 const noopString = (_: string | null): void => {};
 const noopVoid = (): void => {};
 
+interface PendingDialog {
+  readonly request: DialogRequest;
+  readonly cancel: () => void;
+}
+
 export class ReactDialogService implements IDialogService {
   readonly #current = new BehaviorSubject<DialogRequest | null>(null);
+  #active: PendingDialog | null = null;
+  readonly #queue: PendingDialog[] = [];
 
   /**
    * Observable of the currently-open dialog request (or `null` when nothing
@@ -77,9 +86,43 @@ export class ReactDialogService implements IDialogService {
     return this.#current.getValue();
   }
 
-  /** Clears the current request — called by every modal on resolve. */
+  /** Cancels the current request with its neutral result and advances the queue. */
   close(): void {
-    this.#current.next(null);
+    this.#active?.cancel();
+  }
+
+  #open<T>(
+    buildRequest: (complete: (value: T) => void) => DialogRequest,
+    cancelledValue: T,
+  ): Promise<T> {
+    return new Promise<T>((resolve) => {
+      let entry: PendingDialog | null = null;
+      const complete = (value: T): void => {
+        if (entry !== null) this.#settle(entry, () => resolve(value));
+      };
+      entry = {
+        request: buildRequest(complete),
+        cancel: () => complete(cancelledValue),
+      };
+      this.#enqueue(entry);
+    });
+  }
+
+  #enqueue(entry: PendingDialog): void {
+    if (this.#active !== null) {
+      this.#queue.push(entry);
+      return;
+    }
+    this.#active = entry;
+    this.#current.next(entry.request);
+  }
+
+  #settle(entry: PendingDialog, settlePromise: () => void): void {
+    if (this.#active !== entry) return;
+    const next = this.#queue.shift() ?? null;
+    this.#active = next;
+    settlePromise();
+    this.#current.next(next?.request ?? null);
   }
 
   pickFileToOpen(
@@ -87,22 +130,19 @@ export class ReactDialogService implements IDialogService {
     title: string | null = null,
   ): Promise<string | null> {
     void filter;
-    return new Promise<string | null>((resolve) => {
-      const request: DialogRequest = {
+    return this.#open<string | null>(
+      (complete) => ({
         kind: "openFile",
         title,
         message: "Open file",
         suggestedName: null,
         severity: null,
         resolveBool: noopBool,
-        resolveString: (v) => {
-          this.close();
-          resolve(v);
-        },
+        resolveString: complete,
         resolveVoid: noopVoid,
-      };
-      this.#current.next(request);
-    });
+      }),
+      null,
+    );
   }
 
   pickFileToSave(
@@ -111,41 +151,35 @@ export class ReactDialogService implements IDialogService {
     suggestedName: string | null = null,
   ): Promise<string | null> {
     void filter;
-    return new Promise<string | null>((resolve) => {
-      const request: DialogRequest = {
+    return this.#open<string | null>(
+      (complete) => ({
         kind: "saveFile",
         title,
         message: "Save file",
         suggestedName,
         severity: null,
         resolveBool: noopBool,
-        resolveString: (v) => {
-          this.close();
-          resolve(v);
-        },
+        resolveString: complete,
         resolveVoid: noopVoid,
-      };
-      this.#current.next(request);
-    });
+      }),
+      null,
+    );
   }
 
   confirm(message: string, title: string | null = null): Promise<boolean> {
-    return new Promise<boolean>((resolve) => {
-      const request: DialogRequest = {
+    return this.#open<boolean>(
+      (complete) => ({
         kind: "confirm",
         title,
         message,
         suggestedName: null,
         severity: null,
-        resolveBool: (v) => {
-          this.close();
-          resolve(v);
-        },
+        resolveBool: complete,
         resolveString: noopString,
         resolveVoid: noopVoid,
-      };
-      this.#current.next(request);
-    });
+      }),
+      false,
+    );
   }
 
   notify(
@@ -153,8 +187,8 @@ export class ReactDialogService implements IDialogService {
     title: string | null = null,
     severity: NotificationSeverity = "info",
   ): Promise<void> {
-    return new Promise<void>((resolve) => {
-      const request: DialogRequest = {
+    return this.#open<void>(
+      (complete) => ({
         kind: "notify",
         title,
         message,
@@ -162,12 +196,9 @@ export class ReactDialogService implements IDialogService {
         severity,
         resolveBool: noopBool,
         resolveString: noopString,
-        resolveVoid: () => {
-          this.close();
-          resolve();
-        },
-      };
-      this.#current.next(request);
-    });
+        resolveVoid: () => complete(),
+      }),
+      undefined,
+    );
   }
 }

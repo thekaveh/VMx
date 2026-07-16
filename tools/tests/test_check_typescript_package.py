@@ -7,6 +7,8 @@ import check_typescript_package as ctsp
 
 def _valid_paths() -> set[str]:
     paths = {
+        "LICENSE",
+        "NOTICE",
         "README.md",
         "package.json",
         "src/fixtures/command-truthtable.json",
@@ -36,6 +38,10 @@ def _valid_paths() -> set[str]:
 
 def test_validate_paths_accepts_expected_entries_fixtures_and_chunks() -> None:
     assert ctsp.validate_paths(_valid_paths()) == []
+
+
+def test_legal_files_are_required() -> None:
+    assert {"LICENSE", "NOTICE"} <= ctsp.REQUIRED_PATHS
 
 
 def test_validate_paths_reports_missing_entry_declaration() -> None:

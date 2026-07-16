@@ -11,13 +11,17 @@ Tests cover:
 
 from __future__ import annotations
 
+from threading import Event
+
 import pytest
+from reactivex.scheduler import ImmediateScheduler, ThreadPoolScheduler
 
 from vmx.components.builders import ComponentVMBuilder
 from vmx.components.component_vm import ComponentVM
 from vmx.composites.builders import CompositeVMBuilder
 from vmx.composites.composite_vm import CollectionChangedEvent, CompositeVM
 from vmx.lifecycle.status import ConstructionStatus
+from vmx.messages.construction_status_changed import ConstructionStatusChangedMessage
 from vmx.messages.property_changed import PropertyChangedMessage
 from vmx.services.dispatcher import RxDispatcher
 from vmx.services.message_hub import MessageHub
@@ -62,6 +66,11 @@ def _build_child(
     h = hub if hub is not None else _hub()
     d = dispatcher if dispatcher is not None else _dispatcher()
     return ComponentVMBuilder().name(name).services(h, d).build()  # type: ignore[arg-type]
+
+
+class _ThrowingDisposeChild(ComponentVM):
+    def _on_dispose(self) -> None:
+        raise RuntimeError("dispose hook failure")
 
 
 # ---------------------------------------------------------------------------
@@ -398,6 +407,53 @@ def test_construct_constructs_all_children() -> None:
     assert child_b.status == ConstructionStatus.CONSTRUCTED
 
 
+def test_construct_remains_in_progress_until_background_child_is_constructed() -> None:
+    hub = _hub()
+    dispatcher = RxDispatcher(ImmediateScheduler(), ThreadPoolScheduler(max_workers=1))
+    started = Event()
+    release = Event()
+    parent_settled = Event()
+
+    def on_construct() -> None:
+        started.set()
+        release.wait()
+
+    child = (
+        ComponentVMBuilder()
+        .name("child")
+        .services(hub, dispatcher)
+        .background(True)
+        .on_construct(on_construct)
+        .build()
+    )
+    comp: CompositeVM[ComponentVM] = (
+        CompositeVMBuilder()
+        .name("comp")
+        .services(hub, dispatcher)
+        .children(lambda: [child])
+        .build()
+    )
+    sub = hub.messages.subscribe(
+        lambda message: (
+            parent_settled.set()
+            if isinstance(message, ConstructionStatusChangedMessage)
+            and message.sender is comp
+            and message.status == ConstructionStatus.CONSTRUCTED
+            else None
+        )
+    )
+
+    comp.construct()
+    assert started.wait(1)
+    status_while_child_runs = comp.status
+    release.set()
+
+    assert parent_settled.wait(1)
+    assert status_while_child_runs == ConstructionStatus.CONSTRUCTING
+    assert child.status == ConstructionStatus.CONSTRUCTED
+    sub.dispose()
+
+
 def test_factory_children_emit_collection_changed_events() -> None:
     hub = _hub()
     disp = _dispatcher()
@@ -421,6 +477,38 @@ def test_factory_children_emit_collection_changed_events() -> None:
     assert events[1].new_items == (child_b,)  # type: ignore[attr-defined]
 
 
+def test_failed_factory_population_rolls_back_and_retries() -> None:
+    hub = _hub()
+    disp = _dispatcher()
+    child_a = _build_child("a", hub=hub, dispatcher=disp)
+    child_b = _build_child("b", hub=hub, dispatcher=disp)
+    calls = 0
+
+    def children() -> object:
+        nonlocal calls
+        calls += 1
+        yield child_a
+        if calls == 1:
+            raise RuntimeError("transient factory failure")
+        yield child_b
+
+    comp: CompositeVM[ComponentVM] = (
+        CompositeVMBuilder().name("comp").services(hub, disp).children(children).build()
+    )
+
+    with pytest.raises(RuntimeError, match="transient factory failure"):
+        comp.construct()
+
+    assert comp.status == ConstructionStatus.DESTRUCTED
+    assert comp.count == 0
+
+    comp.construct()
+
+    assert calls == 2
+    assert list(comp) == [child_a, child_b]
+    assert comp.status == ConstructionStatus.CONSTRUCTED
+
+
 def test_destruct_destructs_children_and_clears_current() -> None:
     hub = _hub()
     disp = _dispatcher()
@@ -437,6 +525,134 @@ def test_destruct_destructs_children_and_clears_current() -> None:
     assert comp.status == ConstructionStatus.DESTRUCTED
     assert comp.current is None
     assert child.status == ConstructionStatus.DESTRUCTED
+
+
+def test_destruct_remains_in_progress_until_background_child_is_destructed() -> None:
+    hub = _hub()
+    dispatcher = RxDispatcher(ImmediateScheduler(), ThreadPoolScheduler(max_workers=1))
+    started = Event()
+    release = Event()
+    parent_constructed = Event()
+    child_constructed = Event()
+    parent_destructed = Event()
+
+    def on_destruct() -> None:
+        started.set()
+        release.wait()
+
+    child = (
+        ComponentVMBuilder()
+        .name("child")
+        .services(hub, dispatcher)
+        .background(True)
+        .on_destruct(on_destruct)
+        .build()
+    )
+    comp: CompositeVM[ComponentVM] = (
+        CompositeVMBuilder()
+        .name("comp")
+        .services(hub, dispatcher)
+        .children(lambda: [child])
+        .build()
+    )
+
+    def observe_parent(message: object) -> None:
+        if not isinstance(message, ConstructionStatusChangedMessage):
+            return
+        if message.sender is child and message.status == ConstructionStatus.CONSTRUCTED:
+            child_constructed.set()
+            return
+        if message.sender is not comp:
+            return
+        if message.status == ConstructionStatus.CONSTRUCTED:
+            parent_constructed.set()
+        elif message.status == ConstructionStatus.DESTRUCTED:
+            parent_destructed.set()
+
+    sub = hub.messages.subscribe(observe_parent)
+    comp.construct()
+    assert parent_constructed.wait(1)
+    assert child_constructed.wait(1)
+
+    comp.destruct()
+    assert started.wait(1)
+    status_while_child_runs = comp.status
+    release.set()
+
+    assert parent_destructed.wait(1)
+    assert status_while_child_runs == ConstructionStatus.DESTRUCTING
+    assert child.status == ConstructionStatus.DESTRUCTED
+    sub.dispose()
+
+
+def test_reconstruct_waits_for_background_child_destruct_then_construct() -> None:
+    hub = _hub()
+    dispatcher = RxDispatcher(ImmediateScheduler(), ThreadPoolScheduler(max_workers=1))
+    destruct_started = Event()
+    destruct_release = Event()
+    reconstruct_started = Event()
+    reconstruct_release = Event()
+    initial_constructed = Event()
+    parent_reconstructed = Event()
+    construct_calls = 0
+
+    def on_construct() -> None:
+        nonlocal construct_calls
+        construct_calls += 1
+        if construct_calls == 2:
+            reconstruct_started.set()
+            reconstruct_release.wait()
+
+    def on_destruct() -> None:
+        destruct_started.set()
+        destruct_release.wait()
+
+    child = (
+        ComponentVMBuilder()
+        .name("child")
+        .services(hub, dispatcher)
+        .background(True)
+        .on_construct(on_construct)
+        .on_destruct(on_destruct)
+        .build()
+    )
+    comp: CompositeVM[ComponentVM] = (
+        CompositeVMBuilder()
+        .name("comp")
+        .services(hub, dispatcher)
+        .children(lambda: [child])
+        .build()
+    )
+
+    def observe_parent(message: object) -> None:
+        if not isinstance(message, ConstructionStatusChangedMessage) or message.sender is not comp:
+            return
+        if message.status == ConstructionStatus.CONSTRUCTED:
+            if initial_constructed.is_set():
+                parent_reconstructed.set()
+            else:
+                initial_constructed.set()
+
+    sub = hub.messages.subscribe(observe_parent)
+    comp.construct()
+    assert initial_constructed.wait(1)
+
+    try:
+        comp.reconstruct()
+        assert destruct_started.wait(1)
+        assert comp.status == ConstructionStatus.DESTRUCTING
+        destruct_release.set()
+        assert reconstruct_started.wait(1)
+        assert comp.status == ConstructionStatus.CONSTRUCTING
+        reconstruct_release.set()
+        assert parent_reconstructed.wait(1)
+    finally:
+        destruct_release.set()
+        reconstruct_release.set()
+
+    assert child.status == ConstructionStatus.CONSTRUCTED
+    assert comp.status == ConstructionStatus.CONSTRUCTED
+    sub.dispose()
 
 
 def test_dispose_cascade() -> None:
@@ -459,6 +675,22 @@ def test_dispose_cascade() -> None:
     assert comp.status == ConstructionStatus.DISPOSED
     assert child_a.status == ConstructionStatus.DISPOSED
     assert child_b.status == ConstructionStatus.DISPOSED
+
+
+def test_dispose_continues_after_child_failure_and_reraises_first_error() -> None:
+    comp, hub = _build_composite()
+    dispatcher = _dispatcher()
+    throwing = _ThrowingDisposeChild(name="throwing", hint="", hub=hub, dispatcher=dispatcher)
+    sibling = _build_child("sibling", hub, dispatcher)
+    comp.append(throwing)
+    comp.append(sibling)
+
+    with pytest.raises(RuntimeError, match="dispose hook failure"):
+        comp.dispose()
+
+    assert throwing.status == ConstructionStatus.DISPOSED
+    assert sibling.status == ConstructionStatus.DISPOSED
+    assert comp.status == ConstructionStatus.DISPOSED
 
 
 def test_remove_current_child_clears_current() -> None:

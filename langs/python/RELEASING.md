@@ -11,8 +11,10 @@ The release pipeline has two halves:
   tag, which fires the publish pipeline.
 - **Publish pipeline.** `.github/workflows/release.yml` runs four jobs on
   the new tag: `python-test` (full pytest matrix gate), `python-build-and-publish`
-  (gated on the `pypi-python` GitHub environment for manual approval, then
-  Trusted-Publishing-via-OIDC upload with Sigstore (PEP 740) attestations),
+  (gated on the `pypi-python` GitHub environment for manual approval, then an
+  exact-backend build, metadata check, fresh-environment install/smoke of the
+  local wheel, and Trusted-Publishing-via-OIDC upload with Sigstore (PEP 740)
+  attestations),
   `python-verify-published` (5-attempt fresh-venv `pip install` + smoke test),
   and `python-release-notes` (CHANGELOG-extracted GitHub Release).
 
@@ -66,8 +68,13 @@ The same lesson applies to npm `package.json` `homepage`/`bugs`/`repository`, Nu
 4. Merge the release PR. release-please pushes a `python-v<X.Y.Z>` tag on the merge commit.
 5. Watch <https://github.com/thekaveh/VMx/actions?query=workflow%3Arelease> — the publish pipeline fires on the tag.
 6. The `python-build-and-publish` job pauses for **your approval** on the `pypi-python` environment. Click "Review pending deployments" → `pypi-python` → "Approve and deploy".
-7. `python-verify-published` installs `vmx==<X.Y.Z>` from PyPI in a fresh venv with retry-on-CDN-lag (5 attempts × 30s backoff) and runs the smoke test.
-8. `python-release-notes` posts the matching CHANGELOG section as a GitHub Release.
+7. Before upload, `python-build-and-publish` installs the exact wheel from
+   `dist/` into a fresh environment and runs the version/lifecycle smoke test.
+   A failure stops before the irreversible PyPI action.
+8. `python-verify-published` independently installs `vmx==<X.Y.Z>` from PyPI in
+   a fresh venv with retry-on-CDN-lag (5 attempts × 30s backoff) and runs the
+   same smoke test.
+9. `python-release-notes` posts the matching CHANGELOG section as a GitHub Release.
 
 ### 2.2 Bootstrap release (manual tag, one-time)
 
@@ -127,6 +134,10 @@ The publish never reaches the build job. Fix the broken test on `main` and re-cu
 ### 4.2 `python-build-and-publish` approval declined
 
 The environment publishes nothing. To recover: address whatever caused you to reject, land the fix, let release-please open a new release PR with a bumped version, merge.
+
+The same job can also fail safely after approval but before upload if the pinned
+build backend, Twine metadata check, local wheel installation, or lifecycle smoke
+fails. No PyPI version exists yet; fix the defect on `main` and cut a new tag.
 
 ### 4.3 Publish succeeded but the release is broken
 

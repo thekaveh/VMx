@@ -4,6 +4,7 @@ using VMx.Components;
 using VMx.Composites;
 using VMx.Lifecycle;
 using VMx.Messages;
+using VMx.Tests.Components;
 using VMx.Tests.Helpers;
 using Xunit;
 
@@ -34,6 +35,43 @@ public class CompositeVMTests
     private static ComponentVM<string> BuildChild(TestHub hub, TestDispatcher dispatcher, string name = "child1")
         => ComponentVM<string>.Builder()
             .Name(name).Services(hub, dispatcher).Model("m").Build();
+
+    [Fact]
+    public void Failed_Factory_Population_Rolls_Back_And_Retries()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var childA = BuildChild(hub, dispatcher, "a");
+        var childB = BuildChild(hub, dispatcher, "b");
+        var calls = 0;
+
+        IEnumerable<ComponentVM<string>> Children()
+        {
+            calls++;
+            yield return childA;
+            if (calls == 1)
+                throw new InvalidOperationException("transient factory failure");
+            yield return childB;
+        }
+
+        var composite = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("root")
+            .Services(hub, dispatcher)
+            .Children(Children)
+            .Build();
+
+        Action first = composite.Construct;
+        first.Should().Throw<InvalidOperationException>()
+            .WithMessage("transient factory failure");
+        composite.Status.Should().Be(ConstructionStatus.Destructed);
+        composite.Count.Should().Be(0);
+
+        composite.Construct();
+
+        calls.Should().Be(2);
+        composite.Should().Equal(childA, childB);
+        composite.Status.Should().Be(ConstructionStatus.Constructed);
+    }
 
     // ── Type and identity ────────────────────────────────────────────────────
 
@@ -441,6 +479,44 @@ public class CompositeVMTests
         composite.Status.Should().Be(ConstructionStatus.Constructed);
     }
 
+    [Fact]
+    public async Task Construct_Remains_In_Progress_Until_Background_Child_Is_Constructed()
+    {
+        var hub = new TestHub();
+        var dispatcher = new RealThreadDispatcher();
+        using var started = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var child = ComponentVM<string>.Builder()
+            .Name("child")
+            .Services(hub, dispatcher)
+            .Model("m")
+            .Background(true)
+            .OnConstruct(() =>
+            {
+                started.Set();
+                release.Wait();
+            })
+            .Build();
+        var composite = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("root")
+            .Services(hub, dispatcher)
+            .Children(() => [child])
+            .Build();
+
+        composite.Construct();
+        started.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue();
+        var parentStatusWhileChildRuns = composite.Status;
+        release.Set();
+        await Task.WhenAll(dispatcher.PendingWork);
+        SpinWait.SpinUntil(
+            () => composite.Status == ConstructionStatus.Constructed,
+            TimeSpan.FromSeconds(5)).Should().BeTrue();
+
+        parentStatusWhileChildRuns.Should().Be(ConstructionStatus.Constructing,
+            "a container cannot settle before its background child");
+        child.Status.Should().Be(ConstructionStatus.Constructed);
+    }
+
     // ── Lifecycle: Destruct ──────────────────────────────────────────────────
 
     [Fact]
@@ -474,6 +550,107 @@ public class CompositeVMTests
         c2.Status.Should().Be(ConstructionStatus.Destructed);
     }
 
+    [Fact]
+    public async Task Destruct_Remains_In_Progress_Until_Background_Child_Is_Destructed()
+    {
+        var hub = new TestHub();
+        var dispatcher = new RealThreadDispatcher();
+        using var started = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var child = ComponentVM<string>.Builder()
+            .Name("child")
+            .Services(hub, dispatcher)
+            .Model("m")
+            .Background(true)
+            .OnDestruct(() =>
+            {
+                started.Set();
+                release.Wait();
+            })
+            .Build();
+        var composite = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("root")
+            .Services(hub, dispatcher)
+            .Children(() => [child])
+            .Build();
+        await composite.ConstructAsync();
+
+        composite.Destruct();
+        started.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue();
+        var parentStatusWhileChildRuns = composite.Status;
+        release.Set();
+        await Task.WhenAll(dispatcher.PendingWork);
+        SpinWait.SpinUntil(
+            () => composite.Status == ConstructionStatus.Destructed,
+            TimeSpan.FromSeconds(5)).Should().BeTrue();
+
+        parentStatusWhileChildRuns.Should().Be(ConstructionStatus.Destructing,
+            "a container cannot settle before its background child");
+        child.Status.Should().Be(ConstructionStatus.Destructed);
+    }
+
+    [Fact]
+    public async Task Reconstruct_Waits_For_Background_Child_Destruct_Then_Construct()
+    {
+        var hub = new TestHub();
+        var dispatcher = new RealThreadDispatcher();
+        using var destructStarted = new ManualResetEventSlim();
+        using var destructRelease = new ManualResetEventSlim();
+        using var reconstructStarted = new ManualResetEventSlim();
+        using var reconstructRelease = new ManualResetEventSlim();
+        var constructCalls = 0;
+        var child = ComponentVM<string>.Builder()
+            .Name("child")
+            .Services(hub, dispatcher)
+            .Model("m")
+            .Background(true)
+            .OnConstruct(() =>
+            {
+                if (Interlocked.Increment(ref constructCalls) == 2)
+                {
+                    reconstructStarted.Set();
+                    reconstructRelease.Wait();
+                }
+            })
+            .OnDestruct(() =>
+            {
+                destructStarted.Set();
+                destructRelease.Wait();
+            })
+            .Build();
+        var composite = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("root")
+            .Services(hub, dispatcher)
+            .Children(() => [child])
+            .Build();
+        await composite.ConstructAsync();
+
+        Task reconstruct;
+        try
+        {
+            reconstruct = composite.ReconstructAsync();
+            destructStarted.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue();
+            composite.Status.Should().Be(ConstructionStatus.Destructing);
+
+            destructRelease.Set();
+            reconstructStarted.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue();
+            composite.Status.Should().Be(ConstructionStatus.Constructing);
+
+            reconstructRelease.Set();
+            var completed = await Task.WhenAny(reconstruct, Task.Delay(TimeSpan.FromSeconds(5)));
+            completed.Should().BeSameAs(reconstruct);
+            await reconstruct;
+        }
+        finally
+        {
+            destructRelease.Set();
+            reconstructRelease.Set();
+        }
+
+        child.Status.Should().Be(ConstructionStatus.Constructed);
+        composite.Status.Should().Be(ConstructionStatus.Constructed);
+    }
+
     // ── Lifecycle: Dispose cascade (LIFE-013) ────────────────────────────────
 
     [Fact]
@@ -490,6 +667,29 @@ public class CompositeVMTests
 
         c1.Status.Should().Be(ConstructionStatus.Disposed);
         c2.Status.Should().Be(ConstructionStatus.Disposed);
+        composite.Status.Should().Be(ConstructionStatus.Disposed);
+    }
+
+    [Fact]
+    public void Dispose_Continues_After_Child_Failure_And_Rethrows_First_Error()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var throwing = new ThrowingDisposeVM();
+        var sibling = BuildChild(hub, dispatcher, "sibling");
+        var composite = CompositeVM<IComponentVM>.Builder()
+            .Name("root")
+            .Services(hub, dispatcher)
+            .Children(() => [throwing, sibling])
+            .Build();
+        composite.Construct();
+
+        Action dispose = composite.Dispose;
+
+        dispose.Should().Throw<InvalidOperationException>()
+            .WithMessage("dispose hook failure");
+        throwing.Status.Should().Be(ConstructionStatus.Disposed);
+        sibling.Status.Should().Be(ConstructionStatus.Disposed);
         composite.Status.Should().Be(ConstructionStatus.Disposed);
     }
 

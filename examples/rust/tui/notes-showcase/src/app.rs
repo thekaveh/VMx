@@ -45,7 +45,7 @@ fn run_loop(
                 KeyCode::Char('n') => workspace.notes().next_page(),
                 KeyCode::Char('p') => workspace.notes().previous_page(),
                 KeyCode::Char('m') => {
-                    workspace.editor().toggle()?;
+                    workspace.editor().toggle();
                 }
                 KeyCode::Char('d') => workspace.request_delete_current(),
                 KeyCode::Char('y') => workspace.approve_delete_current(),

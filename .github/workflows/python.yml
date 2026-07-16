@@ -34,24 +34,22 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
         python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Install uv
-        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
-          version: "0.11.19"
+          version: "0.11.28"
           enable-cache: true
-          # uv.lock is gitignored in this repo (library project, no committed lock);
-          # cache key derives purely from the manifest. If a lockfile is committed
-          # in the future, re-add `langs/python/uv.lock` to this glob.
           cache-dependency-glob: |
             langs/python/pyproject.toml
+            langs/python/uv.lock
 
       - name: Set up Python
         run: uv python install ${{ matrix.python-version }}
 
       - name: Sync dependencies
-        run: uv sync --all-extras
+        run: uv sync --locked --all-extras
 
       - name: Ruff lint
         run: uv run ruff check src tests
@@ -67,7 +65,7 @@ jobs:
 
       - name: Upload coverage to Codecov
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
-        uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238 # v4
+        uses: codecov/codecov-action@e53489f4d376d79066609109e7a95a29eb3740b1 # v7.0.0
         with:
           files: langs/python/coverage.xml
           flags: python
@@ -88,15 +86,16 @@ jobs:
       run:
         working-directory: .
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Install uv
-        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
-          version: "0.11.19"
+          version: "0.11.28"
           enable-cache: true
           cache-dependency-glob: |
             examples/python/textual/notes_showcase/pyproject.toml
+            examples/python/textual/notes_showcase/uv.lock
 
       - name: Set up Python
         run: uv python install 3.12
@@ -106,7 +105,7 @@ jobs:
         # pyproject.toml (PEP 735), not [project.optional-dependencies]; uv
         # syncs default dependency groups automatically, so no --extra/--group
         # flag is needed for pytest to be present.
-        run: uv sync --directory examples/python/textual/notes_showcase
+        run: uv sync --locked --directory examples/python/textual/notes_showcase
 
       - name: notes-showcase ruff lint
         run: uv run --directory examples/python/textual/notes_showcase ruff check
@@ -127,21 +126,31 @@ jobs:
       run:
         working-directory: .
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Install uv
-        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
-          version: "0.11.19"
+          version: "0.11.28"
           enable-cache: true
           cache-dependency-glob: |
             examples/python/pyproject.toml
+            examples/python/uv.lock
 
       - name: Set up Python
         run: uv python install 3.12
 
       - name: Sync examples
-        run: uv sync --directory examples/python
+        run: uv sync --locked --directory examples/python
+
+      - name: Ruff lint
+        run: uv run --directory examples/python ruff check console tk
+
+      - name: Ruff format check
+        run: uv run --directory examples/python ruff format --check console tk
+
+      - name: Mypy strict
+        run: uv run --directory examples/python mypy --strict console tk
 
       - name: Run console example
         run: uv run --directory examples/python python -m hello_vmx
@@ -161,21 +170,22 @@ jobs:
       run:
         working-directory: .
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Install uv
-        uses: astral-sh/setup-uv@caf0cab7a618c569241d31dcd442f54681755d39 # v3
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
-          version: "0.11.19"
+          version: "0.11.28"
           enable-cache: true
           cache-dependency-glob: |
             examples/python/textual/inspector/pyproject.toml
+            examples/python/textual/inspector/uv.lock
 
       - name: Set up Python
         run: uv python install 3.12
 
       - name: inspector sync
-        run: uv sync --directory examples/python/textual/inspector
+        run: uv sync --locked --directory examples/python/textual/inspector
 
       - name: inspector ruff lint
         run: uv run --directory examples/python/textual/inspector ruff check

@@ -15,6 +15,7 @@ import dataclasses
 from collections.abc import Awaitable, Callable
 
 from vmx import (
+    AsyncRelayCommand,
     ComponentVMOf,
     ConstructionStatus,
     IClosable,
@@ -35,6 +36,8 @@ from vmx.services.dispatcher import Dispatcher
 
 from notes_showcase.models.note_model import NoteModel
 
+NoteHandler = Callable[["NoteVM"], Awaitable[None] | None]
+
 
 class NoteVM(
     ComponentVMOf[NoteModel],
@@ -53,8 +56,8 @@ class NoteVM(
         hub: MessageHubProto[Message],
         dispatcher: Dispatcher,
         on_close: Callable[["NoteVM"], None] | None = None,
-        on_delete: Callable[["NoteVM"], None] | None = None,
-        on_save: Callable[["NoteVM"], None] | None = None,
+        on_delete: NoteHandler | None = None,
+        on_save: NoteHandler | None = None,
         confirm_delete: Callable[["NoteVM"], Awaitable[bool]] | None = None,
         notification_hub: INotificationHub | None = None,
     ) -> None:
@@ -77,9 +80,9 @@ class NoteVM(
             RelayCommand.builder().predicate(self.can_close).task(self.close).build()
         )
         self._save_command = (
-            RelayCommand.builder()
+            AsyncRelayCommand.builder()
             .predicate(lambda: self.can_save(self))
-            .task(lambda: self.save(self))
+            .task(lambda: self._perform_save(self))
             .build()
         )
         # Spec §5.2.8 / §6.2: when a confirm-delete delegate is wired, wrap
@@ -87,7 +90,7 @@ class NoteVM(
         # invokes `_perform_delete`, which posts a "Note deleted" notification
         # (if a hub is wired) and calls the host delete callback.
         self._inner_delete_command = (
-            RelayCommand.builder()
+            AsyncRelayCommand.builder()
             .predicate(lambda: self.can_delete(self))
             .task(lambda: self._perform_delete(self))
             .build()
@@ -140,10 +143,9 @@ class NoteVM(
     def delete(self, item: "NoteVM") -> None:
         if not self.can_delete(item):
             return
-        if self._on_delete is not None:
-            self._on_delete(item)
+        self._inner_delete_command.execute()
 
-    def _perform_delete(self, item: "NoteVM") -> None:
+    async def _perform_delete(self, item: "NoteVM") -> None:
         """Inner delete: invokes the host callback and posts the notification.
 
         Called by the (decorated) DeleteCommand pipeline after the confirm
@@ -153,7 +155,9 @@ class NoteVM(
         if not self.can_delete(item):
             return
         if self._on_delete is not None:
-            self._on_delete(item)
+            pending = self._on_delete(item)
+            if pending is not None:
+                await pending
         if self._notification_hub is not None:
             self._notification_hub.post(
                 Notification(
@@ -168,8 +172,15 @@ class NoteVM(
     def save(self, item: "NoteVM") -> None:
         if not self.can_save(item):
             return
+        self._save_command.execute()
+
+    async def _perform_save(self, item: "NoteVM") -> None:
+        if not self.can_save(item):
+            return
         if self._on_save is not None:
-            self._on_save(item)
+            pending = self._on_save(item)
+            if pending is not None:
+                await pending
 
     # ── Command surface ────────────────────────────────────────────────────
     @property
@@ -177,7 +188,7 @@ class NoteVM(
         return self._close_command
 
     @property
-    def save_command(self) -> RelayCommand:
+    def save_command(self) -> AsyncRelayCommand:
         return self._save_command
 
     @property
@@ -233,8 +244,8 @@ class NoteVMBuilder:
     _hub: MessageHubProto[Message] | None = None
     _dispatcher: Dispatcher | None = None
     _on_close: Callable[[NoteVM], None] | None = None
-    _on_delete: Callable[[NoteVM], None] | None = None
-    _on_save: Callable[[NoteVM], None] | None = None
+    _on_delete: NoteHandler | None = None
+    _on_save: NoteHandler | None = None
     _confirm_delete: Callable[[NoteVM], Awaitable[bool]] | None = None
     _notification_hub: INotificationHub | None = None
 
@@ -255,10 +266,10 @@ class NoteVMBuilder:
     def on_close(self, callback: Callable[[NoteVM], None]) -> NoteVMBuilder:
         return dataclasses.replace(self, _on_close=callback)
 
-    def on_delete(self, callback: Callable[[NoteVM], None]) -> NoteVMBuilder:
+    def on_delete(self, callback: NoteHandler) -> NoteVMBuilder:
         return dataclasses.replace(self, _on_delete=callback)
 
-    def on_save(self, callback: Callable[[NoteVM], None]) -> NoteVMBuilder:
+    def on_save(self, callback: NoteHandler) -> NoteVMBuilder:
         return dataclasses.replace(self, _on_save=callback)
 
     def confirm_delete(

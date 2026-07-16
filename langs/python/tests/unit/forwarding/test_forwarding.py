@@ -323,6 +323,27 @@ def test_composite_len_delegates() -> None:
     assert len(fwd) == 1
 
 
+def test_composite_move_delegates() -> None:
+    inner = _make_composite_mock(["a", "b"])
+    fwd = _PassthroughCompositeVM(inner)
+
+    fwd.move(0, 1)
+
+    inner.move.assert_called_once_with(0, 1)
+
+
+def test_composite_batch_update_delegates_and_returns_handle() -> None:
+    inner = _make_composite_mock([])
+    handle = MagicMock()
+    inner.batch_update.return_value = handle
+    fwd = _PassthroughCompositeVM(inner)
+
+    result = fwd.batch_update()
+
+    assert result is handle
+    inner.batch_update.assert_called_once_with()
+
+
 def test_composite_identity_properties_delegate() -> None:
     inner = _make_composite_mock([])
     fwd = _PassthroughCompositeVM(inner)

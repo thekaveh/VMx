@@ -1,9 +1,15 @@
 import { describe, expect, it } from "vitest";
+import type { IAsyncCommand } from "@thekaveh/vmx";
 
 import { InMemoryNoteRepository } from "../../src/models/inMemoryRepository.js";
 import { buildSeed } from "../../src/models/seed.js";
 import { NullDialogService } from "../../src/viewmodels/dialogService.js";
 import { WorkspaceVM } from "../../src/viewmodels/workspaceVM.js";
+
+declare const process: {
+  on(event: "unhandledRejection", listener: (reason: unknown) => void): void;
+  off(event: "unhandledRejection", listener: (reason: unknown) => void): void;
+};
 
 function makeWorkspace(): WorkspaceVM {
   const repo = new InMemoryNoteRepository(buildSeed(), {
@@ -32,6 +38,41 @@ describe("WorkspaceVM", () => {
     ws.dispose();
   });
 
+  it("observes a failed selection bind and permits a retry", async () => {
+    const repo = new InMemoryNoteRepository(buildSeed(), {
+      loadAllDelayMs: 0,
+      loadNotesDelayMs: 0,
+    });
+    const ws = WorkspaceVM.builder()
+      .repository(repo)
+      .dialogService(NullDialogService.INSTANCE)
+      .build();
+    await ws.constructAsync();
+    const personal = ws.notebooksRoot.roots.find((nb) => nb.model.id === "nb-personal");
+    const work = ws.notebooksRoot.roots.find((nb) => nb.model.id === "nb-work");
+    expect(personal).toBeDefined();
+    expect(work).toBeDefined();
+
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown): void => { unhandled.push(reason); };
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      repo.failNext(new Error("transient load failure"));
+      ws.selectNotebook(personal!);
+      await new Promise<void>((resolve) => { setTimeout(resolve, 0); });
+      expect(unhandled).toEqual([]);
+
+      ws.selectNotebook(work!);
+      await new Promise<void>((resolve) => { setTimeout(resolve, 0); });
+      ws.selectNotebook(personal!);
+      await new Promise<void>((resolve) => { setTimeout(resolve, 0); });
+      expect(ws.notesView.boundNotebookId).toBe("nb-personal");
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+      ws.dispose();
+    }
+  });
+
   it("exposes six children via the AggregateVM6 composition", async () => {
     const ws = makeWorkspace();
     await ws.constructAsync();
@@ -45,13 +86,21 @@ describe("WorkspaceVM", () => {
   });
 
   it("newNotebookCommand only executes once constructed", async () => {
-    const ws = makeWorkspace();
+    const ws = WorkspaceVM.builder()
+      .repository(
+        new InMemoryNoteRepository(buildSeed(), {
+          loadAllDelayMs: 0,
+          loadNotesDelayMs: 0,
+          addNotebookDelayMs: 20,
+        }),
+      )
+      .dialogService(NullDialogService.INSTANCE)
+      .build();
     expect(ws.newNotebookCommand.canExecute()).toBe(false);
     await ws.constructAsync();
     expect(ws.newNotebookCommand.canExecute()).toBe(true);
     const before = ws.notebooksRoot.all.length;
-    ws.newNotebookCommand.execute();
-    await new Promise((r) => setTimeout(r, 0));
+    await (ws.newNotebookCommand as IAsyncCommand).executeAsync();
     expect(ws.notebooksRoot.all.length).toBe(before + 1);
     ws.dispose();
   });
@@ -102,10 +151,7 @@ describe("WorkspaceVM", () => {
     const ws = makeWorkspace();
     await ws.constructAsync();
     // NullDialogService.pickFileToSave returns null → no export
-    await new Promise<void>((resolve) => {
-      ws.exportCommand.execute();
-      setTimeout(resolve, 10);
-    });
+    await (ws.exportCommand as IAsyncCommand).executeAsync();
     expect(ws.isConstructed).toBe(true);
     ws.dispose();
   });
@@ -135,8 +181,7 @@ describe("WorkspaceVM", () => {
       })
       .build();
     await ws.constructAsync();
-    ws.exportCommand.execute();
-    await new Promise((r) => setTimeout(r, 30));
+    await (ws.exportCommand as IAsyncCommand).executeAsync();
     expect(captured).not.toBeNull();
     expect(captured!.path).toBe("/tmp/out.json");
     ws.dispose();
@@ -198,13 +243,12 @@ describe("WorkspaceVM", () => {
     const ws = makeWorkspace();
     await ws.constructAsync();
     const beforeCount = ws.notesView.inner.length;
-    ws.newNoteCommand.execute();
-    await new Promise((r) => setTimeout(r, 15));
+    await (ws.newNoteCommand as IAsyncCommand).executeAsync();
     expect(ws.notesView.inner.length).toBe(beforeCount + 1);
     ws.dispose();
   });
 
-  // ── Round-3 Critical-2 parity: setting notesView.current rebinds noteForm
+  // ── current-selection rebinding: setting notesView.current rebinds noteForm
   // via the WorkspaceVM hub subscription (matches the C# + Py flavors).
   it("setting notesView.current rebinds noteForm", async () => {
     const ws = makeWorkspace();
@@ -219,7 +263,7 @@ describe("WorkspaceVM", () => {
     ws.dispose();
   });
 
-  // ── Round-4 Important-1: selecting + deleting clears the form ────────────
+  // ── cleared-selection form behavior: selecting + deleting clears the form ────────────
   // When notesView.current transitions to null (e.g. the selected note is
   // deleted) the WorkspaceVM subscription must call noteForm.unbind() so
   // the right pane does not display ghost data from the just-removed note.

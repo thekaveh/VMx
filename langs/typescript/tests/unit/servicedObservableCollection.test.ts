@@ -203,6 +203,25 @@ describe("ServicedObservableCollection – no-op splice", () => {
     expect(removed).toEqual([]);
     expect(events).toHaveLength(0);
   });
+
+  it("distinguishes omitted deleteCount from explicit undefined", () => {
+    const omitted = new ServicedObservableCollection<number>();
+    [1, 2, 3].forEach((item) => omitted.push(item));
+    expect(omitted.splice(1)).toEqual([2, 3]);
+    expect(omitted.toArray()).toEqual([1]);
+
+    const explicit = new ServicedObservableCollection<number>();
+    [1, 2, 3].forEach((item) => explicit.push(item));
+    const explicitEvents: CollectionChangedMessage<number>[] = [];
+    explicit.collectionChanged.subscribe((event) => explicitEvents.push(event));
+    expect(explicit.splice(1, undefined)).toEqual([]);
+    expect(explicit.toArray()).toEqual([1, 2, 3]);
+    expect(explicitEvents).toEqual([]);
+
+    expect(explicit.splice(1, undefined, 9)).toEqual([]);
+    expect(explicit.toArray()).toEqual([1, 9, 2, 3]);
+    expect(explicitEvents).toEqual([expect.objectContaining({ action: "reset" })]);
+  });
 });
 
 // ---------------------------------------------------------------------------

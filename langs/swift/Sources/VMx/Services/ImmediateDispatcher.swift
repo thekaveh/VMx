@@ -7,7 +7,7 @@
 //
 import Foundation
 
-public final class ImmediateDispatcher: Dispatcher {
+public final class ImmediateDispatcher: Dispatcher, Sendable {
     /// Shared singleton — the dispatcher holds no state.
     public static let INSTANCE = ImmediateDispatcher()
 

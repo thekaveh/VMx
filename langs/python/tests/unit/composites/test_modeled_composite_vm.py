@@ -94,6 +94,41 @@ def test_modeled_composite_children_are_constructed() -> None:
     assert all(c.status == ConstructionStatus.CONSTRUCTED for c in comp)
 
 
+def test_failed_model_mapping_rolls_back_and_retries() -> None:
+    hub = _hub()
+    disp = _dispatcher()
+    models = [_Model(1), _Model(2)]
+    attempts = 0
+
+    def map_child(model: _Model) -> ComponentVMOf[_Model]:
+        nonlocal attempts
+        if model.id == 1:
+            attempts += 1
+        if model.id == 2 and attempts == 1:
+            raise RuntimeError("transient mapper failure")
+        return _make_child_vm(model, hub, disp)
+
+    comp: CompositeVMOf[_Model, ComponentVMOf[_Model]] = (
+        CompositeVMOfBuilder()
+        .name("comp")
+        .services(hub, disp)
+        .children_models(lambda: models)
+        .child_model_to_child_view_model(map_child)
+        .build()
+    )
+
+    with pytest.raises(RuntimeError, match="transient mapper failure"):
+        comp.construct()
+
+    assert comp.status == ConstructionStatus.DESTRUCTED
+    assert comp.count == 0
+
+    comp.construct()
+
+    assert attempts == 2
+    assert [child.model for child in comp] == models
+
+
 def test_modeled_composite_builder_missing_children_models_raises() -> None:
     from vmx.builders.exceptions import BuilderValidationError
 

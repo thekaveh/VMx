@@ -104,6 +104,11 @@ public sealed class ComponentVMBuilder<M>
     public ComponentVMBuilder<M> Services(IMessageHub hub, IDispatcher dispatcher)
         => With(hub: hub, dispatcher: dispatcher);
 
+    internal ComponentVMBuilder<M> OptionHub(IMessageHub hub) => With(hub: hub);
+
+    internal ComponentVMBuilder<M> OptionDispatcher(IDispatcher dispatcher)
+        => With(dispatcher: dispatcher);
+
     /// <summary>
     /// Sets the required Services by resolving <see cref="IMessageHub"/> and
     /// <see cref="IDispatcher"/> from <paramref name="serviceProvider"/> (VMX-021).
@@ -245,6 +250,11 @@ public sealed class ComponentVMBuilder
     /// <summary>Sets the required Services (hub + dispatcher).</summary>
     public ComponentVMBuilder Services(IMessageHub hub, IDispatcher dispatcher)
         => With(hub: hub, dispatcher: dispatcher);
+
+    internal ComponentVMBuilder OptionHub(IMessageHub hub) => With(hub: hub);
+
+    internal ComponentVMBuilder OptionDispatcher(IDispatcher dispatcher)
+        => With(dispatcher: dispatcher);
 
     /// <summary>
     /// Sets the required Services by resolving <see cref="IMessageHub"/> and

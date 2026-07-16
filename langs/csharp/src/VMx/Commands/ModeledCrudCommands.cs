@@ -1,5 +1,5 @@
 using System.Reactive;
-using System.Reactive.Disposables;
+using System.Runtime.ExceptionServices;
 using System.Windows.Input;
 
 namespace VMx.Commands;
@@ -21,7 +21,8 @@ public sealed class ModeledCrudCommands<M, VM> : IDisposable
     /// <summary>Command that invokes delete_current with the current VM. CanExecute requires current != null.</summary>
     public ICommand DeleteCurrentCommand { get; }
 
-    private readonly CompositeDisposable _disposables = new();
+    private readonly List<IDisposable> _disposables = [];
+    private bool _disposed;
 
     /// <summary>Creates a new CRUD command set.</summary>
     /// <param name="current">Provider returning the current VM (or null).</param>
@@ -91,5 +92,16 @@ public sealed class ModeledCrudCommands<M, VM> : IDisposable
     }
 
     /// <summary>Disposes the underlying commands. Idempotent.</summary>
-    public void Dispose() => _disposables.Dispose();
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        ExceptionDispatchInfo? firstError = null;
+        foreach (var disposable in _disposables)
+        {
+            try { disposable.Dispose(); }
+            catch (Exception error) { firstError ??= ExceptionDispatchInfo.Capture(error); }
+        }
+        firstError?.Throw();
+    }
 }

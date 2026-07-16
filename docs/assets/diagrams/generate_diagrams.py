@@ -5,9 +5,13 @@ This task intentionally keeps the source local to docs/assets/diagrams so the
 docs-site branch can evolve the diagram triplets without touching shared tooling.
 """
 
+# ruff: noqa: E501
+
 from __future__ import annotations
 
+import argparse
 import json
+import math
 import re
 import subprocess
 import tempfile
@@ -25,6 +29,7 @@ SPEC_VERSION_PATH = REPO_ROOT / "spec" / "VERSION"
 CONFORMANCE_PATH = REPO_ROOT / "spec" / "12-conformance.md"
 CAPABILITIES_PATH = REPO_ROOT / "spec" / "14-capabilities.md"
 PNG_WIDTH = 3200
+MONO_GLYPH_WIDTH_FACTOR = 0.61
 SVG_FONT_STACK = (
     "'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "
     "'Liberation Mono', 'Courier New', monospace"
@@ -126,12 +131,8 @@ def load_source_facts() -> SourceFacts:
             "capability count in spec/14-capabilities.md",
         ).group(1)
     )
-    notes_feature_count = len(
-        re.findall(r"^\| \d+\s+\|", notes_parity, re.MULTILINE)
-    )
-    notes_flavor_labels = tuple(
-        re.findall(r"^- \*\*(.+?)\*\* \u2014 ", notes_parity, re.MULTILINE)
-    )
+    notes_feature_count = len(re.findall(r"^\| \d+\s+\|", notes_parity, re.MULTILINE))
+    notes_flavor_labels = tuple(re.findall(r"^- \*\*(.+?)\*\* \u2014 ", notes_parity, re.MULTILINE))
 
     readme_conformance = require_match(
         repo_readme,
@@ -280,13 +281,13 @@ def svg_text(
     y: int,
     value: str,
     *,
-    size: int = 16,
+    size: float = 16,
     color: str = "#e2e8f0",
     weight: str = "400",
     anchor: str = "middle",
 ) -> str:
     return (
-        f'<text x="{x}" y="{y}" fill="{color}" font-size="{size}" '
+        f'<text x="{x}" y="{y}" fill="{color}" font-size="{size:g}" '
         f'font-weight="{weight}" text-anchor="{anchor}">{escape(value)}</text>'
     )
 
@@ -296,7 +297,7 @@ def multiline_text(
     y: int,
     lines: tuple[str, ...],
     *,
-    size: int = 13,
+    size: float = 13,
     color: str = "#cbd5e1",
     anchor: str = "middle",
     line_height: int = 20,
@@ -307,6 +308,28 @@ def multiline_text(
     )
 
 
+def box_text_width(box: Box) -> int:
+    """Return the horizontal space reserved for one box text run."""
+    return box.w - (36 if box.align == "start" else 24)
+
+
+def fitted_font_size(
+    text: str,
+    preferred_size: int,
+    available_width: int,
+    *,
+    minimum_size: float = 8,
+) -> float:
+    """Fit a monospaced text run to its box without silently clipping it."""
+    if not text:
+        return float(preferred_size)
+    estimated_width = len(text) * preferred_size * MONO_GLYPH_WIDTH_FACTOR
+    if estimated_width <= available_width:
+        return float(preferred_size)
+    fitted = available_width / (len(text) * MONO_GLYPH_WIDTH_FACTOR)
+    return max(minimum_size, math.floor(fitted * 100) / 100)
+
+
 def draw_box(box: Box) -> str:
     fill, stroke = COLORS[box.kind]
     dash = ' stroke-dasharray="8 6"' if box.dashed else ""
@@ -314,6 +337,19 @@ def draw_box(box: Box) -> str:
     text_x = box.x + box.w // 2 if box.align == "middle" else box.x + 18
     body_x = box.x + box.w // 2 if box.align == "middle" else box.x + 18
     body_anchor = "middle" if box.align == "middle" else "start"
+    available_width = box_text_width(box)
+    title_size = fitted_font_size(box.title, box.title_size, available_width)
+    body = "\n".join(
+        svg_text(
+            body_x,
+            box.y + 54 + index * max(18, box.line_size + 6),
+            line,
+            size=fitted_font_size(line, box.line_size, available_width),
+            color=SVG_THEME["body"],
+            anchor=body_anchor,
+        )
+        for index, line in enumerate(box.lines)
+    )
     return "\n".join(
         [
             f'<rect x="{box.x}" y="{box.y}" width="{box.w}" height="{box.h}" rx="8" fill="{SVG_THEME["panel_mask"]}"/>',
@@ -323,20 +359,12 @@ def draw_box(box: Box) -> str:
                 text_x,
                 box.y + 28,
                 box.title,
-                size=box.title_size,
+                size=title_size,
                 color=SVG_THEME["title"],
                 weight="700",
                 anchor=title_anchor,
             ),
-            multiline_text(
-                body_x,
-                box.y + 54,
-                box.lines,
-                size=box.line_size,
-                color=SVG_THEME["body"],
-                anchor=body_anchor,
-                line_height=max(18, box.line_size + 6),
-            ),
+            body,
         ]
     )
 
@@ -498,9 +526,7 @@ def svg_doc(diagram: Diagram) -> str:
     body_parts.extend(
         label for rel in diagram.relationships if (label := draw_relationship_label(rel))
     )
-    body_parts.extend(
-        label for line in diagram.lines if (label := draw_polyline_label(line))
-    )
+    body_parts.extend(label for line in diagram.lines if (label := draw_polyline_label(line)))
     if diagram.diagram_id == "class-architecture":
         body_parts.append(relationship_legend(diagram.width - 300, 1110))
     body = "\n".join(body_parts)
@@ -538,7 +564,7 @@ def html_doc(diagram: Diagram, svg_name: str) -> str:
       </section>"""
         for index, (title, items) in enumerate(diagram.cards)
     )
-    footer = diagram.footer or f"Generated from repo-derived facts for VMx spec {SPEC_VERSION}."
+    footer = f"    <footer>{escape(diagram.footer)}</footer>" if diagram.footer else ""
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -596,12 +622,6 @@ def html_doc(diagram: Diagram, svg_name: str) -> str:
     }}
     .svg-frame {{ min-width: 1180px; }}
     .svg-frame svg {{ display: block; width: 100%; height: auto; }}
-    .diagram-caption {{
-      margin: 12px 4px 0;
-      color: var(--text-secondary);
-      font-size: 12px;
-      line-height: 1.45;
-    }}
     .cards {{
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -635,12 +655,11 @@ def html_doc(diagram: Diagram, svg_name: str) -> str:
       <div class="svg-frame" role="img" aria-label="{escape(diagram.title)}">
 {inline_svg}
       </div>
-      <p class="diagram-caption">Dark SVG source uses the VMx architecture palette and keeps arrows behind masked component boxes.</p>
     </div>
     <div class="cards">
 {cards}
     </div>
-    <footer>{escape(footer)}</footer>
+{footer}
   </main>
 </body>
 </html>
@@ -667,23 +686,173 @@ def system_architecture() -> Diagram:
             Boundary(260, 788, 1180, 172, "Example and validation loop", "#fb923c"),
         ),
         boxes=(
-            Box(90, 152, 170, 96, "spec/", (f"{facts.spec_chapter_count} chapters", f"{facts.adr_count} ADRs", f"VERSION {facts.spec_version}"), "cloud"),
-            Box(280, 152, 170, 96, "fixtures", (f"{facts.fixture_count} shared JSON fixtures", "lifecycle / messages", "commands / derived"), "cloud"),
-            Box(90, 270, 360, 100, "12-conformance", (f"{facts.library_conformance_count} library IDs", f"{facts.theme_conformance_count} THEME scenario IDs", f"{facts.total_conformance_count} total"), "bus"),
-            Box(550, 152, 220, 110, "Lifecycle base", ("ComponentVMBase", "guarded transitions", "dispose cascade"), "backend"),
-            Box(790, 152, 250, 110, "VM families", ("component", "composite / group / aggregate", "shared collection + atomic move"), "frontend"),
-            Box(550, 288, 220, 110, "Commands", ("RelayCommand", "decorators", "ModeledCrudCommands"), "bus"),
-            Box(790, 288, 250, 110, "Capabilities", (f"{facts.capability_count} micro-interfaces", "selection / CRUD / paging", "opt-in behavior"), "security"),
-            Box(1150, 152, 220, 110, "Services", ("MessageHub", "Dispatcher", "IDialogService", "ILocalizer"), "security"),
-            Box(1390, 152, 220, 110, "Collections + state", ("ObservableList / VMCollection", "DerivedProperty / SearchableState", "AsyncResourceVM"), "database"),
-            Box(1150, 288, 220, 110, "Paging primitives", ("PagedComposition", "TokenPagedComposition", "filtered ordering"), "database"),
-            Box(1390, 288, 220, 110, "Notifications", ("INotificationHub", "NotificationVM", "ConfirmationVM"), "security"),
-            Box(150, 536, 210, 136, "C#", ("PascalCase surface", "System.Reactive", "NuGet packages"), "frontend"),
-            Box(390, 536, 210, 136, "Python", ("snake_case surface", "reactivex", "uv + pytest"), "frontend"),
-            Box(630, 536, 210, 136, "TypeScript", ("camelCase surface", "rxjs", "dual ESM/CJS"), "frontend"),
-            Box(870, 536, 210, 136, "Swift", ("camelCase surface", "Combine", "SwiftPM resources"), "frontend"),
-            Box(1110, 536, 210, 136, "Rust", ("Rust type names", "rxrust facade", "Cargo crate"), "frontend"),
-            Box(1350, 536, 220, 136, "Compatibility matrix", ("independent package versions", "manual spec mapping", "major bumps track spec majors"), "generic"),
+            Box(
+                90,
+                152,
+                170,
+                96,
+                "spec/",
+                (
+                    f"{facts.spec_chapter_count} chapters",
+                    f"{facts.adr_count} ADRs",
+                    f"VERSION {facts.spec_version}",
+                ),
+                "cloud",
+            ),
+            Box(
+                280,
+                152,
+                170,
+                96,
+                "fixtures",
+                (f"{facts.fixture_count} JSON fixtures", "lifecycle + hubs", "commands + derived"),
+                "cloud",
+            ),
+            Box(
+                90,
+                270,
+                360,
+                100,
+                "12-conformance",
+                (
+                    f"{facts.library_conformance_count} library IDs",
+                    f"{facts.theme_conformance_count} THEME scenario IDs",
+                    f"{facts.total_conformance_count} total",
+                ),
+                "bus",
+            ),
+            Box(
+                550,
+                152,
+                220,
+                110,
+                "Lifecycle base",
+                ("ComponentVMBase", "guarded transitions", "dispose cascade"),
+                "backend",
+            ),
+            Box(
+                790,
+                152,
+                250,
+                110,
+                "VM families",
+                ("component + composite", "group + aggregate", "shared collection + move"),
+                "frontend",
+            ),
+            Box(
+                550,
+                288,
+                220,
+                110,
+                "Commands",
+                ("RelayCommand", "decorators", "ModeledCrudCommands"),
+                "bus",
+            ),
+            Box(
+                790,
+                288,
+                250,
+                110,
+                "Capabilities",
+                (
+                    f"{facts.capability_count} micro-interfaces",
+                    "selection / CRUD / paging",
+                    "opt-in behavior",
+                ),
+                "security",
+            ),
+            Box(
+                1150,
+                152,
+                220,
+                130,
+                "Services",
+                ("MessageHub", "Dispatcher", "IDialogService", "ILocalizer"),
+                "security",
+            ),
+            Box(
+                1390,
+                152,
+                220,
+                130,
+                "Collections + state",
+                ("lists + VMCollection", "DerivedProperty", "SearchableState", "AsyncResourceVM"),
+                "database",
+                title_size=16,
+            ),
+            Box(
+                1150,
+                288,
+                220,
+                110,
+                "Paging primitives",
+                ("PagedComposition", "TokenPagedComposition", "filtered ordering"),
+                "database",
+            ),
+            Box(
+                1390,
+                288,
+                220,
+                110,
+                "Notifications",
+                ("INotificationHub", "NotificationVM", "ConfirmationVM"),
+                "security",
+            ),
+            Box(
+                150,
+                536,
+                210,
+                136,
+                "C#",
+                ("PascalCase surface", "System.Reactive", "NuGet packages"),
+                "frontend",
+            ),
+            Box(
+                390,
+                536,
+                210,
+                136,
+                "Python",
+                ("snake_case surface", "reactivex", "uv + pytest"),
+                "frontend",
+            ),
+            Box(
+                630,
+                536,
+                210,
+                136,
+                "TypeScript",
+                ("camelCase surface", "rxjs", "dual ESM/CJS"),
+                "frontend",
+            ),
+            Box(
+                870,
+                536,
+                210,
+                136,
+                "Swift",
+                ("camelCase surface", "Combine", "SwiftPM resources"),
+                "frontend",
+            ),
+            Box(
+                1110,
+                536,
+                210,
+                136,
+                "Rust",
+                ("Rust type names", "VMx-owned facade", "Cargo crate"),
+                "frontend",
+            ),
+            Box(
+                1350,
+                536,
+                220,
+                136,
+                "Compatibility matrix",
+                ("independent versions", "manual spec mapping", "spec-major tracking"),
+                "generic",
+                title_size=16,
+            ),
             Box(
                 300,
                 820,
@@ -696,26 +865,65 @@ def system_architecture() -> Diagram:
                 ),
                 "generic",
             ),
-            Box(700, 820, 300, 108, "CI gates", ("spec-discipline", "coverage tool", "examples contract checks"), "bus"),
-            Box(1100, 820, 300, 108, "Release posture", ("same conceptual shape", "idiomatic per language", "repo facts drive docs"), "cloud"),
+            Box(
+                700,
+                820,
+                300,
+                108,
+                "CI gates",
+                ("spec-discipline", "coverage tool", "examples contract checks"),
+                "bus",
+            ),
+            Box(
+                1100,
+                820,
+                300,
+                108,
+                "Release posture",
+                ("same conceptual shape", "idiomatic per language", "repo facts drive docs"),
+                "cloud",
+            ),
         ),
         lines=(
             Polyline(((260, 200), (280, 200)), color="#fbbf24"),
             Polyline(((450, 200), (550, 200)), color="#fbbf24", label="norms", label_xy=(500, 186)),
-            Polyline(((450, 312), (550, 312)), color="#fb923c", label="catalogues", label_xy=(500, 298)),
+            Polyline(
+                ((450, 312), (550, 312)), color="#fb923c", label="catalogues", label_xy=(500, 298)
+            ),
             Polyline(((770, 206), (790, 206)), color="#22d3ee"),
-            Polyline(((1040, 206), (1150, 206)), color="#34d399", label="injects", label_xy=(1096, 192)),
-            Polyline(((1040, 344), (1150, 344)), color="#a78bfa", label="coordinates", label_xy=(1094, 330)),
-            Polyline(((1520, 262), (1520, 288)), color="#fb7185"),
-            Polyline(((660, 398), (255, 536)), color="#22d3ee", label="idiomatic APIs", label_xy=(474, 448)),
+            Polyline(
+                ((1040, 206), (1150, 206)), color="#34d399", label="injects", label_xy=(1096, 192)
+            ),
+            Polyline(
+                ((1040, 344), (1150, 344)),
+                color="#a78bfa",
+                label="coordinates",
+                label_xy=(1094, 330),
+            ),
+            Polyline(((1520, 282), (1520, 288)), color="#fb7185"),
+            Polyline(
+                ((660, 398), (255, 536)),
+                color="#22d3ee",
+                label="idiomatic APIs",
+                label_xy=(474, 448),
+            ),
             Polyline(((660, 398), (495, 536)), color="#22d3ee"),
             Polyline(((790, 398), (735, 536)), color="#22d3ee"),
             Polyline(((920, 398), (975, 536)), color="#22d3ee"),
             Polyline(((1040, 398), (1215, 536)), color="#22d3ee"),
-            Polyline(((1270, 398), (1460, 536)), color="#a78bfa", label="versioned separately", label_xy=(1380, 450)),
+            Polyline(
+                ((1270, 398), (1460, 536)),
+                color="#a78bfa",
+                label="versioned separately",
+                label_xy=(1380, 450),
+            ),
             Polyline(((410, 672), (450, 820)), color="#64748b", label="hosts", label_xy=(432, 744)),
-            Polyline(((845, 672), (850, 820)), color="#fb923c", label="enforces", label_xy=(872, 742)),
-            Polyline(((1400, 672), (1250, 820)), color="#34d399", label="documents", label_xy=(1320, 740)),
+            Polyline(
+                ((845, 672), (850, 820)), color="#fb923c", label="enforces", label_xy=(872, 742)
+            ),
+            Polyline(
+                ((1400, 672), (1250, 820)), color="#34d399", label="documents", label_xy=(1320, 740)
+            ),
         ),
         cards=(
             (
@@ -730,7 +938,7 @@ def system_architecture() -> Diagram:
                 "Parity shape",
                 (
                     "C#, Python, TypeScript, Swift, and Rust share one conceptual runtime with idiomatic casing only.",
-                    "Reactive primitives stay native per flavor: System.Reactive, reactivex, rxjs, Combine, and rxrust facade.",
+                    "Reactive primitives stay native per flavor; Rust uses the VMx-owned hot-stream facade.",
                     "Runtime helpers such as paging, derived properties, dialogs, and notifications remain consistent.",
                 ),
             ),
@@ -759,52 +967,293 @@ def class_architecture() -> Diagram:
             Boundary(60, 704, 1680, 352, "Commands, paging, and notification adapters", "#a78bfa"),
         ),
         boxes=(
-            Box(90, 150, 240, 108, "ComponentVMBase", ("lifecycle state machine", "hub + dispatcher", "protected hooks"), "backend"),
-            Box(390, 142, 220, 120, "ComponentVM<M>", ("modeled leaf VM", "extends ComponentVMBaseOfM<M>", "implements IComponentVM<M>"), "frontend"),
-            Box(670, 142, 220, 120, "CompositeVM", ("children list", "Current slot", "select_component"), "frontend"),
-            Box(950, 142, 220, 120, "GroupVM", ("peer children", "no Current", "batch updates"), "frontend"),
-            Box(1230, 142, 220, 120, "AggregateVM1..6", ("fixed arity", "Component1..6 accessors", "heterogeneous slots"), "frontend"),
-            Box(1510, 142, 220, 120, "HierarchicalVM", ("recursive nodes", "Parent / Depth / Path", "tree change messages"), "frontend"),
-            Box(90, 402, 220, 96, "IComponentVM<M>", ("name / hint / model", "selection + lifecycle verbs"), "generic"),
-            Box(360, 390, 260, 120, "ForwardingComponentVM", ("wraps IComponentVM<M>", "default delegation", "override selected members"), "frontend"),
-            Box(690, 402, 220, 96, "ICompositeVM<VM>", ("IList surface + Current", "child selection helpers"), "generic"),
-            Box(960, 390, 280, 120, "ForwardingCompositeVM", ("wraps ICompositeVM<VM>", "forwards Current + iteration", "subclass overrides stay surgical"), "frontend"),
-            Box(1300, 390, 220, 120, "DiscriminatorVM", ("ActiveKey", "modal precedence stack", "single-active slot"), "frontend"),
-            Box(90, 550, 250, 132, "FormVM", ("snapshot + IsDirty", "approve_async + errors", "validation-aware persist flow"), "frontend"),
-            Box(390, 560, 210, 112, "Approve + Deny commands", ("ICommand pair", "approve is fire-and-forget", "deny reverts Model"), "bus"),
-            Box(650, 550, 260, 132, "Persister + validation", ("persister / snapshotter", "validators + equality", "hub messages on deny"), "security"),
-            Box(980, 560, 230, 112, "NotificationVM", ("lifespan / opacity", "DismissCommand", "auto-resolve at expiry"), "security"),
-            Box(1270, 550, 250, 112, "ConfirmationVM", ("ApproveCommand", "RejectCommand", "no auto-resolve at expiry"), "security"),
-            Box(90, 756, 210, 96, "ICommand", ("CanExecute / Execute", "CanExecuteChanged"), "generic"),
-            Box(350, 744, 230, 120, "RelayCommand", ("implements ICommand", "predicate + task", "trigger + imperative requery"), "bus"),
-            Box(630, 744, 240, 120, "DecoratorCommand", ("single inner command", "pre/post actions", "extra gate"), "bus"),
-            Box(920, 732, 270, 132, "ConfirmationDecoratorCommand", ("confirm delegate gate", "errors observable", "fire-and-forget + async entry"), "bus"),
-            Box(1240, 732, 250, 132, "ModeledCrudCommands", ("CreateNew / UpdateCurrent / DeleteCurrent", "optional confirm delegates", "selection trigger re-evaluates"), "bus"),
-            Box(90, 916, 210, 96, "IPageable", ("page size / page count", "current page navigation"), "generic"),
-            Box(350, 904, 230, 120, "PagedComposition", ("implements IPageable", "wraps iterable source", "current page slice"), "database"),
-            Box(630, 904, 260, 120, "TokenPagedComposition", ("forward-only fetch_next", "load_more + refresh", "items accumulator + token"), "database"),
-            Box(960, 916, 220, 96, "INotificationHub", ("Post / Resolve", "Pending stream", "NullNotificationHub"), "security"),
-            Box(1230, 904, 220, 120, "ConfirmHelper", ("make_confirm", "awaits Post/Resolve flow", "returns async bool delegate"), "security"),
-            Box(1510, 916, 180, 96, "Confirm delegate", ("() -> Task<bool>", "Approve means proceed"), "generic"),
+            Box(
+                90,
+                150,
+                240,
+                108,
+                "ComponentVMBase",
+                ("lifecycle state machine", "hub + dispatcher", "protected hooks"),
+                "backend",
+            ),
+            Box(
+                390,
+                142,
+                220,
+                120,
+                "ComponentVM<M>",
+                ("modeled leaf VM", "extends modeled base", "IComponentVM<M>"),
+                "frontend",
+            ),
+            Box(
+                670,
+                142,
+                220,
+                120,
+                "CompositeVM",
+                ("children list", "Current slot", "select_component"),
+                "frontend",
+            ),
+            Box(
+                950,
+                142,
+                220,
+                120,
+                "GroupVM",
+                ("peer children", "no Current", "batch updates"),
+                "frontend",
+            ),
+            Box(
+                1230,
+                142,
+                220,
+                120,
+                "AggregateVM1..6",
+                ("fixed arity", "Component1..6 accessors", "heterogeneous slots"),
+                "frontend",
+            ),
+            Box(
+                1510,
+                142,
+                220,
+                120,
+                "HierarchicalVM",
+                ("recursive nodes", "Parent / Depth / Path", "tree change messages"),
+                "frontend",
+            ),
+            Box(
+                90,
+                402,
+                220,
+                96,
+                "IComponentVM<M>",
+                ("name / hint / model", "selection + lifecycle"),
+                "generic",
+            ),
+            Box(
+                360,
+                390,
+                260,
+                120,
+                "ForwardingComponentVM",
+                ("wraps IComponentVM<M>", "default delegation", "override selected members"),
+                "frontend",
+            ),
+            Box(
+                690,
+                402,
+                220,
+                96,
+                "ICompositeVM<VM>",
+                ("IList surface + Current", "child selection helpers"),
+                "generic",
+            ),
+            Box(
+                960,
+                390,
+                280,
+                120,
+                "ForwardingCompositeVM",
+                (
+                    "wraps ICompositeVM<VM>",
+                    "forwards Current + iteration",
+                    "subclass overrides stay surgical",
+                ),
+                "frontend",
+            ),
+            Box(
+                1300,
+                390,
+                220,
+                120,
+                "DiscriminatorVM",
+                ("ActiveKey", "modal precedence stack", "single-active slot"),
+                "frontend",
+            ),
+            Box(
+                90,
+                550,
+                250,
+                132,
+                "FormVM",
+                ("snapshot + IsDirty", "approve_async + errors", "validation-aware flow"),
+                "frontend",
+            ),
+            Box(
+                390,
+                560,
+                210,
+                112,
+                "Approve / Deny",
+                ("ICommand pair", "approve: async launch", "deny reverts Model"),
+                "bus",
+                title_size=15,
+            ),
+            Box(
+                650,
+                550,
+                260,
+                132,
+                "Persister + validation",
+                ("persister / snapshotter", "validators + equality", "hub messages on deny"),
+                "security",
+                title_size=16,
+            ),
+            Box(
+                980,
+                560,
+                230,
+                112,
+                "NotificationVM",
+                ("lifespan / opacity", "DismissCommand", "auto-resolve at expiry"),
+                "security",
+            ),
+            Box(
+                1270,
+                550,
+                250,
+                112,
+                "ConfirmationVM",
+                ("ApproveCommand", "RejectCommand", "no auto-resolve at expiry"),
+                "security",
+            ),
+            Box(
+                90,
+                756,
+                210,
+                96,
+                "ICommand",
+                ("CanExecute / Execute", "CanExecuteChanged"),
+                "generic",
+            ),
+            Box(
+                350,
+                744,
+                230,
+                120,
+                "RelayCommand",
+                ("implements ICommand", "predicate + task", "trigger + manual requery"),
+                "bus",
+            ),
+            Box(
+                630,
+                744,
+                240,
+                120,
+                "DecoratorCommand",
+                ("single inner command", "pre/post actions", "extra gate"),
+                "bus",
+            ),
+            Box(
+                920,
+                732,
+                270,
+                132,
+                "ConfirmationDecoratorCommand",
+                ("confirm delegate gate", "errors observable", "fire-and-forget + async entry"),
+                "bus",
+                title_size=14,
+            ),
+            Box(
+                1240,
+                732,
+                250,
+                132,
+                "ModeledCrudCommands",
+                (
+                    "CreateNew / UpdateCurrent",
+                    "DeleteCurrent + confirm",
+                    "selection-trigger requery",
+                ),
+                "bus",
+                title_size=15,
+            ),
+            Box(
+                90,
+                916,
+                210,
+                96,
+                "IPageable",
+                ("page size / page count", "current page navigation"),
+                "generic",
+            ),
+            Box(
+                350,
+                904,
+                230,
+                120,
+                "PagedComposition",
+                ("implements IPageable", "wraps iterable source", "current page slice"),
+                "database",
+            ),
+            Box(
+                630,
+                904,
+                260,
+                120,
+                "TokenPagedComposition",
+                ("forward-only fetch_next", "load_more + refresh", "items accumulator + token"),
+                "database",
+            ),
+            Box(
+                960,
+                916,
+                220,
+                96,
+                "INotificationHub",
+                ("Post / Resolve", "Pending stream", "NullNotificationHub"),
+                "security",
+            ),
+            Box(
+                1230,
+                904,
+                220,
+                120,
+                "ConfirmHelper",
+                ("make_confirm", "awaits Post/Resolve flow", "async bool delegate"),
+                "security",
+            ),
+            Box(
+                1510,
+                916,
+                180,
+                96,
+                "Confirm delegate",
+                ("() -> Task<bool>", "Approve -> proceed"),
+                "generic",
+                title_size=15,
+            ),
         ),
         relationships=(
-            Relationship("extends", ((500, 202), (330, 202)), (365, 130)),
-            Relationship("extends", ((780, 202), (330, 202)), (635, 130)),
-            Relationship("extends", ((1060, 202), (330, 202)), (920, 130)),
-            Relationship("extends", ((1340, 202), (330, 202)), (1195, 130)),
-            Relationship("extends", ((1620, 202), (330, 202)), (1480, 130)),
-            Relationship("implements", ((500, 262), (500, 330), (200, 330), (200, 402)), (330, 350)),
-            Relationship("implements", ((780, 262), (780, 330), (800, 330), (800, 402)), (828, 350)),
+            Relationship("extends", ((500, 262), (500, 278), (150, 278), (150, 258)), (365, 274)),
+            Relationship("extends", ((780, 262), (780, 286), (180, 286), (180, 258)), (635, 282)),
+            Relationship("extends", ((1060, 262), (1060, 294), (210, 294), (210, 258)), (920, 290)),
+            Relationship(
+                "extends", ((1340, 262), (1340, 302), (240, 302), (240, 258)), (1195, 298)
+            ),
+            Relationship(
+                "extends", ((1620, 262), (1620, 310), (270, 310), (270, 258)), (1480, 306)
+            ),
+            Relationship(
+                "implements", ((500, 262), (500, 330), (200, 330), (200, 402)), (330, 350)
+            ),
+            Relationship(
+                "implements", ((780, 262), (780, 330), (800, 330), (800, 402)), (828, 350)
+            ),
             Relationship("wraps", ((360, 450), (310, 450)), (336, 434)),
             Relationship("wraps", ((960, 450), (910, 450)), (936, 434)),
             Relationship("owns", ((340, 616), (390, 616)), (365, 535)),
             Relationship("owns", ((340, 642), (650, 642)), (515, 535)),
             Relationship("extends", ((1270, 616), (1210, 616)), (1240, 535)),
-            Relationship("implements", ((465, 744), (465, 700), (195, 700), (195, 852)), (310, 718)),
-            Relationship("decorates", ((630, 804), (300, 804)), (464, 722)),
-            Relationship("decorates", ((920, 804), (300, 804)), (628, 722)),
+            Relationship(
+                "implements", ((465, 744), (465, 700), (195, 700), (195, 852)), (310, 740)
+            ),
+            Relationship("decorates", ((630, 804), (300, 804)), (464, 690)),
+            Relationship("decorates", ((920, 804), (300, 804)), (628, 690)),
             Relationship("owns", ((1055, 864), (1055, 900), (1600, 900), (1600, 916)), (1340, 884)),
-            Relationship("implements", ((465, 904), (465, 872), (195, 872), (195, 916)), (314, 892)),
+            Relationship(
+                "implements", ((465, 904), (465, 872), (195, 872), (195, 916)), (314, 892)
+            ),
             Relationship("adapts", ((1450, 964), (1510, 964)), (1480, 948)),
         ),
         notes=(
@@ -870,18 +1319,80 @@ def viewmodel_families() -> Diagram:
         subtitle="one conceptual hierarchy, five idioms, and specialized companions",
         width=1700,
         height=980,
-        boundaries=(
-            Boundary(60, 122, 1580, 694, "VM family bands", "#22d3ee"),
-        ),
+        boundaries=(Boundary(60, 122, 1580, 694, "VM family bands", "#22d3ee"),),
         boxes=(
-            Box(120, 170, 220, 106, "Lifecycle base", ("ComponentVMBase", "Constructed / Disposed", "message hub hooks"), "backend"),
-            Box(120, 320, 220, 132, "Leaf family", ("ComponentVM", "ComponentVM<M>", "ReadonlyComponentVM<M>"), "frontend"),
-            Box(390, 170, 240, 132, "Selectable containers", ("CompositeVM<VM>", "CompositeVM<M,VM>", "Current slot"), "frontend"),
-            Box(390, 336, 240, 116, "Peer containers", ("GroupVM<VM>", "homogeneous peers", "no Current"), "frontend"),
-            Box(680, 170, 240, 132, "Fixed-arity containers", ("AggregateVM1..6", "heterogeneous components", "typed ComponentN slots"), "frontend"),
-            Box(680, 336, 240, 116, "Recursive container", ("HierarchicalVM<TModel,TVM>", "Parent / Depth / Path", "structural messages"), "frontend"),
-            Box(970, 170, 240, 132, "Forwarding decorators", ("ForwardingComponentVM", "ForwardingCompositeVM", "instrumentation / overrides"), "frontend"),
-            Box(1260, 170, 260, 132, "Specialized VMs", ("FormVM / DiscriminatorVM", "NotificationVM / ConfirmationVM", "AsyncResourceVM"), "security"),
+            Box(
+                120,
+                170,
+                220,
+                106,
+                "Lifecycle base",
+                ("ComponentVMBase", "Constructed / Disposed", "message hub hooks"),
+                "backend",
+            ),
+            Box(
+                120,
+                320,
+                220,
+                132,
+                "Leaf family",
+                ("ComponentVM", "ComponentVM<M>", "ReadonlyComponentVM<M>"),
+                "frontend",
+            ),
+            Box(
+                390,
+                170,
+                240,
+                132,
+                "Selectable containers",
+                ("CompositeVM<VM>", "CompositeVM<M,VM>", "Current slot"),
+                "frontend",
+            ),
+            Box(
+                390,
+                336,
+                240,
+                116,
+                "Peer containers",
+                ("GroupVM<VM>", "homogeneous peers", "no Current"),
+                "frontend",
+            ),
+            Box(
+                680,
+                170,
+                240,
+                132,
+                "Fixed-arity containers",
+                ("AggregateVM1..6", "heterogeneous components", "typed ComponentN slots"),
+                "frontend",
+            ),
+            Box(
+                680,
+                336,
+                240,
+                116,
+                "Recursive container",
+                ("HierarchicalVM<TModel,TVM>", "Parent / Depth / Path", "structural messages"),
+                "frontend",
+            ),
+            Box(
+                970,
+                170,
+                240,
+                132,
+                "Forwarding decorators",
+                ("ForwardingComponentVM", "ForwardingCompositeVM", "instrumentation / overrides"),
+                "frontend",
+            ),
+            Box(
+                1260,
+                170,
+                260,
+                132,
+                "Specialized VMs",
+                ("FormVM / DiscriminatorVM", "NotificationVM / ConfirmationVM", "AsyncResourceVM"),
+                "security",
+            ),
             Box(
                 390,
                 514,
@@ -895,21 +1406,71 @@ def viewmodel_families() -> Diagram:
                 ),
                 "security",
             ),
-            Box(680, 514, 240, 128, "State helpers", ("DerivedProperty", "ExpandableState / SearchableState", "AsyncResourceVM"), "database"),
-            Box(970, 514, 240, 128, "Paging helpers", ("PagedComposition", "TokenPagedComposition", "filtered/scored views"), "database"),
-            Box(1260, 514, 260, 128, "Services + messages", ("MessageHub", "IDialogService", "INotificationHub", "PropertyChangedMessage"), "bus"),
-            Box(240, 694, 1240, 86, "Flavor surface", ("C# PascalCase, Python/Rust snake_case methods, TypeScript/Swift camelCase - same shape, idiomatic surface only.",), "generic"),
+            Box(
+                680,
+                514,
+                240,
+                128,
+                "State helpers",
+                ("DerivedProperty", "ExpandableState / SearchableState", "AsyncResourceVM"),
+                "database",
+            ),
+            Box(
+                970,
+                514,
+                240,
+                128,
+                "Paging helpers",
+                ("PagedComposition", "TokenPagedComposition", "filtered/scored views"),
+                "database",
+            ),
+            Box(
+                1260,
+                514,
+                260,
+                128,
+                "Services + messages",
+                ("MessageHub", "IDialogService", "INotificationHub", "PropertyChangedMessage"),
+                "bus",
+            ),
+            Box(
+                240,
+                694,
+                1240,
+                86,
+                "Flavor surface",
+                (
+                    "C# PascalCase, Python/Rust snake_case methods, TypeScript/Swift camelCase - same shape, idiomatic surface only.",
+                ),
+                "generic",
+            ),
         ),
         lines=(
-            Polyline(((230, 276), (230, 320)), color="#22d3ee", label="extends", label_xy=(278, 300)),
+            Polyline(
+                ((230, 276), (230, 320)), color="#22d3ee", label="extends", label_xy=(278, 300)
+            ),
             Polyline(((340, 224), (390, 224)), color="#22d3ee"),
             Polyline(((340, 246), (680, 246)), color="#22d3ee"),
             Polyline(((340, 268), (970, 268)), color="#22d3ee"),
             Polyline(((340, 290), (1260, 290)), color="#22d3ee"),
-            Polyline(((510, 452), (510, 514)), color="#34d399", label="implements", label_xy=(566, 486)),
-            Polyline(((800, 452), (800, 514)), color="#a78bfa", label="composes", label_xy=(856, 486)),
-            Polyline(((1090, 452), (1090, 514)), color="#fb923c", label="wraps / decorates", label_xy=(1174, 486)),
-            Polyline(((1390, 452), (1390, 514)), color="#fb7185", label="injects / posts", label_xy=(1468, 486)),
+            Polyline(
+                ((510, 452), (510, 514)), color="#34d399", label="implements", label_xy=(566, 486)
+            ),
+            Polyline(
+                ((800, 452), (800, 514)), color="#a78bfa", label="composes", label_xy=(856, 486)
+            ),
+            Polyline(
+                ((1090, 452), (1090, 514)),
+                color="#fb923c",
+                label="wraps / decorates",
+                label_xy=(1174, 486),
+            ),
+            Polyline(
+                ((1390, 452), (1390, 514)),
+                color="#fb7185",
+                label="injects / posts",
+                label_xy=(1468, 486),
+            ),
             Polyline(((1390, 642), (1390, 694)), color="#64748b"),
             Polyline(((1090, 642), (1090, 694)), color="#64748b"),
             Polyline(((800, 642), (800, 694)), color="#64748b"),
@@ -967,40 +1528,228 @@ def lifecycle_messaging() -> Diagram:
         boundaries=(
             Boundary(70, 118, 1580, 232, "Lifecycle state machine", "#22d3ee"),
             Boundary(70, 378, 1580, 224, "Operations and atomicity rules", "#34d399"),
-            Boundary(70, 630, 1580, 240, "Hub publication, transaction queue, and cross-VM coordination", "#a78bfa"),
+            Boundary(
+                70,
+                630,
+                1580,
+                240,
+                "Hub publication, transaction queue, and cross-VM coordination",
+                "#a78bfa",
+            ),
         ),
         boxes=(
-            Box(110, 170, 180, 94, "Destructed", ("fresh build state", "construct() legal"), "generic"),
-            Box(340, 170, 180, 94, "Constructing", ("OnConstruct hook", "intermediate status"), "backend"),
-            Box(570, 170, 180, 94, "Constructed", ("ready for selection", "can_reconstruct()"), "frontend"),
-            Box(800, 170, 180, 94, "Destructing", ("Current clears first", "OnDestruct hook"), "backend"),
+            Box(
+                110,
+                170,
+                180,
+                94,
+                "Destructed",
+                ("fresh build state", "construct() legal"),
+                "generic",
+            ),
+            Box(
+                340,
+                170,
+                180,
+                94,
+                "Constructing",
+                ("OnConstruct hook", "intermediate status"),
+                "backend",
+            ),
+            Box(
+                570,
+                170,
+                180,
+                94,
+                "Constructed",
+                ("ready for selection", "can_reconstruct()"),
+                "frontend",
+            ),
+            Box(
+                800,
+                170,
+                180,
+                94,
+                "Destructing",
+                ("Current clears first", "OnDestruct hook"),
+                "backend",
+            ),
             Box(1030, 170, 180, 94, "Disposed", ("terminal", "late completion aborts"), "security"),
-            Box(1300, 160, 290, 112, "Fixture-backed validator", ("spec/fixtures/lifecycle-transitions.json", "shared across all conformance suites"), "cloud"),
-            Box(110, 420, 230, 122, "Operations", ("construct", "destruct", "reconstruct", "dispose"), "bus"),
-            Box(390, 420, 250, 122, "Predicates", ("can_construct()", "can_destruct()", "can_reconstruct()", "safe no-op states"), "security"),
-            Box(690, 420, 260, 122, "Per-VM guard", ("serializes lifecycle ops", "rejects concurrent re-entry", "prevents resurrection"), "backend"),
-            Box(1000, 420, 260, 122, "Transactional rollback", ("failed construct -> Destructed", "failed destruct -> Constructed", "rollback publishes status"), "security"),
-            Box(1310, 420, 260, 122, "Parent orchestration", ("composite/group/aggregate", "wait for child settled states", "sequential reference impls"), "frontend"),
-            Box(90, 684, 220, 132, "Status messages", ("construction status", "2 / 4 lifecycle emissions", "hot FIFO delivery"), "bus"),
-            Box(345, 684, 220, 132, "Property messages", ("IsCurrent / Model", "Snapshot / ActiveKey", "per-flavor names"), "bus"),
-            Box(600, 684, 220, 132, "Collection + tree", ("collection changes", "tree structure changes", "batch Reset"), "bus"),
-            Box(855, 684, 220, 132, "Transaction queue", ("nested scopes flatten", "lossless outer flush", "re-entrant append"), "bus"),
-            Box(1110, 684, 220, 132, "Per-instance bindings", ("property change events", "single-VM adapters", "bypass shared hub"), "frontend"),
-            Box(1365, 684, 220, 132, "Consumers", ("commands", "view adapters", "cross-VM observers"), "generic"),
+            Box(
+                1300,
+                160,
+                290,
+                112,
+                "Fixture-backed validator",
+                (
+                    "spec/fixtures/lifecycle-transitions.json",
+                    "shared across all conformance suites",
+                ),
+                "cloud",
+            ),
+            Box(
+                110,
+                420,
+                230,
+                122,
+                "Operations",
+                ("construct", "destruct", "reconstruct", "dispose"),
+                "bus",
+            ),
+            Box(
+                390,
+                420,
+                250,
+                122,
+                "Predicates",
+                ("can_construct()", "can_destruct()", "can_reconstruct()", "safe no-op states"),
+                "security",
+            ),
+            Box(
+                690,
+                420,
+                260,
+                122,
+                "Per-VM guard",
+                (
+                    "serializes lifecycle ops",
+                    "rejects concurrent re-entry",
+                    "prevents resurrection",
+                ),
+                "backend",
+            ),
+            Box(
+                1000,
+                420,
+                260,
+                122,
+                "Transactional rollback",
+                (
+                    "failed construct -> Destructed",
+                    "failed destruct -> Constructed",
+                    "rollback publishes status",
+                ),
+                "security",
+            ),
+            Box(
+                1310,
+                420,
+                260,
+                122,
+                "Parent orchestration",
+                (
+                    "composite/group/aggregate",
+                    "wait for child settled states",
+                    "sequential reference impls",
+                ),
+                "frontend",
+            ),
+            Box(
+                90,
+                684,
+                220,
+                132,
+                "Status messages",
+                ("construction status", "2 / 4 lifecycle emissions", "hot FIFO delivery"),
+                "bus",
+            ),
+            Box(
+                345,
+                684,
+                220,
+                132,
+                "Property messages",
+                ("IsCurrent / Model", "Snapshot / ActiveKey", "per-flavor names"),
+                "bus",
+            ),
+            Box(
+                600,
+                684,
+                220,
+                132,
+                "Collection + tree",
+                ("collection changes", "tree structure changes", "batch Reset"),
+                "bus",
+            ),
+            Box(
+                855,
+                684,
+                220,
+                132,
+                "Transaction queue",
+                ("nested scopes flatten", "lossless outer flush", "re-entrant append"),
+                "bus",
+            ),
+            Box(
+                1110,
+                684,
+                220,
+                132,
+                "Per-instance bindings",
+                ("property change events", "single-VM adapters", "bypass shared hub"),
+                "frontend",
+            ),
+            Box(
+                1365,
+                684,
+                220,
+                132,
+                "Consumers",
+                ("commands", "view adapters", "cross-VM observers"),
+                "generic",
+            ),
         ),
         lines=(
-            Polyline(((290, 217), (340, 217)), color="#22d3ee", label="construct()", label_xy=(318, 202)),
+            Polyline(
+                ((290, 217), (340, 217)), color="#22d3ee", label="construct()", label_xy=(318, 202)
+            ),
             Polyline(((520, 217), (570, 217)), color="#22d3ee"),
-            Polyline(((750, 217), (800, 217)), color="#fb923c", label="destruct()", label_xy=(776, 202)),
-            Polyline(((980, 217), (1030, 217)), color="#fb7185", label="dispose()", label_xy=(1006, 202)),
-            Polyline(((660, 264), (660, 310), (430, 310), (430, 264)), color="#34d399", label="reconstruct()", label_xy=(548, 298)),
-            Polyline(((1210, 217), (1300, 217)), color="#fbbf24", label="validated by", label_xy=(1256, 202)),
+            Polyline(
+                ((750, 217), (800, 217)), color="#fb923c", label="destruct()", label_xy=(776, 202)
+            ),
+            Polyline(
+                ((980, 217), (1030, 217)), color="#fb7185", label="dispose()", label_xy=(1006, 202)
+            ),
+            Polyline(
+                ((660, 264), (660, 310), (430, 310), (430, 264)),
+                color="#34d399",
+                label="reconstruct()",
+                label_xy=(548, 298),
+            ),
+            Polyline(
+                ((1210, 217), (1300, 217)),
+                color="#fbbf24",
+                label="validated by",
+                label_xy=(1256, 202),
+            ),
             Polyline(((225, 542), (200, 684)), color="#64748b"),
-            Polyline(((515, 542), (455, 684)), color="#34d399", label="gates commands", label_xy=(548, 612)),
-            Polyline(((820, 542), (965, 684)), color="#fb7185", label="serializes", label_xy=(914, 612)),
-            Polyline(((1130, 542), (965, 684)), color="#fb7185", label="queues rollback", label_xy=(1072, 612)),
-            Polyline(((1440, 542), (710, 684)), color="#22d3ee", label="drives children", label_xy=(1250, 612)),
-            Polyline(((965, 816), (965, 840), (1475, 840), (1475, 816)), color="#a78bfa", label="iterative drain", label_xy=(1220, 836)),
+            Polyline(
+                ((515, 542), (455, 684)),
+                color="#34d399",
+                label="gates commands",
+                label_xy=(548, 612),
+            ),
+            Polyline(
+                ((820, 542), (965, 684)), color="#fb7185", label="serializes", label_xy=(914, 612)
+            ),
+            Polyline(
+                ((1130, 542), (965, 684)),
+                color="#fb7185",
+                label="queues rollback",
+                label_xy=(1072, 612),
+            ),
+            Polyline(
+                ((1440, 542), (710, 684)),
+                color="#22d3ee",
+                label="drives children",
+                label_xy=(1250, 612),
+            ),
+            Polyline(
+                ((965, 816), (965, 840), (1475, 840), (1475, 816)),
+                color="#a78bfa",
+                label="iterative drain",
+                label_xy=(1220, 836),
+            ),
             Polyline(((1330, 790), (1365, 790)), color="#22d3ee"),
         ),
         notes=(
@@ -1058,30 +1807,201 @@ def composite_family() -> Diagram:
             Boundary(70, 768, 1620, 210, "Composition helpers around containers", "#a78bfa"),
         ),
         boxes=(
-            Box(110, 170, 290, 168, "CompositeVM", ("ordered homogeneous children", "Current designates one selected child", "select_component / deselect_component", "ModeledCrudCommands can bind to Current"), "frontend"),
-            Box(450, 170, 290, 168, "GroupVM", ("same IList surface", "peer children only", "group child select command stays disabled", "good for notification stacks"), "frontend"),
-            Box(790, 170, 300, 168, "AggregateVM1..6", ("heterogeneous fixed slots", "Component1..6 accessors", "factories invoked on construct()", "best for shells and workspaces"), "frontend"),
-            Box(1140, 170, 420, 168, "HierarchicalVM", ("recursive nodes with Parent / Depth / Path", "lazy or eager child materialization", "TreeStructureChangedMessage on structure changes", "walk / walk_expanded integrate naturally"), "frontend"),
-            Box(150, 398, 280, 162, "Selection semantics", ("Current is null or contained", "children update IsCurrent", "AsyncSelection is opt-in"), "security"),
-            Box(490, 398, 280, 162, "Collection semantics", ("shared group/composite capability", "Move preserves child identity", "one Move or batched Reset"), "database"),
-            Box(830, 398, 280, 162, "Construction semantics", ("Constructed after children settle", "reference implementations", "visit children sequentially"), "backend"),
-            Box(1170, 398, 360, 162, "Tree semantics", ("HierarchicalVM rejects ancestor cycles", "InvalidateChildren refreshes the child cache", "lazy boundaries stay explicit"), "security"),
-            Box(180, 810, 290, 120, "SearchableState", ("filter first", "debounced SearchTerm", "filtered view source"), "database"),
-            Box(540, 810, 290, 120, "PagedComposition", ("finite page slice", "implements IPageable", "decorates iterable source"), "database"),
-            Box(900, 810, 310, 120, "TokenPagedComposition", ("forward-only fetch_next(token)", "LoadMore / Refresh", "accumulated Items + HasMore"), "database"),
-            Box(1280, 810, 290, 120, "ForwardingCompositeVM", ("wraps ICompositeVM<VM>", "override single behaviors", "still forwards disposal"), "frontend"),
+            Box(
+                110,
+                170,
+                290,
+                168,
+                "CompositeVM",
+                (
+                    "ordered homogeneous children",
+                    "Current designates one selected child",
+                    "select_component / deselect_component",
+                    "ModeledCrudCommands can bind to Current",
+                ),
+                "frontend",
+            ),
+            Box(
+                450,
+                170,
+                290,
+                168,
+                "GroupVM",
+                (
+                    "same IList surface",
+                    "peer children only",
+                    "group child select command stays disabled",
+                    "good for notification stacks",
+                ),
+                "frontend",
+            ),
+            Box(
+                790,
+                170,
+                300,
+                168,
+                "AggregateVM1..6",
+                (
+                    "heterogeneous fixed slots",
+                    "Component1..6 accessors",
+                    "factories invoked on construct()",
+                    "best for shells and workspaces",
+                ),
+                "frontend",
+            ),
+            Box(
+                1140,
+                170,
+                420,
+                168,
+                "HierarchicalVM",
+                (
+                    "recursive nodes with Parent / Depth / Path",
+                    "lazy or eager child materialization",
+                    "TreeStructureChangedMessage on structure changes",
+                    "walk / walk_expanded integrate naturally",
+                ),
+                "frontend",
+            ),
+            Box(
+                150,
+                398,
+                280,
+                162,
+                "Selection semantics",
+                (
+                    "Current is null or contained",
+                    "children update IsCurrent",
+                    "AsyncSelection is opt-in",
+                ),
+                "security",
+            ),
+            Box(
+                490,
+                398,
+                280,
+                162,
+                "Collection semantics",
+                (
+                    "shared group/composite capability",
+                    "Move preserves child identity",
+                    "one Move or batched Reset",
+                ),
+                "database",
+            ),
+            Box(
+                830,
+                398,
+                280,
+                162,
+                "Construction semantics",
+                (
+                    "Constructed after children settle",
+                    "reference implementations",
+                    "visit children sequentially",
+                ),
+                "backend",
+            ),
+            Box(
+                1170,
+                398,
+                360,
+                162,
+                "Tree semantics",
+                (
+                    "HierarchicalVM rejects ancestor cycles",
+                    "InvalidateChildren refreshes the child cache",
+                    "lazy boundaries stay explicit",
+                ),
+                "security",
+            ),
+            Box(
+                180,
+                810,
+                290,
+                120,
+                "SearchableState",
+                ("filter first", "debounced SearchTerm", "filtered view source"),
+                "database",
+            ),
+            Box(
+                540,
+                810,
+                290,
+                120,
+                "PagedComposition",
+                ("finite page slice", "implements IPageable", "decorates iterable source"),
+                "database",
+            ),
+            Box(
+                900,
+                810,
+                310,
+                120,
+                "TokenPagedComposition",
+                (
+                    "forward-only fetch_next(token)",
+                    "LoadMore / Refresh",
+                    "accumulated Items + HasMore",
+                ),
+                "database",
+            ),
+            Box(
+                1280,
+                810,
+                290,
+                120,
+                "ForwardingCompositeVM",
+                ("wraps ICompositeVM<VM>", "override single behaviors", "still forwards disposal"),
+                "frontend",
+            ),
         ),
         lines=(
-            Polyline(((400, 250), (450, 250)), color="#94a3b8", label="same IList minus Current", label_xy=(432, 150)),
-            Polyline(((740, 250), (790, 250)), color="#94a3b8", label="fixed heterogeneity", label_xy=(762, 150)),
-            Polyline(((1090, 250), (1140, 250)), color="#94a3b8", label="recursive domain", label_xy=(1116, 150)),
-            Polyline(((255, 338), (255, 398)), color="#fbbf24", label="selection", label_xy=(300, 370)),
-            Polyline(((595, 338), (630, 398)), color="#a78bfa", label="events", label_xy=(650, 370)),
-            Polyline(((940, 338), (970, 398)), color="#34d399", label="lifecycle", label_xy=(1000, 370)),
-            Polyline(((1350, 338), (1350, 398)), color="#fb7185", label="structure", label_xy=(1400, 370)),
-            Polyline(((325, 560), (325, 680), (685, 680), (685, 810)), color="#a78bfa", label="filter -> page", label_xy=(520, 664)),
-            Polyline(((685, 930), (900, 930)), color="#94a3b8", label="finite vs token", label_xy=(794, 955)),
-            Polyline(((1210, 870), (1280, 870)), color="#fb923c", label="wraps", label_xy=(1246, 854)),
+            Polyline(
+                ((400, 250), (450, 250)),
+                color="#94a3b8",
+                label="same IList minus Current",
+                label_xy=(432, 150),
+            ),
+            Polyline(
+                ((740, 250), (790, 250)),
+                color="#94a3b8",
+                label="fixed heterogeneity",
+                label_xy=(762, 150),
+            ),
+            Polyline(
+                ((1090, 250), (1140, 250)),
+                color="#94a3b8",
+                label="recursive domain",
+                label_xy=(1116, 150),
+            ),
+            Polyline(
+                ((255, 338), (255, 398)), color="#fbbf24", label="selection", label_xy=(300, 370)
+            ),
+            Polyline(
+                ((595, 338), (630, 398)), color="#a78bfa", label="events", label_xy=(650, 370)
+            ),
+            Polyline(
+                ((940, 338), (970, 398)), color="#34d399", label="lifecycle", label_xy=(1000, 370)
+            ),
+            Polyline(
+                ((1350, 338), (1350, 398)), color="#fb7185", label="structure", label_xy=(1400, 370)
+            ),
+            Polyline(
+                ((325, 560), (325, 680), (685, 680), (685, 810)),
+                color="#a78bfa",
+                label="filter -> page",
+                label_xy=(520, 664),
+            ),
+            Polyline(
+                ((685, 930), (900, 930)),
+                color="#94a3b8",
+                label="finite vs token",
+                label_xy=(794, 955),
+            ),
+            Polyline(
+                ((1210, 870), (1280, 870)), color="#fb923c", label="wraps", label_xy=(1246, 854)
+            ),
         ),
         notes=(
             Note(
@@ -1140,29 +2060,152 @@ def component_family() -> Diagram:
             Boundary(70, 686, 1540, 166, "Host and parent seams", "#a78bfa"),
         ),
         boxes=(
-            Box(120, 164, 260, 112, "ComponentVMBase", ("lifecycle state", "hub + dispatcher", "construct/destruct hooks"), "backend"),
-            Box(450, 164, 260, 112, "ComponentVM", ("plain leaf", "no model payload", "addressable VM surface"), "frontend"),
-            Box(780, 164, 300, 112, "ComponentVM<M>", ("mutable model payload", "ModeledHint recomputes", "model change notifications"), "frontend"),
-            Box(1150, 164, 300, 112, "ReadonlyComponentVM<M>", ("immutable projection", "assignment rejected", "safe display leaf"), "frontend"),
-            Box(150, 462, 260, 112, "Selection commands", ("Select / Deselect", "Toggle selection", "next/previous inert on leaf"), "bus"),
-            Box(470, 462, 260, 112, "Parent back-reference", ("owned by container", "drives can_select()", "cleared on removal"), "security"),
-            Box(790, 462, 260, 112, "Dual-channel helper", ("equality + assignment first", "hub message exactly once", "inert after disposal"), "bus"),
-            Box(1110, 462, 310, 112, "Per-instance binding", ("local notification second", "view adapter subscribes once", "current value is observable"), "frontend"),
-            Box(170, 724, 320, 94, "Used by containers", ("CompositeVM rows", "GroupVM peers", "AggregateVM slots"), "generic"),
-            Box(590, 724, 320, 94, "Used by examples", ("NoteVM", "NotebookVM", "Status panels"), "generic"),
-            Box(1010, 724, 360, 94, "Wrapped when needed", ("ForwardingComponentVM", "instrumentation without copying", "policy and host adapters"), "generic"),
+            Box(
+                120,
+                164,
+                260,
+                112,
+                "ComponentVMBase",
+                ("lifecycle state", "hub + dispatcher", "construct/destruct hooks"),
+                "backend",
+            ),
+            Box(
+                450,
+                164,
+                260,
+                112,
+                "ComponentVM",
+                ("plain leaf", "no model payload", "addressable VM surface"),
+                "frontend",
+            ),
+            Box(
+                780,
+                164,
+                300,
+                112,
+                "ComponentVM<M>",
+                ("mutable model payload", "ModeledHint recomputes", "model change notifications"),
+                "frontend",
+            ),
+            Box(
+                1150,
+                164,
+                300,
+                112,
+                "ReadonlyComponentVM<M>",
+                ("immutable projection", "assignment rejected", "safe display leaf"),
+                "frontend",
+            ),
+            Box(
+                150,
+                462,
+                260,
+                112,
+                "Selection commands",
+                ("Select / Deselect", "Toggle selection", "next/previous inert on leaf"),
+                "bus",
+            ),
+            Box(
+                470,
+                462,
+                260,
+                112,
+                "Parent back-reference",
+                ("owned by container", "drives can_select()", "cleared on removal"),
+                "security",
+            ),
+            Box(
+                790,
+                462,
+                260,
+                112,
+                "Dual-channel helper",
+                ("equality + assignment first", "hub message exactly once", "inert after disposal"),
+                "bus",
+            ),
+            Box(
+                1110,
+                462,
+                310,
+                112,
+                "Per-instance binding",
+                (
+                    "local notification second",
+                    "view adapter subscribes once",
+                    "current value is observable",
+                ),
+                "frontend",
+            ),
+            Box(
+                170,
+                724,
+                320,
+                94,
+                "Used by containers",
+                ("CompositeVM rows", "GroupVM peers", "AggregateVM slots"),
+                "generic",
+            ),
+            Box(
+                590,
+                724,
+                320,
+                94,
+                "Used by examples",
+                ("NoteVM", "NotebookVM", "Status panels"),
+                "generic",
+            ),
+            Box(
+                1010,
+                724,
+                360,
+                94,
+                "Wrapped when needed",
+                (
+                    "ForwardingComponentVM",
+                    "instrumentation without copying",
+                    "policy and host adapters",
+                ),
+                "generic",
+            ),
         ),
         lines=(
-            Polyline(((380, 220), (450, 220)), color="#22d3ee", label="extends", label_xy=(416, 204)),
-            Polyline(((710, 220), (780, 220)), color="#22d3ee", label="modeled", label_xy=(746, 204)),
-            Polyline(((1080, 220), (1150, 220)), color="#22d3ee", label="readonly", label_xy=(1116, 204)),
-            Polyline(((580, 276), (280, 462)), color="#fb923c", label="commands", label_xy=(398, 366)),
-            Polyline(((580, 276), (600, 462)), color="#34d399", label="parent context", label_xy=(668, 366)),
-            Polyline(((710, 276), (920, 462)), color="#fb923c", label="hub first", label_xy=(842, 366)),
-            Polyline(((1050, 518), (1110, 518)), color="#a78bfa", label="local second", label_xy=(1080, 500)),
+            Polyline(
+                ((380, 220), (450, 220)), color="#22d3ee", label="extends", label_xy=(416, 204)
+            ),
+            Polyline(
+                ((710, 220), (780, 220)), color="#22d3ee", label="modeled", label_xy=(746, 204)
+            ),
+            Polyline(
+                ((1080, 220), (1150, 220)), color="#22d3ee", label="readonly", label_xy=(1116, 204)
+            ),
+            Polyline(
+                ((580, 276), (280, 462)), color="#fb923c", label="commands", label_xy=(398, 366)
+            ),
+            Polyline(
+                ((580, 276), (600, 462)),
+                color="#34d399",
+                label="parent context",
+                label_xy=(668, 366),
+            ),
+            Polyline(
+                ((710, 276), (920, 462)), color="#fb923c", label="hub first", label_xy=(842, 366)
+            ),
+            Polyline(
+                ((1050, 518), (1110, 518)),
+                color="#a78bfa",
+                label="local second",
+                label_xy=(1080, 500),
+            ),
             Polyline(((300, 574), (300, 724)), color="#64748b"),
-            Polyline(((920, 574), (750, 724)), color="#64748b", label="example leaves", label_xy=(812, 650)),
-            Polyline(((1265, 574), (1190, 724)), color="#fb923c", label="wraps", label_xy=(1250, 650)),
+            Polyline(
+                ((920, 574), (750, 724)),
+                color="#64748b",
+                label="example leaves",
+                label_xy=(812, 650),
+            ),
+            Polyline(
+                ((1265, 574), (1190, 724)), color="#fb923c", label="wraps", label_xy=(1250, 650)
+            ),
         ),
         notes=(
             Note(
@@ -1219,28 +2262,147 @@ def aggregate_family() -> Diagram:
             Boundary(70, 710, 1560, 168, "Best-fit composition roots", "#fb923c"),
         ),
         boxes=(
-            Box(120, 166, 300, 118, "AggregateVM1..6", ("component-shaped parent", "fixed arity", "heterogeneous child roles"), "frontend"),
-            Box(500, 166, 250, 118, "Slot factories", ("Component1(...) through Component6(...)", "invoked during construct()", "stable semantic names"), "cloud"),
-            Box(830, 166, 250, 118, "Typed slots", ("Component1..6", "property per slot", "no list indexing"), "frontend"),
-            Box(1160, 166, 330, 118, "Compile-time contract", ("arity is explicit", "portable across five source flavors", "no variadic escape hatch"), "security"),
-            Box(150, 486, 300, 112, "Construct cascade", ("populate slot", "construct child", "aggregate settles last"), "backend"),
-            Box(520, 486, 300, 112, "Destruct cascade", ("children first", "parent settles after slots", "dispose remains terminal"), "backend"),
-            Box(890, 486, 300, 112, "Property messages", ("slot property changed", "lifecycle status", "per-flavor casing"), "bus"),
-            Box(1260, 486, 280, 112, "No collection surface", ("fixed children", "no Current", "no add/remove API"), "generic"),
-            Box(160, 748, 330, 96, "Workspace shell", ("Notes Workspace root", "named panes and coordinators"), "generic"),
-            Box(610, 748, 330, 96, "Dashboard root", ("heterogeneous panels", "stable layout contract"), "generic"),
-            Box(1060, 748, 330, 96, "Service bundle", ("typed child VMs", "host adapter entry point"), "generic"),
+            Box(
+                120,
+                166,
+                300,
+                118,
+                "AggregateVM1..6",
+                ("component-shaped parent", "fixed arity", "heterogeneous child roles"),
+                "frontend",
+            ),
+            Box(
+                500,
+                166,
+                250,
+                118,
+                "Slot factories",
+                (
+                    "Component1(...) through Component6(...)",
+                    "invoked during construct()",
+                    "stable semantic names",
+                ),
+                "cloud",
+            ),
+            Box(
+                830,
+                166,
+                250,
+                118,
+                "Typed slots",
+                ("Component1..6", "property per slot", "no list indexing"),
+                "frontend",
+            ),
+            Box(
+                1160,
+                166,
+                330,
+                118,
+                "Compile-time contract",
+                (
+                    "arity is explicit",
+                    "portable across five source flavors",
+                    "no variadic escape hatch",
+                ),
+                "security",
+            ),
+            Box(
+                150,
+                486,
+                300,
+                112,
+                "Construct cascade",
+                ("populate slot", "construct child", "aggregate settles last"),
+                "backend",
+            ),
+            Box(
+                520,
+                486,
+                300,
+                112,
+                "Destruct cascade",
+                ("children first", "parent settles after slots", "dispose remains terminal"),
+                "backend",
+            ),
+            Box(
+                890,
+                486,
+                300,
+                112,
+                "Property messages",
+                ("slot property changed", "lifecycle status", "per-flavor casing"),
+                "bus",
+            ),
+            Box(
+                1260,
+                486,
+                280,
+                112,
+                "No collection surface",
+                ("fixed children", "no Current", "no add/remove API"),
+                "generic",
+            ),
+            Box(
+                160,
+                748,
+                330,
+                96,
+                "Workspace shell",
+                ("Notes Workspace root", "named panes and coordinators"),
+                "generic",
+            ),
+            Box(
+                610,
+                748,
+                330,
+                96,
+                "Dashboard root",
+                ("heterogeneous panels", "stable layout contract"),
+                "generic",
+            ),
+            Box(
+                1060,
+                748,
+                330,
+                96,
+                "Service bundle",
+                ("typed child VMs", "host adapter entry point"),
+                "generic",
+            ),
         ),
         lines=(
-            Polyline(((420, 225), (500, 225)), color="#fbbf24", label="configured by", label_xy=(462, 208)),
-            Polyline(((750, 225), (830, 225)), color="#22d3ee", label="creates", label_xy=(792, 208)),
-            Polyline(((1080, 225), (1160, 225)), color="#fb7185", label="preserves", label_xy=(1122, 208)),
-            Polyline(((270, 284), (300, 486)), color="#34d399", label="construct()", label_xy=(352, 388)),
+            Polyline(
+                ((420, 225), (500, 225)),
+                color="#fbbf24",
+                label="configured by",
+                label_xy=(462, 208),
+            ),
+            Polyline(
+                ((750, 225), (830, 225)), color="#22d3ee", label="creates", label_xy=(792, 208)
+            ),
+            Polyline(
+                ((1080, 225), (1160, 225)), color="#fb7185", label="preserves", label_xy=(1122, 208)
+            ),
+            Polyline(
+                ((270, 284), (300, 486)), color="#34d399", label="construct()", label_xy=(352, 388)
+            ),
             Polyline(((625, 284), (670, 486)), color="#34d399"),
-            Polyline(((955, 284), (1040, 486)), color="#fb923c", label="publish", label_xy=(1040, 388)),
-            Polyline(((1325, 284), (1400, 486)), color="#94a3b8", label="not a list", label_xy=(1400, 388)),
+            Polyline(
+                ((955, 284), (1040, 486)), color="#fb923c", label="publish", label_xy=(1040, 388)
+            ),
+            Polyline(
+                ((1325, 284), (1400, 486)),
+                color="#94a3b8",
+                label="not a list",
+                label_xy=(1400, 388),
+            ),
             Polyline(((300, 598), (325, 748)), color="#64748b"),
-            Polyline(((1040, 598), (775, 748)), color="#64748b", label="slot state drives UI", label_xy=(852, 684)),
+            Polyline(
+                ((1040, 598), (775, 748)),
+                color="#64748b",
+                label="slot state drives UI",
+                label_xy=(852, 684),
+            ),
             Polyline(((1400, 598), (1225, 748)), color="#64748b"),
         ),
         notes=(
@@ -1298,27 +2460,139 @@ def group_family() -> Diagram:
             Boundary(70, 692, 1540, 166, "Use cases", "#a78bfa"),
         ),
         boxes=(
-            Box(120, 166, 300, 120, "GroupVM<VM>", ("homogeneous children", "ordered list surface", "parent is selectable"), "frontend"),
-            Box(500, 166, 280, 120, "Peer children", ("no Current", "child select command disabled", "selection lives elsewhere"), "security"),
-            Box(860, 166, 280, 120, "Collection API", ("shared VMCollection contract", "add / replace / remove / clear", "atomic identity-preserving move"), "database"),
-            Box(1220, 166, 270, 120, "Collection messages", ("one Move with both indices", "BatchUpdate -> Reset", "same-index move is silent"), "bus"),
-            Box(150, 466, 300, 112, "Construct children", ("wait for all children", "auto-construct on add is opt-in", "sequential reference flow"), "backend"),
-            Box(520, 466, 300, 112, "Destruct children", ("wait for children", "clear parent context", "parent settles last"), "backend"),
-            Box(890, 466, 300, 112, "Toolbar/action rows", ("capability action lists", "button groups", "visible peers"), "frontend"),
-            Box(1260, 466, 280, 112, "Notification stacks", ("visible toast VMs", "no selected toast", "bounded peer set"), "security"),
-            Box(170, 730, 330, 94, "Choose over Composite", ("when Current would lie", "peer list is enough"), "generic"),
-            Box(610, 730, 330, 94, "Choose over Aggregate", ("child count varies", "roles are equivalent"), "generic"),
-            Box(1050, 730, 330, 94, "Host adapter fit", ("renders repeaters", "stable collection bridge"), "generic"),
+            Box(
+                120,
+                166,
+                300,
+                120,
+                "GroupVM<VM>",
+                ("homogeneous children", "ordered list surface", "parent is selectable"),
+                "frontend",
+            ),
+            Box(
+                500,
+                166,
+                280,
+                120,
+                "Peer children",
+                ("no Current", "child select command disabled", "selection lives elsewhere"),
+                "security",
+            ),
+            Box(
+                860,
+                166,
+                280,
+                120,
+                "Collection API",
+                (
+                    "shared VMCollection contract",
+                    "add / replace / remove / clear",
+                    "atomic identity-preserving move",
+                ),
+                "database",
+            ),
+            Box(
+                1220,
+                166,
+                270,
+                120,
+                "Collection messages",
+                ("one Move with both indices", "BatchUpdate -> Reset", "same-index move is silent"),
+                "bus",
+            ),
+            Box(
+                150,
+                466,
+                300,
+                112,
+                "Construct children",
+                (
+                    "wait for all children",
+                    "auto-construct on add is opt-in",
+                    "sequential reference flow",
+                ),
+                "backend",
+            ),
+            Box(
+                520,
+                466,
+                300,
+                112,
+                "Destruct children",
+                ("wait for children", "clear parent context", "parent settles last"),
+                "backend",
+            ),
+            Box(
+                890,
+                466,
+                300,
+                112,
+                "Toolbar/action rows",
+                ("capability action lists", "button groups", "visible peers"),
+                "frontend",
+            ),
+            Box(
+                1260,
+                466,
+                280,
+                112,
+                "Notification stacks",
+                ("visible toast VMs", "no selected toast", "bounded peer set"),
+                "security",
+            ),
+            Box(
+                170,
+                730,
+                330,
+                94,
+                "Choose over Composite",
+                ("when Current would lie", "peer list is enough"),
+                "generic",
+            ),
+            Box(
+                610,
+                730,
+                330,
+                94,
+                "Choose over Aggregate",
+                ("child count varies", "roles are equivalent"),
+                "generic",
+            ),
+            Box(
+                1050,
+                730,
+                330,
+                94,
+                "Host adapter fit",
+                ("renders repeaters", "stable collection bridge"),
+                "generic",
+            ),
         ),
         lines=(
             Polyline(((420, 226), (500, 226)), color="#22d3ee", label="owns", label_xy=(462, 210)),
-            Polyline(((780, 226), (860, 226)), color="#a78bfa", label="mutates", label_xy=(822, 210)),
-            Polyline(((1140, 226), (1220, 226)), color="#fb923c", label="publishes", label_xy=(1182, 210)),
-            Polyline(((270, 286), (300, 466)), color="#34d399", label="construct()", label_xy=(346, 376)),
+            Polyline(
+                ((780, 226), (860, 226)), color="#a78bfa", label="mutates", label_xy=(822, 210)
+            ),
+            Polyline(
+                ((1140, 226), (1220, 226)), color="#fb923c", label="publishes", label_xy=(1182, 210)
+            ),
+            Polyline(
+                ((270, 286), (300, 466)), color="#34d399", label="construct()", label_xy=(346, 376)
+            ),
             Polyline(((640, 286), (670, 466)), color="#34d399"),
-            Polyline(((1000, 286), (1040, 466)), color="#64748b", label="render peers", label_xy=(1094, 376)),
+            Polyline(
+                ((1000, 286), (1040, 466)),
+                color="#64748b",
+                label="render peers",
+                label_xy=(1094, 376),
+            ),
             Polyline(((1360, 286), (1400, 466)), color="#fb7185"),
-            Polyline(((1040, 578), (335, 730)), color="#64748b", label="selection avoided", label_xy=(676, 646)),
+            Polyline(
+                ((1040, 578), (335, 730)),
+                color="#64748b",
+                label="selection avoided",
+                label_xy=(676, 646),
+            ),
             Polyline(((1040, 578), (775, 730)), color="#64748b"),
             Polyline(((1040, 578), (1215, 730)), color="#64748b"),
         ),
@@ -1374,33 +2648,157 @@ def hierarchical_family() -> Diagram:
         height=1040,
         boundaries=(
             Boundary(70, 118, 1580, 286, "Recursive node contract", "#22d3ee"),
-            Boundary(70, 434, 1580, 258, "Materialization, batch hydration, and mutation", "#34d399"),
+            Boundary(
+                70, 434, 1580, 258, "Materialization, batch hydration, and mutation", "#34d399"
+            ),
             Boundary(70, 722, 1580, 176, "Traversal and host rendering", "#a78bfa"),
         ),
         boxes=(
-            Box(120, 166, 300, 122, "HierarchicalVM<TModel, TVM>", ("modeled recursive node", "children are same VM family", "root and leaf semantics"), "frontend"),
-            Box(500, 166, 250, 122, "Structural metadata", ("Parent", "Depth / Path", "IsRoot / IsLeaf"), "database"),
-            Box(830, 166, 250, 122, "Children cache", ("lazy by default", "eager option", "invalidate subtree"), "database"),
-            Box(1160, 166, 330, 122, "Cycle protection", ("reject ancestor cycles", "reject parent-key cycles", "stable parent links"), "security"),
-            Box(150, 482, 300, 116, "Materialize children", ("factory resolves child models", "TVM node projection", "lazy boundary stays explicit"), "backend"),
-            Box(520, 482, 300, 116, "attachMany / attach_many", ("consumer key selectors", "stable fixpoint + dedupe", "park or reject orphans"), "database"),
-            Box(890, 482, 300, 116, "TreeStructureChangedMessage", ("add/remove/reparent", "each successful attach", "recursive observers"), "bus"),
-            Box(1260, 482, 280, 116, "Lifecycle cascade", ("eager subtree participates", "lazy subtree waits", "disposed nodes stop mutating"), "backend"),
-            Box(180, 762, 330, 98, "Explorer trees", ("folders", "notebooks", "taxonomies"), "generic"),
-            Box(620, 762, 330, 98, "Walk utilities", ("walk()", "walk_expanded()", "flattened views"), "generic"),
-            Box(1060, 762, 330, 98, "Adapters", ("tree widgets", "outline views", "virtualized renderers"), "generic"),
+            Box(
+                120,
+                166,
+                300,
+                122,
+                "HierarchicalVM<TModel, TVM>",
+                (
+                    "modeled recursive node",
+                    "children are same VM family",
+                    "root and leaf semantics",
+                ),
+                "frontend",
+            ),
+            Box(
+                500,
+                166,
+                250,
+                122,
+                "Structural metadata",
+                ("Parent", "Depth / Path", "IsRoot / IsLeaf"),
+                "database",
+            ),
+            Box(
+                830,
+                166,
+                250,
+                122,
+                "Children cache",
+                ("lazy by default", "eager option", "invalidate subtree"),
+                "database",
+            ),
+            Box(
+                1160,
+                166,
+                330,
+                122,
+                "Cycle protection",
+                ("reject ancestor cycles", "reject parent-key cycles", "stable parent links"),
+                "security",
+            ),
+            Box(
+                150,
+                482,
+                300,
+                116,
+                "Materialize children",
+                (
+                    "factory resolves child models",
+                    "TVM node projection",
+                    "lazy boundary stays explicit",
+                ),
+                "backend",
+            ),
+            Box(
+                520,
+                482,
+                300,
+                116,
+                "attachMany / attach_many",
+                ("consumer key selectors", "stable fixpoint + dedupe", "park or reject orphans"),
+                "database",
+            ),
+            Box(
+                890,
+                482,
+                300,
+                116,
+                "TreeStructureChangedMessage",
+                ("add/remove/reparent", "each successful attach", "recursive observers"),
+                "bus",
+            ),
+            Box(
+                1260,
+                482,
+                280,
+                116,
+                "Lifecycle cascade",
+                (
+                    "eager subtree participates",
+                    "lazy subtree waits",
+                    "disposed nodes stop mutating",
+                ),
+                "backend",
+            ),
+            Box(
+                180,
+                762,
+                330,
+                98,
+                "Explorer trees",
+                ("folders", "notebooks", "taxonomies"),
+                "generic",
+            ),
+            Box(
+                620,
+                762,
+                330,
+                98,
+                "Walk utilities",
+                ("walk()", "walk_expanded()", "flattened views"),
+                "generic",
+            ),
+            Box(
+                1060,
+                762,
+                330,
+                98,
+                "Adapters",
+                ("tree widgets", "outline views", "virtualized renderers"),
+                "generic",
+            ),
         ),
         lines=(
-            Polyline(((420, 226), (500, 226)), color="#22d3ee", label="exposes", label_xy=(462, 210)),
+            Polyline(
+                ((420, 226), (500, 226)), color="#22d3ee", label="exposes", label_xy=(462, 210)
+            ),
             Polyline(((750, 226), (830, 226)), color="#a78bfa", label="owns", label_xy=(792, 210)),
-            Polyline(((1080, 226), (1160, 226)), color="#fb7185", label="guards", label_xy=(1122, 210)),
-            Polyline(((270, 288), (300, 482)), color="#34d399", label="materialize", label_xy=(354, 384)),
-            Polyline(((955, 288), (670, 482)), color="#a78bfa", label="materialized index", label_xy=(760, 384)),
-            Polyline(((955, 288), (1040, 482)), color="#fb923c", label="publish structure", label_xy=(1034, 384)),
-            Polyline(((1325, 288), (1400, 482)), color="#34d399", label="cascade", label_xy=(1440, 384)),
+            Polyline(
+                ((1080, 226), (1160, 226)), color="#fb7185", label="guards", label_xy=(1122, 210)
+            ),
+            Polyline(
+                ((270, 288), (300, 482)), color="#34d399", label="materialize", label_xy=(354, 384)
+            ),
+            Polyline(
+                ((955, 288), (670, 482)),
+                color="#a78bfa",
+                label="materialized index",
+                label_xy=(760, 384),
+            ),
+            Polyline(
+                ((955, 288), (1040, 482)),
+                color="#fb923c",
+                label="publish structure",
+                label_xy=(1034, 384),
+            ),
+            Polyline(
+                ((1325, 288), (1400, 482)), color="#34d399", label="cascade", label_xy=(1440, 384)
+            ),
             Polyline(((300, 598), (345, 762)), color="#64748b"),
-            Polyline(((670, 598), (785, 762)), color="#64748b", label="resolve", label_xy=(760, 682)),
-            Polyline(((1040, 598), (1225, 762)), color="#64748b", label="render", label_xy=(1180, 682)),
+            Polyline(
+                ((670, 598), (785, 762)), color="#64748b", label="resolve", label_xy=(760, 682)
+            ),
+            Polyline(
+                ((1040, 598), (1225, 762)), color="#64748b", label="render", label_xy=(1180, 682)
+            ),
         ),
         notes=(
             Note(
@@ -1465,29 +2863,141 @@ def forwarding_wrapper_family() -> Diagram:
             Boundary(70, 706, 1560, 168, "Best-fit wrapper use cases", "#fb923c"),
         ),
         boxes=(
-            Box(120, 166, 300, 120, "ForwardingComponentVM<M>", ("wraps component contract", "delegates by default", "override selected members"), "frontend"),
-            Box(500, 166, 300, 120, "ForwardingCompositeVM<VM>", ("wraps composite contract", "forwards Current + iteration", "decorates child access"), "frontend"),
-            Box(880, 166, 270, 120, "Inner VM", ("canonical implementation", "owns real state", "publishes real messages"), "backend"),
-            Box(1230, 166, 280, 120, "Public facade", ("same conceptual surface", "narrow host policy", "no copied VM logic"), "security"),
-            Box(150, 476, 280, 112, "Lifecycle forwarding", ("construct/destruct/dispose", "usually delegate", "ownership remains explicit"), "backend"),
-            Box(500, 476, 280, 112, "Property forwarding", ("model/current/name/hint", "per-instance propertyChanged", "hub messages unchanged"), "bus"),
-            Box(850, 476, 280, 112, "Command wrapping", ("gate existing command", "log or meter execution", "policy before delegate"), "bus"),
-            Box(1200, 476, 300, 112, "Selective override", ("small behavior patch", "adapter-specific shape", "test seam without fork"), "database"),
-            Box(180, 744, 320, 96, "Instrumentation", ("logging", "metrics", "diagnostic traces"), "generic"),
-            Box(610, 744, 320, 96, "Policy", ("authorization", "feature flags", "confirmation gates"), "generic"),
-            Box(1040, 744, 320, 96, "Host adaptation", ("framework bridge", "narrow facade", "legacy integration"), "generic"),
+            Box(
+                120,
+                166,
+                300,
+                120,
+                "ForwardingComponentVM<M>",
+                ("wraps component contract", "delegates by default", "override selected members"),
+                "frontend",
+            ),
+            Box(
+                500,
+                166,
+                300,
+                120,
+                "ForwardingCompositeVM<VM>",
+                (
+                    "wraps composite contract",
+                    "forwards Current + iteration",
+                    "decorates child access",
+                ),
+                "frontend",
+            ),
+            Box(
+                880,
+                166,
+                270,
+                120,
+                "Inner VM",
+                ("canonical implementation", "owns real state", "publishes real messages"),
+                "backend",
+            ),
+            Box(
+                1230,
+                166,
+                280,
+                120,
+                "Public facade",
+                ("same conceptual surface", "narrow host policy", "no copied VM logic"),
+                "security",
+            ),
+            Box(
+                150,
+                476,
+                280,
+                112,
+                "Lifecycle forwarding",
+                ("construct/destruct/dispose", "usually delegate", "ownership remains explicit"),
+                "backend",
+            ),
+            Box(
+                500,
+                476,
+                280,
+                112,
+                "Property forwarding",
+                (
+                    "model/current/name/hint",
+                    "per-instance propertyChanged",
+                    "hub messages unchanged",
+                ),
+                "bus",
+            ),
+            Box(
+                850,
+                476,
+                280,
+                112,
+                "Command wrapping",
+                ("gate existing command", "log or meter execution", "policy before delegate"),
+                "bus",
+            ),
+            Box(
+                1200,
+                476,
+                300,
+                112,
+                "Selective override",
+                ("small behavior patch", "adapter-specific shape", "test seam without fork"),
+                "database",
+            ),
+            Box(
+                180,
+                744,
+                320,
+                96,
+                "Instrumentation",
+                ("logging", "metrics", "diagnostic traces"),
+                "generic",
+            ),
+            Box(
+                610,
+                744,
+                320,
+                96,
+                "Policy",
+                ("authorization", "feature flags", "confirmation gates"),
+                "generic",
+            ),
+            Box(
+                1040,
+                744,
+                320,
+                96,
+                "Host adaptation",
+                ("framework bridge", "narrow facade", "legacy integration"),
+                "generic",
+            ),
         ),
         lines=(
-            Polyline(((420, 226), (500, 226)), color="#22d3ee", label="same pattern", label_xy=(462, 210)),
+            Polyline(
+                ((420, 226), (500, 226)), color="#22d3ee", label="same pattern", label_xy=(462, 210)
+            ),
             Polyline(((800, 226), (880, 226)), color="#fb923c", label="wraps", label_xy=(842, 210)),
-            Polyline(((1150, 226), (1230, 226)), color="#34d399", label="exposes", label_xy=(1192, 210)),
-            Polyline(((270, 286), (290, 476)), color="#34d399", label="delegate", label_xy=(340, 384)),
-            Polyline(((650, 286), (640, 476)), color="#fb923c", label="mirror", label_xy=(704, 384)),
-            Polyline(((1015, 286), (990, 476)), color="#fb923c", label="wrap calls", label_xy=(1060, 384)),
-            Polyline(((1370, 286), (1350, 476)), color="#a78bfa", label="override", label_xy=(1420, 384)),
+            Polyline(
+                ((1150, 226), (1230, 226)), color="#34d399", label="exposes", label_xy=(1192, 210)
+            ),
+            Polyline(
+                ((270, 286), (290, 476)), color="#34d399", label="delegate", label_xy=(340, 384)
+            ),
+            Polyline(
+                ((650, 286), (640, 476)), color="#fb923c", label="mirror", label_xy=(704, 384)
+            ),
+            Polyline(
+                ((1015, 286), (990, 476)), color="#fb923c", label="wrap calls", label_xy=(1060, 384)
+            ),
+            Polyline(
+                ((1370, 286), (1350, 476)), color="#a78bfa", label="override", label_xy=(1420, 384)
+            ),
             Polyline(((290, 588), (340, 744)), color="#64748b"),
-            Polyline(((990, 588), (770, 744)), color="#64748b", label="policy hooks", label_xy=(850, 674)),
-            Polyline(((1350, 588), (1200, 744)), color="#64748b", label="host seam", label_xy=(1300, 674)),
+            Polyline(
+                ((990, 588), (770, 744)), color="#64748b", label="policy hooks", label_xy=(850, 674)
+            ),
+            Polyline(
+                ((1350, 588), (1200, 744)), color="#64748b", label="host seam", label_xy=(1300, 674)
+            ),
         ),
         notes=(
             Note(
@@ -1544,28 +3054,136 @@ def specialized_vm_family() -> Diagram:
             Boundary(70, 722, 1600, 176, "Host-facing use cases", "#fb923c"),
         ),
         boxes=(
-            Box(120, 166, 270, 122, "FormVM", ("snapshot + dirty state", "validation + approval", "deny restores model"), "frontend"),
-            Box(460, 166, 270, 122, "DiscriminatorVM", ("ActiveKey", "case registry", "mode/pane coordination"), "frontend"),
-            Box(800, 166, 270, 122, "NotificationVM", ("render-ready notification", "dismiss command", "auto-resolve by lifespan"), "security"),
-            Box(1140, 166, 270, 122, "ConfirmationVM", ("inherits NotificationVM", "approve/reject commands", "no timeout auto-resolve"), "security"),
-            Box(150, 482, 300, 116, "ModalVM", ("presented VM workflow", "completion state", "host dialog bridge"), "frontend"),
-            Box(520, 482, 300, 116, "IDialogService", ("confirm / notify / pick file", "VM-backed modal seam", "safe null service"), "security"),
-            Box(890, 482, 300, 116, "INotificationHub", ("post / resolve", "pending snapshot", "await user reaction"), "security"),
-            Box(1260, 482, 300, 116, "Command adapters", ("ConfirmationDecoratorCommand", "make_confirm helper", "approve/deny wiring"), "bus"),
-            Box(180, 762, 330, 98, "Editor workflows", ("FormVM + DiscriminatorVM", "edit/preview modes"), "generic"),
-            Box(620, 762, 330, 98, "User decisions", ("dialog confirmations", "notification-backed confirms"), "generic"),
-            Box(1060, 762, 330, 98, "Notification regions", ("toast lists", "queued actions", "host render VMs"), "generic"),
+            Box(
+                120,
+                166,
+                270,
+                122,
+                "FormVM",
+                ("snapshot + dirty state", "validation + approval", "deny restores model"),
+                "frontend",
+            ),
+            Box(
+                460,
+                166,
+                270,
+                122,
+                "DiscriminatorVM",
+                ("ActiveKey", "case registry", "mode/pane coordination"),
+                "frontend",
+            ),
+            Box(
+                800,
+                166,
+                270,
+                122,
+                "NotificationVM",
+                ("render-ready notification", "dismiss command", "auto-resolve by lifespan"),
+                "security",
+            ),
+            Box(
+                1140,
+                166,
+                270,
+                122,
+                "ConfirmationVM",
+                ("inherits NotificationVM", "approve/reject commands", "no timeout auto-resolve"),
+                "security",
+            ),
+            Box(
+                150,
+                482,
+                300,
+                116,
+                "ModalVM",
+                ("presented VM workflow", "completion state", "host dialog bridge"),
+                "frontend",
+            ),
+            Box(
+                520,
+                482,
+                300,
+                116,
+                "IDialogService",
+                ("confirm / notify / pick file", "VM-backed modal seam", "safe null service"),
+                "security",
+            ),
+            Box(
+                890,
+                482,
+                300,
+                116,
+                "INotificationHub",
+                ("post / resolve", "pending snapshot", "await user reaction"),
+                "security",
+            ),
+            Box(
+                1260,
+                482,
+                300,
+                116,
+                "Command adapters",
+                ("ConfirmationDecoratorCommand", "make_confirm helper", "approve/deny wiring"),
+                "bus",
+            ),
+            Box(
+                180,
+                762,
+                330,
+                98,
+                "Editor workflows",
+                ("FormVM + DiscriminatorVM", "edit/preview modes"),
+                "generic",
+            ),
+            Box(
+                620,
+                762,
+                330,
+                98,
+                "User decisions",
+                ("dialog confirmations", "notification-backed confirms"),
+                "generic",
+            ),
+            Box(
+                1060,
+                762,
+                330,
+                98,
+                "Notification regions",
+                ("toast lists", "queued actions", "host render VMs"),
+                "generic",
+            ),
         ),
         lines=(
-            Polyline(((390, 226), (460, 226)), color="#22d3ee", label="coordinates modes", label_xy=(426, 210)),
-            Polyline(((1070, 226), (1140, 226)), color="#22d3ee", label="extends", label_xy=(1106, 210)),
-            Polyline(((255, 288), (300, 482)), color="#fb923c", label="modal edit", label_xy=(360, 384)),
-            Polyline(((595, 288), (670, 482)), color="#fbbf24", label="host decision", label_xy=(724, 384)),
-            Polyline(((935, 288), (1040, 482)), color="#fb7185", label="posts", label_xy=(1010, 384)),
-            Polyline(((1275, 288), (1410, 482)), color="#fb923c", label="commands", label_xy=(1404, 384)),
+            Polyline(
+                ((390, 226), (460, 226)),
+                color="#22d3ee",
+                label="coordinates modes",
+                label_xy=(426, 210),
+            ),
+            Polyline(
+                ((1070, 226), (1140, 226)), color="#22d3ee", label="extends", label_xy=(1106, 210)
+            ),
+            Polyline(
+                ((255, 288), (300, 482)), color="#fb923c", label="modal edit", label_xy=(360, 384)
+            ),
+            Polyline(
+                ((595, 288), (670, 482)),
+                color="#fbbf24",
+                label="host decision",
+                label_xy=(724, 384),
+            ),
+            Polyline(
+                ((935, 288), (1040, 482)), color="#fb7185", label="posts", label_xy=(1010, 384)
+            ),
+            Polyline(
+                ((1275, 288), (1410, 482)), color="#fb923c", label="commands", label_xy=(1404, 384)
+            ),
             Polyline(((300, 598), (345, 762)), color="#64748b"),
             Polyline(((670, 598), (785, 762)), color="#64748b", label="await", label_xy=(760, 682)),
-            Polyline(((1040, 598), (1225, 762)), color="#64748b", label="render", label_xy=(1180, 682)),
+            Polyline(
+                ((1040, 598), (1225, 762)), color="#64748b", label="render", label_xy=(1180, 682)
+            ),
             Polyline(((1410, 598), (785, 762)), color="#64748b"),
         ),
         notes=(
@@ -1619,33 +3237,227 @@ def commands_capabilities() -> Diagram:
         width=1780,
         height=1100,
         boundaries=(
-            Boundary(70, 118, 520, 820, "Command primitives", "#fb923c"),
+            Boundary(70, 118, 520, 840, "Command primitives", "#fb923c"),
             Boundary(630, 118, 1080, 820, "Capability families", "#22d3ee"),
         ),
         boxes=(
-            Box(120, 170, 420, 118, "ICommand / ICommand<T>", ("CanExecute / Execute / CanExecuteChanged", "parameterized variant when payload is needed"), "bus"),
-            Box(120, 322, 420, 118, "RelayCommand", ("optional predicate + task", "trigger + imperative CanExecuteChanged", "disposed command becomes inert"), "bus"),
-            Box(120, 474, 420, 118, "CompositeCommand", ("execute every enabled inner command", "aggregate CanExecute over children"), "bus"),
-            Box(120, 626, 420, 118, "DecoratorCommand", ("inner command + extra gate", "optional pre/post actions"), "bus"),
-            Box(120, 778, 420, 118, "ConfirmationDecoratorCommand", ("confirm delegate before Execute", "ExecuteAsync and errors channel", "fluent Confirm helper overloads"), "bus"),
-            Box(690, 170, 300, 132, "Selection family", ("ISelectable", "IDeselectable", "ISelectionTogglable"), "security"),
-            Box(1030, 170, 300, 132, "Expansion family", ("IExpandable", "ICollapsible", "IExpansionTogglable"), "security"),
-            Box(1370, 170, 300, 132, "Lifecycle family", ("IConstructable", "IDestructable", "IReconstructable"), "security"),
-            Box(690, 346, 300, 132, "Dialog / form family", ("IClosable", "IApprovable", "ICancelable"), "security"),
-            Box(1030, 346, 300, 132, "Search / filter family", ("ISearchable", "IFilterable<TItem>"), "security"),
-            Box(1370, 346, 300, 132, "Paging family", ("IPageable", "page navigation surface only"), "security"),
-            Box(690, 522, 300, 132, "CRUD family", ("INewCreatable", "IDeletable<T>", "IUpdatable<T>", "ISavable<T>"), "security"),
-            Box(1030, 522, 300, 132, "Container-current family", ("ICurrentDeletable", "ICurrentUpdatable"), "security"),
-            Box(1370, 522, 300, 132, "Management escape hatch", ("IManagable<T>", "consumer-specific management action"), "security"),
-            Box(820, 730, 720, 166, "Typical compositions", ("CompositeVM.Current -> ModeledCrudCommands triggers", "ExpandableState delegates expansion capabilities", "PagedComposition implements IPageable over a filtered source", "FormVM and dialogs wire commands rather than grow a custom command type"), "frontend"),
+            Box(
+                100,
+                160,
+                215,
+                108,
+                "ICommand / ICommand<T>",
+                ("sync execute + predicate", "generic payload variant"),
+                "bus",
+                title_size=16,
+                line_size=12,
+            ),
+            Box(
+                345,
+                160,
+                215,
+                108,
+                "IAsyncCommand",
+                ("cancellable ExecuteAsync", "in-flight state + errors"),
+                "bus",
+                title_size=16,
+                line_size=12,
+            ),
+            Box(
+                120,
+                300,
+                420,
+                102,
+                "RelayCommand",
+                (
+                    "optional predicate + task",
+                    "trigger + imperative CanExecuteChanged",
+                    "disposed command becomes inert",
+                ),
+                "bus",
+            ),
+            Box(
+                120,
+                430,
+                420,
+                116,
+                "AsyncRelayCommand",
+                (
+                    "async task + cancellation token",
+                    "single-flight execution state",
+                    "errors channel + trigger support",
+                ),
+                "bus",
+            ),
+            Box(
+                120,
+                578,
+                420,
+                102,
+                "CompositeCommand",
+                ("execute every enabled inner command", "aggregate CanExecute over children"),
+                "bus",
+            ),
+            Box(
+                120,
+                708,
+                420,
+                102,
+                "DecoratorCommand",
+                ("inner command + extra gate", "optional pre/post actions"),
+                "bus",
+            ),
+            Box(
+                120,
+                838,
+                420,
+                102,
+                "ConfirmationDecoratorCommand",
+                (
+                    "confirm delegate before Execute",
+                    "ExecuteAsync and errors channel",
+                    "fluent Confirm helper overloads",
+                ),
+                "bus",
+            ),
+            Box(
+                690,
+                170,
+                300,
+                132,
+                "Selection family",
+                ("ISelectable", "IDeselectable", "ISelectionTogglable"),
+                "security",
+            ),
+            Box(
+                1030,
+                170,
+                300,
+                132,
+                "Expansion family",
+                ("IExpandable", "ICollapsible", "IExpansionTogglable"),
+                "security",
+            ),
+            Box(
+                1370,
+                170,
+                300,
+                132,
+                "Lifecycle family",
+                ("IConstructable", "IDestructable", "IReconstructable"),
+                "security",
+            ),
+            Box(
+                690,
+                346,
+                300,
+                132,
+                "Dialog / form family",
+                ("IClosable", "IApprovable", "ICancelable"),
+                "security",
+            ),
+            Box(
+                1030,
+                346,
+                300,
+                132,
+                "Search / filter family",
+                ("ISearchable", "IFilterable<TItem>"),
+                "security",
+            ),
+            Box(
+                1370,
+                346,
+                300,
+                132,
+                "Paging family",
+                ("IPageable", "page navigation surface only"),
+                "security",
+            ),
+            Box(
+                690,
+                522,
+                300,
+                132,
+                "CRUD family",
+                ("INewCreatable", "IDeletable<T>", "IUpdatable<T>", "ISavable<T>"),
+                "security",
+            ),
+            Box(
+                1030,
+                522,
+                300,
+                132,
+                "Container-current family",
+                ("ICurrentDeletable", "ICurrentUpdatable"),
+                "security",
+            ),
+            Box(
+                1370,
+                522,
+                300,
+                132,
+                "Management escape hatch",
+                ("IManagable<T>", "consumer-specific management action"),
+                "security",
+            ),
+            Box(
+                820,
+                730,
+                720,
+                166,
+                "Typical compositions",
+                (
+                    "CompositeVM.Current -> ModeledCrudCommands triggers",
+                    "ExpandableState delegates expansion capabilities",
+                    "PagedComposition implements IPageable over a filtered source",
+                    "FormVM and dialogs wire commands rather than grow a custom command type",
+                ),
+                "frontend",
+            ),
         ),
         lines=(
-            Polyline(((540, 229), (690, 229)), color="#34d399", label="commands call capability verbs", label_xy=(620, 213)),
-            Polyline(((540, 381), (690, 381)), color="#34d399", label="bind UI affordances", label_xy=(620, 365)),
-            Polyline(((540, 533), (690, 533)), color="#34d399", label="gate CRUD", label_xy=(604, 517)),
-            Polyline(((540, 685), (690, 685), (690, 588)), color="#34d399", label="extra gate", label_xy=(616, 669)),
-            Polyline(((540, 837), (1030, 837)), color="#fb7185", label="confirm / dialog integration", label_xy=(786, 821)),
-            Polyline(((1180, 654), (1180, 730)), color="#a78bfa", label="implemented by helpers", label_xy=(1260, 696)),
+            Polyline(((208, 268), (208, 300)), color="#fb923c"),
+            Polyline(
+                ((452, 268), (580, 268), (580, 488), (540, 488)),
+                color="#fb923c",
+            ),
+            Polyline(
+                ((540, 351), (610, 351), (610, 236), (690, 236)),
+                color="#34d399",
+                label="sync capability verbs",
+                label_xy=(625, 220),
+            ),
+            Polyline(
+                ((540, 488), (690, 412)),
+                color="#34d399",
+                label="async workflows",
+                label_xy=(620, 433),
+            ),
+            Polyline(
+                ((540, 629), (690, 588)),
+                color="#34d399",
+                label="compose CRUD",
+                label_xy=(620, 590),
+            ),
+            Polyline(
+                ((540, 759), (620, 759), (620, 620), (690, 620)),
+                color="#34d399",
+                label="extra gate",
+                label_xy=(605, 697),
+            ),
+            Polyline(
+                ((540, 889), (820, 889)),
+                color="#fb7185",
+                label="confirm / dialog integration",
+                label_xy=(680, 873),
+            ),
+            Polyline(
+                ((1180, 654), (1180, 730)),
+                color="#a78bfa",
+                label="implemented by helpers",
+                label_xy=(1260, 696),
+            ),
             Polyline(((1520, 478), (1520, 730)), color="#a78bfa"),
             Polyline(((840, 654), (840, 730)), color="#a78bfa"),
             Polyline(((1520, 302), (1520, 346)), color="#94a3b8"),
@@ -1669,9 +3481,9 @@ def commands_capabilities() -> Diagram:
             (
                 "Command stack",
                 (
-                    "RelayCommand is the concrete workhorse.",
+                    "ICommand and IAsyncCommand define the synchronous and cancellable asynchronous contracts.",
+                    "RelayCommand and AsyncRelayCommand are the concrete execution workhorses.",
                     "CompositeCommand and decorator commands layer orchestration and gating without changing the ICommand contract.",
-                    "Reactive triggers keep enabled state honest when predicates depend on mutable VM state.",
                 ),
             ),
             (
@@ -1707,31 +3519,202 @@ def forms_dialogs_notifications() -> Diagram:
             Boundary(1120, 118, 530, 760, "Notification hub and rendering VMs", "#fb7185"),
         ),
         boxes=(
-            Box(120, 170, 420, 128, "FormVM<TM>", ("Snapshot captured at construct()", "Model mutates via SetModel()", "IsDirty derives from Model vs Snapshot"), "frontend"),
-            Box(120, 336, 200, 118, "DenyCommand", ("revert Model to Snapshot", "publish property changes"), "bus"),
-            Box(340, 336, 200, 118, "ApproveCommand", ("persist captured model", "optional reset -> pristine", "errors -> ApproveErrors"), "bus"),
-            Box(120, 494, 420, 142, "Validation surface", ("field validators + model validator", "Errors / FieldError(field)", "IsValid gates approval", "strict mode = IsDirty && IsValid"), "database"),
-            Box(120, 678, 420, 146, "Success + failure channels", ("reset commits before OnApproved", "OnApproved emits persisted model", "one failure observer per entry path"), "security"),
-            Box(670, 210, 370, 128, "IDialogService", ("PickFileToOpen / PickFileToSave", "Confirm(message, title?)", "Notify(message, severity?)", "Present(modalVM) for VM-backed modals"), "security"),
-            Box(670, 392, 370, 124, "ConfirmationDecoratorCommand", ("wraps delete or deny commands", "confirm delegate can call dialogService.Confirm()", "same pattern works for file/export prompts"), "bus"),
-            Box(670, 570, 370, 140, "NullDialogService + cancellation", ("safe defaults: PickFile* -> null", "Confirm -> false, Notify -> no-op", "cancellation completes with safe default"), "generic"),
-            Box(1170, 170, 430, 128, "INotificationHub", ("Post(notification) -> await NotificationReaction", "Resolve(notification, reaction)", "Pending behaves like a hot current snapshot"), "security"),
-            Box(1170, 338, 200, 118, "NotificationVM", ("wraps Notification", "auto-dismiss at lifespan end", "DismissCommand resolves Approve"), "frontend"),
-            Box(1400, 338, 200, 118, "ConfirmationVM", ("inherits NotificationVM", "ApproveCommand / RejectCommand", "no auto-resolve on timeout"), "frontend"),
-            Box(1170, 494, 430, 140, "Bridge helper", ("make_confirm(hub, prompt) -> async bool", "posts Confirmation notification", "adapts hub flow for command decorators"), "bus"),
-            Box(1170, 678, 430, 146, "Responsibility split", ("dialogs: modal request/response", "notification hub: informational or queued user action", "both can be injected into the same VM"), "generic"),
+            Box(
+                120,
+                170,
+                420,
+                128,
+                "FormVM<TM>",
+                (
+                    "Snapshot captured at construct()",
+                    "Model mutates via SetModel()",
+                    "IsDirty derives from Model vs Snapshot",
+                ),
+                "frontend",
+            ),
+            Box(
+                120,
+                336,
+                200,
+                118,
+                "DenyCommand",
+                ("revert Model to Snapshot", "publish property changes"),
+                "bus",
+            ),
+            Box(
+                340,
+                336,
+                200,
+                118,
+                "ApproveCommand",
+                ("persist captured model", "reset -> pristine", "errors -> ApproveErrors"),
+                "bus",
+            ),
+            Box(
+                120,
+                494,
+                420,
+                142,
+                "Validation surface",
+                (
+                    "field validators + model validator",
+                    "Errors / FieldError(field)",
+                    "IsValid gates approval",
+                    "strict mode = IsDirty && IsValid",
+                ),
+                "database",
+            ),
+            Box(
+                120,
+                678,
+                420,
+                146,
+                "Success + failure channels",
+                (
+                    "reset commits before OnApproved",
+                    "OnApproved emits persisted model",
+                    "one failure observer per entry path",
+                ),
+                "security",
+            ),
+            Box(
+                670,
+                210,
+                370,
+                128,
+                "IDialogService",
+                (
+                    "PickFileToOpen / PickFileToSave",
+                    "Confirm(message, title?)",
+                    "Notify(message, severity?)",
+                    "Present(modalVM) for VM-backed modals",
+                ),
+                "security",
+            ),
+            Box(
+                670,
+                392,
+                370,
+                124,
+                "ConfirmationDecoratorCommand",
+                (
+                    "wraps delete or deny commands",
+                    "confirm delegate can call dialogService.Confirm()",
+                    "same pattern works for file/export prompts",
+                ),
+                "bus",
+            ),
+            Box(
+                670,
+                570,
+                370,
+                140,
+                "NullDialogService + cancellation",
+                (
+                    "safe defaults: PickFile* -> null",
+                    "Confirm -> false, Notify -> no-op",
+                    "cancellation completes with safe default",
+                ),
+                "generic",
+            ),
+            Box(
+                1170,
+                170,
+                430,
+                128,
+                "INotificationHub",
+                (
+                    "Post(notification) -> await NotificationReaction",
+                    "Resolve(notification, reaction)",
+                    "Pending behaves like a hot current snapshot",
+                ),
+                "security",
+            ),
+            Box(
+                1170,
+                338,
+                200,
+                118,
+                "NotificationVM",
+                (
+                    "wraps Notification",
+                    "auto-dismiss at expiry",
+                    "Dismiss -> Approve",
+                ),
+                "frontend",
+            ),
+            Box(
+                1400,
+                338,
+                200,
+                118,
+                "ConfirmationVM",
+                (
+                    "inherits NotificationVM",
+                    "Approve / Reject",
+                    "timeout stays pending",
+                ),
+                "frontend",
+            ),
+            Box(
+                1170,
+                494,
+                430,
+                140,
+                "Bridge helper",
+                (
+                    "make_confirm(hub, prompt) -> async bool",
+                    "posts Confirmation notification",
+                    "adapts hub flow for command decorators",
+                ),
+                "bus",
+            ),
+            Box(
+                1170,
+                678,
+                430,
+                146,
+                "Responsibility split",
+                (
+                    "dialogs: modal request/response",
+                    "notification hub: informational or queued user action",
+                    "both can be injected into the same VM",
+                ),
+                "generic",
+            ),
         ),
         lines=(
-            Polyline(((320, 298), (220, 336)), color="#94a3b8", label="cancel path", label_xy=(242, 320)),
-            Polyline(((340, 298), (440, 336)), color="#94a3b8", label="save path", label_xy=(418, 320)),
+            Polyline(
+                ((320, 298), (220, 336)), color="#94a3b8", label="cancel path", label_xy=(242, 320)
+            ),
+            Polyline(
+                ((340, 298), (440, 336)), color="#94a3b8", label="save path", label_xy=(418, 320)
+            ),
             Polyline(((220, 454), (220, 494)), color="#34d399"),
             Polyline(((440, 454), (440, 494)), color="#34d399"),
             Polyline(((330, 636), (330, 678)), color="#fb7185"),
-            Polyline(((540, 394), (670, 394)), color="#fbbf24", label="wrap Deny/Delete", label_xy=(608, 378)),
-            Polyline(((855, 516), (855, 570)), color="#fbbf24", label="host modal semantics", label_xy=(954, 544)),
-            Polyline(((1040, 454), (1170, 454)), color="#fb7185", label="alternatively bridge via hub", label_xy=(1118, 438)),
+            Polyline(
+                ((540, 394), (670, 394)),
+                color="#fbbf24",
+                label="wrap Deny/Delete",
+                label_xy=(608, 378),
+            ),
+            Polyline(
+                ((855, 516), (855, 570)),
+                color="#fbbf24",
+                label="host modal semantics",
+                label_xy=(954, 544),
+            ),
+            Polyline(
+                ((1040, 454), (1170, 454)),
+                color="#fb7185",
+                label="via hub",
+                label_xy=(1110, 438),
+            ),
             Polyline(((1385, 298), (1385, 338)), color="#fb7185"),
-            Polyline(((1270, 456), (1270, 494)), color="#a78bfa", label="adapts", label_xy=(1318, 478)),
+            Polyline(
+                ((1270, 456), (1270, 494)), color="#a78bfa", label="adapts", label_xy=(1318, 478)
+            ),
             Polyline(((1495, 456), (1495, 494)), color="#a78bfa"),
             Polyline(((1385, 634), (1385, 678)), color="#94a3b8"),
         ),
@@ -1790,38 +3773,224 @@ def examples_vm_layer() -> Diagram:
             Boundary(70, 786, 1680, 236, "Framework adapters and host seams", "#fb923c"),
         ),
         boxes=(
-            Box(250, 160, 980, 110, "WorkspaceVM", ("wraps AggregateVM6 root and forwards lifecycle", "owns notebooksRoot, notesView, noteForm, statusBar, notifications, capabilityActions", "focusedVM derives from current notebook / note / notes view"), "frontend"),
-            Box(1270, 160, 200, 110, "ThemeVM", ("palette + accent + font scale", "workspace-owned sibling VM"), "database"),
-            Box(1500, 160, 200, 110, "GlobalSearchVM", ("TokenPagedComposition-based", "forward-token all-notes search"), "database"),
-            Box(110, 340, 250, 180, "NotebooksRootVM", ("tree-style notebook navigation", "addNotebook emits TreeStructureChangedMessage", "expand/collapse state"), "frontend"),
-            Box(400, 340, 260, 180, "NotesViewVM", ("PagedComposition over notes", "searchTerm + starred filter", "current NoteVM drives editor binding"), "frontend"),
-            Box(700, 340, 270, 180, "NoteFormVM", ("FormVM<NoteModel>", "title validation + tag autocomplete", "DiscriminatorVM edit/preview mode"), "frontend"),
-            Box(1010, 340, 230, 180, "StatusBarVM", ("DerivedProperty text slots", "note count, starred, editing state"), "frontend"),
-            Box(1280, 340, 230, 180, "NotificationsVM", ("visible NotificationVM list", "hub-driven toast region", "cap 5 visible items"), "frontend"),
-            Box(1550, 340, 180, 180, "CapabilityActionsVM", ("DerivedProperty<ActionVM[]>", "capability-aware action bar"), "frontend"),
-            Box(190, 830, 320, 122, "Repository + models", ("NotebookModel / NoteModel", "loadAll, loadNotes, save, delete, search"), "cloud"),
-            Box(560, 830, 320, 122, "Property / command / collection bridges", ("adapter code subscribes once to VM signals", "framework-native disabled/binding updates"), "generic"),
-            Box(930, 830, 320, 122, "DialogService + dispatcher", ("host modal stack and UI scheduler", "pure-VM contract leaves UI state out of VMs"), "generic"),
-            Box(1300, 830, 320, 122, "Per-framework views", ("Avalonia", "Textual", "React", "SwiftUI"), "generic"),
+            Box(
+                250,
+                160,
+                980,
+                110,
+                "WorkspaceVM",
+                (
+                    "wraps AggregateVM6 root and forwards lifecycle",
+                    "owns notebooksRoot, notesView, noteForm, statusBar, notifications, capabilityActions",
+                    "focusedVM derives from current notebook / note / notes view",
+                ),
+                "frontend",
+            ),
+            Box(
+                1270,
+                160,
+                200,
+                110,
+                "ThemeVM",
+                ("palette + accent + font scale", "workspace-owned sibling VM"),
+                "database",
+            ),
+            Box(
+                1500,
+                160,
+                200,
+                110,
+                "GlobalSearchVM",
+                ("TokenPagedComposition-based", "forward-token all-notes search"),
+                "database",
+            ),
+            Box(
+                110,
+                340,
+                250,
+                180,
+                "NotebooksRootVM",
+                (
+                    "tree-style notebook navigation",
+                    "addNotebook emits TreeStructureChangedMessage",
+                    "expand/collapse state",
+                ),
+                "frontend",
+            ),
+            Box(
+                400,
+                340,
+                260,
+                180,
+                "NotesViewVM",
+                (
+                    "PagedComposition over notes",
+                    "searchTerm + starred filter",
+                    "current NoteVM drives editor binding",
+                ),
+                "frontend",
+            ),
+            Box(
+                700,
+                340,
+                270,
+                180,
+                "NoteFormVM",
+                (
+                    "FormVM<NoteModel>",
+                    "title validation + tag autocomplete",
+                    "DiscriminatorVM edit/preview mode",
+                ),
+                "frontend",
+            ),
+            Box(
+                1010,
+                340,
+                230,
+                180,
+                "StatusBarVM",
+                ("DerivedProperty text slots", "note count, starred, editing state"),
+                "frontend",
+            ),
+            Box(
+                1280,
+                340,
+                230,
+                180,
+                "NotificationsVM",
+                ("visible NotificationVM list", "hub-driven toast region", "cap 5 visible items"),
+                "frontend",
+            ),
+            Box(
+                1550,
+                340,
+                180,
+                180,
+                "CapabilityActionsVM",
+                ("DerivedProperty<ActionVM[]>", "capability-aware action bar"),
+                "frontend",
+            ),
+            Box(
+                190,
+                830,
+                320,
+                122,
+                "Repository + models",
+                ("NotebookModel / NoteModel", "loadAll, loadNotes, save, delete, search"),
+                "cloud",
+            ),
+            Box(
+                560,
+                830,
+                320,
+                122,
+                "Property / command / collection bridges",
+                (
+                    "adapter code subscribes once to VM signals",
+                    "framework-native disabled/binding updates",
+                ),
+                "generic",
+            ),
+            Box(
+                930,
+                830,
+                320,
+                122,
+                "DialogService + dispatcher",
+                (
+                    "host modal stack and UI scheduler",
+                    "pure-VM contract leaves UI state out of VMs",
+                ),
+                "generic",
+            ),
+            Box(
+                1300,
+                830,
+                320,
+                122,
+                "Per-framework views",
+                ("Avalonia", "Textual", "React", "SwiftUI"),
+                "generic",
+            ),
         ),
         lines=(
-            Polyline(((490, 270), (235, 340)), color="#22d3ee", label="Component1", label_xy=(332, 292)),
-            Polyline(((620, 270), (530, 340)), color="#22d3ee", label="Component2", label_xy=(580, 292)),
-            Polyline(((760, 270), (835, 340)), color="#22d3ee", label="Component3", label_xy=(806, 292)),
-            Polyline(((920, 270), (1125, 340)), color="#22d3ee", label="Component4", label_xy=(1004, 292)),
-            Polyline(((1060, 270), (1395, 340)), color="#22d3ee", label="Component5", label_xy=(1208, 292)),
-            Polyline(((1200, 270), (1640, 340)), color="#22d3ee", label="Component6", label_xy=(1420, 292)),
-            Polyline(((1370, 270), (1370, 340)), color="#a78bfa", label="sibling VM", label_xy=(1432, 310)),
+            Polyline(
+                ((490, 270), (235, 340)), color="#22d3ee", label="Component1", label_xy=(332, 292)
+            ),
+            Polyline(
+                ((620, 270), (530, 340)), color="#22d3ee", label="Component2", label_xy=(580, 292)
+            ),
+            Polyline(
+                ((760, 270), (835, 340)), color="#22d3ee", label="Component3", label_xy=(806, 292)
+            ),
+            Polyline(
+                ((920, 270), (1125, 340)), color="#22d3ee", label="Component4", label_xy=(1004, 292)
+            ),
+            Polyline(
+                ((1060, 270), (1395, 340)),
+                color="#22d3ee",
+                label="Component5",
+                label_xy=(1208, 292),
+            ),
+            Polyline(
+                ((1200, 270), (1640, 340)),
+                color="#22d3ee",
+                label="Component6",
+                label_xy=(1420, 292),
+            ),
+            Polyline(
+                ((1370, 270), (1370, 340)),
+                color="#a78bfa",
+                label="sibling VM",
+                label_xy=(1432, 310),
+            ),
             Polyline(((1600, 270), (1600, 340)), color="#a78bfa"),
-            Polyline(((360, 430), (400, 430)), color="#94a3b8", label="current notebook -> bindTo()", label_xy=(420, 414)),
-            Polyline(((660, 430), (700, 430)), color="#94a3b8", label="current note", label_xy=(680, 414)),
-            Polyline(((835, 520), (835, 620), (1125, 620), (1125, 520)), color="#fb7185", label="saved / dirty / valid", label_xy=(986, 606)),
-            Polyline(((1510, 430), (1550, 430)), color="#34d399", label="focusedVM capabilities", label_xy=(1550, 414)),
-            Polyline(((290, 520), (290, 830)), color="#fbbf24", label="load / mutate", label_xy=(354, 676)),
+            Polyline(
+                ((360, 430), (400, 430)),
+                color="#94a3b8",
+                label="current notebook -> bindTo()",
+                label_xy=(420, 414),
+            ),
+            Polyline(
+                ((660, 430), (700, 430)), color="#94a3b8", label="current note", label_xy=(680, 414)
+            ),
+            Polyline(
+                ((835, 520), (835, 620), (1125, 620), (1125, 520)),
+                color="#fb7185",
+                label="saved / dirty / valid",
+                label_xy=(986, 606),
+            ),
+            Polyline(
+                ((1510, 430), (1550, 430)),
+                color="#34d399",
+                label="focusedVM capabilities",
+                label_xy=(1550, 414),
+            ),
+            Polyline(
+                ((290, 520), (290, 830)),
+                color="#fbbf24",
+                label="load / mutate",
+                label_xy=(354, 676),
+            ),
             Polyline(((530, 520), (530, 830)), color="#fbbf24"),
-            Polyline(((835, 520), (1090, 830)), color="#fb7185", label="save / export", label_xy=(986, 690)),
-            Polyline(((1395, 520), (1090, 830)), color="#fb7185", label="post / resolve", label_xy=(1250, 690)),
-            Polyline(((720, 952), (720, 1010), (1460, 1010), (1460, 952)), color="#64748b", label="bind / render", label_xy=(1094, 996)),
+            Polyline(
+                ((835, 520), (1090, 830)),
+                color="#fb7185",
+                label="save / export",
+                label_xy=(986, 690),
+            ),
+            Polyline(
+                ((1395, 520), (1090, 830)),
+                color="#fb7185",
+                label="post / resolve",
+                label_xy=(1250, 690),
+            ),
+            Polyline(
+                ((720, 952), (720, 1010), (1460, 1010), (1460, 952)),
+                color="#64748b",
+                label="bind / render",
+                label_xy=(1094, 996),
+            ),
             Polyline(((1090, 952), (1090, 1010), (1460, 1010)), color="#64748b"),
         ),
         notes=(
@@ -1880,35 +4049,195 @@ def rust_tui_notes_showcase() -> Diagram:
             Boundary(70, 830, 1680, 220, "Terminal host adapter", "#fb923c"),
         ),
         boxes=(
-            Box(710, 160, 400, 108, "WorkspaceVm", ("AggregateVm6 composition root", "constructs/destructs child VMs", "exposes host-safe commands"), "frontend"),
-            Box(120, 340, 235, 150, "NotebooksVm", ("ComponentVm lifecycle", "current notebook id", "selection command"), "frontend"),
-            Box(390, 340, 270, 150, "NotesViewVm", ("CompositeVm<NoteVm>", "FilteredCompositeVm search", "PagedComposition pages"), "frontend"),
-            Box(700, 340, 250, 150, "NoteFormVm", ("FormVm<NoteDraft>", "strict dirty tracking", "field + model validators"), "frontend"),
-            Box(990, 340, 280, 150, "GlobalSearchVm", ("SearchableState", "TokenPagedComposition", "load-more command"), "database"),
-            Box(1310, 340, 220, 150, "NotificationsVm", ("NotificationHub", "NotificationVm wrappers", "confirmation messages"), "security"),
-            Box(1570, 340, 150, 150, "EditorModeVm", ("DiscriminatorVm", "edit", "preview"), "database"),
-            Box(170, 565, 300, 120, "Repository + models", ("NotebookModel / NoteModel", "NoteDraft snapshots", "in-memory persistence"), "cloud"),
-            Box(520, 565, 300, 120, "RelayCommand seams", ("save/revert", "delete request", "mode toggle"), "bus"),
-            Box(870, 565, 300, 120, "Search and paging state", ("note search term", "global query", "current page/token"), "database"),
-            Box(1220, 565, 300, 120, "Message surfaces", ("property changes", "collection reset", "pending notifications"), "security"),
-            Box(220, 900, 360, 96, "Ratatui views.rs", ("pure render functions", "read VM getters", "own no domain state"), "generic"),
-            Box(730, 900, 360, 96, "app.rs event shell", ("keyboard -> VM command", "smoke mode", "terminal lifecycle"), "generic"),
-            Box(1240, 900, 360, 96, "crossterm terminal", ("input events", "alternate screen", "raw mode"), "generic"),
+            Box(
+                710,
+                160,
+                400,
+                108,
+                "WorkspaceVm",
+                (
+                    "AggregateVm6 composition root",
+                    "constructs/destructs child VMs",
+                    "exposes host-safe commands",
+                ),
+                "frontend",
+            ),
+            Box(
+                120,
+                340,
+                235,
+                150,
+                "NotebooksVm",
+                ("ComponentVm lifecycle", "current notebook id", "selection command"),
+                "frontend",
+            ),
+            Box(
+                390,
+                340,
+                270,
+                150,
+                "NotesViewVm",
+                ("CompositeVm<NoteVm>", "FilteredCompositeVm search", "PagedComposition pages"),
+                "frontend",
+            ),
+            Box(
+                700,
+                340,
+                250,
+                150,
+                "NoteFormVm",
+                ("FormVm<NoteDraft>", "strict dirty tracking", "field + model validators"),
+                "frontend",
+            ),
+            Box(
+                990,
+                340,
+                280,
+                150,
+                "GlobalSearchVm",
+                ("SearchableState", "TokenPagedComposition", "load-more command"),
+                "database",
+            ),
+            Box(
+                1310,
+                340,
+                220,
+                150,
+                "NotificationsVm",
+                ("NotificationHub", "NotificationVm wrappers", "confirmation messages"),
+                "security",
+            ),
+            Box(
+                1570,
+                340,
+                150,
+                150,
+                "EditorModeVm",
+                ("DiscriminatorVm", "edit", "preview"),
+                "database",
+            ),
+            Box(
+                170,
+                565,
+                300,
+                120,
+                "Repository + models",
+                ("NotebookModel / NoteModel", "NoteDraft snapshots", "in-memory persistence"),
+                "cloud",
+            ),
+            Box(
+                520,
+                565,
+                300,
+                120,
+                "RelayCommand seams",
+                ("save/revert", "delete request", "mode toggle"),
+                "bus",
+            ),
+            Box(
+                870,
+                565,
+                300,
+                120,
+                "Search and paging state",
+                ("note search term", "global query", "current page/token"),
+                "database",
+            ),
+            Box(
+                1220,
+                565,
+                300,
+                120,
+                "Message surfaces",
+                ("property changes", "collection reset", "pending notifications"),
+                "security",
+            ),
+            Box(
+                220,
+                900,
+                360,
+                96,
+                "Ratatui views.rs",
+                ("pure render functions", "read VM getters", "own no domain state"),
+                "generic",
+            ),
+            Box(
+                730,
+                900,
+                360,
+                96,
+                "app.rs event shell",
+                ("keyboard -> VM command", "smoke mode", "terminal lifecycle"),
+                "generic",
+            ),
+            Box(
+                1240,
+                900,
+                360,
+                96,
+                "crossterm terminal",
+                ("input events", "alternate screen", "raw mode"),
+                "generic",
+            ),
         ),
         lines=(
-            Polyline(((780, 268), (238, 340)), color="#22d3ee", label="component1", label_xy=(472, 286)),
-            Polyline(((850, 268), (525, 340)), color="#22d3ee", label="component2", label_xy=(640, 302)),
-            Polyline(((910, 268), (825, 340)), color="#22d3ee", label="component3", label_xy=(880, 302)),
-            Polyline(((975, 268), (1130, 340)), color="#22d3ee", label="component4", label_xy=(1064, 302)),
-            Polyline(((1040, 268), (1420, 340)), color="#22d3ee", label="component5", label_xy=(1240, 286)),
-            Polyline(((1090, 268), (1645, 340)), color="#22d3ee", label="component6", label_xy=(1390, 270)),
-            Polyline(((525, 490), (525, 565), (320, 565)), color="#fbbf24", label="load notes", label_xy=(430, 548)),
-            Polyline(((825, 490), (670, 565)), color="#fb923c", label="commands", label_xy=(720, 528)),
-            Polyline(((1130, 490), (1020, 565)), color="#a78bfa", label="query/token", label_xy=(1100, 528)),
-            Polyline(((1420, 490), (1370, 565)), color="#fb7185", label="post/resolve", label_xy=(1450, 528)),
-            Polyline(((400, 685), (400, 900)), color="#64748b", label="snapshots", label_xy=(462, 812)),
-            Polyline(((900, 685), (900, 900)), color="#64748b", label="execute", label_xy=(950, 812)),
-            Polyline(((1410, 900), (1410, 812), (900, 812), (900, 900)), color="#64748b", label="events", label_xy=(1170, 798)),
+            Polyline(
+                ((780, 268), (238, 340)), color="#22d3ee", label="component1", label_xy=(472, 286)
+            ),
+            Polyline(
+                ((850, 268), (525, 340)), color="#22d3ee", label="component2", label_xy=(640, 302)
+            ),
+            Polyline(
+                ((910, 268), (825, 340)), color="#22d3ee", label="component3", label_xy=(880, 302)
+            ),
+            Polyline(
+                ((975, 268), (1130, 340)), color="#22d3ee", label="component4", label_xy=(1064, 302)
+            ),
+            Polyline(
+                ((1040, 268), (1420, 340)),
+                color="#22d3ee",
+                label="component5",
+                label_xy=(1240, 286),
+            ),
+            Polyline(
+                ((1090, 268), (1645, 340)),
+                color="#22d3ee",
+                label="component6",
+                label_xy=(1390, 270),
+            ),
+            Polyline(
+                ((525, 490), (525, 565), (320, 565)),
+                color="#fbbf24",
+                label="load notes",
+                label_xy=(430, 548),
+            ),
+            Polyline(
+                ((825, 490), (670, 565)), color="#fb923c", label="commands", label_xy=(720, 528)
+            ),
+            Polyline(
+                ((1130, 490), (1020, 565)),
+                color="#a78bfa",
+                label="query/token",
+                label_xy=(1100, 528),
+            ),
+            Polyline(
+                ((1420, 490), (1370, 565)),
+                color="#fb7185",
+                label="post/resolve",
+                label_xy=(1450, 528),
+            ),
+            Polyline(
+                ((400, 685), (400, 900)), color="#64748b", label="snapshots", label_xy=(462, 812)
+            ),
+            Polyline(
+                ((900, 685), (900, 900)), color="#64748b", label="execute", label_xy=(950, 812)
+            ),
+            Polyline(
+                ((1410, 900), (1410, 812), (900, 812), (900, 900)),
+                color="#64748b",
+                label="events",
+                label_xy=(1170, 798),
+            ),
         ),
         notes=(
             Note(
@@ -1983,28 +4312,62 @@ def example_app_diagram(
         boxes=(
             Box(120, 166, 300, 116, host[0], host[1], "frontend"),
             Box(510, 166, 300, 116, adapter[0], adapter[1], "security"),
-            Box(900, 166, 300, 116, "User gestures", ("events become VM calls", "no domain state in host", "render from VM snapshots"), "bus"),
-            Box(1290, 166, 260, 116, "Run surface", ("local example command", "smoke-friendly path", "documented README entry"), "cloud"),
+            Box(
+                900,
+                166,
+                300,
+                116,
+                "User gestures",
+                ("events become VM calls", "no domain state in host", "render from VM snapshots"),
+                "bus",
+            ),
+            Box(
+                1290,
+                166,
+                260,
+                116,
+                "Run surface",
+                ("local example command", "smoke-friendly path", "documented README entry"),
+                "cloud",
+            ),
             Box(120, 444, 300, 122, root[0], root[1], "frontend"),
             Box(510, 444, 300, 122, primary[0], primary[1], "database"),
             Box(900, 444, 300, 122, support[0], support[1], "bus"),
             Box(1290, 444, 260, 122, model[0], model[1], "backend"),
-            Box(250, 738, 350, 90, verification[0], verification[1], "generic"),
+            Box(250, 738, 350, 96, verification[0], verification[1], "generic"),
             Box(760, 738, 620, 90, rule[0], rule[1], "generic"),
         ),
         lines=(
             Polyline(((420, 224), (510, 224)), color="#22d3ee", label="binds", label_xy=(466, 208)),
-            Polyline(((810, 224), (900, 224)), color="#fb923c", label="routes", label_xy=(856, 208)),
-            Polyline(((1200, 224), (1290, 224)), color="#fbbf24", label="runs", label_xy=(1246, 208)),
+            Polyline(
+                ((810, 224), (900, 224)), color="#fb923c", label="routes", label_xy=(856, 208)
+            ),
+            Polyline(
+                ((1200, 224), (1290, 224)), color="#fbbf24", label="runs", label_xy=(1246, 208)
+            ),
             Polyline(((270, 282), (270, 444)), color="#34d399", label="owns", label_xy=(326, 366)),
-            Polyline(((660, 282), (660, 444)), color="#34d399", label="projects", label_xy=(724, 366)),
-            Polyline(((1050, 282), (1050, 444)), color="#fb923c", label="executes", label_xy=(1116, 366)),
-            Polyline(((1420, 282), (1420, 444)), color="#a78bfa", label="loads", label_xy=(1470, 366)),
-            Polyline(((420, 505), (510, 505)), color="#22d3ee", label="children", label_xy=(466, 489)),
-            Polyline(((810, 505), (900, 505)), color="#fb923c", label="commands", label_xy=(856, 489)),
-            Polyline(((1200, 505), (1290, 505)), color="#34d399", label="data", label_xy=(1246, 489)),
+            Polyline(
+                ((660, 282), (660, 444)), color="#34d399", label="projects", label_xy=(724, 366)
+            ),
+            Polyline(
+                ((1050, 282), (1050, 444)), color="#fb923c", label="executes", label_xy=(1116, 366)
+            ),
+            Polyline(
+                ((1420, 282), (1420, 444)), color="#a78bfa", label="loads", label_xy=(1470, 366)
+            ),
+            Polyline(
+                ((420, 505), (510, 505)), color="#22d3ee", label="children", label_xy=(466, 489)
+            ),
+            Polyline(
+                ((810, 505), (900, 505)), color="#fb923c", label="commands", label_xy=(856, 489)
+            ),
+            Polyline(
+                ((1200, 505), (1290, 505)), color="#34d399", label="data", label_xy=(1246, 489)
+            ),
             Polyline(((660, 566), (425, 738)), color="#64748b", label="tests", label_xy=(544, 660)),
-            Polyline(((1050, 566), (1070, 738)), color="#64748b", label="boundary", label_xy=(1114, 660)),
+            Polyline(
+                ((1050, 566), (1070, 738)), color="#64748b", label="boundary", label_xy=(1114, 660)
+            ),
         ),
         notes=(
             Note(
@@ -2030,19 +4393,54 @@ def csharp_console_hello_vmx() -> Diagram:
         title="C# Console HelloVMx Example",
         subtitle="minimal .NET host for ComponentVM lifecycle, hub messages, and model equality",
         host=("Console program", ("Program.cs entrypoint", "net8.0 command", "stdout narrative")),
-        adapter=("Message subscriptions", ("hub observers", "status/property logs", "no UI framework")),
-        root=("ComponentVM<UserModel>", ("builder-created VM", "name + modeled hint", "construct/destruct/dispose")),
-        primary=("UserModel projection", ("Alice -> Bob mutation", "equality guard", "modeled hint update")),
-        support=("MessageHub", ("ConstructionStatusChanged", "PropertyChanged", "hot message stream")),
-        model=("UserModel", ("name", "age", "value equality")),
-        verification=("Manual smoke", ("dotnet run", "observable log sequence", "roll-forward note")),
-        rule=("Best-fit use", ("Use this when learning the smallest VMx surface before adding host adapters or child containers.",)),
-        cards=(
-            ("Smallest surface", ("One modeled ComponentVM shows lifecycle and property messages.", "The host never owns domain behavior.")),
-            ("Signal path", ("Model mutation publishes through the hub.", "Setting an equal model value stays silent.")),
-            ("Next step", ("Move to WPF or Avalonia examples when bindings and child VMs matter.",)),
+        adapter=(
+            "Message subscriptions",
+            ("hub observers", "status/property logs", "no UI framework"),
         ),
-        footer="Generated for examples/csharp/console/HelloVMx.",
+        root=(
+            "ComponentVM<UserModel>",
+            ("builder-created VM", "name + modeled hint", "construct/destruct/dispose"),
+        ),
+        primary=(
+            "UserModel projection",
+            ("Alice -> Bob mutation", "equality guard", "modeled hint update"),
+        ),
+        support=(
+            "MessageHub",
+            ("ConstructionStatusChanged", "PropertyChanged", "hot message stream"),
+        ),
+        model=("UserModel", ("name", "age", "value equality")),
+        verification=(
+            "Manual smoke",
+            ("dotnet run", "observable log sequence", "roll-forward note"),
+        ),
+        rule=(
+            "Best-fit use",
+            (
+                "Use this when learning the smallest VMx surface before adding host adapters or child containers.",
+            ),
+        ),
+        cards=(
+            (
+                "Smallest surface",
+                (
+                    "One modeled ComponentVM shows lifecycle and property messages.",
+                    "The host never owns domain behavior.",
+                ),
+            ),
+            (
+                "Signal path",
+                (
+                    "Model mutation publishes through the hub.",
+                    "Setting an equal model value stays silent.",
+                ),
+            ),
+            (
+                "Next step",
+                ("Move to WPF or Avalonia examples when bindings and child VMs matter.",),
+            ),
+        ),
+        footer="",
     )
 
 
@@ -2052,19 +4450,48 @@ def csharp_wpf_todo_app() -> Diagram:
         title="C# WPF Todo App Example",
         subtitle="Windows WPF host showing VMx commands with idiomatic XAML binding wrappers",
         host=("WPF window", ("MainWindow.xaml", "ListBox + buttons", "Windows-only launch")),
-        adapter=("INPC wrappers", ("TodoItemVM forwards VMx", "ICommand bridge", "XAML data binding")),
-        root=("MainWindowViewModel", ("ObservableCollection rows", "AddCommand", "selected item context")),
-        primary=("TodoItemVM rows", ("ComponentVM<TodoItem>", "Title / Done projection", "ToggleDoneCommand")),
+        adapter=(
+            "INPC wrappers",
+            ("TodoItemVM forwards VMx", "ICommand bridge", "XAML data binding"),
+        ),
+        root=(
+            "MainWindowViewModel",
+            ("ObservableCollection rows", "AddCommand", "selected item context"),
+        ),
+        primary=(
+            "TodoItemVM rows",
+            ("ComponentVM<TodoItem>", "Title / Done projection", "ToggleDoneCommand"),
+        ),
         support=("RelayCommand", ("add item", "toggle item", "CanExecute binding")),
         model=("TodoItem", ("title", "done flag", "simple value model")),
-        verification=("Build + launch", ("dotnet build", "dotnet run on Windows", "cross-platform restore")),
-        rule=("Best-fit use", ("Use this for wrapper-style integration where the UI toolkit expects INPC and ICommand surfaces.",)),
-        cards=(
-            ("Wrapper pattern", ("VMx stays inside row wrappers.", "WPF sees familiar binding contracts.")),
-            ("Command ownership", ("Add and toggle behavior route through RelayCommand.", "The view only binds commands.")),
-            ("Platform note", ("Build can succeed off Windows.", "Running WPF still requires Windows.")),
+        verification=(
+            "Build + launch",
+            ("dotnet build", "dotnet run on Windows", "cross-platform restore"),
         ),
-        footer="Generated for examples/csharp/wpf/TodoApp.",
+        rule=(
+            "Best-fit use",
+            (
+                "Use this for wrapper-style integration where the UI toolkit expects INPC and ICommand surfaces.",
+            ),
+        ),
+        cards=(
+            (
+                "Wrapper pattern",
+                ("VMx stays inside row wrappers.", "WPF sees familiar binding contracts."),
+            ),
+            (
+                "Command ownership",
+                (
+                    "Add and toggle behavior route through RelayCommand.",
+                    "The view only binds commands.",
+                ),
+            ),
+            (
+                "Platform note",
+                ("Build can succeed off Windows.", "Running WPF still requires Windows."),
+            ),
+        ),
+        footer="",
     )
 
 
@@ -2073,20 +4500,50 @@ def csharp_avalonia_notes_showcase() -> Diagram:
         diagram_id="csharp-avalonia-notes-showcase",
         title="C# Avalonia Notes Showcase Example",
         subtitle="flagship XAML host with AggregateVM6, FormVM, paging, dialogs, theme, and notifications",
-        host=("Avalonia views", ("AXAML-only screens", "InitializeComponent code-behind", "cross-platform desktop")),
-        adapter=("Avalonia adapters", ("BindableVm / Derived", "collection + command bridges", "dispatcher + dialogs")),
+        host=(
+            "Avalonia views",
+            (
+                "AXAML-only screens",
+                "AvaloniaXamlLoader.Load code-behind",
+                "cross-platform desktop",
+            ),
+        ),
+        adapter=(
+            "Avalonia adapters",
+            ("BindableVm / Derived", "collection + command bridges", "dispatcher + dialogs"),
+        ),
         root=("WorkspaceVM", ("AggregateVM6 shell", "async construct", "theme sibling")),
-        primary=("Notebook + note VMs", ("tree projection", "paged notes list", "strict NoteFormVM")),
+        primary=(
+            "Notebook + note VMs",
+            ("tree projection", "paged notes list", "strict NoteFormVM"),
+        ),
         support=("Workflow services", ("dialogs", "notifications", "global token search")),
         model=("Repository + models", ("in-memory notes", "seed notebooks", "theme model")),
         verification=("Pure-VM tests", ("dotnet test", "adapter tests", "code-behind checker")),
-        rule=("Best-fit use", ("Use this as the C# reference for full VMx desktop composition with thin Avalonia views.",)),
-        cards=(
-            ("Full surface", ("Exercises the 19-row Notes Workspace contract.", "Uses specialized VMs where they reduce host glue.")),
-            ("Adapter seam", ("Avalonia specifics live in Views/Adapter.", "VMs remain host-independent.")),
-            ("Parity role", ("Matches Python Textual, TypeScript React, and SwiftUI flagship behavior.",)),
+        rule=(
+            "Best-fit use",
+            (
+                "Use this as the C# reference for full VMx desktop composition with thin Avalonia views.",
+            ),
         ),
-        footer="Generated for examples/csharp/avalonia/NotesShowcase.",
+        cards=(
+            (
+                "Full surface",
+                (
+                    "Exercises the 19-row Notes Workspace contract.",
+                    "Uses specialized VMs where they reduce host glue.",
+                ),
+            ),
+            (
+                "Adapter seam",
+                ("Avalonia specifics live in Views/Adapter.", "VMs remain host-independent."),
+            ),
+            (
+                "Parity role",
+                ("Matches Python Textual, TypeScript React, and SwiftUI flagship behavior.",),
+            ),
+        ),
+        footer="",
     )
 
 
@@ -2096,19 +4553,54 @@ def python_console_hello_vmx() -> Diagram:
         title="Python Console hello_vmx Example",
         subtitle="minimal uv-run script for ComponentVMOf lifecycle and reactivex-backed hub messages",
         host=("Python module", ("python -m hello_vmx", "uv-managed env", "stdout narrative")),
-        adapter=("Reactive observers", ("hub.messages subscribe", "status/property printout", "no UI toolkit")),
-        root=("ComponentVMOf[UserModel]", ("fluent builder", "name + hint", "construct/destruct/dispose")),
-        primary=("UserModel projection", ("dataclass-like model", "Alice -> Bob mutation", "equality guard")),
-        support=("MessageHub", ("ConstructionStatusChanged", "PropertyChanged", "reactivex stream")),
-        model=("UserModel", ("name", "age", "typed payload")),
-        verification=("Manual smoke", ("uv sync", "uv run python -m hello_vmx", "expected log trace")),
-        rule=("Best-fit use", ("Use this as the shortest Python path before adding tkinter, Textual, or child containers.",)),
-        cards=(
-            ("Smallest Python path", ("One modeled VM demonstrates lifecycle and hub semantics.", "No view adapter is required.")),
-            ("Signal path", ("Model changes publish property messages.", "Equal assignments are intentionally quiet.")),
-            ("Next step", ("Move to tkinter Todo for CompositeVM or Textual Inspector for tree traversal.",)),
+        adapter=(
+            "Reactive observers",
+            ("hub.messages subscribe", "status/property printout", "no UI toolkit"),
         ),
-        footer="Generated for examples/python/console/hello_vmx.",
+        root=(
+            "ComponentVMOf[UserModel]",
+            ("fluent builder", "name + hint", "construct/destruct/dispose"),
+        ),
+        primary=(
+            "UserModel projection",
+            ("dataclass-like model", "Alice -> Bob mutation", "equality guard"),
+        ),
+        support=(
+            "MessageHub",
+            ("ConstructionStatusChanged", "PropertyChanged", "reactivex stream"),
+        ),
+        model=("UserModel", ("name", "age", "typed payload")),
+        verification=(
+            "Manual smoke",
+            ("uv sync", "uv run python -m hello_vmx", "expected log trace"),
+        ),
+        rule=(
+            "Best-fit use",
+            (
+                "Use this as the shortest Python path before adding tkinter, Textual, or child containers.",
+            ),
+        ),
+        cards=(
+            (
+                "Smallest Python path",
+                (
+                    "One modeled VM demonstrates lifecycle and hub semantics.",
+                    "No view adapter is required.",
+                ),
+            ),
+            (
+                "Signal path",
+                (
+                    "Model changes publish property messages.",
+                    "Equal assignments are intentionally quiet.",
+                ),
+            ),
+            (
+                "Next step",
+                ("Move to tkinter Todo for CompositeVM or Textual Inspector for tree traversal.",),
+            ),
+        ),
+        footer="",
     )
 
 
@@ -2120,17 +4612,46 @@ def python_tk_todo_app() -> Diagram:
         host=("tkinter window", ("entry + listbox", "button callbacks", "display required")),
         adapter=("View callbacks", ("button -> command", "selection -> VM", "render from VM list")),
         root=("MainWindowViewModel", ("CompositeVM[TodoItemVM]", "add_command", "remove_command")),
-        primary=("TodoItemVM rows", ("ComponentVMOf[TodoItem]", "toggle_done command", "row projection")),
+        primary=(
+            "TodoItemVM rows",
+            ("ComponentVMOf[TodoItem]", "toggle_done command", "row projection"),
+        ),
         support=("RelayCommand", ("add", "remove", "toggle complete")),
         model=("TodoItem", ("title", "done flag", "simple payload")),
-        verification=("Import + run", ("headless import check", "uv run python -m todo_app", "display-gated UI")),
-        rule=("Best-fit use", ("Use this when a small Python UI needs VMx collection ownership without a heavier TUI stack.",)),
-        cards=(
-            ("Composite fit", ("Todo rows are homogeneous and selectable.", "CompositeVM is a better fit than manual list state.")),
-            ("Thin host", ("tkinter callbacks translate gestures to commands.", "The VM owns collection mutations.")),
-            ("Contrast", ("The C# WPF Todo app uses wrappers for toolkit idiom.", "Both preserve VMx command ownership.")),
+        verification=(
+            "Import + run",
+            ("headless import check", "uv run python -m todo_app", "display-gated UI"),
         ),
-        footer="Generated for examples/python/tk/todo_app.",
+        rule=(
+            "Best-fit use",
+            (
+                "Use this when a small Python UI needs VMx collection ownership without a heavier TUI stack.",
+            ),
+        ),
+        cards=(
+            (
+                "Composite fit",
+                (
+                    "Todo rows are homogeneous and selectable.",
+                    "CompositeVM is a better fit than manual list state.",
+                ),
+            ),
+            (
+                "Thin host",
+                (
+                    "tkinter callbacks translate gestures to commands.",
+                    "The VM owns collection mutations.",
+                ),
+            ),
+            (
+                "Contrast",
+                (
+                    "The C# WPF Todo app uses wrappers for toolkit idiom.",
+                    "Both preserve VMx command ownership.",
+                ),
+            ),
+        ),
+        footer="",
     )
 
 
@@ -2141,18 +4662,41 @@ def python_textual_inspector() -> Diagram:
         subtitle="live TUI for walking VMx hierarchies and observing hub message traffic",
         host=("Textual app", ("tree widget", "details panel", "message table")),
         adapter=("Inspector views", ("vmx.tree.walk", "highlighted node actions", "hub log sink")),
-        root=("Sample hierarchy", ("ComponentVM nodes", "constructable tree", "selected node context")),
+        root=(
+            "Sample hierarchy",
+            ("ComponentVM nodes", "constructable tree", "selected node context"),
+        ),
         primary=("Tree projection", ("walk output", "node metadata", "details view")),
         support=("Lifecycle actions", ("construct", "destruct", "reconstruct", "dispose / select")),
         model=("Hub stream", ("PropertyChanged", "ConstructionStatusChanged", "ordered log rows")),
-        verification=("Smoke test", ("uv run project", "Textual import smoke", "sample hierarchy renders")),
-        rule=("Best-fit use", ("Use this to inspect VMx runtime behavior before wiring a domain-specific application host.",)),
+        verification=(
+            "Smoke test",
+            ("uv run project", "Textual import smoke", "sample hierarchy renders"),
+        ),
+        rule=(
+            "Best-fit use",
+            (
+                "Use this to inspect VMx runtime behavior before wiring a domain-specific application host.",
+            ),
+        ),
         cards=(
-            ("Observability", ("The app makes lifecycle and property messages visible.", "It is intentionally general-purpose.")),
-            ("Tree utilities", ("vmx.tree.walk drives the visual hierarchy.", "Highlighted nodes route lifecycle commands.")),
+            (
+                "Observability",
+                (
+                    "The app makes lifecycle and property messages visible.",
+                    "It is intentionally general-purpose.",
+                ),
+            ),
+            (
+                "Tree utilities",
+                (
+                    "vmx.tree.walk drives the visual hierarchy.",
+                    "Highlighted nodes route lifecycle commands.",
+                ),
+            ),
             ("Learning role", ("Best for understanding state flow and hub traffic.",)),
         ),
-        footer="Generated for examples/python/textual/inspector.",
+        footer="",
     )
 
 
@@ -2161,20 +4705,50 @@ def python_textual_notes_showcase() -> Diagram:
         diagram_id="python-textual-notes-showcase",
         title="Python Textual Notes Showcase Example",
         subtitle="flagship terminal host with pure VMx state, Textual rendering, dialogs, search, and paging",
-        host=("Textual screens", ("compose/on_mount views", "single-statement actions", "keyboard bindings")),
-        adapter=("Textual adapters", ("property binders", "collection bridge", "dialog + dispatcher ports")),
+        host=(
+            "Textual screens",
+            ("compose/on_mount views", "single-statement actions", "keyboard bindings"),
+        ),
+        adapter=(
+            "Textual adapters",
+            ("property binders", "collection bridge", "dialog + dispatcher ports"),
+        ),
         root=("WorkspaceVM", ("AggregateVM6 shell", "async construct", "theme sibling")),
-        primary=("Notebook + note VMs", ("tree projection", "PagedComposition", "strict NoteFormVM")),
-        support=("Workflow services", ("TokenPagedComposition", "NotificationVM", "DiscriminatorVM")),
+        primary=(
+            "Notebook + note VMs",
+            ("tree projection", "PagedComposition", "strict NoteFormVM"),
+        ),
+        support=(
+            "Workflow services",
+            ("TokenPagedComposition", "NotificationVM", "DiscriminatorVM"),
+        ),
         model=("Repository + models", ("in-memory notes", "seed notebooks", "theme model")),
-        verification=("VM + view tests", ("uv run pytest", "Pure-VM contract", "adapter smoke tests")),
-        rule=("Best-fit use", ("Use this as the Python reference for full VMx MVVM in a terminal UI.",)),
+        verification=(
+            "VM + view tests",
+            ("uv run pytest", "Pure-VM contract", "adapter smoke tests"),
+        ),
+        rule=(
+            "Best-fit use",
+            ("Use this as the Python reference for full VMx MVVM in a terminal UI.",),
+        ),
         cards=(
-            ("Full surface", ("Exercises the same 19-row Notes Workspace contract.", "Textual owns rendering, not state.")),
-            ("Adapter seam", ("View classes stay thin and route to VM commands.", "VM tests cover the domain behavior.")),
+            (
+                "Full surface",
+                (
+                    "Exercises the same 19-row Notes Workspace contract.",
+                    "Textual owns rendering, not state.",
+                ),
+            ),
+            (
+                "Adapter seam",
+                (
+                    "View classes stay thin and route to VM commands.",
+                    "VM tests cover the domain behavior.",
+                ),
+            ),
             ("Parity role", ("Matches the C#, TypeScript, and Swift flagship scenario.",)),
         ),
-        footer="Generated for examples/python/textual/notes_showcase.",
+        footer="",
     )
 
 
@@ -2184,19 +4758,45 @@ def typescript_console_hello_vmx() -> Diagram:
         title="TypeScript Console hello-vmx Example",
         subtitle="minimal Node script for ComponentVMOf lifecycle and rxjs-backed message observation",
         host=("Node script", ("tsx entrypoint", "npm start", "stdout narrative")),
-        adapter=("rxjs subscriptions", ("hub.messages subscribe", "status/property logs", "no DOM host")),
-        root=("ComponentVMOf<UserModel>", ("fluent builder", "name + hint", "construct/destruct/dispose")),
-        primary=("UserModel projection", ("typed object model", "Alice -> Bob mutation", "equality guard")),
+        adapter=(
+            "rxjs subscriptions",
+            ("hub.messages subscribe", "status/property logs", "no DOM host"),
+        ),
+        root=(
+            "ComponentVMOf<UserModel>",
+            ("fluent builder", "name + hint", "construct/destruct/dispose"),
+        ),
+        primary=(
+            "UserModel projection",
+            ("typed object model", "Alice -> Bob mutation", "equality guard"),
+        ),
         support=("MessageHub", ("ConstructionStatusChanged", "PropertyChanged", "rxjs stream")),
         model=("UserModel", ("name", "age", "structural payload")),
         verification=("Manual smoke", ("npm ci", "npm start", "local VMx build first")),
-        rule=("Best-fit use", ("Use this as the shortest TypeScript path before adding React adapters or child containers.",)),
+        rule=(
+            "Best-fit use",
+            (
+                "Use this as the shortest TypeScript path before adding React adapters or child containers.",
+            ),
+        ),
         cards=(
-            ("Smallest TS path", ("One modeled VM demonstrates lifecycle and hub semantics.", "The script stays framework-free.")),
-            ("Signal path", ("Model updates publish property messages.", "Equal assignments produce no message.")),
+            (
+                "Smallest TS path",
+                (
+                    "One modeled VM demonstrates lifecycle and hub semantics.",
+                    "The script stays framework-free.",
+                ),
+            ),
+            (
+                "Signal path",
+                (
+                    "Model updates publish property messages.",
+                    "Equal assignments produce no message.",
+                ),
+            ),
             ("Next step", ("Move to the React showcase when host hooks and adapters matter.",)),
         ),
-        footer="Generated for examples/typescript/console/hello-vmx.",
+        footer="",
     )
 
 
@@ -2206,19 +4806,46 @@ def typescript_react_notes_showcase() -> Diagram:
         title="TypeScript React Notes Showcase Example",
         subtitle="flagship web host with hooks as VMx adapters and React components as pure renderers",
         host=("React components", ("Vite app shell", "pure render components", "hotkey hooks")),
-        adapter=("React adapter hooks", ("useVm / useCommand", "collection + derived hooks", "dialog overlay")),
+        adapter=(
+            "React adapter hooks",
+            ("useVm / useCommand", "collection + derived hooks", "dialog overlay"),
+        ),
         root=("WorkspaceVM", ("AggregateVM6 shell", "async construct", "theme sibling")),
-        primary=("Notebook + note VMs", ("tree projection", "PagedComposition", "strict NoteFormVM")),
-        support=("Workflow services", ("TokenPagedComposition", "NotificationVM", "DiscriminatorVM")),
+        primary=(
+            "Notebook + note VMs",
+            ("tree projection", "PagedComposition", "strict NoteFormVM"),
+        ),
+        support=(
+            "Workflow services",
+            ("TokenPagedComposition", "NotificationVM", "DiscriminatorVM"),
+        ),
         model=("Repository + models", ("in-memory notes", "seed notebooks", "theme model")),
-        verification=("Vitest + lint", ("npm test", "typecheck", "no useState/useReducer in views")),
-        rule=("Best-fit use", ("Use this as the TypeScript reference for full VMx MVVM in a browser host.",)),
+        verification=(
+            "Vitest + lint",
+            ("npm test", "typecheck", "no useState/useReducer in views"),
+        ),
+        rule=(
+            "Best-fit use",
+            ("Use this as the TypeScript reference for full VMx MVVM in a browser host.",),
+        ),
         cards=(
-            ("Hook seam", ("Hooks adapt VMx streams to React rendering.", "Components do not own domain state.")),
-            ("Full surface", ("Exercises the 19-row Notes Workspace contract.", "Specialized VMs keep wrapper code small.")),
+            (
+                "Hook seam",
+                (
+                    "Hooks adapt VMx streams to React rendering.",
+                    "Components do not own domain state.",
+                ),
+            ),
+            (
+                "Full surface",
+                (
+                    "Exercises the 19-row Notes Workspace contract.",
+                    "Specialized VMs keep wrapper code small.",
+                ),
+            ),
             ("Parity role", ("Matches the C#, Python, and Swift flagship scenario.",)),
         ),
-        footer="Generated for examples/typescript/react/notes-showcase.",
+        footer="",
     )
 
 
@@ -2228,19 +4855,36 @@ def swift_notes_showcase() -> Diagram:
         title="Swift Notes Showcase Example",
         subtitle="SwiftUI + Combine flagship with a pure NotesShowcaseCore VM layer",
         host=("SwiftUI views", ("RootView layout", "Combine subscriptions", "macOS app target")),
-        adapter=("SwiftUI adapters", ("BindableVM", "BindableCollection", "command + derived bridges")),
+        adapter=(
+            "SwiftUI adapters",
+            ("BindableVM", "BindableCollection", "command + derived bridges"),
+        ),
         root=("WorkspaceVM", ("AggregateVM6 shell", "async construct", "theme sibling")),
         primary=("Notebook + note VMs", ("tree projection", "paged notes", "strict NoteFormVM")),
         support=("Workflow services", ("global token search", "notifications", "dialogs + theme")),
         model=("Core package", ("models", "repository", "ThemeChangedMessage")),
         verification=("Swift tests", ("swift build", "swift test with Xcode", "THEME-001..005")),
-        rule=("Best-fit use", ("Use this as the Swift reference for keeping SwiftUI views bound to VMx-owned state.",)),
+        rule=(
+            "Best-fit use",
+            (
+                "Use this as the Swift reference for keeping SwiftUI views bound to VMx-owned state.",
+            ),
+        ),
         cards=(
-            ("Target split", ("NotesShowcaseCore owns models and VMs.", "NotesShowcase owns SwiftUI adapters and views.")),
-            ("Combine bridge", ("Adapters expose VMx state to SwiftUI.", "Commands remain VM-owned.")),
+            (
+                "Target split",
+                (
+                    "NotesShowcaseCore owns models and VMs.",
+                    "NotesShowcase owns SwiftUI adapters and views.",
+                ),
+            ),
+            (
+                "Combine bridge",
+                ("Adapters expose VMx state to SwiftUI.", "Commands remain VM-owned."),
+            ),
             ("Parity role", ("Matches the C#, Python, and TypeScript flagship scenario.",)),
         ),
-        footer="Generated for examples/swift/notes-showcase.",
+        footer="",
     )
 
 
@@ -2250,19 +4894,45 @@ def rust_console_hello_vmx() -> Diagram:
         title="Rust Console hello-vmx Example",
         subtitle="Cargo console demo using ComponentVm, CompositeVm, FilteredCompositeVm, and RelayCommand",
         host=("Cargo binary", ("src/main.rs", "cargo run", "stdout summary")),
-        adapter=("Console projection", ("print current note", "print search count", "no TUI state")),
+        adapter=(
+            "Console projection",
+            ("print current note", "print search count", "no TUI state"),
+        ),
         root=("CompositeVm rows", ("modeled note rows", "initial current", "construct + dispose")),
-        primary=("FilteredCompositeVm", ("live search result", "rust query", "selected note remains VM-owned")),
+        primary=(
+            "FilteredCompositeVm",
+            ("live search result", "rust query", "selected note remains VM-owned"),
+        ),
         support=("RelayCommand", ("command execution", "VMx services", "hub + dispatcher")),
         model=("Note models", ("3 seeded notes", "slug/title/body", "search text")),
-        verification=("Manual smoke", ("cargo run", "expected four-line output", "builds local vmx crate")),
-        rule=("Best-fit use", ("Use this as the Rust stepping stone from modeled rows to filtered collections before the Ratatui showcase.",)),
+        verification=(
+            "Manual smoke",
+            ("cargo run", "expected four-line output", "builds local vmx crate"),
+        ),
+        rule=(
+            "Best-fit use",
+            (
+                "Use this as the Rust stepping stone from modeled rows to filtered collections before the Ratatui showcase.",
+            ),
+        ),
         cards=(
-            ("Rust primitives", ("The example shows the Rust flavor beyond a single leaf VM.", "Composite and filtered projections stay VMx-owned.")),
-            ("Command path", ("RelayCommand demonstrates executable VM behavior.", "Console output is only a projection.")),
+            (
+                "Rust primitives",
+                (
+                    "The example shows the Rust flavor beyond a single leaf VM.",
+                    "Composite and filtered projections stay VMx-owned.",
+                ),
+            ),
+            (
+                "Command path",
+                (
+                    "RelayCommand demonstrates executable VM behavior.",
+                    "Console output is only a projection.",
+                ),
+            ),
             ("Next step", ("Move to Ratatui Notes Showcase for full MVVM terminal composition.",)),
         ),
-        footer="Generated for examples/rust/console/hello-vmx.",
+        footer="",
     )
 
 
@@ -2297,10 +4967,18 @@ def build_diagrams() -> dict[str, Diagram]:
     }
 
 
-def write_triplet(diagram: Diagram, html_name: str, svg_name: str, png_name: str) -> None:
-    svg_path = DIAGRAM_DIR / svg_name
-    html_path = DIAGRAM_DIR / html_name
-    png_path = DIAGRAM_DIR / png_name
+def write_triplet(
+    diagram: Diagram,
+    html_name: str,
+    svg_name: str,
+    png_name: str,
+    *,
+    output_dir: Path,
+) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    svg_path = output_dir / svg_name
+    html_path = output_dir / html_name
+    png_path = output_dir / png_name
     svg_path.write_text(svg_doc(diagram), encoding="utf-8")
     html_path.write_text(html_doc(diagram, svg_name), encoding="utf-8")
     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_file:
@@ -2337,16 +5015,14 @@ def write_triplet(diagram: Diagram, html_name: str, svg_name: str, png_name: str
         tmp_path.unlink(missing_ok=True)
 
 
-def main() -> None:
+def generate(output_dir: Path) -> list[dict[str, object]]:
     registry = json.loads(REGISTRY_PATH.read_text(encoding="utf-8"))
     diagrams = build_diagrams()
     registry_ids = set(SOURCE_FACTS.registry_ids)
     missing = registry_ids - diagrams.keys()
     extra = diagrams.keys() - registry_ids
     if missing or extra:
-        raise SystemExit(
-            f"registry mismatch: missing={sorted(missing)} extra={sorted(extra)}"
-        )
+        raise SystemExit(f"registry mismatch: missing={sorted(missing)} extra={sorted(extra)}")
     for item in registry:
         expected_title = SOURCE_FACTS.title_for(item["id"])
         if diagrams[item["id"]].title != expected_title:
@@ -2359,8 +5035,53 @@ def main() -> None:
             item["html"],
             item["svg"],
             item["png"],
+            output_dir=output_dir,
         )
+    return registry
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="verify deterministic HTML/SVG outputs and PNG presence without modifying the worktree",
+    )
+    args = parser.parse_args()
+
+    if not args.check:
+        generate(DIAGRAM_DIR)
+        return 0
+
+    with tempfile.TemporaryDirectory(prefix="vmx-site-diagrams-") as tmp_dir:
+        candidate_dir = Path(tmp_dir)
+        registry = generate(candidate_dir)
+        # HTML and SVG are deterministic textual sources emitted by this
+        # generator, so byte-equality reliably detects stale diagrams. PNG is a
+        # rendered preview rasterized via rsvg-convert whose bytes depend on the
+        # host librsvg/cairo/pango/fontconfig stack and legitimately differ
+        # between a macOS dev host and the Ubuntu CI runner (verified: the same
+        # committed PNGs are "current" on macOS but "stale" on ubuntu-24.04).
+        # Assert the PNG exists, but never gate on its bytes or the check becomes
+        # environment-fragile and fails CI on regenerations done off-CI.
+        stale = []
+        for item in registry:
+            for key in ("html", "svg"):
+                committed = DIAGRAM_DIR / item[key]
+                candidate = candidate_dir / item[key]
+                if not committed.exists() or committed.read_bytes() != candidate.read_bytes():
+                    stale.append(committed)
+            png = DIAGRAM_DIR / item["png"]
+            if not png.exists():
+                stale.append(png)
+    if stale:
+        for path in stale:
+            print(f"stale generated diagram: {path.relative_to(REPO_ROOT)}")
+        print("run: python docs/assets/diagrams/generate_diagrams.py")
+        return 1
+    print("documentation diagram triplets are current")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

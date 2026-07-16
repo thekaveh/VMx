@@ -13,26 +13,36 @@
   <text x="40" y="54" fill="white" font-size="28" font-weight="700" text-anchor="start">Notes Showcase VM Hierarchy</text>
   <text x="40" y="84" fill="#94a3b8" font-size="15" font-weight="400" text-anchor="start">19-feature flagship hierarchy across C#, Python, TypeScript, and Swift</text>
   <path d="M240,230 C240,230 240,310 240,310" fill="none" stroke="#64748b" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<rect x="196.5" y="245" width="87.0" height="20" rx="3" fill="#020617"/>
 <text x="240" y="260" fill="#64748b" font-size="12" font-weight="400" text-anchor="middle">Component1</text>
 <path d="M620,230 C620,230 620,310 620,310" fill="none" stroke="#64748b" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<rect x="576.5" y="245" width="87.0" height="20" rx="3" fill="#020617"/>
 <text x="620" y="260" fill="#64748b" font-size="12" font-weight="400" text-anchor="middle">Component2</text>
 <path d="M1020,230 C1020,230 1020,310 1020,310" fill="none" stroke="#64748b" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<rect x="976.5" y="245" width="87.0" height="20" rx="3" fill="#020617"/>
 <text x="1020" y="260" fill="#64748b" font-size="12" font-weight="400" text-anchor="middle">Component3</text>
 <path d="M1390,230 C1390,230 1390,310 1390,310" fill="none" stroke="#64748b" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<rect x="1357.8" y="245" width="64.5" height="20" rx="3" fill="#020617"/>
 <text x="1390" y="260" fill="#64748b" font-size="12" font-weight="400" text-anchor="middle">sibling</text>
 <path d="M400,455 C430,455 430,455 460,455" fill="none" stroke="#64748b" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<rect x="397.8" y="430" width="64.5" height="20" rx="3" fill="#020617"/>
 <text x="430" y="445" fill="#64748b" font-size="12" font-weight="400" text-anchor="middle">current</text>
 <path d="M780,455 C810,455 810,455 840,455" fill="none" stroke="#64748b" stroke-width="2.2" marker-end="url(#arrowhead)"/>
 
 <path d="M1020,605 C1020,605 1020,690 1020,690" fill="none" stroke="#fb7185" stroke-width="2.2" marker-end="url(#arrowhead)" stroke-dasharray="8 6"/>
+<rect x="995.2" y="622" width="49.5" height="20" rx="3" fill="#020617"/>
 <text x="1020" y="637" fill="#fb7185" font-size="12" font-weight="400" text-anchor="middle">saved</text>
 <path d="M1390,605 C1390,605 1390,690 1390,690" fill="none" stroke="#64748b" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<rect x="1357.8" y="622" width="64.5" height="20" rx="3" fill="#020617"/>
 <text x="1390" y="637" fill="#64748b" font-size="12" font-weight="400" text-anchor="middle">queries</text>
 <path d="M1180,755 C1030,755 1030,755 880,755" fill="none" stroke="#fb7185" stroke-width="2.2" marker-end="url(#arrowhead)" stroke-dasharray="8 6"/>
+<rect x="1009.0" y="730" width="42.0" height="20" rx="3" fill="#020617"/>
 <text x="1030" y="745" fill="#fb7185" font-size="12" font-weight="400" text-anchor="middle">post</text>
 <path d="M620,605 C640,605 640,690 660,690" fill="none" stroke="#64748b" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<rect x="607.8" y="622" width="64.5" height="20" rx="3" fill="#020617"/>
 <text x="640" y="637" fill="#64748b" font-size="12" font-weight="400" text-anchor="middle">derived</text>
 <path d="M240,605 C250,605 250,690 260,690" fill="none" stroke="#64748b" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<rect x="225.2" y="622" width="49.5" height="20" rx="3" fill="#020617"/>
 <text x="250" y="637" fill="#64748b" font-size="12" font-weight="400" text-anchor="middle">focus</text>
 <rect x="80" y="125" width="1440" height="105" rx="12" fill="#0f172a"/>
 <rect x="80" y="125" width="1440" height="105" rx="12" fill="rgba(8, 51, 68, 0.42)" stroke="#22d3ee" stroke-width="2"/>
@@ -42,10 +52,11 @@
 <rect x="80" y="310" width="320" height="295" rx="12" fill="#0f172a"/>
 <rect x="80" y="310" width="320" height="295" rx="12" fill="rgba(8, 51, 68, 0.42)" stroke="#22d3ee" stroke-width="2"/>
 <text x="240" y="342" fill="white" font-size="18" font-weight="700" text-anchor="middle">NotebooksRootVM</text>
-<text x="240" y="368" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">HierarchicalVM&lt;NotebookModel, NotebookVM&gt;</text>
-<text x="240" y="392" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">recursive notebooks</text>
-<text x="240" y="416" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">current notebook selection</text>
-<text x="240" y="440" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">expand/collapse state</text>
+<text x="240" y="368" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">HierarchicalVM&lt;NotebookModel,</text>
+<text x="240" y="392" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">NotebookVM&gt;</text>
+<text x="240" y="416" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">recursive notebooks</text>
+<text x="240" y="440" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">current notebook selection</text>
+<text x="240" y="464" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">expand/collapse state</text>
 <rect x="460" y="310" width="320" height="295" rx="12" fill="#0f172a"/>
 <rect x="460" y="310" width="320" height="295" rx="12" fill="rgba(8, 51, 68, 0.42)" stroke="#22d3ee" stroke-width="2"/>
 <text x="620" y="342" fill="white" font-size="18" font-weight="700" text-anchor="middle">NotesViewVM</text>
@@ -63,10 +74,11 @@
 <rect x="1260" y="310" width="260" height="295" rx="12" fill="#0f172a"/>
 <rect x="1260" y="310" width="260" height="295" rx="12" fill="rgba(76, 29, 149, 0.42)" stroke="#a78bfa" stroke-width="2"/>
 <text x="1390" y="342" fill="white" font-size="18" font-weight="700" text-anchor="middle">GlobalSearchVM</text>
-<text x="1390" y="368" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">TokenPagedComposition&lt;NoteVM,string&gt;</text>
-<text x="1390" y="392" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">cursor-based search all notes</text>
-<text x="1390" y="416" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">refresh + load-more commands</text>
-<text x="1390" y="440" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">auto-constructs result VMs</text>
+<text x="1390" y="368" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">TokenPagedComposition</text>
+<text x="1390" y="392" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">&lt;NoteVM, string&gt;</text>
+<text x="1390" y="416" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">cursor search across notes</text>
+<text x="1390" y="440" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">refresh + load more</text>
+<text x="1390" y="464" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">auto-constructs result VMs</text>
 <rect x="80" y="690" width="360" height="130" rx="12" fill="#0f172a"/>
 <rect x="80" y="690" width="360" height="130" rx="12" fill="rgba(136, 19, 55, 0.42)" stroke="#fb7185" stroke-width="2"/>
 <text x="260" y="722" fill="white" font-size="18" font-weight="700" text-anchor="middle">CapabilityActionsVM</text>

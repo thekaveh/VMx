@@ -10,7 +10,6 @@ half; the showcase layers the ``is_valid`` check on top).
 
 from __future__ import annotations
 
-import asyncio
 import dataclasses
 from datetime import datetime
 from typing import cast
@@ -21,6 +20,7 @@ from reactivex.abc import DisposableBase
 from notes_showcase.models.note_model import NoteModel
 from notes_showcase.models.note_repository import INoteRepository
 from vmx import (
+    AsyncRelayCommand,
     ComponentVM,
     DerivedProperty,
     DiscriminatorVM,
@@ -72,7 +72,7 @@ class NoteFormVM(ComponentVM, IReconstructable):
         self._editor_mode: DiscriminatorVM[str] = DiscriminatorVM("edit")
         self._tag_catalog: tuple[str, ...] = ()
         self._tag_suggestions: tuple[str, ...] = ()
-        # Round-3 Important C-I3: track the hub subscription created by
+        # hub-subscription ownership: track the hub subscription created by
         # ``bind_to`` so we can dispose the previous one before re-subscribing
         # (previously the prior closure leaked on every rebind).
         self._bind_subscription: DisposableBase | None = None
@@ -88,7 +88,7 @@ class NoteFormVM(ComponentVM, IReconstructable):
             self._self_subject,
             transform=lambda nf: cast(NoteFormVM, nf)._compute_is_valid(),
         )
-        # Round-3 Important C-I1: render the tag tuple as a flat, comma-joined
+        # flattened tag binding: render the tag tuple as a flat, comma-joined
         # string for the Textual chip strip. Binding ``Static.renderable``
         # directly to ``tags`` (a ``tuple[str, ...]``) emits Python repr
         # ("('alpha',)") instead of "alpha". The DerivedProperty re-projects
@@ -112,11 +112,11 @@ class NoteFormVM(ComponentVM, IReconstructable):
         # Triggered by the self-subject so bound Buttons' disabled state
         # tracks every draft/bind change — without a trigger,
         # can_execute_changed never fired and the Save button stayed
-        # permanently disabled in the UI (real-wiring audit, pass 5).
+        # permanently disabled in the UI (runtime behavior).
         self._approve_command = (
-            RelayCommand.builder()
+            AsyncRelayCommand.builder()
             .predicate(lambda: self.is_dirty.value and self.is_valid.value)
-            .task(self._approve_fire_and_forget)
+            .task(self.approve_async)
             .triggers(self._self_subject)
             .build()
         )
@@ -140,9 +140,9 @@ class NoteFormVM(ComponentVM, IReconstructable):
         # Stable deny delegate: Textual's bind_command captures the command
         # object once at mount, so returning a per-form (or no-op fallback)
         # command from ``deny_command`` left the Revert button permanently
-        # wired to whatever was bound at mount time (real-wiring audit,
-        # pass 5). C#/TS re-resolve their bindings on every change
-        # notification, so their no-op-fallback pattern is safe there; here
+        # wired to whatever was bound at mount time. C#/TS re-resolve their
+        # bindings on every change notification, so their no-op-fallback
+        # pattern is safe there; here
         # the property must hand out one object for the VM's lifetime.
         self._deny_command: RelayCommand = (
             RelayCommand.builder().task(self._deny_current).build()
@@ -279,7 +279,7 @@ class NoteFormVM(ComponentVM, IReconstructable):
         self._self_subject.on_next(self)
 
     @property
-    def approve_command(self) -> RelayCommand:
+    def approve_command(self) -> AsyncRelayCommand:
         return self._approve_command
 
     @property
@@ -382,7 +382,7 @@ class NoteFormVM(ComponentVM, IReconstructable):
         """Replace the inner :class:`FormVM` with one bound to *note*."""
         if self._form is not None:
             self._form.dispose()
-        # Round-3 Important C-I3: dispose any prior hub subscription before
+        # hub-subscription ownership: dispose any prior hub subscription before
         # re-subscribing below so the closure for the old form doesn't leak
         # (each bind_to used to leave the previous one alive forever).
         if self._bind_subscription is not None:
@@ -414,13 +414,13 @@ class NoteFormVM(ComponentVM, IReconstructable):
     def unbind(self) -> None:
         """Clear the form back to its initial empty state.
 
-        Round-4 Important-1: called by :class:`WorkspaceVM` when
+        cleared-selection form behavior: called by :class:`WorkspaceVM` when
         ``notes_view.current`` transitions to ``None`` (e.g. the selected
         note is deleted in :meth:`NotesViewVM._delete_note_async`) so the
         right-pane editor does not display ghost data from the just-removed
         note. Mirrors C# ``NoteFormVM.Unbind`` and TS ``NoteFormVM.unbind``.
 
-        Round-5 Minor: also reset ``tag_draft``. The user-typed tag input
+        complete form reset: also reset ``tag_draft``. The user-typed tag input
         buffer is part of the editor state, so a binding transition must
         clear it too — otherwise the chip input still shows the orphan
         text after the note disappears. Cross-flavor parity with C#
@@ -481,14 +481,6 @@ class NoteFormVM(ComponentVM, IReconstructable):
             self._tag_catalog = ()
         self._tag_search.search()
 
-    def _approve_fire_and_forget(self) -> None:
-        try:
-            loop = asyncio.get_running_loop()
-            task = loop.create_task(self.approve_async())
-            task.add_done_callback(lambda t: t.exception())
-        except RuntimeError:
-            asyncio.run(self.approve_async())
-
     def _tag_matches(self, tag: str, term: str) -> bool:
         normalized = term.strip().lower()
         if not normalized:
@@ -506,7 +498,7 @@ class NoteFormVM(ComponentVM, IReconstructable):
         # Includes the per-field scalars (title/body/starred/tags) so widgets
         # two-way bound via the adapter receive PropertyChangedMessage and
         # re-read. See Phase 5.b binding gap #1.
-        # Round-3 Important B-I2 parity: also fire for ``approve_command`` /
+        # stable-command rebinding: also fire for ``approve_command`` /
         # ``deny_command``. Both are stable objects now, but consumers that
         # re-resolve on change notifications (C#/TS-style bindings) still
         # expect the signal on rebinds.

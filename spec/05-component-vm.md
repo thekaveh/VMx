@@ -281,6 +281,15 @@ back-reference declared on the `IComponentVM` baseline (`01-concepts.md` §1.3):
   when the child is added (`Add` / `Insert`, or wired as a child at build time) and
   **clears** it to `null` when the child is removed (`Remove` / `RemoveAt` /
   `Clear`) or re-parented into another container.
+- `Parent` denotes exclusive ownership: the same component identity MUST NOT be
+  present in more than one container or more than once in one container.
+- Adding a child owned by another mutable container atomically removes it from
+  that old container before adding it to the new one. The link is never cleared
+  by a stale old-parent removal after transfer.
+- The link MUST be usable internally for transfer coordination and MUST NOT
+  retain an otherwise unreachable parent. Rust therefore stores a weak parent
+  owner, not only an unresolvable numeric ID; `parent_id()` remains a derived
+  compatibility view.
 - `Parent` is not consumer-settable and is not observable: changing it does NOT emit
   a `PropertyChangedMessage`. Its effect is observed indirectly through the selection
   predicates (a freshly built, un-parented VM has `can_select() == false`; after it
@@ -289,6 +298,7 @@ back-reference declared on the `IComponentVM` baseline (`01-concepts.md` §1.3):
   the parent (a no-op once `Parent` is `null`).
 
 The set-on-add / clear-on-remove wiring is conformance-tested by `COMP-027`.
+Atomic ownership and transfer are covered by `COMP-038` through `COMP-041`.
 
 ## 7. Construction
 

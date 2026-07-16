@@ -51,10 +51,34 @@ private final class LoaderQueue<Value>: @unchecked Sendable {
     }
 
     func load() async throws -> Value {
-        lock.lock()
-        let step = steps.removeFirst()
-        lock.unlock()
+        let step = lock.withLock { steps.removeFirst() }
         return try await step()
+    }
+}
+
+private final class LockedValues<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [Value] = []
+
+    func append(_ value: Value) {
+        lock.withLock { storage.append(value) }
+    }
+
+    var values: [Value] {
+        lock.withLock { storage }
+    }
+}
+
+private final class LockedCount: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage = 0
+
+    func increment() {
+        lock.withLock { storage += 1 }
+    }
+
+    var value: Int {
+        lock.withLock { storage }
     }
 }
 
@@ -99,14 +123,14 @@ final class AsyncResourceVMConformanceTests: XCTestCase {
     /// ARES-002 — successful load reaches Ready and notifies state.
     func testAres002SuccessfulLoadNotifies() async {
         let vm = makeAsyncResourceVM { 7 }
-        var names: [String] = []
+        let names = LockedValues<String>()
         let cancellable = vm.propertyChanged.sink { names.append($0) }
 
         await vm.load()
 
         XCTAssertEqual(vm.state.status, .ready)
         XCTAssertEqual(vm.state.value, 7)
-        XCTAssertEqual(names, ["state", "state"])
+        XCTAssertEqual(names.values, ["state", "state"])
         cancellable.cancel()
     }
 
@@ -180,14 +204,14 @@ final class AsyncResourceVMConformanceTests: XCTestCase {
             { 3 },
             { await deferred.get() },
         ])
-        var cleaned: [Int] = []
+        let cleaned = LockedValues<Int>()
         let vm = makeAsyncResourceVM(loader: queue.load) { cleaned.append($0) }
         await vm.load()
         let intent = Task { await vm.reload() }
         await eventually { vm.state.status == .loading }
 
         XCTAssertNil(vm.state.value)
-        XCTAssertEqual(cleaned, [3])
+        XCTAssertEqual(cleaned.values, [3])
         vm.cancel()
         await intent.value
         deferred.resolve(4)
@@ -223,30 +247,30 @@ final class AsyncResourceVMConformanceTests: XCTestCase {
             { await first.get() },
             { await second.get() },
         ])
-        var cleaned: [Int] = []
-        var notifications = 0
+        let cleaned = LockedValues<Int>()
+        let notifications = LockedCount()
         let vm = makeAsyncResourceVM(loader: queue.load) { cleaned.append($0) }
-        let cancellable = vm.propertyChanged.sink { _ in notifications += 1 }
+        let cancellable = vm.propertyChanged.sink { _ in notifications.increment() }
         let older = Task { await vm.load() }
         await eventually { vm.state.status == .loading }
         await eventually { first.isWaiting }
         let newer = Task { await vm.reload() }
         second.resolve(2)
         await newer.value
-        let acceptedNotifications = notifications
+        let acceptedNotifications = notifications.value
         first.resolve(1)
         await older.value
-        await eventually { cleaned == [1] }
+        await eventually { cleaned.values == [1] }
 
-        XCTAssertEqual(cleaned, [1])
-        XCTAssertEqual(notifications, acceptedNotifications)
+        XCTAssertEqual(cleaned.values, [1])
+        XCTAssertEqual(notifications.value, acceptedNotifications)
         cancellable.cancel()
     }
 
     /// ARES-010 — replacement and disposal clean accepted values exactly once.
     func testAres010ReplacementAndDisposalCleanup() async {
         let queue = LoaderQueue<Int>([{ 1 }, { 2 }])
-        var cleaned: [Int] = []
+        let cleaned = LockedValues<Int>()
         let vm = makeAsyncResourceVM(
             loader: queue.load,
             retention: .retainPrevious
@@ -257,13 +281,13 @@ final class AsyncResourceVMConformanceTests: XCTestCase {
         vm.dispose()
         vm.dispose()
 
-        XCTAssertEqual(cleaned, [1, 2])
+        XCTAssertEqual(cleaned.values, [1, 2])
     }
 
     /// ARES-011 — disposal cancels active work and makes late completion inert.
     func testAres011DisposeMakesLateWorkInert() async {
         let deferred = DeferredValue<Int>()
-        var cleaned: [Int] = []
+        let cleaned = LockedValues<Int>()
         let vm = makeAsyncResourceVM(loader: deferred.get) { cleaned.append($0) }
         let intent = Task { await vm.load() }
         await eventually { vm.state.status == .loading }
@@ -271,9 +295,9 @@ final class AsyncResourceVMConformanceTests: XCTestCase {
         vm.dispose()
         await intent.value
         deferred.resolve(8)
-        await eventually { cleaned == [8] }
+        await eventually { cleaned.values == [8] }
 
         XCTAssertEqual(vm.status, .disposed)
-        XCTAssertEqual(cleaned, [8])
+        XCTAssertEqual(cleaned.values, [8])
     }
 }

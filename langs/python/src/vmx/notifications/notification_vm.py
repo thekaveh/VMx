@@ -85,12 +85,10 @@ class NotificationVM:
         # INPC-style change-notification stream (VMX-079/135).
         self._property_changed_subject: Subject[str] = Subject()
         self._tick_sub: DisposableBase | None = None
-
-        self._timer_sub: DisposableBase | None = scheduler.schedule_relative(
-            self._lifespan, lambda sched, _state: self._on_expire()
-        )
-
+        self._timer_sub: DisposableBase | None = None
         self._dismiss_command = RelayCommand.builder().task(self._dismiss).build()
+        self._pending_sub: DisposableBase | None = None
+        self._disposed = False
 
         # Subscribe to hub Pending: detect external resolution.
         # SkipWhile: skip while the notification is NOT yet seen in the list.
@@ -105,13 +103,18 @@ class NotificationVM:
         def _is_not_yet_present(lst: object) -> bool:
             return _notif not in lst  # type: ignore[operator]
 
-        self._pending_sub: DisposableBase | None = hub.pending.pipe(
+        self._pending_sub = hub.pending.pipe(
             ops.skip_while(_is_not_yet_present),
             ops.skip(1),
             ops.filter(_is_not_present),
             ops.take(1),
         ).subscribe(on_next=lambda _: self._notify_external_resolve())
-        self._disposed = False
+
+        timer = scheduler.schedule_relative(self._lifespan, lambda sched, _state: self._on_expire())
+        if self._disposed or self._is_resolved:
+            timer.dispose()
+        else:
+            self._timer_sub = timer
 
         # VMX-135: when a tick cadence is requested, periodically raise
         # property_changed for the decaying state so a bound view repaints the

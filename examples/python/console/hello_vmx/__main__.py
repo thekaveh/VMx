@@ -15,9 +15,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from vmx.components.builders import ComponentVMOfBuilder
 from vmx.components.component_vm import ComponentVMOf
 from vmx.messages import ConstructionStatusChangedMessage
 from vmx.messages.property_changed import PropertyChangedMessage
+from vmx.messages.protocols import Message
 from vmx.services.dispatcher import RxDispatcher
 from vmx.services.message_hub import MessageHub
 
@@ -48,7 +50,7 @@ def run() -> None:
     print()
 
     # ── Infrastructure: shared hub + immediate dispatcher ─────────────────
-    hub = MessageHub()
+    hub: MessageHub[Message] = MessageHub()
     dispatcher = RxDispatcher.immediate()
 
     # ── Subscribe to hub messages ─────────────────────────────────────────
@@ -63,9 +65,9 @@ def run() -> None:
     # ── Build the VM ──────────────────────────────────────────────────────
     print("Building ComponentVMOf[UserModel] ...")
 
+    builder: ComponentVMOfBuilder[UserModel] = ComponentVMOf.builder()
     vm: ComponentVMOf[UserModel] = (
-        ComponentVMOf.builder()
-        .name("user-vm")
+        builder.name("user-vm")
         .hint("Displays the current user")
         .services(hub, dispatcher)
         .model(UserModel("Alice", 30))

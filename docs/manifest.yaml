@@ -15,7 +15,27 @@ sections:
   - id: quickstart
     number: "3"
     title: Quickstart
-    source: docs/content/quickstart.md
+    children:
+      - id: quickstart-overview
+        number: "3.1"
+        title: Quickstart
+        source: docs/content/getting-started/index.md
+      - id: getting-started-csharp
+        number: "3.2"
+        title: Getting Started with VMx — C\#
+        source: docs/content/getting-started/csharp.md
+      - id: getting-started-python
+        number: "3.3"
+        title: Getting Started with VMx — Python
+        source: docs/content/getting-started/python.md
+      - id: getting-started-typescript
+        number: "3.4"
+        title: Getting Started with VMx — TypeScript
+        source: docs/content/getting-started/typescript.md
+      - id: getting-started-swift
+        number: "3.5"
+        title: Getting Started with VMx — Swift
+        source: docs/content/getting-started/swift.md
   - id: core-concepts
     number: "4"
     title: Core Concepts
@@ -215,7 +235,55 @@ sections:
   - id: integration-recipes
     number: "9"
     title: Integration Recipes
-    source: docs/content/integration-recipes.md
+    children:
+      - id: integration-recipes-overview
+        number: "9.1"
+        title: Integration Recipes
+        source: docs/content/integration/index.md
+      - id: integration-avalonia
+        number: "9.2"
+        title: Avalonia Integration
+        source: docs/content/integration/avalonia.md
+      - id: integration-wpf
+        number: "9.3"
+        title: WPF Integration
+        source: docs/content/integration/wpf.md
+      - id: integration-maui
+        number: "9.4"
+        title: .NET MAUI Integration
+        source: docs/content/integration/maui.md
+      - id: integration-textual
+        number: "9.5"
+        title: Textual Integration
+        source: docs/content/integration/textual.md
+      - id: integration-nicegui
+        number: "9.6"
+        title: NiceGUI Integration
+        source: docs/content/integration/nicegui.md
+      - id: integration-tkinter
+        number: "9.7"
+        title: Tkinter Integration
+        source: docs/content/integration/tkinter.md
+      - id: integration-react
+        number: "9.8"
+        title: React Integration
+        source: docs/content/integration/react.md
+      - id: integration-vue
+        number: "9.9"
+        title: Vue 3 Integration
+        source: docs/content/integration/vue.md
+      - id: integration-svelte
+        number: "9.10"
+        title: Svelte Integration
+        source: docs/content/integration/svelte.md
+      - id: integration-solid
+        number: "9.11"
+        title: SolidJS Integration
+        source: docs/content/integration/solid.md
+      - id: integration-swiftui
+        number: "9.12"
+        title: SwiftUI Integration
+        source: docs/content/integration/swiftui.md
   - id: specification-conformance
     number: "10"
     title: Specification & Conformance

@@ -91,7 +91,7 @@ examples/typescript/react/notes-showcase/
 | 3   | `ComponentVMOf<M>` modeled                               | `viewmodels/noteVM.ts`, `viewmodels/notebookVM.ts`                                                                                                                                                                                                              |
 | 4   | `FormVM` snapshot / revert / validation                  | `viewmodels/noteFormVM.ts` (owns a strict `FormVM<NoteModel>`)                                                                                                                                                                                                  |
 | 5   | `DerivedProperty`                                        | `viewmodels/statusBarVM.ts`, `noteFormVM.isDirty`, `capabilityActionsVM.actions`                                                                                                                                                                                |
-| 6   | `RelayCommand` reactive                                  | `noteFormVM.approveCommand` / `denyCommand`, `noteVM.deleteCommand`                                                                                                                                                                                             |
+| 6   | `RelayCommand` + `AsyncRelayCommand` reactive            | Persistence-backed workspace, notebook, form, capability, save, and delete actions use `AsyncRelayCommand`; repository failures remain observable and success notifications follow persistence                                                              |
 | 7   | `SearchableState` + `IFilterable<TItem>`                 | `viewmodels/notesViewVM.ts` (debounced 150 ms search + `showStarredOnly`); `noteFormVM` tag suggestions                                                                                                                                                         |
 | 8   | `IPageable` + `PagedComposition`                         | `viewmodels/notesViewVM.ts` (page size 5, paging commands delegate to inner `PagedComposition`)                                                                                                                                                                 |
 | 9   | `INotificationHub` + `NotificationVM`                    | `viewmodels/notificationsVM.ts`, `views/components/Notifications.tsx`                                                                                                                                                                                           |
@@ -105,6 +105,11 @@ examples/typescript/react/notes-showcase/
 | 17  | `TokenPagedComposition`                                  | `viewmodels/globalSearchVM.ts` + repository token-paged `searchNotes`                                                                                                                                                                                           |
 | 18  | `DiscriminatorVM`                                        | `viewmodels/noteFormVM.ts` edit/preview editor mode                                                                                                                                                                                                             |
 | 19  | Tag autocomplete                                         | `viewmodels/noteFormVM.ts` composes `SearchableState<string>` over workspace tags                                                                                                                                                                               |
+
+The React `IDialogService` adapter serializes concurrent requests in FIFO order
+as allowed by DIA-006. Resolving or safely cancelling the active request settles
+its promise and exposes the next modal; a later request never overwrites or
+orphans an earlier one.
 
 ## 4. Keyboard shortcuts
 

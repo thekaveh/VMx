@@ -192,6 +192,29 @@ describe("BLD-006", () => {
     } catch (e) {
       expect((e as { missingField?: string }).missingField).toBe("name");
     }
+
+    const partialFactories: Array<() => unknown> = [
+      () => ComponentVM.create({ name: "partial", hub } as never),
+      () => ComponentVMOf.create({ name: "partial", model: "m", hub } as never),
+      () => CompositeVM.create({ name: "partial", hub, children: () => [] } as never),
+      () => GroupVM.create({ name: "partial", hub, children: () => [] } as never),
+      () => ComponentVM.create({ name: "partial", dispatcher: disp } as never),
+      () => ComponentVMOf.create({ name: "partial", model: "m", dispatcher: disp } as never),
+      () => CompositeVM.create({ name: "partial", dispatcher: disp, children: () => [] } as never),
+      () => GroupVM.create({ name: "partial", dispatcher: disp, children: () => [] } as never),
+    ];
+    for (const factory of partialFactories) {
+      try {
+        factory();
+        throw new Error("expected a BuilderValidationError for partial services");
+      } catch (e) {
+        expect((e as { missingField?: string }).missingField).toBe("services");
+      }
+    }
+
+    expect(() => ComponentVM.create({ hub } as never)).toThrowError(
+      expect.objectContaining({ missingField: "name" }),
+    );
   });
 });
 

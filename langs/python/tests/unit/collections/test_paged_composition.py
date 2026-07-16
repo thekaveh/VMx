@@ -268,6 +268,21 @@ def test_source_callable_is_preserved() -> None:
     sut.dispose()
 
 
+def test_one_shot_iterable_is_snapshotted_for_consistent_repeated_reads() -> None:
+    source = (item for item in range(5))
+    sut: PagedComposition[int] = PagedComposition(source, page_size=2)
+
+    assert sut.page_count == 3
+    assert sut.items == [0, 1]
+    assert sut.page_count == 3
+    assert sut.items == [0, 1]
+
+    sut.current_page_index = 2
+    assert sut.items == [4]
+    assert sut.page_count == 3
+    sut.dispose()
+
+
 # ---------------------------------------------------------------------------
 # Dispose
 # ---------------------------------------------------------------------------

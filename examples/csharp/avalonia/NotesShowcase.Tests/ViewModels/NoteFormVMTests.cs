@@ -264,9 +264,9 @@ public sealed class NoteFormVMTests
         Assert.False(form.IsDirty);
     }
 
-    // ── Audit pass #1, B3: ApproveAsync publishes "Saved" notification ────
+    // ── save-notification coverage: ApproveAsync publishes "Saved" notification ────
 
-    // ── Round-3 Important B-I2: rebind notifies XAML for command refs ────
+    // ── stable-command rebinding: rebind notifies XAML for command refs ────
 
     [Fact]
     public void BindTo_emits_PropertyChanged_for_ApproveCommand_and_DenyCommand()
@@ -291,7 +291,7 @@ public sealed class NoteFormVMTests
     [Fact]
     public void TagsText_renders_comma_joined_tag_list()
     {
-        // Round-3 Important C-I1 parity: TagsText flattens the draft tag list
+        // flattened tag binding: TagsText flattens the draft tag list
         // to "a, b" for UI bindings instead of an enumerable repr. Mirrors
         // Py ``tags_text`` and TS ``tagsText``.
         var (form, _) = Build();

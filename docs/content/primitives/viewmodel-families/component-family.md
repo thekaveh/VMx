@@ -1,6 +1,6 @@
 # 6.2.2. Component Family
 
-## When To Use It
+## 6.2.2.1. When To Use It
 
 Use `ComponentVM` for any addressable leaf VM that is not itself a container.
 This is the default choice for note rows, notebook rows, status panels,
@@ -19,7 +19,7 @@ readonly variant when the payload should be fixed after construction.
   <a href="../../../assets/diagrams/component-family.png">PNG</a>
 </p>
 
-## Shape And Ownership
+## 6.2.2.2. Shape And Ownership
 
 The component family has three shipped variants:
 
@@ -37,7 +37,7 @@ The injected hub is publicly readable on every component (`Hub` in C# and
 `hub` elsewhere) but remains application-owned shared infrastructure. Disposing
 a VM never disposes that hub.
 
-## Lifecycle And Messaging
+## 6.2.2.3. Lifecycle And Messaging
 
 Construction is leaf-local: there is no child orchestration. The family still
 publishes the same status transitions and property-changed messages as every
@@ -57,7 +57,7 @@ Important behavior from the spec:
 - `can_select()` depends on `Parent`, current-selection state, and the leaf
   being constructed.
 
-## Cross-Language Surface
+## 6.2.2.4. Cross-Language Surface
 
 | Concept           | C#                       | Python                     | TypeScript                 | Swift                      | Rust                     |
 | ----------------- | ------------------------ | -------------------------- | -------------------------- | -------------------------- | ------------------------ |
@@ -70,7 +70,7 @@ Important behavior from the spec:
 | Own until dispose | `Own(...)`               | `_own(...)`                | `own(...)`                 | `own(...)`                 | `own(...)`               |
 | Republish model   | `RepublishModel()`       | `republish_model()`        | `republishModel()`         | `republishModel()`         | `republish_model()`      |
 
-## Explicitly Republishing The Retained Model
+## 6.2.2.5. Explicitly Republishing The Retained Model
 
 Use explicit republish when observable state reachable through the retained
 model changed outside ordinary model replacement and existing adapters
@@ -108,7 +108,7 @@ belongs in the equality-gated assignment path. `FormVM` does not expose this
 operation: its model publication is a distinct validation, dirty-state, and
 command transaction.
 
-## Owning Long-Lived Resources
+## 6.2.2.6. Owning Long-Lived Resources
 
 Subclass authors can register subscriptions and cleanup callbacks that should
 live until terminal VM disposal. The registry drains once in LIFO order after
@@ -134,7 +134,7 @@ two manual disposal overrides, and its two-case VMx hub-getter regression test
 all 319 remaining tests passed. The application-owned `WorkspaceVM` hub getter
 remained because that class does not derive from a VMx component base.
 
-## Authoring A Mutable Property
+## 6.2.2.7. Authoring A Mutable Property
 
 A component property has two audiences: cross-VM coordination through the
 message hub and host binding through the VM's local property-change surface.
@@ -187,7 +187,7 @@ equality check. Forwarding components and Swift's internal read-only update path
 inherit that guard. A modeled composite is different: its model configures a
 child factory and is not a settable retained property.
 
-## Example
+## 6.2.2.8. Example
 
 Representative modeled leaf shape across the five source flavors:
 
@@ -200,7 +200,7 @@ Representative modeled leaf shape across the five source flavors:
 The Quickstart page uses exactly this pattern before composing those leaves into
 a `CompositeVM`.
 
-## Common Pitfalls
+## 6.2.2.9. Common Pitfalls
 
 - Using a component when the VM really owns a collection. Move up to
   `CompositeVM`, `GroupVM`, or `AggregateVM`.
@@ -216,7 +216,7 @@ a `CompositeVM`.
 - Calling model republish after an ordinary replacement instead of assigning
   the new model through the normal equality-gated setter.
 
-## Related Primitives
+## 6.2.2.10. Related Primitives
 
 - [Composite Family](composite-family.md)
 - [Group Family](group-family.md)

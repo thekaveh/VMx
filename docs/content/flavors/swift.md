@@ -1,14 +1,21 @@
 # 7.5. Swift
 
-## Snapshot
+## 7.5.1. Snapshot
 
 - Install: `.package(url: "https://github.com/thekaveh/VMx.git", from: "3.20.0")`
+- Current source: Swift 3.22.0 implementing spec 3.22.0
 - Publication status: 3.20.0 is public through the immutable `v3.20.0`
   SwiftPM tag and matching `swift-v3.20.0` GitHub Release.
 - Reactive primitive: `Combine`
 - Naming idiom: camelCase
+- Hub delivery: callbacks run outside the state condition; ordinary concurrent
+  producers remain synchronous and nested cross-hub sends cannot deadlock
+- Notification replay: pending subscribers are registered atomically, then
+  attached outside the hub lock before `CurrentValueSubject` replays state
+- Modal completion: `BasicModalVM` atomically registers waiters and accepts only
+  the first concurrent dismissal or disposal result
 
-## What To Reach For
+## 7.5.2. What To Reach For
 
 Swift is the right fit when you want the same VMx lifecycle and conformance
 surface in a SwiftPM package, with SwiftUI adapters kept outside the core
@@ -18,7 +25,7 @@ Use `.product(name: "VMx", package: "vmx")` in the consuming target. The
 lowercase package value is SwiftPM's canonical identity for the repository;
 the imported module and product remain `VMx`.
 
-## Serviced Collections
+## 7.5.3. Serviced Collections
 
 `ServicedObservableCollection<T>` publishes locally through Combine, then to
 an optional external hub:
@@ -65,7 +72,7 @@ delivery stays immediate when an external hub transaction defers only hub
 publication. Items remain caller-owned; the keyed type adds no batch or VM
 lifecycle interface.
 
-## Imperative Engine Bridge
+## 7.5.4. Imperative Engine Bridge
 
 The `Equatable` overload of `subscribeValue` uses `==`; the `isEqual:` overload
 accepts custom equality without an `Equatable` constraint. Both return
@@ -93,20 +100,20 @@ initial value for both. The host adapter owns the cancellable, and the selector
 reevaluates after every property message from this fixed VM rather than on
 every render frame.
 
-## Pointers
+## 7.5.5. Pointers
 
 - Flavor README:
   [langs/swift/README.md](../../../langs/swift/README.md)
 - Getting started guide:
-  [docs/getting-started/swift.md](../../getting-started/swift.md)
+  [Getting Started with VMx — Swift](../getting-started/swift.md)
 - Example portfolio:
   [Examples overview](../examples/index.md)
 - Flagship Notes Workspace:
   [Notes Workspace](../examples/notes-workspace.md)
 - SwiftUI recipe:
-  [docs/integration/swiftui.md](../../integration/swiftui.md)
+  [SwiftUI Integration](../integration/swiftui.md)
 
-## Current Example Coverage
+## 7.5.6. Current Example Coverage
 
 - SwiftUI flagship: `examples/swift/notes-showcase/`
 

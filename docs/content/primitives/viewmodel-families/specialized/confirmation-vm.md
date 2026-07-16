@@ -1,12 +1,12 @@
 # 6.2.8.5. ConfirmationVM
 
-## When To Use It
+## 6.2.8.5.1. When To Use It
 
 Use `ConfirmationVM` when the notification should stay visible until the user
 explicitly approves, rejects, or dismisses it. It is the render-side sibling of
 `NotificationVM` for decision-bearing prompts.
 
-## Shape And Ownership
+## 6.2.8.5.2. Shape And Ownership
 
 `ConfirmationVM` extends the notification render contract with:
 
@@ -17,7 +17,7 @@ explicitly approves, rejects, or dismisses it. It is the render-side sibling of
 
 Like `NotificationVM`, it still resolves through `INotificationHub`.
 
-## Lifecycle And Messaging
+## 6.2.8.5.3. Lifecycle And Messaging
 
 The key difference from `NotificationVM` is timeout behavior:
 
@@ -30,7 +30,7 @@ Approve/reject commands and inherited rendering resources are released at most
 once; first resolution still wins. See the
 [Disposal Contract](../../disposal-contract.md).
 
-## Cross-Language Surface
+## 6.2.8.5.4. Cross-Language Surface
 
 | Concept          | C#               | Python           | TypeScript       | Swift            |
 | ---------------- | ---------------- | ---------------- | ---------------- | ---------------- |
@@ -38,7 +38,7 @@ once; first resolution still wins. See the
 | Default lifespan | 300 s            | 300 s            | 300 s            | 300 s            |
 | Reject command   | `RejectCommand`  | `reject_command` | `rejectCommand`  | `rejectCommand`  |
 
-## Example
+## 6.2.8.5.5. Example
 
 The flagship Notes Workspace apps currently do not project confirmations through
 `ConfirmationVM`. They use command-level confirmation gates plus host dialogs:
@@ -80,14 +80,14 @@ library surface is:
     vm.rejectCommand.execute()
     ```
 
-## Common Pitfalls
+## 6.2.8.5.6. Common Pitfalls
 
 - Expecting timeout to auto-resolve. It does not.
 - Using `ConfirmationVM` when the host already provides the correct blocking
   confirmation via `IDialogService`.
 - Forgetting that inherited dismiss resolves with approve semantics.
 
-## Related Primitives
+## 6.2.8.5.7. Related Primitives
 
 - [NotificationVM](notification-vm.md)
 - [Command Families](../../command-families.md)

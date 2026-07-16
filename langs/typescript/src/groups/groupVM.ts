@@ -5,13 +5,21 @@
  */
 import { Subject } from "rxjs";
 import type { Observable, Subscription } from "rxjs";
-import { ComponentVMBase } from "../components/componentVMBase.js";
-import type { IParentVM } from "../components/componentVMBase.js";
+import {
+  beginParentTransfer,
+  ComponentVMBase,
+  ParentTransfer,
+} from "../components/componentVMBase.js";
+import type { IOwningParentVM } from "../components/componentVMBase.js";
+import { disposeBestEffort } from "../components/disposal.js";
 import { ViewModelType } from "../components/types.js";
 import { ConstructionStatus } from "../lifecycle/status.js";
 import type { IMessageHub } from "../services/messageHub.js";
 import type { IDispatcher } from "../services/dispatcher.js";
 import { BuilderValidationError } from "../builders/exceptions.js";
+
+const optionHub = Symbol("optionHub");
+const optionDispatcher = Symbol("optionDispatcher");
 import {
   makeCollectionChangedEvent,
   BatchUpdateHandle,
@@ -24,11 +32,21 @@ import type {
 } from "../collections/index.js";
 
 /** GroupVM parent adaptor — no selection concept. */
-class GroupParent implements IParentVM {
+class GroupParent<VM extends ComponentVMBase> implements IOwningParentVM {
+  constructor(private readonly group: GroupVM<VM>) {}
+
   readonly supportsChildSelection = false;
   readonly currentChild = null;
+  get owner(): ComponentVMBase { return this.group; }
+  get ownerParent(): IOwningParentVM | null { return this.group._parent; }
   selectChild(_vm: ComponentVMBase): void { /* no-op */ }
   deselectChild(_vm: ComponentVMBase): void { /* no-op */ }
+  containsChild(vm: ComponentVMBase): boolean {
+    return this.group._containsIdentity(vm);
+  }
+  detachForTransfer(vm: ComponentVMBase): ParentTransfer {
+    return this.group._detachForTransfer(vm);
+  }
 }
 
 export class GroupVM<VM extends ComponentVMBase>
@@ -42,7 +60,7 @@ export class GroupVM<VM extends ComponentVMBase>
   #batchDepth = 0;
   #batchDirty = false;
   readonly #collectionChangedSubject = new Subject<CollectionChangedEvent>();
-  readonly #groupParent = new GroupParent();
+  readonly #groupParent: GroupParent<VM>;
 
   constructor(opts: {
     name: string;
@@ -55,6 +73,7 @@ export class GroupVM<VM extends ComponentVMBase>
     onDestruct?: (() => void) | null;
   }) {
     super(opts);
+    this.#groupParent = new GroupParent(this);
     this.#autoConstructOnAdd = opts.autoConstructOnAdd ?? false;
     this.#childrenFactory = opts.childrenFactory ?? null;
   }
@@ -95,9 +114,18 @@ export class GroupVM<VM extends ComponentVMBase>
 
   add(item: VM): void {
     const idx = this._children.length;
+    const transfer = beginParentTransfer(item, this.#groupParent);
     this._children.push(item);
     item._parent = this.#groupParent;
-    this._maybeAutoConstruct(item);
+    try {
+      this._maybeAutoConstruct(item);
+    } catch (error) {
+      this._children.pop();
+      item._parent = null;
+      transfer?.rollback();
+      throw error;
+    }
+    transfer?.commit();
     this._emitCollectionChanged(
       makeCollectionChangedEvent("add", { newItems: [item], newIndex: idx }),
     );
@@ -109,9 +137,18 @@ export class GroupVM<VM extends ComponentVMBase>
     if (index < 0 || index > this._children.length) {
       throw new RangeError(`Index ${String(index)} out of range`);
     }
+    const transfer = beginParentTransfer(item, this.#groupParent);
     this._children.splice(index, 0, item);
     item._parent = this.#groupParent;
-    this._maybeAutoConstruct(item);
+    try {
+      this._maybeAutoConstruct(item);
+    } catch (error) {
+      this._children.splice(index, 1);
+      item._parent = null;
+      transfer?.rollback();
+      throw error;
+    }
+    transfer?.commit();
     this._emitCollectionChanged(
       makeCollectionChangedEvent("add", { newItems: [item], newIndex: index }),
     );
@@ -128,7 +165,7 @@ export class GroupVM<VM extends ComponentVMBase>
     const item = this._children[index];
     if (item === undefined) throw new RangeError(`Index ${String(index)} out of range`);
     this._children.splice(index, 1);
-    item._parent = null;
+    if (item._parent === this.#groupParent) item._parent = null;
     this._emitCollectionChanged(
       makeCollectionChangedEvent("remove", { oldItems: [item], oldIndex: index }),
     );
@@ -138,13 +175,23 @@ export class GroupVM<VM extends ComponentVMBase>
   setAt(index: number, value: VM): void {
     const old = this._children[index];
     if (old === undefined) throw new RangeError(`Index ${String(index)} out of range`);
+    const transfer = beginParentTransfer(value, this.#groupParent);
     this._children[index] = value;
     old._parent = null;
     value._parent = this.#groupParent;
+    try {
+      this._maybeAutoConstruct(value);
+    } catch (error) {
+      this._children[index] = old;
+      old._parent = this.#groupParent;
+      value._parent = null;
+      transfer?.rollback();
+      throw error;
+    }
+    transfer?.commit();
     this._emitCollectionChanged(
       makeCollectionChangedEvent("remove", { oldItems: [old], oldIndex: index }),
     );
-    this._maybeAutoConstruct(value);
     this._emitCollectionChanged(
       makeCollectionChangedEvent("add", { newItems: [value], newIndex: index }),
     );
@@ -152,7 +199,7 @@ export class GroupVM<VM extends ComponentVMBase>
 
   clear(): void {
     for (const child of this._children) {
-      child._parent = null;
+      if (child._parent === this.#groupParent) child._parent = null;
     }
     this._children = [];
     this._emitCollectionChanged(makeCollectionChangedEvent("reset"));
@@ -198,6 +245,28 @@ export class GroupVM<VM extends ComponentVMBase>
     this.#collectionChangedSubject.next(event);
   }
 
+  /** @internal */
+  _containsIdentity(vm: ComponentVMBase): boolean {
+    return this._children.some((child) => child === vm);
+  }
+
+  /** @internal */
+  _detachForTransfer(vm: ComponentVMBase): ParentTransfer {
+    const index = this._children.findIndex((child) => child === vm);
+    if (index < 0) throw new Error("Recorded parent does not contain child identity");
+    const child = this._children[index] as VM;
+    this._children.splice(index, 1);
+    return new ParentTransfer(
+      () => this._emitCollectionChanged(
+        makeCollectionChangedEvent("remove", { oldItems: [child], oldIndex: index }),
+      ),
+      () => {
+        this._children.splice(index, 0, child);
+        child._parent = this.#groupParent;
+      },
+    );
+  }
+
   private _maybeAutoConstruct(child: VM): void {
     if (!this.#autoConstructOnAdd) return;
     if (this.status !== ConstructionStatus.Constructed) return;
@@ -232,10 +301,10 @@ export class GroupVM<VM extends ComponentVMBase>
 
   override dispose(): void {
     // Dispose cascade (LIFE-013): depth-first dispose each child, then self.
-    for (const child of [...this._children]) {
-      child.dispose();
-    }
-    super.dispose();
+    disposeBestEffort([
+      ...[...this._children].map((child) => () => child.dispose()),
+      () => super.dispose(),
+    ]);
   }
 
   protected override _onDispose(): void {
@@ -246,10 +315,54 @@ export class GroupVM<VM extends ComponentVMBase>
 
   private _populateChildren(): void {
     if (this.#populated || this.#childrenFactory === null) return;
-    this.#populated = true;
-    for (const child of this.#childrenFactory()) {
-      this.add(child);
+    const children = [...this.#childrenFactory()];
+    const start = this._children.length;
+    const transfers: Array<ParentTransfer | null> = [];
+    const originalStatuses: ConstructionStatus[] = [];
+    try {
+      for (const child of children) {
+        const transfer = beginParentTransfer(child, this.#groupParent);
+        transfers.push(transfer);
+        originalStatuses.push(child.status);
+        this._children.push(child);
+        child._parent = this.#groupParent;
+      }
+
+      // Make the entire factory snapshot visible before any child hook runs,
+      // matching composite population and the other flavors.
+      for (const child of children) {
+        this._maybeAutoConstruct(child);
+        if (
+          this.status === ConstructionStatus.Constructing &&
+          child.status !== ConstructionStatus.Constructed
+        ) child.construct();
+      }
+    } catch (error) {
+      while (this._children.length > start) {
+        const child = this._children.pop();
+        const originalStatus = originalStatuses[this._children.length - start];
+        if (
+          child !== undefined &&
+          originalStatus === ConstructionStatus.Destructed &&
+          child.status === ConstructionStatus.Constructed
+        ) {
+          try { child.destruct(); } catch { /* preserve the original failure */ }
+        }
+        if (child?._parent === this.#groupParent) child._parent = null;
+      }
+      for (const transfer of [...transfers].reverse()) transfer?.rollback();
+      throw error;
     }
+    for (const transfer of transfers) transfer?.commit();
+    children.forEach((child, offset) => {
+      this._emitCollectionChanged(
+        makeCollectionChangedEvent("add", {
+          newItems: [child],
+          newIndex: start + offset,
+        }),
+      );
+    });
+    this.#populated = true;
   }
 
   static builder<VM extends ComponentVMBase>(): GroupVMBuilder<VM> {
@@ -271,7 +384,8 @@ export class GroupVM<VM extends ComponentVMBase>
     if (o.children !== undefined) b = b.children(o.children);
     if (o.name !== undefined) b = b.name(o.name);
     if (o.hint !== undefined) b = b.hint(o.hint);
-    if (o.hub !== undefined && o.dispatcher !== undefined) b = b.services(o.hub, o.dispatcher);
+    if (o.hub !== undefined) b = b[optionHub](o.hub);
+    if (o.dispatcher !== undefined) b = b[optionDispatcher](o.dispatcher);
     if (o.autoConstructOnAdd !== undefined) b = b.autoConstructOnAdd(o.autoConstructOnAdd);
     if (o.onConstruct !== undefined) b = b.onConstruct(o.onConstruct);
     if (o.onDestruct !== undefined) b = b.onDestruct(o.onDestruct);
@@ -345,6 +459,18 @@ export class GroupVMBuilder<VM extends ComponentVMBase> {
   services(hub: IMessageHub, dispatcher: IDispatcher): GroupVMBuilder<VM> {
     const b = new GroupVMBuilder<VM>(this);
     b.#hub = hub;
+    b.#dispatcher = dispatcher;
+    return b;
+  }
+
+  [optionHub](hub: IMessageHub): GroupVMBuilder<VM> {
+    const b = new GroupVMBuilder<VM>(this);
+    b.#hub = hub;
+    return b;
+  }
+
+  [optionDispatcher](dispatcher: IDispatcher): GroupVMBuilder<VM> {
+    const b = new GroupVMBuilder<VM>(this);
     b.#dispatcher = dispatcher;
     return b;
   }

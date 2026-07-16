@@ -81,6 +81,30 @@ describe("FORM-003", () => {
     sut.setModel(makeModel("Alice", 99));
     expect(sut.isDirty).toBe(true);
   });
+
+  it("compares structured-clone binary values by constructor and bytes", () => {
+    type BinaryModel = { payload: ArrayBuffer | ArrayBufferView };
+    const bytes = (...values: number[]): ArrayBuffer => new Uint8Array(values).buffer;
+    const form = (payload: BinaryModel["payload"]): FormVM<BinaryModel> =>
+      new FormVM<BinaryModel>({ initial: { payload }, persister: async () => {} });
+
+    const bufferForm = form(bytes(1, 2, 3));
+    bufferForm.setModel({ payload: bytes(1, 2, 3) });
+    expect(bufferForm.isDirty).toBe(false);
+    bufferForm.setModel({ payload: bytes(1, 2, 4) });
+    expect(bufferForm.isDirty).toBe(true);
+
+    const equalView = new DataView(bytes(5, 6, 7));
+    const viewForm = form(equalView);
+    viewForm.setModel({ payload: new DataView(bytes(5, 6, 7)) });
+    expect(viewForm.isDirty).toBe(false);
+    viewForm.setModel({ payload: new DataView(bytes(5, 6, 8)) });
+    expect(viewForm.isDirty).toBe(true);
+
+    const typedForm = form(new Uint8Array([9, 10]));
+    typedForm.setModel({ payload: new Uint8ClampedArray([9, 10]) });
+    expect(typedForm.isDirty).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------

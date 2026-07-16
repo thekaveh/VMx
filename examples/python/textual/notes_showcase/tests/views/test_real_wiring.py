@@ -1,7 +1,7 @@
-"""Real-wiring pilot tests — the golden path through actual UI events.
+"""Live-binding pilot tests — the golden path through actual UI events.
 
-The pass-5 real-wiring audit found the app substantially broken in ways the
-existing suites masked by calling VM methods directly (``bind_to``,
+These tests cover failures that VM-only suites can mask by calling methods
+directly (``bind_to``,
 ``action_press``) or reading dead widget attributes (``renderable``). These
 tests drive the same paths a user does — mouse clicks, widget value writes,
 selection events — and assert on *rendered* widget state, so a regression in
@@ -247,7 +247,7 @@ async def test_late_bound_dialog_service_reaches_delete_confirmation() -> None:
 @pytest.mark.asyncio
 async def test_rapid_notebook_switch_lands_on_the_last_selection() -> None:
     """A→B→A: the superseding selection must win even with a bind to B
-    mid-await (pass-6 adversarial probe confirmed the original dedupe
+    mid-await (overlapping-bind test confirmed the original dedupe
     raced and left the notes pane on B while the tree said A)."""
     repo = InMemoryNoteRepository(
         build_seed(),

@@ -11,6 +11,7 @@ on:
       - "tools/docs/validate_diagrams.py"
       - "Makefile"
       - "docs/requirements.txt"
+      - "docs/requirements.in"
       - ".github/workflows/wiki.yml"
   workflow_dispatch:
 
@@ -19,20 +20,28 @@ permissions:
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: "3.12"
       - name: Install docs dependencies
         run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            librsvg2-bin=2.58.0+dfsg-1build1 \
+            pngquant=2.18.0-1build2
           python -m pip install --upgrade pip
-          python -m pip install -r docs/requirements.txt
+          python -m pip install --require-hashes -r docs/requirements.txt
+      - name: Audit docs dependencies
+        run: python -m pip_audit --local
       - name: Generate wiki
         run: python -m scripts.docs.build_docs --wiki
       - name: Validate diagrams
-        run: python -m scripts.docs.validate_diagrams
+        run: |
+          python docs/assets/diagrams/generate_diagrams.py --check
+          python -m scripts.docs.validate_diagrams
       - name: Install wiki deploy key when configured
         env:
           WIKI_DEPLOY_KEY_VALUE: ${{ secrets.WIKI_DEPLOY_KEY }}
@@ -56,3 +65,5 @@ jobs:
             WIKI_REMOTE="https://x-access-token:${{ github.token }}@github.com/thekaveh/VMx.wiki.git" \
               python -m scripts.docs.push_wiki --push
           fi
+      - name: Verify published wiki
+        run: python -m scripts.docs.push_wiki --check-published

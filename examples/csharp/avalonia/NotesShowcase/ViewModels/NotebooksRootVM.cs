@@ -82,8 +82,9 @@ public sealed class NotebooksRootVM
     /// <inheritdoc/>
     public void CreateNew()
     {
-        // Synchronous capability — schedules a default "New Notebook" via fire-and-forget.
-        _ = AddNotebookAsync(parentId: null, name: "New Notebook");
+        // The synchronous capability enters the async command path, whose error
+        // channel observes repository failures.
+        AddNotebookCommand.Execute(null);
     }
 
     /// <summary>
@@ -164,7 +165,7 @@ public sealed class NotebooksRootVM
         _current = null;
         // Marshal: this continuation runs off the UI thread after
         // ConfigureAwait(false) and Current feeds a TwoWay TreeView binding
-        // (same rationale as the Roots raise below; pass-7 review).
+        // (same rationale as the Roots raise below; failure-recovery review).
         _dispatcher.Foreground.Schedule(() =>
         {
             NotifyPropertyChanged(nameof(Current));
@@ -210,9 +211,9 @@ public sealed class NotebooksRootVM
         _dispatcher = dispatcher;
         _notificationHub = notificationHub;
 
-        AddNotebookCommand = RelayCommand.Builder()
+        AddNotebookCommand = AsyncRelayCommand.Builder()
             .Predicate(CanCreateNew)
-            .Task(CreateNew)
+            .Task(_ => AddNotebookAsync(parentId: null, name: "New Notebook"))
             .Build();
     }
 

@@ -9,6 +9,9 @@ Per ADR-0013, the distribution shape is per-flavor:
 - **C#**: separate assembly `VMx.Notifications` (depends on `VMx`)
 - **Python**: subpackage `vmx.notifications` (same distribution as `vmx`)
 - **TypeScript**: subpath export `vmx/notifications` (same package as `vmx`)
+- **Swift**: module namespace in the `VMx` package
+- **Rust**: opt-in notification types in `vmx-rs`, using the VMx-owned hot-stream
+  and executor-neutral completion facades
 
 The asymmetry preserves "opt-in, no core surface impact" without forcing a
 TypeScript monorepo restructure.
@@ -57,6 +60,12 @@ INotificationHub:
     Resolve(notification: Notification, reaction: NotificationReaction) : void
     Pending : Observable<list<Notification>>       # current pending list (BehaviorSubject-like)
 ```
+
+Rust represents `Task<T>` with `AsyncValue<T>`, a cloneable completion handle
+that implements `Future<Output = T>` and also offers blocking `wait()` for hosts
+without an async runtime. `Post` MUST return an unresolved handle and resolve it
+only from `Resolve` or hub disposal; reading the current `Pending` reaction is
+not an awaitable implementation (ADR-0106).
 
 ### 2.1 `Post` semantics
 

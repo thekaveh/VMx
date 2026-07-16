@@ -85,3 +85,7 @@ Key rules:
   wrapper over a base type), and TypeScript's internal compound key is a
   serialized string, not a `readonly` object literal. The §3 decision text is
   retained as the original record; see ADR-0038 for the corrected wording.
+- **ADR-0111** (2026-07-15, clarified in spec v3.22.0) supersedes the
+  serialized-string implementation detail for TypeScript. Nested native `Map`
+  storage preserves standard key equality without coercing types or object
+  identities.

@@ -1,8 +1,8 @@
 # 7.4. TypeScript
 
-## Snapshot
+## 7.4.1. Snapshot
 
-- Current source: TypeScript 3.21.0 implementing spec 3.20.0
+- Current source: TypeScript 3.23.0 implementing spec 3.22.0
 - Install: `npm install @thekaveh/vmx rxjs`
 - Publication status: the scoped package name is the supported surface, but it
   has not been published yet; use a local workspace or source reference until a
@@ -10,13 +10,13 @@
 - Reactive primitive: `rxjs`
 - Naming idiom: camelCase
 
-## What To Reach For
+## 7.4.2. What To Reach For
 
 TypeScript is the best fit when you want browser-safe VMx usage with modern
 bundlers, React-style external-store wiring, or a shared VM layer across web
 and desktop webview hosts.
 
-## Serviced Collections
+## 7.4.3. Serviced Collections
 
 `ServicedObservableCollection<T>` exposes a local `collectionChanged`
 observable and can forward the same message to an optional hub:
@@ -64,7 +64,7 @@ middle shifts remain O(n). Local delivery precedes optional hub publication;
 hub transactions defer only the latter. The collection has no batch, VM
 lifecycle interface, or ownership of stored items.
 
-## Imperative Engine Bridge
+## 7.4.4. Imperative Engine Bridge
 
 `subscribeValue` returns an RxJS `Subscription` and uses `Object.is` unless an
 `equality` option is supplied:
@@ -86,7 +86,7 @@ initial value for both. The host adapter owns the subscription, and the
 selector reevaluates after every property message from this fixed VM rather
 than on every render frame.
 
-## Raw Message Predicates
+## 7.4.5. Raw Message Predicates
 
 The package root and message barrel export three filter-safe type predicates:
 
@@ -117,7 +117,7 @@ The other flavors already have idiomatic nominal/runtime checks, so ADR-0094
 intentionally adds no artificial cross-flavor API parity requirement and no
 conformance ID.
 
-## Consumer Conformance Adapter
+## 7.4.6. Consumer Conformance Adapter
 
 The optional `@thekaveh/vmx/conformance` subpath validates versioned JSON
 operation/assertion suites and executes consumer factories without depending on
@@ -125,20 +125,20 @@ a test framework. It is isolated from the root runtime entry. Full schema,
 factory, teardown, diagnostics, and non-goal guidance lives in
 [Specification & Conformance](../specification-conformance.md).
 
-## Pointers
+## 7.4.7. Pointers
 
 - Flavor README:
   [langs/typescript/README.md](../../../langs/typescript/README.md)
 - Getting started guide:
-  [docs/getting-started/typescript.md](../../getting-started/typescript.md)
+  [Getting Started with VMx — TypeScript](../getting-started/typescript.md)
 - Example portfolio:
   [Examples overview](../examples/index.md)
 - Flagship Notes Workspace:
   [Notes Workspace](../examples/notes-workspace.md)
 - React recipe:
-  [docs/integration/react.md](../../integration/react.md)
+  [React Integration](../integration/react.md)
 
-## Current Example Coverage
+## 7.4.8. Current Example Coverage
 
 - Console: `examples/typescript/console/hello-vmx/`
 - React flagship: `examples/typescript/react/notes-showcase/`

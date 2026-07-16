@@ -747,12 +747,19 @@ public class ComponentVMConformanceTests
 
         public bool SupportsChildSelection => true;
 
+        public IComponentVM? Owner => null;
+
+        public IParentCompositeVM? OwnerParent => null;
+
         public IComponentVM? CurrentChild => _current;
 
         public void SetCurrent(IComponentVM vm) => _current = vm;
 
         public void SelectChild(IComponentVM vm) => _current = vm;
         public void DeselectChild(IComponentVM vm) { if (_current == vm) _current = null; }
+        public bool ContainsChild(IComponentVM vm) => false;
+        public ParentTransferToken DetachForTransfer(IComponentVM vm)
+            => throw new InvalidOperationException("Selection-only test parent cannot transfer children.");
     }
 
     private sealed class NotificationProbeVM : ComponentVMBase

@@ -47,6 +47,32 @@ final class ModalPresentationTests: XCTestCase {
         XCTAssertEqual(modal.result, "first")
     }
 
+    func testConcurrentWaitRegistrationAndDismissalIsAtomic() async throws {
+        let modal = BasicModalVM(cancellationResult: -1)
+        let resumed = expectation(description: "every modal waiter resumed")
+        resumed.expectedFulfillmentCount = 64
+        let dismissalsReturned = expectation(description: "all dismissals returned")
+        let results = LockedModalResults()
+
+        for _ in 0..<64 {
+            Task {
+                results.append(await modal.waitResult())
+                resumed.fulfill()
+            }
+        }
+        DispatchQueue.global().async {
+            DispatchQueue.concurrentPerform(iterations: 64) { candidate in
+                modal.dismiss(candidate)
+            }
+            dismissalsReturned.fulfill()
+        }
+
+        await fulfillment(of: [dismissalsReturned, resumed], timeout: 2)
+        let storedResult = try XCTUnwrap(modal.result)
+        XCTAssertTrue(modal.isDismissed)
+        XCTAssertEqual(results.snapshot, Array(repeating: storedResult, count: 64))
+    }
+
     /// DIA-013 — existing dialog methods remain source-compatible.
     func testDIA013ExistingDialogMethodsRemainSourceCompatible() async {
         let sut: any DialogService = NullDialogService.INSTANCE
@@ -59,6 +85,19 @@ final class ModalPresentationTests: XCTestCase {
         XCTAssertNil(savePath)
         XCTAssertFalse(confirmed)
         await sut.notify("Done")
+    }
+}
+
+private final class LockedModalResults {
+    private let lock = NSLock()
+    private var values: [Int] = []
+
+    func append(_ value: Int) {
+        lock.withLock { values.append(value) }
+    }
+
+    var snapshot: [Int] {
+        lock.withLock { values }
     }
 }
 

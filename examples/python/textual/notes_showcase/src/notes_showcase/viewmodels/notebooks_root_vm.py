@@ -15,7 +15,6 @@ observe structural changes identically to the HierarchicalVM contract.
 
 from __future__ import annotations
 
-import asyncio
 import dataclasses
 import uuid
 
@@ -23,6 +22,7 @@ from notes_showcase.models.note_repository import INoteRepository
 from notes_showcase.models.notebook_model import NotebookModel
 from notes_showcase.viewmodels.notebook_vm import NotebookVM
 from vmx import (
+    AsyncRelayCommand,
     ComponentVM,
     ConstructionStatus,
     INewCreatable,
@@ -30,7 +30,6 @@ from vmx import (
     MessageHub,
     MessageHubProto,
     ObservableList,
-    RelayCommand,
     RxDispatcher,
     TreeStructureChange,
     TreeStructureChangedMessage,
@@ -60,9 +59,9 @@ class NotebooksRootVM(ComponentVM, INewCreatable, IReconstructable):
         self._current: NotebookVM | None = None
 
         self._add_notebook_command = (
-            RelayCommand.builder()
+            AsyncRelayCommand.builder()
             .predicate(self.can_create_new)
-            .task(self.create_new)
+            .task(self._add_default_notebook)
             .build()
         )
 
@@ -107,17 +106,14 @@ class NotebooksRootVM(ComponentVM, INewCreatable, IReconstructable):
         return self._status == ConstructionStatus.CONSTRUCTED
 
     def create_new(self) -> None:
-        """Fire-and-forget schedule of a default "New Notebook" add."""
-        # Schedule via asyncio if a loop is running; otherwise no-op (the
-        # async add_notebook is the canonical entry-point).
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(self.add_notebook(parent_id=None, name="New Notebook"))
-        except RuntimeError:
-            asyncio.run(self.add_notebook(parent_id=None, name="New Notebook"))
+        """Enter the observable async command path for a default notebook."""
+        self._add_notebook_command.execute()
+
+    async def _add_default_notebook(self) -> None:
+        await self.add_notebook(parent_id=None, name="New Notebook")
 
     @property
-    def add_notebook_command(self) -> RelayCommand:
+    def add_notebook_command(self) -> AsyncRelayCommand:
         return self._add_notebook_command
 
     # ── Async mutation ─────────────────────────────────────────────────────

@@ -1,11 +1,18 @@
-use super::*;
+use super::{
+    catch_unwind, lock, resume_unwind, Arc, AssertUnwindSafe, AtomicBool, BTreeMap, ComponentVm,
+    CompositeVm, Dispatcher, GroupVm, Hash, HashMap, KeyedServicedObservableCollection, Message,
+    Mutex, Ordering, PropertyChangedStream, PropertyChangedSubscription,
+    ServicedObservableCollection, Subscription, VecDeque, VmNode, Weak,
+};
 
 /// A read-only source of ordered VM membership and structural pulses.
 pub trait ObservableMembershipSource<T>: Clone + Send + Sync + 'static
 where
     T: VmNode,
 {
+    /// Returns the source's current ordered membership snapshot.
     fn snapshot(&self) -> Vec<T>;
+    /// Subscribes to structural membership changes.
     fn subscribe_membership<F>(&self, handler: F) -> Subscription
     where
         F: Fn() + Send + Sync + 'static;
@@ -13,20 +20,29 @@ where
 
 /// Additive access to a VM's local property-change stream.
 pub trait ObservablePropertySource: VmNode {
+    /// Returns the VM-local property-change stream.
     fn property_changed(&self) -> PropertyChangedStream;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Identifies why an aggregate change notification was emitted.
 pub enum AggregateChangeReason {
+    /// Initial emission requested by the subscriber.
     Initial,
+    /// The source membership changed.
     Membership,
+    /// A current member emitted a property change.
     Item,
+    /// One or more changes were coalesced by a batch scope.
     Batch,
 }
 
 #[derive(Debug, Clone)]
+/// One aggregate notification with an optional originating item.
 pub struct AggregateChange<T: VmNode> {
+    /// The cause of this notification.
     pub reason: AggregateChangeReason,
+    /// The changed member for item notifications.
     pub item: Option<T>,
 }
 
@@ -44,11 +60,14 @@ impl<T: VmNode> AggregateChange<T> {
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+/// Subscription options for [`AggregateChangeStream::observe`].
 pub struct AggregateObserveOptions {
+    /// Whether a new subscription receives an immediate initial notification.
     pub emit_initial: bool,
 }
 
 impl AggregateObserveOptions {
+    /// Sets whether subscriptions emit an initial notification.
     pub fn emit_initial(mut self, value: bool) -> Self {
         self.emit_initial = value;
         self
@@ -146,6 +165,7 @@ pub struct AggregateChangeStream<T: VmNode> {
 }
 
 impl<T: VmNode> AggregateChangeStream<T> {
+    /// Creates a fan-in stream from membership and per-item property sources.
     pub fn new<S, F>(source: S, observe_item: F) -> Self
     where
         S: ObservableMembershipSource<T>,
@@ -177,6 +197,7 @@ impl<T: VmNode> AggregateChangeStream<T> {
         aggregate
     }
 
+    /// Creates a fan-in stream for members exposing their own property stream.
     pub fn for_components<S>(source: S) -> Self
     where
         S: ObservableMembershipSource<T>,
@@ -185,6 +206,7 @@ impl<T: VmNode> AggregateChangeStream<T> {
         Self::new(source, ObservablePropertySource::property_changed)
     }
 
+    /// Returns an observable view configured with `options`.
     pub fn observe(&self, options: AggregateObserveOptions) -> AggregateChangeObservable<T> {
         AggregateChangeObservable {
             shared: Arc::clone(&self.shared),
@@ -192,6 +214,7 @@ impl<T: VmNode> AggregateChangeStream<T> {
         }
     }
 
+    /// Runs `action` while coalescing all resulting notifications into one batch event.
     pub fn batch<F, R>(&self, action: F) -> R
     where
         F: FnOnce() -> R,
@@ -218,6 +241,7 @@ impl<T: VmNode> AggregateChangeStream<T> {
         }
     }
 
+    /// Detaches membership and item subscriptions and completes observers.
     pub fn dispose(&self) {
         let process = {
             let mut inner = lock(&self.shared.inner);
@@ -638,12 +662,14 @@ impl<T: VmNode> AggregateChangeStream<T> {
     }
 }
 
+/// A configured observable view over an [`AggregateChangeStream`].
 pub struct AggregateChangeObservable<T: VmNode> {
     shared: Arc<Shared<T>>,
     options: AggregateObserveOptions,
 }
 
 impl<T: VmNode> AggregateChangeObservable<T> {
+    /// Subscribes to aggregate changes.
     pub fn subscribe<F>(&self, handler: F) -> AggregateChangeSubscription<T>
     where
         F: Fn(AggregateChange<T>) + Send + Sync + 'static,
@@ -651,6 +677,7 @@ impl<T: VmNode> AggregateChangeObservable<T> {
         self.subscribe_with_completion(handler, || {})
     }
 
+    /// Subscribes to aggregate changes and terminal completion.
     pub fn subscribe_with_completion<F, C>(
         &self,
         handler: F,
@@ -710,6 +737,7 @@ impl<T: VmNode> AggregateChangeObservable<T> {
     }
 }
 
+/// A disposable registration on an [`AggregateChangeObservable`].
 pub struct AggregateChangeSubscription<T: VmNode> {
     id: usize,
     shared: Weak<Shared<T>>,
@@ -725,6 +753,7 @@ impl<T: VmNode> AggregateChangeSubscription<T> {
         }
     }
 
+    /// Detaches this registration; repeated calls are no-ops.
     pub fn dispose(&mut self) {
         let Some(registration) = self.registration.take() else {
             return;

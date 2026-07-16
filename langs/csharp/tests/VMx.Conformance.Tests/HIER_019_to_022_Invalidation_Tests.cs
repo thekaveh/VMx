@@ -45,6 +45,22 @@ public class HIER_019_to_022_Invalidation_Tests
         second.Should().NotBeSameAs(first);
     }
 
+    [Fact]
+    public void InvalidateChildren_Detaches_Discarded_Children()
+    {
+        var root = new Node(_ => [new Node()]);
+        var discarded = root.Children[0];
+
+        root.InvalidateChildren();
+        var replacement = root.Children[0];
+
+        replacement.Should().NotBeSameAs(discarded);
+        discarded.HierarchicalParent.Should().BeNull();
+        discarded.IsRoot.Should().BeTrue();
+        root.AddChild(discarded);
+        root.Children.Should().Contain(discarded);
+    }
+
     [Fact, Trait("Conformance", "HIER-020")]
     public void HIER_020_InvalidateChildren_Unmaterialized_Is_Noop()
     {

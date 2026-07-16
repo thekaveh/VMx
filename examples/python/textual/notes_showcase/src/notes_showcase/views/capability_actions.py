@@ -6,7 +6,7 @@ The view re-renders the button row whenever the projection changes; the
 subscription is routed through ``on_derived_change`` so the widget class
 itself never imports :mod:`reactivex` (Phase 6 grep stays green).
 
-Subscription hygiene (audit round 2 Imp-5): both the derived-change
+Subscription hygiene (subscription ownership): both the derived-change
 subscription and every per-button ``bind_command`` Disposable are tracked
 on the widget's ``_bindings`` CompositeDisposable and disposed in
 ``on_unmount`` so subscriptions don't outlive the widget.
@@ -30,8 +30,8 @@ def _rebuild_buttons(view: "CapabilityActionsView", actions: list[ActionVM]) -> 
     ``Widget.remove()`` is asynchronous — removing and mounting in the same
     synchronous callback raced, and the second recompute died with
     ``DuplicateIds``, which then poisoned the hub's ScheduledObserver lock
-    and silently starved every later hub delivery (real-wiring audit,
-    pass 5). The async body awaits the removal before mounting.
+    and silently starved every later hub delivery. The async body awaits the
+    removal before mounting.
     """
     view.call_later(_rebuild_buttons_async, view, list(actions))
 

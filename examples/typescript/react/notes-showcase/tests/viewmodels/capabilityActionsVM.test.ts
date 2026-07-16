@@ -213,7 +213,7 @@ describe("CapabilityActionsVM", () => {
     expect(out.map((a) => a.label)).toContain("New");
   });
 
-  // ── Round-3 Critical-1: capability-bar Delete reuses NoteVM.deleteCommand ─
+  // ── shared delete-command behavior: capability-bar Delete reuses NoteVM.deleteCommand ─
   // so the ConfirmationDecoratorCommand + "Note deleted" notification fire
   // from the action-bar identically to the in-list delete button. Prior
   // code built a fresh RelayCommand that called note.delete() directly,
