@@ -970,14 +970,22 @@ def generate(output_root: Path) -> None:
 
 
 def check_generated(candidate_root: Path) -> list[Path]:
+    # HTML and SVG are deterministic textual outputs, so byte-equality reliably
+    # detects staleness. PNG is rasterized via rsvg-convert + pngquant, whose
+    # bytes depend on the host librsvg/cairo/pango/fontconfig/pngquant stack and
+    # legitimately differ between a macOS dev host and the Ubuntu CI runner.
+    # Assert PNG presence only, or the check becomes environment-fragile.
     stale: list[Path] = []
     for base in TRIPLET_BASES:
-        for suffix in (".html", ".svg", ".png"):
+        for suffix in (".html", ".svg"):
             relative_path = base.with_suffix(suffix)
             committed = ROOT / relative_path
             candidate = candidate_root / relative_path
             if not committed.exists() or committed.read_bytes() != candidate.read_bytes():
                 stale.append(relative_path)
+        png_path = base.with_suffix(".png")
+        if not (ROOT / png_path).exists():
+            stale.append(png_path)
     return stale
 
 
@@ -986,7 +994,7 @@ def main() -> int:
     parser.add_argument(
         "--check",
         action="store_true",
-        help="verify all HTML/SVG/PNG outputs without modifying the worktree",
+        help="verify deterministic HTML/SVG outputs and PNG presence without modifying the worktree",
     )
     args = parser.parse_args()
 

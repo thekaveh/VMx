@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from threading import Barrier, Event, Lock, Thread
 
 import pytest
@@ -61,7 +62,17 @@ def test_execute_async_admission_is_atomic_across_threads() -> None:
     for caller in callers:
         caller.start()
     try:
-        assert all(caller.is_alive() for caller in callers)
+        # The barrier guarantees both callers raced admission together; exactly
+        # one must be rejected and return promptly while the winner holds the
+        # in-flight flag (its task spins until release). Observe that rejection
+        # BEFORE releasing: releasing first lets the winner finish, after which
+        # a descheduled straggler is legally re-admitted as a sequential second
+        # execution (re-executable command), which is not an atomicity failure.
+        deadline = time.monotonic() + 10
+        while all(caller.is_alive() for caller in callers) and time.monotonic() < deadline:
+            time.sleep(0.01)
+        rejected = sum(1 for caller in callers if not caller.is_alive())
+        assert rejected == 1, "exactly one concurrent caller must be rejected mid-flight"
     finally:
         release.set()
         for caller in callers:
