@@ -8,13 +8,15 @@ for a focused Rust follow-up, not a release note. The Rust flavor is a source-tr
 flavor and has not been published to crates.io, so these corrections are
 pre-publication and carry no released-API break.
 
-Two behavioural divergences found alongside these were straightforward and fixed
+Three behavioural divergences found alongside these were straightforward and fixed
 in the maintenance run itself (not listed below): the Rust `FormVm` no longer
-publishes an extra `PropertyChanged("is_valid")` onto the main hub, and
-`HierarchicalVm` no longer emits N spurious `PropertyChanged("parent")` messages
-on first `children()` materialization. The items below need a signature change,
-a semantic decision on a spec-underspecified edge, or a coordinated
-conformance-test strengthening, so they are batched here for one reviewed change.
+publishes an extra `PropertyChanged("is_valid")` onto the main hub;
+`HierarchicalVm` no longer emits N spurious `PropertyChanged("parent")` messages on
+first `children()` materialization; and `NotificationHub::resolve`/`dispose` now
+emit the new `Pending` value before completing the awaitable (spec §2.2 order). The
+items below need a signature change, a public-API reshape, a semantic decision on a
+spec-underspecified edge, or a coordinated conformance-test strengthening, so they
+are batched here for one reviewed change.
 
 ## 1. Scope and authority
 
@@ -155,14 +157,18 @@ ADR-0105 pin `AddChild`-of-detached to `Added` but are silent on
 Proposed fix: give Rust `attach_child(&self, child, explicit_reparent: bool)`,
 with `reparent_child` passing `true`, so `reparented = explicit_reparent || old_parent.is_some()`. Alternatively record the unified choice in an ADR.
 
-### 4.2. remove_child of a non-member errors instead of no-op
+### 4.2. remove of a non-member errors instead of no-op (hierarchical, groups, composites)
 
-Rust `remove_child` returns `Err(VmxError::NonChild)` for a non-member; the other
-four silently no-op. Spec §7/§8 do not specify remove-of-non-member.
+Rust returns `Err(VmxError::NonChild)` when removing a non-member; the other four
+silently no-op. This is the same divergence in three places:
+`hierarchical.rs` `remove_child`, `groups.rs` `remove` (`groups.rs:243`), and
+`composites.rs` `remove` (`composites.rs:347`) — C#/Python/TypeScript/Swift all
+no-op in every case (e.g. C# `CompositeVMBase.Remove`, `GroupVMBase`). Spec
+chapters 06/07/18 do not specify remove-of-non-member.
 
-Proposed fix: return `Ok(())` on a non-member (match the peers), or record
-`NonChild` as an intentional Rust idiom in an ADR (as was done for non-child
-selection).
+Proposed fix: return `Ok(())` on a non-member across all three Rust removers
+(match the peers), or record `NonChild` as an intentional Rust idiom in an ADR (as
+was done for non-child selection). Fix all three together, not just hierarchical.
 
 ### 4.3. AggregateVmN::construct interleaves notify and child construct
 
@@ -198,6 +204,25 @@ Rust's base `ComponentVm` omits `type`/`view_model_type`, the `can_*()` selectio
 gates, and four of the five built-in commands (only `select_command`), so the Rust
 forwarder cannot forward them. This is a broader base-surface parity question, not
 a forwarding defect; recorded here for a coordinated look during the follow-up.
+
+### 4.6. DerivedProperty does not subscribe to sources or auto-recompute
+
+Rust's `DerivedProperty<T>` holds a value and exposes a manual `recompute(transform)`
+that receives the current value. `spec/15-derived-properties.md` §1/§2/§4/§8 defines
+a derived property as a value computed from one or more **source observables** with a
+transform, subscribing to those sources **once** in its constructor and
+auto-recomputing (distinct-until-changed) whenever a source emits, until `dispose()`.
+C#/Python/TypeScript/Swift all take source streams (`from_one`..`from_five` /
+`from_sources` / `fromOne`..; `CombineLatest`) and auto-recompute. The Rust DPROP
+conformance tests assert only the reduced manual shape, so a green Rust suite does
+not prove parity (the same "test asserts the reduced shape" pattern as the capability
+gaps). Not sanctioned by any ADR (ADR-0009 covers only the distinct-emit equality
+operator; ADR-0103's hot-stream facade exists, so this is an under-implementation).
+
+Proposed fix: reshape Rust `DerivedProperty` to accept N source `Stream`/hot-facade
+inputs plus a transform, subscribe internally, drive recompute off source emissions
+(distinct-until-changed), and dispose the subscriptions; rewrite DPROP-002..005/012
+to mutate real sources and assert auto-recompute.
 
 ## 5. Related spec-wording note (not Rust-specific)
 
