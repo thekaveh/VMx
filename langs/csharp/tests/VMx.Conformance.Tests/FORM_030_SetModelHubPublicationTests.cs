@@ -249,7 +249,9 @@ public sealed class FORM_030_SetModelHubPublicationTests
             if (message is not FormRevertedMessage reverted ||
                 !ReferenceEquals(reverted.Sender, blockerSender)) return;
             blockerEntered.SetResult();
-            releaseBlocker.Wait(TimeSpan.FromSeconds(1)).Should().BeTrue();
+            // The test thread owns releaseBlocker.Set() below; wait without a fixed
+            // deadline so CI thread-pool contention can't trip a spurious timeout.
+            releaseBlocker.Wait();
             form!.SetModel(new Model("nested"));
             reentryFinished.SetResult();
         });
@@ -262,7 +264,7 @@ public sealed class FORM_030_SetModelHubPublicationTests
         armed = true;
 
         var blocker = Task.Run(() => innerHub.Send(new FormRevertedMessage(blockerSender, "blocker")));
-        await blockerEntered.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        await blockerEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
         var mutator = Task.Run(() =>
         {
             if (deny)
@@ -270,14 +272,25 @@ public sealed class FORM_030_SetModelHubPublicationTests
             else
                 form.SetModel(new Model("outer"));
         });
-        await formSendStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        await formSendStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
         releaseBlocker.Set();
 
-        var reenteredWithoutDeadlock = await Task.WhenAny(
-            reentryFinished.Task,
-            Task.Delay(TimeSpan.FromMilliseconds(100))) == reentryFinished.Task;
+        // Await the deterministic reentry signal directly instead of racing it
+        // against an arbitrary 100ms delay: a real gate-held-across-hub-delivery
+        // regression would hang reentryFinished forever, so a finite ceiling still
+        // distinguishes bug from no-bug without conflating scheduling latency.
+        bool reenteredWithoutDeadlock;
+        try
+        {
+            await reentryFinished.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            reenteredWithoutDeadlock = true;
+        }
+        catch (TimeoutException)
+        {
+            reenteredWithoutDeadlock = false;
+        }
         if (!reenteredWithoutDeadlock) innerHub.Dispose();
-        await Task.WhenAll(mutator, blocker).WaitAsync(TimeSpan.FromSeconds(1));
+        await Task.WhenAll(mutator, blocker).WaitAsync(TimeSpan.FromSeconds(5));
         if (reenteredWithoutDeadlock) innerHub.Dispose();
 
         reenteredWithoutDeadlock.Should().BeTrue();

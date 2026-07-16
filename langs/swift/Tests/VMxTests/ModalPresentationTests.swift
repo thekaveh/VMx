@@ -47,7 +47,7 @@ final class ModalPresentationTests: XCTestCase {
         XCTAssertEqual(modal.result, "first")
     }
 
-    func testConcurrentWaitRegistrationAndDismissalIsAtomic() async {
+    func testConcurrentWaitRegistrationAndDismissalIsAtomic() async throws {
         let modal = BasicModalVM(cancellationResult: -1)
         let resumed = expectation(description: "every modal waiter resumed")
         resumed.expectedFulfillmentCount = 64

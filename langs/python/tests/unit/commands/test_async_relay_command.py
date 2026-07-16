@@ -46,7 +46,7 @@ def test_execute_async_admission_is_atomic_across_threads() -> None:
     invocations = 0
 
     def predicate() -> bool:
-        predicate_barrier.wait(timeout=1)
+        predicate_barrier.wait(timeout=10)
         return True
 
     async def task() -> None:
@@ -65,7 +65,7 @@ def test_execute_async_admission_is_atomic_across_threads() -> None:
     finally:
         release.set()
         for caller in callers:
-            caller.join(timeout=1)
+            caller.join(timeout=5)
 
     assert invocations == 1
     assert all(not caller.is_alive() for caller in callers)

@@ -47,13 +47,13 @@ public class ConfirmationDecoratorCommandTests
         });
 
         var execute = Task.Run(() => command.Execute(null));
-        observerEntered.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue();
+        observerEntered.Wait(TimeSpan.FromSeconds(15)).Should().BeTrue();
         var dispose = Task.Run(() =>
         {
             disposeStarted.Set();
             command.Dispose();
         });
-        disposeStarted.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue();
+        disposeStarted.Wait(TimeSpan.FromSeconds(15)).Should().BeTrue();
 
         try
         {

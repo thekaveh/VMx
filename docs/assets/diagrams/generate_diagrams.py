@@ -5045,7 +5045,7 @@ def main() -> int:
     parser.add_argument(
         "--check",
         action="store_true",
-        help="verify every HTML/SVG/PNG output without modifying the worktree",
+        help="verify deterministic HTML/SVG outputs and PNG presence without modifying the worktree",
     )
     args = parser.parse_args()
 
@@ -5056,13 +5056,24 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="vmx-site-diagrams-") as tmp_dir:
         candidate_dir = Path(tmp_dir)
         registry = generate(candidate_dir)
-        stale = [
-            DIAGRAM_DIR / item[key]
-            for item in registry
-            for key in ("html", "svg", "png")
-            if not (DIAGRAM_DIR / item[key]).exists()
-            or (DIAGRAM_DIR / item[key]).read_bytes() != (candidate_dir / item[key]).read_bytes()
-        ]
+        # HTML and SVG are deterministic textual sources emitted by this
+        # generator, so byte-equality reliably detects stale diagrams. PNG is a
+        # rendered preview rasterized via rsvg-convert whose bytes depend on the
+        # host librsvg/cairo/pango/fontconfig stack and legitimately differ
+        # between a macOS dev host and the Ubuntu CI runner (verified: the same
+        # committed PNGs are "current" on macOS but "stale" on ubuntu-24.04).
+        # Assert the PNG exists, but never gate on its bytes or the check becomes
+        # environment-fragile and fails CI on regenerations done off-CI.
+        stale = []
+        for item in registry:
+            for key in ("html", "svg"):
+                committed = DIAGRAM_DIR / item[key]
+                candidate = candidate_dir / item[key]
+                if not committed.exists() or committed.read_bytes() != candidate.read_bytes():
+                    stale.append(committed)
+            png = DIAGRAM_DIR / item["png"]
+            if not png.exists():
+                stale.append(png)
     if stale:
         for path in stale:
             print(f"stale generated diagram: {path.relative_to(REPO_ROOT)}")

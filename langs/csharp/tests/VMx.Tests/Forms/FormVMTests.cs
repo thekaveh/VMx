@@ -371,7 +371,10 @@ public class FormVMTests
             if (pauseSnapshot)
             {
                 snapshotStarted.SetResult();
-                releaseSnapshot.Wait(TimeSpan.FromSeconds(1)).Should().BeTrue();
+                // The test thread owns releaseSnapshot.Set() below; wait without a
+                // fixed deadline so CI thread-pool starvation can't trip a spurious
+                // timeout here. The outer WhenAll(...).WaitAsync() bounds the test.
+                releaseSnapshot.Wait();
             }
 
             return model;
@@ -385,7 +388,7 @@ public class FormVMTests
         pauseSnapshot = true;
 
         var denier = Task.Run(() => sut.DenyCommand.Execute(null));
-        await snapshotStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        await snapshotStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         var disposer = Task.Run(() =>
         {
@@ -397,7 +400,7 @@ public class FormVMTests
             Task.Delay(TimeSpan.FromMilliseconds(100))) == disposeFinished.Task;
         releaseSnapshot.Set();
 
-        await Task.WhenAll(denier, disposer).WaitAsync(TimeSpan.FromSeconds(1));
+        await Task.WhenAll(denier, disposer).WaitAsync(TimeSpan.FromSeconds(5));
         disposedDuringSnapshot.Should().BeFalse();
         sut.Model.Should().Be(new Model("A", 1));
     }

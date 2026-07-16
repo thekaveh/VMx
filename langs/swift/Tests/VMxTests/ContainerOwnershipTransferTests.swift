@@ -19,7 +19,7 @@ private final class ThrowingOwnershipChild: ComponentVMBase {
             hub: NullMessageHub.INSTANCE,
             dispatcher: NullDispatcher.INSTANCE,
             onConstruct: {
-                if shouldFail { throw OwnershipTestError.constructFailed }
+                if shouldFail() { throw OwnershipTestError.constructFailed }
             }
         )
     }

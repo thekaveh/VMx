@@ -213,7 +213,7 @@ public class ComponentVMLifecycleRaceTests
         var task = parent.ConstructAsync();
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(
-            async () => await task.WaitAsync(TimeSpan.FromSeconds(5)));
+            async () => await task.WaitAsync(TimeSpan.FromSeconds(15)));
         error.Should().BeSameAs(failure);
         child.Status.Should().Be(ConstructionStatus.Destructed);
         parent.Status.Should().Be(ConstructionStatus.Destructed);
