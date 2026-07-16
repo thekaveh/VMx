@@ -36,6 +36,10 @@ sections:
         number: "3.5"
         title: Getting Started with VMx — Swift
         source: docs/content/getting-started/swift.md
+      - id: getting-started-rust
+        number: "3.6"
+        title: Getting Started with VMx — Rust
+        source: docs/content/getting-started/rust.md
   - id: core-concepts
     number: "4"
     title: Core Concepts
