@@ -67,17 +67,16 @@ impl<T: Clone + Send + 'static> PagedComposition<T> {
 
     /// Returns the number of available pages.
     ///
-    /// An empty source has no pages. Pass-through mode (`page_size == 0`) has
-    /// one page for every non-empty source.
+    /// Pass-through mode (`page_size == 0`) always has exactly one page, even for
+    /// an empty source (spec/21-collections.md §5.3). When paging is enabled an
+    /// empty source has zero pages (§5.4). The `page_size == 0` branch must be
+    /// checked first so the empty case does not shadow it.
     pub fn page_count(&self) -> usize {
-        let len = lock(&self.source).len();
         let page_size = self.page_size();
-        if len == 0 {
-            0
-        } else if page_size == 0 {
+        if page_size == 0 {
             1
         } else {
-            len.div_ceil(page_size)
+            lock(&self.source).len().div_ceil(page_size)
         }
     }
 
