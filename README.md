@@ -402,6 +402,9 @@ This README is the entry point; the documents below add focused detail.
   tracked capability-surface and behavioural parity gaps between the source-tree
   Rust flavor and the four published flavors, with the canonical decision and
   proposed fix for each.
+- [`docs/maintenance/2026-07-16-swift-notesshowcase-test-deadlock.md`](docs/maintenance/2026-07-16-swift-notesshowcase-test-deadlock.md) —
+  a pre-existing XCTest-startup deadlock in the Swift flagship example test suite,
+  with symptom, timeline, and proposed investigation.
 - [`tools/README.md`](tools/README.md) — conformance-coverage tool and
   cross-cutting scripts.
 
