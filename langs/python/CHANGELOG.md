@@ -4,6 +4,50 @@ All notable changes to the Python flavor are documented here. The format is base
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and this project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.2.0](https://github.com/thekaveh/VMx/compare/python-v3.1.0...python-v3.2.0) (2026-07-17)
+
+
+### Features
+
+* add cross-flavor subscribe value bridge ([#93](https://github.com/thekaveh/VMx/issues/93)) ([9731fd1](https://github.com/thekaveh/VMx/commit/9731fd1150df99da85a6208dc1582a335acb8306))
+* add dual-channel property notification helper ([#78](https://github.com/thekaveh/VMx/issues/78)) ([#116](https://github.com/thekaveh/VMx/issues/116)) ([098eb38](https://github.com/thekaveh/VMx/commit/098eb38af7f01b89aca7b2dc707a320dd392b9ff))
+* add imperative command requery notifications ([#106](https://github.com/thekaveh/VMx/issues/106)) ([#124](https://github.com/thekaveh/VMx/issues/124)) ([44c3551](https://github.com/thekaveh/VMx/commit/44c3551b02676bc776afab7598be38d9ff0e2d17))
+* add lossless message hub transactions ([#99](https://github.com/thekaveh/VMx/issues/99)) ([ec7acc0](https://github.com/thekaveh/VMx/commit/ec7acc063f53a5d08a3ea64f9e6e418e5bd5aa07))
+* add shared VM collection move semantics ([#81](https://github.com/thekaveh/VMx/issues/81)) ([491385e](https://github.com/thekaveh/VMx/commit/491385eda0171e7a5c0875cb4feb77184a83a298))
+* **collections:** add atomic replace all ([#82](https://github.com/thekaveh/VMx/issues/82)) ([#134](https://github.com/thekaveh/VMx/issues/134)) ([6109180](https://github.com/thekaveh/VMx/commit/610918088da031b7e35c2819f58f8ff4b61df8e3))
+* **forms:** add reset-on-approved semantics ([#104](https://github.com/thekaveh/VMx/issues/104)) ([#129](https://github.com/thekaveh/VMx/issues/129)) ([693bb46](https://github.com/thekaveh/VMx/commit/693bb46959c2586f6e9cd7da3cd14e3c4bcefd1b))
+* **hierarchical:** add batch attachment ([#105](https://github.com/thekaveh/VMx/issues/105)) ([#132](https://github.com/thekaveh/VMx/issues/132)) ([026f431](https://github.com/thekaveh/VMx/commit/026f431127e7efc7a6e8eb07c871302cda6ea8b7))
+* **lifecycle:** add owned-resource registration ([#83](https://github.com/thekaveh/VMx/issues/83)) ([90073b1](https://github.com/thekaveh/VMx/commit/90073b1b03ed5d0c8b6358c97b6a3267b3f9c6d3))
+* standardize cross-flavor disposal invariants ([#107](https://github.com/thekaveh/VMx/issues/107)) ([#120](https://github.com/thekaveh/VMx/issues/120)) ([8e2e310](https://github.com/thekaveh/VMx/commit/8e2e3108fa1aa9764338dcceb6aacad56648ab51))
+* **typescript:** add safe raw-message predicates ([#151](https://github.com/thekaveh/VMx/issues/151)) ([f7450fe](https://github.com/thekaveh/VMx/commit/f7450fe48303ff641fdd9ba47623981eec95713c))
+
+
+### Bug Fixes
+
+* **builders:** retain partial option services ([065d4f0](https://github.com/thekaveh/VMx/commit/065d4f0db71535457b4f16ef4b5855c0831ee393))
+* complete cross-flavor behavioral parity ([8a5be73](https://github.com/thekaveh/VMx/commit/8a5be73eb628055442399d5ca53a93382594c15d))
+* complete terminal disposal cascades ([f94351a](https://github.com/thekaveh/VMx/commit/f94351a1bb672a0186ae7c6fd53d8b4e61f2c573))
+* **containers:** enforce child identity membership ([28608a0](https://github.com/thekaveh/VMx/commit/28608a04a89d2c4eebaa1f0b0d9eafb8bc407667))
+* **csharp:** propagate async lifecycle failures ([f26c4d8](https://github.com/thekaveh/VMx/commit/f26c4d8067da8142e269f476fc5faa2b5f56d140))
+* **disposal:** preserve first terminal failure ([e60a180](https://github.com/thekaveh/VMx/commit/e60a18079ecf67cf1be539c260e1336e25f17f3b))
+* harden cross-flavor lifecycle and async behavior ([5d78a0d](https://github.com/thekaveh/VMx/commit/5d78a0de6deacbbf92676d64e2908cd8b286d851))
+* mirror dispose-race and best-effort teardown guards to Python/C# siblings ([838e3f5](https://github.com/thekaveh/VMx/commit/838e3f51621e3f01e008ca3c984541e69eb19e10))
+* **paging:** reject reentrant disposal commits ([84ee528](https://github.com/thekaveh/VMx/commit/84ee528250e8b84d62ff462ff2b7a35736ca3e3f))
+* prevent opposing message hub deadlocks ([94cfe66](https://github.com/thekaveh/VMx/commit/94cfe665dfc514f384e6cdf7acb7ffa92d14540a))
+* **python:** dispose confirmation-wrapper commands in ModeledCrudCommands ([d59e120](https://github.com/thekaveh/VMx/commit/d59e120b5ee880af63e606a5e21b1d50b5a45767))
+* **python:** gate releases on local wheel smoke ([2a08886](https://github.com/thekaveh/VMx/commit/2a08886f5e8f61f04e42ceb16fbfadc4c511d75c))
+* **python:** serialize hub terminal delivery ([3e6ad15](https://github.com/thekaveh/VMx/commit/3e6ad1507ce87b1091c0626943ce0571de9b0961))
+* settle lifecycle and command teardown deterministically ([300b9b8](https://github.com/thekaveh/VMx/commit/300b9b87e7ca480d32700c01209064450b15fd94))
+* settle remaining CI fragility in docs check and admission test ([3345964](https://github.com/thekaveh/VMx/commit/3345964e9c7573f513466a376d99d214abf5b6da))
+* stabilize CI failures from the maintenance pass ([03a391d](https://github.com/thekaveh/VMx/commit/03a391d8ebfedd30b069696ee4fa54ea94edecfe))
+* transfer container ownership atomically ([afdeedd](https://github.com/thekaveh/VMx/commit/afdeedd9100ad80d14e138a21e9b2d951a942aa7))
+
+
+### Documentation
+
+* enforce numbered synchronized documentation ([4cc4e56](https://github.com/thekaveh/VMx/commit/4cc4e56a0da68ba471577fbcd7ee4b055e75be06))
+* the diagram --check no longer gates on renderer-dependent PNG ([03a391d](https://github.com/thekaveh/VMx/commit/03a391d8ebfedd30b069696ee4fa54ea94edecfe))
+
 ## [Unreleased]
 
 ### Fixed
