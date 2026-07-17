@@ -51,7 +51,11 @@ jobs:
         run: swift --version
       - name: Verify oldest hosted compiler
         if: matrix.xcode != 'default'
-        run: swift --version | grep -E '^(Apple )?Swift version 6\.0(\.|$)'
+        # `swift --version` prints `Apple Swift version 6.0 (swiftlang-…)`, so the
+        # minor must be allowed to end at a space (build metadata) as well as a
+        # patch dot or end-of-line; the space case regressed when the oldest
+        # hosted Xcode began reporting a bare `6.0`.
+        run: swift --version | grep -E '^(Apple )?Swift version 6\.0(\.| |$)'
       - name: Check root and nested manifest parity
         run: python3 tools/check-swift-package-sync.py
       - name: Build root package
