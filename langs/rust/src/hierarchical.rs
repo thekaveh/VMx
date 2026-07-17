@@ -1,6 +1,6 @@
 //! Recursive hierarchical view models, batch attachment, and tree traversal.
 //!
-//! Spec: `spec/19-hierarchical-vm.md`; ADR-0048 and ADR-0087.
+//! Spec: `spec/18-hierarchical-vm.md`; ADR-0048 and ADR-0087.
 
 use super::{
     catch_unwind, lock, resume_unwind, thread, wait, Arc, AssertUnwindSafe, ComponentVm, Condvar,
@@ -562,7 +562,9 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
         }
     }
 
-    /// Disposes this node, descendants, and parked batch items.
+    /// Disposes this node and clears parked batch items. Children are not
+    /// disposed, destructed, detached, or reparented (spec/18-hierarchical-vm.md
+    /// §3).
     pub fn dispose(&self) -> VmxResult<()> {
         lock(&self.inner.parked_attach_items).clear();
         self.inner.component.dispose()
@@ -616,9 +618,12 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
             *lock(&self.inner.children) = Some(children.clone());
         }
         self.finish_children_materialization();
-        for child in &children {
-            child.publish_parent_changed();
-        }
+        // First materialization is initial construction, not a parent *change*:
+        // the children are born as this node's children. Emitting
+        // PropertyChanged("parent") here would publish N spurious hub messages on
+        // the first lazy children() access. The other four flavors assign the
+        // parent silently on hydration (see the C# note in HierarchicalVM); real
+        // reparents/detaches still emit via publish_parent_changed elsewhere.
         children
     }
 

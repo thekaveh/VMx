@@ -1,6 +1,6 @@
 //! Synchronous and asynchronous commands, builders, and decorators.
 //!
-//! Spec: `spec/07-commands.md`.
+//! Spec: `spec/04-commands.md`.
 
 use super::{
     catch_unwind, evaluate_command_predicate, lock, Arc, AssertUnwindSafe, AsyncValue, AtomicBool,
@@ -244,9 +244,20 @@ impl<T: Clone + Send + 'static> RelayCommandOf<T> {
         self.can_execute_changed.clone()
     }
 
-    /// Makes the command inert.
+    /// Makes the command inert and disposes its eligibility-change hub.
     pub fn dispose(&self) {
-        *lock(&self.disposed) = true;
+        let should_dispose = {
+            let mut disposed = lock(&self.disposed);
+            if *disposed {
+                false
+            } else {
+                *disposed = true;
+                true
+            }
+        };
+        if should_dispose {
+            self.can_execute_changed.dispose();
+        }
     }
 
     /// Reports whether `parameter` is currently executable.

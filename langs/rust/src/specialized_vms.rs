@@ -1,6 +1,6 @@
 //! Modal and notification presentation view models.
 //!
-//! Spec: `spec/17-dialogs.md` and `spec/18-notifications.md`.
+//! Spec: `spec/19-dialogs.md` and `spec/16-notifications.md`.
 
 use super::{
     lock, Arc, AsyncValue, Mutex, Notification, NotificationHub, NotificationReaction, RelayCommand,

@@ -292,7 +292,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
 
             // Idempotent-set guard: spec/03-messages.md mandates that a property
             // assignment to the same value MUST NOT emit a PropertyChanged hub
-            // message (HUB-005). The guard also avoids redundant INPC raises.
+            // message (PROP-002). The guard also avoids redundant INPC raises.
             if (_isCurrent == value) return;
             _isCurrent = value;
             NotifyPropertyChanged(nameof(IsCurrent));

@@ -1,7 +1,7 @@
 use super::{
     lock, Arc, BTreeMap, ComponentVm, FormRevertedMessage, Message, MessageHub, Mutex,
-    NullDispatcher, NullMessageHub, OnceLock, PropertyChangedMessage, RelayCommand,
-    RelayCommandBuilder, VmxError, VmxResult,
+    NullDispatcher, NullMessageHub, OnceLock, RelayCommand, RelayCommandBuilder, VmxError,
+    VmxResult,
 };
 
 type FormPersister<M> = Arc<dyn Fn(&M) -> VmxResult<()> + Send + Sync>;
@@ -420,15 +420,15 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     }
 
     fn publish_validation_changed(&self) {
+        // Validation surfaces only on the dedicated errors-changed channel, never
+        // on the main message hub. spec/20-form-vm.md §8 enumerates a closed set
+        // of hub messages (model + FormReverted); C#/Python/TS/Swift never put
+        // validation on the hub. An extra PropertyChanged("is_valid") here would
+        // break the FORM-008 reverted-then-model pair.
         self.errors_changed.send(Message::Custom {
             sender_id: self.component.id(),
             name: "errors_changed".to_string(),
         });
-        self.hub
-            .send(Message::PropertyChanged(PropertyChangedMessage {
-                sender_id: self.component.id(),
-                property_name: "is_valid".to_string(),
-            }));
     }
 
     fn publish_approve_state_change(&self, previous: bool) {

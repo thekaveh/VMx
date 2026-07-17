@@ -1,6 +1,6 @@
 //! Create, update, and delete commands bound to a current modeled value.
 //!
-//! Spec: `spec/09-groups-and-modeled-crud.md`.
+//! Spec: `spec/06-composite-vm.md` §Modeled CRUD commands; ADR-0016.
 
 use super::{Arc, Message, MessageHub, RelayCommand, Subscription};
 

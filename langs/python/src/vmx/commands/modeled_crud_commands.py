@@ -70,22 +70,30 @@ class ModeledCrudCommands(Generic[M, VM]):
         )
 
     def dispose(self) -> None:
-        """Dispose the underlying RelayCommands and their trigger subscriptions.
+        """Dispose the inner RelayCommands and any confirmation wrappers.
 
         Idempotent: subsequent calls are a no-op.
 
-        Note: ``ConfirmationDecoratorCommand`` wrappers (when ``confirm_update`` /
-        ``confirm_delete`` are supplied) are NOT tracked separately because they
-        hold no subscriptions of their own — ``can_execute_changed`` is a direct
-        passthrough to ``inner.can_execute_changed``. This differs from C#, where
-        the wrapper subscribes to ``CanExecuteChanged`` events and must dispose
-        that subscription explicitly.
+        The public update/delete commands may be ``ConfirmationDecoratorCommand``
+        wrappers (when ``confirm_update`` / ``confirm_delete`` are supplied). Each
+        wrapper owns an ``errors`` ``Subject`` whose contract is to complete on
+        ``dispose``, so the wrappers are disposed here alongside the inner relays
+        — parity with C# ``ModeledCrudCommands.Dispose``, which adds the wrappers
+        to its disposables. Each distinct command is disposed exactly once (when
+        no confirm hook is supplied the public command *is* the inner relay).
         """
         if self._disposed:
             return
         self._disposed = True
+        # The inner relays always own disposable state. create_new_command is
+        # always the inner create relay; update/delete may additionally be a
+        # ConfirmationDecoratorCommand wrapper whose errors Subject must complete.
+        disposables: list[RelayCommand | ConfirmationDecoratorCommand] = list(self._inner_relays)
+        for command in (self.update_current_command, self.delete_current_command):
+            if isinstance(command, ConfirmationDecoratorCommand):
+                disposables.append(command)
         first_error: BaseException | None = None
-        for cmd in self._inner_relays:
+        for cmd in disposables:
             try:
                 cmd.dispose()
             except BaseException as error:

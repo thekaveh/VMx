@@ -1,6 +1,6 @@
 //! Notification values, pending waiters, and resolution hubs.
 //!
-//! Spec: `spec/18-notifications.md`; ADR-0031.
+//! Spec: `spec/16-notifications.md`; ADR-0031.
 
 use super::{
     lock, Arc, AsyncValue, AtomicU64, BTreeMap, Context, Future, HashMap, Message, MessageHub,
@@ -158,10 +158,13 @@ impl NotificationHub {
             state.pending_snapshots.push(snapshot);
             completion
         };
+        // spec/16-notifications.md §2.2: emit the new Pending value BEFORE
+        // completing the awaitable returned by the original post. The four peers
+        // publish then complete; do the same.
+        self.publish_pending();
         if let Some(completion) = completion {
             completion.resolve(reaction);
         }
-        self.publish_pending();
     }
 
     /// Returns a snapshot of currently pending notifications.
@@ -209,10 +212,12 @@ impl NotificationHub {
             state.pending_snapshots.push(Vec::new());
             completions
         };
+        // spec §2.2 order: emit the (now empty) Pending value before resuming
+        // waiters, matching resolve() and the four peers.
+        self.publish_pending();
         for completion in completions {
             completion.resolve(NotificationReaction::Pending);
         }
-        self.publish_pending();
     }
 
     fn publish_pending(&self) {

@@ -23,6 +23,13 @@ permissions:
   contents: write
   pull-requests: write
 
+# Serialize release-PR maintenance: concurrent runs both push to the release
+# branch / update the release PR and can conflict (the action recommends a
+# concurrency group).
+concurrency:
+  group: release-please
+  cancel-in-progress: false
+
 jobs:
   release-please:
     runs-on: ubuntu-latest

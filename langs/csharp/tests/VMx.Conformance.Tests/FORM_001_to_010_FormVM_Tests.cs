@@ -180,6 +180,11 @@ public class FORM_001_to_010_FormVM_Tests
         sut.DenyCommand.Execute(null);
 
         messages.Should().HaveCount(2, "two messages published on revert");
+        // FORM-008 order: the model PropertyChangedMessage is published AFTER the
+        // FormRevertedMessage.
+        messages[0].Should().BeOfType<FormRevertedMessage>("revert precedes the model change");
+        messages[1].Should().BeOfType<PropertyChangedMessage<FormVM<Model>>>(
+            "model change follows the revert");
 
         var revertMsg = messages.OfType<FormRevertedMessage>().SingleOrDefault();
         revertMsg.Should().NotBeNull("FormRevertedMessage published");

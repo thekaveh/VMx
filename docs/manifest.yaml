@@ -22,7 +22,7 @@ sections:
         source: docs/content/getting-started/index.md
       - id: getting-started-csharp
         number: "3.2"
-        title: Getting Started with VMx — C\#
+        title: "Getting Started with VMx — C#"
         source: docs/content/getting-started/csharp.md
       - id: getting-started-python
         number: "3.3"
@@ -36,6 +36,10 @@ sections:
         number: "3.5"
         title: Getting Started with VMx — Swift
         source: docs/content/getting-started/swift.md
+      - id: getting-started-rust
+        number: "3.6"
+        title: Getting Started with VMx — Rust
+        source: docs/content/getting-started/rust.md
   - id: core-concepts
     number: "4"
     title: Core Concepts
@@ -170,7 +174,7 @@ sections:
         source: docs/content/flavors/index.md
       - id: csharp
         number: "7.2"
-        title: C\#
+        title: "C#"
         source: docs/content/flavors/csharp.md
       - id: python
         number: "7.3"

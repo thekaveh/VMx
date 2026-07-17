@@ -113,3 +113,5 @@ ordinary VMx seams above rather than creating a second reactive architecture.
   [examples/typescript/react/notes-showcase/README.md](../../../examples/typescript/react/notes-showcase/README.md)
 - Swift Notes Workspace:
   [examples/swift/notes-showcase/README.md](../../../examples/swift/notes-showcase/README.md)
+- Rust Notes Workspace (Ratatui TUI):
+  [examples/rust/README.md](../../../examples/rust/README.md)

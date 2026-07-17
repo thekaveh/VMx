@@ -1,6 +1,7 @@
 using System.Reactive;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
+using System.Runtime.ExceptionServices;
 using System.Windows.Input;
 using VMx.Commands;
 using VMx.Internal;
@@ -316,19 +317,33 @@ public sealed class FormVM<TM> : IDisposable
 
     private void TearDown()
     {
+        // Best-effort terminal teardown (mirrors ComponentVMBase.Dispose): a
+        // throwing OnCompleted observer must not abort the rest and leak the
+        // remaining subjects or the two commands' live trigger subscriptions.
+        // Capture the first failure, run every step, then rethrow it.
+        ExceptionDispatchInfo? firstError = null;
         lock (_approveErrorGate)
         {
-            _approveErrors.OnCompleted();
-            _approveErrors.Dispose();
+            CaptureTeardownFailure(ref firstError, _approveErrors.OnCompleted);
+            CaptureTeardownFailure(ref firstError, _approveErrors.Dispose);
         }
-        _onApproved.OnCompleted();
-        _onApproved.Dispose();
-        _errorsChanged.OnCompleted();
-        _errorsChanged.Dispose();
-        _canExecuteChangedTrigger.OnCompleted();
-        _canExecuteChangedTrigger.Dispose();
-        if (DenyCommand is IDisposable d1) d1.Dispose();
-        if (ApproveCommand is IDisposable d2) d2.Dispose();
+        CaptureTeardownFailure(ref firstError, _onApproved.OnCompleted);
+        CaptureTeardownFailure(ref firstError, _onApproved.Dispose);
+        CaptureTeardownFailure(ref firstError, _errorsChanged.OnCompleted);
+        CaptureTeardownFailure(ref firstError, _errorsChanged.Dispose);
+        CaptureTeardownFailure(ref firstError, _canExecuteChangedTrigger.OnCompleted);
+        CaptureTeardownFailure(ref firstError, _canExecuteChangedTrigger.Dispose);
+        if (DenyCommand is IDisposable d1)
+            CaptureTeardownFailure(ref firstError, d1.Dispose);
+        if (ApproveCommand is IDisposable d2)
+            CaptureTeardownFailure(ref firstError, d2.Dispose);
+        firstError?.Throw();
+    }
+
+    private static void CaptureTeardownFailure(ref ExceptionDispatchInfo? firstError, Action action)
+    {
+        try { action(); }
+        catch (Exception error) { firstError ??= ExceptionDispatchInfo.Capture(error); }
     }
 
     private void EmitApproveError(Exception error)

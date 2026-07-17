@@ -89,6 +89,12 @@ open class ForwardingCompositeVM<Child: ComponentVMBase>: CompositeVM<Child> {
     // ── Collection surface ──────────────────────────────────────────────
     open override var count: Int { _wrapped.count }
     open override func at(_ index: Int) -> Child { _wrapped.at(index) }
+    // Forward snapshot() too: every mutation goes to _wrapped, so the inherited
+    // CompositeVM.snapshot() (which reads this decorator's own always-empty
+    // children array) would report zero members and break the
+    // ObservableMembershipSource contract — e.g. AggregateChangeStream would see
+    // no members while structural pulses still arrive via collectionChanged.
+    open override func snapshot() -> [Child] { _wrapped.snapshot() }
 
     open override var current: Child? {
         get { _wrapped.current }

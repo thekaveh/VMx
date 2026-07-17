@@ -215,6 +215,12 @@ impl<T: VmNode> AggregateChangeStream<T> {
     }
 
     /// Runs `action` while coalescing all resulting notifications into one batch event.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the stream has been disposed. Opening a batch on a disposed
+    /// stream is a caller error, mirroring the other flavors, which raise on the
+    /// same misuse (C# throws `ObjectDisposedException`).
     pub fn batch<F, R>(&self, action: F) -> R
     where
         F: FnOnce() -> R,

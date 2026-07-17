@@ -67,19 +67,22 @@ export class ModeledCrudCommands<M, VM> {
   }
 
   /**
-   * Dispose the underlying RelayCommands and their trigger subscriptions.
-   * Idempotent: subsequent calls are a no-op.
+   * Dispose the inner RelayCommands and any confirmation wrappers. Idempotent.
    *
-   * Note: `ConfirmationDecoratorCommand` wrappers (when `confirmUpdate` /
-   * `confirmDelete` are supplied) are NOT tracked separately because they
-   * hold no subscriptions of their own — `canExecuteChanged` is a direct
-   * passthrough to `inner.canExecuteChanged`. This differs from C#, where
-   * the wrapper subscribes to `CanExecuteChanged` events and must dispose
-   * that subscription explicitly.
+   * The public update/delete commands may be `ConfirmationDecoratorCommand`
+   * wrappers (when `confirmUpdate` / `confirmDelete` are supplied). Each wrapper
+   * owns an `errors` Subject whose contract is to complete on dispose, so the
+   * wrappers are disposed here alongside the inner relays (parity with
+   * C#/Python). When no confirm hook is supplied the public command is the inner
+   * relay itself, already covered.
    */
   dispose(): void {
     if (this.#disposed) return;
     this.#disposed = true;
-    for (const cmd of this.#innerRelays) cmd.dispose();
+    const targets: { dispose(): void }[] = [...this.#innerRelays];
+    for (const cmd of [this.updateCurrentCommand, this.deleteCurrentCommand]) {
+      if (cmd instanceof ConfirmationDecoratorCommand) targets.push(cmd);
+    }
+    for (const cmd of targets) cmd.dispose();
   }
 }

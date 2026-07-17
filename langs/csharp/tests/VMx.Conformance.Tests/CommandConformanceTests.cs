@@ -388,7 +388,14 @@ public class CommandConformanceTests
         cmd.Execute(null);
         await started.Task;
         cmd.Cancel();
-        await Task.Delay(50);
+
+        // Wait for the fire-and-forget run to actually finish instead of a fixed
+        // sleep the CI scheduler can outrun. IsExecuting flips false in
+        // ExecuteAsync's finally, after any error emission in the catch, so once
+        // it is false the not-a-fault decision has already been made.
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+        while (cmd.IsExecuting && DateTime.UtcNow < deadline)
+            await Task.Delay(5);
 
         errors.Should().BeEmpty("fire-and-forget command cancellation is not a fault");
         cmd.IsExecuting.Should().BeFalse();

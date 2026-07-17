@@ -61,7 +61,19 @@ public sealed class SearchableState<TItem> : ISearchable, IDisposable
 
         _subscription = recomputeStream.Subscribe(term =>
         {
-            _filteredSubject.OnNext(ApplyFilter(term));
+            // The debounce runs on DefaultScheduler; Dispose() can dispose
+            // _filteredSubject while a recompute is between ApplyFilter and
+            // OnNext (subscription disposal does not wait for an in-flight
+            // callback on another thread). Post-dispose Subject.OnNext throws
+            // ObjectDisposedException, so drop that fault — a disposed searchable
+            // has no observers to notify (mirrors AsyncRelayCommand.EmitError).
+            try
+            {
+                _filteredSubject.OnNext(ApplyFilter(term));
+            }
+            catch (ObjectDisposedException)
+            {
+            }
         });
 
         // Close the initial snapshot/attach gap. No caller can observe the

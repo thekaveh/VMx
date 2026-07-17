@@ -197,12 +197,24 @@ public class ComponentVMLifecycleRaceTests
         var hub = new TestHub();
         var dispatcher = new RealThreadDispatcher();
         var failure = new InvalidOperationException("child hook failed");
+        using var release = new ManualResetEventSlim();
         var child = ComponentVM<string>.Builder()
             .Name("child")
             .Services(hub, dispatcher)
             .Model("m")
             .Background(true)
-            .OnConstruct(() => throw failure)
+            .OnConstruct(() =>
+            {
+                // Hold the background fault until the parent has returned its
+                // pending ConstructAsync task, forcing the deferred (async)
+                // rollback path deterministically. Without this gate a fast
+                // background fault can complete the child transition before the
+                // parent wires its continuation, so the fault surfaces
+                // synchronously from ConstructAsync — an equally-legal ADR-0109
+                // path, but the source of this test's prior CI-only flake.
+                release.Wait(TimeSpan.FromSeconds(15));
+                throw failure;
+            })
             .Build();
         var parent = CompositeVM<ComponentVM<string>>.Builder()
             .Name("parent")
@@ -211,6 +223,7 @@ public class ComponentVMLifecycleRaceTests
             .Build();
 
         var task = parent.ConstructAsync();
+        release.Set();
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(
             async () => await task.WaitAsync(TimeSpan.FromSeconds(15)));

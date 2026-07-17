@@ -15,6 +15,13 @@ on:
       - ".github/workflows/wiki.yml"
   workflow_dispatch:
 
+# Serialize wiki publishes: the job clones the wiki repo fresh and pushes to
+# master with a non-force push, so two overlapping runs would race and the
+# loser would fail on a non-fast-forward push.
+concurrency:
+  group: wiki
+  cancel-in-progress: false
+
 permissions:
   contents: write
 
