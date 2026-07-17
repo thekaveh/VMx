@@ -147,7 +147,7 @@ class _QueuingDialogService(DialogService):
         return None
 
     async def confirm(self, message: str, title: str | None = None) -> bool:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         fut: asyncio.Future[bool] = loop.create_future()
         self._queue.append(fut)
         return await fut
@@ -186,7 +186,7 @@ class _RejectingDialogService(DialogService):
     async def confirm(self, message: str, title: str | None = None) -> bool:
         if self._active is not None:
             return False  # reentrant — reject immediately
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         self._active = loop.create_future()
         return await self._active
 

@@ -1,6 +1,6 @@
 //! Modeled leaf view models, read-only wrappers, and builders.
 //!
-//! Spec: `spec/04-component-vm.md`.
+//! Spec: `spec/05-component-vm.md`.
 
 use super::{
     fmt, lock, Arc, ComponentCore, ConstructionStatus, Dispatcher, LifecycleOperation, MessageHub,

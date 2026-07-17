@@ -220,6 +220,10 @@ def test_form_008_hub_messages_on_revert() -> None:
     sub.dispose()
 
     assert len(messages) == 2, "two hub messages published on revert"
+    # FORM-008 order: the model PropertyChangedMessage is published AFTER the
+    # FormRevertedMessage.
+    assert isinstance(messages[0], FormRevertedMessage), "revert precedes the model change"
+    assert isinstance(messages[1], PropertyChangedMessage), "model change follows the revert"
 
     revert_msgs = [m for m in messages if isinstance(m, FormRevertedMessage)]
     assert len(revert_msgs) == 1, "FormRevertedMessage published"

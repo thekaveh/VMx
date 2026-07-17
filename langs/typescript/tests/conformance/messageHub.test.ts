@@ -140,17 +140,13 @@ describe("HUB-006", () => {
         hub.messages.subscribe((m) => received.push(m.senderName));
         for (const id of scenario.producer_sends ?? []) hub.send(makeMsg(id));
         expect(received, scenario.id).toEqual(scenario.expected_observed);
-      }
-
-      if (scenario.id === "late-subscribe-no-replay") {
+      } else if (scenario.id === "late-subscribe-no-replay") {
         for (const id of scenario.producer_sends_before_subscribe ?? []) hub.send(makeMsg(id));
         const received: string[] = [];
         hub.messages.subscribe((m) => received.push(m.senderName));
         for (const id of scenario.producer_sends_after_subscribe ?? []) hub.send(makeMsg(id));
         expect(received, scenario.id).toEqual(scenario.expected_observed);
-      }
-
-      if (scenario.id === "multiple-subscribers-same-message") {
+      } else if (scenario.id === "multiple-subscribers-same-message") {
         const buckets: string[][] = [];
         for (let i = 0; i < (scenario.subscriber_count ?? 0); i++) {
           const bucket: string[] = [];
@@ -161,9 +157,7 @@ describe("HUB-006", () => {
         for (const bucket of buckets) {
           expect(bucket, scenario.id).toEqual(scenario.expected_observed_per_subscriber);
         }
-      }
-
-      if (scenario.id === "unsubscribe-during-emit") {
+      } else if (scenario.id === "unsubscribe-during-emit") {
         const received: string[] = [];
         const sub = hub.messages.subscribe((m) => {
           received.push(m.senderName);
@@ -171,6 +165,10 @@ describe("HUB-006", () => {
         });
         for (const id of scenario.producer_sends ?? []) hub.send(makeMsg(id));
         expect(received, scenario.id).toEqual(scenario.expected_observed);
+      } else {
+        // A scenario added to message-ordering.json must be exercised, not
+        // silently skipped (parity with the Python/Swift/C# fail-loud suites).
+        throw new Error(`Unknown message-ordering scenario id: '${scenario.id}'`);
       }
     }
   });

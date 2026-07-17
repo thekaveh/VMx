@@ -1,6 +1,6 @@
 //! Opt-in capability traits and reusable expansion state.
 //!
-//! Spec: `spec/14-capabilities.md`; ADR-0029.
+//! Spec: `spec/14-capabilities.md`; ADR-0010, ADR-0057.
 
 use super::{lock, Arc, ComponentVm, Dispatcher, Message, MessageHub, Mutex};
 

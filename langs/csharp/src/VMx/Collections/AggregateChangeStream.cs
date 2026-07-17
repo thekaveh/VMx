@@ -404,7 +404,7 @@ public sealed class AggregateChangeStream<T> : IDisposable
         for (int index = 0; index < snapshot.Count; index++)
         {
             if (snapshot[index] is null)
-                throw new ArgumentException("Membership snapshots cannot contain null items.", nameof(_source));
+                throw new ArgumentException("Membership snapshots cannot contain null items.");
         }
 
         return snapshot;

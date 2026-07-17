@@ -1,6 +1,6 @@
 //! Group view models with managed child membership and selection.
 //!
-//! Spec: `spec/09-groups-and-modeled-crud.md`.
+//! Spec: `spec/07-group-vm.md`.
 
 use super::{
     begin_parent_transfer, finish_with_first_error, lock, retain_first_error, Arc, ComponentCore,

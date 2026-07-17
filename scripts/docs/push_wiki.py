@@ -86,6 +86,11 @@ def main() -> int:
     parser.add_argument("--src", default="generated/wiki")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--push", action="store_true")
+    # --check is the explicit name for the default dry run (generate + local
+    # commit into a throwaway temp clone, never pushing): with neither --push nor
+    # --check-published set, push_wiki() already runs that path, so --check reads
+    # as no-op-but-intentional. The Makefile `docs-wiki` target uses it. Keep the
+    # bare-default and --check behavior identical if this is ever rewired.
     mode.add_argument("--check", action="store_true")
     mode.add_argument("--check-published", action="store_true")
     args = parser.parse_args()

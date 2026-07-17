@@ -1,6 +1,6 @@
 //! Localization and host dialog-service contracts.
 //!
-//! Spec: `spec/16-localization.md` and `spec/17-dialogs.md`.
+//! Spec: `spec/17-localization.md` and `spec/19-dialogs.md`.
 
 use super::{AsyncValue, ModalVm};
 

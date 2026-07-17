@@ -1,6 +1,6 @@
 //! Selectable composite view models, filtered projections, and builders.
 //!
-//! Spec: `spec/08-composites-and-filtering.md`.
+//! Spec: `spec/06-composite-vm.md`.
 
 use super::{
     begin_parent_transfer, finish_with_first_error, lock, retain_first_error, Arc, ComponentCore,

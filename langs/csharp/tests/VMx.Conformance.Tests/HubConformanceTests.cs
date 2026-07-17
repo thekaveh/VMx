@@ -131,6 +131,12 @@ public class HubConformanceTests
                     hub.Send(new Stub(tag));
                 seen.Should().Equal(scenario.ExpectedObserved!);
             }
+            else
+            {
+                // A scenario added to message-ordering.json must be exercised,
+                // not silently skipped (parity with the Python suite's fail-loud).
+                Assert.Fail($"Unknown message-ordering scenario id: '{scenario.Id}'");
+            }
         }
     }
 

@@ -13,6 +13,7 @@ verifies this via `tools/check-conformance-coverage.py`.
 | `DISP-NNN`  | Cross-cutting disposal invariant                     | `01-concepts.md`                              |
 | `HUB-NNN`   | Message hub                                          | `03-messages.md`                              |
 | `PROP-NNN`  | Property change notifications                        | `03-messages.md`                              |
+| `SUBV-NNN`  | SubscribeValue selected-state subscription           | `03-messages.md`                              |
 | `CMD-NNN`   | Commands                                             | `04-commands.md`                              |
 | `CVM-NNN`   | ComponentVM (incl. modeled, readonly)                | `05-component-vm.md`                          |
 | `COMP-NNN`  | CompositeVM                                          | `06-composite-vm.md`                          |

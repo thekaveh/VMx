@@ -19,7 +19,7 @@ VMx is **one language-neutral specification with five idiomatic flavors**. The s
 Two rules in `.github/workflows/spec-discipline.yml` block PRs:
 
 1. **Any change under `spec/` requires a new ADR in `spec/ADRs/`** in the same PR. Exempt paths: `spec/README.md`, `spec/VERSION`, `spec/ADRs/**`, `spec/fixtures/**`, `spec/proposals/**`, `spec/12-conformance.md`. A maintainer can apply the `no-adr-needed` label to bypass for typos/formatting.
-1. **A new conformance ID in `spec/12-conformance.md` requires a matching test stub in every full-parity flavor**, in the same PR (THEME-prefixed scenario IDs are exempt — they live in example apps). Stub patterns the check recognizes (regex-based — a commented-out stub also matches, so don't rely on comments to park IDs):
+2. **A new conformance ID in `spec/12-conformance.md` requires a matching test stub in every full-parity flavor**, in the same PR (THEME-prefixed scenario IDs are exempt — they live in example apps). Stub patterns the check recognizes (regex-based — a commented-out stub also matches, so don't rely on comments to park IDs):
    - Python: `@pytest.mark.conformance("XXX-NNN")`
    - C#: `[Trait("Conformance", "XXX-NNN")]`
    - TypeScript: `describe("XXX-NNN", ...)`
@@ -34,7 +34,6 @@ keys consumed by tools, tests, and review checklists.
 ## 3. Build / test / lint commands
 
 ### 3.1 Python (`langs/python`)
-
 ```bash
 cd langs/python
 uv sync --all-extras
@@ -47,7 +46,6 @@ uv run mypy --strict src/vmx               # must be strict-clean
 ```
 
 ### 3.2 C# (`langs/csharp`)
-
 ```bash
 cd langs/csharp
 dotnet restore VMx.sln --locked-mode
@@ -56,11 +54,9 @@ dotnet test                                # both VMx.Tests + VMx.Conformance.Te
 dotnet test --filter "Conformance=LIFE-005"
 dotnet format --verify-no-changes
 ```
-
 Central package versions live in `Directory.Packages.props`; common project settings in `Directory.Build.props` (`TreatWarningsAsErrors=true`, `Nullable=enable`).
 
 ### 3.3 TypeScript (`langs/typescript`)
-
 ```bash
 cd langs/typescript
 npm ci
@@ -72,21 +68,27 @@ npm run build           # tsup, dual ESM + CJS
 npm test                # vitest run
 npx vitest run -t "LIFE-005"   # single conformance ID
 ```
-
 Node ≥ 20 required (vitest 4 / vite 6 floor).
 
 ### 3.4 Swift (`langs/swift`)
-
 ```bash
 cd langs/swift
 swift build             # compiles on CommandLineTools
 swift test              # requires full Xcode (XCTest); CI runs it on macos-latest
 ```
-
 If `swift test` reports the Xcode license is not accepted, run `sudo xcodebuild -license accept` once.
 
-### 3.5 Conformance coverage tool
+### 3.5 Rust (`langs/rust`)
+```bash
+cd langs/rust
+cargo fmt --check
+cargo clippy --locked --all-targets --all-features -- -D warnings
+cargo test --locked --all-features
+RUSTDOCFLAGS="-D warnings" cargo doc --locked --all-features --no-deps
+cargo package --locked
+```
 
+### 3.6 Conformance coverage tool
 ```bash
 # Report-only across flavors
 python3 tools/check-conformance-coverage.py
@@ -98,18 +100,16 @@ uv --project langs/python run python tools/check-conformance-coverage.py \
 # The tool's own unit tests
 uv --project langs/python run pytest tools/tests/
 ```
-
 Running ruff on `tools/` requires the project config: `--config langs/python/pyproject.toml`.
 
-### 3.6 Pre-commit
-
+### 3.7 Pre-commit
 `pre-commit install` once. Hooks: ruff (Python only), mdformat (spec/ and docs/), `dotnet format --verify-no-changes` (C# only), eslint (TypeScript only), whitespace/EOL hygiene. mdformat is pinned to 0.7.x (1.0 is incompatible with `mdformat-gfm`).
 
 ## 4. When changing behavior
 
 1. Update the relevant `spec/NN-*.md` chapter.
-1. Add an ADR in `spec/ADRs/` describing the decision (numbered NNNN-kebab-title.md) and a row in `spec/ADRs/README.md`.
-1. If the change is normative, add an ID to `spec/12-conformance.md`, an entry in the source chapter's `## Conformance` section, and a stub/marker in **all five** full-parity conformance suites (C#, Python, TypeScript, Swift, Rust).
-1. Implement in every flavor that ships the area. Keep the public surface idiomatic per ADR-0006; keep the conceptual shape identical. Hub `PropertyChangedMessage` names follow the flavor idiom (`"IsValid"` / `"is_valid"` / `"isValid"`); the collections `"Count"` channel is a spec-literal exception.
-1. If touching `spec/fixtures/`, re-run TS `npm run sync-fixtures` and verify Python, C#, and Swift still load the file where applicable (Python tracked `_data` copy, C# embedded/copy paths, and Swift package resources are configured for these exact filenames).
-1. Bump `spec/VERSION` and each flavor's package version per the SemVer policy in README §6.1. Update `compatibility-matrix.md`, each flavor's `CHANGELOG.md` (bracketed Keep-a-Changelog headings), and the count claims in README/spec/README/flavor READMEs.
+2. Add an ADR in `spec/ADRs/` describing the decision (numbered NNNN-kebab-title.md) and a row in `spec/ADRs/README.md`.
+3. If the change is normative, add an ID to `spec/12-conformance.md`, an entry in the source chapter's `## Conformance` section, and a stub/marker in **all five** full-parity conformance suites (C#, Python, TypeScript, Swift, Rust).
+4. Implement in every flavor that ships the area. Keep the public surface idiomatic per ADR-0006; keep the conceptual shape identical. Hub `PropertyChangedMessage` names follow the flavor idiom (`"IsValid"` / `"is_valid"` / `"isValid"`); the collections `"Count"` channel is a spec-literal exception.
+5. If touching `spec/fixtures/`, re-run TS `npm run sync-fixtures` and verify Python, Rust, C#, and Swift still load the file where applicable (Python/Rust tracked runtime copies, C# embedded/copy paths, and Swift package resources are configured for these exact filenames).
+6. Bump `spec/VERSION` and each flavor's package version per the SemVer policy in README §6.1. Update `compatibility-matrix.md`, each flavor's `CHANGELOG.md` (bracketed Keep-a-Changelog headings), and the count claims in README/spec/README/flavor READMEs.

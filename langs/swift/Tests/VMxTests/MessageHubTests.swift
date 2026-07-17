@@ -24,9 +24,13 @@ final class MessageHubTests: XCTestCase {
     }
 
     func testZeroArgumentInitializerRemainsFactoryCompatible() {
+        // Intentional compile-time guard: this pins that `MessageHub.init` stays
+        // usable as a `() -> MessageHub` factory (used by null-object and DI
+        // wiring). There is no runtime behavior to assert beyond non-trapping
+        // construction, which XCTAssertNotNil confirms.
         let factory: () -> MessageHub = MessageHub.init
 
-        _ = factory()
+        XCTAssertNotNil(factory())
     }
 
     /// HUB-007 — A throwing subscriber registered via `subscribe(_:)` is

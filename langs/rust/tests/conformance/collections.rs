@@ -1245,6 +1245,13 @@ fn page_size_zero_returns_all_items() {
     let pages = PagedComposition::new(vec![1, 2, 3], 0);
 
     assert_eq!(pages.current_page(), vec![1, 2, 3]);
+    assert_eq!(pages.page_count(), 1);
+
+    // Pass-through mode always has exactly one page, even for an empty source
+    // (spec/21-collections.md §5.3); only PageSize > 0 yields zero pages (§5.4).
+    let empty: PagedComposition<i32> = PagedComposition::new(vec![], 0);
+    assert_eq!(empty.page_count(), 1);
+    assert_eq!(empty.current_page(), Vec::<i32>::new());
 }
 
 /// COL-020 — PagedComposition<TVM> empty-source behavior

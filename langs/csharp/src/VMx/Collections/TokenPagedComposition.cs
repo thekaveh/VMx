@@ -2,6 +2,7 @@ using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Reactive;
 using System.Reactive.Subjects;
+using System.Runtime.ExceptionServices;
 using VMx.Commands;
 using VMx.Components;
 
@@ -230,8 +231,20 @@ public sealed class TokenPagedComposition<TVM, TToken> :
             if (_disposed) return;
             _disposed = true;
         }
-        LoadMoreCommand.Dispose();
-        RefreshCommand.Dispose();
-        _commandChanged.OnCompleted();
+        // Best-effort teardown: a throwing command dispose must not skip the
+        // remaining command and the command-changed completion, leaking the
+        // second command's trigger subscriptions and the subject. Capture the
+        // first failure, run every step, then rethrow (mirrors FormVM.TearDown).
+        ExceptionDispatchInfo? firstError = null;
+        CaptureDisposalFailure(ref firstError, LoadMoreCommand.Dispose);
+        CaptureDisposalFailure(ref firstError, RefreshCommand.Dispose);
+        CaptureDisposalFailure(ref firstError, _commandChanged.OnCompleted);
+        firstError?.Throw();
+    }
+
+    private static void CaptureDisposalFailure(ref ExceptionDispatchInfo? firstError, Action action)
+    {
+        try { action(); }
+        catch (Exception error) { firstError ??= ExceptionDispatchInfo.Capture(error); }
     }
 }

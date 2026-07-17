@@ -28,6 +28,7 @@ jobs:
   build:
     name: build & test (${{ matrix.label }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -51,7 +52,11 @@ jobs:
         run: swift --version
       - name: Verify oldest hosted compiler
         if: matrix.xcode != 'default'
-        run: swift --version | grep -E '^(Apple )?Swift version 6\.0(\.|$)'
+        # `swift --version` prints `Apple Swift version 6.0 (swiftlang-…)`, so the
+        # minor must be allowed to end at a space (build metadata) as well as a
+        # patch dot or end-of-line; the space case regressed when the oldest
+        # hosted Xcode began reporting a bare `6.0`.
+        run: swift --version | grep -E '^(Apple )?Swift version 6\.0(\.| |$)'
       - name: Check root and nested manifest parity
         run: python3 tools/check-swift-package-sync.py
       - name: Build root package
@@ -75,6 +80,7 @@ jobs:
   platforms:
     name: build (${{ matrix.label }})
     runs-on: macos-15
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -99,6 +105,7 @@ jobs:
   examples:
     name: examples (notes-showcase)
     runs-on: macos-15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Show Swift version

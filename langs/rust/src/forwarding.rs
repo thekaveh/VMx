@@ -1,6 +1,6 @@
 //! Transparent component and composite forwarding wrappers.
 //!
-//! Spec: `spec/13-forwarding-wrappers.md`; ADR-0028.
+//! Spec: `spec/09-forwarding.md`; ADR-0028.
 
 use super::{
     ComponentVm, CompositeVm, ConstructionStatus, Dispatcher, MessageHub, NullDispatcher,
