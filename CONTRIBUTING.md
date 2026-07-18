@@ -70,14 +70,14 @@ conformance matrix; the current source line is at full library parity.
 ```bash
 cd langs/rust
 cargo fmt --check
-cargo clippy --all-targets -- -D warnings
-cargo test --all-targets
-cargo doc --no-deps
-cargo package --allow-dirty
+cargo clippy --locked --all-targets --all-features -- -D warnings
+cargo test --locked --all-features
+RUSTDOCFLAGS="-D warnings" cargo doc --locked --all-features --no-deps
+cargo package --locked
 ```
 
-Rust's minimum supported toolchain is 1.88. Use `--locked` in CI/release
-contexts and keep the committed example lockfiles current.
+Rust's minimum supported toolchain is 1.88. Keep the committed library and
+example lockfiles current.
 
 ### 2.6 Cross-cutting checks (conformance + example-app contracts)
 

@@ -3,12 +3,12 @@
 //! Spec: `spec/06-composite-vm.md`.
 
 use super::{
-    begin_membership_transaction, begin_parent_transfer, finish_with_first_error, lock,
-    retain_first_error, Arc, AtomicBool, ComponentCore, ConstructionStatus, Dispatcher, HashSet,
-    LifecycleOperation, MembershipDisposeDisposition, MembershipTransactionControl,
-    MembershipTransactionGuard, MessageHub, Mutex, NullDispatcher, ObservableList, Ordering,
-    ParentHandle, ParentRegistration, ParentTransfer, PropertyChangedStream, TreeNode, VmNode,
-    VmxError, VmxResult,
+    begin_membership_transaction, begin_parent_transfer, catch_unwind, finish_with_first_error,
+    lock, resume_unwind, retain_first_error, retain_parent_transfer_commit, Arc, AssertUnwindSafe,
+    AtomicBool, ComponentCore, ConstructionStatus, Dispatcher, HashSet, LifecycleOperation,
+    MembershipDisposeDisposition, MembershipTransactionControl, MembershipTransactionGuard,
+    MessageHub, Mutex, NullDispatcher, ObservableList, Ordering, ParentHandle, ParentRegistration,
+    ParentTransfer, PropertyChangedStream, TreeNode, VmNode, VmxError, VmxResult,
 };
 
 type CurrentChangedCallback<T> = Arc<dyn Fn(Option<T>) + Send + Sync>;
@@ -313,9 +313,16 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                                 *lock(&commit_current) = None;
                                 commit_removed.set_current_flag(false);
                                 commit_core.notify_property_changed("current");
-                                if let Some(callback) = lock(&commit_callback).clone() {
-                                    callback(None);
+                                let callback = lock(&commit_callback).clone();
+                                let callback_panic = callback.and_then(|callback| {
+                                    catch_unwind(AssertUnwindSafe(|| callback(None))).err()
+                                });
+                                commit_items.publish_remove(index);
+                                let result = transaction.finish();
+                                if let Some(payload) = callback_panic {
+                                    resume_unwind(payload);
                                 }
+                                return result;
                             }
                             commit_items.publish_remove(index);
                             transaction.finish()
@@ -547,9 +554,16 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             }
             return Err(compensation_error.unwrap_or(error));
         }
-        let mut commit_error = transfer.and_then(|transfer| transfer.commit().err());
+        let mut commit_error = None;
+        let mut commit_panic = None;
+        if let Some(transfer) = transfer {
+            retain_parent_transfer_commit(&mut commit_error, &mut commit_panic, transfer);
+        }
         self.items.publish_add(index);
         retain_first_error(&mut commit_error, transaction.finish());
+        if let Some(payload) = commit_panic {
+            resume_unwind(payload);
+        }
         finish_with_first_error(commit_error)
     }
 
@@ -634,8 +648,9 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         }
 
         let mut commit_error = None;
+        let mut commit_panic = None;
         for transfer in transfers.into_iter().flatten() {
-            retain_first_error(&mut commit_error, transfer.commit());
+            retain_parent_transfer_commit(&mut commit_error, &mut commit_panic, transfer);
         }
         on_committed();
         for child in &candidates {
@@ -649,6 +664,9 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             }
         }
         retain_first_error(&mut commit_error, transaction.finish());
+        if let Some(payload) = commit_panic {
+            resume_unwind(payload);
+        }
         finish_with_first_error(commit_error)
     }
 
@@ -718,9 +736,16 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             }
             return Err(compensation_error.unwrap_or(error));
         }
-        let mut commit_error = transfer.and_then(|transfer| transfer.commit().err());
+        let mut commit_error = None;
+        let mut commit_panic = None;
+        if let Some(transfer) = transfer {
+            retain_parent_transfer_commit(&mut commit_error, &mut commit_panic, transfer);
+        }
         self.items.publish_add(index);
         retain_first_error(&mut commit_error, transaction.finish());
+        if let Some(payload) = commit_panic {
+            resume_unwind(payload);
+        }
         finish_with_first_error(commit_error)
     }
 
@@ -852,7 +877,11 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             }
             return Err(compensation_error.unwrap_or(error));
         }
-        let mut commit_error = transfer.and_then(|transfer| transfer.commit().err());
+        let mut commit_error = None;
+        let mut commit_panic = None;
+        if let Some(transfer) = transfer {
+            retain_parent_transfer_commit(&mut commit_error, &mut commit_panic, transfer);
+        }
         old.set_parent_handle(None);
         if lock(&self.current)
             .as_ref()
@@ -862,6 +891,9 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         }
         self.items.publish_replace(index);
         retain_first_error(&mut commit_error, transaction.finish());
+        if let Some(payload) = commit_panic {
+            resume_unwind(payload);
+        }
         match commit_error {
             Some(error) => Err(error),
             None => Ok(old),

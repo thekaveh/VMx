@@ -41,9 +41,10 @@ mod runtime;
 pub use runtime::*;
 pub(crate) use runtime::{
     begin_membership_transaction, begin_parent_transfer, evaluate_command_predicate,
-    finish_with_first_error, lock, next_id, retain_first_error, wait, ComponentCore,
-    MembershipDisposeDisposition, MembershipTransactionControl, MembershipTransactionGuard,
-    ModelHint, ParentRegistration, ParentTransfer, HIERARCHY_TOPOLOGY_GATE,
+    finish_with_first_error, lock, next_id, retain_first_error, retain_parent_transfer_commit,
+    wait, ComponentCore, MembershipDisposeDisposition, MembershipTransactionControl,
+    MembershipTransactionGuard, ModelHint, ParentRegistration, ParentTransfer,
+    HIERARCHY_TOPOLOGY_GATE,
 };
 
 mod components;

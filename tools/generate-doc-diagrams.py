@@ -28,6 +28,21 @@ CONFORMANCE_IDS = re.findall(
 )
 THEME_COUNT = sum(item.startswith("THEME-") for item in CONFORMANCE_IDS)
 LIBRARY_COUNT = len(CONFORMANCE_IDS) - THEME_COUNT
+FIXTURE_COUNT = len(list((ROOT / "spec" / "fixtures").glob("*.json")))
+NOTES_FEATURE_COUNT = len(
+    re.findall(
+        r"^\| \d+\s+\|",
+        (ROOT / "examples" / "notes-showcase-parity.md").read_text(encoding="utf-8"),
+        re.MULTILINE,
+    )
+)
+_CAPABILITY_COUNT_MATCH = re.search(
+    r"lists the (\d+) capability interfaces",
+    (ROOT / "spec" / "14-capabilities.md").read_text(encoding="utf-8"),
+)
+if _CAPABILITY_COUNT_MATCH is None:
+    raise ValueError("spec/14-capabilities.md must declare the capability interface count")
+CAPABILITY_COUNT = int(_CAPABILITY_COUNT_MATCH.group(1))
 PNG_WIDTH = 3200
 TRIPLET_BASES = (
     Path("assets/architecture"),
@@ -175,7 +190,7 @@ def html_doc(title: str, subtitle: str, svg: str, cards: list[tuple[str, list[st
     .card {{ padding: 18px; border: 1px solid #1e293b; border-radius: 12px; background: rgba(15, 23, 42, 0.58); }}
     .card h2 {{ margin: 0 0 10px; font-size: 15px; }}
     .card ul {{ margin: 0; padding-left: 18px; color: #cbd5e1; font-size: 12px; line-height: 1.55; }}
-    footer {{ margin-top: 24px; text-align: center; color: #64748b; font-size: 12px; }}
+    footer {{ margin-top: 24px; text-align: center; color: #94a3b8; font-size: 12px; }}
   </style>
 </head>
 <body>
@@ -262,7 +277,7 @@ def architecture(output_root: Path) -> None:
                 f"{SPEC_CHAPTER_COUNT} chapters",
                 f"{ADR_COUNT} ADRs",
                 f"{len(CONFORMANCE_IDS)} conformance IDs",
-                "4 JSON fixtures",
+                f"{FIXTURE_COUNT} JSON fixtures",
             ),
             "cloud",
         ),
@@ -369,7 +384,7 @@ def architecture(output_root: Path) -> None:
             "Example Portfolio",
             (
                 "Notes Workspace flagships: Avalonia, Textual, React, SwiftUI",
-                "19 VMx features: hierarchy, forms, derived state, dialogs, notifications, token paging, discriminator modes",
+                f"{NOTES_FEATURE_COUNT} VMx features: hierarchy, forms, derived state, dialogs, notifications, token paging, discriminator modes",
                 "Smaller demos exercise console, WPF, Tk, inspector, and integration recipes",
             ),
             "generic",
@@ -410,7 +425,7 @@ def architecture(output_root: Path) -> None:
         (
             "Examples",
             [
-                "Notes Workspace now covers 19 VMx features.",
+                f"Notes Workspace now covers {NOTES_FEATURE_COUNT} VMx features.",
                 "Global search uses TokenPagedComposition.",
                 "Editor mode uses DiscriminatorVM.",
             ],
@@ -568,7 +583,7 @@ def class_diagram(output_root: Path) -> None:
             150,
             "Capabilities",
             (
-                "22 micro-interfaces",
+                f"{CAPABILITY_COUNT} micro-interfaces",
                 "select / expand / close",
                 "search / filter / page",
                 "CRUD and dialog contracts",
@@ -623,7 +638,7 @@ def class_diagram(output_root: Path) -> None:
             [
                 "Every flavor implements the shared normative concepts.",
                 "Names are idiomatic per language.",
-                "All five flavors cover 396 library IDs.",
+                f"All five flavors cover {LIBRARY_COUNT} library IDs.",
                 "Four UI-backed examples cover the five THEME scenarios.",
             ],
         ),
@@ -810,7 +825,7 @@ def showcase_hierarchy(output_root: Path) -> None:
         output_root,
         Path("examples/assets/notes-showcase-vm-hierarchy"),
         "Notes Showcase VM Hierarchy",
-        "19-feature flagship hierarchy across C#, Python, TypeScript, and Swift",
+        f"{NOTES_FEATURE_COUNT}-feature flagship hierarchy across C#, Python, TypeScript, and Swift",
         1600,
         900,
         body,
@@ -917,7 +932,12 @@ def showcase_components(output_root: Path) -> None:
             330,
             145,
             "Example Contract",
-            ("19 parity rows", "THEME-001..005", "layer purity checks", "cross-flavor tests"),
+            (
+                f"{NOTES_FEATURE_COUNT} parity rows",
+                "THEME-001..005",
+                "layer purity checks",
+                "cross-flavor tests",
+            ),
             "cloud",
         ),
     ]

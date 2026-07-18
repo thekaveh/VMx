@@ -23,7 +23,8 @@ rows remain open. The current maintenance branch resolves §12.3.1 (baseline
 lifecycle capability ownership), the trait-implementation portion of §12.3.6,
 and the composite remove/current ordering item in §12.4.7. It also fixes Rust
 inline-dispatch selection deadlock, idempotent lifecycle capability predicates,
-and atomic container-admission races found after this ledger was filed. Sections
+atomic container-admission races, and the full forwarding-component delegation
+surface found after this ledger was filed. Sections
 12.3.2–12.3.5, the constructor/disposal portion of §12.3.6, §12.3.7,
 §12.4.1–12.4.6, and the remaining §12.4.7 bullets stay explicitly open.
 
@@ -117,22 +118,23 @@ the term read/write and CAP-008 sets `f.search_term = "abc"`. `SearchableState`
 already has a setter, but the capability trait does not expose it.
 
 Proposed fix: add a `set_search_term` member (interior-mutable, matching
-`SearchableState`) and drive CAP-008 through it.
+`SearchableState`), implement `Searchable` on `SearchableState`, and drive
+CAP-008 through that concrete helper.
 
 ### 12.3.6. ExpandableState Is Missing Members
 
-Rust's `ExpandableState` lacks `can_toggle_expansion`, an `initially_expanded`
-constructor knob, and `dispose`, and does not implement the
-`Expandable` / `Collapsible` / `ExpansionTogglable` triple that
-`spec/05-component-vm.md` declares for it. The four peers implement all of this
-(for example C# `ExpandableState(bool initiallyExpanded = false)` with
-`CanToggleExpansion()` and `Dispose()`).
+Rust's `ExpandableState` now exposes `can_toggle_expansion` and implements the
+`Expandable` / `Collapsible` / `ExpansionTogglable` triple. It still lacks an
+`initially_expanded` constructor knob and `dispose`; the incomplete
+`Expandable` trait in §12.3.4 also keeps the implementation from exposing
+`is_expanded` through the capability itself. The four peers implement the
+remaining surface (for example C#
+`ExpandableState(bool initiallyExpanded = false)` with `Dispose()`).
 
-Proposed fix: add `can_toggle_expansion() -> bool` (returns `true`, matching the
-peers), an additive `new_expanded()` / `with_initial(bool)` constructor
-(ADR-0099 §2.1 sets the additive-constructor precedent), a `dispose()` that
-disposes the owned hub, and the three capability impls once §3.4's `is_expanded`
-lands.
+Proposed fix: add an additive `new_expanded()` / `with_initial(bool)`
+constructor (ADR-0099 §2.1 sets the additive-constructor precedent), a
+`dispose()` that disposes the owned hub, and complete the existing capability
+implementation when §12.3.4's `is_expanded` lands.
 
 ### 12.3.7. SearchableState Retains The Term After Disposal
 
@@ -205,12 +207,15 @@ no-op when invalid, matching the peers), keeping strict/dirty on
 `approve_command`'s `can_execute`. Add a Rust conformance assertion for the
 strict-clean-valid direct-approve case.
 
-### 12.4.5. Base ComponentVm Surface Is Narrower (Informational)
+### 12.4.5. Base ComponentVm Type Surface Is Narrower (Informational)
 
-Rust's base `ComponentVm` omits `type`/`view_model_type`, the `can_*()` selection
-gates, and four of the five built-in commands (only `select_command`), so the Rust
-forwarder cannot forward them. This is a broader base-surface parity question, not
-a forwarding defect; recorded here for a coordinated look during the follow-up.
+**Partially resolved on the current maintenance branch.** Rust's base
+`ComponentVm` now exposes the selection gates and all five built-in commands,
+and `ForwardingComponentVm` delegates those members plus expansion state through
+real nested decorator layers. The remaining base-surface difference is the
+absence of `type` / `view_model_type`. That is a broader Rust type-taxonomy
+question rather than a forwarding defect and remains recorded for the focused
+follow-up.
 
 ### 12.4.6. DerivedProperty Does Not Subscribe To Sources Or Auto-Recompute
 

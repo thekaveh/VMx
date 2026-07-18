@@ -132,9 +132,9 @@ normal develop/main PR flow before marking the issue complete.
 ### 5.1 Failure before publication
 
 Fix the failure through the normal PR flow. If crates.io has not accepted the
-version and no GitHub Release exists, remove the unused failed tag, land the
-fix on `main`, and tag the new commit. Once either public artifact exists, do
-not move or reuse the tag/version.
+version and no GitHub Release exists, leave the failed tag immutable, land the
+fix on `main`, and release a new patch version and tag. Never delete, move, or
+reuse a release tag, even when publication did not start.
 
 ### 5.2 Authentication failure
 

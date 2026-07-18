@@ -4,11 +4,11 @@
 
 use super::{
     begin_membership_transaction, begin_parent_transfer, finish_with_first_error, lock,
-    retain_first_error, Arc, AtomicBool, ComponentCore, ConstructionStatus, Dispatcher, HashSet,
-    LifecycleOperation, MembershipDisposeDisposition, MembershipTransactionControl,
-    MembershipTransactionGuard, MessageHub, Mutex, NullDispatcher, ObservableList, Ordering,
-    ParentHandle, ParentRegistration, ParentTransfer, PropertyChangedStream, RelayCommand,
-    VmCollection, VmNode, VmxError, VmxResult,
+    resume_unwind, retain_first_error, retain_parent_transfer_commit, Arc, AtomicBool,
+    ComponentCore, ConstructionStatus, Dispatcher, HashSet, LifecycleOperation,
+    MembershipDisposeDisposition, MembershipTransactionControl, MembershipTransactionGuard,
+    MessageHub, Mutex, NullDispatcher, ObservableList, Ordering, ParentHandle, ParentRegistration,
+    ParentTransfer, PropertyChangedStream, RelayCommand, VmCollection, VmNode, VmxError, VmxResult,
 };
 
 type ChildrenFactory<T> = Arc<dyn Fn() -> Vec<T> + Send + Sync>;
@@ -245,9 +245,16 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             }
             return Err(compensation_error.unwrap_or(error));
         }
-        let mut commit_error = transfer.and_then(|transfer| transfer.commit().err());
+        let mut commit_error = None;
+        let mut commit_panic = None;
+        if let Some(transfer) = transfer {
+            retain_parent_transfer_commit(&mut commit_error, &mut commit_panic, transfer);
+        }
         self.items.publish_add(index);
         retain_first_error(&mut commit_error, transaction.finish());
+        if let Some(payload) = commit_panic {
+            resume_unwind(payload);
+        }
         finish_with_first_error(commit_error)
     }
 
@@ -332,8 +339,9 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
         }
 
         let mut commit_error = None;
+        let mut commit_panic = None;
         for transfer in transfers.into_iter().flatten() {
-            retain_first_error(&mut commit_error, transfer.commit());
+            retain_parent_transfer_commit(&mut commit_error, &mut commit_panic, transfer);
         }
         on_committed();
         for child in &candidates {
@@ -347,6 +355,9 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             }
         }
         retain_first_error(&mut commit_error, transaction.finish());
+        if let Some(payload) = commit_panic {
+            resume_unwind(payload);
+        }
         finish_with_first_error(commit_error)
     }
 
@@ -416,9 +427,16 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             }
             return Err(compensation_error.unwrap_or(error));
         }
-        let mut commit_error = transfer.and_then(|transfer| transfer.commit().err());
+        let mut commit_error = None;
+        let mut commit_panic = None;
+        if let Some(transfer) = transfer {
+            retain_parent_transfer_commit(&mut commit_error, &mut commit_panic, transfer);
+        }
         self.items.publish_add(index);
         retain_first_error(&mut commit_error, transaction.finish());
+        if let Some(payload) = commit_panic {
+            resume_unwind(payload);
+        }
         finish_with_first_error(commit_error)
     }
 
@@ -540,10 +558,17 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             }
             return Err(compensation_error.unwrap_or(error));
         }
-        let mut commit_error = transfer.and_then(|transfer| transfer.commit().err());
+        let mut commit_error = None;
+        let mut commit_panic = None;
+        if let Some(transfer) = transfer {
+            retain_parent_transfer_commit(&mut commit_error, &mut commit_panic, transfer);
+        }
         old.set_parent_handle(None);
         self.items.publish_replace(index);
         retain_first_error(&mut commit_error, transaction.finish());
+        if let Some(payload) = commit_panic {
+            resume_unwind(payload);
+        }
         match commit_error {
             Some(error) => Err(error),
             None => Ok(old),

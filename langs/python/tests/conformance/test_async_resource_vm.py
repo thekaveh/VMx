@@ -419,6 +419,32 @@ async def test_ares_011_dispose_cancels_and_late_completion_is_inert() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.conformance("ARES-011")
+async def test_ares_011_dispose_cleans_retained_value_after_terminal_observer_error() -> None:
+    class ObserverFailure(BaseException):
+        pass
+
+    cleaned: list[int] = []
+
+    async def loader() -> int:
+        return 7
+
+    vm = _vm(loader, cleanup=cleaned.append)
+    await vm.load()
+    vm.load_command.can_execute_changed.subscribe(
+        on_completed=lambda: (_ for _ in ()).throw(ObserverFailure())
+    )
+
+    with pytest.raises(ObserverFailure):
+        vm.dispose()
+
+    assert cleaned == [7]
+    assert not vm.load_command.can_execute()
+    assert not vm.reload_command.can_execute()
+    assert not vm.cancel_command.can_execute()
+
+
+@pytest.mark.asyncio
+@pytest.mark.conformance("ARES-011")
 async def test_ares_011_late_base_exception_is_observed_after_disposal() -> None:
     class LoaderAbort(BaseException):
         pass

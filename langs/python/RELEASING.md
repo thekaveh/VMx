@@ -146,7 +146,9 @@ gh release view python-v2.6.1
 
 ### 4.1 `python-test` failed
 
-The publish never reaches the build job. Fix the broken test on `main` and re-cut the tag — but since release-please-driven releases bump the version on the release PR, the tag for the same version will be different commits and the fix lands in a follow-up patch release.
+The publish never reaches the build job. Leave the failed tag immutable, fix
+the broken test on `main`, and let release-please prepare a follow-up patch
+release with a new version and tag.
 
 ### 4.2 `python-build-and-publish` approval declined
 
@@ -166,7 +168,12 @@ This means PyPI accepted the upload but the package can't be installed or import
 
 ### 4.5 `python-release-notes` failed
 
-If the GitHub Release didn't get created (e.g., CHANGELOG section missing), re-run that job alone from the Actions UI after fixing the CHANGELOG. The PyPI artifact is already live.
+If the GitHub Release was not created, first determine whether the immutable
+tag commit already contains the correct changelog section. Re-run the job only
+for a transient failure when that tagged content is correct. If the tag itself
+has incomplete notes, use an audited manual GitHub Release recovery from the
+published version's notes or fix forward; a later `main` edit cannot change the
+tagged workflow input. The PyPI artifact is already live.
 
 ## 5. Tag scheme and multi-flavor coexistence
 

@@ -3,195 +3,425 @@
 //! Spec: `spec/09-forwarding.md`; ADR-0028.
 
 use super::{
-    ComponentVm, CompositeVm, ConstructionStatus, Dispatcher, MessageHub, NullDispatcher,
+    Arc, ComponentVm, CompositeVm, ConstructionStatus, Dispatcher, MessageHub, NullDispatcher,
     ParentHandle, PropertyChangedStream, RelayCommand, VmNode, VmxResult,
 };
 
 #[derive(Clone)]
+enum ForwardingComponentInner<M: Clone + PartialEq + Send + 'static, D: Dispatcher = NullDispatcher>
+{
+    Component(Box<ComponentVm<M, D>>),
+    Forwarding(Box<ForwardingComponentVm<M, D>>),
+}
+
+#[derive(Clone)]
 /// A component wrapper that forwards the complete baseline surface to an inner VM.
+///
+/// Rust uses explicit closure hooks instead of inheritance for selective
+/// overrides. Nested wrappers retain every decorator layer while sharing the
+/// wrapped component's canonical ownership identity.
 pub struct ForwardingComponentVm<
     M: Clone + PartialEq + Send + 'static,
     D: Dispatcher = NullDispatcher,
 > {
-    inner: ComponentVm<M, D>,
+    inner: ForwardingComponentInner<M, D>,
+    hint_override: Option<Arc<dyn Fn() -> Option<String> + Send + Sync>>,
 }
 
 impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ForwardingComponentVm<M, D> {
-    /// Wraps a component or transparent forwarding wrapper without taking
-    /// additional lifecycle ownership.
-    pub fn new(inner: impl Into<ComponentVm<M, D>>) -> Self {
+    /// Wraps a component without taking additional lifecycle ownership.
+    pub fn new(inner: ComponentVm<M, D>) -> Self {
         Self {
-            inner: inner.into(),
+            inner: ForwardingComponentInner::Component(Box::new(inner)),
+            hint_override: None,
         }
+    }
+
+    /// Adds a real decorator layer around an existing forwarding component.
+    pub fn wrap(inner: Self) -> Self {
+        Self {
+            inner: ForwardingComponentInner::Forwarding(Box::new(inner)),
+            hint_override: None,
+        }
+    }
+
+    /// Configures the wrapped component's model-derived hint while retaining
+    /// every forwarding layer.
+    pub fn with_model_hint<F>(self, hint: F) -> Self
+    where
+        F: Fn(&M) -> Option<String> + Send + Sync + 'static,
+    {
+        let Self {
+            inner,
+            hint_override,
+        } = self;
+        let inner = match inner {
+            ForwardingComponentInner::Component(inner) => {
+                ForwardingComponentInner::Component(Box::new((*inner).with_model_hint(hint)))
+            }
+            ForwardingComponentInner::Forwarding(inner) => {
+                ForwardingComponentInner::Forwarding(Box::new((*inner).with_model_hint(hint)))
+            }
+        };
+        Self {
+            inner,
+            hint_override,
+        }
+    }
+
+    /// Overrides only the presentation hint for this decorator layer.
+    pub fn with_hint_override<F>(mut self, override_hint: F) -> Self
+    where
+        F: Fn() -> Option<String> + Send + Sync + 'static,
+    {
+        self.hint_override = Some(Arc::new(override_hint));
+        self
     }
 
     /// Borrows the wrapped component.
     pub fn inner(&self) -> &ComponentVm<M, D> {
-        &self.inner
+        match &self.inner {
+            ForwardingComponentInner::Component(inner) => inner,
+            ForwardingComponentInner::Forwarding(inner) => inner.inner(),
+        }
     }
 
     /// Returns the wrapped component's identity.
     pub fn id(&self) -> usize {
-        self.inner.id()
+        self.inner().id()
     }
 
     /// Returns the wrapped component's name.
     pub fn name(&self) -> String {
-        self.inner.name()
+        match &self.inner {
+            ForwardingComponentInner::Component(inner) => inner.name(),
+            ForwardingComponentInner::Forwarding(inner) => inner.name(),
+        }
     }
 
     /// Returns the wrapped component's static hint.
     pub fn hint(&self) -> Option<String> {
-        self.inner.hint()
+        self.hint_override.as_ref().map_or_else(
+            || match &self.inner {
+                ForwardingComponentInner::Component(inner) => inner.hint(),
+                ForwardingComponentInner::Forwarding(inner) => inner.hint(),
+            },
+            |override_hint| override_hint(),
+        )
     }
 
     /// Returns the wrapped component's model-derived hint.
     pub fn modeled_hint(&self) -> Option<String> {
-        self.inner.modeled_hint()
+        match &self.inner {
+            ForwardingComponentInner::Component(inner) => inner.modeled_hint(),
+            ForwardingComponentInner::Forwarding(inner) => inner.modeled_hint(),
+        }
     }
 
     /// Returns the wrapped component's model.
     pub fn model(&self) -> M {
-        self.inner.model()
+        match &self.inner {
+            ForwardingComponentInner::Component(inner) => inner.model(),
+            ForwardingComponentInner::Forwarding(inner) => inner.model(),
+        }
     }
 
     /// Replaces the wrapped component's model.
     pub fn set_model(&self, model: M) {
-        self.inner.set_model(model);
+        match &self.inner {
+            ForwardingComponentInner::Component(inner) => inner.set_model(model),
+            ForwardingComponentInner::Forwarding(inner) => inner.set_model(model),
+        }
     }
 
     /// Republishes the wrapped component's retained model notification.
     pub fn republish_model(&self) {
-        self.inner.republish_model();
+        match &self.inner {
+            ForwardingComponentInner::Component(inner) => inner.republish_model(),
+            ForwardingComponentInner::Forwarding(inner) => inner.republish_model(),
+        }
+    }
+
+    /// Replaces the wrapped component's construction hook.
+    pub fn on_construct<F>(&self, hook: F)
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        match &self.inner {
+            ForwardingComponentInner::Component(inner) => inner.on_construct(hook),
+            ForwardingComponentInner::Forwarding(inner) => inner.on_construct(hook),
+        }
+    }
+
+    /// Replaces the wrapped component's destruction hook.
+    pub fn on_destruct<F>(&self, hook: F)
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        match &self.inner {
+            ForwardingComponentInner::Component(inner) => inner.on_destruct(hook),
+            ForwardingComponentInner::Forwarding(inner) => inner.on_destruct(hook),
+        }
+    }
+
+    /// Replaces the wrapped component's disposal hook.
+    pub fn on_dispose<F>(&self, hook: F)
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        match &self.inner {
+            ForwardingComponentInner::Component(inner) => inner.on_dispose(hook),
+            ForwardingComponentInner::Forwarding(inner) => inner.on_dispose(hook),
+        }
     }
 
     /// Constructs the wrapped component.
     pub fn construct(&self) -> VmxResult<()> {
-        self.inner.construct()
+        match &self.inner {
+            ForwardingComponentInner::Component(inner) => inner.construct(),
+            ForwardingComponentInner::Forwarding(inner) => inner.construct(),
+        }
     }
 
     /// Destructs the wrapped component.
     pub fn destruct(&self) -> VmxResult<()> {
-        self.inner.destruct()
+        match &self.inner {
+            ForwardingComponentInner::Component(inner) => inner.destruct(),
+            ForwardingComponentInner::Forwarding(inner) => inner.destruct(),
+        }
     }
 
     /// Disposes the wrapped component.
     pub fn dispose(&self) -> VmxResult<()> {
-        self.inner.dispose()
+        match &self.inner {
+            ForwardingComponentInner::Component(inner) => inner.dispose(),
+            ForwardingComponentInner::Forwarding(inner) => inner.dispose(),
+        }
     }
 
     /// Returns the wrapped component's lifecycle status.
     pub fn status(&self) -> ConstructionStatus {
-        self.inner.status()
+        match &self.inner {
+            ForwardingComponentInner::Component(inner) => inner.status(),
+            ForwardingComponentInner::Forwarding(inner) => inner.status(),
+        }
     }
 
     /// Reconstructs the wrapped component.
     pub fn reconstruct(&self) -> VmxResult<()> {
-        self.inner.reconstruct()
+        match &self.inner {
+            ForwardingComponentInner::Component(inner) => inner.reconstruct(),
+            ForwardingComponentInner::Forwarding(inner) => inner.reconstruct(),
+        }
     }
 
     /// Reports whether the wrapped component is constructed.
     pub fn is_constructed(&self) -> bool {
-        self.inner.is_constructed()
+        match &self.inner {
+            ForwardingComponentInner::Component(inner) => inner.is_constructed(),
+            ForwardingComponentInner::Forwarding(inner) => inner.is_constructed(),
+        }
     }
 
     /// Returns the wrapped component's parent identity, when attached.
     pub fn parent_id(&self) -> Option<usize> {
-        self.inner.parent_id()
+        self.inner().parent_id()
     }
 
     /// Returns the wrapped component's selection command.
     pub fn select_command(&self) -> RelayCommand {
-        self.inner.select_command()
+        match &self.inner {
+            ForwardingComponentInner::Component(inner) => inner.select_command(),
+            ForwardingComponentInner::Forwarding(inner) => inner.select_command(),
+        }
+    }
+
+    /// Returns the wrapped component's deselection command.
+    pub fn deselect_command(&self) -> RelayCommand {
+        match &self.inner {
+            ForwardingComponentInner::Component(inner) => inner.deselect_command(),
+            ForwardingComponentInner::Forwarding(inner) => inner.deselect_command(),
+        }
+    }
+
+    /// Returns the wrapped component's next-sibling selection command.
+    pub fn select_next_command(&self) -> RelayCommand {
+        match &self.inner {
+            ForwardingComponentInner::Component(inner) => inner.select_next_command(),
+            ForwardingComponentInner::Forwarding(inner) => inner.select_next_command(),
+        }
+    }
+
+    /// Returns the wrapped component's previous-sibling selection command.
+    pub fn select_previous_command(&self) -> RelayCommand {
+        match &self.inner {
+            ForwardingComponentInner::Component(inner) => inner.select_previous_command(),
+            ForwardingComponentInner::Forwarding(inner) => inner.select_previous_command(),
+        }
+    }
+
+    /// Returns the wrapped component's reconstruction command.
+    pub fn reconstruct_command(&self) -> RelayCommand {
+        match &self.inner {
+            ForwardingComponentInner::Component(inner) => inner.reconstruct_command(),
+            ForwardingComponentInner::Forwarding(inner) => inner.reconstruct_command(),
+        }
+    }
+
+    /// Reports whether the wrapped component can select itself.
+    pub fn can_select(&self) -> bool {
+        match &self.inner {
+            ForwardingComponentInner::Component(inner) => inner.can_select(),
+            ForwardingComponentInner::Forwarding(inner) => inner.can_select(),
+        }
     }
 
     /// Selects the wrapped component.
     pub fn select(&self) {
-        self.inner.select();
+        match &self.inner {
+            ForwardingComponentInner::Component(inner) => inner.select(),
+            ForwardingComponentInner::Forwarding(inner) => inner.select(),
+        }
+    }
+
+    /// Reports whether the wrapped component can deselect itself.
+    pub fn can_deselect(&self) -> bool {
+        match &self.inner {
+            ForwardingComponentInner::Component(inner) => inner.can_deselect(),
+            ForwardingComponentInner::Forwarding(inner) => inner.can_deselect(),
+        }
     }
 
     /// Deselects the wrapped component.
     pub fn deselect(&self) {
-        self.inner.deselect();
+        match &self.inner {
+            ForwardingComponentInner::Component(inner) => inner.deselect(),
+            ForwardingComponentInner::Forwarding(inner) => inner.deselect(),
+        }
     }
 
     /// Reports whether the wrapped component is selected.
     pub fn is_selected(&self) -> bool {
-        self.inner.is_selected()
+        self.is_current()
+    }
+
+    /// Reports whether the wrapped component is current in its parent.
+    pub fn is_current(&self) -> bool {
+        self.inner().is_current()
+    }
+
+    /// Expands the wrapped component.
+    pub fn expand(&self) {
+        match &self.inner {
+            ForwardingComponentInner::Component(inner) => inner.expand(),
+            ForwardingComponentInner::Forwarding(inner) => inner.expand(),
+        }
+    }
+
+    /// Collapses the wrapped component.
+    pub fn collapse(&self) {
+        match &self.inner {
+            ForwardingComponentInner::Component(inner) => inner.collapse(),
+            ForwardingComponentInner::Forwarding(inner) => inner.collapse(),
+        }
+    }
+
+    /// Toggles the wrapped component's expansion state.
+    pub fn toggle_expansion(&self) {
+        match &self.inner {
+            ForwardingComponentInner::Component(inner) => inner.toggle_expansion(),
+            ForwardingComponentInner::Forwarding(inner) => inner.toggle_expansion(),
+        }
+    }
+
+    /// Reports whether the wrapped component is expanded.
+    pub fn is_expanded(&self) -> bool {
+        match &self.inner {
+            ForwardingComponentInner::Component(inner) => inner.is_expanded(),
+            ForwardingComponentInner::Forwarding(inner) => inner.is_expanded(),
+        }
     }
 
     /// Returns the wrapped component's local property-change stream.
     pub fn property_changed(&self) -> PropertyChangedStream {
-        self.inner.property_changed()
+        match &self.inner {
+            ForwardingComponentInner::Component(inner) => inner.property_changed(),
+            ForwardingComponentInner::Forwarding(inner) => inner.property_changed(),
+        }
     }
 
     /// Returns the wrapped component's message hub.
     pub fn hub(&self) -> MessageHub {
-        self.inner.hub()
+        match &self.inner {
+            ForwardingComponentInner::Component(inner) => inner.hub(),
+            ForwardingComponentInner::Forwarding(inner) => inner.hub(),
+        }
     }
 
     /// Registers a resource cleanup with the wrapped component.
     pub fn own<F: FnOnce() + Send + 'static>(&self, cleanup: F) {
-        self.inner.own(cleanup);
+        match &self.inner {
+            ForwardingComponentInner::Component(inner) => inner.own(cleanup),
+            ForwardingComponentInner::Forwarding(inner) => inner.own(cleanup),
+        }
     }
 
     /// Publishes a property change through the wrapped component.
     pub fn notify_property_changed(&self, property_name: impl Into<String>) {
-        self.inner.notify_property_changed(property_name);
-    }
-}
-
-impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> From<ForwardingComponentVm<M, D>>
-    for ComponentVm<M, D>
-{
-    fn from(forwarding: ForwardingComponentVm<M, D>) -> Self {
-        forwarding.inner
+        match &self.inner {
+            ForwardingComponentInner::Component(inner) => {
+                inner.notify_property_changed(property_name)
+            }
+            ForwardingComponentInner::Forwarding(inner) => {
+                inner.notify_property_changed(property_name)
+            }
+        }
     }
 }
 
 impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> VmNode for ForwardingComponentVm<M, D> {
     fn id(&self) -> usize {
-        self.inner.id()
+        self.id()
     }
 
     fn construct(&self) -> VmxResult<()> {
-        self.inner.construct()
+        self.construct()
     }
 
     fn destruct(&self) -> VmxResult<()> {
-        self.inner.destruct()
+        self.destruct()
     }
 
     fn dispose(&self) -> VmxResult<()> {
-        self.inner.dispose()
+        self.dispose()
     }
 
     fn status(&self) -> ConstructionStatus {
-        self.inner.status()
+        self.status()
     }
 
     fn set_parent_id(&self, parent_id: Option<usize>) {
-        self.inner.set_parent_id(parent_id);
+        self.inner().set_parent_id(parent_id);
     }
 
     fn parent_id(&self) -> Option<usize> {
-        self.inner.parent_id()
+        self.parent_id()
     }
 
     fn set_parent_handle(&self, parent: Option<ParentHandle>) {
-        self.inner.set_parent_handle(parent);
+        self.inner().set_parent_handle(parent);
     }
 
     fn parent_handle(&self) -> Option<ParentHandle> {
-        self.inner.parent_handle()
+        self.inner().parent_handle()
     }
 
     fn set_current_flag(&self, is_current: bool) {
-        self.inner.set_current_flag(is_current);
+        self.inner().set_current_flag(is_current);
     }
 
     fn is_current(&self) -> bool {
-        self.inner.is_current()
+        self.is_current()
     }
 }
 
@@ -199,7 +429,7 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> PartialEq
     for ForwardingComponentVm<M, D>
 {
     fn eq(&self, other: &Self) -> bool {
-        self.inner == other.inner
+        self.id() == other.id()
     }
 }
 

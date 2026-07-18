@@ -1,3 +1,4 @@
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
@@ -1127,6 +1128,109 @@ fn transfer_publishes_remove_before_add() {
     destination.add(item).unwrap();
 
     assert_eq!(*order.lock().unwrap(), vec!["remove", "add"]);
+}
+
+/// COMP-041 — A throwing old-current callback cannot suppress committed events.
+#[test]
+fn transfer_finishes_publication_before_resuming_old_current_panic() {
+    let old_hub = MessageHub::new();
+    let destination_hub = MessageHub::new();
+    let old_parent = vmx::CompositeVm::with_services("old", old_hub.clone(), NullDispatcher::new());
+    let destination = vmx::CompositeVm::with_services(
+        "destination",
+        destination_hub.clone(),
+        NullDispatcher::new(),
+    );
+    let item = child("ordered");
+    old_parent.add(item.clone()).unwrap();
+    old_parent.set_current(Some(item.clone())).unwrap();
+    old_parent.on_current_changed(|_| panic!("old current callback failed"));
+
+    let order = Arc::new(Mutex::new(Vec::new()));
+    let old_order = Arc::clone(&order);
+    let _old_subscription = old_hub.subscribe(move |message| {
+        if matches!(message, Message::CollectionChanged(change) if change.action == CollectionChangeAction::Remove)
+        {
+            old_order.lock().unwrap().push("remove");
+        }
+    });
+    let destination_order = Arc::clone(&order);
+    let _destination_subscription = destination_hub.subscribe(move |message| {
+        if matches!(message, Message::CollectionChanged(change) if change.action == CollectionChangeAction::Add)
+        {
+            destination_order.lock().unwrap().push("add");
+        }
+    });
+
+    let outcome = catch_unwind(AssertUnwindSafe(|| destination.add(item.clone())));
+
+    assert!(outcome.is_err());
+    assert!(old_parent.is_empty());
+    assert!(old_parent.current().is_none());
+    assert_eq!(destination.items(), vec![item]);
+    assert_eq!(*order.lock().unwrap(), vec!["remove", "add"]);
+}
+
+/// COMP-041 — Group destinations also finish transfer publication before panic.
+#[test]
+fn transfer_to_group_finishes_publication_before_resuming_old_current_panic() {
+    let old_hub = MessageHub::new();
+    let destination_hub = MessageHub::new();
+    let old_parent = vmx::CompositeVm::with_services("old", old_hub.clone(), NullDispatcher::new());
+    let destination = vmx::GroupVm::with_services(
+        "destination",
+        destination_hub.clone(),
+        NullDispatcher::new(),
+    );
+    let item = child("ordered");
+    old_parent.add(item.clone()).unwrap();
+    old_parent.set_current(Some(item.clone())).unwrap();
+    old_parent.on_current_changed(|_| panic!("old current callback failed"));
+
+    let order = Arc::new(Mutex::new(Vec::new()));
+    let old_order = Arc::clone(&order);
+    let _old_subscription = old_hub.subscribe(move |message| {
+        if matches!(message, Message::CollectionChanged(change) if change.action == CollectionChangeAction::Remove)
+        {
+            old_order.lock().unwrap().push("remove");
+        }
+    });
+    let destination_order = Arc::clone(&order);
+    let _destination_subscription = destination_hub.subscribe(move |message| {
+        if matches!(message, Message::CollectionChanged(change) if change.action == CollectionChangeAction::Add)
+        {
+            destination_order.lock().unwrap().push("add");
+        }
+    });
+
+    let outcome = catch_unwind(AssertUnwindSafe(|| destination.add(item.clone())));
+
+    assert!(outcome.is_err());
+    assert!(old_parent.is_empty());
+    assert_eq!(destination.items(), vec![item]);
+    assert_eq!(*order.lock().unwrap(), vec!["remove", "add"]);
+}
+
+/// COMP-041 — Transfer callbacks may replace themselves without deadlocking.
+#[test]
+fn transfer_old_current_callback_can_replace_itself() {
+    let old_parent = vmx::CompositeVm::new("old");
+    let destination = vmx::CompositeVm::new("destination");
+    let item = child("replace-callback");
+    old_parent.add(item.clone()).unwrap();
+    old_parent.set_current(Some(item.clone())).unwrap();
+    let callback_parent = old_parent.clone();
+    old_parent.on_current_changed(move |_| callback_parent.on_current_changed(|_| {}));
+
+    let (sender, receiver) = mpsc::channel();
+    let destination_for_transfer = destination.clone();
+    std::thread::spawn(move || {
+        let _ = sender.send(destination_for_transfer.add(item));
+    });
+
+    assert_eq!(receiver.recv_timeout(Duration::from_secs(1)), Ok(Ok(())));
+    assert!(old_parent.is_empty());
+    assert_eq!(destination.len(), 1);
 }
 
 /// COMP-013 — BatchUpdate suppresses per-mutation events and emits one Reset

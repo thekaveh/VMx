@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -60,3 +61,47 @@ def test_contract_ledger_matches_docs_and_dom_tooling() -> None:
     assert '"jsdom": "^29.1.1"' in typescript_package
     assert '"jsdom": "^29.1.1"' in react_package
     assert "jsdom `29.1.1`" in ledger
+
+
+def test_showcase_docs_match_current_react_and_swift_sources() -> None:
+    package = json.loads(
+        (ROOT / "examples/typescript/react/notes-showcase/package.json").read_text(encoding="utf-8")
+    )
+    react_major = package["dependencies"]["react"].lstrip("^").split(".", maxsplit=1)[0]
+    parity = (ROOT / "examples/notes-showcase-parity.md").read_text(encoding="utf-8")
+    assert f"React {react_major} + Vite" in parity
+
+    swift_root = ROOT / "examples/swift/notes-showcase"
+    swift_sources = "\n".join(
+        path.read_text(encoding="utf-8") for path in sorted(swift_root.rglob("*.swift"))
+    )
+    assert re.search(r"task-[0-9]+-brief\.md", swift_sources, re.IGNORECASE) is None
+    assert "BindableDerived sidecars are not implemented in Swift yet" not in swift_sources
+
+
+def test_python_release_notes_recovery_respects_immutable_tag_contents() -> None:
+    runbook = (ROOT / "langs/python/RELEASING.md").read_text(encoding="utf-8")
+
+    assert "re-run that job alone from the Actions UI after fixing the CHANGELOG" not in runbook
+    assert re.search(r"immutable\s+tag commit", runbook)
+
+
+def test_cross_flavor_catalogue_contains_only_current_numbered_entries() -> None:
+    catalogue = (ROOT / "spec/ADRs/0009-cross-flavor-divergence-catalogue.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert re.search(r"^### (?!\d+\.\d+\s)", catalogue, re.MULTILINE) is None
+    assert "legacy alias still ships in v2.0.0" not in catalogue
+    assert "does **not** conform `CompositeVM` or `GroupVM` to `Sequence`" not in catalogue
+    assert "model-set-after-dispose is\n  **unspecified**" not in catalogue
+
+
+def test_rust_parity_ledger_does_not_reopen_resolved_surface_work() -> None:
+    ledger = (ROOT / "docs/maintenance/2026-07-16-rust-capability-parity.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "four of the five built-in commands" not in ledger
+    assert "does not implement the\n`Expandable` / `Collapsible`" not in ledger
+    assert "full forwarding-component delegation" in ledger

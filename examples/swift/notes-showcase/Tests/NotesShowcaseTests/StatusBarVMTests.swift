@@ -4,9 +4,9 @@
 // Ports NotesShowcase.Tests/ViewModels/StatusBarVMTests.cs (C# Avalonia flavor).
 // No conformance-ID markers (scenario IDs live in THEME-00x only).
 //
-// Task-8 note: BindableDerived sidecars are not implemented in Swift yet.
-// The two sidecar tests from the C# file are skipped here; they will be
-// added in Task 8.
+// BindableDerived is a view-layer adapter in the executable target. These core
+// tests cover DerivedProperty behavior; the hosted example build covers adapter
+// wiring without importing SwiftUI into the test target.
 //
 import XCTest
 import Combine

@@ -8,6 +8,8 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ### Fixed
 
+- Async-resource disposal now attempts every terminal command step and releases
+  its retained value before re-raising the first observer failure (ARES-011).
 - Pre-owned and multiply decorated components now retain one canonical,
   transferable container identity (FWD-004, ADR-0124).
 - Async-resource loaders now capture the full Python `BaseException` contract

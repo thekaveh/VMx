@@ -41,6 +41,59 @@ def test_neutral_arrow_labels_use_contrast_safe_text() -> None:
     assert 'fill="#94a3b8"' in rendered
 
 
+def test_root_diagram_facts_are_derived_from_canonical_sources() -> None:
+    generator = _load_generator()
+    conformance = (ROOT / "spec/12-conformance.md").read_text(encoding="utf-8")
+    capabilities = (ROOT / "spec/14-capabilities.md").read_text(encoding="utf-8")
+    parity = (ROOT / "examples/notes-showcase-parity.md").read_text(encoding="utf-8")
+
+    ids = re.findall(r"^### ([A-Z]+-\d{3})\b", conformance, re.MULTILINE)
+    capability_match = re.search(r"lists the (\d+) capability interfaces", capabilities)
+    assert capability_match
+    assert generator.FIXTURE_COUNT == len(list((ROOT / "spec/fixtures").glob("*.json")))
+    assert generator.NOTES_FEATURE_COUNT == len(re.findall(r"^\| \d+\s+\|", parity, re.MULTILINE))
+    assert generator.CAPABILITY_COUNT == int(capability_match.group(1))
+    assert generator.LIBRARY_COUNT == sum(not item.startswith("THEME-") for item in ids)
+
+
+def test_root_diagrams_render_derived_facts_without_hidden_literals(tmp_path: Path) -> None:
+    generator = _load_generator()
+    rendered: list[str] = []
+    generator.FIXTURE_COUNT = 91
+    generator.NOTES_FEATURE_COUNT = 92
+    generator.CAPABILITY_COUNT = 93
+    generator.LIBRARY_COUNT = 94
+    generator.write_triplet = lambda *args: rendered.append(repr(args))
+
+    generator.architecture(tmp_path)
+    generator.class_diagram(tmp_path)
+    generator.showcase_hierarchy(tmp_path)
+    generator.showcase_components(tmp_path)
+
+    output = "\n".join(rendered)
+    for sentinel in (91, 92, 93, 94):
+        assert str(sentinel) in output
+
+
+def test_html_footer_text_meets_wcag_aa_contrast() -> None:
+    generator = _load_generator()
+    rendered = generator.html_doc("Title", "Subtitle", "<svg/>", [])
+
+    assert "footer { margin-top: 24px; text-align: center; color: #94a3b8;" in rendered
+
+    def luminance(value: str) -> float:
+        channels = [int(value[index : index + 2], 16) / 255 for index in (1, 3, 5)]
+        linear = [
+            channel / 12.92 if channel <= 0.04045 else ((channel + 0.055) / 1.055) ** 2.4
+            for channel in channels
+        ]
+        return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+    foreground = luminance("#94a3b8")
+    background = luminance("#020617")
+    assert (foreground + 0.05) / (background + 0.05) >= 4.5
+
+
 def test_class_diagram_names_real_message_types_and_capabilities(tmp_path: Path) -> None:
     generator = _load_generator()
 

@@ -61,6 +61,7 @@ def test_weekly_audit_covers_every_committed_lock_family() -> None:
 
     assert 'cron: "23 6 * * 1"' in workflow
     assert "  pull_request:" in workflow
+    assert "  push:\n    branches: [main, develop]" in workflow
     pull_request = workflow.split("  pull_request:\n", maxsplit=1)[1].split(
         "  schedule:", maxsplit=1
     )[0]

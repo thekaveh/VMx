@@ -44,7 +44,7 @@ ADR-0006 and require no further action:
 | LINQ utility helpers (`CartesianProduct`, `Sample`, `Product`) | `LinqHelpers` static class in `VMx.Extensions`                                     | Not provided (use `itertools.product`, slice-with-step, `math.prod`)                        | Not provided (consumer uses `flatMap`/`filter`+modulo/`reduce`)          | Python and TypeScript cover these natively; adding wrappers would duplicate built-ins. Per ADR-0033.                                                                                                                                                                                                                    |
 | Collection `insert` out-of-range handling                      | `ArgumentOutOfRangeException` (BCL `List<T>.Insert`)                               | Clamps + normalizes negatives per stdlib `list.insert`, payload carries the effective index | `RangeError` (matching `removeAt`/`replace`)                             | C# and Python mirror their native list's insert contract; TS deliberately rejects out-of-range (native `splice` clamps, but `removeAt`/`replace` already throw `RangeError`, so `insert` matches its siblings). spec/21 §3.2 only mandates the emitted payload carry the actual insertion index, which all three honor. |
 
-### `IMessage` sender field name (post-v3.0.0, ADR-0054)
+### 2.1 `IMessage` sender field name (post-v3.0.0, ADR-0054)
 
 - **Spec / canonical**: every message carries one sender identity and one
   diagnostic name. Object-sender flavors expose `Sender`/`sender` canonically
@@ -75,7 +75,7 @@ ADR-0006 and require no further action:
   untyped base aliases for source compatibility. See ADR-0054, ADR-0120, and
   ADR-0121.
 
-### `TreeStructureChangedMessage` field name
+### 2.2 `TreeStructureChangedMessage` field name
 
 - **Spec**: §18 defines the field as `Source`.
 - **C#**: implements `Source` (faithful to spec text).
@@ -87,7 +87,7 @@ ADR-0006 and require no further action:
 - **Rationale**: per-flavor internal consistency outweighs spec-name fidelity
   in flavors where every other message uses `sender`.
 
-### `NotificationVM` / `ConfirmationVM` time properties (TypeScript)
+### 2.3 `NotificationVM` / `ConfirmationVM` time properties (TypeScript)
 
 - **Spec / C# / Python**: `Lifespan`, `RemainingTime` typed as
   `TimeSpan` / `timedelta`.
@@ -96,7 +96,7 @@ ADR-0006 and require no further action:
   is the standard convention (used by `setTimeout`, `Date.now()`, etc.).
   The `Ms` suffix makes the unit explicit.
 
-### `HierarchicalVM` parent property name (C#)
+### 2.4 `HierarchicalVM` parent property name (C#)
 
 - **Spec / Python / TypeScript**: `Parent` / `parent`.
 - **C#**: `HierarchicalParent`.
@@ -105,7 +105,7 @@ ADR-0006 and require no further action:
   shadowing/hiding warnings (`CS0108`) and makes the tree-parent semantics
   explicit at the call site.
 
-### `HierarchicalVM` recursive-generic constraint (Python)
+### 2.5 `HierarchicalVM` recursive-generic constraint (Python)
 
 - **C#**: `where TVM : HierarchicalVM<TModel, TVM>` — true F-bounded
   generic constraint enforced by the compiler.
@@ -120,7 +120,7 @@ ADR-0006 and require no further action:
   systems do. The runtime/subclass contract is still enforced by
   convention and by `mypy --strict` against concrete subclasses.
 
-### Python interface-prefix convention (v2.0 vs v2.1 split)
+### 2.6 Python interface-prefix convention (v2.0 vs v2.1 split)
 
 - **C# / TypeScript**: all interfaces / Protocols use the canonical `I`-prefix
   (`ISelectable`, `IExpandable`, `IFilterable`, `IPageable`, `IDialogService`,
@@ -145,7 +145,7 @@ ADR-0006 and require no further action:
   preserved going forward — new v2.x Python capabilities ship bare, older
   v2.0 capabilities keep their published I-prefix names.
 
-### Collection size property name
+### 2.7 Collection size property name
 
 - **C#**: `Count` (matches `ICollection<T>`).
 - **Python**: `count` / `len()` via `__len__` (idiomatic).
@@ -155,7 +155,7 @@ ADR-0006 and require no further action:
 - **Rationale**: pure idiomatic adaptation; no semantic difference across
   flavors.
 
-### `ObservableList` mutation method name
+### 2.8 `ObservableList` mutation method name
 
 - **Spec / C#**: `Add(item)` / `Add(item)`.
 - **Python**: `add(item)` (spec-aligned) and `append(item)` (alias for
@@ -165,7 +165,7 @@ ADR-0006 and require no further action:
   type composes with code that targets the standard `list` API; JS code
   reads `list.push(x)` naturally.
 
-### `NotificationVM.NotifyExternalResolve()` visibility
+### 2.9 `NotificationVM.NotifyExternalResolve()` visibility
 
 - **C# / Python**: `NotifyExternalResolve()` / `notify_external_resolve()` are
   public methods.
@@ -177,7 +177,7 @@ ADR-0006 and require no further action:
   satisfy NOTIF-015; the spec (chapter 16 + ADR-0031) does not mandate a
   particular visibility.
 
-### `ObservableList.pop()` (TypeScript only)
+### 2.10 `ObservableList.pop()` (TypeScript only)
 
 - **TypeScript**: adds `pop(): T | undefined` (mirrors `Array.prototype.pop`),
   emitting an `ItemRemoved` event.
@@ -190,7 +190,7 @@ ADR-0006 and require no further action:
   does not alter observable behavior for callers that do not use it. Not
   normative per spec §21 §3.2 (mutation table does not enumerate `pop`).
 
-### `ServicedObservableCollection.splice()` (TypeScript only)
+### 2.11 `ServicedObservableCollection.splice()` (TypeScript only)
 
 - **TypeScript**: adds `splice(start, deleteCount?, ...items)`, mirroring
   `Array.prototype.splice`.
@@ -200,7 +200,7 @@ ADR-0006 and require no further action:
   single-item operations emit `Added`/`Removed`/`Replaced`; multi-item splice
   emits `Reset`. Not normative; the spec does not enumerate these methods.
 
-### `ServicedObservableCollection.setAt()` replacement alias (TypeScript and Swift)
+### 2.12 `ServicedObservableCollection.setAt()` replacement alias (TypeScript and Swift)
 
 - **TypeScript**: `setAt(index, item)` mirrors bracket assignment.
 - **Swift**: `setAt(_:_:)` is the established nonthrowing indexed
@@ -211,7 +211,7 @@ ADR-0006 and require no further action:
   `replace` / `replace(at:with:)` surface is added. Each emits the same one-item
   Replace notification as the canonical operation.
 
-### `ServicedObservableCollection.remove` return/error shape (Python)
+### 2.13 `ServicedObservableCollection.remove` return/error shape (Python)
 
 - **C#**: inherits `ObservableCollection<T>.Remove(item) -> bool` (`false` when
   absent).
@@ -227,7 +227,7 @@ ADR-0006 and require no further action:
   established boolean collection-removal idiom. Both remove only the first equal
   occurrence; only the missing-value return/error shape diverges.
 
-### `ServicedObservableCollection` indexed bounds and returns
+### 2.14 `ServicedObservableCollection` indexed bounds and returns
 
 - **C# / TypeScript**: named indexed removal and replacement accept only
   positions in `[0, Count)` and reject negative or too-large indices with a
@@ -247,7 +247,7 @@ ADR-0006 and require no further action:
 - **Rationale**: Python and Swift retain their host collection idioms for
   single-index operations. Move keeps one portable cross-flavor bounds contract.
 
-### Rust `CollectionChangedMessage` position and payload shape
+### 2.15 Rust `CollectionChangedMessage` position and payload shape
 
 - **C# / Python / TypeScript / Swift**: serviced collection messages are typed by
   item, carry old/new item payloads where the action has them, retain the legacy
@@ -263,7 +263,7 @@ ADR-0006 and require no further action:
   fully describe structural mutation without making the shared `Message` enum
   generic over every possible collection item type.
 
-### `DiscriminatorVM` key equality (TypeScript referential vs structural)
+### 2.16 `DiscriminatorVM` key equality (TypeScript referential vs structural)
 
 - **C# / Python / Swift**: same-key detection uses **structural** equality
   (`EqualityComparer<TKey>.Default` / `==` / `Equatable`), so `setActiveKey` with a
@@ -277,7 +277,7 @@ ADR-0006 and require no further action:
   fixtures) converge in all four flavors; a caller with value-object keys can pass an
   explicit comparer if strict parity is required. Non-normative (ADR-0006).
 
-### `ObservableDictionary` remove/delete naming
+### 2.17 `ObservableDictionary` remove/delete naming
 
 - **C#**: `Remove(key1, key2) -> bool`
 - **Python**: `remove(key1, key2) -> bool`
@@ -285,14 +285,14 @@ ADR-0006 and require no further action:
 - **Rationale**: TS uses the `Map`-idiomatic name; C# and Python follow the BCL/collection
   `Remove` convention.
 
-### `ObservableDictionary` contains-key naming
+### 2.18 `ObservableDictionary` contains-key naming
 
 - **C#**: `ContainsKey(key1, key2) -> bool`
 - **Python**: `contains_key(key1, key2) -> bool`
 - **TypeScript**: `has(key1, key2): boolean` (matches `Map.prototype.has`)
 - **Rationale**: TS uses the `Map`-idiomatic name.
 
-### `ObservableDictionary` upsert path
+### 2.19 `ObservableDictionary` upsert path
 
 - **C#**: indexer `this[key1, key2] = value`
 - **Python**: `__setitem__` via `dict[key1, key2] = value`
@@ -301,7 +301,7 @@ ADR-0006 and require no further action:
   across all three flavors and is already noted in the table above.
 - **Rationale**: JS lacks operator overloading; `set` is the idiomatic `Map` name.
 
-### `ObservableDictionary` get / read semantics
+### 2.20 `ObservableDictionary` get / read semantics
 
 - **C#**: indexer `this[key1, key2]` throws `KeyNotFoundException` on miss;
   `TryGetValue` is the safe-read path.
@@ -312,7 +312,7 @@ ADR-0006 and require no further action:
 - **Rationale**: TS follows the `Map.prototype.get` no-throw convention. C# and Python
   match the dictionary-throws idiom of their standard libraries.
 
-### `ObservableDictionary` key-axis view mutability (Python read-only)
+### 2.21 `ObservableDictionary` key-axis view mutability (Python read-only)
 
 - **C# / TypeScript / Swift**: `Keys1`/`Keys2` return the live **mutable**
   `ObservableList<TKey>` — spec-literal (spec/21 §4.1 declares
@@ -328,7 +328,7 @@ ADR-0006 and require no further action:
   flavors to a read-only view (and tightening spec/21 §4.1's declared type) is a
   reasonable future spec decision for the maintainer.
 
-### `ServicedObservableCollection` append method
+### 2.22 `ServicedObservableCollection` append method
 
 - **C#**: `Add(item)` (inherited from `ObservableCollection<T>`)
 - **Python**: `append(item)`
@@ -337,7 +337,7 @@ ADR-0006 and require no further action:
 - **Rationale**: Same idiomatic-array rationale as the `ObservableList` `push`
   divergence catalogued above.
 
-### `ObservableList` and `ServicedObservableCollection` array-ergonomic helpers (TypeScript and Swift)
+### 2.23 `ObservableList` and `ServicedObservableCollection` array-ergonomic helpers (TypeScript and Swift)
 
 - **TypeScript / Swift**: both add `at(index) -> T?` and `toArray() -> [T]` on
   `ObservableList` and `ServicedObservableCollection`.
@@ -346,7 +346,7 @@ ADR-0006 and require no further action:
   equivalents. Additive; does not alter spec-observable behavior for callers that
   do not use them.
 
-### `ServicedObservableCollection` mutation observable name
+### 2.24 `ServicedObservableCollection` mutation observable name
 
 - **C#**: fires the BCL `CollectionChanged` event (`INotifyCollectionChanged`); no
   additional Rx observable is exposed on the public surface.
@@ -357,7 +357,7 @@ ADR-0006 and require no further action:
   data-binding. Python/TS/Swift expose a first-class reactive observable directly
   (same rationale as the `CollectionChanged` row in the table above).
 
-### `PagedComposition` property-changed shape
+### 2.25 `PagedComposition` property-changed shape
 
 - **C#**: `INotifyPropertyChanged.PropertyChanged` event
   (`event PropertyChangedEventHandler?`)
@@ -367,7 +367,7 @@ ADR-0006 and require no further action:
   required by XAML binding. Python/TS expose an Rx observable — same pattern as the
   `CollectionChanged` and `ServicedObservableCollection` observable divergences.
 
-### `FormVM<TM>` persister overload (C# only)
+### 2.26 `FormVM<TM>` persister overload (C# only)
 
 - **C#**: provides a second constructor overload accepting `IFormPersister<TM>`
   alongside the primary `Func<TM, Task>` constructor.
@@ -378,7 +378,7 @@ ADR-0006 and require no further action:
   adds no new behavior. Python and TypeScript have no comparable DI container
   convention that would motivate a parallel interface.
 
-### `NullDialogService` singleton accessor
+### 2.27 `NullDialogService` singleton accessor
 
 - **C#**: `NullDialogService.Instance` (static property, PascalCase — .NET convention)
 - **Python**: module-level constant `NULL_DIALOG_SERVICE` (Python convention for
@@ -388,7 +388,7 @@ ADR-0006 and require no further action:
 - **Rationale**: Each flavor uses its language's idiomatic name for a shared stateless
   singleton. The value is identical; only the accessor form differs.
 
-### Fluent `Confirm` overload with `IDialogService`
+### 2.28 Fluent `Confirm` overload with `IDialogService`
 
 - **C#**: extension-method overload `Confirm(this ICommand, IDialogService, string)`
   on `FluentCommandExtensions` (same `Confirm` name; C# method overloading
@@ -399,7 +399,7 @@ ADR-0006 and require no further action:
   `Confirm` name. Python and TypeScript lack overloading with distinct implementations
   and therefore require a distinct function name.
 
-### Fluent `Confirm` overload with `INotificationHub`
+### 2.29 Fluent `Confirm` overload with `INotificationHub`
 
 - **C#**: extension-method overload `Confirm(this ICommand, INotificationHub, string)`
   on `FluentNotificationExtensions` in the `VMx.Notifications` companion
@@ -423,15 +423,6 @@ ADR-0006 and require no further action:
 The following are **known gaps to address in a future release** — documented
 here so audits don't reopen them prematurely:
 
-- **`RelayCommandOfT` → `RelayCommandOf` rename** in Python. The new name shipped
-  as a canonical alias alongside the legacy `RelayCommandOfT` in **vmx v1.2.0**.
-  The original v1.x plan deferred removal to vmx v2.0.0; that removal slipped
-  and the legacy alias still ships in v2.0.0 to preserve downstream code that
-  pinned to v1.x. Removal is now deferred to **vmx v3.0.0** (next major).
-- **`AggregateVMBuilderN` → `AggregateVMNBuilder` rename** in Python (e.g.
-  `AggregateVMBuilder1` → `AggregateVM1Builder`). New names shipped alongside
-  the legacy ones in **vmx v1.2.0**; the v2.0.0 removal was likewise deferred
-  to **vmx v3.0.0** (next major).
 - **`Type(ViewModelType)` (C#) / `vm_type` (Python) on the modeled
   ComponentVM builder.** Surface intentionally retained as an advanced escape
   hatch — a non-leaf VM (e.g. an aggregate) that internally uses
@@ -449,14 +440,6 @@ here so audits don't reopen them prematurely:
   change deferred to the **next TypeScript major** (the conformance subclasses
   currently spread `hub`/`dispatcher` conditionally). Documented here so audits
   don't re-flag it as accidental drift.
-- **Swift `CompositeVM`/`GroupVM` canonical mutators `insert`/`setAt`/`clear`.**
-  Spec ch06/ch07 list these alongside `add`/`remove`/`removeAt` as the canonical
-  container surface; C#/Python/TypeScript ship all of them, Swift ships only
-  `add`/`remove` (+`removeAt` on `CompositeVM`). ADR-0059 originally deferred them
-  to "Increment 2", which shipped `collectionChanged`/`batchUpdate` (ADR-0060) but
-  not these mutators. No conformance ID isolates them, so Swift's "total library
-  parity" (ADR-0064/0065) — which is **conformance-ID** parity — holds. Adding the
-  three mutators (with tests) to Swift is a deferred API-surface follow-up.
 - **Runtime `select_child`/`deselect_child` on a member-but-not-Constructed child.**
   The construct-time `Current(selector)` path is a non-raising validated assignment
   (spec/06 §5.4, ADR-0050), but the RUNTIME select path (`child.select()` →
@@ -471,19 +454,6 @@ here so audits don't reopen them prematurely:
   and the flavors aligned — most likely gating Python/TS on `Constructed` so a
   destructed member cannot become current. Recorded here so audits don't re-flag
   it as accidental drift.
-- **`model` set on an already-`Disposed` modeled `ComponentVM`.** Swift suppresses
-  the hub publish / `PropertyChanged` raise / hint recompute / callback (the model
-  *field* still updates so the getter reflects the value — guarded since v3.0.0,
-  VMX-102), while C#/Python/TypeScript update the field **and** publish
-  `PropertyChangedMessage("model"/"Model")` on the still-live injected hub. spec/02
-  invariant 3 scopes the post-dispose no-emit to `IsCurrent` **selection** only
-  ("distinguishing it from the lifecycle operations"), so model-set-after-dispose is
-  **unspecified** — neither behavior violates the spec. Note C#/Python/TS are
-  internally inconsistent here: their own `IsCurrent` setter *is* post-dispose-guarded
-  (VMX-006). Reachable only by mutating an already-disposed VM (a caller error).
-  Recorded so audits don't re-flag it; converging the three flavors to Swift's inert
-  behavior (extending invariant 3 to `model`) is a reasonable future spec decision for
-  the maintainer.
 - **Swift `TokenPagedComposition` default page-equality comparer.** Swift defaults
   `pagesEqual` to `{ _, _ in false }` — the unconstrained generic `TVM` cannot
   synthesize a universal equality — so a redundant `refresh()` of a byte-identical
@@ -510,19 +480,8 @@ here so audits don't reopen them prematurely:
   reconcile, add a `@staticmethod builder()` to the Python `GroupVM`/`AggregateVMn`
   classes with a bottom-of-module import to break the builder↔VM circular dependency,
   matching `CompositeVM`. Recorded here so audits don't re-flag it as accidental drift.
-- **Swift `CompositeVM`/`GroupVM` native iteration (`Sequence` conformance).** The
-  spec lists `iterator` on the composite/group surface (`spec/06`/`spec/07`), and
-  C#/Python/TypeScript expose native iteration (`GetEnumerator` / `__iter__` /
-  `[Symbol.iterator]`). Swift instead exposes `count` + `at(_:)` and does **not**
-  conform `CompositeVM` or `GroupVM` to `Sequence` (only the `ForwardingCompositeVM`
-  decorator adds `Sequence`, to forward the wrapped's iteration for `FWD-003`). This
-  is a uniform Swift choice across both container types (not a `GroupVM`-only gap),
-  so `count`/`at(_:)` is the idiomatic access surface today. To reconcile, add
-  `Sequence` conformance (a `makeIterator()` over `0..<count` yielding `at(_:)`) to
-  both `CompositeVM` and `GroupVM` in Swift — a deferred API-surface follow-up.
-  Recorded here so audits don't re-flag it as accidental drift.
 
-### Command property declared types
+### 2.30 Command property declared types
 
 - **C#**: command properties on `ComponentVMBase`, `FormVM`, `NotificationVM`,
   `ConfirmationVM`, `ModeledCrudCommands` are typed as `ICommand` (the
@@ -536,7 +495,7 @@ here so audits don't reopen them prematurely:
   concrete return type for IDE assistance and discoverability. Functionally
   equivalent — every concrete command implements the interface.
 
-### `FormVM<TM>` constructor shape
+### 2.31 `FormVM<TM>` constructor shape
 
 - **C# / Python**: positional constructor parameters
   `(initial, persister, hub?, strict?, snapshotter?)`.
@@ -546,7 +505,7 @@ here so audits don't reopen them prematurely:
   syntax; the options-bag is the standard JS pattern for constructors with
   many optional parameters.
 
-### 2.1 Historical: divergences resolved in v1.2.0 (pre-v2 era)
+### 2.32 Historical: divergences resolved in v1.2.0 (pre-v2 era)
 
 - C# non-modeled `ComponentVM` class + `ComponentVMBuilder` (additive).
 - TypeScript `ConstructionStatusChangedMessage.sender` getter (additive). In
@@ -556,7 +515,17 @@ here so audits don't reopen them prematurely:
 - C# `ComponentVMBuilder<M>.AsyncSelection(bool)` removed (dead code; no-op
   on the leaf builder — `CompositeVMBuilder.AsyncSelection` continues to apply).
 
-### 2.2 Historical: divergences resolved in v3.0.0
+### 2.33 Historical: divergences resolved in v3.x
+
+- Python removed the deprecated `RelayCommandOfT` / `RelayCommandOfTBuilder`
+  and `AggregateVMBuilderN` aliases in favor of `RelayCommandOf` and
+  `AggregateVMNBuilder` (ADR-0052).
+
+- Swift `CompositeVM` and `GroupVM` now expose the canonical insert, replace,
+  clear, and native `Sequence` surfaces through `VMCollection`.
+
+- Modeled assignment after disposal is inert in all five flavors (ADR-0091,
+  `DISP-014`).
 
 - **`FormVM.OnApproved` emitted value.** Formerly C# emitted the pre-await
   captured model snapshot while Python and TypeScript emitted the live model

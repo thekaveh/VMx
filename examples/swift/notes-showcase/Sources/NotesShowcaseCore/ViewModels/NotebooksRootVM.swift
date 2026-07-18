@@ -2,7 +2,7 @@
 // NotebooksRootVM — root of the notebooks tree.
 //
 // Ports examples/csharp/avalonia/NotesShowcase/ViewModels/NotebooksRootVM.cs.
-// See task-6-brief.md.
+// See spec/ADRs/0067-swift-notes-showcase-flagship.md.
 //
 // VMx-API adaptation: owns a flat [NotebookVM] instead of a HierarchicalVM
 // (same rationale as the C# port — flat mutation + ChildrenGetter closure is

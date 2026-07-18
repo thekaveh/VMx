@@ -1,6 +1,8 @@
+use std::sync::{Arc, Mutex};
+
 use vmx::{
-    ConstructionStatus, ForwardingComponentVm, ForwardingCompositeVm, MessageHub, NullDispatcher,
-    VmNode,
+    Command, ConstructionStatus, ForwardingComponentVm, ForwardingCompositeVm, MessageHub,
+    NullDispatcher,
 };
 
 type Child = vmx::ComponentVm<&'static str>;
@@ -9,35 +11,28 @@ fn child(name: &'static str) -> Child {
     Child::with_model(name, name, MessageHub::new(), NullDispatcher::new())
 }
 
-struct HintOverride {
-    inner: ForwardingComponentVm<&'static str>,
-}
-
-impl HintOverride {
-    fn new(inner: Child) -> Self {
-        Self {
-            inner: ForwardingComponentVm::new(inner),
-        }
-    }
-
-    fn hint(&self) -> Option<String> {
-        Some("override".to_string())
-    }
-
-    fn name(&self) -> String {
-        self.inner.name()
-    }
-
-    fn model(&self) -> &'static str {
-        self.inner.model()
-    }
-}
-
 /// FWD-001 — ForwardingComponentVM delegates every member to wrapped
 #[test]
 fn forwarding_component_delegates_to_inner() {
     let inner = child("inner");
-    let forwarding = ForwardingComponentVm::new(inner.clone());
+    let forwarding = ForwardingComponentVm::new(inner.clone())
+        .with_model_hint(|model| Some(format!("model:{model}")));
+    let lifecycle = Arc::new(Mutex::new(Vec::new()));
+    let construct_lifecycle = Arc::clone(&lifecycle);
+    forwarding.on_construct(move || {
+        construct_lifecycle.lock().unwrap().push("construct");
+        Ok(())
+    });
+    let destruct_lifecycle = Arc::clone(&lifecycle);
+    forwarding.on_destruct(move || {
+        destruct_lifecycle.lock().unwrap().push("destruct");
+        Ok(())
+    });
+    let dispose_lifecycle = Arc::clone(&lifecycle);
+    forwarding.on_dispose(move || {
+        dispose_lifecycle.lock().unwrap().push("dispose");
+        Ok(())
+    });
 
     forwarding.construct().unwrap();
     forwarding.set_model("updated");
@@ -45,7 +40,40 @@ fn forwarding_component_delegates_to_inner() {
     assert_eq!(forwarding.id(), inner.id());
     assert_eq!(forwarding.name(), inner.name());
     assert_eq!(forwarding.model(), "updated");
+    assert_eq!(forwarding.modeled_hint(), Some("model:updated".to_string()));
     assert_eq!(forwarding.status(), ConstructionStatus::Constructed);
+    assert_eq!(forwarding.can_select(), inner.can_select());
+    assert_eq!(forwarding.can_deselect(), inner.can_deselect());
+    assert_eq!(
+        forwarding.deselect_command().can_execute(),
+        inner.deselect_command().can_execute()
+    );
+    assert_eq!(
+        forwarding.select_next_command().can_execute(),
+        inner.select_next_command().can_execute()
+    );
+    assert_eq!(
+        forwarding.select_previous_command().can_execute(),
+        inner.select_previous_command().can_execute()
+    );
+    assert_eq!(
+        forwarding.reconstruct_command().can_execute(),
+        inner.reconstruct_command().can_execute()
+    );
+    forwarding.expand();
+    assert!(forwarding.is_expanded());
+    assert!(inner.is_expanded());
+    forwarding.toggle_expansion();
+    assert!(!forwarding.is_expanded());
+    forwarding.expand();
+    forwarding.collapse();
+    assert!(!inner.is_expanded());
+    forwarding.destruct().unwrap();
+    forwarding.dispose().unwrap();
+    assert_eq!(
+        *lifecycle.lock().unwrap(),
+        vec!["construct", "destruct", "dispose"]
+    );
 }
 
 #[test]
@@ -55,8 +83,9 @@ fn forwarding_component_is_a_transparent_container_child() {
     let composite = vmx::CompositeVm::new("root");
 
     composite.add(forwarding.clone()).unwrap();
-    forwarding.construct().unwrap();
-    composite.select_component(&forwarding).unwrap();
+    composite.construct().unwrap();
+    assert!(forwarding.select_command().can_execute());
+    forwarding.select_command().execute();
 
     assert_eq!(forwarding.parent_id(), Some(composite.id()));
     assert!(forwarding.is_current());
@@ -73,8 +102,10 @@ fn forwarding_component_transfers_one_underlying_owner() {
     let destination = vmx::CompositeVm::new("destination");
     old_parent.add(inner.clone()).unwrap();
     let forwarding = ForwardingComponentVm::new(inner.clone());
-    let nested_forwarding: ForwardingComponentVm<&'static str> =
-        ForwardingComponentVm::new(forwarding.clone());
+    let first = forwarding.with_hint_override(|| Some("first".to_string()));
+    let nested_forwarding = ForwardingComponentVm::wrap(first);
+
+    assert_eq!(nested_forwarding.hint(), Some("first".to_string()));
 
     group.add(nested_forwarding.clone()).unwrap();
 
@@ -102,7 +133,8 @@ fn forwarding_component_transfers_one_underlying_owner() {
 #[test]
 fn selective_override_replaces_one_behavior() {
     let inner = child("inner");
-    let forwarding = HintOverride::new(inner);
+    let forwarding =
+        ForwardingComponentVm::new(inner).with_hint_override(|| Some("override".to_string()));
 
     assert_eq!(forwarding.hint(), Some("override".to_string()));
     assert_eq!(forwarding.name(), "inner");

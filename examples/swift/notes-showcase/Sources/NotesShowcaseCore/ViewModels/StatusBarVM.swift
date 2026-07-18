@@ -2,7 +2,7 @@
 // StatusBarVM — three DerivedProperty<String> slots for the status bar.
 //
 // Ports examples/csharp/avalonia/NotesShowcase/ViewModels/StatusBarVM.cs.
-// See task-6-brief.md.
+// See spec/ADRs/0067-swift-notes-showcase-flagship.md.
 //
 // Three slots (all `DerivedProperty<String>`, read-only):
 //   noteCountText  — "N note(s)"      from NotesViewVM.filteredItems.count
@@ -14,8 +14,8 @@
 // the source VM on the subject, triggering a DerivedProperty recompute.
 // The re-send is foreground-marshalled to keep recomputes on the UI thread.
 //
-// Note: BindableDerived sidecars are skipped here — they are wired in Task 8
-// (Swift has no INPC, so SwiftUI/AppKit bindings use a different mechanism).
+// BindableDerived intentionally remains a SwiftUI adapter in the executable
+// target; this UI-independent core exposes the underlying DerivedProperty slots.
 //
 // Cross-module subclassing enabled by ADR-0066: `hub`, `dispatcher`, and
 // `_notifyPropertyChanged` are `public` on `ComponentVMBase`.

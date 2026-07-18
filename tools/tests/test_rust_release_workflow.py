@@ -122,6 +122,25 @@ def test_rust_reactive_facade_has_no_unused_backend_dependency_or_claim() -> Non
         assert "rxrust" not in content, f"stale backend claim in {relative}"
 
 
+def test_rust_release_recovery_preserves_immutable_tags() -> None:
+    runbook = (REPO_ROOT / "langs/rust/RELEASING.md").read_text(encoding="utf-8")
+
+    assert "remove the unused failed tag" not in runbook
+    assert "new patch version and tag" in runbook
+
+
+def test_contributing_rust_commands_match_release_baseline() -> None:
+    guide = (REPO_ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
+    rust = guide.split("### 2.5 Rust", maxsplit=1)[1].split("### 2.6 Cross-cutting", maxsplit=1)[0]
+
+    assert "cargo fmt --check" in rust
+    assert "cargo clippy --locked --all-targets --all-features -- -D warnings" in rust
+    assert "cargo test --locked --all-features" in rust
+    assert 'RUSTDOCFLAGS="-D warnings" cargo doc --locked --all-features --no-deps' in rust
+    assert "cargo package --locked" in rust
+    assert "--allow-dirty" not in rust
+
+
 def test_contract_suite_triggers_on_rust_and_release_workflow_changes() -> None:
     workflow = _workflow("conformance.yml")
 

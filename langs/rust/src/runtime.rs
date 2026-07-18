@@ -1302,6 +1302,21 @@ pub(crate) struct ParentTransfer {
     rollback: Option<Box<dyn FnOnce() -> VmxResult<()> + Send>>,
 }
 
+pub(crate) fn retain_parent_transfer_commit(
+    first_error: &mut Option<VmxError>,
+    first_panic: &mut Option<Box<dyn std::any::Any + Send>>,
+    transfer: ParentTransfer,
+) {
+    match catch_unwind(AssertUnwindSafe(|| transfer.commit())) {
+        Ok(result) => retain_first_error(first_error, result),
+        Err(payload) => {
+            if first_panic.is_none() {
+                *first_panic = Some(payload);
+            }
+        }
+    }
+}
+
 impl ParentTransfer {
     pub(crate) fn new(
         commit: impl FnOnce() -> VmxResult<()> + Send + 'static,

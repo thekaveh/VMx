@@ -12,7 +12,7 @@ from enum import Enum
 from typing import Generic, Literal, TypeAlias, TypeVar
 
 from vmx.commands.async_relay_command import AsyncRelayCommand
-from vmx.commands.relay_command import RelayCommand
+from vmx.commands.relay_command import RelayCommand, _run_disposal_steps
 from vmx.components.base import _ComponentVMBase
 from vmx.components.protocols import ViewModelType
 from vmx.messages.protocols import Message
@@ -355,15 +355,25 @@ class AsyncResourceVM(Generic[T], _ComponentVMBase):
         self._operation_identity += 1
         operation = self._operation
         self._operation = None
-        if operation is not None:
-            self._cancel_operation(operation)
-            self._register_late_cleanup(operation)
-        self._load_command.cancel()
-        self._reload_command.cancel()
-        self._load_command.dispose()
-        self._reload_command.dispose()
-        self._cancel_command.dispose()
         accepted = _value_of(self._stable_state)
         self._stable_state = AsyncResourceIdle()
+        steps: list[Callable[[], None]] = []
+        if operation is not None:
+            steps.extend(
+                (
+                    lambda: self._cancel_operation(operation),
+                    lambda: self._register_late_cleanup(operation),
+                )
+            )
+        steps.extend(
+            (
+                self._load_command.cancel,
+                self._reload_command.cancel,
+                self._load_command.dispose,
+                self._reload_command.dispose,
+                self._cancel_command.dispose,
+            )
+        )
         if isinstance(accepted, _PresentValue):
-            self._cleanup(accepted.value)
+            steps.append(lambda: self._cleanup(accepted.value))
+        _run_disposal_steps(*steps)
