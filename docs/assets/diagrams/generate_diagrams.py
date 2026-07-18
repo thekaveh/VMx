@@ -533,7 +533,9 @@ def svg_doc(diagram: Diagram) -> str:
     if diagram.diagram_id == "class-architecture":
         body_parts.append(relationship_legend(diagram.width - 300, 1110))
     body = "\n".join(body_parts)
-    return f"""<svg xmlns="http://www.w3.org/2000/svg" width="{diagram.width}" height="{diagram.height}" viewBox="0 0 {diagram.width} {diagram.height}" style="font-family: {SVG_FONT_STACK};">
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" width="{diagram.width}" height="{diagram.height}" viewBox="0 0 {diagram.width} {diagram.height}" role="img" aria-labelledby="diagram-title diagram-description" style="font-family: {SVG_FONT_STACK};">
+  <title id="diagram-title">{escape(diagram.title)}</title>
+  <desc id="diagram-description">{escape(diagram.subtitle)}</desc>
   <defs>
     <style>
       text {{ font-family: {SVG_FONT_STACK}; }}
@@ -613,6 +615,7 @@ def html_doc(diagram: Diagram, svg_name: str) -> str:
       animation: pulse 2s infinite;
     }}
     @keyframes pulse {{ 0%, 100% {{ opacity: 1; }} 50% {{ opacity: 0.45; }} }}
+    @media (prefers-reduced-motion: reduce) {{ .pulse-dot {{ animation: none; }} }}
     h1 {{ margin: 0; font-size: 26px; line-height: 1.25; }}
     .subtitle {{ margin: 8px 0 0 26px; color: var(--text-secondary); font-size: 14px; }}
     .diagram {{
@@ -4543,7 +4546,7 @@ def csharp_avalonia_notes_showcase() -> Diagram:
             (
                 "Full surface",
                 (
-                    "Exercises the 19-row Notes Workspace contract.",
+                    f"Exercises the {SOURCE_FACTS.notes_feature_count}-row Notes Workspace contract.",
                     "Uses specialized VMs where they reduce host glue.",
                 ),
             ),
@@ -4748,7 +4751,7 @@ def python_textual_notes_showcase() -> Diagram:
             (
                 "Full surface",
                 (
-                    "Exercises the same 19-row Notes Workspace contract.",
+                    f"Exercises the same {SOURCE_FACTS.notes_feature_count}-row Notes Workspace contract.",
                     "Textual owns rendering, not state.",
                 ),
             ),
@@ -4852,7 +4855,7 @@ def typescript_react_notes_showcase() -> Diagram:
             (
                 "Full surface",
                 (
-                    "Exercises the 19-row Notes Workspace contract.",
+                    f"Exercises the {SOURCE_FACTS.notes_feature_count}-row Notes Workspace contract.",
                     "Specialized VMs keep wrapper code small.",
                 ),
             ),

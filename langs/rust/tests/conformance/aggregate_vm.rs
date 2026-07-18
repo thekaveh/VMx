@@ -4,8 +4,8 @@ use std::sync::{
 };
 
 use vmx::{
-    ConstructionStatus, ForwardingComponentVm, Message, MessageHub, NullDispatcher, VmNode,
-    VmxError,
+    Command, ConstructionStatus, ForwardingComponentVm, Message, MessageHub, NullDispatcher,
+    VmNode, VmxError,
 };
 
 type TextVm = vmx::ComponentVm<&'static str>;
@@ -17,6 +17,31 @@ fn text(name: &'static str) -> TextVm {
 
 fn number(name: &'static str, value: i32) -> NumberVm {
     NumberVm::with_model(name, value, MessageHub::new(), NullDispatcher::new())
+}
+
+#[test]
+fn fixed_aggregate_exposes_parent_delegating_disposable_baseline_commands() {
+    let aggregate = vmx::AggregateVm1::new("aggregate", text("member"));
+    let parent = vmx::CompositeVm::new("parent");
+    parent.add(aggregate.clone()).unwrap();
+    parent.construct().unwrap();
+    let commands = [
+        aggregate.select_command(),
+        aggregate.deselect_command(),
+        aggregate.select_next_command(),
+        aggregate.select_previous_command(),
+        aggregate.reconstruct_command(),
+    ];
+
+    commands[0].execute();
+    assert!(parent.current() == Some(aggregate.clone()));
+    commands[1].execute();
+    assert!(parent.current().is_none());
+    commands[4].execute();
+    assert!(aggregate.is_constructed());
+
+    aggregate.dispose().unwrap();
+    assert!(commands.iter().all(|command| !command.can_execute()));
 }
 
 /// AGG-001 — Arity-1 ComponentN factory invoked on construct

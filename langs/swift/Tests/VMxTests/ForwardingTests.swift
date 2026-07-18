@@ -7,7 +7,7 @@
 // (one underlying identity transfers between containers). Mirrors
 // langs/typescript/tests/conformance/forwarding.test.ts.
 //
-// Swift port note (recorded in the Task-10 divergence ADR): the TS FWD-002
+// Swift port note (recorded in ADR-0059 §2.1): the TS FWD-002
 // scenario overrides `hint`, but Swift `hint` is a non-overridable `public let`
 // on `ComponentVMBase`. `modeledHint` is the closest overridable computed
 // analog, so the Swift FWD-002 overrides `modeledHint`. `name`/`hint` never

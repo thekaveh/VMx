@@ -216,7 +216,7 @@ final class CapabilitiesTests: XCTestCase {
     /// CAP-021 — Filterable contract: a settable `(Item) -> Bool` predicate,
     /// `nil` clears the filter, `canFilter()` reports the decision. Ports
     /// cap-021-filterable.test.ts. (Swift uses `associatedtype Item` because
-    /// protocols cannot be generic — see Filter.swift / Task-10 ADR.)
+    /// protocols cannot be generic — see Filter.swift / ADR-0059 §2.3.)
     func testCap021FilterableContract() {
         final class Fixture: Filterable {
             typealias Item = Int
@@ -526,7 +526,7 @@ final class CapabilitiesTests: XCTestCase {
     /// `Selectable`, so it is not `Selectable`). Ports the CAP-020 block of
     /// capabilities.test.ts; replaces the TS runtime `hasCapability` registry
     /// with Swift structural `as?` / `is` conformance checks (a forced divergence
-    /// recorded in the Task-10 ADR).
+    /// recorded in ADR-0059 §2.3).
     func testCap020CapabilitiesAreOptIn() {
         let hub = MessageHub()
         let dispatcher = ImmediateDispatcher.INSTANCE

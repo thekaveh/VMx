@@ -140,7 +140,9 @@ def arrow(
 
 
 def svg_doc(title: str, subtitle: str, width: int, height: int, body: str) -> str:
-    return f'''<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}" style="font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;">
+    return f'''<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}" role="img" aria-labelledby="diagram-title diagram-description" style="font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;">
+  <title id="diagram-title">{escape(title)}</title>
+  <desc id="diagram-description">{escape(subtitle)}</desc>
   <defs>
     <style>text {{ font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }}</style>
     <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
@@ -182,6 +184,7 @@ def html_doc(title: str, subtitle: str, svg: str, cards: list[tuple[str, list[st
     .header-row {{ display: flex; align-items: center; gap: 14px; }}
     .pulse-dot {{ width: 12px; height: 12px; border-radius: 50%; background: #22d3ee; animation: pulse 2s infinite; }}
     @keyframes pulse {{ 0%, 100% {{ opacity: 1; }} 50% {{ opacity: 0.45; }} }}
+    @media (prefers-reduced-motion: reduce) {{ .pulse-dot {{ animation: none; }} }}
     h1 {{ margin: 0; font-size: 26px; line-height: 1.25; }}
     .subtitle {{ margin: 8px 0 0 26px; color: #94a3b8; font-size: 14px; }}
     .diagram {{ overflow-x: auto; padding: 18px; border: 1px solid #1e293b; border-radius: 14px; background: rgba(15, 23, 42, 0.58); }}

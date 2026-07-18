@@ -105,3 +105,28 @@ def test_rust_parity_ledger_does_not_reopen_resolved_surface_work() -> None:
     assert "four of the five built-in commands" not in ledger
     assert "does not implement the\n`Expandable` / `Collapsible`" not in ledger
     assert "full forwarding-component delegation" in ledger
+
+
+def test_current_guidance_does_not_reference_superseded_task_briefs_or_scraper_behavior() -> None:
+    swift_sources = "\n".join(
+        path.read_text(encoding="utf-8") for path in sorted((ROOT / "langs/swift").rglob("*.swift"))
+    )
+    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+
+    assert re.search(r"Task[- ]?[0-9]+", swift_sources, re.IGNORECASE) is None
+    assert "a commented-out stub also matches" not in agents
+
+
+def test_current_forwarding_docs_cover_nested_rust_override_surface() -> None:
+    rust_source = (ROOT / "langs/rust/src/forwarding.rs").read_text(encoding="utf-8")
+    canonical = (
+        ROOT / "docs/content/primitives/viewmodel-families/forwarding-wrapper-family.md"
+    ).read_text(encoding="utf-8")
+
+    assert "ADR-0028" not in rust_source.split("use super::", maxsplit=1)[0]
+    for member in (
+        "ForwardingComponentVm::new",
+        "ForwardingComponentVm::wrap",
+        "with_hint_override",
+    ):
+        assert member in canonical

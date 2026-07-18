@@ -8,6 +8,101 @@ use super::{
     RelayCommand, Subscription, TreeNode, VmNode, VmxError, VmxResult,
 };
 
+#[derive(Clone)]
+pub(crate) struct ComponentCommands {
+    select: RelayCommand,
+    deselect: RelayCommand,
+    select_next: RelayCommand,
+    select_previous: RelayCommand,
+    reconstruct: RelayCommand,
+    status_subscription: Arc<Subscription>,
+}
+
+impl ComponentCommands {
+    pub(crate) fn new<D: Dispatcher, F>(core: &ComponentCore<D>, reconstruct_action: F) -> Self
+    where
+        F: FnMut() + Send + 'static,
+    {
+        let select = {
+            let action_core = core.clone();
+            let predicate_core = core.clone();
+            RelayCommand::new(move || action_core.select_via_parent())
+                .with_can_execute(move || predicate_core.can_select())
+        };
+        let deselect = {
+            let action_core = core.clone();
+            let predicate_core = core.clone();
+            RelayCommand::new(move || action_core.deselect_via_parent())
+                .with_can_execute(move || predicate_core.can_deselect())
+        };
+        let reconstruct = {
+            let predicate_core = core.clone();
+            RelayCommand::new(reconstruct_action).with_can_execute(move || {
+                predicate_core.status() == ConstructionStatus::Constructed
+            })
+        };
+        let select_next = RelayCommand::noop().with_can_execute(|| false);
+        let select_previous = RelayCommand::noop().with_can_execute(|| false);
+        let status_subscription = {
+            let sender_id = core.id();
+            let commands = [
+                select.clone(),
+                deselect.clone(),
+                select_next.clone(),
+                select_previous.clone(),
+                reconstruct.clone(),
+            ];
+            Arc::new(core.hub().subscribe(move |message| {
+                if matches!(
+                    message,
+                    Message::ConstructionStatusChanged(change) if change.sender_id == sender_id
+                ) {
+                    for command in &commands {
+                        command.raise_can_execute_changed();
+                    }
+                }
+            }))
+        };
+        Self {
+            select,
+            deselect,
+            select_next,
+            select_previous,
+            reconstruct,
+            status_subscription,
+        }
+    }
+
+    pub(crate) fn select(&self) -> RelayCommand {
+        self.select.clone()
+    }
+
+    pub(crate) fn deselect(&self) -> RelayCommand {
+        self.deselect.clone()
+    }
+
+    pub(crate) fn select_next(&self) -> RelayCommand {
+        self.select_next.clone()
+    }
+
+    pub(crate) fn select_previous(&self) -> RelayCommand {
+        self.select_previous.clone()
+    }
+
+    pub(crate) fn reconstruct(&self) -> RelayCommand {
+        self.reconstruct.clone()
+    }
+
+    pub(crate) fn dispose(&self) {
+        self.status_subscription.dispose();
+        self.select.dispose();
+        self.deselect.dispose();
+        self.select_next.dispose();
+        self.select_previous.dispose();
+        self.reconstruct.dispose();
+    }
+}
+
 /// A modeled leaf viewmodel whose name and hint are fixed at construction.
 ///
 /// ```compile_fail
@@ -31,12 +126,7 @@ pub struct ComponentVm<M = (), D: Dispatcher = NullDispatcher> {
     pub(crate) core: ComponentCore<D>,
     model: Arc<Mutex<M>>,
     model_hint: ModelHint<M>,
-    select_command: RelayCommand,
-    deselect_command: RelayCommand,
-    select_next_command: RelayCommand,
-    select_previous_command: RelayCommand,
-    reconstruct_command: RelayCommand,
-    _command_status_subscription: Arc<Subscription>,
+    commands: ComponentCommands,
 }
 
 impl ComponentVm<(), NullDispatcher> {
@@ -57,60 +147,20 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
     /// Creates a modeled component with explicit services.
     pub fn with_model(name: impl Into<String>, model: M, hub: MessageHub, dispatcher: D) -> Self {
         let core = ComponentCore::new(name, hub, dispatcher);
-        let select_command = {
-            let action_core = core.clone();
-            let predicate_core = core.clone();
-            RelayCommand::new(move || action_core.select_via_parent())
-                .with_can_execute(move || predicate_core.can_select())
-        };
-        let deselect_command = {
-            let action_core = core.clone();
-            let predicate_core = core.clone();
-            RelayCommand::new(move || action_core.deselect_via_parent())
-                .with_can_execute(move || predicate_core.can_deselect())
-        };
-        let reconstruct_command = {
-            let action_core = core.clone();
-            let predicate_core = core.clone();
-            RelayCommand::new(move || {
-                if action_core.transition(LifecycleOperation::Destruct).is_ok() {
-                    let _ = action_core.transition(LifecycleOperation::Construct);
-                }
-            })
-            .with_can_execute(move || predicate_core.status() == ConstructionStatus::Constructed)
-        };
-        let select_next_command = RelayCommand::noop().with_can_execute(|| false);
-        let select_previous_command = RelayCommand::noop().with_can_execute(|| false);
-        let command_status_subscription = {
-            let sender_id = core.id();
-            let select = select_command.clone();
-            let deselect = deselect_command.clone();
-            let next = select_next_command.clone();
-            let previous = select_previous_command.clone();
-            let reconstruct = reconstruct_command.clone();
-            Arc::new(core.hub().subscribe(move |message| {
-                if matches!(
-                    message,
-                    Message::ConstructionStatusChanged(change) if change.sender_id == sender_id
-                ) {
-                    select.raise_can_execute_changed();
-                    deselect.raise_can_execute_changed();
-                    next.raise_can_execute_changed();
-                    previous.raise_can_execute_changed();
-                    reconstruct.raise_can_execute_changed();
-                }
-            }))
-        };
+        let command_core = core.clone();
+        let commands = ComponentCommands::new(&core, move || {
+            if command_core
+                .transition(LifecycleOperation::Destruct)
+                .is_ok()
+            {
+                let _ = command_core.transition(LifecycleOperation::Construct);
+            }
+        });
         Self {
             core,
             model: Arc::new(Mutex::new(model)),
             model_hint: Arc::new(|_| None),
-            select_command,
-            deselect_command,
-            select_next_command,
-            select_previous_command,
-            reconstruct_command,
-            _command_status_subscription: command_status_subscription,
+            commands,
         }
     }
 
@@ -251,7 +301,9 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
 
     /// Transitions the component to its terminal disposed state.
     pub fn dispose(&self) -> VmxResult<()> {
-        self.core.transition(LifecycleOperation::Dispose)
+        let result = self.core.transition(LifecycleOperation::Dispose);
+        self.commands.dispose();
+        result
     }
 
     /// Returns the current lifecycle status.
@@ -321,27 +373,27 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
 
     /// Returns the stable command that selects this component through its parent.
     pub fn select_command(&self) -> RelayCommand {
-        self.select_command.clone()
+        self.commands.select()
     }
 
     /// Returns the stable command that deselects this component through its parent.
     pub fn deselect_command(&self) -> RelayCommand {
-        self.deselect_command.clone()
+        self.commands.deselect()
     }
 
     /// Returns the inert baseline next-sibling command.
     pub fn select_next_command(&self) -> RelayCommand {
-        self.select_next_command.clone()
+        self.commands.select_next()
     }
 
     /// Returns the inert baseline previous-sibling command.
     pub fn select_previous_command(&self) -> RelayCommand {
-        self.select_previous_command.clone()
+        self.commands.select_previous()
     }
 
     /// Returns the stable command that destructs and reconstructs this component.
     pub fn reconstruct_command(&self) -> RelayCommand {
-        self.reconstruct_command.clone()
+        self.commands.reconstruct()
     }
 }
 

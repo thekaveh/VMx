@@ -1,6 +1,6 @@
 //! Transparent component and composite forwarding wrappers.
 //!
-//! Spec: `spec/09-forwarding.md`; ADR-0028.
+//! Spec: `spec/09-forwarding.md`; ADR-0124.
 
 use super::{
     Arc, ComponentVm, CompositeVm, ConstructionStatus, Dispatcher, MessageHub, NullDispatcher,
@@ -20,6 +20,22 @@ enum ForwardingComponentInner<M: Clone + PartialEq + Send + 'static, D: Dispatch
 /// Rust uses explicit closure hooks instead of inheritance for selective
 /// overrides. Nested wrappers retain every decorator layer while sharing the
 /// wrapped component's canonical ownership identity.
+///
+/// ```
+/// use vmx::{ComponentVm, ForwardingComponentVm, MessageHub, NullDispatcher};
+///
+/// let inner = ComponentVm::with_model(
+///     "inner",
+///     "model",
+///     MessageHub::new(),
+///     NullDispatcher::new(),
+/// );
+/// let first = ForwardingComponentVm::new(inner)
+///     .with_hint_override(|| Some("OVERRIDE".to_string()));
+/// let forwarding = ForwardingComponentVm::wrap(first);
+///
+/// assert_eq!(forwarding.hint().as_deref(), Some("OVERRIDE"));
+/// ```
 pub struct ForwardingComponentVm<
     M: Clone + PartialEq + Send + 'static,
     D: Dispatcher = NullDispatcher,

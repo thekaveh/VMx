@@ -38,15 +38,21 @@ def _bare_link(label: str, target: str, *, image: bool) -> str:
     return label or target
 
 
+def _split_url_bits(target: str) -> tuple[str, str]:
+    cuts = [position for marker in ("?", "#") if (position := target.find(marker)) >= 0]
+    cut = min(cuts, default=len(target))
+    return target[:cut], target[cut:]
+
+
 def _strip_url_bits(target: str) -> str:
-    return target.split("#", 1)[0].split("?", 1)[0]
+    return _split_url_bits(target)[0]
 
 
 def _repo_blob_to_path(target: str) -> Path | None:
     prefix = "https://github.com/thekaveh/VMx/blob/main/"
     if not target.startswith(prefix):
         return None
-    return Path(target[len(prefix) :].split("#", 1)[0])
+    return Path(target[len(prefix) :])
 
 
 def _mapped_target(
@@ -58,16 +64,19 @@ def _mapped_target(
     surface: str,
     repo_root: Path,
 ) -> str | None:
-    clean = _strip_url_bits(target)
+    clean, suffix = _split_url_bits(target)
     if clean.endswith(".ipynb"):
         return None
 
-    if repo_path := _repo_blob_to_path(target):
-        return str(source_map[repo_path]) if repo_path in source_map else None
+    if repo_path := _repo_blob_to_path(clean):
+        if repo_path not in source_map:
+            return None
+        mapped = source_map[repo_path]
+        return f"wiki:{mapped.stem}{suffix}" if surface == "wiki" else f"{mapped}{suffix}"
 
     if clean.startswith(("http://", "https://", "mailto:")):
         return target
-    if clean.startswith("#") or "assets/diagrams/" in clean:
+    if (not clean and suffix.startswith("#")) or "assets/diagrams/" in clean:
         return target
     if clean.endswith("/"):
         sibling_page = f"{clean.rstrip('/')}.md"
@@ -90,9 +99,9 @@ def _mapped_target(
 
     mapped = source_map[canonical]
     if surface == "wiki":
-        return f"wiki:{mapped.stem}"
+        return f"wiki:{mapped.stem}{suffix}"
     rel = os.path.relpath(mapped, start=current_output.parent)
-    return rel.replace(os.sep, "/")
+    return f"{rel.replace(os.sep, '/')}{suffix}"
 
 
 def rewrite_for_surface(
@@ -155,10 +164,13 @@ def rewrite_for_surface(
             return match.group(0)
         if mapped.startswith("wiki:"):
             mapped = mapped[5:]
-        elif mapped.endswith("/index.md"):
-            mapped = mapped.removesuffix("index.md")
-        elif mapped.endswith(".md"):
-            mapped = f"{mapped.removesuffix('.md')}/"
+        else:
+            mapped_path, suffix = _split_url_bits(mapped)
+            if mapped_path.endswith("/index.md"):
+                mapped_path = mapped_path.removesuffix("index.md")
+            elif mapped_path.endswith(".md"):
+                mapped_path = f"{mapped_path.removesuffix('.md')}/"
+            mapped = f"{mapped_path}{suffix}"
         return f'href="{mapped}"'
 
     text = HTML_HREF_RE.sub(replace_html_href, text)

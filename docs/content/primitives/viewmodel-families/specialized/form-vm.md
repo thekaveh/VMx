@@ -63,7 +63,7 @@ The direct awaitable approve path in C#, Python, TypeScript, and Swift gates on
 validity (and disposal) only, so a strict, valid, clean form may still be
 persisted explicitly. Rust currently applies the strict/dirty command gate to
 direct `approve()` too; that convergence gap is tracked in the
-[Rust parity ledger](../../../../maintenance/2026-07-16-rust-capability-parity.md#1245-formvm-direct-approve-is-over-gated).
+[Rust parity ledger](../../../../maintenance/2026-07-16-rust-capability-parity.md#1244-formvm-direct-approve-gates-on-strictdirty).
 
 ### 6.2.8.2.3.1. Settled model publication
 

@@ -4,8 +4,8 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 
 use vmx::{
-    CollectionChangeAction, ConstructionStatus, Dispatcher, ImmediateDispatcher, ManualDispatcher,
-    Message, MessageHub, NullDispatcher, VmNode, VmxError,
+    CollectionChangeAction, Command, ConstructionStatus, Dispatcher, ImmediateDispatcher,
+    ManualDispatcher, Message, MessageHub, NullDispatcher, VmNode, VmxError,
 };
 
 type Child = vmx::ComponentVm<&'static str>;
@@ -22,6 +22,32 @@ fn collection_actions(hub: &MessageHub) -> Vec<CollectionChangeAction> {
             _ => None,
         })
         .collect()
+}
+
+#[test]
+fn composite_exposes_parent_delegating_disposable_baseline_commands() {
+    let composite = vmx::CompositeVm::<Child>::new("composite");
+    composite.add(child("leaf")).unwrap();
+    let parent = vmx::CompositeVm::new("parent");
+    parent.add(composite.clone()).unwrap();
+    parent.construct().unwrap();
+    let commands = [
+        composite.select_command(),
+        composite.deselect_command(),
+        composite.select_next_command(),
+        composite.select_previous_command(),
+        composite.reconstruct_command(),
+    ];
+
+    commands[0].execute();
+    assert!(parent.current() == Some(composite.clone()));
+    commands[1].execute();
+    assert!(parent.current().is_none());
+    commands[4].execute();
+    assert!(composite.is_constructed());
+
+    composite.dispose().unwrap();
+    assert!(commands.iter().all(|command| !command.can_execute()));
 }
 
 /// COMP-001 — Add emits CollectionChanged(action=Add)

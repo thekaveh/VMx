@@ -114,6 +114,48 @@ def test_canonical_link_check_rejects_missing_markdown_and_html_targets(tmp_path
     assert all("target does not exist" in finding.message for finding in findings)
 
 
+def test_canonical_link_check_rejects_missing_heading_fragment(tmp_path: Path) -> None:
+    content = tmp_path / "docs/content"
+    content.mkdir(parents=True)
+    (content / "index.md").write_text(
+        "[Precise section](target.md#missing-section)\n", encoding="utf-8"
+    )
+    (content / "target.md").write_text("# Target\n\n## 1. Existing Section\n", encoding="utf-8")
+
+    findings = check_canonical_links(tmp_path)
+
+    assert len(findings) == 1
+    assert "heading fragment does not exist" in findings[0].message
+
+
+def test_surface_rewrite_preserves_cross_page_and_local_fragments() -> None:
+    source_map = {
+        Path("docs/content/source.md"): Path("guide/source.md"),
+        Path("docs/maintenance/ledger.md"): Path("maintenance/ledger.md"),
+    }
+    markdown = "[Ledger](../maintenance/ledger.md#precise-section) [Local](#local-section)"
+
+    site = rewrite_for_surface(
+        markdown,
+        surface="site",
+        current_source=Path("docs/content/source.md"),
+        current_output=Path("guide/source.md"),
+        source_map=source_map,
+        repo_root=ROOT,
+    )
+    wiki = rewrite_for_surface(
+        markdown,
+        surface="wiki",
+        current_source=Path("docs/content/source.md"),
+        current_output=Path("Source.md"),
+        source_map=source_map,
+        repo_root=ROOT,
+    )
+
+    assert site == ("[Ledger](../maintenance/ledger.md#precise-section) [Local](#local-section)")
+    assert wiki == "[[Ledger|ledger#precise-section]] [Local](#local-section)"
+
+
 def test_generated_wiki_link_check_rejects_malformed_and_missing_targets(
     tmp_path: Path,
 ) -> None:
@@ -215,6 +257,18 @@ def test_build_generates_self_contained_surfaces() -> None:
     assert "thekaveh.github.io/VMx" not in wiki_page.read_text(encoding="utf-8")
     assert (ROOT / "mkdocs.yml").read_text(encoding="utf-8").find("repo_url") == -1
     assert "generator: false" in (ROOT / "mkdocs.yml").read_text(encoding="utf-8")
+    state_site = (ROOT / "generated/site/primitives/state-reactive-helpers.md").read_text(
+        encoding="utf-8"
+    )
+    state_wiki = (ROOT / "generated/wiki/6-5-State-Reactive-Helpers.md").read_text(encoding="utf-8")
+    form_site = (
+        ROOT / "generated/site/primitives/viewmodel-families/specialized/form-vm.md"
+    ).read_text(encoding="utf-8")
+    releases_site = (ROOT / "generated/site/contributing-releases.md").read_text(encoding="utf-8")
+    assert "#1236-expandablestate-is-missing-members" in state_site
+    assert "#1236-expandablestate-is-missing-members" in state_wiki
+    assert "#1244-formvm-direct-approve-gates-on-strictdirty" in form_site
+    assert "CONTRIBUTING.md#" not in releases_site
 
 
 def test_build_repo_root_is_fully_isolated(tmp_path: Path, monkeypatch) -> None:

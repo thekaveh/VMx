@@ -8,8 +8,9 @@ use super::{
     AtomicBool, ComponentCore, ConstructionStatus, Dispatcher, HashSet, LifecycleOperation,
     MembershipDisposeDisposition, MembershipTransactionControl, MembershipTransactionGuard,
     MessageHub, Mutex, NullDispatcher, ObservableList, Ordering, ParentHandle, ParentRegistration,
-    ParentTransfer, PropertyChangedStream, TreeNode, VmNode, VmxError, VmxResult,
+    ParentTransfer, PropertyChangedStream, RelayCommand, TreeNode, VmNode, VmxError, VmxResult,
 };
+use crate::components::ComponentCommands;
 
 type CurrentChangedCallback<T> = Arc<dyn Fn(Option<T>) + Send + Sync>;
 type CurrentSelector<T> = Arc<dyn Fn(Vec<T>) -> Option<T> + Send + Sync>;
@@ -217,6 +218,7 @@ pub trait SelectableVmCollection<T: VmNode>: VmCollection<T> {
 /// children, and lifecycle transitions propagate through the child snapshot.
 pub struct CompositeVm<T: VmNode, D: Dispatcher = NullDispatcher> {
     core: ComponentCore<D>,
+    commands: ComponentCommands,
     items: ObservableList<T>,
     ownership: ParentRegistration,
     current: Arc<Mutex<Option<T>>>,
@@ -244,7 +246,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         let items: ObservableList<T> = ObservableList::new(core.id(), hub);
         let current = Arc::new(Mutex::new(None));
         let async_selection = Arc::new(Mutex::new(false));
-        let current_selector = Arc::new(Mutex::new(None));
+        let current_selector: Arc<Mutex<Option<CurrentSelector<T>>>> = Arc::new(Mutex::new(None));
         let on_current_changed: Arc<Mutex<Option<CurrentChangedCallback<T>>>> =
             Arc::new(Mutex::new(None));
         let dispose_requested = Arc::new(AtomicBool::new(false));
@@ -418,8 +420,54 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                 }
             },
         );
+        let reconstruct_core = core.clone();
+        let reconstruct_items = items.clone();
+        let reconstruct_current = Arc::clone(&current);
+        let reconstruct_selector = Arc::clone(&current_selector);
+        let reconstruct_callback = Arc::clone(&on_current_changed);
+        let commands = ComponentCommands::new(&core, move || {
+            if reconstruct_core
+                .transition_with(LifecycleOperation::Destruct, || {
+                    assign_current_state(
+                        &reconstruct_core,
+                        &reconstruct_current,
+                        &reconstruct_callback,
+                        None,
+                    );
+                    for item in reconstruct_items.to_vec() {
+                        item.destruct()?;
+                    }
+                    Ok(())
+                })
+                .is_ok()
+            {
+                let _ = reconstruct_core.transition_with(LifecycleOperation::Construct, || {
+                    for item in reconstruct_items.to_vec() {
+                        item.construct()?;
+                    }
+                    if let Some(selector) = lock(&reconstruct_selector).clone() {
+                        if let Some(selected) = selector(reconstruct_items.to_vec()) {
+                            if reconstruct_items
+                                .to_vec()
+                                .iter()
+                                .any(|candidate| same_node(candidate, &selected))
+                            {
+                                assign_current_state(
+                                    &reconstruct_core,
+                                    &reconstruct_current,
+                                    &reconstruct_callback,
+                                    Some(selected),
+                                );
+                            }
+                        }
+                    }
+                    Ok(())
+                });
+            }
+        });
         Self {
             core,
+            commands,
             items,
             ownership,
             current,
@@ -470,6 +518,33 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
     /// Publishes a change for an application-defined property.
     pub fn notify_property_changed(&self, property_name: impl Into<String>) {
         self.core.notify_property_changed(property_name);
+    }
+
+    /// Replaces the hook invoked during composite construction.
+    pub fn on_construct<F>(&self, hook: F)
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        self.core
+            .set_hook(LifecycleOperation::Construct, Arc::new(Mutex::new(hook)));
+    }
+
+    /// Replaces the hook invoked during composite destruction.
+    pub fn on_destruct<F>(&self, hook: F)
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        self.core
+            .set_hook(LifecycleOperation::Destruct, Arc::new(Mutex::new(hook)));
+    }
+
+    /// Replaces the hook invoked during composite disposal.
+    pub fn on_dispose<F>(&self, hook: F)
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        self.core
+            .set_hook(LifecycleOperation::Dispose, Arc::new(Mutex::new(hook)));
     }
 
     /// Returns an ordered child snapshot.
@@ -1070,7 +1145,9 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             }
         };
         let Some(snapshot) = snapshot else {
-            return self.core.transition(LifecycleOperation::Dispose);
+            let result = self.core.transition(LifecycleOperation::Dispose);
+            self.commands.dispose();
+            return result;
         };
         let mut first_error = None;
         for item in snapshot {
@@ -1080,6 +1157,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             &mut first_error,
             self.core.transition(LifecycleOperation::Dispose),
         );
+        self.commands.dispose();
         finish_with_first_error(first_error)
     }
 
@@ -1107,6 +1185,76 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
     /// Returns the current parent identity, when attached.
     pub fn parent_id(&self) -> Option<usize> {
         self.core.parent_id()
+    }
+
+    /// Reports whether this composite can select itself through its parent.
+    pub fn can_select(&self) -> bool {
+        self.core.can_select()
+    }
+
+    /// Selects this composite through its owning selectable parent.
+    pub fn select(&self) {
+        self.core.select_via_parent();
+    }
+
+    /// Reports whether this composite can deselect itself through its parent.
+    pub fn can_deselect(&self) -> bool {
+        self.core.can_deselect()
+    }
+
+    /// Deselects this composite through its owning selectable parent.
+    pub fn deselect(&self) {
+        self.core.deselect_via_parent();
+    }
+
+    /// Reports whether this composite is current in its parent.
+    pub fn is_current(&self) -> bool {
+        self.core.is_selected()
+    }
+
+    /// Marks the composite as expanded.
+    pub fn expand(&self) {
+        self.core.set_expanded(true);
+    }
+
+    /// Marks the composite as collapsed.
+    pub fn collapse(&self) {
+        self.core.set_expanded(false);
+    }
+
+    /// Toggles the composite's expanded state.
+    pub fn toggle_expansion(&self) {
+        self.core.set_expanded(!self.core.is_expanded());
+    }
+
+    /// Reports whether the composite is expanded.
+    pub fn is_expanded(&self) -> bool {
+        self.core.is_expanded()
+    }
+
+    /// Returns the stable command that selects this composite through its parent.
+    pub fn select_command(&self) -> RelayCommand {
+        self.commands.select()
+    }
+
+    /// Returns the stable command that deselects this composite through its parent.
+    pub fn deselect_command(&self) -> RelayCommand {
+        self.commands.deselect()
+    }
+
+    /// Returns the inert baseline next-sibling command.
+    pub fn select_next_command(&self) -> RelayCommand {
+        self.commands.select_next()
+    }
+
+    /// Returns the inert baseline previous-sibling command.
+    pub fn select_previous_command(&self) -> RelayCommand {
+        self.commands.select_previous()
+    }
+
+    /// Returns the stable command that reconstructs this composite and its children.
+    pub fn reconstruct_command(&self) -> RelayCommand {
+        self.commands.reconstruct()
     }
 
     fn assign_current(&self, next: Option<T>) {

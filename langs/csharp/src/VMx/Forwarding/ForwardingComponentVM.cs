@@ -11,7 +11,7 @@ namespace VMx.Forwarding;
 /// Every public member delegates to <see cref="_wrapped"/> by default.
 /// Subclasses override individual members to customize behaviour.
 ///
-/// See spec/09-forwarding.md §ForwardingComponentVM and FWD-001/FWD-002 in spec/12-conformance.md.
+/// See spec/09-forwarding.md §ForwardingComponentVM and FWD-001 through FWD-004 in spec/12-conformance.md.
 /// </summary>
 /// <typeparam name="M">The model type.</typeparam>
 public abstract class ForwardingComponentVM<M> : IComponentVM<M>, IComponentVMInternals, IDisposable

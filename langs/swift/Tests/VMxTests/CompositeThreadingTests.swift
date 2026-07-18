@@ -3,7 +3,7 @@
 //
 // Claimed IDs: COMP-006, COMP-009, COMP-010.
 //
-// Uses the Task-7 `ManualDispatcher` (Sources/VMx/Services/ManualScheduler.swift)
+// Uses ADR-0061 §2.8's `ManualDispatcher` (Sources/VMx/Services/ManualScheduler.swift)
 // to assert deferral deterministically: zero deliveries before
 // `flushForeground()`, one (or more) after.
 //

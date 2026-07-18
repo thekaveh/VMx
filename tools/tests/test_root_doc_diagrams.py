@@ -31,6 +31,19 @@ def test_html_diagram_is_self_contained() -> None:
     assert svg in rendered
     assert "<object" not in rendered
     assert 'data="' not in rendered
+    assert "@media (prefers-reduced-motion: reduce)" in rendered
+    assert ".pulse-dot { animation: none; }" in rendered
+
+
+def test_svg_has_accessible_title_and_description() -> None:
+    generator = _load_generator()
+
+    rendered = generator.svg_doc("System map", "Components and data flow", 200, 100, "")
+
+    assert 'role="img"' in rendered
+    assert 'aria-labelledby="diagram-title diagram-description"' in rendered
+    assert '<title id="diagram-title">System map</title>' in rendered
+    assert '<desc id="diagram-description">Components and data flow</desc>' in rendered
 
 
 def test_neutral_arrow_labels_use_contrast_safe_text() -> None:

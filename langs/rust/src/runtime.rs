@@ -1942,36 +1942,6 @@ impl<D: Dispatcher> ComponentCore<D> {
         }
     }
 
-    pub(crate) fn select(&self) {
-        let changed = {
-            let mut inner = lock(&self.inner);
-            if inner.selected {
-                false
-            } else {
-                inner.selected = true;
-                true
-            }
-        };
-        if changed {
-            self.notify_property_changed("is_selected");
-        }
-    }
-
-    pub(crate) fn deselect(&self) {
-        let changed = {
-            let mut inner = lock(&self.inner);
-            if inner.selected {
-                inner.selected = false;
-                true
-            } else {
-                false
-            }
-        };
-        if changed {
-            self.notify_property_changed("is_selected");
-        }
-    }
-
     pub(crate) fn is_expanded(&self) -> bool {
         lock(&self.inner).expanded
     }

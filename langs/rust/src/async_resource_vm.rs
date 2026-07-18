@@ -124,6 +124,7 @@ struct Machine<T> {
     disposed: bool,
 }
 
+#[derive(Clone)]
 struct Commands {
     load: AsyncRelayCommand,
     reload: AsyncRelayCommand,
@@ -331,7 +332,8 @@ where
         if let Some(operation) = operation {
             operation.token.cancel();
         }
-        if let Some(commands) = lock(&self.inner.commands).as_ref() {
+        let commands = lock(&self.inner.commands).clone();
+        if let Some(commands) = commands {
             commands.load.dispose();
             commands.reload.dispose();
             commands.cancel.dispose();
@@ -618,7 +620,8 @@ fn cleanup<T>(inner: &Inner<T>, value: T) {
 
 fn notify_state<T>(inner: &Inner<T>) {
     inner.component.notify_property_changed("state");
-    if let Some(commands) = lock(&inner.commands).as_ref() {
+    let commands = lock(&inner.commands).clone();
+    if let Some(commands) = commands {
         commands.load.raise_can_execute_changed();
         commands.reload.raise_can_execute_changed();
         commands.cancel.raise_can_execute_changed();

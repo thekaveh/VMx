@@ -10,6 +10,7 @@ use super::{
     MessageHub, Mutex, NullDispatcher, ObservableList, Ordering, ParentHandle, ParentRegistration,
     ParentTransfer, PropertyChangedStream, RelayCommand, VmCollection, VmNode, VmxError, VmxResult,
 };
+use crate::components::ComponentCommands;
 
 type ChildrenFactory<T> = Arc<dyn Fn() -> Vec<T> + Send + Sync>;
 
@@ -21,6 +22,7 @@ type ChildrenFactory<T> = Arc<dyn Fn() -> Vec<T> + Send + Sync>;
 /// auto-construction constructs children added to an already-constructed group.
 pub struct GroupVm<T: VmNode, D: Dispatcher = NullDispatcher> {
     core: ComponentCore<D>,
+    commands: ComponentCommands,
     items: ObservableList<T>,
     ownership: ParentRegistration,
     auto_construct_on_add: Arc<Mutex<bool>>,
@@ -120,8 +122,29 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
                 }
             },
         );
+        let reconstruct_core = core.clone();
+        let reconstruct_items = items.clone();
+        let commands = ComponentCommands::new(&core, move || {
+            if reconstruct_core
+                .transition_with(LifecycleOperation::Destruct, || {
+                    for item in reconstruct_items.to_vec() {
+                        item.destruct()?;
+                    }
+                    Ok(())
+                })
+                .is_ok()
+            {
+                let _ = reconstruct_core.transition_with(LifecycleOperation::Construct, || {
+                    for item in reconstruct_items.to_vec() {
+                        item.construct()?;
+                    }
+                    Ok(())
+                });
+            }
+        });
         Self {
             core,
+            commands,
             items,
             ownership,
             auto_construct_on_add: Arc::new(Mutex::new(false)),
@@ -158,6 +181,43 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
     /// Returns the stable identity of this group.
     pub fn id(&self) -> usize {
         self.core.id()
+    }
+
+    /// Returns the immutable group name.
+    pub fn name(&self) -> String {
+        self.core.name()
+    }
+
+    /// Returns the immutable presentation hint.
+    pub fn hint(&self) -> Option<String> {
+        self.core.hint()
+    }
+
+    /// Replaces the hook invoked during group construction.
+    pub fn on_construct<F>(&self, hook: F)
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        self.core
+            .set_hook(LifecycleOperation::Construct, Arc::new(Mutex::new(hook)));
+    }
+
+    /// Replaces the hook invoked during group destruction.
+    pub fn on_destruct<F>(&self, hook: F)
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        self.core
+            .set_hook(LifecycleOperation::Destruct, Arc::new(Mutex::new(hook)));
+    }
+
+    /// Replaces the hook invoked during group disposal.
+    pub fn on_dispose<F>(&self, hook: F)
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        self.core
+            .set_hook(LifecycleOperation::Dispose, Arc::new(Mutex::new(hook)));
     }
 
     /// Returns a snapshot of the current children in collection order.
@@ -676,7 +736,9 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             }
         };
         let Some(snapshot) = snapshot else {
-            return self.core.transition(LifecycleOperation::Dispose);
+            let result = self.core.transition(LifecycleOperation::Dispose);
+            self.commands.dispose();
+            return result;
         };
         let mut first_error = None;
         for item in snapshot {
@@ -686,6 +748,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             &mut first_error,
             self.core.transition(LifecycleOperation::Dispose),
         );
+        self.commands.dispose();
         finish_with_first_error(first_error)
     }
 
@@ -699,39 +762,95 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
         self.core.status()
     }
 
-    /// Marks the group as selected.
+    /// Destructs and then constructs the group.
+    pub fn reconstruct(&self) -> VmxResult<()> {
+        self.destruct()?;
+        self.construct()
+    }
+
+    /// Reports whether the group is constructed.
+    pub fn is_constructed(&self) -> bool {
+        self.status() == ConstructionStatus::Constructed
+    }
+
+    /// Reports whether this group can select itself through its parent.
+    pub fn can_select(&self) -> bool {
+        self.core.can_select()
+    }
+
+    /// Selects the group through its owning selectable parent.
     pub fn select(&self) {
-        self.core.select();
+        self.core.select_via_parent();
     }
 
-    /// Marks the group as not selected.
+    /// Reports whether this group can deselect itself through its parent.
+    pub fn can_deselect(&self) -> bool {
+        self.core.can_deselect()
+    }
+
+    /// Deselects the group through its owning selectable parent.
     pub fn deselect(&self) {
-        self.core.deselect();
+        self.core.deselect_via_parent();
     }
 
-    /// Reports whether the group is selected.
-    pub fn is_selected(&self) -> bool {
+    /// Reports whether the group is current in its parent.
+    pub fn is_current(&self) -> bool {
         self.core.is_selected()
     }
 
-    /// Creates a command enabled while the group is not selected.
-    pub fn select_command(&self) -> RelayCommand {
-        let vm = self.clone();
-        RelayCommand::new({
-            let vm = vm.clone();
-            move || vm.select()
-        })
-        .with_can_execute(move || !vm.is_selected())
+    /// Compatibility alias for [`Self::is_current`].
+    pub fn is_selected(&self) -> bool {
+        self.is_current()
     }
 
-    /// Creates a command enabled while the group is selected.
+    /// Marks the group as expanded.
+    pub fn expand(&self) {
+        self.core.set_expanded(true);
+    }
+
+    /// Marks the group as collapsed.
+    pub fn collapse(&self) {
+        self.core.set_expanded(false);
+    }
+
+    /// Toggles the group's expanded state.
+    pub fn toggle_expansion(&self) {
+        self.core.set_expanded(!self.core.is_expanded());
+    }
+
+    /// Reports whether the group is expanded.
+    pub fn is_expanded(&self) -> bool {
+        self.core.is_expanded()
+    }
+
+    /// Returns the group parent identity, when attached.
+    pub fn parent_id(&self) -> Option<usize> {
+        self.core.parent_id()
+    }
+
+    /// Returns the stable command that selects this group through its parent.
+    pub fn select_command(&self) -> RelayCommand {
+        self.commands.select()
+    }
+
+    /// Returns the stable command that deselects this group through its parent.
     pub fn deselect_command(&self) -> RelayCommand {
-        let vm = self.clone();
-        RelayCommand::new({
-            let vm = vm.clone();
-            move || vm.deselect()
-        })
-        .with_can_execute(move || vm.is_selected())
+        self.commands.deselect()
+    }
+
+    /// Returns the inert baseline next-sibling command.
+    pub fn select_next_command(&self) -> RelayCommand {
+        self.commands.select_next()
+    }
+
+    /// Returns the inert baseline previous-sibling command.
+    pub fn select_previous_command(&self) -> RelayCommand {
+        self.commands.select_previous()
+    }
+
+    /// Returns the stable command that reconstructs the group and its children.
+    pub fn reconstruct_command(&self) -> RelayCommand {
+        self.commands.reconstruct()
     }
 }
 

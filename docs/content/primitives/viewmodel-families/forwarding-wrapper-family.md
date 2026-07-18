@@ -96,9 +96,17 @@ copying or re-implementing the wrapped VM:
 === "Rust"
 
     ```rust
-    let inner = ComponentVm::new("inner");
-    let forwarding = ForwardingComponentVm::new(inner.clone());
-    destination.add(forwarding.clone())?;
+    let inner = ComponentVm::with_model(
+        "inner",
+        "model",
+        MessageHub::new(),
+        NullDispatcher::new(),
+    );
+    let first = ForwardingComponentVm::new(inner)
+        .with_hint_override(|| Some("OVERRIDE".to_string()));
+    let forwarding = ForwardingComponentVm::wrap(first);
+
+    assert_eq!(forwarding.hint().as_deref(), Some("OVERRIDE"));
     ```
 
 Swift is the explicit divergence here: `name` and `hint` are stored `let`

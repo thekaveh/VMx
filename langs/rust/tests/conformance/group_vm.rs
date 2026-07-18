@@ -29,25 +29,43 @@ fn add_emits_collection_changed_add() {
     assert_eq!(collection_actions(&hub), vec![CollectionChangeAction::Add]);
 }
 
-/// GRP-002 — Group lacks child-navigation and child-selection members
+/// GRP-002 — Group keeps baseline self-selection commands without child selection.
 #[test]
-fn group_has_own_selection_commands_without_child_selection_state() {
+fn group_has_complete_baseline_commands_without_child_selection_state() {
     let group = vmx::GroupVm::<Child>::new("group");
+    let parent = vmx::CompositeVm::new("parent");
+    parent.add(group.clone()).unwrap();
+    parent.construct().unwrap();
     let select = group.select_command();
     let deselect = group.deselect_command();
+    let next = group.select_next_command();
+    let previous = group.select_previous_command();
+    let reconstruct = group.reconstruct_command();
 
     assert!(select.can_execute());
     assert!(!deselect.can_execute());
+    assert!(!next.can_execute());
+    assert!(!previous.can_execute());
+    assert!(reconstruct.can_execute());
 
     select.execute();
 
-    assert!(group.is_selected());
+    assert!(parent.current() == Some(group.clone()));
+    assert!(group.is_current());
     assert!(!select.can_execute());
     assert!(deselect.can_execute());
 
     deselect.execute();
 
-    assert!(!group.is_selected());
+    assert!(parent.current().is_none());
+    assert!(!group.is_current());
+
+    group.dispose().unwrap();
+    for command in [select, deselect, next, previous, reconstruct] {
+        assert!(!command.can_execute());
+        command.execute();
+    }
+    assert!(parent.current().is_none());
 }
 
 /// GRP-003 — Construct waits until all children reach Constructed

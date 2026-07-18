@@ -43,6 +43,7 @@
       animation: pulse 2s infinite;
     }
     @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+    @media (prefers-reduced-motion: reduce) { .pulse-dot { animation: none; } }
     h1 { margin: 0; font-size: 26px; line-height: 1.25; }
     .subtitle { margin: 8px 0 0 26px; color: var(--text-secondary); font-size: 14px; }
     .diagram {
@@ -86,7 +87,9 @@
     </header>
     <div class="diagram">
       <div class="svg-frame" role="img" aria-label="Examples VM Layer Map">
-<svg xmlns="http://www.w3.org/2000/svg" width="1820" height="1120" viewBox="0 0 1820 1120" style="font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;">
+<svg xmlns="http://www.w3.org/2000/svg" width="1820" height="1120" viewBox="0 0 1820 1120" role="img" aria-labelledby="diagram-title diagram-description" style="font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;">
+  <title id="diagram-title">Examples VM Layer Map</title>
+  <desc id="diagram-description">Notes Workspace composition contract across C#, Python, TypeScript, and Swift</desc>
   <defs>
     <style>
       text { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; }

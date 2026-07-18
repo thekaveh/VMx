@@ -3,7 +3,7 @@
 Every public member delegates to ``_wrapped`` by default. Subclasses override
 individual members to customise behaviour.
 
-See spec/09-forwarding.md §ForwardingComponentVM and FWD-001/FWD-002 in
+See spec/09-forwarding.md §ForwardingComponentVM and FWD-001 through FWD-004 in
 spec/12-conformance.md.
 """
 

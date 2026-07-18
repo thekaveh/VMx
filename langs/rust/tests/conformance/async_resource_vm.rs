@@ -393,6 +393,35 @@ fn reentrant_disposal_during_loading_notification_prevents_loader_start() {
     assert!(!vm.load_command().can_execute());
 }
 
+/// ARES-011 — command requery callbacks may dispose the VM without deadlocking.
+#[test]
+fn reentrant_disposal_during_command_requery_prevents_loader_start() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let loader_calls = Arc::clone(&calls);
+    let vm = AsyncResourceVm::new("resource", move |_| {
+        loader_calls.fetch_add(1, Ordering::SeqCst);
+        Ok(1)
+    });
+    let callback_vm = vm.clone();
+    let (disposed_send, disposed_receive) = mpsc::channel();
+    let _subscription = vm.load_command().can_execute_changed().subscribe(move |_| {
+        callback_vm.dispose().unwrap();
+        let _ = disposed_send.send(());
+    });
+
+    let load = vm.load_async();
+
+    assert!(
+        disposed_receive
+            .recv_timeout(Duration::from_millis(250))
+            .is_ok(),
+        "command callback deadlocked while re-entering AsyncResourceVm::dispose"
+    );
+    load.join().unwrap().unwrap();
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    assert!(!vm.load_command().can_execute());
+}
+
 #[test]
 fn discard_cleanup_disposal_prevents_notification_and_loader_start() {
     let calls = Arc::new(AtomicUsize::new(0));

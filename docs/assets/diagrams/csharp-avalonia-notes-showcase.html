@@ -43,6 +43,7 @@
       animation: pulse 2s infinite;
     }
     @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+    @media (prefers-reduced-motion: reduce) { .pulse-dot { animation: none; } }
     h1 { margin: 0; font-size: 26px; line-height: 1.25; }
     .subtitle { margin: 8px 0 0 26px; color: var(--text-secondary); font-size: 14px; }
     .diagram {
@@ -86,7 +87,9 @@
     </header>
     <div class="diagram">
       <div class="svg-frame" role="img" aria-label="C# Avalonia Notes Showcase Example">
-<svg xmlns="http://www.w3.org/2000/svg" width="1700" height="980" viewBox="0 0 1700 980" style="font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;">
+<svg xmlns="http://www.w3.org/2000/svg" width="1700" height="980" viewBox="0 0 1700 980" role="img" aria-labelledby="diagram-title diagram-description" style="font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;">
+  <title id="diagram-title">C# Avalonia Notes Showcase Example</title>
+  <desc id="diagram-description">flagship XAML host with AggregateVM6, FormVM, paging, dialogs, theme, and notifications</desc>
   <defs>
     <style>
       text { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; }

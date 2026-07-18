@@ -4,9 +4,11 @@
 
 use super::{
     finish_with_first_error, lock, retain_first_error, Arc, ComponentCore, ConstructionStatus,
-    Dispatcher, HashSet, LifecycleOperation, MessageHub, Mutex, NullDispatcher, ParentHandle,
-    ParentRegistration, PropertyChangedStream, RelayCommand, VmNode, VmxError, VmxResult,
+    Dispatcher, HashSet, LifecycleOperation, MessageHub, Mutex, NullDispatcher, OnceLock,
+    ParentHandle, ParentRegistration, PropertyChangedStream, RelayCommand, VmNode, VmxError,
+    VmxResult,
 };
+use crate::components::ComponentCommands;
 
 #[derive(Clone)]
 /// A homogeneous collection of components with coordinated lifecycle operations.
@@ -187,6 +189,7 @@ fn replace_fixed_aggregate_child<T: VmNode>(
 /// A fixed-arity aggregate with typed component slots and coordinated lifecycle.
 pub struct AggregateVm1<T1: VmNode, D: Dispatcher = NullDispatcher> {
     core: ComponentCore<D>,
+    commands: Arc<OnceLock<ComponentCommands>>,
     ownership: FixedAggregateOwnership,
     component1: AggregateSlot<T1>,
 }
@@ -235,6 +238,7 @@ impl<T1: VmNode, D: Dispatcher> AggregateVm1<T1, D> {
         attach_fixed_aggregate_child(&component1, &ownership.handle());
         Ok(Self {
             core,
+            commands: Arc::new(OnceLock::new()),
             ownership,
             component1: AggregateSlot::eager(component1),
         })
@@ -254,6 +258,7 @@ impl<T1: VmNode, D: Dispatcher> AggregateVm1<T1, D> {
         Self {
             ownership: fixed_aggregate_parent(&core, HashSet::new()),
             core,
+            commands: Arc::new(OnceLock::new()),
             component1: AggregateSlot::lazy(factory1),
         }
     }
@@ -325,6 +330,9 @@ impl<T1: VmNode, D: Dispatcher> AggregateVm1<T1, D> {
             &mut first_error,
             self.core.transition(LifecycleOperation::Dispose),
         );
+        if let Some(commands) = self.commands.get() {
+            commands.dispose();
+        }
         finish_with_first_error(first_error)
     }
 
@@ -463,6 +471,7 @@ impl<T1: VmNode, D: Dispatcher> AggregateVm1Builder<T1, D> {
 /// A fixed-arity aggregate with typed component slots and coordinated lifecycle.
 pub struct AggregateVm2<T1: VmNode, T2: VmNode, D: Dispatcher = NullDispatcher> {
     core: ComponentCore<D>,
+    commands: Arc<OnceLock<ComponentCommands>>,
     ownership: FixedAggregateOwnership,
     component1: AggregateSlot<T1>,
     component2: AggregateSlot<T2>,
@@ -523,6 +532,7 @@ impl<T1: VmNode, T2: VmNode, D: Dispatcher> AggregateVm2<T1, T2, D> {
         attach_fixed_aggregate_child(&component2, &parent);
         Ok(Self {
             core,
+            commands: Arc::new(OnceLock::new()),
             ownership,
             component1: AggregateSlot::eager(component1),
             component2: AggregateSlot::eager(component2),
@@ -544,6 +554,7 @@ impl<T1: VmNode, T2: VmNode, D: Dispatcher> AggregateVm2<T1, T2, D> {
         Self {
             ownership: fixed_aggregate_parent(&core, HashSet::new()),
             core,
+            commands: Arc::new(OnceLock::new()),
             component1: AggregateSlot::lazy(factory1),
             component2: AggregateSlot::lazy(factory2),
         }
@@ -639,6 +650,9 @@ impl<T1: VmNode, T2: VmNode, D: Dispatcher> AggregateVm2<T1, T2, D> {
             &mut first_error,
             self.core.transition(LifecycleOperation::Dispose),
         );
+        if let Some(commands) = self.commands.get() {
+            commands.dispose();
+        }
         finish_with_first_error(first_error)
     }
 
@@ -706,6 +720,7 @@ impl<T1: VmNode, T2: VmNode, D: Dispatcher> Eq for AggregateVm2<T1, T2, D> {}
 /// A fixed-arity aggregate with typed component slots and coordinated lifecycle.
 pub struct AggregateVm3<T1: VmNode, T2: VmNode, T3: VmNode, D: Dispatcher = NullDispatcher> {
     core: ComponentCore<D>,
+    commands: Arc<OnceLock<ComponentCommands>>,
     ownership: FixedAggregateOwnership,
     component1: AggregateSlot<T1>,
     component2: AggregateSlot<T2>,
@@ -777,6 +792,7 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, D: Dispatcher> AggregateVm3<T1, T2, T3,
         attach_fixed_aggregate_child(&component3, &parent);
         Ok(Self {
             core,
+            commands: Arc::new(OnceLock::new()),
             ownership,
             component1: AggregateSlot::eager(component1),
             component2: AggregateSlot::eager(component2),
@@ -800,6 +816,7 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, D: Dispatcher> AggregateVm3<T1, T2, T3,
         Self {
             ownership: fixed_aggregate_parent(&core, HashSet::new()),
             core,
+            commands: Arc::new(OnceLock::new()),
             component1: AggregateSlot::lazy(factory1),
             component2: AggregateSlot::lazy(factory2),
             component3: AggregateSlot::lazy(factory3),
@@ -920,6 +937,9 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, D: Dispatcher> AggregateVm3<T1, T2, T3,
             &mut first_error,
             self.core.transition(LifecycleOperation::Dispose),
         );
+        if let Some(commands) = self.commands.get() {
+            commands.dispose();
+        }
         finish_with_first_error(first_error)
     }
 
@@ -939,6 +959,7 @@ pub struct AggregateVm4<
     D: Dispatcher = NullDispatcher,
 > {
     core: ComponentCore<D>,
+    commands: Arc<OnceLock<ComponentCommands>>,
     ownership: FixedAggregateOwnership,
     component1: AggregateSlot<T1>,
     component2: AggregateSlot<T2>,
@@ -1027,6 +1048,7 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, D: Dispatcher>
         attach_fixed_aggregate_child(&component4, &parent);
         Ok(Self {
             core,
+            commands: Arc::new(OnceLock::new()),
             ownership,
             component1: AggregateSlot::eager(component1),
             component2: AggregateSlot::eager(component2),
@@ -1053,6 +1075,7 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, D: Dispatcher>
         Self {
             ownership: fixed_aggregate_parent(&core, HashSet::new()),
             core,
+            commands: Arc::new(OnceLock::new()),
             component1: AggregateSlot::lazy(factory1),
             component2: AggregateSlot::lazy(factory2),
             component3: AggregateSlot::lazy(factory3),
@@ -1192,6 +1215,9 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, D: Dispatcher>
             &mut first_error,
             self.core.transition(LifecycleOperation::Dispose),
         );
+        if let Some(commands) = self.commands.get() {
+            commands.dispose();
+        }
         finish_with_first_error(first_error)
     }
 
@@ -1212,6 +1238,7 @@ pub struct AggregateVm5<
     D: Dispatcher = NullDispatcher,
 > {
     core: ComponentCore<D>,
+    commands: Arc<OnceLock<ComponentCommands>>,
     ownership: FixedAggregateOwnership,
     component1: AggregateSlot<T1>,
     component2: AggregateSlot<T2>,
@@ -1314,6 +1341,7 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, D: Dispatcher>
         attach_fixed_aggregate_child(&component5, &parent);
         Ok(Self {
             core,
+            commands: Arc::new(OnceLock::new()),
             ownership,
             component1: AggregateSlot::eager(component1),
             component2: AggregateSlot::eager(component2),
@@ -1342,6 +1370,7 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, D: Dispatcher>
         Self {
             ownership: fixed_aggregate_parent(&core, HashSet::new()),
             core,
+            commands: Arc::new(OnceLock::new()),
             component1: AggregateSlot::lazy(factory1),
             component2: AggregateSlot::lazy(factory2),
             component3: AggregateSlot::lazy(factory3),
@@ -1497,6 +1526,9 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, D: Dispatcher>
             &mut first_error,
             self.core.transition(LifecycleOperation::Dispose),
         );
+        if let Some(commands) = self.commands.get() {
+            commands.dispose();
+        }
         finish_with_first_error(first_error)
     }
 
@@ -1518,6 +1550,7 @@ pub struct AggregateVm6<
     D: Dispatcher = NullDispatcher,
 > {
     core: ComponentCore<D>,
+    commands: Arc<OnceLock<ComponentCommands>>,
     ownership: FixedAggregateOwnership,
     component1: AggregateSlot<T1>,
     component2: AggregateSlot<T2>,
@@ -1629,6 +1662,7 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, T6: VmNode, D: 
         attach_fixed_aggregate_child(&component6, &parent);
         Ok(Self {
             core,
+            commands: Arc::new(OnceLock::new()),
             ownership,
             component1: AggregateSlot::eager(component1),
             component2: AggregateSlot::eager(component2),
@@ -1659,6 +1693,7 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, T6: VmNode, D: 
         Self {
             ownership: fixed_aggregate_parent(&core, HashSet::new()),
             core,
+            commands: Arc::new(OnceLock::new()),
             component1: AggregateSlot::lazy(factory1),
             component2: AggregateSlot::lazy(factory2),
             component3: AggregateSlot::lazy(factory3),
@@ -1834,6 +1869,9 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, T6: VmNode, D: 
             &mut first_error,
             self.core.transition(LifecycleOperation::Dispose),
         );
+        if let Some(commands) = self.commands.get() {
+            commands.dispose();
+        }
         finish_with_first_error(first_error)
     }
 
@@ -2011,8 +2049,38 @@ define_aggregate_builder!(
 );
 
 macro_rules! impl_fixed_aggregate_baseline {
-    ($name:ident, $($component:ident),+) => {
+    ($name:ident, $(($component:ident, $slot:ident)),+) => {
         impl<$($component: VmNode,)+ D: Dispatcher> $name<$($component,)+ D> {
+            fn baseline_commands(&self) -> ComponentCommands {
+                self.commands
+                    .get_or_init(|| {
+                        let command_core = self.core.clone();
+                        $(let $slot = self.$slot.clone();)+
+                        ComponentCommands::new(&self.core, move || {
+                            if command_core
+                                .transition_with(LifecycleOperation::Destruct, || {
+                                    $(if let Some(component) = $slot.value() {
+                                        component.destruct()?;
+                                    })+
+                                    Ok(())
+                                })
+                                .is_ok()
+                            {
+                                let _ = command_core.transition_with(
+                                    LifecycleOperation::Construct,
+                                    || {
+                                        $(if let Some(component) = $slot.value() {
+                                            component.construct()?;
+                                        })+
+                                        Ok(())
+                                    },
+                                );
+                            }
+                        })
+                    })
+                    .clone()
+            }
+
             /// Returns the aggregate name.
             pub fn name(&self) -> String {
                 self.core.name()
@@ -2039,47 +2107,146 @@ macro_rules! impl_fixed_aggregate_baseline {
                 self.core.parent_id()
             }
 
-            /// Marks the aggregate as selected.
+            /// Replaces the hook invoked during aggregate construction.
+            pub fn on_construct<F>(&self, hook: F)
+            where
+                F: FnMut() -> VmxResult<()> + Send + 'static,
+            {
+                self.core.set_hook(
+                    LifecycleOperation::Construct,
+                    Arc::new(Mutex::new(hook)),
+                );
+            }
+
+            /// Replaces the hook invoked during aggregate destruction.
+            pub fn on_destruct<F>(&self, hook: F)
+            where
+                F: FnMut() -> VmxResult<()> + Send + 'static,
+            {
+                self.core.set_hook(
+                    LifecycleOperation::Destruct,
+                    Arc::new(Mutex::new(hook)),
+                );
+            }
+
+            /// Replaces the hook invoked during aggregate disposal.
+            pub fn on_dispose<F>(&self, hook: F)
+            where
+                F: FnMut() -> VmxResult<()> + Send + 'static,
+            {
+                self.core.set_hook(
+                    LifecycleOperation::Dispose,
+                    Arc::new(Mutex::new(hook)),
+                );
+            }
+
+            /// Reports whether this aggregate can select itself through its parent.
+            pub fn can_select(&self) -> bool {
+                self.core.can_select()
+            }
+
+            /// Selects the aggregate through its owning selectable parent.
             pub fn select(&self) {
-                self.core.select();
+                self.core.select_via_parent();
             }
 
-            /// Marks the aggregate as not selected.
+            /// Reports whether this aggregate can deselect itself through its parent.
+            pub fn can_deselect(&self) -> bool {
+                self.core.can_deselect()
+            }
+
+            /// Deselects the aggregate through its owning selectable parent.
             pub fn deselect(&self) {
-                self.core.deselect();
+                self.core.deselect_via_parent();
             }
 
-            /// Reports whether the aggregate is selected.
-            pub fn is_selected(&self) -> bool {
+            /// Reports whether the aggregate is current in its parent.
+            pub fn is_current(&self) -> bool {
                 self.core.is_selected()
             }
 
-            /// Creates a command that selects the aggregate.
-            pub fn select_command(&self) -> RelayCommand {
-                let vm = self.clone();
-                RelayCommand::new({
-                    let vm = vm.clone();
-                    move || vm.select()
-                })
-                .with_can_execute(move || !vm.is_selected())
+            /// Compatibility alias for [`Self::is_current`].
+            pub fn is_selected(&self) -> bool {
+                self.is_current()
             }
 
-            /// Creates a command that deselects the aggregate.
+            /// Marks the aggregate as expanded.
+            pub fn expand(&self) {
+                self.core.set_expanded(true);
+            }
+
+            /// Marks the aggregate as collapsed.
+            pub fn collapse(&self) {
+                self.core.set_expanded(false);
+            }
+
+            /// Toggles the aggregate's expanded state.
+            pub fn toggle_expansion(&self) {
+                self.core.set_expanded(!self.core.is_expanded());
+            }
+
+            /// Reports whether the aggregate is expanded.
+            pub fn is_expanded(&self) -> bool {
+                self.core.is_expanded()
+            }
+
+            /// Returns the stable command that selects this aggregate through its parent.
+            pub fn select_command(&self) -> RelayCommand {
+                self.baseline_commands().select()
+            }
+
+            /// Returns the stable command that deselects this aggregate through its parent.
             pub fn deselect_command(&self) -> RelayCommand {
-                let vm = self.clone();
-                RelayCommand::new({
-                    let vm = vm.clone();
-                    move || vm.deselect()
-                })
-                .with_can_execute(move || vm.is_selected())
+                self.baseline_commands().deselect()
+            }
+
+            /// Returns the inert baseline next-sibling command.
+            pub fn select_next_command(&self) -> RelayCommand {
+                self.baseline_commands().select_next()
+            }
+
+            /// Returns the inert baseline previous-sibling command.
+            pub fn select_previous_command(&self) -> RelayCommand {
+                self.baseline_commands().select_previous()
+            }
+
+            /// Returns the stable command that reconstructs the aggregate and its members.
+            pub fn reconstruct_command(&self) -> RelayCommand {
+                self.baseline_commands().reconstruct()
             }
         }
     };
 }
 
-impl_fixed_aggregate_baseline!(AggregateVm1, T1);
-impl_fixed_aggregate_baseline!(AggregateVm2, T1, T2);
-impl_fixed_aggregate_baseline!(AggregateVm3, T1, T2, T3);
-impl_fixed_aggregate_baseline!(AggregateVm4, T1, T2, T3, T4);
-impl_fixed_aggregate_baseline!(AggregateVm5, T1, T2, T3, T4, T5);
-impl_fixed_aggregate_baseline!(AggregateVm6, T1, T2, T3, T4, T5, T6);
+impl_fixed_aggregate_baseline!(AggregateVm1, (T1, component1));
+impl_fixed_aggregate_baseline!(AggregateVm2, (T1, component1), (T2, component2));
+impl_fixed_aggregate_baseline!(
+    AggregateVm3,
+    (T1, component1),
+    (T2, component2),
+    (T3, component3)
+);
+impl_fixed_aggregate_baseline!(
+    AggregateVm4,
+    (T1, component1),
+    (T2, component2),
+    (T3, component3),
+    (T4, component4)
+);
+impl_fixed_aggregate_baseline!(
+    AggregateVm5,
+    (T1, component1),
+    (T2, component2),
+    (T3, component3),
+    (T4, component4),
+    (T5, component5)
+);
+impl_fixed_aggregate_baseline!(
+    AggregateVm6,
+    (T1, component1),
+    (T2, component2),
+    (T3, component3),
+    (T4, component4),
+    (T5, component5),
+    (T6, component6)
+);

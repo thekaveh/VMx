@@ -1,4 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1740" height="1040" viewBox="0 0 1740 1040" style="font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;">
+<svg xmlns="http://www.w3.org/2000/svg" width="1740" height="1040" viewBox="0 0 1740 1040" role="img" aria-labelledby="diagram-title diagram-description" style="font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;">
+  <title id="diagram-title">Specialized ViewModel Coordinator Map</title>
+  <desc id="diagram-description">workflow-specific VMs that compose with the core hierarchy instead of replacing it</desc>
   <defs>
     <style>
       text { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; }

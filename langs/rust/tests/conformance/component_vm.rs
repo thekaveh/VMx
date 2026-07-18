@@ -69,6 +69,38 @@ fn readonly_component_exposes_model_without_setter_surface() {
     assert!(!select.can_execute());
 }
 
+#[test]
+fn component_disposal_tears_down_all_retained_baseline_commands() {
+    let vm = ComponentVm::new("component");
+    let commands = [
+        vm.select_command(),
+        vm.deselect_command(),
+        vm.select_next_command(),
+        vm.select_previous_command(),
+        vm.reconstruct_command(),
+    ];
+    let deliveries = Arc::new(AtomicUsize::new(0));
+    let subscriptions = commands
+        .iter()
+        .map(|command| {
+            let deliveries = Arc::clone(&deliveries);
+            command.can_execute_changed().subscribe(move |_| {
+                deliveries.fetch_add(1, Ordering::SeqCst);
+            })
+        })
+        .collect::<Vec<_>>();
+
+    vm.dispose().unwrap();
+    let at_disposal = deliveries.load(Ordering::SeqCst);
+    for command in &commands {
+        assert!(!command.can_execute());
+        command.raise_can_execute_changed();
+    }
+
+    assert_eq!(deliveries.load(Ordering::SeqCst), at_disposal);
+    drop(subscriptions);
+}
+
 /// CVM-004 — ModeledHint recomputes when Model changes
 #[test]
 fn modeled_hint_recomputes_when_model_changes() {

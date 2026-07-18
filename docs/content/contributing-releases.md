@@ -67,5 +67,28 @@ and fresh-consumer verification. The Python channel pins its isolated PEP 517
 backend and installs/smokes the wheel from `dist/` before the irreversible PyPI
 action, then repeats the consumer check from the public registry.
 
-For the exact release and tagging procedure, use
-[CONTRIBUTING.md#4-releases-and-tagging](../../CONTRIBUTING.md#4-releases-and-tagging).
+### 11.5.1. Release Checklist
+
+Use this sequence for every flavor so the repository, site, and wiki carry the
+same actionable procedure:
+
+1. Start from a clean, freshly fetched `origin/main`; never release from
+   `develop` or an unmerged feature branch.
+1. Confirm the source/package version and minimum-spec declaration agree, and
+   prove both the intended operational tag and public registry version are
+   unused.
+1. Run the flavor's complete release gate and build the exact package locally.
+   Inspect that artifact, install it into a clean consumer, and retain the check
+   evidence before creating a tag.
+1. Create the immutable `<lang>-vX.Y.Z` tag from the verified `main` commit. For
+   Swift, create the paired semantic `vX.Y.Z` tag from the same commit. For C#
+   companion packages, use their package-specific tag prefixes.
+1. Monitor the matching release workflow, approve its protected environment
+   only after the pre-publish jobs identify the expected artifact, and do not
+   bypass a failed gate.
+1. Verify the exact version on the public registry and install it into a second
+   fresh consumer. Confirm the GitHub release points to the tagged commit and
+   contains the expected artifacts and notes.
+1. If publication fails after tag creation, keep the tag immutable. Correct the
+   source or workflow on `main`, bump the affected package to a new patch
+   version, and publish through a new tag.
