@@ -230,6 +230,12 @@ jobs:
     if: always()
     needs: [build, examples, small-examples, inspector, package]
     runs-on: ubuntu-latest
+    # This aggregator job has no checkout, so override the workflow-level
+    # `defaults.run.working-directory: langs/python` (which would not exist here)
+    # back to the workspace root so the jq gate can start.
+    defaults:
+      run:
+        working-directory: .
     steps:
       - name: Require every Python job
         env:

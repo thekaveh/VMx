@@ -708,6 +708,15 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
 
     private void BeginMembershipTransactionLocked()
     {
+        // Serialize concurrent (cross-thread) membership transactions instead of
+        // failing, mirroring Dispose(): wait for the owning thread to finish
+        // before starting a new one. EnsureChildAdmission then throws only for a
+        // genuine same-thread re-entrant mutation (or a disposing container).
+        while (_membershipTransactionActive
+               && _membershipTransactionOwnerThreadId != Environment.CurrentManagedThreadId)
+        {
+            Monitor.Wait(_membershipGate);
+        }
         EnsureChildAdmission();
         _membershipTransactionActive = true;
         _membershipTransactionOwnerThreadId = Environment.CurrentManagedThreadId;

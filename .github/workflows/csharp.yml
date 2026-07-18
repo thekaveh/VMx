@@ -188,6 +188,12 @@ jobs:
     if: always()
     needs: [build, package, examples, wpf-example]
     runs-on: ubuntu-latest
+    # This aggregator job has no checkout, so override the workflow-level
+    # `defaults.run.working-directory: langs/csharp` (which would not exist here)
+    # back to the workspace root so the jq gate can start.
+    defaults:
+      run:
+        working-directory: .
     steps:
       - name: Require every C# job
         env:
