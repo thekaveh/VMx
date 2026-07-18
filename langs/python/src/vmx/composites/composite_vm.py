@@ -17,6 +17,7 @@ from reactivex.subject import Subject
 from vmx.collections import BatchUpdateHandle, CollectionChangedEvent
 from vmx.components.base import (
     _begin_parent_transfer,
+    _commit_parent_transfer,
     _ComponentVMBase,
     _dispose_children_then_self,
     _ParentCompositeVM,
@@ -154,7 +155,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                     self._children.insert(min(index, len(self._children)), child)
                     child._set_parent(self)
             finally:
-                self._end_membership_transaction()
+                self._end_membership_transaction(propagate_dispose_failure=False)
 
         return _ParentTransfer(commit, rollback)
 
@@ -288,8 +289,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                 transfer.rollback()
             raise
         else:
-            if transfer is not None:
-                transfer.commit()
+            commit_error = _commit_parent_transfer(transfer)
             if self.current is old:
                 self._apply_current_change(None, internal=True)
             self._emit_collection_changed(
@@ -298,6 +298,8 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             self._emit_collection_changed(
                 CollectionChangedEvent(action="add", new_items=(value,), new_index=resolved_index)
             )
+            if commit_error is not None:
+                raise commit_error
         finally:
             self._end_membership_transaction()
 
@@ -344,11 +346,12 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                 transfer.rollback()
             raise
         else:
-            if transfer is not None:
-                transfer.commit()
+            commit_error = _commit_parent_transfer(transfer)
             self._emit_collection_changed(
                 CollectionChangedEvent(action="add", new_items=(item,), new_index=index)
             )
+            if commit_error is not None:
+                raise commit_error
         finally:
             self._end_membership_transaction()
 
@@ -377,11 +380,12 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                 transfer.rollback()
             raise
         else:
-            if transfer is not None:
-                transfer.commit()
+            commit_error = _commit_parent_transfer(transfer)
             self._emit_collection_changed(
                 CollectionChangedEvent(action="add", new_items=(item,), new_index=idx)
             )
+            if commit_error is not None:
+                raise commit_error
         finally:
             self._end_membership_transaction()
 
@@ -531,8 +535,9 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             try:
                 self._populate_children()
             except Exception:
-                while len(self._children) > initial_count:
-                    self._remove_at(len(self._children) - 1)
+                if not self._populated:
+                    while len(self._children) > initial_count:
+                        self._remove_at(len(self._children) - 1)
                 raise
             self._populated = True
 
@@ -601,7 +606,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         with self._membership_gate:
             self._begin_membership_transaction_locked()
 
-    def _end_membership_transaction(self) -> None:
+    def _end_membership_transaction(self, *, propagate_dispose_failure: bool = True) -> None:
         with self._membership_condition:
             self._membership_transaction_active = False
             self._membership_transaction_owner = None
@@ -609,7 +614,11 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             self._dispose_deferred = False
             self._membership_condition.notify_all()
         if dispose:
-            self.dispose()
+            try:
+                self.dispose()
+            except BaseException:
+                if propagate_dispose_failure:
+                    raise
 
     def _on_dispose(self) -> None:
         """Complete the collection_changed subject."""
@@ -683,9 +692,12 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                 raise compensation_error from original_error
             raise
         else:
+            commit_error: BaseException | None = None
             for staged_transfer in transfers:
-                if staged_transfer is not None:
-                    staged_transfer.commit()
+                commit_failure = _commit_parent_transfer(staged_transfer)
+                if commit_error is None:
+                    commit_error = commit_failure
+            self._populated = True
             for child in candidates:
                 index = next(
                     (i for i, candidate in enumerate(self.snapshot()) if candidate is child),
@@ -699,6 +711,8 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                             new_index=index,
                         )
                     )
+            if commit_error is not None:
+                raise commit_error
         finally:
             self._end_membership_transaction()
 

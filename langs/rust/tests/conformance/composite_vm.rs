@@ -740,6 +740,119 @@ fn failed_transfer_rolls_back_before_deferred_old_group_disposal() {
     assert_eq!(item.parent_id(), Some(old_parent.id()));
 }
 
+/// COMP-040 — deferred disposal failure follows committed transfer events.
+#[test]
+fn deferred_disposal_failure_follows_committed_transfer_events() {
+    let item = child("moving");
+    let failing_sibling = child("failing-sibling");
+    failing_sibling.on_dispose(|| Err(VmxError::Other("dispose failure".to_string())));
+    let old_hub = MessageHub::new();
+    let old_parent = vmx::GroupVm::with_services("old", old_hub.clone(), NullDispatcher::new());
+    old_parent.add(item.clone()).unwrap();
+    old_parent.add(failing_sibling.clone()).unwrap();
+    let destination_hub = MessageHub::new();
+    let destination = vmx::CompositeVm::with_services(
+        "destination",
+        destination_hub.clone(),
+        NullDispatcher::new(),
+    );
+    destination.set_auto_construct_on_add(true);
+    destination.construct().unwrap();
+    let old_from_hook = old_parent.clone();
+    item.on_construct(move || old_from_hook.dispose());
+
+    assert_eq!(
+        destination.add(item.clone()),
+        Err(VmxError::Other("dispose failure".to_string()))
+    );
+
+    assert_eq!(
+        collection_actions(&old_hub),
+        vec![
+            CollectionChangeAction::Add,
+            CollectionChangeAction::Add,
+            CollectionChangeAction::Remove,
+        ]
+    );
+    assert_eq!(
+        collection_actions(&destination_hub),
+        vec![CollectionChangeAction::Add]
+    );
+    assert_eq!(old_parent.status(), ConstructionStatus::Disposed);
+    assert_eq!(failing_sibling.status(), ConstructionStatus::Disposed);
+    assert_eq!(destination.items(), vec![item.clone()]);
+    assert_eq!(item.parent_id(), Some(destination.id()));
+}
+
+/// COMP-040 — attachment failure precedes deferred disposal failure.
+#[test]
+fn attachment_failure_precedes_deferred_disposal_failure() {
+    let item = child("moving");
+    item.on_dispose(|| Err(VmxError::Other("dispose failure".to_string())));
+    let old_parent = vmx::GroupVm::new("old");
+    old_parent.add(item.clone()).unwrap();
+    let destination = vmx::CompositeVm::new("destination");
+    destination.set_auto_construct_on_add(true);
+    destination.construct().unwrap();
+    let old_from_hook = old_parent.clone();
+    item.on_construct(move || {
+        old_from_hook.dispose()?;
+        Err(VmxError::Other("attachment failure".to_string()))
+    });
+
+    assert_eq!(
+        destination.add(item.clone()),
+        Err(VmxError::Other("attachment failure".to_string()))
+    );
+
+    assert_eq!(old_parent.status(), ConstructionStatus::Disposed);
+    assert_eq!(item.status(), ConstructionStatus::Disposed);
+    assert_eq!(old_parent.items(), vec![item.clone()]);
+    assert!(destination.is_empty());
+}
+
+/// COMP-040 — late disposal failure cannot make committed population retry.
+#[test]
+fn late_disposal_failure_does_not_retry_committed_population() {
+    let item = child("moving");
+    let failing_sibling = child("failing-sibling");
+    failing_sibling.on_dispose(|| Err(VmxError::Other("dispose failure".to_string())));
+    let old_hub = MessageHub::new();
+    let old_parent = vmx::GroupVm::with_services("old", old_hub.clone(), NullDispatcher::new());
+    old_parent.add(item.clone()).unwrap();
+    old_parent.add(failing_sibling).unwrap();
+    let old_from_hook = old_parent.clone();
+    item.on_construct(move || old_from_hook.dispose());
+    let calls = Arc::new(AtomicUsize::new(0));
+    let calls_from_factory = Arc::clone(&calls);
+    let mapped_item = item.clone();
+    let destination_hub = MessageHub::new();
+    let destination = vmx::ModeledCompositeVm::<i32, Child, NullDispatcher>::new(
+        "destination",
+        destination_hub.clone(),
+        NullDispatcher::new(),
+        move || {
+            calls_from_factory.fetch_add(1, Ordering::SeqCst);
+            vec![1]
+        },
+        move |_| mapped_item.clone(),
+    );
+
+    assert_eq!(
+        destination.construct(),
+        Err(VmxError::Other("dispose failure".to_string()))
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(destination.items(), vec![item.clone()]);
+    assert!(collection_actions(&old_hub).contains(&CollectionChangeAction::Remove));
+    assert!(collection_actions(&destination_hub).contains(&CollectionChangeAction::Add));
+
+    destination.construct().unwrap();
+
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(destination.status(), ConstructionStatus::Constructed);
+}
+
 /// COMP-040 — foreign-thread disposal waits for transfer commit.
 #[test]
 fn concurrent_old_parent_disposal_waits_for_transfer_commit() {
@@ -1003,6 +1116,59 @@ fn on_current_changed_fires_after_current_changes() {
         observed.lock().unwrap().clone(),
         vec!["a".to_string(), String::new()]
     );
+}
+
+/// COMP-026 — a current-change callback may dispose the same composite.
+#[test]
+fn current_change_callback_can_dispose_the_composite_without_deadlocking() {
+    let composite = vmx::CompositeVm::new("root");
+    let item = child("a");
+    composite.add(item.clone()).unwrap();
+    let callback_composite = composite.clone();
+    composite.on_current_changed(move |_| callback_composite.dispose().unwrap());
+
+    let worker_composite = composite.clone();
+    let (completed, completion) = mpsc::channel();
+    std::thread::spawn(move || {
+        completed
+            .send(worker_composite.set_current(Some(item)))
+            .unwrap();
+    });
+
+    assert_eq!(
+        completion
+            .recv_timeout(Duration::from_secs(1))
+            .expect("re-entrant disposal must not deadlock current assignment"),
+        Ok(())
+    );
+    assert_eq!(composite.status(), ConstructionStatus::Disposed);
+}
+
+#[test]
+fn dispatched_current_change_callback_can_dispose_without_deadlocking() {
+    let composite =
+        vmx::CompositeVm::with_services("root", MessageHub::new(), ImmediateDispatcher::new());
+    let item = child("a");
+    composite.add(item.clone()).unwrap();
+    composite.set_async_selection(true);
+    let callback_composite = composite.clone();
+    composite.on_current_changed(move |_| callback_composite.dispose().unwrap());
+
+    let worker_composite = composite.clone();
+    let (completed, completion) = mpsc::channel();
+    std::thread::spawn(move || {
+        completed
+            .send(worker_composite.set_current(Some(item)))
+            .unwrap();
+    });
+
+    assert_eq!(
+        completion
+            .recv_timeout(Duration::from_secs(1))
+            .expect("re-entrant disposal must not deadlock dispatched current assignment"),
+        Ok(())
+    );
+    assert_eq!(composite.status(), ConstructionStatus::Disposed);
 }
 
 /// COMP-027 — Adding a child sets its Parent; removing clears it

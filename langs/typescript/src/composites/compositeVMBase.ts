@@ -15,6 +15,7 @@ import { Subject } from "rxjs";
 import type { Observable } from "rxjs";
 import {
   beginParentTransfer,
+  captureParentTransferCommit,
   ContainerRollbackError,
   ComponentVMBase,
   ParentTransfer,
@@ -139,7 +140,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
           this._children.splice(Math.min(index, this._children.length), 0, child);
           child._parent = this;
         } finally {
-          this.#endMembershipTransaction();
+          this.#endMembershipTransaction(false);
         }
       },
     );
@@ -237,8 +238,8 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
       }
       throw error;
     }
+    const commitError = captureParentTransferCommit(transfer);
     try {
-      transfer.commit();
       const idx = this._children.length - 1;
       this._emitCollectionChanged(
         makeCollectionChangedEvent("add", {
@@ -246,6 +247,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
           newIndex: idx,
         }),
       );
+      if (commitError !== undefined) throw commitError;
     } finally {
       this.#endMembershipTransaction();
     }
@@ -282,14 +284,15 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
       }
       throw error;
     }
+    const commitError = captureParentTransferCommit(transfer);
     try {
-      transfer.commit();
       this._emitCollectionChanged(
         makeCollectionChangedEvent("add", {
           newItems: [item],
           newIndex: index,
         }),
       );
+      if (commitError !== undefined) throw commitError;
     } finally {
       this.#endMembershipTransaction();
     }
@@ -355,8 +358,8 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
       }
       throw error;
     }
+    const commitError = captureParentTransferCommit(transfer);
     try {
-      transfer.commit();
       if (this.#current === old) this._applyCurrentChange(null, true);
       this._emitCollectionChanged(
         makeCollectionChangedEvent("remove", { oldItems: [old], oldIndex: index }),
@@ -364,6 +367,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
       this._emitCollectionChanged(
         makeCollectionChangedEvent("add", { newItems: [value], newIndex: index }),
       );
+      if (commitError !== undefined) throw commitError;
     } finally {
       this.#endMembershipTransaction();
     }
@@ -516,11 +520,15 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     }
   }
 
-  #endMembershipTransaction(): void {
+  #endMembershipTransaction(propagateDisposeFailure = true): void {
     this.#membershipTransactionActive = false;
     if (this.#disposeDeferred) {
       this.#disposeDeferred = false;
-      this.dispose();
+      try {
+        this.dispose();
+      } catch (error) {
+        if (propagateDisposeFailure) throw error;
+      }
     }
   }
 
@@ -577,8 +585,13 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
       }
       throw error;
     }
+    let commitError: Error | undefined;
+    for (const transfer of transfers) {
+      const error = captureParentTransferCommit(transfer);
+      commitError ??= error;
+    }
+    this.#populated = true;
     try {
-      for (const transfer of transfers) transfer.commit();
       candidates.forEach((child) => {
         const index = this._children.findIndex((candidate) => candidate === child);
         if (index >= start) {
@@ -587,6 +600,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
           );
         }
       });
+      if (commitError !== undefined) throw commitError;
     } finally {
       this.#endMembershipTransaction();
     }

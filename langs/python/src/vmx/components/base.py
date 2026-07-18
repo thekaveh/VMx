@@ -182,6 +182,17 @@ class _ParentTransfer:
         self._rollback()
 
 
+def _commit_parent_transfer(transfer: _ParentTransfer | None) -> BaseException | None:
+    """Commit ownership, retaining a late failure until destination publication."""
+    if transfer is None:
+        return None
+    try:
+        transfer.commit()
+    except BaseException as error:
+        return error
+    return None
+
+
 def _begin_parent_transfer(
     child: _ComponentVMBase, destination: _ParentCompositeVM
 ) -> _ParentTransfer:

@@ -32,13 +32,28 @@ if it can snapshot the old parent during the staged interval.
   restored child in its normal depth-first cascade.
 - Destination disposal requested from an attachment hook continues to reject
   that attachment: pending terminal disposal is not a live admission state.
-- `COMP-040` covers both the successful-commit and failed-rollback ordering. No
-  new conformance ID or public API is introduced.
+- Selection publication and current-changed callbacks keep the logical
+  membership transaction active without holding a non-reentrant membership
+  mutex. Re-entrant same-container disposal therefore becomes a deferred
+  terminal request and completes after the current change instead of
+  deadlocking in the callback.
+- A deferred old-parent disposal failure cannot interrupt publication of a
+  transfer that already committed. Throwing and result-based flavors publish
+  old removal and new addition, then propagate the disposal failure. If
+  attachment already failed, that earlier error remains first after deferred
+  disposal completes; the later disposal error does not replace it. Population
+  that committed before the disposal failure remains marked materialized so a
+  retry cannot duplicate or orphan the transferred children.
+- `COMP-026` covers re-entrant disposal from current-changed callbacks, and
+  `COMP-040` covers both successful-commit and failed-rollback ordering. No new
+  conformance ID or public API is introduced.
 
 ## 3. Consequences
 
 - A child cannot be restored into an already-disposed old parent.
 - Disposal snapshots observe only committed container membership.
+- Observable membership and error ordering agree: committed state is fully
+  published before a late disposal failure reaches the caller.
 - The five flavors use their idiomatic synchronization facilities, while the
   language-neutral ordering and terminal state are identical.
 - This is a correctness clarification within the existing v3.22.0 ownership and

@@ -49,6 +49,13 @@ user lifecycle code fails during compensation, VMx surfaces that rollback
 failure instead of claiming that lifecycle state was restored exactly
 (ADR-0118).
 
+Old-parent disposal requested by an attachment hook waits for commit or
+rollback. A committed transfer publishes old removal and new addition before a
+throwing/result-based flavor surfaces any deferred disposal failure. When
+attachment already failed, that earlier error remains primary after rollback
+and disposal complete. A lazy population that already committed stays
+materialized rather than evaluating its factory again (ADR-0122).
+
 ## 6.2.5.3. Lifecycle And Messaging
 
 The composite owns both child lifecycle and selection messaging:
@@ -57,6 +64,8 @@ The composite owns both child lifecycle and selection messaging:
 - `destruct()` clears `Current` before destructing children
 - `Current` changes publish the parent `Current` property and the affected
   children's `IsCurrent`
+- disposal requested by a current-changed callback is deferred until the
+  selection notification finishes and does not deadlock the callback
 - `AsyncSelection(true)` routes selection work through the foreground
   dispatcher
 - a non-batched move emits one move event with both indices; a batched move is

@@ -31,6 +31,19 @@ public class CompositeVMConformanceTests
         public override int GetHashCode() => Name.GetHashCode(StringComparison.Ordinal);
     }
 
+    private sealed class DisposeFailingVM(
+        string name,
+        TestHub hub,
+        TestDispatcher dispatcher,
+        Action? onConstruct = null)
+        : ComponentVMBase(name, "", hub, dispatcher, onConstruct, null)
+    {
+        public override ViewModelType Type => ViewModelType.Component;
+
+        protected override void OnDispose() =>
+            throw new InvalidOperationException("dispose failure");
+    }
+
     // ── Factory helpers ──────────────────────────────────────────────────────
 
     private static (CompositeVM<ComponentVM<string>> composite, TestHub hub, TestDispatcher dispatcher)
@@ -542,6 +555,21 @@ public class CompositeVMConformanceTests
         composite2.Construct();
 
         observed2.Should().Equal(a2);
+
+        CompositeVM<ComponentVM<string>>? reentrant = null;
+        var reentrantHub = new TestHub();
+        var reentrantChild = BuildChild(reentrantHub, dispatcher, "reentrant");
+        reentrant = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("reentrant-composite")
+            .Services(reentrantHub, dispatcher)
+            .Children(() => new[] { reentrantChild })
+            .OnCurrentChanged(_ => reentrant!.Dispose())
+            .Build();
+        reentrant.Construct();
+
+        reentrant.SelectComponent(reentrantChild);
+
+        reentrant.Status.Should().Be(ConstructionStatus.Disposed);
     }
 
     // ── COMP-027 — Add sets child Parent; Remove clears it ───────────────────
@@ -803,6 +831,104 @@ public class CompositeVMConformanceTests
         destination.Should().BeEmpty();
         child.Status.Should().Be(ConstructionStatus.Disposed);
         child.Parent.Should().BeSameAs(oldParent);
+    }
+
+    [Fact, Trait("Conformance", "COMP-040")]
+    public void COMP_040_Deferred_Disposal_Failure_Follows_Committed_Transfer_Events()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var oldParent = GroupVM<ComponentVMBase>.Builder()
+            .Name("old").Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVMBase>()).Build();
+        var destination = CompositeVM<ComponentVMBase>.Builder()
+            .Name("destination").Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVMBase>())
+            .AutoConstructOnAdd(true).Build();
+        var moving = new DisposeFailingVM("moving", hub, dispatcher, oldParent.Dispose);
+        var failingSibling = new DisposeFailingVM("failing-sibling", hub, dispatcher);
+        oldParent.Add(moving);
+        oldParent.Add(failingSibling);
+        destination.Construct();
+        var events = new List<string>();
+        oldParent.CollectionChanged += (_, _) => events.Add("old:remove");
+        destination.CollectionChanged += (_, _) => events.Add("new:add");
+
+        Action transfer = () => destination.Add(moving);
+
+        transfer.Should().Throw<InvalidOperationException>().WithMessage("dispose failure");
+        events.Should().Equal("old:remove", "new:add");
+        oldParent.Status.Should().Be(ConstructionStatus.Disposed);
+        failingSibling.Status.Should().Be(ConstructionStatus.Disposed);
+        destination.Should().ContainSingle(item => ReferenceEquals(item, moving));
+        moving.Parent.Should().BeSameAs(destination);
+    }
+
+    [Fact, Trait("Conformance", "COMP-040")]
+    public void COMP_040_Attachment_Failure_Precedes_Deferred_Disposal_Failure()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var oldParent = GroupVM<ComponentVMBase>.Builder()
+            .Name("old").Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVMBase>()).Build();
+        var destination = CompositeVM<ComponentVMBase>.Builder()
+            .Name("destination").Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVMBase>())
+            .AutoConstructOnAdd(true).Build();
+        var moving = new DisposeFailingVM("moving", hub, dispatcher, () =>
+        {
+            oldParent.Dispose();
+            throw new InvalidOperationException("attachment failure");
+        });
+        oldParent.Add(moving);
+        destination.Construct();
+
+        Action transfer = () => destination.Add(moving);
+
+        transfer.Should().Throw<InvalidOperationException>().WithMessage("attachment failure");
+        oldParent.Status.Should().Be(ConstructionStatus.Disposed);
+        moving.Status.Should().Be(ConstructionStatus.Disposed);
+        oldParent.Should().ContainSingle(item => ReferenceEquals(item, moving));
+        destination.Should().BeEmpty();
+    }
+
+    [Fact, Trait("Conformance", "COMP-040")]
+    public void COMP_040_Late_Disposal_Failure_Does_Not_Retry_Committed_Population()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var oldParent = GroupVM<ComponentVMBase>.Builder()
+            .Name("old").Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVMBase>()).Build();
+        var moving = new DisposeFailingVM("moving", hub, dispatcher, oldParent.Dispose);
+        var failingSibling = new DisposeFailingVM("failing-sibling", hub, dispatcher);
+        oldParent.Add(moving);
+        oldParent.Add(failingSibling);
+        var factoryCalls = 0;
+        var destination = CompositeVM<ComponentVMBase>.Builder()
+            .Name("destination").Services(hub, dispatcher)
+            .Children(() =>
+            {
+                factoryCalls++;
+                return [moving];
+            })
+            .Build();
+        var events = new List<string>();
+        oldParent.CollectionChanged += (_, _) => events.Add("old:remove");
+        destination.CollectionChanged += (_, _) => events.Add("new:add");
+
+        Action firstConstruct = destination.Construct;
+
+        firstConstruct.Should().Throw<InvalidOperationException>().WithMessage("dispose failure");
+        events.Should().Equal("old:remove", "new:add");
+        factoryCalls.Should().Be(1);
+        destination.Should().ContainSingle(item => ReferenceEquals(item, moving));
+
+        destination.Construct();
+
+        factoryCalls.Should().Be(1);
+        destination.Status.Should().Be(ConstructionStatus.Constructed);
     }
 
     [Fact, Trait("Conformance", "COMP-040")]

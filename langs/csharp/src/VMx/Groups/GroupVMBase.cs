@@ -137,7 +137,7 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
                         child.SetParent(this);
                     }
                 }
-                finally { EndMembershipTransaction(); }
+                finally { EndMembershipTransaction(propagateDisposeFailure: false); }
             });
     }
 
@@ -191,11 +191,13 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
             }
             try
             {
-                transfer?.Commit();
-                RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
-                    NotifyCollectionChangedAction.Remove, old, index));
-                RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
-                    NotifyCollectionChangedAction.Add, value, index));
+                ComponentOwnership.CommitThenPublish(transfer, () =>
+                {
+                    RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+                        NotifyCollectionChangedAction.Remove, old, index));
+                    RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+                        NotifyCollectionChangedAction.Add, value, index));
+                });
             }
             finally { EndMembershipTransaction(); }
         }
@@ -243,9 +245,9 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
         }
         try
         {
-            transfer?.Commit();
-            RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
-                NotifyCollectionChangedAction.Add, item, idx));
+            ComponentOwnership.CommitThenPublish(transfer, () =>
+                RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+                    NotifyCollectionChangedAction.Add, item, idx)));
         }
         finally { EndMembershipTransaction(); }
     }
@@ -307,9 +309,9 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
         }
         try
         {
-            transfer?.Commit();
-            RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
-                NotifyCollectionChangedAction.Add, item, index));
+            ComponentOwnership.CommitThenPublish(transfer, () =>
+                RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+                    NotifyCollectionChangedAction.Add, item, index)));
         }
         finally { EndMembershipTransaction(); }
     }
@@ -476,7 +478,7 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
     protected virtual void PopulateChildren() { }
 
     /// <summary>Attaches one factory population as an all-or-nothing transaction.</summary>
-    protected void AttachPopulation(IEnumerable<VM> children)
+    protected void AttachPopulation(IEnumerable<VM> children, Action? onCommitted = null)
     {
         var candidates = children.ToArray();
         if (candidates.Where((candidate, index) =>
@@ -551,15 +553,18 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
         }
         try
         {
-            foreach (var transfer in transfers) transfer?.Commit();
-            foreach (var child in candidates)
+            ComponentOwnership.CommitThenPublish(transfers, () =>
             {
-                var index = Snapshot().ToList().FindIndex(
-                    candidate => ReferenceEquals(candidate, child));
-                if (index >= 0)
-                    RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
-                        NotifyCollectionChangedAction.Add, child, index));
-            }
+                onCommitted?.Invoke();
+                foreach (var child in candidates)
+                {
+                    var index = Snapshot().ToList().FindIndex(
+                        candidate => ReferenceEquals(candidate, child));
+                    if (index >= 0)
+                        RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+                            NotifyCollectionChangedAction.Add, child, index));
+                }
+            });
         }
         finally { EndMembershipTransaction(); }
     }
@@ -647,7 +652,7 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
                 "Cannot attach a child while the container is disposing.");
     }
 
-    private void EndMembershipTransaction()
+    private void EndMembershipTransaction(bool propagateDisposeFailure = true)
     {
         bool dispose;
         lock (_membershipGate)
@@ -658,7 +663,11 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
             _disposeDeferred = false;
             Monitor.PulseAll(_membershipGate);
         }
-        if (dispose) Dispose();
+        if (dispose)
+        {
+            try { Dispose(); }
+            catch when (!propagateDisposeFailure) { }
+        }
     }
 
     private VM RemoveAtLocked(int index)

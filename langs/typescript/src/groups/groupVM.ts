@@ -7,6 +7,7 @@ import { Subject } from "rxjs";
 import type { Observable, Subscription } from "rxjs";
 import {
   beginParentTransfer,
+  captureParentTransferCommit,
   ContainerRollbackError,
   ComponentVMBase,
   ParentTransfer,
@@ -138,11 +139,12 @@ export class GroupVM<VM extends ComponentVMBase>
       try { transfer?.rollback(); } finally { this.#endMembershipTransaction(); }
       throw error;
     }
+    const commitError = captureParentTransferCommit(transfer);
     try {
-      transfer.commit();
       this._emitCollectionChanged(
         makeCollectionChangedEvent("add", { newItems: [item], newIndex: idx }),
       );
+      if (commitError !== undefined) throw commitError;
     } finally { this.#endMembershipTransaction(); }
   }
 
@@ -173,11 +175,12 @@ export class GroupVM<VM extends ComponentVMBase>
       try { transfer?.rollback(); } finally { this.#endMembershipTransaction(); }
       throw error;
     }
+    const commitError = captureParentTransferCommit(transfer);
     try {
-      transfer.commit();
       this._emitCollectionChanged(
         makeCollectionChangedEvent("add", { newItems: [item], newIndex: index }),
       );
+      if (commitError !== undefined) throw commitError;
     } finally { this.#endMembershipTransaction(); }
   }
 
@@ -229,14 +232,15 @@ export class GroupVM<VM extends ComponentVMBase>
       try { transfer?.rollback(); } finally { this.#endMembershipTransaction(); }
       throw error;
     }
+    const commitError = captureParentTransferCommit(transfer);
     try {
-      transfer.commit();
       this._emitCollectionChanged(
         makeCollectionChangedEvent("remove", { oldItems: [old], oldIndex: index }),
       );
       this._emitCollectionChanged(
         makeCollectionChangedEvent("add", { newItems: [value], newIndex: index }),
       );
+      if (commitError !== undefined) throw commitError;
     } finally { this.#endMembershipTransaction(); }
   }
 
@@ -317,7 +321,7 @@ export class GroupVM<VM extends ComponentVMBase>
         try {
           this._children.splice(Math.min(index, this._children.length), 0, child);
           child._parent = this.#groupParent;
-        } finally { this.#endMembershipTransaction(); }
+        } finally { this.#endMembershipTransaction(false); }
       },
     );
   }
@@ -394,11 +398,15 @@ export class GroupVM<VM extends ComponentVMBase>
     }
   }
 
-  #endMembershipTransaction(): void {
+  #endMembershipTransaction(propagateDisposeFailure = true): void {
     this.#membershipTransactionActive = false;
     if (this.#disposeDeferred) {
       this.#disposeDeferred = false;
-      this.dispose();
+      try {
+        this.dispose();
+      } catch (error) {
+        if (propagateDisposeFailure) throw error;
+      }
     }
   }
 
@@ -455,8 +463,13 @@ export class GroupVM<VM extends ComponentVMBase>
       }
       throw error;
     }
+    let commitError: Error | undefined;
+    for (const transfer of transfers) {
+      const error = captureParentTransferCommit(transfer);
+      commitError ??= error;
+    }
+    this.#populated = true;
     try {
-      for (const transfer of transfers) transfer.commit();
       children.forEach((child, offset) => {
         this._emitCollectionChanged(
           makeCollectionChangedEvent("add", {
@@ -465,7 +478,7 @@ export class GroupVM<VM extends ComponentVMBase>
           }),
         );
       });
-      this.#populated = true;
+      if (commitError !== undefined) throw commitError;
     } finally { this.#endMembershipTransaction(); }
   }
 

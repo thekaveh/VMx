@@ -121,6 +121,26 @@ internal static class ComponentOwnership
 
     private static readonly ConditionalWeakTable<IComponentVM, OwnershipState> States = new();
 
+    internal static void CommitThenPublish(
+        ParentTransferToken? transfer,
+        Action publish)
+        => CommitThenPublish([transfer], publish);
+
+    internal static void CommitThenPublish(
+        IEnumerable<ParentTransferToken?> transfers,
+        Action publish)
+    {
+        Exception? firstError = null;
+        foreach (var transfer in transfers)
+        {
+            try { transfer?.Commit(); }
+            catch (Exception error) { firstError ??= error; }
+        }
+        try { publish(); }
+        catch (Exception error) { firstError ??= error; }
+        if (firstError is not null) ExceptionDispatchInfo.Capture(firstError).Throw();
+    }
+
     internal static ParentTransferToken? BeginTransfer(
         IComponentVM child,
         IParentCompositeVM destination)

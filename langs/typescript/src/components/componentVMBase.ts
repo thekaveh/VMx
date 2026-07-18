@@ -62,6 +62,18 @@ export class ParentTransfer {
   }
 }
 
+/** @internal Commit ownership without interrupting destination publication. */
+export function captureParentTransferCommit(transfer: ParentTransfer): Error | undefined {
+  try {
+    transfer.commit();
+  } catch (error) {
+    return error instanceof Error
+      ? error
+      : new Error("Parent transfer commit failed", { cause: error });
+  }
+  return undefined;
+}
+
 /** Internal failure raised when consumer lifecycle code prevents exact rollback. */
 export class ContainerRollbackError extends Error {
   readonly rollbackError: unknown;

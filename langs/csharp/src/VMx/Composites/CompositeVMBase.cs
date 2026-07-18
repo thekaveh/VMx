@@ -94,6 +94,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
             BeginMembershipTransaction();
             ParentTransferToken? transfer = null;
             VM? old = null;
+            var admissionComplete = false;
             try
             {
                 transfer = ComponentOwnership.BeginTransfer(value, this);
@@ -107,15 +108,18 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                 }
                 MaybeAutoConstruct(value);
                 lock (_membershipGate) EnsureTransactionCanContinueLocked();
-                transfer?.Commit();
-                if (ReferenceEquals(Current, old))
-                    ApplyCurrentChange(null, internalTransaction: true);
-                RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
-                    NotifyCollectionChangedAction.Remove, old, index));
-                RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
-                    NotifyCollectionChangedAction.Add, value, index));
+                admissionComplete = true;
+                ComponentOwnership.CommitThenPublish(transfer, () =>
+                {
+                    if (ReferenceEquals(Current, old))
+                        ApplyCurrentChange(null, internalTransaction: true);
+                    RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+                        NotifyCollectionChangedAction.Remove, old, index));
+                    RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+                        NotifyCollectionChangedAction.Add, value, index));
+                });
             }
-            catch
+            catch when (!admissionComplete)
             {
                 lock (_membershipGate)
                 {
@@ -229,7 +233,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                         child.SetParent(this);
                     }
                 }
-                finally { EndMembershipTransaction(); }
+                finally { EndMembershipTransaction(propagateDisposeFailure: false); }
             });
     }
 
@@ -299,9 +303,9 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         }
         try
         {
-            transfer?.Commit();
-            RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
-                NotifyCollectionChangedAction.Add, item, idx));
+            ComponentOwnership.CommitThenPublish(transfer, () =>
+                RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+                    NotifyCollectionChangedAction.Add, item, idx)));
         }
         finally { EndMembershipTransaction(); }
     }
@@ -365,9 +369,9 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         }
         try
         {
-            transfer?.Commit();
-            RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
-                NotifyCollectionChangedAction.Add, item, index));
+            ComponentOwnership.CommitThenPublish(transfer, () =>
+                RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+                    NotifyCollectionChangedAction.Add, item, index)));
         }
         finally { EndMembershipTransaction(); }
     }
@@ -552,7 +556,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     protected virtual void PopulateChildren() { }
 
     /// <summary>Attaches one factory population as an all-or-nothing transaction.</summary>
-    protected void AttachPopulation(IEnumerable<VM> children)
+    protected void AttachPopulation(IEnumerable<VM> children, Action? onCommitted = null)
     {
         var candidates = children.ToArray();
         if (candidates.Where((candidate, index) =>
@@ -629,15 +633,18 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         }
         try
         {
-            foreach (var transfer in transfers) transfer?.Commit();
-            foreach (var child in candidates)
+            ComponentOwnership.CommitThenPublish(transfers, () =>
             {
-                var index = Snapshot().ToList().FindIndex(
-                    candidate => ReferenceEquals(candidate, child));
-                if (index >= 0)
-                    RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
-                        NotifyCollectionChangedAction.Add, child, index));
-            }
+                onCommitted?.Invoke();
+                foreach (var child in candidates)
+                {
+                    var index = Snapshot().ToList().FindIndex(
+                        candidate => ReferenceEquals(candidate, child));
+                    if (index >= 0)
+                        RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+                            NotifyCollectionChangedAction.Add, child, index));
+                }
+            });
         }
         finally { EndMembershipTransaction(); }
     }
@@ -725,7 +732,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                 "Cannot attach a child while the container is disposing.");
     }
 
-    private void EndMembershipTransaction()
+    private void EndMembershipTransaction(bool propagateDisposeFailure = true)
     {
         bool dispose;
         lock (_membershipGate)
@@ -736,7 +743,11 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
             _disposeDeferred = false;
             Monitor.PulseAll(_membershipGate);
         }
-        if (dispose) Dispose();
+        if (dispose)
+        {
+            try { Dispose(); }
+            catch when (!propagateDisposeFailure) { }
+        }
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────

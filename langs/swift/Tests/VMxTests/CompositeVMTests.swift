@@ -388,6 +388,20 @@ final class CompositeVMTests: XCTestCase {
                        "the initial-selector assignment fires onCurrentChanged exactly once")
         XCTAssertTrue(observed2[0] === a2,
                       "the construct-time hook receives the selected first child")
+
+        let reentrantChild = leaf("reentrant")
+        var reentrant: CompositeVM<ComponentVM>!
+        reentrant = try CompositeVM<ComponentVM>.builder()
+            .name("reentrant-composite")
+            .withNullServices()
+            .children { [reentrantChild] }
+            .onCurrentChanged { _ in reentrant.dispose() }
+            .build()
+        try reentrant.construct()
+
+        reentrant.selectChild(reentrantChild)
+
+        XCTAssertEqual(reentrant.status, .disposed)
     }
 
     /// VMX-098 — `selectChild` gates on Constructed, mirroring C#

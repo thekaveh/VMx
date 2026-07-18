@@ -24,6 +24,7 @@ from reactivex.subject import Subject
 from vmx.collections import BatchUpdateHandle, CollectionChangedEvent
 from vmx.components.base import (
     _begin_parent_transfer,
+    _commit_parent_transfer,
     _ComponentVMBase,
     _dispose_children_then_self,
     _ParentCompositeVM,
@@ -186,14 +187,15 @@ class GroupVM(Generic[VM], _ComponentVMBase):
                 transfer.rollback()
             raise
         else:
-            if transfer is not None:
-                transfer.commit()
+            commit_error = _commit_parent_transfer(transfer)
             self._emit_collection_changed(
                 CollectionChangedEvent(action="remove", old_items=(old,), old_index=resolved_index)
             )
             self._emit_collection_changed(
                 CollectionChangedEvent(action="add", new_items=(value,), new_index=resolved_index)
             )
+            if commit_error is not None:
+                raise commit_error
         finally:
             self._end_membership_transaction()
 
@@ -240,11 +242,12 @@ class GroupVM(Generic[VM], _ComponentVMBase):
                 transfer.rollback()
             raise
         else:
-            if transfer is not None:
-                transfer.commit()
+            commit_error = _commit_parent_transfer(transfer)
             self._emit_collection_changed(
                 CollectionChangedEvent(action="add", new_items=(item,), new_index=index)
             )
+            if commit_error is not None:
+                raise commit_error
         finally:
             self._end_membership_transaction()
 
@@ -274,11 +277,12 @@ class GroupVM(Generic[VM], _ComponentVMBase):
                 transfer.rollback()
             raise
         else:
-            if transfer is not None:
-                transfer.commit()
+            commit_error = _commit_parent_transfer(transfer)
             self._emit_collection_changed(
                 CollectionChangedEvent(action="add", new_items=(item,), new_index=idx)
             )
+            if commit_error is not None:
+                raise commit_error
         finally:
             self._end_membership_transaction()
 
@@ -455,7 +459,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         with self._membership_gate:
             self._begin_membership_transaction_locked()
 
-    def _end_membership_transaction(self) -> None:
+    def _end_membership_transaction(self, *, propagate_dispose_failure: bool = True) -> None:
         with self._membership_condition:
             self._membership_transaction_active = False
             self._membership_transaction_owner = None
@@ -463,7 +467,11 @@ class GroupVM(Generic[VM], _ComponentVMBase):
             self._dispose_deferred = False
             self._membership_condition.notify_all()
         if dispose:
-            self.dispose()
+            try:
+                self.dispose()
+            except BaseException:
+                if propagate_dispose_failure:
+                    raise
 
     def _on_dispose(self) -> None:
         if not self._collection_changed_subject.is_disposed:
@@ -527,15 +535,19 @@ class GroupVM(Generic[VM], _ComponentVMBase):
                 raise compensation_error from original_error
             raise
         else:
+            commit_error: BaseException | None = None
             for staged_transfer in transfers:
-                if staged_transfer is not None:
-                    staged_transfer.commit()
+                commit_failure = _commit_parent_transfer(staged_transfer)
+                if commit_error is None:
+                    commit_error = commit_failure
+            self._populated = True
             for child in children:
                 index = next(i for i, candidate in enumerate(self.snapshot()) if candidate is child)
                 self._emit_collection_changed(
                     CollectionChangedEvent(action="add", new_items=(child,), new_index=index)
                 )
-            self._populated = True
+            if commit_error is not None:
+                raise commit_error
         finally:
             self._end_membership_transaction()
 
@@ -664,6 +676,6 @@ class _GroupParent(_ParentCompositeVM, Generic[VM]):
                     self._group._children.insert(min(index, len(self._group._children)), child)
                     child._set_parent(self)
             finally:
-                self._group._end_membership_transaction()
+                self._group._end_membership_transaction(propagate_dispose_failure=False)
 
         return _ParentTransfer(commit, rollback)

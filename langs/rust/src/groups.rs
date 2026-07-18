@@ -90,25 +90,31 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
                     transaction.defer();
                     Ok(ParentTransfer::new(
                         move || {
-                            let _transaction = MembershipTransactionGuard::release_on_drop(
+                            let transaction = MembershipTransactionGuard::release_on_drop(
                                 commit_transaction,
                                 commit_control,
                             );
                             commit_items.publish_remove(index);
+                            transaction.finish()
                         },
                         move || {
-                            let _transaction = MembershipTransactionGuard::release_on_drop(
+                            let transaction = MembershipTransactionGuard::release_on_drop(
                                 rollback_transaction,
                                 rollback_control,
                             );
                             let _gate = lock(&rollback_gate);
                             if rollback_disposed.load(Ordering::Acquire) {
                                 removed.set_parent_handle(None);
-                                return;
+                                drop(_gate);
+                                let _ = transaction.finish();
+                                return Ok(());
                             }
                             let _ = rollback_items
                                 .insert_silent(index.min(rollback_items.len()), removed.clone());
                             removed.set_parent_handle(Some(owner_handle));
+                            drop(_gate);
+                            let _ = transaction.finish();
+                            Ok(())
                         },
                     ))
                 }
@@ -179,7 +185,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
     /// When auto-construction is active on a constructed group, construction
     /// failure rolls back both membership and the previous-parent transfer.
     pub fn add(&self, item: T) -> VmxResult<()> {
-        let _transaction = begin_membership_transaction(
+        let transaction = begin_membership_transaction(
             &self.membership_transaction_active,
             &self.membership_transaction_control,
         )?;
@@ -188,7 +194,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             let _gate = lock(&self.membership_gate);
             if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
                 if let Some(transfer) = transfer {
-                    transfer.rollback();
+                    let _ = transfer.rollback();
                 }
                 return Err(VmxError::Disposed);
             }
@@ -227,19 +233,23 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
                 item.set_parent_handle(None);
             }
             if let Some(transfer) = transfer {
-                transfer.rollback();
+                let _ = transfer.rollback();
             }
             return Err(error);
         }
-        if let Some(transfer) = transfer {
-            transfer.commit();
-        }
+        let mut commit_error = transfer.and_then(|transfer| transfer.commit().err());
         self.items.publish_add(index);
-        Ok(())
+        retain_first_error(&mut commit_error, transaction.finish());
+        finish_with_first_error(commit_error)
     }
 
-    fn attach_population(&self, candidates: Vec<T>, construct: bool) -> VmxResult<()> {
-        let _transaction = begin_membership_transaction(
+    fn attach_population(
+        &self,
+        candidates: Vec<T>,
+        construct: bool,
+        on_committed: impl FnOnce(),
+    ) -> VmxResult<()> {
+        let transaction = begin_membership_transaction(
             &self.membership_transaction_active,
             &self.membership_transaction_control,
         )?;
@@ -305,14 +315,16 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
                 }
             }
             for transfer in transfers.into_iter().rev().flatten() {
-                transfer.rollback();
+                let _ = transfer.rollback();
             }
             return Err(compensation_error.unwrap_or(error));
         }
 
+        let mut commit_error = None;
         for transfer in transfers.into_iter().flatten() {
-            transfer.commit();
+            retain_first_error(&mut commit_error, transfer.commit());
         }
+        on_committed();
         for child in &candidates {
             if let Some(index) = self
                 .items
@@ -323,12 +335,13 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
                 self.items.publish_add(index);
             }
         }
-        Ok(())
+        retain_first_error(&mut commit_error, transaction.finish());
+        finish_with_first_error(commit_error)
     }
 
     /// Inserts a child at `index` with the same ownership rules as [`add`](Self::add).
     pub fn insert(&self, index: usize, item: T) -> VmxResult<()> {
-        let _transaction = begin_membership_transaction(
+        let transaction = begin_membership_transaction(
             &self.membership_transaction_active,
             &self.membership_transaction_control,
         )?;
@@ -337,13 +350,13 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             let _gate = lock(&self.membership_gate);
             if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
                 if let Some(transfer) = transfer {
-                    transfer.rollback();
+                    let _ = transfer.rollback();
                 }
                 return Err(VmxError::Disposed);
             }
             if index > self.len() {
                 if let Some(transfer) = transfer {
-                    transfer.rollback();
+                    let _ = transfer.rollback();
                 }
                 return Err(VmxError::InvalidArgument("index out of range".to_string()));
             }
@@ -380,22 +393,21 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
                 item.set_parent_handle(None);
             }
             if let Some(transfer) = transfer {
-                transfer.rollback();
+                let _ = transfer.rollback();
             }
             return Err(error);
         }
-        if let Some(transfer) = transfer {
-            transfer.commit();
-        }
+        let mut commit_error = transfer.and_then(|transfer| transfer.commit().err());
         self.items.publish_add(index);
-        Ok(())
+        retain_first_error(&mut commit_error, transaction.finish());
+        finish_with_first_error(commit_error)
     }
 
     /// Removes `item` and clears this group as its parent.
     ///
     /// Returns [`VmxError::NonChild`] when the item is not a member.
     pub fn remove(&self, item: &T) -> VmxResult<()> {
-        let _transaction = begin_membership_transaction(
+        let transaction = begin_membership_transaction(
             &self.membership_transaction_active,
             &self.membership_transaction_control,
         )?;
@@ -416,12 +428,12 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             removed.set_parent_handle(None);
         }
         self.items.publish_remove(index);
-        Ok(())
+        transaction.finish()
     }
 
     /// Removes and returns the child at `index`, clearing its parent link.
     pub fn remove_at(&self, index: usize) -> VmxResult<T> {
-        let _transaction = begin_membership_transaction(
+        let transaction = begin_membership_transaction(
             &self.membership_transaction_active,
             &self.membership_transaction_control,
         )?;
@@ -438,12 +450,13 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             removed.set_parent_handle(None);
         }
         self.items.publish_remove(index);
+        transaction.finish()?;
         Ok(removed)
     }
 
     /// Replaces and returns the child at `index` using atomic parent transfer.
     pub fn replace(&self, index: usize, item: T) -> VmxResult<T> {
-        let _transaction = begin_membership_transaction(
+        let transaction = begin_membership_transaction(
             &self.membership_transaction_active,
             &self.membership_transaction_control,
         )?;
@@ -452,7 +465,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             let _gate = lock(&self.membership_gate);
             if self.disposal_pending() {
                 if let Some(transfer) = transfer {
-                    transfer.rollback();
+                    let _ = transfer.rollback();
                 }
                 return Err(VmxError::Disposed);
             }
@@ -463,7 +476,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
                     item.set_parent_handle(None);
                     drop(_gate);
                     if let Some(transfer) = transfer {
-                        transfer.rollback();
+                        let _ = transfer.rollback();
                     }
                     return Err(error);
                 }
@@ -497,21 +510,23 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
                 }
             }
             if let Some(transfer) = transfer {
-                transfer.rollback();
+                let _ = transfer.rollback();
             }
             return Err(error);
         }
-        if let Some(transfer) = transfer {
-            transfer.commit();
-        }
+        let mut commit_error = transfer.and_then(|transfer| transfer.commit().err());
         old.set_parent_handle(None);
         self.items.publish_replace(index);
-        Ok(old)
+        retain_first_error(&mut commit_error, transaction.finish());
+        match commit_error {
+            Some(error) => Err(error),
+            None => Ok(old),
+        }
     }
 
     /// Moves a child between collection indices without changing ownership.
     pub fn move_item(&self, from_index: usize, to_index: usize) -> VmxResult<()> {
-        let _transaction = begin_membership_transaction(
+        let transaction = begin_membership_transaction(
             &self.membership_transaction_active,
             &self.membership_transaction_control,
         )?;
@@ -522,7 +537,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
         if changed {
             self.items.publish_move(from_index, to_index);
         }
-        Ok(())
+        transaction.finish()
     }
 
     /// Removes all children and clears their links to this parent.
@@ -591,9 +606,8 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             match self.membership_transaction_control.dispose_disposition() {
                 MembershipDisposeDisposition::Owned => {
                     let deferred = self.clone();
-                    self.membership_transaction_control.defer_dispose(move || {
-                        let _ = deferred.dispose();
-                    });
+                    self.membership_transaction_control
+                        .defer_dispose(move || deferred.dispose());
                     return Ok(());
                 }
                 MembershipDisposeDisposition::Foreign => {
@@ -846,7 +860,7 @@ impl<T: VmNode, D: Dispatcher> GroupVmBuilder<T, D> {
             vm.core.set_hint(Some(hint));
         }
         vm.set_auto_construct_on_add(self.auto_construct_on_add);
-        vm.attach_population(children(), false)?;
+        vm.attach_population(children(), false, || {})?;
         Ok(vm)
     }
 }
@@ -912,7 +926,7 @@ mod tests {
         let group = GroupVm::new("group");
 
         assert_eq!(
-            group.attach_population(vec![first.clone(), failing], true),
+            group.attach_population(vec![first.clone(), failing], true, || {}),
             Err(VmxError::Other("compensation failed".to_string()))
         );
         assert_eq!(first.status(), ConstructionStatus::Constructed);

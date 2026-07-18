@@ -100,7 +100,7 @@ wraps.
 `CompositeVMBuilder<VM>` and `CompositeVMOfMBuilder<M, VM>` accept two optional declarative hooks for `Current`:
 
 - `Current(selector)` — `selector: Iterable<VM> -> VM | None`. Invoked once during the composite's construct phase, **after** all children have transitioned to `Constructed` and **before** the composite reaches `Constructed`. The composite assigns `Current` to the selector's return value through an internal **non-raising validated assignment** — NOT the guarded `select_component` path, which raises on a non-child (§3.1, `COMP-009`). If the selector returns a contained child, the normal `Current` transition fires (`PropertyChangedMessage("Current")` plus the `IsCurrent` updates of §3). If the selector returns `null` or a value not contained in the composite, the assignment is a **silent no-op**: `Current` stays at its prior value (initially `null`) and no notification fires. (ADR-0042 §5.1 phrased this as "the `SelectComponent` path"; ADR-0050 corrects the wording to the non-raising assignment that the reference implementations and `COMP-025` actually exercise, reconciling it with §5.4's no-op rule.)
-- `OnCurrentChanged(callback)` — `callback: (VM | None) -> void`. Invoked synchronously after every `Current` transition, **after** the state is updated and the hub publishes `PropertyChangedMessage("Current")`. Receives the new `Current` value (which may be `null`).
+- `OnCurrentChanged(callback)` — `callback: (VM | None) -> void`. Invoked synchronously after every `Current` transition, **after** the state is updated and the hub publishes `PropertyChangedMessage("Current")`. Receives the new `Current` value (which may be `null`). Re-entrant disposal from this callback is deferred through the active membership transaction and completes after publication without deadlocking selection.
 
 Both hooks are optional; absent calls yield v2.5.0 behavior. The hooks compose: if both are present, the initial selector's assignment triggers the callback exactly once.
 
@@ -157,7 +157,10 @@ mutation of either protected container MUST fail before mutation; coherent
 snapshot reads remain legal. Child reservations use a deterministic acquisition
 strategy so two reverse-order bulk populations cannot deadlock. Selection
 validation and assignment are one membership-gated operation, and deferred
-selection revalidates membership when it executes.
+selection revalidates membership when it executes. Selection publication and
+callbacks run while that transaction remains logically active but without
+holding a non-reentrant membership mutex, so same-thread disposal can defer and
+finish after the observable current change.
 
 If any step after preflight fails, both memberships, `Parent`, `Current`, child
 current flags, lazy/builder population state, and the event stream MUST equal
@@ -178,6 +181,16 @@ old-parent disposal snapshots and cascades through the restored child. Once the
 request is pending, the protected container rejects any new structural admission
 as disposal in progress. Destination disposal requested by its own hook still
 causes attachment to fail and roll back (ADR-0122).
+
+If deferred old-parent disposal fails after a successful transfer, both
+committed membership notifications still publish in old-remove/new-add order
+before a throwing or result-based flavor propagates that disposal failure. If
+attachment has already failed, that earlier attachment failure remains the
+reported first failure; deferred disposal still completes but cannot replace
+it. Non-throwing flavors complete the same state and notification sequence
+without adding an error surface. Lazy and bulk population that reached this
+commit boundary stays materialized and MUST NOT reevaluate its factory because
+the later disposal step failed.
 
 Adding an identity already present in the destination or creating a parent
 cycle fails without mutation. `Move` remains the only operation that reorders

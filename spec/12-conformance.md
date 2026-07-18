@@ -1698,6 +1698,8 @@ after `construct()` returns `composite.Current` is `null` and no
 `.Current(xs => xs.First())` and `.OnCurrentChanged(vm => observed.Add(vm))`,
 after `construct()` returns `observed` equals `[a]` (exactly one invocation
 from the initial-selector assignment)
+**And** if the callback disposes the same composite, selection and synchronous
+publication return without deadlock before deferred disposal completes
 
 ### COMP-027 — Adding a child sets its `Parent`; removing clears it
 
@@ -1819,6 +1821,12 @@ until commit or rollback reaches stable membership
 **And** on success that old-parent disposal excludes `c` after committed removal
 **And** on failure rollback restores `c` before old-parent disposal includes it
 in the terminal child cascade
+**And** a deferred disposal failure after a successful transfer is surfaced only
+after committed `old:Remove(c)` and `new:Add(c)` notifications
+**And** a committed lazy or bulk population remains materialized and is not
+evaluated again merely because deferred disposal then fails
+**And** when attachment has already failed, that earlier failure is retained
+after deferred disposal completes even if disposal also fails
 **And** a concurrent old-parent disposal request waits for the same stable
 membership boundary
 **And** if required lifecycle compensation itself raises, the rollback failure

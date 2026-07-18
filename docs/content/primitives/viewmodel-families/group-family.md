@@ -43,6 +43,12 @@ transfers use deterministic reservation ordering, destination disposal is
 rechecked after auto-construction, and lifecycle compensation failures are
 surfaced rather than swallowed (ADR-0118).
 
+Deferred old-parent disposal follows the same committed boundary. Successful
+transfer notifications finish before a deferred disposal failure is surfaced;
+after a failed attachment, rollback and disposal complete without replacing
+the earlier attachment error. Committed factory population remains one-shot
+even when the later disposal step fails (ADR-0122).
+
 ## 6.2.4.3. Lifecycle And Messaging
 
 Lifecycle orchestration matches `CompositeVM`:

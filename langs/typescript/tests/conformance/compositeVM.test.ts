@@ -12,6 +12,7 @@ import {
   CompositeVMOf,
   GroupVM,
   PropertyChangedMessage,
+  ViewModelType,
 } from "../../src/index.js";
 import type { CollectionChangedEvent } from "../../src/index.js";
 
@@ -20,6 +21,16 @@ function makeDisp() { return RxDispatcher.immediate(); }
 
 function makeChild(hub: MessageHub, name: string) {
   return ComponentVM.builder().name(name).services(hub, makeDisp()).build();
+}
+
+class DisposeFailingComponent extends ComponentVMBase {
+  constructor(name: string, hub: MessageHub, onConstruct: (() => void) | null = null) {
+    super({ name, hint: "", hub, dispatcher: makeDisp(), onConstruct });
+  }
+
+  get type(): ViewModelType { return ViewModelType.Component; }
+
+  protected override _onDispose(): void { throw new Error("dispose failure"); }
 }
 
 // ---------------------------------------------------------------------------
@@ -703,6 +714,21 @@ describe("COMP-026", () => {
     composite2.construct();
 
     expect(observed2).toEqual([children2[0]]);
+
+    let reentrant!: CompositeVM<ComponentVM>;
+    const reentrantHub = makeHub();
+    const reentrantChild = makeChild(reentrantHub, "reentrant");
+    reentrant = CompositeVM.builder<ComponentVM>()
+      .name("reentrant-composite")
+      .services(reentrantHub, disp)
+      .children(() => [reentrantChild])
+      .onCurrentChanged(() => reentrant.dispose())
+      .build();
+    reentrant.construct();
+
+    reentrant.selectComponent(reentrantChild);
+
+    expect(reentrant.status).toBe(ConstructionStatus.Disposed);
   });
 });
 
@@ -910,6 +936,84 @@ describe("COMP-040", () => {
     expect(destination.snapshot()).toEqual([]);
     expect(child.status).toBe(ConstructionStatus.Disposed);
     expect(child._parent?.owner).toBe(oldParent);
+  });
+
+  it("surfaces deferred disposal failure after committed transfer events", () => {
+    const hub = makeHub();
+    const oldParent = GroupVM.builder<ComponentVMBase>()
+      .name("old").services(hub, makeDisp()).children(() => []).build();
+    const destination = CompositeVM.builder<ComponentVMBase>()
+      .name("destination").services(hub, makeDisp())
+      .children(() => []).autoConstructOnAdd(true).build();
+    const moving = new DisposeFailingComponent("moving", hub, () => oldParent.dispose());
+    const failingSibling = new DisposeFailingComponent("failing-sibling", hub);
+    oldParent.add(moving);
+    oldParent.add(failingSibling);
+    destination.construct();
+    const events: string[] = [];
+    oldParent.collectionChanged.subscribe(() => events.push("old:remove"));
+    destination.collectionChanged.subscribe(() => events.push("new:add"));
+
+    expect(() => destination.add(moving)).toThrow("dispose failure");
+
+    expect(events).toEqual(["old:remove", "new:add"]);
+    expect(oldParent.status).toBe(ConstructionStatus.Disposed);
+    expect(failingSibling.status).toBe(ConstructionStatus.Disposed);
+    expect(destination.snapshot()).toEqual([moving]);
+    expect(moving._parent?.owner).toBe(destination);
+  });
+
+  it("keeps attachment failure ahead of deferred disposal failure", () => {
+    const hub = makeHub();
+    const oldParent = GroupVM.builder<ComponentVMBase>()
+      .name("old").services(hub, makeDisp()).children(() => []).build();
+    const destination = CompositeVM.builder<ComponentVMBase>()
+      .name("destination").services(hub, makeDisp())
+      .children(() => []).autoConstructOnAdd(true).build();
+    const moving = new DisposeFailingComponent("moving", hub, () => {
+      oldParent.dispose();
+      throw new Error("attachment failure");
+    });
+    oldParent.add(moving);
+    destination.construct();
+
+    expect(() => destination.add(moving)).toThrow("attachment failure");
+
+    expect(oldParent.status).toBe(ConstructionStatus.Disposed);
+    expect(moving.status).toBe(ConstructionStatus.Disposed);
+    expect(oldParent.snapshot()).toEqual([moving]);
+    expect(destination.snapshot()).toEqual([]);
+  });
+
+  it("does not retry population committed before a late disposal failure", () => {
+    const hub = makeHub();
+    const oldParent = GroupVM.builder<ComponentVMBase>()
+      .name("old").services(hub, makeDisp()).children(() => []).build();
+    const moving = new DisposeFailingComponent("moving", hub, () => oldParent.dispose());
+    const failingSibling = new DisposeFailingComponent("failing-sibling", hub);
+    oldParent.add(moving);
+    oldParent.add(failingSibling);
+    let factoryCalls = 0;
+    const destination = CompositeVM.builder<ComponentVMBase>()
+      .name("destination").services(hub, makeDisp())
+      .children(() => {
+        factoryCalls += 1;
+        return [moving];
+      }).build();
+    const events: string[] = [];
+    oldParent.collectionChanged.subscribe(() => events.push("old:remove"));
+    destination.collectionChanged.subscribe(() => events.push("new:add"));
+
+    expect(() => destination.construct()).toThrow("dispose failure");
+
+    expect(events).toEqual(["old:remove", "new:add"]);
+    expect(factoryCalls).toBe(1);
+    expect(destination.snapshot()).toEqual([moving]);
+
+    destination.construct();
+
+    expect(factoryCalls).toBe(1);
+    expect(destination.status).toBe(ConstructionStatus.Constructed);
   });
 
   it("restores parent, index, current, and lifecycle when construction fails", () => {

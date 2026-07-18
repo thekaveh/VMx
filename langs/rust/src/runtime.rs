@@ -168,7 +168,7 @@ pub(crate) enum MembershipDisposeDisposition {
 struct MembershipTransactionState {
     owner: Option<ThreadId>,
     finishing_owner: Option<ThreadId>,
-    deferred_dispose: Option<Box<dyn FnOnce() + Send>>,
+    deferred_dispose: Option<Box<dyn FnOnce() -> VmxResult<()> + Send>>,
 }
 
 pub(crate) struct MembershipTransactionControl {
@@ -207,7 +207,7 @@ impl MembershipTransactionControl {
         }
     }
 
-    pub(crate) fn defer_dispose(&self, action: impl FnOnce() + Send + 'static) {
+    pub(crate) fn defer_dispose(&self, action: impl FnOnce() -> VmxResult<()> + Send + 'static) {
         let mut state = lock(&self.state);
         if state.deferred_dispose.is_none() {
             state.deferred_dispose = Some(Box::new(action));
@@ -225,7 +225,7 @@ impl MembershipTransactionControl {
         }
     }
 
-    fn finish(&self, active: &AtomicBool) {
+    fn finish(&self, active: &AtomicBool) -> VmxResult<()> {
         let current = thread::current().id();
         let action = {
             let mut state = lock(&self.state);
@@ -239,8 +239,10 @@ impl MembershipTransactionControl {
         state.finishing_owner = None;
         self.ready.notify_all();
         drop(state);
-        if let Some(Err(payload)) = outcome {
-            resume_unwind(payload);
+        match outcome {
+            Some(Ok(result)) => result,
+            Some(Err(payload)) => resume_unwind(payload),
+            None => Ok(()),
         }
     }
 }
@@ -260,12 +262,17 @@ impl MembershipTransactionGuard {
             release: true,
         }
     }
+
+    pub(crate) fn finish(mut self) -> VmxResult<()> {
+        self.release = false;
+        self.control.finish(&self.active)
+    }
 }
 
 impl Drop for MembershipTransactionGuard {
     fn drop(&mut self) {
         if self.release {
-            self.control.finish(&self.active);
+            let _ = self.control.finish(&self.active);
         }
     }
 }
@@ -1291,14 +1298,14 @@ impl ParentRegistration {
 }
 
 pub(crate) struct ParentTransfer {
-    commit: Option<Box<dyn FnOnce() + Send>>,
-    rollback: Option<Box<dyn FnOnce() + Send>>,
+    commit: Option<Box<dyn FnOnce() -> VmxResult<()> + Send>>,
+    rollback: Option<Box<dyn FnOnce() -> VmxResult<()> + Send>>,
 }
 
 impl ParentTransfer {
     pub(crate) fn new(
-        commit: impl FnOnce() + Send + 'static,
-        rollback: impl FnOnce() + Send + 'static,
+        commit: impl FnOnce() -> VmxResult<()> + Send + 'static,
+        rollback: impl FnOnce() -> VmxResult<()> + Send + 'static,
     ) -> Self {
         Self {
             commit: Some(Box::new(commit)),
@@ -1306,17 +1313,21 @@ impl ParentTransfer {
         }
     }
 
-    pub(crate) fn commit(mut self) {
+    pub(crate) fn commit(mut self) -> VmxResult<()> {
         self.rollback = None;
         if let Some(commit) = self.commit.take() {
-            commit();
+            commit()
+        } else {
+            Ok(())
         }
     }
 
-    pub(crate) fn rollback(mut self) {
+    pub(crate) fn rollback(mut self) -> VmxResult<()> {
         self.commit = None;
         if let Some(rollback) = self.rollback.take() {
-            rollback();
+            rollback()
+        } else {
+            Ok(())
         }
     }
 }
@@ -1325,7 +1336,7 @@ impl Drop for ParentTransfer {
     fn drop(&mut self) {
         self.commit = None;
         if let Some(rollback) = self.rollback.take() {
-            rollback();
+            let _ = rollback();
         }
     }
 }
@@ -1403,14 +1414,18 @@ pub(crate) fn begin_parent_transfer<T: VmNode>(
             let _active_guard = ActiveOwnershipGuard { active, child_id };
             let transfer = lock(&commit_state).take();
             if let Some(transfer) = transfer {
-                transfer.commit();
+                transfer.commit()
+            } else {
+                Ok(())
             }
         },
         move || {
             let _active_guard = ActiveOwnershipGuard { active, child_id };
             let transfer = lock(&rollback_state).take();
             if let Some(transfer) = transfer {
-                transfer.rollback();
+                transfer.rollback()
+            } else {
+                Ok(())
             }
         },
     )))
