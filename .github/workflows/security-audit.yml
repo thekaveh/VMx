@@ -6,20 +6,6 @@ permissions:
 on:
   pull_request:
     branches: [main, develop]
-    paths:
-      - "**/Cargo.lock"
-      - "**/Cargo.toml"
-      - "**/package-lock.json"
-      - "**/package.json"
-      - "**/pyproject.toml"
-      - "**/uv.lock"
-      - "**/*.csproj"
-      - "**/Directory.Packages.props"
-      - "**/packages.lock.json"
-      - "docs/requirements.in"
-      - "docs/requirements.txt"
-      - ".github/dependabot.yml"
-      - ".github/workflows/security-audit.yml"
   schedule:
     - cron: "23 6 * * 1"
   workflow_dispatch:
@@ -104,3 +90,14 @@ jobs:
           dotnet restore examples/csharp/Examples.sln -p:EnableWindowsTargeting=true
           -p:NuGetAudit=true -p:NuGetAuditMode=all -p:NuGetAuditLevel=low
           "-warnaserror:NU1901;NU1902;NU1903;NU1904"
+
+  required:
+    name: "required: security"
+    if: always()
+    needs: [npm, cargo, python, docs, nuget]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every dependency audit
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: jq -e 'to_entries | all(.value.result == "success")' <<<"$RESULTS"

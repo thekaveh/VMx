@@ -18,11 +18,15 @@ import {
 } from "../components/componentVMBase.js";
 import { NullDispatcher } from "../services/nullDispatcher.js";
 
+const directForwardingParents = new WeakMap<object, IOwningParentVM | null>();
+
 class ForwardingParent<M> implements IOwningParentVM {
   constructor(
     private readonly parent: IOwningParentVM,
     private readonly wrapper: ForwardingComponentVM<M>,
   ) {}
+
+  get retainedWrapper(): ForwardingComponentVM<M> { return this.wrapper; }
 
   get owner(): ComponentVMBase { return this.parent.owner; }
   get ownerParent(): IOwningParentVM | null { return this.parent.ownerParent; }
@@ -37,6 +41,42 @@ class ForwardingParent<M> implements IOwningParentVM {
   containsChild(_vm: ComponentVMBase): boolean { return this.parent.containsChild(this.wrapper); }
   detachForTransfer(_vm: ComponentVMBase): ParentTransfer {
     return this.parent.detachForTransfer(this.wrapper);
+  }
+}
+
+class WrappedParent<M> implements IOwningParentVM {
+  constructor(
+    private readonly parent: IOwningParentVM,
+    private readonly wrapper: ForwardingComponentVM<M>,
+    private readonly wrapped: ComponentVMBase,
+  ) {}
+
+  get owner(): ComponentVMBase { return this.parent.owner; }
+  get ownerParent(): IOwningParentVM | null { return this.parent.ownerParent; }
+  get supportsChildSelection(): boolean { return this.parent.supportsChildSelection; }
+  get currentChild(): ComponentVMBase | null {
+    return this.parent.currentChild === this.wrapped ? this.wrapper : this.parent.currentChild;
+  }
+  selectChild(_vm: ComponentVMBase): void { this.parent.selectChild(this.wrapped); }
+  deselectChild(_vm: ComponentVMBase): void { this.parent.deselectChild(this.wrapped); }
+  containsChild(_vm: ComponentVMBase): boolean { return this.parent.containsChild(this.wrapped); }
+  detachForTransfer(_vm: ComponentVMBase): ParentTransfer {
+    const retainedWrapper = this.parent instanceof ForwardingParent
+      ? this.parent.retainedWrapper
+      : null;
+    const staged = this.parent.detachForTransfer(this.wrapped);
+    return new ParentTransfer(
+      () => {
+        try {
+          staged.commit();
+        } finally {
+          if (retainedWrapper !== null && retainedWrapper !== this.wrapper) {
+            directForwardingParents.set(retainedWrapper, null);
+          }
+        }
+      },
+      () => staged.rollback(),
+    );
   }
 }
 
@@ -60,9 +100,15 @@ export class ForwardingComponentVM<M> extends ComponentVMBase implements ICompon
     return this._wrapped;
   }
 
-  override get _parent(): IOwningParentVM | null { return super._parent; }
+  override get _parent(): IOwningParentVM | null {
+    const direct = directForwardingParents.get(this) ?? null;
+    if (direct !== null) return direct;
+    if (!(this._wrapped instanceof ComponentVMBase)) return null;
+    const wrappedParent = this._wrapped._parent;
+    return wrappedParent === null ? null : new WrappedParent(wrappedParent, this, this._wrapped);
+  }
   override set _parent(parent: IOwningParentVM | null) {
-    super._parent = parent;
+    directForwardingParents.set(this, parent);
     if (this._wrapped instanceof ComponentVMBase) {
       this._wrapped._parent = parent === null ? null : new ForwardingParent(parent, this);
     }

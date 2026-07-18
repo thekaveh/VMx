@@ -19,6 +19,10 @@ def test_docs_workflow_watches_every_current_facing_markdown_area() -> None:
         "langs/**/*.md",
         "tools/**/*.md",
     ):
-        assert workflow.count(f'- "{path}"') == 2, (
-            f"{path} must trigger docs validation on push and pull_request"
-        )
+        assert workflow.count(f'- "{path}"') == 1, f"{path} must trigger docs validation on push"
+
+    pull_request = workflow.split("  pull_request:\n", maxsplit=1)[1].split(
+        "  workflow_dispatch:", maxsplit=1
+    )[0]
+    assert "    paths:" not in pull_request
+    assert 'name: "required: docs"' in workflow

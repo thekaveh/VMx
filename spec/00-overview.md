@@ -98,7 +98,7 @@ in multiple language flavors with semantically equivalent behavior.
 | **dispatcher**     | `IDispatcher` exposes a foreground and a background Rx scheduler; VMs use them to dispatch property-change events and lifecycle work.                                        |
 | **foreground**     | the Rx scheduler reserved for events that subscribers expect on the UI thread (e.g., `PropertyChanged`, collection notifications).                                           |
 | **background**     | the Rx scheduler used for VM construction/destruction work that should not block the foreground.                                                                             |
-| **conformance ID** | a stable `XXX-NNN` identifier in `12-conformance.md`; all five library suites implement the 395 library IDs, while `THEME-00x` IDs apply to UI-backed flagship applications. |
+| **conformance ID** | a stable `XXX-NNN` identifier in `12-conformance.md`; all five library suites implement the 396 library IDs, while `THEME-00x` IDs apply to UI-backed flagship applications. |
 
 ## 4. Audience
 

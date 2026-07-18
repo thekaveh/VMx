@@ -1,7 +1,7 @@
 # 12 — Conformance test catalog
 
 This document enumerates every stable conformance test identifier in the form
-`XXX-NNN`. Each of the five language flavors MUST implement all 395 library IDs
+`XXX-NNN`. Each of the five language flavors MUST implement all 396 library IDs
 in `langs/<lang>/tests/conformance/` before it can be marked stable. The five
 `THEME-00x` IDs are application-level scenarios implemented by the four
 UI-backed flagship examples. CI verifies library coverage via
@@ -909,6 +909,22 @@ as `Current` and the wrapped component reports the same current flag
 **When** the forwarding composite is iterated
 **Then** the iteration yields `vm1, vm2` in order
 
+### FWD-004 — Forwarding decorators preserve one canonical owner
+
+**Given** component `inner` belongs to composite `old`
+**And** decorator `first` wraps `inner`
+**When** `first` is added to group `group`
+**Then** `old` is empty and `group` retains exactly `first`
+**When** a second decorator `alternate` around the same `inner` is added to
+composite `destination`
+**Then** `group` is empty and `destination` retains exactly `alternate`
+**And** selecting `alternate` makes it `destination.Current` and makes `inner`
+current
+**When** `first` is then added back to `group`
+**Then** `destination` is empty with no current child and `group` retains
+exactly `first`
+**And** at every step the canonical wrapped identity belongs to one container
+
 ______________________________________________________________________
 
 ## 12. Builders (`BLD-NNN`)
@@ -1706,6 +1722,12 @@ publication return without deadlock, the callback observes the selected child
 still `Constructed`, and deferred disposal completes after the callback returns
 **And** opposing callbacks that synchronously select children in two composites
 complete without deadlock
+**And** a collection-change callback that initiates a current change while a
+current callback initiates collection work completes without deadlock because
+consumer callbacks do not retain the shared cross-composite coordinator
+**And** if one child's current-flag notification is blocked while another thread
+selects a different child, the later assignment completes and exactly the final
+current child has its current flag set
 
 ### COMP-027 — Adding a child sets its `Parent`; removing clears it
 
@@ -1820,6 +1842,9 @@ a composite
 `Current`, `IsCurrent`, and `Destructed` state
 **And** `new` has its exact pre-call membership and selection state
 **And** lazy or bulk population remains retryable after the failing child is fixed
+**And** when construction succeeds but its hook disposes `new`, add, insert,
+replacement, and factory or bulk population reject admission and restore the
+exact pre-call state
 **And** re-entrant structural mutation of either protected container is rejected
 before mutation
 **And** an old-parent disposal request made from the transfer hook is deferred
@@ -1827,6 +1852,8 @@ until commit or rollback reaches stable membership
 **And** on success that old-parent disposal excludes `c` after committed removal
 **And** on failure rollback restores `c` before old-parent disposal includes it
 in the terminal child cascade
+**And** replacement rollback restores the displaced member before a deferred
+destination disposal takes its terminal membership snapshot
 **And** a deferred disposal failure after a successful transfer is surfaced only
 after committed `old:Remove(c)` and `new:Add(c)` notifications
 **And** a committed lazy or bulk population remains materialized and is not

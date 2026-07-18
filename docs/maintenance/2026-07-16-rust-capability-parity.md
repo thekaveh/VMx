@@ -273,5 +273,5 @@ follow-up. The other four flavours remain
 member-identical to the spec and mutually consistent on behaviour; the source-tree
 Rust flavour remains the sole documented outlier, and no correction here alters a
 published artifact. Current public docs therefore use **catalog-complete** for
-Rust: all 395 library IDs are represented, while capability-member and residual
+Rust: all 396 library IDs are represented, while capability-member and residual
 behavior parity remain tracked here.

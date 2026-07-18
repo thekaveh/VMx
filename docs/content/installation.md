@@ -2,7 +2,7 @@
 
 VMx has five catalog-complete source flavors. C#, Python, and Swift implement
 v3.22.0; TypeScript 3.23.0 implements spec 3.22.0, and Rust 0.25.0
-declares `MIN_SPEC_VERSION = "3.22.0"`. “Catalog-complete” means all 395 library
+declares `MIN_SPEC_VERSION = "3.22.0"`. “Catalog-complete” means all 396 library
 IDs are represented; it does not hide the documented
 [Rust surface-convergence backlog](../maintenance/2026-07-16-rust-capability-parity.md).
 Public package availability can lag the source tree, so check the flavor README

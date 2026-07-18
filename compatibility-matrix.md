@@ -53,7 +53,7 @@ semantics, `FormVM` (snapshot/dirty/approve/deny lifecycle), dialog
 service (`DialogService` / `NullDialogService`), and the notifications
 sub-package (`NotificationHub`, `NotificationVM`, `ConfirmationVM`,
 `makeConfirm` bridge) —
-**395 of 395 library conformance IDs + 5 `THEME-00x` scenario IDs = 400 total
+**396 of 396 library conformance IDs + 5 `THEME-00x` scenario IDs = 401 total
 (Swift UI-backed total parity) as of ADR-0066/ADR-0067 and ADR-0068..ADR-0100** (library IDs: base 44 per
 ADR-0037/ADR-0053; +50 leaf-area IDs per ADR-0059; +30 collections IDs per
 ADR-0060; +29 hierarchical/threading/expand-collapse IDs per ADR-0061;
@@ -93,7 +93,7 @@ point to the same `main` commit.
 
 [^rust]: Rust is a source-tree, catalog-complete flavor promoted by ADR-0081. It
 is at source version 0.25.0, declares `MIN_SPEC_VERSION = "3.22.0"`, and carries
-behavioral tests for all 395 library conformance IDs. Residual member and edge-
+behavioral tests for all 396 library conformance IDs. Residual member and edge-
 behavior convergence is tracked in
 `docs/maintenance/2026-07-16-rust-capability-parity.md`; it has not yet been
 published to crates.io.

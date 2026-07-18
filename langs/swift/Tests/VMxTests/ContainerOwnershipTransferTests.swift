@@ -159,6 +159,28 @@ final class ContainerOwnershipTransferTests: XCTestCase {
         )
     }
 
+    /// COMP-040 — successful factory child construction followed by destination
+    /// disposal restores the child's original destructed state and empty membership.
+    func testCOMP040PopulationDisposalRollsBackConstructedChild() throws {
+        var destination: CompositeVM<ComponentVM>!
+        let child = try ComponentVM.builder()
+            .name("population-child")
+            .withNullServices()
+            .onConstruct { destination.dispose() }
+            .build()
+        destination = CompositeVM<ComponentVM>(
+            name: "destination",
+            hub: NullMessageHub.INSTANCE,
+            dispatcher: NullDispatcher.INSTANCE,
+            childrenFactory: { [child] }
+        )
+
+        XCTAssertThrowsError(try destination.construct())
+        XCTAssertEqual(destination.count, 0)
+        XCTAssertEqual(child.status, .destructed)
+        XCTAssertEqual(destination.status, .disposed)
+    }
+
     /// COMP-040 — old-parent disposal waits until successful transfer commit.
     func testCOMP040DefersOldCompositeDisposalUntilTransferCommits() throws {
         var oldParent: CompositeVM<ThrowingOwnershipChild>!

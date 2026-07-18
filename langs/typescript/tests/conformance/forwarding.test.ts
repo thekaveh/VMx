@@ -8,6 +8,7 @@ import {
   ConstructionStatus,
   ForwardingComponentVM,
   ForwardingCompositeVM,
+  GroupVM,
 } from "../../src/index.js";
 
 function makeHub() { return new MessageHub(); }
@@ -144,6 +145,44 @@ describe("FWD-001", () => {
     expect(parent.current).toBe(forwarding);
     expect(forwarding.isCurrent).toBe(true);
     expect(inner.isCurrent).toBe(true);
+  });
+});
+
+describe("FWD-004", () => {
+  it("transfers one underlying owner when an already-owned component is wrapped", () => {
+    const hub = makeHub();
+    const dispatcher = makeDisp();
+    const inner = ComponentVMOf.builder<string>()
+      .name("inner").model("model").services(hub, dispatcher).build();
+    const oldParent = CompositeVM.builder<ComponentVMOf<string>>()
+      .name("old").services(hub, dispatcher).children(() => []).build();
+    const group = GroupVM.builder<ForwardingComponentVM<string>>()
+      .name("group").services(hub, dispatcher).children(() => []).build();
+    const destination = CompositeVM.builder<ForwardingComponentVM<string>>()
+      .name("destination").services(hub, dispatcher).children(() => []).build();
+    oldParent.add(inner);
+    const forwarding = new ForwardingComponentVM(inner);
+
+    group.add(forwarding);
+
+    expect(oldParent.snapshot()).toEqual([]);
+    expect(group.snapshot()).toEqual([forwarding]);
+
+    const alternateForwarding = new ForwardingComponentVM(inner);
+    destination.add(alternateForwarding);
+    destination.construct();
+    alternateForwarding.selectCommand.execute();
+
+    expect(group.snapshot()).toEqual([]);
+    expect(destination.snapshot()).toEqual([alternateForwarding]);
+    expect(destination.current).toBe(alternateForwarding);
+    expect(inner.isCurrent).toBe(true);
+
+    group.add(forwarding);
+
+    expect(destination.snapshot()).toEqual([]);
+    expect(destination.current).toBeNull();
+    expect(group.snapshot()).toEqual([forwarding]);
   });
 });
 

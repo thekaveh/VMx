@@ -123,30 +123,33 @@ public class CompositeVMTests
         var (composite, hub, dispatcher) = BuildComposite();
         var first = BuildChild(hub, dispatcher, "first");
         var second = BuildChild(hub, dispatcher, "second");
+        var third = BuildChild(hub, dispatcher, "third");
         composite.Add(first);
         composite.Add(second);
+        composite.Add(third);
+        composite.Current = first;
         using var entered = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
         first.PropertyChanged += (_, args) =>
         {
-            if (args.PropertyName == nameof(first.IsCurrent) && first.IsCurrent)
+            if (args.PropertyName == nameof(first.IsCurrent) && !first.IsCurrent)
             {
                 entered.Set();
                 release.Wait(TimeSpan.FromSeconds(5));
             }
         };
 
-        var selectFirst = Task.Run(() => composite.Current = first);
+        var selectFirst = Task.Run(() => composite.Current = second);
         entered.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue();
-        var selectSecond = Task.Run(() => composite.Current = second);
-        await Task.Delay(100);
-        selectSecond.IsCompleted.Should().BeFalse();
+        var selectSecond = Task.Run(() => composite.Current = third);
+        await selectSecond.WaitAsync(TimeSpan.FromSeconds(5));
         release.Set();
-        await Task.WhenAll(selectFirst, selectSecond).WaitAsync(TimeSpan.FromSeconds(5));
+        await selectFirst.WaitAsync(TimeSpan.FromSeconds(5));
 
-        composite.Current.Should().BeSameAs(second);
+        composite.Current.Should().BeSameAs(third);
         first.IsCurrent.Should().BeFalse();
-        second.IsCurrent.Should().BeTrue();
+        second.IsCurrent.Should().BeFalse();
+        third.IsCurrent.Should().BeTrue();
     }
 
     [Fact]

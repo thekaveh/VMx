@@ -84,6 +84,8 @@ internal interface IComponentVMInternals
     IParentCompositeVM? Parent { get; }
     void SetParent(IParentCompositeVM? parent);
     void SetIsCurrent(bool value);
+    bool CommitIsCurrent(bool value);
+    void PublishIsCurrent();
     Task ConstructOrJoinAsync();
 }
 
@@ -101,6 +103,12 @@ internal static class ComponentVMExtensions
 
     internal static void SetIsCurrent(this IComponentVM vm, bool value)
         => (vm as IComponentVMInternals)?.SetIsCurrent(value);
+
+    internal static bool CommitIsCurrent(this IComponentVM vm, bool value)
+        => (vm as IComponentVMInternals)?.CommitIsCurrent(value) ?? false;
+
+    internal static void PublishIsCurrent(this IComponentVM vm)
+        => (vm as IComponentVMInternals)?.PublishIsCurrent();
 
     internal static Task ConstructOrJoinAsync(this IComponentVM vm)
         => vm is IComponentVMInternals internals
@@ -348,6 +356,8 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     IParentCompositeVM? IComponentVMInternals.Parent => Parent;
     void IComponentVMInternals.SetParent(IParentCompositeVM? parent) => Parent = parent;
     void IComponentVMInternals.SetIsCurrent(bool value) => IsCurrent = value;
+    bool IComponentVMInternals.CommitIsCurrent(bool value) => CommitIsCurrent(value);
+    void IComponentVMInternals.PublishIsCurrent() => NotifyPropertyChanged(nameof(IsCurrent));
     Task IComponentVMInternals.ConstructOrJoinAsync() => ConstructOrJoinAsync();
 
     // ── IComponentVM: identity ──────────────────────────────────────────────
@@ -376,20 +386,25 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         get => _isCurrent;
         internal set
         {
-            // Post-dispose guard: spec/02 invariant 3 — Disposed is terminal.
-            // A selection change on an already-disposed VM is a silent no-op
-            // (no INPC raise, no hub PropertyChangedMessage), mirroring Swift
-            // (VMX-006). Reads the terminal state under the same _gate the
-            // lifecycle-race guards use.
-            if (IsDisposed()) return;
-
-            // Idempotent-set guard: spec/03-messages.md mandates that a property
-            // assignment to the same value MUST NOT emit a PropertyChanged hub
-            // message (PROP-002). The guard also avoids redundant INPC raises.
-            if (_isCurrent == value) return;
-            _isCurrent = value;
-            NotifyPropertyChanged(nameof(IsCurrent));
+            if (CommitIsCurrent(value)) NotifyPropertyChanged(nameof(IsCurrent));
         }
+    }
+
+    private bool CommitIsCurrent(bool value)
+    {
+        // Post-dispose guard: spec/02 invariant 3 — Disposed is terminal.
+        // A selection change on an already-disposed VM is a silent no-op
+        // (no INPC raise, no hub PropertyChangedMessage), mirroring Swift
+        // (VMX-006). Reads the terminal state under the same _gate the
+        // lifecycle-race guards use.
+        if (IsDisposed()) return false;
+
+        // Idempotent-set guard: spec/03-messages.md mandates that a property
+        // assignment to the same value MUST NOT emit a PropertyChanged hub
+        // message (PROP-002). The guard also avoids redundant INPC raises.
+        if (_isCurrent == value) return false;
+        _isCurrent = value;
+        return true;
     }
 
     // ── IComponentVM: commands (lazily built + cached — VMX-018) ────────────

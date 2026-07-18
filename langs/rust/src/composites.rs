@@ -593,6 +593,9 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                     }
                 }
             }
+            if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
+                return Err(VmxError::Disposed);
+            }
             Ok(())
         })();
         if let Err(error) = result {
@@ -827,16 +830,14 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         });
         if let Err(error) = admission {
             let _gate = lock(&self.membership_gate);
-            if !self.disposal_pending() {
-                if let Some(attached) = self
-                    .items()
-                    .iter()
-                    .position(|candidate| candidate.id() == item.id())
-                {
-                    let _ = self.items.replace_silent(attached, old.clone());
-                    old.set_parent_handle(Some(self.ownership.handle()));
-                    item.set_parent_handle(None);
-                }
+            if let Some(attached) = self
+                .items()
+                .iter()
+                .position(|candidate| candidate.id() == item.id())
+            {
+                let _ = self.items.replace_silent(attached, old.clone());
+                old.set_parent_handle(Some(self.ownership.handle()));
+                item.set_parent_handle(None);
             }
             drop(_gate);
             let compensation_error = if original_status == ConstructionStatus::Destructed

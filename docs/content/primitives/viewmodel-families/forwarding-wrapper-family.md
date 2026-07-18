@@ -26,6 +26,14 @@ VMx ships two forwarding families:
 By default every property, method, command, and iterator call delegates to the
 wrapped instance. You override only the members you need to change.
 
+The wrapped component and every decorator around it have one canonical
+ownership identity. Adding a decorator to a composite or group first removes
+the wrapped identity from its previous container, even when that container
+retained the bare component or a different decorator. The destination retains
+the exact decorator it was given. This makes decoration transparent to
+lifecycle and selection ownership without hiding which public child a consumer
+added (`FWD-004`, ADR-0124).
+
 ## 6.2.7.3. Lifecycle And Messaging
 
 Forwarding decorators do not add their own lifecycle semantics. They inherit the
@@ -37,11 +45,11 @@ inner VM's behavior unless an override changes it. In practice this means:
 
 ## 6.2.7.4. Cross-Language Surface
 
-| Concept                    | C#                                     | Python                        | TypeScript                      | Swift                            |
-| -------------------------- | -------------------------------------- | ----------------------------- | ------------------------------- | -------------------------------- |
-| Component wrapper          | `ForwardingComponentVM<M>`             | `ForwardingComponentVM[M]`    | `ForwardingComponentVM<M>`      | `ForwardingComponentVM<Model>`   |
-| Composite wrapper          | `ForwardingCompositeVM<VM>`            | `ForwardingCompositeVM[VM]`   | `ForwardingCompositeVM<VM>`     | `ForwardingCompositeVM<Child>`   |
-| Canonical wrapped contract | `IComponentVM<M>` / `ICompositeVM<VM>` | component/composite protocols | component/composite base shapes | component/composite base classes |
+| Concept                    | C#                                     | Python                        | TypeScript                      | Swift                            | Rust                                      |
+| -------------------------- | -------------------------------------- | ----------------------------- | ------------------------------- | -------------------------------- | ----------------------------------------- |
+| Component wrapper          | `ForwardingComponentVM<M>`             | `ForwardingComponentVM[M]`    | `ForwardingComponentVM<M>`      | `ForwardingComponentVM<Model>`   | `ForwardingComponentVm<M>`                |
+| Composite wrapper          | `ForwardingCompositeVM<VM>`            | `ForwardingCompositeVM[VM]`   | `ForwardingCompositeVM<VM>`     | `ForwardingCompositeVM<Child>`   | `ForwardingCompositeVm<VM>`               |
+| Canonical wrapped contract | `IComponentVM<M>` / `ICompositeVM<VM>` | component/composite protocols | component/composite base shapes | component/composite base classes | component/composite traits and stable IDs |
 
 ## 6.2.7.5. Example
 
@@ -85,6 +93,14 @@ copying or re-implementing the wrapped VM:
     }
     ```
 
+=== "Rust"
+
+    ```rust
+    let inner = ComponentVm::new("inner");
+    let forwarding = ForwardingComponentVm::new(inner.clone());
+    destination.add(forwarding.clone())?;
+    ```
+
 Swift is the explicit divergence here: `name` and `hint` are stored `let`
 properties on `ComponentVMBase`, so the nearest overridable analog is
 `modeledHint`, not `hint`.
@@ -95,10 +111,19 @@ properties on `ComponentVMBase`, so the nearest overridable analog is
   member that actually differs.
 - Forgetting to forward disposal when the wrapper does not own an independent
   lifetime.
+- Treating two decorators around one component as independent children. Adding
+  the later decorator transfers the one canonical wrapped identity.
 - Treating forwarding as a new hierarchy root. It is a wrapper around an
   existing contract, not a separate primitive family.
 
-## 6.2.7.7. Related Primitives
+## 6.2.7.7. Conformance
+
+- `FWD-001` — transparent member, lifecycle, command, and selection delegation
+- `FWD-002` — selective override without reimplementing the wrapped surface
+- `FWD-003` — forwarded composite iteration preserves wrapped order
+- `FWD-004` — bare and multiply decorated aliases retain one transferable owner
+
+## 6.2.7.8. Related Primitives
 
 - [Component Family](component-family.md)
 - [Composite Family](composite-family.md)

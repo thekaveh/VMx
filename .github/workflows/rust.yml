@@ -15,13 +15,6 @@ on:
       - "tools/smoke-rust-consumer.py"
   pull_request:
     branches: [main, develop]
-    paths:
-      - "langs/rust/**"
-      - "examples/rust/**"
-      - "spec/**"
-      - ".github/workflows/rust.yml"
-      - "tools/check-rust-package.py"
-      - "tools/smoke-rust-consumer.py"
   workflow_dispatch:
 
 jobs:
@@ -118,3 +111,14 @@ jobs:
           python3 tools/smoke-rust-consumer.py \
             --package-dir langs/rust \
             --version "$version"
+
+  required:
+    name: "required: rust"
+    if: always()
+    needs: [audit, build, examples, package]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every Rust job
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: jq -e 'to_entries | all(.value.result == "success")' <<<"$RESULTS"

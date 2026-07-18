@@ -1,4 +1,4 @@
-"""Conformance tests: FWD-001..003.
+"""Conformance tests: FWD-001..004.
 
 FWD-001: ForwardingComponentVM with no overrides delegates every member to wrapped.
 FWD-002: Selective override of ``hint`` returns "OVERRIDE"; all others still delegate.
@@ -17,6 +17,7 @@ from vmx.components.protocols import ViewModelType
 from vmx.composites.builders import CompositeVMBuilder
 from vmx.forwarding.component import ForwardingComponentVM
 from vmx.forwarding.composite import ForwardingCompositeVM
+from vmx.groups.builders import GroupVMBuilder
 from vmx.lifecycle.status import ConstructionStatus
 from vmx.services.dispatcher import RxDispatcher
 
@@ -165,6 +166,56 @@ def test_forwarding_component_is_a_transparent_container_child() -> None:
     assert composite.current is forwarding
     assert forwarding.is_current
     assert inner.is_current
+
+
+@pytest.mark.conformance("FWD-004")
+def test_FWD_004_forwarding_component_transfers_one_underlying_owner() -> None:
+    """Attaching a decorator moves its wrapped identity out of any old parent."""
+    inner = ComponentVMOfBuilder[str]().name("inner").model("model").with_null_services().build()
+    old_parent = (
+        CompositeVMBuilder()
+        .name("old")
+        .services(inner.hub, RxDispatcher.immediate())
+        .children(lambda: ())
+        .build()
+    )
+    group = (
+        GroupVMBuilder()
+        .name("group")
+        .services(inner.hub, RxDispatcher.immediate())
+        .children(lambda: ())
+        .build()
+    )
+    destination = (
+        CompositeVMBuilder()
+        .name("destination")
+        .services(inner.hub, RxDispatcher.immediate())
+        .children(lambda: ())
+        .build()
+    )
+    old_parent.add(inner)
+    forwarding = ForwardingComponentVM(inner)
+
+    group.add(forwarding)
+
+    assert old_parent.snapshot() == ()
+    assert group.snapshot() == (forwarding,)
+
+    alternate_forwarding = ForwardingComponentVM(inner)
+    destination.add(alternate_forwarding)
+    destination.construct()
+    alternate_forwarding.select_command.execute()
+
+    assert group.snapshot() == ()
+    assert destination.snapshot() == (alternate_forwarding,)
+    assert destination.current is alternate_forwarding
+    assert inner.is_current
+
+    group.add(forwarding)
+
+    assert destination.snapshot() == ()
+    assert destination.current is None
+    assert group.snapshot() == (forwarding,)
 
 
 # ---------------------------------------------------------------------------

@@ -60,6 +60,61 @@ class _ForwardingParent(_ParentCompositeVM):
         return self._parent.detach_for_transfer(self._wrapper)
 
 
+class _WrappedParent(_ParentCompositeVM):
+    """Map a new decorator's ownership operations to its already-owned inner."""
+
+    def __init__(
+        self,
+        parent: _ParentCompositeVM,
+        wrapper: ForwardingComponentVM[object],
+        wrapped: _ComponentVMBase,
+    ) -> None:
+        self._parent = parent
+        self._wrapper = wrapper
+        self._wrapped = wrapped
+
+    @property
+    def owner(self) -> _ComponentVMBase:
+        return self._parent.owner
+
+    @property
+    def owner_parent(self) -> _ParentCompositeVM | None:
+        return self._parent.owner_parent
+
+    @property
+    def current_child(self) -> object | None:
+        current = self._parent.current_child
+        return self._wrapper if current is self._wrapped else current
+
+    @property
+    def supports_child_selection(self) -> bool:
+        return self._parent.supports_child_selection
+
+    def select_child(self, vm: _ComponentVMBase) -> None:
+        self._parent.select_child(self._wrapped)
+
+    def deselect_child(self, vm: _ComponentVMBase) -> None:
+        self._parent.deselect_child(self._wrapped)
+
+    def contains_child(self, vm: _ComponentVMBase) -> bool:
+        return self._parent.contains_child(self._wrapped)
+
+    def detach_for_transfer(self, vm: _ComponentVMBase) -> _ParentTransfer:
+        retained_wrapper = (
+            self._parent._wrapper if isinstance(self._parent, _ForwardingParent) else None
+        )
+        staged = self._parent.detach_for_transfer(self._wrapped)
+
+        def commit() -> None:
+            try:
+                staged.commit()
+            finally:
+                if retained_wrapper is not None and retained_wrapper is not self._wrapper:
+                    retained_wrapper._parent = None
+
+        return _ParentTransfer(commit, staged.rollback)
+
+
 class ForwardingComponentVM(_ComponentVMBase, Generic[M]):
     """Forwarding decorator for :class:`~vmx.components.protocols.ComponentVMOfProto`.
 
@@ -211,8 +266,29 @@ class ForwardingComponentVM(_ComponentVMBase, Generic[M]):
             else _ForwardingParent(parent, cast(ForwardingComponentVM[object], self))
         )
 
+    @property
+    def _ownership_parent(self) -> _ParentCompositeVM | None:
+        if self._parent is not None:
+            return self._parent
+        if not isinstance(self._wrapped, _ComponentVMBase):
+            return None
+        wrapped_parent = self._wrapped._ownership_parent
+        if wrapped_parent is None:
+            return None
+        return _WrappedParent(
+            wrapped_parent,
+            cast(ForwardingComponentVM[object], self),
+            self._wrapped,
+        )
+
     def _set_is_current(self, value: bool) -> None:
         cast(_ComponentVMBase, self._wrapped)._set_is_current(value)
+
+    def _commit_is_current(self, value: bool) -> bool:
+        return cast(_ComponentVMBase, self._wrapped)._commit_is_current(value)
+
+    def _publish_is_current(self) -> None:
+        cast(_ComponentVMBase, self._wrapped)._publish_is_current()
 
     def _construct_future(self) -> Future[None]:
         return cast(_ComponentVMBase, self._wrapped)._construct_future()

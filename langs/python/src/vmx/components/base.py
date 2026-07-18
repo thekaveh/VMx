@@ -218,7 +218,8 @@ def _begin_parent_transfer(
                 )
             cursor = cursor.owner_parent
 
-        staged = None if child._parent is None else child._parent.detach_for_transfer(child)
+        ownership_parent = child._ownership_parent
+        staged = None if ownership_parent is None else ownership_parent.detach_for_transfer(child)
     except BaseException:
         child._ownership_in_progress = False
         child._ownership_lock.release()
@@ -365,21 +366,35 @@ class _ComponentVMBase(ABC):
 
     def _set_is_current(self, value: bool) -> None:
         """Called by the parent composite when selection changes."""
+        if self._commit_is_current(value):
+            self._publish_is_current()
+
+    def _commit_is_current(self, value: bool) -> bool:
+        """Commit the current flag without invoking consumer notification code."""
         # Post-dispose guard: spec/02 invariant 3 — Disposed is terminal. A
         # selection change on an already-disposed VM is a silent no-op (no
         # property_changed emit, no hub PropertyChangedMessage), mirroring Swift
         # (VMX-006). Reads the terminal state under the same lock the
         # lifecycle-race guards use.
         if self._is_disposed():
-            return
+            return False
         if self._is_current == value:
-            return
+            return False
         self._is_current = value
+        return True
+
+    def _publish_is_current(self) -> None:
+        """Publish a current-flag commit after container coordination is released."""
         self._notify_property_changed("is_current")
 
     def _set_parent(self, parent: _ParentCompositeVM | None) -> None:
         """Called by CompositeVMBase when this child is added/removed."""
         self._parent = parent
+
+    @property
+    def _ownership_parent(self) -> _ParentCompositeVM | None:
+        """Parent consulted by ownership transfer preflight."""
+        return self._parent
 
     # ── property_changed observable ──────────────────────────────────────────
     @property

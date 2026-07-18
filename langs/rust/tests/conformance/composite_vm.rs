@@ -771,6 +771,74 @@ fn destination_disposal_after_auto_construct_destructs_detached_children() {
     assert_eq!(group.status(), ConstructionStatus::Disposed);
 }
 
+/// COMP-040 — factory population rolls back if a successful construct disposes its destination.
+#[test]
+fn population_disposal_rolls_back_constructed_child() {
+    let item = child("population-child");
+    let mapped_item = item.clone();
+    let destination = vmx::ModeledCompositeVm::new(
+        "destination",
+        MessageHub::new(),
+        NullDispatcher::new(),
+        || vec![1],
+        move |_| mapped_item.clone(),
+    );
+    let destination_from_hook = destination.clone();
+    item.on_construct(move || destination_from_hook.dispose());
+
+    assert_eq!(destination.construct(), Err(VmxError::Disposed));
+    assert!(
+        destination.items().is_empty(),
+        "len={}, child={:?}, destination={:?}, parent={:?}",
+        destination.items().len(),
+        item.status(),
+        destination.status(),
+        item.parent_id()
+    );
+    assert_eq!(item.status(), ConstructionStatus::Destructed);
+    assert_eq!(destination.status(), ConstructionStatus::Disposed);
+}
+
+/// COMP-040 — replacement rollback precedes deferred composite/group disposal.
+#[test]
+fn replacement_disposal_restores_old_child_before_terminal_cascade() {
+    let old = child("old");
+    let candidate = child("candidate");
+    let composite = vmx::CompositeVm::new("composite");
+    composite.add(old.clone()).unwrap();
+    composite.set_auto_construct_on_add(true);
+    composite.construct().unwrap();
+    let composite_from_hook = composite.clone();
+    candidate.on_construct(move || composite_from_hook.dispose());
+
+    assert_eq!(
+        composite.replace(0, candidate.clone()),
+        Err(VmxError::Disposed)
+    );
+    assert!(composite.items() == vec![old.clone()]);
+    assert_eq!(old.status(), ConstructionStatus::Disposed);
+    assert_eq!(candidate.status(), ConstructionStatus::Destructed);
+    assert_eq!(candidate.parent_id(), None);
+
+    let group_old = child("group-old");
+    let group_candidate = child("group-candidate");
+    let group = vmx::GroupVm::new("group");
+    group.add(group_old.clone()).unwrap();
+    group.set_auto_construct_on_add(true);
+    group.construct().unwrap();
+    let group_from_hook = group.clone();
+    group_candidate.on_construct(move || group_from_hook.dispose());
+
+    assert_eq!(
+        group.replace(0, group_candidate.clone()),
+        Err(VmxError::Disposed)
+    );
+    assert!(group.items() == vec![group_old.clone()]);
+    assert_eq!(group_old.status(), ConstructionStatus::Disposed);
+    assert_eq!(group_candidate.status(), ConstructionStatus::Destructed);
+    assert_eq!(group_candidate.parent_id(), None);
+}
+
 /// COMP-040 — deferred disposal failure follows committed transfer events.
 #[test]
 fn deferred_disposal_failure_follows_committed_transfer_events() {
@@ -1155,8 +1223,14 @@ fn current_change_callback_can_dispose_the_composite_without_deadlocking() {
     let composite = vmx::CompositeVm::new("root");
     let item = child("a");
     composite.add(item.clone()).unwrap();
+    item.construct().unwrap();
     let callback_composite = composite.clone();
-    composite.on_current_changed(move |_| callback_composite.dispose().unwrap());
+    let callback_status = Arc::new(Mutex::new(None));
+    let seen_status = Arc::clone(&callback_status);
+    composite.on_current_changed(move |current| {
+        *seen_status.lock().unwrap() = current.map(|child| child.status());
+        callback_composite.dispose().unwrap();
+    });
 
     let worker_composite = composite.clone();
     let (completed, completion) = mpsc::channel();
@@ -1171,6 +1245,10 @@ fn current_change_callback_can_dispose_the_composite_without_deadlocking() {
             .recv_timeout(Duration::from_secs(1))
             .expect("re-entrant disposal must not deadlock current assignment"),
         Ok(())
+    );
+    assert_eq!(
+        *callback_status.lock().unwrap(),
+        Some(ConstructionStatus::Constructed)
     );
     assert_eq!(composite.status(), ConstructionStatus::Disposed);
 }

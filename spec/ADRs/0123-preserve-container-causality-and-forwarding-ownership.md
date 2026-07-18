@@ -30,15 +30,17 @@ that caused rollback, obscuring the causal error.
   publication failure.
 - Current state and notifications commit before `OnCurrentChanged` runs.
   Same-container disposal requested by the callback remains deferred until the
-  callback returns and the membership transaction closes. Cross-composite
+  callback returns. Cross-composite
   current callbacks use a shared re-entrant coordination lane and never invoke
   consumer callbacks while holding a per-container membership guard.
 - A `ForwardingComponentVM` is a valid homogeneous container child. Ownership,
   lifecycle, selection flags, and built-in selection commands remain
   transparent to the wrapped component while the collection retains the
   decorator instance supplied by the caller.
-- Existing `COMP-026`, `COMP-040`, and `FWD-001` scenarios cover these clarified
-  edges; no new public API or conformance identifier is introduced.
+- `COMP-026`, `COMP-040`, and `FWD-001` cover these clarified edges. ADR-0124
+  further defines the callback publication boundary and canonical ownership
+  across pre-owned and multiply decorated components, and adds `FWD-004`; no new
+  public API is introduced.
 
 ## 3. Consequences
 

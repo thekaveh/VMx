@@ -3,7 +3,8 @@
 //
 // Claimed IDs: FWD-001 (transparent delegation of every member to the wrapped
 // VM), FWD-002 (selective override replaces a single behavior), FWD-003
-// (ForwardingCompositeVM forwards iteration in wrapped order). Mirrors
+// (ForwardingCompositeVM forwards iteration in wrapped order), and FWD-004
+// (one underlying identity transfers between containers). Mirrors
 // langs/typescript/tests/conformance/forwarding.test.ts.
 //
 // Swift port note (recorded in the Task-10 divergence ADR): the TS FWD-002
@@ -141,6 +142,45 @@ final class ForwardingTests: XCTestCase {
         XCTAssertTrue(composite.current === forwarding)
         XCTAssertTrue(forwarding.isCurrent)
         XCTAssertTrue(inner.isCurrent)
+    }
+
+    /// FWD-004 — attaching a decorator around an already-owned component moves
+    /// that one underlying identity, including through a group and a later
+    /// decorator reparenting operation.
+    func testFWD004ForwardingComponentTransfersOneUnderlyingOwner() throws {
+        let inner = makeInner()
+        let oldParent = try CompositeVM<ComponentVMOf<String>>.builder()
+            .name("old").withNullServices().build()
+        let group = try GroupVM<NoopForwardingComponent>.builder()
+            .name("group").withNullServices().build()
+        let destination = try CompositeVM<NoopForwardingComponent>.builder()
+            .name("destination").withNullServices().build()
+        try oldParent.addResult(inner).get()
+        let forwarding = NoopForwardingComponent(inner)
+
+        try group.addResult(forwarding).get()
+
+        XCTAssertEqual(oldParent.count, 0)
+        XCTAssertEqual(group.count, 1)
+        XCTAssertTrue(group.at(0) === forwarding)
+
+        let alternateForwarding = NoopForwardingComponent(inner)
+        try destination.addResult(alternateForwarding).get()
+        try destination.construct()
+        alternateForwarding.selectCommand.execute()
+
+        XCTAssertEqual(group.count, 0)
+        XCTAssertEqual(destination.count, 1)
+        XCTAssertTrue(destination.at(0) === alternateForwarding)
+        XCTAssertTrue(destination.current === alternateForwarding)
+        XCTAssertTrue(inner.isCurrent)
+
+        try group.addResult(forwarding).get()
+
+        XCTAssertEqual(destination.count, 0)
+        XCTAssertNil(destination.current)
+        XCTAssertEqual(group.count, 1)
+        XCTAssertTrue(group.at(0) === forwarding)
     }
 
     // ── FWD-002 ─────────────────────────────────────────────────────────

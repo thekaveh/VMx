@@ -111,4 +111,4 @@ def test_swift_release_uses_portable_awk_next_heading_pattern() -> None:
 def test_release_contract_suite_triggers_on_swift_workflow_changes() -> None:
     workflow = _workflow("conformance.yml")
 
-    assert workflow.count('- ".github/workflows/**"') == 2
+    assert workflow.count('- ".github/workflows/**"') == 1

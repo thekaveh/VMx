@@ -18,6 +18,11 @@ truth remains the repository docs.
 - Branch from `develop`, open the feature PR to `develop`, and run the relevant
   flavor checks locally.
 - Promote `develop` to protected `main` only through a separate maintainer PR.
+- Direct pushes to `develop` and `main` are blocked. Both PR stages require the
+  always-present conformance, C#, Python, TypeScript, Swift, Rust, docs,
+  examples, security, and spec-discipline aggregate checks against the latest
+  target branch. Maintainer review is expected when another reviewer is
+  available; the single-collaborator repository does not require self-approval.
 - For behavior changes, start in `spec/` and follow the ADR discipline.
 - Keep all supported flavors visible when a change affects shared behavior.
 

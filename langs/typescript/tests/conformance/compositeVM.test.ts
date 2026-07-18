@@ -730,9 +730,9 @@ describe("COMP-026", () => {
       .name("reentrant-composite")
       .services(reentrantHub, disp)
       .children(() => [reentrantChild])
-      .onCurrentChanged(() => {
+      .onCurrentChanged((selected) => {
+        callbackStatuses.push(selected!.status);
         reentrant.dispose();
-        callbackStatuses.push(reentrant.status);
       })
       .build();
     reentrant.construct();
@@ -741,6 +741,38 @@ describe("COMP-026", () => {
 
     expect(callbackStatuses).toEqual([ConstructionStatus.Constructed]);
     expect(reentrant.status).toBe(ConstructionStatus.Disposed);
+  });
+
+  it("opposing synchronous current callbacks terminate", () => {
+    const hubA = makeHub();
+    const hubB = makeHub();
+    const childA = makeChild(hubA, "a");
+    const childB = makeChild(hubB, "b");
+    let firstA = true;
+    let firstB = true;
+    let compositeA!: CompositeVM<ComponentVM>;
+    let compositeB!: CompositeVM<ComponentVM>;
+    compositeA = CompositeVM.builder<ComponentVM>()
+      .name("a").services(hubA, makeDisp()).children(() => [childA])
+      .onCurrentChanged(() => {
+        if (!firstA) return;
+        firstA = false;
+        if (compositeB.current !== childB) compositeB.selectComponent(childB);
+      }).build();
+    compositeB = CompositeVM.builder<ComponentVM>()
+      .name("b").services(hubB, makeDisp()).children(() => [childB])
+      .onCurrentChanged(() => {
+        if (!firstB) return;
+        firstB = false;
+        if (compositeA.current !== childA) compositeA.selectComponent(childA);
+      }).build();
+    compositeA.construct();
+    compositeB.construct();
+
+    compositeA.selectComponent(childA);
+
+    expect(compositeA.current).toBe(childA);
+    expect(compositeB.current).toBe(childB);
   });
 });
 
@@ -903,6 +935,22 @@ describe("COMP-040", () => {
     expect(groupChild._parent).toBeNull();
     expect(compositeChild.status).toBe(ConstructionStatus.Destructed);
     expect(groupChild.status).toBe(ConstructionStatus.Destructed);
+  });
+
+  it("rolls back factory population when construction disposes the destination", () => {
+    const hub = makeHub();
+    const dispatcher = makeDisp();
+    let destination!: CompositeVM<ComponentVM>;
+    const child = ComponentVM.builder().name("child").services(hub, dispatcher)
+      .onConstruct(() => destination.dispose()).build();
+    destination = CompositeVM.builder<ComponentVM>()
+      .name("destination").services(hub, dispatcher).children(() => [child]).build();
+
+    expect(() => destination.construct()).toThrow();
+
+    expect(destination.snapshot()).toEqual([]);
+    expect(child.status).toBe(ConstructionStatus.Destructed);
+    expect(destination.status).toBe(ConstructionStatus.Disposed);
   });
 
   it("keeps an attachment error ahead of destination deferred-disposal failure", () => {

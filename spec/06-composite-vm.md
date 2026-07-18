@@ -100,7 +100,7 @@ wraps.
 `CompositeVMBuilder<VM>` and `CompositeVMOfMBuilder<M, VM>` accept two optional declarative hooks for `Current`:
 
 - `Current(selector)` — `selector: Iterable<VM> -> VM | None`. Invoked once during the composite's construct phase, **after** all children have transitioned to `Constructed` and **before** the composite reaches `Constructed`. The composite assigns `Current` to the selector's return value through an internal **non-raising validated assignment** — NOT the guarded `select_component` path, which raises on a non-child (§3.1, `COMP-009`). If the selector returns a contained child, the normal `Current` transition fires (`PropertyChangedMessage("Current")` plus the `IsCurrent` updates of §3). If the selector returns `null` or a value not contained in the composite, the assignment is a **silent no-op**: `Current` stays at its prior value (initially `null`) and no notification fires. (ADR-0042 §5.1 phrased this as "the `SelectComponent` path"; ADR-0050 corrects the wording to the non-raising assignment that the reference implementations and `COMP-025` actually exercise, reconciling it with §5.4's no-op rule.)
-- `OnCurrentChanged(callback)` — `callback: (VM | None) -> void`. Invoked synchronously after every `Current` transition, **after** the state is updated and the hub publishes `PropertyChangedMessage("Current")`. Receives the new `Current` value (which may be `null`). Re-entrant disposal from this callback is deferred through the active membership transaction and completes after publication without deadlocking selection.
+- `OnCurrentChanged(callback)` — `callback: (VM | None) -> void`. Invoked synchronously after every `Current` transition, **after** the state is updated and the hub publishes `PropertyChangedMessage("Current")`. Receives the new `Current` value (which may be `null`). Re-entrant disposal from this callback is deferred through the active membership transaction and completes after publication without deadlocking selection. The shared cross-composite coordinator protects validation and the committed state update only; hub publication and consumer callbacks execute after it is released.
 
 Both hooks are optional; absent calls yield v2.5.0 behavior. The hooks compose: if both are present, the initial selector's assignment triggers the callback exactly once.
 
@@ -157,13 +157,16 @@ mutation of either protected container MUST fail before mutation; coherent
 snapshot reads remain legal. Child reservations use a deterministic acquisition
 strategy so two reverse-order bulk populations cannot deadlock. Selection
 validation and assignment are one membership-gated operation, and deferred
-selection revalidates membership when it executes. Selection publication and
-callbacks run while that transaction remains logically active but without
-holding a non-reentrant membership mutex, so same-thread disposal can defer and
-finish after the observable current change. Cross-composite current changes use
-a shared re-entrant coordination lane so opposing callbacks cannot deadlock by
-acquiring two membership guards in reverse order. A callback observes the
-selected child still constructed; any deferred disposal cascade begins only
+selection revalidates membership when it executes. Concurrent flavors use a
+shared re-entrant coordination lane for cross-composite validation and state
+commit, including the affected child current flags, then release it before hub
+publication and consumer callbacks. A flavor
+MAY retain a logical transaction without its mutex or replace it with an
+equivalent current-publication lease; a selection invoked from an existing
+structural transaction MAY reuse that transaction. Consumer code holds neither
+the shared lane nor a non-reentrant membership mutex, so opposing callback
+graphs cannot retain one while acquiring another container. A callback observes
+the selected child still constructed; any deferred disposal cascade begins only
 after the callback returns.
 
 If any step after preflight fails, both memberships, `Parent`, `Current`, child
@@ -174,8 +177,12 @@ consumer lifecycle hook makes compensation fail, that failure MUST be surfaced
 and MUST NOT be swallowed; exact lifecycle restoration is then not claimed.
 In particular, when this attempt auto-constructed a previously destructed child
 before admission failed, compensation destructs it back to its original state.
-Replacement rollback identifies the candidate by identity and MUST NOT mutate
-an unrelated member merely because the original index changed (ADR-0118).
+Add, insert, replacement, and factory or bulk population MUST recheck destination
+viability after successful construction hooks; destination disposal at that
+point rejects admission and performs the same exact rollback. Replacement
+rollback identifies the candidate by identity, restores the displaced child
+before deferred disposal can take a terminal snapshot, and MUST NOT mutate an
+unrelated member merely because the original index changed (ADR-0118).
 
 Disposal MUST observe a stable membership boundary. If the transaction-owning
 thread requests disposal of a protected old parent from an attachment or

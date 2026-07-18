@@ -580,10 +580,10 @@ public class CompositeVMConformanceTests
             .Name("reentrant-composite")
             .Services(reentrantHub, dispatcher)
             .Children(() => new[] { reentrantChild })
-            .OnCurrentChanged(_ =>
+            .OnCurrentChanged(selected =>
             {
+                callbackStatuses.Add(selected!.Status);
                 reentrant!.Dispose();
-                callbackStatuses.Add(reentrant.Status);
             })
             .Build();
         reentrant.Construct();
@@ -637,6 +637,46 @@ public class CompositeVMConformanceTests
         compositeB.Current.Should().BeSameAs(childB);
     }
 
+    [Fact, Trait("Conformance", "COMP-026")]
+    public async Task COMP_026_Collection_And_Current_Callbacks_Do_Not_Deadlock()
+    {
+        var dispatcher = new TestDispatcher();
+        using var bTransactionEntered = new ManualResetEventSlim();
+        using var aCallbackEntered = new ManualResetEventSlim();
+        var hubA = new TestHub();
+        var hubB = new TestHub();
+        var b = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("b").Services(hubB, dispatcher).Children(() => []).Build();
+        var aItem = BuildChild(hubA, dispatcher, "a-item");
+        CompositeVM<ComponentVM<string>>? a = null;
+        a = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("a").Services(hubA, dispatcher).Children(() => [aItem])
+            .OnCurrentChanged(_ =>
+            {
+                aCallbackEntered.Set();
+                bTransactionEntered.Wait(TimeSpan.FromSeconds(1)).Should().BeTrue();
+                b.Dispose();
+            }).Build();
+        a.Construct();
+        b.Construct();
+        var bItem = BuildChild(hubB, dispatcher, "b-item");
+        bItem.Construct();
+        b.CollectionChanged += (_, _) =>
+        {
+            bTransactionEntered.Set();
+            b.SelectComponent(bItem);
+        };
+
+        var taskA = Task.Run(() => a.SelectComponent(aItem));
+        aCallbackEntered.Wait(TimeSpan.FromSeconds(1)).Should().BeTrue();
+        var taskB = Task.Run(() => Record.Exception(() => b.Add(bItem)));
+
+        await Task.WhenAll(taskA, taskB).WaitAsync(TimeSpan.FromSeconds(2));
+        (await taskB).Should().BeNull();
+        b.Status.Should().Be(ConstructionStatus.Disposed);
+        bItem.Status.Should().Be(ConstructionStatus.Disposed);
+    }
+
     [Fact]
     public void Auto_Construct_Rollback_Destructs_Child_After_Destination_Disposal()
     {
@@ -654,6 +694,27 @@ public class CompositeVMConformanceTests
         Action add = () => destination.Add(child);
 
         add.Should().Throw<ObjectDisposedException>();
+        destination.Should().BeEmpty();
+        child.Status.Should().Be(ConstructionStatus.Destructed);
+        destination.Status.Should().Be(ConstructionStatus.Disposed);
+    }
+
+    [Fact, Trait("Conformance", "COMP-040")]
+    public void COMP_040_Population_Disposal_Rolls_Back_Constructed_Child()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        CompositeVM<ComponentVM<string>>? destination = null;
+        var child = ComponentVM<string>.Builder().Name("child")
+            .Services(hub, dispatcher).Model("m")
+            .OnConstruct(() => destination!.Dispose()).Build();
+        destination = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("destination").Services(hub, dispatcher)
+            .Children(() => [child]).Build();
+
+        Action construct = () => destination.Construct();
+
+        construct.Should().Throw<Exception>();
         destination.Should().BeEmpty();
         child.Status.Should().Be(ConstructionStatus.Destructed);
         destination.Status.Should().Be(ConstructionStatus.Disposed);

@@ -42,6 +42,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     private bool _batchDirty;
     private int _disposeRequested;
     private bool _disposeDeferred;
+    private int _activeCurrentPublications;
     private bool _membershipTransactionActive;
     private int _membershipTransactionOwnerThreadId;
     private readonly object _membershipGate = new();
@@ -361,12 +362,15 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     /// <inheritdoc/>
     public bool Remove(VM item)
     {
-        lock (CompositeCurrentChangeCoordinator.Gate)
+        BeginMembershipTransaction();
+        try
         {
-            BeginMembershipTransaction();
-            try
+            int idx;
+            VM removed;
+            bool wasCurrent;
+            var previousFlagChanged = false;
+            lock (CompositeCurrentChangeCoordinator.Gate)
             {
-                int idx;
                 lock (_membershipGate)
                     idx = _children.FindIndex(candidate => ReferenceEquals(candidate, item));
                 if (idx < 0)
@@ -374,21 +378,21 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                     EndMembershipTransaction();
                     return false;
                 }
-                VM removed;
-                bool wasCurrent;
                 lock (_membershipGate)
                     (removed, wasCurrent) = RemoveAtLocked(idx);
-                if (wasCurrent) FinishCurrentChange(removed, null);
-                RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
-                    NotifyCollectionChangedAction.Remove, removed, idx));
+                if (wasCurrent) previousFlagChanged = removed.CommitIsCurrent(false);
             }
-            catch
-            {
-                EndMembershipTransaction(propagateDisposeFailure: false);
-                throw;
-            }
-            EndMembershipTransaction();
+            if (wasCurrent)
+                FinishCurrentChange(removed, null, previousFlagChanged, false);
+            RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+                NotifyCollectionChangedAction.Remove, removed, idx));
         }
+        catch
+        {
+            EndMembershipTransaction(propagateDisposeFailure: false);
+            throw;
+        }
+        EndMembershipTransaction();
         return true;
     }
 
@@ -478,37 +482,41 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     /// <inheritdoc/>
     public void RemoveAt(int index)
     {
-        lock (CompositeCurrentChangeCoordinator.Gate)
+        BeginMembershipTransaction();
+        try
         {
-            BeginMembershipTransaction();
-            try
+            VM item;
+            bool wasCurrent;
+            var previousFlagChanged = false;
+            lock (CompositeCurrentChangeCoordinator.Gate)
             {
-                VM item;
-                bool wasCurrent;
                 lock (_membershipGate)
                     (item, wasCurrent) = RemoveAtLocked(index);
-                if (wasCurrent) FinishCurrentChange(item, null);
-                RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
-                    NotifyCollectionChangedAction.Remove, item, index));
+                if (wasCurrent) previousFlagChanged = item.CommitIsCurrent(false);
             }
-            catch
-            {
-                EndMembershipTransaction(propagateDisposeFailure: false);
-                throw;
-            }
-            EndMembershipTransaction();
+            if (wasCurrent)
+                FinishCurrentChange(item, null, previousFlagChanged, false);
+            RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+                NotifyCollectionChangedAction.Remove, item, index));
         }
+        catch
+        {
+            EndMembershipTransaction(propagateDisposeFailure: false);
+            throw;
+        }
+        EndMembershipTransaction();
     }
 
     /// <inheritdoc/>
     public void Clear()
     {
-        lock (CompositeCurrentChangeCoordinator.Gate)
+        BeginMembershipTransaction();
+        try
         {
-            BeginMembershipTransaction();
-            try
+            VM? previous;
+            var previousFlagChanged = false;
+            lock (CompositeCurrentChangeCoordinator.Gate)
             {
-                VM? previous;
                 lock (_membershipGate)
                 {
                     previous = _current;
@@ -518,17 +526,20 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                             child.SetParent(null);
                     _children.Clear();
                 }
-                if (previous is not null) FinishCurrentChange(previous, null);
-                RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
-                    NotifyCollectionChangedAction.Reset));
+                if (previous is not null)
+                    previousFlagChanged = previous.CommitIsCurrent(false);
             }
-            catch
-            {
-                EndMembershipTransaction(propagateDisposeFailure: false);
-                throw;
-            }
-            EndMembershipTransaction();
+            if (previous is not null)
+                FinishCurrentChange(previous, null, previousFlagChanged, false);
+            RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+                NotifyCollectionChangedAction.Reset));
         }
+        catch
+        {
+            EndMembershipTransaction(propagateDisposeFailure: false);
+            throw;
+        }
+        EndMembershipTransaction();
     }
 
     /// <summary>
@@ -697,6 +708,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                 else
                     MaybeAutoConstruct(child);
             }
+            lock (_membershipGate) EnsureTransactionCanContinueLocked();
         }
         catch (Exception originalError)
         {
@@ -786,7 +798,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                 Monitor.Wait(_membershipGate);
                 if (_disposeRequested != 0) return;
             }
-            if (_membershipTransactionActive)
+            if (_membershipTransactionActive || _activeCurrentPublications > 0)
             {
                 _disposeDeferred = true;
                 return;
@@ -847,8 +859,26 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         {
             _membershipTransactionActive = false;
             _membershipTransactionOwnerThreadId = 0;
-            dispose = _disposeDeferred;
-            _disposeDeferred = false;
+            dispose = _disposeDeferred && _activeCurrentPublications == 0;
+            if (dispose) _disposeDeferred = false;
+            Monitor.PulseAll(_membershipGate);
+        }
+        if (dispose)
+        {
+            try { Dispose(); }
+            catch when (!propagateDisposeFailure) { }
+        }
+    }
+
+    private void EndCurrentPublication(bool propagateDisposeFailure)
+    {
+        bool dispose;
+        lock (_membershipGate)
+        {
+            _activeCurrentPublications--;
+            dispose = _activeCurrentPublications == 0 &&
+                !_membershipTransactionActive && _disposeDeferred;
+            if (dispose) _disposeDeferred = false;
             Monitor.PulseAll(_membershipGate);
         }
         if (dispose)
@@ -893,47 +923,86 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         // between SetCurrent's membership check and this deferred foreground
         // delivery. Dropping silently upholds the spec/06 §3 invariant that a
         // non-null Current is always a member of the children collection.
-        lock (CompositeCurrentChangeCoordinator.Gate)
+        lock (_membershipGate)
         {
-            if (!internalTransaction)
-            {
-                try { BeginMembershipTransaction(); }
-                catch when (!strict) { return; }
-                try { ApplyCurrentChange(value, internalTransaction: true, strict: strict); }
-                catch
-                {
-                    EndMembershipTransaction(propagateDisposeFailure: false);
-                    throw;
-                }
-                EndMembershipTransaction();
-                return;
-            }
-            VM? previous;
-            lock (_membershipGate)
-            {
-                if (value is not null &&
-                    !_children.Any(child => ReferenceEquals(child, value)))
-                {
-                    if (!strict) return;
-                    throw new InvalidOperationException(
-                        $"Cannot set Current to '{value.Name}': it is not a member of this composite.");
-                }
-                if (ReferenceEquals(_current, value)) return;
-                previous = _current;
-                _current = value;
-            }
-            FinishCurrentChange(previous, value);
+            if (ReferenceEquals(_current, value)) return;
         }
+        var ownsTransaction = false;
+        var publicationActive = false;
+        try
+        {
+            VM? previous = null;
+            var changed = false;
+            var previousFlagChanged = false;
+            var valueFlagChanged = false;
+            lock (CompositeCurrentChangeCoordinator.Gate)
+            {
+                bool inheritedTransaction;
+                lock (_membershipGate)
+                    inheritedTransaction = _membershipTransactionActive &&
+                        _membershipTransactionOwnerThreadId == Environment.CurrentManagedThreadId;
+                if (!internalTransaction && !inheritedTransaction)
+                {
+                    try { BeginMembershipTransaction(); }
+                    catch when (!strict) { return; }
+                    ownsTransaction = true;
+                }
+                lock (_membershipGate)
+                {
+                    if (value is not null &&
+                        !_children.Any(child => ReferenceEquals(child, value)))
+                    {
+                        if (strict)
+                            throw new InvalidOperationException(
+                                $"Cannot set Current to '{value.Name}': it is not a member of this composite.");
+                    }
+                    else if (!ReferenceEquals(_current, value))
+                    {
+                        previous = _current;
+                        _current = value;
+                        changed = true;
+                        previousFlagChanged = previous?.CommitIsCurrent(false) ?? false;
+                        valueFlagChanged = value?.CommitIsCurrent(true) ?? false;
+                        if (ownsTransaction)
+                        {
+                            _activeCurrentPublications++;
+                            publicationActive = true;
+                        }
+                    }
+                }
+            }
+            if (ownsTransaction)
+            {
+                ownsTransaction = false;
+                EndMembershipTransaction();
+            }
+            if (changed)
+                FinishCurrentChange(
+                    previous, value, previousFlagChanged, valueFlagChanged);
+        }
+        catch
+        {
+            if (ownsTransaction)
+                EndMembershipTransaction(propagateDisposeFailure: false);
+            if (publicationActive)
+                EndCurrentPublication(propagateDisposeFailure: false);
+            throw;
+        }
+        if (publicationActive) EndCurrentPublication(propagateDisposeFailure: true);
     }
 
-    private void FinishCurrentChange(VM? previous, VM? value)
+    private void FinishCurrentChange(
+        VM? previous,
+        VM? value,
+        bool previousFlagChanged,
+        bool valueFlagChanged)
     {
 
         // Update IsCurrent on affected children.
-        if (previous is not null)
-            previous.SetIsCurrent(false);
-        if (value is not null)
-            value.SetIsCurrent(true);
+        if (previous is not null && previousFlagChanged)
+            previous.PublishIsCurrent();
+        if (value is not null && valueFlagChanged)
+            value.PublishIsCurrent();
 
         // Emit PropertyChangedMessage for "Current" on the hub.
         NotifyPropertyChanged(nameof(Current));

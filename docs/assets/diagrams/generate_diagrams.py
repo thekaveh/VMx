@@ -2861,12 +2861,12 @@ def forwarding_wrapper_family() -> Diagram:
     return Diagram(
         diagram_id="forwarding-wrapper-family",
         title="Forwarding Wrapper Family Map",
-        subtitle="composition-first decorators for instrumentation, policy, and host adaptation",
+        subtitle="one canonical wrapped identity, retained through an exact public decorator",
         width=1700,
         height=1000,
         boundaries=(
             Boundary(70, 118, 1560, 282, "Wrapper contracts", "#22d3ee"),
-            Boundary(70, 428, 1560, 250, "Override seams", "#34d399"),
+            Boundary(70, 428, 1560, 250, "Ownership and override seams", "#34d399"),
             Boundary(70, 706, 1560, 168, "Best-fit wrapper use cases", "#fb923c"),
         ),
         boxes=(
@@ -2915,8 +2915,12 @@ def forwarding_wrapper_family() -> Diagram:
                 476,
                 280,
                 112,
-                "Lifecycle forwarding",
-                ("construct/destruct/dispose", "usually delegate", "ownership remains explicit"),
+                "Canonical ownership",
+                (
+                    "inner + decorators = one owner",
+                    "old composite/group detaches",
+                    "destination keeps exact wrapper",
+                ),
                 "backend",
             ),
             Box(
@@ -3012,9 +3016,9 @@ def forwarding_wrapper_family() -> Diagram:
                 900,
                 1460,
                 64,
-                "Decision rule",
+                "Five-flavor invariant · C# · Python · TypeScript · Swift · Rust",
                 (
-                    "Use forwarding wrappers when composition can adapt one behavior without re-implementing a shipped VM family.",
+                    "Attach bare inner → wrapper → alternate wrapper: exactly one container owns the canonical identity at every commit.",
                 ),
                 "#fb923c",
             ),
@@ -3025,7 +3029,7 @@ def forwarding_wrapper_family() -> Diagram:
                 (
                     "Wrappers hold an inner VM and delegate by default.",
                     "The inner VM remains the source of state and messages.",
-                    "Overrides stay local to the behavior being adapted.",
+                    "A collection retains the exact decorator it was given.",
                 ),
             ),
             (
@@ -3033,7 +3037,7 @@ def forwarding_wrapper_family() -> Diagram:
                 (
                     "ForwardingComponentVM decorates component-shaped surfaces.",
                     "ForwardingCompositeVM decorates child-list and Current-selection surfaces.",
-                    "Both preserve lifecycle ownership when dispose forwards.",
+                    "Bare and multiply decorated aliases share one transferable owner.",
                 ),
             ),
             (

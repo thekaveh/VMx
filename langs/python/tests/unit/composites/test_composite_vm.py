@@ -11,7 +11,6 @@ Tests cover:
 
 from __future__ import annotations
 
-import types
 from threading import Event, Thread
 
 import pytest
@@ -226,32 +225,35 @@ def test_concurrent_current_assignments_leave_one_current_flag() -> None:
     composite, _ = _build_composite()
     first = _build_child("first")
     second = _build_child("second")
+    third = _build_child("third")
     composite.append(first)
     composite.append(second)
+    composite.append(third)
+    composite.current = first
     entered = Event()
     release = Event()
-    original = first._set_is_current
 
-    def blocked_set_current(self: ComponentVM, value: bool) -> None:
-        if value:
+    def block_first_publication(property_name: str) -> None:
+        if property_name == "is_current" and not first.is_current:
             entered.set()
             assert release.wait(timeout=2)
-        original(value)
 
-    first._set_is_current = types.MethodType(blocked_set_current, first)  # type: ignore[method-assign]
-    first_thread = Thread(target=lambda: setattr(composite, "current", first))
-    second_thread = Thread(target=lambda: setattr(composite, "current", second))
+    subscription = first.property_changed.subscribe(block_first_publication)
+    first_thread = Thread(target=lambda: setattr(composite, "current", second))
+    second_thread = Thread(target=lambda: setattr(composite, "current", third))
     first_thread.start()
     assert entered.wait(timeout=2)
     second_thread.start()
-    assert second_thread.is_alive()
+    second_thread.join(timeout=2)
+    assert not second_thread.is_alive()
     release.set()
     first_thread.join(timeout=2)
-    second_thread.join(timeout=2)
+    subscription.dispose()
 
-    assert composite.current is second
+    assert composite.current is third
     assert not first.is_current
-    assert second.is_current
+    assert not second.is_current
+    assert third.is_current
 
 
 def test_remove_emits_collection_changed_remove() -> None:

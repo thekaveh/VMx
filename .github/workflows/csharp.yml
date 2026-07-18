@@ -15,13 +15,6 @@ on:
       - ".github/workflows/csharp.yml"
   pull_request:
     branches: [main, develop]
-    paths:
-      - "langs/csharp/**"
-      - "examples/csharp/**"
-      - "spec/**"
-      - "tools/check-nuget-package.py"
-      - "tools/smoke-nuget-consumer.py"
-      - ".github/workflows/csharp.yml"
   workflow_dispatch:
 
 defaults:
@@ -189,3 +182,14 @@ jobs:
         # Windows activates UseWPF and compiles App/MainWindow XAML plus their
         # code-behind; the non-Windows fallback intentionally excludes them.
         run: dotnet build examples/csharp/wpf/TodoApp/WpfTodoApp.csproj -c Release
+
+  required:
+    name: "required: csharp"
+    if: always()
+    needs: [build, package, examples, wpf-example]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every C# job
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: jq -e 'to_entries | all(.value.result == "success")' <<<"$RESULTS"

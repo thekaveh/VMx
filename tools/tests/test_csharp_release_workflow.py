@@ -63,7 +63,7 @@ def test_csharp_restore_enforces_low_severity_transitive_auditing() -> None:
 def test_conformance_triggers_on_csharp_and_release_workflow_changes() -> None:
     workflow = _workflow("conformance.yml")
 
-    assert workflow.count('- ".github/workflows/**"') == 2
+    assert workflow.count('- ".github/workflows/**"') == 1
 
 
 def _csharp_release_jobs() -> str:

@@ -27,19 +27,11 @@ on:
       - ".github/workflows/examples-contract-checks.yml"
   pull_request:
     branches: [main, develop]
-    paths:
-      - "examples/**"
-      - "tools/check-axaml-codebehind.py"
-      - "tools/check-textual-views.py"
-      - "tools/check-layer-imports.py"
-      - "tools/check-showcase-parity.py"
-      - "tools/tests/test_example_accessibility.py"
-      - ".github/workflows/examples-contract-checks.yml"
   workflow_dispatch:
 
 jobs:
   contract:
-    name: Pure-VM contract + parity checks
+    name: "required: examples"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0

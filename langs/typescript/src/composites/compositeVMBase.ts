@@ -613,6 +613,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
           child.status !== ConstructionStatus.Constructed
         ) child.construct();
       }
+      this.#requireTransactionCanContinue();
     } catch (error) {
       let compensationError: unknown;
       while (this._children.length > start) {

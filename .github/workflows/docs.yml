@@ -29,30 +29,6 @@ on:
       - ".github/workflows/docs.yml"
   pull_request:
     branches: [main, develop]
-    paths:
-      - "docs/**"
-      - "README.md"
-      - "CONTRIBUTING.md"
-      - "SECURITY.md"
-      - "CODE_OF_CONDUCT.md"
-      - "compatibility-matrix.md"
-      - "examples/**/*.md"
-      - "langs/**/*.md"
-      - "tools/**/*.md"
-      - "spec/**"
-      - "assets/architecture.*"
-      - "assets/class-diagram.*"
-      - "examples/assets/notes-showcase-vm-hierarchy.*"
-      - "examples/assets/notes-showcase-vmx-components.*"
-      - "examples/notes-showcase-parity.md"
-      - "scripts/docs/**"
-      - "tests/docs/**"
-      - "tools/generate-doc-diagrams.py"
-      - "tools/docs/validate_diagrams.py"
-      - "Makefile"
-      - "docs/requirements.txt"
-      - "docs/requirements.in"
-      - ".github/workflows/docs.yml"
   workflow_dispatch:
 
 permissions:
@@ -106,3 +82,14 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
+
+  required:
+    name: "required: docs"
+    if: always()
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require documentation build
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: jq -e 'to_entries | all(.value.result == "success")' <<<"$RESULTS"

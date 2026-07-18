@@ -574,6 +574,7 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
                 else
                     MaybeAutoConstruct(child);
             }
+            lock (_membershipGate) EnsureTransactionCanContinueLocked();
         }
         catch (Exception originalError)
         {

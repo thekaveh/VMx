@@ -22,24 +22,11 @@ on:
       - ".github/workflows/**"
   pull_request:
     branches: [main, develop]
-    paths:
-      - "spec/**"
-      - "docs/**"
-      - "langs/**/tests/conformance/**"
-      - "langs/csharp/tests/VMx.Conformance.Tests/**"
-      - "langs/swift/Tests/VMxTests/**"
-      - "langs/rust/src/fixtures/**"
-      - "langs/python/src/vmx/lifecycle/_data/**"
-      - "langs/swift/Sources/VMx/Resources/**"
-      - "langs/python/pyproject.toml"
-      - "tools/**"
-      - ".pre-commit-config.yaml"
-      - ".github/dependabot.yml"
-      - ".github/workflows/**"
   workflow_dispatch:
 
 jobs:
   coverage:
+    name: "required: conformance"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0

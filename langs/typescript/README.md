@@ -5,7 +5,7 @@ JavaScript, spec-compatible with the C#, Python, Swift, and Rust flavors.
 
 ## 1. Status
 
-**v3.23.0** — implements `spec-v3.22.0` end-to-end. 395/395 library
+**v3.23.0** — implements `spec-v3.22.0` end-to-end. 396/396 library
 conformance IDs pass. Published runtime requires Node ≥ 20 and rxjs ≥ 7.8;
 repository tests require Node 20.19+, 22.13+, or 24+ for jsdom 29. Dual ESM + CJS
 bundles; TypeScript declarations are bundled — no `@types/vmx` needed.
@@ -383,12 +383,12 @@ does not parse YAML or generate Swift/code from this contract. See
 
 ## 5. Conformance
 
-All 395 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5).
+All 396 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5).
 
 ```
 v1.x   LIFE-001..013  HUB-001..007  PROP-001..004  CMD-001..007
        CVM-001..010   COMP-001..013 GRP-001..006   AGG-001..005
-       FWD-001..003   BLD-001..004  THR-001..004   UTIL-001..003
+       FWD-001..004   BLD-001..004  THR-001..004   UTIL-001..003
 v2.0   CAP-001..020   NULL-001..003 DPROP-001..012 CMDD-001..009
        NOTIF-001..010 COMP-014..024 GRP-007..010   EXP-001..005
        LOC-001..003

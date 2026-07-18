@@ -32,7 +32,7 @@ def test_typescript_ci_verifies_floor_lts_and_current_node_lines() -> None:
 def test_contract_suite_triggers_on_typescript_and_release_workflow_changes() -> None:
     workflow = _workflow("conformance.yml")
 
-    assert workflow.count('- ".github/workflows/**"') == 2
+    assert workflow.count('- ".github/workflows/**"') == 1
 
 
 def _typescript_release_jobs() -> str:

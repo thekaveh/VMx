@@ -64,6 +64,38 @@ fn forwarding_component_is_a_transparent_container_child() {
     assert!(composite.current() == Some(forwarding));
 }
 
+/// FWD-004 — a forwarding component preserves one transferable underlying owner
+#[test]
+fn forwarding_component_transfers_one_underlying_owner() {
+    let inner = child("inner");
+    let old_parent = vmx::CompositeVm::new("old");
+    let group = vmx::GroupVm::new("group");
+    let destination = vmx::CompositeVm::new("destination");
+    old_parent.add(inner.clone()).unwrap();
+    let forwarding = ForwardingComponentVm::new(inner.clone());
+
+    group.add(forwarding.clone()).unwrap();
+
+    assert!(old_parent.is_empty());
+    assert!(group.items() == vec![forwarding.clone()]);
+
+    let alternate_forwarding = ForwardingComponentVm::new(inner.clone());
+    destination.add(alternate_forwarding.clone()).unwrap();
+    destination.construct().unwrap();
+    destination.select_component(&alternate_forwarding).unwrap();
+
+    assert!(group.is_empty());
+    assert!(destination.items() == vec![alternate_forwarding.clone()]);
+    assert!(destination.current() == Some(alternate_forwarding));
+    assert!(inner.is_current());
+
+    group.add(forwarding.clone()).unwrap();
+
+    assert!(destination.is_empty());
+    assert!(destination.current().is_none());
+    assert!(group.items() == vec![forwarding]);
+}
+
 /// FWD-002 — Selective override replaces a single behavior
 #[test]
 fn selective_override_replaces_one_behavior() {

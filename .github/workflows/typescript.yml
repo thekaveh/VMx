@@ -15,13 +15,6 @@ on:
       - ".github/workflows/typescript.yml"
   pull_request:
     branches: [main, develop]
-    paths:
-      - "langs/typescript/**"
-      - "examples/typescript/**"
-      - "spec/**"
-      - "tools/check-typescript-package.py"
-      - "tools/smoke-npm-consumer.py"
-      - ".github/workflows/typescript.yml"
   workflow_dispatch:
 
 defaults:
@@ -190,3 +183,14 @@ jobs:
 
       - name: notes-showcase production build
         run: npm run build --prefix examples/typescript/react/notes-showcase
+
+  required:
+    name: "required: typescript"
+    if: always()
+    needs: [build, package, examples]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every TypeScript job
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: jq -e 'to_entries | all(.value.result == "success")' <<<"$RESULTS"

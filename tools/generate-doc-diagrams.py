@@ -623,7 +623,7 @@ def class_diagram(output_root: Path) -> None:
             [
                 "Every flavor implements the shared normative concepts.",
                 "Names are idiomatic per language.",
-                "All five flavors cover 395 library IDs.",
+                "All five flavors cover 396 library IDs.",
                 "Four UI-backed examples cover the five THEME scenarios.",
             ],
         ),

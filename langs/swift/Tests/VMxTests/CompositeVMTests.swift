@@ -392,8 +392,8 @@ final class CompositeVMTests: XCTestCase {
             .name("reentrant-composite")
             .withNullServices()
             .children { [reentrantChild] }
-            .onCurrentChanged { _ in
-                callbackStatus = reentrant.status
+            .onCurrentChanged { selected in
+                callbackStatus = selected?.status
                 reentrant.dispose()
             }
             .build()

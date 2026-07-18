@@ -20,6 +20,51 @@
 import Foundation
 import Combine
 
+private final class WrappedOwnershipParent: OwnershipParentVM {
+    private weak var parent: OwnershipParentVM?
+    private weak var wrapper: ComponentVMBase?
+    private weak var subject: ComponentVMBase?
+    private weak var wrapped: ComponentVMBase?
+
+    init(
+        parent: OwnershipParentVM,
+        wrapper: ComponentVMBase,
+        subject: ComponentVMBase,
+        wrapped: ComponentVMBase
+    ) {
+        self.parent = parent
+        self.wrapper = wrapper
+        self.subject = subject
+        self.wrapped = wrapped
+    }
+
+    var ownershipOwner: ComponentVMBase { parent!.ownershipOwner }
+    var ownershipOwnerParent: OwnershipParentVM? { parent?.ownershipOwnerParent }
+
+    func containsIdentity(_ vm: ComponentVMBase) -> Bool {
+        guard let subject else { return false }
+        return parent?.containsIdentity(subject) ?? false
+    }
+
+    func detachForTransfer(_ vm: ComponentVMBase) throws -> ParentTransfer {
+        guard let parent, let wrapper, let subject, let wrapped else {
+            throw ContainerOwnershipError.inconsistentParent
+        }
+        let staged = try parent.detachForTransfer(subject)
+        return ParentTransfer(
+            commit: {
+                staged.commit()
+                if subject !== wrapper {
+                    subject._parent = nil
+                    subject._ownershipParent = nil
+                }
+                wrapped._forwardingOwner = wrapper
+            },
+            rollback: { staged.rollback() }
+        )
+    }
+}
+
 open class ForwardingComponentVM<Model>: ComponentVMOf<Model> {
     /// The decorated instance. `public` so subclasses (and instrumentation) can
     /// reach the wrapped VM directly.
@@ -38,6 +83,33 @@ open class ForwardingComponentVM<Model>: ComponentVMOf<Model> {
             hub: wrapped.hub,
             dispatcher: wrapped.dispatcher
         )
+    }
+
+    override var _transferOwnershipParent: OwnershipParentVM? {
+        if let direct = _ownershipParent { return direct }
+        let subject: ComponentVMBase
+        if let retainedDecorator = _wrapped._forwardingOwner,
+           retainedDecorator !== self,
+           retainedDecorator._ownershipParent != nil {
+            subject = retainedDecorator
+        } else {
+            subject = _wrapped
+        }
+        guard let parent = subject._transferOwnershipParent else { return nil }
+        return WrappedOwnershipParent(
+            parent: parent,
+            wrapper: self,
+            subject: subject,
+            wrapped: _wrapped
+        )
+    }
+
+    override func _ownershipParentDidChange() {
+        if _ownershipParent != nil {
+            _wrapped._forwardingOwner = self
+        } else if _wrapped._forwardingOwner === self {
+            _wrapped._ownershipParent = nil
+        }
     }
 
     // ── Identity / kind ─────────────────────────────────────────────────
@@ -87,15 +159,21 @@ open class ForwardingComponentVM<Model>: ComponentVMOf<Model> {
 
     // ── Selection ───────────────────────────────────────────────────────
     open override func canSelect() -> Bool {
-        _parent == nil ? _wrapped.canSelect() : super.canSelect()
+        guard let parent = _parent else { return _wrapped.canSelect() }
+        return _wrapped.status == .constructed
+            && parent.supportsChildSelection
+            && parent.currentChild !== self
     }
     open override func select() {
-        if _parent == nil { _wrapped.select() } else { super.select() }
+        if let parent = _parent { parent.selectChild(self) } else { _wrapped.select() }
     }
     open override func canDeselect() -> Bool {
-        _parent == nil ? _wrapped.canDeselect() : super.canDeselect()
+        guard let parent = _parent else { return _wrapped.canDeselect() }
+        return _wrapped.status == .constructed
+            && parent.supportsChildSelection
+            && parent.currentChild === self
     }
     open override func deselect() {
-        if _parent == nil { _wrapped.deselect() } else { super.deselect() }
+        if let parent = _parent { parent.deselectChild(self) } else { _wrapped.deselect() }
     }
 }

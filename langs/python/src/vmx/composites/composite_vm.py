@@ -83,6 +83,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         self._batch_dirty: bool = False
         self._dispose_requested: bool = False
         self._dispose_deferred: bool = False
+        self._active_current_publications: int = 0
         self._membership_transaction_active: bool = False
         self._membership_transaction_owner: int | None = None
         self._membership_gate = RLock()
@@ -436,20 +437,25 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
 
     def remove(self, item: VM) -> bool:
         """Remove first occurrence of *item*.  Returns True on success."""
-        with _current_change_coordinator:
-            self._begin_membership_transaction()
-            try:
+        self._begin_membership_transaction()
+        try:
+            with _current_change_coordinator:
                 with self._membership_gate:
                     idx = next((i for i, child in enumerate(self._children) if child is item), -1)
                     if idx < 0:
                         return False
                     removed, was_current = self._remove_at_locked(idx)
                 if was_current:
-                    self._finish_current_change(removed, None)
-            finally:
-                self._end_membership_transaction(
-                    propagate_dispose_failure=sys.exc_info()[0] is None
+                    previous_flag_changed = removed._commit_is_current(False)
+            if was_current:
+                self._finish_current_change(
+                    removed,
+                    None,
+                    previous_flag_changed=previous_flag_changed,
+                    value_flag_changed=False,
                 )
+        finally:
+            self._end_membership_transaction(propagate_dispose_failure=sys.exc_info()[0] is None)
         self._emit_collection_changed(
             CollectionChangedEvent(action="remove", old_items=(removed,), old_index=idx)
         )
@@ -461,9 +467,9 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
 
     def clear(self) -> None:
         """Remove all children, emitting a Reset event."""
-        with _current_change_coordinator:
-            self._begin_membership_transaction()
-            try:
+        self._begin_membership_transaction()
+        try:
+            with _current_change_coordinator:
                 with self._membership_gate:
                     previous = self._current
                     self._current = None
@@ -472,11 +478,16 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                             child._set_parent(None)
                     self._children.clear()
                 if previous is not None:
-                    self._finish_current_change(previous, None)
-            finally:
-                self._end_membership_transaction(
-                    propagate_dispose_failure=sys.exc_info()[0] is None
+                    previous_flag_changed = previous._commit_is_current(False)
+            if previous is not None:
+                self._finish_current_change(
+                    previous,
+                    None,
+                    previous_flag_changed=previous_flag_changed,
+                    value_flag_changed=False,
                 )
+        finally:
+            self._end_membership_transaction(propagate_dispose_failure=sys.exc_info()[0] is None)
         self._emit_collection_changed(CollectionChangedEvent(action="reset"))
 
     def move(self, from_index: int, to_index: int) -> None:
@@ -505,18 +516,23 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             target[array_index + i] = child
 
     def _remove_at(self, index: int) -> None:
-        with _current_change_coordinator:
-            self._begin_membership_transaction()
-            try:
+        self._begin_membership_transaction()
+        try:
+            with _current_change_coordinator:
                 with self._membership_gate:
                     resolved_index = index + len(self._children) if index < 0 else index
                     item, was_current = self._remove_at_locked(index)
                 if was_current:
-                    self._finish_current_change(item, None)
-            finally:
-                self._end_membership_transaction(
-                    propagate_dispose_failure=sys.exc_info()[0] is None
+                    previous_flag_changed = item._commit_is_current(False)
+            if was_current:
+                self._finish_current_change(
+                    item,
+                    None,
+                    previous_flag_changed=previous_flag_changed,
+                    value_flag_changed=False,
                 )
+        finally:
+            self._end_membership_transaction(propagate_dispose_failure=sys.exc_info()[0] is None)
         self._emit_collection_changed(
             CollectionChangedEvent(action="remove", old_items=(item,), old_index=resolved_index)
         )
@@ -638,7 +654,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                 self._membership_condition.wait()
                 if self._dispose_requested:
                     return
-            if self._membership_transaction_active:
+            if self._membership_transaction_active or self._active_current_publications > 0:
                 self._dispose_deferred = True
                 return
             self._dispose_requested = True
@@ -668,8 +684,27 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         with self._membership_condition:
             self._membership_transaction_active = False
             self._membership_transaction_owner = None
-            dispose = self._dispose_deferred
-            self._dispose_deferred = False
+            dispose = self._dispose_deferred and self._active_current_publications == 0
+            if dispose:
+                self._dispose_deferred = False
+            self._membership_condition.notify_all()
+        if dispose:
+            try:
+                self.dispose()
+            except BaseException:
+                if propagate_dispose_failure:
+                    raise
+
+    def _end_current_publication(self, *, propagate_dispose_failure: bool) -> None:
+        with self._membership_condition:
+            self._active_current_publications -= 1
+            dispose = (
+                self._active_current_publications == 0
+                and not self._membership_transaction_active
+                and self._dispose_deferred
+            )
+            if dispose:
+                self._dispose_deferred = False
             self._membership_condition.notify_all()
         if dispose:
             try:
@@ -724,6 +759,8 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                     child.construct()
                 else:
                     self._maybe_auto_construct(child)
+            with self._membership_gate:
+                self._require_transaction_can_continue_locked()
         except BaseException as original_error:
             compensation_error: BaseException | None = None
             for child, original_status in reversed(
@@ -808,17 +845,29 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         # between _set_current's membership check and this deferred foreground
         # delivery. Dropping silently upholds the spec/06 §3 invariant that a
         # non-null current is always a member of the children collection.
-        with _current_change_coordinator:
-            owns_transaction = False
-            if not internal:
-                try:
-                    self._begin_membership_transaction()
-                except RuntimeError:
-                    if not strict:
-                        return
-                    raise
-                owns_transaction = True
-            try:
+        with self._membership_gate:
+            if self._current is value:
+                return
+        owns_transaction = False
+        publication_active = False
+        changed = False
+        previous_flag_changed = False
+        value_flag_changed = False
+        try:
+            with _current_change_coordinator:
+                with self._membership_gate:
+                    inherited_transaction = (
+                        self._membership_transaction_active
+                        and self._membership_transaction_owner == get_ident()
+                    )
+                if not internal and not inherited_transaction:
+                    try:
+                        self._begin_membership_transaction()
+                    except RuntimeError:
+                        if not strict:
+                            return
+                        raise
+                    owns_transaction = True
                 with self._membership_gate:
                     if value is not None and not any(child is value for child in self._children):
                         if not strict:
@@ -831,21 +880,49 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                         return
                     previous = self._current
                     self._current = value
-                self._finish_current_change(previous, value)
-            finally:
-                if owns_transaction:
-                    self._end_membership_transaction(
-                        propagate_dispose_failure=sys.exc_info()[0] is None
+                    changed = True
+                    previous_flag_changed = (
+                        previous._commit_is_current(False) if previous is not None else False
                     )
+                    value_flag_changed = (
+                        value._commit_is_current(True) if value is not None else False
+                    )
+                    if owns_transaction:
+                        self._active_current_publications += 1
+                        publication_active = True
+            if owns_transaction:
+                owns_transaction = False
+                self._end_membership_transaction()
+            if changed:
+                self._finish_current_change(
+                    previous,
+                    value,
+                    previous_flag_changed=previous_flag_changed,
+                    value_flag_changed=value_flag_changed,
+                )
+        finally:
+            if owns_transaction:
+                self._end_membership_transaction(
+                    propagate_dispose_failure=sys.exc_info()[0] is None
+                )
+            if publication_active:
+                self._end_current_publication(propagate_dispose_failure=sys.exc_info()[0] is None)
 
-    def _finish_current_change(self, previous: VM | None, value: VM | None) -> None:
+    def _finish_current_change(
+        self,
+        previous: VM | None,
+        value: VM | None,
+        *,
+        previous_flag_changed: bool,
+        value_flag_changed: bool,
+    ) -> None:
         """Publish one committed selection change outside the membership gate."""
 
         # Update IsCurrent on affected children.
-        if previous is not None:
-            previous._set_is_current(False)
-        if value is not None:
-            value._set_is_current(True)
+        if previous is not None and previous_flag_changed:
+            previous._publish_is_current()
+        if value is not None and value_flag_changed:
+            value._publish_is_current()
 
         # Emit PropertyChangedMessage("current") on the hub.
         self._notify_property_changed("current")

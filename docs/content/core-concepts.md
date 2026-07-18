@@ -53,6 +53,6 @@ Message payload property names follow the local idiom, with the documented
 
 ## 4.7. Conformance Catalog
 
-The spec defines 400 conformance IDs: 395 library IDs plus 5 `THEME-00x`
-scenario IDs. Every catalog-complete flavor carries the 395 library IDs in its own
+The spec defines 401 conformance IDs: 396 library IDs plus 5 `THEME-00x`
+scenario IDs. Every catalog-complete flavor carries the 396 library IDs in its own
 conformance suite, and repository tooling checks coverage before CI passes.

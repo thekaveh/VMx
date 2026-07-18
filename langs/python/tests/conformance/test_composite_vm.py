@@ -10,6 +10,9 @@ scheduler (ObserveOn pattern).
 
 from __future__ import annotations
 
+import subprocess
+import sys
+import textwrap
 from collections.abc import Callable
 from threading import Barrier, BrokenBarrierError, Event, Thread
 
@@ -22,6 +25,7 @@ from vmx.composites.builders import CompositeVMBuilder, CompositeVMOfBuilder
 from vmx.composites.composite_vm import CompositeVM, CompositeVMOf
 from vmx.groups.builders import GroupVMBuilder
 from vmx.groups.group_vm import GroupVM
+from vmx.lifecycle.exceptions import StatusTransitionError
 from vmx.lifecycle.status import ConstructionStatus
 from vmx.messages.construction_status_changed import ConstructionStatusChangedMessage
 from vmx.messages.property_changed import PropertyChangedMessage
@@ -755,10 +759,11 @@ def test_COMP_026_on_current_changed_fires_after_each_change() -> None:
 
     callback_statuses: list[ConstructionStatus] = []
 
-    def dispose_reentrant(_: ComponentVM | None) -> None:
+    def dispose_reentrant(selected: ComponentVM | None) -> None:
         assert reentrant is not None
+        assert selected is reentrant_child
+        callback_statuses.append(selected.status)
         reentrant.dispose()
-        callback_statuses.append(reentrant.status)
 
     reentrant = (
         CompositeVMBuilder()
@@ -836,6 +841,82 @@ def test_COMP_026_opposing_current_callbacks_do_not_deadlock() -> None:
     assert composite_b.current is child_b
 
 
+@pytest.mark.conformance("COMP-026")
+def test_COMP_026_collection_and_current_callbacks_do_not_deadlock() -> None:
+    """A collection callback cannot wait on a coordinator held by a disposer."""
+    script = textwrap.dedent(
+        """
+        from threading import Event, Thread
+
+        from vmx.components.builders import ComponentVMBuilder
+        from vmx.composites.builders import CompositeVMBuilder
+        from vmx.services.dispatcher import RxDispatcher
+        from vmx.services.message_hub import MessageHub
+
+        dispatcher = RxDispatcher.immediate()
+
+        def child(name):
+            return ComponentVMBuilder().name(name).services(MessageHub(), dispatcher).build()
+
+        def composite(name, callback=None):
+            builder = CompositeVMBuilder().name(name).services(
+                MessageHub(), dispatcher
+            ).children(lambda: ())
+            if callback is not None:
+                builder = builder.on_current_changed(callback)
+            return builder.build()
+
+        b_transaction_entered = Event()
+        a_callback_entered = Event()
+        b = composite("b")
+
+        def on_a_current(_):
+            a_callback_entered.set()
+            assert b_transaction_entered.wait(1.0)
+            b.dispose()
+
+        a_item = child("a-item")
+        a_item.construct()
+        a = composite("a", on_a_current)
+        a.add(a_item)
+        a.construct()
+        b.construct()
+        b_item = child("b-item")
+        b_item.construct()
+
+        def on_b_collection(_):
+            b_transaction_entered.set()
+            b.select_component(b_item)
+
+        subscription = b.on_collection_changed.subscribe(on_b_collection)
+        errors = []
+
+        def run(action):
+            try:
+                action()
+            except BaseException as error:
+                errors.append(error)
+
+        thread_a = Thread(target=lambda: run(lambda: a.select_component(a_item)))
+        thread_a.start()
+        assert a_callback_entered.wait(1.0)
+        thread_b = Thread(target=lambda: run(lambda: b.add(b_item)))
+        thread_b.start()
+        thread_a.join()
+        thread_b.join()
+        subscription.dispose()
+        assert errors == []
+        assert b.status.name == "DISPOSED"
+        assert b_item.status.name == "DISPOSED"
+        """
+    )
+
+    try:
+        subprocess.run([sys.executable, "-c", script], check=True, timeout=3.0)
+    except subprocess.TimeoutExpired:
+        pytest.fail("current and collection callbacks deadlocked across composites")
+
+
 def test_auto_construct_rollback_destructs_child_after_destination_disposal() -> None:
     destination_ref: list[CompositeVM[ComponentVM]] = []
     hub, dispatcher = _hub(), _dispatcher()
@@ -859,6 +940,34 @@ def test_auto_construct_rollback_destructs_child_after_destination_disposal() ->
 
     with pytest.raises(RuntimeError, match="disposing"):
         destination.append(child)
+
+    assert destination.snapshot() == ()
+    assert child.status is ConstructionStatus.DESTRUCTED
+    assert destination.status is ConstructionStatus.DISPOSED
+
+
+@pytest.mark.conformance("COMP-040")
+def test_COMP_040_population_disposal_rolls_back_constructed_child() -> None:
+    destination_ref: list[CompositeVM[ComponentVM]] = []
+    hub, dispatcher = _hub(), _dispatcher()
+    child = (
+        ComponentVMBuilder()
+        .name("child")
+        .services(hub, dispatcher)
+        .on_construct(lambda: destination_ref[0].dispose())
+        .build()
+    )
+    destination = (
+        CompositeVMBuilder()
+        .name("destination")
+        .services(hub, dispatcher)
+        .children(lambda: (child,))
+        .build()
+    )
+    destination_ref.append(destination)
+
+    with pytest.raises((RuntimeError, StatusTransitionError)):
+        destination.construct()
 
     assert destination.snapshot() == ()
     assert child.status is ConstructionStatus.DESTRUCTED

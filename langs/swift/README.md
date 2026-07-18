@@ -5,11 +5,11 @@ spec-compatible with the C# / Python / TypeScript / Rust flavors.
 
 ## 1. Status
 
-**v3.22.0 source — total parity.** Covers **all 395 of 395** library conformance IDs
+**v3.22.0 source — total parity.** Covers **all 396 of 396** library conformance IDs
 from `spec-v3.22.0` plus the 5 `THEME-00x` scenario IDs exercised by the
-`examples/swift/notes-showcase/` flagship app (ADR-0067) = **400 total**, at
+`examples/swift/notes-showcase/` flagship app (ADR-0067) = **401 total**, at
 full parity with the C#, Python, and TypeScript UI-backed flavors. Rust has full
-395-ID library parity and no UI scenario suite. Library IDs accumulated
+396-ID library parity and no UI scenario suite. Library IDs accumulated
 incrementally (recounted honestly in ADR-0037; +COMP-025/COMP-026 added per
 ADR-0042; +LIFE-008 via the v3 throwing-convergence in ADR-0053; +50 leaf-area
 IDs via Phase-3 Inc-1 — ADR-0059; +30 collections IDs via Phase-3 Inc-2 —
@@ -250,9 +250,9 @@ this fixed VM. The `Equatable` overload uses `==`; use the `isEqual:` overload
 for custom equality. The host owns the returned `AnyCancellable`; VMx does not
 attach it to the observed VM's lifetime.
 
-## 5. Conformance — total parity (400)
+## 5. Conformance — total parity (401)
 
-This flavor implements **all 395 library conformance IDs** from the
+This flavor implements **all 396 library conformance IDs** from the
 cross-language conformance catalog (Inc-0: 44 base IDs per ADR-0037/ADR-0053;
 Inc-1: +50 leaf-area IDs per ADR-0059; Inc-2: +30 collections IDs per ADR-0060;
 Inc-3: +29 hierarchical/threading/expand-collapse IDs per ADR-0061;
@@ -291,7 +291,7 @@ NULL-001..003   NullMessageHub + NullDispatcher null-object contracts
 LOC-001..003    Localizer protocol + NullLocalizer null-object (no I-prefix — ADR-0006)
 UTIL-001..003   walk (DFS, nil-slot skip) + find (short-circuit) tree utilities
                 (materialized arrays)
-FWD-001..003    ForwardingComponentVM + ForwardingCompositeVM decorators
+FWD-001..004    ForwardingComponentVM + ForwardingCompositeVM decorators
                 (name/hint copied at super.init — non-overridable let — ADR-0059;
                 composite surface mirrors real CompositeVM)
 DPROP-001..012  DerivedProperty<T> — setValue(_:) throws / value is a throwing property;
@@ -481,7 +481,7 @@ ARES-001..011   cancellable latest-wins AsyncResourceVM (ADR-0100)
   `examples/swift/notes-showcase/NotesShowcaseTests/`; validated by the
   `examples (notes-showcase)` CI job in `.github/workflows/swift.yml`.
 
-**All 395 library conformance IDs are covered, and the 5 `THEME-00x` scenario IDs are covered by the `examples/swift/notes-showcase/` flagship. Swift is at total parity (400) with the C#, Python, and TypeScript UI-backed flavors. Rust has full library parity but no UI scenario suite.**
+**All 396 library conformance IDs are covered, and the 5 `THEME-00x` scenario IDs are covered by the `examples/swift/notes-showcase/` flagship. Swift is at total parity (401) with the C#, Python, and TypeScript UI-backed flavors. Rust has full library parity but no UI scenario suite.**
 
 Run the suite:
 

@@ -546,6 +546,8 @@ class GroupVM(Generic[VM], _ComponentVMBase):
                     and child.status is not ConstructionStatus.CONSTRUCTED
                 ):
                     child.construct()
+            with self._membership_gate:
+                self._require_transaction_can_continue_locked()
         except BaseException as original_error:
             compensation_error: BaseException | None = None
             for child, original_status in reversed(

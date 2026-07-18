@@ -15,13 +15,6 @@ on:
       - ".github/workflows/swift.yml"
   pull_request:
     branches: [main, develop]
-    paths:
-      - "Package.swift"
-      - "langs/swift/**"
-      - "examples/swift/**"
-      - "spec/**"
-      - "tools/check-swift-package-sync.py"
-      - ".github/workflows/swift.yml"
   workflow_dispatch:
 
 jobs:
@@ -128,3 +121,14 @@ jobs:
         # Parallel XCTest emits each case name before execution, making any
         # future stuck async scenario immediately attributable in CI logs.
         run: swift test --parallel
+
+  required:
+    name: "required: swift"
+    if: always()
+    needs: [build, platforms, examples]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every Swift job
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: jq -e 'to_entries | all(.value.result == "success")' <<<"$RESULTS"

@@ -143,10 +143,10 @@ func beginParentTransfer(
             cursor = current.ownershipOwnerParent
         }
 
-        if let parent = child._ownershipParent as? TransactionalOwnershipParentVM {
+        if let parent = child._transferOwnershipParent as? TransactionalOwnershipParentVM {
             staged = try parent.detachForTransfer(child, transaction: transaction)
         } else {
-            staged = try child._ownershipParent?.detachForTransfer(child)
+            staged = try child._transferOwnershipParent?.detachForTransfer(child)
         }
     } catch {
         child.ownershipInProgress = false
@@ -219,7 +219,14 @@ open class ComponentVMBase {
     /// is added as a child. `internal` so containers in the module can
     /// flip it.
     weak var _parent: ParentVM?
-    weak var _ownershipParent: OwnershipParentVM?
+    weak var _ownershipParent: OwnershipParentVM? {
+        didSet { _ownershipParentDidChange() }
+    }
+    weak var _forwardingOwner: ComponentVMBase?
+
+    var _transferOwnershipParent: OwnershipParentVM? { _ownershipParent }
+
+    func _ownershipParentDidChange() {}
     fileprivate let ownershipGate = NSRecursiveLock()
     fileprivate var ownershipInProgress = false
 

@@ -53,7 +53,7 @@ def test_dependabot_covers_every_committed_dependency_ecosystem() -> None:
 def test_dependabot_changes_run_the_automation_contracts() -> None:
     workflow = (REPO_ROOT / ".github/workflows/conformance.yml").read_text(encoding="utf-8")
 
-    assert workflow.count('      - ".github/dependabot.yml"') == 2
+    assert workflow.count('      - ".github/dependabot.yml"') == 1
 
 
 def test_weekly_audit_covers_every_committed_lock_family() -> None:
@@ -61,20 +61,11 @@ def test_weekly_audit_covers_every_committed_lock_family() -> None:
 
     assert 'cron: "23 6 * * 1"' in workflow
     assert "  pull_request:" in workflow
-    for dependency_path in (
-        '      - "**/Cargo.lock"',
-        '      - "**/Cargo.toml"',
-        '      - "**/package-lock.json"',
-        '      - "**/package.json"',
-        '      - "**/pyproject.toml"',
-        '      - "**/uv.lock"',
-        '      - "**/*.csproj"',
-        '      - "**/Directory.Packages.props"',
-        '      - "**/packages.lock.json"',
-        '      - "docs/requirements.in"',
-        '      - "docs/requirements.txt"',
-    ):
-        assert dependency_path in workflow
+    pull_request = workflow.split("  pull_request:\n", maxsplit=1)[1].split(
+        "  schedule:", maxsplit=1
+    )[0]
+    assert "    paths:" not in pull_request
+    assert 'name: "required: security"' in workflow
     assert "--no-emit-local" in workflow
     assert workflow.count('"-warnaserror:NU1901;NU1902;NU1903;NU1904"') == 2
     assert "dotnet list" not in workflow
