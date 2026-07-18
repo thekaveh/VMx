@@ -26,6 +26,7 @@ jobs:
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
@@ -36,27 +37,52 @@ jobs:
             echo "::error::PRs may target only develop or main."
             exit 1
           fi
-          if [ "$HEAD_REF" = "develop" ]; then
+          if [ "$HEAD_REPO" = "$GITHUB_REPOSITORY" ] && [ "$HEAD_REF" = "develop" ]; then
             exit 0
           fi
 
           # release-please is the sole direct-to-main exception. Constrain both
-          # its exact branch and its generated Python release metadata surface.
-          if [ "$HEAD_REF" = "release-please--branches--main--components--python" ]; then
+          # its same-repository branch and its exact generated metadata surface.
+          if [ "$HEAD_REPO" = "$GITHUB_REPOSITORY" ] && \
+             [ "$HEAD_REF" = "release-please--branches--main--components--python" ]; then
             disallowed=""
-            while IFS= read -r path; do
+            invalid=""
+            manifest_changed=false
+            matrix_changed=false
+            changelog_changed=false
+            about_changed=false
+            while IFS=$'\t' read -r status path; do
+              if [ "$status" != "M" ]; then
+                invalid="${invalid}${status}\t${path}\n"
+                continue
+              fi
               case "$path" in
-                .release-please-manifest.json | \
-                langs/python/CHANGELOG.md | \
-                langs/python/src/vmx/__about__.py) ;;
+                .release-please-manifest.json) manifest_changed=true ;;
+                compatibility-matrix.md) matrix_changed=true ;;
+                langs/python/CHANGELOG.md) changelog_changed=true ;;
+                langs/python/src/vmx/__about__.py) about_changed=true ;;
                 *) disallowed="${disallowed}${path}\n" ;;
               esac
-            done < <(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
-            if [ -z "$disallowed" ]; then
+              base_mode=$(git ls-tree "$BASE_SHA" -- "$path" | awk 'NR == 1 { print $1 }')
+              head_mode=$(git ls-tree "$HEAD_SHA" -- "$path" | awk 'NR == 1 { print $1 }')
+              if [ "$base_mode" != "100644" ] || [ "$head_mode" != "100644" ]; then
+                invalid="${invalid}mode ${base_mode:-missing}->${head_mode:-missing}\t${path}\n"
+              fi
+            done < <(git diff --name-status --no-renames "$BASE_SHA" "$HEAD_SHA")
+            if [ -z "$disallowed" ] && [ -z "$invalid" ] && \
+               [ "$manifest_changed" = true ] && [ "$matrix_changed" = true ] && \
+               [ "$changelog_changed" = true ] && [ "$about_changed" = true ]; then
               exit 0
             fi
-            echo "::error::release-please PR changed files outside its allowed metadata surface:"
-            printf '%b' "$disallowed"
+            echo "::error::release-please PR must modify exactly the four regular metadata files."
+            if [ -n "$disallowed" ]; then
+              echo "Disallowed paths:"
+              printf '%b' "$disallowed"
+            fi
+            if [ -n "$invalid" ]; then
+              echo "Invalid statuses or modes:"
+              printf '%b' "$invalid"
+            fi
             exit 1
           fi
 

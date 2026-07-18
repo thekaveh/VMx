@@ -743,10 +743,16 @@ open class CompositeVM<Child: ComponentVMBase>:
         var transfers: [ParentTransfer] = []
         var originalStatuses: [ConstructionStatus] = []
         do {
-            for child in candidates {
-                let transfer = try beginParentTransfer(child, to: self, transaction: transaction)
-                transfers.append(transfer)
-                originalStatuses.append(child.status)
+            try withOwnershipReservationBatch {
+                for child in candidates {
+                    let transfer = try beginParentTransfer(
+                        child,
+                        to: self,
+                        transaction: transaction
+                    )
+                    transfers.append(transfer)
+                    originalStatuses.append(child.status)
+                }
             }
             try membershipGate.withLock {
                 try requireTransactionCanContinueLocked()

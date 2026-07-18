@@ -317,6 +317,29 @@ def test_parse_matrix_basic(tmp_path: Path) -> None:
     assert row_20["swift"] == []  # "—" → empty
 
 
+def test_parse_matrix_maps_flavors_by_header_name(tmp_path: Path) -> None:
+    matrix = tmp_path / "compatibility-matrix.md"
+    matrix.write_text(
+        textwrap.dedent("""\
+            | spec | python | csharp | typescript | swift | rust |
+            | --- | --- | --- | --- | --- | --- |
+            | 3.22.x | 3.22.1 | 3.22.0 | 3.23.0 | 3.22.0 | 0.25.0 |
+        """),
+        encoding="utf-8",
+    )
+
+    assert cvc.parse_matrix(matrix) == [
+        {
+            "spec_row": "3.22.x",
+            "csharp": ["3.22.0"],
+            "python": ["3.22.1"],
+            "typescript": ["3.23.0"],
+            "swift": ["3.22.0"],
+            "rust": ["0.25.0"],
+        }
+    ]
+
+
 def test_parse_matrix_handles_version_range(tmp_path: Path) -> None:
     """A version-range cell (en-dash separator) should yield two version entries."""
     # The real compatibility-matrix.md uses U+2013 (EN DASH) for ranges.

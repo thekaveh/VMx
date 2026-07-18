@@ -599,14 +599,16 @@ open class GroupVM<Child: ComponentVMBase>:
         var transfers: [ParentTransfer] = []
         var originalStatuses: [ConstructionStatus] = []
         do {
-            for child in candidates {
-                let transfer = try beginParentTransfer(
-                    child,
-                    to: groupParent,
-                    transaction: transaction
-                )
-                transfers.append(transfer)
-                originalStatuses.append(child.status)
+            try withOwnershipReservationBatch {
+                for child in candidates {
+                    let transfer = try beginParentTransfer(
+                        child,
+                        to: groupParent,
+                        transaction: transaction
+                    )
+                    transfers.append(transfer)
+                    originalStatuses.append(child.status)
+                }
             }
             try membershipGate.withLock {
                 try requireTransactionCanContinueLocked()

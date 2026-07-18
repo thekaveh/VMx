@@ -452,9 +452,9 @@ def class_diagram(output_root: Path) -> None:
             "Messages",
             (
                 "PropertyChangedMessage",
-                "ConstructionStatusChanged",
-                "TreeStructureChanged",
-                "PropertyValueChanged",
+                "ConstructionStatusChangedMessage",
+                "TreeStructureChangedMessage",
+                "property-value projection helper",
             ),
             "bus",
         ),
@@ -570,7 +570,7 @@ def class_diagram(output_root: Path) -> None:
             (
                 "22 micro-interfaces",
                 "select / expand / close",
-                "filter / page / count",
+                "search / filter / page",
                 "CRUD and dialog contracts",
             ),
             "security",

@@ -1557,3 +1557,57 @@ def test_COMP_041_transfer_publishes_old_remove_before_new_add() -> None:
     destination.add(child)
 
     assert observed == ["old:remove", "new:add"]
+
+
+def test_bulk_transfer_remove_callback_does_not_retain_ownership_coordinator() -> None:
+    """An old-parent callback may wait for an unrelated transfer to finish."""
+    hub = _hub()
+    dispatcher = _dispatcher()
+    first = _build_child("first", hub=hub, dispatcher=dispatcher)
+    second = _build_child("second", hub=hub, dispatcher=dispatcher)
+    old_parent, _ = _build_composite("old", hub=hub, dispatcher=dispatcher)
+    second_old_parent, _ = _build_composite("second-old", hub=hub, dispatcher=dispatcher)
+    old_parent.add(first)
+    second_old_parent.add(second)
+    destination = (
+        GroupVMBuilder()
+        .name("destination")
+        .services(hub, dispatcher)
+        .children(lambda: (first, second))
+        .build()
+    )
+
+    unrelated = _build_child("unrelated", hub=hub, dispatcher=dispatcher)
+    unrelated_old, _ = _build_composite("unrelated-old", hub=hub, dispatcher=dispatcher)
+    unrelated_old.add(unrelated)
+    unrelated_destination = (
+        GroupVMBuilder()
+        .name("unrelated-destination")
+        .services(hub, dispatcher)
+        .children(lambda: ())
+        .build()
+    )
+    worker_done = Event()
+    workers: list[Thread] = []
+    callback_observed_progress: list[bool] = []
+
+    def on_old_collection(event: CollectionChangedEvent) -> None:
+        if event.action != "remove" or workers:
+            return
+        worker = Thread(
+            target=lambda: (unrelated_destination.add(unrelated), worker_done.set()),
+            daemon=True,
+        )
+        workers.append(worker)
+        worker.start()
+        callback_observed_progress.append(worker_done.wait(0.5))
+
+    old_parent.on_collection_changed.subscribe(on_old_collection)
+
+    destination.construct()
+
+    workers[0].join(2)
+    assert not workers[0].is_alive()
+    assert callback_observed_progress == [True]
+    assert list(unrelated_old) == []
+    assert list(unrelated_destination) == [unrelated]

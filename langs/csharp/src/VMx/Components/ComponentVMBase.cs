@@ -125,6 +125,20 @@ internal static class ComponentOwnership
 {
     private static readonly object Coordinator = new();
 
+    private sealed class ReservationBatch : IDisposable
+    {
+        private bool _disposed;
+
+        internal ReservationBatch() => Monitor.Enter(Coordinator);
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            Monitor.Exit(Coordinator);
+        }
+    }
+
     private sealed class OwnershipState
     {
         internal readonly object Gate = new();
@@ -132,6 +146,8 @@ internal static class ComponentOwnership
     }
 
     private static readonly ConditionalWeakTable<IComponentVM, OwnershipState> States = new();
+
+    internal static IDisposable BeginReservationBatch() => new ReservationBatch();
 
     internal static void CommitThenPublish(
         ParentTransferToken? transfer,
@@ -197,6 +213,12 @@ internal static class ComponentOwnership
             throw;
         }
 
+        // The coordinator orders multi-child reservation acquisition only.
+        // Per-identity gates keep each staged transfer exclusive after this
+        // point, so consumer callbacks during commit/rollback must not retain
+        // the process-wide coordinator.
+        Monitor.Exit(Coordinator);
+
         void Finish(bool commit)
         {
             try
@@ -211,7 +233,6 @@ internal static class ComponentOwnership
             {
                 state.InProgress = false;
                 Monitor.Exit(state.Gate);
-                Monitor.Exit(Coordinator);
             }
         }
 

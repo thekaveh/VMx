@@ -1,12 +1,12 @@
 # Spec ↔ language compatibility matrix
 
-Maintained by hand alongside spec releases.
+Updated alongside spec and flavor releases.
 
 ## 1. Matrix
 
-| spec  | csharp          | python          | typescript      | swift           | rust          |
+| spec  | python          | csharp          | typescript      | swift           | rust          |
 | ----- | --------------- | --------------- | --------------- | --------------- | ------------- |
-| 3.22.x | 3.22.0[^current] | 3.22.0[^current] | 3.23.0[^current] | 3.22.0[^swift] | 0.25.0[^rust] |
+| 3.22.x | 3.22.0[^current] <!-- x-release-please-version --> | 3.22.0[^current] | 3.23.0[^current] | 3.22.0[^swift] | 0.25.0[^rust] |
 | 3.21.x | —               | —               | —               | —               | —             |
 | 3.20.x[^legacy-semantic-tag-only] | —               | —               | —               | 3.20.0[^swift] | 0.20.0–0.22.0[^rust-source] |
 | 3.19.x | —               | —               | —               | —               | 0.19.0[^rust-source] |
@@ -18,8 +18,8 @@ Maintained by hand alongside spec releases.
 | 3.13.x | —               | —               | —               | —               | 0.13.0[^rust-source] |
 | 3.3.x | —               | —               | —               | —               | 0.3.0        |
 | 3.2.x | —               | —               | —               | —               | 0.2.0        |
-| 3.1.x | —               | 3.1.0           | —               | —               | 0.1.0        |
-| 2.6.x | 2.6.0           | 2.6.1           | 2.6.0           | 2.6.0 (subset)  | —             |
+| 3.1.x | 3.1.0           | —               | —               | —               | 0.1.0        |
+| 2.6.x | 2.6.1           | 2.6.0           | 2.6.0           | 2.6.0 (subset)  | —             |
 | 2.4.x | 2.4.0           | 2.4.0           | 2.4.0           | 2.4.0 (subset)  | —             |
 | 2.3.x | 2.3.0           | 2.3.0           | 2.3.0           | —               | —             |
 | 2.2.x | 2.2.0           | 2.2.0           | 2.2.0           | —               | —             |

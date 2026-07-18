@@ -28,6 +28,7 @@ from vmx.components.base import (
     _commit_parent_transfer,
     _ComponentVMBase,
     _dispose_children_then_self,
+    _ownership_reservation_batch,
     _ParentCompositeVM,
     _ParentTransfer,
 )
@@ -530,10 +531,11 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         transfers: list[_ParentTransfer | None] = []
         original_statuses: list[ConstructionStatus] = []
         try:
-            for child in children:
-                transfer = _begin_parent_transfer(child, parent)
-                transfers.append(transfer)
-                original_statuses.append(child.status)
+            with _ownership_reservation_batch():
+                for child in children:
+                    transfer = _begin_parent_transfer(child, parent)
+                    transfers.append(transfer)
+                    original_statuses.append(child.status)
             with self._membership_gate:
                 self._require_transaction_can_continue_locked()
                 for child in children:

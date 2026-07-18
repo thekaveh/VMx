@@ -107,6 +107,12 @@ final class ParentTransfer {
 
 private let ownershipTransactionCoordinator = NSRecursiveLock()
 
+func withOwnershipReservationBatch<T>(_ body: () throws -> T) rethrows -> T {
+    ownershipTransactionCoordinator.lock()
+    defer { ownershipTransactionCoordinator.unlock() }
+    return try body()
+}
+
 func beginParentTransfer(
     _ child: ComponentVMBase,
     to destination: OwnershipParentVM,
@@ -148,8 +154,12 @@ func beginParentTransfer(
         throw error
     }
 
+    // The coordinator orders reservation acquisition only. The canonical
+    // identity remains reserved, but consumer callbacks during finalization
+    // must be able to start unrelated transfers.
+    ownershipTransactionCoordinator.unlock()
+
     func finish(commit: Bool) {
-        ownershipTransactionCoordinator.unlock()
         defer {
             identity.ownershipInProgress = false
             identity.ownershipGate.unlock()

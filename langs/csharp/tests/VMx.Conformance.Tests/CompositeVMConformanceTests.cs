@@ -1219,4 +1219,52 @@ public class CompositeVMConformanceTests
 
         observed.Should().Equal("old:remove", "new:add");
     }
+
+    [Fact]
+    public void Bulk_Transfer_Remove_Callback_Does_Not_Retain_Ownership_Coordinator()
+    {
+        var (oldParent, hub, dispatcher) = BuildComposite("old");
+        var first = BuildChild(hub, dispatcher, "first");
+        var second = BuildChild(hub, dispatcher, "second");
+        var secondOldParent = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("second-old").Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVM<string>>()).Build();
+        oldParent.Add(first);
+        secondOldParent.Add(second);
+        var destination = GroupVM<ComponentVM<string>>.Builder()
+            .Name("destination").Services(hub, dispatcher)
+            .Children(() => [first, second]).Build();
+
+        var unrelated = BuildChild(hub, dispatcher, "unrelated");
+        var unrelatedOld = GroupVM<ComponentVM<string>>.Builder()
+            .Name("unrelated-old").Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVM<string>>()).Build();
+        unrelatedOld.Add(unrelated);
+        var unrelatedDestination = GroupVM<ComponentVM<string>>.Builder()
+            .Name("unrelated-destination").Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVM<string>>()).Build();
+        using var workerDone = new ManualResetEventSlim();
+        Thread? worker = null;
+        var callbackObservedProgress = false;
+
+        oldParent.CollectionChanged += (_, args) =>
+        {
+            if (args.Action != NotifyCollectionChangedAction.Remove || worker is not null) return;
+            worker = new Thread(() =>
+            {
+                unrelatedDestination.Add(unrelated);
+                workerDone.Set();
+            });
+            worker.Start();
+            callbackObservedProgress = workerDone.Wait(TimeSpan.FromMilliseconds(500));
+        };
+
+        destination.Construct();
+
+        worker.Should().NotBeNull();
+        worker!.Join(TimeSpan.FromSeconds(2)).Should().BeTrue();
+        callbackObservedProgress.Should().BeTrue();
+        unrelatedOld.Should().BeEmpty();
+        unrelatedDestination.Should().ContainSingle().Which.Should().BeSameAs(unrelated);
+    }
 }

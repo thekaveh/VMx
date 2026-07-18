@@ -1,5 +1,6 @@
 """Cross-cutting CI coverage contracts."""
 
+import json
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -69,12 +70,31 @@ def test_spec_discipline_enforces_develop_first_gitflow() -> None:
     assert "Enforce develop-first gitflow" in workflow
     assert "BASE_REF: ${{ github.event.pull_request.base.ref }}" in workflow
     assert "HEAD_REF: ${{ github.event.pull_request.head.ref }}" in workflow
+    assert "HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}" in workflow
     assert 'if [ "$BASE_REF" = "develop" ]; then' in workflow
-    assert 'if [ "$HEAD_REF" = "develop" ]; then' in workflow
+    assert (
+        'if [ "$HEAD_REPO" = "$GITHUB_REPOSITORY" ] && [ "$HEAD_REF" = "develop" ]; then'
+        in workflow
+    )
     assert "release-please--branches--main--components--python" in workflow
+    assert "git diff --name-status" in workflow
+    assert "git ls-tree" in workflow
     for path in (
         ".release-please-manifest.json",
+        "compatibility-matrix.md",
         "langs/python/CHANGELOG.md",
         "langs/python/src/vmx/__about__.py",
     ):
         assert path in workflow
+
+
+def test_python_release_updates_the_compatibility_matrix() -> None:
+    config = json.loads((REPO_ROOT / "release-please-config.json").read_text(encoding="utf-8"))
+    extra_files = config["packages"]["langs/python"]["extra-files"]
+    assert {"type": "generic", "path": "/compatibility-matrix.md"} in extra_files
+
+    matrix = (REPO_ROOT / "compatibility-matrix.md").read_text(encoding="utf-8")
+    header = next(line for line in matrix.splitlines() if line.startswith("| spec"))
+    assert header.index("python") < header.index("csharp")
+    current = next(line for line in matrix.splitlines() if line.startswith("| 3.22.x"))
+    assert "x-release-please-version" in current

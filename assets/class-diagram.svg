@@ -47,9 +47,9 @@
 <rect x="400" y="130" width="300" height="145" rx="12" fill="rgba(251, 146, 60, 0.34)" stroke="#fb923c" stroke-width="2"/>
 <text x="550" y="162" fill="white" font-size="18" font-weight="700" text-anchor="middle">Messages</text>
 <text x="550" y="188" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">PropertyChangedMessage</text>
-<text x="550" y="212" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">ConstructionStatusChanged</text>
-<text x="550" y="236" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">TreeStructureChanged</text>
-<text x="550" y="260" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">PropertyValueChanged</text>
+<text x="550" y="212" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">ConstructionStatusChangedMessage</text>
+<text x="550" y="236" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">TreeStructureChangedMessage</text>
+<text x="550" y="260" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">property-value projection helper</text>
 <rect x="740" y="130" width="300" height="165" rx="12" fill="#0f172a"/>
 <rect x="740" y="130" width="300" height="165" rx="12" fill="rgba(136, 19, 55, 0.42)" stroke="#fb7185" stroke-width="2"/>
 <text x="890" y="162" fill="white" font-size="18" font-weight="700" text-anchor="middle">Services</text>
@@ -113,7 +113,7 @@
 <text x="710" y="642" fill="white" font-size="18" font-weight="700" text-anchor="middle">Capabilities</text>
 <text x="710" y="668" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">22 micro-interfaces</text>
 <text x="710" y="692" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">select / expand / close</text>
-<text x="710" y="716" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">filter / page / count</text>
+<text x="710" y="716" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">search / filter / page</text>
 <text x="710" y="740" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">CRUD and dialog contracts</text>
 <rect x="940" y="610" width="320" height="150" rx="12" fill="#0f172a"/>
 <rect x="940" y="610" width="320" height="150" rx="12" fill="rgba(76, 29, 149, 0.42)" stroke="#a78bfa" stroke-width="2"/>

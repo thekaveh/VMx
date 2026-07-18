@@ -686,11 +686,14 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         var originalStatuses = new List<ConstructionStatus>();
         try
         {
-            foreach (var child in candidates)
+            using (ComponentOwnership.BeginReservationBatch())
             {
-                var transfer = ComponentOwnership.BeginTransfer(child, this);
-                transfers.Add(transfer);
-                originalStatuses.Add(child.Status);
+                foreach (var child in candidates)
+                {
+                    var transfer = ComponentOwnership.BeginTransfer(child, this);
+                    transfers.Add(transfer);
+                    originalStatuses.Add(child.Status);
+                }
             }
             lock (_membershipGate)
             {

@@ -11,7 +11,11 @@
       "changelog-path": "CHANGELOG.md",
       "component": "python",
       "extra-files": [
-        "src/vmx/__about__.py"
+        "src/vmx/__about__.py",
+        {
+          "type": "generic",
+          "path": "/compatibility-matrix.md"
+        }
       ]
     }
   }

@@ -30,3 +30,17 @@ def test_html_diagram_is_self_contained() -> None:
     assert svg in rendered
     assert "<object" not in rendered
     assert 'data="' not in rendered
+
+
+def test_class_diagram_names_real_message_types_and_capabilities(tmp_path: Path) -> None:
+    generator = _load_generator()
+
+    generator.class_diagram(tmp_path)
+
+    rendered = (tmp_path / "assets" / "class-diagram.html").read_text(encoding="utf-8")
+    assert "ConstructionStatusChangedMessage" in rendered
+    assert "TreeStructureChangedMessage" in rendered
+    assert "property-value projection helper" in rendered
+    assert "search / filter / page" in rendered
+    assert ">PropertyValueChanged<" not in rendered
+    assert "filter / page / count" not in rendered

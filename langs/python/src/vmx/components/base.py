@@ -15,8 +15,9 @@ from __future__ import annotations
 import threading
 from abc import ABC, abstractmethod
 from collections import deque
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from concurrent.futures import Future
+from contextlib import contextmanager
 from typing import TYPE_CHECKING, Protocol
 
 import reactivex as rx
@@ -43,6 +44,16 @@ if TYPE_CHECKING:
 # populations that enumerate the same children in reverse order from each
 # retaining one child lock and waiting forever for the other.
 _OWNERSHIP_TRANSACTION_GATE = threading.RLock()
+
+
+@contextmanager
+def _ownership_reservation_batch() -> Iterator[None]:
+    """Order a multi-child reservation without retaining the gate in callbacks."""
+    _OWNERSHIP_TRANSACTION_GATE.acquire()
+    try:
+        yield
+    finally:
+        _OWNERSHIP_TRANSACTION_GATE.release()
 
 
 class _Disposable(Protocol):
@@ -227,6 +238,10 @@ def _begin_parent_transfer(
         _OWNERSHIP_TRANSACTION_GATE.release()
         raise
 
+    # Per-identity state stays reserved through commit/rollback. The global
+    # gate only orders acquisition and must be gone before consumer callbacks.
+    _OWNERSHIP_TRANSACTION_GATE.release()
+
     def finish(commit: bool) -> None:
         try:
             if staged is not None:
@@ -234,7 +249,6 @@ def _begin_parent_transfer(
         finally:
             identity._ownership_in_progress = False
             identity._ownership_lock.release()
-            _OWNERSHIP_TRANSACTION_GATE.release()
 
     return _ParentTransfer(lambda: finish(True), lambda: finish(False))
 

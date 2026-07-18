@@ -285,6 +285,7 @@ def parse_matrix(matrix_path: Path) -> list[dict[str, object]]:
     """
     lines = matrix_path.read_text(encoding="utf-8").splitlines()
     header_idx: int | None = None
+    header_cells: list[str] = []
 
     # Locate the header row (contains "spec" and "csharp").
     for i, line in enumerate(lines):
@@ -294,6 +295,7 @@ def parse_matrix(matrix_path: Path) -> list[dict[str, object]]:
         cells = [c.strip() for c in stripped.strip("|").split("|")]
         if len(cells) >= 5 and cells[0].strip().lower() == "spec":
             header_idx = i
+            header_cells = [cell.lower() for cell in cells]
             break
 
     if header_idx is None:
@@ -317,8 +319,13 @@ def parse_matrix(matrix_path: Path) -> list[dict[str, object]]:
         row: dict[str, object] = {"spec_row": spec_row}
         if legacy_semantic_tag_only:
             row["legacy_semantic_tag_only"] = True
-        for idx, flavor in enumerate(FLAVORS):
-            cell = cells[idx + 1].strip() if idx + 1 < len(cells) else ""
+        for flavor in FLAVORS:
+            try:
+                idx = header_cells.index(flavor)
+            except ValueError:
+                row[flavor] = []
+                continue
+            cell = cells[idx].strip() if idx < len(cells) else ""
             # Strip annotation parentheticals like "(subset)".
             cell = re.sub(r"\s*\([^)]*\)", "", cell).strip()
             if cell in ("—", "-", ""):

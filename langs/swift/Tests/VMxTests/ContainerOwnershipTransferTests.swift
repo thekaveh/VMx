@@ -315,6 +315,48 @@ final class ContainerOwnershipTransferTests: XCTestCase {
         XCTAssertEqual(order, ["remove", "add"])
     }
 
+    func testBulkTransferRemoveCallbackDoesNotRetainOwnershipCoordinator() throws {
+        let first = try leaf("first")
+        let second = try leaf("second")
+        let oldParent = try GroupVM<ComponentVM>.builder()
+            .name("old").withNullServices().children { [] }.build()
+        let secondOldParent = try GroupVM<ComponentVM>.builder()
+            .name("second-old").withNullServices().children { [] }.build()
+        try oldParent.addResult(first).get()
+        try secondOldParent.addResult(second).get()
+        let destination = try GroupVM<ComponentVM>.builder()
+            .name("destination").withNullServices().children { [first, second] }.build()
+
+        let unrelated = try leaf("unrelated")
+        let unrelatedOld = try GroupVM<ComponentVM>.builder()
+            .name("unrelated-old").withNullServices().children { [] }.build()
+        try unrelatedOld.addResult(unrelated).get()
+        let unrelatedDestination = try GroupVM<ComponentVM>.builder()
+            .name("unrelated-destination").withNullServices().children { [] }.build()
+        let workerDone = DispatchSemaphore(value: 0)
+        var callbackObservedProgress = false
+        var callbackStarted = false
+
+        oldParent.collectionChanged
+            .sink { event in
+                guard event.action == .remove, !callbackStarted else { return }
+                callbackStarted = true
+                DispatchQueue.global().async {
+                    _ = unrelatedDestination.addResult(unrelated)
+                    workerDone.signal()
+                }
+                callbackObservedProgress = workerDone.wait(timeout: .now() + 1) == .success
+            }
+            .store(in: &cancellables)
+
+        try destination.construct()
+
+        XCTAssertTrue(callbackObservedProgress)
+        XCTAssertEqual(unrelatedOld.count, 0)
+        XCTAssertEqual(unrelatedDestination.count, 1)
+        XCTAssertTrue(unrelatedDestination.at(0) === unrelated)
+    }
+
     func testPopulationRejectsReentrantMutationInBothContainers() throws {
         var composite: CompositeVM<ThrowingOwnershipChild>!
         var compositeClearAttempted = false
