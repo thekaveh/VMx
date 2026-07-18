@@ -122,6 +122,29 @@ describe("FWD-001", () => {
     expect(changes).toContain("model");
     subscription.unsubscribe();
   });
+
+  it("is a transparent container child", () => {
+    const hub = makeHub();
+    const inner = ComponentVMOf.builder<string>()
+      .name("inner")
+      .model("model")
+      .services(hub, makeDisp())
+      .build();
+    const forwarding = new ForwardingComponentVM(inner);
+    const parent = CompositeVM.builder<ForwardingComponentVM<string>>()
+      .name("parent")
+      .services(hub, makeDisp())
+      .children(() => [])
+      .build();
+
+    parent.add(forwarding);
+    parent.construct();
+    forwarding.selectCommand.execute();
+
+    expect(parent.current).toBe(forwarding);
+    expect(forwarding.isCurrent).toBe(true);
+    expect(inner.isCurrent).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------

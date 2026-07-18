@@ -890,6 +890,9 @@ ______________________________________________________________________
 **Given** a concrete no-op subclass of `ForwardingComponentVM<M>` wrapping `inner` (no member overridden)
 **When** each public member of the forwarding VM is read or invoked
 **Then** the result equals the value/effect of the same member on `inner`
+**And** when the decorator is added to a composite and that composite is
+constructed, invoking the decorator's selection command selects the decorator
+as `Current` and the wrapped component reports the same current flag
 
 ### FWD-002 — Selective override replaces a single behavior
 
@@ -1699,7 +1702,10 @@ after `construct()` returns `composite.Current` is `null` and no
 after `construct()` returns `observed` equals `[a]` (exactly one invocation
 from the initial-selector assignment)
 **And** if the callback disposes the same composite, selection and synchronous
-publication return without deadlock before deferred disposal completes
+publication return without deadlock, the callback observes the selected child
+still `Constructed`, and deferred disposal completes after the callback returns
+**And** opposing callbacks that synchronously select children in two composites
+complete without deadlock
 
 ### COMP-027 — Adding a child sets its `Parent`; removing clears it
 

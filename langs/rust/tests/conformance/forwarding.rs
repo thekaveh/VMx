@@ -1,5 +1,6 @@
 use vmx::{
     ConstructionStatus, ForwardingComponentVm, ForwardingCompositeVm, MessageHub, NullDispatcher,
+    VmNode,
 };
 
 type Child = vmx::ComponentVm<&'static str>;
@@ -45,6 +46,22 @@ fn forwarding_component_delegates_to_inner() {
     assert_eq!(forwarding.name(), inner.name());
     assert_eq!(forwarding.model(), "updated");
     assert_eq!(forwarding.status(), ConstructionStatus::Constructed);
+}
+
+#[test]
+fn forwarding_component_is_a_transparent_container_child() {
+    let inner = child("inner");
+    let forwarding = ForwardingComponentVm::new(inner.clone());
+    let composite = vmx::CompositeVm::new("root");
+
+    composite.add(forwarding.clone()).unwrap();
+    forwarding.construct().unwrap();
+    composite.select_component(&forwarding).unwrap();
+
+    assert_eq!(forwarding.parent_id(), Some(composite.id()));
+    assert!(forwarding.is_current());
+    assert!(inner.is_current());
+    assert!(composite.current() == Some(forwarding));
 }
 
 /// FWD-002 — Selective override replaces a single behavior

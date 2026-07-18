@@ -116,7 +116,7 @@ public sealed class NotebookVMTests
         Assert.Equal(VMx.Lifecycle.ConstructionStatus.Disposed, vm.Status);
     }
 
-    // ── Phase 5.a binding gap #2: standalone children accessor ────────────
+    // ── Standalone children binding contract ──────────────────────────────
 
     [Fact]
     public void Children_is_empty_when_no_getter_wired()

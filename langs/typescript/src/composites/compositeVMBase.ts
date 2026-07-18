@@ -131,9 +131,11 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
           this._emitCollectionChanged(
             makeCollectionChangedEvent("remove", { oldItems: [child], oldIndex: index }),
           );
-        } finally {
-          this.#endMembershipTransaction();
+        } catch (error) {
+          this.#endMembershipTransaction(false);
+          throw error;
         }
+        this.#endMembershipTransaction();
       },
       () => {
         try {
@@ -217,6 +219,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     this.#beginMembershipTransaction();
     let transfer: ParentTransfer | null = null;
     let attached = false;
+    const originalStatus = item.status;
     try {
       transfer = beginParentTransfer(item, this);
       this.#requireTransactionCanContinue();
@@ -226,15 +229,27 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
       this._maybeAutoConstruct(item);
       this.#requireTransactionCanContinue();
     } catch (error) {
+      let compensationError: unknown;
       if (attached) {
         const index = this._children.indexOf(item);
         if (index >= 0) this._children.splice(index, 1);
         if (item._parent === this) item._parent = null;
       }
+      if (
+        originalStatus === ConstructionStatus.Destructed &&
+        item.status === ConstructionStatus.Constructed
+      ) {
+        try { item.destruct(); } catch (rollbackError) {
+          compensationError = rollbackError;
+        }
+      }
       try {
         transfer?.rollback();
       } finally {
-        this.#endMembershipTransaction();
+        this.#endMembershipTransaction(false);
+      }
+      if (compensationError !== undefined) {
+        throw new ContainerRollbackError(error, compensationError);
       }
       throw error;
     }
@@ -248,9 +263,11 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
         }),
       );
       if (commitError !== undefined) throw commitError;
-    } finally {
-      this.#endMembershipTransaction();
+    } catch (error) {
+      this.#endMembershipTransaction(false);
+      throw error;
     }
+    this.#endMembershipTransaction();
   }
 
   insert(index: number, item: VM): void {
@@ -263,6 +280,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     }
     let transfer: ParentTransfer | null = null;
     let attached = false;
+    const originalStatus = item.status;
     try {
       transfer = beginParentTransfer(item, this);
       this.#requireTransactionCanContinue();
@@ -272,15 +290,27 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
       this._maybeAutoConstruct(item);
       this.#requireTransactionCanContinue();
     } catch (error) {
+      let compensationError: unknown;
       if (attached) {
         const actual = this._children.indexOf(item);
         if (actual >= 0) this._children.splice(actual, 1);
         if (item._parent === this) item._parent = null;
       }
+      if (
+        originalStatus === ConstructionStatus.Destructed &&
+        item.status === ConstructionStatus.Constructed
+      ) {
+        try { item.destruct(); } catch (rollbackError) {
+          compensationError = rollbackError;
+        }
+      }
       try {
         transfer?.rollback();
       } finally {
-        this.#endMembershipTransaction();
+        this.#endMembershipTransaction(false);
+      }
+      if (compensationError !== undefined) {
+        throw new ContainerRollbackError(error, compensationError);
       }
       throw error;
     }
@@ -293,9 +323,11 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
         }),
       );
       if (commitError !== undefined) throw commitError;
-    } finally {
-      this.#endMembershipTransaction();
+    } catch (error) {
+      this.#endMembershipTransaction(false);
+      throw error;
     }
+    this.#endMembershipTransaction();
   }
 
   remove(item: VM): boolean {
@@ -307,16 +339,23 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
   }
 
   removeAt(index: number): void {
-    this.#requireChildAdmission();
-    if (index < 0 || index >= this._children.length) {
-      throw new RangeError(`Index ${String(index)} out of range`);
+    this.#beginMembershipTransaction();
+    let item: VM;
+    try {
+      if (index < 0 || index >= this._children.length) {
+        throw new RangeError(`Index ${String(index)} out of range`);
+      }
+      item = this._children[index] as VM;
+      this._children.splice(index, 1);
+      if (item._parent === this) item._parent = null;
+      if (this.#current === item) {
+        this._applyCurrentChange(null, true);
+      }
+    } catch (error) {
+      this.#endMembershipTransaction(false);
+      throw error;
     }
-    const item = this._children[index] as VM;
-    this._children.splice(index, 1);
-    if (item._parent === this) item._parent = null;
-    if (this.#current === item) {
-      this._applyCurrentChange(null, true);
-    }
+    this.#endMembershipTransaction();
     this._emitCollectionChanged(
       makeCollectionChangedEvent("remove", {
         oldItems: [item],
@@ -335,6 +374,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     const old = this._children[index] as VM;
     let transfer: ParentTransfer | null = null;
     let attached = false;
+    const originalStatus = value.status;
     try {
       transfer = beginParentTransfer(value, this);
       this.#requireTransactionCanContinue();
@@ -345,16 +385,28 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
       this._maybeAutoConstruct(value);
       this.#requireTransactionCanContinue();
     } catch (error) {
+      let compensationError: unknown;
       if (attached) {
         const actual = this._children.indexOf(value);
         if (actual >= 0) this._children[actual] = old;
         old._parent = this;
         if (value._parent === this) value._parent = null;
       }
+      if (
+        originalStatus === ConstructionStatus.Destructed &&
+        value.status === ConstructionStatus.Constructed
+      ) {
+        try { value.destruct(); } catch (rollbackError) {
+          compensationError = rollbackError;
+        }
+      }
       try {
         transfer?.rollback();
       } finally {
-        this.#endMembershipTransaction();
+        this.#endMembershipTransaction(false);
+      }
+      if (compensationError !== undefined) {
+        throw new ContainerRollbackError(error, compensationError);
       }
       throw error;
     }
@@ -368,9 +420,11 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
         makeCollectionChangedEvent("add", { newItems: [value], newIndex: index }),
       );
       if (commitError !== undefined) throw commitError;
-    } finally {
-      this.#endMembershipTransaction();
+    } catch (error) {
+      this.#endMembershipTransaction(false);
+      throw error;
     }
+    this.#endMembershipTransaction();
   }
 
   clear(): void {
@@ -578,7 +632,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
       try {
         for (const transfer of [...transfers].reverse()) transfer.rollback();
       } finally {
-        this.#endMembershipTransaction();
+        this.#endMembershipTransaction(false);
       }
       if (compensationError !== undefined) {
         throw new ContainerRollbackError(error, compensationError);
@@ -601,9 +655,11 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
         }
       });
       if (commitError !== undefined) throw commitError;
-    } finally {
-      this.#endMembershipTransaction();
+    } catch (error) {
+      this.#endMembershipTransaction(false);
+      throw error;
     }
+    this.#endMembershipTransaction();
   }
 
   // ── Private helpers ───────────────────────────────────────────────────────
@@ -628,7 +684,18 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     // between _setCurrent's membership check and this deferred foreground
     // delivery. Dropping silently upholds the spec/06 §3 invariant that a
     // non-null current is always a member of the children collection.
-    if (this.#membershipTransactionActive && !internalTransaction) return;
+    if (!internalTransaction) {
+      if (this.#membershipTransactionActive) return;
+      this.#beginMembershipTransaction();
+      try {
+        this._applyCurrentChange(value, true);
+      } catch (error) {
+        this.#endMembershipTransaction(false);
+        throw error;
+      }
+      this.#endMembershipTransaction();
+      return;
+    }
     if (value !== null && !this._children.includes(value)) return;
     if (this.#current === value) return;
 

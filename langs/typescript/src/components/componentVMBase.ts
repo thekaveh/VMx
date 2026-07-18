@@ -156,7 +156,9 @@ export abstract class ComponentVMBase {
   #inFlight = false;
   #isCurrent = false;
   /** @internal Set by CompositeVMBase / GroupVM to wire parent-child selection delegation. */
-  _parent: IOwningParentVM | null = null;
+  #parent: IOwningParentVM | null = null;
+  get _parent(): IOwningParentVM | null { return this.#parent; }
+  set _parent(value: IOwningParentVM | null) { this.#parent = value; }
   /** @internal Rejects nested ownership changes until the active mutation commits. */
   _ownershipInProgress = false;
 

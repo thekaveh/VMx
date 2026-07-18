@@ -5,6 +5,7 @@ See spec/06-composite-vm.md.
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Callable, Iterable, Iterator
 from threading import Condition, RLock, get_ident
 from typing import Generic, TypeVar, overload
@@ -31,6 +32,8 @@ from vmx.services.message_hub import MessageHub
 
 VM = TypeVar("VM", bound=_ComponentVMBase)
 M = TypeVar("M")
+
+_current_change_coordinator = RLock()
 
 
 # ---------------------------------------------------------------------------
@@ -144,7 +147,9 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                     CollectionChangedEvent(action="remove", old_items=(child,), old_index=index)
                 )
             finally:
-                self._end_membership_transaction()
+                self._end_membership_transaction(
+                    propagate_dispose_failure=sys.exc_info()[0] is None
+                )
 
         def rollback() -> None:
             try:
@@ -264,6 +269,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         self._begin_membership_transaction()
         transfer: _ParentTransfer | None = None
         old: VM | None = None
+        original_status = value.status
         try:
             transfer = _begin_parent_transfer(value, self)
             with self._membership_gate:
@@ -276,7 +282,8 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             self._maybe_auto_construct(value)
             with self._membership_gate:
                 self._require_transaction_can_continue_locked()
-        except BaseException:
+        except BaseException as original_error:
+            compensation_error: BaseException | None = None
             with self._membership_gate:
                 if old is not None and any(child is value for child in self._children):
                     actual_index = next(
@@ -285,8 +292,18 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                     self._children[actual_index] = old
                     old._set_parent(self)
                     value._set_parent(None)
+            if (
+                original_status is ConstructionStatus.DESTRUCTED
+                and value.status is ConstructionStatus.CONSTRUCTED
+            ):
+                try:
+                    value.destruct()
+                except BaseException as error:
+                    compensation_error = error
             if transfer is not None:
                 transfer.rollback()
+            if compensation_error is not None:
+                raise compensation_error from original_error
             raise
         else:
             commit_error = _commit_parent_transfer(transfer)
@@ -301,7 +318,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             if commit_error is not None:
                 raise commit_error
         finally:
-            self._end_membership_transaction()
+            self._end_membership_transaction(propagate_dispose_failure=sys.exc_info()[0] is None)
 
     def __delitem__(self, index: int) -> None:
         self._remove_at(index)
@@ -323,6 +340,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         self._begin_membership_transaction()
         transfer: _ParentTransfer | None = None
         attached = False
+        original_status = item.status
         try:
             transfer = _begin_parent_transfer(item, self)
             with self._membership_gate:
@@ -337,13 +355,24 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             self._maybe_auto_construct(item)
             with self._membership_gate:
                 self._require_transaction_can_continue_locked()
-        except BaseException:
+        except BaseException as original_error:
+            compensation_error: BaseException | None = None
             with self._membership_gate:
                 if attached and any(child is item for child in self._children):
                     self._children.remove(item)
                     item._set_parent(None)
+            if (
+                original_status is ConstructionStatus.DESTRUCTED
+                and item.status is ConstructionStatus.CONSTRUCTED
+            ):
+                try:
+                    item.destruct()
+                except BaseException as error:
+                    compensation_error = error
             if transfer is not None:
                 transfer.rollback()
+            if compensation_error is not None:
+                raise compensation_error from original_error
             raise
         else:
             commit_error = _commit_parent_transfer(transfer)
@@ -353,13 +382,14 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             if commit_error is not None:
                 raise commit_error
         finally:
-            self._end_membership_transaction()
+            self._end_membership_transaction(propagate_dispose_failure=sys.exc_info()[0] is None)
 
     def append(self, item: VM) -> None:
         """Append *item*, emitting a collection-changed event."""
         self._begin_membership_transaction()
         transfer: _ParentTransfer | None = None
         attached = False
+        original_status = item.status
         try:
             transfer = _begin_parent_transfer(item, self)
             with self._membership_gate:
@@ -371,13 +401,24 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             self._maybe_auto_construct(item)
             with self._membership_gate:
                 self._require_transaction_can_continue_locked()
-        except BaseException:
+        except BaseException as original_error:
+            compensation_error: BaseException | None = None
             with self._membership_gate:
                 if attached and any(child is item for child in self._children):
                     self._children.remove(item)
                     item._set_parent(None)
+            if (
+                original_status is ConstructionStatus.DESTRUCTED
+                and item.status is ConstructionStatus.CONSTRUCTED
+            ):
+                try:
+                    item.destruct()
+                except BaseException as error:
+                    compensation_error = error
             if transfer is not None:
                 transfer.rollback()
+            if compensation_error is not None:
+                raise compensation_error from original_error
             raise
         else:
             commit_error = _commit_parent_transfer(transfer)
@@ -387,7 +428,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             if commit_error is not None:
                 raise commit_error
         finally:
-            self._end_membership_transaction()
+            self._end_membership_transaction(propagate_dispose_failure=sys.exc_info()[0] is None)
 
     def add(self, item: VM) -> None:
         """Alias for ``append``."""
@@ -395,14 +436,20 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
 
     def remove(self, item: VM) -> bool:
         """Remove first occurrence of *item*.  Returns True on success."""
-        with self._membership_gate:
-            self._require_child_admission()
-            idx = next((i for i, child in enumerate(self._children) if child is item), -1)
-            if idx < 0:
-                return False
-            removed, was_current = self._remove_at_locked(idx)
-            if was_current:
-                self._finish_current_change(removed, None)
+        with _current_change_coordinator:
+            self._begin_membership_transaction()
+            try:
+                with self._membership_gate:
+                    idx = next((i for i, child in enumerate(self._children) if child is item), -1)
+                    if idx < 0:
+                        return False
+                    removed, was_current = self._remove_at_locked(idx)
+                if was_current:
+                    self._finish_current_change(removed, None)
+            finally:
+                self._end_membership_transaction(
+                    propagate_dispose_failure=sys.exc_info()[0] is None
+                )
         self._emit_collection_changed(
             CollectionChangedEvent(action="remove", old_items=(removed,), old_index=idx)
         )
@@ -414,17 +461,22 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
 
     def clear(self) -> None:
         """Remove all children, emitting a Reset event."""
-        with self._membership_gate:
-            self._require_child_admission()
-            previous = self._current
-            self._current = None
-            for child in self._children:
-                if child._parent is self:
-                    child._set_parent(None)
-            self._children.clear()
-            # Keep child flags and observers serialized with the membership state.
-            if previous is not None:
-                self._finish_current_change(previous, None)
+        with _current_change_coordinator:
+            self._begin_membership_transaction()
+            try:
+                with self._membership_gate:
+                    previous = self._current
+                    self._current = None
+                    for child in self._children:
+                        if child._parent is self:
+                            child._set_parent(None)
+                    self._children.clear()
+                if previous is not None:
+                    self._finish_current_change(previous, None)
+            finally:
+                self._end_membership_transaction(
+                    propagate_dispose_failure=sys.exc_info()[0] is None
+                )
         self._emit_collection_changed(CollectionChangedEvent(action="reset"))
 
     def move(self, from_index: int, to_index: int) -> None:
@@ -453,12 +505,18 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             target[array_index + i] = child
 
     def _remove_at(self, index: int) -> None:
-        with self._membership_gate:
-            resolved_index = index + len(self._children) if index < 0 else index
-            self._require_child_admission()
-            item, was_current = self._remove_at_locked(index)
-            if was_current:
-                self._finish_current_change(item, None)
+        with _current_change_coordinator:
+            self._begin_membership_transaction()
+            try:
+                with self._membership_gate:
+                    resolved_index = index + len(self._children) if index < 0 else index
+                    item, was_current = self._remove_at_locked(index)
+                if was_current:
+                    self._finish_current_change(item, None)
+            finally:
+                self._end_membership_transaction(
+                    propagate_dispose_failure=sys.exc_info()[0] is None
+                )
         self._emit_collection_changed(
             CollectionChangedEvent(action="remove", old_items=(item,), old_index=resolved_index)
         )
@@ -714,7 +772,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             if commit_error is not None:
                 raise commit_error
         finally:
-            self._end_membership_transaction()
+            self._end_membership_transaction(propagate_dispose_failure=sys.exc_info()[0] is None)
 
     # ── Private helpers ───────────────────────────────────────────────────────
 
@@ -750,26 +808,38 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         # between _set_current's membership check and this deferred foreground
         # delivery. Dropping silently upholds the spec/06 §3 invariant that a
         # non-null current is always a member of the children collection.
-        with self._membership_gate:
-            if self._membership_transaction_active and not internal:
-                if not strict:
-                    return
-                raise RuntimeError("container membership transaction is already in progress")
-            if value is not None and not any(child is value for child in self._children):
-                if not strict:
-                    return
-                raise ValueError(
-                    f"Cannot set current to '{getattr(value, 'name', value)!r}': "
-                    "not a member of this composite."
-                )
-            if self._current is value:
-                return
-            previous = self._current
-            self._current = value
-            self._finish_current_change(previous, value)
+        with _current_change_coordinator:
+            owns_transaction = False
+            if not internal:
+                try:
+                    self._begin_membership_transaction()
+                except RuntimeError:
+                    if not strict:
+                        return
+                    raise
+                owns_transaction = True
+            try:
+                with self._membership_gate:
+                    if value is not None and not any(child is value for child in self._children):
+                        if not strict:
+                            return
+                        raise ValueError(
+                            f"Cannot set current to '{getattr(value, 'name', value)!r}': "
+                            "not a member of this composite."
+                        )
+                    if self._current is value:
+                        return
+                    previous = self._current
+                    self._current = value
+                self._finish_current_change(previous, value)
+            finally:
+                if owns_transaction:
+                    self._end_membership_transaction(
+                        propagate_dispose_failure=sys.exc_info()[0] is None
+                    )
 
     def _finish_current_change(self, previous: VM | None, value: VM | None) -> None:
-        """Publish one already-committed selection change under the membership gate."""
+        """Publish one committed selection change outside the membership gate."""
 
         # Update IsCurrent on affected children.
         if previous is not None:

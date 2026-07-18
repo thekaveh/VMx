@@ -217,4 +217,42 @@ final class CompositeThreadingTests: XCTestCase {
         XCTAssertFalse(first.isCurrent)
         XCTAssertTrue(second.isCurrent)
     }
+
+    func testOpposingCurrentCallbacksAcrossCompositesDoNotDeadlock() throws {
+        let leftChild = try ComponentVM.builder().name("left-child")
+            .withNullServices().build()
+        let rightChild = try ComponentVM.builder().name("right-child")
+            .withNullServices().build()
+        var left: CompositeVM<ComponentVM>!
+        var right: CompositeVM<ComponentVM>!
+        left = try CompositeVM<ComponentVM>.builder().name("left")
+            .withNullServices().children { [leftChild] }
+            .onCurrentChanged { _ in right.selectChild(rightChild) }.build()
+        right = try CompositeVM<ComponentVM>.builder().name("right")
+            .withNullServices().children { [rightChild] }
+            .onCurrentChanged { _ in left.selectChild(leftChild) }.build()
+        try left.construct()
+        try right.construct()
+
+        let start = DispatchSemaphore(value: 0)
+        let done = DispatchGroup()
+        done.enter()
+        DispatchQueue.global().async {
+            start.wait()
+            left.selectChild(leftChild)
+            done.leave()
+        }
+        done.enter()
+        DispatchQueue.global().async {
+            start.wait()
+            right.selectChild(rightChild)
+            done.leave()
+        }
+        start.signal()
+        start.signal()
+
+        XCTAssertEqual(done.wait(timeout: .now() + 2), .success)
+        XCTAssertTrue(left.current === leftChild)
+        XCTAssertTrue(right.current === rightChild)
+    }
 }

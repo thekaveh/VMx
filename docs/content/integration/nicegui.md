@@ -27,7 +27,7 @@ from collections.abc import Callable
 
 from nicegui import ui
 import reactivex.operators as ops
-from vmx import ComponentVMOf, Message, MessageHubProto, PropertyChangedMessage
+from vmx import ComponentVMOf, Message, MessageHubProto, PropertyChangedMessage, RelayCommand
 
 def bind_label(label: ui.label, vm: ComponentVMOf[Note],
                hub: MessageHubProto[Message]) -> Callable[[], None]:
@@ -44,10 +44,11 @@ def bind_label(label: ui.label, vm: ComponentVMOf[Note],
     return sub.dispose  # call on page teardown
 
 # Page builder:
-def render(vm: ComponentVMOf[Note], hub: MessageHubProto[Message]) -> None:
+def render(vm: ComponentVMOf[Note], hub: MessageHubProto[Message],
+           save_command: RelayCommand) -> None:
     label = ui.label()
     dispose = bind_label(label, vm, hub)
-    ui.button("Save", on_click=lambda: vm.save_command.execute(None))
+    ui.button("Save", on_click=lambda: save_command.execute(None))
     ui.context.client.on_disconnect(dispose)
 ```
 

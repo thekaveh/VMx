@@ -33,6 +33,13 @@ class DisposeFailingComponent extends ComponentVMBase {
   protected override _onDispose(): void { throw new Error("dispose failure"); }
 }
 
+class DisposeFailingComposite extends CompositeVM<ComponentVM> {
+  protected override _onDispose(): void {
+    super._onDispose();
+    throw new Error("destination dispose failure");
+  }
+}
+
 // ---------------------------------------------------------------------------
 // COMP-001
 // ---------------------------------------------------------------------------
@@ -718,16 +725,21 @@ describe("COMP-026", () => {
     let reentrant!: CompositeVM<ComponentVM>;
     const reentrantHub = makeHub();
     const reentrantChild = makeChild(reentrantHub, "reentrant");
+    const callbackStatuses: ConstructionStatus[] = [];
     reentrant = CompositeVM.builder<ComponentVM>()
       .name("reentrant-composite")
       .services(reentrantHub, disp)
       .children(() => [reentrantChild])
-      .onCurrentChanged(() => reentrant.dispose())
+      .onCurrentChanged(() => {
+        reentrant.dispose();
+        callbackStatuses.push(reentrant.status);
+      })
       .build();
     reentrant.construct();
 
     reentrant.selectComponent(reentrantChild);
 
+    expect(callbackStatuses).toEqual([ConstructionStatus.Constructed]);
     expect(reentrant.status).toBe(ConstructionStatus.Disposed);
   });
 });
@@ -889,6 +901,31 @@ describe("COMP-040", () => {
     expect(group.snapshot()).toEqual([]);
     expect(compositeChild._parent).toBeNull();
     expect(groupChild._parent).toBeNull();
+    expect(compositeChild.status).toBe(ConstructionStatus.Destructed);
+    expect(groupChild.status).toBe(ConstructionStatus.Destructed);
+  });
+
+  it("keeps an attachment error ahead of destination deferred-disposal failure", () => {
+    const hub = makeHub();
+    const dispatcher = makeDisp();
+    const destination = new DisposeFailingComposite({
+      name: "destination",
+      hint: "",
+      hub,
+      dispatcher,
+      childrenFactory: () => [],
+      autoConstructOnAdd: true,
+    });
+    const child = ComponentVM.builder().name("child").services(hub, dispatcher)
+      .onConstruct(() => {
+        destination.dispose();
+        throw new Error("attachment failure");
+      }).build();
+    destination.construct();
+
+    expect(() => destination.add(child)).toThrow("attachment failure");
+    expect(destination.status).toBe(ConstructionStatus.Disposed);
+    expect(destination.snapshot()).toEqual([]);
   });
 
   it("defers old-composite disposal until a successful transfer commits", () => {

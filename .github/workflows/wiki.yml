@@ -6,7 +6,9 @@ on:
     paths:
       - "docs/assets/diagrams/**"
       - "docs/content/**"
+      - "docs/maintenance/**"
       - "docs/manifest.yaml"
+      - "spec/VERSION"
       - "scripts/docs/**"
       - "tools/docs/validate_diagrams.py"
       - "Makefile"

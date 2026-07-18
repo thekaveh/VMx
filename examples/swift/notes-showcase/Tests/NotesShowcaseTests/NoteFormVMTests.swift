@@ -221,7 +221,7 @@ final class NoteFormVMTests: XCTestCase {
         XCTAssertFalse(form.showPreviewModeCommand.canExecute())
     }
 
-    // MARK: - Two-way scalar setters (Phase 5.a parity)
+    // MARK: - Two-way scalar setter parity
 
     func testSettingTitleScalar_flipsDirtyTrueAndEnablesApproveCommand() throws {
         let (form, _) = try build()

@@ -51,6 +51,10 @@ open class ForwardingComponentVM<Model>: ComponentVMOf<Model> {
         _wrapped.propertyChanged
     }
 
+    override func _setIsCurrent(_ value: Bool) {
+        _wrapped._setIsCurrent(value)
+    }
+
     // ── Model ───────────────────────────────────────────────────────────
     open override var model: Model {
         get { _wrapped.model }
@@ -60,8 +64,12 @@ open class ForwardingComponentVM<Model>: ComponentVMOf<Model> {
     open override func republishModel() { _wrapped.republishModel() }
 
     // ── Built-in commands (override the getters to delegate) ────────────
-    open override var selectCommand: RelayCommand { _wrapped.selectCommand }
-    open override var deselectCommand: RelayCommand { _wrapped.deselectCommand }
+    open override var selectCommand: RelayCommand {
+        _parent == nil ? _wrapped.selectCommand : super.selectCommand
+    }
+    open override var deselectCommand: RelayCommand {
+        _parent == nil ? _wrapped.deselectCommand : super.deselectCommand
+    }
     open override var selectNextCommand: RelayCommand { _wrapped.selectNextCommand }
     open override var selectPreviousCommand: RelayCommand { _wrapped.selectPreviousCommand }
     open override var reconstructCommand: RelayCommand { _wrapped.reconstructCommand }
@@ -78,8 +86,16 @@ open class ForwardingComponentVM<Model>: ComponentVMOf<Model> {
     open override func dispose() { _wrapped.dispose() }
 
     // ── Selection ───────────────────────────────────────────────────────
-    open override func canSelect() -> Bool { _wrapped.canSelect() }
-    open override func select() { _wrapped.select() }
-    open override func canDeselect() -> Bool { _wrapped.canDeselect() }
-    open override func deselect() { _wrapped.deselect() }
+    open override func canSelect() -> Bool {
+        _parent == nil ? _wrapped.canSelect() : super.canSelect()
+    }
+    open override func select() {
+        if _parent == nil { _wrapped.select() } else { super.select() }
+    }
+    open override func canDeselect() -> Bool {
+        _parent == nil ? _wrapped.canDeselect() : super.canDeselect()
+    }
+    open override func deselect() {
+        if _parent == nil { _wrapped.deselect() } else { super.deselect() }
+    }
 }

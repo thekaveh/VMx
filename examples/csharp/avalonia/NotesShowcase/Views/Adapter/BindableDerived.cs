@@ -4,9 +4,8 @@ using VMx.Properties;
 namespace NotesShowcase.Views.Adapter;
 
 /// <summary>
-/// PropertyBridge companion for a <see cref="DerivedProperty{T}"/> (Phase 5.a
-/// binding gap #3 — parity with Phase 5.b ``bind_derived_property`` and
-/// Phase 5.c ``useDerivedProperty``).
+/// PropertyBridge companion for a <see cref="DerivedProperty{T}"/>, providing
+/// the same derived-property binding role as the other showcase adapters.
 ///
 /// <para>
 /// <see cref="DerivedProperty{T}"/> lives outside the hub message graph: it

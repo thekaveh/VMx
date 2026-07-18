@@ -8,6 +8,11 @@ using VMx.Services;
 
 namespace VMx.Composites;
 
+internal static class CompositeCurrentChangeCoordinator
+{
+    internal static object Gate { get; } = new();
+}
+
 /// <summary>
 /// Abstract base for all CompositeVM variants.  Implements <see cref="ICompositeVM{VM}"/>
 /// on top of <see cref="ComponentVMBase"/>: ordered child collection with
@@ -95,6 +100,8 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
             ParentTransferToken? transfer = null;
             VM? old = null;
             var admissionComplete = false;
+            var propagateDisposeFailure = true;
+            var originalStatus = value.Status;
             try
             {
                 transfer = ComponentOwnership.BeginTransfer(value, this);
@@ -119,8 +126,10 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                         NotifyCollectionChangedAction.Add, value, index));
                 });
             }
-            catch when (!admissionComplete)
+            catch (Exception originalError) when (!admissionComplete)
             {
+                propagateDisposeFailure = false;
+                var rollbackFailures = new List<Exception>();
                 lock (_membershipGate)
                 {
                     if (old is not null && _children.Any(child => ReferenceEquals(child, value)))
@@ -132,10 +141,26 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                         value.SetParent(null);
                     }
                 }
-                transfer?.Rollback();
+                if (originalStatus == ConstructionStatus.Destructed &&
+                    value.Status == ConstructionStatus.Constructed)
+                {
+                    try { value.DestructAsync().GetAwaiter().GetResult(); }
+                    catch (Exception error) { rollbackFailures.Add(error); }
+                }
+                try { transfer?.Rollback(); }
+                catch (Exception error) { rollbackFailures.Add(error); }
+                if (rollbackFailures.Count > 0)
+                    throw new AggregateException(
+                        "Container replacement failed and rollback could not restore lifecycle state.",
+                        new[] { originalError }.Concat(rollbackFailures));
                 throw;
             }
-            finally { EndMembershipTransaction(); }
+            catch
+            {
+                propagateDisposeFailure = false;
+                throw;
+            }
+            finally { EndMembershipTransaction(propagateDisposeFailure); }
         }
     }
 
@@ -216,7 +241,12 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                     RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
                         NotifyCollectionChangedAction.Remove, child, index));
                 }
-                finally { EndMembershipTransaction(); }
+                catch
+                {
+                    EndMembershipTransaction(propagateDisposeFailure: false);
+                    throw;
+                }
+                EndMembershipTransaction();
             },
             rollback: () =>
             {
@@ -269,6 +299,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         BeginMembershipTransaction();
         ParentTransferToken? transfer = null;
         var attached = false;
+        var originalStatus = item.Status;
         int idx;
         try
         {
@@ -284,8 +315,9 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
             MaybeAutoConstruct(item);
             lock (_membershipGate) EnsureTransactionCanContinueLocked();
         }
-        catch
+        catch (Exception originalError)
         {
+            var rollbackFailures = new List<Exception>();
             lock (_membershipGate)
             {
                 var attachedIndex = attached
@@ -297,8 +329,19 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                     item.SetParent(null);
                 }
             }
+            if (originalStatus == ConstructionStatus.Destructed &&
+                item.Status == ConstructionStatus.Constructed)
+            {
+                try { item.DestructAsync().GetAwaiter().GetResult(); }
+                catch (Exception error) { rollbackFailures.Add(error); }
+            }
             try { transfer?.Rollback(); }
-            finally { EndMembershipTransaction(); }
+            catch (Exception error) { rollbackFailures.Add(error); }
+            EndMembershipTransaction(propagateDisposeFailure: false);
+            if (rollbackFailures.Count > 0)
+                throw new AggregateException(
+                    "Container attachment failed and rollback could not restore lifecycle state.",
+                    new[] { originalError }.Concat(rollbackFailures));
             throw;
         }
         try
@@ -307,25 +350,45 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                 RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
                     NotifyCollectionChangedAction.Add, item, idx)));
         }
-        finally { EndMembershipTransaction(); }
+        catch
+        {
+            EndMembershipTransaction(propagateDisposeFailure: false);
+            throw;
+        }
+        EndMembershipTransaction();
     }
 
     /// <inheritdoc/>
     public bool Remove(VM item)
     {
-        VM removed;
-        int idx;
-        bool wasCurrent;
-        lock (_membershipGate)
+        lock (CompositeCurrentChangeCoordinator.Gate)
         {
-            EnsureChildAdmission();
-            idx = _children.FindIndex(candidate => ReferenceEquals(candidate, item));
-            if (idx < 0) return false;
-            (removed, wasCurrent) = RemoveAtLocked(idx);
-            if (wasCurrent) FinishCurrentChange(removed, null);
+            BeginMembershipTransaction();
+            try
+            {
+                int idx;
+                lock (_membershipGate)
+                    idx = _children.FindIndex(candidate => ReferenceEquals(candidate, item));
+                if (idx < 0)
+                {
+                    EndMembershipTransaction();
+                    return false;
+                }
+                VM removed;
+                bool wasCurrent;
+                lock (_membershipGate)
+                    (removed, wasCurrent) = RemoveAtLocked(idx);
+                if (wasCurrent) FinishCurrentChange(removed, null);
+                RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+                    NotifyCollectionChangedAction.Remove, removed, idx));
+            }
+            catch
+            {
+                EndMembershipTransaction(propagateDisposeFailure: false);
+                throw;
+            }
+            EndMembershipTransaction();
         }
-        RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
-            NotifyCollectionChangedAction.Remove, removed, idx));
         return true;
     }
 
@@ -335,6 +398,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         BeginMembershipTransaction();
         ParentTransferToken? transfer = null;
         var attached = false;
+        var originalStatus = item.Status;
         try
         {
             transfer = ComponentOwnership.BeginTransfer(item, this);
@@ -350,8 +414,9 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
             MaybeAutoConstruct(item);
             lock (_membershipGate) EnsureTransactionCanContinueLocked();
         }
-        catch
+        catch (Exception originalError)
         {
+            var rollbackFailures = new List<Exception>();
             lock (_membershipGate)
             {
                 var attachedIndex = attached
@@ -363,8 +428,19 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                     item.SetParent(null);
                 }
             }
+            if (originalStatus == ConstructionStatus.Destructed &&
+                item.Status == ConstructionStatus.Constructed)
+            {
+                try { item.DestructAsync().GetAwaiter().GetResult(); }
+                catch (Exception error) { rollbackFailures.Add(error); }
+            }
             try { transfer?.Rollback(); }
-            finally { EndMembershipTransaction(); }
+            catch (Exception error) { rollbackFailures.Add(error); }
+            EndMembershipTransaction(propagateDisposeFailure: false);
+            if (rollbackFailures.Count > 0)
+                throw new AggregateException(
+                    "Container attachment failed and rollback could not restore lifecycle state.",
+                    new[] { originalError }.Concat(rollbackFailures));
             throw;
         }
         try
@@ -373,7 +449,12 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                 RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
                     NotifyCollectionChangedAction.Add, item, index)));
         }
-        finally { EndMembershipTransaction(); }
+        catch
+        {
+            EndMembershipTransaction(propagateDisposeFailure: false);
+            throw;
+        }
+        EndMembershipTransaction();
     }
 
     /// <inheritdoc/>
@@ -397,35 +478,57 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     /// <inheritdoc/>
     public void RemoveAt(int index)
     {
-        VM item;
-        bool wasCurrent;
-        lock (_membershipGate)
+        lock (CompositeCurrentChangeCoordinator.Gate)
         {
-            EnsureChildAdmission();
-            (item, wasCurrent) = RemoveAtLocked(index);
-            if (wasCurrent) FinishCurrentChange(item, null);
+            BeginMembershipTransaction();
+            try
+            {
+                VM item;
+                bool wasCurrent;
+                lock (_membershipGate)
+                    (item, wasCurrent) = RemoveAtLocked(index);
+                if (wasCurrent) FinishCurrentChange(item, null);
+                RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+                    NotifyCollectionChangedAction.Remove, item, index));
+            }
+            catch
+            {
+                EndMembershipTransaction(propagateDisposeFailure: false);
+                throw;
+            }
+            EndMembershipTransaction();
         }
-        RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
-            NotifyCollectionChangedAction.Remove, item, index));
     }
 
     /// <inheritdoc/>
     public void Clear()
     {
-        VM? previous;
-        lock (_membershipGate)
+        lock (CompositeCurrentChangeCoordinator.Gate)
         {
-            EnsureChildAdmission();
-            previous = _current;
-            _current = null;
-            foreach (var child in _children)
-                if (ReferenceEquals(child.GetParent(), this))
-                    child.SetParent(null);
-            _children.Clear();
-            if (previous is not null) FinishCurrentChange(previous, null);
+            BeginMembershipTransaction();
+            try
+            {
+                VM? previous;
+                lock (_membershipGate)
+                {
+                    previous = _current;
+                    _current = null;
+                    foreach (var child in _children)
+                        if (ReferenceEquals(child.GetParent(), this))
+                            child.SetParent(null);
+                    _children.Clear();
+                }
+                if (previous is not null) FinishCurrentChange(previous, null);
+                RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+                    NotifyCollectionChangedAction.Reset));
+            }
+            catch
+            {
+                EndMembershipTransaction(propagateDisposeFailure: false);
+                throw;
+            }
+            EndMembershipTransaction();
         }
-        RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
-            NotifyCollectionChangedAction.Reset));
     }
 
     /// <summary>
@@ -624,7 +727,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                     catch (Exception error) { rollbackFailures.Add(error); }
                 }
             }
-            finally { EndMembershipTransaction(); }
+            finally { EndMembershipTransaction(propagateDisposeFailure: false); }
             if (rollbackFailures.Count > 0)
                 throw new AggregateException(
                     "Container population failed and rollback could not restore lifecycle state.",
@@ -646,7 +749,12 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                 }
             });
         }
-        finally { EndMembershipTransaction(); }
+        catch
+        {
+            EndMembershipTransaction(propagateDisposeFailure: false);
+            throw;
+        }
+        EndMembershipTransaction();
     }
 
     /// <summary>
@@ -785,25 +893,35 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         // between SetCurrent's membership check and this deferred foreground
         // delivery. Dropping silently upholds the spec/06 §3 invariant that a
         // non-null Current is always a member of the children collection.
-        VM? previous;
-        lock (_membershipGate)
+        lock (CompositeCurrentChangeCoordinator.Gate)
         {
-            if (_membershipTransactionActive && !internalTransaction)
+            if (!internalTransaction)
             {
-                if (!strict) return;
-                throw new InvalidOperationException(
-                    "A container membership transaction is already in progress.");
+                try { BeginMembershipTransaction(); }
+                catch when (!strict) { return; }
+                try { ApplyCurrentChange(value, internalTransaction: true, strict: strict); }
+                catch
+                {
+                    EndMembershipTransaction(propagateDisposeFailure: false);
+                    throw;
+                }
+                EndMembershipTransaction();
+                return;
             }
-            if (value is not null &&
-                !_children.Any(child => ReferenceEquals(child, value)))
+            VM? previous;
+            lock (_membershipGate)
             {
-                if (!strict) return;
-                throw new InvalidOperationException(
-                    $"Cannot set Current to '{value.Name}': it is not a member of this composite.");
+                if (value is not null &&
+                    !_children.Any(child => ReferenceEquals(child, value)))
+                {
+                    if (!strict) return;
+                    throw new InvalidOperationException(
+                        $"Cannot set Current to '{value.Name}': it is not a member of this composite.");
+                }
+                if (ReferenceEquals(_current, value)) return;
+                previous = _current;
+                _current = value;
             }
-            if (ReferenceEquals(_current, value)) return;
-            previous = _current;
-            _current = value;
             FinishCurrentChange(previous, value);
         }
     }

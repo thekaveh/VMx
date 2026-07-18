@@ -126,6 +126,23 @@ final class ForwardingTests: XCTestCase {
         XCTAssertEqual(cleanupCount, 1)
     }
 
+    func testForwardingComponentIsTransparentContainerChild() throws {
+        let inner = makeInner()
+        let forwarding = NoopForwardingComponent(inner)
+        let composite = try CompositeVM<NoopForwardingComponent>.builder()
+            .name("root")
+            .withNullServices()
+            .build()
+
+        composite.add(forwarding)
+        try composite.construct()
+        forwarding.selectCommand.execute()
+
+        XCTAssertTrue(composite.current === forwarding)
+        XCTAssertTrue(forwarding.isCurrent)
+        XCTAssertTrue(inner.isCurrent)
+    }
+
     // ── FWD-002 ─────────────────────────────────────────────────────────
 
     /// FWD-002 — a selective override replaces a single behavior while every

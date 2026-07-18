@@ -492,6 +492,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             &self.membership_transaction_control,
         )?;
         let transfer = begin_parent_transfer(&item, &self.ownership.handle())?;
+        let original_status = item.status();
         let index = {
             let _gate = lock(&self.membership_gate);
             if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
@@ -534,10 +535,17 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             {
                 item.set_parent_handle(None);
             }
+            let compensation_error = if original_status == ConstructionStatus::Destructed
+                && item.status() == ConstructionStatus::Constructed
+            {
+                item.destruct().err()
+            } else {
+                None
+            };
             if let Some(transfer) = transfer {
                 let _ = transfer.rollback();
             }
-            return Err(error);
+            return Err(compensation_error.unwrap_or(error));
         }
         let mut commit_error = transfer.and_then(|transfer| transfer.commit().err());
         self.items.publish_add(index);
@@ -648,6 +656,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             &self.membership_transaction_control,
         )?;
         let transfer = begin_parent_transfer(&item, &self.ownership.handle())?;
+        let original_status = item.status();
         {
             let _gate = lock(&self.membership_gate);
             if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
@@ -694,10 +703,17 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             {
                 item.set_parent_handle(None);
             }
+            let compensation_error = if original_status == ConstructionStatus::Destructed
+                && item.status() == ConstructionStatus::Constructed
+            {
+                item.destruct().err()
+            } else {
+                None
+            };
             if let Some(transfer) = transfer {
                 let _ = transfer.rollback();
             }
-            return Err(error);
+            return Err(compensation_error.unwrap_or(error));
         }
         let mut commit_error = transfer.and_then(|transfer| transfer.commit().err());
         self.items.publish_add(index);
@@ -773,6 +789,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             &self.membership_transaction_control,
         )?;
         let transfer = begin_parent_transfer(&item, &self.ownership.handle())?;
+        let original_status = item.status();
         let old = {
             let _gate = lock(&self.membership_gate);
             if self.disposal_pending() {
@@ -821,10 +838,18 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                     item.set_parent_handle(None);
                 }
             }
+            drop(_gate);
+            let compensation_error = if original_status == ConstructionStatus::Destructed
+                && item.status() == ConstructionStatus::Constructed
+            {
+                item.destruct().err()
+            } else {
+                None
+            };
             if let Some(transfer) = transfer {
                 let _ = transfer.rollback();
             }
-            return Err(error);
+            return Err(compensation_error.unwrap_or(error));
         }
         let mut commit_error = transfer.and_then(|transfer| transfer.commit().err());
         old.set_parent_handle(None);

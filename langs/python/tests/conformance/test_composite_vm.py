@@ -10,7 +10,8 @@ scheduler (ObserveOn pattern).
 
 from __future__ import annotations
 
-from threading import Event, Thread
+from collections.abc import Callable
+from threading import Barrier, BrokenBarrierError, Event, Thread
 
 import pytest
 
@@ -43,6 +44,12 @@ def _dispatcher() -> RxDispatcher:
 class _DisposeFailingComponent(ComponentVM):
     def _on_dispose(self) -> None:
         raise RuntimeError("dispose failure")
+
+
+class _DisposeFailingComposite(CompositeVM[ComponentVM]):
+    def _on_dispose(self) -> None:
+        super()._on_dispose()
+        raise RuntimeError("destination dispose failure")
 
 
 def _build_composite(
@@ -746,9 +753,12 @@ def test_COMP_026_on_current_changed_fires_after_each_change() -> None:
     reentrant_hub = _hub()
     reentrant_child = _build_child("reentrant", hub=reentrant_hub, dispatcher=disp)
 
+    callback_statuses: list[ConstructionStatus] = []
+
     def dispose_reentrant(_: ComponentVM | None) -> None:
         assert reentrant is not None
         reentrant.dispose()
+        callback_statuses.append(reentrant.status)
 
     reentrant = (
         CompositeVMBuilder()
@@ -762,7 +772,124 @@ def test_COMP_026_on_current_changed_fires_after_each_change() -> None:
 
     reentrant.select_component(reentrant_child)
 
+    assert callback_statuses == [ConstructionStatus.CONSTRUCTED]
     assert reentrant.status is ConstructionStatus.DISPOSED
+
+
+@pytest.mark.conformance("COMP-026")
+def test_COMP_026_opposing_current_callbacks_do_not_deadlock() -> None:
+    """Current callbacks on two composites cannot retain opposing membership gates."""
+    dispatcher = _dispatcher()
+    barrier = Barrier(2)
+    refs: dict[str, CompositeVM[ComponentVM]] = {}
+    first = {"a": True, "b": True}
+
+    hub_a, hub_b = _hub(), _hub()
+    child_a = _build_child("a", hub=hub_a, dispatcher=dispatcher)
+    child_b = _build_child("b", hub=hub_b, dispatcher=dispatcher)
+
+    def cross(key: str, target: str, child: ComponentVM) -> Callable[[ComponentVM | None], None]:
+        def callback(_: ComponentVM | None) -> None:
+            if not first[key]:
+                return
+            first[key] = False
+            try:
+                barrier.wait(0.1)
+            except BrokenBarrierError:
+                pass
+            target_vm = refs[target]
+            if target_vm.current is not child:
+                target_vm.select_component(child)
+
+        return callback
+
+    composite_a = (
+        CompositeVMBuilder()
+        .name("a")
+        .services(hub_a, dispatcher)
+        .children(lambda: [child_a])
+        .on_current_changed(cross("a", "b", child_b))
+        .build()
+    )
+    composite_b = (
+        CompositeVMBuilder()
+        .name("b")
+        .services(hub_b, dispatcher)
+        .children(lambda: [child_b])
+        .on_current_changed(cross("b", "a", child_a))
+        .build()
+    )
+    refs.update(a=composite_a, b=composite_b)
+    composite_a.construct()
+    composite_b.construct()
+
+    thread_a = Thread(target=lambda: composite_a.select_component(child_a), daemon=True)
+    thread_b = Thread(target=lambda: composite_b.select_component(child_b), daemon=True)
+    thread_a.start()
+    thread_b.start()
+    thread_a.join(2.0)
+    thread_b.join(2.0)
+
+    assert not thread_a.is_alive()
+    assert not thread_b.is_alive()
+    assert composite_a.current is child_a
+    assert composite_b.current is child_b
+
+
+def test_auto_construct_rollback_destructs_child_after_destination_disposal() -> None:
+    destination_ref: list[CompositeVM[ComponentVM]] = []
+    hub, dispatcher = _hub(), _dispatcher()
+    child = (
+        ComponentVMBuilder()
+        .name("child")
+        .services(hub, dispatcher)
+        .on_construct(lambda: destination_ref[0].dispose())
+        .build()
+    )
+    destination = (
+        CompositeVMBuilder()
+        .name("destination")
+        .services(hub, dispatcher)
+        .auto_construct_on_add(True)
+        .children(lambda: ())
+        .build()
+    )
+    destination_ref.append(destination)
+    destination.construct()
+
+    with pytest.raises(RuntimeError, match="disposing"):
+        destination.append(child)
+
+    assert destination.snapshot() == ()
+    assert child.status is ConstructionStatus.DESTRUCTED
+    assert destination.status is ConstructionStatus.DISPOSED
+
+
+def test_attachment_error_precedes_deferred_destination_disposal_error() -> None:
+    hub, dispatcher = _hub(), _dispatcher()
+    destination = _DisposeFailingComposite(
+        name="destination",
+        hint="",
+        hub=hub,
+        dispatcher=dispatcher,
+        auto_construct_on_add=True,
+    )
+
+    def fail_attachment() -> None:
+        destination.dispose()
+        raise RuntimeError("attachment failure")
+
+    child = (
+        ComponentVMBuilder()
+        .name("child")
+        .services(hub, dispatcher)
+        .on_construct(fail_attachment)
+        .build()
+    )
+    destination.construct()
+
+    with pytest.raises(RuntimeError, match="attachment failure"):
+        destination.append(child)
 
 
 # ===========================================================================

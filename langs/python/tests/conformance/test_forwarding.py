@@ -12,10 +12,13 @@ from unittest.mock import MagicMock, PropertyMock
 
 import pytest
 
+from vmx.components.builders import ComponentVMOfBuilder
 from vmx.components.protocols import ViewModelType
+from vmx.composites.builders import CompositeVMBuilder
 from vmx.forwarding.component import ForwardingComponentVM
 from vmx.forwarding.composite import ForwardingCompositeVM
 from vmx.lifecycle.status import ConstructionStatus
+from vmx.services.dispatcher import RxDispatcher
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -142,6 +145,26 @@ def test_FWD_001_no_override_delegates_every_member() -> None:
 
     fwd.deselect()
     inner.deselect.assert_called_once()
+
+
+def test_forwarding_component_is_a_transparent_container_child() -> None:
+    inner = ComponentVMOfBuilder[str]().name("inner").model("model").with_null_services().build()
+    forwarding = ForwardingComponentVM(inner)
+    composite = (
+        CompositeVMBuilder[ForwardingComponentVM[str]]()
+        .name("root")
+        .services(inner.hub, RxDispatcher.immediate())
+        .children(lambda: ())
+        .build()
+    )
+
+    composite.add(forwarding)
+    composite.construct()
+    forwarding.select_command.execute()
+
+    assert composite.current is forwarding
+    assert forwarding.is_current
+    assert inner.is_current
 
 
 # ---------------------------------------------------------------------------

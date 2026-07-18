@@ -46,6 +46,13 @@ abstract ForwardingComponentVM<M> : IComponentVM<M>:
 
 A subclass overrides any subset of these.
 
+The decorator MAY be added to a composite or group anywhere its component type
+is accepted. The container retains the decorator instance as the child identity,
+while parent ownership, lifecycle, current flags, and built-in selection
+commands remain transparent to the wrapped component. Reparenting the decorator
+therefore removes it from its previous container before the new attachment
+commits, exactly like an undecorated component.
+
 ## 2. `ForwardingCompositeVM<VM>`
 
 Same pattern, but additionally forwards the `IList<VM>` surface (Add, Remove,
@@ -68,6 +75,7 @@ own the wrapped's lifetime.
 `FWD-001` through `FWD-003` in `12-conformance.md` cover:
 
 - default delegation of every member to the wrapped VM
+- transparent use as a composite or group child, including selection commands
 - selective override replaces a single behavior
 - ForwardingCompositeVM forwards iteration
 

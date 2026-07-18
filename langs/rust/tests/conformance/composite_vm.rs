@@ -740,6 +740,37 @@ fn failed_transfer_rolls_back_before_deferred_old_group_disposal() {
     assert_eq!(item.parent_id(), Some(old_parent.id()));
 }
 
+/// Regression — destination disposal after successful auto-construction rolls lifecycle back.
+#[test]
+fn destination_disposal_after_auto_construct_destructs_detached_children() {
+    let composite_child = child("composite-child");
+    let composite = vmx::CompositeVm::new("composite");
+    composite.set_auto_construct_on_add(true);
+    composite.construct().unwrap();
+    let composite_from_hook = composite.clone();
+    composite_child.on_construct(move || composite_from_hook.dispose());
+
+    assert_eq!(
+        composite.add(composite_child.clone()),
+        Err(VmxError::Disposed)
+    );
+    assert!(composite.is_empty());
+    assert_eq!(composite_child.status(), ConstructionStatus::Destructed);
+    assert_eq!(composite.status(), ConstructionStatus::Disposed);
+
+    let group_child = child("group-child");
+    let group = vmx::GroupVm::new("group");
+    group.set_auto_construct_on_add(true);
+    group.construct().unwrap();
+    let group_from_hook = group.clone();
+    group_child.on_construct(move || group_from_hook.dispose());
+
+    assert_eq!(group.add(group_child.clone()), Err(VmxError::Disposed));
+    assert!(group.is_empty());
+    assert_eq!(group_child.status(), ConstructionStatus::Destructed);
+    assert_eq!(group.status(), ConstructionStatus::Disposed);
+}
+
 /// COMP-040 — deferred disposal failure follows committed transfer events.
 #[test]
 fn deferred_disposal_failure_follows_committed_transfer_events() {

@@ -49,3 +49,15 @@ def test_wiki_workflow_verifies_the_published_tree_after_push() -> None:
     verify = workflow.index("name: Verify published wiki")
     assert publish < verify
     assert "python -m scripts.docs.push_wiki --check-published" in workflow
+
+
+def test_wiki_workflow_watches_every_generated_input() -> None:
+    workflow = _WORKFLOW.read_text(encoding="utf-8")
+    manifest = (_REPO_ROOT / "docs/manifest.yaml").read_text(encoding="utf-8")
+    sources = re.findall(r"^\s+source: (\S+)$", manifest, flags=re.MULTILINE)
+    source_roots = {Path(source).parts[:2] for source in sources}
+
+    for source_root in source_roots:
+        assert f'      - "{"/".join(source_root)}/**"' in workflow
+    assert '      - "docs/manifest.yaml"' in workflow
+    assert '      - "spec/VERSION"' in workflow

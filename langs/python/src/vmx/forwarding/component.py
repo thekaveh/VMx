@@ -9,11 +9,14 @@ spec/12-conformance.md.
 
 from __future__ import annotations
 
-from typing import Generic, TypeVar
+from concurrent.futures import Future
+from threading import RLock
+from typing import Generic, TypeVar, cast
 
 import reactivex as rx
 
 from vmx.commands.relay_command import RelayCommand
+from vmx.components.base import _ComponentVMBase, _ParentCompositeVM, _ParentTransfer
 from vmx.components.protocols import ComponentVMOfProto, ViewModelType
 from vmx.lifecycle.status import ConstructionStatus
 from vmx.messages.protocols import Message
@@ -22,7 +25,42 @@ from vmx.services.message_hub import MessageHubProto
 M = TypeVar("M")
 
 
-class ForwardingComponentVM(Generic[M]):
+class _ForwardingParent(_ParentCompositeVM):
+    def __init__(self, parent: _ParentCompositeVM, wrapper: ForwardingComponentVM[object]) -> None:
+        self._parent = parent
+        self._wrapper = wrapper
+
+    @property
+    def owner(self) -> _ComponentVMBase:
+        return self._parent.owner
+
+    @property
+    def owner_parent(self) -> _ParentCompositeVM | None:
+        return self._parent.owner_parent
+
+    @property
+    def current_child(self) -> object | None:
+        current = self._parent.current_child
+        return self._wrapper._wrapped if current is self._wrapper else current
+
+    @property
+    def supports_child_selection(self) -> bool:
+        return self._parent.supports_child_selection
+
+    def select_child(self, vm: _ComponentVMBase) -> None:
+        self._parent.select_child(self._wrapper)
+
+    def deselect_child(self, vm: _ComponentVMBase) -> None:
+        self._parent.deselect_child(self._wrapper)
+
+    def contains_child(self, vm: _ComponentVMBase) -> bool:
+        return self._parent.contains_child(self._wrapper)
+
+    def detach_for_transfer(self, vm: _ComponentVMBase) -> _ParentTransfer:
+        return self._parent.detach_for_transfer(self._wrapper)
+
+
+class ForwardingComponentVM(_ComponentVMBase, Generic[M]):
     """Forwarding decorator for :class:`~vmx.components.protocols.ComponentVMOfProto`.
 
     Every member delegates to the wrapped instance by default. Subclasses
@@ -46,6 +84,9 @@ class ForwardingComponentVM(Generic[M]):
         if wrapped is None:
             raise ValueError("wrapped must not be None")
         self._wrapped: ComponentVMOfProto[M] = wrapped
+        self._parent: _ParentCompositeVM | None = None
+        self._ownership_lock = RLock()
+        self._ownership_in_progress = False
 
     # ── Identity ─────────────────────────────────────────────────────────────
 
@@ -99,8 +140,8 @@ class ForwardingComponentVM(Generic[M]):
     # ── Observable property changes ───────────────────────────────────────────
 
     @property
-    def property_changed(self) -> rx.Observable[object]:
-        return self._wrapped.property_changed
+    def property_changed(self) -> rx.Observable[str]:
+        return cast(rx.Observable[str], self._wrapped.property_changed)
 
     # ── Built-in commands ─────────────────────────────────────────────────────
 
@@ -160,3 +201,21 @@ class ForwardingComponentVM(Generic[M]):
 
     def deselect(self) -> None:
         self._wrapped.deselect()
+
+    def _set_parent(self, parent: _ParentCompositeVM | None) -> None:
+        self._parent = parent
+        wrapped = cast(_ComponentVMBase, self._wrapped)
+        wrapped._set_parent(
+            None
+            if parent is None
+            else _ForwardingParent(parent, cast(ForwardingComponentVM[object], self))
+        )
+
+    def _set_is_current(self, value: bool) -> None:
+        cast(_ComponentVMBase, self._wrapped)._set_is_current(value)
+
+    def _construct_future(self) -> Future[None]:
+        return cast(_ComponentVMBase, self._wrapped)._construct_future()
+
+    def _destruct_future(self) -> Future[None]:
+        return cast(_ComponentVMBase, self._wrapped)._destruct_future()

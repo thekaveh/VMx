@@ -586,13 +586,13 @@ contract corrections, current five-flavor catalog clarifications, and stable
 membership ordering for disposal racing ownership transfer. No conformance IDs
 are added.
 
-See ADR-0108 through ADR-0122 and the affected behavior chapters.
+See ADR-0108 through ADR-0123 and the affected behavior chapters.
 
 ### 1.33 Supporting artefacts
 
 - `VERSION` — current spec SemVer (`3.22.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0122); see
+- `ADRs/` — Architecture Decision Records (0001-0123); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `schemas/` — versioned supporting machine contracts. The consumer
   conformance v1 schema is non-normative; see ADR-0102.

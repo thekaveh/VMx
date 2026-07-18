@@ -14,10 +14,27 @@ namespace VMx.Forwarding;
 /// See spec/09-forwarding.md §ForwardingComponentVM and FWD-001/FWD-002 in spec/12-conformance.md.
 /// </summary>
 /// <typeparam name="M">The model type.</typeparam>
-public abstract class ForwardingComponentVM<M> : IComponentVM<M>, IDisposable
+public abstract class ForwardingComponentVM<M> : IComponentVM<M>, IComponentVMInternals, IDisposable
 {
     /// <summary>The wrapped instance that all members delegate to by default.</summary>
     protected readonly IComponentVM<M> _wrapped;
+    private IParentCompositeVM? _parent;
+
+    private sealed class ParentAdapter(
+        IParentCompositeVM parent,
+        ForwardingComponentVM<M> wrapper) : IParentCompositeVM
+    {
+        public IComponentVM? Owner => parent.Owner;
+        public IParentCompositeVM? OwnerParent => parent.OwnerParent;
+        public bool SupportsChildSelection => parent.SupportsChildSelection;
+        public IComponentVM? CurrentChild =>
+            ReferenceEquals(parent.CurrentChild, wrapper) ? wrapper._wrapped : parent.CurrentChild;
+        public void SelectChild(IComponentVM vm) => parent.SelectChild(wrapper);
+        public void DeselectChild(IComponentVM vm) => parent.DeselectChild(wrapper);
+        public bool ContainsChild(IComponentVM vm) => parent.ContainsChild(wrapper);
+        public ParentTransferToken DetachForTransfer(IComponentVM vm) =>
+            parent.DetachForTransfer(wrapper);
+    }
 
     /// <summary>Initialises the decorator with the instance to wrap.</summary>
     protected ForwardingComponentVM(IComponentVM<M> wrapped)
@@ -139,5 +156,17 @@ public abstract class ForwardingComponentVM<M> : IComponentVM<M>, IDisposable
     {
         _wrapped.Dispose();
     }
+
+    IParentCompositeVM? IComponentVMInternals.Parent => _parent;
+
+    void IComponentVMInternals.SetParent(IParentCompositeVM? parent)
+    {
+        _parent = parent;
+        _wrapped.SetParent(parent is null ? null : new ParentAdapter(parent, this));
+    }
+
+    void IComponentVMInternals.SetIsCurrent(bool value) => _wrapped.SetIsCurrent(value);
+
+    Task IComponentVMInternals.ConstructOrJoinAsync() => _wrapped.ConstructOrJoinAsync();
 }
 #pragma warning restore CA1051

@@ -120,7 +120,7 @@ linked spec chapters and ADRs.
 
 Each flavor implements the same conceptual stack:
 
-- **Spec** — `spec/` is the source of truth: 24 markdown chapters, 122 ADRs,
+- **Spec** — `spec/` is the source of truth: 24 markdown chapters, 123 ADRs,
   4 JSON fixtures, 400 conformance IDs, version pinned in `spec/VERSION`.
 - **Application code** — your host app instantiates VMs through builders.
 - **Forwarding decorators** *(optional)* — `ForwardingComponentVM` and
@@ -351,7 +351,7 @@ This README is the entry point; the documents below add focused detail.
   community guidelines.
 - [`compatibility-matrix.md`](compatibility-matrix.md) — spec ↔ flavor
   version pairing.
-- [`spec/README.md`](spec/README.md) — index of the 24 chapters, 122 ADRs,
+- [`spec/README.md`](spec/README.md) — index of the 24 chapters, 123 ADRs,
   4 fixtures, and the 400-ID conformance catalog.
 - [`spec/ADRs/README.md`](spec/ADRs/README.md) — ADR catalogue index.
 - [`docs/content/primitives/disposal-contract.md`](docs/content/primitives/disposal-contract.md)

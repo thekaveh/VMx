@@ -338,13 +338,9 @@ final class CompositeVMTests: XCTestCase {
     /// COMP-026 — `onCurrentChanged(callback)` fires synchronously after
     /// each `current` change.
     ///
-    /// Spec/12 COMP-026 phrases the scenario as `composite.select_component(b)`
-    /// then `composite.deselect_component(b)`. Swift's documented subset
-    /// (langs/swift/README.md §5 and ADR-0037) exposes selection via the
-    /// `IParentVM.selectChild` callback (`child.select()` delegates to it);
-    /// there is no public `selectComponent` / `canSelectComponent` surface in
-    /// Swift. Both code paths converge at `_setCurrent → onCurrentChanged?`,
-    /// so the callback-ordering invariant is identical.
+    /// The idiomatic `selectComponent` / `deselectComponent` surface and the
+    /// child-to-parent selection path converge at the same current-change
+    /// transaction, so callback ordering is identical.
     func testCOMP026OnCurrentChangedFiresAfterEachChange() throws {
         let a = leaf("a"); let b = leaf("b")
         var observed: [ComponentVM?] = []
@@ -391,16 +387,21 @@ final class CompositeVMTests: XCTestCase {
 
         let reentrantChild = leaf("reentrant")
         var reentrant: CompositeVM<ComponentVM>!
+        var callbackStatus: ConstructionStatus?
         reentrant = try CompositeVM<ComponentVM>.builder()
             .name("reentrant-composite")
             .withNullServices()
             .children { [reentrantChild] }
-            .onCurrentChanged { _ in reentrant.dispose() }
+            .onCurrentChanged { _ in
+                callbackStatus = reentrant.status
+                reentrant.dispose()
+            }
             .build()
         try reentrant.construct()
 
         reentrant.selectChild(reentrantChild)
 
+        XCTAssertEqual(callbackStatus, .constructed)
         XCTAssertEqual(reentrant.status, .disposed)
     }
 

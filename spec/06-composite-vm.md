@@ -160,7 +160,11 @@ validation and assignment are one membership-gated operation, and deferred
 selection revalidates membership when it executes. Selection publication and
 callbacks run while that transaction remains logically active but without
 holding a non-reentrant membership mutex, so same-thread disposal can defer and
-finish after the observable current change.
+finish after the observable current change. Cross-composite current changes use
+a shared re-entrant coordination lane so opposing callbacks cannot deadlock by
+acquiring two membership guards in reverse order. A callback observes the
+selected child still constructed; any deferred disposal cascade begins only
+after the callback returns.
 
 If any step after preflight fails, both memberships, `Parent`, `Current`, child
 current flags, lazy/builder population state, and the event stream MUST equal
@@ -168,6 +172,8 @@ their pre-call values. Bulk population rolls earlier transfers back in reverse
 order if a later child fails. Lifecycle compensation is attempted. If a
 consumer lifecycle hook makes compensation fail, that failure MUST be surfaced
 and MUST NOT be swallowed; exact lifecycle restoration is then not claimed.
+In particular, when this attempt auto-constructed a previously destructed child
+before admission failed, compensation destructs it back to its original state.
 Replacement rollback identifies the candidate by identity and MUST NOT mutate
 an unrelated member merely because the original index changed (ADR-0118).
 
@@ -195,6 +201,11 @@ the later disposal step failed.
 Adding an identity already present in the destination or creating a parent
 cycle fails without mutation. `Move` remains the only operation that reorders
 an existing child within one container.
+
+A forwarding component decorator is a valid child. The collection retains the
+decorator instance supplied by the caller, while parent ownership, lifecycle,
+current flags, and the built-in selection commands behave transparently through
+the wrapped component (ADR-0123).
 
 ## 5. Children construction orchestration
 

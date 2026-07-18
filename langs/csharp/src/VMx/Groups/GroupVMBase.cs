@@ -120,7 +120,12 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
                     RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
                         NotifyCollectionChangedAction.Remove, child, index));
                 }
-                finally { EndMembershipTransaction(); }
+                catch
+                {
+                    EndMembershipTransaction(propagateDisposeFailure: false);
+                    throw;
+                }
+                EndMembershipTransaction();
             },
             rollback: () =>
             {
@@ -158,6 +163,8 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
             BeginMembershipTransaction();
             ParentTransferToken? transfer = null;
             VM? old = null;
+            var propagateDisposeFailure = true;
+            var originalStatus = value.Status;
             try
             {
                 transfer = ComponentOwnership.BeginTransfer(value, this);
@@ -172,8 +179,10 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
                 MaybeAutoConstruct(value);
                 lock (_membershipGate) EnsureTransactionCanContinueLocked();
             }
-            catch
+            catch (Exception originalError)
             {
+                propagateDisposeFailure = false;
+                var rollbackFailures = new List<Exception>();
                 lock (_membershipGate)
                 {
                     if (old is not null && _children.Any(child => ReferenceEquals(child, value)))
@@ -185,8 +194,18 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
                         value.SetParent(null);
                     }
                 }
+                if (originalStatus == ConstructionStatus.Destructed &&
+                    value.Status == ConstructionStatus.Constructed)
+                {
+                    try { value.DestructAsync().GetAwaiter().GetResult(); }
+                    catch (Exception error) { rollbackFailures.Add(error); }
+                }
                 try { transfer?.Rollback(); }
-                finally { EndMembershipTransaction(); }
+                catch (Exception error) { rollbackFailures.Add(error); }
+                if (rollbackFailures.Count > 0)
+                    throw new AggregateException(
+                        "Group replacement failed and rollback could not restore lifecycle state.",
+                        new[] { originalError }.Concat(rollbackFailures));
                 throw;
             }
             try
@@ -199,7 +218,12 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
                         NotifyCollectionChangedAction.Add, value, index));
                 });
             }
-            finally { EndMembershipTransaction(); }
+            catch
+            {
+                propagateDisposeFailure = false;
+                throw;
+            }
+            finally { EndMembershipTransaction(propagateDisposeFailure); }
         }
     }
 
@@ -211,6 +235,7 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
         BeginMembershipTransaction();
         ParentTransferToken? transfer = null;
         var attached = false;
+        var originalStatus = item.Status;
         int idx;
         try
         {
@@ -226,8 +251,9 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
             MaybeAutoConstruct(item);
             lock (_membershipGate) EnsureTransactionCanContinueLocked();
         }
-        catch
+        catch (Exception originalError)
         {
+            var rollbackFailures = new List<Exception>();
             lock (_membershipGate)
             {
                 var attachedIndex = attached
@@ -239,8 +265,19 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
                     item.SetParent(null);
                 }
             }
+            if (originalStatus == ConstructionStatus.Destructed &&
+                item.Status == ConstructionStatus.Constructed)
+            {
+                try { item.DestructAsync().GetAwaiter().GetResult(); }
+                catch (Exception error) { rollbackFailures.Add(error); }
+            }
             try { transfer?.Rollback(); }
-            finally { EndMembershipTransaction(); }
+            catch (Exception error) { rollbackFailures.Add(error); }
+            EndMembershipTransaction(propagateDisposeFailure: false);
+            if (rollbackFailures.Count > 0)
+                throw new AggregateException(
+                    "Group attachment failed and rollback could not restore lifecycle state.",
+                    new[] { originalError }.Concat(rollbackFailures));
             throw;
         }
         try
@@ -249,7 +286,12 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
                 RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
                     NotifyCollectionChangedAction.Add, item, idx)));
         }
-        finally { EndMembershipTransaction(); }
+        catch
+        {
+            EndMembershipTransaction(propagateDisposeFailure: false);
+            throw;
+        }
+        EndMembershipTransaction();
     }
 
     /// <inheritdoc/>
@@ -275,6 +317,7 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
         BeginMembershipTransaction();
         ParentTransferToken? transfer = null;
         var attached = false;
+        var originalStatus = item.Status;
         try
         {
             transfer = ComponentOwnership.BeginTransfer(item, this);
@@ -290,8 +333,9 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
             MaybeAutoConstruct(item);
             lock (_membershipGate) EnsureTransactionCanContinueLocked();
         }
-        catch
+        catch (Exception originalError)
         {
+            var rollbackFailures = new List<Exception>();
             lock (_membershipGate)
             {
                 var attachedIndex = attached
@@ -303,8 +347,19 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
                     item.SetParent(null);
                 }
             }
+            if (originalStatus == ConstructionStatus.Destructed &&
+                item.Status == ConstructionStatus.Constructed)
+            {
+                try { item.DestructAsync().GetAwaiter().GetResult(); }
+                catch (Exception error) { rollbackFailures.Add(error); }
+            }
             try { transfer?.Rollback(); }
-            finally { EndMembershipTransaction(); }
+            catch (Exception error) { rollbackFailures.Add(error); }
+            EndMembershipTransaction(propagateDisposeFailure: false);
+            if (rollbackFailures.Count > 0)
+                throw new AggregateException(
+                    "Group attachment failed and rollback could not restore lifecycle state.",
+                    new[] { originalError }.Concat(rollbackFailures));
             throw;
         }
         try
@@ -313,7 +368,12 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
                 RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
                     NotifyCollectionChangedAction.Add, item, index)));
         }
-        finally { EndMembershipTransaction(); }
+        catch
+        {
+            EndMembershipTransaction(propagateDisposeFailure: false);
+            throw;
+        }
+        EndMembershipTransaction();
     }
 
     /// <inheritdoc/>
@@ -544,7 +604,7 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
                     catch (Exception error) { rollbackFailures.Add(error); }
                 }
             }
-            finally { EndMembershipTransaction(); }
+            finally { EndMembershipTransaction(propagateDisposeFailure: false); }
             if (rollbackFailures.Count > 0)
                 throw new AggregateException(
                     "Group population failed and rollback could not restore lifecycle state.",
@@ -566,7 +626,12 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
                 }
             });
         }
-        finally { EndMembershipTransaction(); }
+        catch
+        {
+            EndMembershipTransaction(propagateDisposeFailure: false);
+            throw;
+        }
+        EndMembershipTransaction();
     }
 
     /// <summary>

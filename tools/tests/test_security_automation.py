@@ -69,6 +69,7 @@ def test_weekly_audit_covers_every_committed_lock_family() -> None:
         '      - "**/pyproject.toml"',
         '      - "**/uv.lock"',
         '      - "**/*.csproj"',
+        '      - "**/Directory.Packages.props"',
         '      - "**/packages.lock.json"',
         '      - "docs/requirements.in"',
         '      - "docs/requirements.txt"',

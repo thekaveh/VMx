@@ -12,6 +12,7 @@ See spec/07-group-vm.md.
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Callable, Iterable, Iterator
 from threading import Condition, RLock, get_ident
 from typing import Generic, TypeVar
@@ -162,6 +163,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         self._begin_membership_transaction()
         transfer: _ParentTransfer | None = None
         old: VM | None = None
+        original_status = value.status
         try:
             transfer = _begin_parent_transfer(value, parent)
             with self._membership_gate:
@@ -174,7 +176,8 @@ class GroupVM(Generic[VM], _ComponentVMBase):
             self._maybe_auto_construct(value)
             with self._membership_gate:
                 self._require_transaction_can_continue_locked()
-        except BaseException:
+        except BaseException as original_error:
+            compensation_error: BaseException | None = None
             with self._membership_gate:
                 if old is not None and any(child is value for child in self._children):
                     actual_index = next(
@@ -183,8 +186,18 @@ class GroupVM(Generic[VM], _ComponentVMBase):
                     self._children[actual_index] = old
                     old._set_parent(parent)
                     value._set_parent(None)
+            if (
+                original_status is ConstructionStatus.DESTRUCTED
+                and value.status is ConstructionStatus.CONSTRUCTED
+            ):
+                try:
+                    value.destruct()
+                except BaseException as error:
+                    compensation_error = error
             if transfer is not None:
                 transfer.rollback()
+            if compensation_error is not None:
+                raise compensation_error from original_error
             raise
         else:
             commit_error = _commit_parent_transfer(transfer)
@@ -197,7 +210,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
             if commit_error is not None:
                 raise commit_error
         finally:
-            self._end_membership_transaction()
+            self._end_membership_transaction(propagate_dispose_failure=sys.exc_info()[0] is None)
 
     def __delitem__(self, index: int) -> None:
         self.remove_at(index)
@@ -219,6 +232,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         self._begin_membership_transaction()
         transfer: _ParentTransfer | None = None
         attached = False
+        original_status = item.status
         try:
             transfer = _begin_parent_transfer(item, parent)
             with self._membership_gate:
@@ -233,13 +247,24 @@ class GroupVM(Generic[VM], _ComponentVMBase):
             self._maybe_auto_construct(item)
             with self._membership_gate:
                 self._require_transaction_can_continue_locked()
-        except BaseException:
+        except BaseException as original_error:
+            compensation_error: BaseException | None = None
             with self._membership_gate:
                 if attached and any(child is item for child in self._children):
                     self._children.remove(item)
                     item._set_parent(None)
+            if (
+                original_status is ConstructionStatus.DESTRUCTED
+                and item.status is ConstructionStatus.CONSTRUCTED
+            ):
+                try:
+                    item.destruct()
+                except BaseException as error:
+                    compensation_error = error
             if transfer is not None:
                 transfer.rollback()
+            if compensation_error is not None:
+                raise compensation_error from original_error
             raise
         else:
             commit_error = _commit_parent_transfer(transfer)
@@ -249,7 +274,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
             if commit_error is not None:
                 raise commit_error
         finally:
-            self._end_membership_transaction()
+            self._end_membership_transaction(propagate_dispose_failure=sys.exc_info()[0] is None)
 
     def add(self, item: VM) -> None:
         """Append *item* to the end of the children list."""
@@ -257,6 +282,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         self._begin_membership_transaction()
         transfer: _ParentTransfer | None = None
         attached = False
+        original_status = item.status
         try:
             transfer = _begin_parent_transfer(item, parent)
             with self._membership_gate:
@@ -268,13 +294,24 @@ class GroupVM(Generic[VM], _ComponentVMBase):
             self._maybe_auto_construct(item)
             with self._membership_gate:
                 self._require_transaction_can_continue_locked()
-        except BaseException:
+        except BaseException as original_error:
+            compensation_error: BaseException | None = None
             with self._membership_gate:
                 if attached and any(child is item for child in self._children):
                     self._children.remove(item)
                     item._set_parent(None)
+            if (
+                original_status is ConstructionStatus.DESTRUCTED
+                and item.status is ConstructionStatus.CONSTRUCTED
+            ):
+                try:
+                    item.destruct()
+                except BaseException as error:
+                    compensation_error = error
             if transfer is not None:
                 transfer.rollback()
+            if compensation_error is not None:
+                raise compensation_error from original_error
             raise
         else:
             commit_error = _commit_parent_transfer(transfer)
@@ -284,7 +321,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
             if commit_error is not None:
                 raise commit_error
         finally:
-            self._end_membership_transaction()
+            self._end_membership_transaction(propagate_dispose_failure=sys.exc_info()[0] is None)
 
     # Alias: append mirrors Python list convention.
     append = add
@@ -549,7 +586,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
             if commit_error is not None:
                 raise commit_error
         finally:
-            self._end_membership_transaction()
+            self._end_membership_transaction(propagate_dispose_failure=sys.exc_info()[0] is None)
 
     # ── Internal helpers ─────────────────────────────────────────────────────
 
@@ -665,7 +702,9 @@ class _GroupParent(_ParentCompositeVM, Generic[VM]):
                     CollectionChangedEvent(action="remove", old_items=(child,), old_index=index)
                 )
             finally:
-                self._group._end_membership_transaction()
+                self._group._end_membership_transaction(
+                    propagate_dispose_failure=sys.exc_info()[0] is None
+                )
 
         def rollback() -> None:
             try:

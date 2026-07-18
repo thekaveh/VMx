@@ -4,7 +4,7 @@
 
 use super::{
     ComponentVm, CompositeVm, ConstructionStatus, Dispatcher, MessageHub, NullDispatcher,
-    PropertyChangedStream, RelayCommand, VmNode, VmxResult,
+    ParentHandle, PropertyChangedStream, RelayCommand, VmNode, VmxResult,
 };
 
 #[derive(Clone)]
@@ -137,6 +137,62 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ForwardingComponentVm
         self.inner.notify_property_changed(property_name);
     }
 }
+
+impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> VmNode for ForwardingComponentVm<M, D> {
+    fn id(&self) -> usize {
+        self.inner.id()
+    }
+
+    fn construct(&self) -> VmxResult<()> {
+        self.inner.construct()
+    }
+
+    fn destruct(&self) -> VmxResult<()> {
+        self.inner.destruct()
+    }
+
+    fn dispose(&self) -> VmxResult<()> {
+        self.inner.dispose()
+    }
+
+    fn status(&self) -> ConstructionStatus {
+        self.inner.status()
+    }
+
+    fn set_parent_id(&self, parent_id: Option<usize>) {
+        self.inner.set_parent_id(parent_id);
+    }
+
+    fn parent_id(&self) -> Option<usize> {
+        self.inner.parent_id()
+    }
+
+    fn set_parent_handle(&self, parent: Option<ParentHandle>) {
+        self.inner.set_parent_handle(parent);
+    }
+
+    fn parent_handle(&self) -> Option<ParentHandle> {
+        self.inner.parent_handle()
+    }
+
+    fn set_current_flag(&self, is_current: bool) {
+        self.inner.set_current_flag(is_current);
+    }
+
+    fn is_current(&self) -> bool {
+        self.inner.is_current()
+    }
+}
+
+impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> PartialEq
+    for ForwardingComponentVm<M, D>
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.inner == other.inner
+    }
+}
+
+impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> Eq for ForwardingComponentVm<M, D> {}
 
 #[derive(Clone)]
 /// A composite wrapper that forwards collection, selection, and lifecycle behavior.

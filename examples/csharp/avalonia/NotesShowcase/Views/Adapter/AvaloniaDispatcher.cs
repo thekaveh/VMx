@@ -17,7 +17,7 @@ namespace NotesShowcase.Views.Adapter;
 /// <para>
 /// VMx C# does not declare a separate <c>IRxDispatcher</c>; the contract is
 /// <see cref="IDispatcher"/> (foreground + background <see cref="IScheduler"/>).
-/// The Phase 4.a plan's "IRxDispatcher" sketch refers to the Python/TS naming;
+/// Earlier cross-flavor sketches used the Python/TypeScript "IRxDispatcher" naming;
 /// in C# the interface is <see cref="IDispatcher"/>.
 /// </para>
 /// </summary>

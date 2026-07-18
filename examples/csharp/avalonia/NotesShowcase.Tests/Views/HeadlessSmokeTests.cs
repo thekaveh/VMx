@@ -32,7 +32,7 @@ public sealed class HeadlessSmokeTests
     [AvaloniaFact]
     public async Task Editing_NoteFormVM_Title_Flips_Dirty_And_Enables_Save()
     {
-        // End-to-end Phase 5.a binding gap #1: the two-way bound TextBox on
+        // End-to-end two-way binding contract: the bound TextBox on
         // NoteFormView pushes edits through ``NoteFormVM.Title``; that flips
         // IsDirty and re-fires ApproveCommand.CanExecuteChanged so the Save
         // button enables. We assert the VM-level surface here (the XAML

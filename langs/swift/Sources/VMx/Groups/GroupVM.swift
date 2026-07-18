@@ -209,7 +209,9 @@ open class GroupVM<Child: ComponentVMBase>:
     }
 
     public func add(_ child: Child) {
-        _ = addResult(child)
+        if case let .failure(error) = addResult(child) {
+            assertionFailure("GroupVM.add failed — \(error)")
+        }
     }
 
     @discardableResult
@@ -221,6 +223,7 @@ open class GroupVM<Child: ComponentVMBase>:
             return .failure(.attachmentFailed(error))
         }
         defer { endMembershipTransaction() }
+        let originalStatus = child.status
         let transfer: ParentTransfer?
         do {
             transfer = try beginParentTransfer(child, to: groupParent, transaction: transaction)
@@ -273,7 +276,14 @@ open class GroupVM<Child: ComponentVMBase>:
                     child._ownershipParent = nil
                 }
             }
+            var compensationError: Error?
+            if originalStatus == .destructed && child.status == .constructed {
+                do { try child.destruct() } catch { compensationError = error }
+            }
             transfer?.rollback()
+            if let compensationError {
+                return .failure(.attachmentFailed(compensationError))
+            }
             return .failure(.attachmentFailed(error))
         }
         transfer?.commit()
@@ -306,6 +316,7 @@ open class GroupVM<Child: ComponentVMBase>:
             return .failure(.attachmentFailed(error))
         }
         defer { endMembershipTransaction() }
+        let originalStatus = child.status
         let childCount = membershipGate.withLock { children.count }
         guard index >= 0 && index <= childCount else {
             return .failure(.attachmentFailed(VMCollectionIndexError(index: index, count: childCount)))
@@ -357,7 +368,14 @@ open class GroupVM<Child: ComponentVMBase>:
                     child._ownershipParent = nil
                 }
             }
+            var compensationError: Error?
+            if originalStatus == .destructed && child.status == .constructed {
+                do { try child.destruct() } catch { compensationError = error }
+            }
             transfer?.rollback()
+            if let compensationError {
+                return .failure(.attachmentFailed(compensationError))
+            }
             return .failure(.attachmentFailed(error))
         }
         transfer?.commit()
@@ -416,6 +434,7 @@ open class GroupVM<Child: ComponentVMBase>:
             return .failure(.attachmentFailed(error))
         }
         defer { endMembershipTransaction() }
+        let originalStatus = child.status
         let childCount = membershipGate.withLock { children.count }
         guard index >= 0 && index < childCount else {
             return .failure(.attachmentFailed(VMCollectionIndexError(index: index, count: childCount)))
@@ -474,7 +493,14 @@ open class GroupVM<Child: ComponentVMBase>:
                     child._ownershipParent = nil
                 }
             }
+            var compensationError: Error?
+            if originalStatus == .destructed && child.status == .constructed {
+                do { try child.destruct() } catch { compensationError = error }
+            }
             transfer?.rollback()
+            if let compensationError {
+                return .failure(.attachmentFailed(compensationError))
+            }
             return .failure(.attachmentFailed(error))
         }
         transfer?.commit()

@@ -44,6 +44,22 @@ public class CompositeVMConformanceTests
             throw new InvalidOperationException("dispose failure");
     }
 
+    private sealed class DisposeFailingComposite(
+        string name,
+        TestHub hub,
+        TestDispatcher dispatcher,
+        bool autoConstructOnAdd = false)
+        : CompositeVMBase<ComponentVM<string>>(
+            name, "", hub, dispatcher, false, autoConstructOnAdd,
+            null, null, null, null)
+    {
+        protected override void OnDispose()
+        {
+            base.OnDispose();
+            throw new InvalidOperationException("destination dispose failure");
+        }
+    }
+
     // ── Factory helpers ──────────────────────────────────────────────────────
 
     private static (CompositeVM<ComponentVM<string>> composite, TestHub hub, TestDispatcher dispatcher)
@@ -559,17 +575,111 @@ public class CompositeVMConformanceTests
         CompositeVM<ComponentVM<string>>? reentrant = null;
         var reentrantHub = new TestHub();
         var reentrantChild = BuildChild(reentrantHub, dispatcher, "reentrant");
+        var callbackStatuses = new List<ConstructionStatus>();
         reentrant = CompositeVM<ComponentVM<string>>.Builder()
             .Name("reentrant-composite")
             .Services(reentrantHub, dispatcher)
             .Children(() => new[] { reentrantChild })
-            .OnCurrentChanged(_ => reentrant!.Dispose())
+            .OnCurrentChanged(_ =>
+            {
+                reentrant!.Dispose();
+                callbackStatuses.Add(reentrant.Status);
+            })
             .Build();
         reentrant.Construct();
 
         reentrant.SelectComponent(reentrantChild);
 
+        callbackStatuses.Should().Equal(ConstructionStatus.Constructed);
         reentrant.Status.Should().Be(ConstructionStatus.Disposed);
+    }
+
+    [Fact, Trait("Conformance", "COMP-026")]
+    public async Task COMP_026_Opposing_Current_Callbacks_Do_Not_Deadlock()
+    {
+        var dispatcher = new TestDispatcher();
+        using var barrier = new Barrier(2);
+        CompositeVM<ComponentVM<string>>? compositeA = null;
+        CompositeVM<ComponentVM<string>>? compositeB = null;
+        var hubA = new TestHub();
+        var hubB = new TestHub();
+        var childA = BuildChild(hubA, dispatcher, "a");
+        var childB = BuildChild(hubB, dispatcher, "b");
+        var firstA = 1;
+        var firstB = 1;
+
+        compositeA = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("a").Services(hubA, dispatcher).Children(() => [childA])
+            .OnCurrentChanged(_ =>
+            {
+                if (Interlocked.Exchange(ref firstA, 0) == 0) return;
+                barrier.SignalAndWait(TimeSpan.FromMilliseconds(100));
+                if (!ReferenceEquals(compositeB!.Current, childB))
+                    compositeB.SelectComponent(childB);
+            }).Build();
+        compositeB = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("b").Services(hubB, dispatcher).Children(() => [childB])
+            .OnCurrentChanged(_ =>
+            {
+                if (Interlocked.Exchange(ref firstB, 0) == 0) return;
+                barrier.SignalAndWait(TimeSpan.FromMilliseconds(100));
+                if (!ReferenceEquals(compositeA!.Current, childA))
+                    compositeA.SelectComponent(childA);
+            }).Build();
+        compositeA.Construct();
+        compositeB.Construct();
+
+        var taskA = Task.Run(() => compositeA.SelectComponent(childA));
+        var taskB = Task.Run(() => compositeB.SelectComponent(childB));
+        await Task.WhenAll(taskA, taskB).WaitAsync(TimeSpan.FromSeconds(2));
+
+        compositeA.Current.Should().BeSameAs(childA);
+        compositeB.Current.Should().BeSameAs(childB);
+    }
+
+    [Fact]
+    public void Auto_Construct_Rollback_Destructs_Child_After_Destination_Disposal()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        CompositeVM<ComponentVM<string>>? destination = null;
+        var child = ComponentVM<string>.Builder().Name("child")
+            .Services(hub, dispatcher).Model("m")
+            .OnConstruct(() => destination!.Dispose()).Build();
+        destination = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("destination").Services(hub, dispatcher)
+            .Children(() => []).AutoConstructOnAdd(true).Build();
+        destination.Construct();
+
+        Action add = () => destination.Add(child);
+
+        add.Should().Throw<ObjectDisposedException>();
+        destination.Should().BeEmpty();
+        child.Status.Should().Be(ConstructionStatus.Destructed);
+        destination.Status.Should().Be(ConstructionStatus.Disposed);
+    }
+
+    [Fact]
+    public void Attachment_Error_Precedes_Destination_Deferred_Disposal_Error()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var destination = new DisposeFailingComposite(
+            "destination", hub, dispatcher, autoConstructOnAdd: true);
+        var child = ComponentVM<string>.Builder().Name("child")
+            .Services(hub, dispatcher).Model("m")
+            .OnConstruct(() =>
+            {
+                destination.Dispose();
+                throw new InvalidOperationException("attachment failure");
+            }).Build();
+        destination.Construct();
+
+        Action add = () => destination.Add(child);
+
+        add.Should().Throw<InvalidOperationException>().WithMessage("attachment failure");
+        destination.Status.Should().Be(ConstructionStatus.Disposed);
+        destination.Should().BeEmpty();
     }
 
     // ── COMP-027 — Add sets child Parent; Remove clears it ───────────────────

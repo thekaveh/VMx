@@ -122,6 +122,7 @@ export class GroupVM<VM extends ComponentVMBase>
     const idx = this._children.length;
     let transfer: ParentTransfer | null = null;
     let attached = false;
+    const originalStatus = item.status;
     try {
       transfer = beginParentTransfer(item, this.#groupParent);
       this.#requireTransactionCanContinue();
@@ -131,12 +132,24 @@ export class GroupVM<VM extends ComponentVMBase>
       this._maybeAutoConstruct(item);
       this.#requireTransactionCanContinue();
     } catch (error) {
+      let compensationError: unknown;
       if (attached) {
         const index = this._children.indexOf(item);
         if (index >= 0) this._children.splice(index, 1);
         if (item._parent === this.#groupParent) item._parent = null;
       }
-      try { transfer?.rollback(); } finally { this.#endMembershipTransaction(); }
+      if (
+        originalStatus === ConstructionStatus.Destructed &&
+        item.status === ConstructionStatus.Constructed
+      ) {
+        try { item.destruct(); } catch (rollbackError) {
+          compensationError = rollbackError;
+        }
+      }
+      try { transfer?.rollback(); } finally { this.#endMembershipTransaction(false); }
+      if (compensationError !== undefined) {
+        throw new ContainerRollbackError(error, compensationError);
+      }
       throw error;
     }
     const commitError = captureParentTransferCommit(transfer);
@@ -145,7 +158,11 @@ export class GroupVM<VM extends ComponentVMBase>
         makeCollectionChangedEvent("add", { newItems: [item], newIndex: idx }),
       );
       if (commitError !== undefined) throw commitError;
-    } finally { this.#endMembershipTransaction(); }
+    } catch (error) {
+      this.#endMembershipTransaction(false);
+      throw error;
+    }
+    this.#endMembershipTransaction();
   }
 
   insert(index: number, item: VM): void {
@@ -158,6 +175,7 @@ export class GroupVM<VM extends ComponentVMBase>
     }
     let transfer: ParentTransfer | null = null;
     let attached = false;
+    const originalStatus = item.status;
     try {
       transfer = beginParentTransfer(item, this.#groupParent);
       this.#requireTransactionCanContinue();
@@ -167,12 +185,24 @@ export class GroupVM<VM extends ComponentVMBase>
       this._maybeAutoConstruct(item);
       this.#requireTransactionCanContinue();
     } catch (error) {
+      let compensationError: unknown;
       if (attached) {
         const actual = this._children.indexOf(item);
         if (actual >= 0) this._children.splice(actual, 1);
         if (item._parent === this.#groupParent) item._parent = null;
       }
-      try { transfer?.rollback(); } finally { this.#endMembershipTransaction(); }
+      if (
+        originalStatus === ConstructionStatus.Destructed &&
+        item.status === ConstructionStatus.Constructed
+      ) {
+        try { item.destruct(); } catch (rollbackError) {
+          compensationError = rollbackError;
+        }
+      }
+      try { transfer?.rollback(); } finally { this.#endMembershipTransaction(false); }
+      if (compensationError !== undefined) {
+        throw new ContainerRollbackError(error, compensationError);
+      }
       throw error;
     }
     const commitError = captureParentTransferCommit(transfer);
@@ -181,7 +211,11 @@ export class GroupVM<VM extends ComponentVMBase>
         makeCollectionChangedEvent("add", { newItems: [item], newIndex: index }),
       );
       if (commitError !== undefined) throw commitError;
-    } finally { this.#endMembershipTransaction(); }
+    } catch (error) {
+      this.#endMembershipTransaction(false);
+      throw error;
+    }
+    this.#endMembershipTransaction();
   }
 
   remove(item: VM): boolean {
@@ -213,6 +247,7 @@ export class GroupVM<VM extends ComponentVMBase>
     }
     let transfer: ParentTransfer | null = null;
     let attached = false;
+    const originalStatus = value.status;
     try {
       transfer = beginParentTransfer(value, this.#groupParent);
       this.#requireTransactionCanContinue();
@@ -223,13 +258,25 @@ export class GroupVM<VM extends ComponentVMBase>
       this._maybeAutoConstruct(value);
       this.#requireTransactionCanContinue();
     } catch (error) {
+      let compensationError: unknown;
       if (attached) {
         const actual = this._children.indexOf(value);
         if (actual >= 0) this._children[actual] = old;
         old._parent = this.#groupParent;
         if (value._parent === this.#groupParent) value._parent = null;
       }
-      try { transfer?.rollback(); } finally { this.#endMembershipTransaction(); }
+      if (
+        originalStatus === ConstructionStatus.Destructed &&
+        value.status === ConstructionStatus.Constructed
+      ) {
+        try { value.destruct(); } catch (rollbackError) {
+          compensationError = rollbackError;
+        }
+      }
+      try { transfer?.rollback(); } finally { this.#endMembershipTransaction(false); }
+      if (compensationError !== undefined) {
+        throw new ContainerRollbackError(error, compensationError);
+      }
       throw error;
     }
     const commitError = captureParentTransferCommit(transfer);
@@ -241,7 +288,11 @@ export class GroupVM<VM extends ComponentVMBase>
         makeCollectionChangedEvent("add", { newItems: [value], newIndex: index }),
       );
       if (commitError !== undefined) throw commitError;
-    } finally { this.#endMembershipTransaction(); }
+    } catch (error) {
+      this.#endMembershipTransaction(false);
+      throw error;
+    }
+    this.#endMembershipTransaction();
   }
 
   clear(): void {
@@ -310,12 +361,16 @@ export class GroupVM<VM extends ComponentVMBase>
     const child = this._children[index] as VM;
     this._children.splice(index, 1);
     return new ParentTransfer(
-      () => {
-        try {
-          this._emitCollectionChanged(
-            makeCollectionChangedEvent("remove", { oldItems: [child], oldIndex: index }),
-          );
-        } finally { this.#endMembershipTransaction(); }
+        () => {
+          try {
+            this._emitCollectionChanged(
+              makeCollectionChangedEvent("remove", { oldItems: [child], oldIndex: index }),
+            );
+          } catch (error) {
+            this.#endMembershipTransaction(false);
+            throw error;
+          }
+          this.#endMembershipTransaction();
       },
       () => {
         try {
@@ -457,7 +512,7 @@ export class GroupVM<VM extends ComponentVMBase>
       }
       try {
         for (const transfer of [...transfers].reverse()) transfer.rollback();
-      } finally { this.#endMembershipTransaction(); }
+      } finally { this.#endMembershipTransaction(false); }
       if (compensationError !== undefined) {
         throw new ContainerRollbackError(error, compensationError);
       }
@@ -479,7 +534,11 @@ export class GroupVM<VM extends ComponentVMBase>
         );
       });
       if (commitError !== undefined) throw commitError;
-    } finally { this.#endMembershipTransaction(); }
+    } catch (error) {
+      this.#endMembershipTransaction(false);
+      throw error;
+    }
+    this.#endMembershipTransaction();
   }
 
   static builder<VM extends ComponentVMBase>(): GroupVMBuilder<VM> {

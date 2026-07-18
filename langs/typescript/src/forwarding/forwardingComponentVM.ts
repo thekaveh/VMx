@@ -9,14 +9,63 @@
 import type { Observable } from "rxjs";
 import type { ConstructionStatus } from "../lifecycle/status.js";
 import type { IComponentVMOf, ViewModelType } from "../components/types.js";
-import type { ICommand } from "../commands/types.js";
+import { RelayCommand } from "../commands/relayCommand.js";
 import type { IMessageHub } from "../services/messageHub.js";
+import {
+  ComponentVMBase,
+  type IOwningParentVM,
+  ParentTransfer,
+} from "../components/componentVMBase.js";
+import { NullDispatcher } from "../services/nullDispatcher.js";
 
-export class ForwardingComponentVM<M> implements IComponentVMOf<M> {
+class ForwardingParent<M> implements IOwningParentVM {
+  constructor(
+    private readonly parent: IOwningParentVM,
+    private readonly wrapper: ForwardingComponentVM<M>,
+  ) {}
+
+  get owner(): ComponentVMBase { return this.parent.owner; }
+  get ownerParent(): IOwningParentVM | null { return this.parent.ownerParent; }
+  get supportsChildSelection(): boolean { return this.parent.supportsChildSelection; }
+  get currentChild(): ComponentVMBase | null {
+    return this.parent.currentChild === this.wrapper
+      ? this.wrapper.wrappedBase
+      : this.parent.currentChild;
+  }
+  selectChild(_vm: ComponentVMBase): void { this.parent.selectChild(this.wrapper); }
+  deselectChild(_vm: ComponentVMBase): void { this.parent.deselectChild(this.wrapper); }
+  containsChild(_vm: ComponentVMBase): boolean { return this.parent.containsChild(this.wrapper); }
+  detachForTransfer(_vm: ComponentVMBase): ParentTransfer {
+    return this.parent.detachForTransfer(this.wrapper);
+  }
+}
+
+export class ForwardingComponentVM<M> extends ComponentVMBase implements IComponentVMOf<M> {
   protected readonly _wrapped: IComponentVMOf<M>;
 
   constructor(wrapped: IComponentVMOf<M>) {
+    super({
+      name: wrapped.name,
+      hint: wrapped.hint,
+      hub: wrapped.hub,
+      dispatcher: NullDispatcher.INSTANCE,
+    });
     this._wrapped = wrapped;
+  }
+
+  get wrappedBase(): ComponentVMBase {
+    if (!(this._wrapped instanceof ComponentVMBase)) {
+      throw new TypeError("A forwarding container child must wrap a VMx ComponentVMBase");
+    }
+    return this._wrapped;
+  }
+
+  override get _parent(): IOwningParentVM | null { return super._parent; }
+  override set _parent(parent: IOwningParentVM | null) {
+    super._parent = parent;
+    if (this._wrapped instanceof ComponentVMBase) {
+      this._wrapped._parent = parent === null ? null : new ForwardingParent(parent, this);
+    }
   }
 
   get name(): string { return this._wrapped.name; }
@@ -34,11 +83,17 @@ export class ForwardingComponentVM<M> implements IComponentVMOf<M> {
   get modeledHint(): string { return this._wrapped.modeledHint; }
   republishModel(): void { this._wrapped.republishModel(); }
   get propertyChanged(): Observable<string> { return this._wrapped.propertyChanged; }
-  get selectCommand(): ICommand { return this._wrapped.selectCommand; }
-  get deselectCommand(): ICommand { return this._wrapped.deselectCommand; }
-  get selectNextCommand(): ICommand { return this._wrapped.selectNextCommand; }
-  get selectPreviousCommand(): ICommand { return this._wrapped.selectPreviousCommand; }
-  get reconstructCommand(): ICommand { return this._wrapped.reconstructCommand; }
+  get selectCommand(): RelayCommand { return this._wrapped.selectCommand as RelayCommand; }
+  get deselectCommand(): RelayCommand { return this._wrapped.deselectCommand as RelayCommand; }
+  get selectNextCommand(): RelayCommand { return this._wrapped.selectNextCommand as RelayCommand; }
+  get selectPreviousCommand(): RelayCommand {
+    return this._wrapped.selectPreviousCommand as RelayCommand;
+  }
+  get reconstructCommand(): RelayCommand { return this._wrapped.reconstructCommand as RelayCommand; }
+
+  override _setIsCurrent(value: boolean): void {
+    if (this._wrapped instanceof ComponentVMBase) this._wrapped._setIsCurrent(value);
+  }
 
   canConstruct(): boolean { return this._wrapped.canConstruct(); }
   construct(): void { this._wrapped.construct(); }

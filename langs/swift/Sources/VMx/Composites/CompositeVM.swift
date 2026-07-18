@@ -331,7 +331,9 @@ open class CompositeVM<Child: ComponentVMBase>:
     }
 
     public func add(_ child: Child) {
-        _ = addResult(child)
+        if case let .failure(error) = addResult(child) {
+            assertionFailure("CompositeVM.add failed — \(error)")
+        }
     }
 
     @discardableResult
@@ -343,6 +345,7 @@ open class CompositeVM<Child: ComponentVMBase>:
             return .failure(.attachmentFailed(error))
         }
         defer { endMembershipTransaction() }
+        let originalStatus = child.status
         let transfer: ParentTransfer?
         do {
             transfer = try beginParentTransfer(child, to: self, transaction: transaction)
@@ -395,7 +398,14 @@ open class CompositeVM<Child: ComponentVMBase>:
                     child._ownershipParent = nil
                 }
             }
+            var compensationError: Error?
+            if originalStatus == .destructed && child.status == .constructed {
+                do { try child.destruct() } catch { compensationError = error }
+            }
             transfer?.rollback()
+            if let compensationError {
+                return .failure(.attachmentFailed(compensationError))
+            }
             return .failure(.attachmentFailed(error))
         }
         // Commit the old-parent removal before publishing the destination add.
@@ -429,6 +439,7 @@ open class CompositeVM<Child: ComponentVMBase>:
             return .failure(.attachmentFailed(error))
         }
         defer { endMembershipTransaction() }
+        let originalStatus = child.status
         let childCount = membershipGate.withLock { children.count }
         guard index >= 0 && index <= childCount else {
             return .failure(.attachmentFailed(VMCollectionIndexError(index: index, count: childCount)))
@@ -480,7 +491,14 @@ open class CompositeVM<Child: ComponentVMBase>:
                     child._ownershipParent = nil
                 }
             }
+            var compensationError: Error?
+            if originalStatus == .destructed && child.status == .constructed {
+                do { try child.destruct() } catch { compensationError = error }
+            }
             transfer?.rollback()
+            if let compensationError {
+                return .failure(.attachmentFailed(compensationError))
+            }
             return .failure(.attachmentFailed(error))
         }
         transfer?.commit()
@@ -489,8 +507,9 @@ open class CompositeVM<Child: ComponentVMBase>:
     }
 
     public func remove(_ child: Child) -> Bool {
+        guard (try? beginMembershipTransaction()) != nil else { return false }
+        defer { endMembershipTransaction() }
         let removed: (Child, Int, Bool)? = membershipGate.withLock {
-            guard !membershipTransactionActive else { return nil }
             guard let index = children.firstIndex(where: { $0 === child }) else { return nil }
             let item = children.remove(at: index)
             if item._ownershipParent === self {
@@ -499,18 +518,18 @@ open class CompositeVM<Child: ComponentVMBase>:
             }
             let wasCurrent = _current === item
             if wasCurrent { _current = nil }
-            if wasCurrent { _finishCurrentChange(from: item, to: nil) }
             return (item, index, wasCurrent)
         }
         guard let (item, index, wasCurrent) = removed else { return false }
-        _ = wasCurrent
+        if wasCurrent { _finishCurrentChange(from: item, to: nil) }
         emit(.removed(item, at: index))
         return true
     }
 
     public func removeAt(_ index: Int) {
+        guard (try? beginMembershipTransaction()) != nil else { return }
+        defer { endMembershipTransaction() }
         let removal: (Child, Bool)? = membershipGate.withLock {
-            guard !membershipTransactionActive else { return nil }
             let removed = children.remove(at: index)
             if removed._ownershipParent === self {
                 removed._parent = nil
@@ -518,11 +537,10 @@ open class CompositeVM<Child: ComponentVMBase>:
             }
             let wasCurrent = _current === removed
             if wasCurrent { _current = nil }
-            if wasCurrent { _finishCurrentChange(from: removed, to: nil) }
             return (removed, wasCurrent)
         }
         guard let (item, wasCurrent) = removal else { return }
-        _ = wasCurrent
+        if wasCurrent { _finishCurrentChange(from: item, to: nil) }
         // Emit AFTER the child has been removed and parent cleared.
         emit(.removed(item, at: index))
     }
@@ -543,6 +561,7 @@ open class CompositeVM<Child: ComponentVMBase>:
             return .failure(.attachmentFailed(error))
         }
         defer { endMembershipTransaction() }
+        let originalStatus = child.status
         let childCount = membershipGate.withLock { children.count }
         guard index >= 0 && index < childCount else {
             return .failure(.attachmentFailed(VMCollectionIndexError(index: index, count: childCount)))
@@ -601,7 +620,14 @@ open class CompositeVM<Child: ComponentVMBase>:
                     child._ownershipParent = nil
                 }
             }
+            var compensationError: Error?
+            if originalStatus == .destructed && child.status == .constructed {
+                do { try child.destruct() } catch { compensationError = error }
+            }
             transfer?.rollback()
+            if let compensationError {
+                return .failure(.attachmentFailed(compensationError))
+            }
             return .failure(.attachmentFailed(error))
         }
         transfer?.commit()
@@ -612,8 +638,9 @@ open class CompositeVM<Child: ComponentVMBase>:
     }
 
     public func clear() {
+        guard (try? beginMembershipTransaction()) != nil else { return }
+        defer { endMembershipTransaction() }
         let result: (Bool, Child?) = membershipGate.withLock {
-            guard !membershipTransactionActive else { return (false, nil) }
             let previous = _current
             _current = nil
             for child in children where child._ownershipParent === self {
@@ -621,10 +648,10 @@ open class CompositeVM<Child: ComponentVMBase>:
                 child._ownershipParent = nil
             }
             children.removeAll()
-            if let previous { _finishCurrentChange(from: previous, to: nil) }
             return (true, previous)
         }
         guard result.0 else { return }
+        if let previous = result.1 { _finishCurrentChange(from: previous, to: nil) }
         emit(.reset())
     }
 
@@ -949,13 +976,14 @@ open class CompositeVM<Child: ComponentVMBase>:
     private func _requestDeselect(_ expected: Child) {
         let apply = { [weak self, weak expected] in
             guard let self, let expected else { return }
-            self.membershipGate.withLock {
-                guard !self.membershipTransactionActive, self._current === expected else {
-                    return
-                }
+            guard (try? self.beginMembershipTransaction()) != nil else { return }
+            defer { self.endMembershipTransaction() }
+            let changed = self.membershipGate.withLock { () -> Bool in
+                guard self._current === expected else { return false }
                 self._current = nil
-                self._finishCurrentChange(from: expected, to: nil)
+                return true
             }
+            if changed { self._finishCurrentChange(from: expected, to: nil) }
         }
         if _asyncSelection {
             dispatcher.scheduleForeground(apply)
@@ -973,14 +1001,25 @@ open class CompositeVM<Child: ComponentVMBase>:
         // dispatched selection — the child may have been removed before the
         // deferred closure ran.
         if let value, requireConstructed, value.status != .constructed { return }
-        membershipGate.withLock {
-            if membershipTransactionActive && !internalTransaction { return }
-            if let value, !children.contains(where: { $0 === value }) { return }
-            if _current === value { return }
+        if !internalTransaction {
+            guard (try? beginMembershipTransaction()) != nil else { return }
+            defer { endMembershipTransaction() }
+            _applyCurrentChange(
+                value,
+                internalTransaction: true,
+                requireConstructed: requireConstructed
+            )
+            return
+        }
+        let previous: Child?? = membershipGate.withLock {
+            if let value, !children.contains(where: { $0 === value }) { return nil }
+            if _current === value { return nil }
             let previous = _current
             _current = value
-            _finishCurrentChange(from: previous, to: value)
+            return .some(previous)
         }
+        guard let previous else { return }
+        _finishCurrentChange(from: previous, to: value)
     }
 
     private func _finishCurrentChange(from previous: Child?, to value: Child?) {
