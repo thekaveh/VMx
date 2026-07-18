@@ -1,5 +1,6 @@
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex};
+use std::time::Duration;
 
 use vmx::{
     CollectionChangeAction, ConstructionStatus, Dispatcher, ImmediateDispatcher, ManualDispatcher,
@@ -689,6 +690,110 @@ fn failed_attach_rolls_back_old_parent_state() {
     assert_eq!(old_parent.items(), vec![item.clone()]);
     assert_eq!(old_parent.current(), Some(item));
     assert!(destination.is_empty());
+}
+
+/// COMP-040 — old-parent disposal waits until successful transfer commit.
+#[test]
+fn old_composite_disposal_is_deferred_until_transfer_commit() {
+    let item = child("deferred-success");
+    let old_parent = vmx::CompositeVm::new("old");
+    old_parent.add(item.clone()).unwrap();
+    let destination = vmx::GroupVm::new("destination");
+    destination.set_auto_construct_on_add(true);
+    destination.construct().unwrap();
+    let old_from_hook = old_parent.clone();
+    item.on_construct(move || old_from_hook.dispose());
+
+    destination.add(item.clone()).unwrap();
+
+    assert_eq!(old_parent.status(), ConstructionStatus::Disposed);
+    assert!(old_parent.is_empty());
+    assert_eq!(destination.items(), vec![item.clone()]);
+    assert_eq!(item.status(), ConstructionStatus::Constructed);
+    assert_eq!(item.parent_id(), Some(destination.id()));
+}
+
+/// COMP-040 — rollback restores membership before deferred old-parent disposal.
+#[test]
+fn failed_transfer_rolls_back_before_deferred_old_group_disposal() {
+    let item = child("deferred-failure");
+    let old_parent = vmx::GroupVm::new("old");
+    old_parent.add(item.clone()).unwrap();
+    let destination = vmx::CompositeVm::new("destination");
+    destination.set_auto_construct_on_add(true);
+    destination.construct().unwrap();
+    let old_from_hook = old_parent.clone();
+    item.on_construct(move || {
+        old_from_hook.dispose()?;
+        Err(VmxError::Other("boom".to_string()))
+    });
+
+    assert_eq!(
+        destination.add(item.clone()),
+        Err(VmxError::Other("boom".to_string()))
+    );
+
+    assert_eq!(old_parent.status(), ConstructionStatus::Disposed);
+    assert_eq!(old_parent.items(), vec![item.clone()]);
+    assert!(destination.is_empty());
+    assert_eq!(item.status(), ConstructionStatus::Disposed);
+    assert_eq!(item.parent_id(), Some(old_parent.id()));
+}
+
+/// COMP-040 — foreign-thread disposal waits for transfer commit.
+#[test]
+fn concurrent_old_parent_disposal_waits_for_transfer_commit() {
+    let item = child("concurrent-disposal");
+    let old_parent = vmx::GroupVm::new("old");
+    old_parent.add(item.clone()).unwrap();
+    let destination = vmx::CompositeVm::new("destination");
+    destination.set_auto_construct_on_add(true);
+    destination.construct().unwrap();
+    let (hook_entered_tx, hook_entered_rx) = mpsc::channel();
+    let (release_hook_tx, release_hook_rx) = mpsc::channel();
+    let release_hook_rx = Arc::new(Mutex::new(release_hook_rx));
+    item.on_construct(move || {
+        hook_entered_tx.send(()).unwrap();
+        release_hook_rx
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap();
+        Ok(())
+    });
+
+    let transfer_destination = destination.clone();
+    let transfer_item = item.clone();
+    let transfer = std::thread::spawn(move || transfer_destination.add(transfer_item));
+    hook_entered_rx
+        .recv_timeout(Duration::from_secs(2))
+        .unwrap();
+    let (dispose_started_tx, dispose_started_rx) = mpsc::channel();
+    let (dispose_done_tx, dispose_done_rx) = mpsc::channel();
+    let dispose_parent = old_parent.clone();
+    let disposal = std::thread::spawn(move || {
+        dispose_started_tx.send(()).unwrap();
+        let result = dispose_parent.dispose();
+        dispose_done_tx.send(result).unwrap();
+    });
+    dispose_started_rx
+        .recv_timeout(Duration::from_secs(2))
+        .unwrap();
+    assert!(dispose_done_rx
+        .recv_timeout(Duration::from_millis(50))
+        .is_err());
+
+    release_hook_tx.send(()).unwrap();
+    transfer.join().unwrap().unwrap();
+    dispose_done_rx
+        .recv_timeout(Duration::from_secs(2))
+        .unwrap()
+        .unwrap();
+    disposal.join().unwrap();
+    assert_eq!(old_parent.status(), ConstructionStatus::Disposed);
+    assert!(old_parent.is_empty());
+    assert_eq!(destination.items(), vec![item.clone()]);
+    assert_eq!(item.status(), ConstructionStatus::Constructed);
 }
 
 /// COMP-040 — Lazy population rolls back earlier transfers and remains retryable.

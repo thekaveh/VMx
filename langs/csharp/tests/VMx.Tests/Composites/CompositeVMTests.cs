@@ -250,13 +250,23 @@ public class CompositeVMTests
         (await Task.Run(() => blocker.Entered.Wait(TimeSpan.FromSeconds(2))))
             .Should().BeTrue();
 
-        composite.Dispose();
+        using var disposalStarted = new ManualResetEventSlim();
+        var disposal = Task.Run(() =>
+        {
+            disposalStarted.Set();
+            composite.Dispose();
+        });
+        (await Task.Run(() => disposalStarted.Wait(TimeSpan.FromSeconds(2))))
+            .Should().BeTrue();
+        (await Task.WhenAny(disposal, Task.Delay(TimeSpan.FromMilliseconds(50))))
+            .Should().NotBe(disposal);
         blocker.Release.Set();
-        await admission.WaitAsync(TimeSpan.FromSeconds(2));
+        await Task.WhenAll(admission, disposal).WaitAsync(TimeSpan.FromSeconds(2));
 
-        failure.Should().BeOfType<ObjectDisposedException>();
-        composite.Should().BeEmpty();
-        late.Status.Should().Be(ConstructionStatus.Destructed);
+        failure.Should().BeNull();
+        composite.Should().ContainSingle(item => ReferenceEquals(item, late));
+        late.Status.Should().Be(ConstructionStatus.Disposed);
+        composite.Status.Should().Be(ConstructionStatus.Disposed);
     }
 
     // ── Type and identity ────────────────────────────────────────────────────

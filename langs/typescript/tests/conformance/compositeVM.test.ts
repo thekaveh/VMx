@@ -865,6 +865,53 @@ describe("COMP-040", () => {
     expect(groupChild._parent).toBeNull();
   });
 
+  it("defers old-composite disposal until a successful transfer commits", () => {
+    const hub = makeHub();
+    const dispatcher = makeDisp();
+    const oldParent = CompositeVM.builder<ComponentVM>()
+      .name("old").services(hub, dispatcher).children(() => []).build();
+    const destination = GroupVM.builder<ComponentVM>()
+      .name("destination").services(hub, dispatcher)
+      .children(() => []).autoConstructOnAdd(true).build();
+    const child = ComponentVM.builder().name("child").services(hub, dispatcher)
+      .onConstruct(() => oldParent.dispose()).build();
+    oldParent.add(child);
+    destination.construct();
+
+    destination.add(child);
+
+    expect(oldParent.status).toBe(ConstructionStatus.Disposed);
+    expect(oldParent.snapshot()).toEqual([]);
+    expect(destination.snapshot()).toEqual([child]);
+    expect(child.status).toBe(ConstructionStatus.Constructed);
+    expect(child._parent?.owner).toBe(destination);
+  });
+
+  it("rolls back before deferred old-group disposal after transfer failure", () => {
+    const hub = makeHub();
+    const dispatcher = makeDisp();
+    const oldParent = GroupVM.builder<ComponentVM>()
+      .name("old").services(hub, dispatcher).children(() => []).build();
+    const destination = CompositeVM.builder<ComponentVM>()
+      .name("destination").services(hub, dispatcher)
+      .children(() => []).autoConstructOnAdd(true).build();
+    const child = ComponentVM.builder().name("child").services(hub, dispatcher)
+      .onConstruct(() => {
+        oldParent.dispose();
+        throw new Error("boom");
+      }).build();
+    oldParent.add(child);
+    destination.construct();
+
+    expect(() => destination.add(child)).toThrow("boom");
+
+    expect(oldParent.status).toBe(ConstructionStatus.Disposed);
+    expect(oldParent.snapshot()).toEqual([child]);
+    expect(destination.snapshot()).toEqual([]);
+    expect(child.status).toBe(ConstructionStatus.Disposed);
+    expect(child._parent?.owner).toBe(oldParent);
+  });
+
   it("restores parent, index, current, and lifecycle when construction fails", () => {
     const hub = makeHub();
     const dispatcher = makeDisp();

@@ -83,8 +83,10 @@ When `Dispose()` is called:
 
 If both a validator and a write-back action are configured, `SetValue(v)`:
 
-1. Calls `CanSet(v)`. If false, raises an error (`InvalidOperationException`
-   in C#, `ValueError` in Python, an `Error` in TypeScript).
+1. Calls `CanSet(v)`. If false, raises the idiomatic rejection
+   (`InvalidOperationException` in C#, `ValueError` in Python, `Error` in
+   TypeScript, `DerivedPropertyError.cannotSet` in Swift, or
+   `VmxError::InvalidArgument` in Rust).
 1. Otherwise, invokes the write-back action with `v`.
 
 The write-back action is responsible for propagating `v` to the source(s).

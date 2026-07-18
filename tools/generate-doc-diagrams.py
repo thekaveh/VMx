@@ -144,7 +144,7 @@ def svg_doc(title: str, subtitle: str, width: int, height: int, body: str) -> st
 '''
 
 
-def html_doc(title: str, subtitle: str, svg_name: str, cards: list[tuple[str, list[str]]]) -> str:
+def html_doc(title: str, subtitle: str, svg: str, cards: list[tuple[str, list[str]]]) -> str:
     card_html = "\n".join(
         f"""      <section class="card">
         <h2>{escape(card_title)}</h2>
@@ -152,7 +152,7 @@ def html_doc(title: str, subtitle: str, svg_name: str, cards: list[tuple[str, li
       </section>"""
         for card_title, items in cards
     )
-    return f'''<!DOCTYPE html>
+    return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -170,7 +170,7 @@ def html_doc(title: str, subtitle: str, svg_name: str, cards: list[tuple[str, li
     h1 {{ margin: 0; font-size: 26px; line-height: 1.25; }}
     .subtitle {{ margin: 8px 0 0 26px; color: #94a3b8; font-size: 14px; }}
     .diagram {{ overflow-x: auto; padding: 18px; border: 1px solid #1e293b; border-radius: 14px; background: rgba(15, 23, 42, 0.58); }}
-    object {{ display: block; width: 100%; min-width: 1180px; }}
+    .diagram > svg {{ display: block; width: 100%; min-width: 1180px; height: auto; }}
     .cards {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; margin-top: 24px; }}
     .card {{ padding: 18px; border: 1px solid #1e293b; border-radius: 12px; background: rgba(15, 23, 42, 0.58); }}
     .card h2 {{ margin: 0 0 10px; font-size: 15px; }}
@@ -184,7 +184,7 @@ def html_doc(title: str, subtitle: str, svg_name: str, cards: list[tuple[str, li
       <div class="header-row"><div class="pulse-dot"></div><h1>{escape(title)}</h1></div>
       <p class="subtitle">{escape(subtitle)}</p>
     </header>
-    <div class="diagram"><object data="{escape(svg_name)}" type="image/svg+xml" aria-label="{escape(title)}"></object></div>
+    <div class="diagram">{svg}</div>
     <div class="cards">
 {card_html}
     </div>
@@ -192,7 +192,7 @@ def html_doc(title: str, subtitle: str, svg_name: str, cards: list[tuple[str, li
   </main>
 </body>
 </html>
-'''
+"""
 
 
 def render_png(svg_path: Path, png_path: Path) -> None:
@@ -244,8 +244,9 @@ def write_triplet(
     html_path = output_root / path.with_suffix(".html")
     png_path = output_root / path.with_suffix(".png")
     svg_path.parent.mkdir(parents=True, exist_ok=True)
-    svg_path.write_text(svg_doc(title, subtitle, width, height, body), encoding="utf-8")
-    html_path.write_text(html_doc(title, subtitle, svg_path.name, cards), encoding="utf-8")
+    svg = svg_doc(title, subtitle, width, height, body)
+    svg_path.write_text(svg, encoding="utf-8")
+    html_path.write_text(html_doc(title, subtitle, svg, cards), encoding="utf-8")
     render_png(svg_path, png_path)
 
 
@@ -481,16 +482,16 @@ def class_diagram(output_root: Path) -> None:
             "cloud",
         ),
         Box(
-            60,
+            40,
             350,
-            260,
+            240,
             170,
             "Leaf VMs",
             ("ComponentVM", "ComponentVM<M>", "ReadonlyComponentVM<M>", "ForwardingComponentVM"),
             "frontend",
         ),
         Box(
-            360,
+            320,
             350,
             260,
             170,
@@ -504,34 +505,45 @@ def class_diagram(output_root: Path) -> None:
             "frontend",
         ),
         Box(
-            660,
+            620,
             350,
-            260,
+            240,
             170,
-            "Specialized VMs",
-            ("FormVM", "DiscriminatorVM", "NotificationVM", "ConfirmationVM"),
+            "Async Resource VM",
+            (
+                "lifecycle state VM",
+                "Four flavors inherit base",
+                "Rust composes component",
+                "load / reload / cancel",
+            ),
             "frontend",
         ),
         Box(
-            960,
+            900,
             350,
-            260,
+            280,
             170,
-            "Collections",
-            ("ObservableList", "ObservableDictionary", "Serviced collection", "multi-key indexes"),
-            "database",
+            "Coordinators",
+            (
+                "FormVM / DiscriminatorVM",
+                "Notification / Confirmation",
+                "independent in four flavors",
+                "Rust FormVM composes a leaf",
+            ),
+            "frontend",
         ),
         Box(
-            1260,
+            1220,
             350,
-            260,
+            330,
             170,
-            "Paged Views",
+            "Collections & Views",
             (
+                "ObservableList / Dictionary",
+                "serviced + multi-key indexes",
                 "PagedComposition",
                 "TokenPagedComposition",
-                "filtered composite view",
-                "scored composite view",
+                "filtered / scored views",
             ),
             "database",
         ),
@@ -584,15 +596,15 @@ def class_diagram(output_root: Path) -> None:
     ]
     body = "\n".join(
         [
-            arrow(210, 275, 190, 350),
-            arrow(210, 275, 490, 350),
-            arrow(210, 275, 790, 350),
-            arrow(550, 275, 550, 350, "hub events"),
-            arrow(890, 295, 1090, 350),
-            arrow(1230, 275, 790, 350, "builds", "#fbbf24", label_dy=22),
-            arrow(520, 520, 320, 610, "commands"),
-            arrow(790, 520, 710, 610, "capabilities"),
-            arrow(1090, 520, 1100, 610, "derived state"),
+            arrow(210, 275, 160, 350),
+            arrow(210, 275, 450, 350),
+            arrow(210, 275, 740, 350, "AsyncResourceVM"),
+            arrow(550, 275, 450, 350, "hub events"),
+            arrow(890, 295, 1385, 350),
+            arrow(1230, 275, 450, 350, "builds", "#fbbf24", label_dy=22),
+            arrow(450, 520, 320, 610, "commands"),
+            arrow(740, 520, 710, 610, "capabilities"),
+            arrow(1385, 520, 1100, 610, "derived state"),
         ]
         + [box(b) for b in boxes]
     )
@@ -600,10 +612,10 @@ def class_diagram(output_root: Path) -> None:
         (
             "Current additions",
             [
-                "DiscriminatorVM is part of the specialized VM family.",
+                "AsyncResourceVM is lifecycle-aligned across all five flavors.",
+                "Form, discriminator, and notification coordinators are independent in object-oriented flavors.",
+                "Rust composes components where inheritance is inapplicable.",
                 "TokenPagedComposition covers cursor paging.",
-                "Filtered/scored composite views are catalogued with collections.",
-                "Groups and composites share a non-selecting collection capability.",
             ],
         ),
         (
@@ -611,8 +623,8 @@ def class_diagram(output_root: Path) -> None:
             [
                 "Every flavor implements the shared normative concepts.",
                 "Names are idiomatic per language.",
-                "All five flavors are catalog-complete.",
-                "C#, Python, TypeScript, and Swift are member-aligned; Rust gaps are ledgered.",
+                "All five flavors cover 395 library IDs.",
+                "Four UI-backed examples cover the five THEME scenarios.",
             ],
         ),
         (

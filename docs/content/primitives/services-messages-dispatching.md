@@ -257,10 +257,10 @@ and observers receive the complete FIFO only after both scopes close.
 
 ### 6.6.7.2. Tableau Migration And Performance Trace
 
-Tableau's React store added a hand-written `refreshing` flag after
+The motivating React consumer added a hand-written `refreshing` flag after
 `refreshShell()` updated derived VM models, republished through the same hub,
-and recursively re-entered the store subscription. The incident is preserved in
-[`frontend/view/react/src/store.ts`](https://github.com/thekaveh/tableau/blob/main/frontend/view/react/src/store.ts).
+and recursively re-entered the store subscription. ADR-0082 records the
+consumer trace and the resulting transaction contract in this repository.
 
 The v3.2 contract changes the execution trace without hiding messages:
 
@@ -272,7 +272,7 @@ The v3.2 contract changes the execution trace without hiding messages:
 | Plain subscriber refresh  | up to one refresh per message                | still one per message; batching is intentionally lossless |
 | Scheduled host invalidation | consumer-specific                           | one refresh for the synchronous drain                |
 
-For Tableau, wrap command-side multi-VM mutations in `hub.batch(...)` and make
+For an affected consumer, wrap command-side multi-VM mutations in `hub.batch(...)` and make
 the React adapter schedule one invalidation for the synchronous drain:
 
 ```typescript

@@ -63,9 +63,12 @@ open class CompositeVM<Child: ComponentVMBase>:
     private let _autoConstructOnAdd: Bool
     private let _asyncSelection: Bool
     private var disposeRequested = false
+    private var disposeDeferred = false
     private var membershipTransactionActive = false
     private var membershipTransactionToken: ContainerOwnershipTransaction?
     private var membershipTransactionDepth = 0
+    private var membershipTransactionOwner: ObjectIdentifier?
+    private var membershipTransactionCompletion: DispatchGroup?
     private let membershipGate = NSRecursiveLock()
 
     // ── Batch-update state ──────────────────────────────────────────────
@@ -774,15 +777,34 @@ open class CompositeVM<Child: ComponentVMBase>:
     }
 
     open override func dispose() {
-        let snapshot: [Child]? = membershipGate.withLock {
-            guard !disposeRequested else { return nil }
-            disposeRequested = true
-            return children
+        while true {
+            var waitForTransaction: DispatchGroup?
+            var snapshot: [Child]?
+            let shouldReturn: Bool = membershipGate.withLock {
+                if disposeRequested { return true }
+                if membershipTransactionActive {
+                    if membershipTransactionOwner == ObjectIdentifier(Thread.current) {
+                        disposeDeferred = true
+                        return true
+                    }
+                    waitForTransaction = membershipTransactionCompletion
+                    return false
+                }
+                disposeRequested = true
+                snapshot = children
+                return false
+            }
+            if shouldReturn { return }
+            if let waitForTransaction {
+                waitForTransaction.wait()
+                continue
+            }
+            guard let snapshot else { return }
+            // LIFE-013: depth-first dispose children, then self.
+            for child in snapshot { child.dispose() }
+            super.dispose()
+            return
         }
-        guard let snapshot else { return }
-        // LIFE-013: depth-first dispose children, then self.
-        for child in snapshot { child.dispose() }
-        super.dispose()
     }
 
     // ── Builder entrypoint ──────────────────────────────────────────────
@@ -813,7 +835,7 @@ open class CompositeVM<Child: ComponentVMBase>:
         _ transaction: ContainerOwnershipTransaction,
         allowJoin: Bool
     ) throws {
-        guard !disposeRequested else {
+        guard !disposeRequested && !disposeDeferred else {
             throw ContainerOwnershipError.attachmentFailed(ContainerDisposalAdmissionError())
         }
         if membershipTransactionActive {
@@ -826,6 +848,10 @@ open class CompositeVM<Child: ComponentVMBase>:
         membershipTransactionActive = true
         membershipTransactionToken = transaction
         membershipTransactionDepth = 1
+        membershipTransactionOwner = ObjectIdentifier(Thread.current)
+        let completion = DispatchGroup()
+        completion.enter()
+        membershipTransactionCompletion = completion
     }
 
     private func beginMembershipTransaction() throws -> ContainerOwnershipTransaction {
@@ -857,21 +883,30 @@ open class CompositeVM<Child: ComponentVMBase>:
     }
 
     private func requireTransactionCanContinueLocked() throws {
-        guard !disposeRequested else {
+        guard !disposeRequested && !disposeDeferred else {
             throw ContainerOwnershipError.attachmentFailed(ContainerDisposalAdmissionError())
         }
     }
 
     private func endMembershipTransaction() {
+        var completion: DispatchGroup?
+        var shouldDispose = false
         membershipGate.withLock {
             precondition(membershipTransactionDepth > 0)
             membershipTransactionDepth -= 1
             if membershipTransactionDepth == 0 {
                 membershipTransactionActive = false
                 membershipTransactionToken = nil
+                membershipTransactionOwner = nil
+                completion = membershipTransactionCompletion
+                membershipTransactionCompletion = nil
+                shouldDispose = disposeDeferred
+                disposeDeferred = false
             }
         }
         unlockOwnershipTransactionCoordinator()
+        completion?.leave()
+        if shouldDispose { dispose() }
     }
 
     private func _setCurrent(_ value: Child?) {

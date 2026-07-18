@@ -4,6 +4,21 @@ permissions:
   contents: read
 
 on:
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - "**/Cargo.lock"
+      - "**/Cargo.toml"
+      - "**/package-lock.json"
+      - "**/package.json"
+      - "**/pyproject.toml"
+      - "**/uv.lock"
+      - "**/*.csproj"
+      - "**/packages.lock.json"
+      - "docs/requirements.in"
+      - "docs/requirements.txt"
+      - ".github/dependabot.yml"
+      - ".github/workflows/security-audit.yml"
   schedule:
     - cron: "23 6 * * 1"
   workflow_dispatch:
@@ -80,7 +95,11 @@ jobs:
             8.0.x
             9.0.x
             10.0.x
-      - run: dotnet restore langs/csharp/VMx.sln --locked-mode
-      - run: dotnet restore examples/csharp/Examples.sln -p:EnableWindowsTargeting=true
-      - run: dotnet list langs/csharp/VMx.sln package --vulnerable --include-transitive --no-restore
-      - run: dotnet list examples/csharp/Examples.sln package --vulnerable --include-transitive --no-restore
+      - run: >
+          dotnet restore langs/csharp/VMx.sln --locked-mode
+          -p:NuGetAudit=true -p:NuGetAuditMode=all -p:NuGetAuditLevel=low
+          "-warnaserror:NU1901;NU1902;NU1903;NU1904"
+      - run: >
+          dotnet restore examples/csharp/Examples.sln -p:EnableWindowsTargeting=true
+          -p:NuGetAudit=true -p:NuGetAuditMode=all -p:NuGetAuditLevel=low
+          "-warnaserror:NU1901;NU1902;NU1903;NU1904"

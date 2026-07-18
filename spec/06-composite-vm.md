@@ -168,6 +168,17 @@ and MUST NOT be swallowed; exact lifecycle restoration is then not claimed.
 Replacement rollback identifies the candidate by identity and MUST NOT mutate
 an unrelated member merely because the original index changed (ADR-0118).
 
+Disposal MUST observe a stable membership boundary. If the transaction-owning
+thread requests disposal of a protected old parent from an attachment or
+construction hook, that terminal request is deferred until commit or rollback;
+a request from another thread waits for the same boundary. A successful transfer
+commits removal before the old parent takes its disposal snapshot. A failed
+transfer restores the child, parent metadata, selection, and lifecycle before
+old-parent disposal snapshots and cascades through the restored child. Once the
+request is pending, the protected container rejects any new structural admission
+as disposal in progress. Destination disposal requested by its own hook still
+causes attachment to fail and roll back (ADR-0122).
+
 Adding an identity already present in the destination or creating a parent
 cycle fails without mutation. `Move` remains the only operation that reorders
 an existing child within one container.

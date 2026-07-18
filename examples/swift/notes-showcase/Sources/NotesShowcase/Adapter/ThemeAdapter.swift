@@ -54,16 +54,18 @@ final class ThemeAdapter: ObservableObject {
     private func applyModel(_ model: ThemeModel) {
         fontScale = model.fontScaleFactor
         accent = Color(hex: model.accentColor) ?? .blue
+        if model.highContrast {
+            background = .black
+            pane = .black
+            textDim = .white
+            return
+        }
         switch model.name {
         case "light":
             background = Color(hex: "#F7F9FC") ?? .white
             pane       = Color(hex: "#FFFFFF") ?? .white
             textDim    = Color(hex: "#5C6378") ?? .secondary
-        case "high-contrast":
-            background = .black
-            pane       = .black
-            textDim    = .white
-        default: // dark + system fallback
+        default: // dark + high-contrast-with-adjustment-off + system fallback
             background = Color(hex: "#0E1320") ?? .black
             pane       = Color(hex: "#141B2D") ?? .black
             textDim    = Color(hex: "#9AA3B8") ?? .gray

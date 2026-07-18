@@ -466,11 +466,28 @@ fn concurrent_admission_cannot_escape_disposal_snapshot() {
     let add_late = late.clone();
     let admission = std::thread::spawn(move || add_parent.add(add_late));
     entered.recv_timeout(Duration::from_secs(2)).unwrap();
-    composite.dispose().unwrap();
+    let dispose_parent = composite.clone();
+    let (dispose_started_tx, dispose_started_rx) = mpsc::channel();
+    let (dispose_done_tx, dispose_done_rx) = mpsc::channel();
+    let disposal = std::thread::spawn(move || {
+        dispose_started_tx.send(()).unwrap();
+        dispose_done_tx.send(dispose_parent.dispose()).unwrap();
+    });
+    dispose_started_rx
+        .recv_timeout(Duration::from_secs(2))
+        .unwrap();
+    assert!(dispose_done_rx
+        .recv_timeout(Duration::from_millis(50))
+        .is_err());
     release.send(()).unwrap();
-    assert_eq!(admission.join().unwrap(), Err(VmxError::Disposed));
-    assert_eq!(composite.len(), 0);
-    assert_eq!(late.status(), ConstructionStatus::Destructed);
+    admission.join().unwrap().unwrap();
+    dispose_done_rx
+        .recv_timeout(Duration::from_secs(2))
+        .unwrap()
+        .unwrap();
+    disposal.join().unwrap();
+    assert_eq!(composite.len(), 1);
+    assert_eq!(late.status(), ConstructionStatus::Disposed);
 
     let group = GroupVm::new("group");
     let (late, entered, release) = blocking_admission_node();
@@ -478,11 +495,28 @@ fn concurrent_admission_cannot_escape_disposal_snapshot() {
     let add_late = late.clone();
     let admission = std::thread::spawn(move || add_parent.add(add_late));
     entered.recv_timeout(Duration::from_secs(2)).unwrap();
-    group.dispose().unwrap();
+    let dispose_parent = group.clone();
+    let (dispose_started_tx, dispose_started_rx) = mpsc::channel();
+    let (dispose_done_tx, dispose_done_rx) = mpsc::channel();
+    let disposal = std::thread::spawn(move || {
+        dispose_started_tx.send(()).unwrap();
+        dispose_done_tx.send(dispose_parent.dispose()).unwrap();
+    });
+    dispose_started_rx
+        .recv_timeout(Duration::from_secs(2))
+        .unwrap();
+    assert!(dispose_done_rx
+        .recv_timeout(Duration::from_millis(50))
+        .is_err());
     release.send(()).unwrap();
-    assert_eq!(admission.join().unwrap(), Err(VmxError::Disposed));
-    assert_eq!(group.len(), 0);
-    assert_eq!(late.status(), ConstructionStatus::Destructed);
+    admission.join().unwrap().unwrap();
+    dispose_done_rx
+        .recv_timeout(Duration::from_secs(2))
+        .unwrap()
+        .unwrap();
+    disposal.join().unwrap();
+    assert_eq!(group.len(), 1);
+    assert_eq!(late.status(), ConstructionStatus::Disposed);
 }
 
 /// LIFE-013 — one disposal failure cannot strand later siblings or the parent

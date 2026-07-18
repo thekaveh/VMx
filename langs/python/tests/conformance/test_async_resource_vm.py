@@ -257,6 +257,33 @@ async def test_ares_007_discard_cleans_before_loading() -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.conformance("ARES-007")
+async def test_ares_007_base_exception_cleanup_is_isolated() -> None:
+    class CleanupAbort(BaseException):
+        pass
+
+    value = 0
+    cleaned: list[int] = []
+
+    async def loader() -> int:
+        nonlocal value
+        value += 1
+        return value
+
+    def cleanup(owned: int) -> None:
+        cleaned.append(owned)
+        raise CleanupAbort("cleanup failed")
+
+    vm = _vm(loader, cleanup=cleanup)
+    await vm.load()
+    await vm.reload()
+
+    assert cleaned == [1]
+    assert vm.state.status is AsyncResourceStatus.READY
+    assert vm.state.value == 2
+
+
+@pytest.mark.asyncio
 @pytest.mark.conformance("ARES-008")
 async def test_ares_008_latest_start_wins() -> None:
     first: asyncio.Future[int] = asyncio.get_running_loop().create_future()

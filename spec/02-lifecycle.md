@@ -34,7 +34,7 @@ expose only the synchronous form (catalogued as a row in the ADR-0009
 divergence table). Swift likewise exposes only the synchronous form (the
 async `ConstructAsync` shape is C#-only per ADR-0008); Swift covers the
 `THR-*` threading IDs at full parity (ADR-0061), and the ADR-0009 async-form
-row applies to all three non-C# flavors.
+row applies to all four non-C# flavors.
 
 The C# async entry points report the operation outcome after its terminal
 publication. A hook or deferred child-cascade failure first publishes the

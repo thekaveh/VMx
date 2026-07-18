@@ -150,6 +150,7 @@ def test_concurrent_admission_cannot_escape_disposal_snapshot(
     late = _make_child("late")
     entered = Event()
     release = Event()
+    disposal_done = Event()
     failures: list[BaseException] = []
     original = group_module._begin_parent_transfer
 
@@ -166,18 +167,26 @@ def test_concurrent_admission_cannot_escape_disposal_snapshot(
         except BaseException as error:
             failures.append(error)
 
+    def dispose() -> None:
+        group.dispose()
+        disposal_done.set()
+
     worker = Thread(target=admit)
     worker.start()
     assert entered.wait(timeout=2)
-    group.dispose()
+    disposer = Thread(target=dispose)
+    disposer.start()
+    assert not disposal_done.wait(timeout=0.05)
     release.set()
     worker.join(timeout=2)
+    disposer.join(timeout=2)
 
     assert not worker.is_alive()
-    assert len(failures) == 1
-    assert isinstance(failures[0], RuntimeError)
-    assert late not in group
-    assert late.status is ConstructionStatus.DESTRUCTED
+    assert not disposer.is_alive()
+    assert failures == []
+    assert late in group
+    assert late.status is ConstructionStatus.DISPOSED
+    assert group.status is ConstructionStatus.DISPOSED
 
 
 # ---------------------------------------------------------------------------

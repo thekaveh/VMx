@@ -1,9 +1,11 @@
 # 12 — Conformance test catalog
 
 This document enumerates every stable conformance test identifier in the form
-`XXX-NNN`. Every language flavor MUST implement a passing test for each ID in its
-`langs/<lang>/tests/conformance/` directory before it can be marked stable. CI
-verifies this via `tools/check-conformance-coverage.py`.
+`XXX-NNN`. Each of the five language flavors MUST implement all 395 library IDs
+in `langs/<lang>/tests/conformance/` before it can be marked stable. The five
+`THEME-00x` IDs are application-level scenarios implemented by the four
+UI-backed flagship examples. CI verifies library coverage via
+`tools/check-conformance-coverage.py` and the example suites verify THEME.
 
 ## 1. Identifier prefixes
 
@@ -1812,6 +1814,13 @@ a composite
 **And** lazy or bulk population remains retryable after the failing child is fixed
 **And** re-entrant structural mutation of either protected container is rejected
 before mutation
+**And** an old-parent disposal request made from the transfer hook is deferred
+until commit or rollback reaches stable membership
+**And** on success that old-parent disposal excludes `c` after committed removal
+**And** on failure rollback restores `c` before old-parent disposal includes it
+in the terminal child cascade
+**And** a concurrent old-parent disposal request waits for the same stable
+membership boundary
 **And** if required lifecycle compensation itself raises, the rollback failure
 is surfaced rather than swallowed; exact lifecycle restoration is then not claimed
 

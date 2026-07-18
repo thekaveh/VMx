@@ -345,7 +345,7 @@ class AsyncResourceVM(Generic[T], _ComponentVMBase):
             return
         try:
             self._cleanup_value(value)
-        except Exception:
+        except BaseException:
             pass
 
     def _on_dispose(self) -> None:

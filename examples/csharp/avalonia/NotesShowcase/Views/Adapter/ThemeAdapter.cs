@@ -67,7 +67,7 @@ public static class ThemeAdapter
 
     private static void ApplyModel(ThemeModel model, Application app)
     {
-        app.RequestedThemeVariant = model.Name switch
+        app.RequestedThemeVariant = model.HighContrast ? ThemeVariant.Dark : model.Name switch
         {
             "light" => ThemeVariant.Light,
             "dark" => ThemeVariant.Dark,
@@ -98,10 +98,11 @@ public static class ThemeAdapter
     {
         // Light/dark/high-contrast palettes share the same key set as
         // Views/Theme/DarkTheme.axaml so existing bindings keep resolving.
-        var (bg, pane, border, text, subtle) = model.Name switch
+        var (bg, pane, border, text, subtle) = model.HighContrast ?
+            ("#FF000000", "#FF000000", "#FFFFFFFF", "#FFFFFFFF", "#FFFFFF66") :
+            model.Name switch
         {
             "light" => ("#FFF7F9FC", "#FFFFFFFF", "#FFD7DCE5", "#FF1A2235", "#FF5C6378"),
-            "high-contrast" => ("#FF000000", "#FF000000", "#FFFFFFFF", "#FFFFFFFF", "#FFFFFF66"),
             _ /* dark + system fallback */ => ("#FF0E1320", "#FF141B2D", "#FF2A3045", "#FFE6EAF2", "#FF9AA3B8"),
         };
 

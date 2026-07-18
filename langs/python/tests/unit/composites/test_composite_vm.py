@@ -164,6 +164,7 @@ def test_concurrent_admission_cannot_escape_disposal_snapshot(
     late = _build_child("late")
     entered = Event()
     release = Event()
+    disposal_done = Event()
     failures: list[BaseException] = []
     original = composite_module._begin_parent_transfer
 
@@ -180,18 +181,26 @@ def test_concurrent_admission_cannot_escape_disposal_snapshot(
         except BaseException as error:
             failures.append(error)
 
+    def dispose() -> None:
+        composite.dispose()
+        disposal_done.set()
+
     worker = Thread(target=admit)
     worker.start()
     assert entered.wait(timeout=2)
-    composite.dispose()
+    disposer = Thread(target=dispose)
+    disposer.start()
+    assert not disposal_done.wait(timeout=0.05)
     release.set()
     worker.join(timeout=2)
+    disposer.join(timeout=2)
 
     assert not worker.is_alive()
-    assert len(failures) == 1
-    assert isinstance(failures[0], RuntimeError)
-    assert late not in composite
-    assert late.status is ConstructionStatus.DESTRUCTED
+    assert not disposer.is_alive()
+    assert failures == []
+    assert late in composite
+    assert late.status is ConstructionStatus.DISPOSED
+    assert composite.status is ConstructionStatus.DISPOSED
 
 
 # ---------------------------------------------------------------------------

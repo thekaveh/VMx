@@ -132,7 +132,10 @@ fn revert_publishes_form_reverted_and_model_changed() {
     let history = hub.history();
     let messages = &history[start..];
     assert_eq!(messages.len(), 2);
-    assert!(matches!(messages[0], Message::FormReverted(_)));
+    assert!(matches!(
+        messages[0],
+        Message::FormReverted(ref reverted) if reverted.sender_name == "FormVm"
+    ));
     assert!(matches!(
         messages[1],
         Message::PropertyChanged(ref change) if change.property_name == "model"

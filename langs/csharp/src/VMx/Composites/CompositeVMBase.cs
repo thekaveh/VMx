@@ -36,7 +36,9 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     private int _batchDepth;
     private bool _batchDirty;
     private int _disposeRequested;
+    private bool _disposeDeferred;
     private bool _membershipTransactionActive;
+    private int _membershipTransactionOwnerThreadId;
     private readonly object _membershipGate = new();
 
     // ── INotifyCollectionChanged ──────────────────────────────────────────────
@@ -192,6 +194,8 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
             if (index < 0 || vm is not VM typed)
             {
                 _membershipTransactionActive = false;
+                _membershipTransactionOwnerThreadId = 0;
+                Monitor.PulseAll(_membershipGate);
                 throw new InvalidOperationException("The recorded parent does not contain the child identity.");
             }
             child = typed;
@@ -661,6 +665,17 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         lock (_membershipGate)
         {
             if (_disposeRequested != 0) return;
+            while (_membershipTransactionActive
+                   && _membershipTransactionOwnerThreadId != Environment.CurrentManagedThreadId)
+            {
+                Monitor.Wait(_membershipGate);
+                if (_disposeRequested != 0) return;
+            }
+            if (_membershipTransactionActive)
+            {
+                _disposeDeferred = true;
+                return;
+            }
             _disposeRequested = 1;
             snapshot = _children.ToArray();
         }
@@ -683,7 +698,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
 
     private void EnsureChildAdmission()
     {
-        if (Volatile.Read(ref _disposeRequested) != 0)
+        if (Volatile.Read(ref _disposeRequested) != 0 || _disposeDeferred)
             throw new ObjectDisposedException(GetType().Name,
                 "Cannot attach a child while the container is disposing.");
         if (_membershipTransactionActive)
@@ -695,6 +710,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     {
         EnsureChildAdmission();
         _membershipTransactionActive = true;
+        _membershipTransactionOwnerThreadId = Environment.CurrentManagedThreadId;
     }
 
     private void BeginMembershipTransaction()
@@ -704,14 +720,23 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
 
     private void EnsureTransactionCanContinueLocked()
     {
-        if (_disposeRequested != 0)
+        if (_disposeRequested != 0 || _disposeDeferred)
             throw new ObjectDisposedException(GetType().Name,
                 "Cannot attach a child while the container is disposing.");
     }
 
     private void EndMembershipTransaction()
     {
-        lock (_membershipGate) _membershipTransactionActive = false;
+        bool dispose;
+        lock (_membershipGate)
+        {
+            _membershipTransactionActive = false;
+            _membershipTransactionOwnerThreadId = 0;
+            dispose = _disposeDeferred;
+            _disposeDeferred = false;
+            Monitor.PulseAll(_membershipGate);
+        }
+        if (dispose) Dispose();
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────

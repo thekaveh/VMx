@@ -5,9 +5,10 @@
 use super::{
     begin_membership_transaction, begin_parent_transfer, finish_with_first_error, lock,
     retain_first_error, Arc, AtomicBool, ComponentCore, ConstructionStatus, Dispatcher, HashSet,
-    LifecycleOperation, MembershipTransactionGuard, MessageHub, Mutex, NullDispatcher,
-    ObservableList, Ordering, ParentHandle, ParentRegistration, ParentTransfer,
-    PropertyChangedStream, TreeNode, VmNode, VmxError, VmxResult,
+    LifecycleOperation, MembershipDisposeDisposition, MembershipTransactionControl,
+    MembershipTransactionGuard, MessageHub, Mutex, NullDispatcher, ObservableList, Ordering,
+    ParentHandle, ParentRegistration, ParentTransfer, PropertyChangedStream, TreeNode, VmNode,
+    VmxError, VmxResult,
 };
 
 type CurrentChangedCallback<T> = Arc<dyn Fn(Option<T>) + Send + Sync>;
@@ -21,6 +22,7 @@ struct CurrentAssignmentContext<'a, T: VmNode, D: Dispatcher> {
     on_current_changed: &'a Arc<Mutex<Option<CurrentChangedCallback<T>>>>,
     membership_gate: &'a Arc<Mutex<()>>,
     membership_transaction_active: &'a Arc<AtomicBool>,
+    membership_transaction_control: &'a Arc<MembershipTransactionControl>,
 }
 
 fn same_node<T: VmNode>(left: &T, right: &T) -> bool {
@@ -76,6 +78,7 @@ fn assign_current_maybe_async<T: VmNode, D: Dispatcher>(
         on_current_changed,
         membership_gate,
         membership_transaction_active,
+        membership_transaction_control,
     } = context;
     let validate = |next: Option<&T>| {
         next.is_none_or(|next| {
@@ -84,7 +87,10 @@ fn assign_current_maybe_async<T: VmNode, D: Dispatcher>(
         })
     };
     if *lock(async_selection) {
-        let transaction = begin_membership_transaction(membership_transaction_active)?;
+        let transaction = begin_membership_transaction(
+            membership_transaction_active,
+            membership_transaction_control,
+        )?;
         let valid = {
             let _gate = lock(membership_gate);
             validate(next.as_ref())
@@ -108,9 +114,12 @@ fn assign_current_maybe_async<T: VmNode, D: Dispatcher>(
         let on_current_changed = Arc::clone(on_current_changed);
         let membership_gate = Arc::clone(membership_gate);
         let membership_transaction_active = Arc::clone(membership_transaction_active);
+        let membership_transaction_control = Arc::clone(membership_transaction_control);
         core.dispatch(Box::new(move || {
-            let Ok(_transaction) = begin_membership_transaction(&membership_transaction_active)
-            else {
+            let Ok(_transaction) = begin_membership_transaction(
+                &membership_transaction_active,
+                &membership_transaction_control,
+            ) else {
                 return;
             };
             let _gate = lock(&membership_gate);
@@ -127,7 +136,10 @@ fn assign_current_maybe_async<T: VmNode, D: Dispatcher>(
             }
         }));
     } else {
-        let _transaction = begin_membership_transaction(membership_transaction_active)?;
+        let _transaction = begin_membership_transaction(
+            membership_transaction_active,
+            membership_transaction_control,
+        )?;
         let _gate = lock(membership_gate);
         if !validate(next.as_ref())
             || expected_current_id.is_some_and(|expected| {
@@ -208,6 +220,7 @@ pub struct CompositeVm<T: VmNode, D: Dispatcher = NullDispatcher> {
     dispose_requested: Arc<AtomicBool>,
     membership_gate: Arc<Mutex<()>>,
     membership_transaction_active: Arc<AtomicBool>,
+    membership_transaction_control: Arc<MembershipTransactionControl>,
 }
 
 impl<T: VmNode> CompositeVm<T, NullDispatcher> {
@@ -230,6 +243,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         let dispose_requested = Arc::new(AtomicBool::new(false));
         let membership_gate = Arc::new(Mutex::new(()));
         let membership_transaction_active = Arc::new(AtomicBool::new(false));
+        let membership_transaction_control = Arc::new(MembershipTransactionControl::new());
         let ownership = ParentRegistration::new_selectable(
             core.id(),
             {
@@ -248,10 +262,14 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                 let detach_gate = Arc::clone(&membership_gate);
                 let detach_disposed = Arc::clone(&dispose_requested);
                 let detach_transaction = Arc::clone(&membership_transaction_active);
+                let detach_control = Arc::clone(&membership_transaction_control);
                 move |child_id, owner_handle| {
-                    let transaction = begin_membership_transaction(&detach_transaction)?;
+                    let transaction =
+                        begin_membership_transaction(&detach_transaction, &detach_control)?;
                     let _gate = lock(&detach_gate);
-                    if detach_disposed.load(Ordering::Acquire) {
+                    if detach_disposed.load(Ordering::Acquire)
+                        || detach_control.has_deferred_dispose()
+                    {
                         return Err(VmxError::Disposed);
                     }
                     let index = items
@@ -275,11 +293,15 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                     let rollback_disposed = Arc::clone(&detach_disposed);
                     let commit_transaction = Arc::clone(&detach_transaction);
                     let rollback_transaction = Arc::clone(&detach_transaction);
+                    let commit_control = Arc::clone(&detach_control);
+                    let rollback_control = Arc::clone(&detach_control);
                     transaction.defer();
                     Ok(ParentTransfer::new(
                         move || {
-                            let _transaction =
-                                MembershipTransactionGuard::release_on_drop(commit_transaction);
+                            let _transaction = MembershipTransactionGuard::release_on_drop(
+                                commit_transaction,
+                                commit_control,
+                            );
                             if was_current {
                                 *lock(&commit_current) = None;
                                 commit_removed.set_current_flag(false);
@@ -291,8 +313,10 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                             commit_items.publish_remove(index);
                         },
                         move || {
-                            let _transaction =
-                                MembershipTransactionGuard::release_on_drop(rollback_transaction);
+                            let _transaction = MembershipTransactionGuard::release_on_drop(
+                                rollback_transaction,
+                                rollback_control,
+                            );
                             let _gate = lock(&rollback_gate);
                             if rollback_disposed.load(Ordering::Acquire) {
                                 removed.set_parent_handle(None);
@@ -321,6 +345,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                 let on_current_changed = Arc::clone(&on_current_changed);
                 let selection_gate = Arc::clone(&membership_gate);
                 let selection_transaction = Arc::clone(&membership_transaction_active);
+                let selection_control = Arc::clone(&membership_transaction_control);
                 move |child_id| {
                     let item = items
                         .to_vec()
@@ -337,6 +362,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                             on_current_changed: &on_current_changed,
                             membership_gate: &selection_gate,
                             membership_transaction_active: &selection_transaction,
+                            membership_transaction_control: &selection_control,
                         },
                         Some(item),
                         true,
@@ -352,6 +378,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                 let selection_items = items.clone();
                 let selection_gate = Arc::clone(&membership_gate);
                 let selection_transaction = Arc::clone(&membership_transaction_active);
+                let selection_control = Arc::clone(&membership_transaction_control);
                 move |child_id| {
                     assign_current_maybe_async(
                         CurrentAssignmentContext {
@@ -362,6 +389,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                             on_current_changed: &on_current_changed,
                             membership_gate: &selection_gate,
                             membership_transaction_active: &selection_transaction,
+                            membership_transaction_control: &selection_control,
                         },
                         None,
                         false,
@@ -382,6 +410,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             dispose_requested,
             membership_gate,
             membership_transaction_active,
+            membership_transaction_control,
         }
     }
 
@@ -445,13 +474,14 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
 
     /// Appends a child, atomically transferring it from any previous parent.
     pub fn add(&self, item: T) -> VmxResult<()> {
-        let _transaction = begin_membership_transaction(&self.membership_transaction_active)?;
+        let _transaction = begin_membership_transaction(
+            &self.membership_transaction_active,
+            &self.membership_transaction_control,
+        )?;
         let transfer = begin_parent_transfer(&item, &self.ownership.handle())?;
         let index = {
             let _gate = lock(&self.membership_gate);
-            if self.dispose_requested.load(Ordering::Acquire)
-                || self.status() == ConstructionStatus::Disposed
-            {
+            if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
                 if let Some(transfer) = transfer {
                     transfer.rollback();
                 }
@@ -470,9 +500,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             Ok(())
         })
         .and_then(|()| {
-            if self.dispose_requested.load(Ordering::Acquire)
-                || self.status() == ConstructionStatus::Disposed
-            {
+            if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
                 Err(VmxError::Disposed)
             } else {
                 Ok(())
@@ -506,7 +534,10 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
     }
 
     fn attach_population(&self, candidates: Vec<T>, construct: bool) -> VmxResult<()> {
-        let _transaction = begin_membership_transaction(&self.membership_transaction_active)?;
+        let _transaction = begin_membership_transaction(
+            &self.membership_transaction_active,
+            &self.membership_transaction_control,
+        )?;
         let mut identities = HashSet::with_capacity(candidates.len());
         if !candidates.iter().all(|child| identities.insert(child.id())) {
             return Err(VmxError::DuplicateChild);
@@ -521,7 +552,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             }
             {
                 let _gate = lock(&self.membership_gate);
-                if self.dispose_requested.load(Ordering::Acquire) {
+                if self.disposal_pending() {
                     return Err(VmxError::Disposed);
                 }
                 for child in &candidates {
@@ -592,13 +623,14 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
 
     /// Inserts a child at `index` with atomic ownership transfer.
     pub fn insert(&self, index: usize, item: T) -> VmxResult<()> {
-        let _transaction = begin_membership_transaction(&self.membership_transaction_active)?;
+        let _transaction = begin_membership_transaction(
+            &self.membership_transaction_active,
+            &self.membership_transaction_control,
+        )?;
         let transfer = begin_parent_transfer(&item, &self.ownership.handle())?;
         {
             let _gate = lock(&self.membership_gate);
-            if self.dispose_requested.load(Ordering::Acquire)
-                || self.status() == ConstructionStatus::Disposed
-            {
+            if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
                 if let Some(transfer) = transfer {
                     transfer.rollback();
                 }
@@ -621,9 +653,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             Ok(())
         })
         .and_then(|()| {
-            if self.dispose_requested.load(Ordering::Acquire)
-                || self.status() == ConstructionStatus::Disposed
-            {
+            if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
                 Err(VmxError::Disposed)
             } else {
                 Ok(())
@@ -658,7 +688,10 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
 
     /// Removes a child, clearing ownership and current selection if needed.
     pub fn remove(&self, item: &T) -> VmxResult<()> {
-        let _transaction = begin_membership_transaction(&self.membership_transaction_active)?;
+        let _transaction = begin_membership_transaction(
+            &self.membership_transaction_active,
+            &self.membership_transaction_control,
+        )?;
         let (index, removed) = {
             let _gate = lock(&self.membership_gate);
             let index = self
@@ -687,7 +720,10 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
 
     /// Removes and returns the child at `index`.
     pub fn remove_at(&self, index: usize) -> VmxResult<T> {
-        let _transaction = begin_membership_transaction(&self.membership_transaction_active)?;
+        let _transaction = begin_membership_transaction(
+            &self.membership_transaction_active,
+            &self.membership_transaction_control,
+        )?;
         let removed = {
             let _gate = lock(&self.membership_gate);
             self.items
@@ -712,11 +748,14 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
 
     /// Replaces and returns a child using atomic ownership transfer.
     pub fn replace(&self, index: usize, item: T) -> VmxResult<T> {
-        let _transaction = begin_membership_transaction(&self.membership_transaction_active)?;
+        let _transaction = begin_membership_transaction(
+            &self.membership_transaction_active,
+            &self.membership_transaction_control,
+        )?;
         let transfer = begin_parent_transfer(&item, &self.ownership.handle())?;
         let old = {
             let _gate = lock(&self.membership_gate);
-            if self.dispose_requested.load(Ordering::Acquire) {
+            if self.disposal_pending() {
                 if let Some(transfer) = transfer {
                     transfer.rollback();
                 }
@@ -743,9 +782,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             Ok(())
         })
         .and_then(|()| {
-            if self.dispose_requested.load(Ordering::Acquire)
-                || self.status() == ConstructionStatus::Disposed
-            {
+            if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
                 Err(VmxError::Disposed)
             } else {
                 Ok(())
@@ -753,7 +790,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         });
         if let Err(error) = admission {
             let _gate = lock(&self.membership_gate);
-            if !self.dispose_requested.load(Ordering::Acquire) {
+            if !self.disposal_pending() {
                 if let Some(attached) = self
                     .items()
                     .iter()
@@ -785,7 +822,10 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
 
     /// Moves a child without changing its ownership or selection state.
     pub fn move_item(&self, from_index: usize, to_index: usize) -> VmxResult<()> {
-        let _transaction = begin_membership_transaction(&self.membership_transaction_active)?;
+        let _transaction = begin_membership_transaction(
+            &self.membership_transaction_active,
+            &self.membership_transaction_control,
+        )?;
         let changed = {
             let _gate = lock(&self.membership_gate);
             self.items.move_item_silent(from_index, to_index)?
@@ -798,8 +838,10 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
 
     /// Clears all children, ownership links, and current selection.
     pub fn clear(&self) {
-        let Ok(_transaction) = begin_membership_transaction(&self.membership_transaction_active)
-        else {
+        let Ok(_transaction) = begin_membership_transaction(
+            &self.membership_transaction_active,
+            &self.membership_transaction_control,
+        ) else {
             return;
         };
         let changed = {
@@ -924,12 +966,28 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
 
     /// Disposes all children and returns the first encountered error.
     pub fn dispose(&self) -> VmxResult<()> {
-        let snapshot = {
+        let snapshot = loop {
             let _gate = lock(&self.membership_gate);
-            if self.dispose_requested.swap(true, Ordering::AcqRel) {
-                None
-            } else {
-                Some(self.items())
+            match self.membership_transaction_control.dispose_disposition() {
+                MembershipDisposeDisposition::Owned => {
+                    let deferred = self.clone();
+                    self.membership_transaction_control.defer_dispose(move || {
+                        let _ = deferred.dispose();
+                    });
+                    return Ok(());
+                }
+                MembershipDisposeDisposition::Foreign => {
+                    drop(_gate);
+                    self.membership_transaction_control.wait_until_inactive();
+                    continue;
+                }
+                MembershipDisposeDisposition::Inactive => {
+                    break if self.dispose_requested.swap(true, Ordering::AcqRel) {
+                        None
+                    } else {
+                        Some(self.items())
+                    };
+                }
             }
         };
         let Some(snapshot) = snapshot else {
@@ -944,6 +1002,11 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             self.core.transition(LifecycleOperation::Dispose),
         );
         finish_with_first_error(first_error)
+    }
+
+    fn disposal_pending(&self) -> bool {
+        self.dispose_requested.load(Ordering::Acquire)
+            || self.membership_transaction_control.has_deferred_dispose()
     }
 
     /// Returns the current lifecycle status.
@@ -986,6 +1049,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                 on_current_changed: &self.on_current_changed,
                 membership_gate: &self.membership_gate,
                 membership_transaction_active: &self.membership_transaction_active,
+                membership_transaction_control: &self.membership_transaction_control,
             },
             next,
             require_constructed,

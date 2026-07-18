@@ -10,6 +10,8 @@ scheduler (ObserveOn pattern).
 
 from __future__ import annotations
 
+from threading import Event, Thread
+
 import pytest
 
 from vmx.collections import CollectionChangedEvent
@@ -951,6 +953,146 @@ def test_COMP_040_failed_transfer_restores_parent_index_and_current() -> None:
     batch.clear()
     bulk_destination.construct()
     assert list(bulk_destination) == []
+
+
+@pytest.mark.conformance("COMP-040")
+def test_COMP_040_defers_old_composite_disposal_until_transfer_commits() -> None:
+    hub = _hub()
+    dispatcher = _dispatcher()
+    old_parent, _ = _build_composite("old", hub=hub, dispatcher=dispatcher)
+    destination: GroupVM[ComponentVM] = (
+        GroupVMBuilder()
+        .name("destination")
+        .services(hub, dispatcher)
+        .children(lambda: ())
+        .auto_construct_on_add(True)
+        .build()
+    )
+    child = (
+        ComponentVMBuilder()
+        .name("child")
+        .services(hub, dispatcher)
+        .on_construct(old_parent.dispose)
+        .build()
+    )
+    old_parent.add(child)
+    destination.construct()
+
+    destination.add(child)
+
+    assert old_parent.status is ConstructionStatus.DISPOSED
+    assert list(old_parent) == []
+    assert list(destination) == [child]
+    assert child.status is ConstructionStatus.CONSTRUCTED
+    assert child._parent is not None
+    assert child._parent.owner is destination
+
+
+@pytest.mark.conformance("COMP-040")
+def test_COMP_040_rolls_back_before_deferred_old_group_disposal() -> None:
+    hub = _hub()
+    dispatcher = _dispatcher()
+    old_parent: GroupVM[ComponentVM] = (
+        GroupVMBuilder().name("old").services(hub, dispatcher).children(lambda: ()).build()
+    )
+    destination: CompositeVM[ComponentVM] = (
+        CompositeVMBuilder()
+        .name("destination")
+        .services(hub, dispatcher)
+        .children(lambda: ())
+        .auto_construct_on_add(True)
+        .build()
+    )
+
+    def dispose_then_fail() -> None:
+        old_parent.dispose()
+        raise RuntimeError("boom")
+
+    child = (
+        ComponentVMBuilder()
+        .name("child")
+        .services(hub, dispatcher)
+        .on_construct(dispose_then_fail)
+        .build()
+    )
+    old_parent.add(child)
+    destination.construct()
+
+    with pytest.raises(RuntimeError, match="boom"):
+        destination.add(child)
+
+    assert old_parent.status is ConstructionStatus.DISPOSED
+    assert list(old_parent) == [child]
+    assert list(destination) == []
+    assert child.status is ConstructionStatus.DISPOSED
+    assert child._parent is not None
+    assert child._parent.owner is old_parent
+
+
+@pytest.mark.conformance("COMP-040")
+def test_COMP_040_concurrent_old_parent_disposal_waits_for_transfer_commit() -> None:
+    hook_entered = Event()
+    release_hook = Event()
+    disposal_started = Event()
+    disposal_done = Event()
+    errors: list[BaseException] = []
+    hub = _hub()
+    dispatcher = _dispatcher()
+    old_parent: GroupVM[ComponentVM] = (
+        GroupVMBuilder().name("old").services(hub, dispatcher).children(lambda: ()).build()
+    )
+    destination: CompositeVM[ComponentVM] = (
+        CompositeVMBuilder()
+        .name("destination")
+        .services(hub, dispatcher)
+        .children(lambda: ())
+        .auto_construct_on_add(True)
+        .build()
+    )
+
+    def block_construct() -> None:
+        hook_entered.set()
+        assert release_hook.wait(2)
+
+    child = (
+        ComponentVMBuilder()
+        .name("child")
+        .services(hub, dispatcher)
+        .on_construct(block_construct)
+        .build()
+    )
+    old_parent.add(child)
+    destination.construct()
+
+    def transfer() -> None:
+        try:
+            destination.add(child)
+        except BaseException as error:
+            errors.append(error)
+
+    def dispose() -> None:
+        disposal_started.set()
+        old_parent.dispose()
+        disposal_done.set()
+
+    transfer_thread = Thread(target=transfer, daemon=True)
+    transfer_thread.start()
+    assert hook_entered.wait(2)
+    disposal_thread = Thread(target=dispose, daemon=True)
+    disposal_thread.start()
+    assert disposal_started.wait(2)
+    assert not disposal_done.wait(0.05)
+
+    release_hook.set()
+    transfer_thread.join(2)
+    disposal_thread.join(2)
+    assert not transfer_thread.is_alive()
+    assert not disposal_thread.is_alive()
+    assert errors == []
+    assert old_parent.status is ConstructionStatus.DISPOSED
+    assert list(old_parent) == []
+    assert list(destination) == [child]
+    assert child.status is ConstructionStatus.CONSTRUCTED
 
 
 @pytest.mark.conformance("COMP-041")

@@ -99,28 +99,28 @@ PNG export is at [`assets/architecture.png`](assets/architecture.png).
 
 ### 2.2 Class diagram
 
-A cluster-level class map of the entire library — what every class family is, and how the families relate.
+A cluster-level map of the principal library families and their relationships.
 
 ![VMx class diagram](assets/class-diagram.svg)
 
 The rendered SVG is at [`assets/class-diagram.svg`](assets/class-diagram.svg). A
 browsable HTML version with summary cards is at
 [`assets/class-diagram.html`](assets/class-diagram.html), and a high-resolution
-PNG export is at [`assets/class-diagram.png`](assets/class-diagram.png). Five bands:
-
-1. **Lifecycle base** — `ComponentVMBase` + `ConstructionStatus`; every VM derives from here.
-1. **VM family** — five idioms: leaf, composite (homogeneous + selectable), group (homogeneous peers), aggregate (heterogeneous, fixed arity 1..6), and specialized (`FormVM`, `DiscriminatorVM`, `NotificationVM`, `ConfirmationVM`, forwarding decorators).
-1. **Commands & capabilities** — `RelayCommand` family + `DecoratorCommand` chain + `ModeledCrudCommands`, alongside the 22 capability micro-interfaces (Selection / Expansion / Lifecycle / Query / Dialog / CRUD).
-1. **Services · Messages · State · Collections** — the constructor-injected runtime (`MessageHub`, `Dispatcher`, `ILocalizer`, `IDialogService` — each with its `Null*` sibling per ADR-0017), hub envelope types, state helpers (`SearchableState`, `ExpandableState`, `DerivedProperty`, `AsyncResourceVM`), observable collections, `PagedComposition`, `TokenPagedComposition`, filtered/scored composite views, fluent immutable builders, and tree utilities.
-1. **Notifications sub-package (opt-in)** — `INotificationHub`, `ConfirmHelper`, bridged to `ConfirmationDecoratorCommand` in band 3 and to `NotificationVM` / `ConfirmationVM` in band 2.
-
-Boxes are cluster-level (one box per related set of classes); the exhaustive member list lives in the linked spec chapters + ADRs.
+PNG export is at [`assets/class-diagram.png`](assets/class-diagram.png).
+`ComponentVM`, the container families, and `AsyncResourceVM` participate in
+the lifecycle base contract; Rust expresses relevant relationships through
+component composition. `FormVM`, `DiscriminatorVM`, `NotificationVM`, and
+`ConfirmationVM` are independent coordinators in the object-oriented flavors,
+with Rust's `FormVM` composing a component leaf. The remaining clusters cover
+commands, capabilities, services, messages, builders, collections, paging,
+state helpers, and tree utilities. The exhaustive member contracts live in the
+linked spec chapters and ADRs.
 
 ### 2.3 Layers
 
 Each flavor implements the same conceptual stack:
 
-- **Spec** — `spec/` is the source of truth: 24 markdown chapters, 120 ADRs,
+- **Spec** — `spec/` is the source of truth: 24 markdown chapters, 122 ADRs,
   4 JSON fixtures, 400 conformance IDs, version pinned in `spec/VERSION`.
 - **Application code** — your host app instantiates VMs through builders.
 - **Forwarding decorators** *(optional)* — `ForwardingComponentVM` and
@@ -318,7 +318,7 @@ Smaller per-flavor demos:
 .
 ├── spec/                  language-neutral specification (source of truth)
 │   ├── 00-overview.md ... 23-async-resource-vm.md  (24 chapters)
-│   ├── ADRs/              architecture decision records (0001..0120)
+│   ├── ADRs/              architecture decision records (0001..0122)
 │   ├── fixtures/          JSON test inputs shared across flavors
 │   ├── schemas/           versioned supporting machine contracts
 │   ├── proposals/         mostly historical; scenario contracts may be normative
@@ -351,7 +351,7 @@ This README is the entry point; the documents below add focused detail.
   community guidelines.
 - [`compatibility-matrix.md`](compatibility-matrix.md) — spec ↔ flavor
   version pairing.
-- [`spec/README.md`](spec/README.md) — index of the 24 chapters, 120 ADRs,
+- [`spec/README.md`](spec/README.md) — index of the 24 chapters, 122 ADRs,
   4 fixtures, and the 400-ID conformance catalog.
 - [`spec/ADRs/README.md`](spec/ADRs/README.md) — ADR catalogue index.
 - [`docs/content/primitives/disposal-contract.md`](docs/content/primitives/disposal-contract.md)

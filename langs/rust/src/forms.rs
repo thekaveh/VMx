@@ -276,7 +276,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         self.validate();
         self.hub.send(Message::FormReverted(FormRevertedMessage {
             sender_id: self.component.id(),
-            sender_name: self.component.name(),
+            sender_name: "FormVm".to_string(),
         }));
         self.component.notify_property_changed("model");
         self.publish_approve_state_change(could_approve);

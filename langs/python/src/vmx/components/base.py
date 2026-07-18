@@ -521,7 +521,7 @@ class _ComponentVMBase(ABC):
 
                 try:
                     self._on_construct()
-                except Exception:
+                except BaseException:
                     # VMX-007: a throwing background construct hook must not wedge
                     # the VM in the transient Constructing state. Roll _status back
                     # to the prior settled state (Destructed) — marshalled onto the
@@ -572,7 +572,7 @@ class _ComponentVMBase(ABC):
                     return
                 try:
                     self._on_construct()
-                except Exception:
+                except BaseException:
                     # VMX-007: roll _status back to the prior settled state
                     # (Destructed) under the same lock _set_status uses, then
                     # re-raise so the caller sees the original failure. The VM is
@@ -625,7 +625,7 @@ class _ComponentVMBase(ABC):
 
                 try:
                     self._on_destruct()
-                except Exception:
+                except BaseException:
                     # VMX-007: a throwing background destruct hook must not wedge
                     # the VM in the transient Destructing state. Roll _status back
                     # to the prior settled state (Constructed) — marshalled onto the
@@ -674,7 +674,7 @@ class _ComponentVMBase(ABC):
                     return
                 try:
                     self._on_destruct()
-                except Exception:
+                except BaseException:
                     # VMX-007: roll _status back to the prior settled state
                     # (Constructed) under the lock, then re-raise. The VM is left
                     # recoverable instead of wedged in Destructing.
@@ -719,7 +719,7 @@ class _ComponentVMBase(ABC):
                 return
             try:
                 self._on_destruct()
-            except Exception:
+            except BaseException:
                 # VMX-007: a failed destruct phase rolls back to Constructed
                 # (the state reconstruct started from) so the VM stays recoverable.
                 self._set_status(ConstructionStatus.CONSTRUCTED)
@@ -740,7 +740,7 @@ class _ComponentVMBase(ABC):
         self._set_status(ConstructionStatus.CONSTRUCTING)
         try:
             self._on_construct()
-        except Exception:
+        except BaseException:
             self._set_status(ConstructionStatus.DESTRUCTED)
             raise
 
@@ -989,7 +989,7 @@ class _ComponentVMBase(ABC):
                 resource()
             else:
                 resource.dispose()
-        except Exception:
+        except BaseException:
             # Terminal cleanup is best-effort; one failure must not block the rest.
             pass
 

@@ -6,7 +6,7 @@ See spec/06-composite-vm.md.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Iterator
-from threading import RLock
+from threading import Condition, RLock, get_ident
 from typing import Generic, TypeVar, overload
 
 import reactivex as rx
@@ -78,8 +78,11 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         self._batch_depth: int = 0
         self._batch_dirty: bool = False
         self._dispose_requested: bool = False
+        self._dispose_deferred: bool = False
         self._membership_transaction_active: bool = False
+        self._membership_transaction_owner: int | None = None
         self._membership_gate = RLock()
+        self._membership_condition = Condition(self._membership_gate)
         self._current_selector: Callable[[Iterable[VM]], VM | None] | None = current_selector
         self._on_current_changed: Callable[[VM | None], None] | None = on_current_changed
 
@@ -126,6 +129,8 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             index = next((i for i, child in enumerate(self._children) if child is vm), -1)
             if index < 0:
                 self._membership_transaction_active = False
+                self._membership_transaction_owner = None
+                self._membership_condition.notify_all()
                 raise RuntimeError("recorded parent does not contain child identity")
             child = self._children.pop(index)
             was_current = self._current is child
@@ -560,15 +565,25 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
 
     def dispose(self) -> None:
         """Dispose cascade (LIFE-013): depth-first dispose each child, then self."""
-        with self._membership_gate:
+        with self._membership_condition:
             if self._dispose_requested:
+                return
+            while (
+                self._membership_transaction_active
+                and self._membership_transaction_owner != get_ident()
+            ):
+                self._membership_condition.wait()
+                if self._dispose_requested:
+                    return
+            if self._membership_transaction_active:
+                self._dispose_deferred = True
                 return
             self._dispose_requested = True
             snapshot = list(self._children)
         _dispose_children_then_self(snapshot, super().dispose)
 
     def _require_child_admission(self) -> None:
-        if self._dispose_requested:
+        if self._dispose_requested or self._dispose_deferred:
             raise RuntimeError("cannot attach a child while the container is disposing")
         if self._membership_transaction_active:
             raise RuntimeError("container membership transaction is already in progress")
@@ -576,9 +591,10 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
     def _begin_membership_transaction_locked(self) -> None:
         self._require_child_admission()
         self._membership_transaction_active = True
+        self._membership_transaction_owner = get_ident()
 
     def _require_transaction_can_continue_locked(self) -> None:
-        if self._dispose_requested:
+        if self._dispose_requested or self._dispose_deferred:
             raise RuntimeError("cannot attach a child while the container is disposing")
 
     def _begin_membership_transaction(self) -> None:
@@ -586,8 +602,14 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             self._begin_membership_transaction_locked()
 
     def _end_membership_transaction(self) -> None:
-        with self._membership_gate:
+        with self._membership_condition:
             self._membership_transaction_active = False
+            self._membership_transaction_owner = None
+            dispose = self._dispose_deferred
+            self._dispose_deferred = False
+            self._membership_condition.notify_all()
+        if dispose:
+            self.dispose()
 
     def _on_dispose(self) -> None:
         """Complete the collection_changed subject."""

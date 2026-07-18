@@ -8,7 +8,8 @@ spec-compatible with the C# / Python / TypeScript / Rust flavors.
 **v3.22.0 source — total parity.** Covers **all 395 of 395** library conformance IDs
 from `spec-v3.22.0` plus the 5 `THEME-00x` scenario IDs exercised by the
 `examples/swift/notes-showcase/` flagship app (ADR-0067) = **400 total**, at
-full parity with C#, Python, TypeScript, and Rust. Library IDs accumulated
+full parity with the C#, Python, and TypeScript UI-backed flavors. Rust has full
+395-ID library parity and no UI scenario suite. Library IDs accumulated
 incrementally (recounted honestly in ADR-0037; +COMP-025/COMP-026 added per
 ADR-0042; +LIFE-008 via the v3 throwing-convergence in ADR-0053; +50 leaf-area
 IDs via Phase-3 Inc-1 — ADR-0059; +30 collections IDs via Phase-3 Inc-2 —

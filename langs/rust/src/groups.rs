@@ -5,9 +5,10 @@
 use super::{
     begin_membership_transaction, begin_parent_transfer, finish_with_first_error, lock,
     retain_first_error, Arc, AtomicBool, ComponentCore, ConstructionStatus, Dispatcher, HashSet,
-    LifecycleOperation, MembershipTransactionGuard, MessageHub, Mutex, NullDispatcher,
-    ObservableList, Ordering, ParentHandle, ParentRegistration, ParentTransfer,
-    PropertyChangedStream, RelayCommand, VmCollection, VmNode, VmxError, VmxResult,
+    LifecycleOperation, MembershipDisposeDisposition, MembershipTransactionControl,
+    MembershipTransactionGuard, MessageHub, Mutex, NullDispatcher, ObservableList, Ordering,
+    ParentHandle, ParentRegistration, ParentTransfer, PropertyChangedStream, RelayCommand,
+    VmCollection, VmNode, VmxError, VmxResult,
 };
 
 type ChildrenFactory<T> = Arc<dyn Fn() -> Vec<T> + Send + Sync>;
@@ -26,6 +27,7 @@ pub struct GroupVm<T: VmNode, D: Dispatcher = NullDispatcher> {
     dispose_requested: Arc<AtomicBool>,
     membership_gate: Arc<Mutex<()>>,
     membership_transaction_active: Arc<AtomicBool>,
+    membership_transaction_control: Arc<MembershipTransactionControl>,
 }
 
 impl<T: VmNode> GroupVm<T, NullDispatcher> {
@@ -43,6 +45,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
         let dispose_requested = Arc::new(AtomicBool::new(false));
         let membership_gate = Arc::new(Mutex::new(()));
         let membership_transaction_active = Arc::new(AtomicBool::new(false));
+        let membership_transaction_control = Arc::new(MembershipTransactionControl::new());
         let ownership = ParentRegistration::new(
             core.id(),
             {
@@ -58,10 +61,14 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
                 let detach_gate = Arc::clone(&membership_gate);
                 let detach_disposed = Arc::clone(&dispose_requested);
                 let detach_transaction = Arc::clone(&membership_transaction_active);
+                let detach_control = Arc::clone(&membership_transaction_control);
                 move |child_id, owner_handle| {
-                    let transaction = begin_membership_transaction(&detach_transaction)?;
+                    let transaction =
+                        begin_membership_transaction(&detach_transaction, &detach_control)?;
                     let _gate = lock(&detach_gate);
-                    if detach_disposed.load(Ordering::Acquire) {
+                    if detach_disposed.load(Ordering::Acquire)
+                        || detach_control.has_deferred_dispose()
+                    {
                         return Err(VmxError::Disposed);
                     }
                     let index = items
@@ -78,16 +85,22 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
                     let rollback_disposed = Arc::clone(&detach_disposed);
                     let commit_transaction = Arc::clone(&detach_transaction);
                     let rollback_transaction = Arc::clone(&detach_transaction);
+                    let commit_control = Arc::clone(&detach_control);
+                    let rollback_control = Arc::clone(&detach_control);
                     transaction.defer();
                     Ok(ParentTransfer::new(
                         move || {
-                            let _transaction =
-                                MembershipTransactionGuard::release_on_drop(commit_transaction);
+                            let _transaction = MembershipTransactionGuard::release_on_drop(
+                                commit_transaction,
+                                commit_control,
+                            );
                             commit_items.publish_remove(index);
                         },
                         move || {
-                            let _transaction =
-                                MembershipTransactionGuard::release_on_drop(rollback_transaction);
+                            let _transaction = MembershipTransactionGuard::release_on_drop(
+                                rollback_transaction,
+                                rollback_control,
+                            );
                             let _gate = lock(&rollback_gate);
                             if rollback_disposed.load(Ordering::Acquire) {
                                 removed.set_parent_handle(None);
@@ -109,6 +122,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             dispose_requested,
             membership_gate,
             membership_transaction_active,
+            membership_transaction_control,
         }
     }
 
@@ -165,13 +179,14 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
     /// When auto-construction is active on a constructed group, construction
     /// failure rolls back both membership and the previous-parent transfer.
     pub fn add(&self, item: T) -> VmxResult<()> {
-        let _transaction = begin_membership_transaction(&self.membership_transaction_active)?;
+        let _transaction = begin_membership_transaction(
+            &self.membership_transaction_active,
+            &self.membership_transaction_control,
+        )?;
         let transfer = begin_parent_transfer(&item, &self.ownership.handle())?;
         let index = {
             let _gate = lock(&self.membership_gate);
-            if self.dispose_requested.load(Ordering::Acquire)
-                || self.status() == ConstructionStatus::Disposed
-            {
+            if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
                 if let Some(transfer) = transfer {
                     transfer.rollback();
                 }
@@ -190,9 +205,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             Ok(())
         })
         .and_then(|()| {
-            if self.dispose_requested.load(Ordering::Acquire)
-                || self.status() == ConstructionStatus::Disposed
-            {
+            if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
                 Err(VmxError::Disposed)
             } else {
                 Ok(())
@@ -226,7 +239,10 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
     }
 
     fn attach_population(&self, candidates: Vec<T>, construct: bool) -> VmxResult<()> {
-        let _transaction = begin_membership_transaction(&self.membership_transaction_active)?;
+        let _transaction = begin_membership_transaction(
+            &self.membership_transaction_active,
+            &self.membership_transaction_control,
+        )?;
         let mut identities = HashSet::with_capacity(candidates.len());
         if !candidates.iter().all(|child| identities.insert(child.id())) {
             return Err(VmxError::DuplicateChild);
@@ -241,7 +257,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             }
             {
                 let _gate = lock(&self.membership_gate);
-                if self.dispose_requested.load(Ordering::Acquire) {
+                if self.disposal_pending() {
                     return Err(VmxError::Disposed);
                 }
                 for child in &candidates {
@@ -312,13 +328,14 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
 
     /// Inserts a child at `index` with the same ownership rules as [`add`](Self::add).
     pub fn insert(&self, index: usize, item: T) -> VmxResult<()> {
-        let _transaction = begin_membership_transaction(&self.membership_transaction_active)?;
+        let _transaction = begin_membership_transaction(
+            &self.membership_transaction_active,
+            &self.membership_transaction_control,
+        )?;
         let transfer = begin_parent_transfer(&item, &self.ownership.handle())?;
         {
             let _gate = lock(&self.membership_gate);
-            if self.dispose_requested.load(Ordering::Acquire)
-                || self.status() == ConstructionStatus::Disposed
-            {
+            if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
                 if let Some(transfer) = transfer {
                     transfer.rollback();
                 }
@@ -341,9 +358,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             Ok(())
         })
         .and_then(|()| {
-            if self.dispose_requested.load(Ordering::Acquire)
-                || self.status() == ConstructionStatus::Disposed
-            {
+            if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
                 Err(VmxError::Disposed)
             } else {
                 Ok(())
@@ -380,7 +395,10 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
     ///
     /// Returns [`VmxError::NonChild`] when the item is not a member.
     pub fn remove(&self, item: &T) -> VmxResult<()> {
-        let _transaction = begin_membership_transaction(&self.membership_transaction_active)?;
+        let _transaction = begin_membership_transaction(
+            &self.membership_transaction_active,
+            &self.membership_transaction_control,
+        )?;
         let (index, removed) = {
             let _gate = lock(&self.membership_gate);
             let index = self
@@ -403,7 +421,10 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
 
     /// Removes and returns the child at `index`, clearing its parent link.
     pub fn remove_at(&self, index: usize) -> VmxResult<T> {
-        let _transaction = begin_membership_transaction(&self.membership_transaction_active)?;
+        let _transaction = begin_membership_transaction(
+            &self.membership_transaction_active,
+            &self.membership_transaction_control,
+        )?;
         let removed = {
             let _gate = lock(&self.membership_gate);
             self.items
@@ -422,11 +443,14 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
 
     /// Replaces and returns the child at `index` using atomic parent transfer.
     pub fn replace(&self, index: usize, item: T) -> VmxResult<T> {
-        let _transaction = begin_membership_transaction(&self.membership_transaction_active)?;
+        let _transaction = begin_membership_transaction(
+            &self.membership_transaction_active,
+            &self.membership_transaction_control,
+        )?;
         let transfer = begin_parent_transfer(&item, &self.ownership.handle())?;
         let old = {
             let _gate = lock(&self.membership_gate);
-            if self.dispose_requested.load(Ordering::Acquire) {
+            if self.disposal_pending() {
                 if let Some(transfer) = transfer {
                     transfer.rollback();
                 }
@@ -453,9 +477,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             Ok(())
         })
         .and_then(|()| {
-            if self.dispose_requested.load(Ordering::Acquire)
-                || self.status() == ConstructionStatus::Disposed
-            {
+            if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
                 Err(VmxError::Disposed)
             } else {
                 Ok(())
@@ -463,7 +485,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
         });
         if let Err(error) = admission {
             let _gate = lock(&self.membership_gate);
-            if !self.dispose_requested.load(Ordering::Acquire) {
+            if !self.disposal_pending() {
                 if let Some(attached) = self
                     .items()
                     .iter()
@@ -489,7 +511,10 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
 
     /// Moves a child between collection indices without changing ownership.
     pub fn move_item(&self, from_index: usize, to_index: usize) -> VmxResult<()> {
-        let _transaction = begin_membership_transaction(&self.membership_transaction_active)?;
+        let _transaction = begin_membership_transaction(
+            &self.membership_transaction_active,
+            &self.membership_transaction_control,
+        )?;
         let changed = {
             let _gate = lock(&self.membership_gate);
             self.items.move_item_silent(from_index, to_index)?
@@ -502,8 +527,10 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
 
     /// Removes all children and clears their links to this parent.
     pub fn clear(&self) {
-        let Ok(_transaction) = begin_membership_transaction(&self.membership_transaction_active)
-        else {
+        let Ok(_transaction) = begin_membership_transaction(
+            &self.membership_transaction_active,
+            &self.membership_transaction_control,
+        ) else {
             return;
         };
         let changed = {
@@ -559,12 +586,28 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
 
     /// Disposes all children and the group, returning the first encountered error.
     pub fn dispose(&self) -> VmxResult<()> {
-        let snapshot = {
+        let snapshot = loop {
             let _gate = lock(&self.membership_gate);
-            if self.dispose_requested.swap(true, Ordering::AcqRel) {
-                None
-            } else {
-                Some(self.items())
+            match self.membership_transaction_control.dispose_disposition() {
+                MembershipDisposeDisposition::Owned => {
+                    let deferred = self.clone();
+                    self.membership_transaction_control.defer_dispose(move || {
+                        let _ = deferred.dispose();
+                    });
+                    return Ok(());
+                }
+                MembershipDisposeDisposition::Foreign => {
+                    drop(_gate);
+                    self.membership_transaction_control.wait_until_inactive();
+                    continue;
+                }
+                MembershipDisposeDisposition::Inactive => {
+                    break if self.dispose_requested.swap(true, Ordering::AcqRel) {
+                        None
+                    } else {
+                        Some(self.items())
+                    };
+                }
             }
         };
         let Some(snapshot) = snapshot else {
@@ -579,6 +622,11 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             self.core.transition(LifecycleOperation::Dispose),
         );
         finish_with_first_error(first_error)
+    }
+
+    fn disposal_pending(&self) -> bool {
+        self.dispose_requested.load(Ordering::Acquire)
+            || self.membership_transaction_control.has_deferred_dispose()
     }
 
     /// Returns the current lifecycle status.

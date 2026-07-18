@@ -60,6 +60,7 @@ export class GroupVM<VM extends ComponentVMBase>
   #populated = false;
   #batchDepth = 0;
   #disposeRequested = false;
+  #disposeDeferred = false;
   #membershipTransactionActive = false;
   #batchDirty = false;
   readonly #collectionChangedSubject = new Subject<CollectionChangedEvent>();
@@ -354,7 +355,11 @@ export class GroupVM<VM extends ComponentVMBase>
   }
 
   override dispose(): void {
-    if (this.#disposeRequested) return;
+    if (this.#disposeRequested || this.#disposeDeferred) return;
+    if (this.#membershipTransactionActive) {
+      this.#disposeDeferred = true;
+      return;
+    }
     this.#disposeRequested = true;
     // Dispose cascade (LIFE-013): depth-first dispose each child, then self.
     disposeBestEffort([
@@ -370,7 +375,7 @@ export class GroupVM<VM extends ComponentVMBase>
   }
 
   #requireChildAdmission(): void {
-    if (this.#disposeRequested) {
+    if (this.#disposeRequested || this.#disposeDeferred) {
       throw new Error("Cannot attach a child while the container is disposing");
     }
     if (this.#membershipTransactionActive) {
@@ -384,13 +389,17 @@ export class GroupVM<VM extends ComponentVMBase>
   }
 
   #requireTransactionCanContinue(): void {
-    if (this.#disposeRequested) {
+    if (this.#disposeRequested || this.#disposeDeferred) {
       throw new Error("Cannot attach a child while the container is disposing");
     }
   }
 
   #endMembershipTransaction(): void {
     this.#membershipTransactionActive = false;
+    if (this.#disposeDeferred) {
+      this.#disposeDeferred = false;
+      this.dispose();
+    }
   }
 
   private _populateChildren(): void {

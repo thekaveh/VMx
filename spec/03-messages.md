@@ -6,31 +6,23 @@ lifecycle status changes, and any future event types. Subscribers observe via an
 
 ## 1. `IMessage` shape
 
-Every message implements the language's `IMessage`/`Message` shape and carries
-one canonical sender identity:
+Every message carries one sender identity and one diagnostic sender name. The
+current public surfaces express that invariant as follows:
 
-```
-IMessage (C#, Python, TypeScript, Swift):
-    SenderName : string
-    Sender : object
+| Flavor     | Untyped message shape                                | Typed sender shape                             |
+| ---------- | ---------------------------------------------------- | ---------------------------------------------- |
+| C#         | `IMessage.SenderName`, `IMessage.SenderObject`       | `IMessage<TSender>.Sender`                     |
+| Python     | `Message.sender_name`, `Message.sender_object`       | `TypedMessage.sender`                          |
+| TypeScript | `IMessage.senderName`, `IMessage.sender` (`unknown`) | `ITypedMessage<TSender>.sender`                |
+| Swift      | `Message.senderName`, `Message.senderObject`         | concrete typed messages expose `sender`        |
+| Rust       | `sender_name`, `sender_id`                           | enum variants retain the same numeric identity |
 
-Message (Rust):
-    sender_name : string
-    sender_id : usize
-```
-
-Strongly-typed senders narrow `Sender` via `IMessage<TSender>`:
-
-```
-IMessage<TSender> : IMessage:
-    Sender : TSender
-```
-
-`SenderName` typically equals the sender's `Name`. C#, Python, TypeScript, and
-Swift carry the runtime sender instance in `Sender` — their **single canonical
-sender field** (ADR-0006). On the untyped base it carries no compile-time type
-information (`object` / `unknown`, for polymorphic subscribers);
-`IMessage<TSender>` narrows it to the concrete `TSender`.
+The diagnostic name typically equals the sender VM's `Name`. In the four
+object-sender flavors, typed messages expose the canonical runtime sender as
+`Sender`/`sender`. TypeScript also exposes that canonical member on its untyped
+base. C#, Python, and Swift retain their legacy untyped base aliases for source
+compatibility; adding a canonical member to those established base interfaces
+is deferred to a future major (ADR-0054, ADR-0121).
 
 Rust deliberately carries the VM's stable numeric `sender_id` instead of an
 owned or borrowed runtime object. Its enum-based messages are not generic over
@@ -38,14 +30,11 @@ the sender type, and identity filters compare `sender_id`. This preserves the
 same conceptual sender-identity contract without coupling a hot stream to
 object ownership or lifetimes (ADR-0009, ADR-0120).
 
-TypeScript exposes `Sender` as its sole sender field as of v3.0.0, having
+TypeScript exposes `sender` as its sole sender field as of v3.0.0, having
 removed an earlier redundant untyped alias (ADR-0054). C#, Python, and Swift
-additionally retain a deprecated untyped alias on the base message
-(`IMessage.SenderObject`, `Message.sender_object`, `Message.senderObject`)
-for source compatibility; that alias returns the same instance as `Sender`
-and is slated for removal at each of those flavors' next major. The canonical
-accessor is `Sender`/`sender` in the four object-sender flavors and `sender_id`
-in Rust.
+retain the untyped base members shown in the table until their next major.
+Concrete typed messages carry the same runtime instance through their canonical
+`Sender`/`sender` member; Rust uses `sender_id`.
 
 ## 2. Concrete message types
 

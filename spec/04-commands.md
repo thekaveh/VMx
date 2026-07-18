@@ -285,9 +285,10 @@ cmd.Confirm(confirm)
 An optional second overload accepts an `INotificationHub` and constructs the
 delegate via the bridge helper in the notifications sub-package; that
 overload is defined in the sub-package, not in the core commands module.
-The overload is C#-only; Python and TypeScript use the explicit two-step
-composition `command.confirm(make_confirm(hub, prompt))` /
-`command.confirm(makeConfirm(hub, prompt))` instead — see ADR-0009
+The overload is C#-only. Python, TypeScript, Swift, and Rust use explicit
+composition with their notification bridge: `command.confirm(make_confirm(...))`,
+`command.confirm(makeConfirm(...))`, `confirm(command, makeConfirm(...))`, and
+`command.confirm(make_confirm(...))`, respectively. See ADR-0009
 §"Fluent `Confirm` overload with `INotificationHub`".
 
 ### 9.2 `PrecedeWith(other)`

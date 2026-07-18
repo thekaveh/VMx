@@ -46,9 +46,10 @@ ADR-0006 and require no further action:
 
 ### `IMessage` sender field name (post-v3.0.0, ADR-0054)
 
-- **Spec / canonical**: `Sender` is the single canonical runtime-sender field on
-  every message; `IMessage<TSender>` narrows it to the typed `TSender`
-  (spec/03-messages.md §1).
+- **Spec / canonical**: every message carries one sender identity and one
+  diagnostic name. Object-sender flavors expose `Sender`/`sender` canonically
+  on typed messages; untyped-base compatibility differs as recorded below
+  (spec/03-messages.md §1, ADR-0121).
 - **C#**: `IMessage.SenderObject` (untyped base) + `IMessage<TSender>.Sender`
   (typed). `SenderObject` is a **deprecated** alias returning the same instance
   as `Sender`; removal deferred to the next C# major.
@@ -67,12 +68,12 @@ ADR-0006 and require no further action:
   sender object. Identity filters compare that stable ID; messages do not own or
   borrow VM instances and remain independent of VM lifetimes (ADR-0120).
 - **Rationale**: the language-neutral invariant is one canonical sender
-  identity. The four object-sender flavors expose that identity through
-  `Sender`/`sender`; Rust uses `sender_id` as an intentional ownership-safe
-  idiom. TypeScript collapsed to the sole `sender` field on the v3 major; C#,
-  Python, and Swift retain their untyped aliases for source compatibility,
-  tracked here as scheduled removals rather than drift. See ADR-0054 and
-  ADR-0120.
+  identity. Typed messages in the four object-sender flavors expose that
+  identity through `Sender`/`sender`; Rust uses `sender_id` as an intentional
+  ownership-safe idiom. TypeScript collapsed its untyped base to the sole
+  `sender` field on the v3 major; C#, Python, and Swift retain their established
+  untyped base aliases for source compatibility. See ADR-0054, ADR-0120, and
+  ADR-0121.
 
 ### `TreeStructureChangedMessage` field name
 

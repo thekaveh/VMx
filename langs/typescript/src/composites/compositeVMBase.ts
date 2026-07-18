@@ -58,6 +58,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
   readonly #currentSelector: ((xs: Iterable<VM>) => VM | null) | null;
   readonly #onCurrentChanged: ((vm: VM | null) => void) | null;
   #disposeRequested = false;
+  #disposeDeferred = false;
   #membershipTransactionActive = false;
 
   constructor(opts: {
@@ -469,7 +470,11 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
   }
 
   override dispose(): void {
-    if (this.#disposeRequested) return;
+    if (this.#disposeRequested || this.#disposeDeferred) return;
+    if (this.#membershipTransactionActive) {
+      this.#disposeDeferred = true;
+      return;
+    }
     this.#disposeRequested = true;
     // Dispose cascade (LIFE-013): depth-first dispose each child, then self.
     disposeBestEffort([
@@ -492,7 +497,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
   }
 
   #requireChildAdmission(): void {
-    if (this.#disposeRequested) {
+    if (this.#disposeRequested || this.#disposeDeferred) {
       throw new Error("Cannot attach a child while the container is disposing");
     }
     if (this.#membershipTransactionActive) {
@@ -506,13 +511,17 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
   }
 
   #requireTransactionCanContinue(): void {
-    if (this.#disposeRequested) {
+    if (this.#disposeRequested || this.#disposeDeferred) {
       throw new Error("Cannot attach a child while the container is disposing");
     }
   }
 
   #endMembershipTransaction(): void {
     this.#membershipTransactionActive = false;
+    if (this.#disposeDeferred) {
+      this.#disposeDeferred = false;
+      this.dispose();
+    }
   }
 
   protected _attachPopulation(children: Iterable<VM>): void {

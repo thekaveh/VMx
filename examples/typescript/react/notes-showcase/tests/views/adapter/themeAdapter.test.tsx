@@ -27,6 +27,7 @@ import {
 afterEach(() => {
   // Reset :root inline styles so tests don't leak into one another.
   document.documentElement.removeAttribute("style");
+  document.documentElement.removeAttribute("data-high-contrast");
   cleanup();
 });
 
@@ -115,6 +116,29 @@ describe("applyTheme — reactive updates", () => {
     const s = document.documentElement.style;
     expect(s.getPropertyValue("--accent")).toBe("#ff00aa");
     expect(s.getPropertyValue("--bg")).toBe("#0e1320");
+  });
+
+  it("renders the independent high-contrast toggle over the active preset", () => {
+    const vm = makeVM(DARK_PRESET);
+    applyTheme(vm, document);
+
+    vm.toggleHighContrast.execute();
+
+    const root = document.documentElement;
+    const s = root.style;
+    expect(s.getPropertyValue("--bg")).toBe("#000000");
+    expect(s.getPropertyValue("--pane")).toBe("#000000");
+    expect(s.getPropertyValue("--text")).toBe("#FFFFFF");
+    expect(s.getPropertyValue("--text-dim")).toBe("#FFFFFF");
+    expect(s.getPropertyValue("--border")).toBe("#FFFFFF");
+    expect(root.dataset.highContrast).toBe("true");
+
+    vm.toggleHighContrast.execute();
+
+    expect(s.getPropertyValue("--bg")).toBe("#0e1320");
+    expect(s.getPropertyValue("--text")).toBe("#e6eaf2");
+    expect(s.getPropertyValue("--border")).toBe("#2a3045");
+    expect(root.hasAttribute("data-high-contrast")).toBe(false);
   });
 });
 

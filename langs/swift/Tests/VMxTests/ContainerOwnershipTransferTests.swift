@@ -159,6 +159,72 @@ final class ContainerOwnershipTransferTests: XCTestCase {
         )
     }
 
+    /// COMP-040 — old-parent disposal waits until successful transfer commit.
+    func testCOMP040DefersOldCompositeDisposalUntilTransferCommits() throws {
+        var oldParent: CompositeVM<ThrowingOwnershipChild>!
+        let child = ThrowingOwnershipChild("child", shouldFail: {
+            oldParent.dispose()
+            return false
+        })
+        oldParent = CompositeVM<ThrowingOwnershipChild>(
+            name: "old",
+            hub: NullMessageHub.INSTANCE,
+            dispatcher: NullDispatcher.INSTANCE
+        )
+        let destination = GroupVM<ThrowingOwnershipChild>(
+            name: "destination",
+            hub: NullMessageHub.INSTANCE,
+            dispatcher: NullDispatcher.INSTANCE,
+            autoConstructOnAdd: true
+        )
+        try oldParent.addResult(child).get()
+        try destination.construct()
+
+        try destination.addResult(child).get()
+
+        XCTAssertEqual(oldParent.status, .disposed)
+        XCTAssertEqual(oldParent.count, 0)
+        XCTAssertEqual(destination.count, 1)
+        XCTAssertTrue(destination.at(0) === child)
+        XCTAssertEqual(child.status, .constructed)
+        XCTAssertTrue(child._ownershipParent?.ownershipOwner === destination)
+    }
+
+    /// COMP-040 — rollback restores membership before deferred old-parent disposal.
+    func testCOMP040RollsBackBeforeDeferredOldGroupDisposal() throws {
+        var oldParent: GroupVM<ThrowingOwnershipChild>!
+        let child = ThrowingOwnershipChild("child", shouldFail: {
+            oldParent.dispose()
+            return true
+        })
+        oldParent = GroupVM<ThrowingOwnershipChild>(
+            name: "old",
+            hub: NullMessageHub.INSTANCE,
+            dispatcher: NullDispatcher.INSTANCE
+        )
+        let destination = CompositeVM<ThrowingOwnershipChild>(
+            name: "destination",
+            hub: NullMessageHub.INSTANCE,
+            dispatcher: NullDispatcher.INSTANCE,
+            autoConstructOnAdd: true
+        )
+        try oldParent.addResult(child).get()
+        try destination.construct()
+
+        if case .failure(.attachmentFailed) = destination.addResult(child) {
+            // Expected.
+        } else {
+            XCTFail("failed child construction must report attachmentFailed")
+        }
+
+        XCTAssertEqual(oldParent.status, .disposed)
+        XCTAssertEqual(oldParent.count, 1)
+        XCTAssertTrue(oldParent.at(0) === child)
+        XCTAssertEqual(destination.count, 0)
+        XCTAssertEqual(child.status, .disposed)
+        XCTAssertTrue(child._ownershipParent?.ownershipOwner === oldParent)
+    }
+
     /// COMP-040 — Lazy population rollback restores earlier transfers and is retryable.
     func testCOMP040LazyPopulationRollsBackAsOneTransaction() throws {
         let first = ThrowingOwnershipChild("first", shouldFail: { false })

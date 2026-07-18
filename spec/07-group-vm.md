@@ -50,7 +50,9 @@ are transactional under the destination/old-parent isolation rules in chapter
 06 §4.2. Failure restores the old parent, index, selection state (if the old
 parent is a composite), parent link, population retryability, and membership
 event stream. Lifecycle compensation failure is surfaced rather than swallowed,
-as qualified by ADR-0118.
+as qualified by ADR-0118. Disposal requested while an old-parent transfer is
+staged follows chapter 06 §4.2 and ADR-0122: commit or rollback reaches a stable
+membership boundary before the old parent snapshots and cascades its children.
 
 ## 2. Children construction orchestration
 

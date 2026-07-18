@@ -155,7 +155,94 @@ pub(crate) fn finish_with_first_error(first: Option<VmxError>) -> VmxResult<()> 
 
 pub(crate) struct MembershipTransactionGuard {
     active: Arc<AtomicBool>,
+    control: Arc<MembershipTransactionControl>,
     release: bool,
+}
+
+pub(crate) enum MembershipDisposeDisposition {
+    Inactive,
+    Owned,
+    Foreign,
+}
+
+struct MembershipTransactionState {
+    owner: Option<ThreadId>,
+    finishing_owner: Option<ThreadId>,
+    deferred_dispose: Option<Box<dyn FnOnce() + Send>>,
+}
+
+pub(crate) struct MembershipTransactionControl {
+    state: Mutex<MembershipTransactionState>,
+    ready: Condvar,
+}
+
+impl MembershipTransactionControl {
+    pub(crate) fn new() -> Self {
+        Self {
+            state: Mutex::new(MembershipTransactionState {
+                owner: None,
+                finishing_owner: None,
+                deferred_dispose: None,
+            }),
+            ready: Condvar::new(),
+        }
+    }
+
+    fn begin(&self) {
+        let mut state = lock(&self.state);
+        debug_assert!(state.owner.is_none());
+        debug_assert!(state.finishing_owner.is_none());
+        state.owner = Some(thread::current().id());
+    }
+
+    pub(crate) fn dispose_disposition(&self) -> MembershipDisposeDisposition {
+        let current = thread::current().id();
+        let state = lock(&self.state);
+        match (state.owner, state.finishing_owner) {
+            (Some(owner), _) if owner == current => MembershipDisposeDisposition::Owned,
+            (Some(_), _) => MembershipDisposeDisposition::Foreign,
+            (None, Some(owner)) if owner == current => MembershipDisposeDisposition::Inactive,
+            (None, Some(_)) => MembershipDisposeDisposition::Foreign,
+            (None, None) => MembershipDisposeDisposition::Inactive,
+        }
+    }
+
+    pub(crate) fn defer_dispose(&self, action: impl FnOnce() + Send + 'static) {
+        let mut state = lock(&self.state);
+        if state.deferred_dispose.is_none() {
+            state.deferred_dispose = Some(Box::new(action));
+        }
+    }
+
+    pub(crate) fn has_deferred_dispose(&self) -> bool {
+        lock(&self.state).deferred_dispose.is_some()
+    }
+
+    pub(crate) fn wait_until_inactive(&self) {
+        let mut state = lock(&self.state);
+        while state.owner.is_some() || state.finishing_owner.is_some() {
+            state = wait(&self.ready, state);
+        }
+    }
+
+    fn finish(&self, active: &AtomicBool) {
+        let current = thread::current().id();
+        let action = {
+            let mut state = lock(&self.state);
+            state.owner = None;
+            state.finishing_owner = Some(current);
+            state.deferred_dispose.take()
+        };
+        let outcome = action.map(|action| catch_unwind(AssertUnwindSafe(action)));
+        active.store(false, Ordering::Release);
+        let mut state = lock(&self.state);
+        state.finishing_owner = None;
+        self.ready.notify_all();
+        drop(state);
+        if let Some(Err(payload)) = outcome {
+            resume_unwind(payload);
+        }
+    }
 }
 
 impl MembershipTransactionGuard {
@@ -163,9 +250,13 @@ impl MembershipTransactionGuard {
         self.release = false;
     }
 
-    pub(crate) fn release_on_drop(active: Arc<AtomicBool>) -> Self {
+    pub(crate) fn release_on_drop(
+        active: Arc<AtomicBool>,
+        control: Arc<MembershipTransactionControl>,
+    ) -> Self {
         Self {
             active,
+            control,
             release: true,
         }
     }
@@ -174,19 +265,22 @@ impl MembershipTransactionGuard {
 impl Drop for MembershipTransactionGuard {
     fn drop(&mut self) {
         if self.release {
-            self.active.store(false, Ordering::Release);
+            self.control.finish(&self.active);
         }
     }
 }
 
 pub(crate) fn begin_membership_transaction(
     active: &Arc<AtomicBool>,
+    control: &Arc<MembershipTransactionControl>,
 ) -> VmxResult<MembershipTransactionGuard> {
     active
         .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
         .map_err(|_| VmxError::OwnershipTransactionInProgress)?;
+    control.begin();
     Ok(MembershipTransactionGuard {
         active: Arc::clone(active),
+        control: Arc::clone(control),
         release: true,
     })
 }
