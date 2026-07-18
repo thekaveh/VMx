@@ -28,6 +28,19 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  release-metadata:
+    name: release — metadata preflight
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Validate versions, tags, and substantive release notes
+        run: python3 tools/check-version-consistency.py
+
   csharp-build:
     if: startsWith(github.ref, 'refs/tags/csharp-')
     runs-on: ubuntu-latest
@@ -114,7 +127,7 @@ jobs:
           if-no-files-found: error
 
   csharp-publish:
-    needs: csharp-build
+    needs: [csharp-build, release-metadata]
     if: startsWith(github.ref, 'refs/tags/csharp-')
     runs-on: ubuntu-latest
     environment:
@@ -310,7 +323,7 @@ jobs:
     # the publish job pauses for approval before any irreversible PyPI
     # upload.
     name: python — build & publish
-    needs: python-test
+    needs: [python-test, release-metadata]
     if: startsWith(github.ref, 'refs/tags/python-v')
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -357,6 +370,16 @@ jobs:
         run: |
           set -euo pipefail
           uv tool run --from "twine==6.2.0" twine check dist/*
+
+      - name: Test extracted sdist
+        run: |
+          set -euo pipefail
+          extract_dir="$(mktemp -d)"
+          tar -xzf dist/*.tar.gz -C "$extract_dir"
+          sdist_root="$(find "$extract_dir" -mindepth 1 -maxdepth 1 -type d -print -quit)"
+          test -n "$sdist_root"
+          uv sync --project "$sdist_root" --locked --all-extras
+          uv run --project "$sdist_root" pytest "$sdist_root/tests/conformance" -q
 
       - name: Verify exact local wheel in a fresh environment
         run: |
@@ -461,6 +484,7 @@ jobs:
             --target "$GITHUB_SHA"
 
   typescript:
+    needs: release-metadata
     if: startsWith(github.ref, 'refs/tags/typescript-v')
     runs-on: ubuntu-latest
     environment:
@@ -722,7 +746,7 @@ jobs:
 
   rust-publish:
     name: rust — publish vmx-rs
-    needs: [rust-test, rust-conformance, rust-audit]
+    needs: [rust-test, rust-conformance, rust-audit, release-metadata]
     if: startsWith(github.ref, 'refs/tags/rust-v')
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -900,7 +924,7 @@ jobs:
 
   swift-release:
     name: swift — GitHub Release
-    needs: swift-verify
+    needs: [swift-verify, release-metadata]
     if: startsWith(github.ref, 'refs/tags/swift-v')
     runs-on: macos-latest
     permissions:

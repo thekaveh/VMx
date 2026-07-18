@@ -1,11 +1,9 @@
 """TextualDialogService — VMx :class:`IDialogService` over Textual screens.
 
-See scenario §7.1 (DialogService) and plan §4.b / 5.b.
-
 Every operation required by the save-only showcase scenario drives a real
 :class:`~textual.screen.ModalScreen` defined under
-``notes_showcase.views.modals``. The file-open path is explicitly unsupported
-because the scenario has no load flow; export uses file-save through
+``notes_showcase.views.modals``. The scenario has no load flow, so file-open
+returns the contract's safe cancellation result. Export uses file-save through
 ``WorkspaceVM._export_internal``.
 """
 
@@ -37,11 +35,7 @@ class TextualDialogService(IDialogService):
         filter: FileFilter | None = None,
         title: str | None = None,
     ) -> str | None:
-        # Not exercised by the notes-showcase flow; export is save-only.
-        raise NotImplementedError(
-            "TextualDialogService.pick_file_to_open is unsupported because "
-            "the showcase scenario exposes export/save only."
-        )
+        return None
 
     async def pick_file_to_save(
         self,

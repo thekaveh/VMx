@@ -1188,6 +1188,55 @@ public class CompositeVMConformanceTests
         destination.Should().BeEmpty();
     }
 
+    [Fact, Trait("Conformance", "COMP-040")]
+    public void COMP_040_Reservation_Failure_Preserves_Preexisting_Destination_Children()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+
+        foreach (var useGroup in new[] { false, true })
+        {
+            var moving = BuildChild(hub, dispatcher, useGroup ? "group-moving" : "composite-moving");
+            var blocker = BuildChild(hub, dispatcher, useGroup ? "group-blocker" : "composite-blocker");
+            var oldParent = CompositeVM<ComponentVM<string>>.Builder()
+                .Name(useGroup ? "group-old" : "composite-old")
+                .Services(hub, dispatcher)
+                .Children(() => Array.Empty<ComponentVM<string>>())
+                .Build();
+            oldParent.Add(moving);
+            var candidates = new List<ComponentVM<string>>();
+
+            if (useGroup)
+            {
+                var destination = GroupVM<ComponentVM<string>>.Builder()
+                    .Name("group-destination").Services(hub, dispatcher)
+                    .Children(() => candidates).Build();
+                destination.Add(blocker);
+                candidates.AddRange([moving, blocker]);
+
+                destination.Invoking(candidate => candidate.Construct())
+                    .Should().Throw<InvalidOperationException>();
+                destination.Should().ContainSingle().Which.Should().BeSameAs(blocker);
+                blocker.GetParent()!.Owner.Should().BeSameAs(destination);
+            }
+            else
+            {
+                var destination = CompositeVM<ComponentVM<string>>.Builder()
+                    .Name("composite-destination").Services(hub, dispatcher)
+                    .Children(() => candidates).Build();
+                destination.Add(blocker);
+                candidates.AddRange([moving, blocker]);
+
+                destination.Invoking(candidate => candidate.Construct())
+                    .Should().Throw<InvalidOperationException>();
+                destination.Should().ContainSingle().Which.Should().BeSameAs(blocker);
+                blocker.GetParent()!.Owner.Should().BeSameAs(destination);
+            }
+
+            oldParent.Should().ContainSingle().Which.Should().BeSameAs(moving);
+        }
+    }
+
     [Fact, Trait("Conformance", "COMP-041")]
     public void COMP_041_Transfer_Publishes_Old_Remove_Before_New_Add()
     {
@@ -1264,6 +1313,66 @@ public class CompositeVMConformanceTests
         worker.Should().NotBeNull();
         worker!.Join(TimeSpan.FromSeconds(2)).Should().BeTrue();
         callbackObservedProgress.Should().BeTrue();
+        unrelatedOld.Should().BeEmpty();
+        unrelatedDestination.Should().ContainSingle().Which.Should().BeSameAs(unrelated);
+    }
+
+    [Fact]
+    public void Colliding_Bulk_Wait_Does_Not_Block_Unrelated_Callback_Transfer()
+    {
+        var (oldParent, hub, dispatcher) = BuildComposite("old");
+        var child = BuildChild(hub, dispatcher, "child");
+        oldParent.Add(child);
+        var firstDestination = GroupVM<ComponentVM<string>>.Builder()
+            .Name("first-destination").Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVM<string>>()).Build();
+        using var bulkFactoryEntered = new ManualResetEventSlim();
+        var bulkDestination = GroupVM<ComponentVM<string>>.Builder()
+            .Name("bulk-destination").Services(hub, dispatcher)
+            .Children(() =>
+            {
+                bulkFactoryEntered.Set();
+                return [child];
+            }).Build();
+
+        var unrelated = BuildChild(hub, dispatcher, "unrelated");
+        var unrelatedOld = GroupVM<ComponentVM<string>>.Builder()
+            .Name("unrelated-old").Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVM<string>>()).Build();
+        unrelatedOld.Add(unrelated);
+        var unrelatedDestination = GroupVM<ComponentVM<string>>.Builder()
+            .Name("unrelated-destination").Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVM<string>>()).Build();
+        using var unrelatedDone = new ManualResetEventSlim();
+        Thread? bulkWorker = null;
+        var callbackObservedProgress = false;
+
+        oldParent.CollectionChanged += (_, args) =>
+        {
+            if (args.Action != NotifyCollectionChangedAction.Remove || bulkWorker is not null) return;
+            bulkWorker = new Thread(bulkDestination.Construct);
+            bulkWorker.Start();
+            bulkFactoryEntered.Wait(TimeSpan.FromSeconds(2)).Should().BeTrue();
+            SpinWait.SpinUntil(
+                () => (bulkWorker.ThreadState & ThreadState.WaitSleepJoin) != 0,
+                TimeSpan.FromSeconds(2)).Should().BeTrue();
+
+            var unrelatedWorker = new Thread(() =>
+            {
+                unrelatedDestination.Add(unrelated);
+                unrelatedDone.Set();
+            });
+            unrelatedWorker.Start();
+            callbackObservedProgress = unrelatedDone.Wait(TimeSpan.FromMilliseconds(500));
+            unrelatedWorker.Join(TimeSpan.FromSeconds(2));
+        };
+
+        firstDestination.Add(child);
+
+        bulkWorker.Should().NotBeNull();
+        bulkWorker!.Join(TimeSpan.FromSeconds(2)).Should().BeTrue();
+        callbackObservedProgress.Should().BeTrue();
+        bulkDestination.Should().ContainSingle().Which.Should().BeSameAs(child);
         unrelatedOld.Should().BeEmpty();
         unrelatedDestination.Should().ContainSingle().Which.Should().BeSameAs(unrelated);
     }

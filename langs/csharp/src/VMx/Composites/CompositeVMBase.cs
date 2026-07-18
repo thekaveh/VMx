@@ -686,7 +686,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         var originalStatuses = new List<ConstructionStatus>();
         try
         {
-            using (ComponentOwnership.BeginReservationBatch())
+            using (ComponentOwnership.BeginReservationBatch(candidates))
             {
                 foreach (var child in candidates)
                 {
@@ -722,13 +722,13 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
             var rollbackFailures = new List<Exception>();
             for (var candidateIndex = candidates.Length - 1; candidateIndex >= 0; candidateIndex--)
             {
+                if (candidateIndex >= originalStatuses.Count) continue;
                 var child = candidates[candidateIndex];
                 lock (_membershipGate)
                 {
                     var attached = _children.FindIndex(item => ReferenceEquals(item, child));
                     if (attached >= 0) _children.RemoveAt(attached);
                 }
-                if (candidateIndex >= originalStatuses.Count) continue;
                 var originalStatus = originalStatuses[candidateIndex];
                 if (originalStatus == ConstructionStatus.Destructed &&
                     child.Status == ConstructionStatus.Constructed)

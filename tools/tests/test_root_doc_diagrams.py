@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import re
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -44,3 +45,27 @@ def test_class_diagram_names_real_message_types_and_capabilities(tmp_path: Path)
     assert "search / filter / page" in rendered
     assert ">PropertyValueChanged<" not in rendered
     assert "filter / page / count" not in rendered
+
+
+def test_class_diagram_separates_adjacent_edge_labels(tmp_path: Path) -> None:
+    generator = _load_generator()
+    generator.class_diagram(tmp_path)
+    rendered = (tmp_path / "assets" / "class-diagram.svg").read_text(encoding="utf-8")
+
+    label_y = {
+        label: int(y)
+        for y, label in re.findall(r'<text x="[^"]+" y="(\d+)"[^>]*>([^<]+)</text>', rendered)
+        if label in {"AsyncResourceVM", "hub events"}
+    }
+    assert abs(label_y["AsyncResourceVM"] - label_y["hub events"]) >= 20
+
+
+def test_showcase_hierarchy_has_no_notification_self_edge(tmp_path: Path) -> None:
+    generator = _load_generator()
+    generator.showcase_hierarchy(tmp_path)
+    rendered = (tmp_path / "examples" / "assets" / "notes-showcase-vm-hierarchy.svg").read_text(
+        encoding="utf-8"
+    )
+
+    assert "saved / post" in rendered
+    assert "M1180,755 C1030,755 1030,755 880,755" not in rendered

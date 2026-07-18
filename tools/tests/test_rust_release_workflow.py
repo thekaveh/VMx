@@ -155,7 +155,7 @@ def test_release_runs_msrv_stable_and_five_flavor_gates_before_publish() -> None
         assert command in jobs
     assert "cargo install cargo-audit --version 0.22.2 --locked" in jobs
     assert "cargo audit --file langs/rust/Cargo.lock --deny warnings" in jobs
-    assert "needs: [rust-test, rust-conformance, rust-audit]" in jobs
+    assert "needs: [rust-test, rust-conformance, rust-audit, release-metadata]" in jobs
 
 
 def test_release_rejects_non_main_or_mismatched_tag_before_authentication() -> None:

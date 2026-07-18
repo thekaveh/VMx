@@ -127,10 +127,8 @@ fn multiple_subscribers_each_observe_every_message() {
 /// HUB-006 — Hub matches message-ordering fixture
 #[test]
 fn hub_matches_message_ordering_fixture() {
-    let fixture: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../../spec/fixtures/message-ordering.json"
-    ))
-    .unwrap();
+    let fixture: serde_json::Value =
+        serde_json::from_str(include_str!("../../src/fixtures/message-ordering.json")).unwrap();
     assert_eq!(
         fixture["scenarios"][0]["id"], "single-producer-fifo",
         "fixture must be available to Rust tests"

@@ -64,6 +64,7 @@ class HierarchicalVMBuilder(Generic[TModel, TVM]):
         )
     """
 
+    __orig_class__: object = dataclasses.field(init=False, repr=False, compare=False)
     _model: object = dataclasses.field(default=_MODEL_SENTINEL)
     _model_set: bool = dataclasses.field(default=False)
     _children_factory: Callable[[Any], Iterable[Any]] | None = dataclasses.field(default=None)

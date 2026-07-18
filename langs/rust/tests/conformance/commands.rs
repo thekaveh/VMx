@@ -90,10 +90,8 @@ fn relay_command_without_task_is_noop() {
 /// CMD-007 — Command truth-table matches fixture
 #[test]
 fn relay_command_matches_truth_table_fixture() {
-    let fixture: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../../spec/fixtures/command-truthtable.json"
-    ))
-    .unwrap();
+    let fixture: serde_json::Value =
+        serde_json::from_str(include_str!("../../src/fixtures/command-truthtable.json")).unwrap();
     assert_eq!(fixture["cases"].as_array().unwrap().len(), 5);
 
     assert!(RelayCommand::noop().can_execute());

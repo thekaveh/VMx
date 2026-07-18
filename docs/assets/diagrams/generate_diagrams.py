@@ -3960,10 +3960,10 @@ def examples_vm_layer() -> Diagram:
                 ((360, 430), (400, 430)),
                 color="#94a3b8",
                 label="current notebook -> bindTo()",
-                label_xy=(420, 414),
+                label_xy=(420, 318),
             ),
             Polyline(
-                ((660, 430), (700, 430)), color="#94a3b8", label="current note", label_xy=(680, 414)
+                ((660, 430), (700, 430)), color="#94a3b8", label="current note", label_xy=(680, 318)
             ),
             Polyline(
                 ((835, 520), (835, 620), (1125, 620), (1125, 520)),
@@ -3975,7 +3975,7 @@ def examples_vm_layer() -> Diagram:
                 ((1510, 430), (1550, 430)),
                 color="#34d399",
                 label="focusedVM capabilities",
-                label_xy=(1550, 414),
+                label_xy=(1640, 318),
             ),
             Polyline(
                 ((290, 520), (290, 830)),

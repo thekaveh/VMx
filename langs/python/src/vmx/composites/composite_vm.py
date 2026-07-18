@@ -743,7 +743,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         original_statuses: list[ConstructionStatus] = []
         parent: _ParentCompositeVM = self
         try:
-            with _ownership_reservation_batch():
+            with _ownership_reservation_batch(candidates):
                 for child in candidates:
                     transfer = _begin_parent_transfer(child, parent)
                     transfers.append(transfer)

@@ -40,20 +40,46 @@ if TYPE_CHECKING:
 
 
 # Ownership tokens retain their child reservation through construction and
-# commit/rollback. A process-wide re-entrant coordinator prevents bulk
-# populations that enumerate the same children in reverse order from each
-# retaining one child lock and waiting forever for the other.
+# commit/rollback. The coordinator serializes only non-blocking lock-set
+# attempts; no thread may wait for a child identity while retaining it.
 _OWNERSHIP_TRANSACTION_GATE = threading.RLock()
 
 
+def _acquire_ownership_identities(
+    identities: Iterable[_ComponentVMBase],
+) -> list[_ComponentVMBase]:
+    """Acquire a complete identity set without hold-and-wait deadlocks."""
+    ordered = sorted({id(identity): identity for identity in identities}.values(), key=id)
+    while True:
+        acquired: list[_ComponentVMBase] = []
+        blocked: _ComponentVMBase | None = None
+        with _OWNERSHIP_TRANSACTION_GATE:
+            for identity in ordered:
+                if identity._ownership_lock.acquire(blocking=False):
+                    acquired.append(identity)
+                else:
+                    blocked = identity
+                    break
+            if blocked is None:
+                return acquired
+            for identity in reversed(acquired):
+                identity._ownership_lock.release()
+
+        # Wait outside the coordinator and without retaining any other child.
+        # Once the blocker moves, retry the complete set atomically.
+        blocked._ownership_lock.acquire()
+        blocked._ownership_lock.release()
+
+
 @contextmanager
-def _ownership_reservation_batch() -> Iterator[None]:
-    """Order a multi-child reservation without retaining the gate in callbacks."""
-    _OWNERSHIP_TRANSACTION_GATE.acquire()
+def _ownership_reservation_batch(children: Iterable[_ComponentVMBase]) -> Iterator[None]:
+    """Pre-acquire a multi-child identity set without waiting under the coordinator."""
+    identities = _acquire_ownership_identities(child._ownership_identity for child in children)
     try:
         yield
     finally:
-        _OWNERSHIP_TRANSACTION_GATE.release()
+        for identity in reversed(identities):
+            identity._ownership_lock.release()
 
 
 class _Disposable(Protocol):
@@ -209,11 +235,9 @@ def _begin_parent_transfer(
 ) -> _ParentTransfer:
     """Validate exclusive ownership/cycles and stage any old-parent removal."""
     identity = child._ownership_identity
-    _OWNERSHIP_TRANSACTION_GATE.acquire()
-    identity._ownership_lock.acquire()
+    _acquire_ownership_identities((identity,))
     if identity._ownership_in_progress:
         identity._ownership_lock.release()
-        _OWNERSHIP_TRANSACTION_GATE.release()
         raise RuntimeError(f"Cannot transfer {child.name!r}: ownership transaction is in progress")
     identity._ownership_in_progress = True
     try:
@@ -235,12 +259,7 @@ def _begin_parent_transfer(
     except BaseException:
         identity._ownership_in_progress = False
         identity._ownership_lock.release()
-        _OWNERSHIP_TRANSACTION_GATE.release()
         raise
-
-    # Per-identity state stays reserved through commit/rollback. The global
-    # gate only orders acquisition and must be gone before consumer callbacks.
-    _OWNERSHIP_TRANSACTION_GATE.release()
 
     def finish(commit: bool) -> None:
         try:
@@ -1259,7 +1278,7 @@ class _ComponentVMBase(ABC):
             caller = threading.get_ident()
             with self._lifecycle_lock:
                 owner = self._lifecycle_drainer_thread
-            if owner not in (None, caller):
+            if owner is not None and owner != caller:
                 if not _register_lifecycle_wait(caller, owner):
                     try:
                         publication.completed.wait()

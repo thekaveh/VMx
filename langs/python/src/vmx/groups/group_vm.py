@@ -531,7 +531,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         transfers: list[_ParentTransfer | None] = []
         original_statuses: list[ConstructionStatus] = []
         try:
-            with _ownership_reservation_batch():
+            with _ownership_reservation_batch(children):
                 for child in children:
                     transfer = _begin_parent_transfer(child, parent)
                     transfers.append(transfer)

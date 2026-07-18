@@ -107,9 +107,46 @@ final class ParentTransfer {
 
 private let ownershipTransactionCoordinator = NSRecursiveLock()
 
-func withOwnershipReservationBatch<T>(_ body: () throws -> T) rethrows -> T {
-    ownershipTransactionCoordinator.lock()
-    defer { ownershipTransactionCoordinator.unlock() }
+private func acquireOwnershipIdentities(_ children: [ComponentVMBase]) -> [ComponentVMBase] {
+    var seen = Set<ObjectIdentifier>()
+    let identities = children.compactMap { child -> ComponentVMBase? in
+        let identity = child._ownershipIdentity
+        return seen.insert(ObjectIdentifier(identity)).inserted ? identity : nil
+    }
+    while true {
+        var acquired: [ComponentVMBase] = []
+        var blocked: ComponentVMBase?
+        ownershipTransactionCoordinator.lock()
+        for identity in identities {
+            if identity.ownershipGate.try() {
+                acquired.append(identity)
+            } else {
+                blocked = identity
+                break
+            }
+        }
+        if blocked == nil {
+            ownershipTransactionCoordinator.unlock()
+            return identities
+        }
+        for identity in acquired.reversed() { identity.ownershipGate.unlock() }
+        ownershipTransactionCoordinator.unlock()
+
+        // Never retain the coordinator or another child while waiting. Once
+        // this blocker moves, retry the complete identity set atomically.
+        blocked!.ownershipGate.lock()
+        blocked!.ownershipGate.unlock()
+    }
+}
+
+func withOwnershipReservationBatch<T>(
+    _ children: [ComponentVMBase],
+    _ body: () throws -> T
+) rethrows -> T {
+    let identities = acquireOwnershipIdentities(children)
+    defer {
+        for identity in identities.reversed() { identity.ownershipGate.unlock() }
+    }
     return try body()
 }
 
@@ -119,11 +156,9 @@ func beginParentTransfer(
     transaction: ContainerOwnershipTransaction
 ) throws -> ParentTransfer {
     let identity = child._ownershipIdentity
-    ownershipTransactionCoordinator.lock()
-    identity.ownershipGate.lock()
+    _ = acquireOwnershipIdentities([identity])
     guard !identity.ownershipInProgress else {
         identity.ownershipGate.unlock()
-        ownershipTransactionCoordinator.unlock()
         throw ContainerOwnershipTransactionError()
     }
     identity.ownershipInProgress = true
@@ -150,14 +185,8 @@ func beginParentTransfer(
     } catch {
         identity.ownershipInProgress = false
         identity.ownershipGate.unlock()
-        ownershipTransactionCoordinator.unlock()
         throw error
     }
-
-    // The coordinator orders reservation acquisition only. The canonical
-    // identity remains reserved, but consumer callbacks during finalization
-    // must be able to start unrelated transfers.
-    ownershipTransactionCoordinator.unlock()
 
     func finish(commit: Bool) {
         defer {

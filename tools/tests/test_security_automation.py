@@ -89,7 +89,29 @@ def test_weekly_audit_covers_every_committed_lock_family() -> None:
     assert workflow.startswith("name: security-audit\n\npermissions:\n  contents: read\n")
 
 
+def test_codeql_covers_every_implementation_language() -> None:
+    workflow = (REPO_ROOT / ".github/workflows/security-audit.yml").read_text(encoding="utf-8")
+
+    codeql = workflow.split("  codeql:\n", maxsplit=1)[1].split("\n  npm:", maxsplit=1)[0]
+    assert "      security-events: write" in codeql
+    assert "      fail-fast: false" in codeql
+    for language in ("csharp", "javascript-typescript", "python", "rust", "swift"):
+        assert codeql.count(f"          - language: {language}\n") == 1
+    assert "            build-mode: manual\n            runner: macos-15" in codeql
+    assert codeql.count("            build-mode: none\n") == 4
+    assert "swift build -c release --package-path langs/swift" in codeql
+    assert "swift build -c release --package-path examples/swift/notes-showcase" in codeql
+    assert "github/codeql-action/init@7188fc363630916deb702c7fdcf4e481b751f97a" in codeql
+    assert "github/codeql-action/analyze@7188fc363630916deb702c7fdcf4e481b751f97a" in codeql
+
+
 def test_release_workflow_defaults_to_read_only() -> None:
     workflow = (REPO_ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
 
     assert workflow.startswith("name: release\n\npermissions:\n  contents: read\n")
+
+
+def test_docs_workflows_do_not_bootstrap_mutable_pip() -> None:
+    for name in ("docs.yml", "wiki.yml"):
+        workflow = (REPO_ROOT / ".github/workflows" / name).read_text(encoding="utf-8")
+        assert "pip install --upgrade pip" not in workflow

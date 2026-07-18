@@ -20,7 +20,7 @@ def test_protected_branch_checks_are_always_present_and_aggregate_every_job() ->
         "csharp.yml": ("required: csharp", "needs: [build, package, examples, wpf-example]"),
         "python.yml": (
             "required: python",
-            "needs: [build, examples, small-examples, inspector]",
+            "needs: [build, examples, small-examples, inspector, package]",
         ),
         "rust.yml": ("required: rust", "needs: [audit, build, examples, package]"),
         "swift.yml": ("required: swift", "needs: [build, platforms, examples]"),
@@ -29,7 +29,7 @@ def test_protected_branch_checks_are_always_present_and_aggregate_every_job() ->
         "examples-contract-checks.yml": ("required: examples", None),
         "security-audit.yml": (
             "required: security",
-            "needs: [npm, cargo, python, docs, nuget]",
+            "needs: [codeql, npm, cargo, python, docs, nuget]",
         ),
         "spec-discipline.yml": ("required: spec discipline", None),
     }
@@ -86,6 +86,14 @@ def test_spec_discipline_enforces_develop_first_gitflow() -> None:
         "langs/python/src/vmx/__about__.py",
     ):
         assert path in workflow
+
+
+def test_spec_discipline_matches_only_the_exact_adr_bypass_label() -> None:
+    workflow = (WORKFLOWS / "spec-discipline.yml").read_text(encoding="utf-8")
+
+    assert "PR_LABELS_JSON: ${{ toJson(github.event.pull_request.labels.*.name) }}" in workflow
+    assert "jq -e 'index(\"no-adr-needed\") != null'" in workflow
+    assert "grep -q 'no-adr-needed'" not in workflow
 
 
 def test_python_release_updates_the_compatibility_matrix() -> None:

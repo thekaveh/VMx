@@ -83,7 +83,7 @@ def test_swift_release_separates_read_only_verification_from_write_authority() -
 
     assert "contents: read" in verify
     assert "contents: write" not in verify
-    assert "needs: swift-verify" in release
+    assert "needs: [swift-verify, release-metadata]" in release
     assert "contents: write" in release
     assert "gh release create" in release
 

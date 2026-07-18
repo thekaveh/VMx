@@ -127,15 +127,17 @@ internal static class ComponentOwnership
 
     private sealed class ReservationBatch : IDisposable
     {
+        private readonly OwnershipState[] _states;
         private bool _disposed;
 
-        internal ReservationBatch() => Monitor.Enter(Coordinator);
+        internal ReservationBatch(OwnershipState[] states) => _states = states;
 
         public void Dispose()
         {
             if (_disposed) return;
             _disposed = true;
-            Monitor.Exit(Coordinator);
+            for (var index = _states.Length - 1; index >= 0; index--)
+                Monitor.Exit(_states[index].Gate);
         }
     }
 
@@ -147,7 +149,44 @@ internal static class ComponentOwnership
 
     private static readonly ConditionalWeakTable<IComponentVM, OwnershipState> States = new();
 
-    internal static IDisposable BeginReservationBatch() => new ReservationBatch();
+    private static OwnershipState StateFor(IComponentVM child)
+        => States.GetValue(child.GetOwnershipIdentity(), static _ => new OwnershipState());
+
+    private static OwnershipState[] AcquireStates(IEnumerable<IComponentVM> children)
+    {
+        var states = children
+            .Select(StateFor)
+            .Distinct()
+            .ToArray();
+        while (true)
+        {
+            var acquired = new List<OwnershipState>(states.Length);
+            OwnershipState? blocked = null;
+            lock (Coordinator)
+            {
+                foreach (var state in states)
+                {
+                    if (Monitor.TryEnter(state.Gate)) acquired.Add(state);
+                    else
+                    {
+                        blocked = state;
+                        break;
+                    }
+                }
+                if (blocked is null) return states;
+                for (var index = acquired.Count - 1; index >= 0; index--)
+                    Monitor.Exit(acquired[index].Gate);
+            }
+
+            // Never wait for one identity while retaining the coordinator or
+            // another identity. Once the blocker moves, retry the complete set.
+            Monitor.Enter(blocked.Gate);
+            Monitor.Exit(blocked.Gate);
+        }
+    }
+
+    internal static IDisposable BeginReservationBatch(IEnumerable<IComponentVM> children)
+        => new ReservationBatch(AcquireStates(children));
 
     internal static void CommitThenPublish(
         ParentTransferToken? transfer,
@@ -173,14 +212,12 @@ internal static class ComponentOwnership
         IComponentVM child,
         IParentCompositeVM destination)
     {
-        Monitor.Enter(Coordinator);
         var identity = child.GetOwnershipIdentity();
-        var state = States.GetValue(identity, static _ => new OwnershipState());
-        Monitor.Enter(state.Gate);
+        var state = StateFor(identity);
+        AcquireStates([identity]);
         if (state.InProgress)
         {
             Monitor.Exit(state.Gate);
-            Monitor.Exit(Coordinator);
             throw new InvalidOperationException(
                 $"Cannot transfer '{child.Name}': an ownership transaction is already in progress.");
         }
@@ -209,15 +246,8 @@ internal static class ComponentOwnership
         {
             state.InProgress = false;
             Monitor.Exit(state.Gate);
-            Monitor.Exit(Coordinator);
             throw;
         }
-
-        // The coordinator orders multi-child reservation acquisition only.
-        // Per-identity gates keep each staged transfer exclusive after this
-        // point, so consumer callbacks during commit/rollback must not retain
-        // the process-wide coordinator.
-        Monitor.Exit(Coordinator);
 
         void Finish(bool commit)
         {

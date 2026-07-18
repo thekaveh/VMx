@@ -17,6 +17,8 @@ Rules enforced:
      repository release tags.
   4. TypeScript example lockfiles must record the current local VMx package
      version so dependency refreshes cannot retain stale workspace metadata.
+  5. Every current package version must have a non-empty bracketed CHANGELOG
+     section before a release tag can publish an immutable artifact.
 
 In-development exemption:
   ``spec/VERSION`` and versions recorded in its current matrix row are source
@@ -180,6 +182,45 @@ def check_typescript_example_locks(repo_root: Path, expected_version: str) -> li
             issues.append(
                 f"  {relative_path}: local @thekaveh/vmx version {actual_version!r} "
                 f"!= manifest version {expected_version!r}"
+            )
+    return issues
+
+
+def check_changelog_sections(repo_root: Path, manifests: dict[str, dict[str, str]]) -> list[str]:
+    """Report missing or empty current-version CHANGELOG sections."""
+    issues: list[str] = []
+    for flavor, info in sorted(manifests.items()):
+        version = info.get("version", "")
+        if not version:
+            continue
+        family = flavor.split("/", 1)[0]
+        changelog = repo_root / "langs" / family / "CHANGELOG.md"
+        if not changelog.is_file():
+            issues.append(f"  {flavor}: missing {changelog.relative_to(repo_root)}")
+            continue
+        package_id = info.get("package_id", "")
+        heading = f"{package_id} {version}" if "/" in flavor else version
+        lines = changelog.read_text(encoding="utf-8").splitlines()
+        start = next(
+            (index for index, line in enumerate(lines) if line.startswith(f"## [{heading}]")),
+            None,
+        )
+        if start is None:
+            issues.append(
+                f"  {flavor}: CHANGELOG section {heading!r} is missing for current version"
+            )
+            continue
+        body = lines[start + 1 :]
+        next_heading = next(
+            (index for index, line in enumerate(body) if line.startswith("## [")),
+            len(body),
+        )
+        substantive = any(
+            line.strip() and not line.lstrip().startswith("#") for line in body[:next_heading]
+        )
+        if not substantive:
+            issues.append(
+                f"  {flavor}: CHANGELOG section {heading!r} has no substantive release notes"
             )
     return issues
 
@@ -590,6 +631,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     tags = get_git_tags(repo_root)
 
     msv_issues = check_min_spec_versions(spec_version, manifests)
+    msv_issues.extend(check_changelog_sections(repo_root, manifests))
     typescript_version = manifests.get("typescript", {}).get("version", "")
     if typescript_version:
         msv_issues.extend(check_typescript_example_locks(repo_root, typescript_version))

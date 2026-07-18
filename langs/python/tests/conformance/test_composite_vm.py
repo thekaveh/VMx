@@ -19,6 +19,7 @@ from threading import Barrier, BrokenBarrierError, Event, Thread
 import pytest
 
 from vmx.collections import CollectionChangedEvent
+from vmx.components.base import _OWNERSHIP_TRANSACTION_GATE
 from vmx.components.builders import ComponentVMBuilder, ComponentVMOfBuilder
 from vmx.components.component_vm import ComponentVM, ComponentVMOf
 from vmx.composites.builders import CompositeVMBuilder, CompositeVMOfBuilder
@@ -1609,5 +1610,93 @@ def test_bulk_transfer_remove_callback_does_not_retain_ownership_coordinator() -
     workers[0].join(2)
     assert not workers[0].is_alive()
     assert callback_observed_progress == [True]
+    assert list(unrelated_old) == []
+    assert list(unrelated_destination) == [unrelated]
+
+
+def test_colliding_bulk_wait_does_not_block_unrelated_callback_transfer() -> None:
+    """A bulk waiter must not hold the coordinator needed by an active transfer callback."""
+    hub = _hub()
+    dispatcher = _dispatcher()
+    child = _build_child("child", hub=hub, dispatcher=dispatcher)
+    old_parent, _ = _build_composite("old", hub=hub, dispatcher=dispatcher)
+    old_parent.add(child)
+    first_destination = (
+        GroupVMBuilder()
+        .name("first-destination")
+        .services(hub, dispatcher)
+        .children(lambda: ())
+        .build()
+    )
+    bulk_destination = (
+        GroupVMBuilder()
+        .name("bulk-destination")
+        .services(hub, dispatcher)
+        .children(lambda: (child,))
+        .build()
+    )
+
+    unrelated = _build_child("unrelated", hub=hub, dispatcher=dispatcher)
+    unrelated_old, _ = _build_composite("unrelated-old", hub=hub, dispatcher=dispatcher)
+    unrelated_old.add(unrelated)
+    unrelated_destination = (
+        GroupVMBuilder()
+        .name("unrelated-destination")
+        .services(hub, dispatcher)
+        .children(lambda: ())
+        .build()
+    )
+
+    bulk_started = Event()
+    unrelated_done = Event()
+    callback_progress: list[bool] = []
+    bulk_errors: list[BaseException] = []
+    bulk_threads: list[Thread] = []
+
+    def run_bulk() -> None:
+        bulk_started.set()
+        try:
+            bulk_destination.construct()
+        except BaseException as error:
+            bulk_errors.append(error)
+
+    def on_old_collection(event: CollectionChangedEvent) -> None:
+        if event.action != "remove" or bulk_threads:
+            return
+        bulk_thread = Thread(target=run_bulk, daemon=True)
+        bulk_threads.append(bulk_thread)
+        bulk_thread.start()
+        assert bulk_started.wait(0.5)
+
+        # Under the former implementation the colliding bulk worker retained
+        # this gate while waiting for ``child``. Detect that deterministic
+        # state when present; the corrected implementation never waits under it.
+        for _ in range(100):
+            acquired = _OWNERSHIP_TRANSACTION_GATE.acquire(blocking=False)
+            if acquired:
+                _OWNERSHIP_TRANSACTION_GATE.release()
+                if not bulk_thread.is_alive():
+                    break
+                Event().wait(0.001)
+                continue
+            break
+
+        worker = Thread(
+            target=lambda: (unrelated_destination.add(unrelated), unrelated_done.set()),
+            daemon=True,
+        )
+        worker.start()
+        callback_progress.append(unrelated_done.wait(0.5))
+        worker.join(2)
+
+    old_parent.on_collection_changed.subscribe(on_old_collection)
+
+    first_destination.add(child)
+
+    bulk_threads[0].join(2)
+    assert not bulk_threads[0].is_alive()
+    assert callback_progress == [True]
+    assert bulk_errors == []
+    assert list(bulk_destination) == [child]
     assert list(unrelated_old) == []
     assert list(unrelated_destination) == [unrelated]

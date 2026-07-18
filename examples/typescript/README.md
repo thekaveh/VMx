@@ -37,9 +37,9 @@ npm start          # runs the local VMx build first
 
 ---
 
-## 3. Example 2 — `react/notes-showcase/` (React 18 + Vite, flagship)
+## 3. Example 2 — `react/notes-showcase/` (React 19 + Vite, flagship)
 
-The Notes Workspace flagship app — a single-page web app on React 18 + Vite
+The Notes Workspace flagship app — a single-page web app on React 19 + Vite
 that exercises **19 distinct VMx features** in one cohesive scenario
 (notebooks tree, paged + filterable notes list, FormVM editor,
 capability-aware action bar, notifications, async lifecycle, dialogs,

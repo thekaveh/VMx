@@ -289,6 +289,59 @@ final class ContainerOwnershipTransferTests: XCTestCase {
         XCTAssertEqual(destination.count, 0)
     }
 
+    /// COMP-040 — A reservation failure cannot remove an existing destination child.
+    func testCOMP040ReservationFailurePreservesPreexistingDestinationChildren() throws {
+        let compositeMoving = ThrowingOwnershipChild("composite-moving", shouldFail: { false })
+        let compositeBlocker = ThrowingOwnershipChild("composite-blocker", shouldFail: { false })
+        let compositeOld = CompositeVM<ThrowingOwnershipChild>(
+            name: "composite-old",
+            hub: NullMessageHub.INSTANCE,
+            dispatcher: NullDispatcher.INSTANCE
+        )
+        try compositeOld.addResult(compositeMoving).get()
+        var compositeCandidates: [ThrowingOwnershipChild] = []
+        let compositeDestination = CompositeVM<ThrowingOwnershipChild>(
+            name: "composite-destination",
+            hub: NullMessageHub.INSTANCE,
+            dispatcher: NullDispatcher.INSTANCE,
+            childrenFactory: { compositeCandidates }
+        )
+        try compositeDestination.addResult(compositeBlocker).get()
+        compositeCandidates = [compositeMoving, compositeBlocker]
+
+        XCTAssertThrowsError(try compositeDestination.construct())
+        XCTAssertEqual(compositeDestination.count, 1)
+        XCTAssertTrue(compositeDestination.at(0) === compositeBlocker)
+        XCTAssertTrue(compositeBlocker._ownershipParent === compositeDestination)
+        XCTAssertEqual(compositeOld.count, 1)
+        XCTAssertTrue(compositeOld.at(0) === compositeMoving)
+
+        let groupMoving = ThrowingOwnershipChild("group-moving", shouldFail: { false })
+        let groupBlocker = ThrowingOwnershipChild("group-blocker", shouldFail: { false })
+        let groupOld = CompositeVM<ThrowingOwnershipChild>(
+            name: "group-old",
+            hub: NullMessageHub.INSTANCE,
+            dispatcher: NullDispatcher.INSTANCE
+        )
+        try groupOld.addResult(groupMoving).get()
+        var groupCandidates: [ThrowingOwnershipChild] = []
+        let groupDestination = GroupVM<ThrowingOwnershipChild>(
+            name: "group-destination",
+            hub: NullMessageHub.INSTANCE,
+            dispatcher: NullDispatcher.INSTANCE,
+            childrenFactory: { groupCandidates }
+        )
+        try groupDestination.addResult(groupBlocker).get()
+        groupCandidates = [groupMoving, groupBlocker]
+
+        XCTAssertThrowsError(try groupDestination.construct())
+        XCTAssertEqual(groupDestination.count, 1)
+        XCTAssertTrue(groupDestination.at(0) === groupBlocker)
+        XCTAssertTrue(groupBlocker._ownershipParent?.ownershipOwner === groupDestination)
+        XCTAssertEqual(groupOld.count, 1)
+        XCTAssertTrue(groupOld.at(0) === groupMoving)
+    }
+
     /// COMP-041 — Successful transfer publishes old remove before destination add.
     func testCOMP041TransferPublishesRemoveBeforeAdd() throws {
         let child = try leaf("child")
@@ -352,6 +405,62 @@ final class ContainerOwnershipTransferTests: XCTestCase {
         try destination.construct()
 
         XCTAssertTrue(callbackObservedProgress)
+        XCTAssertEqual(unrelatedOld.count, 0)
+        XCTAssertEqual(unrelatedDestination.count, 1)
+        XCTAssertTrue(unrelatedDestination.at(0) === unrelated)
+    }
+
+    func testCollidingBulkWaitDoesNotBlockUnrelatedCallbackTransfer() throws {
+        let child = try leaf("child")
+        let oldParent = try GroupVM<ComponentVM>.builder()
+            .name("old").withNullServices().children { [] }.build()
+        try oldParent.addResult(child).get()
+        let firstDestination = try GroupVM<ComponentVM>.builder()
+            .name("first-destination").withNullServices().children { [] }.build()
+        let bulkFactoryEntered = DispatchSemaphore(value: 0)
+        let bulkDestination = try GroupVM<ComponentVM>.builder()
+            .name("bulk-destination").withNullServices().children {
+                bulkFactoryEntered.signal()
+                return [child]
+            }.build()
+
+        let unrelated = try leaf("unrelated")
+        let unrelatedOld = try GroupVM<ComponentVM>.builder()
+            .name("unrelated-old").withNullServices().children { [] }.build()
+        try unrelatedOld.addResult(unrelated).get()
+        let unrelatedDestination = try GroupVM<ComponentVM>.builder()
+            .name("unrelated-destination").withNullServices().children { [] }.build()
+        let unrelatedDone = DispatchSemaphore(value: 0)
+        let bulkDone = DispatchSemaphore(value: 0)
+        let errors = OwnershipErrorStore()
+        var callbackObservedProgress = false
+        var callbackStarted = false
+
+        oldParent.collectionChanged
+            .sink { event in
+                guard event.action == .remove, !callbackStarted else { return }
+                callbackStarted = true
+                DispatchQueue.global().async {
+                    do { try bulkDestination.construct() } catch { errors.append(error) }
+                    bulkDone.signal()
+                }
+                _ = bulkFactoryEntered.wait(timeout: .now() + 2)
+                Thread.sleep(forTimeInterval: 0.02)
+                DispatchQueue.global().async {
+                    _ = unrelatedDestination.addResult(unrelated)
+                    unrelatedDone.signal()
+                }
+                callbackObservedProgress = unrelatedDone.wait(timeout: .now() + 1) == .success
+            }
+            .store(in: &cancellables)
+
+        try firstDestination.addResult(child).get()
+
+        XCTAssertEqual(bulkDone.wait(timeout: .now() + 2), .success)
+        XCTAssertTrue(callbackObservedProgress)
+        XCTAssertTrue(errors.errors.isEmpty)
+        XCTAssertEqual(bulkDestination.count, 1)
+        XCTAssertTrue(bulkDestination.at(0) === child)
         XCTAssertEqual(unrelatedOld.count, 0)
         XCTAssertEqual(unrelatedDestination.count, 1)
         XCTAssertTrue(unrelatedDestination.at(0) === unrelated)

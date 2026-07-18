@@ -5,7 +5,8 @@ Thanks for your interest in contributing!
 ## 1. Workflow
 
 1. Open an issue describing the change before opening a PR for anything non-trivial.
-2. Branch from `develop`. Use a descriptive branch name (`feat/...`, `fix/...`, `docs/...`).
+2. Branch from the default integration branch, `develop`. Use a descriptive
+   branch name (`feat/...`, `fix/...`, `docs/...`).
 3. Run the relevant test suite locally before pushing.
 4. Open a PR to `develop`. Direct pushes are blocked. The protected-branch
    ruleset requires the always-present conformance, five-flavor, docs, examples,

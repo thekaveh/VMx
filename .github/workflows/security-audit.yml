@@ -11,6 +11,48 @@ on:
   workflow_dispatch:
 
 jobs:
+  codeql:
+    name: "CodeQL (${{ matrix.language }})"
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: csharp
+            build-mode: none
+            runner: ubuntu-latest
+          - language: javascript-typescript
+            build-mode: none
+            runner: ubuntu-latest
+          - language: python
+            build-mode: none
+            runner: ubuntu-latest
+          - language: rust
+            build-mode: none
+            runner: ubuntu-latest
+          - language: swift
+            build-mode: manual
+            runner: macos-15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@7188fc363630916deb702c7fdcf4e481b751f97a # v4.37.1
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+      - name: Build Swift packages
+        if: matrix.language == 'swift'
+        run: |
+          swift build -c release --package-path langs/swift
+          swift build -c release --package-path examples/swift/notes-showcase
+      - name: Analyze
+        uses: github/codeql-action/analyze@7188fc363630916deb702c7fdcf4e481b751f97a # v4.37.1
+        with:
+          category: "/language:${{ matrix.language }}"
+
   npm:
     runs-on: ubuntu-latest
     strategy:
@@ -94,10 +136,10 @@ jobs:
   required:
     name: "required: security"
     if: always()
-    needs: [npm, cargo, python, docs, nuget]
+    needs: [codeql, npm, cargo, python, docs, nuget]
     runs-on: ubuntu-latest
     steps:
-      - name: Require every dependency audit
+      - name: Require code scanning and every dependency audit
         env:
           RESULTS: ${{ toJSON(needs) }}
         run: jq -e 'to_entries | all(.value.result == "success")' <<<"$RESULTS"

@@ -309,3 +309,40 @@ def test_with_null_services_returns_new_builder_instance() -> None:
     # b2 has them
     assert b2._hub is not None
     assert b2._dispatcher is not None
+
+
+def test_parameterized_slotted_builders_construct_on_every_supported_python() -> None:
+    """Typing may assign ``__orig_class__`` after construction on Python 3.10-3.12."""
+    from vmx.aggregates import (
+        AggregateVM1Builder,
+        AggregateVM2Builder,
+        AggregateVM3Builder,
+        AggregateVM4Builder,
+        AggregateVM5Builder,
+        AggregateVM6Builder,
+    )
+    from vmx.components import ComponentVMOfBuilder, ReadonlyComponentVMOfBuilder
+    from vmx.composites import CompositeVMBuilder, CompositeVMOfBuilder
+    from vmx.forms import FormVMBuilder
+    from vmx.groups import GroupVMBuilder
+    from vmx.hierarchical import HierarchicalVMBuilder
+
+    builders = (
+        AggregateVM1Builder[ComponentVM](),
+        AggregateVM2Builder[ComponentVM, ComponentVM](),
+        AggregateVM3Builder[ComponentVM, ComponentVM, ComponentVM](),
+        AggregateVM4Builder[ComponentVM, ComponentVM, ComponentVM, ComponentVM](),
+        AggregateVM5Builder[ComponentVM, ComponentVM, ComponentVM, ComponentVM, ComponentVM](),
+        AggregateVM6Builder[
+            ComponentVM, ComponentVM, ComponentVM, ComponentVM, ComponentVM, ComponentVM
+        ](),
+        ComponentVMOfBuilder[str](),
+        ReadonlyComponentVMOfBuilder[str](),
+        CompositeVMBuilder[ComponentVM](),
+        CompositeVMOfBuilder[str, ComponentVM](),
+        FormVMBuilder[str](),
+        GroupVMBuilder[ComponentVM](),
+        HierarchicalVMBuilder[str, ComponentVM](),
+    )
+
+    assert len(builders) == 13

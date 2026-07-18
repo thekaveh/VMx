@@ -48,9 +48,13 @@ Cross-cutting scripts that operate across `spec/` and `langs/`.
   ```
 
 - `check-python-fixture-sync.py` — verifies the Python package's tracked runtime
-  copy of `lifecycle-transitions.json` is byte-identical to the spec fixture.
-  This keeps the package buildable from both the live checkout and the published
-  sdist.
+  lifecycle fixture and the sdist's four conformance fixtures are byte-identical
+  to their spec sources. This keeps both runtime and shipped source tests
+  self-contained.
+
+- `check-rust-fixture-sync.py` — verifies the Rust crate's runtime lifecycle
+  fixture and packaged conformance fixtures are byte-identical to their spec
+  sources. The packaged-consumer smoke then runs the extracted crate's own tests.
 
 - `check-release-please-state.py` — compares the Python source version with the
   truthful last-published release-please manifest. The release workflow uses its

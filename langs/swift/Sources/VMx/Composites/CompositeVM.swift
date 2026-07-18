@@ -743,7 +743,7 @@ open class CompositeVM<Child: ComponentVMBase>:
         var transfers: [ParentTransfer] = []
         var originalStatuses: [ConstructionStatus] = []
         do {
-            try withOwnershipReservationBatch {
+            try withOwnershipReservationBatch(candidates) {
                 for child in candidates {
                     let transfer = try beginParentTransfer(
                         child,
@@ -773,12 +773,12 @@ open class CompositeVM<Child: ComponentVMBase>:
         } catch let attachmentError {
             var compensationError: Error?
             for (offset, child) in candidates.enumerated().reversed() {
+                guard offset < originalStatuses.count else { continue }
                 membershipGate.withLock {
                     if let attached = children.firstIndex(where: { $0 === child }) {
                         children.remove(at: attached)
                     }
                 }
-                guard offset < originalStatuses.count else { continue }
                 let originalStatus = originalStatuses[offset]
                 if originalStatus == .destructed && child.status == .constructed {
                     do { try child.destruct() } catch {

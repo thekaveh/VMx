@@ -283,7 +283,7 @@ catalogs are consumer-owned and are not a parity-matrix row.
   — Notes Workspace flagship on Textual ≥ 0.80 (TUI). Run:
   `uv run --project examples/python/textual/notes_showcase python -m notes_showcase`.
 - [`examples/typescript/react/notes-showcase/`](examples/typescript/react/notes-showcase/)
-  — Notes Workspace flagship on React 18 + Vite. Run: `npm ci && npm run dev`
+  — Notes Workspace flagship on React 19 + Vite. Run: `npm ci && npm run dev`
   from the example dir; production bundle via `npm run build`.
 - [`examples/swift/notes-showcase/`](examples/swift/notes-showcase/)
   — Notes Workspace flagship on SwiftUI + Combine (macOS). Build and test via

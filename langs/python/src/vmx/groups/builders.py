@@ -41,6 +41,7 @@ class GroupVMBuilder(Generic[VM]):
         )
     """
 
+    __orig_class__: object = dataclasses.field(init=False, repr=False, compare=False)
     _name: str | None = dataclasses.field(default=None)
     _hint: str = dataclasses.field(default="")
     _hub: MessageHub[Message] | None = dataclasses.field(default=None)
