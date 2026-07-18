@@ -82,7 +82,7 @@
   <main>
     <header>
       <div class="header-row"><div class="pulse-dot"></div><h1>Class Architecture Map</h1></div>
-      <p class="subtitle">lineage, wrappers, commands, and paging helpers with relationship endpoints grounded in spec/source</p>
+      <p class="subtitle">conceptual families with class inheritance and Rust composition called out explicitly</p>
     </header>
     <div class="diagram">
       <div class="svg-frame" role="img" aria-label="Class Architecture Map">
@@ -101,7 +101,7 @@
   <rect width="100%" height="100%" fill="#020617"/>
   <rect width="100%" height="100%" fill="url(#grid)"/>
   <text x="40" y="54" fill="#f8fafc" font-size="28" font-weight="700" text-anchor="start">Class Architecture Map</text>
-  <text x="40" y="82" fill="#94a3b8" font-size="15" font-weight="400" text-anchor="start">lineage, wrappers, commands, and paging helpers with relationship endpoints grounded in spec/source</text>
+  <text x="40" y="82" fill="#94a3b8" font-size="15" font-weight="400" text-anchor="start">conceptual families with class inheritance and Rust composition called out explicitly</text>
   <polyline points="500,262 500,278 150,278 150,258" fill="none" stroke="#22d3ee" stroke-width="3.0" marker-end="url(#arrowhead)"/>
 <polyline points="780,262 780,286 180,286 180,258" fill="none" stroke="#22d3ee" stroke-width="3.0" marker-end="url(#arrowhead)"/>
 <polyline points="1060,262 1060,294 210,294 210,258" fill="none" stroke="#22d3ee" stroke-width="3.0" marker-end="url(#arrowhead)"/>
@@ -292,17 +292,17 @@
 <rect x="80" y="1274" width="1640" height="70" rx="8" fill="rgba(15, 23, 42, 0.94)" stroke="#94a3b8" stroke-width="1.2"/>
 <text x="96" y="1298" fill="#f8fafc" font-size="13" font-weight="700" text-anchor="start">Reading hint</text>
 <text x="96" y="1320" fill="#cbd5e1" font-size="12" font-weight="400" text-anchor="start">Helper boxes make interface and delegate endpoints explicit so wraps/decorates/adapts stay literal.</text>
-<text x="96" y="1338" fill="#cbd5e1" font-size="12" font-weight="400" text-anchor="start">The map is cluster-level, but every visible arrow endpoint names a real surface from spec or shipped code.</text>
-<rect x="332" y="262" width="67" height="20" rx="10" fill="#0f172a" stroke="#22d3ee" stroke-width="1"/>
-<text x="365" y="276" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">extends</text>
-<rect x="602" y="270" width="67" height="20" rx="10" fill="#0f172a" stroke="#22d3ee" stroke-width="1"/>
-<text x="635" y="284" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">extends</text>
-<rect x="887" y="278" width="67" height="20" rx="10" fill="#0f172a" stroke="#22d3ee" stroke-width="1"/>
-<text x="920" y="292" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">extends</text>
-<rect x="1162" y="286" width="67" height="20" rx="10" fill="#0f172a" stroke="#22d3ee" stroke-width="1"/>
-<text x="1195" y="300" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">extends</text>
-<rect x="1447" y="294" width="67" height="20" rx="10" fill="#0f172a" stroke="#22d3ee" stroke-width="1"/>
-<text x="1480" y="308" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">extends</text>
+<text x="96" y="1338" fill="#cbd5e1" font-size="12" font-weight="400" text-anchor="start">Class extends applies to class-based flavors; Rust composes the same families from ComponentCore and NotificationVm fields.</text>
+<rect x="311" y="262" width="109" height="20" rx="10" fill="#0f172a" stroke="#22d3ee" stroke-width="1"/>
+<text x="365" y="276" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">class extends</text>
+<rect x="581" y="270" width="109" height="20" rx="10" fill="#0f172a" stroke="#22d3ee" stroke-width="1"/>
+<text x="635" y="284" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">class extends</text>
+<rect x="866" y="278" width="109" height="20" rx="10" fill="#0f172a" stroke="#22d3ee" stroke-width="1"/>
+<text x="920" y="292" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">class extends</text>
+<rect x="1141" y="286" width="109" height="20" rx="10" fill="#0f172a" stroke="#22d3ee" stroke-width="1"/>
+<text x="1195" y="300" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">class extends</text>
+<rect x="1426" y="294" width="109" height="20" rx="10" fill="#0f172a" stroke="#22d3ee" stroke-width="1"/>
+<text x="1480" y="308" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">class extends</text>
 <rect x="286" y="338" width="88" height="20" rx="10" fill="#0f172a" stroke="#34d399" stroke-width="1"/>
 <text x="330" y="352" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">implements</text>
 <rect x="784" y="338" width="88" height="20" rx="10" fill="#0f172a" stroke="#34d399" stroke-width="1"/>
@@ -315,8 +315,8 @@
 <text x="365" y="537" fill="#fbbf24" font-size="11" font-weight="700" text-anchor="middle">owns</text>
 <rect x="488" y="523" width="54" height="20" rx="10" fill="#0f172a" stroke="#fbbf24" stroke-width="1"/>
 <text x="515" y="537" fill="#fbbf24" font-size="11" font-weight="700" text-anchor="middle">owns</text>
-<rect x="1207" y="523" width="67" height="20" rx="10" fill="#0f172a" stroke="#22d3ee" stroke-width="1"/>
-<text x="1240" y="537" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">extends</text>
+<rect x="1186" y="523" width="109" height="20" rx="10" fill="#0f172a" stroke="#22d3ee" stroke-width="1"/>
+<text x="1240" y="537" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">class extends</text>
 <rect x="266" y="728" width="88" height="20" rx="10" fill="#0f172a" stroke="#34d399" stroke-width="1"/>
 <text x="310" y="742" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">implements</text>
 <rect x="424" y="678" width="81" height="20" rx="10" fill="#0f172a" stroke="#fb7185" stroke-width="1"/>
@@ -352,14 +352,14 @@
           <div class="card-dot cyan"></div>
           <h2>Lineage</h2>
         </div>
-        <ul><li>The base-type story is narrow on purpose: the core VM families extend ComponentVMBase, while FormVM and paging helpers do not.</li><li>CompositeVM, GroupVM, AggregateVM, and HierarchicalVM stay separate container families instead of one mutable mega-type.</li><li>Forwarding decorators remain wrappers around canonical interfaces, matching chapter 09.</li></ul>
+        <ul><li>In C#/Python/TypeScript/Swift, core VM families extend ComponentVMBase; Rust composes them from ComponentCore.</li><li>CompositeVM, GroupVM, AggregateVM, and HierarchicalVM stay separate container families instead of one mutable mega-type.</li><li>Forwarding decorators remain wrappers around canonical interfaces, matching chapter 09.</li></ul>
       </section>
       <section class="card">
         <div class="card-header">
           <div class="card-dot emerald"></div>
           <h2>Composition helpers</h2>
         </div>
-        <ul><li>FormVM owns its command pair and persister/validation collaborators rather than inheriting from the component tree.</li><li>PagedComposition implements IPageable over a wrapped source; TokenPagedComposition owns an accumulator and next-token flow.</li><li>ConfirmationVM extends NotificationVM because the shipped notifications package and ADR-0031 say it does.</li></ul>
+        <ul><li>FormVM owns its command pair and persister/validation collaborators rather than inheriting from the component tree.</li><li>PagedComposition implements IPageable over a wrapped source; TokenPagedComposition owns an accumulator and next-token flow.</li><li>ConfirmationVM extends NotificationVM in OO flavors; Rust owns a NotificationVm field for the same conceptual specialization.</li></ul>
       </section>
       <section class="card">
         <div class="card-header">

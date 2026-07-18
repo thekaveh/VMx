@@ -82,7 +82,7 @@
   <main>
     <header>
       <div class="header-row"><div class="pulse-dot"></div><h1>VMx System Architecture</h1></div>
-      <p class="subtitle">spec 3.22.0 source of truth -&gt; parity flavors -&gt; host examples</p>
+      <p class="subtitle">spec 3.22.0 source of truth -&gt; catalog-complete flavors -&gt; host examples</p>
     </header>
     <div class="diagram">
       <div class="svg-frame" role="img" aria-label="VMx System Architecture">
@@ -101,7 +101,7 @@
   <rect width="100%" height="100%" fill="#020617"/>
   <rect width="100%" height="100%" fill="url(#grid)"/>
   <text x="40" y="54" fill="#f8fafc" font-size="28" font-weight="700" text-anchor="start">VMx System Architecture</text>
-  <text x="40" y="82" fill="#94a3b8" font-size="15" font-weight="400" text-anchor="start">spec 3.22.0 source of truth -&gt; parity flavors -&gt; host examples</text>
+  <text x="40" y="82" fill="#94a3b8" font-size="15" font-weight="400" text-anchor="start">spec 3.22.0 source of truth -&gt; catalog-complete flavors -&gt; host examples</text>
   <polyline points="260,200 280,200" fill="none" stroke="#fbbf24" stroke-width="2.2" marker-end="url(#arrowhead)"/>
 <polyline points="450,200 550,200" fill="none" stroke="#fbbf24" stroke-width="2.2" marker-end="url(#arrowhead)"/>
 <polyline points="450,312 550,312" fill="none" stroke="#fb923c" stroke-width="2.2" marker-end="url(#arrowhead)"/>
@@ -132,7 +132,7 @@
 <rect x="90" y="152" width="170" height="96" rx="8" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.8"/>
 <text x="175" y="180" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">spec/</text>
 <text x="175" y="206" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">24 chapters</text>
-<text x="175" y="225" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">115 ADRs</text>
+<text x="175" y="225" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">120 ADRs</text>
 <text x="175" y="244" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">VERSION 3.22.0</text>
 <rect x="280" y="152" width="170" height="96" rx="8" fill="#0f172a"/>
 <rect x="280" y="152" width="170" height="96" rx="8" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.8"/>
@@ -246,7 +246,7 @@
 <rect x="1100" y="820" width="300" height="108" rx="8" fill="#0f172a"/>
 <rect x="1100" y="820" width="300" height="108" rx="8" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.8"/>
 <text x="1250" y="848" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Release posture</text>
-<text x="1250" y="874" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">same conceptual shape</text>
+<text x="1250" y="874" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">shared normative concepts</text>
 <text x="1250" y="893" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">idiomatic per language</text>
 <text x="1250" y="912" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">repo facts drive docs</text>
 <rect x="473" y="174" width="54" height="20" rx="10" fill="#0f172a" stroke="#fbbf24" stroke-width="1"/>
@@ -284,7 +284,7 @@
           <div class="card-dot emerald"></div>
           <h2>Parity shape</h2>
         </div>
-        <ul><li>C#, Python, TypeScript, Swift, and Rust share one conceptual runtime with idiomatic casing only.</li><li>Reactive primitives stay native per flavor; Rust uses the VMx-owned hot-stream facade.</li><li>Runtime helpers such as paging, derived properties, dialogs, and notifications remain consistent.</li></ul>
+        <ul><li>Five flavors implement one normative conceptual runtime with idiomatic public naming.</li><li>Reactive primitives stay native per flavor; Rust uses the VMx-owned hot-stream facade.</li><li>C#, Python, TypeScript, and Swift are member-aligned; the Rust convergence ledger records remaining gaps.</li></ul>
       </section>
       <section class="card">
         <div class="card-header">

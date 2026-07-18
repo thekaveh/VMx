@@ -77,6 +77,52 @@ final class LifecycleRaceTests: XCTestCase {
 
     // MARK: - Deterministic abort-on-disposed
 
+    func testOpposingLifecycleObserversDisposeEachOtherWithoutDeadlock() throws {
+        let firstHub = MessageHub()
+        let secondHub = MessageHub()
+        let first = try ComponentVM.builder().name("first")
+            .services(hub: firstHub, dispatcher: NullDispatcher.INSTANCE).build()
+        let second = try ComponentVM.builder().name("second")
+            .services(hub: secondHub, dispatcher: NullDispatcher.INSTANCE).build()
+        let rendezvous = DispatchGroup()
+        rendezvous.enter()
+        rendezvous.enter()
+        let firstDone = DispatchSemaphore(value: 0)
+        let secondDone = DispatchSemaphore(value: 0)
+        let firstCancel = firstHub.messages
+            .compactMap { $0 as? ConstructionStatusChangedMessage }
+            .filter { $0.sender === first && $0.status == .constructing }
+            .sink { _ in
+                rendezvous.leave()
+                rendezvous.wait()
+                second.dispose()
+            }
+        let secondCancel = secondHub.messages
+            .compactMap { $0 as? ConstructionStatusChangedMessage }
+            .filter { $0.sender === second && $0.status == .constructing }
+            .sink { _ in
+                rendezvous.leave()
+                rendezvous.wait()
+                first.dispose()
+            }
+
+        DispatchQueue.global().async {
+            try? first.construct()
+            firstDone.signal()
+        }
+        DispatchQueue.global().async {
+            try? second.construct()
+            secondDone.signal()
+        }
+
+        XCTAssertEqual(firstDone.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(secondDone.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(first.status, .disposed)
+        XCTAssertEqual(second.status, .disposed)
+        firstCancel.cancel()
+        secondCancel.cancel()
+    }
+
     func testConstructingSubscriberDisposePreventsForegroundHook() throws {
         let hub = MessageHub()
         var constructCalls = 0

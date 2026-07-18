@@ -25,7 +25,16 @@ state, lifecycle, filtering, paging, commands, notifications, and editor mode.
 - `NotificationsVm` uses `NotificationHub` and `NotificationVm` wrappers.
 - `EditorModeVm` uses `DiscriminatorVm` for edit/preview switching.
 
-## 8.5.2. Run It
+## 8.5.2. Parity Scope
+
+This is a **reduced companion**, not a fifth canonical Notes Workspace
+flagship. It proves Rust-native MVVM composition, but it intentionally omits
+`THEME-001..005`, `IDialogService` export, the capability action bar, the async
+dispatcher scenario, and tag autocomplete. Consequently,
+`tools/check-showcase-parity.py` continues to enforce the complete 19-feature
+scenario across C#, Python, TypeScript, and Swift only.
+
+## 8.5.3. Run It
 
 === "Smoke"
 
@@ -45,7 +54,7 @@ state, lifecycle, filtering, paging, commands, notifications, and editor mode.
     cargo run --locked --manifest-path examples/rust/tui/notes-showcase/Cargo.toml
     ```
 
-## 8.5.3. MVVM Boundary
+## 8.5.4. MVVM Boundary
 
 The TUI shell may keep focus and quit state. It must not keep note data, search
 terms, selected note state, form draft state, page tokens, notifications, or

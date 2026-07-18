@@ -87,29 +87,30 @@ def clean_dir(path: Path) -> None:
     path.mkdir(parents=True)
 
 
-def copy_diagrams(target: Path) -> None:
+def copy_diagrams(target: Path, repo_root: Path = REPO_ROOT) -> None:
     dest = target / "assets/diagrams"
     dest.mkdir(parents=True, exist_ok=True)
+    diagrams_dir = repo_root / "docs/assets/diagrams"
     for pattern in ("*.html", "*.svg", "*.png", "*.json"):
-        for source in DIAGRAMS_DIR.glob(pattern):
+        for source in diagrams_dir.glob(pattern):
             shutil.copy2(source, dest / source.name)
 
 
-def copy_site_static(target: Path) -> None:
-    static_root = REPO_ROOT / "docs/content"
+def copy_site_static(target: Path, repo_root: Path = REPO_ROOT) -> None:
+    static_root = repo_root / "docs/content"
     for dirname in ("stylesheets", "javascripts"):
         source = static_root / dirname
         if source.exists():
             shutil.copytree(source, target / dirname, dirs_exist_ok=True)
 
 
-def render_site(manifest: Manifest, out_dir: Path) -> None:
+def render_site(manifest: Manifest, out_dir: Path, repo_root: Path = REPO_ROOT) -> None:
     clean_dir(out_dir)
     source_map = build_source_map(manifest, "site")
     for source, output in source_map.items():
         target = out_dir / output
         target.parent.mkdir(parents=True, exist_ok=True)
-        text = (REPO_ROOT / source).read_text(encoding="utf-8")
+        text = (repo_root / source).read_text(encoding="utf-8")
         target.write_text(
             rewrite_for_surface(
                 text,
@@ -117,11 +118,12 @@ def render_site(manifest: Manifest, out_dir: Path) -> None:
                 current_source=source,
                 current_output=output,
                 source_map=source_map,
+                repo_root=repo_root,
             ),
             encoding="utf-8",
         )
-    copy_site_static(out_dir)
-    copy_diagrams(out_dir)
+    copy_site_static(out_dir, repo_root)
+    copy_diagrams(out_dir, repo_root)
 
 
 def _wiki_sidebar(
@@ -139,12 +141,12 @@ def _wiki_sidebar(
     return lines
 
 
-def render_wiki(manifest: Manifest, out_dir: Path) -> None:
+def render_wiki(manifest: Manifest, out_dir: Path, repo_root: Path = REPO_ROOT) -> None:
     clean_dir(out_dir)
     source_map = build_source_map(manifest, "wiki")
     for source, output in source_map.items():
         target = out_dir / output
-        text = (REPO_ROOT / source).read_text(encoding="utf-8")
+        text = (repo_root / source).read_text(encoding="utf-8")
         target.write_text(
             rewrite_for_surface(
                 text,
@@ -152,18 +154,19 @@ def render_wiki(manifest: Manifest, out_dir: Path) -> None:
                 current_source=source,
                 current_output=output,
                 source_map=source_map,
+                repo_root=repo_root,
             ),
             encoding="utf-8",
         )
     (out_dir / "_Sidebar.md").write_text(
         "\n".join(_wiki_sidebar(manifest.sections, source_map)) + "\n", encoding="utf-8"
     )
-    spec_version = (REPO_ROOT / "spec/VERSION").read_text(encoding="utf-8").strip()
+    spec_version = (repo_root / "spec/VERSION").read_text(encoding="utf-8").strip()
     (out_dir / "_Footer.md").write_text(
         f"VMx · Specification {spec_version} · Apache-2.0 · thekaveh/VMx\n",
         encoding="utf-8",
     )
-    copy_diagrams(out_dir)
+    copy_diagrams(out_dir, repo_root)
 
 
 def _nav_item(section: Section, source_map: dict[Path, Path]) -> dict[str, object]:
@@ -205,18 +208,18 @@ def build(*, site: bool, wiki: bool, check: bool, repo_root: Path = REPO_ROOT) -
     manifest = load_manifest(repo_root / "docs/manifest.yaml", repo_root)
     generated_root = repo_root / "generated"
     if site:
-        render_site(manifest, generated_root / "site")
+        render_site(manifest, generated_root / "site", repo_root)
         render_mkdocs_yml(manifest, repo_root / "mkdocs.yml")
     if wiki:
-        render_wiki(manifest, generated_root / "wiki")
+        render_wiki(manifest, generated_root / "wiki", repo_root)
     if check:
         with tempfile.TemporaryDirectory() as tmp:
             temp_root = Path(tmp)
             if site:
-                render_site(manifest, temp_root / "site")
+                render_site(manifest, temp_root / "site", repo_root)
                 assert_dirs_equal(temp_root / "site", generated_root / "site")
             if wiki:
-                render_wiki(manifest, temp_root / "wiki")
+                render_wiki(manifest, temp_root / "wiki", repo_root)
                 assert_dirs_equal(temp_root / "wiki", generated_root / "wiki")
 
 

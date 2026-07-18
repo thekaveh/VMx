@@ -6,7 +6,7 @@ import logging
 from collections import deque
 from collections.abc import Iterator
 from contextlib import AbstractContextManager, contextmanager
-from threading import Condition, RLock, get_ident, local
+from threading import Condition, RLock, get_ident
 from typing import Generic, Protocol, TypeVar, runtime_checkable
 
 import reactivex as rx
@@ -18,23 +18,31 @@ from vmx.messages.protocols import Message
 _logger = logging.getLogger(__name__)
 
 
-class _DeliveryContext(local):
-    depth: int
-
-    def __init__(self) -> None:
-        self.depth = 0
+_wait_graph_gate = RLock()
+_thread_waits_for: dict[int, int] = {}
 
 
-_delivery_context = _DeliveryContext()
+def _register_message_hub_wait(waiter: int, owner: int) -> bool:
+    """Register one wait edge; return true if it would close a real cycle."""
+    with _wait_graph_gate:
+        _thread_waits_for[waiter] = owner
+        cursor = owner
+        visited: set[int] = set()
+        while cursor not in visited:
+            if cursor == waiter:
+                _thread_waits_for.pop(waiter, None)
+                return True
+            visited.add(cursor)
+            next_owner = _thread_waits_for.get(cursor)
+            if next_owner is None:
+                return False
+            cursor = next_owner
+        return False
 
 
-@contextmanager
-def _delivery_scope() -> Iterator[None]:
-    _delivery_context.depth += 1
-    try:
-        yield
-    finally:
-        _delivery_context.depth -= 1
+def _unregister_message_hub_wait(waiter: int) -> None:
+    with _wait_graph_gate:
+        _thread_waits_for.pop(waiter, None)
 
 
 TMessage = TypeVar("TMessage", bound=Message, contravariant=True)
@@ -87,6 +95,17 @@ class MessageHub(Generic[_THubMessage]):
         self._drainer_thread: int | None = None
         self._batch_owner: int | None = None
         self._batch_depth = 0
+        self._borrowed_batch_depth = 0
+
+    def _wait_for_owner_locked(self, caller: int, owner: int) -> bool:
+        """Wait once for *owner*, or report that waiting would close a cycle."""
+        if _register_message_hub_wait(caller, owner):
+            return True
+        try:
+            self._gate.wait()
+        finally:
+            _unregister_message_hub_wait(caller)
+        return False
 
     @property
     def messages(self) -> rx.Observable[Message]:
@@ -123,17 +142,26 @@ class MessageHub(Generic[_THubMessage]):
         caller = get_ident()
         should_drain = False
         with self._gate:
-            while (
-                self._batch_owner not in (None, caller)
-                or self._drainer_thread not in (None, caller)
-            ) and not self._disposed:
-                if _delivery_context.depth > 0:
-                    break
-                self._gate.wait()
+            while not self._disposed:
+                owner = (
+                    self._batch_owner
+                    if self._batch_owner not in (None, caller)
+                    else self._drainer_thread
+                    if self._drainer_thread not in (None, caller)
+                    else None
+                )
+                if owner is not None:
+                    if self._wait_for_owner_locked(caller, owner):
+                        break
+                    continue
+                if self._borrowed_batch_depth > 0:
+                    self._gate.wait()
+                    continue
+                break
             if self._disposed:
                 return
             self._pending.append(message)
-            if self._batch_owner is not None:
+            if self._batch_owner is not None or self._borrowed_batch_depth > 0:
                 return
             if self._drainer_thread is None:
                 self._drainer_thread = caller
@@ -149,15 +177,30 @@ class MessageHub(Generic[_THubMessage]):
         """Defer messages until the outermost transaction scope exits."""
         caller = get_ident()
         entered = False
+        borrowed = False
         with self._gate:
-            while (
-                self._batch_owner not in (None, caller)
-                or self._drainer_thread not in (None, caller)
-            ) and not self._disposed:
-                self._gate.wait()
+            while not self._disposed:
+                owner = (
+                    self._batch_owner
+                    if self._batch_owner not in (None, caller)
+                    else self._drainer_thread
+                    if self._drainer_thread not in (None, caller)
+                    else None
+                )
+                if owner is not None:
+                    if self._wait_for_owner_locked(caller, owner):
+                        self._borrowed_batch_depth += 1
+                        borrowed = True
+                        break
+                    continue
+                if self._borrowed_batch_depth > 0:
+                    self._gate.wait()
+                    continue
+                break
             if not self._disposed:
-                self._batch_owner = caller
-                self._batch_depth += 1
+                if not borrowed:
+                    self._batch_owner = caller
+                    self._batch_depth += 1
                 entered = True
         body_error: BaseException | None = None
         try:
@@ -165,14 +208,36 @@ class MessageHub(Generic[_THubMessage]):
         except BaseException as error:
             body_error = error
         should_drain = False
+        should_terminate_subject = False
         if entered:
             with self._gate:
-                self._batch_depth -= 1
-                if self._batch_depth == 0:
-                    self._batch_owner = None
-                    if not self._disposed and self._pending and self._drainer_thread is None:
+                if borrowed:
+                    self._borrowed_batch_depth -= 1
+                    outermost = self._borrowed_batch_depth == 0
+                else:
+                    self._batch_depth -= 1
+                    outermost = self._batch_depth == 0
+                    if outermost:
+                        self._batch_owner = None
+                if outermost:
+                    if (
+                        not self._disposed
+                        and self._pending
+                        and self._drainer_thread is None
+                        and self._batch_owner is None
+                        and self._borrowed_batch_depth == 0
+                    ):
                         self._drainer_thread = caller
                         should_drain = True
+                    elif (
+                        self._disposed
+                        and self._drainer_thread is None
+                        and self._batch_owner is None
+                        and self._borrowed_batch_depth == 0
+                        and not self._subject_termination_claimed
+                    ):
+                        self._subject_termination_claimed = True
+                        should_terminate_subject = True
                     self._gate.notify_all()
         drain_error: BaseException | None = None
         if should_drain:
@@ -180,6 +245,8 @@ class MessageHub(Generic[_THubMessage]):
                 self._drain()
             except BaseException as error:
                 drain_error = error
+        if should_terminate_subject:
+            self._terminate_subject()
         if body_error is not None:
             raise body_error
         if drain_error is not None:
@@ -192,6 +259,8 @@ class MessageHub(Generic[_THubMessage]):
             stop_draining = False
             should_terminate_subject = False
             with self._gate:
+                while self._borrowed_batch_depth > 0 and not self._disposed:
+                    self._gate.wait()
                 if self._disposed or not self._pending:
                     should_terminate_subject = self._release_drainer_locked()
                     stop_draining = True
@@ -206,9 +275,8 @@ class MessageHub(Generic[_THubMessage]):
                 assert message is not None
                 message_types.add(type(message).__name__)
             try:
-                with _delivery_scope():
-                    assert message is not None
-                    self._subject.on_next(message)
+                assert message is not None
+                self._subject.on_next(message)
             except BaseException:
                 try:
                     self._abandon_pending()
@@ -263,18 +331,32 @@ class MessageHub(Generic[_THubMessage]):
         caller = get_ident()
         should_terminate_subject = False
         with self._gate:
+            while not self._disposed:
+                owner = (
+                    self._batch_owner
+                    if self._batch_owner not in (None, caller)
+                    else self._drainer_thread
+                    if self._drainer_thread not in (None, caller)
+                    else None
+                )
+                if owner is not None:
+                    if self._wait_for_owner_locked(caller, owner):
+                        self._disposed = True
+                        self._pending.clear()
+                        self._gate.notify_all()
+                        return
+                    continue
+                if self._borrowed_batch_depth > 0:
+                    self._gate.wait()
+                    continue
+                break
             if self._disposed:
                 return
             self._disposed = True
             self._pending.clear()
-            self._gate.notify_all()
-
             if self._drainer_thread is None:
                 self._subject_termination_claimed = True
                 should_terminate_subject = True
-            elif self._drainer_thread != caller and _delivery_context.depth == 0:
-                while not self._subject_terminated:
-                    self._gate.wait()
-                return
+            self._gate.notify_all()
         if should_terminate_subject:
             self._terminate_subject()

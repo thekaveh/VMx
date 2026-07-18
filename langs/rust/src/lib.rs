@@ -40,8 +40,9 @@ pub const MIN_SPEC_VERSION: &str = "3.22.0";
 mod runtime;
 pub use runtime::*;
 pub(crate) use runtime::{
-    begin_parent_transfer, evaluate_command_predicate, finish_with_first_error, lock, next_id,
-    retain_first_error, wait, ComponentCore, ModelHint, ParentRegistration, ParentTransfer,
+    begin_membership_transaction, begin_parent_transfer, evaluate_command_predicate,
+    finish_with_first_error, lock, next_id, retain_first_error, wait, ComponentCore,
+    MembershipTransactionGuard, ModelHint, ParentRegistration, ParentTransfer,
     HIERARCHY_TOPOLOGY_GATE,
 };
 

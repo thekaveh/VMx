@@ -152,5 +152,10 @@ open class ForwardingCompositeVM<Child: ComponentVMBase>: CompositeVM<Child> {
     open override var collectionChanged: AnyPublisher<CollectionChangedEvent, Never> {
         _wrapped.collectionChanged
     }
+    open override func subscribeMembership(
+        _ callback: @escaping () -> Void
+    ) -> AnyCancellable {
+        _wrapped.subscribeMembership(callback)
+    }
     open override func batchUpdate() -> BatchUpdateHandle { _wrapped.batchUpdate() }
 }

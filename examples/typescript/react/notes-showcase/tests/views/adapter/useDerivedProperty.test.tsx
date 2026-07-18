@@ -6,7 +6,7 @@
  * but for the React `useSyncExternalStore`-based hook.
  */
 import { cleanup, render, screen } from "@testing-library/react";
-import { act } from "react";
+import { act, type JSX } from "react";
 import { BehaviorSubject, NEVER } from "rxjs";
 import { afterEach, describe, expect, it } from "vitest";
 import { DerivedProperty } from "@thekaveh/vmx";

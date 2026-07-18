@@ -143,6 +143,96 @@ final class MessageHubTests: XCTestCase {
         cancellable.cancel()
     }
 
+    func testDisposeWaitsForForeignBatchBeforeCompleting() {
+        let hub = MessageHub()
+        let batchEntered = DispatchSemaphore(value: 0)
+        let releaseBatch = DispatchSemaphore(value: 0)
+        let batchReturned = DispatchSemaphore(value: 0)
+        let disposeStarted = DispatchSemaphore(value: 0)
+        let disposeReturned = DispatchSemaphore(value: 0)
+        let completed = DispatchSemaphore(value: 0)
+        let cancellable = hub.messages.sink(
+            receiveCompletion: { _ in completed.signal() },
+            receiveValue: { _ in }
+        )
+
+        DispatchQueue.global().async {
+            try? hub.batch {
+                batchEntered.signal()
+                releaseBatch.wait()
+            }
+            batchReturned.signal()
+        }
+        XCTAssertEqual(batchEntered.wait(timeout: .now() + 1), .success)
+        DispatchQueue.global().async {
+            disposeStarted.signal()
+            hub.dispose()
+            disposeReturned.signal()
+        }
+
+        XCTAssertEqual(disposeStarted.wait(timeout: .now() + 1), .success)
+        XCTAssertEqual(
+            disposeReturned.wait(timeout: .now() + 0.05), .timedOut,
+            "dispose must serialize with an active foreign batch"
+        )
+        XCTAssertEqual(
+            completed.wait(timeout: .now() + 0.05), .timedOut,
+            "completion must not overtake the active transaction"
+        )
+        releaseBatch.signal()
+        XCTAssertEqual(batchReturned.wait(timeout: .now() + 1), .success)
+        XCTAssertEqual(disposeReturned.wait(timeout: .now() + 1), .success)
+        XCTAssertEqual(completed.wait(timeout: .now() + 1), .success)
+        cancellable.cancel()
+    }
+
+    func testCyclicDisposeCompletesWhenBatchOwnerReturns() {
+        let batched = MessageHub()
+        let source = MessageHub()
+        let callbackEntered = DispatchSemaphore(value: 0)
+        let aboutToSend = DispatchSemaphore(value: 0)
+        let workersReturned = DispatchSemaphore(value: 0)
+        let completed = DispatchSemaphore(value: 0)
+        let completionCount = LockedInt()
+        let completionSubscription = batched.messages.sink(
+            receiveCompletion: { _ in
+                completionCount.increment()
+                completed.signal()
+            },
+            receiveValue: { _ in }
+        )
+        let sourceSubscription = source.messages.sink { message in
+            guard let changed = message as? PropertyChangedMessage,
+                  changed.propertyName == "outer" else { return }
+            callbackEntered.signal()
+            aboutToSend.wait()
+            // Give the batch owner time to register its synchronous wait on
+            // this source drainer before disposal closes the opposite edge.
+            usleep(50_000)
+            batched.dispose()
+        }
+
+        DispatchQueue.global().async {
+            try? batched.batch {
+                callbackEntered.wait()
+                aboutToSend.signal()
+                source.send(self.msg("inner"))
+            }
+            workersReturned.signal()
+        }
+        DispatchQueue.global().async {
+            source.send(self.msg("outer"))
+            workersReturned.signal()
+        }
+
+        XCTAssertEqual(workersReturned.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(workersReturned.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(completed.wait(timeout: .now() + 1), .success)
+        XCTAssertEqual(completionCount.value, 1)
+        completionSubscription.cancel()
+        sourceSubscription.cancel()
+    }
+
     func testOpposingHubCallbacksDoNotDeadlock() {
         let left = MessageHub()
         let right = MessageHub()
@@ -187,6 +277,86 @@ final class MessageHubTests: XCTestCase {
         XCTAssertEqual(sendsReturned.wait(timeout: .now() + 1), .success)
         XCTAssertEqual(sendsReturned.wait(timeout: .now() + 1), .success)
         XCTAssertEqual(innerDeliveries.value, 2)
+        leftSubscription.cancel()
+        rightSubscription.cancel()
+    }
+
+    func testUnrelatedHubCallbackWaitsForBusyTargetAndRemainsSynchronous() {
+        let source = MessageHub()
+        let target = MessageHub()
+        let batchEntered = DispatchSemaphore(value: 0)
+        let releaseBatch = DispatchSemaphore(value: 0)
+        let callbackEntered = DispatchSemaphore(value: 0)
+        let callbackReturned = DispatchSemaphore(value: 0)
+        let outerReturned = DispatchSemaphore(value: 0)
+        let delivered = DispatchSemaphore(value: 0)
+        let sourceSubscription = source.messages.sink { _ in
+            callbackEntered.signal()
+            target.send(self.msg("inner"))
+            callbackReturned.signal()
+        }
+        let targetSubscription = target.messages.sink { _ in delivered.signal() }
+
+        DispatchQueue.global().async {
+            try? target.batch {
+                batchEntered.signal()
+                releaseBatch.wait()
+            }
+        }
+        XCTAssertEqual(batchEntered.wait(timeout: .now() + 1), .success)
+        DispatchQueue.global().async {
+            source.send(self.msg("outer"))
+            outerReturned.signal()
+        }
+
+        XCTAssertEqual(callbackEntered.wait(timeout: .now() + 1), .success)
+        XCTAssertEqual(
+            callbackReturned.wait(timeout: .now() + 0.05),
+            .timedOut,
+            "an unrelated callback must not bypass a busy target's synchronous send"
+        )
+        releaseBatch.signal()
+        XCTAssertEqual(callbackReturned.wait(timeout: .now() + 1), .success)
+        XCTAssertEqual(outerReturned.wait(timeout: .now() + 1), .success)
+        XCTAssertEqual(delivered.wait(timeout: .now() + 1), .success)
+        sourceSubscription.cancel()
+        targetSubscription.cancel()
+    }
+
+    func testOpposingNestedBatchesBorrowOnlyTheCycleEdge() {
+        let left = MessageHub()
+        let right = MessageHub()
+        let outerBatchesEntered = DispatchSemaphore(value: 0)
+        let releaseNestedBatches = DispatchSemaphore(value: 0)
+        let transactionsReturned = DispatchSemaphore(value: 0)
+        let deliveries = LockedInt()
+        let leftSubscription = left.messages.sink { _ in deliveries.increment() }
+        let rightSubscription = right.messages.sink { _ in deliveries.increment() }
+
+        DispatchQueue.global().async {
+            try? left.batch {
+                outerBatchesEntered.signal()
+                releaseNestedBatches.wait()
+                try right.batch { right.send(self.msg("right-inner")) }
+            }
+            transactionsReturned.signal()
+        }
+        DispatchQueue.global().async {
+            try? right.batch {
+                outerBatchesEntered.signal()
+                releaseNestedBatches.wait()
+                try left.batch { left.send(self.msg("left-inner")) }
+            }
+            transactionsReturned.signal()
+        }
+
+        XCTAssertEqual(outerBatchesEntered.wait(timeout: .now() + 1), .success)
+        XCTAssertEqual(outerBatchesEntered.wait(timeout: .now() + 1), .success)
+        releaseNestedBatches.signal()
+        releaseNestedBatches.signal()
+        XCTAssertEqual(transactionsReturned.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(transactionsReturned.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(deliveries.value, 2)
         leftSubscription.cancel()
         rightSubscription.cancel()
     }

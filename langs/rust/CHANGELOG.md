@@ -8,6 +8,23 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Component selection now delegates through the owning selectable parent and
+  exposes stable baseline commands with automatic lifecycle eligibility
+  triggers; lifecycle capabilities apply to every VM node without implicitly
+  opting core components into selection or expansion.
+- Lifecycle publication and message-hub disposal now remain ordered and
+  deadlock-free under opposing callbacks, queued completion versus disposal,
+  and re-entrant terminal work. Cross-hub coordination now escapes only actual
+  wait cycles and supports borrowed cyclic batches without weakening unrelated
+  synchronous delivery.
+- Async-resource loading revalidates its admitted operation after cleanup and
+  notification. Composite/group admission, transfer rollback, population, and
+  disposal snapshots share one transaction guard so concurrent/re-entrant
+  mutation cannot escape; selection revalidates at dispatch, replacement
+  rollback is identity-safe and non-panicking, and abandoned ownership
+  transfers release their claim. Commits recheck destination disposal after
+  auto-construction, and failed lifecycle compensation is returned instead of
+  being hidden by the initiating population error.
 - Packed crates now include the repository's byte-identical Apache-2.0
   `LICENSE` and `NOTICE` files.
 - Hierarchy structural messages now include the mutation kind, affected child

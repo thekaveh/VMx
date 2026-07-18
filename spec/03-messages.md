@@ -6,12 +6,17 @@ lifecycle status changes, and any future event types. Subscribers observe via an
 
 ## 1. `IMessage` shape
 
-Every message implements `IMessage` (rendered per language as `Message`):
+Every message implements the language's `IMessage`/`Message` shape and carries
+one canonical sender identity:
 
 ```
-IMessage:
+IMessage (C#, Python, TypeScript, Swift):
     SenderName : string
     Sender : object
+
+Message (Rust):
+    sender_name : string
+    sender_id : u64
 ```
 
 Strongly-typed senders narrow `Sender` via `IMessage<TSender>`:
@@ -21,11 +26,17 @@ IMessage<TSender> : IMessage:
     Sender : TSender
 ```
 
-`SenderName` typically equals `Sender.Name`. `Sender` is the runtime sender
-instance — the **single canonical sender field** in every flavor (ADR-0006).
-On the untyped base it carries no compile-time type information (`object` /
-`unknown`, for polymorphic subscribers); `IMessage<TSender>` narrows it to the
-concrete `TSender`.
+`SenderName` typically equals the sender's `Name`. C#, Python, TypeScript, and
+Swift carry the runtime sender instance in `Sender` — their **single canonical
+sender field** (ADR-0006). On the untyped base it carries no compile-time type
+information (`object` / `unknown`, for polymorphic subscribers);
+`IMessage<TSender>` narrows it to the concrete `TSender`.
+
+Rust deliberately carries the VM's stable numeric `sender_id` instead of an
+owned or borrowed runtime object. Its enum-based messages are not generic over
+the sender type, and identity filters compare `sender_id`. This preserves the
+same conceptual sender-identity contract without coupling a hot stream to
+object ownership or lifetimes (ADR-0009, ADR-0120).
 
 TypeScript exposes `Sender` as its sole sender field as of v3.0.0, having
 removed an earlier redundant untyped alias (ADR-0054). C#, Python, and Swift
@@ -33,7 +44,8 @@ additionally retain a deprecated untyped alias on the base message
 (`IMessage.SenderObject`, `Message.sender_object`, `Message.senderObject`)
 for source compatibility; that alias returns the same instance as `Sender`
 and is slated for removal at each of those flavors' next major. The canonical
-accessor across the full-parity flavors is `Sender`.
+accessor is `Sender`/`sender` in the four object-sender flavors and `sender_id`
+in Rust.
 
 ## 2. Concrete message types
 
@@ -185,10 +197,20 @@ a scheduler choice on the hub.
 The real hubs serialize a transaction and its drain. A producer on another
 thread that calls `Send` while a transaction or drain is active waits, then
 performs synchronous delivery on its own calling thread. This retains the
-per-producer FIFO and calling-thread guarantees. A transaction body therefore
-MUST NOT wait for another thread whose progress requires sending to that same
-hub. TypeScript has no shared-memory hub across workers; JavaScript jobs using
-one hub are already serialized by the host event loop.
+per-producer FIFO and calling-thread guarantees, including when the producer is
+already inside an unrelated hub callback.
+
+Shared-memory flavors MUST track the wait-for relationship between a producer
+thread and a foreign hub's batch/drain owner. Only when another wait would close
+a real dependency cycle may the operation avoid waiting: a send enqueues for
+the active owner drain, and disposal records terminal intent for that owner to
+finish. A cyclic cross-hub batch uses a borrowed scope: its body may enqueue,
+but the target owner does not resume draining until the borrowed scope exits.
+Normal and unrelated nested batches retain exclusive ownership. This narrow
+cycle escape preserves liveness without weakening ordinary `HUB-013`
+synchronous delivery (ADR-0119). TypeScript has no shared-memory hub across
+workers; JavaScript jobs using one hub are already serialized by the host event
+loop.
 
 VMs that emit `PropertyChangedMessage` (Status changes, model changes, etc.) MAY
 dispatch the emission via `IDispatcher.Foreground` so subscribers can opt into

@@ -95,6 +95,33 @@ describe("FWD-001", () => {
     expect(inner.model).toBe("after");
     expect(fwd.model).toBe("after");
   });
+
+  it("forwards hub, property stream, model publication, and selection", () => {
+    const hub = makeHub();
+    const inner = ComponentVMOf.builder<string>()
+      .name("inner")
+      .model("model")
+      .services(hub, makeDisp())
+      .build();
+    const parent = CompositeVM.builder<ComponentVMOf<string>>()
+      .name("parent")
+      .services(hub, makeDisp())
+      .children(() => [inner])
+      .build();
+    parent.construct();
+    const fwd = new ForwardingComponentVM(inner);
+    const changes: string[] = [];
+    const subscription = fwd.propertyChanged.subscribe((name) => changes.push(name));
+
+    expect(fwd.hub).toBe(hub);
+    fwd.republishModel();
+    fwd.select();
+    expect(inner.isCurrent).toBe(true);
+    fwd.deselect();
+    expect(inner.isCurrent).toBe(false);
+    expect(changes).toContain("model");
+    subscription.unsubscribe();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -209,6 +236,13 @@ describe("FWD-003", () => {
     expect(fwd.supportsChildSelection).toBe(true);
     expect(fwd.currentChild).toBeNull();
     expect(fwd.snapshot()).toEqual([vm1, vm2]);
+    expect(fwd.canSelectComponent(vm1)).toBe(true);
+    fwd.selectComponent(vm1);
+    expect(fwd.current).toBe(vm1);
+    fwd.current = vm2;
+    expect(composite.current).toBe(vm2);
+    fwd.deselectComponent(vm2);
+    expect(fwd.current).toBeNull();
     fwd.selectChild(vm1);
     expect(fwd.currentChild).toBe(vm1);
     fwd.deselectChild(vm1);

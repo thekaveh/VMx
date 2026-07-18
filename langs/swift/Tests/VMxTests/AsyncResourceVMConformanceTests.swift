@@ -82,6 +82,10 @@ private final class LockedCount: @unchecked Sendable {
     }
 }
 
+private final class WeakAsyncResourceBox<Value>: @unchecked Sendable {
+    weak var value: AsyncResourceVM<Value>?
+}
+
 private func makeAsyncResourceVM<Value>(
     loader: @escaping () async throws -> Value,
     retention: AsyncResourceRetention = .discardPrevious,
@@ -299,5 +303,47 @@ final class AsyncResourceVMConformanceTests: XCTestCase {
 
         XCTAssertEqual(vm.status, .disposed)
         XCTAssertEqual(cleaned.values, [8])
+    }
+
+    func testReentrantDisposeDuringLoadingNotificationPreventsLoaderStart() async {
+        let calls = LockedCount()
+        let vm = makeAsyncResourceVM {
+            calls.increment()
+            return 1
+        }
+        let subscription = vm.propertyChanged.sink { propertyName in
+            if propertyName == "state" {
+                vm.dispose()
+            }
+        }
+
+        await vm.load()
+
+        XCTAssertEqual(calls.value, 0)
+        XCTAssertEqual(vm.status, .disposed)
+        withExtendedLifetime(subscription) {}
+    }
+
+    func testDiscardCleanupDisposalPreventsNotificationAndLoaderStart() async {
+        let calls = LockedCount()
+        let owner = WeakAsyncResourceBox<Int>()
+        let vm = makeAsyncResourceVM(
+            loader: {
+                calls.increment()
+                return 1
+            },
+            cleanup: { _ in owner.value?.dispose() }
+        )
+        owner.value = vm
+        await vm.load()
+        let names = LockedValues<String>()
+        let subscription = vm.propertyChanged.sink { names.append($0) }
+
+        await vm.reload()
+
+        XCTAssertEqual(calls.value, 1)
+        XCTAssertEqual(names.values, [])
+        XCTAssertEqual(vm.status, .disposed)
+        withExtendedLifetime(subscription) {}
     }
 }

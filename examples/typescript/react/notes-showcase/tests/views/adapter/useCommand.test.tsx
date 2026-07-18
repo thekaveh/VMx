@@ -2,7 +2,7 @@
  * useCommand — RelayCommand → React handler bridge tests (Phase 4.c).
  */
 import { cleanup, render, screen } from "@testing-library/react";
-import { act } from "react";
+import { act, type JSX } from "react";
 import { Subject } from "rxjs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { RelayCommand } from "@thekaveh/vmx";

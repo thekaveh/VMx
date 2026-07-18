@@ -81,13 +81,46 @@ extension MessageHubProtocol {
     }
 }
 
+/// Process-wide wait-for graph for synchronous hub ownership. Registering a
+/// wait is cheap and lets the second edge of a true cross-hub cycle defer
+/// instead of deadlocking, while unrelated callbacks still wait synchronously.
+private final class MessageHubWaitCoordinator: @unchecked Sendable {
+    static let shared = MessageHubWaitCoordinator()
+
+    private let lock = NSLock()
+    private var waitingOn: [UInt64: UInt64] = [:]
+
+    /// Returns `false` when adding `caller -> owner` would close a cycle.
+    func beginWait(caller: UInt64, owner: UInt64) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+
+        waitingOn[caller] = owner
+        var cursor = owner
+        var visited = Set<UInt64>()
+        while visited.insert(cursor).inserted, let next = waitingOn[cursor] {
+            if next == caller {
+                waitingOn.removeValue(forKey: caller)
+                return false
+            }
+            cursor = next
+        }
+        return true
+    }
+
+    func endWait(caller: UInt64) {
+        lock.lock()
+        waitingOn.removeValue(forKey: caller)
+        lock.unlock()
+    }
+}
+
 /// Default Combine-backed `MessageHubProtocol`. Uses a
 /// `PassthroughSubject` for hot, multicast delivery.
 public final class MessageHub: TransactionalMessageHubProtocol {
 #if DEBUG
     private static let developmentDrainLimit = 10_000
 #endif
-    private static let deliveryDepthKey = "VMx.MessageHub.deliveryDepth"
     private let subject = PassthroughSubject<any Message, Never>()
     private let gate = NSCondition()
     private let diagnosticHandler: ((MessageHubOverflowError) -> Void)?
@@ -97,6 +130,8 @@ public final class MessageHub: TransactionalMessageHubProtocol {
     private var drainerThread: UInt64?
     private var batchOwnerThread: UInt64?
     private var batchDepth = 0
+    private var borrowedBatchDepth = 0
+    private var borrowedBatchOwners: [UInt64: Int] = [:]
     private var completionRequested = false
     private var completionStarted = false
     private var completionFinished = false
@@ -117,22 +152,21 @@ public final class MessageHub: TransactionalMessageHubProtocol {
         let caller = Self.currentThread
         var shouldDrain = false
         gate.lock()
-        while !disposed && hasForeignOwner(for: caller) {
-            // A normal producer waits so its own thread performs synchronous
-            // delivery. A send made by a subscriber may already be inside a
-            // different hub's drain; enqueueing breaks opposing-hub wait cycles
-            // and the target's active drainer still delivers it before exiting.
-            if Self.isDelivering {
+        while !disposed, let owner = foreignOwner(for: caller) {
+            if !MessageHubWaitCoordinator.shared.beginWait(caller: caller, owner: owner) {
+                // The target owner already waits (possibly transitively) on this
+                // caller. Enqueue and return so that owner can finish its drain.
                 break
             }
             gate.wait()
+            MessageHubWaitCoordinator.shared.endWait(caller: caller)
         }
         guard !disposed else {
             gate.unlock()
             return
         }
         pending.append(message)
-        if batchOwnerThread == nil && drainerThread == nil {
+        if batchOwnerThread == nil && borrowedBatchDepth == 0 && drainerThread == nil {
             drainerThread = caller
             shouldDrain = true
         }
@@ -146,11 +180,25 @@ public final class MessageHub: TransactionalMessageHubProtocol {
     public func batch(_ transaction: () throws -> Void) throws {
         let caller = Self.currentThread
         var entered = false
+        var borrowed = false
         gate.lock()
-        while !disposed && hasForeignOwner(for: caller) {
-            gate.wait()
+        if borrowedBatchOwners[caller] != nil {
+            borrowedBatchDepth += 1
+            borrowedBatchOwners[caller, default: 0] += 1
+            borrowed = true
+        } else {
+            while !disposed, let owner = foreignOwner(for: caller) {
+                if !MessageHubWaitCoordinator.shared.beginWait(caller: caller, owner: owner) {
+                    borrowedBatchDepth += 1
+                    borrowedBatchOwners[caller, default: 0] += 1
+                    borrowed = true
+                    break
+                }
+                gate.wait()
+                MessageHubWaitCoordinator.shared.endWait(caller: caller)
+            }
         }
-        if !disposed {
+        if !disposed && !borrowed {
             batchOwnerThread = caller
             batchDepth += 1
             entered = true
@@ -165,7 +213,29 @@ public final class MessageHub: TransactionalMessageHubProtocol {
         }
 
         var shouldDrain = false
-        if entered {
+        var shouldComplete = false
+        if borrowed {
+            gate.lock()
+            borrowedBatchDepth -= 1
+            if let ownerDepth = borrowedBatchOwners[caller], ownerDepth > 1 {
+                borrowedBatchOwners[caller] = ownerDepth - 1
+            } else {
+                borrowedBatchOwners.removeValue(forKey: caller)
+            }
+            if borrowedBatchDepth == 0 {
+                if !disposed && pendingHead < pending.count
+                    && batchOwnerThread == nil && drainerThread == nil {
+                    drainerThread = caller
+                    shouldDrain = true
+                } else if disposed && completionRequested && !completionStarted
+                    && batchOwnerThread == nil && drainerThread == nil {
+                    completionStarted = true
+                    shouldComplete = true
+                }
+                gate.broadcast()
+            }
+            gate.unlock()
+        } else if entered {
             gate.lock()
             batchDepth -= 1
             if batchDepth == 0 {
@@ -173,6 +243,10 @@ public final class MessageHub: TransactionalMessageHubProtocol {
                 if !disposed && pendingHead < pending.count && drainerThread == nil {
                     drainerThread = caller
                     shouldDrain = true
+                } else if disposed && completionRequested && !completionStarted
+                    && borrowedBatchDepth == 0 && drainerThread == nil {
+                    completionStarted = true
+                    shouldComplete = true
                 }
                 gate.broadcast()
             }
@@ -180,6 +254,9 @@ public final class MessageHub: TransactionalMessageHubProtocol {
         }
         if shouldDrain {
             drain()
+        }
+        if shouldComplete {
+            completeSubject()
         }
         if let transactionError {
             throw transactionError
@@ -195,6 +272,9 @@ public final class MessageHub: TransactionalMessageHubProtocol {
         while true {
             var shouldComplete = false
             gate.lock()
+            while !disposed && borrowedBatchDepth > 0 {
+                gate.wait()
+            }
             if disposed || pendingHead >= pending.count {
                 pending.removeAll(keepingCapacity: true)
                 pendingHead = 0
@@ -216,9 +296,7 @@ public final class MessageHub: TransactionalMessageHubProtocol {
 #if DEBUG
             messageTypes.insert(String(describing: type(of: message)))
 #endif
-            Self.withDeliveryContext {
-                subject.send(message)
-            }
+            subject.send(message)
 #if DEBUG
             delivered += 1
             gate.lock()
@@ -247,37 +325,19 @@ public final class MessageHub: TransactionalMessageHubProtocol {
         }
     }
 
-    private func hasForeignOwner(for caller: UInt64) -> Bool {
-        batchOwnerThread.map { $0 != caller } == true
-            || drainerThread.map { $0 != caller } == true
+    private func foreignOwner(for caller: UInt64) -> UInt64? {
+        if let owner = batchOwnerThread, owner != caller { return owner }
+        if let owner = drainerThread, owner != caller { return owner }
+        if let owner = borrowedBatchOwners.keys.first(where: { $0 != caller }) { return owner }
+        return nil
     }
 
     private static var currentThread: UInt64 {
         UInt64(pthread_mach_thread_np(pthread_self()))
     }
 
-    private static var isDelivering: Bool {
-        (Thread.current.threadDictionary[deliveryDepthKey] as? Int ?? 0) > 0
-    }
-
-    private static func withDeliveryContext(_ delivery: () -> Void) {
-        let dictionary = Thread.current.threadDictionary
-        let previousDepth = dictionary[deliveryDepthKey] as? Int ?? 0
-        dictionary[deliveryDepthKey] = previousDepth + 1
-        defer {
-            if previousDepth == 0 {
-                dictionary.removeObject(forKey: deliveryDepthKey)
-            } else {
-                dictionary[deliveryDepthKey] = previousDepth
-            }
-        }
-        delivery()
-    }
-
     private func completeSubject() {
-        Self.withDeliveryContext {
-            subject.send(completion: .finished)
-        }
+        subject.send(completion: .finished)
         gate.lock()
         completionFinished = true
         gate.broadcast()
@@ -289,8 +349,23 @@ public final class MessageHub: TransactionalMessageHubProtocol {
     public func dispose() {
         let caller = Self.currentThread
         var shouldComplete = false
-        var shouldWait = false
         gate.lock()
+        while !disposed, let owner = foreignOwner(for: caller) {
+            if !MessageHubWaitCoordinator.shared.beginWait(caller: caller, owner: owner) {
+                // The owner already waits (possibly transitively) on this
+                // caller. Mark the hub disposed and let that owner claim
+                // completion when it releases its batch/drain boundary.
+                disposed = true
+                pending.removeAll(keepingCapacity: false)
+                pendingHead = 0
+                completionRequested = true
+                gate.broadcast()
+                gate.unlock()
+                return
+            }
+            gate.wait()
+            MessageHubWaitCoordinator.shared.endWait(caller: caller)
+        }
         guard !disposed else {
             gate.unlock()
             return
@@ -298,19 +373,13 @@ public final class MessageHub: TransactionalMessageHubProtocol {
         disposed = true
         pending.removeAll(keepingCapacity: false)
         pendingHead = 0
-        if drainerThread == nil {
+        if drainerThread == nil && batchOwnerThread == nil && borrowedBatchDepth == 0 {
             completionStarted = true
             shouldComplete = true
         } else {
             completionRequested = true
-            shouldWait = drainerThread != caller && !Self.isDelivering
         }
         gate.broadcast()
-        if shouldWait {
-            while !completionFinished {
-                gate.wait()
-            }
-        }
         gate.unlock()
 
         if shouldComplete {

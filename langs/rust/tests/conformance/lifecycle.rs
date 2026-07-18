@@ -1,8 +1,73 @@
-use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{mpsc, Arc, Barrier, Mutex};
+use std::time::Duration;
 use vmx::{
     AggregateVm2, ComponentVm, CompositeVm, ConstructionStatus, ConstructionStatusChangedMessage,
-    GroupVm, Message, MessageHub, NullDispatcher, VmxError,
+    GroupVm, ManualDispatcher, Message, MessageHub, NullDispatcher, ParentHandle, VmNode, VmxError,
 };
+
+#[derive(Clone)]
+struct BlockingAdmissionNode {
+    inner: ComponentVm,
+    block_once: Arc<AtomicBool>,
+    entered: mpsc::Sender<()>,
+    release: Arc<Mutex<mpsc::Receiver<()>>>,
+}
+
+impl PartialEq for BlockingAdmissionNode {
+    fn eq(&self, other: &Self) -> bool {
+        self.id() == other.id()
+    }
+}
+
+impl VmNode for BlockingAdmissionNode {
+    fn id(&self) -> usize {
+        self.inner.id()
+    }
+    fn construct(&self) -> vmx::VmxResult<()> {
+        self.inner.construct()
+    }
+    fn destruct(&self) -> vmx::VmxResult<()> {
+        self.inner.destruct()
+    }
+    fn dispose(&self) -> vmx::VmxResult<()> {
+        self.inner.dispose()
+    }
+    fn status(&self) -> ConstructionStatus {
+        self.inner.status()
+    }
+    fn set_parent_id(&self, parent_id: Option<usize>) {
+        self.inner.set_parent_id(parent_id);
+    }
+    fn parent_id(&self) -> Option<usize> {
+        self.inner.parent_id()
+    }
+    fn set_parent_handle(&self, parent: Option<ParentHandle>) {
+        self.inner.set_parent_handle(parent);
+    }
+    fn parent_handle(&self) -> Option<ParentHandle> {
+        if self.block_once.swap(false, Ordering::AcqRel) {
+            self.entered.send(()).unwrap();
+            self.release.lock().unwrap().recv().unwrap();
+        }
+        self.inner.parent_handle()
+    }
+}
+
+fn blocking_admission_node() -> (BlockingAdmissionNode, mpsc::Receiver<()>, mpsc::Sender<()>) {
+    let (entered_send, entered_receive) = mpsc::channel();
+    let (release_send, release_receive) = mpsc::channel();
+    (
+        BlockingAdmissionNode {
+            inner: ComponentVm::new("late"),
+            block_once: Arc::new(AtomicBool::new(true)),
+            entered: entered_send,
+            release: Arc::new(Mutex::new(release_receive)),
+        },
+        entered_receive,
+        release_send,
+    )
+}
 
 fn statuses(hub: &MessageHub) -> Arc<Mutex<Vec<ConstructionStatus>>> {
     let observed = Arc::new(Mutex::new(Vec::new()));
@@ -204,6 +269,94 @@ fn dispose_supersedes_destructing_without_resurrection() {
     );
 }
 
+#[test]
+fn queued_terminal_publication_is_suppressed_after_disposal() {
+    let hub = MessageHub::new();
+    let dispatcher = ManualDispatcher::new();
+    let vm = ComponentVm::with_services("vm", hub.clone(), dispatcher.clone());
+    let observed = statuses(&hub);
+
+    vm.construct().unwrap();
+    assert_eq!(
+        *observed.lock().unwrap(),
+        vec![ConstructionStatus::Constructing]
+    );
+
+    vm.dispose().unwrap();
+    dispatcher.drain();
+
+    assert_eq!(vm.status(), ConstructionStatus::Disposed);
+    assert_eq!(
+        *observed.lock().unwrap(),
+        vec![
+            ConstructionStatus::Constructing,
+            ConstructionStatus::Disposed
+        ]
+    );
+}
+
+#[test]
+fn opposing_lifecycle_callbacks_do_not_deadlock() {
+    let left_hub = MessageHub::new();
+    let right_hub = MessageHub::new();
+    let left = ComponentVm::with_services("left", left_hub.clone(), NullDispatcher::new());
+    let right = ComponentVm::with_services("right", right_hub.clone(), NullDispatcher::new());
+    let callbacks_entered = Arc::new(Barrier::new(2));
+
+    let _left_subscription = left_hub.subscribe({
+        let right = right.clone();
+        let callbacks_entered = Arc::clone(&callbacks_entered);
+        move |message| {
+            if matches!(
+                message,
+                Message::ConstructionStatusChanged(ConstructionStatusChangedMessage {
+                    status: ConstructionStatus::Constructing,
+                    ..
+                })
+            ) {
+                callbacks_entered.wait();
+                right.dispose().unwrap();
+            }
+        }
+    });
+    let _right_subscription = right_hub.subscribe({
+        let left = left.clone();
+        let callbacks_entered = Arc::clone(&callbacks_entered);
+        move |message| {
+            if matches!(
+                message,
+                Message::ConstructionStatusChanged(ConstructionStatusChangedMessage {
+                    status: ConstructionStatus::Constructing,
+                    ..
+                })
+            ) {
+                callbacks_entered.wait();
+                left.dispose().unwrap();
+            }
+        }
+    });
+
+    let (returned_tx, returned_rx) = mpsc::channel();
+    let left_worker = std::thread::spawn({
+        let left = left.clone();
+        let returned_tx = returned_tx.clone();
+        move || {
+            left.construct().unwrap();
+            returned_tx.send(()).unwrap();
+        }
+    });
+    let right_worker = std::thread::spawn(move || {
+        right.construct().unwrap();
+        returned_tx.send(()).unwrap();
+    });
+
+    returned_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    returned_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    left_worker.join().unwrap();
+    right_worker.join().unwrap();
+    assert_eq!(left.status(), ConstructionStatus::Disposed);
+}
+
 /// LIFE-009 — construct from Constructed is idempotent (no-op)
 #[test]
 fn construct_from_constructed_is_noop() {
@@ -281,6 +434,55 @@ fn dispose_on_parent_disposes_children_before_parent() {
     assert_eq!(child_a.status(), ConstructionStatus::Disposed);
     assert_eq!(child_b.status(), ConstructionStatus::Disposed);
     assert_eq!(parent.status(), ConstructionStatus::Disposed);
+}
+
+#[test]
+fn disposal_closes_child_admission_before_taking_the_cascade_snapshot() {
+    let parent = CompositeVm::new("parent");
+    let child = ComponentVm::new("child");
+    let late = ComponentVm::new("late");
+    let callback_parent = parent.clone();
+    let callback_late = late.clone();
+    child.on_dispose(move || {
+        assert_eq!(
+            callback_parent.add(callback_late.clone()),
+            Err(VmxError::Disposed)
+        );
+        Ok(())
+    });
+    parent.add(child).unwrap();
+
+    parent.dispose().unwrap();
+
+    assert_eq!(late.parent_id(), None);
+    assert_eq!(parent.len(), 1);
+}
+
+#[test]
+fn concurrent_admission_cannot_escape_disposal_snapshot() {
+    let composite = CompositeVm::new("composite");
+    let (late, entered, release) = blocking_admission_node();
+    let add_parent = composite.clone();
+    let add_late = late.clone();
+    let admission = std::thread::spawn(move || add_parent.add(add_late));
+    entered.recv_timeout(Duration::from_secs(2)).unwrap();
+    composite.dispose().unwrap();
+    release.send(()).unwrap();
+    assert_eq!(admission.join().unwrap(), Err(VmxError::Disposed));
+    assert_eq!(composite.len(), 0);
+    assert_eq!(late.status(), ConstructionStatus::Destructed);
+
+    let group = GroupVm::new("group");
+    let (late, entered, release) = blocking_admission_node();
+    let add_parent = group.clone();
+    let add_late = late.clone();
+    let admission = std::thread::spawn(move || add_parent.add(add_late));
+    entered.recv_timeout(Duration::from_secs(2)).unwrap();
+    group.dispose().unwrap();
+    release.send(()).unwrap();
+    assert_eq!(admission.join().unwrap(), Err(VmxError::Disposed));
+    assert_eq!(group.len(), 0);
+    assert_eq!(late.status(), ConstructionStatus::Destructed);
 }
 
 /// LIFE-013 — one disposal failure cannot strand later siblings or the parent

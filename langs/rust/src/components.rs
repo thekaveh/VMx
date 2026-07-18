@@ -3,9 +3,9 @@
 //! Spec: `spec/05-component-vm.md`.
 
 use super::{
-    fmt, lock, Arc, ComponentCore, ConstructionStatus, Dispatcher, LifecycleOperation, MessageHub,
-    ModelHint, Mutex, NullDispatcher, ParentHandle, PropertyChangedStream, RelayCommand, TreeNode,
-    VmNode, VmxError, VmxResult,
+    fmt, lock, Arc, ComponentCore, ConstructionStatus, Dispatcher, LifecycleOperation, Message,
+    MessageHub, ModelHint, Mutex, NullDispatcher, ParentHandle, PropertyChangedStream,
+    RelayCommand, Subscription, TreeNode, VmNode, VmxError, VmxResult,
 };
 
 /// A modeled leaf viewmodel whose name and hint are fixed at construction.
@@ -16,11 +16,27 @@ use super::{
 /// let vm = ComponentVm::new("component");
 /// vm.set_hint(Some("changed".to_string()));
 /// ```
+///
+/// Core components expose baseline selection operations but do not opt in to
+/// the independent [`crate::Selectable`] capability:
+///
+/// ```compile_fail
+/// use vmx::{ComponentVm, Selectable};
+///
+/// fn requires_selectable<T: Selectable>(_: &T) {}
+/// requires_selectable(&ComponentVm::new("component"));
+/// ```
 #[derive(Clone)]
 pub struct ComponentVm<M = (), D: Dispatcher = NullDispatcher> {
     pub(crate) core: ComponentCore<D>,
     model: Arc<Mutex<M>>,
     model_hint: ModelHint<M>,
+    select_command: RelayCommand,
+    deselect_command: RelayCommand,
+    select_next_command: RelayCommand,
+    select_previous_command: RelayCommand,
+    reconstruct_command: RelayCommand,
+    _command_status_subscription: Arc<Subscription>,
 }
 
 impl ComponentVm<(), NullDispatcher> {
@@ -40,10 +56,61 @@ impl<D: Dispatcher> ComponentVm<(), D> {
 impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
     /// Creates a modeled component with explicit services.
     pub fn with_model(name: impl Into<String>, model: M, hub: MessageHub, dispatcher: D) -> Self {
+        let core = ComponentCore::new(name, hub, dispatcher);
+        let select_command = {
+            let action_core = core.clone();
+            let predicate_core = core.clone();
+            RelayCommand::new(move || action_core.select_via_parent())
+                .with_can_execute(move || predicate_core.can_select())
+        };
+        let deselect_command = {
+            let action_core = core.clone();
+            let predicate_core = core.clone();
+            RelayCommand::new(move || action_core.deselect_via_parent())
+                .with_can_execute(move || predicate_core.can_deselect())
+        };
+        let reconstruct_command = {
+            let action_core = core.clone();
+            let predicate_core = core.clone();
+            RelayCommand::new(move || {
+                if action_core.transition(LifecycleOperation::Destruct).is_ok() {
+                    let _ = action_core.transition(LifecycleOperation::Construct);
+                }
+            })
+            .with_can_execute(move || predicate_core.status() == ConstructionStatus::Constructed)
+        };
+        let select_next_command = RelayCommand::noop().with_can_execute(|| false);
+        let select_previous_command = RelayCommand::noop().with_can_execute(|| false);
+        let command_status_subscription = {
+            let sender_id = core.id();
+            let select = select_command.clone();
+            let deselect = deselect_command.clone();
+            let next = select_next_command.clone();
+            let previous = select_previous_command.clone();
+            let reconstruct = reconstruct_command.clone();
+            Arc::new(core.hub().subscribe(move |message| {
+                if matches!(
+                    message,
+                    Message::ConstructionStatusChanged(change) if change.sender_id == sender_id
+                ) {
+                    select.raise_can_execute_changed();
+                    deselect.raise_can_execute_changed();
+                    next.raise_can_execute_changed();
+                    previous.raise_can_execute_changed();
+                    reconstruct.raise_can_execute_changed();
+                }
+            }))
+        };
         Self {
-            core: ComponentCore::new(name, hub, dispatcher),
+            core,
             model: Arc::new(Mutex::new(model)),
             model_hint: Arc::new(|_| None),
+            select_command,
+            deselect_command,
+            select_next_command,
+            select_previous_command,
+            reconstruct_command,
+            _command_status_subscription: command_status_subscription,
         }
     }
 
@@ -197,19 +264,34 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
         self.status() == ConstructionStatus::Constructed
     }
 
-    /// Marks the component as selected.
+    /// Reports whether this constructed component can select itself through its parent.
+    pub fn can_select(&self) -> bool {
+        self.core.can_select()
+    }
+
+    /// Selects this component through its owning selectable parent.
     pub fn select(&self) {
-        self.core.select();
+        self.core.select_via_parent();
     }
 
-    /// Marks the component as not selected.
+    /// Reports whether this component is the current child of its parent.
+    pub fn can_deselect(&self) -> bool {
+        self.core.can_deselect()
+    }
+
+    /// Deselects this component through its owning selectable parent.
     pub fn deselect(&self) {
-        self.core.deselect();
+        self.core.deselect_via_parent();
     }
 
-    /// Reports whether the component is selected.
-    pub fn is_selected(&self) -> bool {
+    /// Reports whether the component is current in its owning container.
+    pub fn is_current(&self) -> bool {
         self.core.is_selected()
+    }
+
+    /// Compatibility alias for [`Self::is_current`].
+    pub fn is_selected(&self) -> bool {
+        self.is_current()
     }
 
     /// Marks the component as expanded.
@@ -237,14 +319,29 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
         self.core.parent_id()
     }
 
-    /// Creates a command enabled while the component is not selected.
+    /// Returns the stable command that selects this component through its parent.
     pub fn select_command(&self) -> RelayCommand {
-        let vm = self.clone();
-        RelayCommand::new({
-            let vm = vm.clone();
-            move || vm.select()
-        })
-        .with_can_execute(move || !vm.is_selected())
+        self.select_command.clone()
+    }
+
+    /// Returns the stable command that deselects this component through its parent.
+    pub fn deselect_command(&self) -> RelayCommand {
+        self.deselect_command.clone()
+    }
+
+    /// Returns the inert baseline next-sibling command.
+    pub fn select_next_command(&self) -> RelayCommand {
+        self.select_next_command.clone()
+    }
+
+    /// Returns the inert baseline previous-sibling command.
+    pub fn select_previous_command(&self) -> RelayCommand {
+        self.select_previous_command.clone()
+    }
+
+    /// Returns the stable command that destructs and reconstructs this component.
+    pub fn reconstruct_command(&self) -> RelayCommand {
+        self.reconstruct_command.clone()
     }
 }
 
@@ -461,19 +558,34 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ReadonlyComponentVm<M
         self.inner.is_constructed()
     }
 
-    /// Marks the component as selected.
+    /// Reports whether this component can select itself through its parent.
+    pub fn can_select(&self) -> bool {
+        self.inner.can_select()
+    }
+
+    /// Selects this component through its parent.
     pub fn select(&self) {
         self.inner.select();
     }
 
-    /// Marks the component as not selected.
+    /// Reports whether this component can deselect itself through its parent.
+    pub fn can_deselect(&self) -> bool {
+        self.inner.can_deselect()
+    }
+
+    /// Deselects this component through its parent.
     pub fn deselect(&self) {
         self.inner.deselect();
     }
 
-    /// Reports whether the component is selected.
+    /// Reports whether the component is current in its parent.
+    pub fn is_current(&self) -> bool {
+        self.inner.is_current()
+    }
+
+    /// Compatibility alias for [`Self::is_current`].
     pub fn is_selected(&self) -> bool {
-        self.inner.is_selected()
+        self.is_current()
     }
 
     /// Marks the component as expanded.
@@ -501,9 +613,29 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ReadonlyComponentVm<M
         self.inner.parent_id()
     }
 
-    /// Creates a command enabled while the component is not selected.
+    /// Returns the stable select command.
     pub fn select_command(&self) -> RelayCommand {
         self.inner.select_command()
+    }
+
+    /// Returns the stable deselect command.
+    pub fn deselect_command(&self) -> RelayCommand {
+        self.inner.deselect_command()
+    }
+
+    /// Returns the inert baseline next-sibling command.
+    pub fn select_next_command(&self) -> RelayCommand {
+        self.inner.select_next_command()
+    }
+
+    /// Returns the inert baseline previous-sibling command.
+    pub fn select_previous_command(&self) -> RelayCommand {
+        self.inner.select_previous_command()
+    }
+
+    /// Returns the stable reconstruct command.
+    pub fn reconstruct_command(&self) -> RelayCommand {
+        self.inner.reconstruct_command()
     }
 }
 

@@ -37,6 +37,12 @@ the old removal precedes the new add notification, and a failed destination
 attach restores the old index and parent link. Duplicate identity and ancestor
 cycles are rejected before mutation.
 
+Destination and old-parent membership remain isolated through hooks and
+commit/rollback. Re-entrant structural mutation is rejected, reverse-order bulk
+transfers use deterministic reservation ordering, destination disposal is
+rechecked after auto-construction, and lifecycle compensation failures are
+surfaced rather than swallowed (ADR-0118).
+
 ## 6.2.4.3. Lifecycle And Messaging
 
 Lifecycle orchestration matches `CompositeVM`:
@@ -51,11 +57,11 @@ while the group is their parent.
 
 ## 6.2.4.4. Cross-Language Surface
 
-| Concept         | C#                      | Python                 | TypeScript              | Swift                   |
-| --------------- | ----------------------- | ---------------------- | ----------------------- | ----------------------- |
-| Type            | `GroupVM<VM>`           | `GroupVM[VM]`          | `GroupVM<VM>`           | `GroupVM<VM>`           |
-| Builder entry   | `GroupVM<VM>.Builder()` | `GroupVMBuilder[VM]()` | `GroupVM.builder<VM>()` | `GroupVM<VM>.builder()` |
-| Children setter | `Children(...)`         | `children(...)`        | `children(...)`         | `children { ... }`      |
+| Concept         | C#                      | Python                 | TypeScript              | Swift                   | Rust                       |
+| --------------- | ----------------------- | ---------------------- | ----------------------- | ----------------------- | -------------------------- |
+| Type            | `GroupVM<VM>`           | `GroupVM[VM]`          | `GroupVM<VM>`           | `GroupVM<VM>`           | `GroupVm<VM>`              |
+| Builder entry   | `GroupVM<VM>.Builder()` | `GroupVMBuilder[VM]()` | `GroupVM.builder<VM>()` | `GroupVM<VM>.builder()` | `GroupVm::<VM>::builder()` |
+| Children setter | `Children(...)`         | `children(...)`        | `children(...)`         | `children { ... }`      | `children(...)`            |
 
 ## 6.2.4.5. Example
 
@@ -65,6 +71,11 @@ Representative build shape:
 - `Python`: `GroupVMBuilder[ComponentVMProto]().name("actions").services(hub, dispatcher).children(lambda: [save, delete]).build()`
 - `TypeScript`: `GroupVM.builder<ComponentVMBase>().name("actions").services(hub, dispatcher).children(() => [save, delete]).build()`
 - `Swift`: `try GroupVM<ComponentVMBase>.builder().name("actions").services(hub: hub, dispatcher: dispatcher).children { [save, delete] }.build()`
+- `Rust`: `GroupVm::<ComponentVm<_>>::builder().name("actions").services(hub, dispatcher).children(|| vec![save.clone(), delete.clone()]).build()?`
+
+Rust ships the same peer-container and builder concepts; consult the active
+[Rust parity ledger](../../../maintenance/2026-07-16-rust-capability-parity.md)
+for the remaining member/edge gaps.
 
 ## 6.2.4.6. Common Pitfalls
 

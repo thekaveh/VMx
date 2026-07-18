@@ -66,7 +66,7 @@ class AsyncResourceReady(Generic[T]):
 
 @dataclasses.dataclass(frozen=True)
 class AsyncResourceError(Generic[T]):
-    error: Exception
+    error: BaseException
     status: Literal[AsyncResourceStatus.ERROR] = dataclasses.field(
         default=AsyncResourceStatus.ERROR, init=False
     )
@@ -75,7 +75,7 @@ class AsyncResourceError(Generic[T]):
 @dataclasses.dataclass(frozen=True)
 class AsyncResourceErrorWithValue(Generic[T]):
     value: T
-    error: Exception
+    error: BaseException
     status: Literal[AsyncResourceStatus.ERROR] = dataclasses.field(
         default=AsyncResourceStatus.ERROR, init=False
     )
@@ -116,6 +116,7 @@ class _Operation(Generic[T]):
     task: asyncio.Task[T]
     cancelled: asyncio.Future[None]
     baseline: StableAsyncResourceState[T]
+    late_cleanup_registered: bool = False
 
 
 def _value_of(state: StableAsyncResourceState[T]) -> _PresentValue[T] | _AbsentValue:
@@ -224,6 +225,12 @@ class AsyncResourceVM(Generic[T], _ComponentVMBase):
                 self._stable_state = AsyncResourceIdle()
                 self._cleanup(previous.value)
 
+        # Cleanup is user code and may dispose the VM or start a newer intent.
+        # Do not create (and therefore invoke) a loader after either terminal
+        # transition has superseded this start.
+        if self._resource_disposed or self._operation_identity != identity:
+            return
+
         baseline = self._stable_state
         retained = (
             _value_of(baseline)
@@ -257,18 +264,18 @@ class AsyncResourceVM(Generic[T], _ComponentVMBase):
                 self._operation = None
                 self._cancel_operation(operation)
                 self._set_state(baseline)
-            task.add_done_callback(self._cleanup_late_task)
+            self._register_late_cleanup(operation)
             raise
 
         if cancelled in done:
-            task.add_done_callback(self._cleanup_late_task)
+            self._register_late_cleanup(operation)
             return
 
         try:
             value = task.result()
         except asyncio.CancelledError:
             return
-        except Exception as error:
+        except BaseException as error:
             if not self._is_operation_current(operation):
                 return
             self._operation = None
@@ -314,9 +321,15 @@ class AsyncResourceVM(Generic[T], _ComponentVMBase):
     def _cleanup_late_task(self, task: asyncio.Task[T]) -> None:
         try:
             value = task.result()
-        except (asyncio.CancelledError, Exception):
+        except BaseException:
             return
         self._cleanup(value)
+
+    def _register_late_cleanup(self, operation: _Operation[T]) -> None:
+        if operation.late_cleanup_registered:
+            return
+        operation.late_cleanup_registered = True
+        operation.task.add_done_callback(self._cleanup_late_task)
 
     def _set_state(self, state: AsyncResourceState[T]) -> None:
         if self._resource_disposed or self._state is state:
@@ -344,7 +357,7 @@ class AsyncResourceVM(Generic[T], _ComponentVMBase):
         self._operation = None
         if operation is not None:
             self._cancel_operation(operation)
-            operation.task.add_done_callback(self._cleanup_late_task)
+            self._register_late_cleanup(operation)
         self._load_command.cancel()
         self._reload_command.cancel()
         self._load_command.dispose()

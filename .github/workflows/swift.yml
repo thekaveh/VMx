@@ -125,4 +125,6 @@ jobs:
           -Xswiftc -warnings-as-errors
       - name: Test NotesShowcase flagship
         working-directory: examples/swift/notes-showcase
-        run: swift test
+        # Parallel XCTest emits each case name before execution, making any
+        # future stuck async scenario immediately attributable in CI logs.
+        run: swift test --parallel

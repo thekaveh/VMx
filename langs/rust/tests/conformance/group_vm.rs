@@ -1,6 +1,5 @@
 use vmx::{
     CollectionChangeAction, Command, ConstructionStatus, Message, MessageHub, NullDispatcher,
-    VmNode,
 };
 
 type Child = vmx::ComponentVm<&'static str>;

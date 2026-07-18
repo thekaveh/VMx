@@ -132,18 +132,26 @@ Disposing a VM MUST NOT dispose its hub.
 
 ### 2.4 Transition atomicity and the concurrency guard
 
-Every status transition — the `Status` read-modify-write, the
-`ConstructionStatusChangedMessage` publish, and the internal command-trigger
-emission — executes **atomically with respect to other lifecycle operations on
-the same VM**. Implementations MUST serialize these steps behind a per-VM
-synchronization primitive: a per-VM lock/monitor in C# and Python; the
-single-threaded event loop in TypeScript; an actor or lock in Swift (Phase 3 —
-ADR-0037). This guarantees that a transition completing on the background
-scheduler (§4 background construct/destruct, `11-threading.md §4`) cannot
-interleave with `dispose()`: a background completion observes the terminal
-`Disposed` state under the guard and aborts instead of resurrecting the VM,
-publishing a post-dispose message, or emitting on a torn-down stream
-(invariant 6).
+Every status transition atomically validates and writes `Status`, applies the
+terminal guard, and reserves its place in a per-VM FIFO publication sequence.
+Implementations MUST serialize this admission behind a per-VM synchronization
+primitive: a per-VM lock/monitor and FIFO publication queue in C#, Python, Swift,
+and Rust (Rust's `ComponentCore` is mutex-backed); and the single-threaded event
+loop in TypeScript. This guarantees
+that a transition completing on the background scheduler (§4 background
+construct/destruct, `11-threading.md §4`) cannot interleave with `dispose()`:
+the completion observes `Disposed` under the guard and aborts instead of
+resurrecting the VM or reserving a post-terminal publication (invariant 6).
+
+Consumer callbacks MUST NOT run while that state guard is held. The admitted
+`ConstructionStatusChangedMessage`, local property notifications, command
+triggers, and lifecycle waiter completions are delivered by the per-VM
+serializer after releasing the guard. A normal top-level call remains
+synchronous through its publication. A foreign call MAY enqueue and return only
+when waiting for the target drainer would close an actual thread wait cycle;
+unrelated foreign calls wait synchronously. The target drainer preserves FIFO
+order and completes terminal stream teardown only after the `Disposed`
+publication (ADR-0117).
 
 The concurrent-re-invocation rule (invariant 5 / `LIFE-008`) is enforced by this
 same primitive together with an in-flight guard: a second `construct()` /

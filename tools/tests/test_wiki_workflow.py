@@ -39,7 +39,7 @@ def test_wiki_workflow_does_not_reference_secrets_in_conditions() -> None:
 def test_wiki_workflow_changes_trigger_tool_tests() -> None:
     workflow = _CONFORMANCE_WORKFLOW.read_text(encoding="utf-8")
 
-    assert workflow.count('- ".github/workflows/wiki.yml"') == 2
+    assert workflow.count('- ".github/workflows/**"') == 2
 
 
 def test_wiki_workflow_verifies_the_published_tree_after_push() -> None:

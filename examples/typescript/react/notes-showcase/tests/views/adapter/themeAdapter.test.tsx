@@ -9,6 +9,7 @@
  * Also exercises the React-hook entry point via @testing-library/react.
  */
 import { cleanup, render } from "@testing-library/react";
+import type { JSX } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { MessageHub, RxDispatcher } from "@thekaveh/vmx";
 

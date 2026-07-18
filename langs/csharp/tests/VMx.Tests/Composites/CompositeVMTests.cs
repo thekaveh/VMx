@@ -1,4 +1,5 @@
 using System.Collections.Specialized;
+using System.Reactive.Linq;
 using FluentAssertions;
 using VMx.Components;
 using VMx.Composites;
@@ -16,6 +17,27 @@ namespace VMx.Tests.Composites;
 /// </summary>
 public class CompositeVMTests
 {
+    private sealed class BlockingTransferParent : IParentCompositeVM
+    {
+        internal ManualResetEventSlim Entered { get; } = new(false);
+        internal ManualResetEventSlim Release { get; } = new(false);
+        internal IComponentVM? Child { get; set; }
+        public IComponentVM? Owner => null;
+        public IParentCompositeVM? OwnerParent => null;
+        public bool SupportsChildSelection => false;
+        public IComponentVM? CurrentChild => null;
+        public void SelectChild(IComponentVM vm) { }
+        public void DeselectChild(IComponentVM vm) { }
+        public bool ContainsChild(IComponentVM vm) => ReferenceEquals(vm, Child);
+        public ParentTransferToken DetachForTransfer(IComponentVM vm)
+        {
+            Entered.Set();
+            if (!Release.Wait(TimeSpan.FromSeconds(2)))
+                throw new TimeoutException("transfer was not released");
+            return new ParentTransferToken(() => { }, () => { });
+        }
+    }
+
     // ── Factory helpers ──────────────────────────────────────────────────────
 
     private static (CompositeVM<ComponentVM<string>> composite, TestHub hub, TestDispatcher dispatcher)
@@ -35,6 +57,97 @@ public class CompositeVMTests
     private static ComponentVM<string> BuildChild(TestHub hub, TestDispatcher dispatcher, string name = "child1")
         => ComponentVM<string>.Builder()
             .Name(name).Services(hub, dispatcher).Model("m").Build();
+
+    [Fact]
+    public void Factory_Rejects_Duplicate_Identity_Without_Partial_Membership()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var child = BuildChild(hub, dispatcher);
+        var composite = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("root").Services(hub, dispatcher)
+            .Children(() => [child, child]).Build();
+
+        Action construct = composite.Construct;
+        construct.Should().Throw<InvalidOperationException>()
+            .WithMessage("*duplicate child identity*");
+        composite.Snapshot().Should().BeEmpty();
+        ((IComponentVMInternals)child).Parent.Should().BeNull();
+    }
+
+    [Fact]
+    public void Auto_Construct_Hook_Cannot_Reparent_During_Ownership_Transaction()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var source = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("source").Services(hub, dispatcher).AutoConstructOnAdd(true)
+            .Children(() => Array.Empty<ComponentVM<string>>()).Build();
+        var destination = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("destination").Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVM<string>>()).Build();
+        ComponentVM<string>? child = null;
+        child = ComponentVM<string>.Builder().Name("child").Services(hub, dispatcher)
+            .Model("m").OnConstruct(() => destination.Add(child!)).Build();
+        source.Construct();
+
+        Action add = () => source.Add(child);
+        add.Should().Throw<InvalidOperationException>()
+            .WithMessage("*ownership transaction is already in progress*");
+        source.Snapshot().Should().BeEmpty();
+        destination.Snapshot().Should().BeEmpty();
+        ((IComponentVMInternals)child).Parent.Should().BeNull();
+    }
+
+    [Fact]
+    public void Auto_Construct_Hook_Disposal_Aborts_Admission()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var composite = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("root").Services(hub, dispatcher).AutoConstructOnAdd(true)
+            .Children(() => Array.Empty<ComponentVM<string>>()).Build();
+        var child = ComponentVM<string>.Builder().Name("child").Services(hub, dispatcher)
+            .Model("m").OnConstruct(composite.Dispose).Build();
+        composite.Construct();
+
+        Action add = () => composite.Add(child);
+        add.Should().Throw<InvalidOperationException>().WithMessage("*disposing*");
+        composite.Snapshot().Should().BeEmpty();
+        ((IComponentVMInternals)child).Parent.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Concurrent_Current_Assignments_Leave_One_Current_Flag()
+    {
+        var (composite, hub, dispatcher) = BuildComposite();
+        var first = BuildChild(hub, dispatcher, "first");
+        var second = BuildChild(hub, dispatcher, "second");
+        composite.Add(first);
+        composite.Add(second);
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        first.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(first.IsCurrent) && first.IsCurrent)
+            {
+                entered.Set();
+                release.Wait(TimeSpan.FromSeconds(5));
+            }
+        };
+
+        var selectFirst = Task.Run(() => composite.Current = first);
+        entered.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue();
+        var selectSecond = Task.Run(() => composite.Current = second);
+        await Task.Delay(100);
+        selectSecond.IsCompleted.Should().BeFalse();
+        release.Set();
+        await Task.WhenAll(selectFirst, selectSecond).WaitAsync(TimeSpan.FromSeconds(5));
+
+        composite.Current.Should().BeSameAs(second);
+        first.IsCurrent.Should().BeFalse();
+        second.IsCurrent.Should().BeTrue();
+    }
 
     [Fact]
     public void Failed_Factory_Population_Rolls_Back_And_Retries()
@@ -71,6 +184,79 @@ public class CompositeVMTests
         calls.Should().Be(2);
         composite.Should().Equal(childA, childB);
         composite.Status.Should().Be(ConstructionStatus.Constructed);
+    }
+
+    [Fact]
+    public void Factory_Population_Surfaces_Lifecycle_Compensation_Failure()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var compensated = ComponentVM<string>.Builder()
+            .Name("compensated").Services(hub, dispatcher).Model("m")
+            .OnDestruct(() => throw new InvalidOperationException("compensation failed"))
+            .Build();
+        var blocker = ComponentVM<string>.Builder()
+            .Name("blocker").Services(hub, dispatcher).Model("m")
+            .OnConstruct(() => throw new InvalidOperationException("population failed"))
+            .Build();
+        var composite = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("root").Services(hub, dispatcher)
+            .Children(() => [compensated, blocker]).Build();
+
+        Action construct = composite.Construct;
+
+        var failure = construct.Should().Throw<AggregateException>().Which;
+        failure.InnerExceptions.Should().Contain(error => error.Message == "population failed");
+        failure.InnerExceptions.Should().Contain(error => error.Message == "compensation failed");
+        composite.Snapshot().Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Factory_Output_After_Reentrant_Disposal_Is_Rejected()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var late = BuildChild(hub, dispatcher, "late");
+        CompositeVM<ComponentVM<string>>? composite = null;
+        composite = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("root")
+            .Services(hub, dispatcher)
+            .Children(() =>
+            {
+                composite!.Dispose();
+                return new[] { late };
+            })
+            .Build();
+
+        Action construct = composite.Construct;
+        construct.Should().Throw<ObjectDisposedException>();
+        composite.Count.Should().Be(0);
+        late.Status.Should().Be(ConstructionStatus.Destructed);
+    }
+
+    [Fact]
+    public async Task Concurrent_Admission_Cannot_Escape_Disposal_Snapshot()
+    {
+        var (composite, hub, dispatcher) = BuildComposite();
+        var late = BuildChild(hub, dispatcher, "late");
+        var blocker = new BlockingTransferParent { Child = late };
+        ((IComponentVMInternals)late).SetParent(blocker);
+        Exception? failure = null;
+        var admission = Task.Run(() =>
+        {
+            try { composite.Add(late); }
+            catch (Exception error) { failure = error; }
+        });
+        (await Task.Run(() => blocker.Entered.Wait(TimeSpan.FromSeconds(2))))
+            .Should().BeTrue();
+
+        composite.Dispose();
+        blocker.Release.Set();
+        await admission.WaitAsync(TimeSpan.FromSeconds(2));
+
+        failure.Should().BeOfType<ObjectDisposedException>();
+        composite.Should().BeEmpty();
+        late.Status.Should().Be(ConstructionStatus.Destructed);
     }
 
     // ── Type and identity ────────────────────────────────────────────────────
@@ -671,6 +857,31 @@ public class CompositeVMTests
     }
 
     [Fact]
+    public void Dispose_Closes_Child_Admission_Before_Taking_The_Snapshot()
+    {
+        var (composite, hub, dispatcher) = BuildComposite();
+        var child = BuildChild(hub, dispatcher, "child");
+        var late = BuildChild(hub, dispatcher, "late");
+        Exception? admissionError = null;
+        using var subscription = hub.Messages.Subscribe(message =>
+        {
+            if (message is ConstructionStatusChangedMessage
+                { SenderName: "child", Status: ConstructionStatus.Disposed })
+            {
+                try { composite.Add(late); }
+                catch (Exception error) { admissionError = error; }
+            }
+        });
+        composite.Add(child);
+
+        composite.Dispose();
+
+        admissionError.Should().BeOfType<ObjectDisposedException>();
+        composite.Should().ContainSingle().Which.Should().BeSameAs(child);
+        late.Status.Should().Be(ConstructionStatus.Destructed);
+    }
+
+    [Fact]
     public void Dispose_Continues_After_Child_Failure_And_Rethrows_First_Error()
     {
         var hub = new TestHub();
@@ -739,7 +950,7 @@ public class CompositeVMTests
     }
 
     [Fact]
-    public void Construct_Cascade_Snapshots_Children_When_Hook_Mutates_Composite()
+    public void Construct_Population_Rejects_Reentrant_Membership_Mutation()
     {
         CompositeVM<ComponentVM<string>>? composite = null;
         ComponentVM<string>? sibling = null;
@@ -764,11 +975,12 @@ public class CompositeVMTests
 
         var act = () => composite.Construct();
 
-        act.Should().NotThrow();
-        mutating.Status.Should().Be(ConstructionStatus.Constructed);
-        sibling.Status.Should().Be(ConstructionStatus.Constructed,
-            "the construct cascade uses the entry snapshot even if a hook removes a peer");
-        composite.Count.Should().Be(1);
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*membership transaction*");
+        composite.Count.Should().Be(0,
+            "failed factory population must roll back the complete destination snapshot");
+        mutating.Status.Should().Be(ConstructionStatus.Destructed);
+        sibling.Status.Should().Be(ConstructionStatus.Destructed);
     }
 
     [Fact]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import textwrap
 from pathlib import Path
 
 from scripts.docs import build_docs
@@ -9,6 +10,7 @@ from scripts.docs.check_docs import (
     check,
     check_canonical_links,
     check_generated_wiki_links,
+    check_historical_audits,
     check_professional_markdown,
     check_raw_html_headings,
     check_self_containment,
@@ -150,6 +152,19 @@ def test_repo_surface_markdown_rejects_decorative_status_icons(tmp_path: Path) -
     assert "decorative status icon" in findings[0].message
 
 
+def test_historical_audits_require_notice_and_index_entry(tmp_path: Path) -> None:
+    audit = tmp_path / "docs/audit"
+    audit.mkdir(parents=True)
+    (audit / "README.md").write_text("# Audit archive\n", encoding="utf-8")
+    (audit / "old-report.md").write_text("# Old report\n", encoding="utf-8")
+
+    findings = check_historical_audits(tmp_path)
+
+    assert len(findings) == 2
+    assert any("historical audit notice is missing" in item.message for item in findings)
+    assert any("not listed" in item.message for item in findings)
+
+
 def test_wiki_rewrite_maps_relative_html_routes_to_manifest_pages() -> None:
     manifest = load_manifest(ROOT / "docs/manifest.yaml", ROOT)
     source_map = build_source_map(manifest, "wiki")
@@ -200,6 +215,50 @@ def test_build_generates_self_contained_surfaces() -> None:
     assert "thekaveh.github.io/VMx" not in wiki_page.read_text(encoding="utf-8")
     assert (ROOT / "mkdocs.yml").read_text(encoding="utf-8").find("repo_url") == -1
     assert "generator: false" in (ROOT / "mkdocs.yml").read_text(encoding="utf-8")
+
+
+def test_build_repo_root_is_fully_isolated(tmp_path: Path, monkeypatch) -> None:
+    selected = tmp_path / "selected"
+    other = tmp_path / "other"
+    for root, marker, version in ((selected, "SELECTED", "9.9.9"), (other, "OTHER", "1.0.0")):
+        (root / "docs/content").mkdir(parents=True)
+        (root / "docs/content/index.md").write_text(
+            f"# 1. {marker}\n\n[Details](details.md)\n", encoding="utf-8"
+        )
+        (root / "docs/content/details.md").write_text(
+            f"# 2. {marker} details\n\n[Home](index.md)\n", encoding="utf-8"
+        )
+        (root / "docs/manifest.yaml").write_text(
+            textwrap.dedent(
+                """\
+                surfaces: [repo, site, wiki]
+                numbering: baked
+                sections:
+                  - id: home
+                    number: "1"
+                    title: Home
+                    source: docs/content/index.md
+                  - id: details
+                    number: "2"
+                    title: Details
+                    source: docs/content/details.md
+                """
+            ),
+            encoding="utf-8",
+        )
+        (root / "spec").mkdir()
+        (root / "spec/VERSION").write_text(f"{version}\n", encoding="utf-8")
+
+    monkeypatch.chdir(other)
+    build_docs.build(site=True, wiki=True, check=True, repo_root=selected)
+
+    assert "SELECTED" in (selected / "generated/site/index.md").read_text(encoding="utf-8")
+    assert "OTHER" not in (selected / "generated/site/index.md").read_text(encoding="utf-8")
+    assert "9.9.9" in (selected / "generated/wiki/_Footer.md").read_text(encoding="utf-8")
+    assert "details.md" in (selected / "generated/site/index.md").read_text(encoding="utf-8")
+    assert "[[Details|2-Details]]" in (selected / "generated/wiki/Home.md").read_text(
+        encoding="utf-8"
+    )
 
 
 def test_docs_check_passes() -> None:

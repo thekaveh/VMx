@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Reactive;
 using System.Reactive.Disposables;
 using System.Reactive.Subjects;
+using System.Runtime.CompilerServices;
 using System.Runtime.ExceptionServices;
 using System.Windows.Input;
 using VMx.Commands;
@@ -83,6 +84,7 @@ internal interface IComponentVMInternals
     IParentCompositeVM? Parent { get; }
     void SetParent(IParentCompositeVM? parent);
     void SetIsCurrent(bool value);
+    Task ConstructOrJoinAsync();
 }
 
 /// <summary>
@@ -99,27 +101,87 @@ internal static class ComponentVMExtensions
 
     internal static void SetIsCurrent(this IComponentVM vm, bool value)
         => (vm as IComponentVMInternals)?.SetIsCurrent(value);
+
+    internal static Task ConstructOrJoinAsync(this IComponentVM vm)
+        => vm is IComponentVMInternals internals
+            ? internals.ConstructOrJoinAsync()
+            : vm.ConstructAsync();
 }
 
 /// <summary>Shared identity validation and old-parent staging for container mutations.</summary>
 internal static class ComponentOwnership
 {
+    private static readonly object Coordinator = new();
+
+    private sealed class OwnershipState
+    {
+        internal readonly object Gate = new();
+        internal bool InProgress;
+    }
+
+    private static readonly ConditionalWeakTable<IComponentVM, OwnershipState> States = new();
+
     internal static ParentTransferToken? BeginTransfer(
         IComponentVM child,
         IParentCompositeVM destination)
     {
-        if (destination.ContainsChild(child))
-            throw new InvalidOperationException(
-                $"Cannot add '{child.Name}': the destination already contains that identity.");
-
-        for (IParentCompositeVM? cursor = destination; cursor is not null; cursor = cursor.OwnerParent)
+        Monitor.Enter(Coordinator);
+        var state = States.GetValue(child, static _ => new OwnershipState());
+        Monitor.Enter(state.Gate);
+        if (state.InProgress)
         {
-            if (cursor.Owner is not null && ReferenceEquals(cursor.Owner, child))
+            Monitor.Exit(state.Gate);
+            Monitor.Exit(Coordinator);
+            throw new InvalidOperationException(
+                $"Cannot transfer '{child.Name}': an ownership transaction is already in progress.");
+        }
+        state.InProgress = true;
+
+        ParentTransferToken? staged;
+        try
+        {
+            if (destination.ContainsChild(child))
                 throw new InvalidOperationException(
-                    $"Cannot add '{child.Name}': the operation would create a parent cycle.");
+                    $"Cannot add '{child.Name}': the destination already contains that identity.");
+
+            for (IParentCompositeVM? cursor = destination;
+                 cursor is not null;
+                 cursor = cursor.OwnerParent)
+            {
+                if (cursor.Owner is not null && ReferenceEquals(cursor.Owner, child))
+                    throw new InvalidOperationException(
+                        $"Cannot add '{child.Name}': the operation would create a parent cycle.");
+            }
+
+            staged = child.GetParent()?.DetachForTransfer(child);
+        }
+        catch
+        {
+            state.InProgress = false;
+            Monitor.Exit(state.Gate);
+            Monitor.Exit(Coordinator);
+            throw;
         }
 
-        return child.GetParent()?.DetachForTransfer(child);
+        void Finish(bool commit)
+        {
+            try
+            {
+                if (staged is not null)
+                {
+                    if (commit) staged.Commit();
+                    else staged.Rollback();
+                }
+            }
+            finally
+            {
+                state.InProgress = false;
+                Monitor.Exit(state.Gate);
+                Monitor.Exit(Coordinator);
+            }
+        }
+
+        return new ParentTransferToken(() => Finish(true), () => Finish(false));
     }
 }
 
@@ -144,14 +206,24 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     private readonly bool _background;
 
     // ── Lifecycle state ─────────────────────────────────────────────────────
-    // _gate serializes every lifecycle state transition — the _status RMW, the
-    // hub publish, and the status-trigger emission inside SetStatus — against
-    // Dispose(). A background completion (Construct/Destruct dispatched on the
-    // background scheduler) therefore cannot interleave with disposal: it
-    // observes the terminal Disposed state and aborts instead of resurrecting
-    // the VM, publishing a post-dispose status message, or calling OnNext on a
-    // disposed Subject (VMX-001/054; spec/02 invariant 3 — Disposed is terminal).
+    // _gate atomically admits lifecycle state transitions and orders their
+    // externally observable delivery against Dispose(). Observer callbacks are
+    // drained outside the gate so two VMs can safely react to each other's
+    // lifecycle messages without acquiring their gates in opposing order.
     private readonly object _gate = new();
+    private static readonly object s_lifecycleWaitGraphGate = new();
+    private static readonly Dictionary<int, int> s_lifecycleWaitGraph = [];
+
+    private sealed class LifecycleDelivery(Action action)
+    {
+        internal Action Action { get; } = action;
+        internal ExceptionDispatchInfo? Failure { get; set; }
+        internal ManualResetEventSlim Completed { get; } = new(false);
+    }
+
+    private readonly Queue<LifecycleDelivery> _lifecycleDeliveries = [];
+    private bool _lifecycleDeliveryDraining;
+    private int _lifecycleDeliveryDrainerThreadId;
 
     // volatile so the unlocked fast-path reads (Status, IsConstructed, the Can*
     // predicates, the idempotent lifecycle guards) never observe a stale value
@@ -225,7 +297,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         {
             if (construct)
             {
-                await child.ConstructAsync().ConfigureAwait(false);
+                await child.ConstructOrJoinAsync().ConfigureAwait(false);
                 if (child.Status != ConstructionStatus.Constructed)
                     throw new InvalidOperationException(
                         $"Child '{child.Name}' did not reach Constructed.");
@@ -256,6 +328,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     IParentCompositeVM? IComponentVMInternals.Parent => Parent;
     void IComponentVMInternals.SetParent(IParentCompositeVM? parent) => Parent = parent;
     void IComponentVMInternals.SetIsCurrent(bool value) => IsCurrent = value;
+    Task IComponentVMInternals.ConstructOrJoinAsync() => ConstructOrJoinAsync();
 
     // ── IComponentVM: identity ──────────────────────────────────────────────
     /// <inheritdoc/>
@@ -381,6 +454,8 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     /// <inheritdoc/>
     public void Construct()
     {
+        LifecycleDelivery delivery;
+        bool shouldDrain;
         lock (_gate)
         {
             // Idempotent: already Constructed → no-op (no message).
@@ -396,8 +471,11 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
 
             // Emit Constructing synchronously so subscribers immediately observe the
             // transition starting; then run the actual work on the selected scheduler.
-            SetStatus(ConstructionStatus.Constructing);
+            delivery = QueueStatusDeliveryLocked(
+                ConstructionStatus.Constructing,
+                out shouldDrain);
         }
+        DrainAndThrow(delivery, shouldDrain);
 
         if (_background)
         {
@@ -520,10 +598,6 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         {
             // Idempotent like Construct(): already Constructed emits no message.
             if (_status == ConstructionStatus.Constructed) return Task.CompletedTask;
-            // Container cascades may join a background transition they started
-            // while staging an atomic population. Do not start it a second time.
-            if (_status == ConstructionStatus.Constructing && _inFlight)
-                return RegisterLifecycleWaiter().Task;
         }
 
         var tcs = RegisterLifecycleWaiter();
@@ -541,10 +615,24 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         return tcs.Task;
     }
 
+    private Task ConstructOrJoinAsync()
+    {
+        lock (_gate)
+        {
+            if (_status == ConstructionStatus.Constructed) return Task.CompletedTask;
+            if (_status == ConstructionStatus.Constructing && _inFlight)
+                return RegisterLifecycleWaiter().Task;
+        }
+
+        return ConstructAsync();
+    }
+
     // ── Lifecycle: Destruct ─────────────────────────────────────────────────
     /// <inheritdoc/>
     public void Destruct()
     {
+        LifecycleDelivery delivery;
+        bool shouldDrain;
         lock (_gate)
         {
             if (_status == ConstructionStatus.Destructed) return;
@@ -557,8 +645,11 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
 
             // Emit Destructing synchronously so subscribers see the transition start;
             // the actual OnDestruct runs on the selected scheduler.
-            SetStatus(ConstructionStatus.Destructing);
+            delivery = QueueStatusDeliveryLocked(
+                ConstructionStatus.Destructing,
+                out shouldDrain);
         }
+        DrainAndThrow(delivery, shouldDrain);
 
         if (_background)
         {
@@ -676,9 +767,6 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         {
             // Idempotent like Destruct(): already Destructed emits no message.
             if (_status == ConstructionStatus.Destructed) return Task.CompletedTask;
-            // Internal cascades join an already-running background transition.
-            if (_status == ConstructionStatus.Destructing && _inFlight)
-                return RegisterLifecycleWaiter().Task;
         }
 
         var tcs = RegisterLifecycleWaiter();
@@ -700,6 +788,8 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     /// <inheritdoc/>
     public void Reconstruct()
     {
+        LifecycleDelivery delivery;
+        bool shouldDrain;
         lock (_gate)
         {
             LifecycleTransitionValidator.Require(_status, "reconstruct");
@@ -708,8 +798,11 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                 throw new StatusTransitionException(_status, "reconstruct");
             _inFlight = true;
 
-            SetStatus(ConstructionStatus.Destructing);
+            delivery = QueueStatusDeliveryLocked(
+                ConstructionStatus.Destructing,
+                out shouldDrain);
         }
+        DrainAndThrow(delivery, shouldDrain);
 
         var completionDeferred = false;
         try
@@ -856,6 +949,8 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     public virtual void Dispose()
     {
         ExceptionDispatchInfo? firstError = null;
+        bool shouldDrain;
+        LifecycleDelivery? delivery;
         lock (_gate)
         {
             if (_status == ConstructionStatus.Disposed) return;
@@ -863,18 +958,26 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             // Terminal publication is best-effort: an observer failure must not
             // prevent the remaining channels or mandatory cleanup from running.
             _status = ConstructionStatus.Disposed;
-            CaptureDisposalFailure(ref firstError, () =>
-                _hub.Send(ConstructionStatusChangedMessage.Create(
-                    this, Name, ConstructionStatus.Disposed)));
-            CaptureDisposalFailure(ref firstError, () =>
-                RaisePropertyChanged(nameof(Status)));
-            CaptureDisposalFailure(ref firstError, () =>
-                RaisePropertyChanged(nameof(IsConstructed)));
-            if (!_triggerDisposed)
+            var notifyTrigger = !_triggerDisposed;
+            var statusDelivery = QueueLifecycleDeliveryLocked(() =>
+            {
                 CaptureDisposalFailure(ref firstError, () =>
-                    _statusTrigger.OnNext(Unit.Default));
-            CompleteLifecycleWaitersLocked();
+                    _hub.Send(ConstructionStatusChangedMessage.Create(
+                        this, Name, ConstructionStatus.Disposed)));
+                CaptureDisposalFailure(ref firstError, () =>
+                    RaisePropertyChanged(nameof(Status)));
+                CaptureDisposalFailure(ref firstError, () =>
+                    RaisePropertyChanged(nameof(IsConstructed)));
+                if (notifyTrigger)
+                    CaptureDisposalFailure(ref firstError, () =>
+                        _statusTrigger.OnNext(Unit.Default));
+            }, out shouldDrain);
+
+            var waiterDelivery = QueueSettledLifecycleWaitersLocked(out var waiterShouldDrain);
+            shouldDrain |= waiterShouldDrain;
+            delivery = waiterDelivery ?? statusDelivery;
         }
+        DrainAndThrow(delivery!, shouldDrain);
 
         // Subclass cleanup hook, matching Python `_on_dispose` (base.py) and
         // TS `_onDispose` (componentVMBase.ts). Runs immediately after the
@@ -884,18 +987,29 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         CaptureDisposalFailure(ref firstError, OnDispose);
         CaptureDisposalFailure(ref firstError, DisposeOwnedResources);
 
-        // Tear down the status trigger under _gate so the flag flip and the
-        // Subject disposal cannot interleave with an in-flight background
-        // SetStatus transition.
+        // Admit trigger teardown under _gate, then invoke Subject observers in
+        // lifecycle-delivery order outside it. The terminal OnNext admitted
+        // above therefore always precedes OnCompleted, including re-entrant
+        // disposal while another lifecycle notification is being drained.
         lock (_gate)
         {
             if (!_triggerDisposed)
             {
                 _triggerDisposed = true;
-                CaptureDisposalFailure(ref firstError, _statusTrigger.OnCompleted);
-                CaptureDisposalFailure(ref firstError, _statusTrigger.Dispose);
+                delivery = QueueLifecycleDeliveryLocked(() =>
+                {
+                    CaptureDisposalFailure(ref firstError, _statusTrigger.OnCompleted);
+                    CaptureDisposalFailure(ref firstError, _statusTrigger.Dispose);
+                }, out shouldDrain);
+            }
+            else
+            {
+                shouldDrain = false;
+                delivery = null;
             }
         }
+        if (delivery is not null)
+            DrainAndThrow(delivery, shouldDrain);
 
         foreach (var command in new IDisposable?[]
                  {
@@ -963,35 +1077,52 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
 
     private void ClearInFlight()
     {
+        bool shouldDrain;
+        LifecycleDelivery? delivery;
         lock (_gate)
         {
             _inFlight = false;
-            CompleteLifecycleWaitersLocked();
+            delivery = QueueSettledLifecycleWaitersLocked(out shouldDrain);
         }
+        if (delivery is not null) DrainAndThrow(delivery, shouldDrain);
     }
 
     private void FailInFlight(Exception error)
     {
+        bool shouldDrain;
+        LifecycleDelivery delivery;
         lock (_gate)
         {
             _inFlight = false;
-            foreach (var waiter in _lifecycleWaiters)
-                waiter.TrySetException(error);
+            var waiters = _lifecycleWaiters.ToArray();
             _lifecycleWaiters.Clear();
+            delivery = QueueLifecycleDeliveryLocked(() =>
+            {
+                foreach (var waiter in waiters)
+                    waiter.TrySetException(error);
+            }, out shouldDrain);
         }
+        DrainAndThrow(delivery, shouldDrain);
     }
 
     private void FinishInFlightFrom(Task completed)
     {
         if (completed.IsCanceled)
         {
+            bool shouldDrain;
+            LifecycleDelivery delivery;
             lock (_gate)
             {
                 _inFlight = false;
-                foreach (var waiter in _lifecycleWaiters)
-                    waiter.TrySetCanceled();
+                var waiters = _lifecycleWaiters.ToArray();
                 _lifecycleWaiters.Clear();
+                delivery = QueueLifecycleDeliveryLocked(() =>
+                {
+                    foreach (var waiter in waiters)
+                        waiter.TrySetCanceled();
+                }, out shouldDrain);
             }
+            DrainAndThrow(delivery, shouldDrain);
             return;
         }
 
@@ -1062,20 +1193,32 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
 
     private void CompleteWaiterIfSettled(TaskCompletionSource<bool> waiter)
     {
+        bool shouldDrain;
+        LifecycleDelivery delivery;
         lock (_gate)
         {
             if (_inFlight || !IsSettled(_status)) return;
             _lifecycleWaiters.Remove(waiter);
-            waiter.TrySetResult(true);
+            delivery = QueueLifecycleDeliveryLocked(
+                () => waiter.TrySetResult(true),
+                out shouldDrain);
         }
+        DrainAndThrow(delivery, shouldDrain);
     }
 
-    private void CompleteLifecycleWaitersLocked()
+    private LifecycleDelivery? QueueSettledLifecycleWaitersLocked(
+        out bool shouldDrain)
     {
-        if (!IsSettled(_status) || _lifecycleWaiters.Count == 0) return;
-        foreach (var waiter in _lifecycleWaiters)
-            waiter.TrySetResult(true);
+        shouldDrain = false;
+        if (!IsSettled(_status) || _lifecycleWaiters.Count == 0) return null;
+
+        var waiters = _lifecycleWaiters.ToArray();
         _lifecycleWaiters.Clear();
+        return QueueLifecycleDeliveryLocked(() =>
+        {
+            foreach (var waiter in waiters)
+                waiter.TrySetResult(true);
+        }, out shouldDrain);
     }
 
     private static bool IsSettled(ConstructionStatus status) =>
@@ -1085,19 +1228,26 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
 
     private void SetStatus(ConstructionStatus newStatus)
     {
-        // The terminal check, the _status write, the hub publish and the
-        // status-trigger OnNext all run under _gate so the whole transition is
-        // atomic with respect to Dispose() — a background transition racing
-        // Dispose() can neither resurrect the VM, publish a post-dispose status
-        // message, nor OnNext a disposed Subject (VMX-001/054; spec/02 invariant
-        // 3: Disposed is terminal).
+        LifecycleDelivery delivery;
+        bool shouldDrain;
         lock (_gate)
         {
             if (_status == ConstructionStatus.Disposed) return;
+            delivery = QueueStatusDeliveryLocked(newStatus, out shouldDrain);
+        }
+        DrainAndThrow(delivery, shouldDrain);
+    }
 
-            _status = newStatus;
-
-            _hub.Send(ConstructionStatusChangedMessage.Create(this, Name, newStatus));
+    private LifecycleDelivery QueueStatusDeliveryLocked(
+        ConstructionStatus newStatus,
+        out bool shouldDrain)
+    {
+        _status = newStatus;
+        var message = ConstructionStatusChangedMessage.Create(this, Name, newStatus);
+        var notifyTrigger = !_triggerDisposed;
+        return QueueLifecycleDeliveryLocked(() =>
+        {
+            _hub.Send(message);
 
             // Status and IsConstructed are computed/read-only, so they raise INPC only;
             // no PropertyChangedMessage on the hub (spec 03-messages.md restricts hub
@@ -1105,9 +1255,102 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             RaisePropertyChanged(nameof(Status));
             RaisePropertyChanged(nameof(IsConstructed));
 
-            if (!_triggerDisposed)
+            if (notifyTrigger)
                 _statusTrigger.OnNext(Unit.Default);
+        }, out shouldDrain);
+    }
 
+    private LifecycleDelivery QueueLifecycleDeliveryLocked(
+        Action action,
+        out bool shouldDrain)
+    {
+        var delivery = new LifecycleDelivery(action);
+        _lifecycleDeliveries.Enqueue(delivery);
+        shouldDrain = !_lifecycleDeliveryDraining;
+        if (shouldDrain)
+        {
+            _lifecycleDeliveryDraining = true;
+            _lifecycleDeliveryDrainerThreadId = Environment.CurrentManagedThreadId;
+        }
+        return delivery;
+    }
+
+    private void DrainAndThrow(LifecycleDelivery delivery, bool shouldDrain)
+    {
+        if (shouldDrain)
+        {
+            DrainIfOwner(true);
+        }
+        else
+        {
+            AwaitLifecycleDeliveryUnlessCyclic(delivery);
+        }
+        if (delivery.Completed.IsSet)
+            delivery.Failure?.Throw();
+    }
+
+    private void DrainIfOwner(bool shouldDrain)
+    {
+        if (!shouldDrain) return;
+
+        while (true)
+        {
+            LifecycleDelivery delivery;
+            lock (_gate)
+            {
+                if (_lifecycleDeliveries.Count == 0)
+                {
+                    _lifecycleDeliveryDraining = false;
+                    _lifecycleDeliveryDrainerThreadId = 0;
+                    return;
+                }
+                delivery = _lifecycleDeliveries.Dequeue();
+            }
+
+            try
+            {
+                delivery.Action();
+            }
+            catch (Exception error)
+            {
+                delivery.Failure = ExceptionDispatchInfo.Capture(error);
+            }
+            finally
+            {
+                delivery.Completed.Set();
+            }
+        }
+    }
+
+    private void AwaitLifecycleDeliveryUnlessCyclic(LifecycleDelivery delivery)
+    {
+        if (delivery.Completed.IsSet) return;
+        var caller = Environment.CurrentManagedThreadId;
+        int owner;
+        lock (_gate) owner = _lifecycleDeliveryDrainerThreadId;
+        if (owner == 0 || owner == caller) return;
+        if (RegisterLifecycleWait(caller, owner)) return;
+        try { delivery.Completed.Wait(); }
+        finally
+        {
+            lock (s_lifecycleWaitGraphGate)
+                s_lifecycleWaitGraph.Remove(caller);
+        }
+    }
+
+    private static bool RegisterLifecycleWait(int caller, int owner)
+    {
+        lock (s_lifecycleWaitGraphGate)
+        {
+            s_lifecycleWaitGraph[caller] = owner;
+            var cursor = owner;
+            var visited = new HashSet<int>();
+            while (cursor != caller && visited.Add(cursor) &&
+                   s_lifecycleWaitGraph.TryGetValue(cursor, out var next))
+                cursor = next;
+            if (cursor != caller) return false;
+            s_lifecycleWaitGraph.Remove(caller);
+            return true;
         }
     }
 

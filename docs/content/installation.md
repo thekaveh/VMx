@@ -1,9 +1,12 @@
 # 2. Installation
 
-VMx has five full-parity source flavors. C#, Python, and Swift implement
+VMx has five catalog-complete source flavors. C#, Python, and Swift implement
 v3.22.0; TypeScript 3.23.0 implements spec 3.22.0, and Rust 0.25.0
-declares `MIN_SPEC_VERSION = "3.22.0"`. Public package availability can lag the
-source tree, so check the flavor README and registry before pinning a release.
+declares `MIN_SPEC_VERSION = "3.22.0"`. “Catalog-complete” means all 395 library
+IDs are represented; it does not hide the documented
+[Rust surface-convergence backlog](../maintenance/2026-07-16-rust-capability-parity.md).
+Public package availability can lag the source tree, so check the flavor README
+and registry before pinning a release.
 
 | Flavor     | Source tree   | Public package status               |
 | ---------- | ------------- | ----------------------------------- |
@@ -15,8 +18,16 @@ source tree, so check the flavor README and registry before pinning a release.
 
 === "C#"
 
+    The package command applies after the first NuGet publication:
+
     ```bash
     dotnet add package VMx
+    ```
+
+    Until then, clone VMx beside the consumer and use a project reference:
+
+    ```bash
+    dotnet add MyApp.csproj reference ../VMx/langs/csharp/src/VMx/VMx.csproj
     ```
 
 === "Python"
@@ -29,8 +40,19 @@ source tree, so check the flavor README and registry before pinning a release.
 
 === "TypeScript"
 
+    The registry command applies after the first npm publication:
+
     ```bash
     npm install @thekaveh/vmx rxjs
+    ```
+
+    Until then, clone VMx beside the consumer, prepare its package, and install
+    the local directory:
+
+    ```bash
+    npm --prefix ../VMx/langs/typescript ci
+    npm --prefix ../VMx/langs/typescript run build
+    npm install ../VMx/langs/typescript rxjs
     ```
 
 === "Swift"
@@ -52,8 +74,10 @@ source tree, so check the flavor README and registry before pinning a release.
 
 === "Rust"
 
+    Clone VMx beside the consumer and use the unpublished crate by path:
+
     ```toml
-    vmx-rs = { path = "langs/rust" }
+    vmx-rs = { path = "../VMx/langs/rust" }
     ```
 
 ## 2.1. Notes

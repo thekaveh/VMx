@@ -22,6 +22,11 @@ HTML_HREF_RE = re.compile(r'href="(?P<target>[^"]+)"')
 HTML_HEADING_RE = re.compile(r"<\s*h[1-6](?:\s|>)", re.IGNORECASE)
 WIKI_LINK_RE = re.compile(r"\[\[(?P<label>[^\]\r\n]+)\|(?P<target>[^\]\r\n]+)\]\]")
 DECORATIVE_STATUS_ICON_RE = re.compile(r"[✓✔✅❌✗✘]")
+HISTORICAL_AUDIT_NOTICE = (
+    "> Historical audit record. This document captures a point-in-time review and may "
+    "contain superseded paths, versions, findings, or conclusions. For current behavior, "
+    "use the specification and current documentation."
+)
 
 STANDALONE_NUMBERED_DOCS = (
     Path("langs/rust/README.md"),
@@ -215,6 +220,32 @@ def check_professional_markdown(repo_root: Path) -> list[Finding]:
     return findings
 
 
+def check_historical_audits(repo_root: Path) -> list[Finding]:
+    """Keep point-in-time audit reports visibly archival and discoverable."""
+    audit_root = repo_root / "docs/audit"
+    index = audit_root / "README.md"
+    reports = sorted(path for path in _scan_markdown(audit_root) if path != index)
+    findings: list[Finding] = []
+    if reports and not index.is_file():
+        findings.append(Finding("error", "docs/audit/README.md: historical audit index is missing"))
+        index_text = ""
+    else:
+        index_text = index.read_text(encoding="utf-8") if index.is_file() else ""
+
+    for path in reports:
+        relative = path.relative_to(repo_root)
+        text = path.read_text(encoding="utf-8")
+        if HISTORICAL_AUDIT_NOTICE not in "\n".join(text.splitlines()[:12]):
+            findings.append(
+                Finding("error", f"{relative}: standardized historical audit notice is missing")
+            )
+        if f"({path.name})" not in index_text:
+            findings.append(
+                Finding("error", f"{relative}: report is not listed in docs/audit/README.md")
+            )
+    return findings
+
+
 def check_completeness(repo_root: Path) -> list[Finding]:
     manifest = load_manifest(repo_root / "docs/manifest.yaml", repo_root)
     manifest_sources = {section.source for section in manifest.pages()}
@@ -335,6 +366,7 @@ def check(repo_root: Path) -> list[Finding]:
     findings.extend(check_generated_wiki_links(repo_root))
     findings.extend(check_raw_html_headings(repo_root))
     findings.extend(check_professional_markdown(repo_root))
+    findings.extend(check_historical_audits(repo_root))
     findings.extend(check_completeness(repo_root))
     findings.extend(check_heading_numbers(repo_root))
     findings.extend(check_placeholders(repo_root))

@@ -112,6 +112,20 @@ final class ForwardingTests: XCTestCase {
         XCTAssertEqual(fwd.model, "after")
     }
 
+    /// FWD-001 — ownership registration is delegated, so disposing the wrapped
+    /// instance runs cleanup registered through the decorator exactly once.
+    func testFWD001ForwardsOwnedCleanup() {
+        let inner = makeInner()
+        let fwd = NoopForwardingComponent(inner)
+        var cleanupCount = 0
+
+        fwd.own { cleanupCount += 1 }
+        inner.dispose()
+        fwd.dispose()
+
+        XCTAssertEqual(cleanupCount, 1)
+    }
+
     // ── FWD-002 ─────────────────────────────────────────────────────────
 
     /// FWD-002 — a selective override replaces a single behavior while every
@@ -205,5 +219,31 @@ final class ForwardingTests: XCTestCase {
 
         try fwd.deselectComponent(vm1)
         XCTAssertNil(composite.current, "deselectComponent forwards to the wrapped")
+    }
+
+    /// FWD-003 — membership subscriptions and batch coalescing observe the
+    /// wrapped collection rather than the decorator's empty inherited storage.
+    func testForwardingCompositeForwardsMembershipAndBatching() throws {
+        let vm1 = leaf("vm1")
+        let vm2 = leaf("vm2")
+        let composite = try CompositeVM<ComponentVM>.builder()
+            .name("composite")
+            .withNullServices()
+            .build()
+        let fwd = NoopForwardingComposite(composite)
+        var membershipChanges = 0
+        let subscription = fwd.subscribeMembership { membershipChanges += 1 }
+
+        let batch = fwd.batchUpdate()
+        fwd.add(vm1)
+        fwd.add(vm2)
+        XCTAssertEqual(membershipChanges, 0)
+        batch.dispose()
+
+        XCTAssertEqual(membershipChanges, 1)
+        XCTAssertEqual(fwd.snapshot().count, 2)
+        XCTAssertTrue(fwd.at(0) === vm1)
+        XCTAssertTrue(fwd.at(1) === vm2)
+        subscription.cancel()
     }
 }

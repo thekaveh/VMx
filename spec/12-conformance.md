@@ -298,6 +298,10 @@ outer transaction then sends `C`
 **When** the producer calls `Send(A)`
 **Then** the subscriber observes `A` before `Send` returns
 **And** no transaction callback or explicit flush is required
+**And** a callback sending to an unrelated busy hub waits for that target and
+preserves the same synchronous guarantee
+**And** opposing cross-hub send, disposal, or batch callbacks complete without
+deadlock by escaping only the actual wait cycle
 
 ______________________________________________________________________
 
@@ -1794,7 +1798,7 @@ collection notifications are unchanged
 **And** attaching a container to itself or beneath one of its descendants is
 rejected with the same mutation-free guarantee
 
-### COMP-040 — Failed ownership transfer restores exact state
+### COMP-040 — Failed ownership transfer isolates and restores container state
 
 **Given** child `c` at index `i` in `old`, with `old.Current == c` when `old` is
 a composite
@@ -1806,6 +1810,10 @@ a composite
 `Current`, `IsCurrent`, and `Destructed` state
 **And** `new` has its exact pre-call membership and selection state
 **And** lazy or bulk population remains retryable after the failing child is fixed
+**And** re-entrant structural mutation of either protected container is rejected
+before mutation
+**And** if required lifecycle compensation itself raises, the rollback failure
+is surfaced rather than swallowed; exact lifecycle restoration is then not claimed
 
 ### COMP-041 — Transfer notifications commit removal before addition
 

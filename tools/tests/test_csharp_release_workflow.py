@@ -29,11 +29,41 @@ def test_csharp_ci_packs_and_verifies_both_consumer_frameworks() -> None:
     assert '--framework "${{ matrix.framework }}"' in workflow
 
 
+def test_csharp_ci_and_release_cover_current_dotnet_lts() -> None:
+    ci = _workflow("csharp.yml")
+    release = _csharp_release_jobs()
+    unit_project = (REPO_ROOT / "langs/csharp/tests/VMx.Tests/VMx.Tests.csproj").read_text()
+    conformance_project = (
+        REPO_ROOT / "langs/csharp/tests/VMx.Conformance.Tests/VMx.Conformance.Tests.csproj"
+    ).read_text()
+
+    assert "10.0.x" in ci
+    assert "10.0.x" in release
+    assert "net8.0;net9.0;net10.0" in unit_project
+    assert "net8.0;net9.0;net10.0" in conformance_project
+
+
+def test_csharp_ci_and_release_audit_transitive_dependencies() -> None:
+    ci = _workflow("csharp.yml")
+    release = _csharp_release_jobs()
+    command = "dotnet list langs/csharp/VMx.sln package --vulnerable --include-transitive"
+
+    assert command in ci
+    assert command in release
+
+
+def test_csharp_restore_enforces_low_severity_transitive_auditing() -> None:
+    props = (REPO_ROOT / "langs/csharp/Directory.Build.props").read_text(encoding="utf-8")
+
+    assert "<NuGetAudit>true</NuGetAudit>" in props
+    assert "<NuGetAuditMode>all</NuGetAuditMode>" in props
+    assert "<NuGetAuditLevel>low</NuGetAuditLevel>" in props
+
+
 def test_conformance_triggers_on_csharp_and_release_workflow_changes() -> None:
     workflow = _workflow("conformance.yml")
 
-    assert workflow.count('- ".github/workflows/csharp.yml"') == 2
-    assert workflow.count('- ".github/workflows/release.yml"') == 2
+    assert workflow.count('- ".github/workflows/**"') == 2
 
 
 def _csharp_release_jobs() -> str:

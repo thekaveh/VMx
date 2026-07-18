@@ -39,11 +39,28 @@ and [`assets/notes-showcase-vmx-components.png`](assets/notes-showcase-vmx-compo
 - **TypeScript / React 18 + Vite** — `examples/typescript/react/notes-showcase/`
 - **Swift / SwiftUI + Combine (macOS)** — `examples/swift/notes-showcase/` (ADR-0067)
 
+The Rust Ratatui Notes Showcase is a **reduced companion**, not a fifth
+flagship column. It demonstrates a pure Rust MVVM terminal composition, but it
+does not claim the canonical 19-feature scenario: it omits `THEME-001..005`,
+`IDialogService` export, the capability action bar, the async dispatcher
+scenario, and tag autocomplete. Its exact scope is documented in the
+[Rust example README](rust/README.md#21-parity-role) and the
+[Rust TUI guide](../docs/content/examples/rust-tui-notes-showcase.md#852-parity-scope).
+
 Each column reports whether the indicated flavor implements the VM/spec surface
 and wires it into the flagship host. `Yes` means the feature is represented in
 the flavor's VM/model tests and host integration; view-purity enforcement is
 covered by the dedicated C#, Python, and React tooling, while Swift's core/view
 split is enforced by SwiftPM target boundaries.
+
+### 2.1. Locale Scope
+
+The shared scenario is intentionally an en-US reference host: labels, seed
+content, validation messages, and notifications are English literals in all
+four flagships and the reduced Rust companion. This matrix does not claim a
+localization row. VMx's injectable `ILocalizer`/`Localizer` contract remains a
+consumer integration point covered by the five library conformance suites;
+shipping translated application catalogs is outside this example scenario.
 
 | #   | Spec feature (chapter / capability)                   | C# / Avalonia | Python / Textual | TypeScript / React | Swift / SwiftUI |
 | --- | ----------------------------------------------------- | ------------- | ---------------- | ------------------ | --------------- |
@@ -161,6 +178,7 @@ lifecycle-bearing search-result ownership obligation.
 - Scenario contract: [`spec/proposals/2026-05-29-notes-showcase-scenario.md`](../spec/proposals/2026-05-29-notes-showcase-scenario.md)
 - ADR-0034: [`spec/ADRs/0034-aggregate-vm6.md`](../spec/ADRs/0034-aggregate-vm6.md)
 - ADR-0067: [`spec/ADRs/0067-swift-notes-showcase-flagship.md`](../spec/ADRs/0067-swift-notes-showcase-flagship.md) — Swift flagship decision record
+- Reduced Rust companion: [`examples/rust/README.md`](rust/README.md#21-parity-role)
 - Per-flavor READMEs:
   [`examples/csharp/avalonia/NotesShowcase/README.md`](csharp/avalonia/NotesShowcase/README.md),
   [`examples/python/textual/notes_showcase/README.md`](python/textual/notes_showcase/README.md),

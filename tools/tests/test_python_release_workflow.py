@@ -47,3 +47,14 @@ def test_conformance_job_uses_the_tracked_python_lockfile() -> None:
     workflow = _workflow("conformance.yml")
 
     assert "uv --project langs/python sync --locked --all-extras" in workflow
+
+
+def test_python_ci_and_release_cover_314_and_audit_runtime_dependencies() -> None:
+    ci = _workflow("python.yml")
+    release = _workflow("release.yml")
+
+    assert 'python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]' in ci
+    assert 'python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]' in release
+    assert "uv export --locked --no-dev --no-emit-project" in ci
+    assert "uvx --from pip-audit==2.10.1 pip-audit" in ci
+    assert "uvx --from pip-audit==2.10.1 pip-audit" in release

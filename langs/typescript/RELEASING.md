@@ -89,8 +89,8 @@ then runs fixture sync, both typechecks, lint, build, tests, audit, a strict
 package-content allowlist, and a packed local consumer smoke test. The publish
 job uses Node 24 and npm 11.5.1 without an npm dependency cache.
 
-After npm accepts the package, separate Node 20 and Node 22 jobs poll for and
-install the exact public version in clean consumers. They test ESM imports,
+After npm accepts the package, separate Node 20, 22, 24, and 26 jobs poll for
+and install the exact public version in clean consumers. They test ESM imports,
 CommonJS `require`, NodeNext declarations, and the root, `notifications`, and
 `conformance` exports. They also require npm provenance metadata. Only after
 those checks pass does CI create the TypeScript GitHub Release from the matching

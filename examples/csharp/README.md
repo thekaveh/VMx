@@ -6,9 +6,9 @@ Generated architecture diagrams for all examples live in
 
 ## 1. Setup
 
-Each project carries its own `.csproj` and resolves `VMx` either from the
-local source build (when run from this repository) or from
-[NuGet](https://www.nuget.org/packages/VMx/) when used as a template.
+Each project carries its own `.csproj` and currently resolves `VMx` from the
+local source build. After the first NuGet publication, a copied template may
+replace that project reference with the `VMx` package name.
 
 ```bash
 dotnet restore

@@ -51,6 +51,7 @@ COLORS = {
 
 RELATION_STYLES = {
     "extends": {"color": "#22d3ee", "dash": "", "width": 3.0},
+    "class extends": {"color": "#22d3ee", "dash": "", "width": 3.0},
     "implements": {"color": "#34d399", "dash": "10 6", "width": 3.0},
     "owns": {"color": "#fbbf24", "dash": "", "width": 3.0},
     "wraps": {"color": "#fb923c", "dash": "14 4", "width": 3.0},
@@ -675,7 +676,7 @@ def system_architecture() -> Diagram:
     return Diagram(
         diagram_id="system-architecture",
         title="VMx System Architecture",
-        subtitle=f"spec {facts.spec_version} source of truth -> parity flavors -> host examples",
+        subtitle=f"spec {facts.spec_version} source of truth -> catalog-complete flavors -> host examples",
         width=1700,
         height=1040,
         boundaries=(
@@ -880,7 +881,7 @@ def system_architecture() -> Diagram:
                 300,
                 108,
                 "Release posture",
-                ("same conceptual shape", "idiomatic per language", "repo facts drive docs"),
+                ("shared normative concepts", "idiomatic per language", "repo facts drive docs"),
                 "cloud",
             ),
         ),
@@ -937,9 +938,9 @@ def system_architecture() -> Diagram:
             (
                 "Parity shape",
                 (
-                    "C#, Python, TypeScript, Swift, and Rust share one conceptual runtime with idiomatic casing only.",
+                    "Five flavors implement one normative conceptual runtime with idiomatic public naming.",
                     "Reactive primitives stay native per flavor; Rust uses the VMx-owned hot-stream facade.",
-                    "Runtime helpers such as paging, derived properties, dialogs, and notifications remain consistent.",
+                    "C#, Python, TypeScript, and Swift are member-aligned; the Rust convergence ledger records remaining gaps.",
                 ),
             ),
             (
@@ -958,7 +959,7 @@ def class_architecture() -> Diagram:
     return Diagram(
         diagram_id="class-architecture",
         title="Class Architecture Map",
-        subtitle="lineage, wrappers, commands, and paging helpers with relationship endpoints grounded in spec/source",
+        subtitle="conceptual families with class inheritance and Rust composition called out explicitly",
         width=1800,
         height=1370,
         boundaries=(
@@ -1225,14 +1226,20 @@ def class_architecture() -> Diagram:
             ),
         ),
         relationships=(
-            Relationship("extends", ((500, 262), (500, 278), (150, 278), (150, 258)), (365, 274)),
-            Relationship("extends", ((780, 262), (780, 286), (180, 286), (180, 258)), (635, 282)),
-            Relationship("extends", ((1060, 262), (1060, 294), (210, 294), (210, 258)), (920, 290)),
             Relationship(
-                "extends", ((1340, 262), (1340, 302), (240, 302), (240, 258)), (1195, 298)
+                "class extends", ((500, 262), (500, 278), (150, 278), (150, 258)), (365, 274)
             ),
             Relationship(
-                "extends", ((1620, 262), (1620, 310), (270, 310), (270, 258)), (1480, 306)
+                "class extends", ((780, 262), (780, 286), (180, 286), (180, 258)), (635, 282)
+            ),
+            Relationship(
+                "class extends", ((1060, 262), (1060, 294), (210, 294), (210, 258)), (920, 290)
+            ),
+            Relationship(
+                "class extends", ((1340, 262), (1340, 302), (240, 302), (240, 258)), (1195, 298)
+            ),
+            Relationship(
+                "class extends", ((1620, 262), (1620, 310), (270, 310), (270, 258)), (1480, 306)
             ),
             Relationship(
                 "implements", ((500, 262), (500, 330), (200, 330), (200, 402)), (330, 350)
@@ -1244,7 +1251,7 @@ def class_architecture() -> Diagram:
             Relationship("wraps", ((960, 450), (910, 450)), (936, 434)),
             Relationship("owns", ((340, 616), (390, 616)), (365, 535)),
             Relationship("owns", ((340, 642), (650, 642)), (515, 535)),
-            Relationship("extends", ((1270, 616), (1210, 616)), (1240, 535)),
+            Relationship("class extends", ((1270, 616), (1210, 616)), (1240, 535)),
             Relationship(
                 "implements", ((465, 744), (465, 700), (195, 700), (195, 852)), (310, 740)
             ),
@@ -1277,7 +1284,7 @@ def class_architecture() -> Diagram:
                 "Reading hint",
                 (
                     "Helper boxes make interface and delegate endpoints explicit so wraps/decorates/adapts stay literal.",
-                    "The map is cluster-level, but every visible arrow endpoint names a real surface from spec or shipped code.",
+                    "Class extends applies to class-based flavors; Rust composes the same families from ComponentCore and NotificationVm fields.",
                 ),
                 "#94a3b8",
             ),
@@ -1286,7 +1293,7 @@ def class_architecture() -> Diagram:
             (
                 "Lineage",
                 (
-                    "The base-type story is narrow on purpose: the core VM families extend ComponentVMBase, while FormVM and paging helpers do not.",
+                    "In C#/Python/TypeScript/Swift, core VM families extend ComponentVMBase; Rust composes them from ComponentCore.",
                     "CompositeVM, GroupVM, AggregateVM, and HierarchicalVM stay separate container families instead of one mutable mega-type.",
                     "Forwarding decorators remain wrappers around canonical interfaces, matching chapter 09.",
                 ),
@@ -1296,7 +1303,7 @@ def class_architecture() -> Diagram:
                 (
                     "FormVM owns its command pair and persister/validation collaborators rather than inheriting from the component tree.",
                     "PagedComposition implements IPageable over a wrapped source; TokenPagedComposition owns an accumulator and next-token flow.",
-                    "ConfirmationVM extends NotificationVM because the shipped notifications package and ADR-0031 say it does.",
+                    "ConfirmationVM extends NotificationVM in OO flavors; Rust owns a NotificationVm field for the same conceptual specialization.",
                 ),
             ),
             (
@@ -1440,7 +1447,7 @@ def viewmodel_families() -> Diagram:
                 86,
                 "Flavor surface",
                 (
-                    "C# PascalCase, Python/Rust snake_case methods, TypeScript/Swift camelCase - same shape, idiomatic surface only.",
+                    "C# PascalCase, Python/Rust snake_case methods, TypeScript/Swift camelCase; Rust gaps remain ledgered.",
                 ),
                 "generic",
             ),

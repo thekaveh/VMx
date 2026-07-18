@@ -3,10 +3,11 @@
 //! Spec: `spec/07-group-vm.md`.
 
 use super::{
-    begin_parent_transfer, finish_with_first_error, lock, retain_first_error, Arc, ComponentCore,
-    ConstructionStatus, Dispatcher, LifecycleOperation, MessageHub, Mutex, NullDispatcher,
-    ObservableList, ParentHandle, ParentRegistration, ParentTransfer, PropertyChangedStream,
-    RelayCommand, VmCollection, VmNode, VmxError, VmxResult,
+    begin_membership_transaction, begin_parent_transfer, finish_with_first_error, lock,
+    retain_first_error, Arc, AtomicBool, ComponentCore, ConstructionStatus, Dispatcher, HashSet,
+    LifecycleOperation, MembershipTransactionGuard, MessageHub, Mutex, NullDispatcher,
+    ObservableList, Ordering, ParentHandle, ParentRegistration, ParentTransfer,
+    PropertyChangedStream, RelayCommand, VmCollection, VmNode, VmxError, VmxResult,
 };
 
 type ChildrenFactory<T> = Arc<dyn Fn() -> Vec<T> + Send + Sync>;
@@ -22,6 +23,9 @@ pub struct GroupVm<T: VmNode, D: Dispatcher = NullDispatcher> {
     items: ObservableList<T>,
     ownership: ParentRegistration,
     auto_construct_on_add: Arc<Mutex<bool>>,
+    dispose_requested: Arc<AtomicBool>,
+    membership_gate: Arc<Mutex<()>>,
+    membership_transaction_active: Arc<AtomicBool>,
 }
 
 impl<T: VmNode> GroupVm<T, NullDispatcher> {
@@ -36,6 +40,9 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
     pub fn with_services(name: impl Into<String>, hub: MessageHub, dispatcher: D) -> Self {
         let core = ComponentCore::new(name, hub.clone(), dispatcher);
         let items: ObservableList<T> = ObservableList::new(core.id(), hub);
+        let dispose_requested = Arc::new(AtomicBool::new(false));
+        let membership_gate = Arc::new(Mutex::new(()));
+        let membership_transaction_active = Arc::new(AtomicBool::new(false));
         let ownership = ParentRegistration::new(
             core.id(),
             {
@@ -48,7 +55,15 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             },
             {
                 let items = items.clone();
+                let detach_gate = Arc::clone(&membership_gate);
+                let detach_disposed = Arc::clone(&dispose_requested);
+                let detach_transaction = Arc::clone(&membership_transaction_active);
                 move |child_id, owner_handle| {
+                    let transaction = begin_membership_transaction(&detach_transaction)?;
+                    let _gate = lock(&detach_gate);
+                    if detach_disposed.load(Ordering::Acquire) {
+                        return Err(VmxError::Disposed);
+                    }
                     let index = items
                         .to_vec()
                         .iter()
@@ -59,12 +74,27 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
                         .ok_or(VmxError::InconsistentParent)?;
                     let commit_items = items.clone();
                     let rollback_items = items.clone();
+                    let rollback_gate = Arc::clone(&detach_gate);
+                    let rollback_disposed = Arc::clone(&detach_disposed);
+                    let commit_transaction = Arc::clone(&detach_transaction);
+                    let rollback_transaction = Arc::clone(&detach_transaction);
+                    transaction.defer();
                     Ok(ParentTransfer::new(
-                        move || commit_items.publish_remove(index),
                         move || {
-                            rollback_items
-                                .insert_silent(index, removed.clone())
-                                .expect("rollback index remains valid");
+                            let _transaction =
+                                MembershipTransactionGuard::release_on_drop(commit_transaction);
+                            commit_items.publish_remove(index);
+                        },
+                        move || {
+                            let _transaction =
+                                MembershipTransactionGuard::release_on_drop(rollback_transaction);
+                            let _gate = lock(&rollback_gate);
+                            if rollback_disposed.load(Ordering::Acquire) {
+                                removed.set_parent_handle(None);
+                                return;
+                            }
+                            let _ = rollback_items
+                                .insert_silent(index.min(rollback_items.len()), removed.clone());
                             removed.set_parent_handle(Some(owner_handle));
                         },
                     ))
@@ -76,6 +106,9 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             items,
             ownership,
             auto_construct_on_add: Arc::new(Mutex::new(false)),
+            dispose_requested,
+            membership_gate,
+            membership_transaction_active,
         }
     }
 
@@ -132,28 +165,72 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
     /// When auto-construction is active on a constructed group, construction
     /// failure rolls back both membership and the previous-parent transfer.
     pub fn add(&self, item: T) -> VmxResult<()> {
+        let _transaction = begin_membership_transaction(&self.membership_transaction_active)?;
         let transfer = begin_parent_transfer(&item, &self.ownership.handle())?;
-        item.set_parent_handle(Some(self.ownership.handle()));
-        let should_construct =
-            *lock(&self.auto_construct_on_add) && self.status() == ConstructionStatus::Constructed;
-        if should_construct {
-            if let Err(error) = item.construct() {
-                item.set_parent_handle(None);
+        let index = {
+            let _gate = lock(&self.membership_gate);
+            if self.dispose_requested.load(Ordering::Acquire)
+                || self.status() == ConstructionStatus::Disposed
+            {
                 if let Some(transfer) = transfer {
                     transfer.rollback();
                 }
-                return Err(error);
+                return Err(VmxError::Disposed);
             }
+            let index = self.len();
+            item.set_parent_handle(Some(self.ownership.handle()));
+            self.items.insert_silent(index, item.clone())?;
+            index
+        };
+        let should_construct =
+            *lock(&self.auto_construct_on_add) && self.status() == ConstructionStatus::Constructed;
+        let admission = (if should_construct {
+            item.construct()
+        } else {
+            Ok(())
+        })
+        .and_then(|()| {
+            if self.dispose_requested.load(Ordering::Acquire)
+                || self.status() == ConstructionStatus::Disposed
+            {
+                Err(VmxError::Disposed)
+            } else {
+                Ok(())
+            }
+        });
+        if let Err(error) = admission {
+            let _gate = lock(&self.membership_gate);
+            if let Some(index) = self
+                .items()
+                .iter()
+                .position(|child| child.id() == item.id())
+            {
+                let _ = self.items.remove_at_silent(index);
+            }
+            if item
+                .parent_handle()
+                .is_some_and(|parent| parent.same_owner(&self.ownership.handle()))
+            {
+                item.set_parent_handle(None);
+            }
+            if let Some(transfer) = transfer {
+                transfer.rollback();
+            }
+            return Err(error);
         }
         if let Some(transfer) = transfer {
             transfer.commit();
         }
-        self.items.push(item);
+        self.items.publish_add(index);
         Ok(())
     }
 
     fn attach_population(&self, candidates: Vec<T>, construct: bool) -> VmxResult<()> {
-        let start = self.len();
+        let _transaction = begin_membership_transaction(&self.membership_transaction_active)?;
+        let mut identities = HashSet::with_capacity(candidates.len());
+        if !candidates.iter().all(|child| identities.insert(child.id())) {
+            return Err(VmxError::DuplicateChild);
+        }
         let mut transfers = Vec::with_capacity(candidates.len());
         let mut original_statuses = Vec::with_capacity(candidates.len());
         let result = (|| {
@@ -161,8 +238,16 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
                 let transfer = begin_parent_transfer(child, &self.ownership.handle())?;
                 transfers.push(transfer);
                 original_statuses.push(child.status());
-                child.set_parent_handle(Some(self.ownership.handle()));
-                self.items.insert_silent(self.len(), child.clone())?;
+            }
+            {
+                let _gate = lock(&self.membership_gate);
+                if self.dispose_requested.load(Ordering::Acquire) {
+                    return Err(VmxError::Disposed);
+                }
+                for child in &candidates {
+                    child.set_parent_handle(Some(self.ownership.handle()));
+                    self.items.insert_silent(self.len(), child.clone())?;
+                }
             }
             // Make the entire snapshot visible before any child hook runs.
             if construct {
@@ -175,9 +260,14 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             Ok(())
         })();
         if let Err(error) = result {
-            while self.len() > start {
-                let _ = self.items.remove_at_silent(self.len() - 1);
+            let mut compensation_error = None;
+            let _gate = lock(&self.membership_gate);
+            for child in candidates.iter().rev() {
+                if let Some(index) = self.items().iter().position(|item| item.id() == child.id()) {
+                    let _ = self.items.remove_at_silent(index);
+                }
             }
+            drop(_gate);
             for (child, original_status) in candidates
                 .iter()
                 .zip(&original_statuses)
@@ -187,7 +277,9 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
                 if *original_status == ConstructionStatus::Destructed
                     && child.status() == ConstructionStatus::Constructed
                 {
-                    let _ = child.destruct();
+                    if let Err(error) = child.destruct() {
+                        compensation_error.get_or_insert(error);
+                    }
                 }
                 if child
                     .parent_handle()
@@ -199,7 +291,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             for transfer in transfers.into_iter().rev().flatten() {
                 transfer.rollback();
             }
-            return Err(error);
+            return Err(compensation_error.unwrap_or(error));
         }
 
         for transfer in transfers.into_iter().flatten() {
@@ -211,7 +303,6 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
                 .to_vec()
                 .iter()
                 .position(|candidate| candidate.id() == child.id())
-                .filter(|index| *index >= start)
             {
                 self.items.publish_add(index);
             }
@@ -221,105 +312,215 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
 
     /// Inserts a child at `index` with the same ownership rules as [`add`](Self::add).
     pub fn insert(&self, index: usize, item: T) -> VmxResult<()> {
-        if index > self.len() {
-            return Err(VmxError::InvalidArgument("index out of range".to_string()));
-        }
+        let _transaction = begin_membership_transaction(&self.membership_transaction_active)?;
         let transfer = begin_parent_transfer(&item, &self.ownership.handle())?;
-        item.set_parent_handle(Some(self.ownership.handle()));
-        let should_construct =
-            *lock(&self.auto_construct_on_add) && self.status() == ConstructionStatus::Constructed;
-        if should_construct {
-            if let Err(error) = item.construct() {
-                item.set_parent_handle(None);
+        {
+            let _gate = lock(&self.membership_gate);
+            if self.dispose_requested.load(Ordering::Acquire)
+                || self.status() == ConstructionStatus::Disposed
+            {
                 if let Some(transfer) = transfer {
                     transfer.rollback();
                 }
-                return Err(error);
+                return Err(VmxError::Disposed);
             }
-        }
-        if let Some(transfer) = transfer {
-            transfer.commit();
-        }
-        self.items.insert(index, item)
-    }
-
-    /// Removes `item` and clears this group as its parent.
-    ///
-    /// Returns [`VmxError::NonChild`] when the item is not a member.
-    pub fn remove(&self, item: &T) -> VmxResult<()> {
-        let index = self
-            .items()
-            .iter()
-            .position(|candidate| candidate.id() == item.id())
-            .ok_or(VmxError::NonChild)?;
-        let removed = self.items.remove_at(index).expect("index checked");
-        if removed
-            .parent_handle()
-            .is_some_and(|parent| parent.same_owner(&self.ownership.handle()))
-        {
-            removed.set_parent_handle(None);
-        }
-        Ok(())
-    }
-
-    /// Removes and returns the child at `index`, clearing its parent link.
-    pub fn remove_at(&self, index: usize) -> VmxResult<T> {
-        let removed = self
-            .items
-            .remove_at(index)
-            .ok_or_else(|| VmxError::InvalidArgument("index out of range".to_string()))?;
-        if removed
-            .parent_handle()
-            .is_some_and(|parent| parent.same_owner(&self.ownership.handle()))
-        {
-            removed.set_parent_handle(None);
-        }
-        Ok(removed)
-    }
-
-    /// Replaces and returns the child at `index` using atomic parent transfer.
-    pub fn replace(&self, index: usize, item: T) -> VmxResult<T> {
-        let old = self
-            .items
-            .get(index)
-            .ok_or_else(|| VmxError::InvalidArgument("index out of range".to_string()))?;
-        let transfer = begin_parent_transfer(&item, &self.ownership.handle())?;
-        item.set_parent_handle(Some(self.ownership.handle()));
-        let should_construct =
-            *lock(&self.auto_construct_on_add) && self.status() == ConstructionStatus::Constructed;
-        if should_construct {
-            if let Err(error) = item.construct() {
-                item.set_parent_handle(None);
+            if index > self.len() {
                 if let Some(transfer) = transfer {
                     transfer.rollback();
                 }
-                return Err(error);
+                return Err(VmxError::InvalidArgument("index out of range".to_string()));
             }
+            item.set_parent_handle(Some(self.ownership.handle()));
+            self.items.insert_silent(index, item.clone())?;
         }
-        if let Some(transfer) = transfer {
-            transfer.commit();
-        }
-        old.set_parent_handle(None);
-        self.items.replace(index, item)?;
-        Ok(old)
-    }
-
-    /// Moves a child between collection indices without changing ownership.
-    pub fn move_item(&self, from_index: usize, to_index: usize) -> VmxResult<()> {
-        self.items.move_item(from_index, to_index)
-    }
-
-    /// Removes all children and clears their links to this parent.
-    pub fn clear(&self) {
-        for item in self.items() {
+        let should_construct =
+            *lock(&self.auto_construct_on_add) && self.status() == ConstructionStatus::Constructed;
+        let admission = (if should_construct {
+            item.construct()
+        } else {
+            Ok(())
+        })
+        .and_then(|()| {
+            if self.dispose_requested.load(Ordering::Acquire)
+                || self.status() == ConstructionStatus::Disposed
+            {
+                Err(VmxError::Disposed)
+            } else {
+                Ok(())
+            }
+        });
+        if let Err(error) = admission {
+            let _gate = lock(&self.membership_gate);
+            if let Some(position) = self
+                .items()
+                .iter()
+                .position(|child| child.id() == item.id())
+            {
+                let _ = self.items.remove_at_silent(position);
+            }
             if item
                 .parent_handle()
                 .is_some_and(|parent| parent.same_owner(&self.ownership.handle()))
             {
                 item.set_parent_handle(None);
             }
+            if let Some(transfer) = transfer {
+                transfer.rollback();
+            }
+            return Err(error);
         }
-        self.items.clear();
+        if let Some(transfer) = transfer {
+            transfer.commit();
+        }
+        self.items.publish_add(index);
+        Ok(())
+    }
+
+    /// Removes `item` and clears this group as its parent.
+    ///
+    /// Returns [`VmxError::NonChild`] when the item is not a member.
+    pub fn remove(&self, item: &T) -> VmxResult<()> {
+        let _transaction = begin_membership_transaction(&self.membership_transaction_active)?;
+        let (index, removed) = {
+            let _gate = lock(&self.membership_gate);
+            let index = self
+                .items()
+                .iter()
+                .position(|candidate| candidate.id() == item.id())
+                .ok_or(VmxError::NonChild)?;
+            let removed = self.items.remove_at_silent(index).expect("index checked");
+            (index, removed)
+        };
+        if removed
+            .parent_handle()
+            .is_some_and(|parent| parent.same_owner(&self.ownership.handle()))
+        {
+            removed.set_parent_handle(None);
+        }
+        self.items.publish_remove(index);
+        Ok(())
+    }
+
+    /// Removes and returns the child at `index`, clearing its parent link.
+    pub fn remove_at(&self, index: usize) -> VmxResult<T> {
+        let _transaction = begin_membership_transaction(&self.membership_transaction_active)?;
+        let removed = {
+            let _gate = lock(&self.membership_gate);
+            self.items
+                .remove_at_silent(index)
+                .ok_or_else(|| VmxError::InvalidArgument("index out of range".to_string()))?
+        };
+        if removed
+            .parent_handle()
+            .is_some_and(|parent| parent.same_owner(&self.ownership.handle()))
+        {
+            removed.set_parent_handle(None);
+        }
+        self.items.publish_remove(index);
+        Ok(removed)
+    }
+
+    /// Replaces and returns the child at `index` using atomic parent transfer.
+    pub fn replace(&self, index: usize, item: T) -> VmxResult<T> {
+        let _transaction = begin_membership_transaction(&self.membership_transaction_active)?;
+        let transfer = begin_parent_transfer(&item, &self.ownership.handle())?;
+        let old = {
+            let _gate = lock(&self.membership_gate);
+            if self.dispose_requested.load(Ordering::Acquire) {
+                if let Some(transfer) = transfer {
+                    transfer.rollback();
+                }
+                return Err(VmxError::Disposed);
+            }
+            item.set_parent_handle(Some(self.ownership.handle()));
+            match self.items.replace_silent(index, item.clone()) {
+                Ok(old) => old,
+                Err(error) => {
+                    item.set_parent_handle(None);
+                    drop(_gate);
+                    if let Some(transfer) = transfer {
+                        transfer.rollback();
+                    }
+                    return Err(error);
+                }
+            }
+        };
+        let should_construct =
+            *lock(&self.auto_construct_on_add) && self.status() == ConstructionStatus::Constructed;
+        let admission = (if should_construct {
+            item.construct()
+        } else {
+            Ok(())
+        })
+        .and_then(|()| {
+            if self.dispose_requested.load(Ordering::Acquire)
+                || self.status() == ConstructionStatus::Disposed
+            {
+                Err(VmxError::Disposed)
+            } else {
+                Ok(())
+            }
+        });
+        if let Err(error) = admission {
+            let _gate = lock(&self.membership_gate);
+            if !self.dispose_requested.load(Ordering::Acquire) {
+                if let Some(attached) = self
+                    .items()
+                    .iter()
+                    .position(|candidate| candidate.id() == item.id())
+                {
+                    let _ = self.items.replace_silent(attached, old.clone());
+                    old.set_parent_handle(Some(self.ownership.handle()));
+                    item.set_parent_handle(None);
+                }
+            }
+            if let Some(transfer) = transfer {
+                transfer.rollback();
+            }
+            return Err(error);
+        }
+        if let Some(transfer) = transfer {
+            transfer.commit();
+        }
+        old.set_parent_handle(None);
+        self.items.publish_replace(index);
+        Ok(old)
+    }
+
+    /// Moves a child between collection indices without changing ownership.
+    pub fn move_item(&self, from_index: usize, to_index: usize) -> VmxResult<()> {
+        let _transaction = begin_membership_transaction(&self.membership_transaction_active)?;
+        let changed = {
+            let _gate = lock(&self.membership_gate);
+            self.items.move_item_silent(from_index, to_index)?
+        };
+        if changed {
+            self.items.publish_move(from_index, to_index);
+        }
+        Ok(())
+    }
+
+    /// Removes all children and clears their links to this parent.
+    pub fn clear(&self) {
+        let Ok(_transaction) = begin_membership_transaction(&self.membership_transaction_active)
+        else {
+            return;
+        };
+        let changed = {
+            let _gate = lock(&self.membership_gate);
+            for item in self.items() {
+                if item
+                    .parent_handle()
+                    .is_some_and(|parent| parent.same_owner(&self.ownership.handle()))
+                {
+                    item.set_parent_handle(None);
+                }
+            }
+            self.items.clear_silent()
+        };
+        if changed {
+            self.items.publish_reset();
+        }
     }
 
     /// Controls whether new children are constructed in a constructed group.
@@ -358,8 +559,19 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
 
     /// Disposes all children and the group, returning the first encountered error.
     pub fn dispose(&self) -> VmxResult<()> {
+        let snapshot = {
+            let _gate = lock(&self.membership_gate);
+            if self.dispose_requested.swap(true, Ordering::AcqRel) {
+                None
+            } else {
+                Some(self.items())
+            }
+        };
+        let Some(snapshot) = snapshot else {
+            return self.core.transition(LifecycleOperation::Dispose);
+        };
         let mut first_error = None;
-        for item in self.items() {
+        for item in snapshot {
             retain_first_error(&mut first_error, item.dispose());
         }
         retain_first_error(
@@ -630,4 +842,32 @@ pub struct GroupVmOptions<T: VmNode> {
     pub children: Option<Vec<T>>,
     /// Whether later additions auto-construct in a constructed group.
     pub auto_construct_on_add: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ComponentVm;
+
+    #[test]
+    fn population_surfaces_lifecycle_compensation_failure() {
+        let first =
+            ComponentVm::with_model("first", "first", MessageHub::new(), NullDispatcher::new());
+        first.on_destruct(|| Err(VmxError::Other("compensation failed".to_string())));
+        let failing = ComponentVm::with_model(
+            "failing",
+            "failing",
+            MessageHub::new(),
+            NullDispatcher::new(),
+        );
+        failing.on_construct(|| Err(VmxError::Other("construction failed".to_string())));
+        let group = GroupVm::new("group");
+
+        assert_eq!(
+            group.attach_population(vec![first.clone(), failing], true),
+            Err(VmxError::Other("compensation failed".to_string()))
+        );
+        assert_eq!(first.status(), ConstructionStatus::Constructed);
+        assert!(group.is_empty());
+    }
 }

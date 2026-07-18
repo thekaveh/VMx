@@ -36,11 +36,9 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        # 20 = engines floor declared in package.json (raised from 18 because
-        # vitest 4 / vite 6 require Node >= 20.0.0; the prior Node 18 cell
-        # broke after the GHSA-5xrq-8626-4rwp closure bumped both). 22 is
-        # the next active LTS line.
-        node-version: ["20", "22"]
+        # Keep the declared Node 20 compatibility floor covered even though it
+        # is EOL, and also cover every current supported even-numbered line.
+        node-version: ["20", "22", "24", "26"]
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -75,11 +73,11 @@ jobs:
       - name: Test
         # On the matrix combination that uploads coverage, run with --coverage
         # so coverage-final.json is generated for codecov. Coverage runs on
-        # Node 22 (the highest pinned node in the matrix).
-        run: ${{ (matrix.os == 'ubuntu-latest' && matrix.node-version == '22') && 'npm run coverage' || 'npm test' }}
+        # Node 26 (the highest pinned node in the matrix).
+        run: ${{ (matrix.os == 'ubuntu-latest' && matrix.node-version == '26') && 'npm run coverage' || 'npm test' }}
 
       - name: Upload coverage to Codecov
-        if: matrix.os == 'ubuntu-latest' && matrix.node-version == '22'
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == '26'
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           files: langs/typescript/coverage/coverage-final.json
@@ -92,7 +90,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node-version: ["20", "22"]
+        node-version: ["20", "22", "24", "26"]
     defaults:
       run:
         working-directory: .
@@ -124,7 +122,7 @@ jobs:
     # Installs + tests the Notes-Showcase React example (Phase 8 of the
     # notes-showcase plan). Kept as a separate job because the existing
     # `build` job pins `defaults.run.working-directory: langs/typescript` and
-    # runs a 3-OS × 2-node matrix; the example only needs a single combo to
+    # runs a 3-OS × 4-node matrix; the example only needs a single combo to
     # confirm the showcase package builds against the workspace-local `vmx`
     # (file:../../../../langs/typescript in package.json).
     name: examples (notes-showcase)
@@ -140,7 +138,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "22"
+          node-version: "24"
           cache: npm
           cache-dependency-path: |
             examples/typescript/console/hello-vmx/package-lock.json
@@ -182,10 +180,13 @@ jobs:
       - name: notes-showcase test
         run: npm test --prefix examples/typescript/react/notes-showcase
 
-      - name: notes-showcase ESLint Pure-VM check
-        # Pure-VM contract: view components must not import from
-        # `models/` / `viewmodels/` or subscribe to hub messages. The
-        # ESLint config under examples/typescript/react/notes-showcase/
-        # encodes the rules; running it as a dedicated step surfaces
-        # violations distinctly from generic test failures.
-        run: cd examples/typescript/react/notes-showcase && npm exec --no -- eslint src/views/components
+      - name: notes-showcase type-check
+        run: npm run typecheck --prefix examples/typescript/react/notes-showcase
+
+      - name: notes-showcase lint
+        # Includes the Pure-VM import and hub-subscription restrictions for
+        # view components as well as the project's complete lint surface.
+        run: npm run lint --prefix examples/typescript/react/notes-showcase
+
+      - name: notes-showcase production build
+        run: npm run build --prefix examples/typescript/react/notes-showcase

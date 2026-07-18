@@ -11,7 +11,7 @@ keeps C#, Python, TypeScript, Swift, and Rust aligned.
   </div>
   <div class="vmx-card">
     <p class="vmx-card-title"><a href="getting-started/">Quickstart</a></p>
-    <p>Build the same component-plus-composite shape across the full-parity flavors.</p>
+    <p>Build the shared component-plus-composite contract in each idiomatic flavor.</p>
   </div>
   <div class="vmx-card">
     <p class="vmx-card-title"><a href="architecture/">Architecture Map</a></p>
@@ -22,9 +22,12 @@ keeps C#, Python, TypeScript, Swift, and Rust aligned.
 ## 1.1. Why VMx
 
 - `spec/` is the source of truth for behavior, lifecycle, and conformance.
-- Every flavor keeps the same conceptual shape while following native naming conventions.
+- Every flavor implements the shared normative concepts while following native naming conventions.
 - The conformance catalog keeps 395 library IDs aligned across all five
-  full-parity source flavors, plus 5 scenario IDs for flagship examples.
+  catalog-complete source flavors, plus 5 scenario IDs for flagship examples.
+- Catalog coverage is distinct from member-level surface parity; the remaining
+  [Rust convergence backlog](../maintenance/2026-07-16-rust-capability-parity.md)
+  is explicit.
 
 ## 1.2. Start Here
 

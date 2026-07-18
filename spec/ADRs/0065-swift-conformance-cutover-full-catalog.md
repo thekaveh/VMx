@@ -1,8 +1,8 @@
-# ADR-0065 — Swift conformance cutover to full-catalog enforcement (subset manifest retired)
+# ADR 0065 — Swift conformance cutover to full-catalog enforcement (subset manifest retired)
 
-- **Status:** Accepted
-- **Date:** 2026-06-30
-- **Supersedes:** the subset-manifest enforcement mechanism introduced for the Swift flavor (referenced by ADR-0053 and ADR-0059 through ADR-0064)
+**Status:** Accepted (2026-06-30)
+**Spec version:** 3.0.0
+**Supersedes:** the subset-manifest enforcement mechanism introduced for the Swift flavor (referenced by ADR-0053 and ADR-0059 through ADR-0064)
 
 ## 1. Context
 

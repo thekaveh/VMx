@@ -278,7 +278,27 @@ public final class AsyncResourceVM<Value>: ComponentVMBase {
 
         superseded?.cancel()
         discarded.map(cleanup)
+
+        resourceLock.lock()
+        let shouldNotify = !resourceDisposed
+            && operation?.id == admitted.id
+            && operationID == admitted.id
+        resourceLock.unlock()
+        guard shouldNotify else {
+            admitted.finish()
+            return admitted
+        }
         notifyStateChanged()
+
+        resourceLock.lock()
+        let shouldStart = !resourceDisposed
+            && operation?.id == admitted.id
+            && operationID == admitted.id
+        resourceLock.unlock()
+        guard shouldStart else {
+            admitted.finish()
+            return admitted
+        }
 
         let loader = self.loader
         let cleanupLate = self.cleanupValue

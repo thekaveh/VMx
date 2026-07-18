@@ -126,10 +126,10 @@ public final class NotebooksRootVM: ComponentVMBase, NewCreatable {
         guard added, !Task.isCancelled else { return }
 
         if let notificationHub = _notificationHub {
-            _ = await notificationHub.post(VMx.Notification(
+            publishNotification(VMx.Notification(
                 type: .notification,
                 message: "Notebook added: \u{201C}\(notebookName)\u{201D}"
-            ))
+            ), to: notificationHub)
         }
     }
 

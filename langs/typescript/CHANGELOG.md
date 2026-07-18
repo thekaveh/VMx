@@ -6,8 +6,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- The React Notes Showcase now verifies React 19, Vite 8, and ESLint 10. The
+  library uses ESLint 10 while retaining TypeScript 5.9 until the current
+  `@typescript-eslint` peer range supports TypeScript 7.
+
 ### Fixed
 
+- Repository DOM tests now use jsdom 29 without the deprecated
+  `whatwg-encoding` transitive dependency; the published Node ≥20 runtime floor
+  is unchanged.
+- Composite and group disposal now closes child admission before taking the
+  cascade snapshot. Membership transactions now isolate hooks, population,
+  replacement rollback, and selection; re-entrant structure changes reject,
+  post-construction commits recheck destination disposal, and lifecycle
+  compensation failures are surfaced with the initiating error.
+- CI and published-consumer verification retain the Node 20 compatibility floor
+  while adding Node 24 LTS and Node 26 Current coverage.
 - Packed npm artifacts now include the repository's byte-identical Apache-2.0
   `LICENSE` and `NOTICE` files.
 - Token pagination now treats reentrant disposal during page comparison,

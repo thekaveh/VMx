@@ -125,8 +125,7 @@ def test_rust_reactive_facade_has_no_unused_backend_dependency_or_claim() -> Non
 def test_contract_suite_triggers_on_rust_and_release_workflow_changes() -> None:
     workflow = _workflow("conformance.yml")
 
-    assert workflow.count('- ".github/workflows/rust.yml"') == 2
-    assert workflow.count('- ".github/workflows/release.yml"') == 2
+    assert workflow.count('- ".github/workflows/**"') == 2
 
 
 def _rust_release_jobs() -> str:

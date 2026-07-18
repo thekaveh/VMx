@@ -863,21 +863,27 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
         self.publish(CollectionChangeAction::Add, None, Some(index), true);
     }
 
-    /// Replaces and returns an item without changing the count.
-    pub fn replace(&self, index: usize, item: T) -> VmxResult<T> {
-        let old = {
-            let mut inner = lock(&self.inner);
-            if index >= inner.len() {
-                return Err(VmxError::InvalidArgument("index out of range".to_string()));
-            }
-            std::mem::replace(&mut inner[index], item)
-        };
+    pub(crate) fn replace_silent(&self, index: usize, item: T) -> VmxResult<T> {
+        let mut inner = lock(&self.inner);
+        if index >= inner.len() {
+            return Err(VmxError::InvalidArgument("index out of range".to_string()));
+        }
+        Ok(std::mem::replace(&mut inner[index], item))
+    }
+
+    pub(crate) fn publish_replace(&self, index: usize) {
         self.publish(
             CollectionChangeAction::Replace,
             Some(index),
             Some(index),
             false,
         );
+    }
+
+    /// Replaces and returns an item without changing the count.
+    pub fn replace(&self, index: usize, item: T) -> VmxResult<T> {
+        let old = self.replace_silent(index, item)?;
+        self.publish_replace(index);
         Ok(old)
     }
 
@@ -905,7 +911,7 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
         );
     }
 
-    pub(crate) fn move_item(&self, from_index: usize, to_index: usize) -> VmxResult<()> {
+    pub(crate) fn move_item_silent(&self, from_index: usize, to_index: usize) -> VmxResult<bool> {
         {
             let mut inner = lock(&self.inner);
             if from_index >= inner.len() || to_index >= inner.len() {
@@ -914,31 +920,39 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
                 ));
             }
             if from_index == to_index {
-                return Ok(());
+                return Ok(false);
             }
             let item = inner.remove(from_index);
             inner.insert(to_index, item);
         }
+        Ok(true)
+    }
+
+    pub(crate) fn publish_move(&self, from_index: usize, to_index: usize) {
         self.publish(
             CollectionChangeAction::Move,
             Some(from_index),
             Some(to_index),
             false,
         );
-        Ok(())
     }
 
     /// Clears a non-empty list and publishes reset and count changes.
     pub fn clear(&self) {
-        let changed = {
-            let mut inner = lock(&self.inner);
-            let changed = !inner.is_empty();
-            inner.clear();
-            changed
-        };
-        if changed {
-            self.publish(CollectionChangeAction::Reset, None, None, true);
+        if self.clear_silent() {
+            self.publish_reset();
         }
+    }
+
+    pub(crate) fn clear_silent(&self) -> bool {
+        let mut inner = lock(&self.inner);
+        let changed = !inner.is_empty();
+        inner.clear();
+        changed
+    }
+
+    pub(crate) fn publish_reset(&self) {
+        self.publish(CollectionChangeAction::Reset, None, None, true);
     }
 
     /// Runs `action` while coalescing effective changes into one reset.

@@ -6,7 +6,8 @@ JavaScript, spec-compatible with the C#, Python, Swift, and Rust flavors.
 ## 1. Status
 
 **v3.23.0** — implements `spec-v3.22.0` end-to-end. 395/395 library
-conformance IDs pass. Requires Node ≥ 20 and rxjs ≥ 7.8. Dual ESM + CJS
+conformance IDs pass. Published runtime requires Node ≥ 20 and rxjs ≥ 7.8;
+repository tests require Node 20.19+, 22.13+, or 24+ for jsdom 29. Dual ESM + CJS
 bundles; TypeScript declarations are bundled — no `@types/vmx` needed.
 Opt-in subpaths provide `@thekaveh/vmx/notifications` and the
 test-framework-neutral `@thekaveh/vmx/conformance` adapter runner.
@@ -24,7 +25,13 @@ been published yet; use a local workspace/package reference until a
 `typescript-v*` release tag publishes it.
 
 ```bash
+# After the first npm publication
 npm install @thekaveh/vmx rxjs
+
+# Source checkout today (VMx cloned beside the consumer)
+npm --prefix ../VMx/langs/typescript ci
+npm --prefix ../VMx/langs/typescript run build
+npm install ../VMx/langs/typescript rxjs
 ```
 
 `rxjs` is declared as a **peer dependency** (≥ 7.8) so consumers share a

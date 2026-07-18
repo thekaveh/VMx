@@ -331,6 +331,72 @@ fn async_resource_dispose_cancels_and_late_completion_is_inert() {
 }
 
 #[test]
+fn reentrant_disposal_during_loading_notification_prevents_loader_start() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let loader_calls = Arc::clone(&calls);
+    let vm = AsyncResourceVm::new("resource", move |_| {
+        loader_calls.fetch_add(1, Ordering::SeqCst);
+        Ok(1)
+    });
+    let owner = Arc::new(Mutex::new(Some(vm.clone())));
+    let callback_owner = Arc::clone(&owner);
+    let _subscription = vm.property_changed().subscribe(move |name| {
+        if name == "state" {
+            callback_owner
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .dispose()
+                .unwrap();
+        }
+    });
+
+    vm.load_async().join().unwrap().unwrap();
+
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    assert!(!vm.load_command().can_execute());
+}
+
+#[test]
+fn discard_cleanup_disposal_prevents_notification_and_loader_start() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let loader_calls = Arc::clone(&calls);
+    let owner = Arc::new(Mutex::new(None::<AsyncResourceVm<i32>>));
+    let cleanup_owner = Arc::clone(&owner);
+    let vm = AsyncResourceVm::with_options(
+        "resource",
+        move |_| {
+            loader_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(1)
+        },
+        AsyncResourceRetention::DiscardPrevious,
+        Some(Arc::new(move |_| {
+            cleanup_owner
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .dispose()
+                .unwrap();
+        })),
+    );
+    *owner.lock().unwrap() = Some(vm.clone());
+    vm.load_async().join().unwrap().unwrap();
+    let changes = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::clone(&changes);
+    let _subscription = vm.property_changed().subscribe(move |_| {
+        observed.fetch_add(1, Ordering::SeqCst);
+    });
+
+    vm.reload_async().join().unwrap().unwrap();
+
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(changes.load(Ordering::SeqCst), 0);
+    assert!(!vm.load_command().can_execute());
+}
+
+#[test]
 fn dropping_async_resource_releases_command_captures() {
     let marker = Arc::new(());
     let released = Arc::downgrade(&marker);

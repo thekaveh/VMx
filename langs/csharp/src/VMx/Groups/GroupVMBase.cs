@@ -32,13 +32,19 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
     // ── Batch-update state (spec v1.1) ────────────────────────────────────────
     private int _batchDepth;
     private bool _batchDirty;
+    private int _disposeRequested;
+    private bool _membershipTransactionActive;
+    private readonly object _membershipGate = new();
 
     // ── INotifyCollectionChanged ──────────────────────────────────────────────
     /// <inheritdoc/>
     public event NotifyCollectionChangedEventHandler? CollectionChanged;
 
     /// <inheritdoc/>
-    public IReadOnlyList<VM> Snapshot() => _children.ToArray();
+    public IReadOnlyList<VM> Snapshot()
+    {
+        lock (_membershipGate) return _children.ToArray();
+    }
 
     /// <inheritdoc/>
     public IDisposable SubscribeMembership(Action callback)
@@ -81,29 +87,60 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
     void IParentCompositeVM.SelectChild(IComponentVM vm) { /* no-op: GroupVM has no selection */ }
     void IParentCompositeVM.DeselectChild(IComponentVM vm) { /* no-op: GroupVM has no selection */ }
     bool IParentCompositeVM.ContainsChild(IComponentVM vm)
-        => _children.Any(child => ReferenceEquals(child, vm));
+    {
+        lock (_membershipGate)
+            return _children.Any(child => ReferenceEquals(child, vm));
+    }
 
     ParentTransferToken IParentCompositeVM.DetachForTransfer(IComponentVM vm)
     {
-        var index = _children.FindIndex(child => ReferenceEquals(child, vm));
-        if (index < 0 || vm is not VM child)
-            throw new InvalidOperationException("The recorded parent does not contain the child identity.");
-
-        _children.RemoveAt(index);
+        int index;
+        VM child;
+        lock (_membershipGate)
+        {
+            BeginMembershipTransactionLocked();
+            index = _children.FindIndex(candidate => ReferenceEquals(candidate, vm));
+            if (index < 0 || vm is not VM typed)
+            {
+                _membershipTransactionActive = false;
+                throw new InvalidOperationException("The recorded parent does not contain the child identity.");
+            }
+            child = typed;
+            _children.RemoveAt(index);
+        }
         return new ParentTransferToken(
-            commit: () => RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
-                NotifyCollectionChangedAction.Remove, child, index)),
+            commit: () =>
+            {
+                try
+                {
+                    RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+                        NotifyCollectionChangedAction.Remove, child, index));
+                }
+                finally { EndMembershipTransaction(); }
+            },
             rollback: () =>
             {
-                _children.Insert(index, child);
-                child.SetParent(this);
+                try
+                {
+                    lock (_membershipGate)
+                    {
+                        if (_disposeRequested != 0)
+                        {
+                            child.SetParent(null);
+                            return;
+                        }
+                        _children.Insert(Math.Min(index, _children.Count), child);
+                        child.SetParent(this);
+                    }
+                }
+                finally { EndMembershipTransaction(); }
             });
     }
 
     // ── IList<VM>: count / indexer ────────────────────────────────────────────
 
     /// <inheritdoc/>
-    public int Count => _children.Count;
+    public int Count { get { lock (_membershipGate) return _children.Count; } }
 
     /// <inheritdoc/>
     public bool IsReadOnly => false;
@@ -111,32 +148,52 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
     /// <inheritdoc/>
     public VM this[int index]
     {
-        get => _children[index];
+        get { lock (_membershipGate) return _children[index]; }
         set
         {
-            var old = _children[index];
-            var transfer = ComponentOwnership.BeginTransfer(value, this);
-            _children[index] = value;
-            old.SetParent(null);
-            value.SetParent(this);
+            BeginMembershipTransaction();
+            ParentTransferToken? transfer = null;
+            VM? old = null;
             try
             {
+                transfer = ComponentOwnership.BeginTransfer(value, this);
+                lock (_membershipGate)
+                {
+                    EnsureTransactionCanContinueLocked();
+                    old = _children[index];
+                    _children[index] = value;
+                    old.SetParent(null);
+                    value.SetParent(this);
+                }
                 MaybeAutoConstruct(value);
+                lock (_membershipGate) EnsureTransactionCanContinueLocked();
             }
             catch
             {
-                _children[index] = old;
-                old.SetParent(this);
-                value.SetParent(null);
-                transfer?.Rollback();
+                lock (_membershipGate)
+                {
+                    if (old is not null && _children.Any(child => ReferenceEquals(child, value)))
+                    {
+                        var actualIndex = _children.FindIndex(
+                            child => ReferenceEquals(child, value));
+                        _children[actualIndex] = old;
+                        old.SetParent(this);
+                        value.SetParent(null);
+                    }
+                }
+                try { transfer?.Rollback(); }
+                finally { EndMembershipTransaction(); }
                 throw;
             }
-
-            transfer?.Commit();
-            RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
-                NotifyCollectionChangedAction.Remove, old, index));
-            RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
-                NotifyCollectionChangedAction.Add, value, index));
+            try
+            {
+                transfer?.Commit();
+                RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+                    NotifyCollectionChangedAction.Remove, old, index));
+                RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+                    NotifyCollectionChangedAction.Add, value, index));
+            }
+            finally { EndMembershipTransaction(); }
         }
     }
 
@@ -145,71 +202,128 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
     /// <inheritdoc/>
     public void Add(VM item)
     {
-        var transfer = ComponentOwnership.BeginTransfer(item, this);
-        _children.Add(item);
-        item.SetParent(this);
+        BeginMembershipTransaction();
+        ParentTransferToken? transfer = null;
+        var attached = false;
+        int idx;
         try
         {
+            transfer = ComponentOwnership.BeginTransfer(item, this);
+            lock (_membershipGate)
+            {
+                EnsureTransactionCanContinueLocked();
+                _children.Add(item);
+                item.SetParent(this);
+                idx = _children.Count - 1;
+                attached = true;
+            }
             MaybeAutoConstruct(item);
+            lock (_membershipGate) EnsureTransactionCanContinueLocked();
         }
         catch
         {
-            _children.RemoveAt(_children.Count - 1);
-            item.SetParent(null);
-            transfer?.Rollback();
+            lock (_membershipGate)
+            {
+                var attachedIndex = attached
+                    ? _children.FindIndex(child => ReferenceEquals(child, item))
+                    : -1;
+                if (attachedIndex >= 0)
+                {
+                    _children.RemoveAt(attachedIndex);
+                    item.SetParent(null);
+                }
+            }
+            try { transfer?.Rollback(); }
+            finally { EndMembershipTransaction(); }
             throw;
         }
-
-        transfer?.Commit();
-        var idx = _children.Count - 1;
-        RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
-            NotifyCollectionChangedAction.Add, item, idx));
+        try
+        {
+            transfer?.Commit();
+            RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+                NotifyCollectionChangedAction.Add, item, idx));
+        }
+        finally { EndMembershipTransaction(); }
     }
 
     /// <inheritdoc/>
     public bool Remove(VM item)
     {
-        var idx = IndexOfIdentity(item);
-        if (idx < 0) return false;
-        RemoveAt(idx);
+        VM removed;
+        int idx;
+        lock (_membershipGate)
+        {
+            EnsureChildAdmission();
+            idx = _children.FindIndex(candidate => ReferenceEquals(candidate, item));
+            if (idx < 0) return false;
+            removed = RemoveAtLocked(idx);
+        }
+        RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+            NotifyCollectionChangedAction.Remove, removed, idx));
         return true;
     }
 
     /// <inheritdoc/>
     public void Insert(int index, VM item)
     {
-        if (index < 0 || index > _children.Count)
-            throw new ArgumentOutOfRangeException(nameof(index));
-        var transfer = ComponentOwnership.BeginTransfer(item, this);
-        _children.Insert(index, item);
-        item.SetParent(this);
+        BeginMembershipTransaction();
+        ParentTransferToken? transfer = null;
+        var attached = false;
         try
         {
+            transfer = ComponentOwnership.BeginTransfer(item, this);
+            lock (_membershipGate)
+            {
+                EnsureTransactionCanContinueLocked();
+                if (index < 0 || index > _children.Count)
+                    throw new ArgumentOutOfRangeException(nameof(index));
+                _children.Insert(index, item);
+                item.SetParent(this);
+                attached = true;
+            }
             MaybeAutoConstruct(item);
+            lock (_membershipGate) EnsureTransactionCanContinueLocked();
         }
         catch
         {
-            _children.RemoveAt(index);
-            item.SetParent(null);
-            transfer?.Rollback();
+            lock (_membershipGate)
+            {
+                var attachedIndex = attached
+                    ? _children.FindIndex(child => ReferenceEquals(child, item))
+                    : -1;
+                if (attachedIndex >= 0)
+                {
+                    _children.RemoveAt(attachedIndex);
+                    item.SetParent(null);
+                }
+            }
+            try { transfer?.Rollback(); }
+            finally { EndMembershipTransaction(); }
             throw;
         }
-
-        transfer?.Commit();
-        RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
-            NotifyCollectionChangedAction.Add, item, index));
+        try
+        {
+            transfer?.Commit();
+            RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+                NotifyCollectionChangedAction.Add, item, index));
+        }
+        finally { EndMembershipTransaction(); }
     }
 
     /// <inheritdoc/>
     public void Move(int fromIndex, int toIndex)
     {
-        ValidateMoveIndex(fromIndex, nameof(fromIndex));
-        ValidateMoveIndex(toIndex, nameof(toIndex));
-        if (fromIndex == toIndex) return;
-
-        var item = _children[fromIndex];
-        _children.RemoveAt(fromIndex);
-        _children.Insert(toIndex, item);
+        VM item;
+        lock (_membershipGate)
+        {
+            EnsureChildAdmission();
+            ValidateMoveIndex(fromIndex, nameof(fromIndex));
+            ValidateMoveIndex(toIndex, nameof(toIndex));
+            if (fromIndex == toIndex) return;
+            item = _children[fromIndex];
+            _children.RemoveAt(fromIndex);
+            _children.Insert(toIndex, item);
+        }
         RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
             NotifyCollectionChangedAction.Move, item, toIndex, fromIndex));
     }
@@ -217,10 +331,12 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
     /// <inheritdoc/>
     public void RemoveAt(int index)
     {
-        var item = _children[index];
-        _children.RemoveAt(index);
-        if (ReferenceEquals(item.GetParent(), this))
-            item.SetParent(null);
+        VM item;
+        lock (_membershipGate)
+        {
+            EnsureChildAdmission();
+            item = RemoveAtLocked(index);
+        }
         RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
             NotifyCollectionChangedAction.Remove, item, index));
     }
@@ -228,10 +344,14 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
     /// <inheritdoc/>
     public void Clear()
     {
-        foreach (var child in _children)
-            if (ReferenceEquals(child.GetParent(), this))
-                child.SetParent(null);
-        _children.Clear();
+        lock (_membershipGate)
+        {
+            EnsureChildAdmission();
+            foreach (var child in _children)
+                if (ReferenceEquals(child.GetParent(), this))
+                    child.SetParent(null);
+            _children.Clear();
+        }
         RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
             NotifyCollectionChangedAction.Reset));
     }
@@ -312,16 +432,22 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
     public int IndexOf(VM item) => IndexOfIdentity(item);
 
     /// <inheritdoc/>
-    public void CopyTo(VM[] array, int arrayIndex) => _children.CopyTo(array, arrayIndex);
+    public void CopyTo(VM[] array, int arrayIndex)
+    {
+        lock (_membershipGate) _children.CopyTo(array, arrayIndex);
+    }
 
     /// <inheritdoc/>
-    public IEnumerator<VM> GetEnumerator() => _children.GetEnumerator();
+    public IEnumerator<VM> GetEnumerator() => Snapshot().GetEnumerator();
 
     /// <inheritdoc/>
-    IEnumerator IEnumerable.GetEnumerator() => _children.GetEnumerator();
+    IEnumerator IEnumerable.GetEnumerator() => Snapshot().GetEnumerator();
 
-    private int IndexOfIdentity(VM item) =>
-        _children.FindIndex(candidate => ReferenceEquals(candidate, item));
+    private int IndexOfIdentity(VM item)
+    {
+        lock (_membershipGate)
+            return _children.FindIndex(candidate => ReferenceEquals(candidate, item));
+    }
 
     // ── Lifecycle overrides ───────────────────────────────────────────────────
 
@@ -334,7 +460,7 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
         base.OnConstruct(); // invoke user's onConstruct callback if any
         PopulateChildren();
         CompleteLifecycleHookAfter(TransitionChildrenAsync(
-            _children.ToArray(),
+            Snapshot().ToArray(),
             construct: true));
     }
 
@@ -349,7 +475,11 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
     protected void AttachPopulation(IEnumerable<VM> children)
     {
         var candidates = children.ToArray();
-        var start = _children.Count;
+        if (candidates.Where((candidate, index) =>
+                candidates.Take(index).Any(previous => ReferenceEquals(previous, candidate))).Any())
+            throw new InvalidOperationException(
+                "Factory population contains a duplicate child identity.");
+        BeginMembershipTransaction();
         var transfers = new List<ParentTransferToken?>();
         var originalStatuses = new List<ConstructionStatus>();
         try
@@ -359,13 +489,18 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
                 var transfer = ComponentOwnership.BeginTransfer(child, this);
                 transfers.Add(transfer);
                 originalStatuses.Add(child.Status);
-                _children.Add(child);
-                child.SetParent(this);
+            }
+            lock (_membershipGate)
+            {
+                EnsureTransactionCanContinueLocked();
+                foreach (var child in candidates)
+                {
+                    _children.Add(child);
+                    child.SetParent(this);
+                }
+
             }
 
-            // Populate the complete snapshot before invoking any child hook.
-            // Hooks may inspect or mutate later siblings, and background
-            // children must have only one lifecycle transition in flight.
             foreach (var child in candidates)
             {
                 if (Status == ConstructionStatus.Constructing)
@@ -374,34 +509,55 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
                     MaybeAutoConstruct(child);
             }
         }
-        catch
+        catch (Exception originalError)
         {
-            while (_children.Count > start)
+            var rollbackFailures = new List<Exception>();
+            for (var candidateIndex = candidates.Length - 1; candidateIndex >= 0; candidateIndex--)
             {
-                var child = _children[_children.Count - 1];
-                _children.RemoveAt(_children.Count - 1);
-                var originalStatus = originalStatuses[_children.Count - start];
+                var child = candidates[candidateIndex];
+                lock (_membershipGate)
+                {
+                    var attached = _children.FindIndex(item => ReferenceEquals(item, child));
+                    if (attached >= 0) _children.RemoveAt(attached);
+                }
+                if (candidateIndex >= originalStatuses.Count) continue;
+                var originalStatus = originalStatuses[candidateIndex];
                 if (originalStatus == ConstructionStatus.Destructed &&
                     child.Status == ConstructionStatus.Constructed)
                 {
                     try { child.DestructAsync().GetAwaiter().GetResult(); }
-                    catch { /* Preserve the original population failure. */ }
+                    catch (Exception error) { rollbackFailures.Add(error); }
                 }
                 if (ReferenceEquals(child.GetParent(), this)) child.SetParent(null);
             }
-            for (var index = transfers.Count - 1; index >= 0; index--)
-                transfers[index]?.Rollback();
+            try
+            {
+                for (var index = transfers.Count - 1; index >= 0; index--)
+                {
+                    try { transfers[index]?.Rollback(); }
+                    catch (Exception error) { rollbackFailures.Add(error); }
+                }
+            }
+            finally { EndMembershipTransaction(); }
+            if (rollbackFailures.Count > 0)
+                throw new AggregateException(
+                    "Group population failed and rollback could not restore lifecycle state.",
+                    new[] { originalError }.Concat(rollbackFailures));
             throw;
         }
-
-        foreach (var transfer in transfers) transfer?.Commit();
-        foreach (var child in candidates)
+        try
         {
-            var index = _children.FindIndex(candidate => ReferenceEquals(candidate, child));
-            if (index >= start)
-                RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
-                    NotifyCollectionChangedAction.Add, child, index));
+            foreach (var transfer in transfers) transfer?.Commit();
+            foreach (var child in candidates)
+            {
+                var index = Snapshot().ToList().FindIndex(
+                    candidate => ReferenceEquals(candidate, child));
+                if (index >= 0)
+                    RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+                        NotifyCollectionChangedAction.Add, child, index));
+            }
         }
+        finally { EndMembershipTransaction(); }
     }
 
     /// <summary>
@@ -410,7 +566,7 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
     protected override void OnDestruct()
     {
         CompleteLifecycleHookAfter(TransitionChildrenAsync(
-            _children.ToArray(),
+            Snapshot().ToArray(),
             construct: false,
             after: () => base.OnDestruct()));
     }
@@ -420,10 +576,17 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
     /// </summary>
     public override void Dispose()
     {
+        VM[] snapshot;
+        lock (_membershipGate)
+        {
+            if (_disposeRequested != 0) return;
+            _disposeRequested = 1;
+            snapshot = _children.ToArray();
+        }
         // Depth-first: dispose each child before self. Snapshot with ToArray so a
         // child whose Dispose() reentrantly removes a sibling cannot invalidate the
         // enumerator (parity with OnConstruct/OnDestruct and CompositeVMBase.Dispose).
-        var firstError = DisposeChildren(_children.ToArray());
+        var firstError = DisposeChildren(snapshot);
         try
         {
             base.Dispose();
@@ -439,4 +602,45 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
 
     /// <inheritdoc/>
     public override ViewModelType Type => ViewModelType.Group;
+
+    private void EnsureChildAdmission()
+    {
+        if (Volatile.Read(ref _disposeRequested) != 0)
+            throw new ObjectDisposedException(GetType().Name,
+                "Cannot attach a child while the container is disposing.");
+        if (_membershipTransactionActive)
+            throw new InvalidOperationException(
+                "A container membership transaction is already in progress.");
+    }
+
+    private void BeginMembershipTransactionLocked()
+    {
+        EnsureChildAdmission();
+        _membershipTransactionActive = true;
+    }
+
+    private void BeginMembershipTransaction()
+    {
+        lock (_membershipGate) BeginMembershipTransactionLocked();
+    }
+
+    private void EnsureTransactionCanContinueLocked()
+    {
+        if (_disposeRequested != 0)
+            throw new ObjectDisposedException(GetType().Name,
+                "Cannot attach a child while the container is disposing.");
+    }
+
+    private void EndMembershipTransaction()
+    {
+        lock (_membershipGate) _membershipTransactionActive = false;
+    }
+
+    private VM RemoveAtLocked(int index)
+    {
+        var item = _children[index];
+        _children.RemoveAt(index);
+        if (ReferenceEquals(item.GetParent(), this)) item.SetParent(null);
+        return item;
+    }
 }

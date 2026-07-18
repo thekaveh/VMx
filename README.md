@@ -17,7 +17,9 @@ A hierarchical, lifecycle-aware MVVM viewmodel framework — one language-neutra
 specification with five idiomatic source flavors (C# / Python / TypeScript /
 Swift / Rust). All five source flavors cover the 395 library conformance IDs;
 the flagship example apps cover 5 additional THEME scenario IDs for **400
-total** tracked scenarios.
+total** tracked scenarios. Catalog coverage is not a claim of member-for-member
+surface parity: the remaining Rust convergence backlog is tracked in
+[`docs/maintenance/2026-07-16-rust-capability-parity.md`](docs/maintenance/2026-07-16-rust-capability-parity.md).
 
 ## 0. Contents
 
@@ -79,9 +81,10 @@ makes no assumption about the UI layer. Every flavor exposes:
   `NullDispatcher`, `NullNotificationHub`, `NullLocalizer`,
   `NullDialogService`), and an `ILocalizer` hook for i18n.
 
-The shape is identical across flavors; only the surface idiom changes
-(PascalCase in C#, snake_case in Python and Rust, camelCase in TypeScript and Swift —
-codified in ADR-0006).
+The normative conceptual shape is shared across flavors; public source surfaces
+still have the explicitly tracked Rust convergence gaps above. Naming follows
+the local idiom (PascalCase in C#, snake_case in Python and Rust, camelCase in
+TypeScript and Swift — codified in ADR-0006).
 
 ## 2. Architecture
 
@@ -89,8 +92,8 @@ codified in ADR-0006).
 
 ![VMx architecture diagram](assets/architecture.svg)
 
-The diagram source is at [`assets/architecture.svg`](assets/architecture.svg);
-a browsable HTML version with summary cards is at
+The rendered SVG is at [`assets/architecture.svg`](assets/architecture.svg). A
+browsable HTML version with summary cards is at
 [`assets/architecture.html`](assets/architecture.html), and a high-resolution
 PNG export is at [`assets/architecture.png`](assets/architecture.png).
 
@@ -100,8 +103,8 @@ A cluster-level class map of the entire library — what every class family is, 
 
 ![VMx class diagram](assets/class-diagram.svg)
 
-The diagram source is at [`assets/class-diagram.svg`](assets/class-diagram.svg);
-a browsable HTML version with summary cards is at
+The rendered SVG is at [`assets/class-diagram.svg`](assets/class-diagram.svg). A
+browsable HTML version with summary cards is at
 [`assets/class-diagram.html`](assets/class-diagram.html), and a high-resolution
 PNG export is at [`assets/class-diagram.png`](assets/class-diagram.png). Five bands:
 
@@ -117,7 +120,7 @@ Boxes are cluster-level (one box per related set of classes); the exhaustive mem
 
 Each flavor implements the same conceptual stack:
 
-- **Spec** — `spec/` is the source of truth: 24 markdown chapters, 115 ADRs,
+- **Spec** — `spec/` is the source of truth: 24 markdown chapters, 120 ADRs,
   4 JSON fixtures, 400 conformance IDs, version pinned in `spec/VERSION`.
 - **Application code** — your host app instantiates VMs through builders.
 - **Forwarding decorators** *(optional)* — `ForwardingComponentVM` and
@@ -144,13 +147,13 @@ Each flavor implements the same conceptual stack:
 
 ### 3.1 Versions and packages
 
-| Flavor     | Source status           | Public package status                                          | Reactive primitive     |
-| ---------- | ----------------------- | -------------------------------------------------------------- | ---------------------- |
-| C#         | v3.22.0 in source       | NuGet package not published yet                                | System.Reactive        |
-| Python     | v3.22.0 in source       | [`vmx`](https://pypi.org/project/vmx/) latest published: 3.1.0 | reactivex              |
-| TypeScript | v3.23.0 in source       | npm package not published yet                                  | rxjs                   |
-| Swift      | v3.22.0 in source       | [`VMx` 3.20.0](https://github.com/thekaveh/VMx/releases/tag/swift-v3.20.0) via SwiftPM | Combine                |
-| Rust       | v0.25.0 in source       | crates.io package not published yet                            | VMx-owned hot-stream facade |
+| Flavor     | Source status     | Public package status                                                                  | Reactive primitive          |
+| ---------- | ----------------- | -------------------------------------------------------------------------------------- | --------------------------- |
+| C#         | v3.22.0 in source | NuGet package not published yet                                                        | System.Reactive             |
+| Python     | v3.22.0 in source | [`vmx`](https://pypi.org/project/vmx/) latest published: 3.1.0                         | reactivex                   |
+| TypeScript | v3.23.0 in source | npm package not published yet                                                          | rxjs                        |
+| Swift      | v3.22.0 in source | [`VMx` 3.20.0](https://github.com/thekaveh/VMx/releases/tag/swift-v3.20.0) via SwiftPM | Combine                     |
+| Rust       | v0.25.0 in source | crates.io package not published yet                                                    | VMx-owned hot-stream facade |
 
 `main` may contain an in-development source version before that version is
 published to package registries. The §3.2 summary preserves source-line parity
@@ -166,14 +169,14 @@ scenarios. Swift covers those UI scenarios through
 [`langs/swift/README.md`](langs/swift/README.md) §5 for the Swift ID matrix.
 The C# flavor multi-targets `netstandard2.0` and
 `net8.0` and ships two companion assemblies:
-[`VMx.Extensions.DependencyInjection`](https://www.nuget.org/packages/VMx.Extensions.DependencyInjection/)
-(`services.AddVMx(...)`) and
-[`VMx.Notifications`](https://www.nuget.org/packages/VMx.Notifications/) (opt-in
-`INotificationHub`). The Python flavor supports Python 3.10 through 3.13,
+`VMx.Extensions.DependencyInjection` (`services.AddVMx(...)`) and
+`VMx.Notifications` (opt-in `INotificationHub`). Their NuGet pages will become
+available with their first publication. The Python flavor supports Python 3.10 through 3.14,
 is `mypy --strict` clean, and exposes `vmx.notifications` as an opt-in
 subpackage. The TypeScript flavor (npm package `@thekaveh/vmx` — renamed
-in v2.4.0 because the unscoped `vmx` name was unavailable) targets Node
-≥20, emits dual ESM + CJS bundles, and exposes notifications plus an isolated
+in v2.4.0 because the unscoped `vmx` name was unavailable) retains a Node 20
+compatibility floor and tests Node 20, 22, 24, and 26. It emits dual ESM + CJS
+bundles and exposes notifications plus an isolated
 consumer-conformance tooling subpath. The Rust flavor lives under
 `langs/rust/` as the
 `vmx-rs` crate with the `vmx` import namespace; it has full library conformance
@@ -185,27 +188,27 @@ This summary preserves source-line history; a historical row does not by itself
 claim that packages or tags were published. See the canonical compatibility
 ledger linked above for release status and the current in-development line.
 
-| spec  | csharp | python | typescript | swift          | rust          |
-| ----- | ------ | ------ | ---------- | -------------- | ------------- |
-| 3.22.x | 3.22.0 | 3.22.0 | 3.23.0 | 3.22.0 | 0.25.0 |
-| 3.20.x | 3.20.0–3.20.1 | 3.20.0–3.20.1 | 3.20.0–3.21.1 | 3.20.0–3.20.1 | 0.20.0–0.22.0 |
-| 3.19.x | 3.19.0 | 3.19.0 | 3.19.0     | 3.19.0         | 0.19.0        |
-| 3.18.x | 3.18.0 | 3.18.0 | 3.18.0     | 3.18.0         | 0.18.0        |
-| 3.17.x | 3.17.0 | 3.17.0 | 3.17.0     | 3.17.0         | 0.17.0        |
-| 3.16.x | 3.16.0 | 3.16.0 | 3.16.0     | 3.16.0         | 0.16.0        |
-| 3.15.x | 3.15.0 | 3.15.0 | 3.15.0     | 3.15.0         | 0.15.0        |
-| 3.14.x | 3.14.0 | 3.14.0 | 3.14.0     | 3.14.0         | 0.14.0        |
-| 3.13.x | 3.13.0 | 3.13.0 | 3.13.0     | 3.13.0         | 0.13.0        |
-| 3.3.x | 3.3.0  | 3.3.0  | 3.3.0      | 3.3.0          | 0.3.0         |
-| 3.2.x | 3.2.0  | 3.2.0  | 3.2.0      | 3.2.0          | 0.2.0         |
-| 3.1.x | 3.1.0  | 3.1.0  | 3.1.0      | 3.1.0          | 0.1.0         |
-| 2.6.x | 2.6.0  | 2.6.1  | 2.6.0      | 2.6.0 (subset) | —             |
-| 2.4.x | 2.4.0  | 2.4.0  | 2.4.0      | 2.4.0 (subset) | —             |
-| 2.3.x | 2.3.0  | 2.3.0  | 2.3.0      | —              | —             |
-| 2.2.x | 2.2.0  | 2.2.0  | 2.2.0      | —              | —             |
-| 2.1.x | 2.1.0  | 2.1.0  | 2.1.0      | —              | —             |
-| 2.0.x | 2.0.0  | 2.0.0  | 2.0.0      | —              | —             |
-| 1.0.x | 1.0.0  | 1.0.0  | —          | —              | —             |
+| spec   | csharp        | python        | typescript    | swift          | rust          |
+| ------ | ------------- | ------------- | ------------- | -------------- | ------------- |
+| 3.22.x | 3.22.0        | 3.22.0        | 3.23.0        | 3.22.0         | 0.25.0        |
+| 3.20.x | 3.20.0–3.20.1 | 3.20.0–3.20.1 | 3.20.0–3.21.1 | 3.20.0–3.20.1  | 0.20.0–0.22.0 |
+| 3.19.x | 3.19.0        | 3.19.0        | 3.19.0        | 3.19.0         | 0.19.0        |
+| 3.18.x | 3.18.0        | 3.18.0        | 3.18.0        | 3.18.0         | 0.18.0        |
+| 3.17.x | 3.17.0        | 3.17.0        | 3.17.0        | 3.17.0         | 0.17.0        |
+| 3.16.x | 3.16.0        | 3.16.0        | 3.16.0        | 3.16.0         | 0.16.0        |
+| 3.15.x | 3.15.0        | 3.15.0        | 3.15.0        | 3.15.0         | 0.15.0        |
+| 3.14.x | 3.14.0        | 3.14.0        | 3.14.0        | 3.14.0         | 0.14.0        |
+| 3.13.x | 3.13.0        | 3.13.0        | 3.13.0        | 3.13.0         | 0.13.0        |
+| 3.3.x  | 3.3.0         | 3.3.0         | 3.3.0         | 3.3.0          | 0.3.0         |
+| 3.2.x  | 3.2.0         | 3.2.0         | 3.2.0         | 3.2.0          | 0.2.0         |
+| 3.1.x  | 3.1.0         | 3.1.0         | 3.1.0         | 3.1.0          | 0.1.0         |
+| 2.6.x  | 2.6.0         | 2.6.1         | 2.6.0         | 2.6.0 (subset) | —             |
+| 2.4.x  | 2.4.0         | 2.4.0         | 2.4.0         | 2.4.0 (subset) | —             |
+| 2.3.x  | 2.3.0         | 2.3.0         | 2.3.0         | —              | —             |
+| 2.2.x  | 2.2.0         | 2.2.0         | 2.2.0         | —              | —             |
+| 2.1.x  | 2.1.0         | 2.1.0         | 2.1.0         | —              | —             |
+| 2.0.x  | 2.0.0         | 2.0.0         | 2.0.0         | —              | —             |
+| 1.0.x  | 1.0.0         | 1.0.0         | —             | —              | —             |
 
 See [`compatibility-matrix.md`](compatibility-matrix.md) for the full table.
 Every published package declares its `MinSpecVersion` /
@@ -218,6 +221,8 @@ Every published package declares its `MinSpecVersion` /
 ```bash
 # C# (after the NuGet package is published)
 dotnet add package VMx
+# Source checkout today
+dotnet add MyApp.csproj reference ../VMx/langs/csharp/src/VMx/VMx.csproj
 
 # Python (latest public package may lag this source tree)
 pip install vmx
@@ -226,6 +231,8 @@ uv add vmx
 
 # TypeScript (after the npm package is published)
 npm install @thekaveh/vmx rxjs
+# Source checkout today (after building langs/typescript)
+npm install ../VMx/langs/typescript rxjs
 
 # Rust (source-tree path dependency today)
 cargo add vmx-rs --path langs/rust
@@ -250,8 +257,8 @@ cargo add vmx-rs --path langs/rust
 
 ### 4.3 Examples
 
-Four GUI-backed **flagship Notes Workspace** apps, plus a Rust-native Ratatui
-showcase, exercise the VMx API in their host ecosystems. The four GUI-backed
+Four UI-backed **flagship Notes Workspace** apps, plus a Rust-native Ratatui
+showcase, exercise the VMx API in their host ecosystems. The four UI-backed
 apps implement the shared scenario matrix and **19 distinct VMx features**
 (notebooks tree,
 paged + filterable notes list, strict `FormVM` editor with validation,
@@ -266,6 +273,8 @@ for the canonical scenario contract. The VM hierarchy is diagrammed at
 [`examples/assets/notes-showcase-vm-hierarchy.svg`](examples/assets/notes-showcase-vm-hierarchy.svg);
 the companion VMx component map is at
 [`examples/assets/notes-showcase-vmx-components.svg`](examples/assets/notes-showcase-vmx-components.svg).
+The scenario is deliberately an en-US reference host; translated application
+catalogs are consumer-owned and are not a parity-matrix row.
 
 - [`examples/csharp/avalonia/NotesShowcase/`](examples/csharp/avalonia/NotesShowcase/)
   — Notes Workspace flagship on Avalonia 11 + .NET 8 (cross-platform XAML).
@@ -283,7 +292,7 @@ the companion VMx component map is at
   — Rust-native Ratatui showcase with a pure VMx MVVM layer. Smoke-run via
   `cargo run --locked --manifest-path examples/rust/tui/notes-showcase/Cargo.toml -- --smoke`.
   Its five VM-layer tests cover the Rust-native showcase contract; the
-  `THEME-001..005` GUI scenario matrix remains scoped to the four flagships.
+  `THEME-001..005` UI scenario matrix remains scoped to the four flagships.
   The VM-layer diagram is
   [`docs/assets/diagrams/rust-tui-notes-showcase.svg`](docs/assets/diagrams/rust-tui-notes-showcase.svg).
 
@@ -309,7 +318,7 @@ Smaller per-flavor demos:
 .
 ├── spec/                  language-neutral specification (source of truth)
 │   ├── 00-overview.md ... 23-async-resource-vm.md  (24 chapters)
-│   ├── ADRs/              architecture decision records (0001..0115)
+│   ├── ADRs/              architecture decision records (0001..0120)
 │   ├── fixtures/          JSON test inputs shared across flavors
 │   ├── schemas/           versioned supporting machine contracts
 │   ├── proposals/         mostly historical; scenario contracts may be normative
@@ -342,7 +351,7 @@ This README is the entry point; the documents below add focused detail.
   community guidelines.
 - [`compatibility-matrix.md`](compatibility-matrix.md) — spec ↔ flavor
   version pairing.
-- [`spec/README.md`](spec/README.md) — index of the 24 chapters, 115 ADRs,
+- [`spec/README.md`](spec/README.md) — index of the 24 chapters, 120 ADRs,
   4 fixtures, and the 400-ID conformance catalog.
 - [`spec/ADRs/README.md`](spec/ADRs/README.md) — ADR catalogue index.
 - [`docs/content/primitives/disposal-contract.md`](docs/content/primitives/disposal-contract.md)
@@ -373,8 +382,9 @@ This README is the entry point; the documents below add focused detail.
   [`langs/swift/RELEASING.md`](langs/swift/RELEASING.md) — SwiftPM tag +
   GitHub Release flow, and
   [`langs/rust/RELEASING.md`](langs/rust/RELEASING.md) — crates.io trusted
-  publishing and public-consumer verification. release-please currently automates Python routine
-  version bumps + CHANGELOG entries via Conventional Commits.
+  publishing and public-consumer verification. Release-please automates Python
+  routine version bumps and CHANGELOG entries after its last-published manifest
+  has been reconciled with a verified bootstrap release.
 - Per-flavor getting-started tutorials (longer walkthroughs):
   [`docs/content/getting-started/csharp.md`](docs/content/getting-started/csharp.md),
   [`docs/content/getting-started/python.md`](docs/content/getting-started/python.md),
@@ -403,8 +413,8 @@ This README is the entry point; the documents below add focused detail.
   Rust flavor and the four published flavors, with the canonical decision and
   proposed fix for each.
 - [`docs/maintenance/2026-07-16-swift-notesshowcase-test-deadlock.md`](docs/maintenance/2026-07-16-swift-notesshowcase-test-deadlock.md) —
-  a pre-existing XCTest-startup deadlock in the Swift flagship example test suite,
-  with symptom, timeline, and proposed investigation.
+  the implemented Swift flagship command/test deadlock correction, including
+  root cause, local build evidence, and the outstanding CI runtime check.
 - [`tools/README.md`](tools/README.md) — conformance-coverage tool and
   cross-cutting scripts.
 
@@ -438,7 +448,7 @@ four flavors are at **total parity: 395 library + 5 THEME = 400**; Rust has
 full 395-ID library parity and intentionally has no UI scenario suite yet.
 
 ```bash
-# Verify all full-parity flavors are at full catalog coverage
+# Verify all catalog-complete flavors are at full catalog coverage
 uv run --project langs/python python tools/check-conformance-coverage.py \
     --require csharp --require python --require typescript --require swift --require rust
 

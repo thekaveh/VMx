@@ -151,11 +151,22 @@ destination performs one transaction:
 1. Attach it to the destination and perform any required auto-construction.
 1. Commit the old `Remove` notification before the new `Add` notification.
 
+The destination and any staged old parent remain under an exclusive membership
+transaction through hooks and commit or rollback. Re-entrant structural
+mutation of either protected container MUST fail before mutation; coherent
+snapshot reads remain legal. Child reservations use a deterministic acquisition
+strategy so two reverse-order bulk populations cannot deadlock. Selection
+validation and assignment are one membership-gated operation, and deferred
+selection revalidates membership when it executes.
+
 If any step after preflight fails, both memberships, `Parent`, `Current`, child
-current flags, lifecycle state, and lazy/builder population state MUST equal
-their pre-call values. No membership notification is published for a failed
-transaction. Bulk population commits as one batch and rolls earlier transfers
-back in reverse order if a later child fails.
+current flags, lazy/builder population state, and the event stream MUST equal
+their pre-call values. Bulk population rolls earlier transfers back in reverse
+order if a later child fails. Lifecycle compensation is attempted. If a
+consumer lifecycle hook makes compensation fail, that failure MUST be surfaced
+and MUST NOT be swallowed; exact lifecycle restoration is then not claimed.
+Replacement rollback identifies the candidate by identity and MUST NOT mutate
+an unrelated member merely because the original index changed (ADR-0118).
 
 Adding an identity already present in the destination or creating a parent
 cycle fails without mutation. `Move` remains the only operation that reorders
@@ -417,8 +428,9 @@ The `Parent` back-reference wiring (declared in `01-concepts.md` §1.3 and
 - `COMP-038` — adding to a new mutable parent removes the same identity from its
   previous parent without changing child lifecycle state.
 - `COMP-039` — duplicate and self/ancestor-cycle attempts fail before mutation.
-- `COMP-040` — failed attachment or auto-construction restores both containers,
-  the parent link, index, and selection state.
+- `COMP-040` — failed attachment or auto-construction isolates and restores both
+  containers, the parent link, index, and selection state; failed lifecycle
+  compensation is surfaced rather than hidden.
 - `COMP-041` — successful transfer publishes old removal before new addition;
   failed transfer publishes neither.
 

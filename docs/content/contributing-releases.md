@@ -43,7 +43,7 @@ Two repo rules matter most:
 
 - semantic changes under `spec/` require a matching ADR unless the change is in
   an exempt path
-- new conformance IDs require matching stubs in every full-parity flavor
+- new conformance IDs require matching stubs in every catalog-complete flavor
 
 Those rules are enforced in CI and described in the contributing guide and
 repository automation.

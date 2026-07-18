@@ -10,7 +10,7 @@ spec-compatible with the C#, TypeScript, Swift, and Rust flavors.
 ## 1. Status
 
 **v3.22.0** — implements `spec-v3.22.0` end-to-end. 395/395 library conformance IDs
-pass. Supports Python 3.10–3.13.
+pass. Supports Python 3.10–3.14.
 `mypy --strict` clean. Opt-in `vmx.notifications` subpackage ships an
 `INotificationHub` for async confirmations. The Swift flavor is at total
 parity; see `../swift/README.md` §5 for the current conformance matrix.

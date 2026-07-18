@@ -62,11 +62,16 @@ ADR-0006 and require no further action:
   by `ITypedMessage<TSender>`). The former untyped `senderObject` field was
   **removed in v3.0.0** (ADR-0054, VMX-016) — TypeScript is the first flavor to
   reach the single-`sender` end state.
-- **Rationale**: per ADR-0006 the canonical accessor must read the same in every
-  flavor's guide (`msg.sender` / `msg.Sender`). TypeScript collapsed to the sole
-  `sender` field on the v3 major; the other three retain the untyped alias for
-  source compatibility, tracked here as scheduled removals (not drift). See
-  ADR-0054.
+- **Rust**: enum-based messages expose `sender_id: u64` rather than retaining a
+  sender object. Identity filters compare that stable ID; messages do not own or
+  borrow VM instances and remain independent of VM lifetimes (ADR-0120).
+- **Rationale**: the language-neutral invariant is one canonical sender
+  identity. The four object-sender flavors expose that identity through
+  `Sender`/`sender`; Rust uses `sender_id` as an intentional ownership-safe
+  idiom. TypeScript collapsed to the sole `sender` field on the v3 major; C#,
+  Python, and Swift retain their untyped aliases for source compatibility,
+  tracked here as scheduled removals rather than drift. See ADR-0054 and
+  ADR-0120.
 
 ### `TreeStructureChangedMessage` field name
 

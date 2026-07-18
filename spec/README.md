@@ -182,7 +182,7 @@ public-surface breaks are catalogued in ADRs 0052/0053/0054 and each flavor's
 `CHANGELOG.md`.
 
 - **ADR-0047** — v3 lifecycle/threading semantics: status transitions are atomic
-  and dispose-safe behind a per-VM guard (`02 §2.3`); background lifecycle
+  and dispose-safe behind a per-VM guard (`02 §2.4`); background lifecycle
   completions marshal their terminal emission onto `IDispatcher.Foreground`
   (`11 §3/§4`); the `LIFE-008` enforcement primitive is named; a post-dispose
   `IsCurrent` change is a silent no-op (`02` invariant 3); and a throwing
@@ -541,7 +541,7 @@ one asynchronously acquired value. Immutable idle/loading/ready/error state,
 existing async relay command cancellation, monotonic latest-start-wins
 admission, discard-by-default or retained previous values, and acquisition-based
 optional cleanup replace repeated consumer-owned race policy. `ARES-001..011`
-raise the catalog from 385 to 400 total IDs (395 library + 5 THEME scenario
+raise the catalog from 385 to 396 total IDs (391 library + 5 THEME scenario
 IDs).
 
 See ADR-0100 and chapter 23.
@@ -555,17 +555,42 @@ ADR-0102 defines the non-normative consumer conformance adapter schema and the
 TypeScript factory runner. It adds no behavior chapter, spec version bump, or
 conformance ID; the supporting schema versions independently.
 
-ADR-0109 clarifies the C#-specific async lifecycle affordance on the current
-3.22.0 source line: background hook and deferred child-cascade failures fault
-the returned task only after transactional rollback is published. It adds no
-cross-flavor API or conformance ID and records Swift's existing no-awaiter
-limitation explicitly.
+### 1.30 v3.20.0 → v3.20.1 changes
 
-### 1.30 Supporting artefacts
+v3.20.1 makes hierarchical attachment atomic across preflight, old-parent
+detach, destination commit, rejection, and rollback. It also replaces Rust's
+interaction snapshots with executor-neutral futures for notifications, dialogs,
+modals, and confirmation. No conformance IDs are added.
+
+See ADR-0105, ADR-0106, and chapter 18.
+
+### 1.31 v3.20.1 → v3.21.0 changes
+
+v3.21.0 gives every component one authoritative owning parent. Composite and
+group attachment transfer ownership atomically, reject duplicates and cycles
+without mutation, and restore exact state if destination attachment fails.
+`COMP-038..041` raise the catalog from 396 to 400 total IDs (395 library + 5
+THEME scenario IDs).
+
+See ADR-0107 and chapters 05–07.
+
+### 1.32 v3.21.0 → v3.22.0 changes
+
+v3.22.0 makes terminal disposal best-effort across complete child and owned
+resource cascades before surfacing the first failure. The same source line
+clarifies C# async lifecycle failure propagation, Swift strict-concurrency
+boundaries, callback-safe lifecycle publication, isolated container membership
+transactions, cycle-aware cross-hub coordination, and the intentional Rust
+ID-based sender identity. It also records targeted TypeScript and documentation
+contract corrections. No conformance IDs are added.
+
+See ADR-0108 through ADR-0120 and the affected behavior chapters.
+
+### 1.33 Supporting artefacts
 
 - `VERSION` — current spec SemVer (`3.22.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0115); see
+- `ADRs/` — Architecture Decision Records (0001-0120); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `schemas/` — versioned supporting machine contracts. The consumer
   conformance v1 schema is non-normative; see ADR-0102.

@@ -32,7 +32,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
@@ -50,6 +50,12 @@ jobs:
 
       - name: Sync dependencies
         run: uv sync --locked --all-extras
+
+      - name: Audit runtime dependencies
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.14'
+        run: |
+          uv export --locked --no-dev --no-emit-project --output-file /tmp/vmx-runtime.txt
+          uvx --from pip-audit==2.10.1 pip-audit --requirement /tmp/vmx-runtime.txt
 
       - name: Ruff lint
         run: uv run ruff check src tests
@@ -75,7 +81,7 @@ jobs:
     # Syncs + tests the Notes-Showcase Textual example (Phase 8 of the
     # notes-showcase plan). Kept as a separate job because the existing
     # `build` job pins `defaults.run.working-directory: langs/python` and runs
-    # a 3-OS × 4-python matrix; the example only needs a single combo to
+    # a 3-OS × 5-python matrix; the example only needs a single combo to
     # confirm the showcase package builds against the workspace-local
     # `vmx` (editable, path-sourced in pyproject.toml).
     name: examples (notes-showcase)

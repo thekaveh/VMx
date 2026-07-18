@@ -22,10 +22,14 @@ published yet; use a project reference for local development until a `csharp-v*`
 release tag publishes it.
 
 ```bash
+# After the first NuGet publication
 dotnet add package VMx
 
 # Optional DI integration (Microsoft.Extensions.DependencyInjection)
 dotnet add package VMx.Extensions.DependencyInjection
+
+# Source checkout today (VMx cloned beside the consumer)
+dotnet add MyApp.csproj reference ../VMx/langs/csharp/src/VMx/VMx.csproj
 ```
 
 ## 3. Quick start

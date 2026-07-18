@@ -18,13 +18,13 @@ Workspace portfolio.
 
 ## 8.1.2. Current Portfolio
 
-| Flavor     | Small demos                                          | Flagship app             |
-| ---------- | ---------------------------------------------------- | ------------------------ |
-| C#         | Console `HelloVMx`, WPF Todo                         | Avalonia Notes Workspace |
-| Python     | Console `hello_vmx`, tkinter Todo, Textual Inspector | Textual Notes Workspace  |
-| TypeScript | Console `hello-vmx`                                  | React Notes Workspace    |
-| Swift      | none beyond the flagship today                       | SwiftUI Notes Workspace  |
-| Rust       | Console `hello-vmx`                                  | Ratatui Notes Showcase   |
+| Flavor     | Small demos                                          | Scenario role             |
+| ---------- | ---------------------------------------------------- | ------------------------- |
+| C#         | Console `HelloVMx`, WPF Todo                         | Avalonia flagship         |
+| Python     | Console `hello-vmx`, tkinter Todo, Textual Inspector | Textual flagship          |
+| TypeScript | Console `hello-vmx`                                  | React flagship            |
+| Swift      | none beyond the flagship today                       | SwiftUI flagship          |
+| Rust       | Console `hello-vmx`                                  | Reduced Ratatui companion |
 
 ## 8.1.3. Reading Strategy
 

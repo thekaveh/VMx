@@ -25,6 +25,7 @@ def test_current_docs_match_adr_inventory() -> None:
 
 def test_contract_ledger_matches_current_rust_package() -> None:
     cargo = (ROOT / "langs/rust/Cargo.toml").read_text(encoding="utf-8")
+    cargo_lock = (ROOT / "langs/rust/Cargo.lock").read_text(encoding="utf-8")
     rust_source = (ROOT / "langs/rust/src/lib.rs").read_text(encoding="utf-8")
     ledger = (ROOT / "docs/maintenance/2026-07-01-contract-ledger.md").read_text(encoding="utf-8")
     version = re.search(r'^version = "([^"]+)"$', cargo, re.MULTILINE)
@@ -37,5 +38,25 @@ def test_contract_ledger_matches_current_rust_package() -> None:
         f"`{min_spec.group(1)}`, and has MSRV Rust `{msrv.group(1)}`"
     )
     assert expected in ledger
+    serde_json = re.search(r'\[\[package\]\]\nname = "serde_json"\nversion = "([^"]+)"', cargo_lock)
+    assert serde_json
+    assert f"locked to `{serde_json.group(1)}`" in ledger
     assert re.search(r"\d+ headless tests", ledger) is None
     assert re.search(r"ESLint; \d+ tests", ledger) is None
+
+
+def test_contract_ledger_matches_docs_and_dom_tooling() -> None:
+    requirements = (ROOT / "docs/requirements.txt").read_text(encoding="utf-8")
+    ledger = (ROOT / "docs/maintenance/2026-07-01-contract-ledger.md").read_text(encoding="utf-8")
+    for package, label in (("mkdocs-material", "MkDocs Material"), ("ruff", "Ruff")):
+        version = re.search(rf"^{re.escape(package)}==([^ ]+)", requirements, re.MULTILINE)
+        assert version
+        assert f"{label} is `{version.group(1)}`" in ledger
+
+    typescript_package = (ROOT / "langs/typescript/package.json").read_text(encoding="utf-8")
+    react_package = (ROOT / "examples/typescript/react/notes-showcase/package.json").read_text(
+        encoding="utf-8"
+    )
+    assert '"jsdom": "^29.1.1"' in typescript_package
+    assert '"jsdom": "^29.1.1"' in react_package
+    assert "jsdom `29.1.1`" in ledger

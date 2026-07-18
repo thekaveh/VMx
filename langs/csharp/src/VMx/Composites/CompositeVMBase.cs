@@ -35,13 +35,19 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     // ── Batch-update state (spec v1.1) ────────────────────────────────────────
     private int _batchDepth;
     private bool _batchDirty;
+    private int _disposeRequested;
+    private bool _membershipTransactionActive;
+    private readonly object _membershipGate = new();
 
     // ── INotifyCollectionChanged ──────────────────────────────────────────────
     /// <inheritdoc/>
     public event NotifyCollectionChangedEventHandler? CollectionChanged;
 
     /// <inheritdoc/>
-    public IReadOnlyList<VM> Snapshot() => _children.ToArray();
+    public IReadOnlyList<VM> Snapshot()
+    {
+        lock (_membershipGate) return _children.ToArray();
+    }
 
     /// <inheritdoc/>
     public IDisposable SubscribeMembership(Action callback)
@@ -61,7 +67,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     /// <inheritdoc/>
     public VM? Current
     {
-        get => _current;
+        get { lock (_membershipGate) return _current; }
         set => SetCurrent(value, async: _asyncSelection);
     }
 
@@ -72,7 +78,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     // ── IList<VM> ─────────────────────────────────────────────────────────────
 
     /// <inheritdoc/>
-    public int Count => _children.Count;
+    public int Count { get { lock (_membershipGate) return _children.Count; } }
 
     /// <inheritdoc/>
     public bool IsReadOnly => false;
@@ -80,34 +86,50 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     /// <inheritdoc/>
     public VM this[int index]
     {
-        get => _children[index];
+        get { lock (_membershipGate) return _children[index]; }
         set
         {
-            var old = _children[index];
-            var transfer = ComponentOwnership.BeginTransfer(value, this);
-            _children[index] = value;
-            old.SetParent(null);
-            value.SetParent(this);
+            BeginMembershipTransaction();
+            ParentTransferToken? transfer = null;
+            VM? old = null;
             try
             {
+                transfer = ComponentOwnership.BeginTransfer(value, this);
+                lock (_membershipGate)
+                {
+                    EnsureTransactionCanContinueLocked();
+                    old = _children[index];
+                    _children[index] = value;
+                    old.SetParent(null);
+                    value.SetParent(this);
+                }
                 MaybeAutoConstruct(value);
+                lock (_membershipGate) EnsureTransactionCanContinueLocked();
+                transfer?.Commit();
+                if (ReferenceEquals(Current, old))
+                    ApplyCurrentChange(null, internalTransaction: true);
+                RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+                    NotifyCollectionChangedAction.Remove, old, index));
+                RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+                    NotifyCollectionChangedAction.Add, value, index));
             }
             catch
             {
-                _children[index] = old;
-                old.SetParent(this);
-                value.SetParent(null);
+                lock (_membershipGate)
+                {
+                    if (old is not null && _children.Any(child => ReferenceEquals(child, value)))
+                    {
+                        var actualIndex = _children.FindIndex(
+                            child => ReferenceEquals(child, value));
+                        _children[actualIndex] = old;
+                        old.SetParent(this);
+                        value.SetParent(null);
+                    }
+                }
                 transfer?.Rollback();
                 throw;
             }
-
-            transfer?.Commit();
-            if (ReferenceEquals(_current, old))
-                SetCurrent(null, async: false);
-            RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
-                NotifyCollectionChangedAction.Remove, old, index));
-            RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
-                NotifyCollectionChangedAction.Add, value, index));
+            finally { EndMembershipTransaction(); }
         }
     }
 
@@ -137,7 +159,10 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
 
     // ── IParentCompositeVM (non-generic, used by ComponentVMBase for selection) ─
 
-    IComponentVM? IParentCompositeVM.CurrentChild => _current;
+    IComponentVM? IParentCompositeVM.CurrentChild
+    {
+        get { lock (_membershipGate) return _current; }
+    }
 
     void IParentCompositeVM.SelectChild(IComponentVM vm)
     {
@@ -150,28 +175,57 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     }
 
     bool IParentCompositeVM.ContainsChild(IComponentVM vm)
-        => _children.Any(child => ReferenceEquals(child, vm));
+    {
+        lock (_membershipGate)
+            return _children.Any(child => ReferenceEquals(child, vm));
+    }
 
     ParentTransferToken IParentCompositeVM.DetachForTransfer(IComponentVM vm)
     {
-        var index = _children.FindIndex(child => ReferenceEquals(child, vm));
-        if (index < 0 || vm is not VM child)
-            throw new InvalidOperationException("The recorded parent does not contain the child identity.");
-
-        var wasCurrent = ReferenceEquals(_current, child);
-        _children.RemoveAt(index);
+        int index;
+        VM child;
+        bool wasCurrent;
+        lock (_membershipGate)
+        {
+            BeginMembershipTransactionLocked();
+            index = _children.FindIndex(candidate => ReferenceEquals(candidate, vm));
+            if (index < 0 || vm is not VM typed)
+            {
+                _membershipTransactionActive = false;
+                throw new InvalidOperationException("The recorded parent does not contain the child identity.");
+            }
+            child = typed;
+            wasCurrent = ReferenceEquals(_current, child);
+            _children.RemoveAt(index);
+        }
         return new ParentTransferToken(
             commit: () =>
             {
-                if (wasCurrent && ReferenceEquals(_current, child))
-                    SetCurrent(null, async: false);
-                RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
-                    NotifyCollectionChangedAction.Remove, child, index));
+                try
+                {
+                    if (wasCurrent)
+                        ApplyCurrentChange(null, internalTransaction: true);
+                    RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+                        NotifyCollectionChangedAction.Remove, child, index));
+                }
+                finally { EndMembershipTransaction(); }
             },
             rollback: () =>
             {
-                _children.Insert(index, child);
-                child.SetParent(this);
+                try
+                {
+                    lock (_membershipGate)
+                    {
+                        if (_disposeRequested != 0)
+                        {
+                            child.SetParent(null);
+                            return;
+                        }
+                        _children.Insert(Math.Min(index, _children.Count), child);
+                        child.SetParent(this);
+                    }
+                }
+                finally { EndMembershipTransaction(); }
             });
     }
 
@@ -189,7 +243,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     /// <inheritdoc/>
     public void DeselectComponent(VM vm)
     {
-        if (!ReferenceEquals(_current, vm))
+        if (!ReferenceEquals(Current, vm))
             throw new InvalidOperationException(
                 $"Cannot deselect '{vm.Name}': it is not the current selection.");
         Current = null;
@@ -204,71 +258,130 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     /// <inheritdoc/>
     public void Add(VM item)
     {
-        var transfer = ComponentOwnership.BeginTransfer(item, this);
-        _children.Add(item);
-        item.SetParent(this);
+        BeginMembershipTransaction();
+        ParentTransferToken? transfer = null;
+        var attached = false;
+        int idx;
         try
         {
+            transfer = ComponentOwnership.BeginTransfer(item, this);
+            lock (_membershipGate)
+            {
+                EnsureTransactionCanContinueLocked();
+                _children.Add(item);
+                item.SetParent(this);
+                idx = _children.Count - 1;
+                attached = true;
+            }
             MaybeAutoConstruct(item);
+            lock (_membershipGate) EnsureTransactionCanContinueLocked();
         }
         catch
         {
-            _children.RemoveAt(_children.Count - 1);
-            item.SetParent(null);
-            transfer?.Rollback();
+            lock (_membershipGate)
+            {
+                var attachedIndex = attached
+                    ? _children.FindIndex(child => ReferenceEquals(child, item))
+                    : -1;
+                if (attachedIndex >= 0)
+                {
+                    _children.RemoveAt(attachedIndex);
+                    item.SetParent(null);
+                }
+            }
+            try { transfer?.Rollback(); }
+            finally { EndMembershipTransaction(); }
             throw;
         }
-
-        transfer?.Commit();
-        var idx = _children.Count - 1;
-        RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
-            NotifyCollectionChangedAction.Add, item, idx));
+        try
+        {
+            transfer?.Commit();
+            RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+                NotifyCollectionChangedAction.Add, item, idx));
+        }
+        finally { EndMembershipTransaction(); }
     }
 
     /// <inheritdoc/>
     public bool Remove(VM item)
     {
-        var idx = IndexOfIdentity(item);
-        if (idx < 0) return false;
-        RemoveAt(idx);
+        VM removed;
+        int idx;
+        bool wasCurrent;
+        lock (_membershipGate)
+        {
+            EnsureChildAdmission();
+            idx = _children.FindIndex(candidate => ReferenceEquals(candidate, item));
+            if (idx < 0) return false;
+            (removed, wasCurrent) = RemoveAtLocked(idx);
+            if (wasCurrent) FinishCurrentChange(removed, null);
+        }
+        RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+            NotifyCollectionChangedAction.Remove, removed, idx));
         return true;
     }
 
     /// <inheritdoc/>
     public void Insert(int index, VM item)
     {
-        if (index < 0 || index > _children.Count)
-            throw new ArgumentOutOfRangeException(nameof(index));
-        var transfer = ComponentOwnership.BeginTransfer(item, this);
-        _children.Insert(index, item);
-        item.SetParent(this);
+        BeginMembershipTransaction();
+        ParentTransferToken? transfer = null;
+        var attached = false;
         try
         {
+            transfer = ComponentOwnership.BeginTransfer(item, this);
+            lock (_membershipGate)
+            {
+                EnsureTransactionCanContinueLocked();
+                if (index < 0 || index > _children.Count)
+                    throw new ArgumentOutOfRangeException(nameof(index));
+                _children.Insert(index, item);
+                item.SetParent(this);
+                attached = true;
+            }
             MaybeAutoConstruct(item);
+            lock (_membershipGate) EnsureTransactionCanContinueLocked();
         }
         catch
         {
-            _children.RemoveAt(index);
-            item.SetParent(null);
-            transfer?.Rollback();
+            lock (_membershipGate)
+            {
+                var attachedIndex = attached
+                    ? _children.FindIndex(child => ReferenceEquals(child, item))
+                    : -1;
+                if (attachedIndex >= 0)
+                {
+                    _children.RemoveAt(attachedIndex);
+                    item.SetParent(null);
+                }
+            }
+            try { transfer?.Rollback(); }
+            finally { EndMembershipTransaction(); }
             throw;
         }
-
-        transfer?.Commit();
-        RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
-            NotifyCollectionChangedAction.Add, item, index));
+        try
+        {
+            transfer?.Commit();
+            RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+                NotifyCollectionChangedAction.Add, item, index));
+        }
+        finally { EndMembershipTransaction(); }
     }
 
     /// <inheritdoc/>
     public void Move(int fromIndex, int toIndex)
     {
-        ValidateMoveIndex(fromIndex, nameof(fromIndex));
-        ValidateMoveIndex(toIndex, nameof(toIndex));
-        if (fromIndex == toIndex) return;
-
-        var item = _children[fromIndex];
-        _children.RemoveAt(fromIndex);
-        _children.Insert(toIndex, item);
+        VM item;
+        lock (_membershipGate)
+        {
+            EnsureChildAdmission();
+            ValidateMoveIndex(fromIndex, nameof(fromIndex));
+            ValidateMoveIndex(toIndex, nameof(toIndex));
+            if (fromIndex == toIndex) return;
+            item = _children[fromIndex];
+            _children.RemoveAt(fromIndex);
+            _children.Insert(toIndex, item);
+        }
         RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
             NotifyCollectionChangedAction.Move, item, toIndex, fromIndex));
     }
@@ -276,12 +389,14 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     /// <inheritdoc/>
     public void RemoveAt(int index)
     {
-        var item = _children[index];
-        _children.RemoveAt(index);
-        if (ReferenceEquals(item.GetParent(), this))
-            item.SetParent(null);
-        if (ReferenceEquals(_current, item))
-            SetCurrent(null, async: false);
+        VM item;
+        bool wasCurrent;
+        lock (_membershipGate)
+        {
+            EnsureChildAdmission();
+            (item, wasCurrent) = RemoveAtLocked(index);
+            if (wasCurrent) FinishCurrentChange(item, null);
+        }
         RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
             NotifyCollectionChangedAction.Remove, item, index));
     }
@@ -289,11 +404,18 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     /// <inheritdoc/>
     public void Clear()
     {
-        foreach (var child in _children)
-            if (ReferenceEquals(child.GetParent(), this))
-                child.SetParent(null);
-        _children.Clear();
-        SetCurrent(null, async: false);
+        VM? previous;
+        lock (_membershipGate)
+        {
+            EnsureChildAdmission();
+            previous = _current;
+            _current = null;
+            foreach (var child in _children)
+                if (ReferenceEquals(child.GetParent(), this))
+                    child.SetParent(null);
+            _children.Clear();
+            if (previous is not null) FinishCurrentChange(previous, null);
+        }
         RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
             NotifyCollectionChangedAction.Reset));
     }
@@ -374,13 +496,16 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     public int IndexOf(VM item) => IndexOfIdentity(item);
 
     /// <inheritdoc/>
-    public void CopyTo(VM[] array, int arrayIndex) => _children.CopyTo(array, arrayIndex);
+    public void CopyTo(VM[] array, int arrayIndex)
+    {
+        lock (_membershipGate) _children.CopyTo(array, arrayIndex);
+    }
 
     /// <inheritdoc/>
-    public IEnumerator<VM> GetEnumerator() => _children.GetEnumerator();
+    public IEnumerator<VM> GetEnumerator() => Snapshot().GetEnumerator();
 
     /// <inheritdoc/>
-    IEnumerator IEnumerable.GetEnumerator() => _children.GetEnumerator();
+    IEnumerator IEnumerable.GetEnumerator() => Snapshot().GetEnumerator();
 
     // ── Lifecycle overrides ───────────────────────────────────────────────────
 
@@ -395,7 +520,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         // Populate children from factory (lazy: only on first construct).
         PopulateChildren();
         CompleteLifecycleHookAfter(TransitionChildrenAsync(
-            _children.ToArray(),
+            Snapshot().ToArray(),
             construct: true,
             after: () =>
             {
@@ -411,7 +536,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     protected void ConstructChildren()
     {
         CompleteLifecycleHookAfter(TransitionChildrenAsync(
-            _children.ToArray(),
+            Snapshot().ToArray(),
             construct: true));
     }
 
@@ -426,7 +551,11 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     protected void AttachPopulation(IEnumerable<VM> children)
     {
         var candidates = children.ToArray();
-        var start = _children.Count;
+        if (candidates.Where((candidate, index) =>
+                candidates.Take(index).Any(previous => ReferenceEquals(previous, candidate))).Any())
+            throw new InvalidOperationException(
+                "Factory population contains a duplicate child identity.");
+        BeginMembershipTransaction();
         var transfers = new List<ParentTransferToken?>();
         var originalStatuses = new List<ConstructionStatus>();
         try
@@ -436,13 +565,20 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                 var transfer = ComponentOwnership.BeginTransfer(child, this);
                 transfers.Add(transfer);
                 originalStatuses.Add(child.Status);
-                _children.Add(child);
-                child.SetParent(this);
+            }
+            lock (_membershipGate)
+            {
+                EnsureTransactionCanContinueLocked();
+                foreach (var child in candidates)
+                {
+                    _children.Add(child);
+                    child.SetParent(this);
+                }
+
             }
 
-            // Populate the complete snapshot before invoking any child hook.
-            // Hooks may inspect or mutate later siblings, and background
-            // children must have only one lifecycle transition in flight.
+            // Populate the complete snapshot before invoking hooks, but never
+            // execute user lifecycle code while holding the membership gate.
             foreach (var child in candidates)
             {
                 if (Status == ConstructionStatus.Constructing)
@@ -451,34 +587,55 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                     MaybeAutoConstruct(child);
             }
         }
-        catch
+        catch (Exception originalError)
         {
-            while (_children.Count > start)
+            var rollbackFailures = new List<Exception>();
+            for (var candidateIndex = candidates.Length - 1; candidateIndex >= 0; candidateIndex--)
             {
-                var child = _children[_children.Count - 1];
-                _children.RemoveAt(_children.Count - 1);
-                var originalStatus = originalStatuses[_children.Count - start];
+                var child = candidates[candidateIndex];
+                lock (_membershipGate)
+                {
+                    var attached = _children.FindIndex(item => ReferenceEquals(item, child));
+                    if (attached >= 0) _children.RemoveAt(attached);
+                }
+                if (candidateIndex >= originalStatuses.Count) continue;
+                var originalStatus = originalStatuses[candidateIndex];
                 if (originalStatus == ConstructionStatus.Destructed &&
                     child.Status == ConstructionStatus.Constructed)
                 {
                     try { child.DestructAsync().GetAwaiter().GetResult(); }
-                    catch { /* Preserve the original population failure. */ }
+                    catch (Exception error) { rollbackFailures.Add(error); }
                 }
                 if (ReferenceEquals(child.GetParent(), this)) child.SetParent(null);
             }
-            for (var index = transfers.Count - 1; index >= 0; index--)
-                transfers[index]?.Rollback();
+            try
+            {
+                for (var index = transfers.Count - 1; index >= 0; index--)
+                {
+                    try { transfers[index]?.Rollback(); }
+                    catch (Exception error) { rollbackFailures.Add(error); }
+                }
+            }
+            finally { EndMembershipTransaction(); }
+            if (rollbackFailures.Count > 0)
+                throw new AggregateException(
+                    "Container population failed and rollback could not restore lifecycle state.",
+                    new[] { originalError }.Concat(rollbackFailures));
             throw;
         }
-
-        foreach (var transfer in transfers) transfer?.Commit();
-        foreach (var child in candidates)
+        try
         {
-            var index = _children.FindIndex(candidate => ReferenceEquals(candidate, child));
-            if (index >= start)
-                RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
-                    NotifyCollectionChangedAction.Add, child, index));
+            foreach (var transfer in transfers) transfer?.Commit();
+            foreach (var child in candidates)
+            {
+                var index = Snapshot().ToList().FindIndex(
+                    candidate => ReferenceEquals(candidate, child));
+                if (index >= 0)
+                    RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+                        NotifyCollectionChangedAction.Add, child, index));
+            }
         }
+        finally { EndMembershipTransaction(); }
     }
 
     /// <summary>
@@ -486,11 +643,11 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     /// </summary>
     protected override void OnDestruct()
     {
-        if (_current is not null)
+        if (Current is not null)
             SetCurrent(null, async: false);
 
         CompleteLifecycleHookAfter(TransitionChildrenAsync(
-            _children.ToArray(),
+            Snapshot().ToArray(),
             construct: false,
             after: () => base.OnDestruct()));
     }
@@ -500,7 +657,14 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     /// </summary>
     public override void Dispose()
     {
-        var firstError = DisposeChildren(_children.ToArray());
+        VM[] snapshot;
+        lock (_membershipGate)
+        {
+            if (_disposeRequested != 0) return;
+            _disposeRequested = 1;
+            snapshot = _children.ToArray();
+        }
+        var firstError = DisposeChildren(snapshot);
         try
         {
             base.Dispose();
@@ -517,17 +681,58 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     /// <inheritdoc/>
     public override ViewModelType Type => ViewModelType.Composite;
 
+    private void EnsureChildAdmission()
+    {
+        if (Volatile.Read(ref _disposeRequested) != 0)
+            throw new ObjectDisposedException(GetType().Name,
+                "Cannot attach a child while the container is disposing.");
+        if (_membershipTransactionActive)
+            throw new InvalidOperationException(
+                "A container membership transaction is already in progress.");
+    }
+
+    private void BeginMembershipTransactionLocked()
+    {
+        EnsureChildAdmission();
+        _membershipTransactionActive = true;
+    }
+
+    private void BeginMembershipTransaction()
+    {
+        lock (_membershipGate) BeginMembershipTransactionLocked();
+    }
+
+    private void EnsureTransactionCanContinueLocked()
+    {
+        if (_disposeRequested != 0)
+            throw new ObjectDisposedException(GetType().Name,
+                "Cannot attach a child while the container is disposing.");
+    }
+
+    private void EndMembershipTransaction()
+    {
+        lock (_membershipGate) _membershipTransactionActive = false;
+    }
+
     // ── Private helpers ───────────────────────────────────────────────────────
 
     private void SetCurrent(VM? value, bool async)
     {
-        if (value is not null && IndexOfIdentity(value) < 0)
-            throw new InvalidOperationException(
-                $"Cannot set Current to '{value.Name}': it is not a member of this composite.");
-
         if (async)
         {
-            _dispatcher.Foreground.Schedule(value, (sched, v) => { ApplyCurrentChange(v); return System.Reactive.Disposables.Disposable.Empty; });
+            lock (_membershipGate)
+            {
+                EnsureChildAdmission();
+                if (value is not null &&
+                    !_children.Any(child => ReferenceEquals(child, value)))
+                    throw new InvalidOperationException(
+                        $"Cannot set Current to '{value.Name}': it is not a member of this composite.");
+            }
+            _dispatcher.Foreground.Schedule(value, (sched, v) =>
+            {
+                ApplyCurrentChange(v, strict: false);
+                return System.Reactive.Disposables.Disposable.Empty;
+            });
         }
         else
         {
@@ -535,17 +740,40 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         }
     }
 
-    private void ApplyCurrentChange(VM? value)
+    private void ApplyCurrentChange(
+        VM? value,
+        bool internalTransaction = false,
+        bool strict = true)
     {
         // Async TOCTOU guard: with AsyncSelection the child may have been removed
         // between SetCurrent's membership check and this deferred foreground
         // delivery. Dropping silently upholds the spec/06 §3 invariant that a
         // non-null Current is always a member of the children collection.
-        if (value is not null && IndexOfIdentity(value) < 0) return;
-        if (ReferenceEquals(_current, value)) return;
+        VM? previous;
+        lock (_membershipGate)
+        {
+            if (_membershipTransactionActive && !internalTransaction)
+            {
+                if (!strict) return;
+                throw new InvalidOperationException(
+                    "A container membership transaction is already in progress.");
+            }
+            if (value is not null &&
+                !_children.Any(child => ReferenceEquals(child, value)))
+            {
+                if (!strict) return;
+                throw new InvalidOperationException(
+                    $"Cannot set Current to '{value.Name}': it is not a member of this composite.");
+            }
+            if (ReferenceEquals(_current, value)) return;
+            previous = _current;
+            _current = value;
+            FinishCurrentChange(previous, value);
+        }
+    }
 
-        var previous = _current;
-        _current = value;
+    private void FinishCurrentChange(VM? previous, VM? value)
+    {
 
         // Update IsCurrent on affected children.
         if (previous is not null)
@@ -562,6 +790,19 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         _onCurrentChanged?.Invoke(value);
     }
 
-    private int IndexOfIdentity(VM item) =>
-        _children.FindIndex(candidate => ReferenceEquals(candidate, item));
+    private int IndexOfIdentity(VM item)
+    {
+        lock (_membershipGate)
+            return _children.FindIndex(candidate => ReferenceEquals(candidate, item));
+    }
+
+    private (VM Item, bool WasCurrent) RemoveAtLocked(int index)
+    {
+        var item = _children[index];
+        _children.RemoveAt(index);
+        if (ReferenceEquals(item.GetParent(), this)) item.SetParent(null);
+        var wasCurrent = ReferenceEquals(_current, item);
+        if (wasCurrent) _current = null;
+        return (item, wasCurrent);
+    }
 }

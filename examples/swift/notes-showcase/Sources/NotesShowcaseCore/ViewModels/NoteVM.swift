@@ -136,10 +136,10 @@ public final class NoteVM: ComponentVMBase,
         guard let deletedTitle else { return }
         try await _onDelete?(item)
         if let notificationHub = _notificationHub {
-            _ = await notificationHub.post(VMx.Notification(
+            publishNotification(VMx.Notification(
                 type: .notification,
                 message: "Note deleted: \u{201C}\(deletedTitle)\u{201D}"
-            ))
+            ), to: notificationHub)
         }
     }
 

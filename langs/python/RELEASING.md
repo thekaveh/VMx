@@ -84,11 +84,28 @@ For the very first release where `__about__.py` is already at the target version
 git checkout main
 git pull --ff-only origin main
 grep '^__version__' langs/python/src/vmx/__about__.py    # confirm target version
-git tag python-v2.6.0
-git push origin python-v2.6.0
+version=$(python3 -c "exec(open('langs/python/src/vmx/__about__.py').read()); print(__version__)")
+git tag "python-v${version}"
+git push origin "python-v${version}"
 ```
 
 The same four publish jobs run.
+
+The `release-please` workflow deliberately pauses while the source version and
+`.release-please-manifest.json` disagree. The manifest records the last version
+actually published; never advance it merely to silence the guard. After the
+bootstrap pipeline and public-install verification succeed:
+
+1. Confirm PyPI and the GitHub release both report the exact source version.
+2. Change `.release-please-manifest.json` to that verified published version in
+   a normal reviewed PR.
+3. Run `python3 tools/check-release-please-state.py`; it must report `OK`.
+4. Merge the reconciliation PR. The next push to `main` can safely resume
+   release-please automation.
+
+If an existing release PR proposes a version below the source version, do not
+merge it. Close it after the guard is present on `main`, delete only the bot's
+release branch, then complete the bootstrap and reconciliation sequence above.
 
 > **Tag-ordering gotcha for new flavors.** When wiring `release-please` for the first time on a flavor (current Python adoption; future C#/TypeScript/Swift uplifts), push the bootstrap tag **before** merging the PR that adds the release-please config. Otherwise `release-please-action`'s first run on `main` sees no matching `<component>-v<X.Y.Z>` tag in the new format, walks the full repo history, and proposes a wildly-oversized release PR (it happened during the Python adoption — bot proposed `2.7.0` built from years-old `feat: absorption-cycle-*` commits). The branch lingers indefinitely after later runs correctly say "No user facing commits found"; recover with `git push origin --delete release-please--branches--main--components--<component>`.
 

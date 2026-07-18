@@ -8,6 +8,18 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ### Fixed
 
+- Async-resource loaders now capture the full Python `BaseException` contract
+  and register late-value cleanup exactly once; composite/group membership
+  admission, transfer rollback, factory population, selection, and disposal
+  snapshots now share one transaction boundary so concurrent or re-entrant
+  mutation cannot escape cleanup; lifecycle compensation failures are surfaced.
+- Lifecycle status observers and future continuations now drain outside the
+  per-VM state guard. Ordinary foreign lifecycle calls still wait
+  synchronously; only a proven cross-VM wait cycle defers publication.
+- Membership commits now recheck destination disposal after auto-construction,
+  and competing current assignments serialize through the membership gate so
+  exactly one retained child remains current.
+- CI now verifies Python 3.14 and audits the locked runtime dependency export.
 - Built distributions now include the repository's byte-identical Apache-2.0
   `LICENSE` and `NOTICE` files and declare them through PEP 639 metadata.
 - Python releases now pin the isolated Hatchling backend and install/smoke the
@@ -15,12 +27,14 @@ All notable changes to the Python flavor are documented here. The format is base
 - Common VM options factories now retain a supplied hub or dispatcher
   independently, so builder validation identifies the actual missing service
   counterpart (BLD-006, ADR-0112).
-- Nested sends from one active message-hub callback to another hub now enqueue
-  instead of waiting on the foreign drainer, preventing opposing-hub deadlocks
-  while ordinary producers retain synchronous calling-thread delivery.
+- Cross-hub sends, disposal, and batches now escape only actual thread wait
+  cycles; unrelated busy targets still wait for synchronous calling-thread
+  delivery, while cyclic batches borrow the target queue until their body exits.
 - Message-hub disposal now serializes stream completion behind an active
   delivery, including reentrant disposal, so every current subscriber observes
   the in-flight message before its terminal notification.
+- Cycle-breaking disposal of a batched message hub now claims deferred stream
+  completion when the outermost batch exits, even when no drainer was active.
 - Token pagination now treats reentrant disposal during page comparison,
   child construction, or reset notification as terminal without committing
   losing state or publishing through disposed subjects.
@@ -414,8 +428,7 @@ flavors. Implements `spec-v3.0.0`. See ADRs 0047–0058 and
   (ADR-0052; VMX-081). The concrete builders are the canonical
   `AggregateVM1Builder..6Builder`.
 - **BREAKING:** Removed `null_message_hub_of` from the top-level `vmx` export
-  (ADR-0052; VMX-081). It remains available as `from vmx.services import
-  null_message_hub_of` for the narrow-typing case; the package root now offers a
+  (ADR-0052; VMX-081). It remains available as `from vmx.services import null_message_hub_of` for the narrow-typing case; the package root now offers a
   single null hub, `NULL_MESSAGE_HUB`.
 
 ### Changed
@@ -444,10 +457,9 @@ flavors. Implements `spec-v3.0.0`. See ADRs 0047–0058 and
 
 ## [2.6.1](https://github.com/thekaveh/VMx/compare/python-v2.6.0...python-v2.6.1) (2026-06-17)
 
-
 ### Documentation
 
-* **python:** RELEASING URL-validation checklist + bootstrap tag-ordering gotcha + PyPI badge ([#24](https://github.com/thekaveh/VMx/issues/24)) ([cef3629](https://github.com/thekaveh/VMx/commit/cef3629d623e694350989754c225de1a9c27f909))
+- **python:** RELEASING URL-validation checklist + bootstrap tag-ordering gotcha + PyPI badge ([#24](https://github.com/thekaveh/VMx/issues/24)) ([cef3629](https://github.com/thekaveh/VMx/commit/cef3629d623e694350989754c225de1a9c27f909))
 
 ## [2.6.0] — 2026-06-13
 
@@ -535,10 +547,13 @@ Implements `spec-v2.5.0` (ADR-0037).
 
 - `HierarchicalVM.reparent_child` rejects self- and ancestor-reparenting
   with `ValueError` instead of silently corrupting the tree (HIER-018).
+
 - `NotificationHub.dispose()` — resolves in-flight waiters with `PENDING`,
   completes `pending`, refuses new enqueues, idempotent (NOTIF-017).
+
 - The `Dispatcher` protocol is exported from the top-level `vmx` package
   (parity with TS `IDispatcher` / C# `IDispatcher`).
+
 - Idempotent `dispose()` on `DecoratorCommand` and
   `ConfirmationDecoratorCommand` (teardown symmetry with the C#
   IDisposable surface; the decorators own no subscriptions).
@@ -730,6 +745,7 @@ search/filter, expand/collapse, modeled-CRUD commands, null-object services,
 opt-in notifications sub-package, and a localization hook.
 
 ### Added
+
 - **Capabilities** (`vmx.capabilities`): 20 opt-in micro-interfaces —
   `ISelectable`, `IDeselectable`, `ISelectionTogglable`, `IExpandable`,
   `ICollapsible`, `IExpansionTogglable`, `ISearchable`, `IClosable`,
@@ -760,12 +776,14 @@ opt-in notifications sub-package, and a localization hook.
   `LOC-NNN`, `COMP-014..024`, `GRP-007..010`) — total now 152 IDs.
 
 ### Internal
+
 - `vmx.builders._validation.require_field` / `require_services` return
   narrowed values for tighter mypy --strict downstream typing.
 - Dispose paths across `Modeled*` / `Searchable*` / `Expandable*` /
   `Derived*` are guarded with `_disposed` for idempotence.
 
 ### Notes
+
 - The legacy aliases `RelayCommandOfT` / `RelayCommandOfTBuilder` and
   `AggregateVMBuilder1..5` continue to ship in v2.0.0; their removal has
   been deferred to **vmx v3.0.0** (next major). See ADR-0009.
@@ -773,6 +791,7 @@ opt-in notifications sub-package, and a localization hook.
 ## [1.2.0] — 2026-05-23
 
 ### Added
+
 - `RelayCommandOf` and `RelayCommandOfBuilder` are now the canonical names for
   the parameterised command + builder pair, matching the TypeScript flavor's
   `RelayCommandOf` / `RelayCommandOfBuilder`.
@@ -781,6 +800,7 @@ opt-in notifications sub-package, and a localization hook.
   `AggregateVMNBuilder` shape.
 
 ### Deprecated
+
 - `RelayCommandOfT` and `RelayCommandOfTBuilder` remain as identity aliases for
   backward compatibility. Removal deferred to **vmx v3.0.0** (was originally
   targeted for v2.0.0; see v2.0.0 Notes and ADR-0009).
@@ -789,6 +809,7 @@ opt-in notifications sub-package, and a localization hook.
   targeted for v2.0.0; see v2.0.0 Notes and ADR-0009).
 
 ### Internal
+
 - Per-suppression rationale comments added at every `# type: ignore` in
   `vmx.forwarding.composite` and `vmx.components.builders` (10 + 2 sites).
 - `vmx.builders._validation` now declares parameters as `object | None` instead
@@ -800,6 +821,7 @@ opt-in notifications sub-package, and a localization hook.
 ## [1.1.0] — 2026-05-23
 
 ### Added
+
 - Implements spec-v1.1.0 on top of the v1.0.0 surface.
 - `CompositeVM` / `CompositeVMOf` / `GroupVM`: new `.auto_construct_on_add(bool)` builder option. When `True`, a child added after the container reaches `Constructed` is automatically constructed before the `CollectionChanged(Add)` event fires.
 - `CompositeVM` / `CompositeVMOf` / `GroupVM`: new `batch_update()` method returns a context manager / disposable that suppresses per-mutation `CollectionChanged` events. The outermost handle disposal emits a single `CollectionChanged(Reset)` event iff any mutations occurred during the batch.
@@ -809,6 +831,7 @@ opt-in notifications sub-package, and a localization hook.
 - Top-level `vmx` re-exports for the most-used types (`from vmx import ComponentVMOf, MessageHub, RxDispatcher, walk, find`).
 
 ### Fixed
+
 - `GroupVM.dispose()` now cascades depth-first, matching the spec's LIFE-013 contract and the C# behavior.
 - `CompositeVM` factory children now emit `CollectionChanged(Add)` events (previously silent), matching C#.
 - Removed a stale "scaffolding state / Phase 3" docstring from `vmx/__init__.py`.
@@ -816,6 +839,7 @@ opt-in notifications sub-package, and a localization hook.
 ## [1.0.0] — 2026-05-23
 
 ### Added
+
 - Full implementation of spec-v1.0.0:
   - Lifecycle: `ConstructionStatus` IntEnum + `StatusTransitionError` + JSON-fixture-backed transition validator
   - Messages: `Message`/`TypedMessage` Protocols + `PropertyChangedMessage` + `ConstructionStatusChangedMessage` frozen dataclasses

@@ -801,6 +801,70 @@ describe("COMP-039", () => {
 });
 
 describe("COMP-040", () => {
+  it("rejects duplicate identities in composite and group factory populations", () => {
+    const hub = makeHub();
+    const dispatcher = makeDisp();
+    const child = makeChild(hub, "duplicate");
+    const composite = CompositeVM.builder<ComponentVM>()
+      .name("composite").services(hub, dispatcher)
+      .children(() => [child, child]).build();
+    const group = GroupVM.builder<ComponentVM>()
+      .name("group").services(hub, dispatcher)
+      .children(() => [child, child]).build();
+
+    expect(() => composite.construct()).toThrow(/duplicate child identity/);
+    expect(() => group.construct()).toThrow(/duplicate child identity/);
+    expect(composite.snapshot()).toEqual([]);
+    expect(group.snapshot()).toEqual([]);
+  });
+
+  it("rejects reparenting from an auto-construct hook before admission commits", () => {
+    const hub = makeHub();
+    const dispatcher = makeDisp();
+    const source = CompositeVM.builder<ComponentVM>()
+      .name("source").services(hub, dispatcher)
+      .children(() => []).autoConstructOnAdd(true).build();
+    const destination = GroupVM.builder<ComponentVM>()
+      .name("destination").services(hub, dispatcher)
+      .children(() => []).build();
+    let child: ComponentVM;
+    child = ComponentVM.builder().name("child").services(hub, dispatcher)
+      .onConstruct(() => destination.add(child)).build();
+    source.construct();
+    const events: string[] = [];
+    source.collectionChanged.subscribe(() => events.push("source"));
+    destination.collectionChanged.subscribe(() => events.push("destination"));
+
+    expect(() => source.add(child)).toThrow(/ownership transaction is already in progress/);
+    expect(source.snapshot()).toEqual([]);
+    expect(destination.snapshot()).toEqual([]);
+    expect(events).toEqual([]);
+  });
+
+  it("aborts composite and group admission when auto-construction disposes the destination", () => {
+    const hub = makeHub();
+    const dispatcher = makeDisp();
+    const composite = CompositeVM.builder<ComponentVM>()
+      .name("composite").services(hub, dispatcher)
+      .children(() => []).autoConstructOnAdd(true).build();
+    const group = GroupVM.builder<ComponentVM>()
+      .name("group").services(hub, dispatcher)
+      .children(() => []).autoConstructOnAdd(true).build();
+    const compositeChild = ComponentVM.builder().name("composite-child")
+      .services(hub, dispatcher).onConstruct(() => composite.dispose()).build();
+    const groupChild = ComponentVM.builder().name("group-child")
+      .services(hub, dispatcher).onConstruct(() => group.dispose()).build();
+    composite.construct();
+    group.construct();
+
+    expect(() => composite.add(compositeChild)).toThrow(/disposing/);
+    expect(() => group.add(groupChild)).toThrow(/disposing/);
+    expect(composite.snapshot()).toEqual([]);
+    expect(group.snapshot()).toEqual([]);
+    expect(compositeChild._parent).toBeNull();
+    expect(groupChild._parent).toBeNull();
+  });
+
   it("restores parent, index, current, and lifecycle when construction fails", () => {
     const hub = makeHub();
     const dispatcher = makeDisp();
@@ -870,6 +934,40 @@ describe("COMP-040", () => {
     expect(events).toEqual([]);
     batch.length = 0;
     destination.construct();
+    expect(destination.snapshot()).toEqual([]);
+  });
+
+  it("surfaces a lifecycle compensation failure after restoring membership", () => {
+    const hub = makeHub();
+    const dispatcher = makeDisp();
+    const compensated = ComponentVM.builder()
+      .name("compensated")
+      .services(hub, dispatcher)
+      .onDestruct(() => { throw new Error("compensation failed"); })
+      .build();
+    const blocker = ComponentVM.builder()
+      .name("blocker")
+      .services(hub, dispatcher)
+      .onConstruct(() => { throw new Error("population failed"); })
+      .build();
+    const destination = GroupVM.builder<ComponentVM>()
+      .name("destination")
+      .services(hub, dispatcher)
+      .children(() => [compensated, blocker])
+      .build();
+
+    let caught: unknown;
+    try {
+      destination.construct();
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(Error);
+    const rollback = caught as Error & { rollbackError: unknown };
+    expect(rollback.name).toBe("ContainerRollbackError");
+    expect((rollback.cause as Error).message).toBe("population failed");
+    expect((rollback.rollbackError as Error).message).toBe("compensation failed");
     expect(destination.snapshot()).toEqual([]);
   });
 });

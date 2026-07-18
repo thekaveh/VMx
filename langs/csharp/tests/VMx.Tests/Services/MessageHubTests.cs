@@ -321,6 +321,131 @@ public class MessageHubTests
     }
 
     [Fact]
+    public async Task Opposing_Hub_Callback_Batches_Do_Not_Deadlock_And_Defer_Delivery()
+    {
+        using var left = new MessageHub();
+        using var right = new MessageHub();
+        using var callbacksEntered = new Barrier(2);
+        var innerDeliveries = 0;
+        var deliveryInsideBorrowedScope = 0;
+        var leftBorrowedScope = 0;
+        var rightBorrowedScope = 0;
+        using var leftSubscription = left.Messages.OfType<Stub>().Subscribe(message =>
+        {
+            if (message.Tag == "outer")
+            {
+                callbacksEntered.SignalAndWait();
+                right.Batch(() =>
+                {
+                    Volatile.Write(ref rightBorrowedScope, 1);
+                    try { right.Send(new Stub("inner")); }
+                    finally { Volatile.Write(ref rightBorrowedScope, 0); }
+                });
+            }
+            else
+            {
+                if (Volatile.Read(ref leftBorrowedScope) != 0)
+                    Interlocked.Exchange(ref deliveryInsideBorrowedScope, 1);
+                Interlocked.Increment(ref innerDeliveries);
+            }
+        });
+        using var rightSubscription = right.Messages.OfType<Stub>().Subscribe(message =>
+        {
+            if (message.Tag == "outer")
+            {
+                callbacksEntered.SignalAndWait();
+                left.Batch(() =>
+                {
+                    Volatile.Write(ref leftBorrowedScope, 1);
+                    try { left.Send(new Stub("inner")); }
+                    finally { Volatile.Write(ref leftBorrowedScope, 0); }
+                });
+            }
+            else
+            {
+                if (Volatile.Read(ref rightBorrowedScope) != 0)
+                    Interlocked.Exchange(ref deliveryInsideBorrowedScope, 1);
+                Interlocked.Increment(ref innerDeliveries);
+            }
+        });
+
+        var sends = Task.WhenAll(
+            Task.Run(() => left.Send(new Stub("outer"))),
+            Task.Run(() => right.Send(new Stub("outer"))));
+
+        await sends.WaitAsync(TimeSpan.FromSeconds(5));
+        innerDeliveries.Should().Be(2);
+        deliveryInsideBorrowedScope.Should().Be(0,
+            "the target owner cannot drain until the borrowed batch body exits");
+    }
+
+    [Theory]
+    [InlineData("send")]
+    [InlineData("batch")]
+    [InlineData("dispose")]
+    public async Task Unrelated_Hub_Callback_Waits_For_Busy_Target(string operation)
+    {
+        using var source = new MessageHub();
+        using var target = new MessageHub();
+        using var batchEntered = new ManualResetEventSlim();
+        using var releaseBatch = new ManualResetEventSlim();
+        using var callbackFinished = new ManualResetEventSlim();
+        var deliveries = 0;
+        var completions = 0;
+        using var targetSubscription = target.Messages.Subscribe(
+            _ => Interlocked.Increment(ref deliveries),
+            () => Interlocked.Increment(ref completions));
+
+        var targetBatch = Task.Run(() => target.Batch(() =>
+        {
+            batchEntered.Set();
+            releaseBatch.Wait();
+        }));
+        batchEntered.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue();
+
+        using var sourceSubscription = source.Messages.Subscribe(_ =>
+        {
+            switch (operation)
+            {
+                case "send":
+                    target.Send(new Stub("nested"));
+                    break;
+                case "batch":
+                    target.Batch(() => target.Send(new Stub("nested")));
+                    break;
+                case "dispose":
+                    target.Dispose();
+                    break;
+            }
+            callbackFinished.Set();
+        });
+        var sourceSend = Task.Run(() => source.Send(new Stub("outer")));
+
+        var wasBlocked = false;
+        try
+        {
+            wasBlocked = !callbackFinished.Wait(TimeSpan.FromMilliseconds(50));
+        }
+        finally
+        {
+            releaseBatch.Set();
+            await Task.WhenAll(targetBatch, sourceSend).WaitAsync(TimeSpan.FromSeconds(5));
+        }
+
+        wasBlocked.Should().BeTrue(
+            "a callback only defers when waiting would close an actual cross-hub cycle");
+        if (operation == "dispose")
+        {
+            completions.Should().Be(1);
+            deliveries.Should().Be(0);
+        }
+        else
+        {
+            deliveries.Should().Be(1);
+        }
+    }
+
+    [Fact]
     public void Development_Drain_Diagnostic_Names_Message_Type()
     {
 #if DEBUG

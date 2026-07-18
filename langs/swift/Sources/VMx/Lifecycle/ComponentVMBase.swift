@@ -16,6 +16,35 @@
 import Foundation
 import Combine
 
+private final class LifecycleWaitCoordinator: @unchecked Sendable {
+    static let shared = LifecycleWaitCoordinator()
+
+    private let lock = NSLock()
+    private var waitingOn: [UInt64: UInt64] = [:]
+
+    func beginWait(caller: UInt64, owner: UInt64) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        waitingOn[caller] = owner
+        var cursor = owner
+        var visited = Set<UInt64>()
+        while visited.insert(cursor).inserted, let next = waitingOn[cursor] {
+            if next == caller {
+                waitingOn.removeValue(forKey: caller)
+                return false
+            }
+            cursor = next
+        }
+        return true
+    }
+
+    func endWait(caller: UInt64) {
+        lock.lock()
+        waitingOn.removeValue(forKey: caller)
+        lock.unlock()
+    }
+}
+
 /// Minimal parent interface used by a child for selection delegation.
 /// Mirrors `IParentVM` in the other flavors.
 public protocol ParentVM: AnyObject {
@@ -41,6 +70,17 @@ protocol OwnershipParentVM: AnyObject {
     func detachForTransfer(_ vm: ComponentVMBase) throws -> ParentTransfer
 }
 
+/// Transaction-aware ownership surface used by containers that can stage
+/// several children from the same old parent as one atomic population.
+protocol TransactionalOwnershipParentVM: OwnershipParentVM {
+    func detachForTransfer(
+        _ vm: ComponentVMBase,
+        transaction: ContainerOwnershipTransaction
+    ) throws -> ParentTransfer
+}
+
+final class ContainerOwnershipTransaction {}
+
 /// One-shot staged removal from an old parent.
 final class ParentTransfer {
     private let commitAction: () -> Void
@@ -65,24 +105,68 @@ final class ParentTransfer {
     }
 }
 
+private let ownershipTransactionCoordinator = NSRecursiveLock()
+
+func lockOwnershipTransactionCoordinator() {
+    ownershipTransactionCoordinator.lock()
+}
+
+func unlockOwnershipTransactionCoordinator() {
+    ownershipTransactionCoordinator.unlock()
+}
+
 func beginParentTransfer(
     _ child: ComponentVMBase,
-    to destination: OwnershipParentVM
-) throws -> ParentTransfer? {
-    guard !destination.containsIdentity(child) else {
-        throw ContainerOwnershipError.duplicate
+    to destination: OwnershipParentVM,
+    transaction: ContainerOwnershipTransaction
+) throws -> ParentTransfer {
+    ownershipTransactionCoordinator.lock()
+    child.ownershipGate.lock()
+    guard !child.ownershipInProgress else {
+        child.ownershipGate.unlock()
+        ownershipTransactionCoordinator.unlock()
+        throw ContainerOwnershipTransactionError()
     }
+    child.ownershipInProgress = true
 
-    var cursor: OwnershipParentVM? = destination
-    while let current = cursor {
-        guard current.ownershipOwner !== child else {
-            throw ContainerOwnershipError.cycle
+    let staged: ParentTransfer?
+    do {
+        guard !destination.containsIdentity(child) else {
+            throw ContainerOwnershipError.duplicate
         }
-        cursor = current.ownershipOwnerParent
+
+        var cursor: OwnershipParentVM? = destination
+        while let current = cursor {
+            guard current.ownershipOwner !== child else {
+                throw ContainerOwnershipError.cycle
+            }
+            cursor = current.ownershipOwnerParent
+        }
+
+        if let parent = child._ownershipParent as? TransactionalOwnershipParentVM {
+            staged = try parent.detachForTransfer(child, transaction: transaction)
+        } else {
+            staged = try child._ownershipParent?.detachForTransfer(child)
+        }
+    } catch {
+        child.ownershipInProgress = false
+        child.ownershipGate.unlock()
+        ownershipTransactionCoordinator.unlock()
+        throw error
     }
 
-    return try child._ownershipParent?.detachForTransfer(child)
+    func finish(commit: Bool) {
+        defer {
+            child.ownershipInProgress = false
+            child.ownershipGate.unlock()
+            ownershipTransactionCoordinator.unlock()
+        }
+        if commit { staged?.commit() } else { staged?.rollback() }
+    }
+    return ParentTransfer(commit: { finish(commit: true) }, rollback: { finish(commit: false) })
 }
+
+private struct ContainerOwnershipTransactionError: Error {}
 
 /// View-model kind tag. Mirrors `ViewModelType`.
 public enum ViewModelType: String, Sendable {
@@ -136,6 +220,8 @@ open class ComponentVMBase {
     /// flip it.
     weak var _parent: ParentVM?
     weak var _ownershipParent: OwnershipParentVM?
+    fileprivate let ownershipGate = NSRecursiveLock()
+    fileprivate var ownershipInProgress = false
 
     // ── Reactive primitives ─────────────────────────────────────────────
 
@@ -151,7 +237,7 @@ open class ComponentVMBase {
         let generation: UInt64?
         let isDisposal: Bool
         let ownerThread: UInt64
-        let mayBeAdopted: Bool
+        var mayBeAdopted: Bool
         let afterDelivery: () -> Void
         let ready = DispatchSemaphore(value: 0)
         var applied = false
@@ -710,7 +796,8 @@ open class ComponentVMBase {
         publication: LifecyclePublication,
         shouldDrain: Bool,
         shouldAwaitTurn: Bool,
-        shouldDeliverInline: Bool
+        shouldDeliverInline: Bool,
+        awaitedOwner: UInt64
     )
 
     private func _claimHook(
@@ -794,16 +881,16 @@ open class ComponentVMBase {
         )
         if isDisposal && lifecycleDrainerThread == caller {
             _applyLifecyclePublicationLocked(publication)
-            return (publication, false, false, true)
+            return (publication, false, false, true, 0)
         }
         lifecyclePublications.append(publication)
         if lifecycleDrainerThread == 0 {
             lifecycleDrainerThread = caller
             _applyLifecyclePublicationLocked(publication)
-            return (publication, true, false, false)
+            return (publication, true, false, false, 0)
         }
         let shouldAwaitTurn = lifecycleDrainerThread != caller && !mayBeAdopted
-        return (publication, false, shouldAwaitTurn, false)
+        return (publication, false, shouldAwaitTurn, false, lifecycleDrainerThread)
     }
 
     private func _applyLifecyclePublicationLocked(
@@ -829,6 +916,17 @@ open class ComponentVMBase {
         } else if plan.shouldDrain {
             _drainLifecyclePublications()
         } else if plan.shouldAwaitTurn {
+            let caller = Self.currentThreadID
+            if !LifecycleWaitCoordinator.shared.beginWait(
+                caller: caller,
+                owner: plan.awaitedOwner
+            ) {
+                lifecycleLock.lock()
+                plan.publication.mayBeAdopted = true
+                lifecycleLock.unlock()
+                return
+            }
+            defer { LifecycleWaitCoordinator.shared.endWait(caller: caller) }
             plan.publication.ready.wait()
             _drainLifecyclePublications()
         }

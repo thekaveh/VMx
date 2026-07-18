@@ -411,7 +411,30 @@ where
     if let Some(value) = discarded {
         cleanup(&inner, value);
     }
+    {
+        let machine = lock(&inner.machine);
+        if machine.disposed
+            || machine
+                .operation
+                .as_ref()
+                .is_none_or(|current| current.identity != operation.identity)
+        {
+            return Ok(());
+        }
+    }
     notify_state(&inner);
+
+    let should_start = {
+        let machine = lock(&inner.machine);
+        !machine.disposed
+            && machine
+                .operation
+                .as_ref()
+                .is_some_and(|current| current.identity == operation.identity)
+    };
+    if !should_start {
+        return Ok(());
+    }
 
     let (done_send, done_receive) = mpsc::channel();
     let loader_inner = inner.clone();

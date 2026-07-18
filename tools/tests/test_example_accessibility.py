@@ -1,4 +1,4 @@
-"""Source-level accessibility contracts for native flagship views."""
+"""Source-level accessibility contracts for flagship views."""
 
 from pathlib import Path
 
@@ -22,3 +22,14 @@ def test_swift_notebook_rows_expose_selected_trait() -> None:
 
     assert ".accessibilityLabel(nb.notebookName)" in view
     assert ".accessibilityAddTraits(isSelected ? [.isSelected] : [])" in view
+
+
+def test_react_notifications_are_a_polite_live_status_region() -> None:
+    view = (
+        REPO_ROOT
+        / "examples/typescript/react/notes-showcase/src/views/components/Notifications.tsx"
+    ).read_text(encoding="utf-8")
+
+    assert 'role="status"' in view
+    assert 'aria-live="polite"' in view
+    assert 'aria-atomic="false"' in view

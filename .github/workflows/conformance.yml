@@ -18,13 +18,7 @@ on:
       - "langs/python/pyproject.toml"
       - "tools/**"
       - ".pre-commit-config.yaml"
-      - ".github/workflows/conformance.yml"
-      - ".github/workflows/csharp.yml"
-      - ".github/workflows/rust.yml"
-      - ".github/workflows/swift.yml"
-      - ".github/workflows/typescript.yml"
-      - ".github/workflows/release.yml"
-      - ".github/workflows/wiki.yml"
+      - ".github/workflows/**"
   pull_request:
     branches: [main, develop]
     paths:
@@ -39,13 +33,7 @@ on:
       - "langs/python/pyproject.toml"
       - "tools/**"
       - ".pre-commit-config.yaml"
-      - ".github/workflows/conformance.yml"
-      - ".github/workflows/csharp.yml"
-      - ".github/workflows/rust.yml"
-      - ".github/workflows/swift.yml"
-      - ".github/workflows/typescript.yml"
-      - ".github/workflows/release.yml"
-      - ".github/workflows/wiki.yml"
+      - ".github/workflows/**"
   workflow_dispatch:
 
 jobs:

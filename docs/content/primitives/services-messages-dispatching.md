@@ -195,8 +195,12 @@ An ordinary top-level send remains synchronous. If a subscriber sends another
 message, that message waits behind the in-flight message, so all subscribers
 finish `A` before any starts `B`. Threaded flavors serialize another producer
 behind the active transaction and then deliver on that producer's calling
-thread. Keep transaction bodies short and never wait for a thread that is
-itself trying to send through the same hub.
+thread. The only exception is an actual cross-hub thread wait cycle: the edge
+that would close the cycle enqueues and returns to the active owner. A cyclic
+batch borrows the target until its body exits, so the owner cannot resume
+draining early. Unrelated busy targets still wait synchronously. Keep
+transaction bodies short and never wait for a thread that is itself trying to
+send through the same hub.
 
 Development builds bound a drain cycle and report the involved message types.
 TypeScript detects Node development/test mode automatically; browser adapters

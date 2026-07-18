@@ -240,7 +240,15 @@ public sealed class AsyncResourceVM<T> : ComponentVMBase
         }
 
         previousOperation?.Cancel();
-        if (cleanupDiscarded) Cleanup(discarded!);
+        if (cleanupDiscarded)
+        {
+            Cleanup(discarded!);
+            if (!IsOperationCurrent(operation))
+            {
+                operation.Dispose();
+                return;
+            }
+        }
         NotifyStateChanged();
         // Register only after Loading has been published. Registration invokes
         // synchronously if cancellation raced admission, so the handler then
@@ -321,16 +329,27 @@ public sealed class AsyncResourceVM<T> : ComponentVMBase
     {
         bool hasPrevious;
         T? previous;
+        AsyncResourceState<T> committedState;
+        long committedIdentity;
         lock (_resourceGate)
         {
             if (!IsCurrentUnsafe(operation)) return false;
             _operation = null;
             hasPrevious = TryGetValue(_stableState, out previous);
-            _stableState = AsyncResourceState<T>.Ready(value);
-            _state = _stableState;
+            committedState = AsyncResourceState<T>.Ready(value);
+            _stableState = committedState;
+            _state = committedState;
+            committedIdentity = _operationIdentity;
         }
         if (hasPrevious) Cleanup(previous!);
-        NotifyStateChanged();
+        bool notify;
+        lock (_resourceGate)
+        {
+            notify = !_resourceDisposed &&
+                     _operationIdentity == committedIdentity &&
+                     ReferenceEquals(_state, committedState);
+        }
+        if (notify) NotifyStateChanged();
         return true;
     }
 

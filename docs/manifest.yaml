@@ -296,3 +296,7 @@ sections:
     number: "11"
     title: Contributing & Releases
     source: docs/content/contributing-releases.md
+  - id: rust-parity-status
+    number: "12"
+    title: Rust Parity Status
+    source: docs/maintenance/2026-07-16-rust-capability-parity.md

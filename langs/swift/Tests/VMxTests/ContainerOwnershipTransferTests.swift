@@ -8,8 +8,9 @@ import Combine
 import XCTest
 @testable import VMx
 
-private enum OwnershipTestError: Error {
+private enum OwnershipTestError: Error, Equatable {
     case constructFailed
+    case destructFailed
 }
 
 private final class ThrowingOwnershipChild: ComponentVMBase {
@@ -22,6 +23,39 @@ private final class ThrowingOwnershipChild: ComponentVMBase {
                 if shouldFail() { throw OwnershipTestError.constructFailed }
             }
         )
+    }
+}
+
+private final class CompensatingOwnershipChild: ComponentVMBase {
+    init(_ name: String, failConstruct: Bool = false, failDestruct: Bool = false) {
+        super.init(
+            name: name,
+            hub: NullMessageHub.INSTANCE,
+            dispatcher: NullDispatcher.INSTANCE,
+            onConstruct: {
+                if failConstruct { throw OwnershipTestError.constructFailed }
+            },
+            onDestruct: {
+                if failDestruct { throw OwnershipTestError.destructFailed }
+            }
+        )
+    }
+}
+
+private final class OwnershipErrorStore: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage: [Error] = []
+
+    func append(_ error: Error) {
+        lock.lock()
+        storage.append(error)
+        lock.unlock()
+    }
+
+    var errors: [Error] {
+        lock.lock()
+        defer { lock.unlock() }
+        return storage
     }
 }
 
@@ -87,13 +121,19 @@ final class ContainerOwnershipTransferTests: XCTestCase {
 
     /// COMP-040 — A failed destination attach restores exact old membership/current state.
     func testCOMP040FailedAttachRollsBackOldParentState() throws {
-        let child = ThrowingOwnershipChild("child")
+        var destination: CompositeVM<ThrowingOwnershipChild>!
+        var child: ThrowingOwnershipChild!
+        var reentrantRemovalAccepted = true
+        child = ThrowingOwnershipChild("child", shouldFail: {
+            reentrantRemovalAccepted = destination.remove(child)
+            return true
+        })
         let oldParent = CompositeVM<ThrowingOwnershipChild>(
             name: "old",
             hub: NullMessageHub.INSTANCE,
             dispatcher: NullDispatcher.INSTANCE
         )
-        let destination = CompositeVM<ThrowingOwnershipChild>(
+        destination = CompositeVM<ThrowingOwnershipChild>(
             name: "destination",
             hub: NullMessageHub.INSTANCE,
             dispatcher: NullDispatcher.INSTANCE,
@@ -113,6 +153,10 @@ final class ContainerOwnershipTransferTests: XCTestCase {
         XCTAssertTrue(oldParent.at(0) === child)
         XCTAssertTrue(oldParent.current === child)
         XCTAssertEqual(destination.count, 0)
+        XCTAssertFalse(
+            reentrantRemovalAccepted,
+            "a candidate hook cannot mutate destination membership mid-transaction"
+        )
     }
 
     /// COMP-040 — Lazy population rollback restores earlier transfers and is retryable.
@@ -181,5 +225,117 @@ final class ContainerOwnershipTransferTests: XCTestCase {
         try destination.addResult(child).get()
 
         XCTAssertEqual(order, ["remove", "add"])
+    }
+
+    func testPopulationRejectsReentrantMutationInBothContainers() throws {
+        var composite: CompositeVM<ThrowingOwnershipChild>!
+        var compositeClearAttempted = false
+        let compositeChild = ThrowingOwnershipChild("composite-child", shouldFail: {
+            compositeClearAttempted = true
+            composite.clear()
+            return false
+        })
+        composite = CompositeVM<ThrowingOwnershipChild>(
+            name: "composite",
+            hub: NullMessageHub.INSTANCE,
+            dispatcher: NullDispatcher.INSTANCE,
+            childrenFactory: { [compositeChild] }
+        )
+
+        var group: GroupVM<ThrowingOwnershipChild>!
+        var groupClearAttempted = false
+        let groupChild = ThrowingOwnershipChild("group-child", shouldFail: {
+            groupClearAttempted = true
+            group.clear()
+            return false
+        })
+        group = GroupVM<ThrowingOwnershipChild>(
+            name: "group",
+            hub: NullMessageHub.INSTANCE,
+            dispatcher: NullDispatcher.INSTANCE,
+            childrenFactory: { [groupChild] }
+        )
+
+        try composite.construct()
+        try group.construct()
+
+        XCTAssertTrue(compositeClearAttempted)
+        XCTAssertTrue(groupClearAttempted)
+        XCTAssertEqual(composite.count, 1)
+        XCTAssertEqual(group.count, 1)
+        XCTAssertTrue(composite.at(0) === compositeChild)
+        XCTAssertTrue(group.at(0) === groupChild)
+    }
+
+    func testReversedConcurrentPopulationCompletesWithoutSplitOwnership() throws {
+        let first = try leaf("first")
+        let second = try leaf("second")
+        let factoryAEntered = DispatchSemaphore(value: 0)
+        let factoryBEntered = DispatchSemaphore(value: 0)
+        let destinationA = CompositeVM<ComponentVM>(
+            name: "destination-a",
+            hub: NullMessageHub.INSTANCE,
+            dispatcher: NullDispatcher.INSTANCE,
+            childrenFactory: {
+                factoryAEntered.signal()
+                _ = factoryBEntered.wait(timeout: .now() + 2)
+                return [first, second]
+            }
+        )
+        let destinationB = GroupVM<ComponentVM>(
+            name: "destination-b",
+            hub: NullMessageHub.INSTANCE,
+            dispatcher: NullDispatcher.INSTANCE,
+            childrenFactory: {
+                factoryBEntered.signal()
+                _ = factoryAEntered.wait(timeout: .now() + 2)
+                return [second, first]
+            }
+        )
+        let errors = OwnershipErrorStore()
+        let done = DispatchGroup()
+
+        done.enter()
+        DispatchQueue.global().async {
+            defer { done.leave() }
+            do { try destinationA.construct() } catch { errors.append(error) }
+        }
+        done.enter()
+        DispatchQueue.global().async {
+            defer { done.leave() }
+            do { try destinationB.construct() } catch { errors.append(error) }
+        }
+
+        XCTAssertEqual(done.wait(timeout: .now() + 5), .success)
+        XCTAssertTrue(errors.errors.isEmpty)
+        XCTAssertEqual([destinationA.count, destinationB.count].sorted(), [0, 2])
+        XCTAssertEqual(
+            destinationA.snapshot().filter { $0 === first || $0 === second }.count
+                + destinationB.snapshot().filter { $0 === first || $0 === second }.count,
+            2
+        )
+    }
+
+    func testPopulationSurfacesLifecycleCompensationFailure() {
+        let first = CompensatingOwnershipChild("first", failDestruct: true)
+        let blocker = CompensatingOwnershipChild("blocker", failConstruct: true)
+        let destination = GroupVM<CompensatingOwnershipChild>(
+            name: "destination",
+            hub: NullMessageHub.INSTANCE,
+            dispatcher: NullDispatcher.INSTANCE,
+            childrenFactory: { [first, blocker] }
+        )
+
+        XCTAssertThrowsError(try destination.construct()) { error in
+            guard let ownershipError = error as? ContainerOwnershipError,
+                  case let .attachmentFailed(underlying) = ownershipError,
+                  let compensation = underlying as? OwnershipTestError,
+                  compensation == .destructFailed else {
+                return XCTFail("expected surfaced destruct compensation failure, got \(error)")
+            }
+        }
+        XCTAssertEqual(destination.count, 0)
+        XCTAssertNil(first._ownershipParent)
+        XCTAssertNil(blocker._ownershipParent)
     }
 }

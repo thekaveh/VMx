@@ -105,7 +105,7 @@
 <rect x="240" y="694" width="1240" height="86" rx="8" fill="#0f172a"/>
 <rect x="240" y="694" width="1240" height="86" rx="8" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.8"/>
 <text x="860" y="722" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Flavor surface</text>
-<text x="860" y="748" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">C# PascalCase, Python/Rust snake_case methods, TypeScript/Swift camelCase - same shape, idiomatic surface only.</text>
+<text x="860" y="748" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">C# PascalCase, Python/Rust snake_case methods, TypeScript/Swift camelCase; Rust gaps remain ledgered.</text>
 <rect x="80" y="842" width="1540" height="76" rx="8" fill="#0f172a"/>
 <rect x="80" y="842" width="1540" height="76" rx="8" fill="rgba(15, 23, 42, 0.94)" stroke="#94a3b8" stroke-width="1.2"/>
 <text x="96" y="866" fill="#f8fafc" font-size="13" font-weight="700" text-anchor="start">Reading note</text>

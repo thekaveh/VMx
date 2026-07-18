@@ -394,7 +394,7 @@ def architecture(output_root: Path) -> None:
             "Spec discipline",
             [
                 "spec/ is the source of truth.",
-                f"Every full-parity flavor tracks {LIBRARY_COUNT} library IDs.",
+                f"Every catalog-complete flavor tracks {LIBRARY_COUNT} library IDs.",
                 "THEME-001..005 live in the flagship examples.",
             ],
         ),
@@ -419,7 +419,7 @@ def architecture(output_root: Path) -> None:
         output_root,
         Path("assets/architecture"),
         "VMx Architecture",
-        f"spec {SPEC_VERSION} · five full-parity flavors · examples as contract probes",
+        f"spec {SPEC_VERSION} · five catalog-complete flavors · examples as contract probes",
         1600,
         940,
         body,
@@ -609,9 +609,10 @@ def class_diagram(output_root: Path) -> None:
         (
             "Parity model",
             [
-                "Every flavor exposes the same conceptual shape.",
+                "Every flavor implements the shared normative concepts.",
                 "Names are idiomatic per language.",
-                "Swift is now full-catalog parity.",
+                "All five flavors are catalog-complete.",
+                "C#, Python, TypeScript, and Swift are member-aligned; Rust gaps are ledgered.",
             ],
         ),
         (

@@ -56,6 +56,7 @@ def _mapped_target(
     current_output: Path,
     source_map: dict[Path, Path],
     surface: str,
+    repo_root: Path,
 ) -> str | None:
     clean = _strip_url_bits(target)
     if clean.endswith(".ipynb"):
@@ -70,20 +71,18 @@ def _mapped_target(
         return target
     if clean.endswith("/"):
         sibling_page = f"{clean.rstrip('/')}.md"
-        sibling_candidate = (current_source.parent / sibling_page).resolve()
-        repo_root = Path.cwd().resolve()
+        sibling_candidate = (repo_root / current_source.parent / sibling_page).resolve()
         try:
-            sibling_canonical = sibling_candidate.relative_to(repo_root)
+            sibling_canonical = sibling_candidate.relative_to(repo_root.resolve())
         except ValueError:
             sibling_canonical = Path()
         clean = sibling_page if sibling_canonical in source_map else f"{clean}index.md"
     elif not clean.endswith(".md"):
         return None
 
-    candidate = (current_source.parent / clean).resolve()
-    repo_root = Path.cwd().resolve()
+    candidate = (repo_root / current_source.parent / clean).resolve()
     try:
-        canonical = candidate.relative_to(repo_root)
+        canonical = candidate.relative_to(repo_root.resolve())
     except ValueError:
         return None
     if canonical not in source_map:
@@ -103,7 +102,10 @@ def rewrite_for_surface(
     current_source: Path,
     current_output: Path,
     source_map: dict[Path, Path],
+    repo_root: Path | None = None,
 ) -> str:
+    selected_root = (repo_root or Path.cwd()).resolve()
+
     def replace(match: re.Match[str]) -> str:
         image = bool(match.group("image"))
         label = match.group("label")
@@ -115,6 +117,7 @@ def rewrite_for_surface(
                 current_output=current_output,
                 source_map=source_map,
                 surface=surface,
+                repo_root=selected_root,
             )
             if not mapped:
                 return _bare_link(label, target, image=image)
@@ -128,6 +131,7 @@ def rewrite_for_surface(
             current_output=current_output,
             source_map=source_map,
             surface=surface,
+            repo_root=selected_root,
         )
         if mapped is None:
             return _bare_link(label, target, image=image)
@@ -145,6 +149,7 @@ def rewrite_for_surface(
             current_output=current_output,
             source_map=source_map,
             surface=surface,
+            repo_root=selected_root,
         )
         if mapped is None:
             return match.group(0)

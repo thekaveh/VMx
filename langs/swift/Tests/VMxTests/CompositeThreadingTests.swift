@@ -12,6 +12,7 @@
 //
 import XCTest
 import Combine
+import Foundation
 @testable import VMx
 
 final class CompositeThreadingTests: XCTestCase {
@@ -176,5 +177,44 @@ final class CompositeThreadingTests: XCTestCase {
 
         XCTAssertNil(composite.current, "deferred selection must be dropped if child was removed")
         XCTAssertFalse(vmA.isCurrent)
+    }
+
+    func testConcurrentCurrentAssignmentsLeaveOneCurrentFlag() throws {
+        let hub = MessageHub()
+        let first = try ComponentVM.builder().name("first")
+            .services(hub: hub, dispatcher: NullDispatcher.INSTANCE).build()
+        let second = try ComponentVM.builder().name("second")
+            .services(hub: hub, dispatcher: NullDispatcher.INSTANCE).build()
+        let composite = try CompositeVM<ComponentVM>.builder().name("composite")
+            .services(hub: hub, dispatcher: NullDispatcher.INSTANCE)
+            .children { [first, second] }.build()
+        let entered = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        let firstDone = DispatchSemaphore(value: 0)
+        let secondDone = DispatchSemaphore(value: 0)
+        first.propertyChanged.sink { propertyName in
+            if propertyName == "isCurrent", first.isCurrent {
+                entered.signal()
+                release.wait()
+            }
+        }.store(in: &cancellables)
+
+        DispatchQueue.global().async {
+            composite.current = first
+            firstDone.signal()
+        }
+        XCTAssertEqual(entered.wait(timeout: .now() + 2), .success)
+        DispatchQueue.global().async {
+            composite.current = second
+            secondDone.signal()
+        }
+        XCTAssertEqual(secondDone.wait(timeout: .now() + 0.05), .timedOut)
+        release.signal()
+        XCTAssertEqual(firstDone.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(secondDone.wait(timeout: .now() + 2), .success)
+
+        XCTAssertTrue(composite.current === second)
+        XCTAssertFalse(first.isCurrent)
+        XCTAssertTrue(second.isCurrent)
     }
 }

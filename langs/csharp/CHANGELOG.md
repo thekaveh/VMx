@@ -6,29 +6,60 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ## [Unreleased]
 
+### Changed
+
+- CI and release verification now exercise .NET 8, .NET 9, and the current
+  .NET 10 LTS; System.Reactive and Microsoft.Reactive.Testing are upgraded to
+  7.0.0 with their compatible immutable-collections graph.
+
 ### Fixed
+
+- Public async lifecycle re-entry now follows LIFE-008 while container cascades
+  retain a private join path. Composite/group membership admission, transfer
+  rollback, factory population, selection, and disposal snapshots now share one
+  transaction boundary so concurrent or re-entrant mutation cannot escape
+  cleanup; lifecycle compensation failures are surfaced.
+
+- Lifecycle status, INPC, command-trigger, and async-waiter callbacks now drain
+  outside the per-VM state guard. Ordinary foreign lifecycle calls still wait
+  synchronously; only a proven cross-VM wait cycle defers publication.
+
+- Membership commits now recheck destination disposal after auto-construction,
+  and competing current assignments serialize through the membership gate so
+  exactly one retained child remains current.
+
+- CI and release builds now audit transitive NuGet dependencies.
 
 - NuGet packages now include the repository's Apache-2.0 `LICENSE` and `NOTICE`
   files alongside the existing SPDX metadata.
+
 - Command and component disposal now attempts every terminal notification,
   subscription release, stream teardown, and owned command before rethrowing the
   first observer failure.
 
+- Async-resource reloads started reentrantly by value cleanup now supersede the
+  old operation before it can publish a stale loaded-value notification.
+
 - Common VM options factories now retain a supplied hub or dispatcher
   independently, so builder validation identifies the actual missing service
   counterpart (BLD-006, ADR-0112).
+
 - C# release tags now select exactly one package: core retains `csharp-v*`,
   while notifications and DI use package-specific namespaces that cannot
   collide when independently versioned projects share a version number.
+
 - Notification rendering VMs now serialize expiry, explicit resolution, and
   disposal through one terminal claim, preventing a timer that loses to
   disposal from resolving the hub or publishing post-dispose state.
+
 - Message-hub disposal now serializes stream completion behind active message
   delivery, including re-entrant and opposing cross-hub disposal, so Rx
   terminal callbacks never overlap an in-flight message callback.
-- Nested sends from one active message-hub callback to another hub now enqueue
-  instead of waiting on the foreign drainer, preventing opposing-hub deadlocks
-  while ordinary producers retain synchronous calling-thread delivery.
+
+- Cross-hub sends, disposal, and batches now escape only actual thread wait
+  cycles; unrelated busy targets still wait for synchronous calling-thread
+  delivery, while cyclic batches borrow the target queue until their body exits.
+
 - `ConstructAsync`, `DestructAsync`, and deferred container lifecycle tasks now
   preserve hook and child-cascade failures after publishing transactional
   rollback instead of completing successfully (ADR-0109).
@@ -556,6 +587,7 @@ Implements `spec-v2.5.0` (ADR-0037). `VMx.Notifications` companion bumps to
 - `HierarchicalVM.ReparentChild` rejects self- and ancestor-reparenting with
   `InvalidOperationException` instead of silently corrupting the tree
   (HIER-018).
+
 - `NOTIF-017` conformance coverage for the hub's dispose semantics (now
   normative across flavors).
 
@@ -738,6 +770,7 @@ search/filter, expand/collapse, modeled-CRUD commands, null-object services,
 opt-in notifications sub-package, and a localization hook.
 
 ### Added
+
 - **Capabilities** (`VMx.Capabilities`): 20 opt-in micro-interfaces —
   `ISelectable`, `IDeselectable`, `ISelectionTogglable`, `IExpandable`,
   `ICollapsible`, `IExpansionTogglable`, `ISearchable`, `IClosable`,
@@ -765,6 +798,7 @@ opt-in notifications sub-package, and a localization hook.
 - **Conformance**: 77 new IDs added (total 152).
 
 ### Internal
+
 - `BuilderValidationException.Require([NotNull])` rolled out to the new
   v2.0 builders (CRUD, expandable, searchable, derived) for consistent
   null-check shapes.
@@ -775,6 +809,7 @@ opt-in notifications sub-package, and a localization hook.
 ## [1.2.0] — 2026-05-23
 
 ### Added
+
 - Non-modeled `ComponentVM` class + `ComponentVMBuilder` for parity with the
   Python and TypeScript flavors. Existing `ComponentVM<M>` continues to ship
   alongside it (additive change, no consumer impact).
@@ -786,12 +821,14 @@ opt-in notifications sub-package, and a localization hook.
   netstandard2.0 target (existing `IsExternalInit` polyfill pattern).
 
 ### Removed
+
 - `ComponentVMBuilder<M>.AsyncSelection(bool)` setter — the parameter was stored
   on the builder but never forwarded to the constructed `ComponentVM<M>` (only
   `CompositeVMBuilder<…>.AsyncSelection` is honoured at runtime, and that setter
   is unchanged). No test referenced the component-level setter.
 
 ### Internal
+
 - Comment polish on `ComponentVMBase.IsCurrent` idempotent-set guard,
   `LifecycleTransitionValidator` `Lazy<T>` thread-safety, and
   `Directory.Packages.props` central transitive pinning.
@@ -799,6 +836,7 @@ opt-in notifications sub-package, and a localization hook.
 ## [1.1.0] — 2026-05-23
 
 ### Added
+
 - Implements spec-v1.1.0 on top of the v1.0.0 surface.
 - `CompositeVM` / `CompositeVMOf` / `GroupVM`: new `.AutoConstructOnAdd(bool)` builder option. When `true`, a child added after the container reaches `Constructed` is automatically constructed before the `CollectionChanged(Add)` event fires.
 - `CompositeVM` / `CompositeVMOf` / `GroupVM`: new `BatchUpdate()` method returns an `IDisposable` that suppresses per-mutation `CollectionChanged` events. The outermost `Dispose` emits a single `CollectionChanged(Reset)` event iff any mutations occurred.
@@ -809,6 +847,7 @@ opt-in notifications sub-package, and a localization hook.
 ## [1.0.0] — 2026-05-22
 
 ### Added
+
 - Full implementation of spec-v1.0.0:
   - Lifecycle: `ConstructionStatus` + `StatusTransitionException` + transition validator
   - Messages: `IMessage` hierarchy + `PropertyChangedMessage` + `ConstructionStatusChangedMessage`

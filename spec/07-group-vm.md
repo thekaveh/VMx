@@ -46,9 +46,11 @@ Group membership follows chapter 06 §4.2 exactly. Adding or inserting a child
 owned by another mutable composite or group removes it from the old membership
 before adding it here, without destructing or disposing it. Duplicate identity
 and self/ancestor cycles fail before mutation. Replacement and lazy population
-are transactional; failure restores the old parent, index, selection state (if
-the old parent is a composite), parent link, lifecycle state, and population
-retryability without publishing membership events.
+are transactional under the destination/old-parent isolation rules in chapter
+06 §4.2. Failure restores the old parent, index, selection state (if the old
+parent is a composite), parent link, population retryability, and membership
+event stream. Lifecycle compensation failure is surfaced rather than swallowed,
+as qualified by ADR-0118.
 
 ## 2. Children construction orchestration
 
@@ -106,8 +108,9 @@ in `12-conformance.md` cover:
 - (v1.1) `AutoConstructOnAdd(true)` auto-constructs children added after the group is `Constructed`
 - (v1.1) `BatchUpdate()` suppresses per-mutation events and emits a single `Reset` at completion
 - group children are peers whose inherited select command is disabled
-- atomic cross-parent transfer, duplicate/cycle rejection, exact rollback, and
-  old-removal-before-new-add observation order (`COMP-038` through `COMP-041`)
+- atomic cross-parent transfer, duplicate/cycle rejection, isolated rollback
+  with explicit compensation failure, and old-removal-before-new-add
+  observation order (`COMP-038` through `COMP-041`)
 
 `DISP-001` and `DISP-006` provide the cross-cutting repeated-cascade and
 batch-handle idempotency assertions (ADR-0084).
