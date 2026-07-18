@@ -23,6 +23,7 @@ on:
       - "tools/check-textual-views.py"
       - "tools/check-layer-imports.py"
       - "tools/check-showcase-parity.py"
+      - "tools/tests/test_example_accessibility.py"
       - ".github/workflows/examples-contract-checks.yml"
   pull_request:
     branches: [main, develop]
@@ -32,6 +33,7 @@ on:
       - "tools/check-textual-views.py"
       - "tools/check-layer-imports.py"
       - "tools/check-showcase-parity.py"
+      - "tools/tests/test_example_accessibility.py"
       - ".github/workflows/examples-contract-checks.yml"
   workflow_dispatch:
 
@@ -46,6 +48,18 @@ jobs:
         with:
           python-version: "3.12"
 
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          version: "0.11.28"
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: |
+            langs/typescript/package-lock.json
+            examples/typescript/react/notes-showcase/package-lock.json
+
       - name: axaml code-behind check
         run: python3 tools/check-axaml-codebehind.py
 
@@ -57,3 +71,12 @@ jobs:
 
       - name: showcase parity check
         run: python3 tools/check-showcase-parity.py
+
+      - name: source accessibility contracts
+        run: uvx --from pytest==9.1.1 pytest tools/tests/test_example_accessibility.py -q
+
+      - name: install React showcase dependencies
+        run: npm ci --prefix examples/typescript/react/notes-showcase
+
+      - name: React semantic and keyboard accessibility
+        run: npm test --prefix examples/typescript/react/notes-showcase

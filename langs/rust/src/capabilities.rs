@@ -247,6 +247,7 @@ impl ExpandableState {
         if changed {
             self.expanded_changed.send(Message::Custom {
                 sender_id: 0,
+                sender_name: "ExpandableState".to_string(),
                 name: expanded.to_string(),
             });
         }

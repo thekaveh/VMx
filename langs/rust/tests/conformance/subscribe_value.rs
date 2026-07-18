@@ -53,6 +53,7 @@ fn subscribe_value_filters_source_and_uses_default_equality() {
     other.set_model(SelectedModel { value: 1 });
     hub.send(Message::Custom {
         sender_id: vm.id(),
+        sender_name: vm.name(),
         name: "not-property-changed".to_string(),
     });
     assert_eq!(selector_calls.load(Ordering::SeqCst), 1);
@@ -104,6 +105,7 @@ fn subscribe_value_supports_counted_custom_equality_without_partial_eq() {
     other.set_model(SelectedModel { value: 2 });
     hub.send(Message::Custom {
         sender_id: vm.id(),
+        sender_name: vm.name(),
         name: "not-property-changed".to_string(),
     });
 

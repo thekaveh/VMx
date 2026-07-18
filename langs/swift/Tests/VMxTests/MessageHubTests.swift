@@ -191,6 +191,7 @@ final class MessageHubTests: XCTestCase {
         let source = MessageHub()
         let callbackEntered = DispatchSemaphore(value: 0)
         let aboutToSend = DispatchSemaphore(value: 0)
+        let batchWaitingOnSource = DispatchSemaphore(value: 0)
         let workersReturned = DispatchSemaphore(value: 0)
         let completed = DispatchSemaphore(value: 0)
         let completionCount = LockedInt()
@@ -201,14 +202,15 @@ final class MessageHubTests: XCTestCase {
             },
             receiveValue: { _ in }
         )
+        source.onWaitRegisteredForTesting = {
+            batchWaitingOnSource.signal()
+        }
         let sourceSubscription = source.messages.sink { message in
             guard let changed = message as? PropertyChangedMessage,
                   changed.propertyName == "outer" else { return }
             callbackEntered.signal()
             aboutToSend.wait()
-            // Give the batch owner time to register its synchronous wait on
-            // this source drainer before disposal closes the opposite edge.
-            usleep(50_000)
+            batchWaitingOnSource.wait()
             batched.dispose()
         }
 
@@ -229,6 +231,7 @@ final class MessageHubTests: XCTestCase {
         XCTAssertEqual(workersReturned.wait(timeout: .now() + 2), .success)
         XCTAssertEqual(completed.wait(timeout: .now() + 1), .success)
         XCTAssertEqual(completionCount.value, 1)
+        source.onWaitRegisteredForTesting = nil
         completionSubscription.cancel()
         sourceSubscription.cancel()
     }

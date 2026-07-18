@@ -13,6 +13,7 @@ fn null_message_hub_is_safe_noop() {
 
     hub.send(Message::Custom {
         sender_id: 1,
+        sender_name: "sender".to_string(),
         name: "ignored".to_string(),
     });
     let body_ran = AtomicBool::new(false);
@@ -20,6 +21,7 @@ fn null_message_hub_is_safe_noop() {
         body_ran.store(true, Ordering::SeqCst);
         hub.send(Message::Custom {
             sender_id: 1,
+            sender_name: "sender".to_string(),
             name: "also ignored".to_string(),
         });
     });

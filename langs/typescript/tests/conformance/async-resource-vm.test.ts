@@ -325,6 +325,67 @@ describe("AsyncResourceVM conformance", () => {
     });
   });
 
+  it("suppresses a replaced-value completion when cleanup starts a newer reload", async () => {
+    let nextValue = 0;
+    let reentered = false;
+    let reentrantReload = Promise.resolve();
+    const changes: string[] = [];
+    let vm!: AsyncResourceVM<number>;
+    vm = new AsyncResourceVM<number>({
+      name: "resource",
+      hub: new MessageHub(),
+      dispatcher: NullDispatcher.INSTANCE,
+      retention: AsyncResourceRetention.RetainPrevious,
+      loader: () => Promise.resolve(++nextValue),
+      cleanupValue: (value) => {
+        if (value === 1 && !reentered) {
+          reentered = true;
+          reentrantReload = vm.reload();
+        }
+      },
+    });
+    vm.propertyChanged.subscribe((name) => changes.push(name));
+
+    await vm.load();
+    changes.length = 0;
+    await vm.reload();
+    await reentrantReload;
+
+    expect(changes).toEqual(["state", "state", "state"]);
+    expect(vm.state).toEqual({ status: AsyncResourceStatus.Ready, value: 3 });
+    expect(nextValue).toBe(3);
+  });
+
+  it("abandons a discarded-value reload when cleanup starts a newer reload", async () => {
+    let nextValue = 0;
+    let reentered = false;
+    let reentrantReload = Promise.resolve();
+    const changes: string[] = [];
+    let vm!: AsyncResourceVM<number>;
+    vm = new AsyncResourceVM<number>({
+      name: "resource",
+      hub: new MessageHub(),
+      dispatcher: NullDispatcher.INSTANCE,
+      loader: () => Promise.resolve(++nextValue),
+      cleanupValue: (value) => {
+        if (value === 1 && !reentered) {
+          reentered = true;
+          reentrantReload = vm.reload();
+        }
+      },
+    });
+    vm.propertyChanged.subscribe((name) => changes.push(name));
+
+    await vm.load();
+    changes.length = 0;
+    await vm.reload();
+    await reentrantReload;
+
+    expect(changes).toEqual(["state", "state"]);
+    expect(vm.state).toEqual({ status: AsyncResourceStatus.Ready, value: 2 });
+    expect(nextValue).toBe(2);
+  });
+
   describe("ARES-011", () => {
     it("disposal cancels and makes late completion and intents inert", async () => {
       const late = deferred<number>();

@@ -6,6 +6,7 @@ use vmx::{Message, MessageHub, Subscription};
 fn make_msg(name: &str) -> Message {
     Message::Custom {
         sender_id: 1,
+        sender_name: "sender".to_string(),
         name: name.to_string(),
     }
 }

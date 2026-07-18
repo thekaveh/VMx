@@ -28,9 +28,68 @@ export const NotebooksTree: React.FC<NotebooksTreeProps> = ({ ws }) => {
   // (cheap — the tree is tiny). Each child node uses its own `useVm` for
   // expansion / model changes, so unrelated nodes don't re-render.
   const root = useVm(ws.notebooksRoot);
+  const selectTreeItem = (item: HTMLElement | undefined): void => {
+    const notebook = root.all.find((candidate) => candidate.model.id === item?.dataset.notebookId);
+    if (notebook !== undefined) ws.selectNotebook(notebook);
+  };
+  const onTreeKeyDown = (e: React.KeyboardEvent<HTMLUListElement>): void => {
+    const items = Array.from(e.currentTarget.querySelectorAll<HTMLElement>('[role="treeitem"]'));
+    if (items.length === 0) return;
+    const current = items.find((item) => item.getAttribute("aria-selected") === "true") ?? items[0];
+    if (current === undefined) return;
+    const index = items.indexOf(current);
+    let target: HTMLElement | undefined;
+    switch (e.key) {
+      case "ArrowDown":
+        target = items[Math.min(index + 1, items.length - 1)];
+        break;
+      case "ArrowUp":
+        target = items[Math.max(index - 1, 0)];
+        break;
+      case "Home":
+        target = items[0];
+        break;
+      case "End":
+        target = items.at(-1);
+        break;
+      case "ArrowRight": {
+        const notebook = root.all.find((candidate) => candidate.model.id === current.dataset.notebookId);
+        if (current.getAttribute("aria-expanded") === "false") {
+          notebook?.toggleExpansion();
+        } else if (current.getAttribute("aria-expanded") === "true") {
+          target = current.querySelector<HTMLElement>('[role="group"] > [role="treeitem"]') ?? undefined;
+        }
+        break;
+      }
+      case "ArrowLeft": {
+        const notebook = root.all.find((candidate) => candidate.model.id === current.dataset.notebookId);
+        if (current.getAttribute("aria-expanded") === "true") {
+          notebook?.toggleExpansion();
+        } else {
+          target = current.parentElement?.closest<HTMLElement>('[role="treeitem"]') ?? undefined;
+        }
+        break;
+      }
+      case "Enter":
+      case " ":
+        target = current;
+        break;
+      default:
+        return;
+    }
+    e.preventDefault();
+    selectTreeItem(target);
+  };
 
   return (
-    <ul role="tree" aria-label="Notebooks" style={{ listStyle: "none", padding: 0, margin: 0 }}>
+    <ul
+      role="tree"
+      aria-label="Notebooks"
+      aria-activedescendant={root.current === null ? undefined : `notebook-${root.current.model.id}`}
+      tabIndex={0}
+      onKeyDown={onTreeKeyDown}
+      style={{ listStyle: "none", padding: 0, margin: 0 }}
+    >
       {root.roots.map((nb) => (
         <NotebookTreeNode key={nb.model.id} ws={ws} nb={nb} level={1} />
       ))}
@@ -58,23 +117,23 @@ const NotebookTreeNode: React.FC<NotebookTreeNodeProps> = ({ ws, nb, level }) =>
 
   const onToggle = (e: React.MouseEvent): void => {
     e.stopPropagation();
-    nb.toggleExpansion();
-  };
-  const onNodeKeyDown = (e: React.KeyboardEvent): void => {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      onSelect();
-    } else if (e.key === "ArrowRight" && hasChildren && !liveNb.isExpanded) {
-      e.preventDefault();
-      nb.toggleExpansion();
-    } else if (e.key === "ArrowLeft" && hasChildren && liveNb.isExpanded) {
-      e.preventDefault();
-      nb.toggleExpansion();
+    if (liveNb.isExpanded && liveRoot.current !== null) {
+      let parentId = liveRoot.current.model.parentId;
+      while (parentId !== null) {
+        if (parentId === nb.model.id) {
+          ws.selectNotebook(nb);
+          break;
+        }
+        parentId = root.all.find((candidate) => candidate.model.id === parentId)?.model.parentId ?? null;
+      }
     }
+    nb.toggleExpansion();
   };
 
   return (
     <li
+      id={`notebook-${nb.model.id}`}
+      data-notebook-id={nb.model.id}
       role="treeitem"
       aria-level={level}
       aria-expanded={hasChildren ? liveNb.isExpanded : undefined}
@@ -82,12 +141,11 @@ const NotebookTreeNode: React.FC<NotebookTreeNodeProps> = ({ ws, nb, level }) =>
     >
       <div
         className={`notebooks-tree-node${isCurrent ? " is-current" : ""}`}
-        tabIndex={0}
         onClick={onSelect}
-        onKeyDown={onNodeKeyDown}
       >
         <button
           type="button"
+          tabIndex={-1}
           className="notebooks-tree-toggle"
           aria-label={liveNb.isExpanded ? `Collapse ${liveNb.notebookName}` : `Expand ${liveNb.notebookName}`}
           disabled={!hasChildren}

@@ -224,6 +224,41 @@ fn async_resource_discard_cleans_at_reload_start() {
     assert_eq!(vm.value(), None);
 }
 
+#[test]
+fn replacement_cleanup_that_starts_reload_suppresses_superseded_notification() {
+    let holder = Arc::new(Mutex::new(None::<AsyncResourceVm<i32>>));
+    let next_value = Arc::new(AtomicUsize::new(0));
+    let reentered = Arc::new(AtomicBool::new(false));
+    let cleanup_holder = holder.clone();
+    let cleanup_reentered = reentered.clone();
+    let loader_next = next_value.clone();
+    let vm = AsyncResourceVm::with_options(
+        "resource",
+        move |_| Ok(loader_next.fetch_add(1, Ordering::SeqCst) as i32 + 1),
+        AsyncResourceRetention::RetainPrevious,
+        Some(Arc::new(move |value| {
+            if value == 1 && !cleanup_reentered.swap(true, Ordering::SeqCst) {
+                let vm = cleanup_holder.lock().unwrap().clone().unwrap();
+                vm.reload_async().join().unwrap().unwrap();
+            }
+        })),
+    );
+    *holder.lock().unwrap() = Some(vm.clone());
+    let changes = Arc::new(AtomicUsize::new(0));
+    let observed = changes.clone();
+    let _subscription = vm.property_changed().subscribe(move |_| {
+        observed.fetch_add(1, Ordering::SeqCst);
+    });
+
+    vm.load_async().join().unwrap().unwrap();
+    let baseline = changes.load(Ordering::SeqCst);
+    vm.reload_async().join().unwrap().unwrap();
+
+    assert_eq!(changes.load(Ordering::SeqCst) - baseline, 3);
+    assert_eq!(vm.state(), AsyncResourceState::Ready { value: 3 });
+    assert_eq!(next_value.load(Ordering::SeqCst), 3);
+}
+
 /// ARES-008 — Overlap is latest-start-wins
 #[test]
 fn async_resource_latest_start_wins() {

@@ -260,6 +260,7 @@ where
     ) {
         let message = Message::CollectionChanged(CollectionChangedMessage {
             sender_id: self.owner_id,
+            sender_name: "ServicedObservableCollection".to_string(),
             property_name: "items".to_string(),
             action,
             old_index,
@@ -694,6 +695,7 @@ where
     ) {
         let message = Message::CollectionChanged(CollectionChangedMessage {
             sender_id: self.owner_id,
+            sender_name: "KeyedServicedObservableCollection".to_string(),
             property_name: "items".to_string(),
             action,
             old_index,
@@ -1004,6 +1006,7 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
         self.hub
             .send(Message::CollectionChanged(CollectionChangedMessage {
                 sender_id: self.owner_id,
+                sender_name: "ObservableList".to_string(),
                 property_name: "items".to_string(),
                 action: action.clone(),
                 old_index,
@@ -1013,6 +1016,7 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
             self.hub
                 .send(Message::PropertyChanged(PropertyChangedMessage {
                     sender_id: self.owner_id,
+                    sender_name: "ObservableList".to_string(),
                     property_name: "Count".to_string(),
                 }));
         }
@@ -1108,6 +1112,7 @@ where
         self.hub
             .send(Message::CollectionChanged(CollectionChangedMessage {
                 sender_id: self.owner_id,
+                sender_name: "ObservableDictionary".to_string(),
                 property_name: "items".to_string(),
                 action,
                 old_index: None,
@@ -1221,6 +1226,7 @@ where
         self.hub
             .send(Message::CollectionChanged(CollectionChangedMessage {
                 sender_id: self.owner_id,
+                sender_name: "ObservableMultiDictionary".to_string(),
                 property_name: "items".to_string(),
                 action,
                 old_index: None,

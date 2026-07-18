@@ -134,7 +134,9 @@ public final class MessageHub: TransactionalMessageHubProtocol {
     private var borrowedBatchOwners: [UInt64: Int] = [:]
     private var completionRequested = false
     private var completionStarted = false
-    private var completionFinished = false
+    // Test-only synchronization seam: tests install a non-blocking callback to
+    // observe the exact point at which a foreign-owner wait edge is registered.
+    internal var onWaitRegisteredForTesting: (() -> Void)?
 
     public init() {
         self.diagnosticHandler = nil
@@ -158,6 +160,7 @@ public final class MessageHub: TransactionalMessageHubProtocol {
                 // caller. Enqueue and return so that owner can finish its drain.
                 break
             }
+            onWaitRegisteredForTesting?()
             gate.wait()
             MessageHubWaitCoordinator.shared.endWait(caller: caller)
         }
@@ -338,10 +341,6 @@ public final class MessageHub: TransactionalMessageHubProtocol {
 
     private func completeSubject() {
         subject.send(completion: .finished)
-        gate.lock()
-        completionFinished = true
-        gate.broadcast()
-        gate.unlock()
     }
 
     /// Complete the underlying subject and stop accepting new sends.
@@ -363,6 +362,7 @@ public final class MessageHub: TransactionalMessageHubProtocol {
                 gate.unlock()
                 return
             }
+            onWaitRegisteredForTesting?()
             gate.wait()
             MessageHubWaitCoordinator.shared.endWait(caller: caller)
         }

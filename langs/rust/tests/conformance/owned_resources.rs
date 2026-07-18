@@ -92,6 +92,7 @@ fn injected_hub_is_publicly_visible() {
     let vm = probe(hub.clone());
     vm.hub().send(Message::Custom {
         sender_id: vm.id(),
+        sender_name: vm.name(),
         name: "visible".to_string(),
     });
     assert_eq!(hub.history().len(), 1);
@@ -107,6 +108,7 @@ fn vm_disposal_does_not_dispose_hub() {
 
     hub.send(Message::Custom {
         sender_id: vm.id(),
+        sender_name: vm.name(),
         name: "still-alive".to_string(),
     });
 

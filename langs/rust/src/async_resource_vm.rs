@@ -534,7 +534,7 @@ where
 {
     match result {
         Ok(value) => {
-            let previous = {
+            let (previous, committed_identity) = {
                 let mut machine = lock(&inner.machine);
                 if machine.disposed
                     || machine.operation.as_ref().map(|current| current.identity)
@@ -548,12 +548,20 @@ where
                 let stable =
                     std::mem::replace(&mut machine.stable, StableState::Ready(value.clone()));
                 machine.state = AsyncResourceState::Ready { value };
-                owned_value(stable)
+                (owned_value(stable), machine.identity)
             };
             if let Some(previous) = previous {
                 cleanup(inner, previous);
             }
-            notify_state(inner);
+            let notify = {
+                let machine = lock(&inner.machine);
+                !machine.disposed
+                    && machine.identity == committed_identity
+                    && machine.operation.is_none()
+            };
+            if notify {
+                notify_state(inner);
+            }
         }
         Err(error) => {
             let notify = {

@@ -55,7 +55,7 @@ member is added to a public trait, a short ADR noting the parity correction.
 
 ### 12.2.1. Message Sender Identity Is An Accepted Idiom
 
-Rust's `sender_id: u64` message field is not an open parity gap. ADR-0120 records
+Rust's `sender_id: usize` plus `sender_name: String` message fields are not an open parity gap. ADR-0120 records
 it as the ownership-safe Rust expression of the canonical sender-identity
 contract: the other four flavors retain runtime sender objects, while Rust
 messages remain owned values that do not retain or borrow a VM. Identity

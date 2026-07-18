@@ -8,6 +8,9 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Messages now expose the canonical diagnostic `sender_name` alongside Rust's
+  ownership-safe `sender_id`, and async-resource replacement cleanup can start
+  a newer reload without publishing the superseded completion afterward.
 - Component selection now delegates through the owning selectable parent and
   exposes stable baseline commands with automatic lifecycle eligibility
   triggers; lifecycle capabilities apply to every VM node without implicitly

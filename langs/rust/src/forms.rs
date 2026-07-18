@@ -276,6 +276,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         self.validate();
         self.hub.send(Message::FormReverted(FormRevertedMessage {
             sender_id: self.component.id(),
+            sender_name: self.component.name(),
         }));
         self.component.notify_property_changed("model");
         self.publish_approve_state_change(could_approve);
@@ -291,6 +292,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
                         if let Err(error) = form.approve() {
                             form.approve_errors.send(Message::Custom {
                                 sender_id: form.component.id(),
+                                sender_name: form.component.name(),
                                 name: error.to_string(),
                             });
                         }
@@ -427,6 +429,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         // break the FORM-008 reverted-then-model pair.
         self.errors_changed.send(Message::Custom {
             sender_id: self.component.id(),
+            sender_name: self.component.name(),
             name: "errors_changed".to_string(),
         });
     }
@@ -435,6 +438,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         if self.can_approve() != previous {
             self.approve_can_execute_changed.send(Message::Custom {
                 sender_id: self.component.id(),
+                sender_name: self.component.name(),
                 name: "can_execute_changed".to_string(),
             });
         }

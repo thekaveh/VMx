@@ -37,7 +37,11 @@ def test_contract_suite_triggers_on_typescript_and_release_workflow_changes() ->
 
 def _typescript_release_jobs() -> str:
     workflow = _workflow("release.yml")
-    return workflow.split("\n  typescript:\n", maxsplit=1)[1].split("\n  swift:\n", maxsplit=1)[0]
+    jobs = workflow.split("\n  typescript:\n", maxsplit=1)[1].split("\n  rust-test:\n", maxsplit=1)[
+        0
+    ]
+    assert "\n  rust-test:\n" not in jobs
+    return jobs
 
 
 def test_release_uses_trusted_publishing_node_and_npm_floors_without_cache() -> None:

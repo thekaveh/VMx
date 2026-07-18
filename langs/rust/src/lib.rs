@@ -184,6 +184,7 @@ mod tests {
         let hub = MessageHub::new();
         hub.send(Message::Custom {
             sender_id: 1,
+            sender_name: "sender".to_string(),
             name: "before".to_string(),
         });
         let seen = Arc::new(Mutex::new(Vec::new()));
@@ -191,6 +192,7 @@ mod tests {
         let _sub = hub.subscribe(move |message| lock(&seen_clone).push(message.clone()));
         hub.send(Message::Custom {
             sender_id: 1,
+            sender_name: "sender".to_string(),
             name: "after".to_string(),
         });
         assert_eq!(lock(&seen).len(), 1);

@@ -157,7 +157,9 @@ batches or owns stored-item lifecycle.
 
 ## 4. Imperative Engine Bridge
 
-Rust identifies the fixed source as `hub + sender_id`. Use
+Rust identifies the fixed source as `hub + sender_id`. Every message variant
+also carries the diagnostic `sender_name`; use `Message::sender_name()` when
+logging without matching the concrete variant. Use
 `SubscribeValueOptions::default()` for `PartialEq` equality or
 `SubscribeValueOptions::with_equality(...)` for a custom comparator:
 

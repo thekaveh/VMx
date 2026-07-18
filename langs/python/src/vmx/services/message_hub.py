@@ -91,7 +91,6 @@ class MessageHub(Generic[_THubMessage]):
         self._pending: deque[Message] = deque()
         self._disposed: bool = False
         self._subject_termination_claimed = False
-        self._subject_terminated = False
         self._drainer_thread: int | None = None
         self._batch_owner: int | None = None
         self._batch_depth = 0
@@ -319,12 +318,7 @@ class MessageHub(Generic[_THubMessage]):
         try:
             self._subject.on_completed()
         finally:
-            try:
-                self._subject.dispose()
-            finally:
-                with self._gate:
-                    self._subject_terminated = True
-                    self._gate.notify_all()
+            self._subject.dispose()
 
     def dispose(self) -> None:
         """Complete and dispose the underlying subject."""

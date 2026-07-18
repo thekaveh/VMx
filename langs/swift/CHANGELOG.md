@@ -9,7 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Fixed
 
 - Async-resource loading now revalidates its admitted operation after loading
-  cleanup and loading notification. Composite/group membership admission,
+  cleanup, replacement cleanup, and loading notification, so a cleanup callback
+  that starts a newer reload cannot publish a superseded completion.
+  Composite/group membership admission,
   transfer rollback, factory population, selection, and disposal snapshots now
   share one transaction boundary, preventing concurrent or re-entrant work from
   escaping cleanup and surfacing failed lifecycle compensation.

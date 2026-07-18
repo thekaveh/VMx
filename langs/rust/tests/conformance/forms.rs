@@ -277,15 +277,18 @@ fn form_dispose_closes_commands_and_owned_channels() {
     for hub in [approve_changed, deny_changed] {
         hub.send(Message::Custom {
             sender_id: 0,
+            sender_name: "command".to_string(),
             name: "late-command-change".to_string(),
         });
     }
     errors_changed.send(Message::Custom {
         sender_id: 0,
+        sender_name: "errors_changed".to_string(),
         name: "late-error-change".to_string(),
     });
     approve_errors.send(Message::Custom {
         sender_id: 0,
+        sender_name: "approve_errors".to_string(),
         name: "late-approve-error".to_string(),
     });
 

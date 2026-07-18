@@ -1,0 +1,86 @@
+name: security-audit
+
+permissions:
+  contents: read
+
+on:
+  schedule:
+    - cron: "23 6 * * 1"
+  workflow_dispatch:
+
+jobs:
+  npm:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        project:
+          - langs/typescript
+          - examples/typescript/console/hello-vmx
+          - examples/typescript/react/notes-showcase
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+      - run: npm audit --prefix "${{ matrix.project }}" --package-lock-only --audit-level=low
+
+  cargo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable 2026-07-16
+        with:
+          toolchain: stable
+      - run: cargo install cargo-audit --version 0.22.2 --locked
+      - name: Audit every committed Cargo lock
+        run: |
+          cargo audit --file langs/rust/Cargo.lock --deny warnings
+          cargo audit --file examples/rust/console/hello-vmx/Cargo.lock --deny warnings
+          cargo audit --file examples/rust/tui/notes-showcase/Cargo.lock --deny warnings
+
+  python:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        project:
+          - langs/python
+          - examples/python
+          - examples/python/textual/inspector
+          - examples/python/textual/notes_showcase
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          version: "0.11.28"
+      - run: uv export --project . --locked --no-dev --no-emit-project --no-emit-local --output-file /tmp/runtime.txt
+        working-directory: ${{ matrix.project }}
+      - run: uvx --from pip-audit==2.10.1 pip-audit --requirement /tmp/runtime.txt
+        working-directory: ${{ matrix.project }}
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.12"
+      - run: python -m venv /tmp/vmx-docs-audit
+      - run: /tmp/vmx-docs-audit/bin/pip install --require-hashes -r docs/requirements.txt
+      - run: /tmp/vmx-docs-audit/bin/python -m pip_audit --local
+
+  nuget:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: |
+            8.0.x
+            9.0.x
+            10.0.x
+      - run: dotnet restore langs/csharp/VMx.sln --locked-mode
+      - run: dotnet restore examples/csharp/Examples.sln -p:EnableWindowsTargeting=true
+      - run: dotnet list langs/csharp/VMx.sln package --vulnerable --include-transitive --no-restore
+      - run: dotnet list examples/csharp/Examples.sln package --vulnerable --include-transitive --no-restore

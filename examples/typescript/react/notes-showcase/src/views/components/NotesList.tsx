@@ -54,6 +54,35 @@ export const NotesList: React.FC<NotesListProps> = ({ ws }) => {
     ws.notesView.current = note;
     ws.setFocus(note);
   };
+  const onListKeyDown = (e: React.KeyboardEvent<HTMLUListElement>): void => {
+    if (notesView.visibleItems.length === 0) return;
+    const currentIndex = Math.max(0, notesView.visibleItems.indexOf(notesView.current as NoteVM));
+    let index: number;
+    switch (e.key) {
+      case "ArrowDown":
+        index = Math.min(currentIndex + 1, notesView.visibleItems.length - 1);
+        break;
+      case "ArrowUp":
+        index = Math.max(currentIndex - 1, 0);
+        break;
+      case "Home":
+        index = 0;
+        break;
+      case "End":
+        index = notesView.visibleItems.length - 1;
+        break;
+      case "Enter":
+      case " ":
+        index = currentIndex;
+        break;
+      default:
+        return;
+    }
+    const note = notesView.visibleItems[index];
+    if (note === undefined) return;
+    e.preventDefault();
+    onSelect(note);
+  };
 
   return (
     <div>
@@ -74,7 +103,14 @@ export const NotesList: React.FC<NotesListProps> = ({ ws }) => {
         />
         Starred only
       </label>
-      <ul className="notes-list" role="listbox" aria-label="Notes">
+      <ul
+        className="notes-list"
+        role="listbox"
+        aria-label="Notes"
+        aria-activedescendant={notesView.current === null ? undefined : `note-${notesView.current.noteId}`}
+        tabIndex={0}
+        onKeyDown={onListKeyDown}
+      >
         {notesView.visibleItems.map((note) => (
           <NotesListItem
             key={note.noteId}
@@ -103,21 +139,14 @@ interface NotesListItemProps {
 
 const NotesListItem: React.FC<NotesListItemProps> = ({ note, isCurrent, onSelect }) => {
   const liveNote = useVm(note);
-  const onKeyDown = (e: React.KeyboardEvent): void => {
-    if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
-      onSelect(note);
-    }
-  };
 
   return (
     <li
+      id={`note-${note.noteId}`}
       role="option"
       aria-selected={isCurrent}
       className={`notes-list-item${isCurrent ? " is-current" : ""}`}
-      tabIndex={0}
       onClick={() => onSelect(note)}
-      onKeyDown={onKeyDown}
     >
       {liveNote.starred && <span className="notes-list-item-star" aria-label="Starred">★</span>}
       <span>{liveNote.title}</span>

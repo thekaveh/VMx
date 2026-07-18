@@ -16,7 +16,7 @@ IMessage (C#, Python, TypeScript, Swift):
 
 Message (Rust):
     sender_name : string
-    sender_id : u64
+    sender_id : usize
 ```
 
 Strongly-typed senders narrow `Sender` via `IMessage<TSender>`:
@@ -309,10 +309,11 @@ Per-flavor names and shapes:
 | TypeScript | `whenPropertyChanged`   | Named export from `src/messages`        |
 | Swift      | `whenPropertyChanged`   | Method on `MessageHubProtocol`          |
 
-Like §7.1 the helper is informative (no conformance ID); each full-parity flavor
-covers it with a unit test (`WhenPropertyChangedTests` /
+Like §7.1 the helper is informative (no conformance ID); the four flavors that
+ship this convenience helper cover it with a unit test (`WhenPropertyChangedTests` /
 `test_when_property_changed` / `whenPropertyChanged.test.ts` / `PropertyChangedTests`
-in Swift). See ADR-0050 for the rationale.
+in Swift). Rust consumers use `MessageHub::subscribe` with the
+`Message::PropertyChanged` variant directly. See ADR-0050 for the rationale.
 
 ### 7.3 TypeScript raw-message predicates (informative, spec v3.14)
 

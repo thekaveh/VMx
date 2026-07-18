@@ -60,6 +60,7 @@ fn serviced_collection_add_publishes_to_hub() {
         collection_messages(&external),
         vec![vmx::CollectionChangedMessage {
             sender_id: 1,
+            sender_name: "ServicedObservableCollection".to_string(),
             property_name: "items".to_string(),
             action: CollectionChangeAction::Add,
             old_index: None,
@@ -82,6 +83,7 @@ fn serviced_collection_publishes_remove_and_replace() {
         vec![
             vmx::CollectionChangedMessage {
                 sender_id: 1,
+                sender_name: "ServicedObservableCollection".to_string(),
                 property_name: "items".to_string(),
                 action: CollectionChangeAction::Add,
                 old_index: None,
@@ -89,6 +91,7 @@ fn serviced_collection_publishes_remove_and_replace() {
             },
             vmx::CollectionChangedMessage {
                 sender_id: 1,
+                sender_name: "ServicedObservableCollection".to_string(),
                 property_name: "items".to_string(),
                 action: CollectionChangeAction::Replace,
                 old_index: Some(0),
@@ -96,6 +99,7 @@ fn serviced_collection_publishes_remove_and_replace() {
             },
             vmx::CollectionChangedMessage {
                 sender_id: 1,
+                sender_name: "ServicedObservableCollection".to_string(),
                 property_name: "items".to_string(),
                 action: CollectionChangeAction::Remove,
                 old_index: Some(0),
@@ -544,6 +548,7 @@ fn serviced_collection_delivery_recovers_after_debug_hub_unwind() {
     let cycle = hub.subscribe(move |_| {
         cycling_hub.send(Message::Custom {
             sender_id: 20,
+            sender_name: "cycling".to_string(),
             name: "cycle".to_string(),
         });
     });

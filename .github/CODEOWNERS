@@ -1,4 +1,4 @@
-# Repository owners — required reviewers for all changes
+# Repository review ownership routing (enforcement is configured by the ruleset)
 *                   @thekaveh
 spec/**             @thekaveh
 langs/csharp/**     @thekaveh

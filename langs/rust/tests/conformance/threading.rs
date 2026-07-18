@@ -82,6 +82,7 @@ fn subscriber_can_observe_on_chosen_dispatcher() {
 
     hub.send(Message::Custom {
         sender_id: 1,
+        sender_name: "sender".to_string(),
         name: "tick".to_string(),
     });
     assert!(!*observed.lock().unwrap());

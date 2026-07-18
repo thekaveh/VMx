@@ -366,10 +366,16 @@ public final class AsyncResourceVM<Value>: ComponentVMBase {
         operation = nil
         stableState = .ready(value)
         currentState = .ready(value)
+        let committedID = operationID
         resourceLock.unlock()
 
         replaced.map(cleanup)
-        notifyStateChanged()
+        resourceLock.lock()
+        let shouldNotify = !resourceDisposed
+            && operationID == committedID
+            && operation == nil
+        resourceLock.unlock()
+        if shouldNotify { notifyStateChanged() }
     }
 
     private func completeFailure(_ error: any Error, operation admitted: AsyncResourceOperation) {

@@ -13,6 +13,7 @@ export default defineConfig({
         "src/models/**",
         "src/viewmodels/**",
         "src/views/adapter/**",
+        "src/views/components/**",
       ],
       thresholds: { lines: 90, functions: 90, branches: 80, statements: 90 },
     },

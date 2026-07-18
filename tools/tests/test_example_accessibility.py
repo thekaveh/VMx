@@ -33,3 +33,20 @@ def test_react_notifications_are_a_polite_live_status_region() -> None:
     assert 'role="status"' in view
     assert 'aria-live="polite"' in view
     assert 'aria-atomic="false"' in view
+
+
+def test_react_composite_widgets_have_semantic_keyboard_regressions_in_ci() -> None:
+    test = (
+        REPO_ROOT
+        / "examples/typescript/react/notes-showcase/tests"
+        / "views/components/CompositeKeyboardAccessibility.test.tsx"
+    ).read_text(encoding="utf-8")
+    workflow = (REPO_ROOT / ".github/workflows/examples-contract-checks.yml").read_text(
+        encoding="utf-8"
+    )
+
+    for key in ("ArrowDown", "ArrowUp", "Home", "End", "ArrowRight", "ArrowLeft"):
+        assert key in test
+    assert "axe.run" in test
+    assert "React semantic and keyboard accessibility" in workflow
+    assert "npm test --prefix examples/typescript/react/notes-showcase" in workflow

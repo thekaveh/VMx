@@ -238,6 +238,8 @@ pub enum CollectionChangeAction {
 pub struct CollectionChangedMessage {
     /// Identity of the publishing owner.
     pub sender_id: usize,
+    /// Human-readable identity of the publishing owner.
+    pub sender_name: String,
     /// Logical collection property name.
     pub property_name: String,
     /// Kind of mutation.
@@ -253,6 +255,8 @@ pub struct CollectionChangedMessage {
 pub struct PropertyChangedMessage {
     /// Identity of the publishing owner.
     pub sender_id: usize,
+    /// Human-readable identity of the publishing owner.
+    pub sender_name: String,
     /// Flavor-idiomatic property name.
     pub property_name: String,
 }
@@ -262,6 +266,8 @@ pub struct PropertyChangedMessage {
 pub struct ConstructionStatusChangedMessage {
     /// Identity of the publishing view model.
     pub sender_id: usize,
+    /// Human-readable identity of the publishing view model.
+    pub sender_name: String,
     /// Newly observable lifecycle status.
     pub status: ConstructionStatus,
 }
@@ -282,6 +288,8 @@ pub enum TreeStructureChange {
 pub struct TreeStructureChangedMessage {
     /// Identity of the publishing tree node.
     pub sender_id: usize,
+    /// Human-readable identity of the publishing tree node.
+    pub sender_name: String,
     /// Kind of structural mutation.
     pub change: TreeStructureChange,
     /// Identity of the child that was added, removed, or reparented.
@@ -295,6 +303,8 @@ pub struct TreeStructureChangedMessage {
 pub struct FormRevertedMessage {
     /// Identity of the publishing form.
     pub sender_id: usize,
+    /// Human-readable identity of the publishing form.
+    pub sender_name: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -314,6 +324,8 @@ pub enum Message {
     Custom {
         /// Identity of the publishing owner.
         sender_id: usize,
+        /// Human-readable identity of the publishing owner.
+        sender_name: String,
         /// Application-defined message name.
         name: String,
     },
@@ -329,6 +341,18 @@ impl Message {
             Self::TreeStructureChanged(message) => message.sender_id,
             Self::FormReverted(message) => message.sender_id,
             Self::Custom { sender_id, .. } => *sender_id,
+        }
+    }
+
+    /// Returns the human-readable identity of the message sender.
+    pub fn sender_name(&self) -> &str {
+        match self {
+            Self::PropertyChanged(message) => &message.sender_name,
+            Self::ConstructionStatusChanged(message) => &message.sender_name,
+            Self::CollectionChanged(message) => &message.sender_name,
+            Self::TreeStructureChanged(message) => &message.sender_name,
+            Self::FormReverted(message) => &message.sender_name,
+            Self::Custom { sender_name, .. } => sender_name,
         }
     }
 
@@ -1439,68 +1463,87 @@ impl<D: Dispatcher> ComponentCore<D> {
         F: FnOnce() -> VmxResult<()>,
     {
         let hub = lock(&self.inner).hub.clone();
-        let started = hub.send_prepared(|| {
-            let (sender_id, foreground, hook, transition_status, target, generation) = {
-                let mut inner = lock(&self.inner);
-                match (inner.status, operation) {
-                    (ConstructionStatus::Disposed, LifecycleOperation::Construct)
-                    | (ConstructionStatus::Disposed, LifecycleOperation::Destruct) => {
-                        return (Err(VmxError::Disposed), None)
-                    }
-                    (ConstructionStatus::Constructed, LifecycleOperation::Construct)
-                    | (ConstructionStatus::Destructed, LifecycleOperation::Destruct) => {
-                        return (Ok(None), None)
-                    }
-                    (_, LifecycleOperation::Dispose)
-                        if inner.status == ConstructionStatus::Disposed =>
-                    {
-                        return (Ok(None), None)
-                    }
-                    _ => {}
-                }
-                if inner.transitioning && operation != LifecycleOperation::Dispose {
-                    return (Err(VmxError::ConcurrentOperation), None);
-                }
-
-                let transition_status = match operation {
-                    LifecycleOperation::Construct => ConstructionStatus::Constructing,
-                    LifecycleOperation::Destruct => ConstructionStatus::Destructing,
-                    LifecycleOperation::Dispose => ConstructionStatus::Disposed,
-                };
-                let target = match operation {
-                    LifecycleOperation::Construct => ConstructionStatus::Constructed,
-                    LifecycleOperation::Destruct => ConstructionStatus::Destructed,
-                    LifecycleOperation::Dispose => ConstructionStatus::Disposed,
-                };
-                inner.transition_generation = inner.transition_generation.wrapping_add(1);
-                let generation = inner.transition_generation;
-                inner.transitioning = true;
-                inner.status = transition_status;
-                let hook = match operation {
-                    LifecycleOperation::Construct => inner.on_construct.clone(),
-                    LifecycleOperation::Destruct => inner.on_destruct.clone(),
-                    LifecycleOperation::Dispose => inner.on_dispose.clone(),
-                };
-                (
-                    inner.id,
-                    inner.foreground.clone(),
+        let started =
+            hub.send_prepared(|| {
+                let (
+                    sender_id,
+                    sender_name,
+                    foreground,
                     hook,
                     transition_status,
                     target,
                     generation,
-                )
-            };
+                ) = {
+                    let mut inner = lock(&self.inner);
+                    match (inner.status, operation) {
+                        (ConstructionStatus::Disposed, LifecycleOperation::Construct)
+                        | (ConstructionStatus::Disposed, LifecycleOperation::Destruct) => {
+                            return (Err(VmxError::Disposed), None)
+                        }
+                        (ConstructionStatus::Constructed, LifecycleOperation::Construct)
+                        | (ConstructionStatus::Destructed, LifecycleOperation::Destruct) => {
+                            return (Ok(None), None)
+                        }
+                        (_, LifecycleOperation::Dispose)
+                            if inner.status == ConstructionStatus::Disposed =>
+                        {
+                            return (Ok(None), None)
+                        }
+                        _ => {}
+                    }
+                    if inner.transitioning && operation != LifecycleOperation::Dispose {
+                        return (Err(VmxError::ConcurrentOperation), None);
+                    }
 
-            let message = Message::ConstructionStatusChanged(ConstructionStatusChangedMessage {
-                sender_id,
-                status: transition_status,
-            });
-            (
-                Ok(Some((sender_id, foreground, hook, target, generation))),
-                Some(message),
-            )
-        })?;
-        let Some((sender_id, foreground, hook, target, generation)) = started else {
+                    let transition_status = match operation {
+                        LifecycleOperation::Construct => ConstructionStatus::Constructing,
+                        LifecycleOperation::Destruct => ConstructionStatus::Destructing,
+                        LifecycleOperation::Dispose => ConstructionStatus::Disposed,
+                    };
+                    let target = match operation {
+                        LifecycleOperation::Construct => ConstructionStatus::Constructed,
+                        LifecycleOperation::Destruct => ConstructionStatus::Destructed,
+                        LifecycleOperation::Dispose => ConstructionStatus::Disposed,
+                    };
+                    inner.transition_generation = inner.transition_generation.wrapping_add(1);
+                    let generation = inner.transition_generation;
+                    inner.transitioning = true;
+                    inner.status = transition_status;
+                    let hook = match operation {
+                        LifecycleOperation::Construct => inner.on_construct.clone(),
+                        LifecycleOperation::Destruct => inner.on_destruct.clone(),
+                        LifecycleOperation::Dispose => inner.on_dispose.clone(),
+                    };
+                    (
+                        inner.id,
+                        inner.name.clone(),
+                        inner.foreground.clone(),
+                        hook,
+                        transition_status,
+                        target,
+                        generation,
+                    )
+                };
+
+                let message =
+                    Message::ConstructionStatusChanged(ConstructionStatusChangedMessage {
+                        sender_id,
+                        sender_name: sender_name.clone(),
+                        status: transition_status,
+                    });
+                (
+                    Ok(Some((
+                        sender_id,
+                        sender_name,
+                        foreground,
+                        hook,
+                        target,
+                        generation,
+                    ))),
+                    Some(message),
+                )
+            })?;
+        let Some((sender_id, sender_name, foreground, hook, target, generation)) = started else {
             return Ok(());
         };
 
@@ -1549,6 +1592,7 @@ impl<D: Dispatcher> ComponentCore<D> {
                         .then_some({
                             Message::ConstructionStatusChanged(ConstructionStatusChangedMessage {
                                 sender_id,
+                                sender_name: sender_name.clone(),
                                 status: rollback,
                             })
                         });
@@ -1583,6 +1627,7 @@ impl<D: Dispatcher> ComponentCore<D> {
                         .then_some({
                             Message::ConstructionStatusChanged(ConstructionStatusChangedMessage {
                                 sender_id,
+                                sender_name: sender_name.clone(),
                                 status: target,
                             })
                         });
@@ -1669,12 +1714,17 @@ impl<D: Dispatcher> ComponentCore<D> {
 
     pub(crate) fn notify_property_changed(&self, property_name: impl Into<String>) {
         let property_name = property_name.into();
-        let (sender_id, hub, local) = {
+        let (sender_id, sender_name, hub, local) = {
             let inner = lock(&self.inner);
             if inner.status == ConstructionStatus::Disposed {
                 return;
             }
-            (inner.id, inner.hub.clone(), inner.property_changed.clone())
+            (
+                inner.id,
+                inner.name.clone(),
+                inner.hub.clone(),
+                inner.property_changed.clone(),
+            )
         };
         if !local.begin_notification() {
             return;
@@ -1682,6 +1732,7 @@ impl<D: Dispatcher> ComponentCore<D> {
         let hub_result = catch_unwind(AssertUnwindSafe(|| {
             hub.send(Message::PropertyChanged(PropertyChangedMessage {
                 sender_id,
+                sender_name,
                 property_name: property_name.clone(),
             }));
         }));

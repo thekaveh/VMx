@@ -8,7 +8,7 @@
 
 The message chapter described `Sender` as a runtime object carried by every
 flavor, while later Rust-specific contracts and the shipped Rust implementation
-use `sender_id: u64`. Retaining an arbitrary sender object in Rust messages
+use `sender_id: usize`. Retaining an arbitrary sender object in Rust messages
 would require ownership, lifetime, trait-object, and thread-safety policy that
 the other languages' managed references do not expose.
 
@@ -21,15 +21,18 @@ require a hot message stream to own or borrow the sender VM.
   diagnostic sender name.
 - C#, Python, TypeScript, and Swift carry the runtime sender object through
   their idiomatic `Sender`/`sender` accessor and may narrow it generically.
-- Rust's enum-based messages carry `sender_id: u64`. They do not retain or
-  borrow a sender object and are not generic over its concrete type.
+- Rust's enum-based messages carry `sender_id: usize` and an owned diagnostic
+  `sender_name: String`. They do not retain or borrow a sender object and are
+  not generic over its concrete type.
 - Rust sender filtering compares `sender_id`; a VM and every message it emits
   use the same stable ID for that VM's lifetime.
 - This is a narrow ownership adaptation, not permission for payload, ordering,
   delivery, or lifecycle divergence.
 
-No API, behavior, conformance ID, fixture, or version changes. The decision
-documents the already-shipped Rust surface and corrects contradictory prose.
+The source line adds the missing `sender_name` field/accessor and strengthens
+the existing `PROP-004` coverage. This is an additive pre-publication Rust API
+correction; it adds no conformance ID or fixture and does not require a version
+bump because the crate has not yet been published.
 
 ## 3. Consequences
 

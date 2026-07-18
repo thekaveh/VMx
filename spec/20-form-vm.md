@@ -378,7 +378,8 @@ FormRevertedMessage:
   the form `IsDirty` against the newer, un-persisted model), and `OnApproved`
   reports the persisted value — never the racing newer one. This is **uniform
   across flavors**: before v3, C# emitted the captured (pre-await) value while
-  Python and TypeScript emitted the live post-await `Model`; all full-parity flavors now emit the
+  Python and TypeScript emitted the live post-await `Model`; C#, Python,
+  TypeScript, Swift, and Rust now emit the
   captured persisted value (ADR-0048 resolves the ADR-0009 divergence note for
   `OnApproved`). With `resetOnApproved`, the authoritative reset replaces the
   racing model before this event and the observer sees the pristine reset state

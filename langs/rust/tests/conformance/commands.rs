@@ -144,6 +144,7 @@ fn repeated_imperative_and_trigger_notifications_are_additive() {
     command.raise_can_execute_changed();
     trigger.send(Message::Custom {
         sender_id: 0,
+        sender_name: "trigger".to_string(),
         name: "trigger".to_string(),
     });
 
@@ -343,6 +344,7 @@ fn async_relay_command_builder_owns_predicate_and_additive_triggers() {
     assert!(!command.can_execute());
     trigger.send(Message::Custom {
         sender_id: 1,
+        sender_name: "trigger".to_string(),
         name: "predicate_changed".to_string(),
     });
     assert_eq!(notifications.load(Ordering::SeqCst), 1);

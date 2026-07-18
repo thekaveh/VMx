@@ -62,7 +62,8 @@ ADR-0006 and require no further action:
   by `ITypedMessage<TSender>`). The former untyped `senderObject` field was
   **removed in v3.0.0** (ADR-0054, VMX-016) — TypeScript is the first flavor to
   reach the single-`sender` end state.
-- **Rust**: enum-based messages expose `sender_id: u64` rather than retaining a
+- **Rust**: enum-based messages expose `sender_id: usize` plus `sender_name`
+  rather than retaining a
   sender object. Identity filters compare that stable ID; messages do not own or
   borrow VM instances and remain independent of VM lifetimes (ADR-0120).
 - **Rationale**: the language-neutral invariant is one canonical sender

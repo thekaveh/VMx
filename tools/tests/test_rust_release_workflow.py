@@ -130,7 +130,11 @@ def test_contract_suite_triggers_on_rust_and_release_workflow_changes() -> None:
 
 def _rust_release_jobs() -> str:
     workflow = _workflow("release.yml")
-    return workflow.split("\n  rust-test:\n", maxsplit=1)[1].split("\n  swift:\n", maxsplit=1)[0]
+    jobs = workflow.split("\n  rust-test:\n", maxsplit=1)[1].split(
+        "\n  swift-verify:\n", maxsplit=1
+    )[0]
+    assert "\n  swift-verify:\n" not in jobs
+    return jobs
 
 
 def test_release_runs_msrv_stable_and_five_flavor_gates_before_publish() -> None:

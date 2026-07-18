@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Async-resource replacement cleanup can synchronously start a newer reload
+  without the superseded completion publishing another state notification.
 - Repository DOM tests now use jsdom 29 without the deprecated
   `whatwg-encoding` transitive dependency; the published Node ≥20 runtime floor
   is unchanged.

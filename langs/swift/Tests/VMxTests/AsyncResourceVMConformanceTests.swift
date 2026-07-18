@@ -288,6 +288,39 @@ final class AsyncResourceVMConformanceTests: XCTestCase {
         XCTAssertEqual(cleaned.values, [1, 2])
     }
 
+    func testReplacementCleanupThatStartsReloadSuppressesSupersededNotification() async {
+        let queue = LoaderQueue<Int>([{ 1 }, { 2 }, { 3 }])
+        let owner = WeakAsyncResourceBox<Int>()
+        let reentered = LockedCount()
+        let vm = makeAsyncResourceVM(
+            loader: queue.load,
+            retention: .retainPrevious,
+            cleanup: { value in
+                guard value == 1, reentered.value == 0 else { return }
+                reentered.increment()
+                let completed = DispatchSemaphore(value: 0)
+                Task {
+                    await owner.value?.reload()
+                    completed.signal()
+                }
+                completed.wait()
+            }
+        )
+        owner.value = vm
+        let names = LockedValues<String>()
+        let subscription = vm.propertyChanged.sink { names.append($0) }
+
+        await vm.load()
+        let baseline = names.values.count
+        await vm.reload()
+
+        XCTAssertEqual(Array(names.values.dropFirst(baseline)), ["state", "state", "state"])
+        XCTAssertEqual(vm.state.status, .ready)
+        XCTAssertEqual(vm.state.value, 3)
+        XCTAssertEqual(reentered.value, 1)
+        withExtendedLifetime(subscription) {}
+    }
+
     /// ARES-011 — disposal cancels active work and makes late completion inert.
     func testAres011DisposeMakesLateWorkInert() async {
         let deferred = DeferredValue<Int>()

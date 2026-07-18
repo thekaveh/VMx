@@ -126,10 +126,12 @@ impl<VM: Clone + Send + 'static> ModeledCrudCommands<VM> {
             trigger.subscribe(move |_| {
                 update_hub.send(Message::Custom {
                     sender_id: 0,
+                    sender_name: "ModeledCrudCommands".to_string(),
                     name: "can_execute_changed".to_string(),
                 });
                 delete_hub.send(Message::Custom {
                     sender_id: 0,
+                    sender_name: "ModeledCrudCommands".to_string(),
                     name: "can_execute_changed".to_string(),
                 });
             })
