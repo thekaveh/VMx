@@ -4,11 +4,22 @@ from __future__ import annotations
 
 import importlib.util
 import re
+import shutil
 import sys
 from pathlib import Path
 from types import ModuleType
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
+
+# The triplet writer rasterizes each SVG to PNG via `rsvg-convert`. That binary
+# is installed in the docs CI job (librsvg2-bin) but not in the conformance job,
+# so tests that render a real triplet skip when it is unavailable.
+_REQUIRES_RSVG = pytest.mark.skipif(
+    shutil.which("rsvg-convert") is None,
+    reason="requires rsvg-convert (docs CI job / local docs toolchain)",
+)
 
 
 def _load_generator() -> ModuleType:
@@ -107,6 +118,7 @@ def test_html_footer_text_meets_wcag_aa_contrast() -> None:
     assert (foreground + 0.05) / (background + 0.05) >= 4.5
 
 
+@_REQUIRES_RSVG
 def test_class_diagram_names_real_message_types_and_capabilities(tmp_path: Path) -> None:
     generator = _load_generator()
 
@@ -121,6 +133,7 @@ def test_class_diagram_names_real_message_types_and_capabilities(tmp_path: Path)
     assert "filter / page / count" not in rendered
 
 
+@_REQUIRES_RSVG
 def test_class_diagram_separates_adjacent_edge_labels(tmp_path: Path) -> None:
     generator = _load_generator()
     generator.class_diagram(tmp_path)
@@ -134,6 +147,7 @@ def test_class_diagram_separates_adjacent_edge_labels(tmp_path: Path) -> None:
     assert abs(label_y["AsyncResourceVM"] - label_y["hub events"]) >= 20
 
 
+@_REQUIRES_RSVG
 def test_showcase_hierarchy_has_no_notification_self_edge(tmp_path: Path) -> None:
     generator = _load_generator()
     generator.showcase_hierarchy(tmp_path)
