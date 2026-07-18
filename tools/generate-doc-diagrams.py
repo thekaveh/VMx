@@ -113,7 +113,7 @@ def arrow(
         label_svg = (
             f'<rect x="{mid_x - label_width / 2:.1f}" y="{mid_y - 15}" '
             f'width="{label_width:.1f}" height="20" rx="3" fill="#020617"/>'
-            f"\n{text(mid_x, mid_y, label, 12, color)}"
+            f"\n{text(mid_x, mid_y, label, 12, '#94a3b8')}"
         )
     else:
         label_svg = ""

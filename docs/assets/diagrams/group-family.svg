@@ -105,8 +105,8 @@
 <text x="1182" y="212" fill="#fb923c" font-size="11" font-weight="700" text-anchor="middle">publishes</text>
 <rect x="299" y="364" width="95" height="20" rx="10" fill="#0f172a" stroke="#34d399" stroke-width="1"/>
 <text x="346" y="378" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">construct()</text>
-<rect x="1043" y="364" width="102" height="20" rx="10" fill="#0f172a" stroke="#64748b" stroke-width="1"/>
-<text x="1094" y="378" fill="#64748b" font-size="11" font-weight="700" text-anchor="middle">render peers</text>
-<rect x="608" y="634" width="137" height="20" rx="10" fill="#0f172a" stroke="#64748b" stroke-width="1"/>
-<text x="676" y="648" fill="#64748b" font-size="11" font-weight="700" text-anchor="middle">selection avoided</text>
+<rect x="1043" y="364" width="102" height="20" rx="10" fill="#0f172a" stroke="#94a3b8" stroke-width="1"/>
+<text x="1094" y="378" fill="#94a3b8" font-size="11" font-weight="700" text-anchor="middle">render peers</text>
+<rect x="608" y="634" width="137" height="20" rx="10" fill="#0f172a" stroke="#94a3b8" stroke-width="1"/>
+<text x="676" y="648" fill="#94a3b8" font-size="11" font-weight="700" text-anchor="middle">selection avoided</text>
 </svg>

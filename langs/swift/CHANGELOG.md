@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Pre-owned and multiply decorated components now retain one canonical,
+  transferable container identity (FWD-004, ADR-0124).
 - Async-resource loading now revalidates its admitted operation after loading
   cleanup, replacement cleanup, and loading notification, so a cleanup callback
   that starts a newer reload cannot publish a superseded completion.

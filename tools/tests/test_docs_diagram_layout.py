@@ -36,3 +36,12 @@ def test_examples_vm_layer_side_edge_labels_stay_above_child_boxes() -> None:
         "focusedVM capabilities",
     }
     assert all(position is not None and position[1] < 340 for position in labels.values())
+
+
+def test_neutral_edge_labels_use_contrast_safe_text() -> None:
+    generator = _generator()
+    line = generator.Polyline(((0, 0), (10, 10)), label="edge", label_xy=(5, 5))
+
+    rendered = generator.draw_polyline_label(line)
+
+    assert 'fill="#94a3b8"' in rendered

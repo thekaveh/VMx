@@ -143,16 +143,26 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             was_current = self._current is child
 
         def commit() -> None:
+            first_error: BaseException | None = None
             try:
                 if was_current:
                     self._apply_current_change(None, internal=True)
+            except BaseException as error:
+                first_error = error
+            try:
                 self._emit_collection_changed(
                     CollectionChangedEvent(action="remove", old_items=(child,), old_index=index)
                 )
-            finally:
-                self._end_membership_transaction(
-                    propagate_dispose_failure=sys.exc_info()[0] is None
-                )
+            except BaseException as error:
+                if first_error is None:
+                    first_error = error
+            try:
+                self._end_membership_transaction(propagate_dispose_failure=first_error is None)
+            except BaseException as error:
+                if first_error is None:
+                    first_error = error
+            if first_error is not None:
+                raise first_error
 
         def rollback() -> None:
             try:

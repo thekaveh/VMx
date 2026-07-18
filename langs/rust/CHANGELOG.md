@@ -8,6 +8,8 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Pre-owned and multiply decorated components now retain one canonical,
+  transferable container identity (FWD-004, ADR-0124).
 - Messages now expose the canonical diagnostic `sender_name` alongside Rust's
   ownership-safe `sender_id`, and async-resource replacement cleanup can start
   a newer reload without publishing the superseded completion afterward.

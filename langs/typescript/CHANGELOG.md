@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Pre-owned and multiply decorated components now retain one canonical,
+  transferable container identity (FWD-004, ADR-0124).
 - Async-resource replacement cleanup can synchronously start a newer reload
   without the superseded completion publishing another state notification.
 - Repository DOM tests now use jsdom 29 without the deprecated

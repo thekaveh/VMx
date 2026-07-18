@@ -1560,6 +1560,42 @@ def test_COMP_041_transfer_publishes_old_remove_before_new_add() -> None:
     assert observed == ["old:remove", "new:add"]
 
 
+@pytest.mark.conformance("COMP-041")
+def test_COMP_041_throwing_current_callback_does_not_suppress_transfer_events() -> None:
+    hub = _hub()
+    dispatcher = _dispatcher()
+
+    def fail_when_cleared(current: ComponentVM | None) -> None:
+        if current is None:
+            raise RuntimeError("callback boom")
+
+    old_parent: CompositeVM[ComponentVM] = (
+        CompositeVMBuilder()
+        .name("old")
+        .services(hub, dispatcher)
+        .children(lambda: ())
+        .on_current_changed(fail_when_cleared)
+        .build()
+    )
+    child = _build_child(hub=hub, dispatcher=dispatcher)
+    old_parent.add(child)
+    old_parent.current = child
+    destination: GroupVM[ComponentVM] = (
+        GroupVMBuilder().name("destination").services(hub, dispatcher).children(lambda: ()).build()
+    )
+    observed: list[str] = []
+    old_parent.on_collection_changed.subscribe(lambda _event: observed.append("old:remove"))
+    destination.on_collection_changed.subscribe(lambda _event: observed.append("new:add"))
+
+    with pytest.raises(RuntimeError, match="callback boom"):
+        destination.add(child)
+
+    assert observed == ["old:remove", "new:add"]
+    assert list(old_parent) == []
+    assert list(destination) == [child]
+    assert child._parent is not None and child._parent.owner is destination
+
+
 def test_bulk_transfer_remove_callback_does_not_retain_ownership_coordinator() -> None:
     """An old-parent callback may wait for an unrelated transfer to finish."""
     hub = _hub()

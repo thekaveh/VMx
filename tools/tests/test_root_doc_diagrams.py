@@ -33,6 +33,14 @@ def test_html_diagram_is_self_contained() -> None:
     assert 'data="' not in rendered
 
 
+def test_neutral_arrow_labels_use_contrast_safe_text() -> None:
+    generator = _load_generator()
+
+    rendered = generator.arrow(0, 0, 100, 100, "edge")
+
+    assert 'fill="#94a3b8"' in rendered
+
+
 def test_class_diagram_names_real_message_types_and_capabilities(tmp_path: Path) -> None:
     generator = _load_generator()
 

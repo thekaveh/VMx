@@ -106,3 +106,10 @@ def test_python_release_updates_the_compatibility_matrix() -> None:
     assert header.index("python") < header.index("csharp")
     current = next(line for line in matrix.splitlines() if line.startswith("| 3.22.x"))
     assert "x-release-please-version" in current
+
+
+def test_release_please_explicitly_targets_main_when_develop_is_default() -> None:
+    workflow = (WORKFLOWS / "release-please.yml").read_text(encoding="utf-8")
+
+    assert "    branches: [main]" in workflow
+    assert "          target-branch: main" in workflow

@@ -5,6 +5,32 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
+def _relative_luminance(color: str) -> float:
+    channels = [int(color[index : index + 2], 16) / 255 for index in (1, 3, 5)]
+    linear = [
+        channel / 12.92 if channel <= 0.04045 else ((channel + 0.055) / 1.055) ** 2.4
+        for channel in channels
+    ]
+    return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+
+def _contrast_ratio(foreground: str, background: str) -> float:
+    lighter, darker = sorted(
+        (_relative_luminance(foreground), _relative_luminance(background)), reverse=True
+    )
+    return (lighter + 0.05) / (darker + 0.05)
+
+
+def test_docs_light_theme_links_meet_wcag_aa_contrast() -> None:
+    stylesheet = (REPO_ROOT / "docs/content/stylesheets/extra.css").read_text(encoding="utf-8")
+    light_theme = stylesheet.split('[data-md-color-scheme="slate"]', maxsplit=1)[0]
+    link_color = light_theme.split("--md-typeset-a-color: ", maxsplit=1)[1].split(";", maxsplit=1)[
+        0
+    ]
+
+    assert _contrast_ratio(link_color, "#f8fbfd") >= 4.5
+
+
 def test_avalonia_global_search_names_input_and_results() -> None:
     view = (
         REPO_ROOT / "examples/csharp/avalonia/NotesShowcase/Views/GlobalSearchView.axaml"

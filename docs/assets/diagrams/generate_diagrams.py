@@ -425,7 +425,8 @@ def draw_polyline(line: Polyline) -> str:
         f'<polyline points="{points}" fill="none" stroke="{line.color}" stroke-width="{line.width}"{dash}{marker}/>'
     ]
     if line.label and line.label_xy:
-        parts.append(draw_label_chip(line.label_xy[0], line.label_xy[1], line.label, line.color))
+        label_color = "#94a3b8" if line.color.lower() == "#64748b" else line.color
+        parts.append(draw_label_chip(line.label_xy[0], line.label_xy[1], line.label, label_color))
     return "\n".join(parts)
 
 
@@ -443,7 +444,8 @@ def draw_polyline_path(line: Polyline) -> str:
 
 def draw_polyline_label(line: Polyline) -> str:
     if line.label and line.label_xy:
-        return draw_label_chip(line.label_xy[0], line.label_xy[1], line.label, line.color)
+        label_color = "#94a3b8" if line.color.lower() == "#64748b" else line.color
+        return draw_label_chip(line.label_xy[0], line.label_xy[1], line.label, label_color)
     return ""
 
 

@@ -73,11 +73,13 @@ fn forwarding_component_transfers_one_underlying_owner() {
     let destination = vmx::CompositeVm::new("destination");
     old_parent.add(inner.clone()).unwrap();
     let forwarding = ForwardingComponentVm::new(inner.clone());
+    let nested_forwarding: ForwardingComponentVm<&'static str> =
+        ForwardingComponentVm::new(forwarding.clone());
 
-    group.add(forwarding.clone()).unwrap();
+    group.add(nested_forwarding.clone()).unwrap();
 
     assert!(old_parent.is_empty());
-    assert!(group.items() == vec![forwarding.clone()]);
+    assert!(group.items() == vec![nested_forwarding.clone()]);
 
     let alternate_forwarding = ForwardingComponentVm::new(inner.clone());
     destination.add(alternate_forwarding.clone()).unwrap();
@@ -89,11 +91,11 @@ fn forwarding_component_transfers_one_underlying_owner() {
     assert!(destination.current() == Some(alternate_forwarding));
     assert!(inner.is_current());
 
-    group.add(forwarding.clone()).unwrap();
+    group.add(nested_forwarding.clone()).unwrap();
 
     assert!(destination.is_empty());
     assert!(destination.current().is_none());
-    assert!(group.items() == vec![forwarding]);
+    assert!(group.items() == vec![nested_forwarding]);
 }
 
 /// FWD-002 — Selective override replaces a single behavior

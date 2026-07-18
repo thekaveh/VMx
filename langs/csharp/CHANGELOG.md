@@ -14,6 +14,9 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### Fixed
 
+- Pre-owned and multiply decorated components now retain one canonical,
+  transferable container identity (FWD-004, ADR-0124).
+
 - Public async lifecycle re-entry now follows LIFE-008 while container cascades
   retain a private join path. Composite/group membership admission, transfer
   rollback, factory population, selection, and disposal snapshots now share one

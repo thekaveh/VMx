@@ -325,6 +325,23 @@ public sealed class AsyncResourceVMConformanceTests
         cleaned.Should().Equal(1, 2);
     }
 
+    [Fact, Trait("Conformance", "ARES-010")]
+    public async Task ARES_010_Disposal_Cleans_Accepted_Value_When_Command_Observer_Throws()
+    {
+        using var hub = new MessageHub();
+        var cleaned = new List<int>();
+        var vm = Create(hub, _ => Task.FromResult(7), cleanup: cleaned.Add);
+        await vm.LoadAsync();
+        vm.CancelCommand.CanExecuteChanged += (_, _) =>
+            throw new InvalidOperationException("terminal observer");
+
+        Action dispose = vm.Dispose;
+
+        dispose.Should().Throw<InvalidOperationException>().WithMessage("terminal observer");
+        cleaned.Should().ContainSingle("accepted values require cleanup even when observers fail")
+            .Which.Should().Be(7);
+    }
+
     [Fact, Trait("Conformance", "ARES-011")]
     public async Task ARES_011_Disposal_Cancels_And_Late_Completion_Is_Inert()
     {

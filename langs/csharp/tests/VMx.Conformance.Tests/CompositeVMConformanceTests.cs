@@ -1269,6 +1269,41 @@ public class CompositeVMConformanceTests
         observed.Should().Equal("old:remove", "new:add");
     }
 
+    [Fact, Trait("Conformance", "COMP-041")]
+    public void COMP_041_Throwing_Current_Callback_Does_Not_Suppress_Transfer_Events()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var oldParent = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("old")
+            .Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVM<string>>())
+            .OnCurrentChanged(current =>
+            {
+                if (current is null) throw new InvalidOperationException("callback boom");
+            })
+            .Build();
+        var child = BuildChild(hub, dispatcher);
+        oldParent.Add(child);
+        oldParent.Current = child;
+        var destination = GroupVM<ComponentVM<string>>.Builder()
+            .Name("destination")
+            .Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVM<string>>())
+            .Build();
+        var observed = new List<string>();
+        oldParent.CollectionChanged += (_, _) => observed.Add("old:remove");
+        destination.CollectionChanged += (_, _) => observed.Add("new:add");
+
+        destination.Invoking(group => group.Add(child))
+            .Should().Throw<InvalidOperationException>().WithMessage("callback boom");
+
+        observed.Should().Equal("old:remove", "new:add");
+        oldParent.Should().BeEmpty();
+        destination.Should().ContainSingle().Which.Should().BeSameAs(child);
+        child.GetParent()!.Owner.Should().BeSameAs(destination);
+    }
+
     [Fact]
     public void Bulk_Transfer_Remove_Callback_Does_Not_Retain_Ownership_Coordinator()
     {

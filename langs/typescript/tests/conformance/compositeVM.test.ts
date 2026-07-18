@@ -1285,4 +1285,28 @@ describe("COMP-041", () => {
 
     expect(observed).toEqual(["old:remove", "new:add"]);
   });
+
+  it("publishes both transfer events before rethrowing a current callback failure", () => {
+    const hub = makeHub();
+    const dispatcher = makeDisp();
+    const oldParent = CompositeVM.builder<ComponentVM>()
+      .name("old").services(hub, dispatcher).children(() => [])
+      .onCurrentChanged((current) => {
+        if (current === null) throw new Error("callback boom");
+      }).build();
+    const child = makeChild(hub, "child");
+    oldParent.add(child);
+    oldParent.current = child;
+    const destination = GroupVM.builder<ComponentVM>()
+      .name("destination").services(hub, dispatcher).children(() => []).build();
+    const observed: string[] = [];
+    oldParent.collectionChanged.subscribe(() => observed.push("old:remove"));
+    destination.collectionChanged.subscribe(() => observed.push("new:add"));
+
+    expect(() => destination.add(child)).toThrow("callback boom");
+
+    expect(observed).toEqual(["old:remove", "new:add"]);
+    expect(oldParent.snapshot()).toEqual([]);
+    expect(destination.snapshot()).toEqual([child]);
+  });
 });

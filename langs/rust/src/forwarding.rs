@@ -17,9 +17,12 @@ pub struct ForwardingComponentVm<
 }
 
 impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ForwardingComponentVm<M, D> {
-    /// Wraps `inner` without taking additional lifecycle ownership.
-    pub fn new(inner: ComponentVm<M, D>) -> Self {
-        Self { inner }
+    /// Wraps a component or transparent forwarding wrapper without taking
+    /// additional lifecycle ownership.
+    pub fn new(inner: impl Into<ComponentVm<M, D>>) -> Self {
+        Self {
+            inner: inner.into(),
+        }
     }
 
     /// Borrows the wrapped component.
@@ -135,6 +138,14 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ForwardingComponentVm
     /// Publishes a property change through the wrapped component.
     pub fn notify_property_changed(&self, property_name: impl Into<String>) {
         self.inner.notify_property_changed(property_name);
+    }
+}
+
+impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> From<ForwardingComponentVm<M, D>>
+    for ComponentVm<M, D>
+{
+    fn from(forwarding: ForwardingComponentVm<M, D>) -> Self {
+        forwarding.inner
     }
 }
 

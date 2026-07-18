@@ -237,19 +237,34 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         return new ParentTransferToken(
             commit: () =>
             {
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo? firstError = null;
                 try
                 {
                     if (wasCurrent)
                         ApplyCurrentChange(null, internalTransaction: true);
+                }
+                catch (Exception error)
+                {
+                    firstError = System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error);
+                }
+                try
+                {
                     RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
                         NotifyCollectionChangedAction.Remove, child, index));
                 }
-                catch
+                catch (Exception error)
                 {
-                    EndMembershipTransaction(propagateDisposeFailure: false);
-                    throw;
+                    firstError ??= System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error);
                 }
-                EndMembershipTransaction();
+                try
+                {
+                    EndMembershipTransaction(propagateDisposeFailure: firstError is null);
+                }
+                catch (Exception error)
+                {
+                    firstError ??= System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error);
+                }
+                firstError?.Throw();
             },
             rollback: () =>
             {

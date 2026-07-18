@@ -127,16 +127,33 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     this._children.splice(index, 1);
     return new ParentTransfer(
       () => {
+        let hasError = false;
+        let firstError: unknown;
         try {
           if (wasCurrent) this._applyCurrentChange(null, true);
+        } catch (error) {
+          hasError = true;
+          firstError = error;
+        }
+        try {
           this._emitCollectionChanged(
             makeCollectionChangedEvent("remove", { oldItems: [child], oldIndex: index }),
           );
         } catch (error) {
-          this.#endMembershipTransaction(false);
-          throw error;
+          if (!hasError) {
+            hasError = true;
+            firstError = error;
+          }
         }
-        this.#endMembershipTransaction();
+        try {
+          this.#endMembershipTransaction(!hasError);
+        } catch (error) {
+          if (!hasError) {
+            hasError = true;
+            firstError = error;
+          }
+        }
+        if (hasError) throw firstError;
       },
       () => {
         try {

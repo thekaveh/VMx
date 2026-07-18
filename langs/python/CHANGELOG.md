@@ -8,6 +8,8 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ### Fixed
 
+- Pre-owned and multiply decorated components now retain one canonical,
+  transferable container identity (FWD-004, ADR-0124).
 - Async-resource loaders now capture the full Python `BaseException` contract
   and register late-value cleanup exactly once; composite/group membership
   admission, transfer rollback, factory population, selection, and disposal

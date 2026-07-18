@@ -120,9 +120,9 @@ from a fresh network request before changing the issue or roadmap item to Done.
 
 ### 4.1 Failure before publish
 
-Fix the cause through the normal PR flow. If npm has not accepted the version,
-delete the unpublished tag, land the fix on `main`, and create a new tag. Never
-move a tag after a GitHub Release or npm version exists.
+Fix the cause through the normal PR flow. Tags are immutable even before npm
+accepts a version: land the fix on `main`, bump to a new patch version, and
+create a new tag. Never move, delete, or recreate the failed tag.
 
 ### 4.2 Authentication or trusted-publisher failure
 
