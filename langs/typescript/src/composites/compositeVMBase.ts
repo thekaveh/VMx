@@ -111,7 +111,8 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
   }
 
   containsChild(vm: ComponentVMBase): boolean {
-    return this._children.some((child) => child === vm);
+    const identity = vm._ownershipIdentity;
+    return this._children.some((child) => child._ownershipIdentity === identity);
   }
 
   detachForTransfer(vm: ComponentVMBase): ParentTransfer {
@@ -351,17 +352,17 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
       if (this.#current === item) {
         this._applyCurrentChange(null, true);
       }
+      this._emitCollectionChanged(
+        makeCollectionChangedEvent("remove", {
+          oldItems: [item],
+          oldIndex: index,
+        }),
+      );
     } catch (error) {
       this.#endMembershipTransaction(false);
       throw error;
     }
     this.#endMembershipTransaction();
-    this._emitCollectionChanged(
-      makeCollectionChangedEvent("remove", {
-        oldItems: [item],
-        oldIndex: index,
-      }),
-    );
   }
 
   /** Replace the child at *index*. Emits a Remove followed by an Add (per spec). */
@@ -428,16 +429,19 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
   }
 
   clear(): void {
-    this.#requireChildAdmission();
-    for (const child of this._children) {
-      if (child._parent === this) child._parent = null;
+    this.#beginMembershipTransaction();
+    try {
+      for (const child of this._children) {
+        if (child._parent === this) child._parent = null;
+      }
+      this._children = [];
+      this._applyCurrentChange(null, true);
+      this._emitCollectionChanged(makeCollectionChangedEvent("reset"));
+    } catch (error) {
+      this.#endMembershipTransaction(false);
+      throw error;
     }
-    this._children = [];
-    // Route through _setCurrent (mirrors C# Clear / removeAt): a bare
-    // `this.#current = null` left the old current child's isCurrent true
-    // and skipped the "current" property notification.
-    this._setCurrent(null, false);
-    this._emitCollectionChanged(makeCollectionChangedEvent("reset"));
+    this.#endMembershipTransaction();
   }
 
   move(fromIndex: number, toIndex: number): void {
@@ -588,8 +592,10 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
 
   protected _attachPopulation(children: Iterable<VM>): void {
     const candidates = [...children];
-    if (new Set(candidates).size !== candidates.length) {
-      throw new Error("Factory population contains a duplicate child identity");
+    if (new Set(candidates.map((child) => child._ownershipIdentity)).size !== candidates.length) {
+      throw new Error(
+        "Factory population contains a duplicate child identity (duplicate canonical child identity)",
+      );
     }
     this.#beginMembershipTransaction();
     const start = this._children.length;
@@ -674,20 +680,30 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     }
     if (asyncSel) {
       const captured = value;
-      this._scheduleForeground(() => this._applyCurrentChange(captured));
+      this._scheduleForeground(() => this._applyCurrentChange(captured, false, false));
     } else {
       this._applyCurrentChange(value);
     }
   }
 
-  private _applyCurrentChange(value: VM | null, internalTransaction = false): void {
+  private _applyCurrentChange(
+    value: VM | null,
+    internalTransaction = false,
+    requireAdmission = true,
+  ): void {
     // Async TOCTOU guard: with async selection the child may have been removed
     // between _setCurrent's membership check and this deferred foreground
     // delivery. Dropping silently upholds the spec/06 §3 invariant that a
     // non-null current is always a member of the children collection.
     if (!internalTransaction) {
       if (this.#membershipTransactionActive) return;
-      this.#beginMembershipTransaction();
+      if (!requireAdmission && (this.#disposeRequested || this.#disposeDeferred)) return;
+      try {
+        this.#beginMembershipTransaction();
+      } catch (error) {
+        if (!requireAdmission) return;
+        throw error;
+      }
       try {
         this._applyCurrentChange(value, true);
       } catch (error) {

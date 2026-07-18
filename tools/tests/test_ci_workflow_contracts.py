@@ -61,3 +61,20 @@ def test_react_showcase_runs_complete_static_and_production_gates() -> None:
     assert f"npm run typecheck {prefix}" in typescript
     assert f"npm run lint {prefix}" in typescript
     assert f"npm run build {prefix}" in typescript
+
+
+def test_spec_discipline_enforces_develop_first_gitflow() -> None:
+    workflow = (WORKFLOWS / "spec-discipline.yml").read_text(encoding="utf-8")
+
+    assert "Enforce develop-first gitflow" in workflow
+    assert "BASE_REF: ${{ github.event.pull_request.base.ref }}" in workflow
+    assert "HEAD_REF: ${{ github.event.pull_request.head.ref }}" in workflow
+    assert 'if [ "$BASE_REF" = "develop" ]; then' in workflow
+    assert 'if [ "$HEAD_REF" = "develop" ]; then' in workflow
+    assert "release-please--branches--main--components--python" in workflow
+    for path in (
+        ".release-please-manifest.json",
+        "langs/python/CHANGELOG.md",
+        "langs/python/src/vmx/__about__.py",
+    ):
+        assert path in workflow

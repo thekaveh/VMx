@@ -18,7 +18,8 @@ export class AggregateParent implements IOwningParentVM {
   selectChild(_vm: ComponentVMBase): void { /* fixed aggregate has no selection */ }
   deselectChild(_vm: ComponentVMBase): void { /* fixed aggregate has no selection */ }
   containsChild(vm: ComponentVMBase): boolean {
-    return this.slots().some((child) => child === vm);
+    const identity = vm._ownershipIdentity;
+    return this.slots().some((child) => child._ownershipIdentity === identity);
   }
   detachForTransfer(vm: ComponentVMBase): ParentTransfer {
     throw new Error(`Cannot transfer '${vm.name}' out of a fixed aggregate slot`);
@@ -32,15 +33,20 @@ export function validateAggregateSlots(
 ): void {
   const seen = new Set<ComponentVMBase>();
   for (const child of children) {
-    if (seen.has(child)) throw new Error("Aggregate factories returned duplicate identity");
-    seen.add(child);
+    const identity = child._ownershipIdentity;
+    if (seen.has(identity)) {
+      throw new Error("Aggregate factories returned duplicate canonical identity");
+    }
+    seen.add(identity);
     if (
       child._parent !== null &&
       !(child._parent === parent && parent.containsChild(child))
     ) throw new Error(`Cannot populate aggregate with '${child.name}': already owned`);
     let cursor: IOwningParentVM | null = parent;
     while (cursor !== null) {
-      if (cursor.owner === child) throw new Error("Aggregate ownership would create a parent cycle");
+      if (cursor.owner._ownershipIdentity === identity) {
+        throw new Error("Aggregate ownership would create a parent cycle");
+      }
       cursor = cursor.ownerParent;
     }
   }

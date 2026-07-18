@@ -162,7 +162,10 @@ open class GroupVM<Child: ComponentVMBase>:
     }
 
     fileprivate func containsIdentity(_ vm: ComponentVMBase) -> Bool {
-        membershipGate.withLock { children.contains(where: { $0 === vm }) }
+        let identity = vm._ownershipIdentity
+        return membershipGate.withLock {
+            children.contains(where: { $0._ownershipIdentity === identity })
+        }
     }
 
     fileprivate func detachForTransfer(_ vm: ComponentVMBase) throws -> ParentTransfer {
@@ -177,7 +180,10 @@ open class GroupVM<Child: ComponentVMBase>:
         let detached: (Int, Child)
         do {
             detached = try membershipGate.withLock {
-                guard let index = children.firstIndex(where: { $0 === vm }) else {
+                let identity = vm._ownershipIdentity
+                guard let index = children.firstIndex(where: {
+                    $0._ownershipIdentity === identity
+                }) else {
                     throw ContainerOwnershipError.inconsistentParent
                 }
                 return (index, children.remove(at: index))
@@ -190,6 +196,10 @@ open class GroupVM<Child: ComponentVMBase>:
         return ParentTransfer(
             commit: {
                 defer { self.endMembershipTransaction() }
+                if child._ownershipParent === self.groupParent {
+                    child._parent = nil
+                    child._ownershipParent = nil
+                }
                 self.emit(.removed(child, at: index))
             },
             rollback: {
@@ -570,7 +580,9 @@ open class GroupVM<Child: ComponentVMBase>:
         _ candidates: [Child]
     ) -> Result<Void, ContainerOwnershipError> {
         var identities = Set<ObjectIdentifier>()
-        guard candidates.allSatisfy({ identities.insert(ObjectIdentifier($0)).inserted }) else {
+        guard candidates.allSatisfy({
+            identities.insert(ObjectIdentifier($0._ownershipIdentity)).inserted
+        }) else {
             return .failure(.duplicate)
         }
         let transaction: ContainerOwnershipTransaction
@@ -731,14 +743,8 @@ open class GroupVM<Child: ComponentVMBase>:
 
     private func beginMembershipTransaction() throws -> ContainerOwnershipTransaction {
         let transaction = ContainerOwnershipTransaction()
-        lockOwnershipTransactionCoordinator()
-        do {
-            try membershipGate.withLock {
-                try beginMembershipTransactionLocked(transaction, allowJoin: false)
-            }
-        } catch {
-            unlockOwnershipTransactionCoordinator()
-            throw error
+        try membershipGate.withLock {
+            try beginMembershipTransactionLocked(transaction, allowJoin: false)
         }
         return transaction
     }
@@ -746,14 +752,8 @@ open class GroupVM<Child: ComponentVMBase>:
     private func joinMembershipTransaction(
         _ transaction: ContainerOwnershipTransaction
     ) throws {
-        lockOwnershipTransactionCoordinator()
-        do {
-            try membershipGate.withLock {
-                try beginMembershipTransactionLocked(transaction, allowJoin: true)
-            }
-        } catch {
-            unlockOwnershipTransactionCoordinator()
-            throw error
+        try membershipGate.withLock {
+            try beginMembershipTransactionLocked(transaction, allowJoin: true)
         }
     }
 
@@ -779,7 +779,6 @@ open class GroupVM<Child: ComponentVMBase>:
                 disposeDeferred = false
             }
         }
-        unlockOwnershipTransactionCoordinator()
         completion?.leave()
         if shouldDispose { dispose() }
     }

@@ -57,7 +57,23 @@ class _ForwardingParent(_ParentCompositeVM):
         return self._parent.contains_child(self._wrapper)
 
     def detach_for_transfer(self, vm: _ComponentVMBase) -> _ParentTransfer:
-        return self._parent.detach_for_transfer(self._wrapper)
+        staged = self._parent.detach_for_transfer(self._wrapper)
+
+        def commit() -> None:
+            try:
+                staged.commit()
+            finally:
+                self._wrapper._parent = None
+
+        return _ParentTransfer(commit, staged.rollback)
+
+    def retained_wrappers(self) -> tuple[ForwardingComponentVM[object], ...]:
+        wrappers: list[ForwardingComponentVM[object]] = []
+        parent: _ParentCompositeVM = self
+        while isinstance(parent, _ForwardingParent):
+            wrappers.append(parent._wrapper)
+            parent = parent._parent
+        return tuple(wrappers)
 
 
 class _WrappedParent(_ParentCompositeVM):
@@ -100,8 +116,8 @@ class _WrappedParent(_ParentCompositeVM):
         return self._parent.contains_child(self._wrapped)
 
     def detach_for_transfer(self, vm: _ComponentVMBase) -> _ParentTransfer:
-        retained_wrapper = (
-            self._parent._wrapper if isinstance(self._parent, _ForwardingParent) else None
+        retained_wrappers = (
+            self._parent.retained_wrappers() if isinstance(self._parent, _ForwardingParent) else ()
         )
         staged = self._parent.detach_for_transfer(self._wrapped)
 
@@ -109,8 +125,9 @@ class _WrappedParent(_ParentCompositeVM):
             try:
                 staged.commit()
             finally:
-                if retained_wrapper is not None and retained_wrapper is not self._wrapper:
-                    retained_wrapper._parent = None
+                for retained_wrapper in retained_wrappers:
+                    if retained_wrapper is not self._wrapper:
+                        retained_wrapper._parent = None
 
         return _ParentTransfer(commit, staged.rollback)
 
@@ -265,6 +282,10 @@ class ForwardingComponentVM(_ComponentVMBase, Generic[M]):
             if parent is None
             else _ForwardingParent(parent, cast(ForwardingComponentVM[object], self))
         )
+
+    @property
+    def _ownership_identity(self) -> _ComponentVMBase:
+        return cast(_ComponentVMBase, self._wrapped)._ownership_identity
 
     @property
     def _ownership_parent(self) -> _ParentCompositeVM | None:

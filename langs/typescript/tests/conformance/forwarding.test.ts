@@ -183,6 +183,30 @@ describe("FWD-004", () => {
     expect(destination.snapshot()).toEqual([]);
     expect(destination.current).toBeNull();
     expect(group.snapshot()).toEqual([forwarding]);
+
+    const nested = new ForwardingComponentVM(forwarding);
+    destination.add(nested);
+    const finalAlias = new ForwardingComponentVM(inner);
+    group.add(finalAlias);
+
+    expect(destination.snapshot()).toEqual([]);
+    expect(group.snapshot()).toEqual([finalAlias]);
+
+    destination.add(nested);
+    expect(group.snapshot()).toEqual([]);
+    expect(destination.snapshot()).toEqual([nested]);
+
+    const duplicateComposite = CompositeVM.builder<ForwardingComponentVM<string>>()
+      .name("duplicate-composite").services(hub, dispatcher)
+      .children(() => [new ForwardingComponentVM(inner), new ForwardingComponentVM(inner)])
+      .build();
+    const duplicateGroup = GroupVM.builder<ForwardingComponentVM<string>>()
+      .name("duplicate-group").services(hub, dispatcher)
+      .children(() => [new ForwardingComponentVM(inner), new ForwardingComponentVM(inner)])
+      .build();
+
+    expect(() => duplicateComposite.construct()).toThrow(/duplicate canonical child identity/);
+    expect(() => duplicateGroup.construct()).toThrow(/duplicate canonical child identity/);
   });
 });
 

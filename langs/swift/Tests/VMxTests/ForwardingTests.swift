@@ -152,9 +152,9 @@ final class ForwardingTests: XCTestCase {
         let oldParent = try CompositeVM<ComponentVMOf<String>>.builder()
             .name("old").withNullServices().build()
         let group = try GroupVM<NoopForwardingComponent>.builder()
-            .name("group").withNullServices().build()
+            .name("group").withNullServices().children { [] }.build()
         let destination = try CompositeVM<NoopForwardingComponent>.builder()
-            .name("destination").withNullServices().build()
+            .name("destination").withNullServices().children { [] }.build()
         try oldParent.addResult(inner).get()
         let forwarding = NoopForwardingComponent(inner)
 
@@ -181,6 +181,32 @@ final class ForwardingTests: XCTestCase {
         XCTAssertNil(destination.current)
         XCTAssertEqual(group.count, 1)
         XCTAssertTrue(group.at(0) === forwarding)
+
+        let nested = NoopForwardingComponent(forwarding)
+        try destination.addResult(nested).get()
+        let finalAlias = NoopForwardingComponent(inner)
+        try group.addResult(finalAlias).get()
+
+        XCTAssertEqual(destination.count, 0)
+        XCTAssertEqual(group.count, 1)
+        XCTAssertTrue(group.at(0) === finalAlias)
+
+        try destination.addResult(nested).get()
+        XCTAssertEqual(group.count, 0)
+        XCTAssertEqual(destination.count, 1)
+        XCTAssertTrue(destination.at(0) === nested)
+
+        let duplicateComposite = try CompositeVM<NoopForwardingComponent>.builder()
+            .name("duplicate-composite").withNullServices()
+            .children { [NoopForwardingComponent(inner), NoopForwardingComponent(inner)] }
+            .build()
+        let duplicateGroup = try GroupVM<NoopForwardingComponent>.builder()
+            .name("duplicate-group").withNullServices()
+            .children { [NoopForwardingComponent(inner), NoopForwardingComponent(inner)] }
+            .build()
+
+        XCTAssertThrowsError(try duplicateComposite.construct())
+        XCTAssertThrowsError(try duplicateGroup.construct())
     }
 
     // ── FWD-002 ─────────────────────────────────────────────────────────

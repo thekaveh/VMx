@@ -208,8 +208,10 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
 
     bool IParentCompositeVM.ContainsChild(IComponentVM vm)
     {
+        var identity = vm.GetOwnershipIdentity();
         lock (_membershipGate)
-            return _children.Any(child => ReferenceEquals(child, vm));
+            return _children.Any(child =>
+                ReferenceEquals(child.GetOwnershipIdentity(), identity));
     }
 
     ParentTransferToken IParentCompositeVM.DetachForTransfer(IComponentVM vm)
@@ -674,9 +676,11 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     {
         var candidates = children.ToArray();
         if (candidates.Where((candidate, index) =>
-                candidates.Take(index).Any(previous => ReferenceEquals(previous, candidate))).Any())
+                candidates.Take(index).Any(previous => ReferenceEquals(
+                    previous.GetOwnershipIdentity(), candidate.GetOwnershipIdentity()))).Any())
             throw new InvalidOperationException(
-                "Factory population contains a duplicate child identity.");
+                "Factory population contains a duplicate child identity " +
+                "(duplicate canonical child identity).");
         BeginMembershipTransaction();
         var transfers = new List<ParentTransferToken?>();
         var originalStatuses = new List<ConstructionStatus>();

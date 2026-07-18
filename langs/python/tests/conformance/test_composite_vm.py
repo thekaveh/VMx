@@ -917,6 +917,44 @@ def test_COMP_026_collection_and_current_callbacks_do_not_deadlock() -> None:
         pytest.fail("current and collection callbacks deadlocked across composites")
 
 
+def test_current_callback_disposal_preserves_remove_and_reset_events() -> None:
+    """Deferred disposal completes only after the structural event is published."""
+    dispatcher = _dispatcher()
+
+    def exercise(*, clear: bool) -> list[str]:
+        child = _build_child("child", dispatcher=dispatcher)
+        holder: list[CompositeVM[ComponentVM]] = []
+
+        def dispose_when_cleared(selected: ComponentVM | None) -> None:
+            if selected is None:
+                holder[0].dispose()
+
+        composite = (
+            CompositeVMBuilder()
+            .name("composite")
+            .services(_hub(), dispatcher)
+            .children(lambda: [child])
+            .on_current_changed(dispose_when_cleared)
+            .build()
+        )
+        holder.append(composite)
+        composite.construct()
+        composite.select_component(child)
+        events: list[str] = []
+        composite.on_collection_changed.subscribe(lambda event: events.append(event.action))
+
+        if clear:
+            composite.clear()
+        else:
+            assert composite.remove(child)
+
+        assert composite.status is ConstructionStatus.DISPOSED
+        return events
+
+    assert exercise(clear=False) == ["remove"]
+    assert exercise(clear=True) == ["reset"]
+
+
 def test_auto_construct_rollback_destructs_child_after_destination_disposal() -> None:
     destination_ref: list[CompositeVM[ComponentVM]] = []
     hub, dispatcher = _hub(), _dispatcher()

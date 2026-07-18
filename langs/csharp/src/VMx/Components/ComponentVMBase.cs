@@ -82,6 +82,7 @@ internal sealed class ParentTransferToken
 internal interface IComponentVMInternals
 {
     IParentCompositeVM? Parent { get; }
+    IComponentVM OwnershipIdentity { get; }
     void SetParent(IParentCompositeVM? parent);
     void SetIsCurrent(bool value);
     bool CommitIsCurrent(bool value);
@@ -100,6 +101,9 @@ internal static class ComponentVMExtensions
 
     internal static IParentCompositeVM? GetParent(this IComponentVM vm)
         => (vm as IComponentVMInternals)?.Parent;
+
+    internal static IComponentVM GetOwnershipIdentity(this IComponentVM vm)
+        => (vm as IComponentVMInternals)?.OwnershipIdentity ?? vm;
 
     internal static void SetIsCurrent(this IComponentVM vm, bool value)
         => (vm as IComponentVMInternals)?.SetIsCurrent(value);
@@ -154,7 +158,8 @@ internal static class ComponentOwnership
         IParentCompositeVM destination)
     {
         Monitor.Enter(Coordinator);
-        var state = States.GetValue(child, static _ => new OwnershipState());
+        var identity = child.GetOwnershipIdentity();
+        var state = States.GetValue(identity, static _ => new OwnershipState());
         Monitor.Enter(state.Gate);
         if (state.InProgress)
         {
@@ -176,7 +181,8 @@ internal static class ComponentOwnership
                  cursor is not null;
                  cursor = cursor.OwnerParent)
             {
-                if (cursor.Owner is not null && ReferenceEquals(cursor.Owner, child))
+                if (cursor.Owner is not null &&
+                    ReferenceEquals(cursor.Owner.GetOwnershipIdentity(), identity))
                     throw new InvalidOperationException(
                         $"Cannot add '{child.Name}': the operation would create a parent cycle.");
             }
@@ -354,6 +360,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
 
     // ── IComponentVMInternals explicit implementation ─────────────────────────
     IParentCompositeVM? IComponentVMInternals.Parent => Parent;
+    IComponentVM IComponentVMInternals.OwnershipIdentity => this;
     void IComponentVMInternals.SetParent(IParentCompositeVM? parent) => Parent = parent;
     void IComponentVMInternals.SetIsCurrent(bool value) => IsCurrent = value;
     bool IComponentVMInternals.CommitIsCurrent(bool value) => CommitIsCurrent(value);

@@ -92,12 +92,13 @@ export function beginParentTransfer(
   child: ComponentVMBase,
   destination: IOwningParentVM,
 ): ParentTransfer {
-  if (child._ownershipInProgress) {
+  const identity = child._ownershipIdentity;
+  if (identity._ownershipInProgress) {
     throw new Error(
       `Cannot transfer '${child.name}': ownership transaction is already in progress`,
     );
   }
-  child._ownershipInProgress = true;
+  identity._ownershipInProgress = true;
   let staged: ParentTransfer | null;
   try {
     if (destination.containsChild(child)) {
@@ -106,14 +107,14 @@ export function beginParentTransfer(
 
     let cursor: IOwningParentVM | null = destination;
     while (cursor !== null) {
-      if (cursor.owner === child) {
+      if (cursor.owner._ownershipIdentity === identity) {
         throw new Error(`Cannot add '${child.name}': operation would create a parent cycle`);
       }
       cursor = cursor.ownerParent;
     }
     staged = child._parent?.detachForTransfer(child) ?? null;
   } catch (error) {
-    child._ownershipInProgress = false;
+    identity._ownershipInProgress = false;
     throw error;
   }
 
@@ -124,7 +125,7 @@ export function beginParentTransfer(
         else staged.rollback();
       }
     } finally {
-      child._ownershipInProgress = false;
+      identity._ownershipInProgress = false;
     }
   };
   return new ParentTransfer(() => finish(true), () => finish(false));
@@ -161,6 +162,9 @@ export abstract class ComponentVMBase {
   set _parent(value: IOwningParentVM | null) { this.#parent = value; }
   /** @internal Rejects nested ownership changes until the active mutation commits. */
   _ownershipInProgress = false;
+  /** @internal Canonical component identity shared by forwarding decorators. */
+  // eslint-disable-next-line @typescript-eslint/prefer-return-this-type -- decorators return the wrapped root
+  get _ownershipIdentity(): ComponentVMBase { return this; }
 
   readonly #propertyChangedSubject = new Subject<string>();
   readonly #statusTrigger = new Subject<void>();

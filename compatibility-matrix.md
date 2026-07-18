@@ -73,6 +73,8 @@ and public-hub IDs per ADR-0090; +1 inert modeled-assignment ID per ADR-0091;
 +10 dynamic aggregate-change-stream IDs per ADR-0098;
 +7 searchable-source-reactivity IDs per ADR-0099;
 +11 async-resource IDs per ADR-0100;
++4 atomic container-ownership IDs per ADR-0107;
++1 canonical forwarding-ownership ID per ADR-0124;
 THEME-001..005 covered by the
 `examples/swift/notes-showcase/` flagship — ADR-0067). Swift has member-level
 parity with C#, Python, and TypeScript. Rust is catalog-complete but retains the

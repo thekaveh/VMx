@@ -217,6 +217,38 @@ def test_FWD_004_forwarding_component_transfers_one_underlying_owner() -> None:
     assert destination.current is None
     assert group.snapshot() == (forwarding,)
 
+    nested = ForwardingComponentVM(forwarding)
+    destination.add(nested)
+    final_alias = ForwardingComponentVM(inner)
+    group.add(final_alias)
+
+    assert destination.snapshot() == ()
+    assert group.snapshot() == (final_alias,)
+
+    destination.add(nested)
+    assert group.snapshot() == ()
+    assert destination.snapshot() == (nested,)
+
+    duplicate_composite = (
+        CompositeVMBuilder()
+        .name("duplicate-composite")
+        .services(inner.hub, RxDispatcher.immediate())
+        .children(lambda: [ForwardingComponentVM(inner), ForwardingComponentVM(inner)])
+        .build()
+    )
+    duplicate_group = (
+        GroupVMBuilder()
+        .name("duplicate-group")
+        .services(inner.hub, RxDispatcher.immediate())
+        .children(lambda: [ForwardingComponentVM(inner), ForwardingComponentVM(inner)])
+        .build()
+    )
+
+    with pytest.raises(ValueError, match="duplicate canonical child identity"):
+        duplicate_composite.construct()
+    with pytest.raises(ValueError, match="duplicate canonical child identity"):
+        duplicate_group.construct()
+
 
 # ---------------------------------------------------------------------------
 # FWD-002: selective override of ``hint`` returns "OVERRIDE"; others delegate

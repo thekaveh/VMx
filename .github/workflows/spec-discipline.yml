@@ -22,6 +22,47 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Enforce develop-first gitflow
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "$BASE_REF" = "develop" ]; then
+            exit 0
+          fi
+          if [ "$BASE_REF" != "main" ]; then
+            echo "::error::PRs may target only develop or main."
+            exit 1
+          fi
+          if [ "$HEAD_REF" = "develop" ]; then
+            exit 0
+          fi
+
+          # release-please is the sole direct-to-main exception. Constrain both
+          # its exact branch and its generated Python release metadata surface.
+          if [ "$HEAD_REF" = "release-please--branches--main--components--python" ]; then
+            disallowed=""
+            while IFS= read -r path; do
+              case "$path" in
+                .release-please-manifest.json | \
+                langs/python/CHANGELOG.md | \
+                langs/python/src/vmx/__about__.py) ;;
+                *) disallowed="${disallowed}${path}\n" ;;
+              esac
+            done < <(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+            if [ -z "$disallowed" ]; then
+              exit 0
+            fi
+            echo "::error::release-please PR changed files outside its allowed metadata surface:"
+            printf '%b' "$disallowed"
+            exit 1
+          fi
+
+          echo "::error::Changes must merge to develop before promotion to main."
+          exit 1
+
       - name: Require ADR for non-trivial spec changes
         env:
           # Passed via env (not inline interpolation) so label text cannot

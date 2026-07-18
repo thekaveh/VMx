@@ -197,13 +197,14 @@ def _begin_parent_transfer(
     child: _ComponentVMBase, destination: _ParentCompositeVM
 ) -> _ParentTransfer:
     """Validate exclusive ownership/cycles and stage any old-parent removal."""
+    identity = child._ownership_identity
     _OWNERSHIP_TRANSACTION_GATE.acquire()
-    child._ownership_lock.acquire()
-    if child._ownership_in_progress:
-        child._ownership_lock.release()
+    identity._ownership_lock.acquire()
+    if identity._ownership_in_progress:
+        identity._ownership_lock.release()
         _OWNERSHIP_TRANSACTION_GATE.release()
         raise RuntimeError(f"Cannot transfer {child.name!r}: ownership transaction is in progress")
-    child._ownership_in_progress = True
+    identity._ownership_in_progress = True
     try:
         if destination.contains_child(child):
             raise ValueError(
@@ -212,7 +213,7 @@ def _begin_parent_transfer(
 
         cursor: _ParentCompositeVM | None = destination
         while cursor is not None:
-            if cursor.owner is child:
+            if cursor.owner._ownership_identity is identity:
                 raise ValueError(
                     f"Cannot add {child.name!r}: operation would create a parent cycle"
                 )
@@ -221,8 +222,8 @@ def _begin_parent_transfer(
         ownership_parent = child._ownership_parent
         staged = None if ownership_parent is None else ownership_parent.detach_for_transfer(child)
     except BaseException:
-        child._ownership_in_progress = False
-        child._ownership_lock.release()
+        identity._ownership_in_progress = False
+        identity._ownership_lock.release()
         _OWNERSHIP_TRANSACTION_GATE.release()
         raise
 
@@ -231,8 +232,8 @@ def _begin_parent_transfer(
             if staged is not None:
                 (staged.commit if commit else staged.rollback)()
         finally:
-            child._ownership_in_progress = False
-            child._ownership_lock.release()
+            identity._ownership_in_progress = False
+            identity._ownership_lock.release()
             _OWNERSHIP_TRANSACTION_GATE.release()
 
     return _ParentTransfer(lambda: finish(True), lambda: finish(False))
@@ -390,6 +391,11 @@ class _ComponentVMBase(ABC):
     def _set_parent(self, parent: _ParentCompositeVM | None) -> None:
         """Called by CompositeVMBase when this child is added/removed."""
         self._parent = parent
+
+    @property
+    def _ownership_identity(self) -> _ComponentVMBase:
+        """Canonical component shared by every forwarding alias."""
+        return self
 
     @property
     def _ownership_parent(self) -> _ParentCompositeVM | None:

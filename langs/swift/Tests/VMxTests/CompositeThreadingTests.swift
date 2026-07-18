@@ -27,10 +27,9 @@ final class CompositeThreadingTests: XCTestCase {
     // ── COMP-006 ─────────────────────────────────────────────────────────────
 
     /// COMP-006 — IsCurrent change on the previously-Current child dispatches on
-    /// foreground: with `ManualDispatcher`, `vmA._setIsCurrent(false)` is
-    /// buffered after `selectChild(vmB)` and only delivered once
-    /// `flushForeground()` is called. With `ImmediateDispatcher` / `NullDispatcher`
-    /// the `scheduleForeground` call is synchronous, so existing tests are unaffected.
+    /// foreground: with `ManualDispatcher`, the committed state flips before
+    /// callbacks while its `propertyChanged` delivery remains buffered until
+    /// `flushForeground()` is called.
     func testCOMP006PreviousChildIsCurrentDispatchedOnForeground() throws {
         let hub = MessageHub()
         let dispatcher = ManualDispatcher()
@@ -61,7 +60,7 @@ final class CompositeThreadingTests: XCTestCase {
         }
         .store(in: &cancellables)
 
-        // Change current to vmB — schedules vmA._setIsCurrent(false) on foreground.
+        // Change current to vmB — commits vmA false, then schedules its delivery.
         composite.selectChild(vmB)
 
         // Before flush: buffered (zero deliveries on vmA.propertyChanged).
@@ -69,7 +68,8 @@ final class CompositeThreadingTests: XCTestCase {
             isCurrentChanges.count, 0,
             "isCurrent emission on previously-current child must be buffered until foreground flush"
         )
-        XCTAssertTrue(vmA.isCurrent, "vmA.isCurrent not yet flipped before flush")
+        XCTAssertFalse(vmA.isCurrent, "the previous flag must commit before publication")
+        XCTAssertTrue(vmB.isCurrent, "the new flag must commit before publication")
         XCTAssertTrue(composite.current === vmB, "composite.current already points to vmB")
 
         // Advance the foreground scheduler — delivers vmA._setIsCurrent(false).
@@ -208,10 +208,13 @@ final class CompositeThreadingTests: XCTestCase {
             composite.current = second
             secondDone.signal()
         }
-        XCTAssertEqual(secondDone.wait(timeout: .now() + 0.05), .timedOut)
+        XCTAssertEqual(
+            secondDone.wait(timeout: .now() + 2),
+            .success,
+            "consumer notification must not retain the global current coordinator"
+        )
         release.signal()
         XCTAssertEqual(firstDone.wait(timeout: .now() + 2), .success)
-        XCTAssertEqual(secondDone.wait(timeout: .now() + 2), .success)
 
         XCTAssertTrue(composite.current === second)
         XCTAssertFalse(first.isCurrent)
@@ -253,6 +256,34 @@ final class CompositeThreadingTests: XCTestCase {
 
         XCTAssertEqual(done.wait(timeout: .now() + 2), .success)
         XCTAssertTrue(left.current === leftChild)
+        XCTAssertTrue(right.current === rightChild)
+    }
+
+    func testCurrentCallbackDoesNotRetainGlobalCoordinator() throws {
+        let leftChild = try ComponentVM.builder().name("left-child")
+            .withNullServices().build()
+        let rightChild = try ComponentVM.builder().name("right-child")
+            .withNullServices().build()
+        let workerDone = DispatchSemaphore(value: 0)
+        var callbackObservedProgress = false
+        var right: CompositeVM<ComponentVM>!
+        let left = try CompositeVM<ComponentVM>.builder().name("left")
+            .withNullServices().children { [leftChild] }
+            .onCurrentChanged { _ in
+                DispatchQueue.global().async {
+                    right.selectChild(rightChild)
+                    workerDone.signal()
+                }
+                callbackObservedProgress = workerDone.wait(timeout: .now() + 1) == .success
+            }.build()
+        right = try CompositeVM<ComponentVM>.builder().name("right")
+            .withNullServices().children { [rightChild] }.build()
+        try left.construct()
+        try right.construct()
+
+        left.selectChild(leftChild)
+
+        XCTAssertTrue(callbackObservedProgress)
         XCTAssertTrue(right.current === rightChild)
     }
 }

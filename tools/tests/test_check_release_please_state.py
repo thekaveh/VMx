@@ -60,3 +60,13 @@ def test_release_workflow_gates_action_on_preflight() -> None:
     assert "python3 tools/check-release-please-state.py" in workflow
     assert "id: release-state" in workflow
     assert "if: steps.release-state.outputs.ready == 'true'" in workflow
+
+
+def test_release_workflow_uses_a_pr_triggering_credential() -> None:
+    root = Path(__file__).resolve().parents[2]
+    workflow = (root / ".github" / "workflows" / "release-please.yml").read_text(encoding="utf-8")
+
+    assert "Require RELEASE_PLEASE_TOKEN" in workflow
+    assert "RELEASE_PLEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}" in workflow
+    assert 'test -n "$RELEASE_PLEASE_TOKEN"' in workflow
+    assert "token: ${{ secrets.RELEASE_PLEASE_TOKEN }}" in workflow

@@ -520,8 +520,11 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         if self._populated or self._children_factory is None:
             return
         children = list(self._children_factory())
-        if len({id(child) for child in children}) != len(children):
-            raise ValueError("factory population contains a duplicate child identity")
+        if len({id(child._ownership_identity) for child in children}) != len(children):
+            raise ValueError(
+                "factory population contains a duplicate child identity "
+                "(duplicate canonical child identity)"
+            )
         parent = self._as_parent()
         self._begin_membership_transaction()
         transfers: list[_ParentTransfer | None] = []
@@ -685,7 +688,8 @@ class _GroupParent(_ParentCompositeVM, Generic[VM]):
 
     def contains_child(self, vm: _ComponentVMBase) -> bool:
         with self._group._membership_gate:
-            return any(child is vm for child in self._group._children)
+            identity = vm._ownership_identity
+            return any(child._ownership_identity is identity for child in self._group._children)
 
     def detach_for_transfer(self, vm: _ComponentVMBase) -> _ParentTransfer:
         with self._group._membership_gate:

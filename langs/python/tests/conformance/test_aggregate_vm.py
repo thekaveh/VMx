@@ -24,6 +24,7 @@ from vmx.aggregates.builders import (
 )
 from vmx.components.builders import ComponentVMBuilder
 from vmx.composites.builders import CompositeVMBuilder
+from vmx.forwarding.component import ForwardingComponentVM
 from vmx.lifecycle.status import ConstructionStatus
 from vmx.messages.construction_status_changed import ConstructionStatusChangedMessage
 from vmx.messages.property_changed import PropertyChangedMessage
@@ -345,6 +346,51 @@ def test_aggregate_rejects_owned_factory_result_without_mutation() -> None:
         aggregate.construct()
 
     assert composite.snapshot() == (child,)
+    assert aggregate.component_1 is None
+
+
+def test_aggregate_rejects_forwarding_aliases_of_one_canonical_component() -> None:
+    inner = ComponentVMBuilder().name("inner").with_null_services().build()
+    first = ForwardingComponentVM(inner)
+    second = ForwardingComponentVM(inner)
+    aggregate = (
+        AggregateVM2Builder()
+        .name("aggregate")
+        .services(inner.hub, RxDispatcher.immediate())
+        .component_1(lambda: first)
+        .component_2(lambda: second)
+        .build()
+    )
+
+    with pytest.raises(ValueError, match="same canonical component identity"):
+        aggregate.construct()
+
+    assert aggregate.component_1 is None
+    assert aggregate.component_2 is None
+
+
+def test_aggregate_rejects_forwarding_alias_of_owned_component() -> None:
+    inner = ComponentVMBuilder().name("inner").with_null_services().build()
+    composite = (
+        CompositeVMBuilder()
+        .name("composite")
+        .services(inner.hub, RxDispatcher.immediate())
+        .children(lambda: (inner,))
+        .build()
+    )
+    composite.construct()
+    aggregate = (
+        AggregateVM1Builder()
+        .name("aggregate")
+        .services(inner.hub, RxDispatcher.immediate())
+        .component_1(lambda: ForwardingComponentVM(inner))
+        .build()
+    )
+
+    with pytest.raises(ValueError, match="already has a parent"):
+        aggregate.construct()
+
+    assert composite.snapshot() == (inner,)
     assert aggregate.component_1 is None
 
 

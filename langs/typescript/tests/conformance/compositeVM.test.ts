@@ -356,6 +356,29 @@ describe("COMP-010", () => {
     expect(composite.current).toBeNull();
     expect(vmA.isCurrent).toBe(false);
   });
+
+  it("drops a deferred selection when the composite is disposed before delivery", () => {
+    const hub = makeHub();
+    const foreground = new TestScheduler((actual, expected) => {
+      expect(actual).toEqual(expected);
+    });
+    const disp = new RxDispatcher(foreground, foreground);
+    const vmA = makeChild(hub, "vmA");
+    const composite = CompositeVM.builder<ComponentVM>()
+      .name("c")
+      .services(hub, disp)
+      .asyncSelection(true)
+      .children(() => [vmA])
+      .build();
+    composite.construct();
+
+    composite.selectComponent(vmA);
+    composite.dispose();
+
+    expect(() => foreground.flush()).not.toThrow();
+    expect(composite.current).toBeNull();
+    expect(vmA.isCurrent).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -773,6 +796,32 @@ describe("COMP-026", () => {
 
     expect(compositeA.current).toBe(childA);
     expect(compositeB.current).toBe(childB);
+  });
+
+  it("publishes remove and reset before callback-requested disposal completes", () => {
+    const exercise = (clear: boolean): string[] => {
+      const hub = makeHub();
+      const child = makeChild(hub, "child");
+      let composite!: CompositeVM<ComponentVM>;
+      composite = CompositeVM.builder<ComponentVM>()
+        .name("composite").services(hub, makeDisp()).children(() => [child])
+        .onCurrentChanged((selected) => {
+          if (selected === null) composite.dispose();
+        }).build();
+      composite.construct();
+      composite.selectComponent(child);
+      const events: string[] = [];
+      composite.collectionChanged.subscribe((event) => events.push(event.action));
+
+      if (clear) composite.clear();
+      else expect(composite.remove(child)).toBe(true);
+
+      expect(composite.status).toBe(ConstructionStatus.Disposed);
+      return events;
+    };
+
+    expect(exercise(false)).toEqual(["remove"]);
+    expect(exercise(true)).toEqual(["reset"]);
   });
 });
 

@@ -224,5 +224,39 @@ public class ForwardingConformanceTests
         destination.Should().BeEmpty();
         destination.Current.Should().BeNull();
         group.Should().ContainSingle().Which.Should().BeSameAs(forwarding);
+
+        var nested = new NoOpForwardingVM<string>(forwarding);
+        destination.Add(nested);
+        var finalAlias = new NoOpForwardingVM<string>(inner);
+        group.Add(finalAlias);
+
+        destination.Should().BeEmpty();
+        group.Should().ContainSingle().Which.Should().BeSameAs(finalAlias);
+
+        destination.Add(nested);
+        group.Should().BeEmpty();
+        destination.Should().ContainSingle().Which.Should().BeSameAs(nested);
+
+        var duplicateComposite = CompositeVM<NoOpForwardingVM<string>>.Builder()
+            .Name("duplicate-composite").Services(hub, dispatcher)
+            .Children(() =>
+            [
+                new NoOpForwardingVM<string>(inner),
+                new NoOpForwardingVM<string>(inner)
+            ]).Build();
+        var duplicateGroup = GroupVM<NoOpForwardingVM<string>>.Builder()
+            .Name("duplicate-group").Services(hub, dispatcher)
+            .Children(() =>
+            [
+                new NoOpForwardingVM<string>(inner),
+                new NoOpForwardingVM<string>(inner)
+            ]).Build();
+
+        duplicateComposite.Invoking(candidate => candidate.Construct())
+            .Should().Throw<InvalidOperationException>()
+            .WithMessage("*duplicate canonical child identity*");
+        duplicateGroup.Invoking(candidate => candidate.Construct())
+            .Should().Throw<InvalidOperationException>()
+            .WithMessage("*duplicate canonical child identity*");
     }
 }

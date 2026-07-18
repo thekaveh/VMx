@@ -352,7 +352,7 @@ This README is the entry point; the documents below add focused detail.
 - [`compatibility-matrix.md`](compatibility-matrix.md) — spec ↔ flavor
   version pairing.
 - [`spec/README.md`](spec/README.md) — index of the 24 chapters, 124 ADRs,
-  4 fixtures, and the 400-ID conformance catalog.
+  4 fixtures, and the 401-ID conformance catalog.
 - [`spec/ADRs/README.md`](spec/ADRs/README.md) — ADR catalogue index.
 - [`docs/content/primitives/disposal-contract.md`](docs/content/primitives/disposal-contract.md)
   — cross-flavor public disposal inventory and post-dispose contract.

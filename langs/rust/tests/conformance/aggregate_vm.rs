@@ -3,7 +3,10 @@ use std::sync::{
     Arc,
 };
 
-use vmx::{ConstructionStatus, Message, MessageHub, NullDispatcher, VmNode, VmxError};
+use vmx::{
+    ConstructionStatus, ForwardingComponentVm, Message, MessageHub, NullDispatcher, VmNode,
+    VmxError,
+};
 
 type TextVm = vmx::ComponentVm<&'static str>;
 type NumberVm = vmx::ComponentVm<i32>;
@@ -270,6 +273,22 @@ fn fixed_aggregate_rejects_owned_and_duplicate_components() {
         vmx::AggregateVm2::try_new("aggregate", duplicate.clone(), duplicate),
         Err(VmxError::DuplicateChild)
     ));
+
+    let inner = text("forwarded-duplicate");
+    let first_alias = ForwardingComponentVm::new(inner.clone());
+    let second_alias = ForwardingComponentVm::new(inner.clone());
+    assert!(matches!(
+        vmx::AggregateVm2::try_new("aggregate", first_alias, second_alias),
+        Err(VmxError::DuplicateChild)
+    ));
+
+    let old_parent = vmx::CompositeVm::new("forwarded-old-parent");
+    old_parent.add(inner.clone()).unwrap();
+    assert!(matches!(
+        vmx::AggregateVm1::try_new("aggregate", ForwardingComponentVm::new(inner.clone())),
+        Err(VmxError::InconsistentParent)
+    ));
+    assert_eq!(old_parent.items(), vec![inner]);
 }
 
 #[test]

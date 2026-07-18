@@ -20,51 +20,6 @@
 import Foundation
 import Combine
 
-private final class WrappedOwnershipParent: OwnershipParentVM {
-    private weak var parent: OwnershipParentVM?
-    private weak var wrapper: ComponentVMBase?
-    private weak var subject: ComponentVMBase?
-    private weak var wrapped: ComponentVMBase?
-
-    init(
-        parent: OwnershipParentVM,
-        wrapper: ComponentVMBase,
-        subject: ComponentVMBase,
-        wrapped: ComponentVMBase
-    ) {
-        self.parent = parent
-        self.wrapper = wrapper
-        self.subject = subject
-        self.wrapped = wrapped
-    }
-
-    var ownershipOwner: ComponentVMBase { parent!.ownershipOwner }
-    var ownershipOwnerParent: OwnershipParentVM? { parent?.ownershipOwnerParent }
-
-    func containsIdentity(_ vm: ComponentVMBase) -> Bool {
-        guard let subject else { return false }
-        return parent?.containsIdentity(subject) ?? false
-    }
-
-    func detachForTransfer(_ vm: ComponentVMBase) throws -> ParentTransfer {
-        guard let parent, let wrapper, let subject, let wrapped else {
-            throw ContainerOwnershipError.inconsistentParent
-        }
-        let staged = try parent.detachForTransfer(subject)
-        return ParentTransfer(
-            commit: {
-                staged.commit()
-                if subject !== wrapper {
-                    subject._parent = nil
-                    subject._ownershipParent = nil
-                }
-                wrapped._forwardingOwner = wrapper
-            },
-            rollback: { staged.rollback() }
-        )
-    }
-}
-
 open class ForwardingComponentVM<Model>: ComponentVMOf<Model> {
     /// The decorated instance. `public` so subclasses (and instrumentation) can
     /// reach the wrapped VM directly.
@@ -85,30 +40,18 @@ open class ForwardingComponentVM<Model>: ComponentVMOf<Model> {
         )
     }
 
+    override var _ownershipIdentity: ComponentVMBase { _wrapped._ownershipIdentity }
+
     override var _transferOwnershipParent: OwnershipParentVM? {
-        if let direct = _ownershipParent { return direct }
-        let subject: ComponentVMBase
-        if let retainedDecorator = _wrapped._forwardingOwner,
-           retainedDecorator !== self,
-           retainedDecorator._ownershipParent != nil {
-            subject = retainedDecorator
-        } else {
-            subject = _wrapped
-        }
-        guard let parent = subject._transferOwnershipParent else { return nil }
-        return WrappedOwnershipParent(
-            parent: parent,
-            wrapper: self,
-            subject: subject,
-            wrapped: _wrapped
-        )
+        _ownershipParent ?? _ownershipIdentity._transferOwnershipParent
     }
 
     override func _ownershipParentDidChange() {
+        let identity = _ownershipIdentity
         if _ownershipParent != nil {
-            _wrapped._forwardingOwner = self
-        } else if _wrapped._forwardingOwner === self {
-            _wrapped._ownershipParent = nil
+            identity._forwardingOwner = self
+        } else if identity._forwardingOwner === self {
+            identity._forwardingOwner = nil
         }
     }
 
@@ -125,6 +68,14 @@ open class ForwardingComponentVM<Model>: ComponentVMOf<Model> {
 
     override func _setIsCurrent(_ value: Bool) {
         _wrapped._setIsCurrent(value)
+    }
+
+    override func _commitIsCurrent(_ value: Bool) -> Bool {
+        _wrapped._commitIsCurrent(value)
+    }
+
+    override func _publishIsCurrent() {
+        _wrapped._publishIsCurrent()
     }
 
     // ── Model ───────────────────────────────────────────────────────────

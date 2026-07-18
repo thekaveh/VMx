@@ -24,6 +24,7 @@ public abstract class ForwardingComponentVM<M> : IComponentVM<M>, IComponentVMIn
         IParentCompositeVM parent,
         ForwardingComponentVM<M> wrapper) : IParentCompositeVM
     {
+        internal IParentCompositeVM Parent => parent;
         internal ForwardingComponentVM<M> RetainedWrapper => wrapper;
         public IComponentVM? Owner => parent.Owner;
         public IParentCompositeVM? OwnerParent => parent.OwnerParent;
@@ -33,8 +34,17 @@ public abstract class ForwardingComponentVM<M> : IComponentVM<M>, IComponentVMIn
         public void SelectChild(IComponentVM vm) => parent.SelectChild(wrapper);
         public void DeselectChild(IComponentVM vm) => parent.DeselectChild(wrapper);
         public bool ContainsChild(IComponentVM vm) => parent.ContainsChild(wrapper);
-        public ParentTransferToken DetachForTransfer(IComponentVM vm) =>
-            parent.DetachForTransfer(wrapper);
+        public ParentTransferToken DetachForTransfer(IComponentVM vm)
+        {
+            var staged = parent.DetachForTransfer(wrapper);
+            return new ParentTransferToken(
+                commit: () =>
+                {
+                    try { staged.Commit(); }
+                    finally { wrapper.ClearDirectParent(); }
+                },
+                rollback: staged.Rollback);
+        }
     }
 
     private sealed class WrappedParentAdapter(
@@ -52,7 +62,11 @@ public abstract class ForwardingComponentVM<M> : IComponentVM<M>, IComponentVMIn
         public bool ContainsChild(IComponentVM vm) => parent.ContainsChild(wrapped);
         public ParentTransferToken DetachForTransfer(IComponentVM vm)
         {
-            var retainedWrapper = (parent as ParentAdapter)?.RetainedWrapper;
+            var retainedWrappers = new List<ForwardingComponentVM<M>>();
+            for (var cursor = parent as ParentAdapter;
+                 cursor is not null;
+                 cursor = cursor.Parent as ParentAdapter)
+                retainedWrappers.Add(cursor.RetainedWrapper);
             var staged = parent.DetachForTransfer(wrapped);
             return new ParentTransferToken(
                 commit: () =>
@@ -60,9 +74,9 @@ public abstract class ForwardingComponentVM<M> : IComponentVM<M>, IComponentVMIn
                     try { staged.Commit(); }
                     finally
                     {
-                        if (retainedWrapper is not null &&
-                            !ReferenceEquals(retainedWrapper, wrapper))
-                            retainedWrapper.ClearDirectParent();
+                        foreach (var retainedWrapper in retainedWrappers)
+                            if (!ReferenceEquals(retainedWrapper, wrapper))
+                                retainedWrapper.ClearDirectParent();
                     }
                 },
                 rollback: staged.Rollback);
@@ -203,6 +217,8 @@ public abstract class ForwardingComponentVM<M> : IComponentVM<M>, IComponentVMIn
                 : new WrappedParentAdapter(wrappedParent, this, _wrapped);
         }
     }
+
+    IComponentVM IComponentVMInternals.OwnershipIdentity => _wrapped.GetOwnershipIdentity();
 
     void IComponentVMInternals.SetParent(IParentCompositeVM? parent)
     {

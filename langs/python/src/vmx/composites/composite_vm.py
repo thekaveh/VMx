@@ -126,7 +126,8 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
 
     def contains_child(self, vm: _ComponentVMBase) -> bool:
         with self._membership_gate:
-            return any(child is vm for child in self._children)
+            identity = vm._ownership_identity
+            return any(child._ownership_identity is identity for child in self._children)
 
     def detach_for_transfer(self, vm: _ComponentVMBase) -> _ParentTransfer:
         with self._membership_gate:
@@ -454,11 +455,11 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                     previous_flag_changed=previous_flag_changed,
                     value_flag_changed=False,
                 )
+            self._emit_collection_changed(
+                CollectionChangedEvent(action="remove", old_items=(removed,), old_index=idx)
+            )
         finally:
             self._end_membership_transaction(propagate_dispose_failure=sys.exc_info()[0] is None)
-        self._emit_collection_changed(
-            CollectionChangedEvent(action="remove", old_items=(removed,), old_index=idx)
-        )
         return True
 
     def remove_at(self, index: int) -> None:
@@ -486,9 +487,9 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                     previous_flag_changed=previous_flag_changed,
                     value_flag_changed=False,
                 )
+            self._emit_collection_changed(CollectionChangedEvent(action="reset"))
         finally:
             self._end_membership_transaction(propagate_dispose_failure=sys.exc_info()[0] is None)
-        self._emit_collection_changed(CollectionChangedEvent(action="reset"))
 
     def move(self, from_index: int, to_index: int) -> None:
         """Move an existing child to its final index without rewiring it."""
@@ -531,11 +532,11 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                     previous_flag_changed=previous_flag_changed,
                     value_flag_changed=False,
                 )
+            self._emit_collection_changed(
+                CollectionChangedEvent(action="remove", old_items=(item,), old_index=resolved_index)
+            )
         finally:
             self._end_membership_transaction(propagate_dispose_failure=sys.exc_info()[0] is None)
-        self._emit_collection_changed(
-            CollectionChangedEvent(action="remove", old_items=(item,), old_index=resolved_index)
-        )
 
     def _remove_at_locked(self, index: int) -> tuple[VM, bool]:
         item = self._children[index]
@@ -731,8 +732,11 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
     def _attach_population(self, children: Iterable[VM]) -> None:
         """Attach one factory population as an all-or-nothing transaction."""
         candidates = list(children)
-        if len({id(child) for child in candidates}) != len(candidates):
-            raise ValueError("factory population contains a duplicate child identity")
+        if len({id(child._ownership_identity) for child in candidates}) != len(candidates):
+            raise ValueError(
+                "factory population contains a duplicate child identity "
+                "(duplicate canonical child identity)"
+            )
         self._begin_membership_transaction()
         transfers: list[_ParentTransfer | None] = []
         original_statuses: list[ConstructionStatus] = []

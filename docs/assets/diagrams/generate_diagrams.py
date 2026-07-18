@@ -4467,7 +4467,7 @@ def csharp_wpf_todo_app() -> Diagram:
         ),
         root=(
             "MainWindowViewModel",
-            ("ObservableCollection rows", "AddCommand", "selected item context"),
+            ("ObservableCollection rows", "NewItemTitle input", "AddCommand"),
         ),
         primary=(
             "TodoItemVM rows",
@@ -4915,7 +4915,10 @@ def rust_console_hello_vmx() -> Diagram:
             ("live search result", "rust query", "selected note remains VM-owned"),
         ),
         support=("RelayCommand", ("command execution", "VMx services", "hub + dispatcher")),
-        model=("Note models", ("3 seeded notes", "slug/title/body", "search text")),
+        model=(
+            "ComponentVm<String>",
+            ("3 seeded notes", "name slug + model title", "fixed rust predicate"),
+        ),
         verification=(
             "Manual smoke",
             ("cargo run", "expected four-line output", "builds local vmx crate"),

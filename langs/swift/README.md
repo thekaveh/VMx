@@ -26,7 +26,8 @@ modeled-component republish ID via ADR-0093; +4 fixed-source selected-state
 subscription IDs via ADR-0095; +8 serviced-collection parity IDs via ADR-0096;
 +9 keyed serviced-collection IDs via ADR-0097; +10 dynamic aggregate change
 stream IDs via ADR-0098; +7 searchable source-reactivity IDs via ADR-0099;
-+11 async-resource IDs via ADR-0100):
++11 async-resource IDs via ADR-0100; +4 atomic container-ownership IDs via
+ADR-0107; +1 canonical forwarding-ownership ID via ADR-0124):
 the lifecycle state machine, the modeled
 and unmodeled `ComponentVM`, `CompositeVM`, `CompositeVMOf`, `GroupVM`,
 `AggregateVM1..6`, `RelayCommand`, `RelayCommandOf<T>`, `AsyncRelayCommand`,

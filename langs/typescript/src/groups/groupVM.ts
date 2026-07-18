@@ -347,7 +347,8 @@ export class GroupVM<VM extends ComponentVMBase>
 
   /** @internal */
   _containsIdentity(vm: ComponentVMBase): boolean {
-    return this._children.some((child) => child === vm);
+    const identity = vm._ownershipIdentity;
+    return this._children.some((child) => child._ownershipIdentity === identity);
   }
 
   /** @internal */
@@ -468,8 +469,10 @@ export class GroupVM<VM extends ComponentVMBase>
   private _populateChildren(): void {
     if (this.#populated || this.#childrenFactory === null) return;
     const children = [...this.#childrenFactory()];
-    if (new Set(children).size !== children.length) {
-      throw new Error("Factory population contains a duplicate child identity");
+    if (new Set(children.map((child) => child._ownershipIdentity)).size !== children.length) {
+      throw new Error(
+        "Factory population contains a duplicate child identity (duplicate canonical child identity)",
+      );
     }
     this.#beginMembershipTransaction();
     const start = this._children.length;

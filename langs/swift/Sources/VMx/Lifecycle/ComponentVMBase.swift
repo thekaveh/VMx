@@ -107,27 +107,20 @@ final class ParentTransfer {
 
 private let ownershipTransactionCoordinator = NSRecursiveLock()
 
-func lockOwnershipTransactionCoordinator() {
-    ownershipTransactionCoordinator.lock()
-}
-
-func unlockOwnershipTransactionCoordinator() {
-    ownershipTransactionCoordinator.unlock()
-}
-
 func beginParentTransfer(
     _ child: ComponentVMBase,
     to destination: OwnershipParentVM,
     transaction: ContainerOwnershipTransaction
 ) throws -> ParentTransfer {
+    let identity = child._ownershipIdentity
     ownershipTransactionCoordinator.lock()
-    child.ownershipGate.lock()
-    guard !child.ownershipInProgress else {
-        child.ownershipGate.unlock()
+    identity.ownershipGate.lock()
+    guard !identity.ownershipInProgress else {
+        identity.ownershipGate.unlock()
         ownershipTransactionCoordinator.unlock()
         throw ContainerOwnershipTransactionError()
     }
-    child.ownershipInProgress = true
+    identity.ownershipInProgress = true
 
     let staged: ParentTransfer?
     do {
@@ -137,7 +130,7 @@ func beginParentTransfer(
 
         var cursor: OwnershipParentVM? = destination
         while let current = cursor {
-            guard current.ownershipOwner !== child else {
+            guard current.ownershipOwner._ownershipIdentity !== identity else {
                 throw ContainerOwnershipError.cycle
             }
             cursor = current.ownershipOwnerParent
@@ -149,17 +142,17 @@ func beginParentTransfer(
             staged = try child._transferOwnershipParent?.detachForTransfer(child)
         }
     } catch {
-        child.ownershipInProgress = false
-        child.ownershipGate.unlock()
+        identity.ownershipInProgress = false
+        identity.ownershipGate.unlock()
         ownershipTransactionCoordinator.unlock()
         throw error
     }
 
     func finish(commit: Bool) {
+        ownershipTransactionCoordinator.unlock()
         defer {
-            child.ownershipInProgress = false
-            child.ownershipGate.unlock()
-            ownershipTransactionCoordinator.unlock()
+            identity.ownershipInProgress = false
+            identity.ownershipGate.unlock()
         }
         if commit { staged?.commit() } else { staged?.rollback() }
     }
@@ -224,7 +217,15 @@ open class ComponentVMBase {
     }
     weak var _forwardingOwner: ComponentVMBase?
 
-    var _transferOwnershipParent: OwnershipParentVM? { _ownershipParent }
+    var _ownershipIdentity: ComponentVMBase { self }
+
+    var _transferOwnershipParent: OwnershipParentVM? {
+        if let direct = _ownershipParent { return direct }
+        if let forwardingOwner = _forwardingOwner, forwardingOwner !== self {
+            return forwardingOwner._ownershipParent
+        }
+        return nil
+    }
 
     func _ownershipParentDidChange() {}
     fileprivate let ownershipGate = NSRecursiveLock()
@@ -378,16 +379,27 @@ open class ComponentVMBase {
 
     /// Internal setter used by containers to flip the flag.
     func _setIsCurrent(_ value: Bool) {
+        if _commitIsCurrent(value) { _publishIsCurrent() }
+    }
+
+    /// Commits the flag and reserves its paired notification without invoking
+    /// consumer code. Composite selection uses this phase for atomic state.
+    func _commitIsCurrent(_ value: Bool) -> Bool {
         lifecycleLock.lock()
         guard !disposalRequested,
               _status != .disposed,
               _isCurrent != value else {
             lifecycleLock.unlock()
-            return
+            return false
         }
         _isCurrent = value
         activePropertyNotifications += 1
         lifecycleLock.unlock()
+        return true
+    }
+
+    /// Delivers one notification reserved by `_commitIsCurrent`.
+    func _publishIsCurrent() {
         _publishAdmittedPropertyChanged("isCurrent")
     }
 
