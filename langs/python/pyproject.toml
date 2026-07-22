@@ -36,7 +36,7 @@ Issues = "https://github.com/thekaveh/VMx/issues"
 Changelog = "https://github.com/thekaveh/VMx/blob/main/langs/python/CHANGELOG.md"
 
 [project.optional-dependencies]
-test = ["pytest>=7", "pytest-asyncio>=0.23", "pytest-cov>=4"]
+test = ["pytest>=7", "pytest-asyncio>=1.4.0", "pytest-cov>=4"]
 typing = ["mypy>=1.8"]
 lint = ["ruff>=0.4"]
 dev = ["vmx[test,typing,lint]"]
