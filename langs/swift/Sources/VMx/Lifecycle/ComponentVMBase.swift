@@ -200,6 +200,118 @@ func beginParentTransfer(
 
 private struct ContainerOwnershipTransactionError: Error {}
 
+/// A `Subject` whose `send(_:)` snapshots subscribers under a brief lock and
+/// invokes them OUTSIDE the lock, so a slow consumer parked in one
+/// subscriber's closure cannot block a concurrent `send(_:)` on the same
+/// subject from another thread.
+///
+/// Combine's `PassthroughSubject` serializes `send(_:)` invocations — a parked
+/// subscriber blocks every subsequent `send(_:)` on the same subject until the
+/// in-progress call returns. That breaks the cross-language contract
+/// (spec/06 §3.2 / COMP-006): a slow consumer on one child must not block the
+/// publication of another child's `isCurrent` change. C#/Python/TypeScript use
+/// delegate invocations or reactivex/rxjs Subjects that invoke subscribers
+/// without holding a per-subject send lock; this custom Subject mirrors that
+/// concurrency contract in Swift. Drop-in replacement for `PassthroughSubject`
+/// on the per-VM `propertyChangedSubject`.
+private final class VMxConcurrentSubject<Output, Failure: Error>: Subject {
+    private final class TokenSubscription: Subscription {
+        private weak var parent: VMxConcurrentSubject<Output, Failure>?
+        private let token: UUID
+        private var cancelled = false
+        init(parent: VMxConcurrentSubject<Output, Failure>, token: UUID) {
+            self.parent = parent
+            self.token = token
+        }
+        func request(_ demand: Subscribers.Demand) {
+            // Unlimited demand — mirrors PassthroughSubject's event-driven
+            // (non-backpressured) semantics for VMx property-change notifications.
+        }
+        func cancel() {
+            guard !cancelled else { return }
+            cancelled = true
+            parent?.removeSubscriber(token: token)
+        }
+    }
+
+    private final class Entry {
+        let receiveValue: (Output) -> Subscribers.Demand
+        let receiveCompletion: (Subscribers.Completion<Failure>) -> Void
+        var cancelled: Bool = false
+        init(
+            receiveValue: @escaping (Output) -> Subscribers.Demand,
+            receiveCompletion: @escaping (Subscribers.Completion<Failure>) -> Void
+        ) {
+            self.receiveValue = receiveValue
+            self.receiveCompletion = receiveCompletion
+        }
+    }
+
+    private let lock = NSLock()
+    private var entries: [UUID: Entry] = [:]
+    private var finished = false
+
+    public func send(_ value: Output) {
+        lock.lock()
+        let snapshot = Array(entries.values)
+        let isFinished = finished
+        lock.unlock()
+        if isFinished { return }
+        for entry in snapshot where !entry.cancelled {
+            _ = entry.receiveValue(value)
+        }
+    }
+
+    public func send(completion: Subscribers.Completion<Failure>) {
+        lock.lock()
+        if finished {
+            lock.unlock()
+            return
+        }
+        if case .finished = completion { finished = true }
+        let snapshot = Array(entries.values)
+        if case .finished = completion { entries.removeAll() }
+        lock.unlock()
+        for entry in snapshot where !entry.cancelled {
+            entry.receiveCompletion(completion)
+        }
+    }
+
+    public func send(subscription: any Subscription) {
+        // VMx publishes via send(_:), not via subscription handshake; this
+        // exists only to satisfy the Subject protocol.
+    }
+
+    public func receive<S>(subscriber: S) where S: Subscriber, S.Failure == Failure, S.Input == Output {
+        let token = UUID()
+        // Capture subscriber strongly in the closures. `entries` holds the
+        // Entry which holds the closures; removeSubscriber releases both.
+        let entry = Entry(
+            receiveValue: { value in subscriber.receive(value) },
+            receiveCompletion: { completion in subscriber.receive(completion: completion) }
+        )
+        lock.lock()
+        let alreadyFinished = finished
+        if !alreadyFinished {
+            entries[token] = entry
+        }
+        lock.unlock()
+        subscriber.receive(subscription: TokenSubscription(parent: self, token: token))
+        if alreadyFinished {
+            subscriber.receive(completion: .finished)
+        }
+    }
+
+    fileprivate func removeSubscriber(token: UUID) {
+        lock.lock()
+        if let entry = entries[token] {
+            entry.cancelled = true
+        }
+        entries.removeValue(forKey: token)
+        lock.unlock()
+    }
+}
+
 /// View-model kind tag. Mirrors `ViewModelType`.
 public enum ViewModelType: String, Sendable {
     case component = "Component"
@@ -272,7 +384,7 @@ open class ComponentVMBase {
 
     // ── Reactive primitives ─────────────────────────────────────────────
 
-    private let propertyChangedSubject = PassthroughSubject<String, Never>()
+    private let propertyChangedSubject = VMxConcurrentSubject<String, Never>()
     private let statusTriggerSubject = PassthroughSubject<Void, Never>()
     private var triggersDisposed = false
     private var activePropertyNotifications = 0
