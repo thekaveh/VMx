@@ -1,7 +1,7 @@
 mkdocs>=1.6,<2
 mkdocs-material>=9.5,<10
 pip-audit==2.10.1
-pymdown-extensions>=10,<11
+pymdown-extensions>=11.0.1,<12
 pyyaml>=6.0,<7
 pytest>=9.1.1,<10
 ruff>=0.12,<1
