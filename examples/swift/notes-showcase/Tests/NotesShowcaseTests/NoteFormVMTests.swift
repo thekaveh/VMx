@@ -369,6 +369,14 @@ final class NoteFormVMTests: XCTestCase {
         form.title = "Edited title"
 
         try await form.approveAsync()
+        // The saved notification posts via a detached Task (awaiting
+        // NotificationHub.post would suspend until the toast resolves), so
+        // poll briefly for its arrival.
+        for _ in 0..<50 where !observed.contains(where: {
+            $0.message.contains("Saved") && $0.message.contains("Edited title")
+        }) {
+            try? await Task.sleep(nanoseconds: 1_000_000)
+        }
         XCTAssertTrue(
             observed.contains(where: {
                 $0.message.contains("Saved") && $0.message.contains("Edited title")

@@ -188,6 +188,12 @@ final class NotebooksRootVMTests: XCTestCase {
 
         try await vm.addNotebook(parentId: nil, name: "Inbox")
 
+        // The notification posts via a detached Task (awaiting
+        // NotificationHub.post would suspend until the toast resolves), so
+        // wait briefly for its arrival.
+        await waitUntil {
+            observed.contains(where: { $0.message.contains("Notebook added") && $0.message.contains("Inbox") })
+        }
         XCTAssertTrue(
             observed.contains(where: { $0.message.contains("Notebook added") && $0.message.contains("Inbox") }),
             "Expected 'Notebook added: \"Inbox\"' notification; got: \(observed.map(\.message))"

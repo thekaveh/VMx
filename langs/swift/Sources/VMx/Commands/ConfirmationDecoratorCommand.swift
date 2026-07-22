@@ -56,10 +56,22 @@ public final class ConfirmationDecoratorCommand: Command {
 
     /// Awaitable path — gates on canExecute, awaits confirm, runs inner when
     /// true. Rethrows inline so the caller can observe confirm errors directly.
+    ///
+    /// An `AsyncCommand` inner is awaited rather than fire-and-forgotten:
+    /// spec/04 §8.3 defines this entry-point as sequencing the confirm →
+    /// inner flow inline, and C#'s `inner.Execute` runs an async body
+    /// synchronously up to its first await, so a completing inner is
+    /// observable when the awaiter resumes. Swift's non-awaited `execute()`
+    /// would defer the whole body to a detached Task, losing that ordering.
     public func executeAsync() async throws {
         guard canExecute() else { return }
         let ok = try await confirm()
-        if ok { inner.execute() }
+        guard ok else { return }
+        if let asyncInner = inner as? AsyncCommand {
+            try await asyncInner.executeAsync()
+        } else {
+            inner.execute()
+        }
     }
 
     public var canExecuteChanged: AnyPublisher<Void, Never> {

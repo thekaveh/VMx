@@ -285,6 +285,12 @@ final class CapabilityActionsVMTests: XCTestCase {
 
         XCTAssertEqual(1, deleted.count, "Expected onDelete called exactly once")
 
+        // The success notification posts via a detached Task (awaiting
+        // NotificationHub.post would suspend until the toast resolves), so
+        // poll briefly for its arrival.
+        for _ in 0..<50 where !recorder.anyMessage({ $0.contains("Note deleted") }) {
+            try? await Task.sleep(nanoseconds: 1_000_000)
+        }
         XCTAssertTrue(recorder.anyMessage({ $0.contains("Note deleted") }),
                       "Expected 'Note deleted' notification; got \(recorder.messages)")
     }
