@@ -441,7 +441,26 @@ final class ContainerOwnershipTransferTests: XCTestCase {
                 guard event.action == .remove, !callbackStarted else { return }
                 callbackStarted = true
                 DispatchQueue.global().async {
-                    do { try bulkDestination.construct() } catch { errors.append(error) }
+                    // Ownership reservations release before the source's
+                    // membership transaction fully unwinds (the destination
+                    // still emits and closes its transaction after commit), so
+                    // this colliding attach can win the child's reservation
+                    // while the main-thread transfer is still finishing and be
+                    // rejected rather than blocked. Rejection rolls the group
+                    // back to Destructed and re-admission is legal, so retry
+                    // briefly before recording the error as real.
+                    var lastError: Error?
+                    for _ in 0..<50 {
+                        do {
+                            try bulkDestination.construct()
+                            lastError = nil
+                            break
+                        } catch {
+                            lastError = error
+                            Thread.sleep(forTimeInterval: 0.002)
+                        }
+                    }
+                    if let lastError { errors.append(lastError) }
                     bulkDone.signal()
                 }
                 _ = bulkFactoryEntered.wait(timeout: .now() + 2)
@@ -460,10 +479,12 @@ final class ContainerOwnershipTransferTests: XCTestCase {
         XCTAssertTrue(callbackObservedProgress)
         XCTAssertTrue(errors.errors.isEmpty)
         XCTAssertEqual(bulkDestination.count, 1)
-        XCTAssertTrue(bulkDestination.at(0) === child)
+        // snapshot().first (not at(0)) so a failed attach reports as an
+        // assertion instead of trapping the whole test process.
+        XCTAssertTrue(bulkDestination.snapshot().first === child)
         XCTAssertEqual(unrelatedOld.count, 0)
         XCTAssertEqual(unrelatedDestination.count, 1)
-        XCTAssertTrue(unrelatedDestination.at(0) === unrelated)
+        XCTAssertTrue(unrelatedDestination.snapshot().first === unrelated)
     }
 
     func testPopulationRejectsReentrantMutationInBothContainers() throws {
