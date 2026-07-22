@@ -188,6 +188,9 @@ final class CompositeThreadingTests: XCTestCase {
         let composite = try CompositeVM<ComponentVM>.builder().name("composite")
             .services(hub: hub, dispatcher: NullDispatcher.INSTANCE)
             .children { [first, second] }.build()
+        // Children are populated from the factory during _onConstruct(); the
+        // composite must be constructed or `_setCurrent` traps on an empty child list.
+        try composite.construct()
         let entered = DispatchSemaphore(value: 0)
         let release = DispatchSemaphore(value: 0)
         let firstDone = DispatchSemaphore(value: 0)
