@@ -1,6 +1,6 @@
 # ADR 0081 — Promote Rust to full library conformance
 
-**Status:** Accepted (2026-07-09)\
+**Status:** Accepted (2026-07-09)
 **Spec version:** introduced in 3.1.0
 
 ## 1. Context

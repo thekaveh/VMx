@@ -1,5 +1,7 @@
 # VMx Rust Flavor Feasibility Report
 
+> Historical audit record. This document captures a point-in-time review and may contain superseded paths, versions, findings, or conclusions. For current behavior, use the specification and current documentation.
+
 > Issue: [#59](https://github.com/thekaveh/VMx/issues/59)\
 > Date: 2026-07-09\
 > Branch: `codex/rust-flavor-feasibility`\

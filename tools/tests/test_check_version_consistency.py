@@ -160,6 +160,38 @@ def test_current_development_versions_includes_explicit_unreleased_companion() -
     assert versions == {"3.20.0", "2.1.1"}
 
 
+def test_changelog_sections_require_current_version_and_substantive_body(tmp_path: Path) -> None:
+    (tmp_path / "langs/python").mkdir(parents=True)
+    changelog = tmp_path / "langs/python/CHANGELOG.md"
+    manifests = {
+        "python": {"version": "3.22.0"},
+    }
+
+    changelog.write_text("## [3.22.0]\n\n### Fixed\n\n- Repaired packaging.\n", encoding="utf-8")
+    assert cvc.check_changelog_sections(tmp_path, manifests) == []
+
+    changelog.write_text("## [3.22.0]\n\n### Fixed\n", encoding="utf-8")
+    assert cvc.check_changelog_sections(tmp_path, manifests) == [
+        "  python: CHANGELOG section '3.22.0' has no substantive release notes"
+    ]
+
+
+def test_csharp_companion_changelog_section_uses_package_identity(tmp_path: Path) -> None:
+    (tmp_path / "langs/csharp").mkdir(parents=True)
+    (tmp_path / "langs/csharp/CHANGELOG.md").write_text(
+        "## [VMx.Notifications 1.2.0]\n\n- Initial package.\n",
+        encoding="utf-8",
+    )
+    manifests = {
+        "csharp/VMx.Notifications": {
+            "package_id": "VMx.Notifications",
+            "version": "1.2.0",
+        }
+    }
+
+    assert cvc.check_changelog_sections(tmp_path, manifests) == []
+
+
 # ── parse_python_versions ─────────────────────────────────────────────
 
 
@@ -315,6 +347,29 @@ def test_parse_matrix_basic(tmp_path: Path) -> None:
 
     row_20 = next(r for r in rows if r["spec_row"] == "2.0.x")
     assert row_20["swift"] == []  # "—" → empty
+
+
+def test_parse_matrix_maps_flavors_by_header_name(tmp_path: Path) -> None:
+    matrix = tmp_path / "compatibility-matrix.md"
+    matrix.write_text(
+        textwrap.dedent("""\
+            | spec | python | csharp | typescript | swift | rust |
+            | --- | --- | --- | --- | --- | --- |
+            | 3.22.x | 3.22.1 | 3.22.0 | 3.23.0 | 3.22.0 | 0.25.0 |
+        """),
+        encoding="utf-8",
+    )
+
+    assert cvc.parse_matrix(matrix) == [
+        {
+            "spec_row": "3.22.x",
+            "csharp": ["3.22.0"],
+            "python": ["3.22.1"],
+            "typescript": ["3.23.0"],
+            "swift": ["3.22.0"],
+            "rust": ["0.25.0"],
+        }
+    ]
 
 
 def test_parse_matrix_handles_version_range(tmp_path: Path) -> None:
@@ -633,6 +688,11 @@ def _make_repo(tmp_path: Path) -> None:
         'public static let current = "2.6.0"\npublic static let minSpecVersion = "2.6.0"\n',
         encoding="utf-8",
     )
+    for flavor in ("csharp", "python", "typescript", "swift"):
+        (tmp_path / "langs" / flavor / "CHANGELOG.md").write_text(
+            "## [2.6.0]\n\n- Current release.\n",
+            encoding="utf-8",
+        )
 
 
 def test_main_exits_nonzero_when_tags_missing(tmp_path: Path, monkeypatch: object) -> None:
@@ -769,6 +829,11 @@ def test_main_tolerates_missing_1x_tags(tmp_path: Path, monkeypatch: object) -> 
     (ts_src / "version.ts").write_text(
         'export const __minSpecVersion__ = "2.6.0";\n', encoding="utf-8"
     )
+    for flavor in ("csharp", "python", "typescript"):
+        (tmp_path / "langs" / flavor / "CHANGELOG.md").write_text(
+            "## [2.6.0]\n\n- Current release.\n",
+            encoding="utf-8",
+        )
     import check_version_consistency as _cvc
 
     # Provide all 2.6.x tags but NO 1.x tags.
@@ -865,6 +930,11 @@ def _make_repo_v3(tmp_path: Path) -> None:
         'static let current = "3.0.0"\nstatic let minSpecVersion = "3.0.0"\n',
         encoding="utf-8",
     )
+    notes = "\n".join(
+        f"## [{version}]\n\n- Current release.\n" for version in ("3.0.0", "3.0.1", "3.1.0")
+    )
+    for flavor in ("csharp", "python", "typescript", "swift"):
+        (tmp_path / "langs" / flavor / "CHANGELOG.md").write_text(notes, encoding="utf-8")
 
 
 # Tags for the already-released 2.6.x row (everything EXCEPT the in-dev 3.0.0).

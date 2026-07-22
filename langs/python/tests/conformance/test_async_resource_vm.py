@@ -9,9 +9,11 @@ import pytest
 
 from vmx import (
     NULL_DISPATCHER,
+    AsyncResourceError,
     AsyncResourceRetention,
     AsyncResourceStatus,
     AsyncResourceVM,
+    ConstructionStatus,
     Message,
     MessageHub,
     PropertyChangedMessage,
@@ -120,6 +122,25 @@ async def test_ares_003_failure_is_state_not_command_error() -> None:
     assert not hasattr(vm.state, "value")
     assert command_errors == []
     assert vm.reload_command.can_execute()
+
+
+@pytest.mark.asyncio
+@pytest.mark.conformance("ARES-003")
+async def test_ares_003_base_exception_is_captured_as_resource_state() -> None:
+    class LoaderFailure(BaseException):
+        pass
+
+    failure = LoaderFailure("loader failed")
+
+    async def loader() -> int:
+        raise failure
+
+    vm = _vm(loader)
+
+    await vm.load()
+
+    assert isinstance(vm.state, AsyncResourceError)
+    assert vm.state.error is failure
 
 
 @pytest.mark.asyncio
@@ -233,6 +254,33 @@ async def test_ares_007_discard_cleans_before_loading() -> None:
     await vm.load()
     assert vm.state.status is AsyncResourceStatus.ERROR
     assert not hasattr(vm.state, "value")
+
+
+@pytest.mark.asyncio
+@pytest.mark.conformance("ARES-007")
+async def test_ares_007_base_exception_cleanup_is_isolated() -> None:
+    class CleanupAbort(BaseException):
+        pass
+
+    value = 0
+    cleaned: list[int] = []
+
+    async def loader() -> int:
+        nonlocal value
+        value += 1
+        return value
+
+    def cleanup(owned: int) -> None:
+        cleaned.append(owned)
+        raise CleanupAbort("cleanup failed")
+
+    vm = _vm(loader, cleanup=cleanup)
+    await vm.load()
+    await vm.reload()
+
+    assert cleaned == [1]
+    assert vm.state.status is AsyncResourceStatus.READY
+    assert vm.state.value == 2
 
 
 @pytest.mark.asyncio
@@ -355,6 +403,8 @@ async def test_ares_011_dispose_cancels_and_late_completion_is_inert() -> None:
     assert not vm.cancel_command.can_execute()
     late.set_result(9)
     await _flush()
+    await load
+    await asyncio.sleep(0)
     await vm.load()
     await vm.reload()
     vm.cancel()
@@ -362,7 +412,90 @@ async def test_ares_011_dispose_cancels_and_late_completion_is_inert() -> None:
     assert cleaned == [9]
     assert len(changes) == count
     assert calls == 1
-    await load
     # ARES-011: the in-flight loader observed cancellation on dispose (parity with
     # the C# suite's token.IsCancellationRequested assertion).
     assert cancellation_observed
+
+
+@pytest.mark.asyncio
+@pytest.mark.conformance("ARES-011")
+async def test_ares_011_dispose_cleans_retained_value_after_terminal_observer_error() -> None:
+    class ObserverFailure(BaseException):
+        pass
+
+    cleaned: list[int] = []
+
+    async def loader() -> int:
+        return 7
+
+    vm = _vm(loader, cleanup=cleaned.append)
+    await vm.load()
+    vm.load_command.can_execute_changed.subscribe(
+        on_completed=lambda: (_ for _ in ()).throw(ObserverFailure())
+    )
+
+    with pytest.raises(ObserverFailure):
+        vm.dispose()
+
+    assert cleaned == [7]
+    assert not vm.load_command.can_execute()
+    assert not vm.reload_command.can_execute()
+    assert not vm.cancel_command.can_execute()
+
+
+@pytest.mark.asyncio
+@pytest.mark.conformance("ARES-011")
+async def test_ares_011_late_base_exception_is_observed_after_disposal() -> None:
+    class LoaderAbort(BaseException):
+        pass
+
+    release: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+    calls = 0
+
+    async def loader() -> int:
+        nonlocal calls
+        calls += 1
+        try:
+            await asyncio.shield(release)
+        except asyncio.CancelledError:
+            await asyncio.shield(release)
+        raise LoaderAbort
+
+    loop = asyncio.get_running_loop()
+    unhandled: list[dict[str, object]] = []
+    previous_handler = loop.get_exception_handler()
+    loop.set_exception_handler(lambda _loop, context: unhandled.append(context))
+    try:
+        vm = _vm(loader)
+        intent = asyncio.create_task(vm.load())
+        await _wait_until(lambda: calls == 1)
+        vm.dispose()
+        release.set_result(None)
+        await intent
+        await _flush()
+        assert unhandled == []
+    finally:
+        loop.set_exception_handler(previous_handler)
+
+
+@pytest.mark.asyncio
+@pytest.mark.conformance("ARES-011")
+async def test_ares_011_discard_cleanup_cannot_start_loader_after_disposal() -> None:
+    calls = 0
+
+    async def loader() -> int:
+        nonlocal calls
+        calls += 1
+        return calls
+
+    vm: AsyncResourceVM[int]
+
+    def cleanup(_value: int) -> None:
+        vm.dispose()
+
+    vm = _vm(loader, cleanup=cleanup)
+    await vm.load()
+    await vm.reload()
+
+    assert calls == 1
+    assert vm.status is ConstructionStatus.DISPOSED

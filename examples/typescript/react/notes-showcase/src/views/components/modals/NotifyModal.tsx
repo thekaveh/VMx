@@ -7,13 +7,14 @@
 import type React from "react";
 
 import type { DialogRequest } from "../../adapter/ReactDialogService.js";
+import { ModalShell } from "./ModalShell.js";
 
 export const NotifyModal: React.FC<{ request: DialogRequest }> = ({ request }) => (
-  <div
-    className="dialog-backdrop"
+  <ModalShell
+    activationKey={request}
     role="alertdialog"
-    aria-modal="true"
-    aria-label={request.title ?? request.message}
+    ariaLabel={request.title ?? request.message}
+    onEscape={() => request.resolveVoid()}
   >
     <div className="dialog-window">
       {request.title !== null && <div className="dialog-title">{request.title}</div>}
@@ -22,5 +23,5 @@ export const NotifyModal: React.FC<{ request: DialogRequest }> = ({ request }) =
         <button type="button" onClick={() => request.resolveVoid()}>OK</button>
       </div>
     </div>
-  </div>
+  </ModalShell>
 );

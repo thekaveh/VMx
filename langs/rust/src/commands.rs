@@ -85,6 +85,7 @@ impl RelayCommand {
         }
         self.can_execute_changed.send(Message::Custom {
             sender_id: 0,
+            sender_name: "RelayCommand".to_string(),
             name: "can_execute_changed".to_string(),
         });
     }
@@ -230,6 +231,7 @@ impl<T: Clone + Send + 'static> RelayCommandOf<T> {
         }
         self.can_execute_changed.send(Message::Custom {
             sender_id: 0,
+            sender_name: "RelayCommandOf".to_string(),
             name: "can_execute_changed".to_string(),
         });
     }
@@ -353,6 +355,7 @@ impl Drop for AsyncExecutionGuard {
         if !self.disposed.load(Ordering::SeqCst) {
             self.can_execute_changed.send(Message::Custom {
                 sender_id: 0,
+                sender_name: "AsyncRelayCommand".to_string(),
                 name: "can_execute_changed".to_string(),
             });
         }
@@ -500,6 +503,7 @@ impl AsyncRelayCommand {
                 {
                     errors.send(Message::Custom {
                         sender_id: 0,
+                        sender_name: "AsyncRelayCommand".to_string(),
                         name: "error".to_string(),
                     });
                 }
@@ -564,6 +568,7 @@ impl AsyncRelayCommand {
         }
         self.can_execute_changed.send(Message::Custom {
             sender_id: 0,
+            sender_name: "AsyncRelayCommand".to_string(),
             name: "can_execute_changed".to_string(),
         });
     }
@@ -675,6 +680,7 @@ impl RelayCommandBuilder {
                 trigger.subscribe(move |_| {
                     hub.send(Message::Custom {
                         sender_id: 0,
+                        sender_name: "RelayCommandBuilder".to_string(),
                         name: "can_execute_changed".to_string(),
                     });
                 })
@@ -709,6 +715,7 @@ impl CompositeCommand {
                 command.can_execute_changed().subscribe(move |_| {
                     hub.send(Message::Custom {
                         sender_id: 0,
+                        sender_name: "CompositeCommand".to_string(),
                         name: "can_execute_changed".to_string(),
                     });
                 })
@@ -862,6 +869,7 @@ impl<C: Command + Clone + 'static> ConfirmationDecoratorCommand<C> {
         if result.is_err() {
             self.errors.send(Message::Custom {
                 sender_id: 0,
+                sender_name: "ConfirmationDecoratorCommand".to_string(),
                 name: "error".to_string(),
             });
         }

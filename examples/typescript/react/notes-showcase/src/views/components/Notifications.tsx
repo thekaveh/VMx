@@ -34,7 +34,13 @@ export interface NotificationsProps {
 export const Notifications: React.FC<NotificationsProps> = ({ ws }) => {
   const vm = useVm(ws.notifications);
   return (
-    <div className="notifications" role="region" aria-label="Notifications">
+    <div
+      className="notifications"
+      role="status"
+      aria-label="Notifications"
+      aria-live="polite"
+      aria-atomic="false"
+    >
       {vm.visible.map((n) => (
         <div key={toastKey(n)} className="notifications-toast">
           {n.notification.message}

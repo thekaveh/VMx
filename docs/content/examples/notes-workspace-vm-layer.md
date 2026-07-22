@@ -21,7 +21,7 @@ Use that diagram for node names and host-agnostic structure; use the local map
 above for the VMx primitive-to-scenario routing.
 
 The Rust TUI showcase has its own VM-layer map because its terminal host is a
-Rust-specific adapter rather than one of the four GUI-backed flagship hosts:
+Rust-specific adapter rather than one of the four UI-backed flagship hosts:
 [Rust TUI Notes Showcase](rust-tui-notes-showcase.md).
 
 ## 8.4.2. Layer Walk

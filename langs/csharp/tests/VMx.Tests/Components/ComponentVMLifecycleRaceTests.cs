@@ -267,6 +267,22 @@ public class ComponentVMLifecycleRaceTests
     }
 
     [Fact]
+    public async Task Concurrent_ConstructAsync_Is_Rejected_While_First_Construct_Is_In_Flight()
+    {
+        var (vm, _, dispatcher) = BuildBackgroundVm();
+        var first = vm.ConstructAsync();
+
+        Action second = () => _ = vm.ConstructAsync();
+        second.Should().Throw<StatusTransitionException>(
+            "the public async entry point follows the LIFE-008 re-entry rule");
+
+        dispatcher.BackgroundScheduler.AdvanceBy(1);
+        dispatcher.ForegroundScheduler.AdvanceBy(1);
+        await first;
+        vm.Status.Should().Be(ConstructionStatus.Constructed);
+    }
+
+    [Fact]
     public async Task Concurrent_Destruct_Is_Rejected_While_First_Destruct_Is_In_Flight()
     {
         var started = new ManualResetEventSlim();
@@ -298,6 +314,26 @@ public class ComponentVMLifecycleRaceTests
         await first;
 
         destructCalls.Should().Be(1);
+        vm.Status.Should().Be(ConstructionStatus.Destructed);
+    }
+
+    [Fact]
+    public async Task Concurrent_DestructAsync_Is_Rejected_While_First_Destruct_Is_In_Flight()
+    {
+        var (vm, _, dispatcher) = BuildBackgroundVm();
+        vm.Construct();
+        dispatcher.BackgroundScheduler.AdvanceBy(1);
+        dispatcher.ForegroundScheduler.AdvanceBy(1);
+
+        var first = vm.DestructAsync();
+
+        Action second = () => _ = vm.DestructAsync();
+        second.Should().Throw<StatusTransitionException>(
+            "the public async entry point follows the LIFE-008 re-entry rule");
+
+        dispatcher.BackgroundScheduler.AdvanceBy(1);
+        dispatcher.ForegroundScheduler.AdvanceBy(1);
+        await first;
         vm.Status.Should().Be(ConstructionStatus.Destructed);
     }
 
@@ -392,6 +428,91 @@ public class ComponentVMLifecycleRaceTests
             firstViolation.Should().Be(-1,
                 "the background transition and foreground Dispose must be atomic");
         }
+    }
+
+    [Fact]
+    public async Task Opposing_Lifecycle_Observers_Can_Dispose_Each_Other_Without_Deadlock()
+    {
+        using var barrier = new Barrier(2);
+        using var firstHub = new TestHub();
+        using var secondHub = new TestHub();
+        var dispatcher = new RealThreadDispatcher();
+        var first = ComponentVM<string>.Builder()
+            .Name("first")
+            .Services(firstHub, dispatcher)
+            .Model("m")
+            .Build();
+        var second = ComponentVM<string>.Builder()
+            .Name("second")
+            .Services(secondHub, dispatcher)
+            .Model("m")
+            .Build();
+
+        using var firstSubscription = firstHub.Messages
+            .OfType<IConstructionStatusChangedMessage>()
+            .Where(message => ReferenceEquals(message.SenderObject, first) &&
+                              message.Status == ConstructionStatus.Constructing)
+            .Subscribe(_ =>
+            {
+                barrier.SignalAndWait();
+                second.Dispose();
+            });
+        using var secondSubscription = secondHub.Messages
+            .OfType<IConstructionStatusChangedMessage>()
+            .Where(message => ReferenceEquals(message.SenderObject, second) &&
+                              message.Status == ConstructionStatus.Constructing)
+            .Subscribe(_ =>
+            {
+                barrier.SignalAndWait();
+                first.Dispose();
+            });
+
+        var transitions = Task.WhenAll(
+            Task.Run(first.Construct),
+            Task.Run(second.Construct));
+
+        await transitions.WaitAsync(TimeSpan.FromSeconds(5));
+        first.Status.Should().Be(ConstructionStatus.Disposed);
+        second.Status.Should().Be(ConstructionStatus.Disposed);
+    }
+
+    [Fact]
+    public async Task Foreign_Dispose_Waits_For_Ordinary_Lifecycle_Publication()
+    {
+        using var hub = new TestHub();
+        var vm = ComponentVM<string>.Builder()
+            .Name("vm")
+            .Services(hub, NullDispatcher.Instance)
+            .Model("m")
+            .Build();
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var disposedSeen = 0;
+        using var subscription = hub.Messages
+            .OfType<IConstructionStatusChangedMessage>()
+            .Where(message => ReferenceEquals(message.SenderObject, vm))
+            .Subscribe(message =>
+            {
+                if (message.Status == ConstructionStatus.Constructing)
+                {
+                    entered.Set();
+                    release.Wait(TimeSpan.FromSeconds(5));
+                }
+                else if (message.Status == ConstructionStatus.Disposed)
+                {
+                    Interlocked.Exchange(ref disposedSeen, 1);
+                }
+            });
+
+        var constructor = Task.Run(vm.Construct);
+        entered.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue();
+        var disposer = Task.Run(vm.Dispose);
+        await Task.Delay(100);
+        disposer.IsCompleted.Should().BeFalse();
+
+        release.Set();
+        await Task.WhenAll(constructor, disposer).WaitAsync(TimeSpan.FromSeconds(5));
+        Volatile.Read(ref disposedSeen).Should().Be(1);
     }
 
     [Fact]

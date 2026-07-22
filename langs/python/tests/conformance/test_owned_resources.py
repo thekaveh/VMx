@@ -70,12 +70,15 @@ def test_disp_008_repeated_dispose_cleans_each_resource_once() -> None:
 
 @pytest.mark.conformance("DISP-009")
 def test_disp_009_cleanup_failure_is_swallowed_and_isolated() -> None:
+    class CleanupAbort(BaseException):
+        pass
+
     trace: list[str] = []
     vm = ProbeVM(MessageHub())
     vm.register(lambda: trace.append("first"))
 
     def fail() -> None:
-        raise RuntimeError("boom")
+        raise CleanupAbort("boom")
 
     vm.register(fail)
     vm.register(lambda: trace.append("last"))

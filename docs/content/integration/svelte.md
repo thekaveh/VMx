@@ -48,14 +48,15 @@ export function vmStore<M, K extends keyof ComponentVMOf<M>>(
 ```svelte
 <script lang="ts">
   import { vmStore } from "$lib/vmStore";
-  import type { ComponentVMOf, IMessageHub } from "@thekaveh/vmx";
+  import type { ComponentVMOf, ICommand, IMessageHub } from "@thekaveh/vmx";
   export let vm: ComponentVMOf<Note>;
   export let hub: IMessageHub;
+  export let saveCommand: ICommand;
   const model = vmStore(vm, hub, "model");
 </script>
 
 <h1>{$model.title}</h1>
-<button on:click={() => vm.saveCommand.execute()}>Save</button>
+<button on:click={() => saveCommand.execute()}>Save</button>
 ```
 
 For Svelte 5, drop the store wrapper and assign into a `$state(...)`

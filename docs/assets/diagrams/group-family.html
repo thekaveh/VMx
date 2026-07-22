@@ -43,6 +43,7 @@
       animation: pulse 2s infinite;
     }
     @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+    @media (prefers-reduced-motion: reduce) { .pulse-dot { animation: none; } }
     h1 { margin: 0; font-size: 26px; line-height: 1.25; }
     .subtitle { margin: 8px 0 0 26px; color: var(--text-secondary); font-size: 14px; }
     .diagram {
@@ -86,7 +87,9 @@
     </header>
     <div class="diagram">
       <div class="svg-frame" role="img" aria-label="Group Family Map">
-<svg xmlns="http://www.w3.org/2000/svg" width="1680" height="980" viewBox="0 0 1680 980" style="font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;">
+<svg xmlns="http://www.w3.org/2000/svg" width="1680" height="980" viewBox="0 0 1680 980" role="img" aria-labelledby="diagram-title diagram-description" style="font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;">
+  <title id="diagram-title">Group Family Map</title>
+  <desc id="diagram-description">ordered homogeneous peer ownership without current-selection semantics</desc>
   <defs>
     <style>
       text { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; }
@@ -193,10 +196,10 @@
 <text x="1182" y="212" fill="#fb923c" font-size="11" font-weight="700" text-anchor="middle">publishes</text>
 <rect x="299" y="364" width="95" height="20" rx="10" fill="#0f172a" stroke="#34d399" stroke-width="1"/>
 <text x="346" y="378" fill="#34d399" font-size="11" font-weight="700" text-anchor="middle">construct()</text>
-<rect x="1043" y="364" width="102" height="20" rx="10" fill="#0f172a" stroke="#64748b" stroke-width="1"/>
-<text x="1094" y="378" fill="#64748b" font-size="11" font-weight="700" text-anchor="middle">render peers</text>
-<rect x="608" y="634" width="137" height="20" rx="10" fill="#0f172a" stroke="#64748b" stroke-width="1"/>
-<text x="676" y="648" fill="#64748b" font-size="11" font-weight="700" text-anchor="middle">selection avoided</text>
+<rect x="1043" y="364" width="102" height="20" rx="10" fill="#0f172a" stroke="#94a3b8" stroke-width="1"/>
+<text x="1094" y="378" fill="#94a3b8" font-size="11" font-weight="700" text-anchor="middle">render peers</text>
+<rect x="608" y="634" width="137" height="20" rx="10" fill="#0f172a" stroke="#94a3b8" stroke-width="1"/>
+<text x="676" y="648" fill="#94a3b8" font-size="11" font-weight="700" text-anchor="middle">selection avoided</text>
 </svg>
 
       </div>

@@ -17,7 +17,8 @@ final class AggregateParent: ParentVM, OwnershipParentVM {
     var ownershipOwner: ComponentVMBase { owner }
     var ownershipOwnerParent: OwnershipParentVM? { owner._ownershipParent }
     func containsIdentity(_ vm: ComponentVMBase) -> Bool {
-        slots().contains { $0 === vm }
+        let identity = vm._ownershipIdentity
+        return slots().contains { $0._ownershipIdentity === identity }
     }
 
     func detachForTransfer(_ vm: ComponentVMBase) throws -> ParentTransfer {
@@ -31,16 +32,17 @@ func validateAggregateSlots(
 ) throws {
     var seen = Set<ObjectIdentifier>()
     for child in children {
-        guard seen.insert(ObjectIdentifier(child)).inserted else {
+        let identity = child._ownershipIdentity
+        guard seen.insert(ObjectIdentifier(identity)).inserted else {
             throw ContainerOwnershipError.duplicate
         }
-        if let current = child._ownershipParent,
+        if let current = child._transferOwnershipParent,
            !(current === parent && parent.containsIdentity(child)) {
             throw ContainerOwnershipError.inconsistentParent
         }
         var cursor: OwnershipParentVM? = parent
         while let current = cursor {
-            guard current.ownershipOwner !== child else {
+            guard current.ownershipOwner._ownershipIdentity !== identity else {
                 throw ContainerOwnershipError.cycle
             }
             cursor = current.ownershipOwnerParent

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Assert Rust's bundled runtime fixture is byte-identical to the spec source."""
+"""Assert Rust's bundled runtime/test fixtures match the spec sources."""
 
 from __future__ import annotations
 
@@ -17,8 +17,16 @@ def repo_root() -> Path:
 
 _FIXTURE_PAIRS: list[tuple[str, str]] = [
     (
+        "spec/fixtures/command-truthtable.json",
+        "langs/rust/src/fixtures/command-truthtable.json",
+    ),
+    (
         "spec/fixtures/lifecycle-transitions.json",
         "langs/rust/src/fixtures/lifecycle-transitions.json",
+    ),
+    (
+        "spec/fixtures/message-ordering.json",
+        "langs/rust/src/fixtures/message-ordering.json",
     ),
 ]
 

@@ -43,7 +43,41 @@ def test_python_release_smokes_local_wheel_before_publish() -> None:
     assert build_index < install_index < smoke_index < publish_index
 
 
+def test_python_ci_and_release_test_the_extracted_sdist() -> None:
+    ci = _workflow("python.yml")
+    release = _workflow("release.yml")
+
+    for workflow in (ci, release):
+        assert "tar -xzf" in workflow
+        assert 'uv sync --project "$sdist_root" --locked --all-extras' in workflow
+        assert (
+            'uv run --project "$sdist_root" pytest "$sdist_root/tests/conformance" -q' in workflow
+        )
+
+
 def test_conformance_job_uses_the_tracked_python_lockfile() -> None:
     workflow = _workflow("conformance.yml")
 
     assert "uv --project langs/python sync --locked --all-extras" in workflow
+
+
+def test_python_ci_and_release_cover_314_and_audit_runtime_dependencies() -> None:
+    ci = _workflow("python.yml")
+    release = _workflow("release.yml")
+
+    assert 'python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]' in ci
+    assert 'python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]' in release
+    assert "uv export --locked --no-dev --no-emit-project" in ci
+    assert "uvx --from pip-audit==2.10.1 pip-audit" in ci
+    assert "uvx --from pip-audit==2.10.1 pip-audit" in release
+
+
+def test_release_metadata_is_validated_before_python_publication() -> None:
+    workflow = _workflow("release.yml")
+    metadata = workflow.index("release-metadata:")
+    checker = workflow.index("python3 tools/check-version-consistency.py", metadata)
+    publish_job = workflow.index("python-build-and-publish:")
+    publish = workflow.index("pypa/gh-action-pypi-publish@", publish_job)
+
+    assert "needs: [python-test, release-metadata]" in workflow
+    assert metadata < checker < publish

@@ -89,8 +89,8 @@ then runs fixture sync, both typechecks, lint, build, tests, audit, a strict
 package-content allowlist, and a packed local consumer smoke test. The publish
 job uses Node 24 and npm 11.5.1 without an npm dependency cache.
 
-After npm accepts the package, separate Node 20 and Node 22 jobs poll for and
-install the exact public version in clean consumers. They test ESM imports,
+After npm accepts the package, separate Node 20, 22, 24, and 26 jobs poll for
+and install the exact public version in clean consumers. They test ESM imports,
 CommonJS `require`, NodeNext declarations, and the root, `notifications`, and
 `conformance` exports. They also require npm provenance metadata. Only after
 those checks pass does CI create the TypeScript GitHub Release from the matching
@@ -120,9 +120,9 @@ from a fresh network request before changing the issue or roadmap item to Done.
 
 ### 4.1 Failure before publish
 
-Fix the cause through the normal PR flow. If npm has not accepted the version,
-delete the unpublished tag, land the fix on `main`, and create a new tag. Never
-move a tag after a GitHub Release or npm version exists.
+Fix the cause through the normal PR flow. Tags are immutable even before npm
+accepts a version: land the fix on `main`, bump to a new patch version, and
+create a new tag. Never move, delete, or recreate the failed tag.
 
 ### 4.2 Authentication or trusted-publisher failure
 

@@ -3,7 +3,7 @@
 // a flat [ActionVM] list for the action bar.
 //
 // Ports examples/csharp/avalonia/NotesShowcase/ViewModels/CapabilityActionsVM.cs.
-// See task-6-brief.md.
+// See spec/ADRs/0067-swift-notes-showcase-flagship.md.
 //
 // Architecture (spec ch. 14 §4 / plan §3.a.10):
 //   The focused VM is injected via a delegate (`() -> AnyObject?`) so the host

@@ -91,7 +91,7 @@ public sealed class StatusBarVMTests
         Assert.Equal(0, emits);
     }
 
-    // ── Phase 5.a binding gap #3: BindableDerived INPC sidecar ────────────
+    // ── BindableDerived INPC adapter contract ─────────────────────────────
 
     [Fact]
     public async Task Bindable_sidecars_raise_PropertyChanged_for_Value_on_recompute()

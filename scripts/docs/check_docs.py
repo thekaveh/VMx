@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import html
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import unquote
 
 from scripts.docs import build_docs
 from scripts.docs.links import find_links, is_forbidden
@@ -20,8 +22,15 @@ ATX_HEADING_RE = re.compile(r"^(#{2,6})\s+(.+?)\s*$")
 NUMBER_PREFIX_RE = re.compile(r"^(\d+(?:\.\d+)*)(\.)?\s+")
 HTML_HREF_RE = re.compile(r'href="(?P<target>[^"]+)"')
 HTML_HEADING_RE = re.compile(r"<\s*h[1-6](?:\s|>)", re.IGNORECASE)
+ANY_ATX_HEADING_RE = re.compile(r"^#{1,6}\s+(.+?)\s*$", re.MULTILINE)
+HTML_ID_RE = re.compile(r'<(?:a|h[1-6])\b[^>]*\bid=["\']([^"\']+)["\']', re.IGNORECASE)
 WIKI_LINK_RE = re.compile(r"\[\[(?P<label>[^\]\r\n]+)\|(?P<target>[^\]\r\n]+)\]\]")
 DECORATIVE_STATUS_ICON_RE = re.compile(r"[✓✔✅❌✗✘]")
+HISTORICAL_AUDIT_NOTICE = (
+    "> Historical audit record. This document captures a point-in-time review and may "
+    "contain superseded paths, versions, findings, or conclusions. For current behavior, "
+    "use the specification and current documentation."
+)
 
 STANDALONE_NUMBERED_DOCS = (
     Path("langs/rust/README.md"),
@@ -109,6 +118,41 @@ def _relative_target_exists(source: Path, target: str) -> bool:
     return False
 
 
+def _relative_target_path(source: Path, target: str) -> Path | None:
+    clean = target.split("#", 1)[0].split("?", 1)[0]
+    if clean.startswith(("http://", "https://", "mailto:")):
+        return None
+    if not clean:
+        return source
+    candidate = (source.parent / clean).resolve()
+    if candidate.is_file():
+        return candidate
+    if clean.endswith("/"):
+        sibling_page = (source.parent / f"{clean.rstrip('/')}.md").resolve()
+        if sibling_page.is_file():
+            return sibling_page
+    return None
+
+
+def _github_heading_slug(title: str) -> str:
+    plain = html.unescape(re.sub(r"<[^>]+>", "", title))
+    plain = re.sub(r"[`*_~]", "", plain).strip().lower()
+    plain = re.sub(r"[^\w\- ]", "", plain)
+    return re.sub(r"\s+", "-", plain)
+
+
+def _heading_anchors(path: Path) -> set[str]:
+    text = _without_fenced_code(path.read_text(encoding="utf-8"))
+    anchors = set(HTML_ID_RE.findall(text))
+    occurrences: dict[str, int] = {}
+    for match in ANY_ATX_HEADING_RE.finditer(text):
+        base = _github_heading_slug(match.group(1).rstrip("#").rstrip())
+        count = occurrences.get(base, 0)
+        occurrences[base] = count + 1
+        anchors.add(base if count == 0 else f"{base}-{count}")
+    return anchors
+
+
 def _without_fenced_code(markdown: str) -> str:
     output: list[str] = []
     fence: str | None = None
@@ -138,6 +182,22 @@ def check_canonical_links(repo_root: Path) -> list[Finding]:
                     Finding(
                         "error",
                         f"{path.relative_to(repo_root)}: target does not exist: {target}",
+                    )
+                )
+                continue
+            if "#" not in target or target.startswith(("http://", "https://", "mailto:")):
+                continue
+            fragment = unquote(target.split("#", 1)[1].split("?", 1)[0])
+            target_path = _relative_target_path(path, target)
+            if (
+                fragment
+                and target_path is not None
+                and fragment not in _heading_anchors(target_path)
+            ):
+                findings.append(
+                    Finding(
+                        "error",
+                        f"{path.relative_to(repo_root)}: heading fragment does not exist: {target}",
                     )
                 )
     return findings
@@ -212,6 +272,32 @@ def check_professional_markdown(repo_root: Path) -> list[Finding]:
                         "decorative status icon in public documentation",
                     )
                 )
+    return findings
+
+
+def check_historical_audits(repo_root: Path) -> list[Finding]:
+    """Keep point-in-time audit reports visibly archival and discoverable."""
+    audit_root = repo_root / "docs/audit"
+    index = audit_root / "README.md"
+    reports = sorted(path for path in _scan_markdown(audit_root) if path != index)
+    findings: list[Finding] = []
+    if reports and not index.is_file():
+        findings.append(Finding("error", "docs/audit/README.md: historical audit index is missing"))
+        index_text = ""
+    else:
+        index_text = index.read_text(encoding="utf-8") if index.is_file() else ""
+
+    for path in reports:
+        relative = path.relative_to(repo_root)
+        text = path.read_text(encoding="utf-8")
+        if HISTORICAL_AUDIT_NOTICE not in "\n".join(text.splitlines()[:12]):
+            findings.append(
+                Finding("error", f"{relative}: standardized historical audit notice is missing")
+            )
+        if f"({path.name})" not in index_text:
+            findings.append(
+                Finding("error", f"{relative}: report is not listed in docs/audit/README.md")
+            )
     return findings
 
 
@@ -335,6 +421,7 @@ def check(repo_root: Path) -> list[Finding]:
     findings.extend(check_generated_wiki_links(repo_root))
     findings.extend(check_raw_html_headings(repo_root))
     findings.extend(check_professional_markdown(repo_root))
+    findings.extend(check_historical_audits(repo_root))
     findings.extend(check_completeness(repo_root))
     findings.extend(check_heading_numbers(repo_root))
     findings.extend(check_placeholders(repo_root))

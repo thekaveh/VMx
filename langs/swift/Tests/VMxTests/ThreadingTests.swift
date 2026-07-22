@@ -10,7 +10,7 @@
 // Swift uses the hand-rolled `ManualScheduler` / `ManualDispatcher`
 // (Sources/VMx/Services/ManualScheduler.swift) because Combine ships no
 // virtual-time `TestScheduler` analogue — see spec/11-threading.md and the
-// Task 9 ADR.
+// ADR-0061 §2.7.
 //
 // NOTE: `swift test` cannot run on a CommandLineTools-only host (no XCTest
 // module); this target is CI-verified only (`swift.yml` on macos-latest).

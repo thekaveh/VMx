@@ -45,7 +45,8 @@ export const Layout: React.FC<LayoutProps> = ({ ws, dialog }) => {
   });
 
   return (
-    <div className="workspace-layout">
+    <>
+    <div className="workspace-layout" data-dialog-background>
       <div className="workspace-toolbar" role="toolbar" aria-label="Workspace toolbar">
         <button
           type="button"
@@ -93,7 +94,8 @@ export const Layout: React.FC<LayoutProps> = ({ ws, dialog }) => {
       <CapabilityActions ws={ws} />
       <StatusBar ws={ws} />
       <Notifications ws={ws} />
-      <DialogOverlay service={dialog} />
     </div>
+    <DialogOverlay service={dialog} />
+    </>
   );
 };

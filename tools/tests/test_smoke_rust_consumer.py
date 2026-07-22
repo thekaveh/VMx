@@ -81,3 +81,14 @@ def test_find_extracted_crate_requires_exact_directory(tmp_path: Path) -> None:
     expected.mkdir()
 
     assert smoke.find_extracted_crate(tmp_path, "0.20.0") == expected
+
+
+def test_extracted_crate_runs_its_shipped_tests(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls: list[tuple[list[str], Path]] = []
+    monkeypatch.setattr(smoke, "_run", lambda args, *, cwd: calls.append((args, cwd)))
+
+    smoke.test_extracted_crate(tmp_path, "cargo-msrv")
+
+    assert calls == [(["cargo-msrv", "test", "--locked", "--all-features"], tmp_path)]

@@ -1,4 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1700" height="1000" viewBox="0 0 1700 1000" style="font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;">
+<svg xmlns="http://www.w3.org/2000/svg" width="1700" height="1000" viewBox="0 0 1700 1000" role="img" aria-labelledby="diagram-title diagram-description" style="font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;">
+  <title id="diagram-title">Forwarding Wrapper Family Map</title>
+  <desc id="diagram-description">one canonical wrapped identity, retained through an exact public decorator</desc>
   <defs>
     <style>
       text { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; }
@@ -13,7 +15,7 @@
   <rect width="100%" height="100%" fill="#020617"/>
   <rect width="100%" height="100%" fill="url(#grid)"/>
   <text x="40" y="54" fill="#f8fafc" font-size="28" font-weight="700" text-anchor="start">Forwarding Wrapper Family Map</text>
-  <text x="40" y="82" fill="#94a3b8" font-size="15" font-weight="400" text-anchor="start">composition-first decorators for instrumentation, policy, and host adaptation</text>
+  <text x="40" y="82" fill="#94a3b8" font-size="15" font-weight="400" text-anchor="start">one canonical wrapped identity, retained through an exact public decorator</text>
   <polyline points="420,226 500,226" fill="none" stroke="#22d3ee" stroke-width="2.2" marker-end="url(#arrowhead)"/>
 <polyline points="800,226 880,226" fill="none" stroke="#fb923c" stroke-width="2.2" marker-end="url(#arrowhead)"/>
 <polyline points="1150,226 1230,226" fill="none" stroke="#34d399" stroke-width="2.2" marker-end="url(#arrowhead)"/>
@@ -27,7 +29,7 @@
 <rect x="70" y="118" width="1560" height="282" rx="12" fill="rgba(2, 6, 23, 0.12)" stroke="#22d3ee" stroke-width="1.2" stroke-dasharray="8 4"/>
 <text x="84" y="140" fill="#22d3ee" font-size="12" font-weight="700" text-anchor="start">Wrapper contracts</text>
 <rect x="70" y="428" width="1560" height="250" rx="12" fill="rgba(2, 6, 23, 0.12)" stroke="#34d399" stroke-width="1.2" stroke-dasharray="8 4"/>
-<text x="84" y="450" fill="#34d399" font-size="12" font-weight="700" text-anchor="start">Override seams</text>
+<text x="84" y="450" fill="#34d399" font-size="12" font-weight="700" text-anchor="start">Ownership and override seams</text>
 <rect x="70" y="706" width="1560" height="168" rx="12" fill="rgba(2, 6, 23, 0.12)" stroke="#fb923c" stroke-width="1.2" stroke-dasharray="8 4"/>
 <text x="84" y="728" fill="#fb923c" font-size="12" font-weight="700" text-anchor="start">Best-fit wrapper use cases</text>
 <rect x="120" y="166" width="300" height="120" rx="8" fill="#0f172a"/>
@@ -56,10 +58,10 @@
 <text x="1370" y="258" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">no copied VM logic</text>
 <rect x="150" y="476" width="280" height="112" rx="8" fill="#0f172a"/>
 <rect x="150" y="476" width="280" height="112" rx="8" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.8"/>
-<text x="290" y="504" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Lifecycle forwarding</text>
-<text x="290" y="530" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">construct/destruct/dispose</text>
-<text x="290" y="549" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">usually delegate</text>
-<text x="290" y="568" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">ownership remains explicit</text>
+<text x="290" y="504" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Canonical ownership</text>
+<text x="290" y="530" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">inner + decorators = one owner</text>
+<text x="290" y="549" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">old composite/group detaches</text>
+<text x="290" y="568" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">destination keeps exact wrapper</text>
 <rect x="500" y="476" width="280" height="112" rx="8" fill="#0f172a"/>
 <rect x="500" y="476" width="280" height="112" rx="8" fill="rgba(251, 146, 60, 0.3)" stroke="#fb923c" stroke-width="1.8"/>
 <text x="640" y="504" fill="#f8fafc" font-size="18" font-weight="700" text-anchor="middle">Property forwarding</text>
@@ -98,8 +100,8 @@
 <text x="1200" y="836" fill="#cbd5e1" font-size="13" font-weight="400" text-anchor="middle">legacy integration</text>
 <rect x="130" y="900" width="1460" height="64" rx="8" fill="#0f172a"/>
 <rect x="130" y="900" width="1460" height="64" rx="8" fill="rgba(15, 23, 42, 0.94)" stroke="#fb923c" stroke-width="1.2"/>
-<text x="146" y="924" fill="#f8fafc" font-size="13" font-weight="700" text-anchor="start">Decision rule</text>
-<text x="146" y="946" fill="#cbd5e1" font-size="12" font-weight="400" text-anchor="start">Use forwarding wrappers when composition can adapt one behavior without re-implementing a shipped VM family.</text>
+<text x="146" y="924" fill="#f8fafc" font-size="13" font-weight="700" text-anchor="start">Five-flavor invariant · C# · Python · TypeScript · Swift · Rust</text>
+<text x="146" y="946" fill="#cbd5e1" font-size="12" font-weight="400" text-anchor="start">Attach bare inner → wrapper → alternate wrapper: exactly one container owns the canonical identity at every commit.</text>
 <rect x="411" y="198" width="102" height="20" rx="10" fill="#0f172a" stroke="#22d3ee" stroke-width="1"/>
 <text x="462" y="212" fill="#22d3ee" font-size="11" font-weight="700" text-anchor="middle">same pattern</text>
 <rect x="815" y="198" width="54" height="20" rx="10" fill="#0f172a" stroke="#fb923c" stroke-width="1"/>
@@ -114,8 +116,8 @@
 <text x="1060" y="386" fill="#fb923c" font-size="11" font-weight="700" text-anchor="middle">wrap calls</text>
 <rect x="1383" y="372" width="74" height="20" rx="10" fill="#0f172a" stroke="#a78bfa" stroke-width="1"/>
 <text x="1420" y="386" fill="#a78bfa" font-size="11" font-weight="700" text-anchor="middle">override</text>
-<rect x="799" y="662" width="102" height="20" rx="10" fill="#0f172a" stroke="#64748b" stroke-width="1"/>
-<text x="850" y="676" fill="#64748b" font-size="11" font-weight="700" text-anchor="middle">policy hooks</text>
-<rect x="1260" y="662" width="81" height="20" rx="10" fill="#0f172a" stroke="#64748b" stroke-width="1"/>
-<text x="1300" y="676" fill="#64748b" font-size="11" font-weight="700" text-anchor="middle">host seam</text>
+<rect x="799" y="662" width="102" height="20" rx="10" fill="#0f172a" stroke="#94a3b8" stroke-width="1"/>
+<text x="850" y="676" fill="#94a3b8" font-size="11" font-weight="700" text-anchor="middle">policy hooks</text>
+<rect x="1260" y="662" width="81" height="20" rx="10" fill="#0f172a" stroke="#94a3b8" stroke-width="1"/>
+<text x="1300" y="676" fill="#94a3b8" font-size="11" font-weight="700" text-anchor="middle">host seam</text>
 </svg>

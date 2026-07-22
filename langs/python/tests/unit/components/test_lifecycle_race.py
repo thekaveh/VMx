@@ -24,6 +24,7 @@ from __future__ import annotations
 import datetime
 import sys
 import threading
+import time
 import types
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any
@@ -34,6 +35,7 @@ from reactivex.scheduler import ImmediateScheduler
 from vmx.components.builders import ComponentVMOfBuilder
 from vmx.lifecycle.status import ConstructionStatus
 from vmx.messages.construction_status_changed import ConstructionStatusChangedMessage
+from vmx.services.dispatcher import RxDispatcher
 from vmx.services.message_hub import MessageHub
 
 if TYPE_CHECKING:
@@ -237,7 +239,7 @@ def test_construct_does_not_run_hook_after_dispose_wins_before_constructing() ->
     )
     original_set_status = vm._set_status
 
-    def instrumented_set_status(self: object, status: ConstructionStatus) -> None:
+    def instrumented_set_status(self: object, status: ConstructionStatus) -> bool:
         nonlocal dispose_won_before_constructing
         if status is ConstructionStatus.CONSTRUCTING:
             disposer = threading.Thread(target=lambda: (vm.dispose(), dispose_done.set()))
@@ -245,7 +247,7 @@ def test_construct_does_not_run_hook_after_dispose_wins_before_constructing() ->
             dispose_won_before_constructing = dispose_done.wait(timeout=0.2)
             release_constructing.set()
             disposer.join(timeout=1)
-        original_set_status(status)
+        return original_set_status(status)
 
     vm._set_status = types.MethodType(instrumented_set_status, vm)  # type: ignore[method-assign]
 
@@ -255,3 +257,85 @@ def test_construct_does_not_run_hook_after_dispose_wins_before_constructing() ->
     assert dispose_won_before_constructing is False or not hook_called.is_set()
     assert dispose_done.wait(timeout=1)
     assert vm.status is ConstructionStatus.DISPOSED
+
+
+def test_foreign_dispose_waits_for_ordinary_lifecycle_publication() -> None:
+    """A foreign caller stays synchronous unless its wait closes a real cycle."""
+    hub: MessageHub[object] = MessageHub()
+    entered = threading.Event()
+    release = threading.Event()
+    disposed_seen = threading.Event()
+    dispose_done = threading.Event()
+    vm = (
+        ComponentVMOfBuilder().name("vm").services(hub, RxDispatcher.immediate()).model("m").build()
+    )
+
+    def observe(message: object) -> None:
+        if not isinstance(message, ConstructionStatusChangedMessage) or message.sender is not vm:
+            return
+        if message.status is ConstructionStatus.CONSTRUCTING:
+            entered.set()
+            assert release.wait(timeout=2)
+        elif message.status is ConstructionStatus.DISPOSED:
+            disposed_seen.set()
+
+    subscription = hub.messages.subscribe(observe)
+    constructor = threading.Thread(target=vm.construct)
+    constructor.start()
+    assert entered.wait(timeout=2)
+
+    disposer = threading.Thread(target=lambda: (vm.dispose(), dispose_done.set()))
+    disposer.start()
+    time.sleep(0.05)
+    assert not dispose_done.is_set()
+
+    release.set()
+    constructor.join(timeout=2)
+    disposer.join(timeout=2)
+    subscription.dispose()
+
+    assert not constructor.is_alive()
+    assert not disposer.is_alive()
+    assert disposed_seen.is_set()
+    assert dispose_done.is_set()
+
+
+def test_opposing_lifecycle_observers_do_not_deadlock() -> None:
+    """Two status callbacks may cross-dispose their peer without lock inversion."""
+    hubs = [MessageHub(), MessageHub()]
+    vms = [
+        ComponentVMOfBuilder()
+        .name(f"vm-{index}")
+        .services(hubs[index], RxDispatcher.immediate())
+        .model(index)
+        .build()
+        for index in range(2)
+    ]
+    barrier = threading.Barrier(2)
+    histories: list[list[ConstructionStatus]] = [[], []]
+
+    def subscribe(index: int) -> None:
+        def observe(message: object) -> None:
+            if not isinstance(message, ConstructionStatusChangedMessage):
+                return
+            histories[index].append(message.status)
+            if message.status is ConstructionStatus.CONSTRUCTING:
+                barrier.wait(timeout=2)
+                vms[1 - index].dispose()
+
+        hubs[index].messages.subscribe(observe)
+
+    subscribe(0)
+    subscribe(1)
+    threads = [threading.Thread(target=vm.construct) for vm in vms]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=3)
+
+    assert all(not thread.is_alive() for thread in threads)
+    assert [vm.status for vm in vms] == [
+        ConstructionStatus.DISPOSED,
+        ConstructionStatus.DISPOSED,
+    ]
+    assert all(history[-1] is ConstructionStatus.DISPOSED for history in histories)

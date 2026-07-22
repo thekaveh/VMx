@@ -3,7 +3,10 @@ use std::sync::{
     Arc,
 };
 
-use vmx::{ConstructionStatus, Message, MessageHub, NullDispatcher, VmNode, VmxError};
+use vmx::{
+    Command, ConstructionStatus, ForwardingComponentVm, Message, MessageHub, NullDispatcher,
+    VmNode, VmxError,
+};
 
 type TextVm = vmx::ComponentVm<&'static str>;
 type NumberVm = vmx::ComponentVm<i32>;
@@ -14,6 +17,31 @@ fn text(name: &'static str) -> TextVm {
 
 fn number(name: &'static str, value: i32) -> NumberVm {
     NumberVm::with_model(name, value, MessageHub::new(), NullDispatcher::new())
+}
+
+#[test]
+fn fixed_aggregate_exposes_parent_delegating_disposable_baseline_commands() {
+    let aggregate = vmx::AggregateVm1::new("aggregate", text("member"));
+    let parent = vmx::CompositeVm::new("parent");
+    parent.add(aggregate.clone()).unwrap();
+    parent.construct().unwrap();
+    let commands = [
+        aggregate.select_command(),
+        aggregate.deselect_command(),
+        aggregate.select_next_command(),
+        aggregate.select_previous_command(),
+        aggregate.reconstruct_command(),
+    ];
+
+    commands[0].execute();
+    assert!(parent.current() == Some(aggregate.clone()));
+    commands[1].execute();
+    assert!(parent.current().is_none());
+    commands[4].execute();
+    assert!(aggregate.is_constructed());
+
+    aggregate.dispose().unwrap();
+    assert!(commands.iter().all(|command| !command.can_execute()));
 }
 
 /// AGG-001 — Arity-1 ComponentN factory invoked on construct
@@ -270,6 +298,22 @@ fn fixed_aggregate_rejects_owned_and_duplicate_components() {
         vmx::AggregateVm2::try_new("aggregate", duplicate.clone(), duplicate),
         Err(VmxError::DuplicateChild)
     ));
+
+    let inner = text("forwarded-duplicate");
+    let first_alias = ForwardingComponentVm::new(inner.clone());
+    let second_alias = ForwardingComponentVm::new(inner.clone());
+    assert!(matches!(
+        vmx::AggregateVm2::try_new("aggregate", first_alias, second_alias),
+        Err(VmxError::DuplicateChild)
+    ));
+
+    let old_parent = vmx::CompositeVm::new("forwarded-old-parent");
+    old_parent.add(inner.clone()).unwrap();
+    assert!(matches!(
+        vmx::AggregateVm1::try_new("aggregate", ForwardingComponentVm::new(inner.clone())),
+        Err(VmxError::InconsistentParent)
+    ));
+    assert_eq!(old_parent.items(), vec![inner]);
 }
 
 #[test]

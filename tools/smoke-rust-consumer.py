@@ -183,6 +183,11 @@ def find_extracted_crate(destination: Path, version: str) -> Path:
     return expected
 
 
+def test_extracted_crate(crate_root: Path, cargo: str) -> None:
+    """Compile and run the test suite exactly as shipped in the crate archive."""
+    _run([cargo, "test", "--locked", "--all-features"], cwd=crate_root)
+
+
 def _toml_path(path: Path) -> str:
     return str(path).replace("\\", "\\\\").replace('"', '\\"')
 
@@ -213,6 +218,7 @@ def run_smoke(
             extracted.mkdir()
             _safe_extract(tarball, extracted)
             crate_root = find_extracted_crate(extracted, version)
+            test_extracted_crate(crate_root, cargo)
             dependency = f'{PACKAGE_NAME} = {{ path = "{_toml_path(crate_root)}" }}'
             (workdir / "Cargo.toml").write_text(
                 render_manifest(dependency, rust_version), encoding="utf-8"

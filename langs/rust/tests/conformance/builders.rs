@@ -81,10 +81,12 @@ fn relay_command_trigger_setter_is_additive() {
 
     trigger_a.send(Message::Custom {
         sender_id: 0,
+        sender_name: "trigger_a".to_string(),
         name: "a".to_string(),
     });
     trigger_b.send(Message::Custom {
         sender_id: 0,
+        sender_name: "trigger_b".to_string(),
         name: "b".to_string(),
     });
 

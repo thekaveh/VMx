@@ -2,7 +2,7 @@
  * useDialogOverlay — adapter tests (Phase 5.c).
  */
 import { cleanup, render, screen } from "@testing-library/react";
-import { act } from "react";
+import { act, type JSX } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { ReactDialogService } from "../../../src/views/adapter/ReactDialogService.js";

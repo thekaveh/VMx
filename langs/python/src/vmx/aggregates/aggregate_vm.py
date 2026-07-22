@@ -57,7 +57,11 @@ class _AggregateParent(_ParentCompositeVM):
         del vm
 
     def contains_child(self, vm: _ComponentVMBase) -> bool:
-        return any(child is vm for child in self._aggregate.components())
+        identity = vm._ownership_identity
+        return any(
+            isinstance(child, _ComponentVMBase) and child._ownership_identity is identity
+            for child in self._aggregate.components()
+        )
 
     def detach_for_transfer(self, vm: _ComponentVMBase) -> _ParentTransfer:
         del vm
@@ -84,18 +88,23 @@ class _AggregateVMBase(_ComponentVMBase):
     def _validate_new_slots(self, slots: tuple[ComponentVMProto, ...]) -> None:
         identities: set[int] = set()
         for child in slots:
-            if id(child) in identities:
-                raise ValueError("aggregate factories returned the same component identity twice")
-            identities.add(id(child))
-            if isinstance(child, _ComponentVMBase) and child._parent is not None:
-                if not (
-                    child._parent is self._aggregate_parent
-                    and self._aggregate_parent.contains_child(child)
-                ):
-                    raise ValueError(f"component {child.name!r} already has a parent")
+            identity = child._ownership_identity if isinstance(child, _ComponentVMBase) else child
+            if id(identity) in identities:
+                raise ValueError(
+                    "aggregate factories returned the same canonical component identity twice"
+                )
+            identities.add(id(identity))
+            if isinstance(child, _ComponentVMBase):
+                ownership_parent = child._ownership_parent
+                if ownership_parent is not None:
+                    if not (
+                        ownership_parent is self._aggregate_parent
+                        and self._aggregate_parent.contains_child(child)
+                    ):
+                        raise ValueError(f"component {child.name!r} already has a parent")
             cursor: _ParentCompositeVM | None = self._aggregate_parent
             while cursor is not None:
-                if cursor.owner is child:
+                if cursor.owner._ownership_identity is identity:
                     raise ValueError("aggregate ownership would create a parent cycle")
                 cursor = cursor.owner_parent
 

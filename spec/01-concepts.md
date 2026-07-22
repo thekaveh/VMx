@@ -25,9 +25,12 @@ canonical decision documented in ADR-0018:
 
 ### 1.0 Cross-language naming
 
-The conceptual surface is identical across the full-parity flavors; identifier
-casing follows the per-language idiom defined by ADR-0006. The same logical
-type appears under the following names:
+The five active flavors share the same conceptual contracts and complete
+conformance catalog; accepted language adaptations and Rust's tracked
+source-surface convergence backlog mean that catalog completeness is not a
+claim of member-for-member API identity. Identifier casing follows the
+per-language idiom defined by ADR-0006. The same logical type appears under the
+following names:
 
 | Concept            | C#                        | Python             | TypeScript                | Swift                     | Rust                    |
 | ------------------ | ------------------------- | ------------------ | ------------------------- | ------------------------- | ----------------------- |

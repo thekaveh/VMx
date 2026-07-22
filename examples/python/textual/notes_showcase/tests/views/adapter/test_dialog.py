@@ -4,7 +4,7 @@ Closes the coverage gap on :class:`TextualDialogService` — the modal-bound
 async methods were exercised end-to-end via the smoke test but not as
 individual VM-layer units. Tests here drive each method against a mocked
 :class:`textual.app.App` and verify both the modal argument shape and the
-NotImplementedError on the deliberately un-wired ``pick_file_to_open`` path.
+safe cancellation result on the scenario's unused ``pick_file_to_open`` path.
 """
 
 from __future__ import annotations
@@ -34,10 +34,12 @@ def test_constructor_retains_app_reference() -> None:
 
 
 @pytest.mark.asyncio
-async def test_pick_file_to_open_raises_not_implemented() -> None:
-    service = TextualDialogService(_make_app())
-    with pytest.raises(NotImplementedError):
-        await service.pick_file_to_open()
+async def test_pick_file_to_open_returns_none_when_no_open_flow_exists() -> None:
+    app = _make_app()
+    service = TextualDialogService(app)
+
+    assert await service.pick_file_to_open() is None
+    app.push_screen_wait.assert_not_awaited()
 
 
 @pytest.mark.asyncio

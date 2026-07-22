@@ -131,8 +131,9 @@ Canonical relay-command shape:
       .build();
     ```
 
-The same structure appears across all full-parity source flavors with only
-casing and trait-import changes.
+The same normative command structure appears across all catalog-complete source
+flavors with casing and trait-import changes. Catalog coverage does not erase
+the separately documented Rust public-surface backlog.
 The Notes Workspace editor and delete flows are concrete examples.
 
 ## 6.3.7. Common Pitfalls

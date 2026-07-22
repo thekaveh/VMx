@@ -16,6 +16,35 @@
 import Foundation
 import Combine
 
+private final class LifecycleWaitCoordinator: @unchecked Sendable {
+    static let shared = LifecycleWaitCoordinator()
+
+    private let lock = NSLock()
+    private var waitingOn: [UInt64: UInt64] = [:]
+
+    func beginWait(caller: UInt64, owner: UInt64) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        waitingOn[caller] = owner
+        var cursor = owner
+        var visited = Set<UInt64>()
+        while visited.insert(cursor).inserted, let next = waitingOn[cursor] {
+            if next == caller {
+                waitingOn.removeValue(forKey: caller)
+                return false
+            }
+            cursor = next
+        }
+        return true
+    }
+
+    func endWait(caller: UInt64) {
+        lock.lock()
+        waitingOn.removeValue(forKey: caller)
+        lock.unlock()
+    }
+}
+
 /// Minimal parent interface used by a child for selection delegation.
 /// Mirrors `IParentVM` in the other flavors.
 public protocol ParentVM: AnyObject {
@@ -41,6 +70,17 @@ protocol OwnershipParentVM: AnyObject {
     func detachForTransfer(_ vm: ComponentVMBase) throws -> ParentTransfer
 }
 
+/// Transaction-aware ownership surface used by containers that can stage
+/// several children from the same old parent as one atomic population.
+protocol TransactionalOwnershipParentVM: OwnershipParentVM {
+    func detachForTransfer(
+        _ vm: ComponentVMBase,
+        transaction: ContainerOwnershipTransaction
+    ) throws -> ParentTransfer
+}
+
+final class ContainerOwnershipTransaction {}
+
 /// One-shot staged removal from an old parent.
 final class ParentTransfer {
     private let commitAction: () -> Void
@@ -65,23 +105,211 @@ final class ParentTransfer {
     }
 }
 
+private let ownershipTransactionCoordinator = NSRecursiveLock()
+
+private func acquireOwnershipIdentities(_ children: [ComponentVMBase]) -> [ComponentVMBase] {
+    var seen = Set<ObjectIdentifier>()
+    let identities = children.compactMap { child -> ComponentVMBase? in
+        let identity = child._ownershipIdentity
+        return seen.insert(ObjectIdentifier(identity)).inserted ? identity : nil
+    }
+    while true {
+        var acquired: [ComponentVMBase] = []
+        var blocked: ComponentVMBase?
+        ownershipTransactionCoordinator.lock()
+        for identity in identities {
+            if identity.ownershipGate.try() {
+                acquired.append(identity)
+            } else {
+                blocked = identity
+                break
+            }
+        }
+        if blocked == nil {
+            ownershipTransactionCoordinator.unlock()
+            return identities
+        }
+        for identity in acquired.reversed() { identity.ownershipGate.unlock() }
+        ownershipTransactionCoordinator.unlock()
+
+        // Never retain the coordinator or another child while waiting. Once
+        // this blocker moves, retry the complete identity set atomically.
+        blocked!.ownershipGate.lock()
+        blocked!.ownershipGate.unlock()
+    }
+}
+
+func withOwnershipReservationBatch<T>(
+    _ children: [ComponentVMBase],
+    _ body: () throws -> T
+) rethrows -> T {
+    let identities = acquireOwnershipIdentities(children)
+    defer {
+        for identity in identities.reversed() { identity.ownershipGate.unlock() }
+    }
+    return try body()
+}
+
 func beginParentTransfer(
     _ child: ComponentVMBase,
-    to destination: OwnershipParentVM
-) throws -> ParentTransfer? {
-    guard !destination.containsIdentity(child) else {
-        throw ContainerOwnershipError.duplicate
+    to destination: OwnershipParentVM,
+    transaction: ContainerOwnershipTransaction
+) throws -> ParentTransfer {
+    let identity = child._ownershipIdentity
+    _ = acquireOwnershipIdentities([identity])
+    guard !identity.ownershipInProgress else {
+        identity.ownershipGate.unlock()
+        throw ContainerOwnershipTransactionError()
     }
+    identity.ownershipInProgress = true
 
-    var cursor: OwnershipParentVM? = destination
-    while let current = cursor {
-        guard current.ownershipOwner !== child else {
-            throw ContainerOwnershipError.cycle
+    let staged: ParentTransfer?
+    do {
+        guard !destination.containsIdentity(child) else {
+            throw ContainerOwnershipError.duplicate
         }
-        cursor = current.ownershipOwnerParent
+
+        var cursor: OwnershipParentVM? = destination
+        while let current = cursor {
+            guard current.ownershipOwner._ownershipIdentity !== identity else {
+                throw ContainerOwnershipError.cycle
+            }
+            cursor = current.ownershipOwnerParent
+        }
+
+        if let parent = child._transferOwnershipParent as? TransactionalOwnershipParentVM {
+            staged = try parent.detachForTransfer(child, transaction: transaction)
+        } else {
+            staged = try child._transferOwnershipParent?.detachForTransfer(child)
+        }
+    } catch {
+        identity.ownershipInProgress = false
+        identity.ownershipGate.unlock()
+        throw error
     }
 
-    return try child._ownershipParent?.detachForTransfer(child)
+    func finish(commit: Bool) {
+        defer {
+            identity.ownershipInProgress = false
+            identity.ownershipGate.unlock()
+        }
+        if commit { staged?.commit() } else { staged?.rollback() }
+    }
+    return ParentTransfer(commit: { finish(commit: true) }, rollback: { finish(commit: false) })
+}
+
+private struct ContainerOwnershipTransactionError: Error {}
+
+/// A `Subject` whose `send(_:)` snapshots subscribers under a brief lock and
+/// invokes them OUTSIDE the lock, so a slow consumer parked in one
+/// subscriber's closure cannot block a concurrent `send(_:)` on the same
+/// subject from another thread.
+///
+/// Combine's `PassthroughSubject` serializes `send(_:)` invocations — a parked
+/// subscriber blocks every subsequent `send(_:)` on the same subject until the
+/// in-progress call returns. That breaks the cross-language contract
+/// (spec/06 §3.2 / COMP-006): a slow consumer on one child must not block the
+/// publication of another child's `isCurrent` change. C#/Python/TypeScript use
+/// delegate invocations or reactivex/rxjs Subjects that invoke subscribers
+/// without holding a per-subject send lock; this custom Subject mirrors that
+/// concurrency contract in Swift. Drop-in replacement for `PassthroughSubject`
+/// on the per-VM `propertyChangedSubject`.
+private final class VMxConcurrentSubject<Output, Failure: Error>: Subject {
+    private final class TokenSubscription: Subscription {
+        private weak var parent: VMxConcurrentSubject<Output, Failure>?
+        private let token: UUID
+        private var cancelled = false
+        init(parent: VMxConcurrentSubject<Output, Failure>, token: UUID) {
+            self.parent = parent
+            self.token = token
+        }
+        func request(_ demand: Subscribers.Demand) {
+            // Unlimited demand — mirrors PassthroughSubject's event-driven
+            // (non-backpressured) semantics for VMx property-change notifications.
+        }
+        func cancel() {
+            guard !cancelled else { return }
+            cancelled = true
+            parent?.removeSubscriber(token: token)
+        }
+    }
+
+    private final class Entry {
+        let receiveValue: (Output) -> Subscribers.Demand
+        let receiveCompletion: (Subscribers.Completion<Failure>) -> Void
+        var cancelled: Bool = false
+        init(
+            receiveValue: @escaping (Output) -> Subscribers.Demand,
+            receiveCompletion: @escaping (Subscribers.Completion<Failure>) -> Void
+        ) {
+            self.receiveValue = receiveValue
+            self.receiveCompletion = receiveCompletion
+        }
+    }
+
+    private let lock = NSLock()
+    private var entries: [UUID: Entry] = [:]
+    private var finished = false
+
+    public func send(_ value: Output) {
+        lock.lock()
+        let snapshot = Array(entries.values)
+        let isFinished = finished
+        lock.unlock()
+        if isFinished { return }
+        for entry in snapshot where !entry.cancelled {
+            _ = entry.receiveValue(value)
+        }
+    }
+
+    public func send(completion: Subscribers.Completion<Failure>) {
+        lock.lock()
+        if finished {
+            lock.unlock()
+            return
+        }
+        if case .finished = completion { finished = true }
+        let snapshot = Array(entries.values)
+        if case .finished = completion { entries.removeAll() }
+        lock.unlock()
+        for entry in snapshot where !entry.cancelled {
+            entry.receiveCompletion(completion)
+        }
+    }
+
+    public func send(subscription: any Subscription) {
+        // VMx publishes via send(_:), not via subscription handshake; this
+        // exists only to satisfy the Subject protocol.
+    }
+
+    public func receive<S>(subscriber: S) where S: Subscriber, S.Failure == Failure, S.Input == Output {
+        let token = UUID()
+        // Capture subscriber strongly in the closures. `entries` holds the
+        // Entry which holds the closures; removeSubscriber releases both.
+        let entry = Entry(
+            receiveValue: { value in subscriber.receive(value) },
+            receiveCompletion: { completion in subscriber.receive(completion: completion) }
+        )
+        lock.lock()
+        let alreadyFinished = finished
+        if !alreadyFinished {
+            entries[token] = entry
+        }
+        lock.unlock()
+        subscriber.receive(subscription: TokenSubscription(parent: self, token: token))
+        if alreadyFinished {
+            subscriber.receive(completion: .finished)
+        }
+    }
+
+    fileprivate func removeSubscriber(token: UUID) {
+        lock.lock()
+        if let entry = entries[token] {
+            entry.cancelled = true
+        }
+        entries.removeValue(forKey: token)
+        lock.unlock()
+    }
 }
 
 /// View-model kind tag. Mirrors `ViewModelType`.
@@ -135,11 +363,28 @@ open class ComponentVMBase {
     /// is added as a child. `internal` so containers in the module can
     /// flip it.
     weak var _parent: ParentVM?
-    weak var _ownershipParent: OwnershipParentVM?
+    weak var _ownershipParent: OwnershipParentVM? {
+        didSet { _ownershipParentDidChange() }
+    }
+    weak var _forwardingOwner: ComponentVMBase?
+
+    var _ownershipIdentity: ComponentVMBase { self }
+
+    var _transferOwnershipParent: OwnershipParentVM? {
+        if let direct = _ownershipParent { return direct }
+        if let forwardingOwner = _forwardingOwner, forwardingOwner !== self {
+            return forwardingOwner._ownershipParent
+        }
+        return nil
+    }
+
+    func _ownershipParentDidChange() {}
+    fileprivate let ownershipGate = NSRecursiveLock()
+    fileprivate var ownershipInProgress = false
 
     // ── Reactive primitives ─────────────────────────────────────────────
 
-    private let propertyChangedSubject = PassthroughSubject<String, Never>()
+    private let propertyChangedSubject = VMxConcurrentSubject<String, Never>()
     private let statusTriggerSubject = PassthroughSubject<Void, Never>()
     private var triggersDisposed = false
     private var activePropertyNotifications = 0
@@ -151,7 +396,7 @@ open class ComponentVMBase {
         let generation: UInt64?
         let isDisposal: Bool
         let ownerThread: UInt64
-        let mayBeAdopted: Bool
+        var mayBeAdopted: Bool
         let afterDelivery: () -> Void
         let ready = DispatchSemaphore(value: 0)
         var applied = false
@@ -285,16 +530,27 @@ open class ComponentVMBase {
 
     /// Internal setter used by containers to flip the flag.
     func _setIsCurrent(_ value: Bool) {
+        if _commitIsCurrent(value) { _publishIsCurrent() }
+    }
+
+    /// Commits the flag and reserves its paired notification without invoking
+    /// consumer code. Composite selection uses this phase for atomic state.
+    func _commitIsCurrent(_ value: Bool) -> Bool {
         lifecycleLock.lock()
         guard !disposalRequested,
               _status != .disposed,
               _isCurrent != value else {
             lifecycleLock.unlock()
-            return
+            return false
         }
         _isCurrent = value
         activePropertyNotifications += 1
         lifecycleLock.unlock()
+        return true
+    }
+
+    /// Delivers one notification reserved by `_commitIsCurrent`.
+    func _publishIsCurrent() {
         _publishAdmittedPropertyChanged("isCurrent")
     }
 
@@ -710,7 +966,8 @@ open class ComponentVMBase {
         publication: LifecyclePublication,
         shouldDrain: Bool,
         shouldAwaitTurn: Bool,
-        shouldDeliverInline: Bool
+        shouldDeliverInline: Bool,
+        awaitedOwner: UInt64
     )
 
     private func _claimHook(
@@ -794,16 +1051,16 @@ open class ComponentVMBase {
         )
         if isDisposal && lifecycleDrainerThread == caller {
             _applyLifecyclePublicationLocked(publication)
-            return (publication, false, false, true)
+            return (publication, false, false, true, 0)
         }
         lifecyclePublications.append(publication)
         if lifecycleDrainerThread == 0 {
             lifecycleDrainerThread = caller
             _applyLifecyclePublicationLocked(publication)
-            return (publication, true, false, false)
+            return (publication, true, false, false, 0)
         }
         let shouldAwaitTurn = lifecycleDrainerThread != caller && !mayBeAdopted
-        return (publication, false, shouldAwaitTurn, false)
+        return (publication, false, shouldAwaitTurn, false, lifecycleDrainerThread)
     }
 
     private func _applyLifecyclePublicationLocked(
@@ -829,6 +1086,17 @@ open class ComponentVMBase {
         } else if plan.shouldDrain {
             _drainLifecyclePublications()
         } else if plan.shouldAwaitTurn {
+            let caller = Self.currentThreadID
+            if !LifecycleWaitCoordinator.shared.beginWait(
+                caller: caller,
+                owner: plan.awaitedOwner
+            ) {
+                lifecycleLock.lock()
+                plan.publication.mayBeAdopted = true
+                lifecycleLock.unlock()
+                return
+            }
+            defer { LifecycleWaitCoordinator.shared.endWait(caller: caller) }
             plan.publication.ready.wait()
             _drainLifecyclePublications()
         }

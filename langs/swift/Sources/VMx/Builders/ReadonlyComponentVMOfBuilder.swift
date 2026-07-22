@@ -18,7 +18,7 @@ public struct ReadonlyComponentVMOfBuilder<Model> {
     private var _modeledHinter: ((Model) -> String)?
     private var _modelEquals: ((Model, Model) -> Bool)?
     private var _onModelChanged: ((Model) -> Void)?
-    private var _onConstruct: (() -> Void)?
+    private var _onConstruct: (() throws -> Void)?
     private var _onDestruct: (() -> Void)?
     private var _background: Bool = false
 
@@ -63,7 +63,7 @@ public struct ReadonlyComponentVMOfBuilder<Model> {
     }
 
     public func onConstruct(
-        _ cb: @escaping () -> Void
+        _ cb: @escaping () throws -> Void
     ) -> ReadonlyComponentVMOfBuilder<Model> {
         var copy = self; copy._onConstruct = cb; return copy
     }

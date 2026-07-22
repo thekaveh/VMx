@@ -7,7 +7,7 @@ using Xunit;
 namespace NotesShowcase.Tests.Views.Adapter;
 
 /// <summary>
-/// Adapter contract (Phase 5.a binding gap #3, scenario §7.1): given a
+/// Adapter contract for the derived-property binding scenario: given a
 /// <see cref="DerivedProperty{T}"/> backed by a seeded source, the
 /// <see cref="BindableDerived{T}"/> sidecar exposes the same <c>Value</c> and
 /// raises <see cref="INotifyPropertyChanged.PropertyChanged"/> for <c>Value</c>

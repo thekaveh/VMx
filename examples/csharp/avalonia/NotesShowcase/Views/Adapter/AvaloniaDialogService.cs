@@ -11,7 +11,7 @@ namespace NotesShowcase.Views.Adapter;
 /// DialogService (scenario §7.1, plan §4.a / §5.a): implements
 /// <see cref="IDialogService"/> against Avalonia's native modal stack.
 ///
-/// <para><b>Phase 5.a completion</b>:</para>
+/// <para><b>Dialog adapter contract</b>:</para>
 /// <list type="bullet">
 ///   <item>
 ///     <description>

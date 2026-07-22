@@ -30,11 +30,13 @@
       },
       "Microsoft.Reactive.Testing": {
         "type": "Direct",
-        "requested": "[6.1.0, )",
-        "resolved": "6.1.0",
-        "contentHash": "1KLmcpM299ZSA8ZjCbXApM/TVeaJJGZZz8nEJ8SWszf/JYcPqhzeg5s2rhCBIWuSoBaga3lny4EATs4fi/ME5A==",
+        "requested": "[7.0.0, )",
+        "resolved": "7.0.0",
+        "contentHash": "noVW6VX7u8nxYmajOF/jrLJ435D3Awqr7WdSl1TzVtff6xP3+u38XAUnCUXpKNd4I4mJHMT8jb6fR9L+iernZA==",
         "dependencies": {
-          "System.Reactive": "6.1.0"
+          "System.Collections.Immutable": "10.0.3",
+          "System.Reactive": "7.0.0",
+          "xunit.v3.assert.source": "3.2.2"
         }
       },
       "xunit": {
@@ -260,8 +262,8 @@
       },
       "System.Collections.Immutable": {
         "type": "Transitive",
-        "resolved": "8.0.0",
-        "contentHash": "AurL6Y5BA1WotzlEvVaIDpqzpIPvYnnldxru8oXJU2yFxFUy3+pNXjXd1ymO+RA0rq0+590Q8gaz2l3Sr7fmqg=="
+        "resolved": "10.0.3",
+        "contentHash": "gpKPycgDFS2oAPr0yaqwBmShE1ya4yMMkn3lxBPcXrsCI4KL10xSu0cSUzeajQ7LKjb3EsUAgjhBiPGrGU6vSQ=="
       },
       "System.IO.Pipelines": {
         "type": "Transitive",
@@ -270,8 +272,8 @@
       },
       "System.Reactive": {
         "type": "Transitive",
-        "resolved": "6.1.0",
-        "contentHash": "M5cCC1ZMkZr9jbSQGTHnVkb5TDN67qWCV7AP8TAHdGkvDlu0puT5NzemESNn9+HkYIDpWpocP68/i+/ame2/2w=="
+        "resolved": "7.0.0",
+        "contentHash": "VYaSP2Kt+45GFnr3q7c/b4awT48VvueOJV4jPjdUXi5MxC9mSUy+HkJYtm8rGZ6fC3tNHG9gBu/YwNAR/FYqhg=="
       },
       "System.Reflection.Metadata": {
         "type": "Transitive",
@@ -329,6 +331,11 @@
           "xunit.extensibility.core": "[2.9.3]"
         }
       },
+      "xunit.v3.assert.source": {
+        "type": "Transitive",
+        "resolved": "3.2.2",
+        "contentHash": "BzEGm0YpipGWMCdGc+/zDLpVaFUAyx6qqvYyA96SL2MynBPplcoemZ7fa+XU2UMCEQNzEp+1hKQuyw2UF8ethA=="
+      },
       "notesshowcase": {
         "type": "Project",
         "dependencies": {
@@ -336,20 +343,20 @@
           "Avalonia.Desktop": "[11.3.18, )",
           "Avalonia.Fonts.Inter": "[11.3.18, )",
           "Avalonia.Themes.Fluent": "[11.3.18, )",
-          "VMx": "[3.20.1, )",
+          "VMx": "[3.22.0, )",
           "VMx.Notifications": "[1.2.0, )"
         }
       },
       "vmx": {
         "type": "Project",
         "dependencies": {
-          "System.Reactive": "[6.1.0, )"
+          "System.Reactive": "[7.0.0, )"
         }
       },
       "vmx.notifications": {
         "type": "Project",
         "dependencies": {
-          "VMx": "[3.20.1, )"
+          "VMx": "[3.22.0, )"
         }
       }
     }

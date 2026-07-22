@@ -75,6 +75,7 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + 'static>
             if changed {
                 load_more_hub.send(Message::CollectionChanged(CollectionChangedMessage {
                     sender_id: id,
+                    sender_name: "TokenPagedComposition".to_string(),
                     property_name: "items".to_string(),
                     action: CollectionChangeAction::Reset,
                     old_index: None,
@@ -110,6 +111,7 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + 'static>
             if changed {
                 refresh_hub.send(Message::CollectionChanged(CollectionChangedMessage {
                     sender_id: id,
+                    sender_name: "TokenPagedComposition".to_string(),
                     property_name: "items".to_string(),
                     action: CollectionChangeAction::Reset,
                     old_index: None,
@@ -191,6 +193,7 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + 'static>
             self.hub
                 .send(Message::CollectionChanged(CollectionChangedMessage {
                     sender_id: self.id,
+                    sender_name: "TokenPagedComposition".to_string(),
                     property_name: "items".to_string(),
                     action: CollectionChangeAction::Reset,
                     old_index: None,
@@ -239,6 +242,7 @@ impl<T: VmNode, Token: Clone + Send + 'static> TokenPagedComposition<T, Token> {
             if changed {
                 load_hub.send(Message::CollectionChanged(CollectionChangedMessage {
                     sender_id: id,
+                    sender_name: "TokenPagedComposition".to_string(),
                     property_name: "items".to_string(),
                     action: CollectionChangeAction::Reset,
                     old_index: None,
@@ -277,6 +281,7 @@ impl<T: VmNode, Token: Clone + Send + 'static> TokenPagedComposition<T, Token> {
             if changed {
                 refresh_hub.send(Message::CollectionChanged(CollectionChangedMessage {
                     sender_id: id,
+                    sender_name: "TokenPagedComposition".to_string(),
                     property_name: "items".to_string(),
                     action: CollectionChangeAction::Reset,
                     old_index: None,

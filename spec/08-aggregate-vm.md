@@ -56,7 +56,7 @@ An asynchronous flavor MAY observe the children's
 synchronous default is a strict subset of that behavior.
 
 The order in which the slots are populated and constructed is unspecified.
-The reference implementations in the full-parity flavors drive them
+The reference implementations in all five active flavors drive them
 sequentially (mirroring `CompositeVM` / `GroupVM`; see
 chapter 06).
 

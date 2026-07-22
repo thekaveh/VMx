@@ -46,14 +46,18 @@ export function useVm<M, K extends keyof ComponentVMOf<M>>(
 ```vue
 <script setup lang="ts">
 import { useVm } from "./composables/useVm";
-import type { ComponentVMOf, IMessageHub } from "@thekaveh/vmx";
-const props = defineProps<{ vm: ComponentVMOf<Note>; hub: IMessageHub }>();
+import type { ComponentVMOf, ICommand, IMessageHub } from "@thekaveh/vmx";
+const props = defineProps<{
+  vm: ComponentVMOf<Note>;
+  hub: IMessageHub;
+  saveCommand: ICommand;
+}>();
 const model = useVm(props.vm, props.hub, "model");
 </script>
 
 <template>
   <h1>{{ model.title }}</h1>
-  <button @click="vm.saveCommand.execute()">Save</button>
+  <button @click="props.saveCommand.execute()">Save</button>
 </template>
 ```
 

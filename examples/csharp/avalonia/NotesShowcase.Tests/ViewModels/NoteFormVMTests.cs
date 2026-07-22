@@ -180,7 +180,7 @@ public sealed class NoteFormVMTests
         Assert.Equal(string.Empty, form.TagSuggestionsText);
     }
 
-    // ── Phase 5.a binding gap #1: two-way scalar setters ──────────────────
+    // ── Two-way scalar setter binding contract ────────────────────────────
 
     [Fact]
     public void Setting_Title_scalar_flips_IsDirty_true_and_enables_ApproveCommand()

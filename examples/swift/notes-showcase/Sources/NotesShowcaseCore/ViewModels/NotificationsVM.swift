@@ -2,7 +2,7 @@
 // NotificationsVM — bounded, keyed notification collection.
 //
 // Ports examples/csharp/avalonia/NotesShowcase/ViewModels/NotificationsVM.cs.
-// See task-6-brief.md.
+// See spec/ADRs/0067-swift-notes-showcase-flagship.md.
 //
 // Subscribes to `notificationHub.pending` on construct (foreground-marshalled
 // via the injected dispatcher). Maintains a bounded `[NotificationVM]` list

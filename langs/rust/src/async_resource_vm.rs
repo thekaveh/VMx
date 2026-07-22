@@ -124,6 +124,7 @@ struct Machine<T> {
     disposed: bool,
 }
 
+#[derive(Clone)]
 struct Commands {
     load: AsyncRelayCommand,
     reload: AsyncRelayCommand,
@@ -331,7 +332,8 @@ where
         if let Some(operation) = operation {
             operation.token.cancel();
         }
-        if let Some(commands) = lock(&self.inner.commands).as_ref() {
+        let commands = lock(&self.inner.commands).clone();
+        if let Some(commands) = commands {
             commands.load.dispose();
             commands.reload.dispose();
             commands.cancel.dispose();
@@ -411,7 +413,30 @@ where
     if let Some(value) = discarded {
         cleanup(&inner, value);
     }
+    {
+        let machine = lock(&inner.machine);
+        if machine.disposed
+            || machine
+                .operation
+                .as_ref()
+                .is_none_or(|current| current.identity != operation.identity)
+        {
+            return Ok(());
+        }
+    }
     notify_state(&inner);
+
+    let should_start = {
+        let machine = lock(&inner.machine);
+        !machine.disposed
+            && machine
+                .operation
+                .as_ref()
+                .is_some_and(|current| current.identity == operation.identity)
+    };
+    if !should_start {
+        return Ok(());
+    }
 
     let (done_send, done_receive) = mpsc::channel();
     let loader_inner = inner.clone();
@@ -511,7 +536,7 @@ where
 {
     match result {
         Ok(value) => {
-            let previous = {
+            let (previous, committed_identity) = {
                 let mut machine = lock(&inner.machine);
                 if machine.disposed
                     || machine.operation.as_ref().map(|current| current.identity)
@@ -525,12 +550,20 @@ where
                 let stable =
                     std::mem::replace(&mut machine.stable, StableState::Ready(value.clone()));
                 machine.state = AsyncResourceState::Ready { value };
-                owned_value(stable)
+                (owned_value(stable), machine.identity)
             };
             if let Some(previous) = previous {
                 cleanup(inner, previous);
             }
-            notify_state(inner);
+            let notify = {
+                let machine = lock(&inner.machine);
+                !machine.disposed
+                    && machine.identity == committed_identity
+                    && machine.operation.is_none()
+            };
+            if notify {
+                notify_state(inner);
+            }
         }
         Err(error) => {
             let notify = {
@@ -587,7 +620,8 @@ fn cleanup<T>(inner: &Inner<T>, value: T) {
 
 fn notify_state<T>(inner: &Inner<T>) {
     inner.component.notify_property_changed("state");
-    if let Some(commands) = lock(&inner.commands).as_ref() {
+    let commands = lock(&inner.commands).clone();
+    if let Some(commands) = commands {
         commands.load.raise_can_execute_changed();
         commands.reload.raise_can_execute_changed();
         commands.cancel.raise_can_execute_changed();

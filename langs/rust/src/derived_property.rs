@@ -82,6 +82,7 @@ impl<T: Clone + PartialEq + Send + 'static> DerivedProperty<T> {
             self.value_changed
                 .send(Message::PropertyChanged(PropertyChangedMessage {
                     sender_id: 0,
+                    sender_name: "DerivedProperty".to_string(),
                     property_name: "value".to_string(),
                 }));
         }

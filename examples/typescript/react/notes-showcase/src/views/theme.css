@@ -17,6 +17,17 @@
   --success: #6ed98e;
 }
 
+:root[data-high-contrast="true"] :focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+:root[data-high-contrast="true"] button,
+:root[data-high-contrast="true"] input,
+:root[data-high-contrast="true"] textarea {
+  border-width: 2px;
+}
+
 * {
   box-sizing: border-box;
 }

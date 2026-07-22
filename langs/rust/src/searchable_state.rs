@@ -91,6 +91,7 @@ impl<T: Clone + Send + Sync + 'static> SearchableState<T> {
                 }
                 filtered_changed.send(Message::Custom {
                     sender_id: 0,
+                    sender_name: "SearchableState".to_string(),
                     name: "filtered".to_string(),
                 });
             });
@@ -128,6 +129,7 @@ impl<T: Clone + Send + Sync + 'static> SearchableState<T> {
         if changed {
             self.filtered_changed.send(Message::Custom {
                 sender_id: 0,
+                sender_name: "SearchableState".to_string(),
                 name: "filtered".to_string(),
             });
         }

@@ -2,7 +2,7 @@
 //!
 //! Spec: `spec/14-capabilities.md`; ADR-0010, ADR-0057.
 
-use super::{lock, Arc, ComponentVm, Dispatcher, Message, MessageHub, Mutex};
+use super::{lock, Arc, ConstructionStatus, Message, MessageHub, Mutex, VmNode};
 
 /// Opt-in selection capability.
 pub trait Selectable {
@@ -247,76 +247,77 @@ impl ExpandableState {
         if changed {
             self.expanded_changed.send(Message::Custom {
                 sender_id: 0,
+                sender_name: "ExpandableState".to_string(),
                 name: expanded.to_string(),
             });
         }
     }
 }
 
-impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> Selectable for ComponentVm<M, D> {
-    fn can_select(&self) -> bool {
-        !self.is_selected()
-    }
-
-    fn select(&self) {
-        ComponentVm::select(self);
-    }
-}
-
-impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> Deselectable for ComponentVm<M, D> {
-    fn can_deselect(&self) -> bool {
-        self.is_selected()
-    }
-
-    fn deselect(&self) {
-        ComponentVm::deselect(self);
-    }
-}
-
-impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> SelectionTogglable
-    for ComponentVm<M, D>
-{
-    fn can_toggle_selection(&self) -> bool {
-        true
-    }
-
-    fn toggle_selection(&self) {
-        if self.is_selected() {
-            self.deselect();
-        } else {
-            self.select();
-        }
-    }
-}
-
-impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> Expandable for ComponentVm<M, D> {
+impl Expandable for ExpandableState {
     fn can_expand(&self) -> bool {
-        !self.is_expanded()
+        ExpandableState::can_expand(self)
     }
 
     fn expand(&self) {
-        ComponentVm::expand(self);
+        ExpandableState::expand(self);
     }
 }
 
-impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> Collapsible for ComponentVm<M, D> {
+impl Collapsible for ExpandableState {
     fn can_collapse(&self) -> bool {
-        self.is_expanded()
+        ExpandableState::can_collapse(self)
     }
 
     fn collapse(&self) {
-        ComponentVm::collapse(self);
+        ExpandableState::collapse(self);
     }
 }
 
-impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ExpansionTogglable
-    for ComponentVm<M, D>
-{
+impl ExpansionTogglable for ExpandableState {
     fn can_toggle_expansion(&self) -> bool {
         true
     }
 
     fn toggle_expansion(&self) {
-        ComponentVm::toggle_expansion(self);
+        ExpandableState::toggle_expansion(self);
+    }
+}
+
+impl<T: VmNode> Constructable for T {
+    fn can_construct(&self) -> bool {
+        matches!(
+            self.status(),
+            ConstructionStatus::Destructed | ConstructionStatus::Constructed
+        )
+    }
+
+    fn construct(&self) {
+        let _ = VmNode::construct(self);
+    }
+}
+
+impl<T: VmNode> Destructable for T {
+    fn can_destruct(&self) -> bool {
+        matches!(
+            self.status(),
+            ConstructionStatus::Constructed | ConstructionStatus::Destructed
+        )
+    }
+
+    fn destruct(&self) {
+        let _ = VmNode::destruct(self);
+    }
+}
+
+impl<T: VmNode> Reconstructable for T {
+    fn can_reconstruct(&self) -> bool {
+        self.status() == ConstructionStatus::Constructed
+    }
+
+    fn reconstruct(&self) {
+        if VmNode::destruct(self).is_ok() {
+            let _ = VmNode::construct(self);
+        }
     }
 }

@@ -192,6 +192,70 @@ public sealed class AsyncResourceVMConformanceTests
         vm.State.HasValue.Should().BeFalse();
     }
 
+    [Fact]
+    public async Task DiscardCleanupThatStartsNewReloadSuppressesSupersededNotification()
+    {
+        using var hub = new MessageHub();
+        AsyncResourceVM<int>? vm = null;
+        Task reentrantReload = Task.CompletedTask;
+        var reentered = false;
+        var nextValue = 0;
+        var changes = new List<string?>();
+        vm = Create(hub, _ => Task.FromResult(++nextValue), cleanup: value =>
+        {
+            if (value == 1 && !reentered)
+            {
+                reentered = true;
+                reentrantReload = vm!.ReloadAsync();
+            }
+        });
+        vm.PropertyChanged += (_, e) => changes.Add(e.PropertyName);
+
+        await vm.LoadAsync();
+        changes.Clear();
+        await vm.ReloadAsync();
+        await reentrantReload;
+
+        changes.Should().Equal(nameof(vm.State), nameof(vm.State));
+        vm.State.Status.Should().Be(AsyncResourceStatus.Ready);
+        vm.State.Value.Should().Be(2);
+        nextValue.Should().Be(2);
+    }
+
+    [Fact]
+    public async Task ReplacementCleanupThatStartsNewReloadSuppressesSupersededNotification()
+    {
+        using var hub = new MessageHub();
+        AsyncResourceVM<int>? vm = null;
+        Task reentrantReload = Task.CompletedTask;
+        var reentered = false;
+        var nextValue = 0;
+        var changes = new List<string?>();
+        vm = Create(
+            hub,
+            _ => Task.FromResult(++nextValue),
+            AsyncResourceRetention.RetainPrevious,
+            value =>
+            {
+                if (value == 1 && !reentered)
+                {
+                    reentered = true;
+                    reentrantReload = vm!.ReloadAsync();
+                }
+            });
+        vm.PropertyChanged += (_, e) => changes.Add(e.PropertyName);
+
+        await vm.LoadAsync();
+        changes.Clear();
+        await vm.ReloadAsync();
+        await reentrantReload;
+
+        changes.Should().Equal(nameof(vm.State), nameof(vm.State), nameof(vm.State));
+        vm.State.Status.Should().Be(AsyncResourceStatus.Ready);
+        vm.State.Value.Should().Be(3);
+        nextValue.Should().Be(3);
+    }
+
     [Fact, Trait("Conformance", "ARES-008")]
     public async Task ARES_008_Latest_Start_Wins()
     {
@@ -259,6 +323,23 @@ public sealed class AsyncResourceVMConformanceTests
         vm.Dispose();
         vm.Dispose();
         cleaned.Should().Equal(1, 2);
+    }
+
+    [Fact, Trait("Conformance", "ARES-010")]
+    public async Task ARES_010_Disposal_Cleans_Accepted_Value_When_Command_Observer_Throws()
+    {
+        using var hub = new MessageHub();
+        var cleaned = new List<int>();
+        var vm = Create(hub, _ => Task.FromResult(7), cleanup: cleaned.Add);
+        await vm.LoadAsync();
+        vm.CancelCommand.CanExecuteChanged += (_, _) =>
+            throw new InvalidOperationException("terminal observer");
+
+        Action dispose = vm.Dispose;
+
+        dispose.Should().Throw<InvalidOperationException>().WithMessage("terminal observer");
+        cleaned.Should().ContainSingle("accepted values require cleanup even when observers fail")
+            .Which.Should().Be(7);
     }
 
     [Fact, Trait("Conformance", "ARES-011")]

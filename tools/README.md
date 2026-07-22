@@ -4,6 +4,10 @@ Cross-cutting scripts that operate across `spec/` and `langs/`.
 
 ## 1. Current
 
+- `generate-doc-diagrams.py` — derives the root architecture and class-diagram
+  HTML/SVG/PNG triplets from repository facts. Run it without arguments to
+  regenerate or with `--check` to verify byte-for-byte drift.
+
 - `check-conformance-coverage.py` — parses `spec/12-conformance.md` for the catalog
   of `XXX-NNN` conformance IDs and walks each active language's registered conformance
   test directory for matching tests. The exact directories are registered in the
@@ -16,7 +20,7 @@ Cross-cutting scripts that operate across `spec/` and `langs/`.
   # report-only
   python3 tools/check-conformance-coverage.py
 
-  # CI mode — require all five full-parity flavors at 100% coverage (matches
+  # CI mode — require all five catalog-complete flavors at 100% coverage (matches
   # .github/workflows/conformance.yml)
   python3 tools/check-conformance-coverage.py \
       --require csharp --require python --require typescript --require swift --require rust
@@ -44,9 +48,18 @@ Cross-cutting scripts that operate across `spec/` and `langs/`.
   ```
 
 - `check-python-fixture-sync.py` — verifies the Python package's tracked runtime
-  copy of `lifecycle-transitions.json` is byte-identical to the spec fixture.
-  This keeps the package buildable from both the live checkout and the published
-  sdist.
+  lifecycle fixture and the sdist's four conformance fixtures are byte-identical
+  to their spec sources. This keeps both runtime and shipped source tests
+  self-contained.
+
+- `check-rust-fixture-sync.py` — verifies the Rust crate's runtime lifecycle
+  fixture and packaged conformance fixtures are byte-identical to their spec
+  sources. The packaged-consumer smoke then runs the extracted crate's own tests.
+
+- `check-release-please-state.py` — compares the Python source version with the
+  truthful last-published release-please manifest. The release workflow uses its
+  output to pause automation when a bootstrap release is pending, preventing a
+  generated version downgrade.
 
 - `check-swift-fixture-sync.py` — verifies Swift's four bundled JSON resources
   are byte-identical to `spec/fixtures/*.json`.

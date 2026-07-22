@@ -1,5 +1,5 @@
 /**
- * useVm — React 18 PropertyBridge for a VMx ViewModel.
+ * useVm — React PropertyBridge for a VMx ViewModel.
  *
  * See scenario doc §7.1 (PropertyBridge) and §7.3 (TS adapter signature) and
  * plan §4.c.

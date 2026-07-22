@@ -16,11 +16,11 @@ def test_typescript_ci_triggers_for_package_verification_tools() -> None:
     assert '- "tools/smoke-npm-consumer.py"' in workflow
 
 
-def test_typescript_ci_verifies_packed_consumers_on_node_20_and_22() -> None:
+def test_typescript_ci_verifies_floor_lts_and_current_node_lines() -> None:
     workflow = _workflow("typescript.yml")
 
     assert "name: package (node${{ matrix.node-version }})" in workflow
-    assert 'node-version: ["20", "22"]' in workflow
+    assert 'node-version: ["20", "22", "24", "26"]' in workflow
     assert "python3 tools/check-typescript-package.py" in workflow
     assert "python3 tools/smoke-npm-consumer.py" in workflow
     assert "--package-dir langs/typescript" in workflow
@@ -32,13 +32,16 @@ def test_typescript_ci_verifies_packed_consumers_on_node_20_and_22() -> None:
 def test_contract_suite_triggers_on_typescript_and_release_workflow_changes() -> None:
     workflow = _workflow("conformance.yml")
 
-    assert '- ".github/workflows/typescript.yml"' in workflow
-    assert '- ".github/workflows/release.yml"' in workflow
+    assert workflow.count('- ".github/workflows/**"') == 1
 
 
 def _typescript_release_jobs() -> str:
     workflow = _workflow("release.yml")
-    return workflow.split("\n  typescript:\n", maxsplit=1)[1].split("\n  swift:\n", maxsplit=1)[0]
+    jobs = workflow.split("\n  typescript:\n", maxsplit=1)[1].split("\n  rust-test:\n", maxsplit=1)[
+        0
+    ]
+    assert "\n  rust-test:\n" not in jobs
+    return jobs
 
 
 def test_release_uses_trusted_publishing_node_and_npm_floors_without_cache() -> None:
@@ -81,11 +84,11 @@ def test_release_has_mutually_exclusive_bootstrap_and_oidc_publish_steps() -> No
     assert "npm publish --access public" in jobs
 
 
-def test_release_polls_public_package_and_provenance_on_node_20_and_22() -> None:
+def test_release_polls_public_package_and_provenance_on_supported_node_lines() -> None:
     jobs = _typescript_release_jobs()
 
     assert "typescript-verify-published:" in jobs
-    assert 'node-version: ["20", "22"]' in jobs
+    assert 'node-version: ["20", "22", "24", "26"]' in jobs
     assert "--poll-timeout 600" in jobs
     assert "dist.attestations" in jobs
     assert "predicateType" in jobs

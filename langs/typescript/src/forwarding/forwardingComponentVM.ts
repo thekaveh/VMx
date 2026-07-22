@@ -9,14 +9,125 @@
 import type { Observable } from "rxjs";
 import type { ConstructionStatus } from "../lifecycle/status.js";
 import type { IComponentVMOf, ViewModelType } from "../components/types.js";
-import type { ICommand } from "../commands/types.js";
+import { RelayCommand } from "../commands/relayCommand.js";
 import type { IMessageHub } from "../services/messageHub.js";
+import {
+  ComponentVMBase,
+  type IOwningParentVM,
+  ParentTransfer,
+} from "../components/componentVMBase.js";
+import { NullDispatcher } from "../services/nullDispatcher.js";
 
-export class ForwardingComponentVM<M> implements IComponentVMOf<M> {
+const directForwardingParents = new WeakMap<object, IOwningParentVM | null>();
+
+class ForwardingParent<M> implements IOwningParentVM {
+  constructor(
+    readonly parent: IOwningParentVM,
+    private readonly wrapper: ForwardingComponentVM<M>,
+  ) {}
+
+  get retainedWrapper(): ForwardingComponentVM<M> { return this.wrapper; }
+
+  get owner(): ComponentVMBase { return this.parent.owner; }
+  get ownerParent(): IOwningParentVM | null { return this.parent.ownerParent; }
+  get supportsChildSelection(): boolean { return this.parent.supportsChildSelection; }
+  get currentChild(): ComponentVMBase | null {
+    return this.parent.currentChild === this.wrapper
+      ? this.wrapper.wrappedBase
+      : this.parent.currentChild;
+  }
+  selectChild(_vm: ComponentVMBase): void { this.parent.selectChild(this.wrapper); }
+  deselectChild(_vm: ComponentVMBase): void { this.parent.deselectChild(this.wrapper); }
+  containsChild(_vm: ComponentVMBase): boolean { return this.parent.containsChild(this.wrapper); }
+  detachForTransfer(_vm: ComponentVMBase): ParentTransfer {
+    const staged = this.parent.detachForTransfer(this.wrapper);
+    return new ParentTransfer(
+      () => {
+        try { staged.commit(); }
+        finally { directForwardingParents.set(this.wrapper, null); }
+      },
+      () => staged.rollback(),
+    );
+  }
+}
+
+class WrappedParent<M> implements IOwningParentVM {
+  constructor(
+    private readonly parent: IOwningParentVM,
+    private readonly wrapper: ForwardingComponentVM<M>,
+    private readonly wrapped: ComponentVMBase,
+  ) {}
+
+  get owner(): ComponentVMBase { return this.parent.owner; }
+  get ownerParent(): IOwningParentVM | null { return this.parent.ownerParent; }
+  get supportsChildSelection(): boolean { return this.parent.supportsChildSelection; }
+  get currentChild(): ComponentVMBase | null {
+    return this.parent.currentChild === this.wrapped ? this.wrapper : this.parent.currentChild;
+  }
+  selectChild(_vm: ComponentVMBase): void { this.parent.selectChild(this.wrapped); }
+  deselectChild(_vm: ComponentVMBase): void { this.parent.deselectChild(this.wrapped); }
+  containsChild(_vm: ComponentVMBase): boolean { return this.parent.containsChild(this.wrapped); }
+  detachForTransfer(_vm: ComponentVMBase): ParentTransfer {
+    const retainedWrappers: ForwardingComponentVM<M>[] = [];
+    let cursor: IOwningParentVM | null = this.parent;
+    while (cursor instanceof ForwardingParent) {
+      retainedWrappers.push(cursor.retainedWrapper as ForwardingComponentVM<M>);
+      cursor = cursor.parent;
+    }
+    const staged = this.parent.detachForTransfer(this.wrapped);
+    return new ParentTransfer(
+      () => {
+        try {
+          staged.commit();
+        } finally {
+          for (const retainedWrapper of retainedWrappers) {
+            if (retainedWrapper !== this.wrapper) {
+              directForwardingParents.set(retainedWrapper, null);
+            }
+          }
+        }
+      },
+      () => staged.rollback(),
+    );
+  }
+}
+
+export class ForwardingComponentVM<M> extends ComponentVMBase implements IComponentVMOf<M> {
   protected readonly _wrapped: IComponentVMOf<M>;
 
   constructor(wrapped: IComponentVMOf<M>) {
+    super({
+      name: wrapped.name,
+      hint: wrapped.hint,
+      hub: wrapped.hub,
+      dispatcher: NullDispatcher.INSTANCE,
+    });
     this._wrapped = wrapped;
+  }
+
+  get wrappedBase(): ComponentVMBase {
+    if (!(this._wrapped instanceof ComponentVMBase)) {
+      throw new TypeError("A forwarding container child must wrap a VMx ComponentVMBase");
+    }
+    return this._wrapped;
+  }
+
+  override get _ownershipIdentity(): ComponentVMBase {
+    return this.wrappedBase._ownershipIdentity;
+  }
+
+  override get _parent(): IOwningParentVM | null {
+    const direct = directForwardingParents.get(this) ?? null;
+    if (direct !== null) return direct;
+    if (!(this._wrapped instanceof ComponentVMBase)) return null;
+    const wrappedParent = this._wrapped._parent;
+    return wrappedParent === null ? null : new WrappedParent(wrappedParent, this, this._wrapped);
+  }
+  override set _parent(parent: IOwningParentVM | null) {
+    directForwardingParents.set(this, parent);
+    if (this._wrapped instanceof ComponentVMBase) {
+      this._wrapped._parent = parent === null ? null : new ForwardingParent(parent, this);
+    }
   }
 
   get name(): string { return this._wrapped.name; }
@@ -34,11 +145,17 @@ export class ForwardingComponentVM<M> implements IComponentVMOf<M> {
   get modeledHint(): string { return this._wrapped.modeledHint; }
   republishModel(): void { this._wrapped.republishModel(); }
   get propertyChanged(): Observable<string> { return this._wrapped.propertyChanged; }
-  get selectCommand(): ICommand { return this._wrapped.selectCommand; }
-  get deselectCommand(): ICommand { return this._wrapped.deselectCommand; }
-  get selectNextCommand(): ICommand { return this._wrapped.selectNextCommand; }
-  get selectPreviousCommand(): ICommand { return this._wrapped.selectPreviousCommand; }
-  get reconstructCommand(): ICommand { return this._wrapped.reconstructCommand; }
+  get selectCommand(): RelayCommand { return this._wrapped.selectCommand as RelayCommand; }
+  get deselectCommand(): RelayCommand { return this._wrapped.deselectCommand as RelayCommand; }
+  get selectNextCommand(): RelayCommand { return this._wrapped.selectNextCommand as RelayCommand; }
+  get selectPreviousCommand(): RelayCommand {
+    return this._wrapped.selectPreviousCommand as RelayCommand;
+  }
+  get reconstructCommand(): RelayCommand { return this._wrapped.reconstructCommand as RelayCommand; }
+
+  override _setIsCurrent(value: boolean): void {
+    if (this._wrapped instanceof ComponentVMBase) this._wrapped._setIsCurrent(value);
+  }
 
   canConstruct(): boolean { return this._wrapped.canConstruct(); }
   construct(): void { this._wrapped.construct(); }

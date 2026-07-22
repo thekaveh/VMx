@@ -26,7 +26,11 @@ internal sealed class AggregateParent(IComponentVM owner, IAggregateSlots slots)
     public void SelectChild(IComponentVM vm) { }
     public void DeselectChild(IComponentVM vm) { }
     public bool ContainsChild(IComponentVM vm)
-        => slots.EnumerateSlots().Any(child => ReferenceEquals(child, vm));
+    {
+        var identity = vm.GetOwnershipIdentity();
+        return slots.EnumerateSlots().Any(child =>
+            ReferenceEquals(child.GetOwnershipIdentity(), identity));
+    }
     public ParentTransferToken DetachForTransfer(IComponentVM vm)
         => throw new InvalidOperationException(
             $"Cannot transfer '{vm.Name}' out of a fixed aggregate slot.");
@@ -39,9 +43,11 @@ internal static class AggregateOwnership
         for (var index = 0; index < children.Length; index++)
         {
             var child = children[index];
-            if (children.Take(index).Any(candidate => ReferenceEquals(candidate, child)))
+            var identity = child.GetOwnershipIdentity();
+            if (children.Take(index).Any(candidate =>
+                    ReferenceEquals(candidate.GetOwnershipIdentity(), identity)))
                 throw new InvalidOperationException(
-                    "Aggregate factories returned the same component identity more than once.");
+                    "Aggregate factories returned the same canonical component identity more than once.");
             var existingParent = child.GetParent();
             if (existingParent is not null &&
                 !(ReferenceEquals(existingParent, parent) && parent.ContainsChild(child)))
@@ -49,7 +55,8 @@ internal static class AggregateOwnership
                     $"Cannot populate aggregate slot with '{child.Name}': it already has a parent.");
 
             for (IParentCompositeVM? cursor = parent; cursor is not null; cursor = cursor.OwnerParent)
-                if (ReferenceEquals(cursor.Owner, child))
+                if (cursor.Owner is not null &&
+                    ReferenceEquals(cursor.Owner.GetOwnershipIdentity(), identity))
                     throw new InvalidOperationException(
                         $"Cannot populate aggregate slot with '{child.Name}': parent cycle.");
         }

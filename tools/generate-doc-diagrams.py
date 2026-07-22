@@ -28,6 +28,21 @@ CONFORMANCE_IDS = re.findall(
 )
 THEME_COUNT = sum(item.startswith("THEME-") for item in CONFORMANCE_IDS)
 LIBRARY_COUNT = len(CONFORMANCE_IDS) - THEME_COUNT
+FIXTURE_COUNT = len(list((ROOT / "spec" / "fixtures").glob("*.json")))
+NOTES_FEATURE_COUNT = len(
+    re.findall(
+        r"^\| \d+\s+\|",
+        (ROOT / "examples" / "notes-showcase-parity.md").read_text(encoding="utf-8"),
+        re.MULTILINE,
+    )
+)
+_CAPABILITY_COUNT_MATCH = re.search(
+    r"lists the (\d+) capability interfaces",
+    (ROOT / "spec" / "14-capabilities.md").read_text(encoding="utf-8"),
+)
+if _CAPABILITY_COUNT_MATCH is None:
+    raise ValueError("spec/14-capabilities.md must declare the capability interface count")
+CAPABILITY_COUNT = int(_CAPABILITY_COUNT_MATCH.group(1))
 PNG_WIDTH = 3200
 TRIPLET_BASES = (
     Path("assets/architecture"),
@@ -113,7 +128,7 @@ def arrow(
         label_svg = (
             f'<rect x="{mid_x - label_width / 2:.1f}" y="{mid_y - 15}" '
             f'width="{label_width:.1f}" height="20" rx="3" fill="#020617"/>'
-            f"\n{text(mid_x, mid_y, label, 12, color)}"
+            f"\n{text(mid_x, mid_y, label, 12, '#94a3b8')}"
         )
     else:
         label_svg = ""
@@ -125,7 +140,9 @@ def arrow(
 
 
 def svg_doc(title: str, subtitle: str, width: int, height: int, body: str) -> str:
-    return f'''<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}" style="font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;">
+    return f'''<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}" role="img" aria-labelledby="diagram-title diagram-description" style="font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;">
+  <title id="diagram-title">{escape(title)}</title>
+  <desc id="diagram-description">{escape(subtitle)}</desc>
   <defs>
     <style>text {{ font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }}</style>
     <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
@@ -144,7 +161,7 @@ def svg_doc(title: str, subtitle: str, width: int, height: int, body: str) -> st
 '''
 
 
-def html_doc(title: str, subtitle: str, svg_name: str, cards: list[tuple[str, list[str]]]) -> str:
+def html_doc(title: str, subtitle: str, svg: str, cards: list[tuple[str, list[str]]]) -> str:
     card_html = "\n".join(
         f"""      <section class="card">
         <h2>{escape(card_title)}</h2>
@@ -152,7 +169,7 @@ def html_doc(title: str, subtitle: str, svg_name: str, cards: list[tuple[str, li
       </section>"""
         for card_title, items in cards
     )
-    return f'''<!DOCTYPE html>
+    return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -167,15 +184,16 @@ def html_doc(title: str, subtitle: str, svg_name: str, cards: list[tuple[str, li
     .header-row {{ display: flex; align-items: center; gap: 14px; }}
     .pulse-dot {{ width: 12px; height: 12px; border-radius: 50%; background: #22d3ee; animation: pulse 2s infinite; }}
     @keyframes pulse {{ 0%, 100% {{ opacity: 1; }} 50% {{ opacity: 0.45; }} }}
+    @media (prefers-reduced-motion: reduce) {{ .pulse-dot {{ animation: none; }} }}
     h1 {{ margin: 0; font-size: 26px; line-height: 1.25; }}
     .subtitle {{ margin: 8px 0 0 26px; color: #94a3b8; font-size: 14px; }}
     .diagram {{ overflow-x: auto; padding: 18px; border: 1px solid #1e293b; border-radius: 14px; background: rgba(15, 23, 42, 0.58); }}
-    object {{ display: block; width: 100%; min-width: 1180px; }}
+    .diagram > svg {{ display: block; width: 100%; min-width: 1180px; height: auto; }}
     .cards {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; margin-top: 24px; }}
     .card {{ padding: 18px; border: 1px solid #1e293b; border-radius: 12px; background: rgba(15, 23, 42, 0.58); }}
     .card h2 {{ margin: 0 0 10px; font-size: 15px; }}
     .card ul {{ margin: 0; padding-left: 18px; color: #cbd5e1; font-size: 12px; line-height: 1.55; }}
-    footer {{ margin-top: 24px; text-align: center; color: #64748b; font-size: 12px; }}
+    footer {{ margin-top: 24px; text-align: center; color: #94a3b8; font-size: 12px; }}
   </style>
 </head>
 <body>
@@ -184,7 +202,7 @@ def html_doc(title: str, subtitle: str, svg_name: str, cards: list[tuple[str, li
       <div class="header-row"><div class="pulse-dot"></div><h1>{escape(title)}</h1></div>
       <p class="subtitle">{escape(subtitle)}</p>
     </header>
-    <div class="diagram"><object data="{escape(svg_name)}" type="image/svg+xml" aria-label="{escape(title)}"></object></div>
+    <div class="diagram">{svg}</div>
     <div class="cards">
 {card_html}
     </div>
@@ -192,7 +210,7 @@ def html_doc(title: str, subtitle: str, svg_name: str, cards: list[tuple[str, li
   </main>
 </body>
 </html>
-'''
+"""
 
 
 def render_png(svg_path: Path, png_path: Path) -> None:
@@ -244,8 +262,9 @@ def write_triplet(
     html_path = output_root / path.with_suffix(".html")
     png_path = output_root / path.with_suffix(".png")
     svg_path.parent.mkdir(parents=True, exist_ok=True)
-    svg_path.write_text(svg_doc(title, subtitle, width, height, body), encoding="utf-8")
-    html_path.write_text(html_doc(title, subtitle, svg_path.name, cards), encoding="utf-8")
+    svg = svg_doc(title, subtitle, width, height, body)
+    svg_path.write_text(svg, encoding="utf-8")
+    html_path.write_text(html_doc(title, subtitle, svg, cards), encoding="utf-8")
     render_png(svg_path, png_path)
 
 
@@ -261,7 +280,7 @@ def architecture(output_root: Path) -> None:
                 f"{SPEC_CHAPTER_COUNT} chapters",
                 f"{ADR_COUNT} ADRs",
                 f"{len(CONFORMANCE_IDS)} conformance IDs",
-                "4 JSON fixtures",
+                f"{FIXTURE_COUNT} JSON fixtures",
             ),
             "cloud",
         ),
@@ -368,7 +387,7 @@ def architecture(output_root: Path) -> None:
             "Example Portfolio",
             (
                 "Notes Workspace flagships: Avalonia, Textual, React, SwiftUI",
-                "19 VMx features: hierarchy, forms, derived state, dialogs, notifications, token paging, discriminator modes",
+                f"{NOTES_FEATURE_COUNT} VMx features: hierarchy, forms, derived state, dialogs, notifications, token paging, discriminator modes",
                 "Smaller demos exercise console, WPF, Tk, inspector, and integration recipes",
             ),
             "generic",
@@ -394,7 +413,7 @@ def architecture(output_root: Path) -> None:
             "Spec discipline",
             [
                 "spec/ is the source of truth.",
-                f"Every full-parity flavor tracks {LIBRARY_COUNT} library IDs.",
+                f"Every catalog-complete flavor tracks {LIBRARY_COUNT} library IDs.",
                 "THEME-001..005 live in the flagship examples.",
             ],
         ),
@@ -409,7 +428,7 @@ def architecture(output_root: Path) -> None:
         (
             "Examples",
             [
-                "Notes Workspace now covers 19 VMx features.",
+                f"Notes Workspace now covers {NOTES_FEATURE_COUNT} VMx features.",
                 "Global search uses TokenPagedComposition.",
                 "Editor mode uses DiscriminatorVM.",
             ],
@@ -419,7 +438,7 @@ def architecture(output_root: Path) -> None:
         output_root,
         Path("assets/architecture"),
         "VMx Architecture",
-        f"spec {SPEC_VERSION} · five full-parity flavors · examples as contract probes",
+        f"spec {SPEC_VERSION} · five catalog-complete flavors · examples as contract probes",
         1600,
         940,
         body,
@@ -451,9 +470,9 @@ def class_diagram(output_root: Path) -> None:
             "Messages",
             (
                 "PropertyChangedMessage",
-                "ConstructionStatusChanged",
-                "TreeStructureChanged",
-                "PropertyValueChanged",
+                "ConstructionStatusChangedMessage",
+                "TreeStructureChangedMessage",
+                "property-value projection helper",
             ),
             "bus",
         ),
@@ -481,16 +500,16 @@ def class_diagram(output_root: Path) -> None:
             "cloud",
         ),
         Box(
-            60,
+            40,
             350,
-            260,
+            240,
             170,
             "Leaf VMs",
             ("ComponentVM", "ComponentVM<M>", "ReadonlyComponentVM<M>", "ForwardingComponentVM"),
             "frontend",
         ),
         Box(
-            360,
+            320,
             350,
             260,
             170,
@@ -504,34 +523,45 @@ def class_diagram(output_root: Path) -> None:
             "frontend",
         ),
         Box(
-            660,
+            620,
             350,
-            260,
+            240,
             170,
-            "Specialized VMs",
-            ("FormVM", "DiscriminatorVM", "NotificationVM", "ConfirmationVM"),
+            "Async Resource VM",
+            (
+                "lifecycle state VM",
+                "Four flavors inherit base",
+                "Rust composes component",
+                "load / reload / cancel",
+            ),
             "frontend",
         ),
         Box(
-            960,
+            900,
             350,
-            260,
+            280,
             170,
-            "Collections",
-            ("ObservableList", "ObservableDictionary", "Serviced collection", "multi-key indexes"),
-            "database",
+            "Coordinators",
+            (
+                "FormVM / DiscriminatorVM",
+                "Notification / Confirmation",
+                "independent in four flavors",
+                "Rust FormVM composes a leaf",
+            ),
+            "frontend",
         ),
         Box(
-            1260,
+            1220,
             350,
-            260,
+            330,
             170,
-            "Paged Views",
+            "Collections & Views",
             (
+                "ObservableList / Dictionary",
+                "serviced + multi-key indexes",
                 "PagedComposition",
                 "TokenPagedComposition",
-                "filtered composite view",
-                "scored composite view",
+                "filtered / scored views",
             ),
             "database",
         ),
@@ -556,9 +586,9 @@ def class_diagram(output_root: Path) -> None:
             150,
             "Capabilities",
             (
-                "22 micro-interfaces",
+                f"{CAPABILITY_COUNT} micro-interfaces",
                 "select / expand / close",
-                "filter / page / count",
+                "search / filter / page",
                 "CRUD and dialog contracts",
             ),
             "security",
@@ -584,15 +614,15 @@ def class_diagram(output_root: Path) -> None:
     ]
     body = "\n".join(
         [
-            arrow(210, 275, 190, 350),
-            arrow(210, 275, 490, 350),
-            arrow(210, 275, 790, 350),
-            arrow(550, 275, 550, 350, "hub events"),
-            arrow(890, 295, 1090, 350),
-            arrow(1230, 275, 790, 350, "builds", "#fbbf24", label_dy=22),
-            arrow(520, 520, 320, 610, "commands"),
-            arrow(790, 520, 710, 610, "capabilities"),
-            arrow(1090, 520, 1100, 610, "derived state"),
+            arrow(210, 275, 160, 350),
+            arrow(210, 275, 450, 350),
+            arrow(210, 275, 740, 350, "AsyncResourceVM"),
+            arrow(550, 275, 450, 350, "hub events", label_dy=22),
+            arrow(890, 295, 1385, 350),
+            arrow(1230, 275, 450, 350, "builds", "#fbbf24", label_dy=22),
+            arrow(450, 520, 320, 610, "commands"),
+            arrow(740, 520, 710, 610, "capabilities"),
+            arrow(1385, 520, 1100, 610, "derived state"),
         ]
         + [box(b) for b in boxes]
     )
@@ -600,18 +630,19 @@ def class_diagram(output_root: Path) -> None:
         (
             "Current additions",
             [
-                "DiscriminatorVM is part of the specialized VM family.",
+                "AsyncResourceVM is lifecycle-aligned across all five flavors.",
+                "Form, discriminator, and notification coordinators are independent in object-oriented flavors.",
+                "Rust composes components where inheritance is inapplicable.",
                 "TokenPagedComposition covers cursor paging.",
-                "Filtered/scored composite views are catalogued with collections.",
-                "Groups and composites share a non-selecting collection capability.",
             ],
         ),
         (
             "Parity model",
             [
-                "Every flavor exposes the same conceptual shape.",
+                "Every flavor implements the shared normative concepts.",
                 "Names are idiomatic per language.",
-                "Swift is now full-catalog parity.",
+                f"All five flavors cover {LIBRARY_COUNT} library IDs.",
+                "Four UI-backed examples cover the five THEME scenarios.",
             ],
         ),
         (
@@ -760,9 +791,8 @@ def showcase_hierarchy(output_root: Path) -> None:
             arrow(1390, 230, 1390, 310, "sibling"),
             arrow(400, 455, 460, 455, "current"),
             arrow(780, 455, 840, 455),
-            arrow(1020, 605, 1020, 690, "saved", "#fb7185", True),
+            arrow(1020, 605, 1020, 690, "saved / post", "#fb7185", True),
             arrow(1390, 605, 1390, 690, "queries"),
-            arrow(1180, 755, 880, 755, "post", "#fb7185", True),
             arrow(620, 605, 660, 690, "derived"),
             arrow(240, 605, 260, 690, "focus"),
         ]
@@ -798,7 +828,7 @@ def showcase_hierarchy(output_root: Path) -> None:
         output_root,
         Path("examples/assets/notes-showcase-vm-hierarchy"),
         "Notes Showcase VM Hierarchy",
-        "19-feature flagship hierarchy across C#, Python, TypeScript, and Swift",
+        f"{NOTES_FEATURE_COUNT}-feature flagship hierarchy across C#, Python, TypeScript, and Swift",
         1600,
         900,
         body,
@@ -905,7 +935,12 @@ def showcase_components(output_root: Path) -> None:
             330,
             145,
             "Example Contract",
-            ("19 parity rows", "THEME-001..005", "layer purity checks", "cross-flavor tests"),
+            (
+                f"{NOTES_FEATURE_COUNT} parity rows",
+                "THEME-001..005",
+                "layer purity checks",
+                "cross-flavor tests",
+            ),
             "cloud",
         ),
     ]

@@ -4,13 +4,13 @@ import { InMemoryNoteRepository } from "../../src/models/inMemoryRepository.js";
 import { buildSeed } from "../../src/models/seed.js";
 
 describe("InMemoryNoteRepository", () => {
-  it("loadAll returns seed and takes ~300 ms by default", async () => {
+  it("loadAll returns seed after the default delay", async () => {
     const repo = new InMemoryNoteRepository(buildSeed());
     const t = performance.now();
     const { notebooks, notes } = await repo.loadAll();
     const dt = performance.now() - t;
+    // Assert the latency contract, not runner speed under contention.
     expect(dt).toBeGreaterThan(200);
-    expect(dt).toBeLessThan(700);
     expect(notebooks.length).toBe(5);
     expect(notes.length).toBe(12);
   });

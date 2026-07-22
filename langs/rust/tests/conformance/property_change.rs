@@ -83,7 +83,7 @@ fn property_changed_sender_id_matches_vm_id() {
     assert_eq!(messages.lock().unwrap()[0].sender_id, vm.id());
 }
 
-/// PROP-004 — PropertyName equals the property's name
+/// PROP-004 — PropertyName equals the property's name and SenderName equals the VM's name
 #[test]
 fn property_changed_property_name_matches_model() {
     let hub = MessageHub::new();
@@ -100,5 +100,11 @@ fn property_changed_property_name_matches_model() {
 
     vm.set_model(TestModel { id: 2, name: "Bob" });
 
-    assert_eq!(messages.lock().unwrap()[0].property_name, "model");
+    let messages = messages.lock().unwrap();
+    assert_eq!(messages[0].property_name, "model");
+    assert_eq!(messages[0].sender_name, "vm1");
+    assert_eq!(
+        Message::PropertyChanged(messages[0].clone()).sender_name(),
+        "vm1"
+    );
 }

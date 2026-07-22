@@ -11,6 +11,7 @@
 import type React from "react";
 
 import type { DialogRequest } from "../../adapter/ReactDialogService.js";
+import { ModalShell } from "./ModalShell.js";
 
 export const SaveFileModal: React.FC<{ request: DialogRequest }> = ({ request }) => {
   const onSubmit = (e: React.FormEvent<HTMLFormElement>): void => {
@@ -21,11 +22,10 @@ export const SaveFileModal: React.FC<{ request: DialogRequest }> = ({ request })
     request.resolveString(name.length > 0 ? name : null);
   };
   return (
-    <div
-      className="dialog-backdrop"
-      role="dialog"
-      aria-modal="true"
-      aria-label={request.title ?? request.message}
+    <ModalShell
+      activationKey={request}
+      ariaLabel={request.title ?? request.message}
+      onEscape={() => request.resolveString(null)}
     >
       <form className="dialog-window" onSubmit={onSubmit}>
         <div className="dialog-title">{request.title ?? request.message}</div>
@@ -35,13 +35,13 @@ export const SaveFileModal: React.FC<{ request: DialogRequest }> = ({ request })
           name="filename"
           type="text"
           defaultValue={request.suggestedName ?? ""}
-          autoFocus
+          data-autofocus
         />
         <div className="dialog-buttons">
           <button type="button" onClick={() => request.resolveString(null)}>Cancel</button>
           <button type="submit">Save</button>
         </div>
       </form>
-    </div>
+    </ModalShell>
   );
 };

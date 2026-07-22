@@ -124,7 +124,7 @@ own concern there rather than a separate constructor parameter.
 
 ## 3. Snapshot policy
 
-The default snapshot is flavor-idiomatic. C#, Python, and TypeScript provide a
+The default snapshot is flavor-idiomatic. C#, Python, TypeScript, and Rust provide a
 deep value-copy by default, so the snapshot does not share nested mutable state
 with the live `Model`. Swift's unconstrained generic `Model` cannot be deep-copied
 universally without adding a breaking protocol constraint, so Swift's default
@@ -138,6 +138,7 @@ inject an explicit snapshotter.
 | Python     | `copy.deepcopy` — deep clone                                                 |
 | TypeScript | `structuredClone` — structured deep clone (Date/Map/Set/typed-array aware)   |
 | Swift      | Identity copy; value models copy by assignment, reference models inject copy |
+| Rust       | `Clone::clone`; nested isolation follows the model's `Clone` implementation  |
 
 The **snapshotter remains injectable**: a consumer whose model type the default
 deep-copy cannot handle — JSON-unrepresentable members (delegates, cyclic graphs,
@@ -361,7 +362,7 @@ approve outcome instead (see *Approve signals* below). A configured
 `resetOnApproved` may replace the live model as part of that outcome but does not
 publish a model property message.
 
-### 8.1. `FormRevertedMessage`
+### 8.1 `FormRevertedMessage`
 
 ```
 FormRevertedMessage:
@@ -369,7 +370,7 @@ FormRevertedMessage:
     sender_name : string          # per-flavor: type name of sender
 ```
 
-### 8.2. Approve signals: `OnApproved` and `ApproveErrors`
+### 8.2 Approve signals: `OnApproved` and `ApproveErrors`
 
 - **`OnApproved`** — fires exactly once after a *successful* persist. It carries
   the value that was **actually persisted**: the `Model` captured at the start of
@@ -378,7 +379,8 @@ FormRevertedMessage:
   the form `IsDirty` against the newer, un-persisted model), and `OnApproved`
   reports the persisted value — never the racing newer one. This is **uniform
   across flavors**: before v3, C# emitted the captured (pre-await) value while
-  Python and TypeScript emitted the live post-await `Model`; all full-parity flavors now emit the
+  Python and TypeScript emitted the live post-await `Model`; C#, Python,
+  TypeScript, Swift, and Rust now emit the
   captured persisted value (ADR-0048 resolves the ADR-0009 divergence note for
   `OnApproved`). With `resetOnApproved`, the authoritative reset replaces the
   racing model before this event and the observer sees the pristine reset state

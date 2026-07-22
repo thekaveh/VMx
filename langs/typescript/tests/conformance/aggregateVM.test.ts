@@ -4,6 +4,7 @@ import {
   MessageHub,
   RxDispatcher,
   ComponentVM,
+  ComponentVMOf,
   CompositeVM,
   AggregateVM1,
   AggregateVM2,
@@ -11,6 +12,7 @@ import {
   AggregateVM4,
   AggregateVM5,
   AggregateVM6,
+  ForwardingComponentVM,
   PropertyChangedMessage,
   ConstructionStatusChangedMessage,
 } from "../../src/index.js";
@@ -369,6 +371,43 @@ describe("AggregateVM reconstruct disposes previous slot", () => {
 });
 
 describe("Aggregate fixed-slot ownership", () => {
+  it("rejects forwarding aliases of one canonical component", () => {
+    const hub = makeHub();
+    const inner = ComponentVMOf.builder<string>()
+      .name("inner")
+      .model("model")
+      .services(hub, makeDisp())
+      .build();
+    const first = new ForwardingComponentVM(inner);
+    const second = new ForwardingComponentVM(inner);
+    const duplicate = AggregateVM2.builder<ForwardingComponentVM<string>, ForwardingComponentVM<string>>()
+      .name("duplicate")
+      .services(hub, makeDisp())
+      .component1(() => first)
+      .component2(() => second)
+      .build();
+
+    expect(() => duplicate.construct()).toThrow(/duplicate canonical identity/);
+    expect(duplicate.component1).toBeNull();
+    expect(duplicate.component2).toBeNull();
+
+    const composite = CompositeVM.builder<ComponentVMOf<string>>()
+      .name("composite")
+      .services(hub, makeDisp())
+      .children(() => [inner])
+      .build();
+    composite.construct();
+    const ownedAlias = AggregateVM1.builder<ForwardingComponentVM<string>>()
+      .name("owned-alias")
+      .services(hub, makeDisp())
+      .component1(() => new ForwardingComponentVM(inner))
+      .build();
+
+    expect(() => ownedAlias.construct()).toThrow(/already owned/);
+    expect(composite.snapshot()).toEqual([inner]);
+    expect(ownedAlias.component1).toBeNull();
+  });
+
   it("rejects an already-owned factory result without mutating either container", () => {
     const hub = makeHub();
     const child = makeChild(hub, "child");

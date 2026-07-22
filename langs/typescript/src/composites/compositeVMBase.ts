@@ -15,6 +15,8 @@ import { Subject } from "rxjs";
 import type { Observable } from "rxjs";
 import {
   beginParentTransfer,
+  captureParentTransferCommit,
+  ContainerRollbackError,
   ComponentVMBase,
   ParentTransfer,
 } from "../components/componentVMBase.js";
@@ -56,6 +58,9 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
   #batchDirty = false;
   readonly #currentSelector: ((xs: Iterable<VM>) => VM | null) | null;
   readonly #onCurrentChanged: ((vm: VM | null) => void) | null;
+  #disposeRequested = false;
+  #disposeDeferred = false;
+  #membershipTransactionActive = false;
 
   constructor(opts: {
     name: string;
@@ -106,25 +111,57 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
   }
 
   containsChild(vm: ComponentVMBase): boolean {
-    return this._children.some((child) => child === vm);
+    const identity = vm._ownershipIdentity;
+    return this._children.some((child) => child._ownershipIdentity === identity);
   }
 
   detachForTransfer(vm: ComponentVMBase): ParentTransfer {
+    this.#beginMembershipTransaction();
     const index = this._children.findIndex((child) => child === vm);
-    if (index < 0) throw new Error("Recorded parent does not contain child identity");
+    if (index < 0) {
+      this.#endMembershipTransaction();
+      throw new Error("Recorded parent does not contain child identity");
+    }
     const child = this._children[index] as VM;
     const wasCurrent = this.#current === child;
     this._children.splice(index, 1);
     return new ParentTransfer(
       () => {
-        if (wasCurrent && this.#current === child) this._setCurrent(null, false);
-        this._emitCollectionChanged(
-          makeCollectionChangedEvent("remove", { oldItems: [child], oldIndex: index }),
-        );
+        let hasError = false;
+        let firstError: unknown;
+        try {
+          if (wasCurrent) this._applyCurrentChange(null, true);
+        } catch (error) {
+          hasError = true;
+          firstError = error;
+        }
+        try {
+          this._emitCollectionChanged(
+            makeCollectionChangedEvent("remove", { oldItems: [child], oldIndex: index }),
+          );
+        } catch (error) {
+          if (!hasError) {
+            hasError = true;
+            firstError = error;
+          }
+        }
+        try {
+          this.#endMembershipTransaction(!hasError);
+        } catch (error) {
+          if (!hasError) {
+            hasError = true;
+            firstError = error;
+          }
+        }
+        if (hasError) throw firstError;
       },
       () => {
-        this._children.splice(index, 0, child);
-        child._parent = this;
+        try {
+          this._children.splice(Math.min(index, this._children.length), 0, child);
+          child._parent = this;
+        } finally {
+          this.#endMembershipTransaction(false);
+        }
       },
     );
   }
@@ -197,54 +234,122 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
   }
 
   add(item: VM): void {
-    const transfer = beginParentTransfer(item, this);
-    this._children.push(item);
-    item._parent = this;
+    this.#beginMembershipTransaction();
+    let transfer: ParentTransfer | null = null;
+    let attached = false;
+    const originalStatus = item.status;
     try {
+      transfer = beginParentTransfer(item, this);
+      this.#requireTransactionCanContinue();
+      this._children.push(item);
+      item._parent = this;
+      attached = true;
       this._maybeAutoConstruct(item);
+      this.#requireTransactionCanContinue();
     } catch (error) {
-      this._children.pop();
-      item._parent = null;
-      transfer?.rollback();
+      let compensationError: unknown;
+      if (attached) {
+        const index = this._children.indexOf(item);
+        if (index >= 0) this._children.splice(index, 1);
+        if (item._parent === this) item._parent = null;
+      }
+      if (
+        originalStatus === ConstructionStatus.Destructed &&
+        item.status === ConstructionStatus.Constructed
+      ) {
+        try { item.destruct(); } catch (rollbackError) {
+          compensationError = rollbackError;
+        }
+      }
+      try {
+        transfer?.rollback();
+      } finally {
+        this.#endMembershipTransaction(false);
+      }
+      if (compensationError !== undefined) {
+        throw new ContainerRollbackError(error, compensationError);
+      }
       throw error;
     }
-    transfer?.commit();
-    const idx = this._children.length - 1;
-    this._emitCollectionChanged(
-      makeCollectionChangedEvent("add", {
-        newItems: [item],
-        newIndex: idx,
-      }),
-    );
+    const commitError = captureParentTransferCommit(transfer);
+    try {
+      const idx = this._children.length - 1;
+      this._emitCollectionChanged(
+        makeCollectionChangedEvent("add", {
+          newItems: [item],
+          newIndex: idx,
+        }),
+      );
+      if (commitError !== undefined) throw commitError;
+    } catch (error) {
+      this.#endMembershipTransaction(false);
+      throw error;
+    }
+    this.#endMembershipTransaction();
   }
 
   insert(index: number, item: VM): void {
+    this.#beginMembershipTransaction();
     // splice would silently normalize/clamp while the emitted newIndex
     // carried the raw argument (spec/21 §3.2); `length` appends.
     if (index < 0 || index > this._children.length) {
+      this.#endMembershipTransaction();
       throw new RangeError(`Index ${String(index)} out of range`);
     }
-    const transfer = beginParentTransfer(item, this);
-    this._children.splice(index, 0, item);
-    item._parent = this;
+    let transfer: ParentTransfer | null = null;
+    let attached = false;
+    const originalStatus = item.status;
     try {
+      transfer = beginParentTransfer(item, this);
+      this.#requireTransactionCanContinue();
+      this._children.splice(index, 0, item);
+      item._parent = this;
+      attached = true;
       this._maybeAutoConstruct(item);
+      this.#requireTransactionCanContinue();
     } catch (error) {
-      this._children.splice(index, 1);
-      item._parent = null;
-      transfer?.rollback();
+      let compensationError: unknown;
+      if (attached) {
+        const actual = this._children.indexOf(item);
+        if (actual >= 0) this._children.splice(actual, 1);
+        if (item._parent === this) item._parent = null;
+      }
+      if (
+        originalStatus === ConstructionStatus.Destructed &&
+        item.status === ConstructionStatus.Constructed
+      ) {
+        try { item.destruct(); } catch (rollbackError) {
+          compensationError = rollbackError;
+        }
+      }
+      try {
+        transfer?.rollback();
+      } finally {
+        this.#endMembershipTransaction(false);
+      }
+      if (compensationError !== undefined) {
+        throw new ContainerRollbackError(error, compensationError);
+      }
       throw error;
     }
-    transfer?.commit();
-    this._emitCollectionChanged(
-      makeCollectionChangedEvent("add", {
-        newItems: [item],
-        newIndex: index,
-      }),
-    );
+    const commitError = captureParentTransferCommit(transfer);
+    try {
+      this._emitCollectionChanged(
+        makeCollectionChangedEvent("add", {
+          newItems: [item],
+          newIndex: index,
+        }),
+      );
+      if (commitError !== undefined) throw commitError;
+    } catch (error) {
+      this.#endMembershipTransaction(false);
+      throw error;
+    }
+    this.#endMembershipTransaction();
   }
 
   remove(item: VM): boolean {
+    this.#requireChildAdmission();
     const idx = this._children.indexOf(item);
     if (idx < 0) return false;
     this.removeAt(idx);
@@ -252,65 +357,112 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
   }
 
   removeAt(index: number): void {
-    if (index < 0 || index >= this._children.length) {
-      throw new RangeError(`Index ${String(index)} out of range`);
+    this.#beginMembershipTransaction();
+    let item: VM;
+    try {
+      if (index < 0 || index >= this._children.length) {
+        throw new RangeError(`Index ${String(index)} out of range`);
+      }
+      item = this._children[index] as VM;
+      this._children.splice(index, 1);
+      if (item._parent === this) item._parent = null;
+      if (this.#current === item) {
+        this._applyCurrentChange(null, true);
+      }
+      this._emitCollectionChanged(
+        makeCollectionChangedEvent("remove", {
+          oldItems: [item],
+          oldIndex: index,
+        }),
+      );
+    } catch (error) {
+      this.#endMembershipTransaction(false);
+      throw error;
     }
-    const item = this._children[index] as VM;
-    this._children.splice(index, 1);
-    if (item._parent === this) item._parent = null;
-    if (this.#current === item) {
-      this._setCurrent(null, false);
-    }
-    this._emitCollectionChanged(
-      makeCollectionChangedEvent("remove", {
-        oldItems: [item],
-        oldIndex: index,
-      }),
-    );
+    this.#endMembershipTransaction();
   }
 
   /** Replace the child at *index*. Emits a Remove followed by an Add (per spec). */
   setAt(index: number, value: VM): void {
+    this.#beginMembershipTransaction();
     if (index < 0 || index >= this._children.length) {
+      this.#endMembershipTransaction();
       throw new RangeError(`Index ${String(index)} out of range`);
     }
     const old = this._children[index] as VM;
-    const transfer = beginParentTransfer(value, this);
-    this._children[index] = value;
-    old._parent = null;
-    value._parent = this;
+    let transfer: ParentTransfer | null = null;
+    let attached = false;
+    const originalStatus = value.status;
     try {
+      transfer = beginParentTransfer(value, this);
+      this.#requireTransactionCanContinue();
+      this._children[index] = value;
+      old._parent = null;
+      value._parent = this;
+      attached = true;
       this._maybeAutoConstruct(value);
+      this.#requireTransactionCanContinue();
     } catch (error) {
-      this._children[index] = old;
-      old._parent = this;
-      value._parent = null;
-      transfer?.rollback();
+      let compensationError: unknown;
+      if (attached) {
+        const actual = this._children.indexOf(value);
+        if (actual >= 0) this._children[actual] = old;
+        old._parent = this;
+        if (value._parent === this) value._parent = null;
+      }
+      if (
+        originalStatus === ConstructionStatus.Destructed &&
+        value.status === ConstructionStatus.Constructed
+      ) {
+        try { value.destruct(); } catch (rollbackError) {
+          compensationError = rollbackError;
+        }
+      }
+      try {
+        transfer?.rollback();
+      } finally {
+        this.#endMembershipTransaction(false);
+      }
+      if (compensationError !== undefined) {
+        throw new ContainerRollbackError(error, compensationError);
+      }
       throw error;
     }
-    transfer?.commit();
-    if (this.#current === old) this._setCurrent(null, false);
-    this._emitCollectionChanged(
-      makeCollectionChangedEvent("remove", { oldItems: [old], oldIndex: index }),
-    );
-    this._emitCollectionChanged(
-      makeCollectionChangedEvent("add", { newItems: [value], newIndex: index }),
-    );
+    const commitError = captureParentTransferCommit(transfer);
+    try {
+      if (this.#current === old) this._applyCurrentChange(null, true);
+      this._emitCollectionChanged(
+        makeCollectionChangedEvent("remove", { oldItems: [old], oldIndex: index }),
+      );
+      this._emitCollectionChanged(
+        makeCollectionChangedEvent("add", { newItems: [value], newIndex: index }),
+      );
+      if (commitError !== undefined) throw commitError;
+    } catch (error) {
+      this.#endMembershipTransaction(false);
+      throw error;
+    }
+    this.#endMembershipTransaction();
   }
 
   clear(): void {
-    for (const child of this._children) {
-      if (child._parent === this) child._parent = null;
+    this.#beginMembershipTransaction();
+    try {
+      for (const child of this._children) {
+        if (child._parent === this) child._parent = null;
+      }
+      this._children = [];
+      this._applyCurrentChange(null, true);
+      this._emitCollectionChanged(makeCollectionChangedEvent("reset"));
+    } catch (error) {
+      this.#endMembershipTransaction(false);
+      throw error;
     }
-    this._children = [];
-    // Route through _setCurrent (mirrors C# Clear / removeAt): a bare
-    // `this.#current = null` left the old current child's isCurrent true
-    // and skipped the "current" property notification.
-    this._setCurrent(null, false);
-    this._emitCollectionChanged(makeCollectionChangedEvent("reset"));
+    this.#endMembershipTransaction();
   }
 
   move(fromIndex: number, toIndex: number): void {
+    this.#requireChildAdmission();
     this._validateMoveIndex(fromIndex);
     this._validateMoveIndex(toIndex);
     if (fromIndex === toIndex) return;
@@ -397,6 +549,12 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
   }
 
   override dispose(): void {
+    if (this.#disposeRequested || this.#disposeDeferred) return;
+    if (this.#membershipTransactionActive) {
+      this.#disposeDeferred = true;
+      return;
+    }
+    this.#disposeRequested = true;
     // Dispose cascade (LIFE-013): depth-first dispose each child, then self.
     disposeBestEffort([
       ...[...this._children].map((child) => () => child.dispose()),
@@ -413,15 +571,55 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
   // ── Factory hook ──────────────────────────────────────────────────────────
 
   protected _populateChildren(): void {
+    this.#requireChildAdmission();
     // Default: no-op. Subclasses override to evaluate their factory.
+  }
+
+  #requireChildAdmission(): void {
+    if (this.#disposeRequested || this.#disposeDeferred) {
+      throw new Error("Cannot attach a child while the container is disposing");
+    }
+    if (this.#membershipTransactionActive) {
+      throw new Error("Container membership transaction is already in progress");
+    }
+  }
+
+  #beginMembershipTransaction(): void {
+    this.#requireChildAdmission();
+    this.#membershipTransactionActive = true;
+  }
+
+  #requireTransactionCanContinue(): void {
+    if (this.#disposeRequested || this.#disposeDeferred) {
+      throw new Error("Cannot attach a child while the container is disposing");
+    }
+  }
+
+  #endMembershipTransaction(propagateDisposeFailure = true): void {
+    this.#membershipTransactionActive = false;
+    if (this.#disposeDeferred) {
+      this.#disposeDeferred = false;
+      try {
+        this.dispose();
+      } catch (error) {
+        if (propagateDisposeFailure) throw error;
+      }
+    }
   }
 
   protected _attachPopulation(children: Iterable<VM>): void {
     const candidates = [...children];
+    if (new Set(candidates.map((child) => child._ownershipIdentity)).size !== candidates.length) {
+      throw new Error(
+        "Factory population contains a duplicate child identity (duplicate canonical child identity)",
+      );
+    }
+    this.#beginMembershipTransaction();
     const start = this._children.length;
-    const transfers: Array<ParentTransfer | null> = [];
+    const transfers: ParentTransfer[] = [];
     const originalStatuses: ConstructionStatus[] = [];
     try {
+      this.#requireTransactionCanContinue();
       for (const child of candidates) {
         const transfer = beginParentTransfer(child, this);
         transfers.push(transfer);
@@ -438,7 +636,9 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
           child.status !== ConstructionStatus.Constructed
         ) child.construct();
       }
+      this.#requireTransactionCanContinue();
     } catch (error) {
+      let compensationError: unknown;
       while (this._children.length > start) {
         const child = this._children.pop();
         const originalStatus = originalStatuses[this._children.length - start];
@@ -447,28 +647,49 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
           originalStatus === ConstructionStatus.Destructed &&
           child.status === ConstructionStatus.Constructed
         ) {
-          try { child.destruct(); } catch { /* preserve the original failure */ }
+          try { child.destruct(); } catch (rollbackError) {
+            compensationError ??= rollbackError;
+          }
         }
         if (child?._parent === this) child._parent = null;
       }
-      for (const transfer of [...transfers].reverse()) transfer?.rollback();
+      try {
+        for (const transfer of [...transfers].reverse()) transfer.rollback();
+      } finally {
+        this.#endMembershipTransaction(false);
+      }
+      if (compensationError !== undefined) {
+        throw new ContainerRollbackError(error, compensationError);
+      }
       throw error;
     }
-
-    for (const transfer of transfers) transfer?.commit();
-    candidates.forEach((child) => {
-      const index = this._children.findIndex((candidate) => candidate === child);
-      if (index >= start) {
-        this._emitCollectionChanged(
-          makeCollectionChangedEvent("add", { newItems: [child], newIndex: index }),
-        );
-      }
-    });
+    let commitError: Error | undefined;
+    for (const transfer of transfers) {
+      const error = captureParentTransferCommit(transfer);
+      commitError ??= error;
+    }
+    this.#populated = true;
+    try {
+      candidates.forEach((child) => {
+        const index = this._children.findIndex((candidate) => candidate === child);
+        if (index >= start) {
+          this._emitCollectionChanged(
+            makeCollectionChangedEvent("add", { newItems: [child], newIndex: index }),
+          );
+        }
+      });
+      if (commitError !== undefined) throw commitError;
+    } catch (error) {
+      this.#endMembershipTransaction(false);
+      throw error;
+    }
+    this.#endMembershipTransaction();
   }
 
   // ── Private helpers ───────────────────────────────────────────────────────
 
   protected _setCurrent(value: VM | null, asyncSel: boolean): void {
+    this.#requireChildAdmission();
     if (value !== null && !this._children.includes(value)) {
       throw new Error(
         `Cannot set current to '${value.name}': it is not a member of this composite.`,
@@ -476,17 +697,39 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     }
     if (asyncSel) {
       const captured = value;
-      this._scheduleForeground(() => this._applyCurrentChange(captured));
+      this._scheduleForeground(() => this._applyCurrentChange(captured, false, false));
     } else {
       this._applyCurrentChange(value);
     }
   }
 
-  private _applyCurrentChange(value: VM | null): void {
+  private _applyCurrentChange(
+    value: VM | null,
+    internalTransaction = false,
+    requireAdmission = true,
+  ): void {
     // Async TOCTOU guard: with async selection the child may have been removed
     // between _setCurrent's membership check and this deferred foreground
     // delivery. Dropping silently upholds the spec/06 §3 invariant that a
     // non-null current is always a member of the children collection.
+    if (!internalTransaction) {
+      if (this.#membershipTransactionActive) return;
+      if (!requireAdmission && (this.#disposeRequested || this.#disposeDeferred)) return;
+      try {
+        this.#beginMembershipTransaction();
+      } catch (error) {
+        if (!requireAdmission) return;
+        throw error;
+      }
+      try {
+        this._applyCurrentChange(value, true);
+      } catch (error) {
+        this.#endMembershipTransaction(false);
+        throw error;
+      }
+      this.#endMembershipTransaction();
+      return;
+    }
     if (value !== null && !this._children.includes(value)) return;
     if (this.#current === value) return;
 

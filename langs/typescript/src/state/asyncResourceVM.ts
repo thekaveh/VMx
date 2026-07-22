@@ -258,7 +258,9 @@ export class AsyncResourceVM<T> extends ComponentVMBase {
       });
       this.#stableState = ready;
       if (previous.present) this.#cleanup(previous.value);
-      this.#setState(ready);
+      if (!this.#disposed && this.#operationId === operationId && this.#stableState === ready) {
+        this.#setState(ready);
+      }
       return;
     }
 

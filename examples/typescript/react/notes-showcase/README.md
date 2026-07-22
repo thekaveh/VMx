@@ -1,7 +1,7 @@
 # notes-showcase (TypeScript / React)
 
 VMx flagship example — Notes Workspace, the TypeScript / React flavor. A
-single-page web app on React 18 + Vite that drives a single `WorkspaceVM`
+single-page web app on React 19 + Vite that drives a single `WorkspaceVM`
 exercising 19 distinct VMx features (see the
 [parity matrix](../../../notes-showcase-parity.md) for the full table, and
 the

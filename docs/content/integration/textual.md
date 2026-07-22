@@ -25,15 +25,17 @@ reactive attributes.
 from textual.widget import Widget
 from textual.reactive import reactive
 import reactivex.operators as ops
-from vmx import ComponentVMOf, Message, MessageHubProto, PropertyChangedMessage
+from vmx import ComponentVMOf, Message, MessageHubProto, PropertyChangedMessage, RelayCommand
 
 class BindableWidget(Widget):
     title: reactive[str] = reactive("")
     status_text: reactive[str] = reactive("")
 
-    def __init__(self, vm: ComponentVMOf[Note], hub: MessageHubProto[Message]):
+    def __init__(self, vm: ComponentVMOf[Note], hub: MessageHubProto[Message],
+                 save_command: RelayCommand):
         super().__init__()
         self._vm = vm
+        self._save_command = save_command
         self._sub = hub.messages.pipe(
             ops.filter(lambda m: isinstance(m, PropertyChangedMessage)
                                  and m.sender is vm),
@@ -50,7 +52,7 @@ class BindableWidget(Widget):
 ```
 
 For buttons: bind the widget's `action_*` handler to call
-`self._vm.save_command.execute(None)`.
+`self._save_command.execute(None)`.
 
 ## 9.5.4. Fuller example
 

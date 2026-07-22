@@ -2,7 +2,7 @@
  * useVmCollection — CompositeVM → React array bridge tests (Phase 4.c).
  */
 import { cleanup, render, screen } from "@testing-library/react";
-import { act } from "react";
+import { act, type JSX } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { ComponentVM, CompositeVM, GroupVM, MessageHub, RxDispatcher } from "@thekaveh/vmx";
 import type { IVmCollection } from "@thekaveh/vmx";

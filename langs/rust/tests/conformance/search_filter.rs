@@ -103,6 +103,7 @@ fn group_context_predicate_is_user_supplied() {
 fn pulse(hub: &MessageHub) {
     hub.send(Message::Custom {
         sender_id: 0,
+        sender_name: "source".to_string(),
         name: "source_changed".to_string(),
     });
 }

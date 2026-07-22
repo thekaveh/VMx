@@ -18,10 +18,10 @@ to maintain every historical package line.
 
 ## 2. Reporting a Vulnerability
 
-Report security issues privately, not in public issues. Use either:
-
-1. GitHub's **Report a vulnerability** feature on the repository Security tab.
-1. Email `kaveh.razavi@gmail.com` with subject `[VMx security]`.
+Report security issues privately, not in public issues. Email
+`kaveh.razavi@gmail.com` with subject `[VMx security]`. GitHub private
+vulnerability reporting is not currently enabled for this repository, so the
+public issue tracker and Security-tab issue flow are not confidential channels.
 
 You will receive an acknowledgement within 72 hours. Coordinated disclosure
 timelines are negotiated case by case.

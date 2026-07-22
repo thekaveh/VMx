@@ -35,7 +35,7 @@ idiomatic hosts, and one shared VM contract.
 
 ## 8.3.3. What It Exercises
 
-The portfolio is the working example for the current full-parity surface:
+The portfolio is the working example for the four current UI-backed flagship hosts:
 
 - notebook tree projection representing the `HierarchicalVM` capability
 - selectable notes list through `CompositeVM.current`
@@ -63,3 +63,13 @@ selection, form, and command-state mutations complete through an awaited
 foreground-dispatch bridge. Its CI build enables complete strict-concurrency
 checking and promotes every concurrency warning to an error for both the VMx
 package and the full SwiftUI flagship.
+
+## 8.3.6. Locale Scope
+
+Notes Workspace is intentionally an en-US reference scenario. All hosts use
+the same English labels, seed content, validation messages, and notifications;
+the parity matrix therefore makes no translated-catalog claim. VMx still
+provides the injectable localization hook described in
+[spec chapter 17](../../../spec/17-localization.md), with behavior verified by
+the library conformance suites. Applications that need multiple locales supply
+their own host-native catalog adapter.

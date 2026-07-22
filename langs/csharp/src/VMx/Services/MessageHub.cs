@@ -17,15 +17,18 @@ public sealed class MessageHub : ITransactionalMessageHub, IDisposable
 #endif
     [ThreadStatic]
     private static int s_deliveryDepth;
+    private static readonly object s_waitGraphGate = new();
+    private static readonly Dictionary<int, int> s_waitGraph = [];
     private readonly object _gate = new();
     private readonly Queue<IMessage> _pending = new();
     private readonly Subject<IMessage> _subject = new();
+    private bool _disposeRequested;
     private bool _disposed;
     private bool _subjectTerminationClaimed;
-    private bool _subjectTerminated;
     private int _drainerThreadId;
     private int _batchOwnerThreadId;
     private int _batchDepth;
+    private int _borrowedBatchDepth;
 
     /// <inheritdoc/>
     public IObservable<IMessage> Messages =>
@@ -46,16 +49,28 @@ public sealed class MessageHub : ITransactionalMessageHub, IDisposable
         var shouldDrain = false;
         lock (_gate)
         {
-            while (((_batchOwnerThreadId != 0 && _batchOwnerThreadId != caller) ||
-                    (_drainerThreadId != 0 && _drainerThreadId != caller)) && !_disposed)
+            while (!_disposed && !_disposeRequested)
             {
-                if (s_deliveryDepth > 0) break;
-                Monitor.Wait(_gate);
+                var owner = ConflictingOwnerLocked(caller);
+                if (owner != 0)
+                {
+                    // Only an edge that closes a real cross-hub wait cycle may
+                    // defer this send into the target's existing FIFO drain.
+                    if (WaitForOwnerLocked(caller, owner)) break;
+                    continue;
+                }
+                if (_borrowedBatchDepth > 0)
+                {
+                    if (s_deliveryDepth > 0) break;
+                    Monitor.Wait(_gate);
+                    continue;
+                }
+                break;
             }
-            if (_disposed) return;
+            if (_disposed || _disposeRequested) return;
 
             _pending.Enqueue(message);
-            if (_batchOwnerThreadId != 0) return;
+            if (_batchOwnerThreadId != 0 || _borrowedBatchDepth > 0) return;
             if (_drainerThreadId == 0)
             {
                 _drainerThreadId = caller;
@@ -76,12 +91,34 @@ public sealed class MessageHub : ITransactionalMessageHub, IDisposable
         ThrowHelper.ThrowIfNull(transaction, nameof(transaction));
         var caller = Environment.CurrentManagedThreadId;
         var entered = false;
+        var borrowed = false;
         lock (_gate)
         {
-            while (((_batchOwnerThreadId != 0 && _batchOwnerThreadId != caller) ||
-                    (_drainerThreadId != 0 && _drainerThreadId != caller)) && !_disposed)
-                Monitor.Wait(_gate);
-            if (!_disposed)
+            while (!_disposed && !_disposeRequested)
+            {
+                var owner = ConflictingOwnerLocked(caller);
+                if (owner != 0)
+                {
+                    if (WaitForOwnerLocked(caller, owner))
+                    {
+                        // A cyclic batch borrows the target: its body may enqueue,
+                        // but the target owner cannot resume draining until this
+                        // borrowed scope exits.
+                        _borrowedBatchDepth++;
+                        borrowed = true;
+                        entered = true;
+                        break;
+                    }
+                    continue;
+                }
+                if (_borrowedBatchDepth > 0 && _batchOwnerThreadId != caller)
+                {
+                    Monitor.Wait(_gate);
+                    continue;
+                }
+                break;
+            }
+            if (!_disposed && !_disposeRequested && !borrowed)
             {
                 _batchOwnerThreadId = caller;
                 _batchDepth++;
@@ -94,24 +131,40 @@ public sealed class MessageHub : ITransactionalMessageHub, IDisposable
         catch (Exception error) { callbackError = ExceptionDispatchInfo.Capture(error); }
 
         var shouldDrain = false;
+        var shouldTerminateSubject = false;
         if (entered)
         {
             lock (_gate)
             {
-                _batchDepth--;
-                if (_batchDepth == 0)
+                bool outermost;
+                if (borrowed)
                 {
-                    _batchOwnerThreadId = 0;
-                    if (!_disposed && _pending.Count > 0 && _drainerThreadId == 0)
-                    {
-                        _drainerThreadId = caller;
-                        shouldDrain = true;
-                    }
-                    Monitor.PulseAll(_gate);
+                    _borrowedBatchDepth--;
+                    outermost = _borrowedBatchDepth == 0;
                 }
+                else
+                {
+                    _batchDepth--;
+                    outermost = _batchDepth == 0;
+                    if (outermost) _batchOwnerThreadId = 0;
+                }
+
+                if (outermost && _disposeRequested)
+                    shouldTerminateSubject = FinishDisposeLocked();
+
+                if (outermost && !_disposed && _pending.Count > 0 &&
+                    _batchOwnerThreadId == 0 && _borrowedBatchDepth == 0 &&
+                    _drainerThreadId == 0)
+                {
+                    _drainerThreadId = caller;
+                    shouldDrain = true;
+                }
+                if (outermost)
+                    Monitor.PulseAll(_gate);
             }
         }
 
+        if (shouldTerminateSubject) TerminateSubject();
         ExceptionDispatchInfo? drainError = null;
         if (shouldDrain)
         {
@@ -135,6 +188,10 @@ public sealed class MessageHub : ITransactionalMessageHub, IDisposable
             var shouldTerminateSubject = false;
             lock (_gate)
             {
+                while (_borrowedBatchDepth > 0 && !_disposed)
+                    Monitor.Wait(_gate);
+                if (_disposeRequested)
+                    _ = FinishDisposeLocked();
                 if (_disposed || _pending.Count == 0)
                 {
                     shouldTerminateSubject = ReleaseDrainerLocked();
@@ -201,6 +258,12 @@ public sealed class MessageHub : ITransactionalMessageHub, IDisposable
     /// </summary>
     private bool ReleaseDrainerLocked()
     {
+        if (_disposeRequested)
+        {
+            _disposeRequested = false;
+            _disposed = true;
+            _pending.Clear();
+        }
         _drainerThreadId = 0;
         var shouldTerminateSubject = _disposed && !_subjectTerminationClaimed;
         if (shouldTerminateSubject) _subjectTerminationClaimed = true;
@@ -216,18 +279,7 @@ public sealed class MessageHub : ITransactionalMessageHub, IDisposable
         }
         finally
         {
-            try
-            {
-                _subject.Dispose();
-            }
-            finally
-            {
-                lock (_gate)
-                {
-                    _subjectTerminated = true;
-                    Monitor.PulseAll(_gate);
-                }
-            }
+            _subject.Dispose();
         }
     }
 
@@ -238,23 +290,82 @@ public sealed class MessageHub : ITransactionalMessageHub, IDisposable
         var shouldTerminateSubject = false;
         lock (_gate)
         {
-            if (_disposed) return;
-            _disposed = true;
-            _pending.Clear();
-            Monitor.PulseAll(_gate);
-
-            if (_drainerThreadId == 0)
+            if (_disposed || _disposeRequested) return;
+            while (!_disposed && !_disposeRequested)
             {
-                _subjectTerminationClaimed = true;
-                shouldTerminateSubject = true;
-            }
-            else if (_drainerThreadId != caller && s_deliveryDepth == 0)
-            {
-                while (!_subjectTerminated)
+                var owner = ConflictingOwnerLocked(caller);
+                if (owner != 0)
+                {
+                    if (WaitForOwnerLocked(caller, owner))
+                    {
+                        _disposeRequested = true;
+                        Monitor.PulseAll(_gate);
+                        return;
+                    }
+                    continue;
+                }
+                if (_borrowedBatchDepth > 0)
+                {
                     Monitor.Wait(_gate);
-                return;
+                    continue;
+                }
+                break;
             }
+            if (_disposed || _disposeRequested) return;
+            shouldTerminateSubject = FinishDisposeLocked();
+            Monitor.PulseAll(_gate);
         }
         if (shouldTerminateSubject) TerminateSubject();
+    }
+
+    private int ConflictingOwnerLocked(int caller)
+    {
+        if (_batchOwnerThreadId != 0 && _batchOwnerThreadId != caller)
+            return _batchOwnerThreadId;
+        if (_drainerThreadId != 0 && _drainerThreadId != caller)
+            return _drainerThreadId;
+        return 0;
+    }
+
+    private bool WaitForOwnerLocked(int caller, int owner)
+    {
+        lock (s_waitGraphGate)
+        {
+            s_waitGraph[caller] = owner;
+            var cursor = owner;
+            var visited = new HashSet<int>();
+            while (s_waitGraph.TryGetValue(cursor, out var next))
+            {
+                if (next == caller)
+                {
+                    s_waitGraph.Remove(caller);
+                    return true;
+                }
+                if (!visited.Add(cursor)) break;
+                cursor = next;
+            }
+        }
+
+        try
+        {
+            Monitor.Wait(_gate);
+        }
+        finally
+        {
+            lock (s_waitGraphGate)
+                s_waitGraph.Remove(caller);
+        }
+        return false;
+    }
+
+    private bool FinishDisposeLocked()
+    {
+        _disposeRequested = false;
+        _disposed = true;
+        _pending.Clear();
+        if (_drainerThreadId != 0 || _subjectTerminationClaimed) return false;
+
+        _subjectTerminationClaimed = true;
+        return true;
     }
 }

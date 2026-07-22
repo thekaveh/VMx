@@ -29,7 +29,9 @@ src/collections.rs
 src/derived_property.rs
 src/discriminator.rs
 src/dialogs.rs
+src/fixtures/command-truthtable.json
 src/fixtures/lifecycle-transitions.json
+src/fixtures/message-ordering.json
 src/forms.rs
 src/forwarding.rs
 src/groups.rs

@@ -22,6 +22,13 @@ Most of these primitives are composed inside a larger VM. `AsyncResourceVM`
 is itself a component VM and may be the outer binding boundary for one remote
 or otherwise expensive value.
 
+The table and examples below describe the canonical cross-flavor concepts.
+Rust is catalog-complete but its current `DerivedProperty` remains a manual
+recompute holder rather than an N-source auto-subscribing primitive, and its
+`ExpandableState` omits some constructor/toggle members. Consult the active
+[Rust parity ledger](../../maintenance/2026-07-16-rust-capability-parity.md#1236-expandablestate-is-missing-members)
+before assuming member-for-member helper parity.
+
 ## 6.5.3. Async Resource State
 
 `AsyncResourceVM<T>` standardizes the state and commands around one async

@@ -416,6 +416,26 @@ public class ForwardingTests
     }
 
     [Fact]
+    public void ForwardingComponentVM_Is_A_Transparent_Container_Child()
+    {
+        var (inner, hub, dispatcher) = BuildVm();
+        var forwarding = new NoOpForwardingVM<string>(inner);
+        var composite = CompositeVM<NoOpForwardingVM<string>>.Builder()
+            .Name("root")
+            .Services(hub, dispatcher)
+            .Children(() => [])
+            .Build();
+
+        composite.Add(forwarding);
+        composite.Construct();
+        forwarding.SelectCommand.Execute(null);
+
+        composite.Current.Should().BeSameAs(forwarding);
+        forwarding.IsCurrent.Should().BeTrue();
+        inner.IsCurrent.Should().BeTrue();
+    }
+
+    [Fact]
     public void ForwardingComponentVM_Forwards_PropertyChanged_For_Status_On_Construct()
     {
         var (inner, _, _) = BuildVm();

@@ -181,6 +181,7 @@ impl TestSource {
     fn pulse(&self) {
         self.membership.send(Message::Custom {
             sender_id: 0,
+            sender_name: "TestSource".to_string(),
             name: "membership".to_string(),
         });
     }
@@ -614,6 +615,7 @@ fn aggregate_disposal_ownership_and_normal_adapters_are_bounded() {
     assert_eq!(*locked(&group_pulses), 1);
     shared_hub.send(Message::CollectionChanged(vmx::CollectionChangedMessage {
         sender_id: usize::MAX,
+        sender_name: "unrelated".to_string(),
         property_name: "items".to_string(),
         action: vmx::CollectionChangeAction::Reset,
         old_index: None,

@@ -40,8 +40,10 @@ Representative families:
 | CRUD      | `INewCreatable`, `IDeletable<T>`, `IUpdatable<T>`, `ISavable<T>` |
 | Paging    | `IPageable`                                                      |
 
-The conceptual set is identical across flavors; only the identifier casing
-changes.
+C#, Python, TypeScript, and Swift expose this conceptual set member-for-member,
+with identifier casing adapted to each language. Rust is catalog-complete but
+its capability-member convergence remains tracked in the
+[Rust parity ledger](../../maintenance/2026-07-16-rust-capability-parity.md).
 
 ## 6.4.5. Example
 

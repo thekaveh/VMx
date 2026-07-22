@@ -1,4 +1,4 @@
-"""Conformance tests: FWD-001..003.
+"""Conformance tests: FWD-001..004.
 
 FWD-001: ForwardingComponentVM with no overrides delegates every member to wrapped.
 FWD-002: Selective override of ``hint`` returns "OVERRIDE"; all others still delegate.
@@ -12,10 +12,14 @@ from unittest.mock import MagicMock, PropertyMock
 
 import pytest
 
+from vmx.components.builders import ComponentVMOfBuilder
 from vmx.components.protocols import ViewModelType
+from vmx.composites.builders import CompositeVMBuilder
 from vmx.forwarding.component import ForwardingComponentVM
 from vmx.forwarding.composite import ForwardingCompositeVM
+from vmx.groups.builders import GroupVMBuilder
 from vmx.lifecycle.status import ConstructionStatus
+from vmx.services.dispatcher import RxDispatcher
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -142,6 +146,108 @@ def test_FWD_001_no_override_delegates_every_member() -> None:
 
     fwd.deselect()
     inner.deselect.assert_called_once()
+
+
+def test_forwarding_component_is_a_transparent_container_child() -> None:
+    inner = ComponentVMOfBuilder[str]().name("inner").model("model").with_null_services().build()
+    forwarding = ForwardingComponentVM(inner)
+    composite = (
+        CompositeVMBuilder[ForwardingComponentVM[str]]()
+        .name("root")
+        .services(inner.hub, RxDispatcher.immediate())
+        .children(lambda: ())
+        .build()
+    )
+
+    composite.add(forwarding)
+    composite.construct()
+    forwarding.select_command.execute()
+
+    assert composite.current is forwarding
+    assert forwarding.is_current
+    assert inner.is_current
+
+
+@pytest.mark.conformance("FWD-004")
+def test_FWD_004_forwarding_component_transfers_one_underlying_owner() -> None:
+    """Attaching a decorator moves its wrapped identity out of any old parent."""
+    inner = ComponentVMOfBuilder[str]().name("inner").model("model").with_null_services().build()
+    old_parent = (
+        CompositeVMBuilder()
+        .name("old")
+        .services(inner.hub, RxDispatcher.immediate())
+        .children(lambda: ())
+        .build()
+    )
+    group = (
+        GroupVMBuilder()
+        .name("group")
+        .services(inner.hub, RxDispatcher.immediate())
+        .children(lambda: ())
+        .build()
+    )
+    destination = (
+        CompositeVMBuilder()
+        .name("destination")
+        .services(inner.hub, RxDispatcher.immediate())
+        .children(lambda: ())
+        .build()
+    )
+    old_parent.add(inner)
+    forwarding = ForwardingComponentVM(inner)
+
+    group.add(forwarding)
+
+    assert old_parent.snapshot() == ()
+    assert group.snapshot() == (forwarding,)
+
+    alternate_forwarding = ForwardingComponentVM(inner)
+    destination.add(alternate_forwarding)
+    destination.construct()
+    alternate_forwarding.select_command.execute()
+
+    assert group.snapshot() == ()
+    assert destination.snapshot() == (alternate_forwarding,)
+    assert destination.current is alternate_forwarding
+    assert inner.is_current
+
+    group.add(forwarding)
+
+    assert destination.snapshot() == ()
+    assert destination.current is None
+    assert group.snapshot() == (forwarding,)
+
+    nested = ForwardingComponentVM(forwarding)
+    destination.add(nested)
+    final_alias = ForwardingComponentVM(inner)
+    group.add(final_alias)
+
+    assert destination.snapshot() == ()
+    assert group.snapshot() == (final_alias,)
+
+    destination.add(nested)
+    assert group.snapshot() == ()
+    assert destination.snapshot() == (nested,)
+
+    duplicate_composite = (
+        CompositeVMBuilder()
+        .name("duplicate-composite")
+        .services(inner.hub, RxDispatcher.immediate())
+        .children(lambda: [ForwardingComponentVM(inner), ForwardingComponentVM(inner)])
+        .build()
+    )
+    duplicate_group = (
+        GroupVMBuilder()
+        .name("duplicate-group")
+        .services(inner.hub, RxDispatcher.immediate())
+        .children(lambda: [ForwardingComponentVM(inner), ForwardingComponentVM(inner)])
+        .build()
+    )
+
+    with pytest.raises(ValueError, match="duplicate canonical child identity"):
+        duplicate_composite.construct()
+    with pytest.raises(ValueError, match="duplicate canonical child identity"):
+        duplicate_group.construct()
 
 
 # ---------------------------------------------------------------------------

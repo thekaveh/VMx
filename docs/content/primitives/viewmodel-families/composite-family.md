@@ -39,6 +39,23 @@ the old parent first. Duplicate identity and ancestor cycles are rejected. If
 the destination attach fails, old membership, index, and selection are restored
 without publishing a partial transfer.
 
+The destination and staged old parent stay isolated until commit or rollback.
+Structural mutation attempted re-entrantly from an auto-construction or
+population hook is rejected before it can invalidate rollback state. Selection
+validation and assignment share the membership gate, and deferred selection
+rechecks that the candidate is still a child. The transaction also rechecks
+destination disposal after auto-construction before it commits membership. If
+user lifecycle code fails during compensation, VMx surfaces that rollback
+failure instead of claiming that lifecycle state was restored exactly
+(ADR-0118).
+
+Old-parent disposal requested by an attachment hook waits for commit or
+rollback. A committed transfer publishes old removal and new addition before a
+throwing/result-based flavor surfaces any deferred disposal failure. When
+attachment already failed, that earlier error remains primary after rollback
+and disposal complete. A lazy population that already committed stays
+materialized rather than evaluating its factory again (ADR-0122).
+
 ## 6.2.5.3. Lifecycle And Messaging
 
 The composite owns both child lifecycle and selection messaging:
@@ -47,6 +64,8 @@ The composite owns both child lifecycle and selection messaging:
 - `destruct()` clears `Current` before destructing children
 - `Current` changes publish the parent `Current` property and the affected
   children's `IsCurrent`
+- disposal requested by a current-changed callback is deferred until the
+  selection notification finishes and does not deadlock the callback
 - `AsyncSelection(true)` routes selection work through the foreground
   dispatcher
 - a non-batched move emits one move event with both indices; a batched move is
@@ -54,12 +73,12 @@ The composite owns both child lifecycle and selection messaging:
 
 ## 6.2.5.4. Cross-Language Surface
 
-| Concept               | C#                   | Python                 | TypeScript             | Swift                  |
-| --------------------- | -------------------- | ---------------------- | ---------------------- | ---------------------- |
-| Type                  | `CompositeVM<VM>`    | `CompositeVM[VM]`      | `CompositeVM<VM>`      | `CompositeVM<VM>`      |
-| Modeled type          | `CompositeVMOfM<M, VM>` | `CompositeVMOf[M, VM]` | `CompositeVMOf<M, VM>` | `CompositeVMOf<M, VM>` |
-| Selection slot        | `Current`            | `current`              | `current`              | `current`              |
-| Initial selector hook | `Current(selector)`  | `current(selector)`    | `current(selector)`    | `current(selector)`    |
+| Concept               | C#                      | Python                 | TypeScript             | Swift                  | Rust                        |
+| --------------------- | ----------------------- | ---------------------- | ---------------------- | ---------------------- | --------------------------- |
+| Type                  | `CompositeVM<VM>`       | `CompositeVM[VM]`      | `CompositeVM<VM>`      | `CompositeVM<VM>`      | `CompositeVm<VM>`           |
+| Modeled type          | `CompositeVMOfM<M, VM>` | `CompositeVMOf[M, VM]` | `CompositeVMOf<M, VM>` | `CompositeVMOf<M, VM>` | `ModeledCompositeVm<M, VM>` |
+| Selection slot        | `Current`               | `current`              | `current`              | `current`              | `current()`                 |
+| Initial selector hook | `Current(selector)`     | `current(selector)`    | `current(selector)`    | `current(selector)`    | `current(selector)`         |
 
 ## 6.2.5.5. Example
 
@@ -105,6 +124,20 @@ The composite owns both child lifecycle and selection messaging:
         .children { [home, settings] }
         .build()
     ```
+
+=== "Rust"
+
+    ```rust
+    let tabs = CompositeVm::<ComponentVm<TabModel>>::builder()
+        .name("tab-bar")
+        .services(hub, dispatcher)
+        .children(|| vec![home.clone(), settings.clone()])
+        .build()?;
+    ```
+
+Rust ships both `CompositeVm` and `ModeledCompositeVm`; consult the active Rust
+[parity ledger](../../../maintenance/2026-07-16-rust-capability-parity.md) for
+the remaining member/edge gaps.
 
 ## 6.2.5.6. Common Pitfalls
 

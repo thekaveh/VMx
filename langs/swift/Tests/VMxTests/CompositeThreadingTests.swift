@@ -3,7 +3,7 @@
 //
 // Claimed IDs: COMP-006, COMP-009, COMP-010.
 //
-// Uses the Task-7 `ManualDispatcher` (Sources/VMx/Services/ManualScheduler.swift)
+// Uses ADR-0061 §2.8's `ManualDispatcher` (Sources/VMx/Services/ManualScheduler.swift)
 // to assert deferral deterministically: zero deliveries before
 // `flushForeground()`, one (or more) after.
 //
@@ -12,6 +12,7 @@
 //
 import XCTest
 import Combine
+import Foundation
 @testable import VMx
 
 final class CompositeThreadingTests: XCTestCase {
@@ -26,10 +27,9 @@ final class CompositeThreadingTests: XCTestCase {
     // ── COMP-006 ─────────────────────────────────────────────────────────────
 
     /// COMP-006 — IsCurrent change on the previously-Current child dispatches on
-    /// foreground: with `ManualDispatcher`, `vmA._setIsCurrent(false)` is
-    /// buffered after `selectChild(vmB)` and only delivered once
-    /// `flushForeground()` is called. With `ImmediateDispatcher` / `NullDispatcher`
-    /// the `scheduleForeground` call is synchronous, so existing tests are unaffected.
+    /// foreground: with `ManualDispatcher`, the committed state flips before
+    /// callbacks while its `propertyChanged` delivery remains buffered until
+    /// `flushForeground()` is called.
     func testCOMP006PreviousChildIsCurrentDispatchedOnForeground() throws {
         let hub = MessageHub()
         let dispatcher = ManualDispatcher()
@@ -60,7 +60,7 @@ final class CompositeThreadingTests: XCTestCase {
         }
         .store(in: &cancellables)
 
-        // Change current to vmB — schedules vmA._setIsCurrent(false) on foreground.
+        // Change current to vmB — commits vmA false, then schedules its delivery.
         composite.selectChild(vmB)
 
         // Before flush: buffered (zero deliveries on vmA.propertyChanged).
@@ -68,7 +68,8 @@ final class CompositeThreadingTests: XCTestCase {
             isCurrentChanges.count, 0,
             "isCurrent emission on previously-current child must be buffered until foreground flush"
         )
-        XCTAssertTrue(vmA.isCurrent, "vmA.isCurrent not yet flipped before flush")
+        XCTAssertFalse(vmA.isCurrent, "the previous flag must commit before publication")
+        XCTAssertTrue(vmB.isCurrent, "the new flag must commit before publication")
         XCTAssertTrue(composite.current === vmB, "composite.current already points to vmB")
 
         // Advance the foreground scheduler — delivers vmA._setIsCurrent(false).
@@ -176,5 +177,116 @@ final class CompositeThreadingTests: XCTestCase {
 
         XCTAssertNil(composite.current, "deferred selection must be dropped if child was removed")
         XCTAssertFalse(vmA.isCurrent)
+    }
+
+    func testConcurrentCurrentAssignmentsLeaveOneCurrentFlag() throws {
+        let hub = MessageHub()
+        let first = try ComponentVM.builder().name("first")
+            .services(hub: hub, dispatcher: NullDispatcher.INSTANCE).build()
+        let second = try ComponentVM.builder().name("second")
+            .services(hub: hub, dispatcher: NullDispatcher.INSTANCE).build()
+        let composite = try CompositeVM<ComponentVM>.builder().name("composite")
+            .services(hub: hub, dispatcher: NullDispatcher.INSTANCE)
+            .children { [first, second] }.build()
+        // Children are populated from the factory during _onConstruct(); the
+        // composite must be constructed or `_setCurrent` traps on an empty child list.
+        try composite.construct()
+        let entered = DispatchSemaphore(value: 0)
+        let release = DispatchSemaphore(value: 0)
+        let firstDone = DispatchSemaphore(value: 0)
+        let secondDone = DispatchSemaphore(value: 0)
+        first.propertyChanged.sink { propertyName in
+            if propertyName == "isCurrent", first.isCurrent {
+                entered.signal()
+                release.wait()
+            }
+        }.store(in: &cancellables)
+
+        DispatchQueue.global().async {
+            composite.current = first
+            firstDone.signal()
+        }
+        XCTAssertEqual(entered.wait(timeout: .now() + 2), .success)
+        DispatchQueue.global().async {
+            composite.current = second
+            secondDone.signal()
+        }
+        XCTAssertEqual(
+            secondDone.wait(timeout: .now() + 2),
+            .success,
+            "consumer notification must not retain the global current coordinator"
+        )
+        release.signal()
+        XCTAssertEqual(firstDone.wait(timeout: .now() + 2), .success)
+
+        XCTAssertTrue(composite.current === second)
+        XCTAssertFalse(first.isCurrent)
+        XCTAssertTrue(second.isCurrent)
+    }
+
+    func testOpposingCurrentCallbacksAcrossCompositesDoNotDeadlock() throws {
+        let leftChild = try ComponentVM.builder().name("left-child")
+            .withNullServices().build()
+        let rightChild = try ComponentVM.builder().name("right-child")
+            .withNullServices().build()
+        var left: CompositeVM<ComponentVM>!
+        var right: CompositeVM<ComponentVM>!
+        left = try CompositeVM<ComponentVM>.builder().name("left")
+            .withNullServices().children { [leftChild] }
+            .onCurrentChanged { _ in right.selectChild(rightChild) }.build()
+        right = try CompositeVM<ComponentVM>.builder().name("right")
+            .withNullServices().children { [rightChild] }
+            .onCurrentChanged { _ in left.selectChild(leftChild) }.build()
+        try left.construct()
+        try right.construct()
+
+        let start = DispatchSemaphore(value: 0)
+        let done = DispatchGroup()
+        done.enter()
+        DispatchQueue.global().async {
+            start.wait()
+            left.selectChild(leftChild)
+            done.leave()
+        }
+        done.enter()
+        DispatchQueue.global().async {
+            start.wait()
+            right.selectChild(rightChild)
+            done.leave()
+        }
+        start.signal()
+        start.signal()
+
+        XCTAssertEqual(done.wait(timeout: .now() + 2), .success)
+        XCTAssertTrue(left.current === leftChild)
+        XCTAssertTrue(right.current === rightChild)
+    }
+
+    func testCurrentCallbackDoesNotRetainGlobalCoordinator() throws {
+        let leftChild = try ComponentVM.builder().name("left-child")
+            .withNullServices().build()
+        let rightChild = try ComponentVM.builder().name("right-child")
+            .withNullServices().build()
+        let workerDone = DispatchSemaphore(value: 0)
+        var callbackObservedProgress = false
+        var right: CompositeVM<ComponentVM>!
+        let left = try CompositeVM<ComponentVM>.builder().name("left")
+            .withNullServices().children { [leftChild] }
+            .onCurrentChanged { _ in
+                DispatchQueue.global().async {
+                    right.selectChild(rightChild)
+                    workerDone.signal()
+                }
+                callbackObservedProgress = workerDone.wait(timeout: .now() + 1) == .success
+            }.build()
+        right = try CompositeVM<ComponentVM>.builder().name("right")
+            .withNullServices().children { [rightChild] }.build()
+        try left.construct()
+        try right.construct()
+
+        left.selectChild(leftChild)
+
+        XCTAssertTrue(callbackObservedProgress)
+        XCTAssertTrue(right.current === rightChild)
     }
 }

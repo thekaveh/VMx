@@ -1,0 +1,32 @@
+{
+  "$schema-version": "1.0.0",
+  "scenarios": [
+    {
+      "id": "single-producer-fifo",
+      "description": "One producer sends 3 messages; a single subscriber observes them in send order.",
+      "producer_sends": ["A", "B", "C"],
+      "expected_observed": ["A", "B", "C"]
+    },
+    {
+      "id": "late-subscribe-no-replay",
+      "description": "A subscriber that subscribes after a message is sent does not receive that message.",
+      "producer_sends_before_subscribe": ["A"],
+      "producer_sends_after_subscribe": ["B", "C"],
+      "expected_observed": ["B", "C"]
+    },
+    {
+      "id": "multiple-subscribers-same-message",
+      "description": "Each subscriber observes every message sent after it subscribed.",
+      "subscriber_count": 3,
+      "producer_sends": ["A", "B"],
+      "expected_observed_per_subscriber": ["A", "B"]
+    },
+    {
+      "id": "unsubscribe-during-emit",
+      "description": "If a subscriber disposes its subscription while a message is being delivered, the dispatch must complete without raising.",
+      "producer_sends": ["A", "B"],
+      "unsubscribe_after_first": true,
+      "expected_observed": ["A"]
+    }
+  ]
+}

@@ -14,8 +14,10 @@ from __future__ import annotations
 
 import threading
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Iterable
+from collections import deque
+from collections.abc import Callable, Iterable, Iterator
 from concurrent.futures import Future
+from contextlib import contextmanager
 from typing import TYPE_CHECKING, Protocol
 
 import reactivex as rx
@@ -37,8 +39,92 @@ if TYPE_CHECKING:
     from vmx.components.protocols import ComponentVMProto, ViewModelType
 
 
+# Ownership tokens retain their child reservation through construction and
+# commit/rollback. The coordinator serializes only non-blocking lock-set
+# attempts; no thread may wait for a child identity while retaining it.
+_OWNERSHIP_TRANSACTION_GATE = threading.RLock()
+
+
+def _acquire_ownership_identities(
+    identities: Iterable[_ComponentVMBase],
+) -> list[_ComponentVMBase]:
+    """Acquire a complete identity set without hold-and-wait deadlocks."""
+    ordered = sorted({id(identity): identity for identity in identities}.values(), key=id)
+    while True:
+        acquired: list[_ComponentVMBase] = []
+        blocked: _ComponentVMBase | None = None
+        with _OWNERSHIP_TRANSACTION_GATE:
+            for identity in ordered:
+                if identity._ownership_lock.acquire(blocking=False):
+                    acquired.append(identity)
+                else:
+                    blocked = identity
+                    break
+            if blocked is None:
+                return acquired
+            for identity in reversed(acquired):
+                identity._ownership_lock.release()
+
+        # Wait outside the coordinator and without retaining any other child.
+        # Once the blocker moves, retry the complete set atomically.
+        blocked._ownership_lock.acquire()
+        blocked._ownership_lock.release()
+
+
+@contextmanager
+def _ownership_reservation_batch(children: Iterable[_ComponentVMBase]) -> Iterator[None]:
+    """Pre-acquire a multi-child identity set without waiting under the coordinator."""
+    identities = _acquire_ownership_identities(child._ownership_identity for child in children)
+    try:
+        yield
+    finally:
+        for identity in reversed(identities):
+            identity._ownership_lock.release()
+
+
 class _Disposable(Protocol):
     def dispose(self) -> None: ...
+
+
+class _LifecyclePublication:
+    """One admitted status publication drained without holding lifecycle state."""
+
+    def __init__(
+        self,
+        status: ConstructionStatus | None = None,
+        action: Callable[[], None] | None = None,
+    ) -> None:
+        self.status = status
+        self.action = action
+        self.error: BaseException | None = None
+        self.completed = threading.Event()
+
+
+_lifecycle_wait_graph_gate = threading.RLock()
+_lifecycle_thread_waits_for: dict[int, int] = {}
+
+
+def _register_lifecycle_wait(waiter: int, owner: int) -> bool:
+    """Register a lifecycle wait edge; return true if it closes a cycle."""
+    with _lifecycle_wait_graph_gate:
+        _lifecycle_thread_waits_for[waiter] = owner
+        cursor = owner
+        visited: set[int] = set()
+        while cursor not in visited:
+            if cursor == waiter:
+                _lifecycle_thread_waits_for.pop(waiter, None)
+                return True
+            visited.add(cursor)
+            next_owner = _lifecycle_thread_waits_for.get(cursor)
+            if next_owner is None:
+                return False
+            cursor = next_owner
+        return False
+
+
+def _unregister_lifecycle_wait(waiter: int) -> None:
+    with _lifecycle_wait_graph_gate:
+        _lifecycle_thread_waits_for.pop(waiter, None)
 
 
 def _dispose_children_then_self(
@@ -133,20 +219,57 @@ class _ParentTransfer:
         self._rollback()
 
 
+def _commit_parent_transfer(transfer: _ParentTransfer | None) -> BaseException | None:
+    """Commit ownership, retaining a late failure until destination publication."""
+    if transfer is None:
+        return None
+    try:
+        transfer.commit()
+    except BaseException as error:
+        return error
+    return None
+
+
 def _begin_parent_transfer(
     child: _ComponentVMBase, destination: _ParentCompositeVM
-) -> _ParentTransfer | None:
+) -> _ParentTransfer:
     """Validate exclusive ownership/cycles and stage any old-parent removal."""
-    if destination.contains_child(child):
-        raise ValueError(f"Cannot add {child.name!r}: destination already contains that identity")
+    identity = child._ownership_identity
+    _acquire_ownership_identities((identity,))
+    if identity._ownership_in_progress:
+        identity._ownership_lock.release()
+        raise RuntimeError(f"Cannot transfer {child.name!r}: ownership transaction is in progress")
+    identity._ownership_in_progress = True
+    try:
+        if destination.contains_child(child):
+            raise ValueError(
+                f"Cannot add {child.name!r}: destination already contains that identity"
+            )
 
-    cursor: _ParentCompositeVM | None = destination
-    while cursor is not None:
-        if cursor.owner is child:
-            raise ValueError(f"Cannot add {child.name!r}: operation would create a parent cycle")
-        cursor = cursor.owner_parent
+        cursor: _ParentCompositeVM | None = destination
+        while cursor is not None:
+            if cursor.owner._ownership_identity is identity:
+                raise ValueError(
+                    f"Cannot add {child.name!r}: operation would create a parent cycle"
+                )
+            cursor = cursor.owner_parent
 
-    return None if child._parent is None else child._parent.detach_for_transfer(child)
+        ownership_parent = child._ownership_parent
+        staged = None if ownership_parent is None else ownership_parent.detach_for_transfer(child)
+    except BaseException:
+        identity._ownership_in_progress = False
+        identity._ownership_lock.release()
+        raise
+
+    def finish(commit: bool) -> None:
+        try:
+            if staged is not None:
+                (staged.commit if commit else staged.rollback)()
+        finally:
+            identity._ownership_in_progress = False
+            identity._ownership_lock.release()
+
+    return _ParentTransfer(lambda: finish(True), lambda: finish(False))
 
 
 # ---------------------------------------------------------------------------
@@ -200,10 +323,18 @@ class _ComponentVMBase(ABC):
         # invariant 3 — Disposed is terminal). Reentrant so a re-entrant lifecycle
         # call from a same-thread subscriber cannot self-deadlock.
         self._lifecycle_lock = threading.RLock()
+        self._lifecycle_publications: deque[_LifecyclePublication] = deque()
+        self._lifecycle_drainer_thread: int | None = None
+        self._terminal_publication_pending = False
 
         # ── Selection state ──────────────────────────────────────────────────
         self._is_current: bool = False
         self._parent: _ParentCompositeVM | None = None
+        # A child owns its membership transaction from preflight through
+        # commit/rollback. The recursive lock serializes competing threads;
+        # the flag rejects same-thread reparenting from an auto-construct hook.
+        self._ownership_lock = threading.RLock()
+        self._ownership_in_progress = False
 
         # ── property_changed subject ────────────────────────────────────────
         # Mimics INotifyPropertyChanged — emits property name strings.
@@ -269,21 +400,40 @@ class _ComponentVMBase(ABC):
 
     def _set_is_current(self, value: bool) -> None:
         """Called by the parent composite when selection changes."""
+        if self._commit_is_current(value):
+            self._publish_is_current()
+
+    def _commit_is_current(self, value: bool) -> bool:
+        """Commit the current flag without invoking consumer notification code."""
         # Post-dispose guard: spec/02 invariant 3 — Disposed is terminal. A
         # selection change on an already-disposed VM is a silent no-op (no
         # property_changed emit, no hub PropertyChangedMessage), mirroring Swift
         # (VMX-006). Reads the terminal state under the same lock the
         # lifecycle-race guards use.
         if self._is_disposed():
-            return
+            return False
         if self._is_current == value:
-            return
+            return False
         self._is_current = value
+        return True
+
+    def _publish_is_current(self) -> None:
+        """Publish a current-flag commit after container coordination is released."""
         self._notify_property_changed("is_current")
 
     def _set_parent(self, parent: _ParentCompositeVM | None) -> None:
         """Called by CompositeVMBase when this child is added/removed."""
         self._parent = parent
+
+    @property
+    def _ownership_identity(self) -> _ComponentVMBase:
+        """Canonical component shared by every forwarding alias."""
+        return self
+
+    @property
+    def _ownership_parent(self) -> _ParentCompositeVM | None:
+        """Parent consulted by ownership transfer preflight."""
+        return self._parent
 
     # ── property_changed observable ──────────────────────────────────────────
     @property
@@ -419,7 +569,9 @@ class _ComponentVMBase(ABC):
                 raise StatusTransitionError(self._status, "construct")
             self._in_flight = True
 
-            self._set_status(ConstructionStatus.CONSTRUCTING)
+        if not self._set_status(ConstructionStatus.CONSTRUCTING):
+            self._clear_in_flight()
+            return
 
         if self._background:
             # Emit Constructing synchronously so subscribers immediately see
@@ -434,7 +586,7 @@ class _ComponentVMBase(ABC):
 
                 try:
                     self._on_construct()
-                except Exception:
+                except BaseException:
                     # VMX-007: a throwing background construct hook must not wedge
                     # the VM in the transient Constructing state. Roll _status back
                     # to the prior settled state (Destructed) — marshalled onto the
@@ -481,9 +633,11 @@ class _ComponentVMBase(ABC):
         else:
             completion_deferred = False
             try:
+                if self._is_disposed():
+                    return
                 try:
                     self._on_construct()
-                except Exception:
+                except BaseException:
                     # VMX-007: roll _status back to the prior settled state
                     # (Destructed) under the same lock _set_status uses, then
                     # re-raise so the caller sees the original failure. The VM is
@@ -520,7 +674,9 @@ class _ComponentVMBase(ABC):
                 raise StatusTransitionError(self._status, "destruct")
             self._in_flight = True
 
-            self._set_status(ConstructionStatus.DESTRUCTING)
+        if not self._set_status(ConstructionStatus.DESTRUCTING):
+            self._clear_in_flight()
+            return
 
         if self._background:
 
@@ -534,7 +690,7 @@ class _ComponentVMBase(ABC):
 
                 try:
                     self._on_destruct()
-                except Exception:
+                except BaseException:
                     # VMX-007: a throwing background destruct hook must not wedge
                     # the VM in the transient Destructing state. Roll _status back
                     # to the prior settled state (Constructed) — marshalled onto the
@@ -579,9 +735,11 @@ class _ComponentVMBase(ABC):
         else:
             completion_deferred = False
             try:
+                if self._is_disposed():
+                    return
                 try:
                     self._on_destruct()
-                except Exception:
+                except BaseException:
                     # VMX-007: roll _status back to the prior settled state
                     # (Constructed) under the lock, then re-raise. The VM is left
                     # recoverable instead of wedged in Destructing.
@@ -614,14 +772,19 @@ class _ComponentVMBase(ABC):
                 raise StatusTransitionError(self._status, "reconstruct")
             self._in_flight = True
 
-            # Destruct phase
-            self._set_status(ConstructionStatus.DESTRUCTING)
+        # Destruct phase. Publication must happen after releasing the state
+        # lock so opposing lifecycle observers cannot retain two VM locks.
+        if not self._set_status(ConstructionStatus.DESTRUCTING):
+            self._clear_in_flight()
+            return
 
         completion_deferred = False
         try:
+            if self._is_disposed():
+                return
             try:
                 self._on_destruct()
-            except Exception:
+            except BaseException:
                 # VMX-007: a failed destruct phase rolls back to Constructed
                 # (the state reconstruct started from) so the VM stays recoverable.
                 self._set_status(ConstructionStatus.CONSTRUCTED)
@@ -642,7 +805,7 @@ class _ComponentVMBase(ABC):
         self._set_status(ConstructionStatus.CONSTRUCTING)
         try:
             self._on_construct()
-        except Exception:
+        except BaseException:
             self._set_status(ConstructionStatus.DESTRUCTED)
             raise
 
@@ -705,34 +868,25 @@ class _ComponentVMBase(ABC):
             # Terminal notification is best-effort: an observer failure must not
             # prevent the remaining channels or mandatory cleanup from running.
             self._status = ConstructionStatus.DISPOSED
-            attempt(
-                lambda: self._hub.send(
-                    ConstructionStatusChangedMessage.create(
-                        self, self._name, ConstructionStatus.DISPOSED
-                    )
-                )
+            publication, should_drain = self._enqueue_lifecycle_publication_locked(
+                ConstructionStatus.DISPOSED
             )
-            attempt(lambda: self._raise_property_changed("status"))
-            attempt(lambda: self._raise_property_changed("is_constructed"))
-            if not self._trigger_disposed:
-                attempt(lambda: self._status_trigger.on_next(None))
-            self._complete_lifecycle_waiters_locked()
+            self._terminal_publication_pending = True
+            waiters = self._take_lifecycle_waiters_locked()
+            _waiter_publication, waiter_should_drain = self._enqueue_waiter_completion_locked(
+                waiters
+            )
+            should_drain |= waiter_should_drain
 
+        attempt(lambda: self._await_lifecycle_publication(publication, should_drain))
         attempt(self._on_dispose)
         attempt(self._dispose_owned_resources)
 
-        # Tear down the status trigger / property_changed subjects under the lock
-        # so terminal state and Subject disposal cannot race a background transition.
         with self._lifecycle_lock:
-            if not self._trigger_disposed:
-                self._trigger_disposed = True
-                attempt(self._status_trigger.on_completed)
-                attempt(self._status_trigger.dispose)
-                if self._active_property_notifications == 0:
-                    attempt(self._property_changed_subject.on_completed)
-                    attempt(self._property_changed_subject.dispose)
-                else:
-                    self._property_notification_teardown_pending = True
+            teardown, should_drain = self._enqueue_lifecycle_action_locked(
+                self._finish_terminal_publication
+            )
+        attempt(lambda: self._await_lifecycle_publication(teardown, should_drain))
 
         # Only commands that were actually accessed (lazily built — VMX-018)
         # need disposal; un-built slots are still None.
@@ -900,7 +1054,7 @@ class _ComponentVMBase(ABC):
                 resource()
             else:
                 resource.dispose()
-        except Exception:
+        except BaseException:
             # Terminal cleanup is best-effort; one failure must not block the rest.
             pass
 
@@ -942,7 +1096,10 @@ class _ComponentVMBase(ABC):
         """Clear the lifecycle in-flight guard under the lifecycle lock."""
         with self._lifecycle_lock:
             self._in_flight = False
-            self._complete_lifecycle_waiters_locked()
+            waiters = self._take_lifecycle_waiters_locked()
+            publication, should_drain = self._enqueue_waiter_completion_locked(waiters)
+        if publication is not None:
+            self._await_lifecycle_publication(publication, should_drain)
 
     def _construct_future(self) -> Future[None]:
         with self._lifecycle_lock:
@@ -983,8 +1140,12 @@ class _ComponentVMBase(ABC):
             if not self._in_flight and self._is_settled(self._status):
                 if waiter in self._lifecycle_waiters:
                     self._lifecycle_waiters.remove(waiter)
-                if not waiter.done():
-                    waiter.set_result(None)
+                publication, should_drain = self._enqueue_waiter_completion_locked([waiter])
+            else:
+                publication = None
+                should_drain = False
+        if publication is not None:
+            self._await_lifecycle_publication(publication, should_drain)
         return waiter
 
     @staticmethod
@@ -995,14 +1156,12 @@ class _ComponentVMBase(ABC):
             ConstructionStatus.DISPOSED,
         )
 
-    def _complete_lifecycle_waiters_locked(self) -> None:
+    def _take_lifecycle_waiters_locked(self) -> list[Future[None]]:
         if not self._is_settled(self._status):
-            return
+            return []
         waiters = self._lifecycle_waiters
         self._lifecycle_waiters = []
-        for waiter in waiters:
-            if not waiter.done():
-                waiter.set_result(None)
+        return waiters
 
     def _take_deferred_lifecycle_future(self) -> Future[None] | None:
         with self._lifecycle_lock:
@@ -1033,27 +1192,127 @@ class _ComponentVMBase(ABC):
 
         future.add_done_callback(settled)
 
-    def _set_status(self, new_status: ConstructionStatus) -> None:
-        """Update status, emit hub message, and fire command trigger."""
-        # The terminal check, the _status write, the hub publish and the
-        # status-trigger on_next all run under _lifecycle_lock so the whole
-        # transition is atomic with respect to dispose() — a background transition
-        # racing dispose() can neither resurrect the VM, publish a post-dispose
-        # status message, nor on_next a disposed Subject (VMX-004; spec/02
-        # invariant 3: Disposed is terminal).
+    def _set_status(self, new_status: ConstructionStatus) -> bool:
+        """Admit a state change atomically, then publish it outside the state lock."""
         with self._lifecycle_lock:
             if self._status is ConstructionStatus.DISPOSED:
-                return
+                return False
 
             self._status = new_status
+            publication, should_drain = self._enqueue_lifecycle_publication_locked(new_status)
 
-            self._hub.send(ConstructionStatusChangedMessage.create(self, self._name, new_status))
+        self._await_lifecycle_publication(publication, should_drain)
+        return True
 
-            # status and is_constructed are computed/read-only, so they raise INPC-equivalent
-            # property_changed only — no PropertyChangedMessage on the hub (spec 03-messages.md
-            # publishes only on setter-assigned properties).
-            self._raise_property_changed("status")
-            self._raise_property_changed("is_constructed")
+    def _enqueue_lifecycle_publication_locked(
+        self, status: ConstructionStatus
+    ) -> tuple[_LifecyclePublication, bool]:
+        publication = _LifecyclePublication(status)
+        self._lifecycle_publications.append(publication)
+        if self._lifecycle_drainer_thread is None:
+            self._lifecycle_drainer_thread = threading.get_ident()
+            return publication, True
+        return publication, False
 
-            if not self._trigger_disposed:
-                self._status_trigger.on_next(None)
+    def _enqueue_lifecycle_action_locked(
+        self, action: Callable[[], None]
+    ) -> tuple[_LifecyclePublication, bool]:
+        publication = _LifecyclePublication(action=action)
+        self._lifecycle_publications.append(publication)
+        if self._lifecycle_drainer_thread is None:
+            self._lifecycle_drainer_thread = threading.get_ident()
+            return publication, True
+        return publication, False
+
+    def _enqueue_waiter_completion_locked(
+        self, waiters: list[Future[None]]
+    ) -> tuple[_LifecyclePublication | None, bool]:
+        if not waiters:
+            return None, False
+
+        def complete() -> None:
+            for waiter in waiters:
+                if not waiter.done():
+                    waiter.set_result(None)
+
+        return self._enqueue_lifecycle_action_locked(complete)
+
+    def _drain_lifecycle_publications(self) -> None:
+        """Deliver admitted transitions in order without retaining lifecycle state."""
+        while True:
+            with self._lifecycle_lock:
+                if not self._lifecycle_publications:
+                    self._lifecycle_drainer_thread = None
+                    return
+                publication = self._lifecycle_publications.popleft()
+
+            try:
+                if publication.action is not None:
+                    publication.action()
+                else:
+                    status = publication.status
+                    assert status is not None
+                    self._hub.send(
+                        ConstructionStatusChangedMessage.create(self, self._name, status)
+                    )
+
+                    # Computed/read-only properties raise only the local equivalent
+                    # of INPC; setter-assigned properties alone publish hub messages.
+                    self._raise_property_changed("status")
+                    self._raise_property_changed("is_constructed")
+
+                    if not self._trigger_disposed:
+                        self._status_trigger.on_next(None)
+            except BaseException as error:
+                publication.error = error
+            finally:
+                publication.completed.set()
+
+    def _await_lifecycle_publication(
+        self, publication: _LifecyclePublication, should_drain: bool
+    ) -> None:
+        """Drain or wait, escaping only an actual cross-VM thread cycle."""
+        if should_drain:
+            self._drain_lifecycle_publications()
+        elif not publication.completed.is_set():
+            caller = threading.get_ident()
+            with self._lifecycle_lock:
+                owner = self._lifecycle_drainer_thread
+            if owner is not None and owner != caller:
+                if not _register_lifecycle_wait(caller, owner):
+                    try:
+                        publication.completed.wait()
+                    finally:
+                        _unregister_lifecycle_wait(caller)
+
+        if publication.completed.is_set() and publication.error is not None:
+            raise publication.error
+
+    def _finish_terminal_publication(self) -> None:
+        """Complete subjects only after the queued Disposed event was delivered."""
+        with self._lifecycle_lock:
+            if not self._terminal_publication_pending or self._trigger_disposed:
+                return
+            self._terminal_publication_pending = False
+            self._trigger_disposed = True
+            active_property_notifications = self._active_property_notifications
+            if active_property_notifications:
+                self._property_notification_teardown_pending = True
+
+        try:
+            self._status_trigger.on_completed()
+        except BaseException:
+            pass
+        try:
+            self._status_trigger.dispose()
+        except BaseException:
+            pass
+        if active_property_notifications == 0:
+            try:
+                self._property_changed_subject.on_completed()
+            except BaseException:
+                pass
+            try:
+                self._property_changed_subject.dispose()
+            except BaseException:
+                pass

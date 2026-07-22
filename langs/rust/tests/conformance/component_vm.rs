@@ -48,6 +48,7 @@ fn modeled_component_fires_model_property_changed() {
 #[test]
 fn readonly_component_exposes_model_without_setter_surface() {
     let vm = ReadonlyComponentVm::new("readonly", 7, MessageHub::new(), NullDispatcher::new());
+    let parent = vmx::CompositeVm::new("parent");
 
     fn require_component_traits<T: VmNode + TreeNode>(_: &T) {}
 
@@ -57,13 +58,47 @@ fn readonly_component_exposes_model_without_setter_surface() {
     assert_eq!(vm.model(), 7);
     assert_eq!(vm.status(), ConstructionStatus::Destructed);
 
+    parent.add(vm.clone()).unwrap();
     vm.construct().unwrap();
     assert!(vm.is_constructed());
     let select = vm.select_command();
     assert!(select.can_execute());
     select.execute();
-    assert!(vm.is_selected());
+    assert!(vm.is_current());
+    assert_eq!(parent.current(), Some(vm.clone()));
     assert!(!select.can_execute());
+}
+
+#[test]
+fn component_disposal_tears_down_all_retained_baseline_commands() {
+    let vm = ComponentVm::new("component");
+    let commands = [
+        vm.select_command(),
+        vm.deselect_command(),
+        vm.select_next_command(),
+        vm.select_previous_command(),
+        vm.reconstruct_command(),
+    ];
+    let deliveries = Arc::new(AtomicUsize::new(0));
+    let subscriptions = commands
+        .iter()
+        .map(|command| {
+            let deliveries = Arc::clone(&deliveries);
+            command.can_execute_changed().subscribe(move |_| {
+                deliveries.fetch_add(1, Ordering::SeqCst);
+            })
+        })
+        .collect::<Vec<_>>();
+
+    vm.dispose().unwrap();
+    let at_disposal = deliveries.load(Ordering::SeqCst);
+    for command in &commands {
+        assert!(!command.can_execute());
+        command.raise_can_execute_changed();
+    }
+
+    assert_eq!(deliveries.load(Ordering::SeqCst), at_disposal);
+    drop(subscriptions);
 }
 
 /// CVM-004 — ModeledHint recomputes when Model changes
@@ -129,13 +164,54 @@ fn name_and_hint_are_stable_after_construction() {
 /// CVM-006 — SelectCommand can_execute reflects selection state
 #[test]
 fn select_command_can_execute_reflects_selection_state() {
+    let composite = vmx::CompositeVm::new("root");
     let vm = ComponentVm::new("vm");
-    vm.construct().unwrap();
     let command = vm.select_command();
 
+    assert!(!vm.can_select());
+    assert!(!command.can_execute());
+    command.execute();
+    assert!(!vm.is_current());
+
+    composite.add(vm.clone()).unwrap();
+    vm.construct().unwrap();
+
+    assert!(vm.can_select());
     assert!(command.can_execute());
     command.execute();
+    assert_eq!(composite.current(), Some(vm.clone()));
+    assert!(vm.is_current());
     assert!(!command.can_execute());
+}
+
+#[test]
+fn baseline_selection_commands_delegate_and_keep_stable_identity() {
+    let composite = vmx::CompositeVm::new("root");
+    let vm = ComponentVm::new("vm");
+    composite.add(vm.clone()).unwrap();
+    vm.construct().unwrap();
+
+    let select = vm.select_command();
+    let observed = Arc::new(Mutex::new(0));
+    let seen = Arc::clone(&observed);
+    let _subscription = select.can_execute_changed().subscribe(move |_| {
+        *seen.lock().unwrap() += 1;
+    });
+    vm.destruct().unwrap();
+    vm.construct().unwrap();
+    assert_eq!(*observed.lock().unwrap(), 4);
+
+    assert!(!vm.can_deselect());
+    vm.select();
+    assert!(vm.can_deselect());
+    assert!(vm.deselect_command().can_execute());
+    vm.deselect_command().execute();
+    assert_eq!(composite.current(), None);
+
+    assert!(!vm.select_next_command().can_execute());
+    assert!(!vm.select_previous_command().can_execute());
+    vm.reconstruct_command().execute();
+    assert_eq!(vm.status(), ConstructionStatus::Constructed);
 }
 
 /// CVM-007 — Notification helper emits hub then local exactly once

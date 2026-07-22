@@ -17,6 +17,8 @@ Rules enforced:
      repository release tags.
   4. TypeScript example lockfiles must record the current local VMx package
      version so dependency refreshes cannot retain stale workspace metadata.
+  5. Every current package version must have a non-empty bracketed CHANGELOG
+     section before a release tag can publish an immutable artifact.
 
 In-development exemption:
   ``spec/VERSION`` and versions recorded in its current matrix row are source
@@ -184,6 +186,45 @@ def check_typescript_example_locks(repo_root: Path, expected_version: str) -> li
     return issues
 
 
+def check_changelog_sections(repo_root: Path, manifests: dict[str, dict[str, str]]) -> list[str]:
+    """Report missing or empty current-version CHANGELOG sections."""
+    issues: list[str] = []
+    for flavor, info in sorted(manifests.items()):
+        version = info.get("version", "")
+        if not version:
+            continue
+        family = flavor.split("/", 1)[0]
+        changelog = repo_root / "langs" / family / "CHANGELOG.md"
+        if not changelog.is_file():
+            issues.append(f"  {flavor}: missing {changelog.relative_to(repo_root)}")
+            continue
+        package_id = info.get("package_id", "")
+        heading = f"{package_id} {version}" if "/" in flavor else version
+        lines = changelog.read_text(encoding="utf-8").splitlines()
+        start = next(
+            (index for index, line in enumerate(lines) if line.startswith(f"## [{heading}]")),
+            None,
+        )
+        if start is None:
+            issues.append(
+                f"  {flavor}: CHANGELOG section {heading!r} is missing for current version"
+            )
+            continue
+        body = lines[start + 1 :]
+        next_heading = next(
+            (index for index, line in enumerate(body) if line.startswith("## [")),
+            len(body),
+        )
+        substantive = any(
+            line.strip() and not line.lstrip().startswith("#") for line in body[:next_heading]
+        )
+        if not substantive:
+            issues.append(
+                f"  {flavor}: CHANGELOG section {heading!r} has no substantive release notes"
+            )
+    return issues
+
+
 def parse_swift_versions(version_swift_path: Path) -> dict[str, str]:
     """Extract ``current`` and ``minSpecVersion`` from ``VMx/Version.swift``."""
     text = version_swift_path.read_text(encoding="utf-8")
@@ -285,6 +326,7 @@ def parse_matrix(matrix_path: Path) -> list[dict[str, object]]:
     """
     lines = matrix_path.read_text(encoding="utf-8").splitlines()
     header_idx: int | None = None
+    header_cells: list[str] = []
 
     # Locate the header row (contains "spec" and "csharp").
     for i, line in enumerate(lines):
@@ -294,6 +336,7 @@ def parse_matrix(matrix_path: Path) -> list[dict[str, object]]:
         cells = [c.strip() for c in stripped.strip("|").split("|")]
         if len(cells) >= 5 and cells[0].strip().lower() == "spec":
             header_idx = i
+            header_cells = [cell.lower() for cell in cells]
             break
 
     if header_idx is None:
@@ -317,8 +360,13 @@ def parse_matrix(matrix_path: Path) -> list[dict[str, object]]:
         row: dict[str, object] = {"spec_row": spec_row}
         if legacy_semantic_tag_only:
             row["legacy_semantic_tag_only"] = True
-        for idx, flavor in enumerate(FLAVORS):
-            cell = cells[idx + 1].strip() if idx + 1 < len(cells) else ""
+        for flavor in FLAVORS:
+            try:
+                idx = header_cells.index(flavor)
+            except ValueError:
+                row[flavor] = []
+                continue
+            cell = cells[idx].strip() if idx < len(cells) else ""
             # Strip annotation parentheticals like "(subset)".
             cell = re.sub(r"\s*\([^)]*\)", "", cell).strip()
             if cell in ("—", "-", ""):
@@ -583,6 +631,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     tags = get_git_tags(repo_root)
 
     msv_issues = check_min_spec_versions(spec_version, manifests)
+    msv_issues.extend(check_changelog_sections(repo_root, manifests))
     typescript_version = manifests.get("typescript", {}).get("version", "")
     if typescript_version:
         msv_issues.extend(check_typescript_example_locks(repo_root, typescript_version))

@@ -237,7 +237,7 @@ the VM (via a trigger derived from `Status`).
 
 `SelectNextCommand` / `SelectPreviousCommand` are present on the `IComponentVM`
 baseline for a uniform surface, but a leaf VM does not enumerate its parent's
-children. In the reference implementations of the full-parity flavors their predicate
+children. In the reference implementations of all five active flavors their predicate
 therefore **always returns `false`** and their task is a **no-op** (sibling
 navigation, when a host wants it, is driven by the container, not by the leaf). This
 inert behaviour is the normative contract for the base commands and is asserted for
@@ -263,7 +263,7 @@ can_deselect() returns true iff:
 
 `Parent.Current` denotes the container's `Current` slot, which only a `CompositeVM`
 owns. A `GroupVM` has no selection slot; its `Current` is conceptually always empty,
-so `Parent.Current != this` holds for every group child. (All full-parity flavors add a
+so `Parent.Current != this` holds for every group child. (All five active flavors add a
 "parent supports child selection" guard — `Parent.SupportsChildSelection` /
 `supports_child_selection`, which a `GroupVM` reports as `false` and a `CompositeVM`
 as `true` — so a group child's `can_select` / `can_deselect` is `false` in every

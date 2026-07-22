@@ -10,15 +10,23 @@ scheduler (ObserveOn pattern).
 
 from __future__ import annotations
 
+import subprocess
+import sys
+import textwrap
+from collections.abc import Callable
+from threading import Barrier, BrokenBarrierError, Event, Thread
+
 import pytest
 
 from vmx.collections import CollectionChangedEvent
+from vmx.components.base import _OWNERSHIP_TRANSACTION_GATE
 from vmx.components.builders import ComponentVMBuilder, ComponentVMOfBuilder
 from vmx.components.component_vm import ComponentVM, ComponentVMOf
 from vmx.composites.builders import CompositeVMBuilder, CompositeVMOfBuilder
 from vmx.composites.composite_vm import CompositeVM, CompositeVMOf
 from vmx.groups.builders import GroupVMBuilder
 from vmx.groups.group_vm import GroupVM
+from vmx.lifecycle.exceptions import StatusTransitionError
 from vmx.lifecycle.status import ConstructionStatus
 from vmx.messages.construction_status_changed import ConstructionStatusChangedMessage
 from vmx.messages.property_changed import PropertyChangedMessage
@@ -36,6 +44,17 @@ def _hub() -> MessageHub[object]:
 
 def _dispatcher() -> RxDispatcher:
     return RxDispatcher.immediate()
+
+
+class _DisposeFailingComponent(ComponentVM):
+    def _on_dispose(self) -> None:
+        raise RuntimeError("dispose failure")
+
+
+class _DisposeFailingComposite(CompositeVM[ComponentVM]):
+    def _on_dispose(self) -> None:
+        super()._on_dispose()
+        raise RuntimeError("destination dispose failure")
 
 
 def _build_composite(
@@ -735,6 +754,291 @@ def test_COMP_026_on_current_changed_fires_after_each_change() -> None:
 
     assert observed2 == [children2[0]]
 
+    reentrant: CompositeVM[ComponentVM] | None = None
+    reentrant_hub = _hub()
+    reentrant_child = _build_child("reentrant", hub=reentrant_hub, dispatcher=disp)
+
+    callback_statuses: list[ConstructionStatus] = []
+
+    def dispose_reentrant(selected: ComponentVM | None) -> None:
+        assert reentrant is not None
+        assert selected is reentrant_child
+        callback_statuses.append(selected.status)
+        reentrant.dispose()
+
+    reentrant = (
+        CompositeVMBuilder()
+        .name("reentrant-composite")
+        .services(reentrant_hub, disp)
+        .children(lambda: [reentrant_child])
+        .on_current_changed(dispose_reentrant)
+        .build()
+    )
+    reentrant.construct()
+
+    reentrant.select_component(reentrant_child)
+
+    assert callback_statuses == [ConstructionStatus.CONSTRUCTED]
+    assert reentrant.status is ConstructionStatus.DISPOSED
+
+
+@pytest.mark.conformance("COMP-026")
+def test_COMP_026_opposing_current_callbacks_do_not_deadlock() -> None:
+    """Current callbacks on two composites cannot retain opposing membership gates."""
+    dispatcher = _dispatcher()
+    barrier = Barrier(2)
+    refs: dict[str, CompositeVM[ComponentVM]] = {}
+    first = {"a": True, "b": True}
+
+    hub_a, hub_b = _hub(), _hub()
+    child_a = _build_child("a", hub=hub_a, dispatcher=dispatcher)
+    child_b = _build_child("b", hub=hub_b, dispatcher=dispatcher)
+
+    def cross(key: str, target: str, child: ComponentVM) -> Callable[[ComponentVM | None], None]:
+        def callback(_: ComponentVM | None) -> None:
+            if not first[key]:
+                return
+            first[key] = False
+            try:
+                barrier.wait(0.1)
+            except BrokenBarrierError:
+                pass
+            target_vm = refs[target]
+            if target_vm.current is not child:
+                target_vm.select_component(child)
+
+        return callback
+
+    composite_a = (
+        CompositeVMBuilder()
+        .name("a")
+        .services(hub_a, dispatcher)
+        .children(lambda: [child_a])
+        .on_current_changed(cross("a", "b", child_b))
+        .build()
+    )
+    composite_b = (
+        CompositeVMBuilder()
+        .name("b")
+        .services(hub_b, dispatcher)
+        .children(lambda: [child_b])
+        .on_current_changed(cross("b", "a", child_a))
+        .build()
+    )
+    refs.update(a=composite_a, b=composite_b)
+    composite_a.construct()
+    composite_b.construct()
+
+    thread_a = Thread(target=lambda: composite_a.select_component(child_a), daemon=True)
+    thread_b = Thread(target=lambda: composite_b.select_component(child_b), daemon=True)
+    thread_a.start()
+    thread_b.start()
+    thread_a.join(2.0)
+    thread_b.join(2.0)
+
+    assert not thread_a.is_alive()
+    assert not thread_b.is_alive()
+    assert composite_a.current is child_a
+    assert composite_b.current is child_b
+
+
+@pytest.mark.conformance("COMP-026")
+def test_COMP_026_collection_and_current_callbacks_do_not_deadlock() -> None:
+    """A collection callback cannot wait on a coordinator held by a disposer."""
+    script = textwrap.dedent(
+        """
+        from threading import Event, Thread
+
+        from vmx.components.builders import ComponentVMBuilder
+        from vmx.composites.builders import CompositeVMBuilder
+        from vmx.services.dispatcher import RxDispatcher
+        from vmx.services.message_hub import MessageHub
+
+        dispatcher = RxDispatcher.immediate()
+
+        def child(name):
+            return ComponentVMBuilder().name(name).services(MessageHub(), dispatcher).build()
+
+        def composite(name, callback=None):
+            builder = CompositeVMBuilder().name(name).services(
+                MessageHub(), dispatcher
+            ).children(lambda: ())
+            if callback is not None:
+                builder = builder.on_current_changed(callback)
+            return builder.build()
+
+        b_transaction_entered = Event()
+        a_callback_entered = Event()
+        b = composite("b")
+
+        def on_a_current(_):
+            a_callback_entered.set()
+            assert b_transaction_entered.wait(1.0)
+            b.dispose()
+
+        a_item = child("a-item")
+        a_item.construct()
+        a = composite("a", on_a_current)
+        a.add(a_item)
+        a.construct()
+        b.construct()
+        b_item = child("b-item")
+        b_item.construct()
+
+        def on_b_collection(_):
+            b_transaction_entered.set()
+            b.select_component(b_item)
+
+        subscription = b.on_collection_changed.subscribe(on_b_collection)
+        errors = []
+
+        def run(action):
+            try:
+                action()
+            except BaseException as error:
+                errors.append(error)
+
+        thread_a = Thread(target=lambda: run(lambda: a.select_component(a_item)))
+        thread_a.start()
+        assert a_callback_entered.wait(1.0)
+        thread_b = Thread(target=lambda: run(lambda: b.add(b_item)))
+        thread_b.start()
+        thread_a.join()
+        thread_b.join()
+        subscription.dispose()
+        assert errors == []
+        assert b.status.name == "DISPOSED"
+        assert b_item.status.name == "DISPOSED"
+        """
+    )
+
+    try:
+        subprocess.run([sys.executable, "-c", script], check=True, timeout=3.0)
+    except subprocess.TimeoutExpired:
+        pytest.fail("current and collection callbacks deadlocked across composites")
+
+
+def test_current_callback_disposal_preserves_remove_and_reset_events() -> None:
+    """Deferred disposal completes only after the structural event is published."""
+    dispatcher = _dispatcher()
+
+    def exercise(*, clear: bool) -> list[str]:
+        child = _build_child("child", dispatcher=dispatcher)
+        holder: list[CompositeVM[ComponentVM]] = []
+
+        def dispose_when_cleared(selected: ComponentVM | None) -> None:
+            if selected is None:
+                holder[0].dispose()
+
+        composite = (
+            CompositeVMBuilder()
+            .name("composite")
+            .services(_hub(), dispatcher)
+            .children(lambda: [child])
+            .on_current_changed(dispose_when_cleared)
+            .build()
+        )
+        holder.append(composite)
+        composite.construct()
+        composite.select_component(child)
+        events: list[str] = []
+        composite.on_collection_changed.subscribe(lambda event: events.append(event.action))
+
+        if clear:
+            composite.clear()
+        else:
+            assert composite.remove(child)
+
+        assert composite.status is ConstructionStatus.DISPOSED
+        return events
+
+    assert exercise(clear=False) == ["remove"]
+    assert exercise(clear=True) == ["reset"]
+
+
+def test_auto_construct_rollback_destructs_child_after_destination_disposal() -> None:
+    destination_ref: list[CompositeVM[ComponentVM]] = []
+    hub, dispatcher = _hub(), _dispatcher()
+    child = (
+        ComponentVMBuilder()
+        .name("child")
+        .services(hub, dispatcher)
+        .on_construct(lambda: destination_ref[0].dispose())
+        .build()
+    )
+    destination = (
+        CompositeVMBuilder()
+        .name("destination")
+        .services(hub, dispatcher)
+        .auto_construct_on_add(True)
+        .children(lambda: ())
+        .build()
+    )
+    destination_ref.append(destination)
+    destination.construct()
+
+    with pytest.raises(RuntimeError, match="disposing"):
+        destination.append(child)
+
+    assert destination.snapshot() == ()
+    assert child.status is ConstructionStatus.DESTRUCTED
+    assert destination.status is ConstructionStatus.DISPOSED
+
+
+@pytest.mark.conformance("COMP-040")
+def test_COMP_040_population_disposal_rolls_back_constructed_child() -> None:
+    destination_ref: list[CompositeVM[ComponentVM]] = []
+    hub, dispatcher = _hub(), _dispatcher()
+    child = (
+        ComponentVMBuilder()
+        .name("child")
+        .services(hub, dispatcher)
+        .on_construct(lambda: destination_ref[0].dispose())
+        .build()
+    )
+    destination = (
+        CompositeVMBuilder()
+        .name("destination")
+        .services(hub, dispatcher)
+        .children(lambda: (child,))
+        .build()
+    )
+    destination_ref.append(destination)
+
+    with pytest.raises((RuntimeError, StatusTransitionError)):
+        destination.construct()
+
+    assert destination.snapshot() == ()
+    assert child.status is ConstructionStatus.DESTRUCTED
+    assert destination.status is ConstructionStatus.DISPOSED
+
+
+def test_attachment_error_precedes_deferred_destination_disposal_error() -> None:
+    hub, dispatcher = _hub(), _dispatcher()
+    destination = _DisposeFailingComposite(
+        name="destination",
+        hint="",
+        hub=hub,
+        dispatcher=dispatcher,
+        auto_construct_on_add=True,
+    )
+
+    def fail_attachment() -> None:
+        destination.dispose()
+        raise RuntimeError("attachment failure")
+
+    child = (
+        ComponentVMBuilder()
+        .name("child")
+        .services(hub, dispatcher)
+        .on_construct(fail_attachment)
+        .build()
+    )
+    destination.construct()
+
+    with pytest.raises(RuntimeError, match="attachment failure"):
+        destination.append(child)
+
 
 # ===========================================================================
 # COMP-027 — add sets a child's parent; remove clears it
@@ -953,6 +1257,277 @@ def test_COMP_040_failed_transfer_restores_parent_index_and_current() -> None:
     assert list(bulk_destination) == []
 
 
+@pytest.mark.conformance("COMP-040")
+def test_COMP_040_defers_old_composite_disposal_until_transfer_commits() -> None:
+    hub = _hub()
+    dispatcher = _dispatcher()
+    old_parent, _ = _build_composite("old", hub=hub, dispatcher=dispatcher)
+    destination: GroupVM[ComponentVM] = (
+        GroupVMBuilder()
+        .name("destination")
+        .services(hub, dispatcher)
+        .children(lambda: ())
+        .auto_construct_on_add(True)
+        .build()
+    )
+    child = (
+        ComponentVMBuilder()
+        .name("child")
+        .services(hub, dispatcher)
+        .on_construct(old_parent.dispose)
+        .build()
+    )
+    old_parent.add(child)
+    destination.construct()
+
+    destination.add(child)
+
+    assert old_parent.status is ConstructionStatus.DISPOSED
+    assert list(old_parent) == []
+    assert list(destination) == [child]
+    assert child.status is ConstructionStatus.CONSTRUCTED
+    assert child._parent is not None
+    assert child._parent.owner is destination
+
+
+@pytest.mark.conformance("COMP-040")
+def test_COMP_040_rolls_back_before_deferred_old_group_disposal() -> None:
+    hub = _hub()
+    dispatcher = _dispatcher()
+    old_parent: GroupVM[ComponentVM] = (
+        GroupVMBuilder().name("old").services(hub, dispatcher).children(lambda: ()).build()
+    )
+    destination: CompositeVM[ComponentVM] = (
+        CompositeVMBuilder()
+        .name("destination")
+        .services(hub, dispatcher)
+        .children(lambda: ())
+        .auto_construct_on_add(True)
+        .build()
+    )
+
+    def dispose_then_fail() -> None:
+        old_parent.dispose()
+        raise RuntimeError("boom")
+
+    child = (
+        ComponentVMBuilder()
+        .name("child")
+        .services(hub, dispatcher)
+        .on_construct(dispose_then_fail)
+        .build()
+    )
+    old_parent.add(child)
+    destination.construct()
+
+    with pytest.raises(RuntimeError, match="boom"):
+        destination.add(child)
+
+    assert old_parent.status is ConstructionStatus.DISPOSED
+    assert list(old_parent) == [child]
+    assert list(destination) == []
+    assert child.status is ConstructionStatus.DISPOSED
+    assert child._parent is not None
+    assert child._parent.owner is old_parent
+
+
+@pytest.mark.conformance("COMP-040")
+def test_COMP_040_deferred_disposal_failure_follows_committed_transfer_events() -> None:
+    hub = _hub()
+    dispatcher = _dispatcher()
+    old_parent: GroupVM[ComponentVM] = (
+        GroupVMBuilder().name("old").services(hub, dispatcher).children(lambda: ()).build()
+    )
+    destination: CompositeVM[ComponentVM] = (
+        CompositeVMBuilder()
+        .name("destination")
+        .services(hub, dispatcher)
+        .children(lambda: ())
+        .auto_construct_on_add(True)
+        .build()
+    )
+    moving = _DisposeFailingComponent(
+        name="moving",
+        hint="",
+        hub=hub,
+        dispatcher=dispatcher,
+        on_construct=old_parent.dispose,
+    )
+    failing_sibling = _DisposeFailingComponent(
+        name="failing-sibling", hint="", hub=hub, dispatcher=dispatcher
+    )
+    old_parent.add(moving)
+    old_parent.add(failing_sibling)
+    destination.construct()
+    events: list[str] = []
+    old_parent.on_collection_changed.subscribe(lambda _event: events.append("old:remove"))
+    destination.on_collection_changed.subscribe(lambda _event: events.append("new:add"))
+
+    with pytest.raises(RuntimeError, match="dispose failure"):
+        destination.add(moving)
+
+    assert events == ["old:remove", "new:add"]
+    assert old_parent.status is ConstructionStatus.DISPOSED
+    assert failing_sibling.status is ConstructionStatus.DISPOSED
+    assert list(destination) == [moving]
+    assert moving._parent is not None and moving._parent.owner is destination
+
+
+@pytest.mark.conformance("COMP-040")
+def test_COMP_040_attachment_failure_precedes_deferred_disposal_failure() -> None:
+    hub = _hub()
+    dispatcher = _dispatcher()
+    old_parent: GroupVM[ComponentVM] = (
+        GroupVMBuilder().name("old").services(hub, dispatcher).children(lambda: ()).build()
+    )
+    destination: CompositeVM[ComponentVM] = (
+        CompositeVMBuilder()
+        .name("destination")
+        .services(hub, dispatcher)
+        .children(lambda: ())
+        .auto_construct_on_add(True)
+        .build()
+    )
+
+    def dispose_then_fail() -> None:
+        old_parent.dispose()
+        raise RuntimeError("attachment failure")
+
+    moving = _DisposeFailingComponent(
+        name="moving",
+        hint="",
+        hub=hub,
+        dispatcher=dispatcher,
+        on_construct=dispose_then_fail,
+    )
+    old_parent.add(moving)
+    destination.construct()
+
+    with pytest.raises(RuntimeError, match="attachment failure"):
+        destination.add(moving)
+
+    assert old_parent.status is ConstructionStatus.DISPOSED
+    assert moving.status is ConstructionStatus.DISPOSED
+    assert list(old_parent) == [moving]
+    assert list(destination) == []
+
+
+@pytest.mark.conformance("COMP-040")
+def test_COMP_040_late_disposal_failure_does_not_retry_committed_population() -> None:
+    hub = _hub()
+    dispatcher = _dispatcher()
+    old_parent: GroupVM[ComponentVM] = (
+        GroupVMBuilder().name("old").services(hub, dispatcher).children(lambda: ()).build()
+    )
+    moving = _DisposeFailingComponent(
+        name="moving",
+        hint="",
+        hub=hub,
+        dispatcher=dispatcher,
+        on_construct=old_parent.dispose,
+    )
+    failing_sibling = _DisposeFailingComponent(
+        name="failing-sibling", hint="", hub=hub, dispatcher=dispatcher
+    )
+    old_parent.add(moving)
+    old_parent.add(failing_sibling)
+    factory_calls = 0
+
+    def children() -> tuple[ComponentVM, ...]:
+        nonlocal factory_calls
+        factory_calls += 1
+        return (moving,)
+
+    destination: CompositeVM[ComponentVM] = (
+        CompositeVMBuilder()
+        .name("destination")
+        .services(hub, dispatcher)
+        .children(children)
+        .build()
+    )
+    events: list[str] = []
+    old_parent.on_collection_changed.subscribe(lambda _event: events.append("old:remove"))
+    destination.on_collection_changed.subscribe(lambda _event: events.append("new:add"))
+
+    with pytest.raises(RuntimeError, match="dispose failure"):
+        destination.construct()
+
+    assert events == ["old:remove", "new:add"]
+    assert factory_calls == 1
+    assert list(destination) == [moving]
+
+    destination.construct()
+
+    assert factory_calls == 1
+    assert destination.status is ConstructionStatus.CONSTRUCTED
+
+
+@pytest.mark.conformance("COMP-040")
+def test_COMP_040_concurrent_old_parent_disposal_waits_for_transfer_commit() -> None:
+    hook_entered = Event()
+    release_hook = Event()
+    disposal_started = Event()
+    disposal_done = Event()
+    errors: list[BaseException] = []
+    hub = _hub()
+    dispatcher = _dispatcher()
+    old_parent: GroupVM[ComponentVM] = (
+        GroupVMBuilder().name("old").services(hub, dispatcher).children(lambda: ()).build()
+    )
+    destination: CompositeVM[ComponentVM] = (
+        CompositeVMBuilder()
+        .name("destination")
+        .services(hub, dispatcher)
+        .children(lambda: ())
+        .auto_construct_on_add(True)
+        .build()
+    )
+
+    def block_construct() -> None:
+        hook_entered.set()
+        assert release_hook.wait(2)
+
+    child = (
+        ComponentVMBuilder()
+        .name("child")
+        .services(hub, dispatcher)
+        .on_construct(block_construct)
+        .build()
+    )
+    old_parent.add(child)
+    destination.construct()
+
+    def transfer() -> None:
+        try:
+            destination.add(child)
+        except BaseException as error:
+            errors.append(error)
+
+    def dispose() -> None:
+        disposal_started.set()
+        old_parent.dispose()
+        disposal_done.set()
+
+    transfer_thread = Thread(target=transfer, daemon=True)
+    transfer_thread.start()
+    assert hook_entered.wait(2)
+    disposal_thread = Thread(target=dispose, daemon=True)
+    disposal_thread.start()
+    assert disposal_started.wait(2)
+    assert not disposal_done.wait(0.05)
+
+    release_hook.set()
+    transfer_thread.join(2)
+    disposal_thread.join(2)
+    assert not transfer_thread.is_alive()
+    assert not disposal_thread.is_alive()
+    assert errors == []
+    assert old_parent.status is ConstructionStatus.DISPOSED
+    assert list(old_parent) == []
+    assert list(destination) == [child]
+    assert child.status is ConstructionStatus.CONSTRUCTED
+
+
 @pytest.mark.conformance("COMP-041")
 def test_COMP_041_transfer_publishes_old_remove_before_new_add() -> None:
     hub = _hub()
@@ -983,3 +1558,181 @@ def test_COMP_041_transfer_publishes_old_remove_before_new_add() -> None:
     destination.add(child)
 
     assert observed == ["old:remove", "new:add"]
+
+
+@pytest.mark.conformance("COMP-041")
+def test_COMP_041_throwing_current_callback_does_not_suppress_transfer_events() -> None:
+    hub = _hub()
+    dispatcher = _dispatcher()
+
+    def fail_when_cleared(current: ComponentVM | None) -> None:
+        if current is None:
+            raise RuntimeError("callback boom")
+
+    old_parent: CompositeVM[ComponentVM] = (
+        CompositeVMBuilder()
+        .name("old")
+        .services(hub, dispatcher)
+        .children(lambda: ())
+        .on_current_changed(fail_when_cleared)
+        .build()
+    )
+    child = _build_child(hub=hub, dispatcher=dispatcher)
+    old_parent.add(child)
+    old_parent.current = child
+    destination: GroupVM[ComponentVM] = (
+        GroupVMBuilder().name("destination").services(hub, dispatcher).children(lambda: ()).build()
+    )
+    observed: list[str] = []
+    old_parent.on_collection_changed.subscribe(lambda _event: observed.append("old:remove"))
+    destination.on_collection_changed.subscribe(lambda _event: observed.append("new:add"))
+
+    with pytest.raises(RuntimeError, match="callback boom"):
+        destination.add(child)
+
+    assert observed == ["old:remove", "new:add"]
+    assert list(old_parent) == []
+    assert list(destination) == [child]
+    assert child._parent is not None and child._parent.owner is destination
+
+
+def test_bulk_transfer_remove_callback_does_not_retain_ownership_coordinator() -> None:
+    """An old-parent callback may wait for an unrelated transfer to finish."""
+    hub = _hub()
+    dispatcher = _dispatcher()
+    first = _build_child("first", hub=hub, dispatcher=dispatcher)
+    second = _build_child("second", hub=hub, dispatcher=dispatcher)
+    old_parent, _ = _build_composite("old", hub=hub, dispatcher=dispatcher)
+    second_old_parent, _ = _build_composite("second-old", hub=hub, dispatcher=dispatcher)
+    old_parent.add(first)
+    second_old_parent.add(second)
+    destination = (
+        GroupVMBuilder()
+        .name("destination")
+        .services(hub, dispatcher)
+        .children(lambda: (first, second))
+        .build()
+    )
+
+    unrelated = _build_child("unrelated", hub=hub, dispatcher=dispatcher)
+    unrelated_old, _ = _build_composite("unrelated-old", hub=hub, dispatcher=dispatcher)
+    unrelated_old.add(unrelated)
+    unrelated_destination = (
+        GroupVMBuilder()
+        .name("unrelated-destination")
+        .services(hub, dispatcher)
+        .children(lambda: ())
+        .build()
+    )
+    worker_done = Event()
+    workers: list[Thread] = []
+    callback_observed_progress: list[bool] = []
+
+    def on_old_collection(event: CollectionChangedEvent) -> None:
+        if event.action != "remove" or workers:
+            return
+        worker = Thread(
+            target=lambda: (unrelated_destination.add(unrelated), worker_done.set()),
+            daemon=True,
+        )
+        workers.append(worker)
+        worker.start()
+        callback_observed_progress.append(worker_done.wait(0.5))
+
+    old_parent.on_collection_changed.subscribe(on_old_collection)
+
+    destination.construct()
+
+    workers[0].join(2)
+    assert not workers[0].is_alive()
+    assert callback_observed_progress == [True]
+    assert list(unrelated_old) == []
+    assert list(unrelated_destination) == [unrelated]
+
+
+def test_colliding_bulk_wait_does_not_block_unrelated_callback_transfer() -> None:
+    """A bulk waiter must not hold the coordinator needed by an active transfer callback."""
+    hub = _hub()
+    dispatcher = _dispatcher()
+    child = _build_child("child", hub=hub, dispatcher=dispatcher)
+    old_parent, _ = _build_composite("old", hub=hub, dispatcher=dispatcher)
+    old_parent.add(child)
+    first_destination = (
+        GroupVMBuilder()
+        .name("first-destination")
+        .services(hub, dispatcher)
+        .children(lambda: ())
+        .build()
+    )
+    bulk_destination = (
+        GroupVMBuilder()
+        .name("bulk-destination")
+        .services(hub, dispatcher)
+        .children(lambda: (child,))
+        .build()
+    )
+
+    unrelated = _build_child("unrelated", hub=hub, dispatcher=dispatcher)
+    unrelated_old, _ = _build_composite("unrelated-old", hub=hub, dispatcher=dispatcher)
+    unrelated_old.add(unrelated)
+    unrelated_destination = (
+        GroupVMBuilder()
+        .name("unrelated-destination")
+        .services(hub, dispatcher)
+        .children(lambda: ())
+        .build()
+    )
+
+    bulk_started = Event()
+    unrelated_done = Event()
+    callback_progress: list[bool] = []
+    bulk_errors: list[BaseException] = []
+    bulk_threads: list[Thread] = []
+
+    def run_bulk() -> None:
+        bulk_started.set()
+        try:
+            bulk_destination.construct()
+        except BaseException as error:
+            bulk_errors.append(error)
+
+    def on_old_collection(event: CollectionChangedEvent) -> None:
+        if event.action != "remove" or bulk_threads:
+            return
+        bulk_thread = Thread(target=run_bulk, daemon=True)
+        bulk_threads.append(bulk_thread)
+        bulk_thread.start()
+        assert bulk_started.wait(0.5)
+
+        # Under the former implementation the colliding bulk worker retained
+        # this gate while waiting for ``child``. Detect that deterministic
+        # state when present; the corrected implementation never waits under it.
+        for _ in range(100):
+            acquired = _OWNERSHIP_TRANSACTION_GATE.acquire(blocking=False)
+            if acquired:
+                _OWNERSHIP_TRANSACTION_GATE.release()
+                if not bulk_thread.is_alive():
+                    break
+                Event().wait(0.001)
+                continue
+            break
+
+        worker = Thread(
+            target=lambda: (unrelated_destination.add(unrelated), unrelated_done.set()),
+            daemon=True,
+        )
+        worker.start()
+        callback_progress.append(unrelated_done.wait(0.5))
+        worker.join(2)
+
+    old_parent.on_collection_changed.subscribe(on_old_collection)
+
+    first_destination.add(child)
+
+    bulk_threads[0].join(2)
+    assert not bulk_threads[0].is_alive()
+    assert callback_progress == [True]
+    assert bulk_errors == []
+    assert list(bulk_destination) == [child]
+    assert list(unrelated_old) == []
+    assert list(unrelated_destination) == [unrelated]

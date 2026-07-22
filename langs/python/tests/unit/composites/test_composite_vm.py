@@ -11,13 +11,14 @@ Tests cover:
 
 from __future__ import annotations
 
-from threading import Event
+from threading import Event, Thread
 
 import pytest
 from reactivex.scheduler import ImmediateScheduler, ThreadPoolScheduler
 
 from vmx.components.builders import ComponentVMBuilder
 from vmx.components.component_vm import ComponentVM
+from vmx.composites import composite_vm as composite_module
 from vmx.composites.builders import CompositeVMBuilder
 from vmx.composites.composite_vm import CollectionChangedEvent, CompositeVM
 from vmx.lifecycle.status import ConstructionStatus
@@ -73,6 +74,134 @@ class _ThrowingDisposeChild(ComponentVM):
         raise RuntimeError("dispose hook failure")
 
 
+def test_factory_output_after_reentrant_disposal_is_rejected() -> None:
+    hub = _hub()
+    dispatcher = _dispatcher()
+    late = _build_child("late", hub, dispatcher)
+    composite: CompositeVM[ComponentVM]
+
+    def children() -> tuple[ComponentVM, ...]:
+        composite.dispose()
+        return (late,)
+
+    composite = (
+        CompositeVMBuilder().name("root").services(hub, dispatcher).children(children).build()
+    )
+
+    with pytest.raises(RuntimeError, match="disposing"):
+        composite.construct()
+    assert composite.count == 0
+    assert late.status is ConstructionStatus.DESTRUCTED
+
+
+def test_factory_rejects_duplicate_child_identity_without_partial_membership() -> None:
+    hub = _hub()
+    dispatcher = _dispatcher()
+    child = _build_child("duplicate", hub, dispatcher)
+    composite = (
+        CompositeVMBuilder()
+        .name("root")
+        .services(hub, dispatcher)
+        .children(lambda: (child, child))
+        .build()
+    )
+
+    with pytest.raises(ValueError, match="duplicate child identity"):
+        composite.construct()
+
+    assert composite.snapshot() == ()
+    assert child._parent is None
+
+
+def test_auto_construct_hook_cannot_reparent_during_membership_transaction() -> None:
+    hub = _hub()
+    dispatcher = _dispatcher()
+    source, _ = _build_composite("source", hub=hub, dispatcher=dispatcher)
+    destination, _ = _build_composite("destination", hub=hub, dispatcher=dispatcher)
+    source._auto_construct_on_add = True
+    source.construct()
+    child: ComponentVM
+    child = (
+        ComponentVMBuilder()
+        .name("child")
+        .services(hub, dispatcher)
+        .on_construct(lambda: destination.append(child))
+        .build()
+    )
+
+    with pytest.raises(RuntimeError, match="ownership transaction is in progress"):
+        source.append(child)
+
+    assert source.snapshot() == ()
+    assert destination.snapshot() == ()
+    assert child._parent is None
+
+
+def test_auto_construct_hook_disposal_aborts_admission() -> None:
+    composite, hub = _build_composite()
+    composite._auto_construct_on_add = True
+    composite.construct()
+    child = (
+        ComponentVMBuilder()
+        .name("child")
+        .services(hub, _dispatcher())
+        .on_construct(composite.dispose)
+        .build()
+    )
+
+    with pytest.raises(RuntimeError, match="disposing"):
+        composite.append(child)
+
+    assert composite.snapshot() == ()
+    assert child._parent is None
+
+
+def test_concurrent_admission_cannot_escape_disposal_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    composite, _ = _build_composite()
+    late = _build_child("late")
+    entered = Event()
+    release = Event()
+    disposal_done = Event()
+    failures: list[BaseException] = []
+    original = composite_module._begin_parent_transfer
+
+    def blocked_transfer(child: ComponentVM, parent: object) -> object:
+        entered.set()
+        assert release.wait(timeout=2)
+        return original(child, parent)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(composite_module, "_begin_parent_transfer", blocked_transfer)
+
+    def admit() -> None:
+        try:
+            composite.append(late)
+        except BaseException as error:
+            failures.append(error)
+
+    def dispose() -> None:
+        composite.dispose()
+        disposal_done.set()
+
+    worker = Thread(target=admit)
+    worker.start()
+    assert entered.wait(timeout=2)
+    disposer = Thread(target=dispose)
+    disposer.start()
+    assert not disposal_done.wait(timeout=0.05)
+    release.set()
+    worker.join(timeout=2)
+    disposer.join(timeout=2)
+
+    assert not worker.is_alive()
+    assert not disposer.is_alive()
+    assert failures == []
+    assert late in composite
+    assert late.status is ConstructionStatus.DISPOSED
+    assert composite.status is ConstructionStatus.DISPOSED
+
+
 # ---------------------------------------------------------------------------
 # Collection mutation tests
 # ---------------------------------------------------------------------------
@@ -90,6 +219,41 @@ def test_add_emits_collection_changed_add() -> None:
     assert events[0].action == "add"
     assert child in events[0].new_items
     assert events[0].new_index == 0
+
+
+def test_concurrent_current_assignments_leave_one_current_flag() -> None:
+    composite, _ = _build_composite()
+    first = _build_child("first")
+    second = _build_child("second")
+    third = _build_child("third")
+    composite.append(first)
+    composite.append(second)
+    composite.append(third)
+    composite.current = first
+    entered = Event()
+    release = Event()
+
+    def block_first_publication(property_name: str) -> None:
+        if property_name == "is_current" and not first.is_current:
+            entered.set()
+            assert release.wait(timeout=2)
+
+    subscription = first.property_changed.subscribe(block_first_publication)
+    first_thread = Thread(target=lambda: setattr(composite, "current", second))
+    second_thread = Thread(target=lambda: setattr(composite, "current", third))
+    first_thread.start()
+    assert entered.wait(timeout=2)
+    second_thread.start()
+    second_thread.join(timeout=2)
+    assert not second_thread.is_alive()
+    release.set()
+    first_thread.join(timeout=2)
+    subscription.dispose()
+
+    assert composite.current is third
+    assert not first.is_current
+    assert not second.is_current
+    assert third.is_current
 
 
 def test_remove_emits_collection_changed_remove() -> None:
@@ -509,6 +673,46 @@ def test_failed_factory_population_rolls_back_and_retries() -> None:
     assert comp.status == ConstructionStatus.CONSTRUCTED
 
 
+def test_factory_population_surfaces_lifecycle_compensation_failure() -> None:
+    hub = _hub()
+    dispatcher = _dispatcher()
+
+    def fail_compensation() -> None:
+        raise RuntimeError("compensation failed")
+
+    def fail_population() -> None:
+        raise RuntimeError("population failed")
+
+    compensated = (
+        ComponentVMBuilder()
+        .name("compensated")
+        .services(hub, dispatcher)
+        .on_destruct(fail_compensation)
+        .build()
+    )
+    blocker = (
+        ComponentVMBuilder()
+        .name("blocker")
+        .services(hub, dispatcher)
+        .on_construct(fail_population)
+        .build()
+    )
+    composite: CompositeVM[ComponentVM] = (
+        CompositeVMBuilder()
+        .name("composite")
+        .services(hub, dispatcher)
+        .children(lambda: [compensated, blocker])
+        .build()
+    )
+
+    with pytest.raises(RuntimeError, match="compensation failed") as failure:
+        composite.construct()
+
+    assert isinstance(failure.value.__cause__, RuntimeError)
+    assert str(failure.value.__cause__) == "population failed"
+    assert composite.snapshot() == ()
+
+
 def test_destruct_destructs_children_and_clears_current() -> None:
     hub = _hub()
     disp = _dispatcher()
@@ -675,6 +879,35 @@ def test_dispose_cascade() -> None:
     assert comp.status == ConstructionStatus.DISPOSED
     assert child_a.status == ConstructionStatus.DISPOSED
     assert child_b.status == ConstructionStatus.DISPOSED
+
+
+def test_dispose_closes_child_admission_before_snapshot() -> None:
+    comp, hub = _build_composite()
+    child = _build_child("child", hub=hub)
+    late = _build_child("late", hub=hub)
+    errors: list[BaseException] = []
+
+    def on_message(message: object) -> None:
+        if (
+            isinstance(message, ConstructionStatusChangedMessage)
+            and message.sender_name == "child"
+            and message.status is ConstructionStatus.DISPOSED
+        ):
+            try:
+                comp.append(late)
+            except BaseException as error:
+                errors.append(error)
+
+    subscription = hub.messages.subscribe(on_message)
+    comp.append(child)
+
+    comp.dispose()
+
+    assert len(comp) == 1
+    assert late.status is ConstructionStatus.DESTRUCTED
+    assert len(errors) == 1
+    assert "disposing" in str(errors[0])
+    subscription.dispose()
 
 
 def test_dispose_continues_after_child_failure_and_reraises_first_error() -> None:

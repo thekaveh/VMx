@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <!-- Exercise the supported runtime floor and the current SDK runtime. -->
-    <TargetFrameworks>net8.0;net9.0</TargetFrameworks>
+    <!-- Exercise the supported runtime floor, previous runtime, and current LTS. -->
+    <TargetFrameworks>net8.0;net9.0;net10.0</TargetFrameworks>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
     <!-- Tests don't ship as a package; relax doc/naming rules -->

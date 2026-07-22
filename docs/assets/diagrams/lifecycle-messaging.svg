@@ -1,4 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1720" height="1040" viewBox="0 0 1720 1040" style="font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;">
+<svg xmlns="http://www.w3.org/2000/svg" width="1720" height="1040" viewBox="0 0 1720 1040" role="img" aria-labelledby="diagram-title diagram-description" style="font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;">
+  <title id="diagram-title">Lifecycle And Messaging Flow</title>
+  <desc id="diagram-description">guarded state transitions, rollback rules, and hub publication paths</desc>
   <defs>
     <style>
       text { font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; }

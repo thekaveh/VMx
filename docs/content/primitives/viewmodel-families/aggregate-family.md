@@ -50,11 +50,11 @@ slot (`Component1`, `component_1`, `component1`, and so on).
 
 ## 6.2.3.4. Cross-Language Surface
 
-| Concept              | C#                  | Python              | TypeScript          | Swift               |
-| -------------------- | ------------------- | ------------------- | ------------------- | ------------------- |
-| Arity-6 type         | `AggregateVM6<...>` | `AggregateVM6[...]` | `AggregateVM6<...>` | `AggregateVM6<...>` |
-| Slot builder setters | `Component1(...)`   | `component_1(...)`  | `component1(...)`   | `component1(...)`   |
-| Slot property        | `Component1`        | `component_1`       | `component1`        | `component1`        |
+| Concept              | C#                  | Python              | TypeScript          | Swift               | Rust                |
+| -------------------- | ------------------- | ------------------- | ------------------- | ------------------- | ------------------- |
+| Arity-6 type         | `AggregateVM6<...>` | `AggregateVM6[...]` | `AggregateVM6<...>` | `AggregateVM6<...>` | `AggregateVm6<...>` |
+| Slot builder setters | `Component1(...)`   | `component_1(...)`  | `component1(...)`   | `component1(...)`   | `component_1(...)`  |
+| Slot property        | `Component1`        | `component_1`       | `component1`        | `component1`        | `component_1()`     |
 
 ## 6.2.3.5. Example
 
@@ -62,9 +62,15 @@ slot (`Component1`, `component_1`, `component1`, and so on).
 - `Python`: `AggregateVM6Builder[...]().name("workspace").services(hub, dispatcher).component_1(lambda: notebooks).component_2(lambda: notes).build()`
 - `TypeScript`: `AggregateVM6.builder<...>().name("workspace").services(hub, dispatcher).component1(() => notebooks).component2(() => notes).build()`
 - `Swift`: `try AggregateVM6<...>.builder().name("workspace").services(hub: hub, dispatcher: dispatcher).component1 { notebooks }.component2 { notes }.build()`
+- `Rust`: `AggregateVm6::<...>::builder().name("workspace").services(hub, dispatcher).component_1(|| notebooks.clone()).component_2(|| notes.clone()).build()?`
 
 The Notes Workspace shell uses this pattern as its six-pane root in the C#,
 Python, TypeScript, and Swift examples.
+
+Rust implements the same aggregate type and builder shape. Its remaining
+member- and edge-behavior differences are recorded in the active
+[Rust parity ledger](../../../maintenance/2026-07-16-rust-capability-parity.md)
+rather than hidden by the catalog-complete claim.
 
 ## 6.2.3.6. Common Pitfalls
 
