@@ -11,7 +11,7 @@ public struct GroupVMBuilder<Child: ComponentVMBase> {
     private var _hub: MessageHubProtocol?
     private var _dispatcher: Dispatcher?
     private var _children: (() -> [Child])?
-    private var _onConstruct: (() -> Void)?
+    private var _onConstruct: (() throws -> Void)?
     private var _onDestruct: (() -> Void)?
     private var _autoConstructOnAdd: Bool = false
 
@@ -40,7 +40,7 @@ public struct GroupVMBuilder<Child: ComponentVMBase> {
         var c = self; c._children = factory; return c
     }
     public func onConstruct(
-        _ cb: @escaping () -> Void
+        _ cb: @escaping () throws -> Void
     ) -> GroupVMBuilder<Child> {
         var c = self; c._onConstruct = cb; return c
     }

@@ -215,7 +215,10 @@ final class AggregateVMTests: XCTestCase {
     }
 
     func testForwardingAliasesOfOneCanonicalComponentAreRejected() throws {
-        let inner = leaf("inner")
+        // ForwardingComponentVM wraps ComponentVMOf<Model>; the canonical it
+        // aliases must be a modeled component, not an untyped ComponentVM leaf.
+        let inner = try ComponentVMOf<String>.builder()
+            .name("inner").model("").withNullServices().build()
         let first = ForwardingComponentVM(inner)
         let second = ForwardingComponentVM(inner)
         let aggregate = try AggregateVM2<ForwardingComponentVM<String>, ForwardingComponentVM<String>>
@@ -234,8 +237,12 @@ final class AggregateVMTests: XCTestCase {
     }
 
     func testForwardingAliasOfOwnedComponentIsRejected() throws {
-        let inner = leaf("inner")
-        let composite = try CompositeVM<ComponentVM>.builder()
+        // ForwardingComponentVM wraps ComponentVMOf<Model>; the canonical it
+        // aliases must be a modeled component. The composite that owns it is
+        // typed CompositeVM<ComponentVMOf<String>> to match.
+        let inner = try ComponentVMOf<String>.builder()
+            .name("inner").model("").withNullServices().build()
+        let composite = try CompositeVM<ComponentVMOf<String>>.builder()
             .name("composite").withNullServices().children { [inner] }.build()
         try composite.construct()
         let aggregate = try AggregateVM1<ForwardingComponentVM<String>>.builder()

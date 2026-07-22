@@ -15,7 +15,7 @@ public struct GroupVMOptions<Child: ComponentVMBase> {
     public var hub: MessageHubProtocol?
     public var dispatcher: Dispatcher?
     public var children: (() -> [Child])?
-    public var onConstruct: (() -> Void)?
+    public var onConstruct: (() throws -> Void)?
     public var onDestruct: (() -> Void)?
     public var autoConstructOnAdd: Bool
 
@@ -25,7 +25,7 @@ public struct GroupVMOptions<Child: ComponentVMBase> {
         hub: MessageHubProtocol? = nil,
         dispatcher: Dispatcher? = nil,
         children: (() -> [Child])? = nil,
-        onConstruct: (() -> Void)? = nil,
+        onConstruct: (() throws -> Void)? = nil,
         onDestruct: (() -> Void)? = nil,
         autoConstructOnAdd: Bool = false
     ) {
@@ -131,7 +131,7 @@ open class GroupVM<Child: ComponentVMBase>:
         hub: MessageHubProtocol,
         dispatcher: Dispatcher,
         childrenFactory: (() -> [Child])? = nil,
-        onConstruct: (() -> Void)? = nil,
+        onConstruct: (() throws -> Void)? = nil,
         onDestruct: (() -> Void)? = nil,
         autoConstructOnAdd: Bool = false
     ) {

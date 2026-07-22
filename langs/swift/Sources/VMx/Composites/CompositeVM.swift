@@ -20,7 +20,7 @@ public struct CompositeVMOptions<Child: ComponentVMBase> {
     public var children: (() -> [Child])?
     public var current: (([Child]) -> Child?)?
     public var onCurrentChanged: ((Child?) -> Void)?
-    public var onConstruct: (() -> Void)?
+    public var onConstruct: (() throws -> Void)?
     public var onDestruct: (() -> Void)?
     public var autoConstructOnAdd: Bool
     public var asyncSelection: Bool
@@ -33,7 +33,7 @@ public struct CompositeVMOptions<Child: ComponentVMBase> {
         children: (() -> [Child])? = nil,
         current: (([Child]) -> Child?)? = nil,
         onCurrentChanged: ((Child?) -> Void)? = nil,
-        onConstruct: (() -> Void)? = nil,
+        onConstruct: (() throws -> Void)? = nil,
         onDestruct: (() -> Void)? = nil,
         autoConstructOnAdd: Bool = false,
         asyncSelection: Bool = false
@@ -115,7 +115,7 @@ open class CompositeVM<Child: ComponentVMBase>:
         hub: MessageHubProtocol,
         dispatcher: Dispatcher,
         childrenFactory: (() -> [Child])? = nil,
-        onConstruct: (() -> Void)? = nil,
+        onConstruct: (() throws -> Void)? = nil,
         onDestruct: (() -> Void)? = nil,
         currentSelector: (([Child]) -> Child?)? = nil,
         onCurrentChanged: ((Child?) -> Void)? = nil,

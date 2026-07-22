@@ -10,7 +10,7 @@ public struct ComponentVMOptions {
     public var hint: String
     public var hub: MessageHubProtocol?
     public var dispatcher: Dispatcher?
-    public var onConstruct: (() -> Void)?
+    public var onConstruct: (() throws -> Void)?
     public var onDestruct: (() -> Void)?
     public var background: Bool
 
@@ -19,7 +19,7 @@ public struct ComponentVMOptions {
         hint: String = "",
         hub: MessageHubProtocol? = nil,
         dispatcher: Dispatcher? = nil,
-        onConstruct: (() -> Void)? = nil,
+        onConstruct: (() throws -> Void)? = nil,
         onDestruct: (() -> Void)? = nil,
         background: Bool = false
     ) {

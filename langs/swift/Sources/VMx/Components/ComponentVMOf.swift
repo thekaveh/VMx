@@ -40,7 +40,7 @@ public struct ComponentVMOfOptions<Model> {
     public var modeledHinter: ((Model) -> String)?
     public var modelEquals: ((Model, Model) -> Bool)?
     public var onModelChanged: ((Model) -> Void)?
-    public var onConstruct: (() -> Void)?
+    public var onConstruct: (() throws -> Void)?
     public var onDestruct: (() -> Void)?
     public var background: Bool
 
@@ -53,7 +53,7 @@ public struct ComponentVMOfOptions<Model> {
         modeledHinter: ((Model) -> String)? = nil,
         modelEquals: ((Model, Model) -> Bool)? = nil,
         onModelChanged: ((Model) -> Void)? = nil,
-        onConstruct: (() -> Void)? = nil,
+        onConstruct: (() throws -> Void)? = nil,
         onDestruct: (() -> Void)? = nil,
         background: Bool = false
     ) {
@@ -87,7 +87,7 @@ open class ComponentVMOf<Model>: ComponentVMBase {
         onModelChanged: ((Model) -> Void)? = nil,
         hub: MessageHubProtocol,
         dispatcher: Dispatcher,
-        onConstruct: (() -> Void)? = nil,
+        onConstruct: (() throws -> Void)? = nil,
         onDestruct: (() -> Void)? = nil,
         background: Bool = false
     ) {
@@ -196,7 +196,7 @@ extension ComponentVMOf where Model: Equatable {
         onModelChanged: ((Model) -> Void)? = nil,
         hub: MessageHubProtocol,
         dispatcher: Dispatcher,
-        onConstruct: (() -> Void)? = nil,
+        onConstruct: (() throws -> Void)? = nil,
         onDestruct: (() -> Void)? = nil,
         background: Bool = false
     ) {
