@@ -12,7 +12,7 @@ authors = [{ name = "Kaveh Razavi", email = "kaveh.razavi@gmail.com" }]
 requires-python = ">=3.10"
 keywords = ["mvvm", "viewmodel", "rx", "reactive", "lifecycle", "ui-architecture"]
 dependencies = [
-  "reactivex>=4.0.4",
+  "reactivex>=5.0.0",
 ]
 classifiers = [
   "Development Status :: 5 - Production/Stable",
