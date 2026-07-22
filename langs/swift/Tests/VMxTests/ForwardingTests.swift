@@ -132,6 +132,7 @@ final class ForwardingTests: XCTestCase {
         let forwarding = NoopForwardingComponent(inner)
         let composite = try CompositeVM<NoopForwardingComponent>.builder()
             .name("root")
+            .children { [] }
             .withNullServices()
             .build()
 
@@ -150,7 +151,7 @@ final class ForwardingTests: XCTestCase {
     func testFWD004ForwardingComponentTransfersOneUnderlyingOwner() throws {
         let inner = makeInner()
         let oldParent = try CompositeVM<ComponentVMOf<String>>.builder()
-            .name("old").withNullServices().build()
+            .name("old").withNullServices().children { [] }.build()
         let group = try GroupVM<NoopForwardingComponent>.builder()
             .name("group").withNullServices().children { [] }.build()
         let destination = try CompositeVM<NoopForwardingComponent>.builder()
@@ -311,6 +312,7 @@ final class ForwardingTests: XCTestCase {
         let vm2 = leaf("vm2")
         let composite = try CompositeVM<ComponentVM>.builder()
             .name("composite")
+            .children { [] }
             .withNullServices()
             .build()
         let fwd = NoopForwardingComposite(composite)

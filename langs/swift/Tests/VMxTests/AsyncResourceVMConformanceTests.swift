@@ -357,7 +357,13 @@ final class AsyncResourceVMConformanceTests: XCTestCase {
         withExtendedLifetime(subscription) {}
     }
 
-    func testDiscardCleanupDisposalPreventsNotificationAndLoaderStart() async {
+    /// When a cleanup callback disposes the VM mid-reload, the `resourceDisposed`
+    /// guard must (a) stop the loader from restarting and (b) suppress
+    /// AsyncResourceVM's own "state" notification. The terminal Disposed
+    /// transition still publishes the lifecycle pair "status"/"isConstructed"
+    /// per LIFE-004 / spec/02 invariant 4 (every Status change publishes) —
+    /// matching the C#/Python/TypeScript ARES-011 analogs.
+    func testDiscardCleanupDisposalPreventsLoaderRestartAndSuppressesStateNotification() async {
         let calls = LockedCount()
         let owner = WeakAsyncResourceBox<Int>()
         let vm = makeAsyncResourceVM(
@@ -375,7 +381,8 @@ final class AsyncResourceVMConformanceTests: XCTestCase {
         await vm.reload()
 
         XCTAssertEqual(calls.value, 1)
-        XCTAssertEqual(names.values, [])
+        XCTAssertFalse(names.values.contains("state"))
+        XCTAssertEqual(names.values, ["status", "isConstructed"])
         XCTAssertEqual(vm.status, .disposed)
         withExtendedLifetime(subscription) {}
     }
