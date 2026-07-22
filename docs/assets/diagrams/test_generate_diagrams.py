@@ -5,6 +5,7 @@ import json
 import re
 import sys
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -85,6 +86,34 @@ class GenerateDiagramsTests(unittest.TestCase):
         self.assertNotIn("Generated for", html)
         self.assertNotIn("Dark SVG source uses", html)
         self.assertIn("<svg", html)
+        self.assertIn("@media (prefers-reduced-motion: reduce)", html)
+        self.assertIn(".pulse-dot { animation: none; }", html)
+
+    def test_svg_has_accessible_title_and_description(self) -> None:
+        svg = self.generator.svg_doc(self.generator.system_architecture())
+
+        self.assertIn('role="img"', svg)
+        self.assertIn('aria-labelledby="diagram-title diagram-description"', svg)
+        self.assertIn('<title id="diagram-title">VMx System Architecture</title>', svg)
+        self.assertIn('<desc id="diagram-description">', svg)
+
+    def test_flagship_cards_derive_notes_workspace_feature_count(self) -> None:
+        original = self.generator.SOURCE_FACTS
+        self.generator.SOURCE_FACTS = replace(original, notes_feature_count=92)
+        try:
+            diagrams = (
+                self.generator.csharp_avalonia_notes_showcase(),
+                self.generator.python_textual_notes_showcase(),
+                self.generator.typescript_react_notes_showcase(),
+            )
+        finally:
+            self.generator.SOURCE_FACTS = original
+
+        rendered = "\n".join(
+            item for diagram in diagrams for _, items in diagram.cards for item in items
+        )
+        self.assertEqual(rendered.count("92-row Notes Workspace contract"), 3)
+        self.assertNotIn("19-row Notes Workspace contract", rendered)
 
     def test_every_diagram_box_text_stays_inside_bounds(self) -> None:
         for diagram in self.generator.build_diagrams().values():

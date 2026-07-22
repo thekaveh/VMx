@@ -127,9 +127,9 @@ roadmap item to Done.
 
 ### 5.1 Failure before upload
 
-Fix through the normal PR flow. If no NuGet version or GitHub Release exists,
-an unpublished bad tag may be deleted and a new tag created on corrected main.
-Never move a tag after an artifact has been accepted.
+Fix through the normal PR flow. Tags are immutable even before upload: bump to
+a new patch version on corrected `main` and create a new tag. Never move,
+delete, or recreate the failed tag.
 
 ### 5.2 OIDC or account failure
 

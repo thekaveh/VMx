@@ -1,9 +1,11 @@
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex};
+use std::time::Duration;
 
 use vmx::{
-    CollectionChangeAction, ConstructionStatus, Dispatcher, ManualDispatcher, Message, MessageHub,
-    NullDispatcher, VmNode, VmxError,
+    CollectionChangeAction, Command, ConstructionStatus, Dispatcher, ImmediateDispatcher,
+    ManualDispatcher, Message, MessageHub, NullDispatcher, VmNode, VmxError,
 };
 
 type Child = vmx::ComponentVm<&'static str>;
@@ -20,6 +22,32 @@ fn collection_actions(hub: &MessageHub) -> Vec<CollectionChangeAction> {
             _ => None,
         })
         .collect()
+}
+
+#[test]
+fn composite_exposes_parent_delegating_disposable_baseline_commands() {
+    let composite = vmx::CompositeVm::<Child>::new("composite");
+    composite.add(child("leaf")).unwrap();
+    let parent = vmx::CompositeVm::new("parent");
+    parent.add(composite.clone()).unwrap();
+    parent.construct().unwrap();
+    let commands = [
+        composite.select_command(),
+        composite.deselect_command(),
+        composite.select_next_command(),
+        composite.select_previous_command(),
+        composite.reconstruct_command(),
+    ];
+
+    commands[0].execute();
+    assert!(parent.current() == Some(composite.clone()));
+    commands[1].execute();
+    assert!(parent.current().is_none());
+    commands[4].execute();
+    assert!(composite.is_constructed());
+
+    composite.dispose().unwrap();
+    assert!(commands.iter().all(|command| !command.can_execute()));
 }
 
 /// COMP-001 — Add emits CollectionChanged(action=Add)
@@ -243,6 +271,50 @@ fn async_selection_dispatches_current_change_via_foreground() {
     dispatcher.drain();
     assert_eq!(composite.current(), Some(item));
     assert_eq!(*observed.lock().unwrap(), 1);
+}
+
+#[test]
+fn async_selection_with_inline_dispatchers_completes_without_deadlock() {
+    let null = vmx::CompositeVm::new("null");
+    let null_child = child("null-child");
+    null.add(null_child.clone()).unwrap();
+    null_child.construct().unwrap();
+    null.set_async_selection(true);
+    null.select_component(&null_child).unwrap();
+    assert_eq!(null.current(), Some(null_child));
+
+    let immediate = vmx::CompositeVm::<Child, ImmediateDispatcher>::with_services(
+        "immediate",
+        MessageHub::new(),
+        ImmediateDispatcher::new(),
+    );
+    let immediate_child = child("immediate-child");
+    immediate.add(immediate_child.clone()).unwrap();
+    immediate_child.construct().unwrap();
+    immediate.set_async_selection(true);
+    immediate.select_component(&immediate_child).unwrap();
+    assert_eq!(immediate.current(), Some(immediate_child));
+}
+
+#[test]
+fn queued_async_selection_revalidates_membership_before_assignment() {
+    let dispatcher = ManualDispatcher::new();
+    let composite = vmx::CompositeVm::<Child, ManualDispatcher>::with_services(
+        "async-membership",
+        MessageHub::new(),
+        dispatcher.clone(),
+    );
+    let item = child("queued-child");
+    composite.add(item.clone()).unwrap();
+    item.construct().unwrap();
+    composite.set_async_selection(true);
+
+    composite.select_component(&item).unwrap();
+    composite.remove(&item).unwrap();
+    dispatcher.drain();
+
+    assert_eq!(composite.current(), None);
+    assert!(!item.is_current());
 }
 
 /// COMP-011 — deselect_component raises when vm is not Current
@@ -477,6 +549,154 @@ fn duplicate_and_cycle_are_rejected() {
     assert!(descendant.is_empty());
 }
 
+#[test]
+fn builder_population_rejects_duplicate_identity_in_composite_and_group() {
+    let item = child("duplicate-factory");
+    let composite = vmx::CompositeVm::<Child>::builder()
+        .name("composite")
+        .services(MessageHub::new(), NullDispatcher::new())
+        .children({
+            let item = item.clone();
+            move || vec![item.clone(), item.clone()]
+        })
+        .build();
+    assert!(matches!(composite, Err(VmxError::DuplicateChild)));
+
+    let group = vmx::GroupVm::<Child>::builder()
+        .name("group")
+        .services(MessageHub::new(), NullDispatcher::new())
+        .children({
+            let item = item.clone();
+            move || vec![item.clone(), item.clone()]
+        })
+        .build();
+    assert!(matches!(group, Err(VmxError::DuplicateChild)));
+    assert_eq!(item.parent_id(), None);
+}
+
+#[test]
+fn auto_construct_hook_cannot_reparent_before_admission_commits() {
+    let source = vmx::CompositeVm::new("source");
+    let destination = vmx::GroupVm::new("destination");
+    source.set_auto_construct_on_add(true);
+    source.construct().unwrap();
+    let item = child("reentrant");
+    let nested_item = item.clone();
+    let nested_destination = destination.clone();
+    item.on_construct(move || nested_destination.add(nested_item.clone()));
+
+    assert_eq!(
+        source.add(item.clone()),
+        Err(VmxError::OwnershipTransactionInProgress)
+    );
+    assert!(source.is_empty());
+    assert!(destination.is_empty());
+    assert_eq!(item.parent_id(), None);
+}
+
+#[test]
+fn auto_construct_hook_cannot_mutate_destination_membership() {
+    let destination = vmx::GroupVm::new("destination");
+    destination.set_auto_construct_on_add(true);
+    destination.construct().unwrap();
+    let candidate = child("candidate");
+    let nested = child("nested");
+    let destination_from_hook = destination.clone();
+    let nested_from_hook = nested.clone();
+    candidate.on_construct(move || destination_from_hook.add(nested_from_hook.clone()));
+
+    assert_eq!(
+        destination.add(candidate.clone()),
+        Err(VmxError::OwnershipTransactionInProgress)
+    );
+    assert!(destination.is_empty());
+    assert_eq!(candidate.parent_id(), None);
+    assert_eq!(nested.parent_id(), None);
+}
+
+#[test]
+fn auto_construct_hook_disposal_aborts_destination_admission() {
+    let composite = vmx::CompositeVm::new("composite");
+    composite.set_auto_construct_on_add(true);
+    composite.construct().unwrap();
+    let composite_child = child("composite-child");
+    let composite_from_hook = composite.clone();
+    let composite_hook_called = Arc::new(AtomicBool::new(false));
+    let composite_hook_flag = Arc::clone(&composite_hook_called);
+    composite_child.on_construct(move || {
+        composite_hook_flag.store(true, Ordering::SeqCst);
+        composite_from_hook.dispose()
+    });
+
+    let group = vmx::GroupVm::new("group");
+    group.set_auto_construct_on_add(true);
+    group.construct().unwrap();
+    let group_child = child("group-child");
+    let group_from_hook = group.clone();
+    group_child.on_construct(move || group_from_hook.dispose());
+
+    let composite_result = composite.add(composite_child.clone());
+    assert!(composite_hook_called.load(Ordering::SeqCst));
+    assert_eq!(composite.status(), ConstructionStatus::Disposed);
+    assert_eq!(composite_result, Err(VmxError::Disposed));
+    assert_eq!(group.add(group_child.clone()), Err(VmxError::Disposed));
+    assert!(composite.is_empty());
+    assert!(group.is_empty());
+    assert_eq!(composite_child.parent_id(), None);
+    assert_eq!(group_child.parent_id(), None);
+}
+
+#[test]
+fn replacement_hook_cannot_remove_candidate_during_rollback() {
+    let destination = vmx::CompositeVm::new("destination");
+    let old = child("old");
+    destination.add(old.clone()).unwrap();
+    destination.set_auto_construct_on_add(true);
+    destination.construct().unwrap();
+
+    let candidate = child("candidate");
+    let destination_from_hook = destination.clone();
+    let candidate_from_hook = candidate.clone();
+    candidate.on_construct(move || destination_from_hook.remove(&candidate_from_hook));
+
+    assert_eq!(
+        destination.replace(0, candidate.clone()),
+        Err(VmxError::OwnershipTransactionInProgress)
+    );
+    assert_eq!(destination.items(), vec![old.clone()]);
+    assert_eq!(old.parent_id(), Some(destination.id()));
+    assert_eq!(candidate.parent_id(), None);
+}
+
+#[test]
+fn transfer_hook_cannot_mutate_old_parent_before_rollback() {
+    let old_parent = vmx::CompositeVm::new("old-parent");
+    let before = child("before");
+    let candidate = child("candidate");
+    let after = child("after");
+    old_parent.add(before.clone()).unwrap();
+    old_parent.add(candidate.clone()).unwrap();
+    old_parent.add(after.clone()).unwrap();
+    old_parent.set_current(Some(candidate.clone())).unwrap();
+
+    let destination = vmx::GroupVm::new("destination");
+    destination.set_auto_construct_on_add(true);
+    destination.construct().unwrap();
+    let nested = child("nested");
+    let old_parent_from_hook = old_parent.clone();
+    let nested_from_hook = nested.clone();
+    candidate.on_construct(move || old_parent_from_hook.add(nested_from_hook.clone()));
+
+    assert_eq!(
+        destination.add(candidate.clone()),
+        Err(VmxError::OwnershipTransactionInProgress)
+    );
+    assert_eq!(old_parent.items(), vec![before, candidate.clone(), after]);
+    assert_eq!(old_parent.current(), Some(candidate));
+    assert_eq!(nested.parent_id(), None);
+    assert!(destination.is_empty());
+}
+
 /// COMP-040 — A failed destination attach restores exact old membership/current state.
 #[test]
 fn failed_attach_rolls_back_old_parent_state() {
@@ -497,6 +717,322 @@ fn failed_attach_rolls_back_old_parent_state() {
     assert_eq!(old_parent.items(), vec![item.clone()]);
     assert_eq!(old_parent.current(), Some(item));
     assert!(destination.is_empty());
+}
+
+/// COMP-040 — old-parent disposal waits until successful transfer commit.
+#[test]
+fn old_composite_disposal_is_deferred_until_transfer_commit() {
+    let item = child("deferred-success");
+    let old_parent = vmx::CompositeVm::new("old");
+    old_parent.add(item.clone()).unwrap();
+    let destination = vmx::GroupVm::new("destination");
+    destination.set_auto_construct_on_add(true);
+    destination.construct().unwrap();
+    let old_from_hook = old_parent.clone();
+    item.on_construct(move || old_from_hook.dispose());
+
+    destination.add(item.clone()).unwrap();
+
+    assert_eq!(old_parent.status(), ConstructionStatus::Disposed);
+    assert!(old_parent.is_empty());
+    assert_eq!(destination.items(), vec![item.clone()]);
+    assert_eq!(item.status(), ConstructionStatus::Constructed);
+    assert_eq!(item.parent_id(), Some(destination.id()));
+}
+
+/// COMP-040 — rollback restores membership before deferred old-parent disposal.
+#[test]
+fn failed_transfer_rolls_back_before_deferred_old_group_disposal() {
+    let item = child("deferred-failure");
+    let old_parent = vmx::GroupVm::new("old");
+    old_parent.add(item.clone()).unwrap();
+    let destination = vmx::CompositeVm::new("destination");
+    destination.set_auto_construct_on_add(true);
+    destination.construct().unwrap();
+    let old_from_hook = old_parent.clone();
+    item.on_construct(move || {
+        old_from_hook.dispose()?;
+        Err(VmxError::Other("boom".to_string()))
+    });
+
+    assert_eq!(
+        destination.add(item.clone()),
+        Err(VmxError::Other("boom".to_string()))
+    );
+
+    assert_eq!(old_parent.status(), ConstructionStatus::Disposed);
+    assert_eq!(old_parent.items(), vec![item.clone()]);
+    assert!(destination.is_empty());
+    assert_eq!(item.status(), ConstructionStatus::Disposed);
+    assert_eq!(item.parent_id(), Some(old_parent.id()));
+}
+
+/// Regression — destination disposal after successful auto-construction rolls lifecycle back.
+#[test]
+fn destination_disposal_after_auto_construct_destructs_detached_children() {
+    let composite_child = child("composite-child");
+    let composite = vmx::CompositeVm::new("composite");
+    composite.set_auto_construct_on_add(true);
+    composite.construct().unwrap();
+    let composite_from_hook = composite.clone();
+    composite_child.on_construct(move || composite_from_hook.dispose());
+
+    assert_eq!(
+        composite.add(composite_child.clone()),
+        Err(VmxError::Disposed)
+    );
+    assert!(composite.is_empty());
+    assert_eq!(composite_child.status(), ConstructionStatus::Destructed);
+    assert_eq!(composite.status(), ConstructionStatus::Disposed);
+
+    let group_child = child("group-child");
+    let group = vmx::GroupVm::new("group");
+    group.set_auto_construct_on_add(true);
+    group.construct().unwrap();
+    let group_from_hook = group.clone();
+    group_child.on_construct(move || group_from_hook.dispose());
+
+    assert_eq!(group.add(group_child.clone()), Err(VmxError::Disposed));
+    assert!(group.is_empty());
+    assert_eq!(group_child.status(), ConstructionStatus::Destructed);
+    assert_eq!(group.status(), ConstructionStatus::Disposed);
+}
+
+/// COMP-040 — factory population rolls back if a successful construct disposes its destination.
+#[test]
+fn population_disposal_rolls_back_constructed_child() {
+    let item = child("population-child");
+    let mapped_item = item.clone();
+    let destination = vmx::ModeledCompositeVm::new(
+        "destination",
+        MessageHub::new(),
+        NullDispatcher::new(),
+        || vec![1],
+        move |_| mapped_item.clone(),
+    );
+    let destination_from_hook = destination.clone();
+    item.on_construct(move || destination_from_hook.dispose());
+
+    assert_eq!(destination.construct(), Err(VmxError::Disposed));
+    assert!(
+        destination.items().is_empty(),
+        "len={}, child={:?}, destination={:?}, parent={:?}",
+        destination.items().len(),
+        item.status(),
+        destination.status(),
+        item.parent_id()
+    );
+    assert_eq!(item.status(), ConstructionStatus::Destructed);
+    assert_eq!(destination.status(), ConstructionStatus::Disposed);
+}
+
+/// COMP-040 — replacement rollback precedes deferred composite/group disposal.
+#[test]
+fn replacement_disposal_restores_old_child_before_terminal_cascade() {
+    let old = child("old");
+    let candidate = child("candidate");
+    let composite = vmx::CompositeVm::new("composite");
+    composite.add(old.clone()).unwrap();
+    composite.set_auto_construct_on_add(true);
+    composite.construct().unwrap();
+    let composite_from_hook = composite.clone();
+    candidate.on_construct(move || composite_from_hook.dispose());
+
+    assert_eq!(
+        composite.replace(0, candidate.clone()),
+        Err(VmxError::Disposed)
+    );
+    assert!(composite.items() == vec![old.clone()]);
+    assert_eq!(old.status(), ConstructionStatus::Disposed);
+    assert_eq!(candidate.status(), ConstructionStatus::Destructed);
+    assert_eq!(candidate.parent_id(), None);
+
+    let group_old = child("group-old");
+    let group_candidate = child("group-candidate");
+    let group = vmx::GroupVm::new("group");
+    group.add(group_old.clone()).unwrap();
+    group.set_auto_construct_on_add(true);
+    group.construct().unwrap();
+    let group_from_hook = group.clone();
+    group_candidate.on_construct(move || group_from_hook.dispose());
+
+    assert_eq!(
+        group.replace(0, group_candidate.clone()),
+        Err(VmxError::Disposed)
+    );
+    assert!(group.items() == vec![group_old.clone()]);
+    assert_eq!(group_old.status(), ConstructionStatus::Disposed);
+    assert_eq!(group_candidate.status(), ConstructionStatus::Destructed);
+    assert_eq!(group_candidate.parent_id(), None);
+}
+
+/// COMP-040 — deferred disposal failure follows committed transfer events.
+#[test]
+fn deferred_disposal_failure_follows_committed_transfer_events() {
+    let item = child("moving");
+    let failing_sibling = child("failing-sibling");
+    failing_sibling.on_dispose(|| Err(VmxError::Other("dispose failure".to_string())));
+    let old_hub = MessageHub::new();
+    let old_parent = vmx::GroupVm::with_services("old", old_hub.clone(), NullDispatcher::new());
+    old_parent.add(item.clone()).unwrap();
+    old_parent.add(failing_sibling.clone()).unwrap();
+    let destination_hub = MessageHub::new();
+    let destination = vmx::CompositeVm::with_services(
+        "destination",
+        destination_hub.clone(),
+        NullDispatcher::new(),
+    );
+    destination.set_auto_construct_on_add(true);
+    destination.construct().unwrap();
+    let old_from_hook = old_parent.clone();
+    item.on_construct(move || old_from_hook.dispose());
+
+    assert_eq!(
+        destination.add(item.clone()),
+        Err(VmxError::Other("dispose failure".to_string()))
+    );
+
+    assert_eq!(
+        collection_actions(&old_hub),
+        vec![
+            CollectionChangeAction::Add,
+            CollectionChangeAction::Add,
+            CollectionChangeAction::Remove,
+        ]
+    );
+    assert_eq!(
+        collection_actions(&destination_hub),
+        vec![CollectionChangeAction::Add]
+    );
+    assert_eq!(old_parent.status(), ConstructionStatus::Disposed);
+    assert_eq!(failing_sibling.status(), ConstructionStatus::Disposed);
+    assert_eq!(destination.items(), vec![item.clone()]);
+    assert_eq!(item.parent_id(), Some(destination.id()));
+}
+
+/// COMP-040 — attachment failure precedes deferred disposal failure.
+#[test]
+fn attachment_failure_precedes_deferred_disposal_failure() {
+    let item = child("moving");
+    item.on_dispose(|| Err(VmxError::Other("dispose failure".to_string())));
+    let old_parent = vmx::GroupVm::new("old");
+    old_parent.add(item.clone()).unwrap();
+    let destination = vmx::CompositeVm::new("destination");
+    destination.set_auto_construct_on_add(true);
+    destination.construct().unwrap();
+    let old_from_hook = old_parent.clone();
+    item.on_construct(move || {
+        old_from_hook.dispose()?;
+        Err(VmxError::Other("attachment failure".to_string()))
+    });
+
+    assert_eq!(
+        destination.add(item.clone()),
+        Err(VmxError::Other("attachment failure".to_string()))
+    );
+
+    assert_eq!(old_parent.status(), ConstructionStatus::Disposed);
+    assert_eq!(item.status(), ConstructionStatus::Disposed);
+    assert_eq!(old_parent.items(), vec![item.clone()]);
+    assert!(destination.is_empty());
+}
+
+/// COMP-040 — late disposal failure cannot make committed population retry.
+#[test]
+fn late_disposal_failure_does_not_retry_committed_population() {
+    let item = child("moving");
+    let failing_sibling = child("failing-sibling");
+    failing_sibling.on_dispose(|| Err(VmxError::Other("dispose failure".to_string())));
+    let old_hub = MessageHub::new();
+    let old_parent = vmx::GroupVm::with_services("old", old_hub.clone(), NullDispatcher::new());
+    old_parent.add(item.clone()).unwrap();
+    old_parent.add(failing_sibling).unwrap();
+    let old_from_hook = old_parent.clone();
+    item.on_construct(move || old_from_hook.dispose());
+    let calls = Arc::new(AtomicUsize::new(0));
+    let calls_from_factory = Arc::clone(&calls);
+    let mapped_item = item.clone();
+    let destination_hub = MessageHub::new();
+    let destination = vmx::ModeledCompositeVm::<i32, Child, NullDispatcher>::new(
+        "destination",
+        destination_hub.clone(),
+        NullDispatcher::new(),
+        move || {
+            calls_from_factory.fetch_add(1, Ordering::SeqCst);
+            vec![1]
+        },
+        move |_| mapped_item.clone(),
+    );
+
+    assert_eq!(
+        destination.construct(),
+        Err(VmxError::Other("dispose failure".to_string()))
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(destination.items(), vec![item.clone()]);
+    assert!(collection_actions(&old_hub).contains(&CollectionChangeAction::Remove));
+    assert!(collection_actions(&destination_hub).contains(&CollectionChangeAction::Add));
+
+    destination.construct().unwrap();
+
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(destination.status(), ConstructionStatus::Constructed);
+}
+
+/// COMP-040 — foreign-thread disposal waits for transfer commit.
+#[test]
+fn concurrent_old_parent_disposal_waits_for_transfer_commit() {
+    let item = child("concurrent-disposal");
+    let old_parent = vmx::GroupVm::new("old");
+    old_parent.add(item.clone()).unwrap();
+    let destination = vmx::CompositeVm::new("destination");
+    destination.set_auto_construct_on_add(true);
+    destination.construct().unwrap();
+    let (hook_entered_tx, hook_entered_rx) = mpsc::channel();
+    let (release_hook_tx, release_hook_rx) = mpsc::channel();
+    let release_hook_rx = Arc::new(Mutex::new(release_hook_rx));
+    item.on_construct(move || {
+        hook_entered_tx.send(()).unwrap();
+        release_hook_rx
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap();
+        Ok(())
+    });
+
+    let transfer_destination = destination.clone();
+    let transfer_item = item.clone();
+    let transfer = std::thread::spawn(move || transfer_destination.add(transfer_item));
+    hook_entered_rx
+        .recv_timeout(Duration::from_secs(2))
+        .unwrap();
+    let (dispose_started_tx, dispose_started_rx) = mpsc::channel();
+    let (dispose_done_tx, dispose_done_rx) = mpsc::channel();
+    let dispose_parent = old_parent.clone();
+    let disposal = std::thread::spawn(move || {
+        dispose_started_tx.send(()).unwrap();
+        let result = dispose_parent.dispose();
+        dispose_done_tx.send(result).unwrap();
+    });
+    dispose_started_rx
+        .recv_timeout(Duration::from_secs(2))
+        .unwrap();
+    assert!(dispose_done_rx
+        .recv_timeout(Duration::from_millis(50))
+        .is_err());
+
+    release_hook_tx.send(()).unwrap();
+    transfer.join().unwrap().unwrap();
+    dispose_done_rx
+        .recv_timeout(Duration::from_secs(2))
+        .unwrap()
+        .unwrap();
+    disposal.join().unwrap();
+    assert_eq!(old_parent.status(), ConstructionStatus::Disposed);
+    assert!(old_parent.is_empty());
+    assert_eq!(destination.items(), vec![item.clone()]);
+    assert_eq!(item.status(), ConstructionStatus::Constructed);
 }
 
 /// COMP-040 — Lazy population rolls back earlier transfers and remains retryable.
@@ -556,6 +1092,36 @@ fn failed_population_rolls_back_as_one_transaction() {
     assert_eq!(destination.len(), 2);
 }
 
+#[test]
+fn failed_population_surfaces_lifecycle_compensation_failure() {
+    let first = child("first");
+    first.on_destruct(|| Err(VmxError::Other("compensation failed".to_string())));
+    let failing = child("failing");
+    failing.on_construct(|| Err(VmxError::Other("construction failed".to_string())));
+    let first_for_mapper = first.clone();
+    let failing_for_mapper = failing.clone();
+    let destination = vmx::ModeledCompositeVm::<i32, Child, NullDispatcher>::new(
+        "destination",
+        MessageHub::new(),
+        NullDispatcher::new(),
+        || vec![1, 2],
+        move |model| {
+            if model == 1 {
+                first_for_mapper.clone()
+            } else {
+                failing_for_mapper.clone()
+            }
+        },
+    );
+
+    assert_eq!(
+        destination.construct(),
+        Err(VmxError::Other("compensation failed".to_string()))
+    );
+    assert_eq!(first.status(), ConstructionStatus::Constructed);
+    assert!(destination.is_empty());
+}
+
 /// COMP-041 — Successful transfer publishes old remove before destination add.
 #[test]
 fn transfer_publishes_remove_before_add() {
@@ -588,6 +1154,109 @@ fn transfer_publishes_remove_before_add() {
     destination.add(item).unwrap();
 
     assert_eq!(*order.lock().unwrap(), vec!["remove", "add"]);
+}
+
+/// COMP-041 — A throwing old-current callback cannot suppress committed events.
+#[test]
+fn transfer_finishes_publication_before_resuming_old_current_panic() {
+    let old_hub = MessageHub::new();
+    let destination_hub = MessageHub::new();
+    let old_parent = vmx::CompositeVm::with_services("old", old_hub.clone(), NullDispatcher::new());
+    let destination = vmx::CompositeVm::with_services(
+        "destination",
+        destination_hub.clone(),
+        NullDispatcher::new(),
+    );
+    let item = child("ordered");
+    old_parent.add(item.clone()).unwrap();
+    old_parent.set_current(Some(item.clone())).unwrap();
+    old_parent.on_current_changed(|_| panic!("old current callback failed"));
+
+    let order = Arc::new(Mutex::new(Vec::new()));
+    let old_order = Arc::clone(&order);
+    let _old_subscription = old_hub.subscribe(move |message| {
+        if matches!(message, Message::CollectionChanged(change) if change.action == CollectionChangeAction::Remove)
+        {
+            old_order.lock().unwrap().push("remove");
+        }
+    });
+    let destination_order = Arc::clone(&order);
+    let _destination_subscription = destination_hub.subscribe(move |message| {
+        if matches!(message, Message::CollectionChanged(change) if change.action == CollectionChangeAction::Add)
+        {
+            destination_order.lock().unwrap().push("add");
+        }
+    });
+
+    let outcome = catch_unwind(AssertUnwindSafe(|| destination.add(item.clone())));
+
+    assert!(outcome.is_err());
+    assert!(old_parent.is_empty());
+    assert!(old_parent.current().is_none());
+    assert_eq!(destination.items(), vec![item]);
+    assert_eq!(*order.lock().unwrap(), vec!["remove", "add"]);
+}
+
+/// COMP-041 — Group destinations also finish transfer publication before panic.
+#[test]
+fn transfer_to_group_finishes_publication_before_resuming_old_current_panic() {
+    let old_hub = MessageHub::new();
+    let destination_hub = MessageHub::new();
+    let old_parent = vmx::CompositeVm::with_services("old", old_hub.clone(), NullDispatcher::new());
+    let destination = vmx::GroupVm::with_services(
+        "destination",
+        destination_hub.clone(),
+        NullDispatcher::new(),
+    );
+    let item = child("ordered");
+    old_parent.add(item.clone()).unwrap();
+    old_parent.set_current(Some(item.clone())).unwrap();
+    old_parent.on_current_changed(|_| panic!("old current callback failed"));
+
+    let order = Arc::new(Mutex::new(Vec::new()));
+    let old_order = Arc::clone(&order);
+    let _old_subscription = old_hub.subscribe(move |message| {
+        if matches!(message, Message::CollectionChanged(change) if change.action == CollectionChangeAction::Remove)
+        {
+            old_order.lock().unwrap().push("remove");
+        }
+    });
+    let destination_order = Arc::clone(&order);
+    let _destination_subscription = destination_hub.subscribe(move |message| {
+        if matches!(message, Message::CollectionChanged(change) if change.action == CollectionChangeAction::Add)
+        {
+            destination_order.lock().unwrap().push("add");
+        }
+    });
+
+    let outcome = catch_unwind(AssertUnwindSafe(|| destination.add(item.clone())));
+
+    assert!(outcome.is_err());
+    assert!(old_parent.is_empty());
+    assert_eq!(destination.items(), vec![item]);
+    assert_eq!(*order.lock().unwrap(), vec!["remove", "add"]);
+}
+
+/// COMP-041 — Transfer callbacks may replace themselves without deadlocking.
+#[test]
+fn transfer_old_current_callback_can_replace_itself() {
+    let old_parent = vmx::CompositeVm::new("old");
+    let destination = vmx::CompositeVm::new("destination");
+    let item = child("replace-callback");
+    old_parent.add(item.clone()).unwrap();
+    old_parent.set_current(Some(item.clone())).unwrap();
+    let callback_parent = old_parent.clone();
+    old_parent.on_current_changed(move |_| callback_parent.on_current_changed(|_| {}));
+
+    let (sender, receiver) = mpsc::channel();
+    let destination_for_transfer = destination.clone();
+    std::thread::spawn(move || {
+        let _ = sender.send(destination_for_transfer.add(item));
+    });
+
+    assert_eq!(receiver.recv_timeout(Duration::from_secs(1)), Ok(Ok(())));
+    assert!(old_parent.is_empty());
+    assert_eq!(destination.len(), 1);
 }
 
 /// COMP-013 — BatchUpdate suppresses per-mutation events and emits one Reset
@@ -678,6 +1347,69 @@ fn on_current_changed_fires_after_current_changes() {
     );
 }
 
+/// COMP-026 — a current-change callback may dispose the same composite.
+#[test]
+fn current_change_callback_can_dispose_the_composite_without_deadlocking() {
+    let composite = vmx::CompositeVm::new("root");
+    let item = child("a");
+    composite.add(item.clone()).unwrap();
+    item.construct().unwrap();
+    let callback_composite = composite.clone();
+    let callback_status = Arc::new(Mutex::new(None));
+    let seen_status = Arc::clone(&callback_status);
+    composite.on_current_changed(move |current| {
+        *seen_status.lock().unwrap() = current.map(|child| child.status());
+        callback_composite.dispose().unwrap();
+    });
+
+    let worker_composite = composite.clone();
+    let (completed, completion) = mpsc::channel();
+    std::thread::spawn(move || {
+        completed
+            .send(worker_composite.set_current(Some(item)))
+            .unwrap();
+    });
+
+    assert_eq!(
+        completion
+            .recv_timeout(Duration::from_secs(1))
+            .expect("re-entrant disposal must not deadlock current assignment"),
+        Ok(())
+    );
+    assert_eq!(
+        *callback_status.lock().unwrap(),
+        Some(ConstructionStatus::Constructed)
+    );
+    assert_eq!(composite.status(), ConstructionStatus::Disposed);
+}
+
+#[test]
+fn dispatched_current_change_callback_can_dispose_without_deadlocking() {
+    let composite =
+        vmx::CompositeVm::with_services("root", MessageHub::new(), ImmediateDispatcher::new());
+    let item = child("a");
+    composite.add(item.clone()).unwrap();
+    composite.set_async_selection(true);
+    let callback_composite = composite.clone();
+    composite.on_current_changed(move |_| callback_composite.dispose().unwrap());
+
+    let worker_composite = composite.clone();
+    let (completed, completion) = mpsc::channel();
+    std::thread::spawn(move || {
+        completed
+            .send(worker_composite.set_current(Some(item)))
+            .unwrap();
+    });
+
+    assert_eq!(
+        completion
+            .recv_timeout(Duration::from_secs(1))
+            .expect("re-entrant disposal must not deadlock dispatched current assignment"),
+        Ok(())
+    );
+    assert_eq!(composite.status(), ConstructionStatus::Disposed);
+}
+
 /// COMP-027 — Adding a child sets its Parent; removing clears it
 #[test]
 fn add_and_remove_manage_child_parent() {
@@ -686,7 +1418,17 @@ fn add_and_remove_manage_child_parent() {
 
     composite.add(item.clone()).unwrap();
     assert_eq!(item.parent_id(), Some(composite.id()));
+    item.construct().unwrap();
+    assert!(item.can_select());
+    item.select();
+    assert_eq!(composite.current(), Some(item.clone()));
+    assert!(item.is_current());
+    item.deselect();
+    assert_eq!(composite.current(), None);
 
     composite.remove(&item).unwrap();
     assert_eq!(item.parent_id(), None);
+    assert!(!item.can_select());
+    item.select();
+    assert_eq!(composite.current(), None);
 }

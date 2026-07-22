@@ -44,8 +44,11 @@ invent surface APIs that belong on the concrete primitive pages.
 
 ## 6.1.4. Cross-Language Surface
 
-The conceptual shape is identical across C#, Python, TypeScript, Swift, and
-Rust. The surface idiom changes:
+The normative concepts are shared across C#, Python, TypeScript, Swift, and
+Rust. C#, Python, TypeScript, and Swift currently align member-for-member; Rust
+is catalog-complete with remaining public-surface gaps tracked in the
+[Rust parity ledger](../../maintenance/2026-07-16-rust-capability-parity.md).
+The surface idiom changes:
 
 | Concept            | C#                        | Python             | TypeScript                | Swift                     | Rust                    |
 | ------------------ | ------------------------- | ------------------ | ------------------------- | ------------------------- | ----------------------- |

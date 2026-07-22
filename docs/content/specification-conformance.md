@@ -23,12 +23,16 @@ implementation.
 
 The current catalog contains:
 
-- 395 library IDs implemented by all five full-parity source flavors
+- 396 library IDs implemented by all five catalog-complete source flavors
 - 5 `THEME-00x` scenario IDs exercised by the flagship example apps
-- 400 total IDs in the published catalog
+- 401 total IDs in the published catalog
 
 The source overview is here:
 [spec/12-conformance.md](../../spec/12-conformance.md).
+
+Catalog completeness is an executable ID-coverage statement. Residual Rust
+member and edge-behavior convergence is tracked separately in the
+[Rust parity ledger](../maintenance/2026-07-16-rust-capability-parity.md).
 
 ## 10.4. How The Repo Enforces It
 

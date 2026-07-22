@@ -40,8 +40,10 @@ pub const MIN_SPEC_VERSION: &str = "3.22.0";
 mod runtime;
 pub use runtime::*;
 pub(crate) use runtime::{
-    begin_parent_transfer, evaluate_command_predicate, finish_with_first_error, lock, next_id,
-    retain_first_error, wait, ComponentCore, ModelHint, ParentRegistration, ParentTransfer,
+    begin_membership_transaction, begin_parent_transfer, evaluate_command_predicate,
+    finish_with_first_error, lock, next_id, retain_first_error, retain_parent_transfer_commit,
+    wait, ComponentCore, MembershipDisposeDisposition, MembershipTransactionControl,
+    MembershipTransactionGuard, ModelHint, ParentRegistration, ParentTransfer,
     HIERARCHY_TOPOLOGY_GATE,
 };
 
@@ -183,6 +185,7 @@ mod tests {
         let hub = MessageHub::new();
         hub.send(Message::Custom {
             sender_id: 1,
+            sender_name: "sender".to_string(),
             name: "before".to_string(),
         });
         let seen = Arc::new(Mutex::new(Vec::new()));
@@ -190,6 +193,7 @@ mod tests {
         let _sub = hub.subscribe(move |message| lock(&seen_clone).push(message.clone()));
         hub.send(Message::Custom {
             sender_id: 1,
+            sender_name: "sender".to_string(),
             name: "after".to_string(),
         });
         assert_eq!(lock(&seen).len(), 1);

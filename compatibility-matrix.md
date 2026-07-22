@@ -1,12 +1,12 @@
 # Spec ↔ language compatibility matrix
 
-Maintained by hand alongside spec releases.
+Updated alongside spec and flavor releases.
 
 ## 1. Matrix
 
-| spec  | csharp          | python          | typescript      | swift           | rust          |
+| spec  | python          | csharp          | typescript      | swift           | rust          |
 | ----- | --------------- | --------------- | --------------- | --------------- | ------------- |
-| 3.22.x | 3.22.0[^current] | 3.22.0[^current] | 3.23.0[^current] | 3.22.0[^swift] | 0.25.0[^rust] |
+| 3.22.x | 3.22.0[^current] <!-- x-release-please-version --> | 3.22.0[^current] | 3.23.0[^current] | 3.22.0[^swift] | 0.25.0[^rust] |
 | 3.21.x | —               | —               | —               | —               | —             |
 | 3.20.x[^legacy-semantic-tag-only] | —               | —               | —               | 3.20.0[^swift] | 0.20.0–0.22.0[^rust-source] |
 | 3.19.x | —               | —               | —               | —               | 0.19.0[^rust-source] |
@@ -18,8 +18,8 @@ Maintained by hand alongside spec releases.
 | 3.13.x | —               | —               | —               | —               | 0.13.0[^rust-source] |
 | 3.3.x | —               | —               | —               | —               | 0.3.0        |
 | 3.2.x | —               | —               | —               | —               | 0.2.0        |
-| 3.1.x | —               | 3.1.0           | —               | —               | 0.1.0        |
-| 2.6.x | 2.6.0           | 2.6.1           | 2.6.0           | 2.6.0 (subset)  | —             |
+| 3.1.x | 3.1.0           | —               | —               | —               | 0.1.0        |
+| 2.6.x | 2.6.1           | 2.6.0           | 2.6.0           | 2.6.0 (subset)  | —             |
 | 2.4.x | 2.4.0           | 2.4.0           | 2.4.0           | 2.4.0 (subset)  | —             |
 | 2.3.x | 2.3.0           | 2.3.0           | 2.3.0           | —               | —             |
 | 2.2.x | 2.2.0           | 2.2.0           | 2.2.0           | —               | —             |
@@ -53,7 +53,7 @@ semantics, `FormVM` (snapshot/dirty/approve/deny lifecycle), dialog
 service (`DialogService` / `NullDialogService`), and the notifications
 sub-package (`NotificationHub`, `NotificationVM`, `ConfirmationVM`,
 `makeConfirm` bridge) —
-**395 of 395 library conformance IDs + 5 `THEME-00x` scenario IDs = 400 total
+**396 of 396 library conformance IDs + 5 `THEME-00x` scenario IDs = 401 total
 (Swift UI-backed total parity) as of ADR-0066/ADR-0067 and ADR-0068..ADR-0100** (library IDs: base 44 per
 ADR-0037/ADR-0053; +50 leaf-area IDs per ADR-0059; +30 collections IDs per
 ADR-0060; +29 hierarchical/threading/expand-collapse IDs per ADR-0061;
@@ -73,9 +73,13 @@ and public-hub IDs per ADR-0090; +1 inert modeled-assignment ID per ADR-0091;
 +10 dynamic aggregate-change-stream IDs per ADR-0098;
 +7 searchable-source-reactivity IDs per ADR-0099;
 +11 async-resource IDs per ADR-0100;
++4 atomic container-ownership IDs per ADR-0107;
++1 canonical forwarding-ownership ID per ADR-0124;
 THEME-001..005 covered by the
-`examples/swift/notes-showcase/` flagship — ADR-0067). Swift is at full parity
-with C#, Python, TypeScript, and Rust. See `langs/swift/README.md` §5.
+`examples/swift/notes-showcase/` flagship — ADR-0067). Swift has member-level
+parity with C#, Python, and TypeScript. Rust is catalog-complete but retains the
+documented source-surface convergence backlog. See `langs/swift/README.md` §5
+and `docs/maintenance/2026-07-16-rust-capability-parity.md`.
 
 [^current]: C# and Python are on the 3.22.0 in-development source line.
 TypeScript 3.23.0 implements spec 3.22.0. Python's latest PyPI release remains
@@ -89,9 +93,12 @@ the immutable `v3.20.0` semantic tag. The matching `swift-v3.20.0` operational
 tag and [GitHub Release](https://github.com/thekaveh/VMx/releases/tag/swift-v3.20.0)
 point to the same `main` commit.
 
-[^rust]: Rust is a source-tree full-parity flavor promoted by ADR-0081. It
-is at source version 0.25.0, declares `MIN_SPEC_VERSION = "3.22.0"`, and carries behavioral tests for all 395
-library conformance IDs. It has not yet been published to crates.io.
+[^rust]: Rust is a source-tree, catalog-complete flavor promoted by ADR-0081. It
+is at source version 0.25.0, declares `MIN_SPEC_VERSION = "3.22.0"`, and carries
+behavioral tests for all 396 library conformance IDs. Residual member and edge-
+behavior convergence is tracked in
+`docs/maintenance/2026-07-16-rust-capability-parity.md`; it has not yet been
+published to crates.io.
 
 [^rust-source]: Rust `0.13.0`, `0.14.0`, `0.15.0`, `0.16.0`, `0.17.0`,
 `0.18.0`, and `0.19.0` record historical source-tree parity for spec 3.13.x
@@ -114,12 +121,13 @@ The C# core package `VMx` ships with two opt-in companion assemblies. Each
 versions independently (per ADR-0009 / ADR-0013) but declares the spec
 version it implements.
 
-| Package                                                                                                    | Current | Spec  |
-| ---------------------------------------------------------------------------------------------------------- | ------- | ----- |
-| [`VMx.Extensions.DependencyInjection`](https://www.nuget.org/packages/VMx.Extensions.DependencyInjection/) | 2.1.1   | 2.1.x |
-| [`VMx.Notifications`](https://www.nuget.org/packages/VMx.Notifications/)                                   | 1.2.0   | 2.6.x |
+| Package                                | Current | Spec  |
+| -------------------------------------- | ------- | ----- |
+| `VMx.Extensions.DependencyInjection`   | 2.1.1   | 2.1.x |
+| `VMx.Notifications`                    | 1.2.0   | 2.6.x |
 
-> **Note:** Companion packages (`VMx.Notifications`, `VMx.Extensions.DependencyInjection`) version
+> **Note:** These names become registry links only after their first NuGet
+> publication. Companion packages (`VMx.Notifications`, `VMx.Extensions.DependencyInjection`) version
 > independently from `VMx` core, starting from 1.0.0 (per ADR-0013). The `1.2.0` shown above is not
 > a divergence from the spec — it is the companion package's own version counter. The **Spec**
 > column is the spec revision each companion's own feature surface implements; it is not the core

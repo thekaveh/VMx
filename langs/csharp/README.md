@@ -5,7 +5,7 @@ spec-compatible with the Python, TypeScript, Swift, and Rust flavors.
 
 ## 1. Status
 
-**v3.22.0** — implements `spec-v3.22.0` end-to-end. 395/395 library conformance IDs
+**v3.22.0** — implements `spec-v3.22.0` end-to-end. 396/396 library conformance IDs
 pass. Multi-targets `netstandard2.0` and `net8.0`.
 Two companion assemblies ship: `VMx.Extensions.DependencyInjection`
 (`services.AddVMx(...)`) at `2.1.1` and `VMx.Notifications` (opt-in
@@ -22,10 +22,14 @@ published yet; use a project reference for local development until a `csharp-v*`
 release tag publishes it.
 
 ```bash
+# After the first NuGet publication
 dotnet add package VMx
 
 # Optional DI integration (Microsoft.Extensions.DependencyInjection)
 dotnet add package VMx.Extensions.DependencyInjection
+
+# Source checkout today (VMx cloned beside the consumer)
+dotnet add MyApp.csproj reference ../VMx/langs/csharp/src/VMx/VMx.csproj
 ```
 
 ## 3. Quick start
@@ -288,12 +292,12 @@ The companion package `VMx.Notifications` (spec v2.1+) adds:
 
 ## 5. Conformance
 
-All 395 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5).
+All 396 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5).
 
 ```
 v1.x   LIFE-001..013  HUB-001..007  PROP-001..004  CMD-001..007
        CVM-001..010   COMP-001..013 GRP-001..006   AGG-001..005
-       FWD-001..003   BLD-001..004  THR-001..004   UTIL-001..003
+       FWD-001..004   BLD-001..004  THR-001..004   UTIL-001..003
 v2.0   CAP-001..020   NULL-001..003 DPROP-001..012 CMDD-001..009
        NOTIF-001..010 COMP-014..024 GRP-007..010   EXP-001..005
        LOC-001..003

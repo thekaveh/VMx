@@ -74,6 +74,20 @@ def test_swift_release_gates_both_packages_and_public_consumer() -> None:
     assert '"$tag_version"' in workflow
 
 
+def test_swift_release_separates_read_only_verification_from_write_authority() -> None:
+    workflow = _workflow("release.yml")
+    verify = workflow.split("\n  swift-verify:\n", maxsplit=1)[1].split(
+        "\n  swift-release:\n", maxsplit=1
+    )[0]
+    release = workflow.split("\n  swift-release:\n", maxsplit=1)[1]
+
+    assert "contents: read" in verify
+    assert "contents: write" not in verify
+    assert "needs: [swift-verify, release-metadata]" in release
+    assert "contents: write" in release
+    assert "gh release create" in release
+
+
 def test_swift_release_uses_changelog_notes_after_verification() -> None:
     workflow = _workflow("release.yml")
 
@@ -88,7 +102,7 @@ def test_swift_release_uses_changelog_notes_after_verification() -> None:
 
 def test_swift_release_uses_portable_awk_next_heading_pattern() -> None:
     workflow = _workflow("release.yml")
-    swift_job = workflow.split("\n  swift:\n", maxsplit=1)[1]
+    swift_job = workflow.split("\n  swift-release:\n", maxsplit=1)[1]
 
     assert r"capture && /^## \[/ { exit }" in swift_job
     assert r"capture && /^## \\[/ { exit }" not in swift_job
@@ -97,5 +111,4 @@ def test_swift_release_uses_portable_awk_next_heading_pattern() -> None:
 def test_release_contract_suite_triggers_on_swift_workflow_changes() -> None:
     workflow = _workflow("conformance.yml")
 
-    assert '- ".github/workflows/swift.yml"' in workflow
-    assert '- ".github/workflows/release.yml"' in workflow
+    assert workflow.count('- ".github/workflows/**"') == 1

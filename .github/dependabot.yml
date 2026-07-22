@@ -1,0 +1,65 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly, day: monday }
+    target-branch: develop
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directories:
+      - /langs/typescript
+      - /examples/typescript/console/hello-vmx
+      - /examples/typescript/react/notes-showcase
+    schedule: { interval: weekly, day: monday }
+    target-branch: develop
+    groups:
+      npm:
+        patterns: ["*"]
+        group-by: dependency-name
+
+  - package-ecosystem: cargo
+    directories:
+      - /langs/rust
+      - /examples/rust/console/hello-vmx
+      - /examples/rust/tui/notes-showcase
+    schedule: { interval: weekly, day: monday }
+    target-branch: develop
+    groups:
+      cargo:
+        patterns: ["*"]
+        group-by: dependency-name
+
+  - package-ecosystem: uv
+    directories:
+      - /langs/python
+      - /examples/python
+      - /examples/python/textual/inspector
+      - /examples/python/textual/notes_showcase
+    schedule: { interval: weekly, day: monday }
+    target-branch: develop
+    groups:
+      python:
+        patterns: ["*"]
+        group-by: dependency-name
+
+  - package-ecosystem: pip
+    directory: /docs
+    schedule: { interval: weekly, day: monday }
+    target-branch: develop
+    groups:
+      docs:
+        patterns: ["*"]
+
+  - package-ecosystem: nuget
+    directories:
+      - /langs/csharp
+      - /examples/csharp
+    schedule: { interval: weekly, day: monday }
+    target-branch: develop
+    groups:
+      nuget:
+        patterns: ["*"]
+        group-by: dependency-name

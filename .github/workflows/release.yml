@@ -1,5 +1,8 @@
 name: release
 
+permissions:
+  contents: read
+
 on:
   push:
     tags:
@@ -25,6 +28,19 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  release-metadata:
+    name: release — metadata preflight
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Validate versions, tags, and substantive release notes
+        run: python3 tools/check-version-consistency.py
+
   csharp-build:
     if: startsWith(github.ref, 'refs/tags/csharp-')
     runs-on: ubuntu-latest
@@ -40,11 +56,12 @@ jobs:
             echo "::error::Release tags must point at commits reachable from origin/main." >&2
             exit 1
           fi
-      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: |
             8.0.x
             9.0.x
+            10.0.x
           cache: true
           cache-dependency-path: langs/csharp/**/packages.lock.json
       - name: Select exact tag-matching projects
@@ -56,6 +73,8 @@ jobs:
             --output /tmp/csharp-release-manifest.json
       - name: Restore
         run: dotnet restore langs/csharp/VMx.sln --locked-mode
+      - name: Audit transitive dependencies
+        run: dotnet list langs/csharp/VMx.sln package --vulnerable --include-transitive
       - name: Format
         run: dotnet format langs/csharp/VMx.sln --verify-no-changes --no-restore
       - name: Build
@@ -108,7 +127,7 @@ jobs:
           if-no-files-found: error
 
   csharp-publish:
-    needs: csharp-build
+    needs: [csharp-build, release-metadata]
     if: startsWith(github.ref, 'refs/tags/csharp-')
     runs-on: ubuntu-latest
     environment:
@@ -131,7 +150,7 @@ jobs:
             echo "::error::The protected environment must define NUGET_USER." >&2
             exit 1
           fi
-      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: 8.0.x
       - name: NuGet login (OIDC to temporary API key)
@@ -168,7 +187,7 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: 8.0.x
       - name: Download release manifest
@@ -241,7 +260,7 @@ jobs:
     # this, a tag push on a red branch would still publish to PyPI
     # (versions can be yanked but not deleted — a poisoned release is
     # permanent). The matrix mirrors `python.yml`'s pull-request gate on
-    # the `python-version` dimension (3.10..3.13); the OS dimension is
+    # the `python-version` dimension (3.10..3.14); the OS dimension is
     # restricted to `ubuntu-latest` because release artifacts are pure-
     # Python (`py3-none-any` wheel) and the PR gate already exercises
     # macOS + Windows on every push to main.
@@ -254,7 +273,7 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Verify tag commit is on main
@@ -277,6 +296,12 @@ jobs:
       - name: Sync dependencies
         working-directory: langs/python
         run: uv sync --locked --all-extras
+      - name: Audit runtime dependencies
+        if: matrix.python-version == '3.14'
+        working-directory: langs/python
+        run: |
+          uv export --locked --no-dev --no-emit-project --output-file /tmp/vmx-runtime.txt
+          uvx --from pip-audit==2.10.1 pip-audit --requirement /tmp/vmx-runtime.txt
       - name: Ruff lint
         working-directory: langs/python
         run: uv run ruff check src tests
@@ -298,7 +323,7 @@ jobs:
     # the publish job pauses for approval before any irreversible PyPI
     # upload.
     name: python — build & publish
-    needs: python-test
+    needs: [python-test, release-metadata]
     if: startsWith(github.ref, 'refs/tags/python-v')
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -345,6 +370,16 @@ jobs:
         run: |
           set -euo pipefail
           uv tool run --from "twine==6.2.0" twine check dist/*
+
+      - name: Test extracted sdist
+        run: |
+          set -euo pipefail
+          extract_dir="$(mktemp -d)"
+          tar -xzf dist/*.tar.gz -C "$extract_dir"
+          sdist_root="$(find "$extract_dir" -mindepth 1 -maxdepth 1 -type d -print -quit)"
+          test -n "$sdist_root"
+          uv sync --project "$sdist_root" --locked --all-extras
+          uv run --project "$sdist_root" pytest "$sdist_root/tests/conformance" -q
 
       - name: Verify exact local wheel in a fresh environment
         run: |
@@ -449,6 +484,7 @@ jobs:
             --target "$GITHUB_SHA"
 
   typescript:
+    needs: release-metadata
     if: startsWith(github.ref, 'refs/tags/typescript-v')
     runs-on: ubuntu-latest
     environment:
@@ -543,7 +579,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node-version: ["20", "22"]
+        node-version: ["20", "22", "24", "26"]
     permissions:
       contents: read
     steps:
@@ -644,7 +680,7 @@ jobs:
           fi
           echo "Tag $tag_version matches vmx-rs $crate_version."
       - name: Install Rust ${{ matrix.toolchain }}
-        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable 2026-06-30
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable 2026-07-16
         with:
           toolchain: ${{ matrix.toolchain }}
           components: rustfmt, clippy
@@ -700,7 +736,7 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Install stable Rust
-        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable 2026-06-30
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable 2026-07-16
         with:
           toolchain: stable
       - name: Install cargo-audit
@@ -710,7 +746,7 @@ jobs:
 
   rust-publish:
     name: rust — publish vmx-rs
-    needs: [rust-test, rust-conformance, rust-audit]
+    needs: [rust-test, rust-conformance, rust-audit, release-metadata]
     if: startsWith(github.ref, 'refs/tags/rust-v')
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -750,7 +786,7 @@ jobs:
             exit 1
           fi
       - name: Install stable Rust
-        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable 2026-06-30
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable 2026-07-16
         with:
           toolchain: stable
       - name: Recheck package contents before authentication
@@ -790,7 +826,7 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Install Rust ${{ matrix.toolchain }}
-        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable 2026-06-30
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable 2026-07-16
         with:
           toolchain: ${{ matrix.toolchain }}
       - name: Poll crates.io and docs.rs; verify exact public consumer
@@ -832,7 +868,7 @@ jobs:
             --notes-file /tmp/rust-release-notes.md \
             --target "$GITHUB_SHA"
 
-  swift:
+  swift-verify:
     # The Swift flavor has no central registry (no NuGet/PyPI/npm analog —
     # SwiftPM consumes packages directly from git URLs). The release here just
     # cuts a GitHub Release pointing at the tag so SwiftPM consumers get a
@@ -842,7 +878,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/swift-v')
     runs-on: macos-latest
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Verify tag commit is on main
@@ -885,6 +921,16 @@ jobs:
           python3 tools/smoke-swiftpm-consumer.py \
             --url https://github.com/thekaveh/VMx.git \
             --version "$tag_version"
+
+  swift-release:
+    name: swift — GitHub Release
+    needs: [swift-verify, release-metadata]
+    if: startsWith(github.ref, 'refs/tags/swift-v')
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Extract Swift release notes
         run: |
           set -euo pipefail

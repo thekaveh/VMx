@@ -20,7 +20,179 @@ private final class LockedCounter: @unchecked Sendable {
     }
 }
 
+private final class BlockingOwnershipParent: ParentVM, OwnershipParentVM, @unchecked Sendable {
+    let entered = DispatchSemaphore(value: 0)
+    let release = DispatchSemaphore(value: 0)
+    let ownershipOwner: ComponentVMBase
+    var ownershipOwnerParent: OwnershipParentVM? { nil }
+    var supportsChildSelection: Bool { false }
+    var currentChild: ComponentVMBase? { nil }
+
+    init(owner: ComponentVMBase) { ownershipOwner = owner }
+    func selectChild(_ vm: ComponentVMBase) {}
+    func deselectChild(_ vm: ComponentVMBase) {}
+    func containsIdentity(_ vm: ComponentVMBase) -> Bool { true }
+    func detachForTransfer(_ vm: ComponentVMBase) throws -> ParentTransfer {
+        entered.signal()
+        guard release.wait(timeout: .now() + 2) == .success else {
+            throw ContainerOwnershipError.inconsistentParent
+        }
+        return ParentTransfer(commit: {}, rollback: {})
+    }
+}
+
 final class DisposalInvariantTests: XCTestCase {
+    func testDisposalClosesChildAdmissionBeforeSnapshot() throws {
+        let hub = MessageHub()
+        let dispatcher = ImmediateDispatcher.INSTANCE
+        let child = try ComponentVM.builder()
+            .name("child").services(hub: hub, dispatcher: dispatcher).build()
+        let late = try ComponentVM.builder()
+            .name("late").services(hub: hub, dispatcher: dispatcher).build()
+        let parent = try CompositeVM<ComponentVM>.builder()
+            .name("parent").services(hub: hub, dispatcher: dispatcher)
+            .children { [] }.build()
+        parent.add(child)
+        var admissionFailed = false
+        let cancellable = hub.messages
+            .compactMap { $0 as? ConstructionStatusChangedMessage }
+            .sink { message in
+                if message.senderName == "child", message.status == .disposed,
+                   case .failure = parent.addResult(late) {
+                    admissionFailed = true
+                }
+            }
+
+        parent.dispose()
+
+        XCTAssertTrue(admissionFailed)
+        XCTAssertEqual(parent.count, 1)
+        XCTAssertEqual(late.status, .destructed)
+        cancellable.cancel()
+    }
+
+    func testFactoryOutputAfterReentrantDisposalIsRejected() throws {
+        let hub = MessageHub()
+        let dispatcher = ImmediateDispatcher.INSTANCE
+        let lateComposite = try ComponentVM.builder()
+            .name("late-composite").services(hub: hub, dispatcher: dispatcher).build()
+        var composite: CompositeVM<ComponentVM>!
+        composite = try CompositeVM<ComponentVM>.builder()
+            .name("composite").services(hub: hub, dispatcher: dispatcher)
+            .children {
+                composite.dispose()
+                return [lateComposite]
+            }.build()
+
+        XCTAssertThrowsError(try composite.construct())
+        XCTAssertEqual(composite.count, 0)
+        XCTAssertEqual(lateComposite.status, .destructed)
+
+        let lateGroup = try ComponentVM.builder()
+            .name("late-group").services(hub: hub, dispatcher: dispatcher).build()
+        var group: GroupVM<ComponentVM>!
+        group = try GroupVM<ComponentVM>.builder()
+            .name("group").services(hub: hub, dispatcher: dispatcher)
+            .children {
+                group.dispose()
+                return [lateGroup]
+            }.build()
+
+        XCTAssertThrowsError(try group.construct())
+        XCTAssertEqual(group.count, 0)
+        XCTAssertEqual(lateGroup.status, .destructed)
+    }
+
+    func testFactoryPopulationRejectsDuplicateIdentityInBothContainers() throws {
+        let hub = MessageHub()
+        let dispatcher = ImmediateDispatcher.INSTANCE
+        let child = try ComponentVM.builder()
+            .name("duplicate").services(hub: hub, dispatcher: dispatcher).build()
+        let composite = try CompositeVM<ComponentVM>.builder()
+            .name("composite").services(hub: hub, dispatcher: dispatcher)
+            .children { [child, child] }.build()
+        let group = try GroupVM<ComponentVM>.builder()
+            .name("group").services(hub: hub, dispatcher: dispatcher)
+            .children { [child, child] }.build()
+
+        XCTAssertThrowsError(try composite.construct())
+        XCTAssertThrowsError(try group.construct())
+        XCTAssertTrue(composite.snapshot().isEmpty)
+        XCTAssertTrue(group.snapshot().isEmpty)
+    }
+
+    func testAutoConstructHookCannotReparentBeforeAdmissionCommits() throws {
+        let hub = MessageHub()
+        let dispatcher = ImmediateDispatcher.INSTANCE
+        let source = try CompositeVM<ComponentVM>.builder()
+            .name("source").services(hub: hub, dispatcher: dispatcher)
+            .autoConstructOnAdd(true).children { [] }.build()
+        let destination = try GroupVM<ComponentVM>.builder()
+            .name("destination").services(hub: hub, dispatcher: dispatcher)
+            .children { [] }.build()
+        var child: ComponentVM!
+        child = try ComponentVM.builder().name("child")
+            .services(hub: hub, dispatcher: dispatcher)
+            .onConstruct {
+                if case .failure(let error) = destination.addResult(child) { throw error }
+            }.build()
+        try source.construct()
+
+        if case .success = source.addResult(child) {
+            XCTFail("nested reparenting must fail the outer admission")
+        }
+        XCTAssertTrue(source.snapshot().isEmpty)
+        XCTAssertTrue(destination.snapshot().isEmpty)
+        XCTAssertNil(child._ownershipParent)
+    }
+
+    func testConcurrentCompositeAndGroupAdmissionCannotEscapeDisposalSnapshot() throws {
+        let hub = MessageHub()
+        let dispatcher = ImmediateDispatcher.INSTANCE
+
+        let composite = try CompositeVM<ComponentVM>.builder()
+            .name("composite").services(hub: hub, dispatcher: dispatcher)
+            .children { [] }.build()
+        let compositeChild = try ComponentVM.builder()
+            .name("composite-child").services(hub: hub, dispatcher: dispatcher).build()
+        let compositeBlocker = BlockingOwnershipParent(owner: compositeChild)
+        compositeChild._parent = compositeBlocker
+        compositeChild._ownershipParent = compositeBlocker
+        let compositeDone = expectation(description: "composite admission returned")
+        DispatchQueue.global().async {
+            if case .success = composite.addResult(compositeChild) {
+                XCTFail("admission racing disposal must fail")
+            }
+            compositeDone.fulfill()
+        }
+        XCTAssertEqual(compositeBlocker.entered.wait(timeout: .now() + 2), .success)
+        composite.dispose()
+        compositeBlocker.release.signal()
+
+        let group = try GroupVM<ComponentVM>.builder()
+            .name("group").services(hub: hub, dispatcher: dispatcher)
+            .children { [] }.build()
+        let groupChild = try ComponentVM.builder()
+            .name("group-child").services(hub: hub, dispatcher: dispatcher).build()
+        let groupBlocker = BlockingOwnershipParent(owner: groupChild)
+        groupChild._parent = groupBlocker
+        groupChild._ownershipParent = groupBlocker
+        let groupDone = expectation(description: "group admission returned")
+        DispatchQueue.global().async {
+            if case .success = group.addResult(groupChild) {
+                XCTFail("admission racing disposal must fail")
+            }
+            groupDone.fulfill()
+        }
+        XCTAssertEqual(groupBlocker.entered.wait(timeout: .now() + 2), .success)
+        group.dispose()
+        groupBlocker.release.signal()
+
+        wait(for: [compositeDone, groupDone], timeout: 2)
+        XCTAssertTrue(composite.snapshot().isEmpty)
+        XCTAssertTrue(group.snapshot().isEmpty)
+    }
+
     /// DISP-001 — VM disposal and owned child cascades are observably idempotent.
     func testDisp001RepeatedParentDisposeEmitsOneTerminalTransitionPerNode() throws {
         let hub = MessageHub()

@@ -15,6 +15,27 @@ namespace VMx.Tests.Groups;
 /// </summary>
 public class GroupVMTests
 {
+    private sealed class BlockingTransferParent : IParentCompositeVM
+    {
+        internal ManualResetEventSlim Entered { get; } = new(false);
+        internal ManualResetEventSlim Release { get; } = new(false);
+        internal IComponentVM? Child { get; set; }
+        public IComponentVM? Owner => null;
+        public IParentCompositeVM? OwnerParent => null;
+        public bool SupportsChildSelection => false;
+        public IComponentVM? CurrentChild => null;
+        public void SelectChild(IComponentVM vm) { }
+        public void DeselectChild(IComponentVM vm) { }
+        public bool ContainsChild(IComponentVM vm) => ReferenceEquals(vm, Child);
+        public ParentTransferToken DetachForTransfer(IComponentVM vm)
+        {
+            Entered.Set();
+            if (!Release.Wait(TimeSpan.FromSeconds(2)))
+                throw new TimeoutException("transfer was not released");
+            return new ParentTransferToken(() => { }, () => { });
+        }
+    }
+
     // ── Factory helpers ──────────────────────────────────────────────────────
 
     private static (GroupVM<ComponentVM<string>> group, TestHub hub, TestDispatcher dispatcher)
@@ -34,6 +55,123 @@ public class GroupVMTests
         TestHub hub, TestDispatcher dispatcher, string name = "child")
         => ComponentVM<string>.Builder()
             .Name(name).Services(hub, dispatcher).Model("m").Build();
+
+    [Fact]
+    public void Factory_Rejects_Duplicate_Identity_Without_Partial_Membership()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var child = BuildChild(hub, dispatcher);
+        var group = GroupVM<ComponentVM<string>>.Builder()
+            .Name("root").Services(hub, dispatcher)
+            .Children(() => [child, child]).Build();
+
+        Action construct = group.Construct;
+        construct.Should().Throw<InvalidOperationException>()
+            .WithMessage("*duplicate child identity*");
+        group.Snapshot().Should().BeEmpty();
+        ((IComponentVMInternals)child).Parent.Should().BeNull();
+    }
+
+    [Fact]
+    public void Auto_Construct_Hook_Cannot_Reparent_During_Ownership_Transaction()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var source = GroupVM<ComponentVM<string>>.Builder()
+            .Name("source").Services(hub, dispatcher).AutoConstructOnAdd(true)
+            .Children(() => Array.Empty<ComponentVM<string>>()).Build();
+        var destination = GroupVM<ComponentVM<string>>.Builder()
+            .Name("destination").Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVM<string>>()).Build();
+        ComponentVM<string>? child = null;
+        child = ComponentVM<string>.Builder().Name("child").Services(hub, dispatcher)
+            .Model("m").OnConstruct(() => destination.Add(child!)).Build();
+        source.Construct();
+
+        Action add = () => source.Add(child);
+        add.Should().Throw<InvalidOperationException>()
+            .WithMessage("*ownership transaction is already in progress*");
+        source.Snapshot().Should().BeEmpty();
+        destination.Snapshot().Should().BeEmpty();
+        ((IComponentVMInternals)child).Parent.Should().BeNull();
+    }
+
+    [Fact]
+    public void Auto_Construct_Hook_Disposal_Aborts_Admission()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var group = GroupVM<ComponentVM<string>>.Builder()
+            .Name("root").Services(hub, dispatcher).AutoConstructOnAdd(true)
+            .Children(() => Array.Empty<ComponentVM<string>>()).Build();
+        var child = ComponentVM<string>.Builder().Name("child").Services(hub, dispatcher)
+            .Model("m").OnConstruct(group.Dispose).Build();
+        group.Construct();
+
+        Action add = () => group.Add(child);
+        add.Should().Throw<InvalidOperationException>().WithMessage("*disposing*");
+        group.Snapshot().Should().BeEmpty();
+        ((IComponentVMInternals)child).Parent.Should().BeNull();
+    }
+
+    [Fact]
+    public void Factory_Output_After_Reentrant_Disposal_Is_Rejected()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var late = BuildChild(hub, dispatcher, "late");
+        GroupVM<ComponentVM<string>>? group = null;
+        group = GroupVM<ComponentVM<string>>.Builder()
+            .Name("root")
+            .Services(hub, dispatcher)
+            .Children(() =>
+            {
+                group!.Dispose();
+                return new[] { late };
+            })
+            .Build();
+
+        Action construct = group.Construct;
+        construct.Should().Throw<ObjectDisposedException>();
+        group.Count.Should().Be(0);
+        late.Status.Should().Be(ConstructionStatus.Destructed);
+    }
+
+    [Fact]
+    public async Task Concurrent_Admission_Cannot_Escape_Disposal_Snapshot()
+    {
+        var (group, hub, dispatcher) = BuildGroup();
+        var late = BuildChild(hub, dispatcher, "late");
+        var blocker = new BlockingTransferParent { Child = late };
+        ((IComponentVMInternals)late).SetParent(blocker);
+        Exception? failure = null;
+        var admission = Task.Run(() =>
+        {
+            try { group.Add(late); }
+            catch (Exception error) { failure = error; }
+        });
+        (await Task.Run(() => blocker.Entered.Wait(TimeSpan.FromSeconds(2))))
+            .Should().BeTrue();
+
+        using var disposalStarted = new ManualResetEventSlim();
+        var disposal = Task.Run(() =>
+        {
+            disposalStarted.Set();
+            group.Dispose();
+        });
+        (await Task.Run(() => disposalStarted.Wait(TimeSpan.FromSeconds(2))))
+            .Should().BeTrue();
+        (await Task.WhenAny(disposal, Task.Delay(TimeSpan.FromMilliseconds(50))))
+            .Should().NotBe(disposal);
+        blocker.Release.Set();
+        await Task.WhenAll(admission, disposal).WaitAsync(TimeSpan.FromSeconds(2));
+
+        failure.Should().BeNull();
+        group.Should().ContainSingle(item => ReferenceEquals(item, late));
+        late.Status.Should().Be(ConstructionStatus.Disposed);
+        group.Status.Should().Be(ConstructionStatus.Disposed);
+    }
 
     // ── Type and identity ────────────────────────────────────────────────────
 
@@ -357,7 +495,7 @@ public class GroupVMTests
     }
 
     [Fact]
-    public void Construct_Cascade_Snapshots_Children_When_Hook_Mutates_Group()
+    public void Construct_Population_Rejects_Reentrant_Membership_Mutation()
     {
         GroupVM<ComponentVM<string>>? group = null;
         ComponentVM<string>? sibling = null;
@@ -382,11 +520,12 @@ public class GroupVMTests
 
         var act = () => group.Construct();
 
-        act.Should().NotThrow();
-        mutating.Status.Should().Be(ConstructionStatus.Constructed);
-        sibling.Status.Should().Be(ConstructionStatus.Constructed,
-            "the construct cascade uses the entry snapshot even if a hook removes a peer");
-        group.Count.Should().Be(1);
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*membership transaction*");
+        group.Count.Should().Be(0,
+            "failed factory population must roll back the complete destination snapshot");
+        mutating.Status.Should().Be(ConstructionStatus.Destructed);
+        sibling.Status.Should().Be(ConstructionStatus.Destructed);
     }
 
     [Fact]

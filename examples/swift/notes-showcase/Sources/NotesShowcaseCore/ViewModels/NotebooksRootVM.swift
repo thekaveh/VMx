@@ -2,7 +2,7 @@
 // NotebooksRootVM — root of the notebooks tree.
 //
 // Ports examples/csharp/avalonia/NotesShowcase/ViewModels/NotebooksRootVM.cs.
-// See task-6-brief.md.
+// See spec/ADRs/0067-swift-notes-showcase-flagship.md.
 //
 // VMx-API adaptation: owns a flat [NotebookVM] instead of a HierarchicalVM
 // (same rationale as the C# port — flat mutation + ChildrenGetter closure is
@@ -126,10 +126,10 @@ public final class NotebooksRootVM: ComponentVMBase, NewCreatable {
         guard added, !Task.isCancelled else { return }
 
         if let notificationHub = _notificationHub {
-            _ = await notificationHub.post(VMx.Notification(
+            publishNotification(VMx.Notification(
                 type: .notification,
                 message: "Notebook added: \u{201C}\(notebookName)\u{201D}"
-            ))
+            ), to: notificationHub)
         }
     }
 

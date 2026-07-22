@@ -42,3 +42,18 @@ final class FlagshipTransferBox<Value>: @unchecked Sendable {
         self.value = value
     }
 }
+
+/// Publishes a transient notification without making the originating command
+/// wait for the user's eventual resolution. `NotificationHub.post` deliberately
+/// suspends until resolve/dispose, so awaiting it from save/delete/add would
+/// deadlock command completion while the toast is still visible.
+func publishNotification(
+    _ notification: VMx.Notification,
+    to hub: any NotificationHubProtocol
+) {
+    let transferableHub = FlagshipTransferBox(hub)
+    let transferableNotification = FlagshipTransferBox(notification)
+    Task { [transferableHub, transferableNotification] in
+        _ = await transferableHub.value.post(transferableNotification.value)
+    }
+}

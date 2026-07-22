@@ -40,6 +40,7 @@ class AggregateVM1Builder(Generic[V1]):
     Required fields: ``name``, ``services(hub, dispatcher)``, ``component_1(factory)``.
     """
 
+    __orig_class__: object = dataclasses.field(init=False, repr=False, compare=False)
     _name: str | None = dataclasses.field(default=None)
     _hint: str = dataclasses.field(default="")
     _hub: MessageHub[Message] | None = dataclasses.field(default=None)
@@ -87,6 +88,7 @@ class AggregateVM1Builder(Generic[V1]):
 class AggregateVM2Builder(Generic[V1, V2]):
     """Immutable fluent builder for :class:`~vmx.aggregates.AggregateVM2`."""
 
+    __orig_class__: object = dataclasses.field(init=False, repr=False, compare=False)
     _name: str | None = dataclasses.field(default=None)
     _hint: str = dataclasses.field(default="")
     _hub: MessageHub[Message] | None = dataclasses.field(default=None)
@@ -138,6 +140,7 @@ class AggregateVM2Builder(Generic[V1, V2]):
 class AggregateVM3Builder(Generic[V1, V2, V3]):
     """Immutable fluent builder for :class:`~vmx.aggregates.AggregateVM3`."""
 
+    __orig_class__: object = dataclasses.field(init=False, repr=False, compare=False)
     _name: str | None = dataclasses.field(default=None)
     _hint: str = dataclasses.field(default="")
     _hub: MessageHub[Message] | None = dataclasses.field(default=None)
@@ -196,6 +199,7 @@ class AggregateVM3Builder(Generic[V1, V2, V3]):
 class AggregateVM4Builder(Generic[V1, V2, V3, V4]):
     """Immutable fluent builder for :class:`~vmx.aggregates.AggregateVM4`."""
 
+    __orig_class__: object = dataclasses.field(init=False, repr=False, compare=False)
     _name: str | None = dataclasses.field(default=None)
     _hint: str = dataclasses.field(default="")
     _hub: MessageHub[Message] | None = dataclasses.field(default=None)
@@ -261,6 +265,7 @@ class AggregateVM4Builder(Generic[V1, V2, V3, V4]):
 class AggregateVM5Builder(Generic[V1, V2, V3, V4, V5]):
     """Immutable fluent builder for :class:`~vmx.aggregates.AggregateVM5`."""
 
+    __orig_class__: object = dataclasses.field(init=False, repr=False, compare=False)
     _name: str | None = dataclasses.field(default=None)
     _hint: str = dataclasses.field(default="")
     _hub: MessageHub[Message] | None = dataclasses.field(default=None)
@@ -336,6 +341,7 @@ class AggregateVM6Builder(Generic[V1, V2, V3, V4, V5, V6]):
     Added in spec 2.2.0 per ADR-0034.
     """
 
+    __orig_class__: object = dataclasses.field(init=False, repr=False, compare=False)
     _name: str | None = dataclasses.field(default=None)
     _hint: str = dataclasses.field(default="")
     _hub: MessageHub[Message] | None = dataclasses.field(default=None)

@@ -6,6 +6,8 @@ flips the active :class:`textual.app.App` theme on every VM emission.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 from textual.app import App, ComposeResult
 from textual.widgets import Static
@@ -48,6 +50,16 @@ def test_to_textual_theme_high_contrast_preset_is_dark() -> None:
     theme = _to_textual_theme(HIGH_CONTRAST_PRESET)
     assert theme.dark is True
     assert theme.accent == HIGH_CONTRAST_PRESET.accent_color
+
+
+def test_to_textual_theme_renders_independent_high_contrast_toggle() -> None:
+    theme = _to_textual_theme(replace(LIGHT_PRESET, high_contrast=True))
+    assert theme.dark is True
+    assert theme.background == "#000000"
+    assert theme.foreground == "#FFFFFF"
+    assert theme.panel == "#000000"
+    assert theme.variables["text-muted"] == "#FFFFFF"
+    assert theme.accent == LIGHT_PRESET.accent_color
 
 
 # ── bind_theme ─────────────────────────────────────────────────────────────

@@ -343,6 +343,14 @@ fn single_type_may_implement_multiple_capabilities() {
 fn core_vm_types_do_not_implement_non_baseline_capabilities_by_default() {
     let component = vmx::ComponentVm::new("bare");
     assert!(!component.is_selected());
+
+    fn requires_baseline_lifecycle<T: Constructable + Destructable + Reconstructable>(_: &T) {}
+    requires_baseline_lifecycle(&component);
+    assert!(Constructable::can_construct(&component));
+    assert!(Destructable::can_destruct(&component));
+    component.construct().unwrap();
+    assert!(Constructable::can_construct(&component));
+    assert!(Destructable::can_destruct(&component));
 }
 
 /// CAP-021 — `IFilterable<TItem>` capability contract surface and opt-in behavior

@@ -12,7 +12,9 @@ See spec/07-group-vm.md.
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Callable, Iterable, Iterator
+from threading import Condition, RLock, get_ident
 from typing import Generic, TypeVar
 
 import reactivex as rx
@@ -23,8 +25,10 @@ from reactivex.subject import Subject
 from vmx.collections import BatchUpdateHandle, CollectionChangedEvent
 from vmx.components.base import (
     _begin_parent_transfer,
+    _commit_parent_transfer,
     _ComponentVMBase,
     _dispose_children_then_self,
+    _ownership_reservation_batch,
     _ParentCompositeVM,
     _ParentTransfer,
 )
@@ -94,6 +98,12 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         self._populated: bool = False
         self._batch_depth: int = 0
         self._batch_dirty: bool = False
+        self._dispose_requested: bool = False
+        self._dispose_deferred: bool = False
+        self._membership_transaction_active: bool = False
+        self._membership_transaction_owner: int | None = None
+        self._membership_gate = RLock()
+        self._membership_condition = Condition(self._membership_gate)
 
         # Observable collection-change stream.
         self._collection_changed_subject: Subject[CollectionChangedEvent] = Subject()
@@ -123,7 +133,8 @@ class GroupVM(Generic[VM], _ComponentVMBase):
 
     def snapshot(self) -> tuple[VM, ...]:
         """Return the current ordered child-membership snapshot."""
-        return tuple(self._children)
+        with self._membership_gate:
+            return tuple(self._children)
 
     def subscribe_membership(self, callback: Callable[[], None]) -> DisposableBase:
         """Subscribe to payload-free structural child-membership pulses."""
@@ -132,44 +143,75 @@ class GroupVM(Generic[VM], _ComponentVMBase):
     # ── MutableSequence-like interface ───────────────────────────────────────
 
     def __len__(self) -> int:
-        return len(self._children)
+        with self._membership_gate:
+            return len(self._children)
 
     def __iter__(self) -> Iterator[VM]:
-        return iter(self._children)
+        return iter(self.snapshot())
 
     def __contains__(self, item: object) -> bool:
-        return any(child is item for child in self._children)
+        with self._membership_gate:
+            return any(child is item for child in self._children)
 
     def __getitem__(self, index: int) -> VM:
-        return self._children[index]
+        with self._membership_gate:
+            return self._children[index]
 
     def __setitem__(self, index: int, value: VM) -> None:
-        old = self._children[index]
         # Emit the actual position; a negative index counts from the end
         # (mirrors insert/remove_at and ObservableList).
-        resolved_index = index + len(self._children) if index < 0 else index
         parent = self._as_parent()
-        transfer = _begin_parent_transfer(value, parent)
-        self._children[index] = value
-        old._set_parent(None)
-        value._set_parent(parent)
+        self._begin_membership_transaction()
+        transfer: _ParentTransfer | None = None
+        old: VM | None = None
+        original_status = value.status
         try:
+            transfer = _begin_parent_transfer(value, parent)
+            with self._membership_gate:
+                self._require_transaction_can_continue_locked()
+                resolved_index = index + len(self._children) if index < 0 else index
+                old = self._children[index]
+                self._children[index] = value
+                old._set_parent(None)
+                value._set_parent(parent)
             self._maybe_auto_construct(value)
-        except BaseException:
-            self._children[index] = old
-            old._set_parent(parent)
-            value._set_parent(None)
+            with self._membership_gate:
+                self._require_transaction_can_continue_locked()
+        except BaseException as original_error:
+            compensation_error: BaseException | None = None
+            with self._membership_gate:
+                if old is not None and any(child is value for child in self._children):
+                    actual_index = next(
+                        i for i, child in enumerate(self._children) if child is value
+                    )
+                    self._children[actual_index] = old
+                    old._set_parent(parent)
+                    value._set_parent(None)
+            if (
+                original_status is ConstructionStatus.DESTRUCTED
+                and value.status is ConstructionStatus.CONSTRUCTED
+            ):
+                try:
+                    value.destruct()
+                except BaseException as error:
+                    compensation_error = error
             if transfer is not None:
                 transfer.rollback()
+            if compensation_error is not None:
+                raise compensation_error from original_error
             raise
-        if transfer is not None:
-            transfer.commit()
-        self._emit_collection_changed(
-            CollectionChangedEvent(action="remove", old_items=(old,), old_index=resolved_index)
-        )
-        self._emit_collection_changed(
-            CollectionChangedEvent(action="add", new_items=(value,), new_index=resolved_index)
-        )
+        else:
+            commit_error = _commit_parent_transfer(transfer)
+            self._emit_collection_changed(
+                CollectionChangedEvent(action="remove", old_items=(old,), old_index=resolved_index)
+            )
+            self._emit_collection_changed(
+                CollectionChangedEvent(action="add", new_items=(value,), new_index=resolved_index)
+            )
+            if commit_error is not None:
+                raise commit_error
+        finally:
+            self._end_membership_transaction(propagate_dispose_failure=sys.exc_info()[0] is None)
 
     def __delitem__(self, index: int) -> None:
         self.remove_at(index)
@@ -177,7 +219,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
     def index_of(self, item: VM) -> int:
         """Return the index of *item*, or ``-1`` if not found."""
         return next(
-            (index for index, child in enumerate(self._children) if child is item),
+            (index for index, child in enumerate(self.snapshot()) if child is item),
             -1,
         )
 
@@ -187,58 +229,115 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         The emitted ``new_index`` is the actual insertion position (stdlib
         semantics: negatives count from the end, out-of-range clamps).
         """
-        if index < 0:
-            index = max(index + len(self._children), 0)
-        elif index > len(self._children):
-            index = len(self._children)
         parent = self._as_parent()
-        transfer = _begin_parent_transfer(item, parent)
-        self._children.insert(index, item)
-        item._set_parent(parent)
+        self._begin_membership_transaction()
+        transfer: _ParentTransfer | None = None
+        attached = False
+        original_status = item.status
         try:
+            transfer = _begin_parent_transfer(item, parent)
+            with self._membership_gate:
+                self._require_transaction_can_continue_locked()
+                if index < 0:
+                    index = max(index + len(self._children), 0)
+                elif index > len(self._children):
+                    index = len(self._children)
+                self._children.insert(index, item)
+                item._set_parent(parent)
+                attached = True
             self._maybe_auto_construct(item)
-        except BaseException:
-            self._children.pop(index)
-            item._set_parent(None)
+            with self._membership_gate:
+                self._require_transaction_can_continue_locked()
+        except BaseException as original_error:
+            compensation_error: BaseException | None = None
+            with self._membership_gate:
+                if attached and any(child is item for child in self._children):
+                    self._children.remove(item)
+                    item._set_parent(None)
+            if (
+                original_status is ConstructionStatus.DESTRUCTED
+                and item.status is ConstructionStatus.CONSTRUCTED
+            ):
+                try:
+                    item.destruct()
+                except BaseException as error:
+                    compensation_error = error
             if transfer is not None:
                 transfer.rollback()
+            if compensation_error is not None:
+                raise compensation_error from original_error
             raise
-        if transfer is not None:
-            transfer.commit()
-        self._emit_collection_changed(
-            CollectionChangedEvent(action="add", new_items=(item,), new_index=index)
-        )
+        else:
+            commit_error = _commit_parent_transfer(transfer)
+            self._emit_collection_changed(
+                CollectionChangedEvent(action="add", new_items=(item,), new_index=index)
+            )
+            if commit_error is not None:
+                raise commit_error
+        finally:
+            self._end_membership_transaction(propagate_dispose_failure=sys.exc_info()[0] is None)
 
     def add(self, item: VM) -> None:
         """Append *item* to the end of the children list."""
-        idx = len(self._children)
         parent = self._as_parent()
-        transfer = _begin_parent_transfer(item, parent)
-        self._children.append(item)
-        item._set_parent(parent)
+        self._begin_membership_transaction()
+        transfer: _ParentTransfer | None = None
+        attached = False
+        original_status = item.status
         try:
+            transfer = _begin_parent_transfer(item, parent)
+            with self._membership_gate:
+                self._require_transaction_can_continue_locked()
+                idx = len(self._children)
+                self._children.append(item)
+                item._set_parent(parent)
+                attached = True
             self._maybe_auto_construct(item)
-        except BaseException:
-            self._children.pop()
-            item._set_parent(None)
+            with self._membership_gate:
+                self._require_transaction_can_continue_locked()
+        except BaseException as original_error:
+            compensation_error: BaseException | None = None
+            with self._membership_gate:
+                if attached and any(child is item for child in self._children):
+                    self._children.remove(item)
+                    item._set_parent(None)
+            if (
+                original_status is ConstructionStatus.DESTRUCTED
+                and item.status is ConstructionStatus.CONSTRUCTED
+            ):
+                try:
+                    item.destruct()
+                except BaseException as error:
+                    compensation_error = error
             if transfer is not None:
                 transfer.rollback()
+            if compensation_error is not None:
+                raise compensation_error from original_error
             raise
-        if transfer is not None:
-            transfer.commit()
-        self._emit_collection_changed(
-            CollectionChangedEvent(action="add", new_items=(item,), new_index=idx)
-        )
+        else:
+            commit_error = _commit_parent_transfer(transfer)
+            self._emit_collection_changed(
+                CollectionChangedEvent(action="add", new_items=(item,), new_index=idx)
+            )
+            if commit_error is not None:
+                raise commit_error
+        finally:
+            self._end_membership_transaction(propagate_dispose_failure=sys.exc_info()[0] is None)
 
     # Alias: append mirrors Python list convention.
     append = add
 
     def remove(self, item: VM) -> bool:
         """Remove first occurrence of *item*. Returns True if removed."""
-        idx = self.index_of(item)
-        if idx < 0:
-            return False
-        self.remove_at(idx)
+        with self._membership_gate:
+            self._require_child_admission()
+            idx = next((i for i, child in enumerate(self._children) if child is item), -1)
+            if idx < 0:
+                return False
+            removed = self._remove_at_locked(idx)
+        self._emit_collection_changed(
+            CollectionChangedEvent(action="remove", old_items=(removed,), old_index=idx)
+        )
         return True
 
     def remove_at(self, index: int) -> None:
@@ -248,31 +347,34 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         index counts from the end (mirrors :meth:`insert` and
         ``ObservableList.remove_at``).
         """
-        item = self._children[index]
-        resolved_index = index + len(self._children) if index < 0 else index
-        del self._children[index]
-        if item._parent is self._as_parent():
-            item._set_parent(None)
+        with self._membership_gate:
+            resolved_index = index + len(self._children) if index < 0 else index
+            self._require_child_admission()
+            item = self._remove_at_locked(index)
         self._emit_collection_changed(
             CollectionChangedEvent(action="remove", old_items=(item,), old_index=resolved_index)
         )
 
     def clear(self) -> None:
         """Remove all children."""
-        for child in self._children:
-            if child._parent is self._as_parent():
-                child._set_parent(None)
-        self._children.clear()
+        with self._membership_gate:
+            self._require_child_admission()
+            for child in self._children:
+                if child._parent is self._as_parent():
+                    child._set_parent(None)
+            self._children.clear()
         self._emit_collection_changed(CollectionChangedEvent(action="reset"))
 
     def move(self, from_index: int, to_index: int) -> None:
         """Move an existing peer to its final index without rewiring it."""
-        self._validate_move_index(from_index)
-        self._validate_move_index(to_index)
-        if from_index == to_index:
-            return
-        item = self._children.pop(from_index)
-        self._children.insert(to_index, item)
+        with self._membership_gate:
+            self._require_child_admission()
+            self._validate_move_index(from_index)
+            self._validate_move_index(to_index)
+            if from_index == to_index:
+                return
+            item = self._children.pop(from_index)
+            self._children.insert(to_index, item)
         self._emit_collection_changed(
             CollectionChangedEvent(
                 action="move",
@@ -282,6 +384,13 @@ class GroupVM(Generic[VM], _ComponentVMBase):
                 old_index=from_index,
             )
         )
+
+    def _remove_at_locked(self, index: int) -> VM:
+        item = self._children[index]
+        del self._children[index]
+        if item._parent is self._as_parent():
+            item._set_parent(None)
+        return item
 
     # ── Batch + auto-construct (spec v1.1) ──────────────────────────────────
 
@@ -337,14 +446,14 @@ class GroupVM(Generic[VM], _ComponentVMBase):
             self._on_construct_cb()
         self._populate_children()
         self._complete_lifecycle_hook_after(
-            self._transition_children(list(self._children), construct=True)
+            self._transition_children(list(self.snapshot()), construct=True)
         )
 
     def _on_destruct(self) -> None:
         """Destruct every child, then invoke the builder's on_destruct callback."""
         self._complete_lifecycle_hook_after(
             self._transition_children(
-                list(self._children),
+                list(self.snapshot()),
                 construct=False,
                 after=self._on_destruct_cb,
             )
@@ -352,7 +461,55 @@ class GroupVM(Generic[VM], _ComponentVMBase):
 
     def dispose(self) -> None:
         """Dispose cascade (LIFE-013): depth-first dispose each child, then self."""
-        _dispose_children_then_self(list(self._children), super().dispose)
+        with self._membership_condition:
+            if self._dispose_requested:
+                return
+            while (
+                self._membership_transaction_active
+                and self._membership_transaction_owner != get_ident()
+            ):
+                self._membership_condition.wait()
+                if self._dispose_requested:
+                    return
+            if self._membership_transaction_active:
+                self._dispose_deferred = True
+                return
+            self._dispose_requested = True
+            snapshot = list(self._children)
+        _dispose_children_then_self(snapshot, super().dispose)
+
+    def _require_child_admission(self) -> None:
+        if self._dispose_requested or self._dispose_deferred:
+            raise RuntimeError("cannot attach a child while the container is disposing")
+        if self._membership_transaction_active:
+            raise RuntimeError("container membership transaction is already in progress")
+
+    def _begin_membership_transaction_locked(self) -> None:
+        self._require_child_admission()
+        self._membership_transaction_active = True
+        self._membership_transaction_owner = get_ident()
+
+    def _require_transaction_can_continue_locked(self) -> None:
+        if self._dispose_requested or self._dispose_deferred:
+            raise RuntimeError("cannot attach a child while the container is disposing")
+
+    def _begin_membership_transaction(self) -> None:
+        with self._membership_gate:
+            self._begin_membership_transaction_locked()
+
+    def _end_membership_transaction(self, *, propagate_dispose_failure: bool = True) -> None:
+        with self._membership_condition:
+            self._membership_transaction_active = False
+            self._membership_transaction_owner = None
+            dispose = self._dispose_deferred
+            self._dispose_deferred = False
+            self._membership_condition.notify_all()
+        if dispose:
+            try:
+                self.dispose()
+            except BaseException:
+                if propagate_dispose_failure:
+                    raise
 
     def _on_dispose(self) -> None:
         if not self._collection_changed_subject.is_disposed:
@@ -364,20 +521,29 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         if self._populated or self._children_factory is None:
             return
         children = list(self._children_factory())
-        initial_count = len(self._children)
+        if len({id(child._ownership_identity) for child in children}) != len(children):
+            raise ValueError(
+                "factory population contains a duplicate child identity "
+                "(duplicate canonical child identity)"
+            )
         parent = self._as_parent()
+        self._begin_membership_transaction()
         transfers: list[_ParentTransfer | None] = []
         original_statuses: list[ConstructionStatus] = []
         try:
-            for child in children:
-                transfer = _begin_parent_transfer(child, parent)
-                transfers.append(transfer)
-                original_statuses.append(child.status)
-                self._children.append(child)
-                child._set_parent(parent)
+            with _ownership_reservation_batch(children):
+                for child in children:
+                    transfer = _begin_parent_transfer(child, parent)
+                    transfers.append(transfer)
+                    original_statuses.append(child.status)
+            with self._membership_gate:
+                self._require_transaction_can_continue_locked()
+                for child in children:
+                    self._children.append(child)
+                    child._set_parent(parent)
 
-            # Make the entire factory snapshot visible before any child hook
-            # runs, matching composite population and the other flavors.
+            # Make the entire factory snapshot visible before any child hook,
+            # but do not run user lifecycle code while holding the gate.
             for child in children:
                 self._maybe_auto_construct(child)
                 if (
@@ -385,32 +551,49 @@ class GroupVM(Generic[VM], _ComponentVMBase):
                     and child.status is not ConstructionStatus.CONSTRUCTED
                 ):
                     child.construct()
-        except BaseException:
-            while len(self._children) > initial_count:
-                child = self._children.pop()
-                original_status = original_statuses[len(self._children) - initial_count]
+            with self._membership_gate:
+                self._require_transaction_can_continue_locked()
+        except BaseException as original_error:
+            compensation_error: BaseException | None = None
+            for child, original_status in reversed(
+                list(zip(children, original_statuses, strict=False))
+            ):
+                with self._membership_gate:
+                    if any(candidate is child for candidate in self._children):
+                        self._children.remove(child)
                 if (
                     original_status is ConstructionStatus.DESTRUCTED
                     and child.status is ConstructionStatus.CONSTRUCTED
                 ):
                     try:
                         child.destruct()
-                    except BaseException:
-                        pass
+                    except BaseException as error:
+                        if compensation_error is None:
+                            compensation_error = error
                 if child._parent is parent:
                     child._set_parent(None)
-            for transfer in reversed(transfers):
-                if transfer is not None:
-                    transfer.rollback()
+            for staged_transfer in reversed(transfers):
+                if staged_transfer is not None:
+                    staged_transfer.rollback()
+            if compensation_error is not None:
+                raise compensation_error from original_error
             raise
-        for transfer in transfers:
-            if transfer is not None:
-                transfer.commit()
-        for index, child in enumerate(children, start=initial_count):
-            self._emit_collection_changed(
-                CollectionChangedEvent(action="add", new_items=(child,), new_index=index)
-            )
-        self._populated = True
+        else:
+            commit_error: BaseException | None = None
+            for staged_transfer in transfers:
+                commit_failure = _commit_parent_transfer(staged_transfer)
+                if commit_error is None:
+                    commit_error = commit_failure
+            self._populated = True
+            for child in children:
+                index = next(i for i, candidate in enumerate(self.snapshot()) if candidate is child)
+                self._emit_collection_changed(
+                    CollectionChangedEvent(action="add", new_items=(child,), new_index=index)
+                )
+            if commit_error is not None:
+                raise commit_error
+        finally:
+            self._end_membership_transaction(propagate_dispose_failure=sys.exc_info()[0] is None)
 
     # ── Internal helpers ─────────────────────────────────────────────────────
 
@@ -425,7 +608,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
     @property
     def count(self) -> int:
         """Number of children (alias for ``len(group)``)."""
-        return len(self._children)
+        return len(self)
 
     @classmethod
     def create(
@@ -506,21 +689,40 @@ class _GroupParent(_ParentCompositeVM, Generic[VM]):
         """No-op: GroupVM has no selection concept."""
 
     def contains_child(self, vm: _ComponentVMBase) -> bool:
-        return any(child is vm for child in self._group._children)
+        with self._group._membership_gate:
+            identity = vm._ownership_identity
+            return any(child._ownership_identity is identity for child in self._group._children)
 
     def detach_for_transfer(self, vm: _ComponentVMBase) -> _ParentTransfer:
-        index = next((i for i, child in enumerate(self._group._children) if child is vm), -1)
-        if index < 0:
-            raise RuntimeError("recorded parent does not contain child identity")
-        child = self._group._children.pop(index)
+        with self._group._membership_gate:
+            self._group._begin_membership_transaction_locked()
+            index = next((i for i, child in enumerate(self._group._children) if child is vm), -1)
+            if index < 0:
+                self._group._membership_transaction_active = False
+                self._group._membership_transaction_owner = None
+                self._group._membership_condition.notify_all()
+                raise RuntimeError("recorded parent does not contain child identity")
+            child = self._group._children.pop(index)
 
         def commit() -> None:
-            self._group._emit_collection_changed(
-                CollectionChangedEvent(action="remove", old_items=(child,), old_index=index)
-            )
+            try:
+                self._group._emit_collection_changed(
+                    CollectionChangedEvent(action="remove", old_items=(child,), old_index=index)
+                )
+            finally:
+                self._group._end_membership_transaction(
+                    propagate_dispose_failure=sys.exc_info()[0] is None
+                )
 
         def rollback() -> None:
-            self._group._children.insert(index, child)
-            child._set_parent(self)
+            try:
+                with self._group._membership_gate:
+                    if self._group._dispose_requested:
+                        child._set_parent(None)
+                        return
+                    self._group._children.insert(min(index, len(self._group._children)), child)
+                    child._set_parent(self)
+            finally:
+                self._group._end_membership_transaction(propagate_dispose_failure=False)
 
         return _ParentTransfer(commit, rollback)

@@ -8,28 +8,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Pre-owned and multiply decorated components now retain one canonical,
+  transferable container identity (FWD-004, ADR-0124).
+- Async-resource loading now revalidates its admitted operation after loading
+  cleanup, replacement cleanup, and loading notification, so a cleanup callback
+  that starts a newer reload cannot publish a superseded completion.
+  Composite/group membership admission,
+  transfer rollback, factory population, selection, and disposal snapshots now
+  share one transaction boundary, preventing concurrent or re-entrant work from
+  escaping cleanup and surfacing failed lifecycle compensation.
+
+- Lifecycle publication waits remain synchronous for ordinary foreign calls
+  and escape only proven cross-VM wait cycles; selection mutation and removal
+  now finish under the same membership gate so concurrent assignments retain
+  exactly one current child.
+
+- `ForwardingCompositeVM.subscribeMembership` now observes the wrapped
+  composite instead of the decorator's empty inherited collection.
+
 - Token pagination now runs page comparison and child construction outside its
   state queue, then rejects commits and later notifications when either callback
   disposes the pager reentrantly.
 
 - Common VM options factories now retain each independently supplied service
   through the builder's combined services validation (BLD-006, ADR-0112).
+
 - Swift's complete strict-concurrency diagnostics are now enforced in CI.
   Internally spawned tasks and dispatch closures use narrow transfer boundaries,
   immutable singleton services declare their sendability, and modal results are
   constrained to `Sendable` before crossing an async continuation.
-- The Notes Showcase now awaits foreground-dispatched UI mutations and
-  notification posts, rejects stale overlapping note fetches, uses the library
-  `DefaultDispatcher`, and passes the same strict-concurrency CI gate.
+
+- The Notes Showcase now awaits foreground-dispatched UI mutations, publishes
+  notifications without blocking commands on user resolution, rejects stale
+  overlapping note fetches, uses the library `DefaultDispatcher`, and passes
+  the same strict-concurrency CI gate.
+
 - `BasicModalVM` now atomically registers waiters and claims its first dismissal,
   preventing concurrent dismissal/disposal from losing or resuming a waiter
   more than once.
-- `MessageHub` now invokes subscriber and completion callbacks outside its state
-  condition. Ordinary foreign producers still wait for calling-thread delivery,
-  while nested cross-hub sends enqueue to avoid opposing-callback deadlocks.
+
+- `MessageHub` invokes subscriber and completion callbacks outside its state
+  condition and uses cycle-aware cross-hub waits: unrelated foreign producers
+  retain synchronous calling-thread delivery, while only actual dependency
+  cycles defer sends, disposal, or borrowed batch work.
+
+- `MessageHub.dispose()` now waits for ordinary foreign batches and transfers
+  cycle-breaking completion to the outermost owner boundary, preventing early
+  or permanently missing terminal notifications.
+
 - `NotificationHub.pending` now registers subscriber state under its lock but
   attaches downstream afterward, so `CurrentValueSubject` initial replay cannot
   run user code while holding the hub lock.
+
 - `VirtualTimeScheduler` now claims cancellation and execution atomically,
   keeps its clock monotonic when overdue work runs, and retains work scheduled
   through Combine's `Void`-returning overloads until advancement.

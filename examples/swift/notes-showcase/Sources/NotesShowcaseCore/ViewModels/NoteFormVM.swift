@@ -336,10 +336,10 @@ public final class NoteFormVM: ComponentVMBase {
             self?.emitDraftChanges()
         }
         if let notificationHub = _notificationHub {
-            _ = await notificationHub.post(VMx.Notification(
+            publishNotification(VMx.Notification(
                 type: .notification,
                 message: "Saved \u{201C}\(savedTitle)\u{201D}"
-            ))
+            ), to: notificationHub)
         }
         await refreshTagSuggestions()
     }

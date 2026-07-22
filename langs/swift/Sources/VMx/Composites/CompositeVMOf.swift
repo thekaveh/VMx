@@ -15,7 +15,7 @@ public final class CompositeVMOf<Model, VM: ComponentVMBase>: CompositeVM<VM> {
         dispatcher: Dispatcher,
         childrenModels: @escaping () -> [Model],
         childModelToChildViewModel: @escaping (Model) -> VM,
-        onConstruct: (() -> Void)? = nil,
+        onConstruct: (() throws -> Void)? = nil,
         onDestruct: (() -> Void)? = nil,
         currentSelector: (([VM]) -> VM?)? = nil,
         onCurrentChanged: ((VM?) -> Void)? = nil,

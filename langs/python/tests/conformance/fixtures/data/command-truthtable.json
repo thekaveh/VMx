@@ -1,0 +1,10 @@
+{
+  "$schema-version": "1.0.0",
+  "cases": [
+    { "id": "no-predicate-no-trigger", "predicate": null, "task": "noop", "trigger_emits": false, "can_execute": true, "execute_invokes_task": true, "can_execute_changed_fires": false },
+    { "id": "predicate-true",          "predicate": true, "task": "noop", "trigger_emits": false, "can_execute": true, "execute_invokes_task": true, "can_execute_changed_fires": false },
+    { "id": "predicate-false",         "predicate": false,"task": "noop", "trigger_emits": false, "can_execute": false,"execute_invokes_task": false,"can_execute_changed_fires": false },
+    { "id": "trigger-fires-can-execute-event", "predicate": true, "task": "noop", "trigger_emits": true, "can_execute": true, "execute_invokes_task": true, "can_execute_changed_fires": true },
+    { "id": "null-task",               "predicate": true, "task": null,   "trigger_emits": false, "can_execute": true, "execute_invokes_task": false,"can_execute_changed_fires": false }
+  ]
+}

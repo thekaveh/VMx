@@ -40,6 +40,21 @@ open class ForwardingComponentVM<Model>: ComponentVMOf<Model> {
         )
     }
 
+    override var _ownershipIdentity: ComponentVMBase { _wrapped._ownershipIdentity }
+
+    override var _transferOwnershipParent: OwnershipParentVM? {
+        _ownershipParent ?? _ownershipIdentity._transferOwnershipParent
+    }
+
+    override func _ownershipParentDidChange() {
+        let identity = _ownershipIdentity
+        if _ownershipParent != nil {
+            identity._forwardingOwner = self
+        } else if identity._forwardingOwner === self {
+            identity._forwardingOwner = nil
+        }
+    }
+
     // ── Identity / kind ─────────────────────────────────────────────────
     open override var type: ViewModelType { _wrapped.type }
 
@@ -51,6 +66,18 @@ open class ForwardingComponentVM<Model>: ComponentVMOf<Model> {
         _wrapped.propertyChanged
     }
 
+    override func _setIsCurrent(_ value: Bool) {
+        _wrapped._setIsCurrent(value)
+    }
+
+    override func _commitIsCurrent(_ value: Bool) -> Bool {
+        _wrapped._commitIsCurrent(value)
+    }
+
+    override func _publishIsCurrent() {
+        _wrapped._publishIsCurrent()
+    }
+
     // ── Model ───────────────────────────────────────────────────────────
     open override var model: Model {
         get { _wrapped.model }
@@ -60,8 +87,12 @@ open class ForwardingComponentVM<Model>: ComponentVMOf<Model> {
     open override func republishModel() { _wrapped.republishModel() }
 
     // ── Built-in commands (override the getters to delegate) ────────────
-    open override var selectCommand: RelayCommand { _wrapped.selectCommand }
-    open override var deselectCommand: RelayCommand { _wrapped.deselectCommand }
+    open override var selectCommand: RelayCommand {
+        _parent == nil ? _wrapped.selectCommand : super.selectCommand
+    }
+    open override var deselectCommand: RelayCommand {
+        _parent == nil ? _wrapped.deselectCommand : super.deselectCommand
+    }
     open override var selectNextCommand: RelayCommand { _wrapped.selectNextCommand }
     open override var selectPreviousCommand: RelayCommand { _wrapped.selectPreviousCommand }
     open override var reconstructCommand: RelayCommand { _wrapped.reconstructCommand }
@@ -78,8 +109,22 @@ open class ForwardingComponentVM<Model>: ComponentVMOf<Model> {
     open override func dispose() { _wrapped.dispose() }
 
     // ── Selection ───────────────────────────────────────────────────────
-    open override func canSelect() -> Bool { _wrapped.canSelect() }
-    open override func select() { _wrapped.select() }
-    open override func canDeselect() -> Bool { _wrapped.canDeselect() }
-    open override func deselect() { _wrapped.deselect() }
+    open override func canSelect() -> Bool {
+        guard let parent = _parent else { return _wrapped.canSelect() }
+        return _wrapped.status == .constructed
+            && parent.supportsChildSelection
+            && parent.currentChild !== self
+    }
+    open override func select() {
+        if let parent = _parent { parent.selectChild(self) } else { _wrapped.select() }
+    }
+    open override func canDeselect() -> Bool {
+        guard let parent = _parent else { return _wrapped.canDeselect() }
+        return _wrapped.status == .constructed
+            && parent.supportsChildSelection
+            && parent.currentChild === self
+    }
+    open override func deselect() {
+        if let parent = _parent { parent.deselectChild(self) } else { _wrapped.deselect() }
+    }
 }

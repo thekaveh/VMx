@@ -355,16 +355,26 @@ final class NoteVMTests: XCTestCase {
             .name("note")
             .services(hub: MessageHub(), dispatcher: ImmediateDispatcher.INSTANCE)
             .model(makeModel(title: "Important"))
-            .onDelete({ _ in try await Task.sleep(nanoseconds: 20_000_000) })
+            .onDelete({ _ in try await Task.sleep(nanoseconds: 100_000_000) })
             .confirmDelete({ true })
             .notificationHub(notificationHub)
             .build()
         try vm.construct()
 
-        try await (vm.deleteCommand as! ConfirmationDecoratorCommand).executeAsync()
+        let dc = try XCTUnwrap(vm.deleteCommand as? ConfirmationDecoratorCommand)
+        let execution = Task { try await dc.executeAsync() }
 
+        // 10ms into the 100ms async onDelete: the callback is still in flight,
+        // so the success notification must not have been posted yet.
+        try await Task.sleep(nanoseconds: 10_000_000)
         XCTAssertFalse(recorder.anyMessage { $0.contains("Note deleted") })
-        try await Task.sleep(nanoseconds: 50_000_000)
+
+        try await execution.value
+        // Post-completion the notification posts via a detached Task; poll
+        // briefly for its arrival.
+        for _ in 0..<50 where !recorder.anyMessage({ $0.contains("Note deleted") }) {
+            try? await Task.sleep(nanoseconds: 1_000_000)
+        }
         XCTAssertTrue(recorder.anyMessage { $0.contains("Note deleted") })
     }
 

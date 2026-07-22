@@ -11,13 +11,13 @@
 import type React from "react";
 
 import type { DialogRequest } from "../../adapter/ReactDialogService.js";
+import { ModalShell } from "./ModalShell.js";
 
 export const ConfirmModal: React.FC<{ request: DialogRequest }> = ({ request }) => (
-  <div
-    className="dialog-backdrop"
-    role="dialog"
-    aria-modal="true"
-    aria-label={request.title ?? request.message}
+  <ModalShell
+    activationKey={request}
+    ariaLabel={request.title ?? request.message}
+    onEscape={() => request.resolveBool(false)}
   >
     <div className="dialog-window">
       {request.title !== null && <div className="dialog-title">{request.title}</div>}
@@ -27,5 +27,5 @@ export const ConfirmModal: React.FC<{ request: DialogRequest }> = ({ request }) 
         <button type="button" onClick={() => request.resolveBool(true)}>OK</button>
       </div>
     </div>
-  </div>
+  </ModalShell>
 );

@@ -6,11 +6,12 @@ All other tests are implemented directly.
 
 from __future__ import annotations
 
-from threading import Barrier, Lock, Thread
+from threading import Barrier, Event, Lock, Thread
 from typing import Any
 
 import pytest
 
+import vmx.services.message_hub as message_hub_module
 from tests.conformance.fixtures.loader import load
 from vmx.messages.property_changed import PropertyChangedMessage
 from vmx.services.message_hub import MessageHub
@@ -369,3 +370,136 @@ def test_opposing_hub_callbacks_do_not_deadlock() -> None:
     assert inner_deliveries == 2
     left.dispose()
     right.dispose()
+
+
+def test_opposing_hub_callback_batches_do_not_deadlock() -> None:
+    left = _fresh_hub()
+    right = _fresh_hub()
+    callbacks_entered = Barrier(2)
+    inner_deliveries = 0
+    delivery_lock = Lock()
+
+    def subscribe_crossing(
+        source: MessageHub[PropertyChangedMessage[object]],
+        target: MessageHub[PropertyChangedMessage[object]],
+    ) -> None:
+        def callback(message: PropertyChangedMessage[object]) -> None:
+            nonlocal inner_deliveries
+            if message.property_name == "outer":
+                callbacks_entered.wait()
+                with target.batch():
+                    target.send(_make_msg("inner"))
+            else:
+                with delivery_lock:
+                    inner_deliveries += 1
+
+        source.messages.subscribe(callback)
+
+    subscribe_crossing(left, right)
+    subscribe_crossing(right, left)
+    workers = [
+        Thread(target=left.send, args=(_make_msg("outer"),), daemon=True),
+        Thread(target=right.send, args=(_make_msg("outer"),), daemon=True),
+    ]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join(timeout=2)
+
+    assert not any(worker.is_alive() for worker in workers)
+    assert inner_deliveries == 2
+    left.dispose()
+    right.dispose()
+
+
+def test_unrelated_hub_callback_send_waits_for_busy_target() -> None:
+    source = _fresh_hub()
+    target = _fresh_hub()
+    batch_entered = Event()
+    release_batch = Event()
+    callback_returned = Event()
+    deliveries: list[str] = []
+    target.messages.subscribe(lambda message: deliveries.append(message.property_name))
+
+    def hold_batch() -> None:
+        with target.batch():
+            batch_entered.set()
+            release_batch.wait()
+
+    batch_worker = Thread(target=hold_batch)
+    batch_worker.start()
+    assert batch_entered.wait(1)
+
+    def cross_send(_: object) -> None:
+        target.send(_make_msg("nested"))
+        callback_returned.set()
+
+    source.messages.subscribe(cross_send)
+    source_worker = Thread(target=source.send, args=(_make_msg("outer"),))
+    source_worker.start()
+    try:
+        assert not callback_returned.wait(0.05)
+    finally:
+        release_batch.set()
+        batch_worker.join(1)
+        source_worker.join(1)
+
+    assert callback_returned.is_set()
+    assert deliveries == ["nested"]
+    source.dispose()
+    target.dispose()
+
+
+def test_cyclic_dispose_of_batched_hub_completes_on_batch_exit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    batched = _fresh_hub()
+    source = _fresh_hub()
+    completed = Event()
+    callback_entered = Event()
+    about_to_send = Event()
+    wait_edge_registered = Event()
+    errors: list[BaseException] = []
+    batched.messages.subscribe(on_completed=completed.set)
+
+    original_register = message_hub_module._register_message_hub_wait
+
+    def register_wait(waiter: int, owner: int) -> bool:
+        closes_cycle = original_register(waiter, owner)
+        if not closes_cycle:
+            wait_edge_registered.set()
+        return closes_cycle
+
+    monkeypatch.setattr(message_hub_module, "_register_message_hub_wait", register_wait)
+
+    def dispose_batched(_: object) -> None:
+        callback_entered.set()
+        if not about_to_send.wait(1) or not wait_edge_registered.wait(1):
+            errors.append(TimeoutError("cross-hub wait edge was not registered"))
+            return
+        batched.dispose()
+
+    source.messages.subscribe(dispose_batched)
+
+    def own_batch_then_cross_send() -> None:
+        try:
+            with batched.batch():
+                if not callback_entered.wait(1):
+                    raise TimeoutError("source callback did not start")
+                about_to_send.set()
+                source.send(_make_msg("inner"))
+        except BaseException as error:
+            errors.append(error)
+
+    batch_worker = Thread(target=own_batch_then_cross_send)
+    source_worker = Thread(target=source.send, args=(_make_msg("outer"),))
+    batch_worker.start()
+    source_worker.start()
+    batch_worker.join(2)
+    source_worker.join(2)
+
+    assert not batch_worker.is_alive()
+    assert not source_worker.is_alive()
+    assert errors == []
+    assert completed.wait(1)
+    source.dispose()

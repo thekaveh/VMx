@@ -132,6 +132,7 @@ class ComponentVMOfBuilder(Generic[M]):
     Required fields: ``name``, ``model``, ``services(hub, dispatcher)``.
     """
 
+    __orig_class__: object = dataclasses.field(init=False, repr=False, compare=False)
     _name: str | None = dataclasses.field(default=None)
     _hint: str = dataclasses.field(default="")
     _model: object = dataclasses.field(default=_SENTINEL)
@@ -254,6 +255,7 @@ class ReadonlyComponentVMOfBuilder(Generic[M]):
     Model is frozen at build time — there is no setter on the VM.
     """
 
+    __orig_class__: object = dataclasses.field(init=False, repr=False, compare=False)
     _name: str | None = dataclasses.field(default=None)
     _hint: str = dataclasses.field(default="")
     _model: object = dataclasses.field(default=_SENTINEL)

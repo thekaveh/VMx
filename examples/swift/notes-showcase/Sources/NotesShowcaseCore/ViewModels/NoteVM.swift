@@ -40,7 +40,7 @@ public final class NoteVM: ComponentVMBase,
     private let _confirmDelete: (() async throws -> Bool)?
     private let _notificationHub: NotificationHubProtocol?
 
-    // ── Commands (phase-1 placeholders, rewired in init phase 2) ──────────
+    // ── Commands (initialization placeholders, rewired after super.init) ──
 
     /// Inner delete relay — always an `AsyncRelayCommand`, gated on
     /// `canDelete(self)`. Wrapped by `deleteCommand` when a confirm delegate
@@ -136,10 +136,10 @@ public final class NoteVM: ComponentVMBase,
         guard let deletedTitle else { return }
         try await _onDelete?(item)
         if let notificationHub = _notificationHub {
-            _ = await notificationHub.post(VMx.Notification(
+            publishNotification(VMx.Notification(
                 type: .notification,
                 message: "Note deleted: \u{201C}\(deletedTitle)\u{201D}"
-            ))
+            ), to: notificationHub)
         }
     }
 
@@ -173,7 +173,7 @@ public final class NoteVM: ComponentVMBase,
         _confirmDelete = confirmDelete
         _notificationHub = notificationHub
 
-        // Phase 1: placeholder no-op commands (required before super.init).
+        // Placeholder no-op commands are required before super.init.
         let relayPlaceholder = RelayCommand(task: nil, predicate: nil, triggers: [])
         let asyncPlaceholder = AsyncRelayCommand(
             body: nil,
@@ -188,7 +188,7 @@ public final class NoteVM: ComponentVMBase,
 
         super.init(name: name, hint: hint, hub: hub, dispatcher: dispatcher)
 
-        // Phase 2: rewire with self-capturing closures — `self` is valid here.
+        // Rewire with self-capturing closures after `self` becomes valid.
 
         let innerDelete = AsyncRelayCommand.builder()
             .predicate({ [weak self] in

@@ -41,6 +41,15 @@ VMx view models own notebook selection, note filtering, page state, editor
 mode, form validation, save/revert commands, global token search, and
 notifications.
 
+### 2.1. Parity Role
+
+This is a **reduced companion** to the four canonical Notes Workspace
+flagships, not a fifth column in the 19-feature parity matrix. It intentionally
+does not implement `THEME-001..005`, `IDialogService` export, the capability
+action bar, the async dispatcher scenario, or tag autocomplete. The narrower
+scope keeps the example focused on Rust-native terminal composition while the
+four UI-backed hosts remain the executable cross-flavor scenario contract.
+
 VM-layer diagram:
 [`docs/assets/diagrams/rust-tui-notes-showcase.svg`](../../docs/assets/diagrams/rust-tui-notes-showcase.svg)
 ([HTML](../../docs/assets/diagrams/rust-tui-notes-showcase.html),

@@ -12,6 +12,7 @@ import {
   CompositeVMOf,
   GroupVM,
   PropertyChangedMessage,
+  ViewModelType,
 } from "../../src/index.js";
 import type { CollectionChangedEvent } from "../../src/index.js";
 
@@ -20,6 +21,23 @@ function makeDisp() { return RxDispatcher.immediate(); }
 
 function makeChild(hub: MessageHub, name: string) {
   return ComponentVM.builder().name(name).services(hub, makeDisp()).build();
+}
+
+class DisposeFailingComponent extends ComponentVMBase {
+  constructor(name: string, hub: MessageHub, onConstruct: (() => void) | null = null) {
+    super({ name, hint: "", hub, dispatcher: makeDisp(), onConstruct });
+  }
+
+  get type(): ViewModelType { return ViewModelType.Component; }
+
+  protected override _onDispose(): void { throw new Error("dispose failure"); }
+}
+
+class DisposeFailingComposite extends CompositeVM<ComponentVM> {
+  protected override _onDispose(): void {
+    super._onDispose();
+    throw new Error("destination dispose failure");
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -335,6 +353,29 @@ describe("COMP-010", () => {
     composite.remove(vmA); // removed before dispatch
     foreground.flush(); // deliver
 
+    expect(composite.current).toBeNull();
+    expect(vmA.isCurrent).toBe(false);
+  });
+
+  it("drops a deferred selection when the composite is disposed before delivery", () => {
+    const hub = makeHub();
+    const foreground = new TestScheduler((actual, expected) => {
+      expect(actual).toEqual(expected);
+    });
+    const disp = new RxDispatcher(foreground, foreground);
+    const vmA = makeChild(hub, "vmA");
+    const composite = CompositeVM.builder<ComponentVM>()
+      .name("c")
+      .services(hub, disp)
+      .asyncSelection(true)
+      .children(() => [vmA])
+      .build();
+    composite.construct();
+
+    composite.selectComponent(vmA);
+    composite.dispose();
+
+    expect(() => foreground.flush()).not.toThrow();
     expect(composite.current).toBeNull();
     expect(vmA.isCurrent).toBe(false);
   });
@@ -703,6 +744,84 @@ describe("COMP-026", () => {
     composite2.construct();
 
     expect(observed2).toEqual([children2[0]]);
+
+    let reentrant!: CompositeVM<ComponentVM>;
+    const reentrantHub = makeHub();
+    const reentrantChild = makeChild(reentrantHub, "reentrant");
+    const callbackStatuses: ConstructionStatus[] = [];
+    reentrant = CompositeVM.builder<ComponentVM>()
+      .name("reentrant-composite")
+      .services(reentrantHub, disp)
+      .children(() => [reentrantChild])
+      .onCurrentChanged((selected) => {
+        callbackStatuses.push(selected!.status);
+        reentrant.dispose();
+      })
+      .build();
+    reentrant.construct();
+
+    reentrant.selectComponent(reentrantChild);
+
+    expect(callbackStatuses).toEqual([ConstructionStatus.Constructed]);
+    expect(reentrant.status).toBe(ConstructionStatus.Disposed);
+  });
+
+  it("opposing synchronous current callbacks terminate", () => {
+    const hubA = makeHub();
+    const hubB = makeHub();
+    const childA = makeChild(hubA, "a");
+    const childB = makeChild(hubB, "b");
+    let firstA = true;
+    let firstB = true;
+    let compositeA!: CompositeVM<ComponentVM>;
+    let compositeB!: CompositeVM<ComponentVM>;
+    compositeA = CompositeVM.builder<ComponentVM>()
+      .name("a").services(hubA, makeDisp()).children(() => [childA])
+      .onCurrentChanged(() => {
+        if (!firstA) return;
+        firstA = false;
+        if (compositeB.current !== childB) compositeB.selectComponent(childB);
+      }).build();
+    compositeB = CompositeVM.builder<ComponentVM>()
+      .name("b").services(hubB, makeDisp()).children(() => [childB])
+      .onCurrentChanged(() => {
+        if (!firstB) return;
+        firstB = false;
+        if (compositeA.current !== childA) compositeA.selectComponent(childA);
+      }).build();
+    compositeA.construct();
+    compositeB.construct();
+
+    compositeA.selectComponent(childA);
+
+    expect(compositeA.current).toBe(childA);
+    expect(compositeB.current).toBe(childB);
+  });
+
+  it("publishes remove and reset before callback-requested disposal completes", () => {
+    const exercise = (clear: boolean): string[] => {
+      const hub = makeHub();
+      const child = makeChild(hub, "child");
+      let composite!: CompositeVM<ComponentVM>;
+      composite = CompositeVM.builder<ComponentVM>()
+        .name("composite").services(hub, makeDisp()).children(() => [child])
+        .onCurrentChanged((selected) => {
+          if (selected === null) composite.dispose();
+        }).build();
+      composite.construct();
+      composite.selectComponent(child);
+      const events: string[] = [];
+      composite.collectionChanged.subscribe((event) => events.push(event.action));
+
+      if (clear) composite.clear();
+      else expect(composite.remove(child)).toBe(true);
+
+      expect(composite.status).toBe(ConstructionStatus.Disposed);
+      return events;
+    };
+
+    expect(exercise(false)).toEqual(["remove"]);
+    expect(exercise(true)).toEqual(["reset"]);
   });
 });
 
@@ -801,6 +920,236 @@ describe("COMP-039", () => {
 });
 
 describe("COMP-040", () => {
+  it("rejects duplicate identities in composite and group factory populations", () => {
+    const hub = makeHub();
+    const dispatcher = makeDisp();
+    const child = makeChild(hub, "duplicate");
+    const composite = CompositeVM.builder<ComponentVM>()
+      .name("composite").services(hub, dispatcher)
+      .children(() => [child, child]).build();
+    const group = GroupVM.builder<ComponentVM>()
+      .name("group").services(hub, dispatcher)
+      .children(() => [child, child]).build();
+
+    expect(() => composite.construct()).toThrow(/duplicate child identity/);
+    expect(() => group.construct()).toThrow(/duplicate child identity/);
+    expect(composite.snapshot()).toEqual([]);
+    expect(group.snapshot()).toEqual([]);
+  });
+
+  it("rejects reparenting from an auto-construct hook before admission commits", () => {
+    const hub = makeHub();
+    const dispatcher = makeDisp();
+    const source = CompositeVM.builder<ComponentVM>()
+      .name("source").services(hub, dispatcher)
+      .children(() => []).autoConstructOnAdd(true).build();
+    const destination = GroupVM.builder<ComponentVM>()
+      .name("destination").services(hub, dispatcher)
+      .children(() => []).build();
+    let child: ComponentVM;
+    child = ComponentVM.builder().name("child").services(hub, dispatcher)
+      .onConstruct(() => destination.add(child)).build();
+    source.construct();
+    const events: string[] = [];
+    source.collectionChanged.subscribe(() => events.push("source"));
+    destination.collectionChanged.subscribe(() => events.push("destination"));
+
+    expect(() => source.add(child)).toThrow(/ownership transaction is already in progress/);
+    expect(source.snapshot()).toEqual([]);
+    expect(destination.snapshot()).toEqual([]);
+    expect(events).toEqual([]);
+  });
+
+  it("aborts composite and group admission when auto-construction disposes the destination", () => {
+    const hub = makeHub();
+    const dispatcher = makeDisp();
+    const composite = CompositeVM.builder<ComponentVM>()
+      .name("composite").services(hub, dispatcher)
+      .children(() => []).autoConstructOnAdd(true).build();
+    const group = GroupVM.builder<ComponentVM>()
+      .name("group").services(hub, dispatcher)
+      .children(() => []).autoConstructOnAdd(true).build();
+    const compositeChild = ComponentVM.builder().name("composite-child")
+      .services(hub, dispatcher).onConstruct(() => composite.dispose()).build();
+    const groupChild = ComponentVM.builder().name("group-child")
+      .services(hub, dispatcher).onConstruct(() => group.dispose()).build();
+    composite.construct();
+    group.construct();
+
+    expect(() => composite.add(compositeChild)).toThrow(/disposing/);
+    expect(() => group.add(groupChild)).toThrow(/disposing/);
+    expect(composite.snapshot()).toEqual([]);
+    expect(group.snapshot()).toEqual([]);
+    expect(compositeChild._parent).toBeNull();
+    expect(groupChild._parent).toBeNull();
+    expect(compositeChild.status).toBe(ConstructionStatus.Destructed);
+    expect(groupChild.status).toBe(ConstructionStatus.Destructed);
+  });
+
+  it("rolls back factory population when construction disposes the destination", () => {
+    const hub = makeHub();
+    const dispatcher = makeDisp();
+    let destination!: CompositeVM<ComponentVM>;
+    const child = ComponentVM.builder().name("child").services(hub, dispatcher)
+      .onConstruct(() => destination.dispose()).build();
+    destination = CompositeVM.builder<ComponentVM>()
+      .name("destination").services(hub, dispatcher).children(() => [child]).build();
+
+    expect(() => destination.construct()).toThrow();
+
+    expect(destination.snapshot()).toEqual([]);
+    expect(child.status).toBe(ConstructionStatus.Destructed);
+    expect(destination.status).toBe(ConstructionStatus.Disposed);
+  });
+
+  it("keeps an attachment error ahead of destination deferred-disposal failure", () => {
+    const hub = makeHub();
+    const dispatcher = makeDisp();
+    const destination = new DisposeFailingComposite({
+      name: "destination",
+      hint: "",
+      hub,
+      dispatcher,
+      childrenFactory: () => [],
+      autoConstructOnAdd: true,
+    });
+    const child = ComponentVM.builder().name("child").services(hub, dispatcher)
+      .onConstruct(() => {
+        destination.dispose();
+        throw new Error("attachment failure");
+      }).build();
+    destination.construct();
+
+    expect(() => destination.add(child)).toThrow("attachment failure");
+    expect(destination.status).toBe(ConstructionStatus.Disposed);
+    expect(destination.snapshot()).toEqual([]);
+  });
+
+  it("defers old-composite disposal until a successful transfer commits", () => {
+    const hub = makeHub();
+    const dispatcher = makeDisp();
+    const oldParent = CompositeVM.builder<ComponentVM>()
+      .name("old").services(hub, dispatcher).children(() => []).build();
+    const destination = GroupVM.builder<ComponentVM>()
+      .name("destination").services(hub, dispatcher)
+      .children(() => []).autoConstructOnAdd(true).build();
+    const child = ComponentVM.builder().name("child").services(hub, dispatcher)
+      .onConstruct(() => oldParent.dispose()).build();
+    oldParent.add(child);
+    destination.construct();
+
+    destination.add(child);
+
+    expect(oldParent.status).toBe(ConstructionStatus.Disposed);
+    expect(oldParent.snapshot()).toEqual([]);
+    expect(destination.snapshot()).toEqual([child]);
+    expect(child.status).toBe(ConstructionStatus.Constructed);
+    expect(child._parent?.owner).toBe(destination);
+  });
+
+  it("rolls back before deferred old-group disposal after transfer failure", () => {
+    const hub = makeHub();
+    const dispatcher = makeDisp();
+    const oldParent = GroupVM.builder<ComponentVM>()
+      .name("old").services(hub, dispatcher).children(() => []).build();
+    const destination = CompositeVM.builder<ComponentVM>()
+      .name("destination").services(hub, dispatcher)
+      .children(() => []).autoConstructOnAdd(true).build();
+    const child = ComponentVM.builder().name("child").services(hub, dispatcher)
+      .onConstruct(() => {
+        oldParent.dispose();
+        throw new Error("boom");
+      }).build();
+    oldParent.add(child);
+    destination.construct();
+
+    expect(() => destination.add(child)).toThrow("boom");
+
+    expect(oldParent.status).toBe(ConstructionStatus.Disposed);
+    expect(oldParent.snapshot()).toEqual([child]);
+    expect(destination.snapshot()).toEqual([]);
+    expect(child.status).toBe(ConstructionStatus.Disposed);
+    expect(child._parent?.owner).toBe(oldParent);
+  });
+
+  it("surfaces deferred disposal failure after committed transfer events", () => {
+    const hub = makeHub();
+    const oldParent = GroupVM.builder<ComponentVMBase>()
+      .name("old").services(hub, makeDisp()).children(() => []).build();
+    const destination = CompositeVM.builder<ComponentVMBase>()
+      .name("destination").services(hub, makeDisp())
+      .children(() => []).autoConstructOnAdd(true).build();
+    const moving = new DisposeFailingComponent("moving", hub, () => oldParent.dispose());
+    const failingSibling = new DisposeFailingComponent("failing-sibling", hub);
+    oldParent.add(moving);
+    oldParent.add(failingSibling);
+    destination.construct();
+    const events: string[] = [];
+    oldParent.collectionChanged.subscribe(() => events.push("old:remove"));
+    destination.collectionChanged.subscribe(() => events.push("new:add"));
+
+    expect(() => destination.add(moving)).toThrow("dispose failure");
+
+    expect(events).toEqual(["old:remove", "new:add"]);
+    expect(oldParent.status).toBe(ConstructionStatus.Disposed);
+    expect(failingSibling.status).toBe(ConstructionStatus.Disposed);
+    expect(destination.snapshot()).toEqual([moving]);
+    expect(moving._parent?.owner).toBe(destination);
+  });
+
+  it("keeps attachment failure ahead of deferred disposal failure", () => {
+    const hub = makeHub();
+    const oldParent = GroupVM.builder<ComponentVMBase>()
+      .name("old").services(hub, makeDisp()).children(() => []).build();
+    const destination = CompositeVM.builder<ComponentVMBase>()
+      .name("destination").services(hub, makeDisp())
+      .children(() => []).autoConstructOnAdd(true).build();
+    const moving = new DisposeFailingComponent("moving", hub, () => {
+      oldParent.dispose();
+      throw new Error("attachment failure");
+    });
+    oldParent.add(moving);
+    destination.construct();
+
+    expect(() => destination.add(moving)).toThrow("attachment failure");
+
+    expect(oldParent.status).toBe(ConstructionStatus.Disposed);
+    expect(moving.status).toBe(ConstructionStatus.Disposed);
+    expect(oldParent.snapshot()).toEqual([moving]);
+    expect(destination.snapshot()).toEqual([]);
+  });
+
+  it("does not retry population committed before a late disposal failure", () => {
+    const hub = makeHub();
+    const oldParent = GroupVM.builder<ComponentVMBase>()
+      .name("old").services(hub, makeDisp()).children(() => []).build();
+    const moving = new DisposeFailingComponent("moving", hub, () => oldParent.dispose());
+    const failingSibling = new DisposeFailingComponent("failing-sibling", hub);
+    oldParent.add(moving);
+    oldParent.add(failingSibling);
+    let factoryCalls = 0;
+    const destination = CompositeVM.builder<ComponentVMBase>()
+      .name("destination").services(hub, makeDisp())
+      .children(() => {
+        factoryCalls += 1;
+        return [moving];
+      }).build();
+    const events: string[] = [];
+    oldParent.collectionChanged.subscribe(() => events.push("old:remove"));
+    destination.collectionChanged.subscribe(() => events.push("new:add"));
+
+    expect(() => destination.construct()).toThrow("dispose failure");
+
+    expect(events).toEqual(["old:remove", "new:add"]);
+    expect(factoryCalls).toBe(1);
+    expect(destination.snapshot()).toEqual([moving]);
+
+    destination.construct();
+
+    expect(factoryCalls).toBe(1);
+    expect(destination.status).toBe(ConstructionStatus.Constructed);
+  });
+
   it("restores parent, index, current, and lifecycle when construction fails", () => {
     const hub = makeHub();
     const dispatcher = makeDisp();
@@ -872,6 +1221,40 @@ describe("COMP-040", () => {
     destination.construct();
     expect(destination.snapshot()).toEqual([]);
   });
+
+  it("surfaces a lifecycle compensation failure after restoring membership", () => {
+    const hub = makeHub();
+    const dispatcher = makeDisp();
+    const compensated = ComponentVM.builder()
+      .name("compensated")
+      .services(hub, dispatcher)
+      .onDestruct(() => { throw new Error("compensation failed"); })
+      .build();
+    const blocker = ComponentVM.builder()
+      .name("blocker")
+      .services(hub, dispatcher)
+      .onConstruct(() => { throw new Error("population failed"); })
+      .build();
+    const destination = GroupVM.builder<ComponentVM>()
+      .name("destination")
+      .services(hub, dispatcher)
+      .children(() => [compensated, blocker])
+      .build();
+
+    let caught: unknown;
+    try {
+      destination.construct();
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(Error);
+    const rollback = caught as Error & { rollbackError: unknown };
+    expect(rollback.name).toBe("ContainerRollbackError");
+    expect((rollback.cause as Error).message).toBe("population failed");
+    expect((rollback.rollbackError as Error).message).toBe("compensation failed");
+    expect(destination.snapshot()).toEqual([]);
+  });
 });
 
 describe("COMP-041", () => {
@@ -901,5 +1284,29 @@ describe("COMP-041", () => {
     destination.add(child);
 
     expect(observed).toEqual(["old:remove", "new:add"]);
+  });
+
+  it("publishes both transfer events before rethrowing a current callback failure", () => {
+    const hub = makeHub();
+    const dispatcher = makeDisp();
+    const oldParent = CompositeVM.builder<ComponentVM>()
+      .name("old").services(hub, dispatcher).children(() => [])
+      .onCurrentChanged((current) => {
+        if (current === null) throw new Error("callback boom");
+      }).build();
+    const child = makeChild(hub, "child");
+    oldParent.add(child);
+    oldParent.current = child;
+    const destination = GroupVM.builder<ComponentVM>()
+      .name("destination").services(hub, dispatcher).children(() => []).build();
+    const observed: string[] = [];
+    oldParent.collectionChanged.subscribe(() => observed.push("old:remove"));
+    destination.collectionChanged.subscribe(() => observed.push("new:add"));
+
+    expect(() => destination.add(child)).toThrow("callback boom");
+
+    expect(observed).toEqual(["old:remove", "new:add"]);
+    expect(oldParent.snapshot()).toEqual([]);
+    expect(destination.snapshot()).toEqual([child]);
   });
 });

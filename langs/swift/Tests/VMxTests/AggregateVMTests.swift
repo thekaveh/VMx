@@ -214,6 +214,52 @@ final class AggregateVMTests: XCTestCase {
         XCTAssertNil(aggregate.component1)
     }
 
+    func testForwardingAliasesOfOneCanonicalComponentAreRejected() throws {
+        // ForwardingComponentVM wraps ComponentVMOf<Model>; the canonical it
+        // aliases must be a modeled component, not an untyped ComponentVM leaf.
+        let inner = try ComponentVMOf<String>.builder()
+            .name("inner").model("").withNullServices().build()
+        let first = ForwardingComponentVM(inner)
+        let second = ForwardingComponentVM(inner)
+        let aggregate = try AggregateVM2<ForwardingComponentVM<String>, ForwardingComponentVM<String>>
+            .builder()
+            .name("aggregate").withNullServices()
+            .component1 { first }.component2 { second }.build()
+
+        XCTAssertThrowsError(try aggregate.construct()) { error in
+            guard let ownershipError = error as? ContainerOwnershipError,
+                  case .duplicate = ownershipError else {
+                return XCTFail("expected duplicate, got \(error)")
+            }
+        }
+        XCTAssertNil(aggregate.component1)
+        XCTAssertNil(aggregate.component2)
+    }
+
+    func testForwardingAliasOfOwnedComponentIsRejected() throws {
+        // ForwardingComponentVM wraps ComponentVMOf<Model>; the canonical it
+        // aliases must be a modeled component. The composite that owns it is
+        // typed CompositeVM<ComponentVMOf<String>> to match.
+        let inner = try ComponentVMOf<String>.builder()
+            .name("inner").model("").withNullServices().build()
+        let composite = try CompositeVM<ComponentVMOf<String>>.builder()
+            .name("composite").withNullServices().children { [inner] }.build()
+        try composite.construct()
+        let aggregate = try AggregateVM1<ForwardingComponentVM<String>>.builder()
+            .name("aggregate").withNullServices()
+            .component1 { ForwardingComponentVM(inner) }.build()
+
+        XCTAssertThrowsError(try aggregate.construct()) { error in
+            guard let ownershipError = error as? ContainerOwnershipError,
+                  case .inconsistentParent = ownershipError else {
+                return XCTFail("expected inconsistentParent, got \(error)")
+            }
+        }
+        XCTAssertEqual(composite.count, 1)
+        XCTAssertTrue(composite.at(0) === inner)
+        XCTAssertNil(aggregate.component1)
+    }
+
     func testFixedAggregateSlotCannotTransferToMutableContainer() throws {
         let child = leaf("child")
         let aggregate = try AggregateVM1<ComponentVM>.builder()

@@ -73,7 +73,6 @@ public sealed class GroupVM<VM> : GroupVMBase<VM>, IGroupVM<VM>
     protected override void PopulateChildren()
     {
         if (_populated || _childrenFactory is null) return;
-        AttachPopulation(_childrenFactory());
-        _populated = true;
+        AttachPopulation(_childrenFactory(), () => _populated = true);
     }
 }

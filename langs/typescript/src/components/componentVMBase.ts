@@ -62,24 +62,73 @@ export class ParentTransfer {
   }
 }
 
+/** @internal Commit ownership without interrupting destination publication. */
+export function captureParentTransferCommit(transfer: ParentTransfer): Error | undefined {
+  try {
+    transfer.commit();
+  } catch (error) {
+    return error instanceof Error
+      ? error
+      : new Error("Parent transfer commit failed", { cause: error });
+  }
+  return undefined;
+}
+
+/** Internal failure raised when consumer lifecycle code prevents exact rollback. */
+export class ContainerRollbackError extends Error {
+  readonly rollbackError: unknown;
+
+  constructor(originalError: unknown, rollbackError: unknown) {
+    super("Container mutation failed and lifecycle compensation also failed", {
+      cause: originalError,
+    });
+    this.name = "ContainerRollbackError";
+    this.rollbackError = rollbackError;
+  }
+}
+
 /** @internal Validate exclusive ownership/cycles and stage the old removal. */
 export function beginParentTransfer(
   child: ComponentVMBase,
   destination: IOwningParentVM,
-): ParentTransfer | null {
-  if (destination.containsChild(child)) {
-    throw new Error(`Cannot add '${child.name}': destination already contains that identity`);
+): ParentTransfer {
+  const identity = child._ownershipIdentity;
+  if (identity._ownershipInProgress) {
+    throw new Error(
+      `Cannot transfer '${child.name}': ownership transaction is already in progress`,
+    );
   }
-
-  let cursor: IOwningParentVM | null = destination;
-  while (cursor !== null) {
-    if (cursor.owner === child) {
-      throw new Error(`Cannot add '${child.name}': operation would create a parent cycle`);
+  identity._ownershipInProgress = true;
+  let staged: ParentTransfer | null;
+  try {
+    if (destination.containsChild(child)) {
+      throw new Error(`Cannot add '${child.name}': destination already contains that identity`);
     }
-    cursor = cursor.ownerParent;
+
+    let cursor: IOwningParentVM | null = destination;
+    while (cursor !== null) {
+      if (cursor.owner._ownershipIdentity === identity) {
+        throw new Error(`Cannot add '${child.name}': operation would create a parent cycle`);
+      }
+      cursor = cursor.ownerParent;
+    }
+    staged = child._parent?.detachForTransfer(child) ?? null;
+  } catch (error) {
+    identity._ownershipInProgress = false;
+    throw error;
   }
 
-  return child._parent?.detachForTransfer(child) ?? null;
+  const finish = (commit: boolean): void => {
+    try {
+      if (staged !== null) {
+        if (commit) staged.commit();
+        else staged.rollback();
+      }
+    } finally {
+      identity._ownershipInProgress = false;
+    }
+  };
+  return new ParentTransfer(() => finish(true), () => finish(false));
 }
 
 export interface DisposableResource {
@@ -108,7 +157,14 @@ export abstract class ComponentVMBase {
   #inFlight = false;
   #isCurrent = false;
   /** @internal Set by CompositeVMBase / GroupVM to wire parent-child selection delegation. */
-  _parent: IOwningParentVM | null = null;
+  #parent: IOwningParentVM | null = null;
+  get _parent(): IOwningParentVM | null { return this.#parent; }
+  set _parent(value: IOwningParentVM | null) { this.#parent = value; }
+  /** @internal Rejects nested ownership changes until the active mutation commits. */
+  _ownershipInProgress = false;
+  /** @internal Canonical component identity shared by forwarding decorators. */
+  // eslint-disable-next-line @typescript-eslint/prefer-return-this-type -- decorators return the wrapped root
+  get _ownershipIdentity(): ComponentVMBase { return this; }
 
   readonly #propertyChangedSubject = new Subject<string>();
   readonly #statusTrigger = new Subject<void>();

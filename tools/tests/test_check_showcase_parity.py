@@ -37,6 +37,9 @@ def _build_valid_tree(root: Path) -> None:
         "\n".join(f"func testTHEME{i:03d}_Scenario() {{ }}" for i in range(1, 6)),
         encoding="utf-8",
     )
+    scope_doc = root / csp.RUST_SCOPE_DOC
+    scope_doc.parent.mkdir(parents=True, exist_ok=True)
+    scope_doc.write_text("\n".join(csp.RUST_SCOPE_TERMS), encoding="utf-8")
 
 
 def test_expected_keys_pascal_case_for_csharp() -> None:
@@ -128,3 +131,14 @@ def test_main_returns_one_when_theme_id_is_comment_only(tmp_path, monkeypatch, c
     monkeypatch.setattr("sys.argv", ["check-showcase-parity.py", "--root", str(tmp_path)])
     assert csp.main() == 1
     assert "executable scenario marker" in capsys.readouterr().err
+
+
+def test_main_returns_one_when_rust_reduced_scope_is_ambiguous(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    _build_valid_tree(tmp_path)
+    (tmp_path / csp.RUST_SCOPE_DOC).write_text("Rust full parity showcase\n", encoding="utf-8")
+
+    monkeypatch.setattr("sys.argv", ["check-showcase-parity.py", "--root", str(tmp_path)])
+    assert csp.main() == 1
+    assert "reduced-companion scope" in capsys.readouterr().err

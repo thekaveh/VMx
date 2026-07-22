@@ -4,7 +4,9 @@
 Verifies that each notes-showcase flavor ships the same canonical set of
 VM-level test files, so the README parity matrix is backed by actual code.
 It also verifies that every flagship example suite carries the five normative
-THEME scenario IDs.
+THEME scenario IDs. Rust's Ratatui showcase is a reduced companion rather than
+a fifth flagship; the check requires its exclusions to remain explicit in the
+canonical Rust guide so omission cannot be mistaken for parity.
 
 Expected slugs (each must have a matching test file in each flavor):
 
@@ -57,6 +59,15 @@ ROOTS = {
 }
 
 THEME_IDS = [f"THEME-{i:03d}" for i in range(1, 6)]
+RUST_SCOPE_DOC = Path("docs/content/examples/rust-tui-notes-showcase.md")
+RUST_SCOPE_TERMS = (
+    "reduced companion",
+    "THEME-001..005",
+    "IDialogService",
+    "capability action bar",
+    "async dispatcher scenario",
+    "tag autocomplete",
+)
 
 
 def _pascal(snake: str) -> str:
@@ -188,6 +199,23 @@ def check(roots: dict[str, Path]) -> int:
     return 0
 
 
+def check_rust_scope(repo_root: Path) -> int:
+    scope_doc = repo_root / RUST_SCOPE_DOC
+    if not scope_doc.is_file():
+        print(f"rust: scope document not found: {scope_doc}", file=sys.stderr)
+        return 1
+    text = " ".join(scope_doc.read_text(encoding="utf-8").split())
+    missing = [term for term in RUST_SCOPE_TERMS if term not in text]
+    if missing:
+        print(
+            f"rust: reduced-companion scope is missing terms: {missing}",
+            file=sys.stderr,
+        )
+        return 1
+    print("[OK] Rust reduced-companion exclusions are documented")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--root", default=".", help="Repo root (default: current dir)")
@@ -196,7 +224,9 @@ def main() -> int:
     # subpaths and is never mutated, so main() is safe to call repeatedly.
     repo_root = Path(args.root).resolve()
     roots = {f: repo_root / r for f, r in ROOTS.items()}
-    return check(roots)
+    parity_result = check(roots)
+    rust_scope_result = check_rust_scope(repo_root)
+    return 1 if parity_result or rust_scope_result else 0
 
 
 if __name__ == "__main__":

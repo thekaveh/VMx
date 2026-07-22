@@ -40,6 +40,7 @@ class FormVMBuilder(Generic[TM]):
         )
     """
 
+    __orig_class__: object = dataclasses.field(init=False, repr=False, compare=False)
     _initial: object = dataclasses.field(default=_SENTINEL)
     _initial_set: bool = dataclasses.field(default=False)
     _persister: Callable[[Any], Awaitable[None]] | None = dataclasses.field(default=None)

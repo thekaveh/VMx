@@ -195,8 +195,12 @@ An ordinary top-level send remains synchronous. If a subscriber sends another
 message, that message waits behind the in-flight message, so all subscribers
 finish `A` before any starts `B`. Threaded flavors serialize another producer
 behind the active transaction and then deliver on that producer's calling
-thread. Keep transaction bodies short and never wait for a thread that is
-itself trying to send through the same hub.
+thread. The only exception is an actual cross-hub thread wait cycle: the edge
+that would close the cycle enqueues and returns to the active owner. A cyclic
+batch borrows the target until its body exits, so the owner cannot resume
+draining early. Unrelated busy targets still wait synchronously. Keep
+transaction bodies short and never wait for a thread that is itself trying to
+send through the same hub.
 
 Development builds bound a drain cycle and report the involved message types.
 TypeScript detects Node development/test mode automatically; browser adapters
@@ -253,10 +257,10 @@ and observers receive the complete FIFO only after both scopes close.
 
 ### 6.6.7.2. Tableau Migration And Performance Trace
 
-Tableau's React store added a hand-written `refreshing` flag after
+The motivating React consumer added a hand-written `refreshing` flag after
 `refreshShell()` updated derived VM models, republished through the same hub,
-and recursively re-entered the store subscription. The incident is preserved in
-[`frontend/view/react/src/store.ts`](https://github.com/thekaveh/tableau/blob/main/frontend/view/react/src/store.ts).
+and recursively re-entered the store subscription. ADR-0082 records the
+consumer trace and the resulting transaction contract in this repository.
 
 The v3.2 contract changes the execution trace without hiding messages:
 
@@ -268,7 +272,7 @@ The v3.2 contract changes the execution trace without hiding messages:
 | Plain subscriber refresh  | up to one refresh per message                | still one per message; batching is intentionally lossless |
 | Scheduled host invalidation | consumer-specific                           | one refresh for the synchronous drain                |
 
-For Tableau, wrap command-side multi-VM mutations in `hub.batch(...)` and make
+For an affected consumer, wrap command-side multi-VM mutations in `hub.batch(...)` and make
 the React adapter schedule one invalidation for the synchronous drain:
 
 ```typescript

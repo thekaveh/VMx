@@ -2,7 +2,7 @@
 // WorkspaceVM — composition root for the Notes Showcase.
 //
 // Ports examples/csharp/avalonia/NotesShowcase/ViewModels/WorkspaceVM.cs.
-// See task-7-brief.md.
+// See spec/ADRs/0067-swift-notes-showcase-flagship.md.
 //
 // Architecture notes (plan §3.a.11):
 //   AggregateVM6 is sealed (the generic instantiation cannot be subclassed),

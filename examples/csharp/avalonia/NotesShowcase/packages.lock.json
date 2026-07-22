@@ -182,8 +182,8 @@
       },
       "System.Reactive": {
         "type": "Transitive",
-        "resolved": "6.1.0",
-        "contentHash": "M5cCC1ZMkZr9jbSQGTHnVkb5TDN67qWCV7AP8TAHdGkvDlu0puT5NzemESNn9+HkYIDpWpocP68/i+/ame2/2w=="
+        "resolved": "7.0.0",
+        "contentHash": "VYaSP2Kt+45GFnr3q7c/b4awT48VvueOJV4jPjdUXi5MxC9mSUy+HkJYtm8rGZ6fC3tNHG9gBu/YwNAR/FYqhg=="
       },
       "Tmds.DBus.Protocol": {
         "type": "Transitive",
@@ -196,13 +196,13 @@
       "vmx": {
         "type": "Project",
         "dependencies": {
-          "System.Reactive": "[6.1.0, )"
+          "System.Reactive": "[7.0.0, )"
         }
       },
       "vmx.notifications": {
         "type": "Project",
         "dependencies": {
-          "VMx": "[3.20.1, )"
+          "VMx": "[3.22.0, )"
         }
       }
     }

@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use vmx::{
     CollectionChangeAction, ConstructionStatus, Message, MessageHub, NullDispatcher,
-    SelectableVmCollection, VmCollection, VmNode, VmxError,
+    SelectableVmCollection, VmCollection, VmxError,
 };
 
 type Child = vmx::ComponentVm<&'static str>;

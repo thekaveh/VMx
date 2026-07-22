@@ -27,7 +27,7 @@ from collections.abc import Callable
 
 import tkinter as tk
 import reactivex.operators as ops
-from vmx import ComponentVMOf, Message, MessageHubProto, PropertyChangedMessage
+from vmx import ComponentVMOf, Message, MessageHubProto, PropertyChangedMessage, RelayCommand
 
 def bind_string(var: tk.StringVar, vm: ComponentVMOf[Note],
                 hub: MessageHubProto[Message], property_name: str = "model"
@@ -46,9 +46,10 @@ def bind_string(var: tk.StringVar, vm: ComponentVMOf[Note],
 # Usage:
 root = tk.Tk()
 title_var = tk.StringVar()
+save_command = RelayCommand.builder().task(save_note).build()
 tk.Entry(root, textvariable=title_var).pack()
 tk.Button(root, text="Save",
-          command=lambda: vm.save_command.execute(None)).pack()
+          command=lambda: save_command.execute(None)).pack()
 dispose = bind_string(title_var, vm, hub)
 root.protocol("WM_DELETE_WINDOW", lambda: (dispose(), root.destroy()))
 root.mainloop()

@@ -3,9 +3,9 @@
 //! Spec: `spec/02-lifecycle.md`, `spec/03-messages.md`, and `spec/11-threading.md`.
 
 use super::{
-    catch_unwind, resume_unwind, thread, Arc, AssertUnwindSafe, AtomicUsize, BTreeMap, Cell,
-    Condvar, Deserialize, HashSet, Mutex, MutexGuard, Ordering, Serialize, ThreadId, VecDeque,
-    Weak,
+    catch_unwind, resume_unwind, thread, Arc, AssertUnwindSafe, AtomicBool, AtomicUsize, BTreeMap,
+    Cell, Condvar, Deserialize, HashMap, HashSet, Mutex, MutexGuard, OnceLock, Ordering, Serialize,
+    ThreadId, VecDeque, Weak,
 };
 
 static NEXT_ID: AtomicUsize = AtomicUsize::new(1);
@@ -32,6 +32,35 @@ impl Drop for MessageHubDeliveryGuard {
 
 fn is_delivering_message_hub() -> bool {
     MESSAGE_HUB_DELIVERY_DEPTH.with(|depth| depth.get() > 0)
+}
+
+fn wait_for_message_hub_owner<'a, T>(
+    condition: &Condvar,
+    guard: MutexGuard<'a, T>,
+    current: ThreadId,
+    owner: ThreadId,
+) -> (MutexGuard<'a, T>, bool) {
+    static WAITS: OnceLock<Mutex<HashMap<ThreadId, ThreadId>>> = OnceLock::new();
+    let waits = WAITS.get_or_init(|| Mutex::new(HashMap::new()));
+    {
+        let mut graph = lock(waits);
+        graph.insert(current, owner);
+        let mut cursor = owner;
+        let mut visited = HashSet::new();
+        while let Some(next) = graph.get(&cursor).copied() {
+            if next == current {
+                graph.remove(&current);
+                return (guard, true);
+            }
+            if !visited.insert(cursor) {
+                break;
+            }
+            cursor = next;
+        }
+    }
+    let guard = wait(condition, guard);
+    lock(waits).remove(&current);
+    (guard, false)
 }
 
 pub(crate) fn next_id() -> usize {
@@ -83,6 +112,9 @@ pub enum VmxError {
     #[error("component parent state does not match parent membership")]
     /// Parent metadata and parent membership disagree.
     InconsistentParent,
+    #[error("component ownership transaction is already in progress")]
+    /// A hook attempted to mutate a container before its active membership transaction committed.
+    OwnershipTransactionInProgress,
     #[error("component is not current")]
     /// The supplied component is not the current child.
     NotCurrent,
@@ -119,6 +151,145 @@ pub(crate) fn retain_first_error(first: &mut Option<VmxError>, result: VmxResult
 
 pub(crate) fn finish_with_first_error(first: Option<VmxError>) -> VmxResult<()> {
     first.map_or(Ok(()), Err)
+}
+
+pub(crate) struct MembershipTransactionGuard {
+    active: Arc<AtomicBool>,
+    control: Arc<MembershipTransactionControl>,
+    release: bool,
+}
+
+pub(crate) enum MembershipDisposeDisposition {
+    Inactive,
+    Owned,
+    Foreign,
+}
+
+struct MembershipTransactionState {
+    owner: Option<ThreadId>,
+    finishing_owner: Option<ThreadId>,
+    deferred_dispose: Option<Box<dyn FnOnce() -> VmxResult<()> + Send>>,
+}
+
+pub(crate) struct MembershipTransactionControl {
+    state: Mutex<MembershipTransactionState>,
+    ready: Condvar,
+}
+
+impl MembershipTransactionControl {
+    pub(crate) fn new() -> Self {
+        Self {
+            state: Mutex::new(MembershipTransactionState {
+                owner: None,
+                finishing_owner: None,
+                deferred_dispose: None,
+            }),
+            ready: Condvar::new(),
+        }
+    }
+
+    fn begin(&self) {
+        let mut state = lock(&self.state);
+        debug_assert!(state.owner.is_none());
+        debug_assert!(state.finishing_owner.is_none());
+        state.owner = Some(thread::current().id());
+    }
+
+    pub(crate) fn dispose_disposition(&self) -> MembershipDisposeDisposition {
+        let current = thread::current().id();
+        let state = lock(&self.state);
+        match (state.owner, state.finishing_owner) {
+            (Some(owner), _) if owner == current => MembershipDisposeDisposition::Owned,
+            (Some(_), _) => MembershipDisposeDisposition::Foreign,
+            (None, Some(owner)) if owner == current => MembershipDisposeDisposition::Inactive,
+            (None, Some(_)) => MembershipDisposeDisposition::Foreign,
+            (None, None) => MembershipDisposeDisposition::Inactive,
+        }
+    }
+
+    pub(crate) fn defer_dispose(&self, action: impl FnOnce() -> VmxResult<()> + Send + 'static) {
+        let mut state = lock(&self.state);
+        if state.deferred_dispose.is_none() {
+            state.deferred_dispose = Some(Box::new(action));
+        }
+    }
+
+    pub(crate) fn has_deferred_dispose(&self) -> bool {
+        lock(&self.state).deferred_dispose.is_some()
+    }
+
+    pub(crate) fn wait_until_inactive(&self) {
+        let mut state = lock(&self.state);
+        while state.owner.is_some() || state.finishing_owner.is_some() {
+            state = wait(&self.ready, state);
+        }
+    }
+
+    fn finish(&self, active: &AtomicBool) -> VmxResult<()> {
+        let current = thread::current().id();
+        let action = {
+            let mut state = lock(&self.state);
+            state.owner = None;
+            state.finishing_owner = Some(current);
+            state.deferred_dispose.take()
+        };
+        let outcome = action.map(|action| catch_unwind(AssertUnwindSafe(action)));
+        active.store(false, Ordering::Release);
+        let mut state = lock(&self.state);
+        state.finishing_owner = None;
+        self.ready.notify_all();
+        drop(state);
+        match outcome {
+            Some(Ok(result)) => result,
+            Some(Err(payload)) => resume_unwind(payload),
+            None => Ok(()),
+        }
+    }
+}
+
+impl MembershipTransactionGuard {
+    pub(crate) fn defer(mut self) {
+        self.release = false;
+    }
+
+    pub(crate) fn release_on_drop(
+        active: Arc<AtomicBool>,
+        control: Arc<MembershipTransactionControl>,
+    ) -> Self {
+        Self {
+            active,
+            control,
+            release: true,
+        }
+    }
+
+    pub(crate) fn finish(mut self) -> VmxResult<()> {
+        self.release = false;
+        self.control.finish(&self.active)
+    }
+}
+
+impl Drop for MembershipTransactionGuard {
+    fn drop(&mut self) {
+        if self.release {
+            let _ = self.control.finish(&self.active);
+        }
+    }
+}
+
+pub(crate) fn begin_membership_transaction(
+    active: &Arc<AtomicBool>,
+    control: &Arc<MembershipTransactionControl>,
+) -> VmxResult<MembershipTransactionGuard> {
+    active
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .map_err(|_| VmxError::OwnershipTransactionInProgress)?;
+    control.begin();
+    Ok(MembershipTransactionGuard {
+        active: Arc::clone(active),
+        control: Arc::clone(control),
+        release: true,
+    })
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -168,6 +339,8 @@ pub enum CollectionChangeAction {
 pub struct CollectionChangedMessage {
     /// Identity of the publishing owner.
     pub sender_id: usize,
+    /// Human-readable identity of the publishing owner.
+    pub sender_name: String,
     /// Logical collection property name.
     pub property_name: String,
     /// Kind of mutation.
@@ -183,6 +356,8 @@ pub struct CollectionChangedMessage {
 pub struct PropertyChangedMessage {
     /// Identity of the publishing owner.
     pub sender_id: usize,
+    /// Human-readable identity of the publishing owner.
+    pub sender_name: String,
     /// Flavor-idiomatic property name.
     pub property_name: String,
 }
@@ -192,6 +367,8 @@ pub struct PropertyChangedMessage {
 pub struct ConstructionStatusChangedMessage {
     /// Identity of the publishing view model.
     pub sender_id: usize,
+    /// Human-readable identity of the publishing view model.
+    pub sender_name: String,
     /// Newly observable lifecycle status.
     pub status: ConstructionStatus,
 }
@@ -212,6 +389,8 @@ pub enum TreeStructureChange {
 pub struct TreeStructureChangedMessage {
     /// Identity of the publishing tree node.
     pub sender_id: usize,
+    /// Human-readable identity of the publishing tree node.
+    pub sender_name: String,
     /// Kind of structural mutation.
     pub change: TreeStructureChange,
     /// Identity of the child that was added, removed, or reparented.
@@ -225,6 +404,8 @@ pub struct TreeStructureChangedMessage {
 pub struct FormRevertedMessage {
     /// Identity of the publishing form.
     pub sender_id: usize,
+    /// Human-readable identity of the publishing form.
+    pub sender_name: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -244,6 +425,8 @@ pub enum Message {
     Custom {
         /// Identity of the publishing owner.
         sender_id: usize,
+        /// Human-readable identity of the publishing owner.
+        sender_name: String,
         /// Application-defined message name.
         name: String,
     },
@@ -259,6 +442,18 @@ impl Message {
             Self::TreeStructureChanged(message) => message.sender_id,
             Self::FormReverted(message) => message.sender_id,
             Self::Custom { sender_id, .. } => *sender_id,
+        }
+    }
+
+    /// Returns the human-readable identity of the message sender.
+    pub fn sender_name(&self) -> &str {
+        match self {
+            Self::PropertyChanged(message) => &message.sender_name,
+            Self::ConstructionStatusChanged(message) => &message.sender_name,
+            Self::CollectionChanged(message) => &message.sender_name,
+            Self::TreeStructureChanged(message) => &message.sender_name,
+            Self::FormReverted(message) => &message.sender_name,
+            Self::Custom { sender_name, .. } => sender_name,
         }
     }
 
@@ -300,7 +495,9 @@ struct MessageHubInner {
     pending: VecDeque<Message>,
     batch_owner: Option<ThreadId>,
     batch_depth: usize,
+    borrowed_batch_depth: usize,
     draining_owner: Option<ThreadId>,
+    dispose_requested: bool,
     disposed: bool,
 }
 
@@ -350,7 +547,7 @@ impl MessageHub {
         F: Fn(&Message) + Send + Sync + 'static,
     {
         let mut inner = lock(&self.inner.state);
-        if inner.disposed {
+        if inner.disposed || inner.dispose_requested {
             return Subscription::noop();
         }
         inner.next_subscription_id += 1;
@@ -406,25 +603,92 @@ impl MessageHub {
     pub fn send(&self, message: Message) {
         let current = thread::current().id();
         let mut inner = lock(&self.inner.state);
-        while inner.batch_owner.is_some_and(|owner| owner != current)
-            || inner.draining_owner.is_some_and(|owner| owner != current)
-        {
-            if is_delivering_message_hub() {
-                break;
+        loop {
+            let owner = inner
+                .batch_owner
+                .filter(|owner| *owner != current)
+                .or_else(|| inner.draining_owner.filter(|owner| *owner != current));
+            if let Some(owner) = owner {
+                let (next, cycle) =
+                    wait_for_message_hub_owner(&self.inner.ready, inner, current, owner);
+                inner = next;
+                if cycle {
+                    break;
+                }
+                continue;
             }
-            inner = wait(&self.inner.ready, inner);
+            if inner.borrowed_batch_depth > 0 {
+                if is_delivering_message_hub() {
+                    break;
+                }
+                inner = wait(&self.inner.ready, inner);
+                continue;
+            }
+            break;
         }
-        if inner.disposed {
+        if inner.disposed || inner.dispose_requested {
             return;
         }
         inner.history.push(message.clone());
         inner.pending.push_back(message);
-        if inner.batch_owner.is_some() || inner.draining_owner.is_some() {
+        if inner.batch_owner.is_some()
+            || inner.borrowed_batch_depth > 0
+            || inner.draining_owner.is_some()
+        {
             return;
         }
         inner.draining_owner = Some(current);
         drop(inner);
         self.drain(current);
+    }
+
+    pub(crate) fn send_prepared<R, F>(&self, prepare: F) -> R
+    where
+        F: FnOnce() -> (R, Option<Message>),
+    {
+        let current = thread::current().id();
+        let mut inner = lock(&self.inner.state);
+        loop {
+            let owner = inner
+                .batch_owner
+                .filter(|owner| *owner != current)
+                .or_else(|| inner.draining_owner.filter(|owner| *owner != current));
+            if let Some(owner) = owner {
+                let (next, cycle) =
+                    wait_for_message_hub_owner(&self.inner.ready, inner, current, owner);
+                inner = next;
+                if cycle {
+                    break;
+                }
+                continue;
+            }
+            if inner.borrowed_batch_depth > 0 {
+                if is_delivering_message_hub() {
+                    break;
+                }
+                inner = wait(&self.inner.ready, inner);
+                continue;
+            }
+            break;
+        }
+
+        let (result, message) = prepare();
+        if let Some(message) = message.filter(|_| !inner.disposed && !inner.dispose_requested) {
+            inner.history.push(message.clone());
+            inner.pending.push_back(message);
+        }
+        let should_drain = !inner.pending.is_empty()
+            && inner.batch_owner.is_none()
+            && inner.borrowed_batch_depth == 0
+            && inner.draining_owner.is_none();
+        if should_drain {
+            inner.draining_owner = Some(current);
+        }
+        drop(inner);
+        if should_drain {
+            self.drain(current);
+        }
+        result
     }
 
     /// Defers delivery during `transaction`, then drains queued messages in FIFO order.
@@ -434,32 +698,63 @@ impl MessageHub {
     {
         let current = thread::current().id();
         let mut inner = lock(&self.inner.state);
-        while inner.batch_owner.is_some_and(|owner| owner != current)
-            || inner.draining_owner.is_some_and(|owner| owner != current)
-        {
-            inner = wait(&self.inner.ready, inner);
-        }
-        if inner.batch_owner == Some(current) {
-            inner.batch_depth += 1;
-        } else {
-            inner.batch_owner = Some(current);
-            inner.batch_depth = 1;
+        let borrowed = loop {
+            let owner = inner
+                .batch_owner
+                .filter(|owner| *owner != current)
+                .or_else(|| inner.draining_owner.filter(|owner| *owner != current));
+            if let Some(owner) = owner {
+                let (next, cycle) =
+                    wait_for_message_hub_owner(&self.inner.ready, inner, current, owner);
+                inner = next;
+                if cycle {
+                    inner.borrowed_batch_depth += 1;
+                    break true;
+                }
+                continue;
+            }
+            if inner.borrowed_batch_depth > 0 && inner.batch_owner != Some(current) {
+                inner = wait(&self.inner.ready, inner);
+                continue;
+            }
+            break false;
+        };
+        if !borrowed {
+            if inner.batch_owner == Some(current) {
+                inner.batch_depth += 1;
+            } else {
+                inner.batch_owner = Some(current);
+                inner.batch_depth = 1;
+            }
         }
         drop(inner);
 
         let callback_result = catch_unwind(AssertUnwindSafe(transaction));
         let mut inner = lock(&self.inner.state);
-        inner.batch_depth -= 1;
-        let outermost = inner.batch_depth == 0;
+        let outermost = if borrowed {
+            inner.borrowed_batch_depth -= 1;
+            inner.borrowed_batch_depth == 0
+        } else {
+            inner.batch_depth -= 1;
+            let outermost = inner.batch_depth == 0;
+            if outermost {
+                inner.batch_owner = None;
+            }
+            outermost
+        };
+        if outermost && inner.dispose_requested {
+            Self::finish_dispose(&mut inner);
+        }
         let should_drain = outermost
             && !inner.disposed
             && !inner.pending.is_empty()
-            && inner.draining_owner != Some(current);
+            && inner.batch_owner.is_none()
+            && inner.borrowed_batch_depth == 0
+            && inner.draining_owner.is_none();
+        if should_drain {
+            inner.draining_owner = Some(current);
+        }
         if outermost {
-            inner.batch_owner = None;
-            if should_drain {
-                inner.draining_owner = Some(current);
-            }
             self.inner.ready.notify_all();
         }
         drop(inner);
@@ -477,12 +772,15 @@ impl MessageHub {
                 }
                 value
             }
-            Err(error) => {
-                // The transaction body's original panic takes precedence over
-                // a development overflow diagnostic raised while draining.
-                std::panic::resume_unwind(error)
-            }
+            Err(error) => std::panic::resume_unwind(error),
         }
+    }
+
+    fn finish_dispose(inner: &mut MessageHubInner) {
+        inner.subscribers.clear();
+        inner.pending.clear();
+        inner.dispose_requested = false;
+        inner.disposed = true;
     }
 
     fn drain(&self, current: ThreadId) {
@@ -494,6 +792,12 @@ impl MessageHub {
         loop {
             let (message, subscribers) = {
                 let mut inner = lock(&self.inner.state);
+                while inner.borrowed_batch_depth > 0 {
+                    inner = wait(&self.inner.ready, inner);
+                }
+                if inner.dispose_requested {
+                    Self::finish_dispose(&mut inner);
+                }
                 if inner.disposed || inner.pending.is_empty() {
                     inner.draining_owner = None;
                     self.inner.ready.notify_all();
@@ -546,14 +850,29 @@ impl MessageHub {
     pub fn dispose(&self) {
         let current = thread::current().id();
         let mut inner = lock(&self.inner.state);
-        while inner.batch_owner.is_some_and(|owner| owner != current)
-            || inner.draining_owner.is_some_and(|owner| owner != current)
-        {
-            inner = wait(&self.inner.ready, inner);
+        loop {
+            let owner = inner
+                .batch_owner
+                .filter(|owner| *owner != current)
+                .or_else(|| inner.draining_owner.filter(|owner| *owner != current));
+            if let Some(owner) = owner {
+                let (next, cycle) =
+                    wait_for_message_hub_owner(&self.inner.ready, inner, current, owner);
+                inner = next;
+                if cycle {
+                    inner.dispose_requested = true;
+                    self.inner.ready.notify_all();
+                    return;
+                }
+                continue;
+            }
+            if inner.borrowed_batch_depth > 0 {
+                inner = wait(&self.inner.ready, inner);
+                continue;
+            }
+            break;
         }
-        inner.subscribers.clear();
-        inner.pending.clear();
-        inner.disposed = true;
+        Self::finish_dispose(&mut inner);
         self.inner.ready.notify_all();
     }
 }
@@ -832,12 +1151,21 @@ impl Dispatcher for ManualDispatcher {
 type ParentLookup = Arc<dyn Fn() -> Option<ParentHandle> + Send + Sync>;
 type ParentContains = Arc<dyn Fn(usize) -> bool + Send + Sync>;
 type ParentDetach = Arc<dyn Fn(usize, ParentHandle) -> VmxResult<ParentTransfer> + Send + Sync>;
+type ParentSelectionPredicate = Arc<dyn Fn(usize) -> bool + Send + Sync>;
+type ParentSelectionAction = Arc<dyn Fn(usize) -> VmxResult<()> + Send + Sync>;
+
+struct ParentSelection {
+    is_current: ParentSelectionPredicate,
+    select: ParentSelectionAction,
+    deselect: ParentSelectionAction,
+}
 
 struct ParentHandleInner {
     id: usize,
     parent: ParentLookup,
     contains: ParentContains,
     detach: ParentDetach,
+    selection: Option<ParentSelection>,
 }
 
 /// Type-erased weak reference to an owning VMx container.
@@ -874,6 +1202,42 @@ impl ParentHandle {
         (inner.detach)(child_id, self.clone())
     }
 
+    pub(crate) fn supports_child_selection(&self) -> bool {
+        self.inner
+            .upgrade()
+            .is_some_and(|inner| inner.selection.is_some())
+    }
+
+    pub(crate) fn is_current(&self, child_id: usize) -> bool {
+        self.inner
+            .upgrade()
+            .and_then(|inner| {
+                inner
+                    .selection
+                    .as_ref()
+                    .map(|selection| (selection.is_current)(child_id))
+            })
+            .unwrap_or(false)
+    }
+
+    pub(crate) fn select(&self, child_id: usize) -> VmxResult<()> {
+        let inner = self.inner.upgrade().ok_or(VmxError::InconsistentParent)?;
+        let selection = inner
+            .selection
+            .as_ref()
+            .ok_or(VmxError::InconsistentParent)?;
+        (selection.select)(child_id)
+    }
+
+    pub(crate) fn deselect(&self, child_id: usize) -> VmxResult<()> {
+        let inner = self.inner.upgrade().ok_or(VmxError::InconsistentParent)?;
+        let selection = inner
+            .selection
+            .as_ref()
+            .ok_or(VmxError::InconsistentParent)?;
+        (selection.deselect)(child_id)
+    }
+
     pub(crate) fn same_owner(&self, other: &Self) -> bool {
         self.inner.ptr_eq(&other.inner)
     }
@@ -897,6 +1261,31 @@ impl ParentRegistration {
                 parent: Arc::new(parent),
                 contains: Arc::new(contains),
                 detach: Arc::new(detach),
+                selection: None,
+            }),
+        }
+    }
+
+    pub(crate) fn new_selectable(
+        id: usize,
+        parent: impl Fn() -> Option<ParentHandle> + Send + Sync + 'static,
+        contains: impl Fn(usize) -> bool + Send + Sync + 'static,
+        detach: impl Fn(usize, ParentHandle) -> VmxResult<ParentTransfer> + Send + Sync + 'static,
+        is_current: impl Fn(usize) -> bool + Send + Sync + 'static,
+        select: impl Fn(usize) -> VmxResult<()> + Send + Sync + 'static,
+        deselect: impl Fn(usize) -> VmxResult<()> + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            inner: Arc::new(ParentHandleInner {
+                id,
+                parent: Arc::new(parent),
+                contains: Arc::new(contains),
+                detach: Arc::new(detach),
+                selection: Some(ParentSelection {
+                    is_current: Arc::new(is_current),
+                    select: Arc::new(select),
+                    deselect: Arc::new(deselect),
+                }),
             }),
         }
     }
@@ -909,14 +1298,29 @@ impl ParentRegistration {
 }
 
 pub(crate) struct ParentTransfer {
-    commit: Option<Box<dyn FnOnce() + Send>>,
-    rollback: Option<Box<dyn FnOnce() + Send>>,
+    commit: Option<Box<dyn FnOnce() -> VmxResult<()> + Send>>,
+    rollback: Option<Box<dyn FnOnce() -> VmxResult<()> + Send>>,
+}
+
+pub(crate) fn retain_parent_transfer_commit(
+    first_error: &mut Option<VmxError>,
+    first_panic: &mut Option<Box<dyn std::any::Any + Send>>,
+    transfer: ParentTransfer,
+) {
+    match catch_unwind(AssertUnwindSafe(|| transfer.commit())) {
+        Ok(result) => retain_first_error(first_error, result),
+        Err(payload) => {
+            if first_panic.is_none() {
+                *first_panic = Some(payload);
+            }
+        }
+    }
 }
 
 impl ParentTransfer {
     pub(crate) fn new(
-        commit: impl FnOnce() + Send + 'static,
-        rollback: impl FnOnce() + Send + 'static,
+        commit: impl FnOnce() -> VmxResult<()> + Send + 'static,
+        rollback: impl FnOnce() -> VmxResult<()> + Send + 'static,
     ) -> Self {
         Self {
             commit: Some(Box::new(commit)),
@@ -924,18 +1328,42 @@ impl ParentTransfer {
         }
     }
 
-    pub(crate) fn commit(mut self) {
+    pub(crate) fn commit(mut self) -> VmxResult<()> {
         self.rollback = None;
         if let Some(commit) = self.commit.take() {
-            commit();
+            commit()
+        } else {
+            Ok(())
         }
     }
 
-    pub(crate) fn rollback(mut self) {
+    pub(crate) fn rollback(mut self) -> VmxResult<()> {
         self.commit = None;
         if let Some(rollback) = self.rollback.take() {
-            rollback();
+            rollback()
+        } else {
+            Ok(())
         }
+    }
+}
+
+impl Drop for ParentTransfer {
+    fn drop(&mut self) {
+        self.commit = None;
+        if let Some(rollback) = self.rollback.take() {
+            let _ = rollback();
+        }
+    }
+}
+
+struct ActiveOwnershipGuard {
+    active: &'static Mutex<HashSet<usize>>,
+    child_id: usize,
+}
+
+impl Drop for ActiveOwnershipGuard {
+    fn drop(&mut self) {
+        lock(self.active).remove(&self.child_id);
     }
 }
 
@@ -943,39 +1371,79 @@ pub(crate) fn begin_parent_transfer<T: VmNode>(
     child: &T,
     destination: &ParentHandle,
 ) -> VmxResult<Option<ParentTransfer>> {
-    if destination.contains(child.id()) {
-        return Err(VmxError::DuplicateChild);
+    static ACTIVE: OnceLock<Mutex<HashSet<usize>>> = OnceLock::new();
+    let active = ACTIVE.get_or_init(|| Mutex::new(HashSet::new()));
+    let child_id = child.id();
+    if !lock(active).insert(child_id) {
+        return Err(VmxError::OwnershipTransactionInProgress);
     }
 
-    let mut cursor = Some(destination.clone());
-    let mut visited = HashSet::new();
-    while let Some(parent) = cursor {
-        let parent_id = parent.id().ok_or(VmxError::InconsistentParent)?;
-        if parent_id == child.id() {
-            return Err(VmxError::OwnershipCycle);
+    let staged = (|| {
+        if destination.contains(child_id) {
+            return Err(VmxError::DuplicateChild);
         }
-        if !visited.insert(parent_id) {
-            return Err(VmxError::OwnershipCycle);
-        }
-        cursor = parent.parent();
-    }
 
-    match child.parent_handle() {
-        Some(parent) if !parent.is_alive() => {
-            child.set_parent_handle(None);
-            Ok(None)
+        let mut cursor = Some(destination.clone());
+        let mut visited = HashSet::new();
+        while let Some(parent) = cursor {
+            let parent_id = parent.id().ok_or(VmxError::InconsistentParent)?;
+            if parent_id == child_id {
+                return Err(VmxError::OwnershipCycle);
+            }
+            if !visited.insert(parent_id) {
+                return Err(VmxError::OwnershipCycle);
+            }
+            cursor = parent.parent();
         }
-        Some(parent) => match parent.detach(child.id()) {
-            Ok(transfer) => Ok(Some(transfer)),
-            Err(VmxError::InconsistentParent) if !parent.is_alive() => {
+
+        match child.parent_handle() {
+            Some(parent) if !parent.is_alive() => {
                 child.set_parent_handle(None);
                 Ok(None)
             }
-            Err(error) => Err(error),
+            Some(parent) => match parent.detach(child_id) {
+                Ok(transfer) => Ok(Some(transfer)),
+                Err(VmxError::InconsistentParent) if !parent.is_alive() => {
+                    child.set_parent_handle(None);
+                    Ok(None)
+                }
+                Err(error) => Err(error),
+            },
+            None if child.parent_id().is_some() => Err(VmxError::InconsistentParent),
+            None => Ok(None),
+        }
+    })();
+
+    let staged = match staged {
+        Ok(staged) => staged,
+        Err(error) => {
+            lock(active).remove(&child_id);
+            return Err(error);
+        }
+    };
+    let staged = Arc::new(Mutex::new(staged));
+    let commit_state = Arc::clone(&staged);
+    let rollback_state = Arc::clone(&staged);
+    Ok(Some(ParentTransfer::new(
+        move || {
+            let _active_guard = ActiveOwnershipGuard { active, child_id };
+            let transfer = lock(&commit_state).take();
+            if let Some(transfer) = transfer {
+                transfer.commit()
+            } else {
+                Ok(())
+            }
         },
-        None if child.parent_id().is_some() => Err(VmxError::InconsistentParent),
-        None => Ok(None),
-    }
+        move || {
+            let _active_guard = ActiveOwnershipGuard { active, child_id };
+            let transfer = lock(&rollback_state).take();
+            if let Some(transfer) = transfer {
+                transfer.rollback()
+            } else {
+                Ok(())
+            }
+        },
+    )))
 }
 
 /// Common identity, lifecycle, ownership, and selection contract for VM nodes.
@@ -1118,63 +1586,90 @@ impl<D: Dispatcher> ComponentCore<D> {
     where
         F: FnOnce() -> VmxResult<()>,
     {
-        let (sender_id, hub, foreground, hook, target, generation) = {
-            let mut inner = lock(&self.inner);
-            match (inner.status, operation) {
-                (ConstructionStatus::Disposed, LifecycleOperation::Construct) => {
-                    return Err(VmxError::Disposed)
-                }
-                (ConstructionStatus::Disposed, LifecycleOperation::Destruct) => {
-                    return Err(VmxError::Disposed)
-                }
-                (ConstructionStatus::Constructed, LifecycleOperation::Construct)
-                | (ConstructionStatus::Destructed, LifecycleOperation::Destruct) => return Ok(()),
-                (_, LifecycleOperation::Dispose)
-                    if inner.status == ConstructionStatus::Disposed =>
-                {
-                    return Ok(())
-                }
-                _ => {}
-            }
-            if inner.transitioning && operation != LifecycleOperation::Dispose {
-                return Err(VmxError::ConcurrentOperation);
-            }
+        let hub = lock(&self.inner).hub.clone();
+        let started =
+            hub.send_prepared(|| {
+                let (
+                    sender_id,
+                    sender_name,
+                    foreground,
+                    hook,
+                    transition_status,
+                    target,
+                    generation,
+                ) = {
+                    let mut inner = lock(&self.inner);
+                    match (inner.status, operation) {
+                        (ConstructionStatus::Disposed, LifecycleOperation::Construct)
+                        | (ConstructionStatus::Disposed, LifecycleOperation::Destruct) => {
+                            return (Err(VmxError::Disposed), None)
+                        }
+                        (ConstructionStatus::Constructed, LifecycleOperation::Construct)
+                        | (ConstructionStatus::Destructed, LifecycleOperation::Destruct) => {
+                            return (Ok(None), None)
+                        }
+                        (_, LifecycleOperation::Dispose)
+                            if inner.status == ConstructionStatus::Disposed =>
+                        {
+                            return (Ok(None), None)
+                        }
+                        _ => {}
+                    }
+                    if inner.transitioning && operation != LifecycleOperation::Dispose {
+                        return (Err(VmxError::ConcurrentOperation), None);
+                    }
 
-            let transition_status = match operation {
-                LifecycleOperation::Construct => ConstructionStatus::Constructing,
-                LifecycleOperation::Destruct => ConstructionStatus::Destructing,
-                LifecycleOperation::Dispose => ConstructionStatus::Disposed,
-            };
-            let target = match operation {
-                LifecycleOperation::Construct => ConstructionStatus::Constructed,
-                LifecycleOperation::Destruct => ConstructionStatus::Destructed,
-                LifecycleOperation::Dispose => ConstructionStatus::Disposed,
-            };
-            inner.transition_generation = inner.transition_generation.wrapping_add(1);
-            let generation = inner.transition_generation;
-            inner.transitioning = true;
-            inner.status = transition_status;
-            let hook = match operation {
-                LifecycleOperation::Construct => inner.on_construct.clone(),
-                LifecycleOperation::Destruct => inner.on_destruct.clone(),
-                LifecycleOperation::Dispose => inner.on_dispose.clone(),
-            };
-            (
-                inner.id,
-                inner.hub.clone(),
-                inner.foreground.clone(),
-                hook,
-                target,
-                generation,
-            )
+                    let transition_status = match operation {
+                        LifecycleOperation::Construct => ConstructionStatus::Constructing,
+                        LifecycleOperation::Destruct => ConstructionStatus::Destructing,
+                        LifecycleOperation::Dispose => ConstructionStatus::Disposed,
+                    };
+                    let target = match operation {
+                        LifecycleOperation::Construct => ConstructionStatus::Constructed,
+                        LifecycleOperation::Destruct => ConstructionStatus::Destructed,
+                        LifecycleOperation::Dispose => ConstructionStatus::Disposed,
+                    };
+                    inner.transition_generation = inner.transition_generation.wrapping_add(1);
+                    let generation = inner.transition_generation;
+                    inner.transitioning = true;
+                    inner.status = transition_status;
+                    let hook = match operation {
+                        LifecycleOperation::Construct => inner.on_construct.clone(),
+                        LifecycleOperation::Destruct => inner.on_destruct.clone(),
+                        LifecycleOperation::Dispose => inner.on_dispose.clone(),
+                    };
+                    (
+                        inner.id,
+                        inner.name.clone(),
+                        inner.foreground.clone(),
+                        hook,
+                        transition_status,
+                        target,
+                        generation,
+                    )
+                };
+
+                let message =
+                    Message::ConstructionStatusChanged(ConstructionStatusChangedMessage {
+                        sender_id,
+                        sender_name: sender_name.clone(),
+                        status: transition_status,
+                    });
+                (
+                    Ok(Some((
+                        sender_id,
+                        sender_name,
+                        foreground,
+                        hook,
+                        target,
+                        generation,
+                    ))),
+                    Some(message),
+                )
+            })?;
+        let Some((sender_id, sender_name, foreground, hook, target, generation)) = started else {
+            return Ok(());
         };
-
-        hub.send(Message::ConstructionStatusChanged(
-            ConstructionStatusChangedMessage {
-                sender_id,
-                status: self.status(),
-            },
-        ));
 
         let operation_result = hook
             .map(|hook| (lock(&hook))())
@@ -1212,13 +1707,21 @@ impl<D: Dispatcher> ComponentCore<D> {
             if !rolled_back {
                 return Err(error);
             }
+            let publication_core = self.clone();
+            let publication_hub = hub.clone();
             foreground.dispatch(Box::new(move || {
-                hub.send(Message::ConstructionStatusChanged(
-                    ConstructionStatusChangedMessage {
-                        sender_id,
-                        status: rollback,
-                    },
-                ));
+                publication_hub.send_prepared(|| {
+                    let message = publication_core
+                        .publication_is_current(generation, rollback)
+                        .then_some({
+                            Message::ConstructionStatusChanged(ConstructionStatusChangedMessage {
+                                sender_id,
+                                sender_name: sender_name.clone(),
+                                status: rollback,
+                            })
+                        });
+                    ((), message)
+                });
             }));
             return Err(error);
         }
@@ -1239,16 +1742,29 @@ impl<D: Dispatcher> ComponentCore<D> {
         // above is already the terminal Disposed transition. Publishing the
         // same state again would make one dispose observably execute twice.
         if operation != LifecycleOperation::Dispose {
+            let publication_core = self.clone();
+            let publication_hub = hub.clone();
             foreground.dispatch(Box::new(move || {
-                hub.send(Message::ConstructionStatusChanged(
-                    ConstructionStatusChangedMessage {
-                        sender_id,
-                        status: target,
-                    },
-                ));
+                publication_hub.send_prepared(|| {
+                    let message = publication_core
+                        .publication_is_current(generation, target)
+                        .then_some({
+                            Message::ConstructionStatusChanged(ConstructionStatusChangedMessage {
+                                sender_id,
+                                sender_name: sender_name.clone(),
+                                status: target,
+                            })
+                        });
+                    ((), message)
+                });
             }));
         }
         Ok(())
+    }
+
+    fn publication_is_current(&self, generation: u64, status: ConstructionStatus) -> bool {
+        let inner = lock(&self.inner);
+        inner.transition_generation == generation && inner.status == status
     }
 
     pub(crate) fn hub(&self) -> MessageHub {
@@ -1322,12 +1838,17 @@ impl<D: Dispatcher> ComponentCore<D> {
 
     pub(crate) fn notify_property_changed(&self, property_name: impl Into<String>) {
         let property_name = property_name.into();
-        let (sender_id, hub, local) = {
+        let (sender_id, sender_name, hub, local) = {
             let inner = lock(&self.inner);
             if inner.status == ConstructionStatus::Disposed {
                 return;
             }
-            (inner.id, inner.hub.clone(), inner.property_changed.clone())
+            (
+                inner.id,
+                inner.name.clone(),
+                inner.hub.clone(),
+                inner.property_changed.clone(),
+            )
         };
         if !local.begin_notification() {
             return;
@@ -1335,6 +1856,7 @@ impl<D: Dispatcher> ComponentCore<D> {
         let hub_result = catch_unwind(AssertUnwindSafe(|| {
             hub.send(Message::PropertyChanged(PropertyChangedMessage {
                 sender_id,
+                sender_name,
                 property_name: property_name.clone(),
             }));
         }));
@@ -1349,11 +1871,60 @@ impl<D: Dispatcher> ComponentCore<D> {
     }
 
     pub(crate) fn dispatch(&self, action: Box<dyn FnOnce() + Send>) {
-        lock(&self.inner).foreground.dispatch(action);
+        let foreground = lock(&self.inner).foreground.clone();
+        foreground.dispatch(action);
     }
 
     pub(crate) fn is_selected(&self) -> bool {
         lock(&self.inner).selected
+    }
+
+    pub(crate) fn can_select(&self) -> bool {
+        let (id, status, parent) = {
+            let inner = lock(&self.inner);
+            (inner.id, inner.status, inner.parent.clone())
+        };
+        status == ConstructionStatus::Constructed
+            && parent
+                .as_ref()
+                .is_some_and(|parent| parent.supports_child_selection() && !parent.is_current(id))
+    }
+
+    pub(crate) fn can_deselect(&self) -> bool {
+        let (id, status, parent) = {
+            let inner = lock(&self.inner);
+            (inner.id, inner.status, inner.parent.clone())
+        };
+        status != ConstructionStatus::Disposed
+            && parent
+                .as_ref()
+                .is_some_and(|parent| parent.supports_child_selection() && parent.is_current(id))
+    }
+
+    pub(crate) fn select_via_parent(&self) {
+        let (id, status, parent) = {
+            let inner = lock(&self.inner);
+            (inner.id, inner.status, inner.parent.clone())
+        };
+        if status == ConstructionStatus::Disposed {
+            return;
+        }
+        if let Some(parent) = parent.filter(|parent| parent.supports_child_selection()) {
+            let _ = parent.select(id);
+        }
+    }
+
+    pub(crate) fn deselect_via_parent(&self) {
+        let (id, status, parent) = {
+            let inner = lock(&self.inner);
+            (inner.id, inner.status, inner.parent.clone())
+        };
+        if status == ConstructionStatus::Disposed {
+            return;
+        }
+        if let Some(parent) = parent.filter(|parent| parent.supports_child_selection()) {
+            let _ = parent.deselect(id);
+        }
     }
 
     pub(crate) fn set_current_flag(&self, selected: bool) {
@@ -1368,36 +1939,6 @@ impl<D: Dispatcher> ComponentCore<D> {
         };
         if changed {
             self.notify_property_changed("is_current");
-        }
-    }
-
-    pub(crate) fn select(&self) {
-        let changed = {
-            let mut inner = lock(&self.inner);
-            if inner.selected {
-                false
-            } else {
-                inner.selected = true;
-                true
-            }
-        };
-        if changed {
-            self.notify_property_changed("is_selected");
-        }
-    }
-
-    pub(crate) fn deselect(&self) {
-        let changed = {
-            let mut inner = lock(&self.inner);
-            if inner.selected {
-                inner.selected = false;
-                true
-            } else {
-                false
-            }
-        };
-        if changed {
-            self.notify_property_changed("is_selected");
         }
     }
 

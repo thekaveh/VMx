@@ -85,20 +85,20 @@ in multiple language flavors with semantically equivalent behavior.
 
 ## 3. Glossary
 
-| Term               | Definition                                                                                                                            |
-| ------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
-| **VM**             | viewmodel — an instance of one of the VMx types.                                                                                      |
-| **model**          | the domain object a VM wraps (optional; `Readonly*` and `*Of[M]` variants attach a typed model).                                      |
-| **parent**         | the composite that owns a VM (a child can have at most one parent).                                                                   |
-| **current**        | the child currently selected within a composite (at most one per composite).                                                          |
-| **predicate**      | a `() -> bool` (or `(T) -> bool`) function deciding whether a command can execute.                                                    |
-| **trigger**        | an `IObservable<Unit>` whose emissions cause a command's `CanExecute` to be re-evaluated and `CanExecuteChanged` to be raised.        |
-| **hub**            | the `IMessageHub` instance every VM publishes to and any subscriber can observe.                                                      |
-| **builder**        | an immutable fluent object that accumulates configuration and produces a VM (or command) via `Build()`.                               |
-| **dispatcher**     | `IDispatcher` exposes a foreground and a background Rx scheduler; VMs use them to dispatch property-change events and lifecycle work. |
-| **foreground**     | the Rx scheduler reserved for events that subscribers expect on the UI thread (e.g., `PropertyChanged`, collection notifications).    |
-| **background**     | the Rx scheduler used for VM construction/destruction work that should not block the foreground.                                      |
-| **conformance ID** | a stable `XXX-NNN` identifier (e.g., `CVM-001`) in `12-conformance.md` that every language flavor MUST implement as a passing test.   |
+| Term               | Definition                                                                                                                                                                   |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **VM**             | viewmodel — an instance of one of the VMx types.                                                                                                                             |
+| **model**          | the domain object a VM wraps (optional; `Readonly*` and `*Of[M]` variants attach a typed model).                                                                             |
+| **parent**         | the composite that owns a VM (a child can have at most one parent).                                                                                                          |
+| **current**        | the child currently selected within a composite (at most one per composite).                                                                                                 |
+| **predicate**      | a `() -> bool` (or `(T) -> bool`) function deciding whether a command can execute.                                                                                           |
+| **trigger**        | an `IObservable<Unit>` whose emissions cause a command's `CanExecute` to be re-evaluated and `CanExecuteChanged` to be raised.                                               |
+| **hub**            | the `IMessageHub` instance every VM publishes to and any subscriber can observe.                                                                                             |
+| **builder**        | an immutable fluent object that accumulates configuration and produces a VM (or command) via `Build()`.                                                                      |
+| **dispatcher**     | `IDispatcher` exposes a foreground and a background Rx scheduler; VMs use them to dispatch property-change events and lifecycle work.                                        |
+| **foreground**     | the Rx scheduler reserved for events that subscribers expect on the UI thread (e.g., `PropertyChanged`, collection notifications).                                           |
+| **background**     | the Rx scheduler used for VM construction/destruction work that should not block the foreground.                                                                             |
+| **conformance ID** | a stable `XXX-NNN` identifier in `12-conformance.md`; all five library suites implement the 396 library IDs, while `THEME-00x` IDs apply to UI-backed flagship applications. |
 
 ## 4. Audience
 
@@ -119,10 +119,9 @@ language and lives under `docs/`.
 
 ## 6. C#-only extensions
 
-The C# flavor ships one utility that has no counterpart in Python or TypeScript:
+The C# flavor ships one utility that has no counterpart in the other four flavors:
 `LinqHelpers` (in `VMx.Extensions`) — a small set of LINQ utility methods over
-`IEnumerable<T>`: `CartesianProduct`, `Sample`, and `Product`. The other
-flavors cover the same use-cases through language built-ins
-(`itertools.product` / slice-with-step / `math.prod` in Python; `flatMap` /
-`filter` + modulo / `reduce` in TypeScript). This asymmetry is intentional
-and documented in ADR-0033.
+`IEnumerable<T>`: `CartesianProduct`, `Sample`, and `Product`. Python,
+TypeScript, Swift, and Rust cover the same use-cases through their standard
+library collection and iterator facilities rather than VMx wrappers. This
+asymmetry is intentional and documented in ADR-0033.

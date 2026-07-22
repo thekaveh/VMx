@@ -82,7 +82,6 @@ public sealed class CompositeVM<VM> : CompositeVMBase<VM>, ICompositeVM<VM>
     protected override void PopulateChildren()
     {
         if (_populated || _childrenFactory is null) return;
-        AttachPopulation(_childrenFactory());
-        _populated = true;
+        AttachPopulation(_childrenFactory(), () => _populated = true);
     }
 }

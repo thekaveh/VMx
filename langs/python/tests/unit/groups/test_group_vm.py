@@ -13,6 +13,8 @@ Tests verify:
 
 from __future__ import annotations
 
+from threading import Event, Thread
+
 import pytest
 
 from vmx.builders.exceptions import BuilderValidationError
@@ -20,6 +22,7 @@ from vmx.collections import CollectionChangedEvent
 from vmx.components.builders import ComponentVMBuilder
 from vmx.components.component_vm import ComponentVM
 from vmx.components.protocols import ViewModelType
+from vmx.groups import group_vm as group_module
 from vmx.groups.builders import GroupVMBuilder
 from vmx.groups.group_vm import GroupVM
 from vmx.lifecycle.status import ConstructionStatus
@@ -58,6 +61,132 @@ def _make_group(
 class _ThrowingDisposeChild(ComponentVM):
     def _on_dispose(self) -> None:
         raise RuntimeError("dispose hook failure")
+
+
+def test_factory_output_after_reentrant_disposal_is_rejected() -> None:
+    hub = _hub()
+    dispatcher = _dispatcher()
+    late = _make_child("late", hub)
+    group: GroupVM[object]
+
+    def children() -> tuple[object, ...]:
+        group.dispose()
+        return (late,)
+
+    group = GroupVMBuilder().name("group").services(hub, dispatcher).children(children).build()
+
+    with pytest.raises(RuntimeError, match="disposing"):
+        group.construct()
+    assert group.count == 0
+    assert late.status is ConstructionStatus.DESTRUCTED
+
+
+def test_factory_rejects_duplicate_child_identity_without_partial_membership() -> None:
+    hub = _hub()
+    dispatcher = _dispatcher()
+    child = _make_child("duplicate", hub)
+    group = (
+        GroupVMBuilder()
+        .name("group")
+        .services(hub, dispatcher)
+        .children(lambda: (child, child))
+        .build()
+    )
+
+    with pytest.raises(ValueError, match="duplicate child identity"):
+        group.construct()
+
+    assert group.snapshot() == ()
+    assert child._parent is None
+
+
+def test_auto_construct_hook_cannot_reparent_during_membership_transaction() -> None:
+    hub = _hub()
+    dispatcher = _dispatcher()
+    source, _ = _make_group("source", hub)
+    destination, _ = _make_group("destination", hub)
+    source._auto_construct_on_add = True
+    source.construct()
+    child: ComponentVM
+    child = (
+        ComponentVMBuilder()
+        .name("child")
+        .services(hub, dispatcher)
+        .on_construct(lambda: destination.add(child))
+        .build()
+    )
+
+    with pytest.raises(RuntimeError, match="ownership transaction is in progress"):
+        source.add(child)
+
+    assert source.snapshot() == ()
+    assert destination.snapshot() == ()
+    assert child._parent is None
+
+
+def test_auto_construct_hook_disposal_aborts_admission() -> None:
+    group, hub = _make_group()
+    group._auto_construct_on_add = True
+    group.construct()
+    child = (
+        ComponentVMBuilder()
+        .name("child")
+        .services(hub, _dispatcher())
+        .on_construct(group.dispose)
+        .build()
+    )
+
+    with pytest.raises(RuntimeError, match="disposing"):
+        group.add(child)
+
+    assert group.snapshot() == ()
+    assert child._parent is None
+
+
+def test_concurrent_admission_cannot_escape_disposal_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    group, _ = _make_group()
+    late = _make_child("late")
+    entered = Event()
+    release = Event()
+    disposal_done = Event()
+    failures: list[BaseException] = []
+    original = group_module._begin_parent_transfer
+
+    def blocked_transfer(child: object, parent: object) -> object:
+        entered.set()
+        assert release.wait(timeout=2)
+        return original(child, parent)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(group_module, "_begin_parent_transfer", blocked_transfer)
+
+    def admit() -> None:
+        try:
+            group.add(late)
+        except BaseException as error:
+            failures.append(error)
+
+    def dispose() -> None:
+        group.dispose()
+        disposal_done.set()
+
+    worker = Thread(target=admit)
+    worker.start()
+    assert entered.wait(timeout=2)
+    disposer = Thread(target=dispose)
+    disposer.start()
+    assert not disposal_done.wait(timeout=0.05)
+    release.set()
+    worker.join(timeout=2)
+    disposer.join(timeout=2)
+
+    assert not worker.is_alive()
+    assert not disposer.is_alive()
+    assert failures == []
+    assert late in group
+    assert late.status is ConstructionStatus.DISPOSED
+    assert group.status is ConstructionStatus.DISPOSED
 
 
 # ---------------------------------------------------------------------------

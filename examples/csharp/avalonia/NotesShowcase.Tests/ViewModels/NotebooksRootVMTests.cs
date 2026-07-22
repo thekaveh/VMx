@@ -105,7 +105,7 @@ public sealed class NotebooksRootVMTests
         Assert.True(vm.All.Count > before);
     }
 
-    // ── Phase 5.a binding gap #2: hierarchical Children accessor ──────────
+    // ── Hierarchical children binding contract ────────────────────────────
 
     [Fact]
     public async Task After_PopulateAsync_each_notebook_resolves_Children_via_parent_id()

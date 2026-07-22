@@ -17,8 +17,10 @@ on:
   push:
     branches: [main]
 
-# release-please needs to push commits to its release branch and open
-# PRs against main. Everything else stays read-only.
+# release-please needs to push commits to its release branch and open PRs
+# against main. A repository secret backed by a fine-grained PAT or GitHub App
+# token is required because PRs created with the default GITHUB_TOKEN do not
+# trigger the required pull_request workflows.
 permissions:
   contents: write
   pull-requests: write
@@ -35,7 +37,26 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Check release-please source and manifest state
+        id: release-state
+        run: python3 tools/check-release-please-state.py --github-output "$GITHUB_OUTPUT"
+      - name: Require RELEASE_PLEASE_TOKEN
+        if: steps.release-state.outputs.ready == 'true'
+        env:
+          RELEASE_PLEASE_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+        run: |
+          test -n "$RELEASE_PLEASE_TOKEN" || {
+            echo "::error::Configure RELEASE_PLEASE_TOKEN so generated PRs trigger required CI."
+            exit 1
+          }
+      - name: Maintain Python release PR
+        if: steps.release-state.outputs.ready == 'true'
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         with:
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          # The repository default is the develop integration branch, but
+          # releases are cut from protected main after a promotion PR.
+          target-branch: main
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json

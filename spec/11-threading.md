@@ -105,14 +105,14 @@ The background form proceeds in three steps:
 Three normative guarantees apply to the background completion:
 
 - **Atomicity / no resurrection.** Each transition runs under the per-VM guard of
-  `02-lifecycle.md §2.3`. If `dispose()` runs while the background work is queued
+  `02-lifecycle.md §2.4`. If `dispose()` runs while the background work is queued
   or in flight, the completion observes the terminal `Disposed` state under the
   guard and aborts — it does not run the hook (when disposed before the hook),
   does not resurrect the VM, and does not publish a post-dispose status message
   (VMX-001 / VMX-004; invariant 6).
 - **Concurrent re-invocation.** A second `construct()` / `destruct()` /
   `reconstruct()` entered while a background transition is in flight is rejected
-  by the in-flight guard and the per-VM primitive (`LIFE-008`; `02-lifecycle.md §2.3`).
+  by the in-flight guard and the per-VM primitive (`LIFE-008`; `02-lifecycle.md §2.4`).
 - **Transactional rollback.** If the background hook raises, `Status` is rolled
   back to the prior settled state (`02-lifecycle.md §2.5`) with the rollback
   emission marshalled onto `IDispatcher.Foreground`; the in-flight guard is

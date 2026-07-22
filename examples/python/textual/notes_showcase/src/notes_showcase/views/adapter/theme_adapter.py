@@ -20,7 +20,7 @@ from reactivex.abc import DisposableBase
 from textual.app import App
 from textual.theme import Theme
 
-from notes_showcase.models.theme_model import ThemeModel
+from notes_showcase.models.theme_model import DARK_PRESET, ThemeModel
 from notes_showcase.viewmodels.theme_vm import ThemeVM
 
 # Theme name registered with Textual — every model is projected onto a single
@@ -37,15 +37,33 @@ def _to_textual_theme(model: ThemeModel) -> Theme:
     ``dark=True`` for the dark + high-contrast presets so Textual selects the
     dark ANSI fallback when the terminal doesn't support truecolor.
     """
+    if model.high_contrast:
+        background = "#000000"
+        foreground = "#FFFFFF"
+        panel = "#000000"
+        muted = "#FFFFFF"
+    elif model.name == "high-contrast":
+        # Turning the independent adjustment off while the named preset is
+        # selected reveals the dark base palette.
+        background = DARK_PRESET.bg_color
+        foreground = DARK_PRESET.text_color
+        panel = DARK_PRESET.panel_color
+        muted = DARK_PRESET.muted_text_color
+    else:
+        background = model.bg_color
+        foreground = model.text_color
+        panel = model.panel_color
+        muted = model.muted_text_color
+
     return Theme(
         name=_THEME_NAME,
         primary=model.accent_color,
         accent=model.accent_color,
-        background=model.bg_color,
-        foreground=model.text_color,
-        panel=model.panel_color,
-        dark=model.name != "light",
-        variables={"text-muted": model.muted_text_color},
+        background=background,
+        foreground=foreground,
+        panel=panel,
+        dark=model.high_contrast or model.name != "light",
+        variables={"text-muted": muted},
     )
 
 

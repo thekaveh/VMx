@@ -6,8 +6,9 @@ Public API is organised by responsibility under sub-packages: ``vmx.lifecycle``,
 ``vmx.builders``, ``vmx.tree``, ``vmx.collections``, ``vmx.capabilities``,
 ``vmx.properties``, ``vmx.localization``, ``vmx.hierarchical``, ``vmx.dialogs``,
 ``vmx.forms``. The ``vmx.notifications`` sub-package is opt-in and must be
-imported explicitly. The full set of public types is re-exported here so
-``from vmx import ...`` reaches every primitive.
+imported explicitly. This root module provides the common convenience surface;
+advanced protocols, validators, and package-specific helpers remain available
+from their owning sub-packages.
 """
 
 from vmx.__about__ import __min_spec_version__, __version__

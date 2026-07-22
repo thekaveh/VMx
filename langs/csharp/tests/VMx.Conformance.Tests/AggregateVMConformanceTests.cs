@@ -3,6 +3,7 @@ using FluentAssertions;
 using VMx.Aggregates;
 using VMx.Components;
 using VMx.Composites;
+using VMx.Forwarding;
 using VMx.Lifecycle;
 using VMx.Messages;
 using VMx.Tests.Helpers;
@@ -16,6 +17,11 @@ namespace VMx.Conformance.Tests;
 /// </summary>
 public class AggregateVMConformanceTests
 {
+    private sealed class NoOpForwardingVM<M> : ForwardingComponentVM<M>
+    {
+        public NoOpForwardingVM(IComponentVM<M> wrapped) : base(wrapped) { }
+    }
+
     // ── Factory helpers ──────────────────────────────────────────────────────
 
     private static (TestHub hub, TestDispatcher dispatcher) MakeServices()
@@ -377,6 +383,37 @@ public class AggregateVMConformanceTests
             disposalOrder.IndexOf(childName).Should().BeLessThan(disposalOrder.IndexOf(aggName),
                 $"{childName} must be Disposed before {aggName} (LIFE-013)");
         }
+    }
+
+    [Fact]
+    public void Aggregate_Rejects_Forwarding_Aliases_Of_One_Canonical_Component()
+    {
+        var (hub, dispatcher) = MakeServices();
+        var inner = MakeLeaf(hub, dispatcher);
+        var duplicate = AggregateVM2<NoOpForwardingVM<string>, NoOpForwardingVM<string>>.Builder()
+            .Name("duplicate").Services(hub, dispatcher)
+            .Component1(() => new NoOpForwardingVM<string>(inner))
+            .Component2(() => new NoOpForwardingVM<string>(inner)).Build();
+
+        duplicate.Invoking(candidate => candidate.Construct())
+            .Should().Throw<InvalidOperationException>()
+            .WithMessage("*same canonical component identity*");
+        duplicate.Component1.Should().BeNull();
+        duplicate.Component2.Should().BeNull();
+
+        var composite = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("composite").Services(hub, dispatcher)
+            .Children(() => [inner]).Build();
+        composite.Construct();
+        var ownedAlias = AggregateVM1<NoOpForwardingVM<string>>.Builder()
+            .Name("owned-alias").Services(hub, dispatcher)
+            .Component1(() => new NoOpForwardingVM<string>(inner)).Build();
+
+        ownedAlias.Invoking(candidate => candidate.Construct())
+            .Should().Throw<InvalidOperationException>()
+            .WithMessage("*already has a parent*");
+        composite.Snapshot().Should().ContainSingle().Which.Should().BeSameAs(inner);
+        ownedAlias.Component1.Should().BeNull();
     }
 
     [Fact]

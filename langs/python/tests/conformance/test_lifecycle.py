@@ -415,3 +415,69 @@ def test_LIFE_014_throwing_hook_rolls_status_back() -> None:
     flags["destruct"] = False
     vm2.destruct()
     assert vm2.status == ConstructionStatus.DESTRUCTED
+
+
+@pytest.mark.conformance("LIFE-014")
+def test_LIFE_014_base_exception_rolls_back_every_hook_boundary() -> None:
+    class LifecycleAbort(BaseException):
+        pass
+
+    def abort() -> None:
+        raise LifecycleAbort("stop")
+
+    for background in (False, True):
+        construct = (
+            ComponentVMBuilder()
+            .name("construct-abort")
+            .services(_hub(), _dispatcher())
+            .background(background)
+            .on_construct(abort)
+            .build()
+        )
+        with pytest.raises(LifecycleAbort, match="stop"):
+            construct.construct()
+        assert construct.status is ConstructionStatus.DESTRUCTED
+
+        destruct = (
+            ComponentVMBuilder()
+            .name("destruct-abort")
+            .services(_hub(), _dispatcher())
+            .background(background)
+            .on_destruct(abort)
+            .build()
+        )
+        destruct.construct()
+        with pytest.raises(LifecycleAbort, match="stop"):
+            destruct.destruct()
+        assert destruct.status is ConstructionStatus.CONSTRUCTED
+
+    reconstruct_destruct = (
+        ComponentVMBuilder()
+        .name("reconstruct-destruct-abort")
+        .services(_hub(), _dispatcher())
+        .on_destruct(abort)
+        .build()
+    )
+    reconstruct_destruct.construct()
+    with pytest.raises(LifecycleAbort, match="stop"):
+        reconstruct_destruct.reconstruct()
+    assert reconstruct_destruct.status is ConstructionStatus.CONSTRUCTED
+
+    abort_construct = False
+
+    def abort_during_reconstruct_construct() -> None:
+        if abort_construct:
+            abort()
+
+    reconstruct_construct = (
+        ComponentVMBuilder()
+        .name("reconstruct-construct-abort")
+        .services(_hub(), _dispatcher())
+        .on_construct(abort_during_reconstruct_construct)
+        .build()
+    )
+    reconstruct_construct.construct()
+    abort_construct = True
+    with pytest.raises(LifecycleAbort, match="stop"):
+        reconstruct_construct.reconstruct()
+    assert reconstruct_construct.status is ConstructionStatus.DESTRUCTED

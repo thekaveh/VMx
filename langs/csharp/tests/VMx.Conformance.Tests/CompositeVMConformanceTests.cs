@@ -31,6 +31,35 @@ public class CompositeVMConformanceTests
         public override int GetHashCode() => Name.GetHashCode(StringComparison.Ordinal);
     }
 
+    private sealed class DisposeFailingVM(
+        string name,
+        TestHub hub,
+        TestDispatcher dispatcher,
+        Action? onConstruct = null)
+        : ComponentVMBase(name, "", hub, dispatcher, onConstruct, null)
+    {
+        public override ViewModelType Type => ViewModelType.Component;
+
+        protected override void OnDispose() =>
+            throw new InvalidOperationException("dispose failure");
+    }
+
+    private sealed class DisposeFailingComposite(
+        string name,
+        TestHub hub,
+        TestDispatcher dispatcher,
+        bool autoConstructOnAdd = false)
+        : CompositeVMBase<ComponentVM<string>>(
+            name, "", hub, dispatcher, false, autoConstructOnAdd,
+            null, null, null, null)
+    {
+        protected override void OnDispose()
+        {
+            base.OnDispose();
+            throw new InvalidOperationException("destination dispose failure");
+        }
+    }
+
     // ── Factory helpers ──────────────────────────────────────────────────────
 
     private static (CompositeVM<ComponentVM<string>> composite, TestHub hub, TestDispatcher dispatcher)
@@ -542,6 +571,176 @@ public class CompositeVMConformanceTests
         composite2.Construct();
 
         observed2.Should().Equal(a2);
+
+        CompositeVM<ComponentVM<string>>? reentrant = null;
+        var reentrantHub = new TestHub();
+        var reentrantChild = BuildChild(reentrantHub, dispatcher, "reentrant");
+        var callbackStatuses = new List<ConstructionStatus>();
+        reentrant = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("reentrant-composite")
+            .Services(reentrantHub, dispatcher)
+            .Children(() => new[] { reentrantChild })
+            .OnCurrentChanged(selected =>
+            {
+                callbackStatuses.Add(selected!.Status);
+                reentrant!.Dispose();
+            })
+            .Build();
+        reentrant.Construct();
+
+        reentrant.SelectComponent(reentrantChild);
+
+        callbackStatuses.Should().Equal(ConstructionStatus.Constructed);
+        reentrant.Status.Should().Be(ConstructionStatus.Disposed);
+    }
+
+    [Fact, Trait("Conformance", "COMP-026")]
+    public async Task COMP_026_Opposing_Current_Callbacks_Do_Not_Deadlock()
+    {
+        var dispatcher = new TestDispatcher();
+        using var barrier = new Barrier(2);
+        CompositeVM<ComponentVM<string>>? compositeA = null;
+        CompositeVM<ComponentVM<string>>? compositeB = null;
+        var hubA = new TestHub();
+        var hubB = new TestHub();
+        var childA = BuildChild(hubA, dispatcher, "a");
+        var childB = BuildChild(hubB, dispatcher, "b");
+        var firstA = 1;
+        var firstB = 1;
+
+        compositeA = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("a").Services(hubA, dispatcher).Children(() => [childA])
+            .OnCurrentChanged(_ =>
+            {
+                if (Interlocked.Exchange(ref firstA, 0) == 0) return;
+                barrier.SignalAndWait(TimeSpan.FromMilliseconds(100));
+                if (!ReferenceEquals(compositeB!.Current, childB))
+                    compositeB.SelectComponent(childB);
+            }).Build();
+        compositeB = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("b").Services(hubB, dispatcher).Children(() => [childB])
+            .OnCurrentChanged(_ =>
+            {
+                if (Interlocked.Exchange(ref firstB, 0) == 0) return;
+                barrier.SignalAndWait(TimeSpan.FromMilliseconds(100));
+                if (!ReferenceEquals(compositeA!.Current, childA))
+                    compositeA.SelectComponent(childA);
+            }).Build();
+        compositeA.Construct();
+        compositeB.Construct();
+
+        var taskA = Task.Run(() => compositeA.SelectComponent(childA));
+        var taskB = Task.Run(() => compositeB.SelectComponent(childB));
+        await Task.WhenAll(taskA, taskB).WaitAsync(TimeSpan.FromSeconds(2));
+
+        compositeA.Current.Should().BeSameAs(childA);
+        compositeB.Current.Should().BeSameAs(childB);
+    }
+
+    [Fact, Trait("Conformance", "COMP-026")]
+    public async Task COMP_026_Collection_And_Current_Callbacks_Do_Not_Deadlock()
+    {
+        var dispatcher = new TestDispatcher();
+        using var bTransactionEntered = new ManualResetEventSlim();
+        using var aCallbackEntered = new ManualResetEventSlim();
+        var hubA = new TestHub();
+        var hubB = new TestHub();
+        var b = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("b").Services(hubB, dispatcher).Children(() => []).Build();
+        var aItem = BuildChild(hubA, dispatcher, "a-item");
+        CompositeVM<ComponentVM<string>>? a = null;
+        a = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("a").Services(hubA, dispatcher).Children(() => [aItem])
+            .OnCurrentChanged(_ =>
+            {
+                aCallbackEntered.Set();
+                bTransactionEntered.Wait(TimeSpan.FromSeconds(1)).Should().BeTrue();
+                b.Dispose();
+            }).Build();
+        a.Construct();
+        b.Construct();
+        var bItem = BuildChild(hubB, dispatcher, "b-item");
+        bItem.Construct();
+        b.CollectionChanged += (_, _) =>
+        {
+            bTransactionEntered.Set();
+            b.SelectComponent(bItem);
+        };
+
+        var taskA = Task.Run(() => a.SelectComponent(aItem));
+        aCallbackEntered.Wait(TimeSpan.FromSeconds(1)).Should().BeTrue();
+        var taskB = Task.Run(() => Record.Exception(() => b.Add(bItem)));
+
+        await Task.WhenAll(taskA, taskB).WaitAsync(TimeSpan.FromSeconds(2));
+        (await taskB).Should().BeNull();
+        b.Status.Should().Be(ConstructionStatus.Disposed);
+        bItem.Status.Should().Be(ConstructionStatus.Disposed);
+    }
+
+    [Fact]
+    public void Auto_Construct_Rollback_Destructs_Child_After_Destination_Disposal()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        CompositeVM<ComponentVM<string>>? destination = null;
+        var child = ComponentVM<string>.Builder().Name("child")
+            .Services(hub, dispatcher).Model("m")
+            .OnConstruct(() => destination!.Dispose()).Build();
+        destination = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("destination").Services(hub, dispatcher)
+            .Children(() => []).AutoConstructOnAdd(true).Build();
+        destination.Construct();
+
+        Action add = () => destination.Add(child);
+
+        add.Should().Throw<ObjectDisposedException>();
+        destination.Should().BeEmpty();
+        child.Status.Should().Be(ConstructionStatus.Destructed);
+        destination.Status.Should().Be(ConstructionStatus.Disposed);
+    }
+
+    [Fact, Trait("Conformance", "COMP-040")]
+    public void COMP_040_Population_Disposal_Rolls_Back_Constructed_Child()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        CompositeVM<ComponentVM<string>>? destination = null;
+        var child = ComponentVM<string>.Builder().Name("child")
+            .Services(hub, dispatcher).Model("m")
+            .OnConstruct(() => destination!.Dispose()).Build();
+        destination = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("destination").Services(hub, dispatcher)
+            .Children(() => [child]).Build();
+
+        Action construct = () => destination.Construct();
+
+        construct.Should().Throw<Exception>();
+        destination.Should().BeEmpty();
+        child.Status.Should().Be(ConstructionStatus.Destructed);
+        destination.Status.Should().Be(ConstructionStatus.Disposed);
+    }
+
+    [Fact]
+    public void Attachment_Error_Precedes_Destination_Deferred_Disposal_Error()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var destination = new DisposeFailingComposite(
+            "destination", hub, dispatcher, autoConstructOnAdd: true);
+        var child = ComponentVM<string>.Builder().Name("child")
+            .Services(hub, dispatcher).Model("m")
+            .OnConstruct(() =>
+            {
+                destination.Dispose();
+                throw new InvalidOperationException("attachment failure");
+            }).Build();
+        destination.Construct();
+
+        Action add = () => destination.Add(child);
+
+        add.Should().Throw<InvalidOperationException>().WithMessage("attachment failure");
+        destination.Status.Should().Be(ConstructionStatus.Disposed);
+        destination.Should().BeEmpty();
     }
 
     // ── COMP-027 — Add sets child Parent; Remove clears it ───────────────────
@@ -733,6 +932,222 @@ public class CompositeVMConformanceTests
     }
 
     [Fact, Trait("Conformance", "COMP-040")]
+    public void COMP_040_Defers_Old_Composite_Disposal_Until_Transfer_Commits()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var oldParent = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("old")
+            .Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVM<string>>())
+            .Build();
+        var destination = GroupVM<ComponentVM<string>>.Builder()
+            .Name("destination")
+            .Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVM<string>>())
+            .AutoConstructOnAdd(true)
+            .Build();
+        var child = ComponentVM<string>.Builder()
+            .Name("child")
+            .Services(hub, dispatcher)
+            .Model("m")
+            .OnConstruct(oldParent.Dispose)
+            .Build();
+        oldParent.Add(child);
+        destination.Construct();
+
+        destination.Add(child);
+
+        oldParent.Status.Should().Be(ConstructionStatus.Disposed);
+        oldParent.Should().BeEmpty();
+        destination.Should().ContainSingle(item => ReferenceEquals(item, child));
+        child.Status.Should().Be(ConstructionStatus.Constructed);
+        child.Parent.Should().BeSameAs(destination);
+    }
+
+    [Fact, Trait("Conformance", "COMP-040")]
+    public void COMP_040_Rolls_Back_Before_Deferred_Old_Group_Disposal()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var oldParent = GroupVM<ComponentVM<string>>.Builder()
+            .Name("old")
+            .Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVM<string>>())
+            .Build();
+        var destination = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("destination")
+            .Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVM<string>>())
+            .AutoConstructOnAdd(true)
+            .Build();
+        var child = ComponentVM<string>.Builder()
+            .Name("child")
+            .Services(hub, dispatcher)
+            .Model("m")
+            .OnConstruct(() =>
+            {
+                oldParent.Dispose();
+                throw new InvalidOperationException("boom");
+            })
+            .Build();
+        oldParent.Add(child);
+        destination.Construct();
+
+        Action transfer = () => destination.Add(child);
+
+        transfer.Should().Throw<InvalidOperationException>().WithMessage("boom");
+        oldParent.Status.Should().Be(ConstructionStatus.Disposed);
+        oldParent.Should().ContainSingle(item => ReferenceEquals(item, child));
+        destination.Should().BeEmpty();
+        child.Status.Should().Be(ConstructionStatus.Disposed);
+        child.Parent.Should().BeSameAs(oldParent);
+    }
+
+    [Fact, Trait("Conformance", "COMP-040")]
+    public void COMP_040_Deferred_Disposal_Failure_Follows_Committed_Transfer_Events()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var oldParent = GroupVM<ComponentVMBase>.Builder()
+            .Name("old").Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVMBase>()).Build();
+        var destination = CompositeVM<ComponentVMBase>.Builder()
+            .Name("destination").Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVMBase>())
+            .AutoConstructOnAdd(true).Build();
+        var moving = new DisposeFailingVM("moving", hub, dispatcher, oldParent.Dispose);
+        var failingSibling = new DisposeFailingVM("failing-sibling", hub, dispatcher);
+        oldParent.Add(moving);
+        oldParent.Add(failingSibling);
+        destination.Construct();
+        var events = new List<string>();
+        oldParent.CollectionChanged += (_, _) => events.Add("old:remove");
+        destination.CollectionChanged += (_, _) => events.Add("new:add");
+
+        Action transfer = () => destination.Add(moving);
+
+        transfer.Should().Throw<InvalidOperationException>().WithMessage("dispose failure");
+        events.Should().Equal("old:remove", "new:add");
+        oldParent.Status.Should().Be(ConstructionStatus.Disposed);
+        failingSibling.Status.Should().Be(ConstructionStatus.Disposed);
+        destination.Should().ContainSingle(item => ReferenceEquals(item, moving));
+        moving.Parent.Should().BeSameAs(destination);
+    }
+
+    [Fact, Trait("Conformance", "COMP-040")]
+    public void COMP_040_Attachment_Failure_Precedes_Deferred_Disposal_Failure()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var oldParent = GroupVM<ComponentVMBase>.Builder()
+            .Name("old").Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVMBase>()).Build();
+        var destination = CompositeVM<ComponentVMBase>.Builder()
+            .Name("destination").Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVMBase>())
+            .AutoConstructOnAdd(true).Build();
+        var moving = new DisposeFailingVM("moving", hub, dispatcher, () =>
+        {
+            oldParent.Dispose();
+            throw new InvalidOperationException("attachment failure");
+        });
+        oldParent.Add(moving);
+        destination.Construct();
+
+        Action transfer = () => destination.Add(moving);
+
+        transfer.Should().Throw<InvalidOperationException>().WithMessage("attachment failure");
+        oldParent.Status.Should().Be(ConstructionStatus.Disposed);
+        moving.Status.Should().Be(ConstructionStatus.Disposed);
+        oldParent.Should().ContainSingle(item => ReferenceEquals(item, moving));
+        destination.Should().BeEmpty();
+    }
+
+    [Fact, Trait("Conformance", "COMP-040")]
+    public void COMP_040_Late_Disposal_Failure_Does_Not_Retry_Committed_Population()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var oldParent = GroupVM<ComponentVMBase>.Builder()
+            .Name("old").Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVMBase>()).Build();
+        var moving = new DisposeFailingVM("moving", hub, dispatcher, oldParent.Dispose);
+        var failingSibling = new DisposeFailingVM("failing-sibling", hub, dispatcher);
+        oldParent.Add(moving);
+        oldParent.Add(failingSibling);
+        var factoryCalls = 0;
+        var destination = CompositeVM<ComponentVMBase>.Builder()
+            .Name("destination").Services(hub, dispatcher)
+            .Children(() =>
+            {
+                factoryCalls++;
+                return [moving];
+            })
+            .Build();
+        var events = new List<string>();
+        oldParent.CollectionChanged += (_, _) => events.Add("old:remove");
+        destination.CollectionChanged += (_, _) => events.Add("new:add");
+
+        Action firstConstruct = destination.Construct;
+
+        firstConstruct.Should().Throw<InvalidOperationException>().WithMessage("dispose failure");
+        events.Should().Equal("old:remove", "new:add");
+        factoryCalls.Should().Be(1);
+        destination.Should().ContainSingle(item => ReferenceEquals(item, moving));
+
+        destination.Construct();
+
+        factoryCalls.Should().Be(1);
+        destination.Status.Should().Be(ConstructionStatus.Constructed);
+    }
+
+    [Fact, Trait("Conformance", "COMP-040")]
+    public async Task COMP_040_Concurrent_Old_Parent_Disposal_Waits_For_Transfer_Commit()
+    {
+        using var hookEntered = new ManualResetEventSlim();
+        using var releaseHook = new ManualResetEventSlim();
+        using var disposalStarted = new ManualResetEventSlim();
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var oldParent = GroupVM<ComponentVM<string>>.Builder()
+            .Name("old").Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVM<string>>()).Build();
+        var destination = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("destination").Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVM<string>>())
+            .AutoConstructOnAdd(true).Build();
+        var child = ComponentVM<string>.Builder()
+            .Name("child").Services(hub, dispatcher).Model("m")
+            .OnConstruct(() =>
+            {
+                hookEntered.Set();
+                releaseHook.Wait(TimeSpan.FromSeconds(2)).Should().BeTrue();
+            })
+            .Build();
+        oldParent.Add(child);
+        destination.Construct();
+
+        var transfer = Task.Run(() => destination.Add(child));
+        hookEntered.Wait(TimeSpan.FromSeconds(2)).Should().BeTrue();
+        var disposal = Task.Run(() =>
+        {
+            disposalStarted.Set();
+            oldParent.Dispose();
+        });
+        disposalStarted.Wait(TimeSpan.FromSeconds(2)).Should().BeTrue();
+        var earlyCompletion = await Task.WhenAny(disposal, Task.Delay(TimeSpan.FromMilliseconds(50)));
+        earlyCompletion.Should().NotBe(disposal);
+
+        releaseHook.Set();
+        await Task.WhenAll(transfer, disposal).WaitAsync(TimeSpan.FromSeconds(2));
+        oldParent.Status.Should().Be(ConstructionStatus.Disposed);
+        oldParent.Should().BeEmpty();
+        destination.Should().ContainSingle(item => ReferenceEquals(item, child));
+        child.Status.Should().Be(ConstructionStatus.Constructed);
+    }
+
+    [Fact, Trait("Conformance", "COMP-040")]
     public void COMP_040_Lazy_Population_Rolls_Back_As_One_Transaction()
     {
         var hub = new TestHub();
@@ -773,6 +1188,55 @@ public class CompositeVMConformanceTests
         destination.Should().BeEmpty();
     }
 
+    [Fact, Trait("Conformance", "COMP-040")]
+    public void COMP_040_Reservation_Failure_Preserves_Preexisting_Destination_Children()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+
+        foreach (var useGroup in new[] { false, true })
+        {
+            var moving = BuildChild(hub, dispatcher, useGroup ? "group-moving" : "composite-moving");
+            var blocker = BuildChild(hub, dispatcher, useGroup ? "group-blocker" : "composite-blocker");
+            var oldParent = CompositeVM<ComponentVM<string>>.Builder()
+                .Name(useGroup ? "group-old" : "composite-old")
+                .Services(hub, dispatcher)
+                .Children(() => Array.Empty<ComponentVM<string>>())
+                .Build();
+            oldParent.Add(moving);
+            var candidates = new List<ComponentVM<string>>();
+
+            if (useGroup)
+            {
+                var destination = GroupVM<ComponentVM<string>>.Builder()
+                    .Name("group-destination").Services(hub, dispatcher)
+                    .Children(() => candidates).Build();
+                destination.Add(blocker);
+                candidates.AddRange([moving, blocker]);
+
+                destination.Invoking(candidate => candidate.Construct())
+                    .Should().Throw<InvalidOperationException>();
+                destination.Should().ContainSingle().Which.Should().BeSameAs(blocker);
+                blocker.GetParent()!.Owner.Should().BeSameAs(destination);
+            }
+            else
+            {
+                var destination = CompositeVM<ComponentVM<string>>.Builder()
+                    .Name("composite-destination").Services(hub, dispatcher)
+                    .Children(() => candidates).Build();
+                destination.Add(blocker);
+                candidates.AddRange([moving, blocker]);
+
+                destination.Invoking(candidate => candidate.Construct())
+                    .Should().Throw<InvalidOperationException>();
+                destination.Should().ContainSingle().Which.Should().BeSameAs(blocker);
+                blocker.GetParent()!.Owner.Should().BeSameAs(destination);
+            }
+
+            oldParent.Should().ContainSingle().Which.Should().BeSameAs(moving);
+        }
+    }
+
     [Fact, Trait("Conformance", "COMP-041")]
     public void COMP_041_Transfer_Publishes_Old_Remove_Before_New_Add()
     {
@@ -803,5 +1267,148 @@ public class CompositeVMConformanceTests
         destination.Add(child);
 
         observed.Should().Equal("old:remove", "new:add");
+    }
+
+    [Fact, Trait("Conformance", "COMP-041")]
+    public void COMP_041_Throwing_Current_Callback_Does_Not_Suppress_Transfer_Events()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var oldParent = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("old")
+            .Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVM<string>>())
+            .OnCurrentChanged(current =>
+            {
+                if (current is null) throw new InvalidOperationException("callback boom");
+            })
+            .Build();
+        var child = BuildChild(hub, dispatcher);
+        oldParent.Add(child);
+        oldParent.Current = child;
+        var destination = GroupVM<ComponentVM<string>>.Builder()
+            .Name("destination")
+            .Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVM<string>>())
+            .Build();
+        var observed = new List<string>();
+        oldParent.CollectionChanged += (_, _) => observed.Add("old:remove");
+        destination.CollectionChanged += (_, _) => observed.Add("new:add");
+
+        destination.Invoking(group => group.Add(child))
+            .Should().Throw<InvalidOperationException>().WithMessage("callback boom");
+
+        observed.Should().Equal("old:remove", "new:add");
+        oldParent.Should().BeEmpty();
+        destination.Should().ContainSingle().Which.Should().BeSameAs(child);
+        child.GetParent()!.Owner.Should().BeSameAs(destination);
+    }
+
+    [Fact]
+    public void Bulk_Transfer_Remove_Callback_Does_Not_Retain_Ownership_Coordinator()
+    {
+        var (oldParent, hub, dispatcher) = BuildComposite("old");
+        var first = BuildChild(hub, dispatcher, "first");
+        var second = BuildChild(hub, dispatcher, "second");
+        var secondOldParent = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("second-old").Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVM<string>>()).Build();
+        oldParent.Add(first);
+        secondOldParent.Add(second);
+        var destination = GroupVM<ComponentVM<string>>.Builder()
+            .Name("destination").Services(hub, dispatcher)
+            .Children(() => [first, second]).Build();
+
+        var unrelated = BuildChild(hub, dispatcher, "unrelated");
+        var unrelatedOld = GroupVM<ComponentVM<string>>.Builder()
+            .Name("unrelated-old").Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVM<string>>()).Build();
+        unrelatedOld.Add(unrelated);
+        var unrelatedDestination = GroupVM<ComponentVM<string>>.Builder()
+            .Name("unrelated-destination").Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVM<string>>()).Build();
+        using var workerDone = new ManualResetEventSlim();
+        Thread? worker = null;
+        var callbackObservedProgress = false;
+
+        oldParent.CollectionChanged += (_, args) =>
+        {
+            if (args.Action != NotifyCollectionChangedAction.Remove || worker is not null) return;
+            worker = new Thread(() =>
+            {
+                unrelatedDestination.Add(unrelated);
+                workerDone.Set();
+            });
+            worker.Start();
+            callbackObservedProgress = workerDone.Wait(TimeSpan.FromMilliseconds(500));
+        };
+
+        destination.Construct();
+
+        worker.Should().NotBeNull();
+        worker!.Join(TimeSpan.FromSeconds(2)).Should().BeTrue();
+        callbackObservedProgress.Should().BeTrue();
+        unrelatedOld.Should().BeEmpty();
+        unrelatedDestination.Should().ContainSingle().Which.Should().BeSameAs(unrelated);
+    }
+
+    [Fact]
+    public void Colliding_Bulk_Wait_Does_Not_Block_Unrelated_Callback_Transfer()
+    {
+        var (oldParent, hub, dispatcher) = BuildComposite("old");
+        var child = BuildChild(hub, dispatcher, "child");
+        oldParent.Add(child);
+        var firstDestination = GroupVM<ComponentVM<string>>.Builder()
+            .Name("first-destination").Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVM<string>>()).Build();
+        using var bulkFactoryEntered = new ManualResetEventSlim();
+        var bulkDestination = GroupVM<ComponentVM<string>>.Builder()
+            .Name("bulk-destination").Services(hub, dispatcher)
+            .Children(() =>
+            {
+                bulkFactoryEntered.Set();
+                return [child];
+            }).Build();
+
+        var unrelated = BuildChild(hub, dispatcher, "unrelated");
+        var unrelatedOld = GroupVM<ComponentVM<string>>.Builder()
+            .Name("unrelated-old").Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVM<string>>()).Build();
+        unrelatedOld.Add(unrelated);
+        var unrelatedDestination = GroupVM<ComponentVM<string>>.Builder()
+            .Name("unrelated-destination").Services(hub, dispatcher)
+            .Children(() => Array.Empty<ComponentVM<string>>()).Build();
+        using var unrelatedDone = new ManualResetEventSlim();
+        Thread? bulkWorker = null;
+        var callbackObservedProgress = false;
+
+        oldParent.CollectionChanged += (_, args) =>
+        {
+            if (args.Action != NotifyCollectionChangedAction.Remove || bulkWorker is not null) return;
+            bulkWorker = new Thread(bulkDestination.Construct);
+            bulkWorker.Start();
+            bulkFactoryEntered.Wait(TimeSpan.FromSeconds(2)).Should().BeTrue();
+            SpinWait.SpinUntil(
+                () => (bulkWorker.ThreadState & ThreadState.WaitSleepJoin) != 0,
+                TimeSpan.FromSeconds(2)).Should().BeTrue();
+
+            var unrelatedWorker = new Thread(() =>
+            {
+                unrelatedDestination.Add(unrelated);
+                unrelatedDone.Set();
+            });
+            unrelatedWorker.Start();
+            callbackObservedProgress = unrelatedDone.Wait(TimeSpan.FromMilliseconds(500));
+            unrelatedWorker.Join(TimeSpan.FromSeconds(2));
+        };
+
+        firstDestination.Add(child);
+
+        bulkWorker.Should().NotBeNull();
+        bulkWorker!.Join(TimeSpan.FromSeconds(2)).Should().BeTrue();
+        callbackObservedProgress.Should().BeTrue();
+        bulkDestination.Should().ContainSingle().Which.Should().BeSameAs(child);
+        unrelatedOld.Should().BeEmpty();
+        unrelatedDestination.Should().ContainSingle().Which.Should().BeSameAs(unrelated);
     }
 }

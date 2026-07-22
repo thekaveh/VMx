@@ -12,12 +12,14 @@
  * Both forms apply the *current* model immediately on subscribe, then update
  * on every subsequent `valueChanged` emission.
  *
- * The four CSS custom properties driven by this adapter:
+ * The six CSS custom properties driven by this adapter:
  *
  *   * `--bg`        ← `themeVM.currentTheme.value.name` lookup table
  *   * `--accent`    ← `themeVM.currentTheme.value.accentColor`
  *   * `--pane`      ← preset-derived panel surface (`--panel` in proposal §5;
  *                     this flavor's css uses `--pane`, see views/theme.css)
+ *   * `--border`    ← preset-derived boundary color
+ *   * `--text`      ← preset-derived primary text color
  *   * `--text-dim`  ← preset-derived muted text color
  *
  * The `:root` font-size is set to `${fontScaleFactor * 14}px` (14 being the
@@ -34,6 +36,8 @@ interface CssVars {
   readonly bg: string;
   readonly accent: string;
   readonly pane: string;
+  readonly border: string;
+  readonly text: string;
   readonly textDim: string;
 }
 
@@ -43,25 +47,31 @@ const BASELINE_FONT_PX = 14;
 function varsFor(model: ThemeModel): CssVars {
   // The proposal §3 names three presets but only specifies the `--bg` flip
   // and accent retention for light, plus black/white for high-contrast.
-  // We materialize all four variables per preset here so the adapter is
+  // We materialize all six variables per preset here so the adapter is
   // self-contained — no need to round-trip through theme.css overrides.
   const accent = model.accentColor;
+  if (model.highContrast) {
+    return {
+      bg: "#000000",
+      accent,
+      pane: "#000000",
+      border: "#FFFFFF",
+      text: "#FFFFFF",
+      textDim: "#FFFFFF",
+    };
+  }
   switch (model.name) {
     case "light":
       return {
         bg: "#F4F7FC",
         accent,
         pane: "#FFFFFF",
+        border: "#D7DCE5",
+        text: "#1A2235",
         textDim: "#5A6275",
       };
-    case "high-contrast":
-      return {
-        bg: "#000000",
-        accent,
-        pane: "#000000",
-        textDim: "#FFFFFF",
-      };
     case "dark":
+    case "high-contrast":
     default:
       // The VM never publishes a "system"-named model (followSystemCommand
       // collapses to a concrete preset before commit); any unknown name falls
@@ -70,6 +80,8 @@ function varsFor(model: ThemeModel): CssVars {
         bg: "#0e1320",
         accent,
         pane: "#141b2d",
+        border: "#2a3045",
+        text: "#e6eaf2",
         textDim: "#8a93a8",
       };
   }
@@ -82,7 +94,14 @@ function writeTheme(model: ThemeModel, doc: Document): void {
   root.style.setProperty("--bg", vars.bg);
   root.style.setProperty("--accent", vars.accent);
   root.style.setProperty("--pane", vars.pane);
+  root.style.setProperty("--border", vars.border);
+  root.style.setProperty("--text", vars.text);
   root.style.setProperty("--text-dim", vars.textDim);
+  if (model.highContrast) {
+    root.dataset.highContrast = "true";
+  } else {
+    root.removeAttribute("data-high-contrast");
+  }
   root.style.setProperty(
     "font-size",
     `${BASELINE_FONT_PX * model.fontScaleFactor}px`,

@@ -2,9 +2,11 @@
 
 Rust flavor of VMx, the language-neutral, lifecycle-aware MVVM viewmodel framework.
 
-**v0.25.0** implements `spec-v3.22.0` at full source parity: all 395 library
-conformance IDs are covered by behavioral Rust tests. The crate has not yet
-been published to crates.io.
+**v0.25.0** implements `spec-v3.22.0` with complete catalog coverage: all 396
+library conformance IDs are covered by behavioral Rust tests. Remaining
+member- and edge-behavior gaps are tracked in the active
+[Rust capability parity ledger](../../docs/maintenance/2026-07-16-rust-capability-parity.md).
+The crate has not yet been published to crates.io.
 
 This crate implements the VMx spec with idiomatic Rust naming and error handling:
 
@@ -155,7 +157,9 @@ batches or owns stored-item lifecycle.
 
 ## 4. Imperative Engine Bridge
 
-Rust identifies the fixed source as `hub + sender_id`. Use
+Rust identifies the fixed source as `hub + sender_id`. Every message variant
+also carries the diagnostic `sender_name`; use `Message::sender_name()` when
+logging without matching the concrete variant. Use
 `SubscribeValueOptions::default()` for `PartialEq` equality or
 `SubscribeValueOptions::with_equality(...)` for a custom comparator:
 

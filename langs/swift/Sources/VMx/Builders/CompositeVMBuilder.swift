@@ -12,7 +12,7 @@ public struct CompositeVMBuilder<Child: ComponentVMBase> {
     private var _hub: MessageHubProtocol?
     private var _dispatcher: Dispatcher?
     private var _children: (() -> [Child])?
-    private var _onConstruct: (() -> Void)?
+    private var _onConstruct: (() throws -> Void)?
     private var _onDestruct: (() -> Void)?
     private var _currentSelector: (([Child]) -> Child?)?
     private var _onCurrentChanged: ((Child?) -> Void)?
@@ -54,7 +54,7 @@ public struct CompositeVMBuilder<Child: ComponentVMBase> {
         var c = self; c._onCurrentChanged = cb; return c
     }
     public func onConstruct(
-        _ cb: @escaping () -> Void
+        _ cb: @escaping () throws -> Void
     ) -> CompositeVMBuilder<Child> {
         var c = self; c._onConstruct = cb; return c
     }

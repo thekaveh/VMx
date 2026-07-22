@@ -26,7 +26,7 @@ the `useSyncExternalStore` contract.
 import { useSyncExternalStore, useCallback } from "react";
 import { filter } from "rxjs/operators";
 import { ComponentVMOf, PropertyChangedMessage } from "@thekaveh/vmx";
-import type { IMessageHub } from "@thekaveh/vmx";
+import type { ICommand, IMessageHub } from "@thekaveh/vmx";
 
 export function useVm<M, K extends keyof ComponentVMOf<M>>(
   vm: ComponentVMOf<M>,
@@ -46,11 +46,15 @@ export function useVm<M, K extends keyof ComponentVMOf<M>>(
   return useSyncExternalStore(subscribe, () => vm[property]);
 }
 
-export function NoteView({ vm, hub }: { vm: ComponentVMOf<Note>; hub: IMessageHub }) {
+export function NoteView({ vm, hub, saveCommand }: {
+  vm: ComponentVMOf<Note>;
+  hub: IMessageHub;
+  saveCommand: ICommand;
+}) {
   const model = useVm(vm, hub, "model");
   return <>
     <h1>{model.title}</h1>
-    <button onClick={() => vm.saveCommand.execute()}>Save</button>
+    <button onClick={() => saveCommand.execute()}>Save</button>
   </>;
 }
 ```

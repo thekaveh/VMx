@@ -27,12 +27,14 @@ def _fast_repo() -> InMemoryNoteRepository:
     )
 
 
-async def test_load_all_returns_seed_and_takes_about_300ms() -> None:
+async def test_load_all_returns_seed_after_default_delay() -> None:
     repo = InMemoryNoteRepository(build_seed())
     start = time.perf_counter()
     notebooks, notes = await repo.load_all()
     elapsed = time.perf_counter() - start
-    assert 0.2 < elapsed < 0.6
+    # Prove that the configured latency is honored without imposing an upper
+    # wall-clock bound that becomes flaky on contended CI runners.
+    assert elapsed >= 0.2
     assert len(notebooks) == 5
     assert len(notes) == 12
 
@@ -121,22 +123,22 @@ async def test_export_writes_json_payload(tmp_path: Path) -> None:
     assert {n["id"] for n in payload["notes"]} == {n.id for n in notes}
 
 
-async def test_load_notes_delay_matches_150ms() -> None:
+async def test_load_notes_honors_default_delay() -> None:
     repo = InMemoryNoteRepository(build_seed())
     start = time.perf_counter()
     await repo.load_notes("nb-work")
     elapsed = time.perf_counter() - start
-    assert 0.1 < elapsed < 0.35
+    assert elapsed >= 0.1
 
 
-async def test_save_note_delay_matches_200ms() -> None:
+async def test_save_note_honors_default_delay() -> None:
     repo = InMemoryNoteRepository(build_seed())
     _, notes = await repo.load_all()
     note = notes[0]
     start = time.perf_counter()
     await repo.save_note(note)
     elapsed = time.perf_counter() - start
-    assert 0.15 < elapsed < 0.4
+    assert elapsed >= 0.15
 
 
 async def test_repository_satisfies_inote_repository_protocol() -> None:

@@ -9,8 +9,8 @@ Public re-exports:
 - :class:`ComponentVM` — non-modeled leaf VM
 - :class:`ComponentVMOf` — modeled leaf VM (settable model)
 - :class:`ReadonlyComponentVMOf` — readonly modeled leaf VM
-- :class:`ComponentVMBuilder` — builder for ComponentVMOf
-- :class:`ComponentVMOfBuilder` — alias for ComponentVMBuilder
+- :class:`ComponentVMBuilder` — builder for ComponentVM
+- :class:`ComponentVMOfBuilder` — builder for ComponentVMOf
 - :class:`ReadonlyComponentVMOfBuilder` — builder for ReadonlyComponentVMOf
 """
 

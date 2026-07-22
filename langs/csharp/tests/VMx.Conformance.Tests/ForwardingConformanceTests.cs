@@ -2,6 +2,7 @@ using FluentAssertions;
 using VMx.Components;
 using VMx.Composites;
 using VMx.Forwarding;
+using VMx.Groups;
 using VMx.Lifecycle;
 using VMx.Tests.Helpers;
 using Xunit;
@@ -9,7 +10,7 @@ using Xunit;
 namespace VMx.Conformance.Tests;
 
 /// <summary>
-/// Conformance tests for the Forwarding decorators, covering FWD-001..003.
+/// Conformance tests for the Forwarding decorators, covering FWD-001..004.
 /// See spec/09-forwarding.md and spec/12-conformance.md.
 /// </summary>
 public class ForwardingConformanceTests
@@ -183,5 +184,79 @@ public class ForwardingConformanceTests
         items.Should().HaveCount(2);
         items[0].Should().BeSameAs(vm1);
         items[1].Should().BeSameAs(vm2);
+    }
+
+    /// <summary>
+    /// FWD-004: wrapping an already-owned component and attaching the decorator
+    /// transfers the single underlying identity; later decorator reparenting does
+    /// not leave either the component or decorator in two containers.
+    /// </summary>
+    [Fact, Trait("Conformance", "FWD-004")]
+    public void FWD_004_ForwardingComponent_Transfers_One_Underlying_Owner()
+    {
+        var (inner, hub, dispatcher) = BuildWrapped();
+        var oldParent = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("old").Services(hub, dispatcher).Children(() => []).Build();
+        var group = GroupVM<NoOpForwardingVM<string>>.Builder()
+            .Name("group").Services(hub, dispatcher).Children(() => []).Build();
+        var destination = CompositeVM<NoOpForwardingVM<string>>.Builder()
+            .Name("destination").Services(hub, dispatcher).Children(() => []).Build();
+        oldParent.Add(inner);
+        var forwarding = new NoOpForwardingVM<string>(inner);
+
+        group.Add(forwarding);
+
+        oldParent.Should().BeEmpty();
+        group.Should().ContainSingle().Which.Should().BeSameAs(forwarding);
+
+        var alternateForwarding = new NoOpForwardingVM<string>(inner);
+        destination.Add(alternateForwarding);
+        destination.Construct();
+        alternateForwarding.SelectCommand.Execute(null);
+
+        group.Should().BeEmpty();
+        destination.Should().ContainSingle().Which.Should().BeSameAs(alternateForwarding);
+        destination.Current.Should().BeSameAs(alternateForwarding);
+        inner.IsCurrent.Should().BeTrue();
+
+        group.Add(forwarding);
+
+        destination.Should().BeEmpty();
+        destination.Current.Should().BeNull();
+        group.Should().ContainSingle().Which.Should().BeSameAs(forwarding);
+
+        var nested = new NoOpForwardingVM<string>(forwarding);
+        destination.Add(nested);
+        var finalAlias = new NoOpForwardingVM<string>(inner);
+        group.Add(finalAlias);
+
+        destination.Should().BeEmpty();
+        group.Should().ContainSingle().Which.Should().BeSameAs(finalAlias);
+
+        destination.Add(nested);
+        group.Should().BeEmpty();
+        destination.Should().ContainSingle().Which.Should().BeSameAs(nested);
+
+        var duplicateComposite = CompositeVM<NoOpForwardingVM<string>>.Builder()
+            .Name("duplicate-composite").Services(hub, dispatcher)
+            .Children(() =>
+            [
+                new NoOpForwardingVM<string>(inner),
+                new NoOpForwardingVM<string>(inner)
+            ]).Build();
+        var duplicateGroup = GroupVM<NoOpForwardingVM<string>>.Builder()
+            .Name("duplicate-group").Services(hub, dispatcher)
+            .Children(() =>
+            [
+                new NoOpForwardingVM<string>(inner),
+                new NoOpForwardingVM<string>(inner)
+            ]).Build();
+
+        duplicateComposite.Invoking(candidate => candidate.Construct())
+            .Should().Throw<InvalidOperationException>()
+            .WithMessage("*duplicate canonical child identity*");
+        duplicateGroup.Invoking(candidate => candidate.Construct())
+            .Should().Throw<InvalidOperationException>()
+            .WithMessage("*duplicate canonical child identity*");
     }
 }

@@ -132,7 +132,10 @@ fn revert_publishes_form_reverted_and_model_changed() {
     let history = hub.history();
     let messages = &history[start..];
     assert_eq!(messages.len(), 2);
-    assert!(matches!(messages[0], Message::FormReverted(_)));
+    assert!(matches!(
+        messages[0],
+        Message::FormReverted(ref reverted) if reverted.sender_name == "FormVm"
+    ));
     assert!(matches!(
         messages[1],
         Message::PropertyChanged(ref change) if change.property_name == "model"
@@ -277,15 +280,18 @@ fn form_dispose_closes_commands_and_owned_channels() {
     for hub in [approve_changed, deny_changed] {
         hub.send(Message::Custom {
             sender_id: 0,
+            sender_name: "command".to_string(),
             name: "late-command-change".to_string(),
         });
     }
     errors_changed.send(Message::Custom {
         sender_id: 0,
+        sender_name: "errors_changed".to_string(),
         name: "late-error-change".to_string(),
     });
     approve_errors.send(Message::Custom {
         sender_id: 0,
+        sender_name: "approve_errors".to_string(),
         name: "late-approve-error".to_string(),
     });
 

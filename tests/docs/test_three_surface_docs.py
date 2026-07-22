@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import textwrap
 from pathlib import Path
 
 from scripts.docs import build_docs
@@ -9,6 +10,7 @@ from scripts.docs.check_docs import (
     check,
     check_canonical_links,
     check_generated_wiki_links,
+    check_historical_audits,
     check_professional_markdown,
     check_raw_html_headings,
     check_self_containment,
@@ -112,6 +114,48 @@ def test_canonical_link_check_rejects_missing_markdown_and_html_targets(tmp_path
     assert all("target does not exist" in finding.message for finding in findings)
 
 
+def test_canonical_link_check_rejects_missing_heading_fragment(tmp_path: Path) -> None:
+    content = tmp_path / "docs/content"
+    content.mkdir(parents=True)
+    (content / "index.md").write_text(
+        "[Precise section](target.md#missing-section)\n", encoding="utf-8"
+    )
+    (content / "target.md").write_text("# Target\n\n## 1. Existing Section\n", encoding="utf-8")
+
+    findings = check_canonical_links(tmp_path)
+
+    assert len(findings) == 1
+    assert "heading fragment does not exist" in findings[0].message
+
+
+def test_surface_rewrite_preserves_cross_page_and_local_fragments() -> None:
+    source_map = {
+        Path("docs/content/source.md"): Path("guide/source.md"),
+        Path("docs/maintenance/ledger.md"): Path("maintenance/ledger.md"),
+    }
+    markdown = "[Ledger](../maintenance/ledger.md#precise-section) [Local](#local-section)"
+
+    site = rewrite_for_surface(
+        markdown,
+        surface="site",
+        current_source=Path("docs/content/source.md"),
+        current_output=Path("guide/source.md"),
+        source_map=source_map,
+        repo_root=ROOT,
+    )
+    wiki = rewrite_for_surface(
+        markdown,
+        surface="wiki",
+        current_source=Path("docs/content/source.md"),
+        current_output=Path("Source.md"),
+        source_map=source_map,
+        repo_root=ROOT,
+    )
+
+    assert site == ("[Ledger](../maintenance/ledger.md#precise-section) [Local](#local-section)")
+    assert wiki == "[[Ledger|ledger#precise-section]] [Local](#local-section)"
+
+
 def test_generated_wiki_link_check_rejects_malformed_and_missing_targets(
     tmp_path: Path,
 ) -> None:
@@ -148,6 +192,19 @@ def test_repo_surface_markdown_rejects_decorative_status_icons(tmp_path: Path) -
 
     assert len(findings) == 1
     assert "decorative status icon" in findings[0].message
+
+
+def test_historical_audits_require_notice_and_index_entry(tmp_path: Path) -> None:
+    audit = tmp_path / "docs/audit"
+    audit.mkdir(parents=True)
+    (audit / "README.md").write_text("# Audit archive\n", encoding="utf-8")
+    (audit / "old-report.md").write_text("# Old report\n", encoding="utf-8")
+
+    findings = check_historical_audits(tmp_path)
+
+    assert len(findings) == 2
+    assert any("historical audit notice is missing" in item.message for item in findings)
+    assert any("not listed" in item.message for item in findings)
 
 
 def test_wiki_rewrite_maps_relative_html_routes_to_manifest_pages() -> None:
@@ -200,6 +257,62 @@ def test_build_generates_self_contained_surfaces() -> None:
     assert "thekaveh.github.io/VMx" not in wiki_page.read_text(encoding="utf-8")
     assert (ROOT / "mkdocs.yml").read_text(encoding="utf-8").find("repo_url") == -1
     assert "generator: false" in (ROOT / "mkdocs.yml").read_text(encoding="utf-8")
+    state_site = (ROOT / "generated/site/primitives/state-reactive-helpers.md").read_text(
+        encoding="utf-8"
+    )
+    state_wiki = (ROOT / "generated/wiki/6-5-State-Reactive-Helpers.md").read_text(encoding="utf-8")
+    form_site = (
+        ROOT / "generated/site/primitives/viewmodel-families/specialized/form-vm.md"
+    ).read_text(encoding="utf-8")
+    releases_site = (ROOT / "generated/site/contributing-releases.md").read_text(encoding="utf-8")
+    assert "#1236-expandablestate-is-missing-members" in state_site
+    assert "#1236-expandablestate-is-missing-members" in state_wiki
+    assert "#1244-formvm-direct-approve-gates-on-strictdirty" in form_site
+    assert "CONTRIBUTING.md#" not in releases_site
+
+
+def test_build_repo_root_is_fully_isolated(tmp_path: Path, monkeypatch) -> None:
+    selected = tmp_path / "selected"
+    other = tmp_path / "other"
+    for root, marker, version in ((selected, "SELECTED", "9.9.9"), (other, "OTHER", "1.0.0")):
+        (root / "docs/content").mkdir(parents=True)
+        (root / "docs/content/index.md").write_text(
+            f"# 1. {marker}\n\n[Details](details.md)\n", encoding="utf-8"
+        )
+        (root / "docs/content/details.md").write_text(
+            f"# 2. {marker} details\n\n[Home](index.md)\n", encoding="utf-8"
+        )
+        (root / "docs/manifest.yaml").write_text(
+            textwrap.dedent(
+                """\
+                surfaces: [repo, site, wiki]
+                numbering: baked
+                sections:
+                  - id: home
+                    number: "1"
+                    title: Home
+                    source: docs/content/index.md
+                  - id: details
+                    number: "2"
+                    title: Details
+                    source: docs/content/details.md
+                """
+            ),
+            encoding="utf-8",
+        )
+        (root / "spec").mkdir()
+        (root / "spec/VERSION").write_text(f"{version}\n", encoding="utf-8")
+
+    monkeypatch.chdir(other)
+    build_docs.build(site=True, wiki=True, check=True, repo_root=selected)
+
+    assert "SELECTED" in (selected / "generated/site/index.md").read_text(encoding="utf-8")
+    assert "OTHER" not in (selected / "generated/site/index.md").read_text(encoding="utf-8")
+    assert "9.9.9" in (selected / "generated/wiki/_Footer.md").read_text(encoding="utf-8")
+    assert "details.md" in (selected / "generated/site/index.md").read_text(encoding="utf-8")
+    assert "[[Details|2-Details]]" in (selected / "generated/wiki/Home.md").read_text(
+        encoding="utf-8"
+    )
 
 
 def test_docs_check_passes() -> None:

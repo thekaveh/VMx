@@ -31,6 +31,7 @@ let package = Package(
         .testTarget(
             name: "NotesShowcaseTests",
             dependencies: [
+                "NotesShowcase",
                 "NotesShowcaseCore",
                 .product(name: "VMx", package: "swift"),
             ],

@@ -6,7 +6,7 @@
  * jsdom (configured in vite.config.ts).
  */
 import { cleanup, render, screen } from "@testing-library/react";
-import { act } from "react";
+import { act, type JSX } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 import { MessageHub, RxDispatcher } from "@thekaveh/vmx";
 

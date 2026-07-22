@@ -6,6 +6,7 @@ use vmx::{Message, MessageHub, Subscription};
 fn make_msg(name: &str) -> Message {
     Message::Custom {
         sender_id: 1,
+        sender_name: "sender".to_string(),
         name: name.to_string(),
     }
 }
@@ -126,10 +127,8 @@ fn multiple_subscribers_each_observe_every_message() {
 /// HUB-006 — Hub matches message-ordering fixture
 #[test]
 fn hub_matches_message_ordering_fixture() {
-    let fixture: serde_json::Value = serde_json::from_str(include_str!(
-        "../../../../spec/fixtures/message-ordering.json"
-    ))
-    .unwrap();
+    let fixture: serde_json::Value =
+        serde_json::from_str(include_str!("../../src/fixtures/message-ordering.json")).unwrap();
     assert_eq!(
         fixture["scenarios"][0]["id"], "single-producer-fifo",
         "fixture must be available to Rust tests"
@@ -344,6 +343,124 @@ fn opposing_hub_callbacks_do_not_deadlock() {
             returned_tx.send(()).unwrap();
         }
     });
+    let right_worker = std::thread::spawn({
+        let right = right.clone();
+        move || {
+            right.send(make_msg("outer"));
+            returned_tx.send(()).unwrap();
+        }
+    });
+
+    returned_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    returned_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    left_worker.join().unwrap();
+    right_worker.join().unwrap();
+    assert_eq!(inner_deliveries.load(Ordering::SeqCst), 2);
+}
+
+#[test]
+fn opposing_hub_callback_disposals_do_not_deadlock() {
+    let left = MessageHub::new();
+    let right = MessageHub::new();
+    let callbacks_entered = Arc::new(Barrier::new(2));
+    let post_dispose_deliveries = Arc::new(AtomicUsize::new(0));
+
+    let _left_subscription = left.subscribe({
+        let right = right.clone();
+        let callbacks_entered = callbacks_entered.clone();
+        let post_dispose_deliveries = post_dispose_deliveries.clone();
+        move |message| {
+            if custom_name(message) == "outer" {
+                callbacks_entered.wait();
+                right.dispose();
+            } else {
+                post_dispose_deliveries.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+    });
+    let _right_subscription = right.subscribe({
+        let left = left.clone();
+        let callbacks_entered = callbacks_entered.clone();
+        let post_dispose_deliveries = post_dispose_deliveries.clone();
+        move |message| {
+            if custom_name(message) == "outer" {
+                callbacks_entered.wait();
+                left.dispose();
+            } else {
+                post_dispose_deliveries.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+    });
+
+    let (returned_tx, returned_rx) = mpsc::channel();
+    let left_worker = std::thread::spawn({
+        let left = left.clone();
+        let returned_tx = returned_tx.clone();
+        move || {
+            left.send(make_msg("outer"));
+            returned_tx.send(()).unwrap();
+        }
+    });
+    let right_worker = std::thread::spawn({
+        let right = right.clone();
+        move || {
+            right.send(make_msg("outer"));
+            returned_tx.send(()).unwrap();
+        }
+    });
+
+    returned_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    returned_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    left_worker.join().unwrap();
+    right_worker.join().unwrap();
+    left.send(make_msg("after"));
+    right.send(make_msg("after"));
+    assert_eq!(post_dispose_deliveries.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn opposing_hub_callback_batches_do_not_deadlock_and_defer_delivery() {
+    let left = MessageHub::new();
+    let right = MessageHub::new();
+    let callbacks_entered = Arc::new(Barrier::new(2));
+    let inner_deliveries = Arc::new(AtomicUsize::new(0));
+
+    let _left_subscription = left.subscribe({
+        let right = right.clone();
+        let callbacks_entered = callbacks_entered.clone();
+        let inner_deliveries = inner_deliveries.clone();
+        move |message| {
+            if custom_name(message) == "outer" {
+                callbacks_entered.wait();
+                right.batch(|| right.send(make_msg("inner")));
+            } else {
+                inner_deliveries.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+    });
+    let _right_subscription = right.subscribe({
+        let left = left.clone();
+        let callbacks_entered = callbacks_entered.clone();
+        let inner_deliveries = inner_deliveries.clone();
+        move |message| {
+            if custom_name(message) == "outer" {
+                callbacks_entered.wait();
+                left.batch(|| left.send(make_msg("inner")));
+            } else {
+                inner_deliveries.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+    });
+
+    let (returned_tx, returned_rx) = mpsc::channel();
+    let left_worker = std::thread::spawn({
+        let left = left.clone();
+        let returned_tx = returned_tx.clone();
+        move || {
+            left.send(make_msg("outer"));
+            returned_tx.send(()).unwrap();
+        }
+    });
     let right_worker = std::thread::spawn(move || {
         right.send(make_msg("outer"));
         returned_tx.send(()).unwrap();
@@ -354,6 +471,56 @@ fn opposing_hub_callbacks_do_not_deadlock() {
     left_worker.join().unwrap();
     right_worker.join().unwrap();
     assert_eq!(inner_deliveries.load(Ordering::SeqCst), 2);
+}
+
+#[test]
+fn unrelated_hub_callback_send_waits_for_target_batch_and_delivery() {
+    let source = MessageHub::new();
+    let target = MessageHub::new();
+    let delivered = Arc::new(AtomicUsize::new(0));
+    let _target_subscription = target.subscribe({
+        let delivered = delivered.clone();
+        move |_| {
+            delivered.fetch_add(1, Ordering::SeqCst);
+        }
+    });
+
+    let (batch_entered_tx, batch_entered_rx) = mpsc::channel();
+    let (release_batch_tx, release_batch_rx) = mpsc::channel();
+    let target_batch = target.clone();
+    let batch_worker = std::thread::spawn(move || {
+        target_batch.batch(|| {
+            batch_entered_tx.send(()).unwrap();
+            release_batch_rx.recv().unwrap();
+        });
+    });
+    batch_entered_rx.recv().unwrap();
+
+    let (callback_returned_tx, callback_returned_rx) = mpsc::channel();
+    let delivered_from_callback = delivered.clone();
+    let _source_subscription = source.subscribe({
+        let target = target.clone();
+        move |_| {
+            target.send(make_msg("nested"));
+            callback_returned_tx
+                .send(delivered_from_callback.load(Ordering::SeqCst))
+                .unwrap();
+        }
+    });
+    let source_worker = std::thread::spawn(move || source.send(make_msg("outer")));
+
+    assert!(callback_returned_rx
+        .recv_timeout(Duration::from_millis(50))
+        .is_err());
+    release_batch_tx.send(()).unwrap();
+    batch_worker.join().unwrap();
+    assert_eq!(
+        callback_returned_rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap(),
+        1
+    );
+    source_worker.join().unwrap();
 }
 
 #[test]

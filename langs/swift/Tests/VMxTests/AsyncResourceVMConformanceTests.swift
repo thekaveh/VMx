@@ -82,6 +82,10 @@ private final class LockedCount: @unchecked Sendable {
     }
 }
 
+private final class WeakAsyncResourceBox<Value>: @unchecked Sendable {
+    weak var value: AsyncResourceVM<Value>?
+}
+
 private func makeAsyncResourceVM<Value>(
     loader: @escaping () async throws -> Value,
     retention: AsyncResourceRetention = .discardPrevious,
@@ -284,6 +288,39 @@ final class AsyncResourceVMConformanceTests: XCTestCase {
         XCTAssertEqual(cleaned.values, [1, 2])
     }
 
+    func testReplacementCleanupThatStartsReloadSuppressesSupersededNotification() async {
+        let queue = LoaderQueue<Int>([{ 1 }, { 2 }, { 3 }])
+        let owner = WeakAsyncResourceBox<Int>()
+        let reentered = LockedCount()
+        let vm = makeAsyncResourceVM(
+            loader: queue.load,
+            retention: .retainPrevious,
+            cleanup: { value in
+                guard value == 1, reentered.value == 0 else { return }
+                reentered.increment()
+                let completed = DispatchSemaphore(value: 0)
+                Task {
+                    await owner.value?.reload()
+                    completed.signal()
+                }
+                completed.wait()
+            }
+        )
+        owner.value = vm
+        let names = LockedValues<String>()
+        let subscription = vm.propertyChanged.sink { names.append($0) }
+
+        await vm.load()
+        let baseline = names.values.count
+        await vm.reload()
+
+        XCTAssertEqual(Array(names.values.dropFirst(baseline)), ["state", "state", "state"])
+        XCTAssertEqual(vm.state.status, .ready)
+        XCTAssertEqual(vm.state.value, 3)
+        XCTAssertEqual(reentered.value, 1)
+        withExtendedLifetime(subscription) {}
+    }
+
     /// ARES-011 — disposal cancels active work and makes late completion inert.
     func testAres011DisposeMakesLateWorkInert() async {
         let deferred = DeferredValue<Int>()
@@ -299,5 +336,54 @@ final class AsyncResourceVMConformanceTests: XCTestCase {
 
         XCTAssertEqual(vm.status, .disposed)
         XCTAssertEqual(cleaned.values, [8])
+    }
+
+    func testReentrantDisposeDuringLoadingNotificationPreventsLoaderStart() async {
+        let calls = LockedCount()
+        let vm = makeAsyncResourceVM {
+            calls.increment()
+            return 1
+        }
+        let subscription = vm.propertyChanged.sink { propertyName in
+            if propertyName == "state" {
+                vm.dispose()
+            }
+        }
+
+        await vm.load()
+
+        XCTAssertEqual(calls.value, 0)
+        XCTAssertEqual(vm.status, .disposed)
+        withExtendedLifetime(subscription) {}
+    }
+
+    /// When a cleanup callback disposes the VM mid-reload, the `resourceDisposed`
+    /// guard must (a) stop the loader from restarting and (b) suppress
+    /// AsyncResourceVM's own "state" notification. The terminal Disposed
+    /// transition still publishes the lifecycle pair "status"/"isConstructed"
+    /// per LIFE-004 / spec/02 invariant 4 (every Status change publishes) —
+    /// matching the C#/Python/TypeScript ARES-011 analogs.
+    func testDiscardCleanupDisposalPreventsLoaderRestartAndSuppressesStateNotification() async {
+        let calls = LockedCount()
+        let owner = WeakAsyncResourceBox<Int>()
+        let vm = makeAsyncResourceVM(
+            loader: {
+                calls.increment()
+                return 1
+            },
+            cleanup: { _ in owner.value?.dispose() }
+        )
+        owner.value = vm
+        await vm.load()
+        let names = LockedValues<String>()
+        let subscription = vm.propertyChanged.sink { names.append($0) }
+
+        await vm.reload()
+
+        XCTAssertEqual(calls.value, 1)
+        XCTAssertFalse(names.values.contains("state"))
+        XCTAssertEqual(names.values, ["status", "isConstructed"])
+        XCTAssertEqual(vm.status, .disposed)
+        withExtendedLifetime(subscription) {}
     }
 }

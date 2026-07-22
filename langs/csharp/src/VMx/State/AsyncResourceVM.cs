@@ -1,3 +1,4 @@
+using System.Runtime.ExceptionServices;
 using VMx.Commands;
 using VMx.Components;
 using VMx.Services;
@@ -173,13 +174,17 @@ public sealed class AsyncResourceVM<T> : ComponentVMBase
             _stableState = AsyncResourceState<T>.Idle();
         }
 
-        operation?.Cancel();
-        LoadCommand.Cancel();
-        ReloadCommand.Cancel();
-        LoadCommand.Dispose();
-        ReloadCommand.Dispose();
-        CancelCommand.Dispose();
-        if (hasAccepted) Cleanup(accepted!);
+        ExceptionDispatchInfo? firstError = null;
+        if (operation is not null)
+            CaptureDisposalFailure(ref firstError, operation.Cancel);
+        CaptureDisposalFailure(ref firstError, LoadCommand.Cancel);
+        CaptureDisposalFailure(ref firstError, ReloadCommand.Cancel);
+        CaptureDisposalFailure(ref firstError, LoadCommand.Dispose);
+        CaptureDisposalFailure(ref firstError, ReloadCommand.Dispose);
+        CaptureDisposalFailure(ref firstError, CancelCommand.Dispose);
+        if (hasAccepted)
+            CaptureDisposalFailure(ref firstError, () => Cleanup(accepted!));
+        firstError?.Throw();
     }
 
     private bool CanLoad()
@@ -240,7 +245,15 @@ public sealed class AsyncResourceVM<T> : ComponentVMBase
         }
 
         previousOperation?.Cancel();
-        if (cleanupDiscarded) Cleanup(discarded!);
+        if (cleanupDiscarded)
+        {
+            Cleanup(discarded!);
+            if (!IsOperationCurrent(operation))
+            {
+                operation.Dispose();
+                return;
+            }
+        }
         NotifyStateChanged();
         // Register only after Loading has been published. Registration invokes
         // synchronously if cancellation raced admission, so the handler then
@@ -321,16 +334,27 @@ public sealed class AsyncResourceVM<T> : ComponentVMBase
     {
         bool hasPrevious;
         T? previous;
+        AsyncResourceState<T> committedState;
+        long committedIdentity;
         lock (_resourceGate)
         {
             if (!IsCurrentUnsafe(operation)) return false;
             _operation = null;
             hasPrevious = TryGetValue(_stableState, out previous);
-            _stableState = AsyncResourceState<T>.Ready(value);
-            _state = _stableState;
+            committedState = AsyncResourceState<T>.Ready(value);
+            _stableState = committedState;
+            _state = committedState;
+            committedIdentity = _operationIdentity;
         }
         if (hasPrevious) Cleanup(previous!);
-        NotifyStateChanged();
+        bool notify;
+        lock (_resourceGate)
+        {
+            notify = !_resourceDisposed &&
+                     _operationIdentity == committedIdentity &&
+                     ReferenceEquals(_state, committedState);
+        }
+        if (notify) NotifyStateChanged();
         return true;
     }
 
@@ -388,6 +412,14 @@ public sealed class AsyncResourceVM<T> : ComponentVMBase
     {
         try { _cleanupValue?.Invoke(value); }
         catch { /* best-effort ownership cleanup, matching ComponentVMBase.Own */ }
+    }
+
+    private static void CaptureDisposalFailure(
+        ref ExceptionDispatchInfo? firstError,
+        Action action)
+    {
+        try { action(); }
+        catch (Exception error) { firstError ??= ExceptionDispatchInfo.Capture(error); }
     }
 
     private static bool TryGetValue(AsyncResourceState<T> state, out T? value)

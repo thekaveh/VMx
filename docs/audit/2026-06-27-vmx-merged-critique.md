@@ -1,5 +1,7 @@
 # VMx Framework — Verified-Merged Critique Report
 
+> Historical audit record. This document captures a point-in-time review and may contain superseded paths, versions, findings, or conclusions. For current behavior, use the specification and current documentation.
+
 > Fuses an adversarial verification of `docs/audit/opencode-20260627.md` with an independent no-ceiling audit. 2026-06-27. Phase 1 of 3 (Critique → Fixing → Swift full-parity).
 
 ______________________________________________________________________

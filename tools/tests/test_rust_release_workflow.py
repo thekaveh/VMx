@@ -122,16 +122,38 @@ def test_rust_reactive_facade_has_no_unused_backend_dependency_or_claim() -> Non
         assert "rxrust" not in content, f"stale backend claim in {relative}"
 
 
+def test_rust_release_recovery_preserves_immutable_tags() -> None:
+    runbook = (REPO_ROOT / "langs/rust/RELEASING.md").read_text(encoding="utf-8")
+
+    assert "remove the unused failed tag" not in runbook
+    assert "new patch version and tag" in runbook
+
+
+def test_contributing_rust_commands_match_release_baseline() -> None:
+    guide = (REPO_ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
+    rust = guide.split("### 2.5 Rust", maxsplit=1)[1].split("### 2.6 Cross-cutting", maxsplit=1)[0]
+
+    assert "cargo fmt --check" in rust
+    assert "cargo clippy --locked --all-targets --all-features -- -D warnings" in rust
+    assert "cargo test --locked --all-features" in rust
+    assert 'RUSTDOCFLAGS="-D warnings" cargo doc --locked --all-features --no-deps' in rust
+    assert "cargo package --locked" in rust
+    assert "--allow-dirty" not in rust
+
+
 def test_contract_suite_triggers_on_rust_and_release_workflow_changes() -> None:
     workflow = _workflow("conformance.yml")
 
-    assert workflow.count('- ".github/workflows/rust.yml"') == 2
-    assert workflow.count('- ".github/workflows/release.yml"') == 2
+    assert workflow.count('- ".github/workflows/**"') == 1
 
 
 def _rust_release_jobs() -> str:
     workflow = _workflow("release.yml")
-    return workflow.split("\n  rust-test:\n", maxsplit=1)[1].split("\n  swift:\n", maxsplit=1)[0]
+    jobs = workflow.split("\n  rust-test:\n", maxsplit=1)[1].split(
+        "\n  swift-verify:\n", maxsplit=1
+    )[0]
+    assert "\n  swift-verify:\n" not in jobs
+    return jobs
 
 
 def test_release_runs_msrv_stable_and_five_flavor_gates_before_publish() -> None:
@@ -152,7 +174,7 @@ def test_release_runs_msrv_stable_and_five_flavor_gates_before_publish() -> None
         assert command in jobs
     assert "cargo install cargo-audit --version 0.22.2 --locked" in jobs
     assert "cargo audit --file langs/rust/Cargo.lock --deny warnings" in jobs
-    assert "needs: [rust-test, rust-conformance, rust-audit]" in jobs
+    assert "needs: [rust-test, rust-conformance, rust-audit, release-metadata]" in jobs
 
 
 def test_release_rejects_non_main_or_mismatched_tag_before_authentication() -> None:

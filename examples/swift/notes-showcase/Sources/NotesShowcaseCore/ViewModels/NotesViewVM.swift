@@ -2,7 +2,7 @@
 // NotesViewVM — VM for the centre pane: paged, searchable, filterable list.
 //
 // Ports examples/csharp/avalonia/NotesShowcase/ViewModels/NotesViewVM.cs.
-// See task-5-brief.md.
+// See spec/ADRs/0067-swift-notes-showcase-flagship.md.
 //
 // Architecture (plan §3.a.8):
 //   * inner storage  = CompositeVM<NoteVM>  (mutable, lifecycle-aware)

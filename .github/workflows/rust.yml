@@ -15,13 +15,6 @@ on:
       - "tools/smoke-rust-consumer.py"
   pull_request:
     branches: [main, develop]
-    paths:
-      - "langs/rust/**"
-      - "examples/rust/**"
-      - "spec/**"
-      - ".github/workflows/rust.yml"
-      - "tools/check-rust-package.py"
-      - "tools/smoke-rust-consumer.py"
   workflow_dispatch:
 
 jobs:
@@ -32,7 +25,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Install stable Rust
-        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable 2026-06-30
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable 2026-07-16
         with:
           toolchain: stable
 
@@ -56,7 +49,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable 2026-06-30
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable 2026-07-16
         with:
           toolchain: stable
           components: rustfmt, clippy
@@ -77,7 +70,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable 2026-06-30
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable 2026-07-16
         with:
           toolchain: stable
 
@@ -101,7 +94,7 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Install Rust ${{ matrix.toolchain }}
-        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30 # stable 2026-06-30
+        uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable 2026-07-16
         with:
           toolchain: ${{ matrix.toolchain }}
 
@@ -118,3 +111,14 @@ jobs:
           python3 tools/smoke-rust-consumer.py \
             --package-dir langs/rust \
             --version "$version"
+
+  required:
+    name: "required: rust"
+    if: always()
+    needs: [audit, build, examples, package]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every Rust job
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: jq -e 'to_entries | all(.value.result == "success")' <<<"$RESULTS"

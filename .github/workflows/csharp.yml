@@ -15,13 +15,6 @@ on:
       - ".github/workflows/csharp.yml"
   pull_request:
     branches: [main, develop]
-    paths:
-      - "langs/csharp/**"
-      - "examples/csharp/**"
-      - "spec/**"
-      - "tools/check-nuget-package.py"
-      - "tools/smoke-nuget-consumer.py"
-      - ".github/workflows/csharp.yml"
   workflow_dispatch:
 
 defaults:
@@ -39,15 +32,17 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
-      # Install both SDKs:
+      # Install the supported/current SDKs:
       # - 8.0.x: builds the library and runs both test suites at the runtime floor
-      # - 9.0.x: builds the current SDK target and runs both suites there as well
-      - name: Setup .NET 8 + .NET 9
-        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+      # - 9.0.x: preserves coverage on the previous current runtime
+      # - 10.0.x: exercises the current LTS runtime
+      - name: Setup .NET 8 + .NET 9 + .NET 10
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: |
             8.0.x
             9.0.x
+            10.0.x
           cache: true
           cache-dependency-path: langs/csharp/**/packages.lock.json
 
@@ -57,6 +52,11 @@ jobs:
         # is out of date with the csproj graph, so dependency changes can't
         # silently skip the lockfile update.
         run: dotnet restore VMx.sln --locked-mode
+
+      - name: Audit transitive dependencies
+        if: matrix.os == 'ubuntu-latest'
+        working-directory: .
+        run: dotnet list langs/csharp/VMx.sln package --vulnerable --include-transitive
 
       - name: Format check
         run: dotnet format VMx.sln --verify-no-changes
@@ -87,12 +87,13 @@ jobs:
         working-directory: .
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - name: Setup .NET 8 + .NET 9
-        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+      - name: Setup .NET 8 + .NET 9 + .NET 10
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: |
             8.0.x
             9.0.x
+            10.0.x
           cache: true
           cache-dependency-path: langs/csharp/**/packages.lock.json
       - name: Restore
@@ -132,12 +133,13 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
-      - name: Setup .NET 8 + .NET 9
-        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+      - name: Setup .NET 8 + .NET 9 + .NET 10
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: |
             8.0.x
             9.0.x
+            10.0.x
           cache: true
           cache-dependency-path: |
             langs/csharp/**/packages.lock.json
@@ -158,5 +160,42 @@ jobs:
       - name: Run console example
         run: dotnet run --project examples/csharp/console/HelloVMx/HelloVMx.csproj
 
-      - name: Build WPF example
-        run: dotnet build examples/csharp/wpf/TodoApp/WpfTodoApp.csproj
+
+  wpf-example:
+    name: example (WPF / Windows)
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup .NET 8 + .NET 9 + .NET 10
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: |
+            8.0.x
+            9.0.x
+            10.0.x
+
+      - name: Build real WPF example
+        # Windows activates UseWPF and compiles App/MainWindow XAML plus their
+        # code-behind; the non-Windows fallback intentionally excludes them.
+        run: dotnet build examples/csharp/wpf/TodoApp/WpfTodoApp.csproj -c Release
+
+  required:
+    name: "required: csharp"
+    if: always()
+    needs: [build, package, examples, wpf-example]
+    runs-on: ubuntu-latest
+    # This aggregator job has no checkout, so override the workflow-level
+    # `defaults.run.working-directory: langs/csharp` (which would not exist here)
+    # back to the workspace root so the jq gate can start.
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - name: Require every C# job
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: jq -e 'to_entries | all(.value.result == "success")' <<<"$RESULTS"

@@ -427,6 +427,59 @@ describe("LIFE-014", () => {
 // ---------------------------------------------------------------------------
 
 describe("LIFE-013", () => {
+  it("closes child admission before taking the disposal snapshot", () => {
+    const hub = makeHub();
+    const late = makeVM("late");
+    let parent!: CompositeVM<ComponentVMBase>;
+    const child = new DisposeProbeVM("child", hub, () => {
+      expect(() => parent.add(late)).toThrow(/disposing/);
+    });
+    parent = CompositeVM.builder<ComponentVMBase>()
+      .name("parent")
+      .services(hub, makeDisp())
+      .children(() => [])
+      .build();
+    parent.add(child);
+
+    parent.dispose();
+
+    expect(parent.count).toBe(1);
+    expect(late.status).toBe(ConstructionStatus.Destructed);
+  });
+
+  it("rejects composite and group factory output produced after reentrant disposal", () => {
+    const hub = makeHub();
+    const lateComposite = makeVM("late-composite");
+    let composite!: CompositeVM<ComponentVM>;
+    composite = CompositeVM.builder<ComponentVM>()
+      .name("composite")
+      .services(hub, makeDisp())
+      .children(() => {
+        composite.dispose();
+        return [lateComposite];
+      })
+      .build();
+
+    expect(() => composite.construct()).toThrow(/disposing/);
+    expect(composite.count).toBe(0);
+    expect(lateComposite.status).toBe(ConstructionStatus.Destructed);
+
+    const lateGroup = makeVM("late-group");
+    let group!: GroupVM<ComponentVM>;
+    group = GroupVM.builder<ComponentVM>()
+      .name("group")
+      .services(hub, makeDisp())
+      .children(() => {
+        group.dispose();
+        return [lateGroup];
+      })
+      .build();
+
+    expect(() => group.construct()).toThrow(/disposing/);
+    expect(group.count).toBe(0);
+    expect(lateGroup.status).toBe(ConstructionStatus.Destructed);
+  });
+
   it("dispose on a parent disposes every child depth-first", () => {
     const hub = makeHub();
     const disp = makeDisp();

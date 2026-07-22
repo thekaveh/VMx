@@ -37,6 +37,14 @@ def test_extracted_runtime_modules_are_allowlisted() -> None:
     } <= checker.REQUIRED_PATHS
 
 
+def test_packaged_conformance_fixtures_are_allowlisted() -> None:
+    assert {
+        "src/fixtures/command-truthtable.json",
+        "src/fixtures/lifecycle-transitions.json",
+        "src/fixtures/message-ordering.json",
+    } <= checker.REQUIRED_PATHS
+
+
 def test_legal_texts_are_allowlisted() -> None:
     assert {"LICENSE", "NOTICE"} <= checker.REQUIRED_PATHS
 

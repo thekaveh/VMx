@@ -8,6 +8,7 @@ import {
   ConstructionStatus,
   ForwardingComponentVM,
   ForwardingCompositeVM,
+  GroupVM,
 } from "../../src/index.js";
 
 function makeHub() { return new MessageHub(); }
@@ -94,6 +95,118 @@ describe("FWD-001", () => {
     fwd.model = "after";
     expect(inner.model).toBe("after");
     expect(fwd.model).toBe("after");
+  });
+
+  it("forwards hub, property stream, model publication, and selection", () => {
+    const hub = makeHub();
+    const inner = ComponentVMOf.builder<string>()
+      .name("inner")
+      .model("model")
+      .services(hub, makeDisp())
+      .build();
+    const parent = CompositeVM.builder<ComponentVMOf<string>>()
+      .name("parent")
+      .services(hub, makeDisp())
+      .children(() => [inner])
+      .build();
+    parent.construct();
+    const fwd = new ForwardingComponentVM(inner);
+    const changes: string[] = [];
+    const subscription = fwd.propertyChanged.subscribe((name) => changes.push(name));
+
+    expect(fwd.hub).toBe(hub);
+    fwd.republishModel();
+    fwd.select();
+    expect(inner.isCurrent).toBe(true);
+    fwd.deselect();
+    expect(inner.isCurrent).toBe(false);
+    expect(changes).toContain("model");
+    subscription.unsubscribe();
+  });
+
+  it("is a transparent container child", () => {
+    const hub = makeHub();
+    const inner = ComponentVMOf.builder<string>()
+      .name("inner")
+      .model("model")
+      .services(hub, makeDisp())
+      .build();
+    const forwarding = new ForwardingComponentVM(inner);
+    const parent = CompositeVM.builder<ForwardingComponentVM<string>>()
+      .name("parent")
+      .services(hub, makeDisp())
+      .children(() => [])
+      .build();
+
+    parent.add(forwarding);
+    parent.construct();
+    forwarding.selectCommand.execute();
+
+    expect(parent.current).toBe(forwarding);
+    expect(forwarding.isCurrent).toBe(true);
+    expect(inner.isCurrent).toBe(true);
+  });
+});
+
+describe("FWD-004", () => {
+  it("transfers one underlying owner when an already-owned component is wrapped", () => {
+    const hub = makeHub();
+    const dispatcher = makeDisp();
+    const inner = ComponentVMOf.builder<string>()
+      .name("inner").model("model").services(hub, dispatcher).build();
+    const oldParent = CompositeVM.builder<ComponentVMOf<string>>()
+      .name("old").services(hub, dispatcher).children(() => []).build();
+    const group = GroupVM.builder<ForwardingComponentVM<string>>()
+      .name("group").services(hub, dispatcher).children(() => []).build();
+    const destination = CompositeVM.builder<ForwardingComponentVM<string>>()
+      .name("destination").services(hub, dispatcher).children(() => []).build();
+    oldParent.add(inner);
+    const forwarding = new ForwardingComponentVM(inner);
+
+    group.add(forwarding);
+
+    expect(oldParent.snapshot()).toEqual([]);
+    expect(group.snapshot()).toEqual([forwarding]);
+
+    const alternateForwarding = new ForwardingComponentVM(inner);
+    destination.add(alternateForwarding);
+    destination.construct();
+    alternateForwarding.selectCommand.execute();
+
+    expect(group.snapshot()).toEqual([]);
+    expect(destination.snapshot()).toEqual([alternateForwarding]);
+    expect(destination.current).toBe(alternateForwarding);
+    expect(inner.isCurrent).toBe(true);
+
+    group.add(forwarding);
+
+    expect(destination.snapshot()).toEqual([]);
+    expect(destination.current).toBeNull();
+    expect(group.snapshot()).toEqual([forwarding]);
+
+    const nested = new ForwardingComponentVM(forwarding);
+    destination.add(nested);
+    const finalAlias = new ForwardingComponentVM(inner);
+    group.add(finalAlias);
+
+    expect(destination.snapshot()).toEqual([]);
+    expect(group.snapshot()).toEqual([finalAlias]);
+
+    destination.add(nested);
+    expect(group.snapshot()).toEqual([]);
+    expect(destination.snapshot()).toEqual([nested]);
+
+    const duplicateComposite = CompositeVM.builder<ForwardingComponentVM<string>>()
+      .name("duplicate-composite").services(hub, dispatcher)
+      .children(() => [new ForwardingComponentVM(inner), new ForwardingComponentVM(inner)])
+      .build();
+    const duplicateGroup = GroupVM.builder<ForwardingComponentVM<string>>()
+      .name("duplicate-group").services(hub, dispatcher)
+      .children(() => [new ForwardingComponentVM(inner), new ForwardingComponentVM(inner)])
+      .build();
+
+    expect(() => duplicateComposite.construct()).toThrow(/duplicate canonical child identity/);
+    expect(() => duplicateGroup.construct()).toThrow(/duplicate canonical child identity/);
   });
 });
 
@@ -209,6 +322,13 @@ describe("FWD-003", () => {
     expect(fwd.supportsChildSelection).toBe(true);
     expect(fwd.currentChild).toBeNull();
     expect(fwd.snapshot()).toEqual([vm1, vm2]);
+    expect(fwd.canSelectComponent(vm1)).toBe(true);
+    fwd.selectComponent(vm1);
+    expect(fwd.current).toBe(vm1);
+    fwd.current = vm2;
+    expect(composite.current).toBe(vm2);
+    fwd.deselectComponent(vm2);
+    expect(fwd.current).toBeNull();
     fwd.selectChild(vm1);
     expect(fwd.currentChild).toBe(vm1);
     fwd.deselectChild(vm1);

@@ -46,6 +46,16 @@ abstract ForwardingComponentVM<M> : IComponentVM<M>:
 
 A subclass overrides any subset of these.
 
+The decorator MAY be added to a composite or group anywhere its component type
+is accepted. The wrapped component and every forwarding decorator around it
+share one canonical ownership identity. Attaching any one of those public
+identities therefore removes the previously retained component or decorator
+from its composite or group before the new attachment commits. The destination
+retains the exact decorator supplied by the caller, while parent ownership,
+lifecycle, current flags, and built-in selection commands remain transparent to
+the wrapped component. Multiple decorators MUST NOT make the wrapped component
+a child of more than one container.
+
 ## 2. `ForwardingCompositeVM<VM>`
 
 Same pattern, but additionally forwards the `IList<VM>` surface (Add, Remove,
@@ -65,11 +75,13 @@ own the wrapped's lifetime.
 
 ## 3. Conformance
 
-`FWD-001` through `FWD-003` in `12-conformance.md` cover:
+`FWD-001` through `FWD-004` in `12-conformance.md` cover:
 
 - default delegation of every member to the wrapped VM
+- transparent use as a composite or group child, including selection commands
 - selective override replaces a single behavior
 - ForwardingCompositeVM forwards iteration
+- pre-owned and multiply decorated components retain one transferable owner
 
 Forwarded disposal inherits `DISP-001`: repeated wrapper disposal may reach the
 wrapped instance repeatedly at the call boundary, but the wrapped VM performs

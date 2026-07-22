@@ -6,34 +6,35 @@ lifecycle status changes, and any future event types. Subscribers observe via an
 
 ## 1. `IMessage` shape
 
-Every message implements `IMessage` (rendered per language as `Message`):
+Every message carries one sender identity and one diagnostic sender name. The
+current public surfaces express that invariant as follows:
 
-```
-IMessage:
-    SenderName : string
-    Sender : object
-```
+| Flavor     | Untyped message shape                                | Typed sender shape                             |
+| ---------- | ---------------------------------------------------- | ---------------------------------------------- |
+| C#         | `IMessage.SenderName`, `IMessage.SenderObject`       | `IMessage<TSender>.Sender`                     |
+| Python     | `Message.sender_name`, `Message.sender_object`       | `TypedMessage.sender`                          |
+| TypeScript | `IMessage.senderName`, `IMessage.sender` (`unknown`) | `ITypedMessage<TSender>.sender`                |
+| Swift      | `Message.senderName`, `Message.senderObject`         | concrete typed messages expose `sender`        |
+| Rust       | `sender_name`, `sender_id`                           | enum variants retain the same numeric identity |
 
-Strongly-typed senders narrow `Sender` via `IMessage<TSender>`:
+The diagnostic name typically equals the sender VM's `Name`. In the four
+object-sender flavors, typed messages expose the canonical runtime sender as
+`Sender`/`sender`. TypeScript also exposes that canonical member on its untyped
+base. C#, Python, and Swift retain their legacy untyped base aliases for source
+compatibility; adding a canonical member to those established base interfaces
+is deferred to a future major (ADR-0054, ADR-0121).
 
-```
-IMessage<TSender> : IMessage:
-    Sender : TSender
-```
+Rust deliberately carries the VM's stable numeric `sender_id` instead of an
+owned or borrowed runtime object. Its enum-based messages are not generic over
+the sender type, and identity filters compare `sender_id`. This preserves the
+same conceptual sender-identity contract without coupling a hot stream to
+object ownership or lifetimes (ADR-0009, ADR-0120).
 
-`SenderName` typically equals `Sender.Name`. `Sender` is the runtime sender
-instance — the **single canonical sender field** in every flavor (ADR-0006).
-On the untyped base it carries no compile-time type information (`object` /
-`unknown`, for polymorphic subscribers); `IMessage<TSender>` narrows it to the
-concrete `TSender`.
-
-TypeScript exposes `Sender` as its sole sender field as of v3.0.0, having
+TypeScript exposes `sender` as its sole sender field as of v3.0.0, having
 removed an earlier redundant untyped alias (ADR-0054). C#, Python, and Swift
-additionally retain a deprecated untyped alias on the base message
-(`IMessage.SenderObject`, `Message.sender_object`, `Message.senderObject`)
-for source compatibility; that alias returns the same instance as `Sender`
-and is slated for removal at each of those flavors' next major. The canonical
-accessor across the full-parity flavors is `Sender`.
+retain the untyped base members shown in the table until their next major.
+Concrete typed messages carry the same runtime instance through their canonical
+`Sender`/`sender` member; Rust uses `sender_id`.
 
 ## 2. Concrete message types
 
@@ -185,10 +186,20 @@ a scheduler choice on the hub.
 The real hubs serialize a transaction and its drain. A producer on another
 thread that calls `Send` while a transaction or drain is active waits, then
 performs synchronous delivery on its own calling thread. This retains the
-per-producer FIFO and calling-thread guarantees. A transaction body therefore
-MUST NOT wait for another thread whose progress requires sending to that same
-hub. TypeScript has no shared-memory hub across workers; JavaScript jobs using
-one hub are already serialized by the host event loop.
+per-producer FIFO and calling-thread guarantees, including when the producer is
+already inside an unrelated hub callback.
+
+Shared-memory flavors MUST track the wait-for relationship between a producer
+thread and a foreign hub's batch/drain owner. Only when another wait would close
+a real dependency cycle may the operation avoid waiting: a send enqueues for
+the active owner drain, and disposal records terminal intent for that owner to
+finish. A cyclic cross-hub batch uses a borrowed scope: its body may enqueue,
+but the target owner does not resume draining until the borrowed scope exits.
+Normal and unrelated nested batches retain exclusive ownership. This narrow
+cycle escape preserves liveness without weakening ordinary `HUB-013`
+synchronous delivery (ADR-0119). TypeScript has no shared-memory hub across
+workers; JavaScript jobs using one hub are already serialized by the host event
+loop.
 
 VMs that emit `PropertyChangedMessage` (Status changes, model changes, etc.) MAY
 dispatch the emission via `IDispatcher.Foreground` so subscribers can opt into
@@ -287,10 +298,11 @@ Per-flavor names and shapes:
 | TypeScript | `whenPropertyChanged`   | Named export from `src/messages`        |
 | Swift      | `whenPropertyChanged`   | Method on `MessageHubProtocol`          |
 
-Like §7.1 the helper is informative (no conformance ID); each full-parity flavor
-covers it with a unit test (`WhenPropertyChangedTests` /
+Like §7.1 the helper is informative (no conformance ID); the four flavors that
+ship this convenience helper cover it with a unit test (`WhenPropertyChangedTests` /
 `test_when_property_changed` / `whenPropertyChanged.test.ts` / `PropertyChangedTests`
-in Swift). See ADR-0050 for the rationale.
+in Swift). Rust consumers use `MessageHub::subscribe` with the
+`Message::PropertyChanged` variant directly. See ADR-0050 for the rationale.
 
 ### 7.3 TypeScript raw-message predicates (informative, spec v3.14)
 

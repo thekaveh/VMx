@@ -25,7 +25,12 @@ Wire a `ComponentVMOf<M>` to a Solid component via `createSignal` and
 ```ts
 import { createSignal, onCleanup, type Accessor } from "solid-js";
 import { filter } from "rxjs/operators";
-import { ComponentVMOf, type IMessageHub, PropertyChangedMessage } from "@thekaveh/vmx";
+import {
+  ComponentVMOf,
+  type ICommand,
+  type IMessageHub,
+  PropertyChangedMessage,
+} from "@thekaveh/vmx";
 
 export function useVm<M, K extends keyof ComponentVMOf<M>>(
   vm: ComponentVMOf<M>,
@@ -43,12 +48,16 @@ export function useVm<M, K extends keyof ComponentVMOf<M>>(
   return value;
 }
 
-export function NoteView(props: { vm: ComponentVMOf<Note>; hub: IMessageHub }) {
+export function NoteView(props: {
+  vm: ComponentVMOf<Note>;
+  hub: IMessageHub;
+  saveCommand: ICommand;
+}) {
   const model = useVm(props.vm, props.hub, "model");
   return (
     <>
       <h1>{model().title}</h1>
-      <button onClick={() => props.vm.saveCommand.execute()}>Save</button>
+      <button onClick={() => props.saveCommand.execute()}>Save</button>
     </>
   );
 }

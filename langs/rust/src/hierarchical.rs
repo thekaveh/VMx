@@ -208,6 +208,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
             .hub
             .send(Message::TreeStructureChanged(TreeStructureChangedMessage {
                 sender_id: self.id(),
+                sender_name: self.name(),
                 change: TreeStructureChange::Removed,
                 affected_id: removed.id(),
                 index: index as isize,
@@ -260,6 +261,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
             .hub
             .send(Message::TreeStructureChanged(TreeStructureChangedMessage {
                 sender_id: self.id(),
+                sender_name: self.name(),
                 change: if reparented {
                     TreeStructureChange::Reparented
                 } else {
@@ -546,6 +548,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
                 .hub
                 .send(Message::PropertyChanged(PropertyChangedMessage {
                     sender_id: self.id(),
+                    sender_name: self.name(),
                     property_name: "children".to_string(),
                 }));
         }
@@ -686,6 +689,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
             .hub
             .send(Message::PropertyChanged(PropertyChangedMessage {
                 sender_id: self.id(),
+                sender_name: self.name(),
                 property_name: "parent".to_string(),
             }));
     }

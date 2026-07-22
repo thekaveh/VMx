@@ -62,6 +62,13 @@ guarantee repeated and re-entrant disposal on their supported execution model.
 - Terminal cascades do not stop at a failing child or subclass hook. Every
   sibling and the parent's base teardown still run; throwing/result-based
   flavors propagate the first failure only after mandatory cleanup completes.
+- Disposal deferred by an ownership transfer runs after commit or rollback. A
+  committed transfer publishes both membership events before propagating a
+  disposal failure; an earlier attachment failure stays first if rollback also
+  triggers failing disposal.
+- Disposal requested from a current-changed callback is likewise deferred until
+  selection publication finishes, without blocking the callback on its own
+  membership transaction.
 - A forwarding VM delegates disposal to the wrapped VM; it does not introduce
   reference counting.
 - Command decorators and composites do not dispose caller-owned inner commands

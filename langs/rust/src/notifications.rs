@@ -223,6 +223,7 @@ impl NotificationHub {
     fn publish_pending(&self) {
         self.pending_changed.send(Message::Custom {
             sender_id: 0,
+            sender_name: "NotificationHub".to_string(),
             name: "pending".to_string(),
         });
     }

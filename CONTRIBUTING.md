@@ -5,9 +5,15 @@ Thanks for your interest in contributing!
 ## 1. Workflow
 
 1. Open an issue describing the change before opening a PR for anything non-trivial.
-2. Branch from `develop`. Use a descriptive branch name (`feat/...`, `fix/...`, `docs/...`).
+2. Branch from the default integration branch, `develop`. Use a descriptive
+   branch name (`feat/...`, `fix/...`, `docs/...`).
 3. Run the relevant test suite locally before pushing.
-4. Open a PR to `develop`. CI must be green and at least one approval is required.
+4. Open a PR to `develop`. Direct pushes are blocked. The protected-branch
+   ruleset requires the always-present conformance, five-flavor, docs, examples,
+   security, and spec-discipline aggregate checks to pass against the latest
+   target branch. Obtain maintainer review when another reviewer is available;
+   the repository currently has one direct collaborator, so the ruleset does
+   not impose an impossible self-approval requirement.
 5. Maintainers promote `develop` to protected `main` through a separate PR.
 
 ## 2. Per-language setup
@@ -64,14 +70,14 @@ conformance matrix; the current source line is at full library parity.
 ```bash
 cd langs/rust
 cargo fmt --check
-cargo clippy --all-targets -- -D warnings
-cargo test --all-targets
-cargo doc --no-deps
-cargo package --allow-dirty
+cargo clippy --locked --all-targets --all-features -- -D warnings
+cargo test --locked --all-features
+RUSTDOCFLAGS="-D warnings" cargo doc --locked --all-features --no-deps
+cargo package --locked
 ```
 
-Rust's minimum supported toolchain is 1.88. Use `--locked` in CI/release
-contexts and keep the committed example lockfiles current.
+Rust's minimum supported toolchain is 1.88. Keep the committed library and
+example lockfiles current.
 
 ### 2.6 Cross-cutting checks (conformance + example-app contracts)
 

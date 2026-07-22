@@ -3,10 +3,11 @@
 //
 // Claimed IDs: FWD-001 (transparent delegation of every member to the wrapped
 // VM), FWD-002 (selective override replaces a single behavior), FWD-003
-// (ForwardingCompositeVM forwards iteration in wrapped order). Mirrors
+// (ForwardingCompositeVM forwards iteration in wrapped order), and FWD-004
+// (one underlying identity transfers between containers). Mirrors
 // langs/typescript/tests/conformance/forwarding.test.ts.
 //
-// Swift port note (recorded in the Task-10 divergence ADR): the TS FWD-002
+// Swift port note (recorded in ADR-0059 §2.1): the TS FWD-002
 // scenario overrides `hint`, but Swift `hint` is a non-overridable `public let`
 // on `ComponentVMBase`. `modeledHint` is the closest overridable computed
 // analog, so the Swift FWD-002 overrides `modeledHint`. `name`/`hint` never
@@ -112,6 +113,103 @@ final class ForwardingTests: XCTestCase {
         XCTAssertEqual(fwd.model, "after")
     }
 
+    /// FWD-001 — ownership registration is delegated, so disposing the wrapped
+    /// instance runs cleanup registered through the decorator exactly once.
+    func testFWD001ForwardsOwnedCleanup() {
+        let inner = makeInner()
+        let fwd = NoopForwardingComponent(inner)
+        var cleanupCount = 0
+
+        fwd.own { cleanupCount += 1 }
+        inner.dispose()
+        fwd.dispose()
+
+        XCTAssertEqual(cleanupCount, 1)
+    }
+
+    func testForwardingComponentIsTransparentContainerChild() throws {
+        let inner = makeInner()
+        let forwarding = NoopForwardingComponent(inner)
+        let composite = try CompositeVM<NoopForwardingComponent>.builder()
+            .name("root")
+            .children { [] }
+            .withNullServices()
+            .build()
+
+        composite.add(forwarding)
+        try composite.construct()
+        forwarding.selectCommand.execute()
+
+        XCTAssertTrue(composite.current === forwarding)
+        XCTAssertTrue(forwarding.isCurrent)
+        XCTAssertTrue(inner.isCurrent)
+    }
+
+    /// FWD-004 — attaching a decorator around an already-owned component moves
+    /// that one underlying identity, including through a group and a later
+    /// decorator reparenting operation.
+    func testFWD004ForwardingComponentTransfersOneUnderlyingOwner() throws {
+        let inner = makeInner()
+        let oldParent = try CompositeVM<ComponentVMOf<String>>.builder()
+            .name("old").withNullServices().children { [] }.build()
+        let group = try GroupVM<NoopForwardingComponent>.builder()
+            .name("group").withNullServices().children { [] }.build()
+        let destination = try CompositeVM<NoopForwardingComponent>.builder()
+            .name("destination").withNullServices().children { [] }.build()
+        try oldParent.addResult(inner).get()
+        let forwarding = NoopForwardingComponent(inner)
+
+        try group.addResult(forwarding).get()
+
+        XCTAssertEqual(oldParent.count, 0)
+        XCTAssertEqual(group.count, 1)
+        XCTAssertTrue(group.at(0) === forwarding)
+
+        let alternateForwarding = NoopForwardingComponent(inner)
+        try destination.addResult(alternateForwarding).get()
+        try destination.construct()
+        alternateForwarding.selectCommand.execute()
+
+        XCTAssertEqual(group.count, 0)
+        XCTAssertEqual(destination.count, 1)
+        XCTAssertTrue(destination.at(0) === alternateForwarding)
+        XCTAssertTrue(destination.current === alternateForwarding)
+        XCTAssertTrue(inner.isCurrent)
+
+        try group.addResult(forwarding).get()
+
+        XCTAssertEqual(destination.count, 0)
+        XCTAssertNil(destination.current)
+        XCTAssertEqual(group.count, 1)
+        XCTAssertTrue(group.at(0) === forwarding)
+
+        let nested = NoopForwardingComponent(forwarding)
+        try destination.addResult(nested).get()
+        let finalAlias = NoopForwardingComponent(inner)
+        try group.addResult(finalAlias).get()
+
+        XCTAssertEqual(destination.count, 0)
+        XCTAssertEqual(group.count, 1)
+        XCTAssertTrue(group.at(0) === finalAlias)
+
+        try destination.addResult(nested).get()
+        XCTAssertEqual(group.count, 0)
+        XCTAssertEqual(destination.count, 1)
+        XCTAssertTrue(destination.at(0) === nested)
+
+        let duplicateComposite = try CompositeVM<NoopForwardingComponent>.builder()
+            .name("duplicate-composite").withNullServices()
+            .children { [NoopForwardingComponent(inner), NoopForwardingComponent(inner)] }
+            .build()
+        let duplicateGroup = try GroupVM<NoopForwardingComponent>.builder()
+            .name("duplicate-group").withNullServices()
+            .children { [NoopForwardingComponent(inner), NoopForwardingComponent(inner)] }
+            .build()
+
+        XCTAssertThrowsError(try duplicateComposite.construct())
+        XCTAssertThrowsError(try duplicateGroup.construct())
+    }
+
     // ── FWD-002 ─────────────────────────────────────────────────────────
 
     /// FWD-002 — a selective override replaces a single behavior while every
@@ -205,5 +303,32 @@ final class ForwardingTests: XCTestCase {
 
         try fwd.deselectComponent(vm1)
         XCTAssertNil(composite.current, "deselectComponent forwards to the wrapped")
+    }
+
+    /// FWD-003 — membership subscriptions and batch coalescing observe the
+    /// wrapped collection rather than the decorator's empty inherited storage.
+    func testForwardingCompositeForwardsMembershipAndBatching() throws {
+        let vm1 = leaf("vm1")
+        let vm2 = leaf("vm2")
+        let composite = try CompositeVM<ComponentVM>.builder()
+            .name("composite")
+            .children { [] }
+            .withNullServices()
+            .build()
+        let fwd = NoopForwardingComposite(composite)
+        var membershipChanges = 0
+        let subscription = fwd.subscribeMembership { membershipChanges += 1 }
+
+        let batch = fwd.batchUpdate()
+        fwd.add(vm1)
+        fwd.add(vm2)
+        XCTAssertEqual(membershipChanges, 0)
+        batch.dispose()
+
+        XCTAssertEqual(membershipChanges, 1)
+        XCTAssertEqual(fwd.snapshot().count, 2)
+        XCTAssertTrue(fwd.at(0) === vm1)
+        XCTAssertTrue(fwd.at(1) === vm2)
+        subscription.cancel()
     }
 }

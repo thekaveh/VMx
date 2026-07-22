@@ -12,22 +12,88 @@ on:
     # PR. Without these, a label added after the last sync is never seen by
     # the runner (the event payload is frozen at trigger time).
     types: [opened, synchronize, reopened, labeled, unlabeled]
-    paths:
-      - "spec/**"
 
 jobs:
   check:
+    name: "required: spec discipline"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           fetch-depth: 0
 
+      - name: Enforce develop-first gitflow
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "$BASE_REF" = "develop" ]; then
+            exit 0
+          fi
+          if [ "$BASE_REF" != "main" ]; then
+            echo "::error::PRs may target only develop or main."
+            exit 1
+          fi
+          if [ "$HEAD_REPO" = "$GITHUB_REPOSITORY" ] && [ "$HEAD_REF" = "develop" ]; then
+            exit 0
+          fi
+
+          # release-please is the sole direct-to-main exception. Constrain both
+          # its same-repository branch and its exact generated metadata surface.
+          if [ "$HEAD_REPO" = "$GITHUB_REPOSITORY" ] && \
+             [ "$HEAD_REF" = "release-please--branches--main--components--python" ]; then
+            disallowed=""
+            invalid=""
+            manifest_changed=false
+            matrix_changed=false
+            changelog_changed=false
+            about_changed=false
+            while IFS=$'\t' read -r status path; do
+              if [ "$status" != "M" ]; then
+                invalid="${invalid}${status}\t${path}\n"
+                continue
+              fi
+              case "$path" in
+                .release-please-manifest.json) manifest_changed=true ;;
+                compatibility-matrix.md) matrix_changed=true ;;
+                langs/python/CHANGELOG.md) changelog_changed=true ;;
+                langs/python/src/vmx/__about__.py) about_changed=true ;;
+                *) disallowed="${disallowed}${path}\n" ;;
+              esac
+              base_mode=$(git ls-tree "$BASE_SHA" -- "$path" | awk 'NR == 1 { print $1 }')
+              head_mode=$(git ls-tree "$HEAD_SHA" -- "$path" | awk 'NR == 1 { print $1 }')
+              if [ "$base_mode" != "100644" ] || [ "$head_mode" != "100644" ]; then
+                invalid="${invalid}mode ${base_mode:-missing}->${head_mode:-missing}\t${path}\n"
+              fi
+            done < <(git diff --name-status --no-renames "$BASE_SHA" "$HEAD_SHA")
+            if [ -z "$disallowed" ] && [ -z "$invalid" ] && \
+               [ "$manifest_changed" = true ] && [ "$matrix_changed" = true ] && \
+               [ "$changelog_changed" = true ] && [ "$about_changed" = true ]; then
+              exit 0
+            fi
+            echo "::error::release-please PR must modify exactly the four regular metadata files."
+            if [ -n "$disallowed" ]; then
+              echo "Disallowed paths:"
+              printf '%b' "$disallowed"
+            fi
+            if [ -n "$invalid" ]; then
+              echo "Invalid statuses or modes:"
+              printf '%b' "$invalid"
+            fi
+            exit 1
+          fi
+
+          echo "::error::Changes must merge to develop before promotion to main."
+          exit 1
+
       - name: Require ADR for non-trivial spec changes
         env:
           # Passed via env (not inline interpolation) so label text cannot
           # inject into the shell.
-          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
+          PR_LABELS_JSON: ${{ toJson(github.event.pull_request.labels.*.name) }}
         run: |
           base_sha="${{ github.event.pull_request.base.sha }}"
           head_sha="${{ github.event.pull_request.head.sha }}"
@@ -55,8 +121,7 @@ jobs:
 
           if [ -n "$changed" ] && [ -z "$new_adrs" ]; then
             # Allow bypass via PR label.
-            labels="$PR_LABELS"
-            if echo "$labels" | grep -q 'no-adr-needed'; then
+            if jq -e 'index("no-adr-needed") != null' <<<"$PR_LABELS_JSON" >/dev/null; then
               echo "::notice::Spec changed without an ADR, but bypassed by 'no-adr-needed' label."
               echo "Changed spec files (bypassed):"
               echo "$changed"
