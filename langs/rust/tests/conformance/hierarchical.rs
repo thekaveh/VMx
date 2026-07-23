@@ -1,5 +1,5 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Barrier, Mutex};
+use std::sync::{mpsc, Arc, Barrier, Mutex};
 use std::time::Duration;
 
 use vmx::{
@@ -88,7 +88,14 @@ fn factory_hydration_rejects_invalid_topology() {
 /// HIER-032 — structural factory reentry rejects atomically and remains retryable.
 #[test]
 fn factory_structural_reentry_is_rejected_and_retryable() {
-    for operation in ["add", "remove", "invalidate"] {
+    for operation in [
+        "add",
+        "remove",
+        "reparent",
+        "attach",
+        "invalidate-children",
+        "invalidate-subtree",
+    ] {
         let child = leaf("child");
         let captured_child = child.clone();
         let first_attempt = Arc::new(AtomicUsize::new(0));
@@ -102,8 +109,19 @@ fn factory_structural_reentry_is_rejected_and_retryable() {
                         let _ = parent.add_child(captured_child.clone());
                     } else if operation == "remove" {
                         let _ = parent.remove_child(&captured_child);
-                    } else {
+                    } else if operation == "reparent" {
+                        let _ = parent.reparent_child(&captured_child);
+                    } else if operation == "attach" {
+                        let _ = parent.attach_many(
+                            vec![captured_child.clone()],
+                            |node| Ok(node.model()),
+                            |_| Ok(None::<String>),
+                            vmx::MissingParentPolicy::Park,
+                        );
+                    } else if operation == "invalidate-children" {
                         parent.invalidate_children();
+                    } else {
+                        parent.invalidate_subtree();
                     }
                 }
                 vec![captured_child.clone()]
@@ -119,6 +137,95 @@ fn factory_structural_reentry_is_rejected_and_retryable() {
         assert!(root.try_children().unwrap() == vec![child.clone()]);
         assert!(child.parent().as_ref() == Some(&root));
     }
+}
+
+/// HIER-032 — delegated structural reentry rejects without a cross-thread wait cycle.
+#[test]
+fn factory_cross_thread_structural_reentry_is_bounded_and_retryable() {
+    let child = leaf("child");
+    let captured_child = child.clone();
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let captured_attempts = Arc::clone(&attempts);
+    let root = HierarchicalVm::with_children_factory(
+        "root",
+        "root".to_string(),
+        move |parent| {
+            if captured_attempts.fetch_add(1, Ordering::SeqCst) == 0 {
+                std::thread::scope(|scope| {
+                    let parent = parent.clone();
+                    let child = captured_child.clone();
+                    scope
+                        .spawn(move || assert!(parent.add_child(child).is_err()))
+                        .join()
+                        .unwrap();
+                });
+            }
+            vec![captured_child.clone()]
+        },
+        false,
+        MessageHub::new(),
+    );
+
+    let (result_tx, result_rx) = mpsc::channel();
+    let first_root = root.clone();
+    std::thread::spawn(move || {
+        result_tx.send(first_root.try_children().is_err()).unwrap();
+    });
+    assert_eq!(result_rx.recv_timeout(Duration::from_millis(500)), Ok(true));
+    assert!(root.try_children().unwrap() == vec![child.clone()]);
+    assert!(child.parent().as_ref() == Some(&root));
+}
+
+/// HIER-032 — a rejected owner releases state before a waiting owner starts.
+#[test]
+fn rejected_factory_handoff_cannot_clear_the_successor_state() {
+    let child = leaf("child");
+    let captured_child = child.clone();
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let captured_attempts = Arc::clone(&attempts);
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let release_rx = Arc::new(Mutex::new(release_rx));
+    let captured_release = Arc::clone(&release_rx);
+    let root = HierarchicalVm::with_children_factory(
+        "root",
+        "root".to_string(),
+        move |parent| {
+            if captured_attempts.fetch_add(1, Ordering::SeqCst) == 0 {
+                let _ = parent.add_child(captured_child.clone());
+                entered_tx.send(()).unwrap();
+                captured_release.lock().unwrap().recv().unwrap();
+            }
+            vec![captured_child.clone()]
+        },
+        false,
+        MessageHub::new(),
+    );
+
+    let (first_tx, first_rx) = mpsc::channel();
+    let first_root = root.clone();
+    let first = std::thread::spawn(move || {
+        first_tx.send(first_root.try_children().is_err()).unwrap();
+    });
+    entered_rx.recv_timeout(Duration::from_millis(500)).unwrap();
+
+    let (second_tx, second_rx) = mpsc::channel();
+    let second_root = root.clone();
+    let second = std::thread::spawn(move || {
+        second_tx
+            .send(second_root.try_children().map(|items| items.len()))
+            .unwrap();
+    });
+    release_tx.send(()).unwrap();
+
+    assert_eq!(first_rx.recv_timeout(Duration::from_millis(500)), Ok(true));
+    assert!(matches!(
+        second_rx.recv_timeout(Duration::from_millis(500)),
+        Ok(Ok(1))
+    ));
+    first.join().unwrap();
+    second.join().unwrap();
+    assert!(child.parent().as_ref() == Some(&root));
 }
 
 /// HIER-001 — Recursive generic constraint compiles

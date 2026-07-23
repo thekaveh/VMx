@@ -89,7 +89,10 @@ public sealed class HIER_031_FactoryHydrationTests
     [Theory]
     [InlineData("add")]
     [InlineData("remove")]
-    [InlineData("invalidate")]
+    [InlineData("reparent")]
+    [InlineData("attach")]
+    [InlineData("invalidate-children")]
+    [InlineData("invalidate-subtree")]
     [Trait("Conformance", "HIER-032")]
     public void HIER_032_Rejects_Structural_Reentry_And_Permits_Retry(string operation)
     {
@@ -105,7 +108,14 @@ public sealed class HIER_031_FactoryHydrationTests
                 firstAttempt = false;
                 if (operation == "add") parent.AddChild(child);
                 else if (operation == "remove") parent.RemoveChild(child);
-                else parent.InvalidateChildren();
+                else if (operation == "reparent") parent.ReparentChild(child);
+                else if (operation == "attach")
+                    parent.AttachMany(
+                        [child],
+                        node => node.Model,
+                        _ => BatchParentKey<string>.Root);
+                else if (operation == "invalidate-children") parent.InvalidateChildren();
+                else parent.InvalidateSubtree();
             }
             return [child];
         }, hub);

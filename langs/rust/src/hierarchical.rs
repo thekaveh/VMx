@@ -3,11 +3,11 @@
 //! Spec: `spec/18-hierarchical-vm.md`; ADR-0048 and ADR-0087.
 
 use super::{
-    catch_unwind, lock, resume_unwind, thread, wait, Arc, AssertUnwindSafe, AtomicBool,
-    ComponentVm, Condvar, ConstructionStatus, Hash, HashMap, HashSet, Message, MessageHub, Mutex,
-    NullDispatcher, Ordering, ParentHandle, PropertyChangedMessage, PropertyChangedStream,
-    ThreadId, TreeNode, TreeStructureChange, TreeStructureChangedMessage, VmNode, VmxError,
-    VmxResult, Weak, HIERARCHY_TOPOLOGY_GATE,
+    catch_unwind, lock, resume_unwind, thread, wait, Arc, AssertUnwindSafe, ComponentVm, Condvar,
+    ConstructionStatus, Hash, HashMap, HashSet, Message, MessageHub, Mutex, NullDispatcher,
+    ParentHandle, PropertyChangedMessage, PropertyChangedStream, ThreadId, TreeNode,
+    TreeStructureChange, TreeStructureChangedMessage, VmNode, VmxError, VmxResult, Weak,
+    HIERARCHY_TOPOLOGY_GATE,
 };
 
 type HierChildrenFactory<M> =
@@ -70,6 +70,13 @@ struct BatchAttachCandidate<N, K> {
     retain_if_missing: bool,
 }
 
+#[derive(Default)]
+struct ChildrenMaterializationState {
+    owner: Option<ThreadId>,
+    epoch: u64,
+    reentered_epoch: u64,
+}
+
 #[derive(Clone)]
 /// A recursive modeled VM with lazy children and derived topology properties.
 pub struct HierarchicalVm<M: Clone + PartialEq + Send + Sync + 'static> {
@@ -79,8 +86,7 @@ pub struct HierarchicalVm<M: Clone + PartialEq + Send + Sync + 'static> {
 struct HierarchicalVmInner<M: Clone + PartialEq + Send + Sync + 'static> {
     component: ComponentVm<M>,
     children: Arc<Mutex<Option<Vec<HierarchicalVm<M>>>>>,
-    materializing_children: Arc<(Mutex<Option<ThreadId>>, Condvar)>,
-    materialization_reentered: AtomicBool,
+    materializing_children: Arc<(Mutex<ChildrenMaterializationState>, Condvar)>,
     parent: Mutex<Option<Weak<HierarchicalVmInner<M>>>>,
     children_factory: HierChildrenFactory<M>,
     eager_children: Arc<Mutex<bool>>,
@@ -110,8 +116,10 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
             inner: Arc::new(HierarchicalVmInner {
                 component: ComponentVm::with_model(name, model, hub.clone(), NullDispatcher::new()),
                 children: Arc::new(Mutex::new(None)),
-                materializing_children: Arc::new((Mutex::new(None), Condvar::new())),
-                materialization_reentered: AtomicBool::new(false),
+                materializing_children: Arc::new((
+                    Mutex::new(ChildrenMaterializationState::default()),
+                    Condvar::new(),
+                )),
                 parent: Mutex::new(None),
                 children_factory: Arc::new(children_factory),
                 eager_children: Arc::new(Mutex::new(eager_children)),
@@ -614,52 +622,49 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
 
     fn materialize_children(&self) -> VmxResult<Vec<Self>> {
         let current = thread::current().id();
-        loop {
-            {
-                let _topology = lock(&HIERARCHY_TOPOLOGY_GATE);
-                if let Some(children) = lock(&self.inner.children).clone() {
-                    return Ok(children);
-                }
-            }
-
-            let (owner, ready) = &*self.inner.materializing_children;
-            let mut owner = lock(owner);
+        let epoch = loop {
+            let topology = lock(&HIERARCHY_TOPOLOGY_GATE);
             if let Some(children) = lock(&self.inner.children).clone() {
                 return Ok(children);
             }
-            match *owner {
+
+            let (state, ready) = &*self.inner.materializing_children;
+            let mut state = lock(state);
+            if let Some(children) = lock(&self.inner.children).clone() {
+                return Ok(children);
+            }
+            match state.owner {
                 None => {
-                    self.inner
-                        .materialization_reentered
-                        .store(false, Ordering::SeqCst);
-                    *owner = Some(current);
-                    drop(owner);
-                    break;
+                    state.epoch = state.epoch.wrapping_add(1).max(1);
+                    let epoch = state.epoch;
+                    state.owner = Some(current);
+                    drop(state);
+                    drop(topology);
+                    break epoch;
                 }
                 Some(active) if active == current => {
-                    self.inner
-                        .materialization_reentered
-                        .store(true, Ordering::SeqCst);
+                    state.reentered_epoch = state.epoch;
                     return Err(VmxError::InvalidArgument(
                         "children factory re-entered structural materialization".to_string(),
                     ));
                 }
                 Some(_) => {
-                    drop(wait(ready, owner));
+                    drop(topology);
+                    drop(wait(ready, state));
                 }
             }
-        }
+        };
 
         let generated = catch_unwind(AssertUnwindSafe(|| (self.inner.children_factory)(self)));
         let children = match generated {
             Ok(children) => children,
             Err(error) => {
-                self.finish_children_materialization();
+                self.finish_children_materialization(epoch);
                 resume_unwind(error);
             }
         };
         let committed = (|| -> VmxResult<Vec<Self>> {
-            if self.inner.materialization_reentered.load(Ordering::SeqCst) {
+            if lock(&self.inner.materializing_children.0).reentered_epoch == epoch {
                 return Err(VmxError::InvalidArgument(
                     "children factory re-entered a structural operation".to_string(),
                 ));
@@ -694,7 +699,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
             *lock(&self.inner.children) = Some(children.clone());
             Ok(children.clone())
         })();
-        self.finish_children_materialization();
+        self.finish_children_materialization(epoch);
         // First materialization is initial construction, not a parent *change*:
         // the children are born as this node's children. Emitting
         // PropertyChanged("parent") here would publish N spurious hub messages on
@@ -786,22 +791,20 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
         Ok(())
     }
 
-    fn finish_children_materialization(&self) {
-        let (owner, ready) = &*self.inner.materializing_children;
-        *lock(owner) = None;
-        self.inner
-            .materialization_reentered
-            .store(false, Ordering::SeqCst);
+    fn finish_children_materialization(&self, epoch: u64) {
+        let (state, ready) = &*self.inner.materializing_children;
+        let mut state = lock(state);
+        if state.epoch == epoch {
+            state.owner = None;
+        }
+        drop(state);
         ready.notify_all();
     }
 
     fn reject_structural_reentry(&self) -> VmxResult<()> {
-        let current = thread::current().id();
-        let (owner, _) = &*self.inner.materializing_children;
-        if lock(owner).as_ref() == Some(&current) {
-            self.inner
-                .materialization_reentered
-                .store(true, Ordering::SeqCst);
+        let mut state = lock(&self.inner.materializing_children.0);
+        if state.owner.is_some() {
+            state.reentered_epoch = state.epoch;
             return Err(VmxError::InvalidArgument(
                 "children factory re-entered a structural operation on its receiver".to_string(),
             ));

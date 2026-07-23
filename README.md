@@ -153,7 +153,7 @@ Each flavor implements the same conceptual stack:
 | Python     | v3.22.1 in source | [`vmx`](https://pypi.org/project/vmx/) latest published: 3.1.0                         | reactivex                   |
 | TypeScript | v3.23.1 in source | npm package not published yet                                                          | rxjs                        |
 | Swift      | v3.23.0 in source | [`VMx` 3.20.0](https://github.com/thekaveh/VMx/releases/tag/swift-v3.20.0) via SwiftPM | Combine                     |
-| Rust       | v0.25.1 in source | crates.io package not published yet                                                    | VMx-owned hot-stream facade |
+| Rust       | v0.26.0 in source | crates.io package not published yet                                                    | VMx-owned hot-stream facade |
 
 `main` may contain an in-development source version before that version is
 published to package registries. The §3.2 summary preserves source-line parity

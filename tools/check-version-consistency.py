@@ -287,6 +287,43 @@ def check_release_unreleased(changelog: Path, package: str = "") -> list[str]:
     return []
 
 
+CSHARP_UNRELEASED_PACKAGES = (
+    "VMx",
+    "VMx.Notifications",
+    "VMx.Extensions.DependencyInjection",
+)
+
+
+def check_csharp_unreleased_structure(changelog: Path) -> list[str]:
+    """Require a fail-closed package partition for independent C# releases."""
+    lines = changelog.read_text(encoding="utf-8").splitlines()
+    start = next(
+        (index for index, line in enumerate(lines) if line.strip() == "## [Unreleased]"),
+        None,
+    )
+    if start is None:
+        return [f"  {changelog}: missing [Unreleased] section"]
+    body = lines[start + 1 :]
+    end = next(
+        (index for index, line in enumerate(body) if line.startswith("## [")),
+        len(body),
+    )
+    unreleased = body[:end]
+    headings = [line.removeprefix("### ").strip() for line in unreleased if line.startswith("### ")]
+    if headings != list(CSHARP_UNRELEASED_PACKAGES):
+        expected = ", ".join(CSHARP_UNRELEASED_PACKAGES)
+        return [
+            f"  {changelog}: [Unreleased] C# package sections must appear exactly "
+            f"once in {expected} order"
+        ]
+    first_heading = next(
+        index for index, line in enumerate(unreleased) if line.strip() == "### VMx"
+    )
+    if any(line.strip() for line in unreleased[:first_heading]):
+        return [f"  {changelog}: [Unreleased] contains notes outside a C# package section"]
+    return []
+
+
 def release_flavor(tag: str) -> str:
     """Map one supported immutable release tag to its flavor directory."""
     if tag.startswith("csharp-"):
@@ -821,6 +858,16 @@ def main(argv: Iterable[str] | None = None) -> int:
     msv_issues = validate_semver_values(spec_version, manifests, matrix_rows)
     msv_issues.extend(check_min_spec_versions(spec_version, manifests))
     msv_issues.extend(check_changelog_sections(repo_root, manifests))
+    if any(
+        flavor in manifests
+        for flavor in (
+            "csharp/VMx.Notifications",
+            "csharp/VMx.Extensions.DependencyInjection",
+        )
+    ):
+        msv_issues.extend(
+            check_csharp_unreleased_structure(repo_root / "langs/csharp/CHANGELOG.md")
+        )
     if args.release_tag:
         flavor = release_flavor(args.release_tag)
         if not flavor:

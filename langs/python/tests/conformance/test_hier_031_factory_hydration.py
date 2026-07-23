@@ -94,7 +94,10 @@ def test_HIER_031_factory_rejects_structurally_invalid_nodes(invalid_kind: str) 
 
 
 @pytest.mark.conformance("HIER-032")
-@pytest.mark.parametrize("operation", ["add", "remove", "invalidate"])
+@pytest.mark.parametrize(
+    "operation",
+    ["add", "remove", "reparent", "attach", "invalidate-children", "invalidate-subtree"],
+)
 def test_HIER_032_factory_reentry_is_rejected_and_retryable(operation: str) -> None:
     hub: MessageHub[Any] = MessageHub()
     messages: list[object] = []
@@ -110,8 +113,18 @@ def test_HIER_032_factory_reentry_is_rejected_and_retryable(operation: str) -> N
                 parent.add_child(child)
             elif operation == "remove":
                 parent.remove_child(child)
-            else:
+            elif operation == "reparent":
+                parent.reparent_child(child)
+            elif operation == "attach":
+                parent.attach_many(
+                    [child],
+                    key_of=lambda node: node.model,
+                    parent_key_of=lambda _: None,
+                )
+            elif operation == "invalidate-children":
                 parent.invalidate_children()
+            else:
+                parent.invalidate_subtree()
         return [child]
 
     root = _Node("root", factory, hub)

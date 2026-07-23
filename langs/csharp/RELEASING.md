@@ -47,11 +47,11 @@ Read the release candidates from the package manifests; never copy a version
 from this runbook:
 
 ```bash
-core_version=$(sed -n 's:.*<Version>\\(.*\\)</Version>.*:\\1:p' \
+core_version=$(awk -F'[<>]' '/<Version>/ {print $3}' \
   langs/csharp/src/VMx/VMx.csproj)
-notifications_version=$(sed -n 's:.*<Version>\\(.*\\)</Version>.*:\\1:p' \
+notifications_version=$(awk -F'[<>]' '/<Version>/ {print $3}' \
   langs/csharp/src/VMx.Notifications/VMx.Notifications.csproj)
-di_version=$(sed -n 's:.*<Version>\\(.*\\)</Version>.*:\\1:p' \
+di_version=$(awk -F'[<>]' '/<Version>/ {print $3}' \
   langs/csharp/src/VMx.Extensions.DependencyInjection/VMx.Extensions.DependencyInjection.csproj)
 core_tag="csharp-v${core_version}"
 notifications_tag="csharp-notifications-v${notifications_version}"

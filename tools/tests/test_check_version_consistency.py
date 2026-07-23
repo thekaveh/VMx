@@ -1103,6 +1103,39 @@ def test_csharp_release_tag_requires_selected_package_heading(tmp_path: Path) ->
     ]
 
 
+def test_csharp_unreleased_structure_rejects_uncategorized_notes(tmp_path: Path) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        "## [Unreleased]\n\n- Escapes every package gate.\n\n"
+        "### VMx\n\n"
+        "### VMx.Notifications\n\n"
+        "### VMx.Extensions.DependencyInjection\n\n"
+        "## [3.22.1]\n\n- Tagged notes.\n",
+        encoding="utf-8",
+    )
+
+    assert cvc.check_csharp_unreleased_structure(changelog) == [
+        f"  {changelog}: [Unreleased] contains notes outside a C# package section"
+    ]
+
+
+def test_csharp_unreleased_structure_requires_unique_ordered_sections(tmp_path: Path) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        "## [Unreleased]\n\n"
+        "### VMx.Notifications\n\n"
+        "### VMx\n\n"
+        "### VMx\n\n"
+        "## [3.22.1]\n\n- Tagged notes.\n",
+        encoding="utf-8",
+    )
+
+    assert cvc.check_csharp_unreleased_structure(changelog) == [
+        f"  {changelog}: [Unreleased] C# package sections must appear exactly once "
+        "in VMx, VMx.Notifications, VMx.Extensions.DependencyInjection order"
+    ]
+
+
 # ── in-development (== spec/VERSION) exemption ────────────────────────
 
 

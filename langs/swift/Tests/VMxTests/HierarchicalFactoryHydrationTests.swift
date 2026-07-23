@@ -113,7 +113,14 @@ final class HierarchicalFactoryHydrationTests: XCTestCase {
     /// HIER-032 — structural reentry through a materializing receiver rejects
     /// the complete attempt without mutation and a later clean retry succeeds.
     func testHier032StructuralReentryIsRejectedAndRetryable() {
-        for operation in ["add", "remove", "invalidate"] {
+        for operation in [
+            "add",
+            "remove",
+            "reparent",
+            "attach",
+            "invalidate-children",
+            "invalidate-subtree"
+        ] {
             let hub = MessageHub()
             let child = HydrationNode(
                 model: "child",
@@ -131,8 +138,18 @@ final class HierarchicalFactoryHydrationTests: XCTestCase {
                             _ = parent.addChild(child)
                         } else if operation == "remove" {
                             parent.removeChild(child)
-                        } else {
+                        } else if operation == "reparent" {
+                            try? parent.reparentChild(child)
+                        } else if operation == "attach" {
+                            _ = parent.attachMany(
+                                [child],
+                                keyOf: { $0.model },
+                                parentKeyOf: { _ in nil }
+                            )
+                        } else if operation == "invalidate-children" {
                             parent.invalidateChildren()
+                        } else {
+                            parent.invalidateSubtree()
                         }
                     }
                     return [child]

@@ -84,7 +84,14 @@ describe("HIER-031", () => {
 });
 
 describe("HIER-032", () => {
-  it.each(["add", "remove", "invalidate"] as const)(
+  it.each([
+    "add",
+    "remove",
+    "reparent",
+    "attach",
+    "invalidate-children",
+    "invalidate-subtree",
+  ] as const)(
     "rejects %s reentry without mutation and permits retry",
     (operation) => {
       const hub = new MessageHub();
@@ -99,7 +106,17 @@ describe("HIER-032", () => {
             firstAttempt = false;
             if (operation === "add") parent.addChild(child);
             else if (operation === "remove") parent.removeChild(child);
-            else parent.invalidateChildren();
+            else if (operation === "reparent") parent.reparentChild(child);
+            else if (operation === "attach") {
+              parent.attachMany([child], {
+                keyOf: (node) => node.model,
+                parentKeyOf: () => null,
+              });
+            } else if (operation === "invalidate-children") {
+              parent.invalidateChildren();
+            } else {
+              parent.invalidateSubtree();
+            }
           }
           return [child];
         },

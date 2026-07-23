@@ -593,9 +593,11 @@ See ADR-0108 through ADR-0126 and the affected behavior chapters.
 
 v3.22.1 makes hierarchy factory hydration an atomic snapshot/preflight/commit
 operation. Invalid duplicate, cyclic, or already-parented output cannot mutate
-the tree and remains retryable (`HIER-031`). It also gives admitted lifecycle
-hook coordination an explicit cross-flavor scenario (`LIFE-015`), bringing the
-catalog to 400 library IDs plus 5 scenario IDs.
+the tree and remains retryable (`HIER-031`). Structural operations re-entered
+on the same receiver during factory evaluation reject atomically and leave the
+factory retryable (`HIER-032`). The release also gives admitted lifecycle hook
+coordination an explicit cross-flavor scenario (`LIFE-015`), bringing the catalog
+to 400 library IDs plus 5 scenario IDs.
 
 See ADR-0127 and chapters 02 and 18.
 

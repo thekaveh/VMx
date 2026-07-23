@@ -44,7 +44,7 @@ No API tokens. No Test PyPI. Trusted Publishing only.
 
 ### 1.3 Pre-publish URL + metadata validation
 
-Every URL in `langs/python/pyproject.toml` `[project.urls]` becomes a clickable link in the PyPI project sidebar at <https://pypi.org/project/vmx/>. A 405 there is visible to every consumer and **requires a patch release to fix** (PyPI freezes metadata at upload time per version). Before tagging, validate:
+Every URL in `langs/python/pyproject.toml` `[project.urls]` becomes a clickable link in the PyPI project sidebar at <https://pypi.org/project/vmx/>. A 404 there is visible to every consumer and **requires a patch release to fix** (PyPI freezes metadata at upload time per version). Before tagging, validate:
 
 ```bash
 python3 -c "import tomllib; d=tomllib.load(open('langs/python/pyproject.toml','rb')); [print(k, v) for k,v in d['project']['urls'].items()]" \

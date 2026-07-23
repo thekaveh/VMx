@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -91,10 +92,41 @@ def test_release_runbooks_match_pinned_tooling_and_manifest_versions() -> None:
     assert "npm@11.18.0" in workflow
 
     csharp = (ROOT / "langs/csharp/RELEASING.md").read_text(encoding="utf-8")
-    assert "core_version=$(sed" in csharp
+    assert "core_version=$(awk" in csharp
     assert 'core_tag="csharp-v${core_version}"' in csharp
     assert "csharp-v3.22.0" not in csharp
     assert "VMx >= 3.20.0" not in csharp
+
+    snippet = re.search(
+        r"Read the release candidates.*?```bash\n(.*?)\n```",
+        csharp,
+        re.DOTALL,
+    )
+    assert snippet
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            snippet.group(1) + '\nprintf "%s\\n%s\\n%s\\n" "$core_version" '
+            '"$notifications_version" "$di_version"\n',
+        ],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    expected = [
+        re.search(r"<Version>([^<]+)</Version>", path.read_text(encoding="utf-8")).group(1)
+        for path in (
+            ROOT / "langs/csharp/src/VMx/VMx.csproj",
+            ROOT / "langs/csharp/src/VMx.Notifications/VMx.Notifications.csproj",
+            ROOT
+            / "langs/csharp/src/VMx.Extensions.DependencyInjection"
+            / "VMx.Extensions.DependencyInjection.csproj",
+        )
+    ]
+    assert result.stdout.splitlines() == expected
 
 
 def test_current_docs_match_library_conformance_catalog() -> None:
@@ -110,11 +142,42 @@ def test_current_docs_match_library_conformance_catalog() -> None:
     assert f"all {library_count} library IDs" in rust_parity
 
 
+def test_current_rust_docs_match_cargo_package_version() -> None:
+    cargo = (ROOT / "langs/rust/Cargo.toml").read_text(encoding="utf-8")
+    version = re.search(r'^version = "([^"]+)"$', cargo, re.MULTILINE)
+    assert version
+
+    for path in (
+        ROOT / "README.md",
+        ROOT / "langs/rust/README.md",
+        ROOT / "docs/content/getting-started/rust.md",
+    ):
+        text = path.read_text(encoding="utf-8")
+        assert f"v{version.group(1)}" in text
+        assert "v0.25.1" not in text
+
+
+def test_swift_conformance_ledgers_count_each_library_id_once() -> None:
+    ledgers = (
+        (ROOT / "compatibility-matrix.md").read_text(encoding="utf-8"),
+        (ROOT / "langs/swift/README.md").read_text(encoding="utf-8"),
+    )
+
+    for ledger in ledgers:
+        start = ledger.index("+50 leaf-area")
+        end = ledger.index("HIER-032", start)
+        increments = [int(value) for value in re.findall(r"\+(\d+)", ledger[start:end])]
+        assert 44 + sum(increments) == 400
+        assert ledger[start:end].count("COMP-038..041") == 1
+
+
 def test_python_release_guidance_is_stable_semver_only() -> None:
     runbook = (ROOT / "langs/python/RELEASING.md").read_text(encoding="utf-8")
 
     assert "Stable SemVer releases only" in runbook
     assert "PEP 440 segments are supported" not in runbook
+    assert "A 404 there is visible to every consumer" in runbook
+    assert "A 405 there is visible to every consumer" not in runbook
 
 
 def test_showcase_docs_match_current_react_and_swift_sources() -> None:

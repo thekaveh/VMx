@@ -73,11 +73,10 @@ and public-hub IDs per ADR-0090; +1 inert modeled-assignment ID per ADR-0091;
 +10 dynamic aggregate-change-stream IDs per ADR-0098;
 +7 searchable-source-reactivity IDs per ADR-0099;
 +11 async-resource IDs per ADR-0100;
-+4 atomic container-ownership IDs per ADR-0107;
++4 atomic container-ownership IDs (`COMP-038..041`) per ADR-0107;
 +1 disposal/hook coordination ID (`LIFE-015`) per ADR-0126;
 +1 canonical forwarding-ownership ID per ADR-0124;
 +1 aggregate reconstruction transaction ID (`AGG-007`) per ADR-0125;
-+4 composite transfer/rollback IDs (`COMP-038..041`);
 +2 hierarchy factory-hydration IDs (`HIER-031..032`) per ADR-0127;
 THEME-001..005 covered by the
 `examples/swift/notes-showcase/` flagship — ADR-0067). This increment ledger is
