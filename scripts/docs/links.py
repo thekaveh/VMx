@@ -10,11 +10,16 @@ REPO_URL = "https://github.com/thekaveh/VMx"
 WIKI_URL = "https://github.com/thekaveh/VMx/wiki"
 SITE_URL = "https://thekaveh.github.io/VMx"
 
-MARKDOWN_LINK_RE = re.compile(
-    r"(?P<image>!)?\[(?P<label>[^\]\r\n]*)\]\((?P<target>[^)\s]+)(?:\s+\"[^\"]*\")?\)"
-)
 MARKDOWN_REFERENCE_LINK_RE = re.compile(
     r"^ {0,3}\[(?P<label>[^\]]+)\]:\s*(?P<target>\S+)", re.MULTILINE
+)
+AUTOLINK_RE = re.compile(
+    r"<(?P<target>"
+    r"[A-Za-z][A-Za-z0-9+.-]{1,31}:[^<>\s]*"
+    r"|[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@"
+    r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+    r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+"
+    r")>"
 )
 HTML_TAG_RE = re.compile(
     r"""</?[A-Za-z][A-Za-z0-9:-]*"""
@@ -53,6 +58,8 @@ class MarkdownLink:
     label: str
     target: str
     image: bool = False
+    title_suffix: str = ""
+    angled_destination: bool = False
 
 
 @dataclass(frozen=True)
@@ -71,6 +78,169 @@ def _is_backslash_escaped(text: str, index: int) -> bool:
         backslashes += 1
         index -= 1
     return backslashes % 2 == 1
+
+
+def _quoted_title_closes(
+    text: str,
+    quote: str,
+    start: int,
+) -> bool:
+    index = start
+    while index < len(text):
+        if text[index] == "\n":
+            next_content = index + 1
+            while next_content < len(text) and text[next_content] in " \t":
+                next_content += 1
+            if next_content < len(text) and text[next_content] == "\n":
+                return False
+        if text[index] == quote and not _is_backslash_escaped(text, index):
+            after = index + 1
+            while after < len(text) and text[after].isspace():
+                after += 1
+            return after < len(text) and text[after] == ")"
+        index += 1
+    return False
+
+
+def _balanced_pairs(
+    text: str,
+    *,
+    opener: str,
+    closer: str,
+    markdown_parentheses: bool = False,
+    candidate_openers: set[int] | None = None,
+) -> dict[int, int]:
+    stack: list[int] = []
+    pairs: dict[int, int] = {}
+    quote: str | None = None
+    angled = False
+    index = 0
+    while index < len(text):
+        character = text[index]
+        if markdown_parentheses and stack and character == "\n":
+            next_content = index + 1
+            while next_content < len(text) and text[next_content] in " \t":
+                next_content += 1
+            blank_line = next_content < len(text) and text[next_content] == "\n"
+            invalid_multiline_state = angled or (
+                quote is not None and not _quoted_title_closes(text, quote, index + 1)
+            )
+            if blank_line or invalid_multiline_state:
+                stack.clear()
+                quote = None
+                angled = False
+        if character == "\\":
+            index += 2
+            continue
+        if quote is not None:
+            if character == quote:
+                quote = None
+            index += 1
+            continue
+        if angled:
+            if character == ">":
+                angled = False
+            index += 1
+            continue
+        if (
+            markdown_parentheses
+            and stack
+            and character in {'"', "'"}
+            and index > 0
+            and text[index - 1].isspace()
+        ):
+            quote = character
+        elif markdown_parentheses and stack and character == "<":
+            angled = True
+        elif character == opener and (
+            not markdown_parentheses
+            or stack
+            or candidate_openers is None
+            or index in candidate_openers
+        ):
+            stack.append(index)
+        elif character == closer and stack:
+            pairs[stack.pop()] = index
+        index += 1
+    return pairs
+
+
+def _destination_parts(
+    markdown: str,
+    open_paren: int,
+    close_paren: int,
+) -> tuple[str, str, bool] | None:
+    index = open_paren + 1
+    while index < close_paren and markdown[index].isspace():
+        index += 1
+    if index >= close_paren:
+        return "", markdown[index:close_paren], False
+
+    angled = markdown[index] == "<"
+    if angled:
+        destination_start = index + 1
+        destination_end = destination_start
+        while destination_end < close_paren:
+            if markdown[destination_end] == "\\":
+                destination_end += 2
+                continue
+            if markdown[destination_end] == ">":
+                break
+            destination_end += 1
+        if destination_end >= close_paren:
+            return None
+        suffix_start = destination_end + 1
+    else:
+        destination_start = index
+        destination_end = index
+        depth = 0
+        while destination_end < close_paren:
+            character = markdown[destination_end]
+            if character == "\\":
+                destination_end += 2
+                continue
+            if character == "(":
+                depth += 1
+            elif character == ")":
+                if depth == 0:
+                    break
+                depth -= 1
+            elif character.isspace() and depth == 0:
+                break
+            destination_end += 1
+        suffix_start = destination_end
+
+    raw_target = markdown[destination_start:destination_end]
+    target = re.sub(r"\\([!\"#$%&'()*+,\-./:;<=>?@\[\\\]^_`{|}~])", r"\1", raw_target)
+    return target, markdown[suffix_start:close_paren], angled
+
+
+def _is_single_commonmark_link(fragment: str, *, image: bool) -> bool:
+    parsed = MarkdownIt("commonmark").parseInline(fragment)
+    if len(parsed) != 1 or parsed[0].children is None:
+        return False
+    children = parsed[0].children
+    if image:
+        return len(children) == 1 and children[0].type == "image"
+    return (
+        len(children) >= 2 and children[0].type == "link_open" and children[-1].type == "link_close"
+    )
+
+
+def _commonmark_autolink_target(fragment: str) -> str | None:
+    parsed = MarkdownIt("commonmark").parseInline(fragment)
+    if len(parsed) != 1 or parsed[0].children is None:
+        return None
+    children = parsed[0].children
+    if (
+        len(children) != 3
+        or children[0].type != "link_open"
+        or children[1].type != "text"
+        or children[2].type != "link_close"
+        or children[0].markup != "autolink"
+    ):
+        return None
+    return children[0].attrGet("href")
 
 
 def _markdown_code_and_comment_mask(markdown: str) -> list[bool]:
@@ -177,26 +347,66 @@ def _masked_markdown(markdown: str, *, html: bool = False) -> str:
 def find_markdown_links(markdown: str) -> list[MarkdownLink]:
     """Return inline Markdown links outside code, comments, and raw-text HTML."""
     masked = _masked_markdown(markdown, html=True)
+    label_ends = _balanced_pairs(masked, opener="[", closer="]")
+    candidate_openers = {
+        label_end + 1
+        for label_end in label_ends.values()
+        if label_end + 1 < len(masked) and masked[label_end + 1] == "("
+    }
+    destination_ends = _balanced_pairs(
+        masked,
+        opener="(",
+        closer=")",
+        markdown_parentheses=True,
+        candidate_openers=candidate_openers,
+    )
 
     links: list[MarkdownLink] = []
-    for match in MARKDOWN_LINK_RE.finditer(masked):
-        image = bool(match.group("image"))
-        bracket = match.start() + 1 if image else match.start()
+    cursor = 0
+    while cursor < len(masked):
+        bracket = masked.find("[", cursor)
+        if bracket < 0:
+            break
+        cursor = bracket + 1
         if _is_backslash_escaped(masked, bracket):
             continue
-        start = match.start()
-        if image and _is_backslash_escaped(masked, start):
+
+        label_end = label_ends.get(bracket)
+        if label_end is None or label_end + 1 >= len(masked) or masked[label_end + 1] != "(":
+            continue
+        # CommonMark limits link labels to 999 characters. Besides enforcing
+        # that contract, this bounds validation work for adversarial nesting.
+        if label_end - bracket - 1 > 999:
+            continue
+        close_paren = destination_ends.get(label_end + 1)
+        if close_paren is None:
+            continue
+
+        image_marker = bracket - 1
+        image = image_marker >= 0 and masked[image_marker] == "!"
+        if image and _is_backslash_escaped(masked, image_marker):
             image = False
-            start = bracket
+        start = image_marker if image else bracket
+        end = close_paren + 1
+        fragment = markdown[start:end]
+        if not _is_single_commonmark_link(fragment, image=image):
+            continue
+        destination = _destination_parts(markdown, label_end + 1, close_paren)
+        if destination is None:
+            continue
+        target, title_suffix, angled_destination = destination
         links.append(
             MarkdownLink(
                 start=start,
-                end=match.end(),
-                label=match.group("label"),
-                target=match.group("target"),
+                end=end,
+                label=markdown[bracket + 1 : label_end],
+                target=target,
                 image=image,
+                title_suffix=title_suffix,
+                angled_destination=angled_destination,
             )
         )
+        cursor = end
     return links
 
 
@@ -227,10 +437,17 @@ def find_html_link_attributes(markdown: str) -> list[HtmlLinkAttribute]:
 
 def find_links(markdown: str) -> list[Link]:
     links = [Link(link.label, link.target, link.image) for link in find_markdown_links(markdown)]
+    masked = _masked_markdown(markdown, html=True)
     links.extend(
         Link(match.group("label"), match.group("target"))
-        for match in MARKDOWN_REFERENCE_LINK_RE.finditer(_masked_markdown(markdown, html=True))
+        for match in MARKDOWN_REFERENCE_LINK_RE.finditer(masked)
     )
+    for match in AUTOLINK_RE.finditer(masked):
+        if _is_backslash_escaped(masked, match.start()):
+            continue
+        target = _commonmark_autolink_target(markdown[match.start() : match.end()])
+        if target is not None:
+            links.append(Link(match.group("target"), target))
     return links
 
 

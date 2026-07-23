@@ -22,7 +22,20 @@ defaults:
     working-directory: langs/typescript
 
 jobs:
+  schema-sync:
+    timeout-minutes: 5
+    name: tracked schema sync
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check tracked conformance schema
+        run: python3 tools/check-typescript-schema-sync.py
+
   build:
+    needs: schema-sync
     timeout-minutes: 30
     name: build & test (${{ matrix.os }} / node${{ matrix.node-version }})
     runs-on: ${{ matrix.os }}
@@ -51,6 +64,9 @@ jobs:
 
       - name: Sync spec fixtures
         run: npm run sync-fixtures
+
+      - name: Reject tracked schema drift repaired by sync
+        run: git diff --exit-code -- src/conformance/schemas
 
       - name: Type-check
         run: npm run typecheck

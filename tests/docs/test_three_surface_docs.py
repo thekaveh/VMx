@@ -3,6 +3,7 @@ from __future__ import annotations
 import html
 import re
 import textwrap
+import time
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -627,6 +628,267 @@ def test_markdown_link_scanner_does_not_cross_line_boundaries() -> None:
     assert find_links(markdown) == [
         find_links("[Composite](composite.md)")[0],
     ]
+
+
+def test_markdown_link_scanner_handles_large_unmatched_bracket_input_linearly() -> None:
+    started = time.monotonic()
+
+    assert find_links("[" * 10_000) == []
+
+    assert time.monotonic() - started < 1.0
+
+
+def test_markdown_link_scanner_bounds_nested_candidate_validation() -> None:
+    markdown = "[" * 1_600 + "x" + "](guide.md)" * 1_600
+    started = time.monotonic()
+
+    links = find_links(markdown)
+
+    assert links
+    assert links[0].target == "guide.md"
+    assert time.monotonic() - started < 3.0
+
+
+@pytest.mark.parametrize(
+    "markdown",
+    [
+        "Prose (said 'hello\n\n[Docs](guide.md)",
+        'Prose (said "hello\n\n[Docs](guide.md)',
+        "Prose (<tag\n\n[Docs](guide.md)",
+        "[bad]( 'unterminated\n\n[Docs](guide.md)",
+        '[bad]( "unterminated\n\n[Docs](guide.md)',
+        "[bad]( <unterminated\n\n[Docs](guide.md)",
+        "[bad]( 'unterminated\n[Docs](guide.md)",
+        '[bad]( "unterminated\n[Docs](guide.md)',
+        "[bad]( <unterminated\n[Docs](guide.md)",
+    ],
+)
+def test_markdown_link_scanner_ignores_unmatched_prose_parentheses(
+    markdown: str,
+) -> None:
+    assert [link.target for link in find_links(markdown)] == ["guide.md"]
+
+
+@pytest.mark.parametrize(
+    ("markdown", "label", "target"),
+    [
+        ("[Docs](<guide path.md>)", "Docs", "guide path.md"),
+        ("[Docs](guide(and)more.md)", "Docs", "guide(and)more.md"),
+        (r"[Docs](guide\)name.md)", "Docs", "guide)name.md"),
+        ("[Docs](guide.md 'title')", "Docs", "guide.md"),
+        ("[Docs](guide.md (title))", "Docs", "guide.md"),
+        ('[Docs](guide.md "line one\nline two")', "Docs", "guide.md"),
+        ("[Docs](it's.md)", "Docs", "it's.md"),
+        ('[Docs](say"hi.md)', "Docs", 'say"hi.md'),
+        ("[Docs](foo'bar(baz).md)", "Docs", "foo'bar(baz).md"),
+        ("[a [nested] label](guide.md)", "a [nested] label", "guide.md"),
+    ],
+)
+def test_markdown_link_scanner_supports_commonmark_destination_and_label_forms(
+    markdown: str,
+    label: str,
+    target: str,
+) -> None:
+    links = find_links(markdown)
+    assert [(link.label, link.target) for link in links] == [(label, target)]
+
+
+def test_site_markdown_rewrite_preserves_commonmark_link_title() -> None:
+    manifest = load_manifest(ROOT / "docs/manifest.yaml", ROOT)
+    source_map = build_source_map(manifest, "site")
+    source = Path("docs/content/examples/notes-workspace.md")
+
+    rewritten = rewrite_for_surface(
+        "[VM [layer]]("
+        "https://github.com/thekaveh/VMx/blob/main/"
+        "docs/content/examples/notes-workspace-vm-layer.md 'Open details')",
+        surface="site",
+        current_source=source,
+        current_output=source_map[source],
+        source_map=source_map,
+        repo_root=ROOT,
+    )
+
+    assert rewritten == "[VM [layer]](examples/notes-workspace-vm-layer.md 'Open details')"
+
+
+@pytest.mark.parametrize("markdown", ["[Top]()", '[Top](<> "home")'])
+@pytest.mark.parametrize("surface", ["site", "wiki"])
+def test_surface_rewrite_preserves_empty_markdown_destinations(
+    markdown: str,
+    surface: str,
+) -> None:
+    manifest = load_manifest(ROOT / "docs/manifest.yaml", ROOT)
+    source_map = build_source_map(manifest, surface)
+    source = Path("docs/content/index.md")
+
+    assert (
+        rewrite_for_surface(
+            markdown,
+            surface=surface,
+            current_source=source,
+            current_output=source_map[source],
+            source_map=source_map,
+            repo_root=ROOT,
+        )
+        == markdown
+    )
+
+
+@pytest.mark.parametrize("quote", ['"', "'"])
+def test_wiki_markdown_rewrite_preserves_link_titles(quote: str) -> None:
+    manifest = load_manifest(ROOT / "docs/manifest.yaml", ROOT)
+    source_map = build_source_map(manifest, "wiki")
+    source = Path("docs/content/flavors/python.md")
+
+    rewritten = rewrite_for_surface(
+        f"[Quickstart](../getting-started/index.md {quote}details{quote})",
+        surface="wiki",
+        current_source=source,
+        current_output=source_map[source],
+        source_map=source_map,
+        repo_root=ROOT,
+    )
+
+    assert rewritten == f"[Quickstart](3-1-Quickstart {quote}details{quote})"
+
+
+def test_wiki_markdown_rewrite_uses_markdown_for_nested_labels() -> None:
+    manifest = load_manifest(ROOT / "docs/manifest.yaml", ROOT)
+    source_map = build_source_map(manifest, "wiki")
+    source = Path("docs/content/examples/notes-workspace.md")
+
+    rewritten = rewrite_for_surface(
+        "[VM [layer]](notes-workspace-vm-layer.md)",
+        surface="wiki",
+        current_source=source,
+        current_output=source_map[source],
+        source_map=source_map,
+        repo_root=ROOT,
+    )
+
+    assert rewritten == "[VM [layer]](8-4-VM-Layer-Map)"
+
+
+def test_surface_rewrite_preserves_inline_code_link_labels() -> None:
+    manifest = load_manifest(ROOT / "docs/manifest.yaml", ROOT)
+    markdown = (
+        "[`docs/maintenance/2026-07-16-rust-capability-parity.md`]"
+        "(../../../docs/maintenance/2026-07-16-rust-capability-parity.md)"
+    )
+    source = Path("docs/content/getting-started/rust.md")
+
+    for surface in ("site", "wiki"):
+        source_map = build_source_map(manifest, surface)
+        rewritten = rewrite_for_surface(
+            markdown,
+            surface=surface,
+            current_source=source,
+            current_output=source_map[source],
+            source_map=source_map,
+            repo_root=ROOT,
+        )
+        assert "`docs/maintenance/2026-07-16-rust-capability-parity.md`" in rewritten
+        assert "[                                                       ]" not in rewritten
+
+
+def test_surface_rewrite_preserves_inline_code_label_when_link_is_stripped() -> None:
+    manifest = load_manifest(ROOT / "docs/manifest.yaml", ROOT)
+    source = Path("docs/content/integration/wpf.md")
+    markdown = "[`examples/csharp/wpf/TodoApp/`](../../../examples/csharp/wpf/TodoApp/)"
+
+    for surface in ("site", "wiki"):
+        source_map = build_source_map(manifest, surface)
+        assert (
+            rewrite_for_surface(
+                markdown,
+                surface=surface,
+                current_source=source,
+                current_output=source_map[source],
+                source_map=source_map,
+                repo_root=ROOT,
+            )
+            == "`examples/csharp/wpf/TodoApp/`"
+        )
+
+
+def test_generated_surfaces_reject_whitespace_only_link_labels(tmp_path: Path) -> None:
+    site = tmp_path / "generated/site"
+    wiki = tmp_path / "generated/wiki"
+    site.mkdir(parents=True)
+    wiki.mkdir(parents=True)
+    (site / "page.md").write_text("[   ](target.md)\n", encoding="utf-8")
+    (wiki / "Page.md").write_text("[[   |Target]]\n", encoding="utf-8")
+    (wiki / "Target.md").write_text("# Target\n", encoding="utf-8")
+
+    site_findings = check_self_containment(tmp_path)
+    wiki_findings = check_generated_wiki_links(tmp_path)
+
+    assert any("whitespace-only label" in finding.message for finding in site_findings)
+    assert any("whitespace-only label" in finding.message for finding in wiki_findings)
+
+
+@pytest.mark.parametrize(
+    "empty_label",
+    ["   ", "&nbsp;", "` `", "<span> </span>"],
+)
+def test_generated_surfaces_reject_visually_empty_link_labels(
+    tmp_path: Path,
+    empty_label: str,
+) -> None:
+    site = tmp_path / "generated/site"
+    site.mkdir(parents=True)
+    (site / "page.md").write_text(f"[{empty_label}](target.md)\n", encoding="utf-8")
+
+    findings = check_self_containment(tmp_path)
+
+    assert any("whitespace-only label" in finding.message for finding in findings)
+
+
+def test_generated_surface_accepts_html_image_alt_link_label(tmp_path: Path) -> None:
+    site = tmp_path / "generated/site"
+    site.mkdir(parents=True)
+    (site / "page.md").write_text(
+        '[<img src="icon.png" alt="Guide">](guide.md)\n',
+        encoding="utf-8",
+    )
+
+    assert not any(
+        "whitespace-only label" in finding.message for finding in check_self_containment(tmp_path)
+    )
+
+
+def test_generated_surface_rejects_zero_width_only_link_label(tmp_path: Path) -> None:
+    site = tmp_path / "generated/site"
+    site.mkdir(parents=True)
+    (site / "page.md").write_text("[\u200b](guide.md)\n", encoding="utf-8")
+
+    assert any(
+        "whitespace-only label" in finding.message for finding in check_self_containment(tmp_path)
+    )
+
+
+def test_commonmark_autolinks_participate_in_self_containment(tmp_path: Path) -> None:
+    site = tmp_path / "generated/site"
+    site.mkdir(parents=True)
+    (site / "page.md").write_text(
+        "<https://github.com/thekaveh/VMx/wiki>\n"
+        "<maintainer@example.com>\n"
+        "`<https://github.com/thekaveh/VMx/wiki>`\n"
+        r"\<https://github.com/thekaveh/VMx/wiki>"
+        "\n",
+        encoding="utf-8",
+    )
+
+    links = find_links((site / "page.md").read_text(encoding="utf-8"))
+    findings = check_self_containment(tmp_path)
+
+    assert [link.target for link in links] == [
+        "https://github.com/thekaveh/VMx/wiki",
+        "mailto:maintainer@example.com",
+    ]
+    assert len(findings) == 1
+    assert "forbidden site link" in findings[0].message
 
 
 @pytest.mark.parametrize(

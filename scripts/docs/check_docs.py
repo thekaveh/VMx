@@ -3,11 +3,14 @@ from __future__ import annotations
 import argparse
 import html
 import re
+import unicodedata
 from dataclasses import dataclass
+from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 import yaml
+from markdown_it import MarkdownIt
 
 from scripts.docs import build_docs
 from scripts.docs.links import find_html_link_attributes, find_links, is_forbidden
@@ -47,6 +50,43 @@ class Finding:
 
 def _scan_markdown(root: Path) -> list[Path]:
     return sorted(path for path in root.rglob("*.md") if path.is_file())
+
+
+class _AccessibleHtmlParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.accessible_text: list[str] = []
+
+    def handle_starttag(
+        self,
+        tag: str,
+        attrs: list[tuple[str, str | None]],
+    ) -> None:
+        attributes = {name.lower(): value or "" for name, value in attrs}
+        if tag.lower() == "img" and attributes.get("alt"):
+            self.accessible_text.append(attributes["alt"])
+        elif attributes.get("aria-label"):
+            self.accessible_text.append(attributes["aria-label"])
+
+
+def _visible_markdown_text(markdown: str) -> str:
+    parsed = MarkdownIt("commonmark").parseInline(markdown)
+    if len(parsed) != 1 or parsed[0].children is None:
+        return ""
+    visible: list[str] = []
+    for token in parsed[0].children:
+        if token.type in {"text", "code_inline", "image"}:
+            visible.append(token.content)
+        elif token.type == "html_inline":
+            parser = _AccessibleHtmlParser()
+            parser.feed(token.content)
+            visible.extend(parser.accessible_text)
+        elif token.type in {"softbreak", "hardbreak"}:
+            visible.append(" ")
+    decoded = html.unescape("".join(visible))
+    return "".join(
+        character for character in decoded if not unicodedata.category(character).startswith("C")
+    ).strip()
 
 
 def _scan_repo_surface_markdown(repo_root: Path) -> list[Path]:
@@ -89,7 +129,13 @@ def check_self_containment(repo_root: Path) -> list[Finding]:
     ):
         for path in _scan_markdown(root):
             text = path.read_text(encoding="utf-8")
-            targets = [link.target for link in find_links(text)]
+            links = find_links(text)
+            for link in links:
+                if not link.image and not _visible_markdown_text(link.label):
+                    findings.append(
+                        Finding("error", f"{path}: generated link has a whitespace-only label")
+                    )
+            targets = [link.target for link in links]
             targets.extend(attribute.target for attribute in find_html_link_attributes(text))
             for target in targets:
                 if is_forbidden(target, surface):
@@ -212,6 +258,13 @@ def check_generated_wiki_links(repo_root: Path) -> list[Finding]:
             if ("[[" in scrubbed or "]]" in scrubbed) and "|" in scrubbed:
                 findings.append(Finding("error", f"{path}:{line_number}: malformed wiki link"))
             for match in WIKI_LINK_RE.finditer(line):
+                if not _visible_markdown_text(match.group("label")):
+                    findings.append(
+                        Finding(
+                            "error",
+                            f"{path}:{line_number}: wiki link has a whitespace-only label",
+                        )
+                    )
                 target = match.group("target").split("#", 1)[0]
                 if target and target not in pages:
                     findings.append(

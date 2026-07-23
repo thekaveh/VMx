@@ -7,6 +7,7 @@ from pathlib import Path
 
 from scripts.docs.links import (
     HtmlLinkAttribute,
+    MarkdownLink,
     find_html_link_attributes,
     find_markdown_links,
     is_forbidden,
@@ -40,6 +41,13 @@ def _bare_link(label: str, target: str, *, image: bool) -> str:
     if image:
         return label or Path(target).name
     return label or target
+
+
+def _markdown_destination(target: str, *, angled: bool) -> str:
+    if angled or any(character.isspace() or character in "()" for character in target):
+        escaped = target.replace("\\", "\\\\").replace("<", "\\<").replace(">", "\\>")
+        return f"<{escaped}>"
+    return target
 
 
 def _split_url_bits(target: str) -> tuple[str, str]:
@@ -119,8 +127,20 @@ def rewrite_for_surface(
 ) -> str:
     selected_root = (repo_root or Path.cwd()).resolve()
 
-    def rewrite_markdown_link(label: str, raw_target: str, *, image: bool) -> str:
-        target = html.unescape(raw_target)
+    def markdown_form(link: MarkdownLink, target: str) -> str:
+        destination = _markdown_destination(
+            target,
+            angled=link.angled_destination,
+        )
+        return f"{'!' if link.image else ''}[{link.label}]({destination}{link.title_suffix})"
+
+    def wiki_alias_safe(link: MarkdownLink) -> bool:
+        return not any(character in link.label for character in "]|\r\n")
+
+    def rewrite_markdown_link(link: MarkdownLink) -> str:
+        target = html.unescape(link.target)
+        if not target:
+            return markdown_form(link, target)
         if is_forbidden(target, surface):
             mapped = _mapped_target(
                 target,
@@ -131,10 +151,12 @@ def rewrite_for_surface(
                 repo_root=selected_root,
             )
             if not mapped:
-                return _bare_link(label, target, image=image)
+                return _bare_link(link.label, target, image=link.image)
             if surface == "wiki" and mapped.startswith("wiki:"):
-                return f"[[{label}|{mapped[5:]}]]"
-            return f"{'!' if image else ''}[{label}]({mapped})"
+                if link.title_suffix or not wiki_alias_safe(link):
+                    return markdown_form(link, mapped[5:])
+                return f"[[{link.label}|{mapped[5:]}]]"
+            return markdown_form(link, mapped)
 
         mapped = _mapped_target(
             target,
@@ -145,14 +167,16 @@ def rewrite_for_surface(
             repo_root=selected_root,
         )
         if mapped is None:
-            return _bare_link(label, target, image=image)
+            return _bare_link(link.label, target, image=link.image)
         if mapped.startswith("wiki:"):
-            return f"[[{label}|{mapped[5:]}]]"
-        return f"{'!' if image else ''}[{label}]({mapped})"
+            if link.title_suffix or not wiki_alias_safe(link):
+                return markdown_form(link, mapped[5:])
+            return f"[[{link.label}|{mapped[5:]}]]"
+        return markdown_form(link, mapped)
 
     text = markdown
     for link in reversed(find_markdown_links(markdown)):
-        replacement = rewrite_markdown_link(link.label, link.target, image=link.image)
+        replacement = rewrite_markdown_link(link)
         text = f"{text[: link.start]}{replacement}{text[link.end :]}"
 
     def replace_html_link_attribute(attribute: HtmlLinkAttribute) -> str:
