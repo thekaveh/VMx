@@ -70,6 +70,7 @@ def test_conformance_job_uses_the_tracked_python_lockfile() -> None:
     workflow = _workflow("conformance.yml")
 
     assert "uv --project langs/python sync --locked --all-extras" in workflow
+    assert "uv --project langs/python run --locked --extra tools python" in workflow
 
 
 def test_python_ci_and_release_cover_314_and_audit_runtime_dependencies() -> None:
@@ -92,7 +93,7 @@ def test_release_metadata_is_validated_before_python_publication() -> None:
 
     assert "needs: [python-test, release-metadata]" in workflow
     assert "uv --project langs/python sync --locked --extra tools" in workflow
-    assert "uv --project langs/python run python" in workflow
+    assert "uv --project langs/python run --locked --extra tools python" in workflow
     assert (
         'tools/check-version-consistency.py\n          --release-tag "$GITHUB_REF_NAME"' in workflow
     )

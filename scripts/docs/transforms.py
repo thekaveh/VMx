@@ -166,10 +166,18 @@ def rewrite_for_surface(
             mapped = mapped[5:]
         else:
             mapped_path, suffix = _split_url_bits(mapped)
+            converted_page = False
             if mapped_path.endswith("/index.md"):
                 mapped_path = mapped_path.removesuffix("index.md")
+                converted_page = True
             elif mapped_path.endswith(".md"):
                 mapped_path = f"{mapped_path.removesuffix('.md')}/"
+                converted_page = True
+            if converted_page and current_output.name != "index.md":
+                # MkDocs serves non-index pages at directory URLs. Raw HTML hrefs
+                # resolve in the browser from that extra page directory, unlike
+                # Markdown links which MkDocs rewrites from the source file path.
+                mapped_path = f"../{mapped_path}"
             mapped = f"{mapped_path}{suffix}"
         return f'href="{mapped}"'
 

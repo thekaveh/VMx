@@ -72,7 +72,9 @@ jobs:
         # Verifies that spec/VERSION, all flavor manifests, and compatibility-matrix.md
         # are mutually consistent, and that every matrix-row version has a matching
         # git tag (pre-v2.0 rows are informational-only; the tool exits 0).
-        run: uv --project langs/python run python tools/check-version-consistency.py
+        run: >-
+          uv --project langs/python run --locked --extra tools python
+          tools/check-version-consistency.py
 
       - name: Validate canonical fixture contracts
         run: uv --project langs/python run python tools/check-fixture-contracts.py

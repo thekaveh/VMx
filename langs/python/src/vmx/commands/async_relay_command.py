@@ -27,6 +27,7 @@ import dataclasses
 from collections.abc import Awaitable, Callable
 from concurrent.futures import Future
 from threading import RLock
+from types import TracebackType
 from typing import TypeVar
 
 import reactivex as rx
@@ -122,30 +123,41 @@ class AsyncRelayCommand:
                 return
             self._cancel_requested = False
             self._is_executing = True
-        self.raise_can_execute_changed()
+        first_error: tuple[BaseException, TracebackType | None] | None = None
         try:
-            inner: asyncio.Task[None] = asyncio.ensure_future(task_factory())
-            with self._gate:
-                self._current_task = inner
-                self._current_loop = asyncio.get_running_loop()
-                cancel_immediately = self._cancel_requested or self._disposed
-            if cancel_immediately:
-                inner.cancel()
-            await inner
-        except asyncio.CancelledError:
-            # Non-throwing default (DIA-007 alignment): swallow only the
-            # cancellation WE requested via cancel(); re-raise an external one so
-            # asyncio cancellation semantics are preserved.
-            with self._gate:
-                cancel_requested = self._cancel_requested
-            if self._throw_on_cancel or not cancel_requested:
-                raise
+            self.raise_can_execute_changed()
+            try:
+                inner: asyncio.Task[None] = asyncio.ensure_future(task_factory())
+                with self._gate:
+                    self._current_task = inner
+                    self._current_loop = asyncio.get_running_loop()
+                    cancel_immediately = self._cancel_requested or self._disposed
+                if cancel_immediately:
+                    inner.cancel()
+                await inner
+            except asyncio.CancelledError:
+                # Non-throwing default (DIA-007 alignment): swallow only the
+                # cancellation WE requested via cancel(); re-raise an external one so
+                # asyncio cancellation semantics are preserved.
+                with self._gate:
+                    cancel_requested = self._cancel_requested
+                if self._throw_on_cancel or not cancel_requested:
+                    raise
+        except BaseException as error:
+            first_error = (error, error.__traceback__)
         finally:
             with self._gate:
                 self._is_executing = False
                 self._current_task = None
                 self._current_loop = None
-            self.raise_can_execute_changed()
+            try:
+                self.raise_can_execute_changed()
+            except BaseException as error:
+                if first_error is None:
+                    first_error = (error, error.__traceback__)
+        if first_error is not None:
+            primary_exception, traceback = first_error
+            raise primary_exception.with_traceback(traceback)
 
     def execute(self, parameter: object = None) -> None:
         """Fire-and-forget. Schedules ``execute_async`` on the current event loop.

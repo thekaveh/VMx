@@ -235,6 +235,34 @@ def test_wiki_rewrite_maps_relative_html_routes_to_manifest_pages() -> None:
     assert 'href="3-1-Quickstart"' in rewritten
 
 
+def test_site_rewrite_maps_same_directory_html_markdown_link_to_sibling_route() -> None:
+    manifest = load_manifest(ROOT / "docs/manifest.yaml", ROOT)
+    site_map = build_source_map(manifest, "site")
+    wiki_map = build_source_map(manifest, "wiki")
+    link = '<a href="notes-workspace-vm-layer.md">VM layer</a>'
+    source = Path("docs/content/examples/notes-workspace.md")
+
+    site = rewrite_for_surface(
+        link,
+        surface="site",
+        current_source=source,
+        current_output=site_map[source],
+        source_map=site_map,
+        repo_root=ROOT,
+    )
+    wiki = rewrite_for_surface(
+        link,
+        surface="wiki",
+        current_source=source,
+        current_output=wiki_map[source],
+        source_map=wiki_map,
+        repo_root=ROOT,
+    )
+
+    assert site == '<a href="../notes-workspace-vm-layer/">VM layer</a>'
+    assert wiki == '<a href="8-4-VM-Layer-Map">VM layer</a>'
+
+
 def test_markdown_link_scanner_does_not_cross_line_boundaries() -> None:
     markdown = "The interval is [0, count)\n\n[Composite](composite.md)\n"
 

@@ -35,14 +35,17 @@ Exit codes:
        compatibility-matrix.md).
 
 Usage:
-    uv --project langs/python run python tools/check-version-consistency.py [--repo-root PATH]
+    uv --project langs/python run --locked --extra tools \
+        python tools/check-version-consistency.py [--repo-root PATH]
 
 Examples:
     # Default: discover repo root automatically, report, and exit 1 on issues.
-    uv --project langs/python run python tools/check-version-consistency.py
+    uv --project langs/python run --locked --extra tools \
+        python tools/check-version-consistency.py
 
     # Explicit root (useful in CI when cwd differs):
-    uv --project langs/python run python tools/check-version-consistency.py --repo-root /workspace
+    uv --project langs/python run --locked --extra tools \
+        python tools/check-version-consistency.py --repo-root /workspace
 """
 
 import argparse

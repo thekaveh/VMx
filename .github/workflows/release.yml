@@ -48,7 +48,7 @@ jobs:
         run: uv --project langs/python sync --locked --extra tools
       - name: Validate versions, tags, and substantive release notes
         run: >-
-          uv --project langs/python run python
+          uv --project langs/python run --locked --extra tools python
           tools/check-version-consistency.py
           --release-tag "$GITHUB_REF_NAME"
 

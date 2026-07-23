@@ -135,30 +135,37 @@ public sealed class AsyncRelayCommand : IAsyncCommand, IDisposable
         var cts = TryBeginExecution(cancellationToken);
         if (cts is null) return;
 
-        RaiseCanExecuteChanged();
+        ExceptionDispatchInfo? firstError = null;
         try
         {
-            await _task(cts.Token).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (!_throwOnCancel && _cancelRequested)
-        {
-            // Non-throwing cancellation (DIA-007 alignment): the cancel was requested
-            // through this command's own channel (Cancel()/Dispose()), so complete
-            // normally. An externally-supplied token's cancellation leaves
-            // _cancelRequested false and is re-raised (spec/04 §10.3, parity with
-            // Python/Swift).
-        }
-        finally
-        {
-            lock (_gate)
-            {
-                if (ReferenceEquals(_cts, cts))
-                    _cts = null;
-                _isExecuting = false;
-            }
-            cts.Dispose();
             RaiseCanExecuteChanged();
+            try
+            {
+                await _task(cts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (!_throwOnCancel && _cancelRequested)
+            {
+                // Non-throwing cancellation (DIA-007 alignment): the cancel was requested
+                // through this command's own channel (Cancel()/Dispose()), so complete
+                // normally. An externally-supplied token's cancellation leaves
+                // _cancelRequested false and is re-raised (spec/04 §10.3, parity with
+                // Python/Swift).
+            }
         }
+        catch (Exception error)
+        {
+            firstError = ExceptionDispatchInfo.Capture(error);
+        }
+
+        lock (_gate)
+        {
+            if (ReferenceEquals(_cts, cts))
+                _cts = null;
+            _isExecuting = false;
+        }
+        CaptureFailure(ref firstError, cts.Dispose);
+        CaptureFailure(ref firstError, RaiseCanExecuteChanged);
+        firstError?.Throw();
     }
 
     /// <inheritdoc/>

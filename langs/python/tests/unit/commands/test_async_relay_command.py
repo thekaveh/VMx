@@ -13,6 +13,81 @@ from reactivex.subject import Subject
 from vmx.commands import AsyncRelayCommand
 
 
+@pytest.mark.asyncio
+async def test_start_observer_failure_restores_idle_without_running_task() -> None:
+    calls = 0
+
+    async def task() -> None:
+        nonlocal calls
+        calls += 1
+
+    command = AsyncRelayCommand.builder().task(task).build()
+    command.can_execute_changed.subscribe(
+        lambda _: (_ for _ in ()).throw(RuntimeError("start observer"))
+    )
+
+    with pytest.raises(RuntimeError, match="start observer"):
+        await command.execute_async()
+
+    assert calls == 0
+    assert command.is_executing is False
+    assert command.can_execute() is True
+
+
+@pytest.mark.asyncio
+async def test_body_failure_precedes_completion_observer_failure() -> None:
+    notifications = 0
+
+    async def task() -> None:
+        raise ValueError("body failure")
+
+    def observe(_: None) -> None:
+        nonlocal notifications
+        notifications += 1
+        if notifications == 2:
+            raise RuntimeError("completion observer")
+
+    command = AsyncRelayCommand.builder().task(task).build()
+    command.can_execute_changed.subscribe(observe)
+
+    with pytest.raises(ValueError, match="body failure"):
+        await command.execute_async()
+
+    assert command.is_executing is False
+    assert command.can_execute() is True
+
+
+@pytest.mark.asyncio
+async def test_fire_and_forget_routes_body_failure_before_completion_observer() -> None:
+    notifications = 0
+    observed = asyncio.Event()
+    errors: list[BaseException] = []
+
+    async def task() -> None:
+        raise ValueError("body failure")
+
+    def observe(_: None) -> None:
+        nonlocal notifications
+        notifications += 1
+        if notifications == 2:
+            raise RuntimeError("completion observer")
+
+    def on_error(error: BaseException) -> None:
+        errors.append(error)
+        observed.set()
+
+    command = AsyncRelayCommand.builder().task(task).build()
+    command.can_execute_changed.subscribe(observe)
+    command.errors.subscribe(on_error)
+
+    command.execute()
+    await asyncio.wait_for(observed.wait(), timeout=1)
+
+    assert len(errors) == 1
+    assert isinstance(errors[0], ValueError)
+    assert str(errors[0]) == "body failure"
+
+
 def test_execute_without_running_loop_returns_before_async_work_finishes() -> None:
     started = Event()
     release = Event()
