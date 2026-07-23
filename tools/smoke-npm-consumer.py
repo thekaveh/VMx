@@ -116,13 +116,17 @@ def typescript_command() -> list[str]:
     ]
 
 
-def _registry_version(package: str, version: str) -> str | None:
-    result = subprocess.run(
-        ["npm", "view", f"{package}@{version}", "version", "--json"],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+def _registry_version(package: str, version: str, timeout_seconds: float) -> str | None:
+    try:
+        result = subprocess.run(
+            ["npm", "view", f"{package}@{version}", "version", "--json"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired:
+        return None
     if result.returncode != 0:
         return None
     value = json.loads(result.stdout)
@@ -135,18 +139,22 @@ def wait_for_version(
     timeout_seconds: float,
     *,
     interval_seconds: float = 10,
-    lookup: Callable[[str, str], str | None] = _registry_version,
+    lookup: Callable[[str, str, float], str | None] = _registry_version,
     sleeper: Callable[[float], None] = time.sleep,
 ) -> None:
     """Poll npm until the exact immutable package version is visible."""
     _require_version(version)
     deadline = time.monotonic() + timeout_seconds
     while True:
-        if lookup(package, version) == version:
-            return
-        if time.monotonic() >= deadline:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
             raise TimeoutError(f"timed out waiting for {package}@{version} on npm")
-        sleeper(interval_seconds)
+        if lookup(package, version, remaining) == version:
+            return
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError(f"timed out waiting for {package}@{version} on npm")
+        sleeper(min(interval_seconds, remaining))
 
 
 def json_array(output: str) -> list[object]:
@@ -170,6 +178,7 @@ def _pack(package_dir: Path, destination: Path) -> Path:
         check=True,
         capture_output=True,
         text=True,
+        timeout=120,
     )
     payload = json_array(result.stdout)
     if len(payload) != 1 or not isinstance(payload[0], dict):
@@ -184,7 +193,7 @@ def _pack(package_dir: Path, destination: Path) -> Path:
 
 
 def _run(args: list[str], *, cwd: Path) -> None:
-    subprocess.run(args, cwd=cwd, check=True)
+    subprocess.run(args, cwd=cwd, check=True, timeout=120)
 
 
 def run_smoke(

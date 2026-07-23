@@ -26,6 +26,7 @@ on:
 
 jobs:
   coverage:
+    timeout-minutes: 15
     name: "required: conformance"
     runs-on: ubuntu-latest
     steps:

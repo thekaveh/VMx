@@ -25,7 +25,7 @@ def _env_with_identity() -> dict[str, str]:
 
 
 def _run(cmd: list[str], cwd: Path, env: dict[str, str] | None = None) -> None:
-    subprocess.run(cmd, cwd=cwd, env=env, check=True)
+    subprocess.run(cmd, cwd=cwd, env=env, check=True, timeout=300)
 
 
 def sync_wiki(src: Path, repo_dir: Path) -> None:
@@ -68,7 +68,9 @@ def push_wiki(
             _run(["git", "init", "-b", "master"], work, env)
         sync_wiki(src, work)
         _run(["git", "add", "-A"], work, env)
-        diff = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=work, env=env)
+        diff = subprocess.run(
+            ["git", "diff", "--cached", "--quiet"], cwd=work, env=env, timeout=300
+        )
         if diff.returncode == 0:
             print("wiki already up to date")
             return True

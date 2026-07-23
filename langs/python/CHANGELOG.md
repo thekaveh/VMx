@@ -8,6 +8,8 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ### Fixed
 
+- Lazy aggregate reconstruction now rejects a factory that returns any
+  currently owned slot before disposing or overwriting that component.
 - Async-resource disposal now attempts every terminal command step and releases
   its retained value before re-raising the first observer failure (ARES-011).
 - Pre-owned and multiply decorated components now retain one canonical,

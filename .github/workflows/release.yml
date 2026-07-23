@@ -29,6 +29,7 @@ concurrency:
 
 jobs:
   release-metadata:
+    timeout-minutes: 5
     name: release — metadata preflight
     runs-on: ubuntu-latest
     permissions:
@@ -42,6 +43,7 @@ jobs:
         run: python3 tools/check-version-consistency.py
 
   csharp-build:
+    timeout-minutes: 40
     if: startsWith(github.ref, 'refs/tags/csharp-')
     runs-on: ubuntu-latest
     permissions:
@@ -127,6 +129,7 @@ jobs:
           if-no-files-found: error
 
   csharp-publish:
+    timeout-minutes: 20
     needs: [csharp-build, release-metadata]
     if: startsWith(github.ref, 'refs/tags/csharp-')
     runs-on: ubuntu-latest
@@ -176,6 +179,7 @@ jobs:
           done < /tmp/csharp-main-packages.txt
 
   csharp-verify-published:
+    timeout-minutes: 20
     needs: csharp-publish
     if: startsWith(github.ref, 'refs/tags/csharp-')
     runs-on: ubuntu-latest
@@ -216,6 +220,7 @@ jobs:
             --poll-timeout 900
 
   csharp-release-notes:
+    timeout-minutes: 10
     needs: csharp-verify-published
     if: startsWith(github.ref, 'refs/tags/csharp-')
     runs-on: ubuntu-latest
@@ -442,6 +447,7 @@ jobs:
           .verify-venv/bin/python langs/python/scripts/smoke_test.py "$version"
 
   python-release-notes:
+    timeout-minutes: 10
     # Create a GitHub Release with the matching CHANGELOG section as the
     # body. Runs only after verify-published succeeds, so a GitHub Release
     # exists iff the package is genuinely live and importable on PyPI.
@@ -484,6 +490,7 @@ jobs:
             --target "$GITHUB_SHA"
 
   typescript:
+    timeout-minutes: 30
     needs: release-metadata
     if: startsWith(github.ref, 'refs/tags/typescript-v')
     runs-on: ubuntu-latest
@@ -573,6 +580,7 @@ jobs:
         run: npm publish --access public
 
   typescript-verify-published:
+    timeout-minutes: 20
     needs: typescript
     if: startsWith(github.ref, 'refs/tags/typescript-v')
     runs-on: ubuntu-latest
@@ -617,6 +625,7 @@ jobs:
           exit 1
 
   typescript-release-notes:
+    timeout-minutes: 10
     needs: typescript-verify-published
     if: startsWith(github.ref, 'refs/tags/typescript-v')
     runs-on: ubuntu-latest
@@ -836,6 +845,7 @@ jobs:
           --poll-timeout 1800
 
   rust-release-notes:
+    timeout-minutes: 10
     name: rust — GitHub Release
     needs: rust-verify-published
     if: startsWith(github.ref, 'refs/tags/rust-v')
@@ -869,6 +879,7 @@ jobs:
             --target "$GITHUB_SHA"
 
   swift-verify:
+    timeout-minutes: 30
     # The Swift flavor has no central registry (no NuGet/PyPI/npm analog —
     # SwiftPM consumes packages directly from git URLs). The release here just
     # cuts a GitHub Release pointing at the tag so SwiftPM consumers get a
@@ -923,6 +934,7 @@ jobs:
             --version "$tag_version"
 
   swift-release:
+    timeout-minutes: 15
     name: swift — GitHub Release
     needs: [swift-verify, release-metadata]
     if: startsWith(github.ref, 'refs/tags/swift-v')

@@ -36,8 +36,7 @@ func validateAggregateSlots(
         guard seen.insert(ObjectIdentifier(identity)).inserted else {
             throw ContainerOwnershipError.duplicate
         }
-        if let current = child._transferOwnershipParent,
-           !(current === parent && parent.containsIdentity(child)) {
+        if child._transferOwnershipParent != nil {
             throw ContainerOwnershipError.inconsistentParent
         }
         var cursor: OwnershipParentVM? = parent

@@ -428,6 +428,22 @@ describe("Aggregate fixed-slot ownership", () => {
     expect(aggregate.component1).toBeNull();
   });
 
+  it("rejects its current slot on reconstruct without disposing it", () => {
+    const hub = makeHub();
+    const child = makeChild(hub, "child");
+    const aggregate = AggregateVM1.builder<ComponentVM>()
+      .name("aggregate")
+      .services(hub, makeDisp())
+      .component1(() => child)
+      .build();
+    aggregate.construct();
+
+    expect(() => aggregate.reconstruct()).toThrow(/already owned/);
+    expect(aggregate.component1).toBe(child);
+    expect(child.status).toBe(ConstructionStatus.Destructed);
+    expect(child._parent).not.toBeNull();
+  });
+
   it("does not allow a mutable container to transfer a fixed aggregate slot", () => {
     const hub = makeHub();
     const child = makeChild(hub, "child");

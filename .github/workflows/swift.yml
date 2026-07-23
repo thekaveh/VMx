@@ -123,6 +123,7 @@ jobs:
         run: swift test --parallel
 
   required:
+    timeout-minutes: 5
     name: "required: swift"
     if: always()
     needs: [build, platforms, examples]

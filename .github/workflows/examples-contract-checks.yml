@@ -31,6 +31,7 @@ on:
 
 jobs:
   contract:
+    timeout-minutes: 15
     name: "required: examples"
     runs-on: ubuntu-latest
     steps:

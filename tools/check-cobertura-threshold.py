@@ -32,6 +32,8 @@ def check_coverage(
 
     totals = {"lines-covered": 0, "lines-valid": 0, "branches-covered": 0, "branches-valid": 0}
     seen_packages: set[str] = set()
+    merged_lines: dict[tuple[str, str, str], bool] = {}
+    merged_branches: dict[tuple[str, str, str], tuple[int, int]] = {}
     for report in reports:
         root = ET.parse(report).getroot()
         if package_names is None:
@@ -44,22 +46,41 @@ def check_coverage(
             if package_name not in package_names:
                 continue
             seen_packages.add(package_name)
-            for line in package.findall("./classes/class/lines/line"):
-                totals["lines-valid"] += 1
-                if int(line.attrib.get("hits", "0")) > 0:
-                    totals["lines-covered"] += 1
-                if line.attrib.get("branch", "false").lower() != "true":
-                    continue
-                match = re.search(r"\((\d+)/(\d+)\)", line.attrib.get("condition-coverage", ""))
-                if match is None:
-                    raise ValueError("Cobertura branch line lacks condition counters")
-                totals["branches-covered"] += int(match.group(1))
-                totals["branches-valid"] += int(match.group(2))
+            for class_element in package.findall("./classes/class"):
+                filename = class_element.attrib.get("filename")
+                if not filename:
+                    raise ValueError("Cobertura class lacks a source filename")
+                filename = filename.replace("\\", "/")
+                package_marker = f"{package_name}/"
+                marker_index = filename.rfind(package_marker)
+                if marker_index >= 0:
+                    filename = filename[marker_index:]
+                for line in class_element.findall("./lines/line"):
+                    key = (package_name, filename, line.attrib["number"])
+                    covered = int(line.attrib.get("hits", "0")) > 0
+                    merged_lines[key] = merged_lines.get(key, False) or covered
+                    if line.attrib.get("branch", "false").lower() != "true":
+                        continue
+                    match = re.search(r"\((\d+)/(\d+)\)", line.attrib.get("condition-coverage", ""))
+                    if match is None:
+                        raise ValueError("Cobertura branch line lacks condition counters")
+                    branch = (int(match.group(1)), int(match.group(2)))
+                    previous = merged_branches.get(key, (0, branch[1]))
+                    merged_branches[key] = (
+                        max(previous[0], branch[0]),
+                        max(previous[1], branch[1]),
+                    )
 
     missing_packages = (package_names or set()) - seen_packages
     if missing_packages:
         missing = ", ".join(sorted(missing_packages))
         raise ValueError(f"Cobertura reports omit required packages: {missing}")
+
+    if package_names is not None:
+        totals["lines-valid"] = len(merged_lines)
+        totals["lines-covered"] = sum(merged_lines.values())
+        totals["branches-covered"] = sum(covered for covered, _valid in merged_branches.values())
+        totals["branches-valid"] = sum(valid for _covered, valid in merged_branches.values())
 
     if totals["lines-valid"] == 0 or totals["branches-valid"] == 0:
         raise ValueError("Cobertura reports contain no valid line or branch counters")

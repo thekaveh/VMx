@@ -23,6 +23,7 @@ defaults:
 
 jobs:
   build:
+    timeout-minutes: 30
     name: build & test (${{ matrix.os }} / node${{ matrix.node-version }})
     runs-on: ${{ matrix.os }}
     strategy:
@@ -78,6 +79,7 @@ jobs:
           fail_ci_if_error: false
 
   package:
+    timeout-minutes: 15
     name: package (node${{ matrix.node-version }})
     runs-on: ubuntu-latest
     strategy:
@@ -112,6 +114,7 @@ jobs:
             --version "$package_version"
 
   examples:
+    timeout-minutes: 30
     # Installs + tests the Notes-Showcase React example (Phase 8 of the
     # notes-showcase plan). Kept as a separate job because the existing
     # `build` job pins `defaults.run.working-directory: langs/typescript` and
@@ -185,6 +188,7 @@ jobs:
         run: npm run build --prefix examples/typescript/react/notes-showcase
 
   required:
+    timeout-minutes: 5
     name: "required: typescript"
     if: always()
     needs: [build, package, examples]

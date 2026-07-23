@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Lazy aggregate reconstruction now rejects a factory that returns any
+  currently owned slot before disposing or overwriting that component.
 - Pre-owned and multiply decorated components now retain one canonical,
   transferable container identity (FWD-004, ADR-0124).
 - Async-resource loading now revalidates its admitted operation after loading

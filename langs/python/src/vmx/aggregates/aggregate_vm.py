@@ -97,11 +97,7 @@ class _AggregateVMBase(_ComponentVMBase):
             if isinstance(child, _ComponentVMBase):
                 ownership_parent = child._ownership_parent
                 if ownership_parent is not None:
-                    if not (
-                        ownership_parent is self._aggregate_parent
-                        and self._aggregate_parent.contains_child(child)
-                    ):
-                        raise ValueError(f"component {child.name!r} already has a parent")
+                    raise ValueError(f"component {child.name!r} already has a parent")
             cursor: _ParentCompositeVM | None = self._aggregate_parent
             while cursor is not None:
                 if cursor.owner._ownership_identity is identity:

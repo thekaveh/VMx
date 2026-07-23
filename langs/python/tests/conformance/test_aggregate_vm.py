@@ -369,6 +369,27 @@ def test_aggregate_rejects_forwarding_aliases_of_one_canonical_component() -> No
     assert aggregate.component_2 is None
 
 
+def test_aggregate_reconstruct_rejects_current_slot_without_disposing_it() -> None:
+    hub = _hub()
+    dispatcher = _dispatcher()
+    child = _child(hub, dispatcher)
+    aggregate = (
+        AggregateVM1Builder()
+        .name("aggregate")
+        .services(hub, dispatcher)
+        .component_1(lambda: child)
+        .build()
+    )
+    aggregate.construct()
+
+    with pytest.raises(ValueError, match="already has a parent"):
+        aggregate.reconstruct()
+
+    assert aggregate.component_1 is child
+    assert child.status is ConstructionStatus.DESTRUCTED  # type: ignore[attr-defined]
+    assert child._ownership_parent is not None  # type: ignore[attr-defined]
+
+
 def test_aggregate_rejects_forwarding_alias_of_owned_component() -> None:
     inner = ComponentVMBuilder().name("inner").with_null_services().build()
     composite = (

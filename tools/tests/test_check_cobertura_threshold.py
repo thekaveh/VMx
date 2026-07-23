@@ -54,11 +54,11 @@ def test_counts_only_allowlisted_production_packages(tmp_path: Path) -> None:
     report = tmp_path / "coverage.xml"
     report.write_text(
         """<coverage><packages>
-        <package name="VMx"><classes><class><lines>
+        <package name="VMx"><classes><class filename="VMx/Example.cs"><lines>
           <line number="1" hits="1" branch="True" condition-coverage="50% (1/2)"/>
           <line number="2" hits="0" branch="False"/>
         </lines></class></classes></package>
-        <package name="VMx.Tests"><classes><class><lines>
+        <package name="VMx.Tests"><classes><class filename="VMx.Tests/Example.cs"><lines>
           <line number="1" hits="0" branch="True" condition-coverage="0% (0/20)"/>
         </lines></class></classes></package>
         </packages></coverage>""",
@@ -68,3 +68,21 @@ def test_counts_only_allowlisted_production_packages(tmp_path: Path) -> None:
     result = module.check_coverage([report], 49.0, 49.0, {"VMx"})
 
     assert result == (50.0, 50.0)
+
+
+def test_union_merges_duplicate_source_lines_across_reports(tmp_path: Path) -> None:
+    module = _load_module()
+    reports = []
+    for index, (hits, covered) in enumerate(((0, 0), (3, 1))):
+        report = tmp_path / f"coverage-{index}.xml"
+        report.write_text(
+            f"""<coverage><packages><package name="VMx"><classes>
+            <class filename="VMx/Example.cs"><lines>
+              <line number="10" hits="{hits}" branch="True"
+                    condition-coverage="50% ({covered}/2)"/>
+            </lines></class></classes></package></packages></coverage>""",
+            encoding="utf-8",
+        )
+        reports.append(report)
+
+    assert module.check_coverage(reports, 100.0, 50.0, {"VMx"}) == (100.0, 50.0)

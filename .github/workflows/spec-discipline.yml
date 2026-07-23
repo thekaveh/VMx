@@ -15,6 +15,7 @@ on:
 
 jobs:
   check:
+    timeout-minutes: 10
     name: "required: spec discipline"
     runs-on: ubuntu-latest
     steps:

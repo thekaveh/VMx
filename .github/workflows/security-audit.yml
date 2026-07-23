@@ -14,6 +14,7 @@ on:
 
 jobs:
   codeql:
+    timeout-minutes: 45
     name: "CodeQL (${{ matrix.language }})"
     runs-on: ${{ matrix.runner }}
     permissions:
@@ -56,6 +57,7 @@ jobs:
           category: "/language:${{ matrix.language }}"
 
   npm:
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -72,6 +74,7 @@ jobs:
       - run: npm audit --prefix "${{ matrix.project }}" --package-lock-only --audit-level=low
 
   cargo:
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -86,6 +89,7 @@ jobs:
           cargo audit --file examples/rust/tui/notes-showcase/Cargo.lock --deny warnings
 
   python:
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -106,6 +110,7 @@ jobs:
         working-directory: ${{ matrix.project }}
 
   docs:
+    timeout-minutes: 15
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -117,6 +122,7 @@ jobs:
       - run: /tmp/vmx-docs-audit/bin/python -m pip_audit --local
 
   nuget:
+    timeout-minutes: 20
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -136,6 +142,7 @@ jobs:
           "-warnaserror:NU1901;NU1902;NU1903;NU1904"
 
   required:
+    timeout-minutes: 5
     name: "required: security"
     if: always()
     needs: [codeql, npm, cargo, python, docs, nuget]

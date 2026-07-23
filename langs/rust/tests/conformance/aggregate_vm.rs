@@ -390,6 +390,24 @@ fn fixed_aggregate_rejects_owned_and_duplicate_components() {
 }
 
 #[test]
+fn fixed_aggregate_reconstruct_rejects_its_current_slot_without_disposing_it() {
+    let child = text("child");
+    let candidate = child.clone();
+    let aggregate = vmx::AggregateVm1::builder()
+        .name("aggregate")
+        .services(MessageHub::new(), NullDispatcher::new())
+        .component_1(move || candidate.clone())
+        .build()
+        .unwrap();
+    aggregate.construct().unwrap();
+
+    assert_eq!(aggregate.reconstruct(), Err(VmxError::InconsistentParent));
+    assert_eq!(aggregate.component_1(), Some(child.clone()));
+    assert_eq!(child.status(), ConstructionStatus::Destructed);
+    assert_eq!(child.parent_id(), Some(aggregate.id()));
+}
+
+#[test]
 fn concurrent_fixed_aggregates_cannot_both_claim_one_child() {
     let (child, entered, release) = blocking_ownership_node();
     let (first_send, first_receive) = mpsc::channel();
@@ -440,9 +458,10 @@ fn assert_disposal_failure_keeps_reconstructed_slots_consistent(failing_slot: us
     let original2 = second.clone();
     let next1 = replacement1.clone();
     let next2 = replacement2.clone();
+    let hub = MessageHub::new();
     let aggregate = vmx::AggregateVm2::builder()
         .name("aggregate")
-        .services(MessageHub::new(), NullDispatcher::new())
+        .services(hub.clone(), NullDispatcher::new())
         .component_1(move || {
             if observed1.fetch_add(1, Ordering::SeqCst) == 0 {
                 original1.clone()
@@ -460,8 +479,31 @@ fn assert_disposal_failure_keeps_reconstructed_slots_consistent(failing_slot: us
         .build()
         .unwrap();
     aggregate.construct().unwrap();
+    let local_names = Arc::new(Mutex::new(Vec::new()));
+    let observed_names = Arc::clone(&local_names);
+    let _subscription = aggregate.property_changed().subscribe(move |name| {
+        if name.starts_with("component_") {
+            observed_names.lock().unwrap().push(name.to_string());
+        }
+    });
+    let initial_hub_count = hub
+        .history()
+        .iter()
+        .filter(|message| matches!(message, Message::PropertyChanged(change) if change.property_name.starts_with("component_")))
+        .count();
 
     assert!(matches!(aggregate.reconstruct(), Err(VmxError::Other(_))));
+
+    assert_eq!(
+        *local_names.lock().unwrap(),
+        vec!["component_1".to_string(), "component_2".to_string()]
+    );
+    let final_hub_count = hub
+        .history()
+        .iter()
+        .filter(|message| matches!(message, Message::PropertyChanged(change) if change.property_name.starts_with("component_")))
+        .count();
+    assert_eq!(final_hub_count - initial_hub_count, 2);
 
     assert_eq!(aggregate.component_1(), Some(replacement1.clone()));
     assert_eq!(aggregate.component_2(), Some(replacement2.clone()));

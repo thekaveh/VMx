@@ -8,15 +8,18 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### Changed
 
-- CI now enforces measured aggregate Cobertura floors of 70% line coverage and
-  62% branch coverage across the three production packages, excluding test
-  assemblies from the calculation.
+- CI now union-merges duplicate source-line coverage across test hosts and
+  target frameworks, then enforces measured floors of 90% line coverage and
+  82% branch coverage across the three production packages while excluding
+  test assemblies.
 - CI and release verification now exercise .NET 8, .NET 9, and the current
   .NET 10 LTS; System.Reactive and Microsoft.Reactive.Testing are upgraded to
   7.0.0 with their compatible immutable-collections graph.
 
 ### Fixed
 
+- Lazy aggregate reconstruction now rejects a factory that returns any
+  currently owned slot before disposing or overwriting that component.
 - Pre-owned and multiply decorated components now retain one canonical,
   transferable container identity (FWD-004, ADR-0124).
 

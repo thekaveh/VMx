@@ -21,6 +21,7 @@ defaults:
 
 jobs:
   build:
+    timeout-minutes: 30
     name: build & test (${{ matrix.os }} / py${{ matrix.python-version }})
     runs-on: ${{ matrix.os }}
     strategy:
@@ -73,6 +74,7 @@ jobs:
           fail_ci_if_error: false
 
   examples:
+    timeout-minutes: 30
     # Syncs + tests the Notes-Showcase Textual example (Phase 8 of the
     # notes-showcase plan). Kept as a separate job because the existing
     # `build` job pins `defaults.run.working-directory: langs/python` and runs
@@ -121,6 +123,7 @@ jobs:
         run: uv run --directory examples/python/textual/notes_showcase pytest
 
   small-examples:
+    timeout-minutes: 20
     name: examples (console + tk)
     runs-on: ubuntu-latest
     defaults:
@@ -160,6 +163,7 @@ jobs:
         run: uv run --directory examples/python python -m compileall tk/todo_app
 
   inspector:
+    timeout-minutes: 30
     # vmx_inspector (Textual TUI) is a separate standalone uv project; gate it
     # under the same ruff/mypy/pytest standards as the lib + showcase so the
     # quality bar stays uniform across all Python examples.
@@ -201,6 +205,7 @@ jobs:
         run: uv run --directory examples/python/textual/inspector pytest
 
   package:
+    timeout-minutes: 15
     name: package (wheel + sdist)
     runs-on: ubuntu-latest
     defaults:
@@ -226,6 +231,7 @@ jobs:
           uv run --project "$sdist_root" pytest "$sdist_root/tests/conformance" -q
 
   required:
+    timeout-minutes: 5
     name: "required: python"
     if: always()
     needs: [build, examples, small-examples, inspector, package]

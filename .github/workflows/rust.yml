@@ -19,6 +19,7 @@ on:
 
 jobs:
   audit:
+    timeout-minutes: 15
     name: dependency advisory audit
     runs-on: ubuntu-latest
     steps:
@@ -39,6 +40,7 @@ jobs:
           cargo audit --file examples/rust/tui/notes-showcase/Cargo.lock --deny warnings
 
   build:
+    timeout-minutes: 30
     name: build & test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
@@ -64,6 +66,7 @@ jobs:
         run: cargo test --locked --manifest-path langs/rust/Cargo.toml
 
   examples:
+    timeout-minutes: 20
     name: examples
     runs-on: ubuntu-latest
     steps:
@@ -84,6 +87,7 @@ jobs:
         run: cargo run --locked --manifest-path examples/rust/tui/notes-showcase/Cargo.toml -- --smoke
 
   package:
+    timeout-minutes: 15
     name: package (${{ matrix.toolchain }})
     runs-on: ubuntu-latest
     strategy:
@@ -113,6 +117,7 @@ jobs:
             --version "$version"
 
   required:
+    timeout-minutes: 5
     name: "required: rust"
     if: always()
     needs: [audit, build, examples, package]

@@ -38,10 +38,9 @@ export function validateAggregateSlots(
       throw new Error("Aggregate factories returned duplicate canonical identity");
     }
     seen.add(identity);
-    if (
-      child._parent !== null &&
-      !(child._parent === parent && parent.containsChild(child))
-    ) throw new Error(`Cannot populate aggregate with '${child.name}': already owned`);
+    if (child._parent !== null) {
+      throw new Error(`Cannot populate aggregate with '${child.name}': already owned`);
+    }
     let cursor: IOwningParentVM | null = parent;
     while (cursor !== null) {
       if (cursor.owner._ownershipIdentity === identity) {

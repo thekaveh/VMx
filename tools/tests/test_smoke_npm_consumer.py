@@ -68,7 +68,7 @@ def test_wait_for_version_polls_until_exact_version() -> None:
         "3.21.0",
         1,
         interval_seconds=0.01,
-        lookup=lambda _package, _version: next(responses),
+        lookup=lambda _package, _version, _timeout: next(responses),
         sleeper=sleeps.append,
     )
 
@@ -81,9 +81,22 @@ def test_wait_for_version_times_out_when_exact_version_is_absent() -> None:
             "@thekaveh/vmx",
             "3.21.0",
             0,
-            lookup=lambda _package, _version: None,
+            lookup=lambda _package, _version, _timeout: None,
             sleeper=lambda _seconds: None,
         )
+
+
+def test_registry_lookup_is_bounded_by_remaining_poll_time(monkeypatch: pytest.MonkeyPatch) -> None:
+    observed: list[float] = []
+
+    def fake_run(*_args: object, **kwargs: object) -> object:
+        observed.append(float(kwargs["timeout"]))
+        return type("Result", (), {"returncode": 1, "stdout": ""})()
+
+    monkeypatch.setattr(smoke.subprocess, "run", fake_run)
+
+    assert smoke._registry_version("@thekaveh/vmx", "3.21.0", 2.5) is None
+    assert observed == [2.5]
 
 
 @pytest.mark.parametrize("version", ["main", "3.21", "v3.21.0", "3.21.0-beta.1"])

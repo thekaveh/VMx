@@ -1,10 +1,23 @@
 """Cross-cutting CI coverage contracts."""
 
 import json
+import re
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOWS = REPO_ROOT / ".github" / "workflows"
+
+
+def test_every_workflow_job_has_a_hard_timeout() -> None:
+    for path in WORKFLOWS.glob("*.yml"):
+        workflow = path.read_text(encoding="utf-8").split("\njobs:\n", maxsplit=1)[1]
+        starts = list(re.finditer(r"(?m)^  ([A-Za-z0-9_-]+):\n", workflow))
+        for index, start in enumerate(starts):
+            end = starts[index + 1].start() if index + 1 < len(starts) else len(workflow)
+            job = workflow[start.start() : end]
+            assert re.search(r"(?m)^    timeout-minutes: [1-9]\d*$", job), (
+                f"{path.name}:{start.group(1)} lacks timeout"
+            )
 
 
 def test_csharp_and_typescript_library_coverage_is_enforced() -> None:
@@ -12,8 +25,8 @@ def test_csharp_and_typescript_library_coverage_is_enforced() -> None:
     typescript = (REPO_ROOT / "langs/typescript/vitest.config.ts").read_text(encoding="utf-8")
 
     assert "tools/check-cobertura-threshold.py" in csharp
-    assert "minimum-line 70" in csharp
-    assert "minimum-branch 62" in csharp
+    assert "minimum-line 90" in csharp
+    assert "minimum-branch 82" in csharp
     for package in ("VMx", "VMx.Extensions.DependencyInjection", "VMx.Notifications"):
         assert f"--package {package}" in csharp
     assert "thresholds:" in typescript

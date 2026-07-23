@@ -49,8 +49,7 @@ internal static class AggregateOwnership
                 throw new InvalidOperationException(
                     "Aggregate factories returned the same canonical component identity more than once.");
             var existingParent = child.GetParent();
-            if (existingParent is not null &&
-                !(ReferenceEquals(existingParent, parent) && parent.ContainsChild(child)))
+            if (existingParent is not null)
                 throw new InvalidOperationException(
                     $"Cannot populate aggregate slot with '{child.Name}': it already has a parent.");
 
