@@ -257,6 +257,84 @@ async def test_command_routes_completion_notification_failure_with_ready_state(
 
 
 @pytest.mark.asyncio
+async def test_external_cancellation_preserves_cancel_and_cleans_late_success() -> None:
+    started = asyncio.Event()
+    cleaned: list[int] = []
+    rollback_failures = 0
+
+    async def loader() -> int:
+        started.set()
+        try:
+            await asyncio.Future()
+        except asyncio.CancelledError:
+            await asyncio.sleep(0)
+            return 42
+
+    vm = _vm(loader, cleanup=cleaned.append)
+
+    def fail_first_idle_notification(_: None) -> None:
+        nonlocal rollback_failures
+        if vm.state.status is AsyncResourceStatus.IDLE and rollback_failures == 0:
+            rollback_failures += 1
+            raise RuntimeError("rollback observer")
+
+    vm.load_command.can_execute_changed.subscribe(fail_first_idle_notification)
+    load = asyncio.create_task(vm.load())
+    await started.wait()
+
+    load.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await load
+    await _wait_until(lambda: cleaned == [42])
+
+    assert vm.state.status is AsyncResourceStatus.IDLE
+    assert vm._operation is None
+    assert rollback_failures == 1
+    assert cleaned == [42]
+
+
+@pytest.mark.asyncio
+async def test_command_cancellation_with_rollback_failure_stays_nonthrowing() -> None:
+    started = asyncio.Event()
+    cleaned: list[int] = []
+    errors: list[BaseException] = []
+    rollback_failures = 0
+    armed = False
+
+    async def loader() -> int:
+        started.set()
+        try:
+            await asyncio.Future()
+        except asyncio.CancelledError:
+            await asyncio.sleep(0)
+            return 42
+
+    vm = _vm(loader, cleanup=cleaned.append)
+
+    def fail_first_idle_notification(_: None) -> None:
+        nonlocal rollback_failures
+        if armed and vm.state.status is AsyncResourceStatus.IDLE and rollback_failures == 0:
+            rollback_failures += 1
+            raise RuntimeError("rollback observer")
+
+    vm.load_command.can_execute_changed.subscribe(fail_first_idle_notification)
+    vm.load_command.errors.subscribe(errors.append)
+    vm.load_command.execute()
+    await started.wait()
+
+    armed = True
+    vm.load_command.cancel()
+    await _wait_until(lambda: cleaned == [42])
+    await _flush()
+
+    assert vm.state.status is AsyncResourceStatus.IDLE
+    assert vm._operation is None
+    assert rollback_failures == 1
+    assert cleaned == [42]
+    assert errors == []
+
+
+@pytest.mark.asyncio
 @pytest.mark.conformance("ARES-003")
 async def test_ares_003_failure_is_state_not_command_error() -> None:
     failure = RuntimeError("offline")

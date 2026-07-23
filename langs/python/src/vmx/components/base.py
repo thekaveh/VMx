@@ -491,23 +491,33 @@ class _ComponentVMBase(ABC):
             if self._status == ConstructionStatus.DISPOSED or self._trigger_disposed:
                 return
             self._active_property_notifications += 1
-        try:
+        first_error: BaseException | None = None
+
+        def attempt(action: Callable[[], None]) -> None:
+            nonlocal first_error
             try:
-                self._hub.send(PropertyChangedMessage.create(self, self._name, property_name))
-            finally:
-                # This call was admitted before disposal. Its local half must
-                # still run if a hub observer disposes the VM re-entrantly.
-                self._property_changed_subject.on_next(property_name)
-        finally:
-            with self._lifecycle_lock:
-                self._active_property_notifications -= 1
-                if (
-                    self._active_property_notifications == 0
-                    and self._property_notification_teardown_pending
-                ):
-                    self._property_notification_teardown_pending = False
-                    self._property_changed_subject.on_completed()
-                    self._property_changed_subject.dispose()
+                action()
+            except BaseException as error:
+                if first_error is None:
+                    first_error = error
+
+        attempt(
+            lambda: self._hub.send(PropertyChangedMessage.create(self, self._name, property_name))
+        )
+        # This call was admitted before disposal. Its local half must still run
+        # if a hub observer disposes the VM re-entrantly.
+        attempt(lambda: self._property_changed_subject.on_next(property_name))
+        with self._lifecycle_lock:
+            self._active_property_notifications -= 1
+            if (
+                self._active_property_notifications == 0
+                and self._property_notification_teardown_pending
+            ):
+                self._property_notification_teardown_pending = False
+                attempt(self._property_changed_subject.on_completed)
+                attempt(self._property_changed_subject.dispose)
+        if first_error is not None:
+            raise first_error
 
     # ── Built-in commands (lazily built + cached — VMX-018) ──────────────────
     def _build_command(

@@ -5,10 +5,12 @@ import html
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import unquote
+from urllib.parse import unquote, urlparse
+
+import yaml
 
 from scripts.docs import build_docs
-from scripts.docs.links import HTML_LINK_ATTR_RE, find_links, is_forbidden
+from scripts.docs.links import find_html_link_attributes, find_links, is_forbidden
 from scripts.docs.manifest import load_manifest
 
 PLACEHOLDER_RE = re.compile(r"\b(TODO|TBD|FIXME)\b")
@@ -88,14 +90,14 @@ def check_self_containment(repo_root: Path) -> list[Finding]:
         for path in _scan_markdown(root):
             text = path.read_text(encoding="utf-8")
             targets = [link.target for link in find_links(text)]
-            targets.extend(match.group("target") for match in HTML_LINK_ATTR_RE.finditer(text))
+            targets.extend(attribute.target for attribute in find_html_link_attributes(text))
             for target in targets:
                 if is_forbidden(target, surface):
                     findings.append(Finding("error", f"{path}: forbidden {surface} link {target}"))
     for path in _scan_repo_surface_markdown(repo_root):
         text = path.read_text(encoding="utf-8")
         targets = [link.target for link in find_links(text)]
-        targets.extend(match.group("target") for match in HTML_LINK_ATTR_RE.finditer(text))
+        targets.extend(attribute.target for attribute in find_html_link_attributes(text))
         for target in targets:
             if is_forbidden(target, "repo"):
                 findings.append(
@@ -170,7 +172,7 @@ def check_canonical_links(repo_root: Path) -> list[Finding]:
     for path in _scan_markdown(repo_root / "docs/content"):
         text = _without_fenced_code(path.read_text(encoding="utf-8"))
         targets = [link.target for link in find_links(text)]
-        targets.extend(match.group("target") for match in HTML_LINK_ATTR_RE.finditer(text))
+        targets.extend(attribute.target for attribute in find_html_link_attributes(text))
         for target in targets:
             if not _relative_target_exists(path, target):
                 findings.append(
@@ -221,14 +223,38 @@ def check_generated_wiki_links(repo_root: Path) -> list[Finding]:
     return findings
 
 
-def _generated_site_target(source: Path, root: Path, target: str) -> Path | None:
-    clean = target.split("#", 1)[0].split("?", 1)[0]
+def _site_base_path(repo_root: Path) -> str:
+    config = repo_root / "mkdocs.yml"
+    if not config.is_file():
+        return ""
+    data = yaml.safe_load(config.read_text(encoding="utf-8")) or {}
+    site_url = data.get("site_url", "")
+    return urlparse(site_url).path.rstrip("/") if isinstance(site_url, str) else ""
+
+
+def _generated_site_target(
+    source: Path,
+    root: Path,
+    target: str,
+    site_base_path: str,
+) -> Path | None:
+    clean = unquote(target.split("#", 1)[0].split("?", 1)[0])
     base = source.parent if source.name == "index.md" else source.with_suffix("")
     if not clean:
         return source
-    route = (
-        (root / clean.lstrip("/")).resolve() if clean.startswith("/") else (base / clean).resolve()
-    )
+    if clean.startswith("/"):
+        if site_base_path:
+            if clean != site_base_path and not clean.startswith(f"{site_base_path}/"):
+                return None
+            clean = clean.removeprefix(site_base_path).lstrip("/")
+            if not clean:
+                index = root / "index.md"
+                return index if index.is_file() else None
+        else:
+            clean = clean.lstrip("/")
+        route = (root / clean).resolve()
+    else:
+        route = (base / clean).resolve()
     try:
         route.relative_to(root.resolve())
     except ValueError:
@@ -259,17 +285,22 @@ def _generated_wiki_target(source: Path, root: Path, target: str) -> Path | None
 def check_generated_html_links(repo_root: Path) -> list[Finding]:
     """Reject broken raw-HTML routes and fragments on generated surfaces."""
     findings: list[Finding] = []
-    for surface, root, resolver in (
-        ("site", repo_root / "generated/site", _generated_site_target),
-        ("wiki", repo_root / "generated/wiki", _generated_wiki_target),
+    site_base_path = _site_base_path(repo_root)
+    for surface, root in (
+        ("site", repo_root / "generated/site"),
+        ("wiki", repo_root / "generated/wiki"),
     ):
         for path in _scan_markdown(root):
             text = _without_fenced_code(path.read_text(encoding="utf-8"))
-            for match in HTML_LINK_ATTR_RE.finditer(text):
-                target = html.unescape(match.group("target"))
+            for attribute in find_html_link_attributes(text):
+                target = html.unescape(attribute.target)
                 if target.startswith(("http://", "https://", "mailto:", "data:")):
                     continue
-                target_path = resolver(path, root, target)
+                target_path = (
+                    _generated_site_target(path, root, target, site_base_path)
+                    if surface == "site"
+                    else _generated_wiki_target(path, root, target)
+                )
                 if target_path is None:
                     findings.append(
                         Finding("error", f"{path}: {surface} target does not exist: {target}")

@@ -17,7 +17,7 @@ from scripts.docs.check_docs import (
     check_raw_html_headings,
     check_self_containment,
 )
-from scripts.docs.links import find_links, is_forbidden
+from scripts.docs.links import find_html_link_attributes, find_links, is_forbidden
 from scripts.docs.manifest import load_manifest
 from scripts.docs.transforms import build_source_map, rewrite_for_surface
 
@@ -135,13 +135,15 @@ def test_canonical_link_check_accepts_case_and_quote_variants_for_html_attribute
     page = tmp_path / "docs/content/index.md"
     page.parent.mkdir(parents=True)
     page.write_text(
-        "<A HREF='missing.md'>Missing</A>\n<img SRC='missing.png'>\n",
+        "<A HREF='missing.md'>Missing</A>\n"
+        "<img SRC='missing.png'>\n"
+        "<a href=also-missing.md>Missing</a>\n",
         encoding="utf-8",
     )
 
     findings = check_canonical_links(tmp_path)
 
-    assert len(findings) == 2
+    assert len(findings) == 3
     assert all("target does not exist" in finding.message for finding in findings)
 
 
@@ -341,6 +343,50 @@ def test_html_rewrite_accepts_case_and_quote_variants() -> None:
     assert rewritten == "<A HREF='../notes-workspace-vm-layer/#details'>VM layer</A>"
 
 
+def test_html_rewrite_supports_unquoted_attributes_and_preserves_code_and_comments() -> None:
+    manifest = load_manifest(ROOT / "docs/manifest.yaml", ROOT)
+    source_map = build_source_map(manifest, "site")
+    source = Path("docs/content/examples/notes-workspace.md")
+    markdown = (
+        "<a href=notes-workspace-vm-layer.md>Actual</a>\n\n"
+        '`<a href="notes-workspace-vm-layer.md">inline</a>`\n\n'
+        '```html\n<a href="notes-workspace-vm-layer.md">fenced</a>\n```\n\n'
+        '    <a href="notes-workspace-vm-layer.md">indented</a>\n\n'
+        '<!-- <a href="notes-workspace-vm-layer.md">commented</a> -->\n'
+    )
+
+    rewritten = rewrite_for_surface(
+        markdown,
+        surface="site",
+        current_source=source,
+        current_output=source_map[source],
+        source_map=source_map,
+        repo_root=ROOT,
+    )
+
+    assert rewritten.startswith("<a href=../notes-workspace-vm-layer/>Actual</a>")
+    assert '`<a href="notes-workspace-vm-layer.md">inline</a>`' in rewritten
+    assert '```html\n<a href="notes-workspace-vm-layer.md">fenced</a>\n```' in rewritten
+    assert '    <a href="notes-workspace-vm-layer.md">indented</a>' in rewritten
+    assert '<!-- <a href="notes-workspace-vm-layer.md">commented</a> -->' in rewritten
+
+
+def test_html_attribute_scanner_ignores_non_html_contexts() -> None:
+    markdown = (
+        "<a href=actual.md>Actual</a>\n"
+        "`<a href='inline.md'>Inline</a>`\n"
+        "```\n<img src='fenced.png'>\n```\n"
+        "    <a href='indented.md'>Indented</a>\n"
+        "<!-- <a href='commented.md'>Commented</a> -->\n"
+    )
+
+    attributes = find_html_link_attributes(markdown)
+
+    assert [(attribute.attribute.lower(), attribute.target) for attribute in attributes] == [
+        ("href", "actual.md")
+    ]
+
+
 def test_self_containment_checks_raw_html_attributes(tmp_path: Path) -> None:
     (tmp_path / "README.md").write_text(
         "<A HREF='https://github.com/thekaveh/VMx/wiki'>Wiki</A>\n",
@@ -351,6 +397,19 @@ def test_self_containment_checks_raw_html_attributes(tmp_path: Path) -> None:
 
     assert len(findings) == 1
     assert "forbidden repo-surface link" in findings[0].message
+
+
+def test_self_containment_ignores_html_like_code_and_comments(tmp_path: Path) -> None:
+    forbidden = "https://github.com/thekaveh/VMx/wiki"
+    (tmp_path / "README.md").write_text(
+        f"`<a href='{forbidden}'>Inline</a>`\n"
+        f"```\n<img src='{forbidden}'>\n```\n"
+        f"    <a href='{forbidden}'>Indented</a>\n"
+        f"<!-- <a href='{forbidden}'>Commented</a> -->\n",
+        encoding="utf-8",
+    )
+
+    assert check_self_containment(tmp_path) == []
 
 
 def test_generated_html_link_check_validates_routes_assets_and_fragments(
@@ -381,6 +440,36 @@ def test_generated_html_link_check_validates_routes_assets_and_fragments(
     assert len(findings) == 3
     assert sum("heading fragment does not exist" in item.message for item in findings) == 2
     assert sum("target does not exist" in item.message for item in findings) == 1
+
+
+def test_generated_site_links_honor_deployment_base_and_decode_paths(tmp_path: Path) -> None:
+    site = tmp_path / "generated/site"
+    site.mkdir(parents=True)
+    (tmp_path / "mkdocs.yml").write_text(
+        "site_url: https://example.test/VMx/\n",
+        encoding="utf-8",
+    )
+    (site / "index.md").write_text(
+        "# Home\n\n"
+        "<a href='/VMx/#home'>Base root</a>\n"
+        "<a href='/VMx/installation/#install'>Base-prefixed</a>\n"
+        "<a href='/installation/'>Outside base</a>\n"
+        "<a href='getting%2Dstarted/?mode=full#start'>Encoded</a>\n"
+        "<a href='/VMx/%2e%2e/secret/'>Traversal</a>\n",
+        encoding="utf-8",
+    )
+    (site / "installation.md").write_text("# Install\n\n## Install\n", encoding="utf-8")
+    (site / "getting-started.md").write_text(
+        "# Getting started\n\n## Start\n",
+        encoding="utf-8",
+    )
+
+    findings = check_generated_html_links(tmp_path)
+
+    assert len(findings) == 2
+    assert all("target does not exist" in item.message for item in findings)
+    assert any("/installation/" in item.message for item in findings)
+    assert any("%2e%2e" in item.message for item in findings)
 
 
 def test_markdown_link_scanner_does_not_cross_line_boundaries() -> None:

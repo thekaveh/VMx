@@ -5,7 +5,12 @@ import os
 import re
 from pathlib import Path
 
-from scripts.docs.links import HTML_LINK_ATTR_RE, MARKDOWN_LINK_RE, is_forbidden
+from scripts.docs.links import (
+    MARKDOWN_LINK_RE,
+    HtmlLinkAttribute,
+    find_html_link_attributes,
+    is_forbidden,
+)
 from scripts.docs.manifest import Manifest, Section
 
 ASSET_PREFIX_RE = re.compile(r"(?P<prefix>(?:\.\./)+)assets/diagrams/(?P<asset>[^)\s]+)")
@@ -149,8 +154,8 @@ def rewrite_for_surface(
 
     text = MARKDOWN_LINK_RE.sub(replace, markdown)
 
-    def replace_html_link_attribute(match: re.Match[str]) -> str:
-        target = html.unescape(match.group("target"))
+    def replace_html_link_attribute(attribute: HtmlLinkAttribute) -> str:
+        target = html.unescape(attribute.target)
         mapped = _mapped_target(
             target,
             current_source=current_source,
@@ -160,7 +165,7 @@ def rewrite_for_surface(
             repo_root=selected_root,
         )
         if mapped is None:
-            return "" if is_forbidden(target, surface) else match.group(0)
+            return "" if is_forbidden(target, surface) else text[attribute.start : attribute.end]
         if mapped.startswith("wiki:"):
             mapped = mapped[5:]
         else:
@@ -179,11 +184,12 @@ def rewrite_for_surface(
                 mapped_path = f"../{mapped_path}"
             mapped = f"{mapped_path}{suffix}"
         return (
-            f"{match.group('attribute')}{match.group('separator')}"
-            f"{match.group('quote')}{mapped}{match.group('quote')}"
+            f"{attribute.attribute}{attribute.separator}{attribute.quote}{mapped}{attribute.quote}"
         )
 
-    text = HTML_LINK_ATTR_RE.sub(replace_html_link_attribute, text)
+    for attribute in reversed(find_html_link_attributes(text)):
+        replacement = replace_html_link_attribute(attribute)
+        text = f"{text[: attribute.start]}{replacement}{text[attribute.end :]}"
     if surface == "wiki":
         text = ASSET_PREFIX_RE.sub(r"assets/diagrams/\g<asset>", text)
     return text

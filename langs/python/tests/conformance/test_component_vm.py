@@ -287,6 +287,35 @@ def test_CVM_007_notification_helper_emits_hub_then_local_once() -> None:
     assert trace == ["hub:7", "local:value:7"]
 
 
+def test_notification_helper_preserves_hub_failure_before_local_failure() -> None:
+    class HubFailureError(RuntimeError):
+        pass
+
+    class LocalFailureError(RuntimeError):
+        pass
+
+    trace: list[str] = []
+
+    class ThrowingHub(MessageHub[object]):
+        def send(self, message: object) -> None:
+            trace.append("hub")
+            raise HubFailureError("hub-first")
+
+    hub = ThrowingHub()
+    vm = _NotificationProbeVM(hub)
+
+    def fail_local(_: str) -> None:
+        trace.append("local")
+        raise LocalFailureError("local-second")
+
+    vm.property_changed.subscribe(fail_local)
+
+    with pytest.raises(HubFailureError, match="hub-first"):
+        vm.emit_value_notification()
+
+    assert trace == ["hub", "local"]
+
+
 @pytest.mark.conformance("CVM-007")
 def test_CVM_007_deferred_delivery_and_reentrant_disposal_complete_pair() -> None:
     batched_hub = _hub()

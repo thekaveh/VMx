@@ -1575,14 +1575,13 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         // External observers run outside the lifecycle gate. Once admitted by
         // the terminal-state check, both channels complete even when a hub
         // observer disposes this VM re-entrantly.
-        try
-        {
-            _hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, propertyName));
-        }
-        finally
-        {
-            RaisePropertyChanged(propertyName);
-        }
+        ExceptionDispatchInfo? firstError = null;
+        CaptureDisposalFailure(
+            ref firstError,
+            () => _hub.Send(
+                PropertyChangedMessage<IComponentVM>.Create(this, Name, propertyName)));
+        CaptureDisposalFailure(ref firstError, () => RaisePropertyChanged(propertyName));
+        firstError?.Throw();
     }
 
     /// <summary>Raises only the local <see cref="PropertyChanged"/> event.</summary>

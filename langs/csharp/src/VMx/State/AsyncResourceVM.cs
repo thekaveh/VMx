@@ -244,7 +244,15 @@ public sealed class AsyncResourceVM<T> : ComponentVMBase
                 : AsyncResourceState<T>.Loading();
         }
 
-        previousOperation?.Cancel();
+        try
+        {
+            previousOperation?.Cancel();
+        }
+        catch (Exception error)
+        {
+            RollBackStart(operation, error).Throw();
+            throw;
+        }
         if (cleanupDiscarded)
         {
             Cleanup(discarded!);
@@ -260,23 +268,8 @@ public sealed class AsyncResourceVM<T> : ComponentVMBase
         }
         catch (Exception error)
         {
-            var firstError = ExceptionDispatchInfo.Capture(error);
-            bool rollback;
-            lock (_resourceGate)
-            {
-                rollback = IsCurrentUnsafe(operation);
-                if (rollback)
-                {
-                    unchecked { _operationIdentity++; }
-                    _operation = null;
-                    _state = operation.Baseline;
-                }
-            }
-            CaptureFailure(ref firstError, operation.Cancel);
-            CaptureFailure(ref firstError, operation.Dispose);
-            if (rollback)
-                CaptureFailure(ref firstError, NotifyStateChanged);
-            firstError!.Throw();
+            RollBackStart(operation, error).Throw();
+            throw;
         }
         // Register only after Loading has been published. Registration invokes
         // synchronously if cancellation raced admission, so the handler then
@@ -437,6 +430,27 @@ public sealed class AsyncResourceVM<T> : ComponentVMBase
         CaptureFailure(ref firstError, ReloadCommand.RaiseCanExecuteChanged);
         CaptureFailure(ref firstError, CancelCommand.RaiseCanExecuteChanged);
         firstError?.Throw();
+    }
+
+    private ExceptionDispatchInfo RollBackStart(ResourceOperation operation, Exception error)
+    {
+        ExceptionDispatchInfo? firstError = ExceptionDispatchInfo.Capture(error);
+        bool rollback;
+        lock (_resourceGate)
+        {
+            rollback = IsCurrentUnsafe(operation);
+            if (rollback)
+            {
+                unchecked { _operationIdentity++; }
+                _operation = null;
+                _state = operation.Baseline;
+            }
+        }
+        CaptureFailure(ref firstError, operation.Cancel);
+        CaptureFailure(ref firstError, operation.Dispose);
+        if (rollback)
+            CaptureFailure(ref firstError, NotifyStateChanged);
+        return firstError!;
     }
 
     private void Cleanup(T value)

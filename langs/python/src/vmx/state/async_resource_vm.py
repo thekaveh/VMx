@@ -278,7 +278,13 @@ class AsyncResourceVM(Generic[T], _ComponentVMBase):
                 self._operation_identity += 1
                 self._operation = None
                 self._cancel_operation(operation)
-                self._set_state(baseline)
+                try:
+                    self._set_state(baseline)
+                except BaseException:
+                    # Cancellation is the primary control-flow outcome. A
+                    # rollback observer cannot replace it or prevent ownership
+                    # cleanup for a cancellation-resistant loader.
+                    pass
             self._register_late_cleanup(operation)
             raise
 

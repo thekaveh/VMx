@@ -71,6 +71,28 @@ public class ComponentVMTests
         vm.Dispose();
     }
 
+    [Fact]
+    public void Property_Notification_Preserves_Hub_Failure_Before_Local_Failure()
+    {
+        var (vm, hub, _) = BuildVm();
+        var trace = new List<string>();
+        using var subscription = hub.Messages.Subscribe(_ =>
+        {
+            trace.Add("hub");
+            throw new InvalidOperationException("hub-first");
+        });
+        ((INotifyPropertyChanged)vm).PropertyChanged += (_, _) =>
+        {
+            trace.Add("local");
+            throw new ArgumentException("local-second");
+        };
+
+        Action act = () => vm.Model = "next";
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("hub-first");
+        trace.Should().Equal("hub", "local");
+    }
+
     // ── Identity ─────────────────────────────────────────────────────────────
 
     [Fact]

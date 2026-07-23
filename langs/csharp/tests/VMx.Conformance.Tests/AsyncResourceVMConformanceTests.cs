@@ -220,6 +220,42 @@ public sealed class AsyncResourceVMConformanceTests
         accessDisposedSource.Should().Throw<ObjectDisposedException>();
     }
 
+    [Fact]
+    public async Task Superseding_Start_Rolls_Back_When_Previous_Cancellation_Callback_Throws()
+    {
+        using var hub = new MessageHub();
+        var first = NewSource<int>();
+        var cleaned = new List<int>();
+        var calls = 0;
+        var vm = Create(
+            hub,
+            token =>
+            {
+                calls++;
+                token.Register(() => throw new InvalidOperationException("cancel callback"));
+                return first.Task;
+            },
+            cleanup: cleaned.Add);
+        var older = vm.LoadAsync();
+
+        Func<Task> act = () => vm.ReloadAsync();
+
+        var thrown = await act.Should().ThrowAsync<AggregateException>();
+        thrown.Which.InnerExceptions.Should().ContainSingle()
+            .Which.Should().BeOfType<InvalidOperationException>()
+            .Which.Message.Should().Be("cancel callback");
+        vm.State.Status.Should().Be(AsyncResourceStatus.Idle);
+        calls.Should().Be(1);
+        vm.LoadCommand.CanExecute(null).Should().BeTrue();
+        vm.ReloadCommand.CanExecute(null).Should().BeFalse();
+        vm.CancelCommand.CanExecute(null).Should().BeFalse();
+
+        first.SetResult(42);
+        await WaitUntilAsync(() => cleaned.Count == 1);
+        await older;
+        cleaned.Should().Equal(42);
+    }
+
     [Fact, Trait("Conformance", "ARES-003")]
     public async Task ARES_003_Failure_Is_State_Not_Command_Error()
     {
