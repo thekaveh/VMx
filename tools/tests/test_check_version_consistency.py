@@ -1256,6 +1256,9 @@ def test_release_tag_rejects_indented_duplicate_unreleased_section(
         "##\t[Unreleased]",
         "  ##  [Unreleased]",
         "[Unreleased]\n---",
+        r"## \[Unreleased]",
+        "## &#91;Unreleased]",
+        "## &#x5B;Unreleased]",
     ],
 )
 def test_release_tag_rejects_noncanonical_markdown_h2(tmp_path: Path, heading: str) -> None:
@@ -1391,7 +1394,14 @@ def test_csharp_release_gates_reject_malformed_bracketed_keys(tmp_path: Path, he
 
 @pytest.mark.parametrize(
     "heading",
-    ["##  [Unreleased]", "##\t[Unreleased]", "[Unreleased]\n---"],
+    [
+        "##  [Unreleased]",
+        "##\t[Unreleased]",
+        "[Unreleased]\n---",
+        r"## \[Unreleased]",
+        "## &#91;Unreleased]",
+        "## &#x5B;Unreleased]",
+    ],
 )
 def test_csharp_release_gates_reject_noncanonical_markdown_h2(tmp_path: Path, heading: str) -> None:
     changelog = tmp_path / "CHANGELOG.md"
@@ -1412,9 +1422,12 @@ def test_csharp_release_gates_reject_noncanonical_markdown_h2(tmp_path: Path, he
         assert cvc.check_release_unreleased(changelog, package) == expected
 
 
-@pytest.mark.parametrize("indent", [" ", "  ", "   "])
+@pytest.mark.parametrize(
+    "heading",
+    [" ### VMx", "  ### VMx", "   ### VMx", "### V&#77;x"],
+)
 def test_csharp_release_gates_reject_indented_duplicate_package_heading(
-    tmp_path: Path, indent: str
+    tmp_path: Path, heading: str
 ) -> None:
     changelog = tmp_path / "CHANGELOG.md"
     changelog.write_text(
@@ -1422,7 +1435,7 @@ def test_csharp_release_gates_reject_indented_duplicate_package_heading(
         "### VMx\n\n"
         "### VMx.Notifications\n\n"
         "### VMx.Extensions.DependencyInjection\n\n"
-        f"{indent}### VMx\n\n- Hidden core fix.\n\n"
+        f"{heading}\n\n- Hidden core fix.\n\n"
         "## [3.22.1]\n\n- Tagged notes.\n",
         encoding="utf-8",
     )

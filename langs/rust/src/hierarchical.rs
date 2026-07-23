@@ -675,12 +675,8 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
                 resume_unwind(error);
             }
         };
+        let mut owner_released = false;
         let committed = (|| -> VmxResult<Vec<Self>> {
-            if lock(&self.inner.materializing_children.0).reentered_epoch == epoch {
-                return Err(VmxError::InvalidArgument(
-                    "children factory re-entered a structural operation".to_string(),
-                ));
-            }
             let _topology = lock(&HIERARCHY_TOPOLOGY_GATE);
             let mut seen = HashSet::new();
             for child in &children {
@@ -705,13 +701,33 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
                     ));
                 }
             }
+            let (materialization_state, ready) = &*self.inner.materializing_children;
+            let mut materialization_state = lock(materialization_state);
+            if materialization_state.epoch != epoch
+                || materialization_state.owner != Some(current)
+                || materialization_state.reentered_epoch == epoch
+            {
+                return Err(VmxError::InvalidArgument(
+                    "children factory re-entered a structural operation".to_string(),
+                ));
+            }
             for child in &children {
-                child.set_parent_state(Some(self.clone()));
+                child.set_parent_state(Some(Self {
+                    inner: Arc::clone(&self.inner),
+                    materialization_context: None,
+                }));
             }
             *lock(&self.inner.children) = Some(children.clone());
-            Ok(children.clone())
+            let result = children.clone();
+            materialization_state.owner = None;
+            drop(materialization_state);
+            ready.notify_all();
+            owner_released = true;
+            Ok(result)
         })();
-        self.finish_children_materialization(epoch);
+        if !owner_released {
+            self.finish_children_materialization(epoch);
+        }
         // First materialization is initial construction, not a parent *change*:
         // the children are born as this node's children. Emitting
         // PropertyChanged("parent") here would publish N spurious hub messages on

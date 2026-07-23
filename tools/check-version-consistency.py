@@ -46,6 +46,7 @@ Examples:
 """
 
 import argparse
+import html
 import json
 import re
 import subprocess
@@ -88,8 +89,9 @@ _SEMVER_TRIPLE = rf"{_SEMVER_COMPONENT}\.{_SEMVER_COMPONENT}\.{_SEMVER_COMPONENT
 _VERSION_RE = re.compile(rf"\b({_SEMVER_TRIPLE})\b", re.ASCII)
 _STABLE_SEMVER_RE = re.compile(rf"^{_SEMVER_TRIPLE}$", re.ASCII)
 _CHANGELOG_HEADING_RE = re.compile(r"^## \[([^\]]+)\](?:\([^)]*\))?(?:\s+.*)?$")
-_CHANGELOG_H2_CANDIDATE_RE = re.compile(r"^ {0,3}##[ \t]+\[")
+_CHANGELOG_ATX_H2_RE = re.compile(r"^ {0,3}##(?!#)[ \t]+(.*)$")
 _CHANGELOG_SETEXT_H2_RE = re.compile(r"^ {0,3}-+[ \t]*$")
+_MARKDOWN_BACKSLASH_ESCAPE_RE = re.compile(r"""\\([!"#$%&'()*+,\-./:;<=>?@\[\]\\^_`{|}~])""")
 
 # Matches the spec column of a matrix row like "2.6.x" or "1.1.x".
 _SPEC_ROW_RE = re.compile(
@@ -218,6 +220,12 @@ def check_typescript_example_locks(repo_root: Path, expected_version: str) -> li
     return issues
 
 
+def _normalize_markdown_inline(text: str) -> str:
+    """Return the visible plain text for release-heading comparisons."""
+    text = re.sub(r"[ \t]+#+[ \t]*$", "", text).strip()
+    return html.unescape(_MARKDOWN_BACKSLASH_ESCAPE_RE.sub(r"\1", text))
+
+
 def _parse_changelog_sections(
     changelog: Path, packages: tuple[str, ...] = ()
 ) -> tuple[dict[str, list[str]], list[str]]:
@@ -229,15 +237,19 @@ def _parse_changelog_sections(
     for index, line in enumerate(lines):
         heading_line = line.lstrip(" ")
         indent = len(line) - len(heading_line)
-        if _CHANGELOG_H2_CANDIDATE_RE.match(line) and not (
-            indent <= 3 and heading_line.startswith("## [")
+        atx_h2 = _CHANGELOG_ATX_H2_RE.fullmatch(line)
+        visible_atx_text = _normalize_markdown_inline(atx_h2.group(1)) if atx_h2 else ""
+        if (
+            visible_atx_text.startswith("[")
+            and "]" in visible_atx_text
+            and not heading_line.startswith("## [")
         ):
             issues.append(f"  {changelog}: noncanonical bracketed CHANGELOG H2 {line!r}")
             continue
         if (
             indent <= 3
-            and heading_line.startswith("[")
-            and "]" in heading_line
+            and _normalize_markdown_inline(heading_line).startswith("[")
+            and "]" in _normalize_markdown_inline(heading_line)
             and index + 1 < len(lines)
             and _CHANGELOG_SETEXT_H2_RE.fullmatch(lines[index + 1])
         ):
@@ -290,7 +302,7 @@ def _atx_heading_text(line: str, level: int) -> str | None:
     prefix = "#" * level
     if not re.match(rf"^{re.escape(prefix)}[ \t]+(?!#)", heading_line):
         return None
-    return heading_line[level:].lstrip(" \t").strip()
+    return _normalize_markdown_inline(heading_line[level:].lstrip(" \t"))
 
 
 def _check_changelog_version_order(

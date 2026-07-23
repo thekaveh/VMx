@@ -245,6 +245,92 @@ fn delegated_factory_structural_reentry_is_rejected_and_retryable() {
     assert!(messages.lock().unwrap().is_empty());
 }
 
+/// HIER-032 — delegated re-entry during snapshot validation still rejects hydration.
+#[test]
+fn late_delegated_factory_reentry_is_atomic_and_retryable() {
+    let hub = MessageHub::new();
+    let messages = Arc::new(Mutex::new(Vec::<Message>::new()));
+    let captured_messages = Arc::clone(&messages);
+    let _subscription = hub.subscribe(move |message| {
+        captured_messages.lock().unwrap().push(message.clone());
+    });
+    let retry_child = leaf("retry-child");
+    let captured_retry_child = retry_child.clone();
+    let late_child = leaf("late-child");
+    let captured_late_child = late_child.clone();
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let captured_attempts = Arc::clone(&attempts);
+    let (factory_ready_tx, factory_ready_rx) = mpsc::channel();
+    let (return_factory_tx, return_factory_rx) = mpsc::channel();
+    let return_factory_rx = Arc::new(Mutex::new(return_factory_rx));
+    let captured_return_factory = Arc::clone(&return_factory_rx);
+    let (release_worker_tx, release_worker_rx) = mpsc::channel();
+    let release_worker_rx = Arc::new(Mutex::new(release_worker_rx));
+    let captured_release_worker = Arc::clone(&release_worker_rx);
+    let (worker_result_tx, worker_result_rx) = mpsc::channel();
+    let root = HierarchicalVm::with_children_factory(
+        "root",
+        "root".to_string(),
+        move |parent| {
+            if captured_attempts.fetch_add(1, Ordering::SeqCst) == 0 {
+                let delegated_parent: HierarchicalVm<String> = (*parent).clone();
+                let delegated_child = captured_late_child.clone();
+                let worker_release = Arc::clone(&captured_release_worker);
+                let result_tx = worker_result_tx.clone();
+                std::thread::spawn(move || {
+                    worker_release.lock().unwrap().recv().unwrap();
+                    result_tx
+                        .send(delegated_parent.add_child(delegated_child))
+                        .unwrap();
+                });
+                let snapshot = (0..20_000)
+                    .map(|index| leaf(&format!("child-{index}")))
+                    .collect();
+                factory_ready_tx.send(()).unwrap();
+                captured_return_factory.lock().unwrap().recv().unwrap();
+                snapshot
+            } else {
+                vec![captured_retry_child.clone()]
+            }
+        },
+        false,
+        hub,
+    );
+
+    let (hydration_tx, hydration_rx) = mpsc::channel();
+    let first_root = root.clone();
+    std::thread::spawn(move || {
+        hydration_tx.send(first_root.try_children()).unwrap();
+    });
+    factory_ready_rx
+        .recv_timeout(Duration::from_millis(500))
+        .unwrap();
+    return_factory_tx.send(()).unwrap();
+    std::thread::yield_now();
+    release_worker_tx.send(()).unwrap();
+
+    assert!(matches!(
+        worker_result_rx
+            .recv_timeout(Duration::from_millis(500))
+            .unwrap(),
+        Err(VmxError::InvalidArgument(message)) if message.contains("factory re-entered")
+    ));
+    assert!(
+        hydration_rx
+            .recv_timeout(Duration::from_secs(2))
+            .unwrap()
+            .is_err(),
+        "late delegated re-entry must reject outer hydration"
+    );
+    assert!(late_child.parent().is_none());
+    assert!(messages.lock().unwrap().is_empty());
+
+    assert!(root.try_children().unwrap() == vec![retry_child.clone()]);
+    assert!(retry_child.parent().as_ref() == Some(&root));
+    assert_eq!(attempts.load(Ordering::SeqCst), 2);
+    assert!(messages.lock().unwrap().is_empty());
+}
+
 /// HIER-032 — a scoped worker borrowing the factory receiver remains causal.
 #[test]
 fn borrowed_factory_structural_reentry_is_rejected_and_retryable() {
@@ -295,8 +381,10 @@ fn borrowed_factory_structural_reentry_is_rejected_and_retryable() {
 
 /// HIER-032 — delegated recursive reads reject instead of waiting on their factory.
 #[test]
-fn delegated_factory_recursive_read_is_bounded_and_retryable() {
-    for cloned_worker in [false, true] {
+fn delegated_factory_recursive_reads_are_bounded_and_retryable() {
+    for (cloned_worker, panicking_reader) in
+        [(false, false), (false, true), (true, false), (true, true)]
+    {
         let hub = MessageHub::new();
         let messages = Arc::new(Mutex::new(Vec::<Message>::new()));
         let captured_messages = Arc::clone(&messages);
@@ -312,21 +400,35 @@ fn delegated_factory_recursive_read_is_bounded_and_retryable() {
             "root".to_string(),
             move |parent| {
                 if captured_attempts.fetch_add(1, Ordering::SeqCst) == 0 {
-                    let delegated_result = if cloned_worker {
+                    let rejected = if cloned_worker {
                         let delegated_parent: HierarchicalVm<String> = (*parent).clone();
-                        std::thread::spawn(move || delegated_parent.try_children())
-                            .join()
-                            .unwrap()
+                        if panicking_reader {
+                            std::thread::spawn(move || delegated_parent.children())
+                                .join()
+                                .is_err()
+                        } else {
+                            matches!(
+                                std::thread::spawn(move || delegated_parent.try_children())
+                                    .join()
+                                    .unwrap(),
+                                Err(VmxError::InvalidArgument(message))
+                                    if message.contains("re-entered")
+                            )
+                        }
+                    } else if panicking_reader {
+                        std::thread::scope(|scope| {
+                            scope.spawn(move || parent.children()).join().is_err()
+                        })
                     } else {
                         std::thread::scope(|scope| {
-                            scope.spawn(move || parent.try_children()).join().unwrap()
+                            matches!(
+                                scope.spawn(move || parent.try_children()).join().unwrap(),
+                                Err(VmxError::InvalidArgument(message))
+                                    if message.contains("re-entered")
+                            )
                         })
                     };
-                    assert!(matches!(
-                        delegated_result,
-                        Err(VmxError::InvalidArgument(message))
-                            if message.contains("re-entered")
-                    ));
+                    assert!(rejected);
                 }
                 vec![captured_child.clone()]
             },
