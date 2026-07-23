@@ -183,14 +183,13 @@ fn replace_fixed_aggregate_child<T: VmNode>(
     slot: &AggregateSlot<T>,
     next: T,
     parent: &ParentHandle,
-) -> VmxResult<()> {
-    let mut result = Ok(());
+    first_error: &mut Option<VmxError>,
+) {
     if let Some(previous) = slot.replace(next.clone()) {
         previous.set_parent_handle(None);
-        result = previous.dispose();
+        retain_first_error(first_error, previous.dispose());
     }
     attach_fixed_aggregate_child(&next, parent);
-    result
 }
 
 #[derive(Clone)]
@@ -311,11 +310,18 @@ impl<T1: VmNode, D: Dispatcher> AggregateVm1<T1, D> {
                 let mut claims = Vec::new();
                 let parent = self.ownership.handle();
                 validate_fixed_aggregate_candidate(&next1, &mut ids, &parent, &mut claims)?;
+                let mut first_error = None;
                 if self.component1.is_lazy() {
-                    replace_fixed_aggregate_child(&self.component1, next1.clone(), &parent)?;
+                    replace_fixed_aggregate_child(
+                        &self.component1,
+                        next1.clone(),
+                        &parent,
+                        &mut first_error,
+                    );
                 }
                 self.ownership.replace_ids(ids);
                 drop(claims);
+                finish_with_first_error(first_error)?;
                 self.core.notify_property_changed("component_1");
                 next1.construct()
             })
@@ -623,14 +629,26 @@ impl<T1: VmNode, T2: VmNode, D: Dispatcher> AggregateVm2<T1, T2, D> {
                 let mut claims = Vec::new();
                 validate_fixed_aggregate_candidate(&next1, &mut ids, &parent, &mut claims)?;
                 validate_fixed_aggregate_candidate(&next2, &mut ids, &parent, &mut claims)?;
+                let mut first_error = None;
                 if self.component1.is_lazy() {
-                    replace_fixed_aggregate_child(&self.component1, next1.clone(), &parent)?;
+                    replace_fixed_aggregate_child(
+                        &self.component1,
+                        next1.clone(),
+                        &parent,
+                        &mut first_error,
+                    );
                 }
                 if self.component2.is_lazy() {
-                    replace_fixed_aggregate_child(&self.component2, next2.clone(), &parent)?;
+                    replace_fixed_aggregate_child(
+                        &self.component2,
+                        next2.clone(),
+                        &parent,
+                        &mut first_error,
+                    );
                 }
                 self.ownership.replace_ids(ids);
                 drop(claims);
+                finish_with_first_error(first_error)?;
                 self.core.notify_property_changed("component_1");
                 next1.construct()?;
                 self.core.notify_property_changed("component_2");
@@ -906,13 +924,30 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, D: Dispatcher> AggregateVm3<T1, T2, T3,
                 validate_fixed_aggregate_candidate(&next1, &mut ids, &parent, &mut claims)?;
                 validate_fixed_aggregate_candidate(&next2, &mut ids, &parent, &mut claims)?;
                 validate_fixed_aggregate_candidate(&next3, &mut ids, &parent, &mut claims)?;
+                let mut first_error = None;
                 if self.component1.is_lazy() {
-                    replace_fixed_aggregate_child(&self.component1, next1.clone(), &parent)?;
-                    replace_fixed_aggregate_child(&self.component2, next2.clone(), &parent)?;
-                    replace_fixed_aggregate_child(&self.component3, next3.clone(), &parent)?;
+                    replace_fixed_aggregate_child(
+                        &self.component1,
+                        next1.clone(),
+                        &parent,
+                        &mut first_error,
+                    );
+                    replace_fixed_aggregate_child(
+                        &self.component2,
+                        next2.clone(),
+                        &parent,
+                        &mut first_error,
+                    );
+                    replace_fixed_aggregate_child(
+                        &self.component3,
+                        next3.clone(),
+                        &parent,
+                        &mut first_error,
+                    );
                 }
                 self.ownership.replace_ids(ids);
                 drop(claims);
+                finish_with_first_error(first_error)?;
                 self.core.notify_property_changed("component_1");
                 next1.construct()?;
                 self.core.notify_property_changed("component_2");
@@ -1178,14 +1213,36 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, D: Dispatcher>
                 validate_fixed_aggregate_candidate(&next2, &mut ids, &parent, &mut claims)?;
                 validate_fixed_aggregate_candidate(&next3, &mut ids, &parent, &mut claims)?;
                 validate_fixed_aggregate_candidate(&next4, &mut ids, &parent, &mut claims)?;
+                let mut first_error = None;
                 if self.component1.is_lazy() {
-                    replace_fixed_aggregate_child(&self.component1, next1.clone(), &parent)?;
-                    replace_fixed_aggregate_child(&self.component2, next2.clone(), &parent)?;
-                    replace_fixed_aggregate_child(&self.component3, next3.clone(), &parent)?;
-                    replace_fixed_aggregate_child(&self.component4, next4.clone(), &parent)?;
+                    replace_fixed_aggregate_child(
+                        &self.component1,
+                        next1.clone(),
+                        &parent,
+                        &mut first_error,
+                    );
+                    replace_fixed_aggregate_child(
+                        &self.component2,
+                        next2.clone(),
+                        &parent,
+                        &mut first_error,
+                    );
+                    replace_fixed_aggregate_child(
+                        &self.component3,
+                        next3.clone(),
+                        &parent,
+                        &mut first_error,
+                    );
+                    replace_fixed_aggregate_child(
+                        &self.component4,
+                        next4.clone(),
+                        &parent,
+                        &mut first_error,
+                    );
                 }
                 self.ownership.replace_ids(ids);
                 drop(claims);
+                finish_with_first_error(first_error)?;
                 self.core.notify_property_changed("component_1");
                 next1.construct()?;
                 self.core.notify_property_changed("component_2");
@@ -1483,15 +1540,42 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, D: Dispatcher>
                 validate_fixed_aggregate_candidate(&next3, &mut ids, &parent, &mut claims)?;
                 validate_fixed_aggregate_candidate(&next4, &mut ids, &parent, &mut claims)?;
                 validate_fixed_aggregate_candidate(&next5, &mut ids, &parent, &mut claims)?;
+                let mut first_error = None;
                 if self.component1.is_lazy() {
-                    replace_fixed_aggregate_child(&self.component1, next1.clone(), &parent)?;
-                    replace_fixed_aggregate_child(&self.component2, next2.clone(), &parent)?;
-                    replace_fixed_aggregate_child(&self.component3, next3.clone(), &parent)?;
-                    replace_fixed_aggregate_child(&self.component4, next4.clone(), &parent)?;
-                    replace_fixed_aggregate_child(&self.component5, next5.clone(), &parent)?;
+                    replace_fixed_aggregate_child(
+                        &self.component1,
+                        next1.clone(),
+                        &parent,
+                        &mut first_error,
+                    );
+                    replace_fixed_aggregate_child(
+                        &self.component2,
+                        next2.clone(),
+                        &parent,
+                        &mut first_error,
+                    );
+                    replace_fixed_aggregate_child(
+                        &self.component3,
+                        next3.clone(),
+                        &parent,
+                        &mut first_error,
+                    );
+                    replace_fixed_aggregate_child(
+                        &self.component4,
+                        next4.clone(),
+                        &parent,
+                        &mut first_error,
+                    );
+                    replace_fixed_aggregate_child(
+                        &self.component5,
+                        next5.clone(),
+                        &parent,
+                        &mut first_error,
+                    );
                 }
                 self.ownership.replace_ids(ids);
                 drop(claims);
+                finish_with_first_error(first_error)?;
                 self.core.notify_property_changed("component_1");
                 next1.construct()?;
                 self.core.notify_property_changed("component_2");
@@ -1820,16 +1904,48 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, T6: VmNode, D: 
                 validate_fixed_aggregate_candidate(&next4, &mut ids, &parent, &mut claims)?;
                 validate_fixed_aggregate_candidate(&next5, &mut ids, &parent, &mut claims)?;
                 validate_fixed_aggregate_candidate(&next6, &mut ids, &parent, &mut claims)?;
+                let mut first_error = None;
                 if self.component1.is_lazy() {
-                    replace_fixed_aggregate_child(&self.component1, next1.clone(), &parent)?;
-                    replace_fixed_aggregate_child(&self.component2, next2.clone(), &parent)?;
-                    replace_fixed_aggregate_child(&self.component3, next3.clone(), &parent)?;
-                    replace_fixed_aggregate_child(&self.component4, next4.clone(), &parent)?;
-                    replace_fixed_aggregate_child(&self.component5, next5.clone(), &parent)?;
-                    replace_fixed_aggregate_child(&self.component6, next6.clone(), &parent)?;
+                    replace_fixed_aggregate_child(
+                        &self.component1,
+                        next1.clone(),
+                        &parent,
+                        &mut first_error,
+                    );
+                    replace_fixed_aggregate_child(
+                        &self.component2,
+                        next2.clone(),
+                        &parent,
+                        &mut first_error,
+                    );
+                    replace_fixed_aggregate_child(
+                        &self.component3,
+                        next3.clone(),
+                        &parent,
+                        &mut first_error,
+                    );
+                    replace_fixed_aggregate_child(
+                        &self.component4,
+                        next4.clone(),
+                        &parent,
+                        &mut first_error,
+                    );
+                    replace_fixed_aggregate_child(
+                        &self.component5,
+                        next5.clone(),
+                        &parent,
+                        &mut first_error,
+                    );
+                    replace_fixed_aggregate_child(
+                        &self.component6,
+                        next6.clone(),
+                        &parent,
+                        &mut first_error,
+                    );
                 }
                 self.ownership.replace_ids(ids);
                 drop(claims);
+                finish_with_first_error(first_error)?;
                 self.core.notify_property_changed("component_1");
                 next1.construct()?;
                 self.core.notify_property_changed("component_2");

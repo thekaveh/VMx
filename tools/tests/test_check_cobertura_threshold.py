@@ -47,3 +47,24 @@ def test_rejects_coverage_below_floor(tmp_path: Path) -> None:
         assert "line coverage 48.00% is below 49.00%" in str(error)
     else:
         raise AssertionError("coverage below the line floor must fail")
+
+
+def test_counts_only_allowlisted_production_packages(tmp_path: Path) -> None:
+    module = _load_module()
+    report = tmp_path / "coverage.xml"
+    report.write_text(
+        """<coverage><packages>
+        <package name="VMx"><classes><class><lines>
+          <line number="1" hits="1" branch="True" condition-coverage="50% (1/2)"/>
+          <line number="2" hits="0" branch="False"/>
+        </lines></class></classes></package>
+        <package name="VMx.Tests"><classes><class><lines>
+          <line number="1" hits="0" branch="True" condition-coverage="0% (0/20)"/>
+        </lines></class></classes></package>
+        </packages></coverage>""",
+        encoding="utf-8",
+    )
+
+    result = module.check_coverage([report], 49.0, 49.0, {"VMx"})
+
+    assert result == (50.0, 50.0)

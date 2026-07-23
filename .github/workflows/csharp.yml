@@ -71,7 +71,12 @@ jobs:
       - name: Enforce library coverage floors
         if: matrix.os == 'ubuntu-latest'
         working-directory: .
-        run: python3 tools/check-cobertura-threshold.py langs/csharp/TestResults --minimum-line 49 --minimum-branch 59
+        run: >-
+          python3 tools/check-cobertura-threshold.py langs/csharp/TestResults
+          --minimum-line 70 --minimum-branch 62
+          --package VMx
+          --package VMx.Extensions.DependencyInjection
+          --package VMx.Notifications
 
       - name: Upload coverage to Codecov
         if: matrix.os == 'ubuntu-latest'

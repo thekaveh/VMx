@@ -2,6 +2,7 @@ use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
     mpsc, Arc, Mutex,
 };
+use std::time::Duration;
 
 use vmx::{
     Command, ConstructionStatus, ForwardingComponentVm, Message, MessageHub, NullDispatcher,
@@ -391,15 +392,27 @@ fn fixed_aggregate_rejects_owned_and_duplicate_components() {
 #[test]
 fn concurrent_fixed_aggregates_cannot_both_claim_one_child() {
     let (child, entered, release) = blocking_ownership_node();
+    let (first_send, first_receive) = mpsc::channel();
     let first_child = child.clone();
-    let first = std::thread::spawn(move || vmx::AggregateVm1::try_new("first", first_child));
-    entered.recv().unwrap();
+    let first = std::thread::spawn(move || {
+        first_send
+            .send(vmx::AggregateVm1::try_new("first", first_child))
+            .unwrap();
+    });
+    entered.recv_timeout(Duration::from_secs(1)).unwrap();
 
+    let (second_send, second_receive) = mpsc::channel();
     let second_child = child.clone();
-    let second = std::thread::spawn(move || vmx::AggregateVm1::try_new("second", second_child));
-    let second_result = second.join().unwrap();
+    let second = std::thread::spawn(move || {
+        second_send
+            .send(vmx::AggregateVm1::try_new("second", second_child))
+            .unwrap();
+    });
+    let second_result = second_receive.recv_timeout(Duration::from_secs(1)).unwrap();
     release.send(()).unwrap();
-    let first_result = first.join().unwrap();
+    let first_result = first_receive.recv_timeout(Duration::from_secs(1)).unwrap();
+    first.join().unwrap();
+    second.join().unwrap();
 
     let successes = usize::from(first_result.is_ok()) + usize::from(second_result.is_ok());
     assert_eq!(successes, 1);
@@ -407,6 +420,74 @@ fn concurrent_fixed_aggregates_cannot_both_claim_one_child() {
         first_result.as_ref().err().or(second_result.as_ref().err()),
         Some(VmxError::OwnershipTransactionInProgress | VmxError::InconsistentParent)
     ));
+}
+
+fn assert_disposal_failure_keeps_reconstructed_slots_consistent(failing_slot: usize) {
+    let first = text("first");
+    let second = text("second");
+    if failing_slot == 1 {
+        first.on_dispose(|| Err(VmxError::Other("first disposal failed".to_string())));
+    } else {
+        second.on_dispose(|| Err(VmxError::Other("second disposal failed".to_string())));
+    }
+    let replacement1 = text("replacement-1");
+    let replacement2 = text("replacement-2");
+    let calls1 = Arc::new(AtomicUsize::new(0));
+    let calls2 = Arc::new(AtomicUsize::new(0));
+    let observed1 = Arc::clone(&calls1);
+    let observed2 = Arc::clone(&calls2);
+    let original1 = first.clone();
+    let original2 = second.clone();
+    let next1 = replacement1.clone();
+    let next2 = replacement2.clone();
+    let aggregate = vmx::AggregateVm2::builder()
+        .name("aggregate")
+        .services(MessageHub::new(), NullDispatcher::new())
+        .component_1(move || {
+            if observed1.fetch_add(1, Ordering::SeqCst) == 0 {
+                original1.clone()
+            } else {
+                next1.clone()
+            }
+        })
+        .component_2(move || {
+            if observed2.fetch_add(1, Ordering::SeqCst) == 0 {
+                original2.clone()
+            } else {
+                next2.clone()
+            }
+        })
+        .build()
+        .unwrap();
+    aggregate.construct().unwrap();
+
+    assert!(matches!(aggregate.reconstruct(), Err(VmxError::Other(_))));
+
+    assert_eq!(aggregate.component_1(), Some(replacement1.clone()));
+    assert_eq!(aggregate.component_2(), Some(replacement2.clone()));
+    assert_eq!(first.parent_id(), None);
+    assert_eq!(second.parent_id(), None);
+    assert_eq!(replacement1.parent_id(), Some(aggregate.id()));
+    assert_eq!(replacement2.parent_id(), Some(aggregate.id()));
+    let destination = vmx::CompositeVm::new("destination");
+    assert_eq!(
+        destination.add(replacement1),
+        Err(VmxError::InconsistentParent)
+    );
+    assert_eq!(
+        destination.add(replacement2),
+        Err(VmxError::InconsistentParent)
+    );
+}
+
+#[test]
+fn first_slot_disposal_failure_keeps_reconstructed_slots_consistent() {
+    assert_disposal_failure_keeps_reconstructed_slots_consistent(1);
+}
+
+#[test]
+fn later_slot_disposal_failure_keeps_reconstructed_slots_consistent() {
+    assert_disposal_failure_keeps_reconstructed_slots_consistent(2);
 }
 
 #[test]

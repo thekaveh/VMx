@@ -10,7 +10,9 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 - Fixed aggregates now share the same atomic per-child ownership claim as
   mutable groups and composites, preventing concurrent constructors or lazy
-  reconstruction from retaining the same child under two parents.
+  reconstruction from retaining the same child under two parents. Lazy
+  reconstruction also completes every validated slot swap and commits the new
+  ownership registry before returning the first prior-child disposal failure.
 - Forwarding components now delegate the complete component surface, support
   real nested decorator layers and idiomatic hint overrides, and retain one
   canonical transferable container identity (FWD-001/002/004, ADR-0124).

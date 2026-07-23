@@ -12,8 +12,10 @@ def test_csharp_and_typescript_library_coverage_is_enforced() -> None:
     typescript = (REPO_ROOT / "langs/typescript/vitest.config.ts").read_text(encoding="utf-8")
 
     assert "tools/check-cobertura-threshold.py" in csharp
-    assert "minimum-line 49" in csharp
-    assert "minimum-branch 59" in csharp
+    assert "minimum-line 70" in csharp
+    assert "minimum-branch 62" in csharp
+    for package in ("VMx", "VMx.Extensions.DependencyInjection", "VMx.Notifications"):
+        assert f"--package {package}" in csharp
     assert "thresholds:" in typescript
     for threshold in ("statements: 85", "branches: 78", "functions: 85", "lines: 88"):
         assert threshold in typescript

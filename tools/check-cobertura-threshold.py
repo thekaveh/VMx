@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
@@ -20,17 +21,45 @@ def find_reports(paths: list[Path]) -> list[Path]:
 
 
 def check_coverage(
-    reports: list[Path], minimum_line: float, minimum_branch: float
+    reports: list[Path],
+    minimum_line: float,
+    minimum_branch: float,
+    package_names: set[str] | None = None,
 ) -> tuple[float, float]:
     """Aggregate report counters, enforce percentage floors, and return rates."""
     if not reports:
         raise ValueError("no Cobertura coverage reports found")
 
     totals = {"lines-covered": 0, "lines-valid": 0, "branches-covered": 0, "branches-valid": 0}
+    seen_packages: set[str] = set()
     for report in reports:
         root = ET.parse(report).getroot()
-        for key in totals:
-            totals[key] += int(root.attrib[key])
+        if package_names is None:
+            for key in totals:
+                totals[key] += int(root.attrib[key])
+            continue
+
+        for package in root.findall("./packages/package"):
+            package_name = package.attrib.get("name")
+            if package_name not in package_names:
+                continue
+            seen_packages.add(package_name)
+            for line in package.findall("./classes/class/lines/line"):
+                totals["lines-valid"] += 1
+                if int(line.attrib.get("hits", "0")) > 0:
+                    totals["lines-covered"] += 1
+                if line.attrib.get("branch", "false").lower() != "true":
+                    continue
+                match = re.search(r"\((\d+)/(\d+)\)", line.attrib.get("condition-coverage", ""))
+                if match is None:
+                    raise ValueError("Cobertura branch line lacks condition counters")
+                totals["branches-covered"] += int(match.group(1))
+                totals["branches-valid"] += int(match.group(2))
+
+    missing_packages = (package_names or set()) - seen_packages
+    if missing_packages:
+        missing = ", ".join(sorted(missing_packages))
+        raise ValueError(f"Cobertura reports omit required packages: {missing}")
 
     if totals["lines-valid"] == 0 or totals["branches-valid"] == 0:
         raise ValueError("Cobertura reports contain no valid line or branch counters")
@@ -49,11 +78,15 @@ def main() -> int:
     parser.add_argument("paths", nargs="+", type=Path)
     parser.add_argument("--minimum-line", type=float, required=True)
     parser.add_argument("--minimum-branch", type=float, required=True)
+    parser.add_argument("--package", action="append", default=[])
     args = parser.parse_args()
 
     try:
         line_rate, branch_rate = check_coverage(
-            find_reports(args.paths), args.minimum_line, args.minimum_branch
+            find_reports(args.paths),
+            args.minimum_line,
+            args.minimum_branch,
+            set(args.package) or None,
         )
     except (ET.ParseError, KeyError, ValueError) as error:
         parser.error(str(error))
