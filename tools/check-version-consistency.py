@@ -95,6 +95,20 @@ def _tag_major(tag: str) -> int:
     return int(m.group(1)) if m else MIN_ENFORCED_MAJOR
 
 
+def partition_missing_tags(
+    missing: dict[str, list[str]],
+) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
+    """Separate enforced claims from informational historical matrix gaps."""
+    enforced = {
+        tag: reasons
+        for tag, reasons in missing.items()
+        if _tag_major(tag) >= MIN_ENFORCED_MAJOR
+        or any("manifest version=" in reason for reason in reasons)
+    }
+    informational = {tag: reasons for tag, reasons in missing.items() if tag not in enforced}
+    return enforced, informational
+
+
 def _tag_version(tag: str) -> str:
     """Return the ``X.Y.Z`` semver embedded in a tag name, or ``""`` if absent.
 
@@ -326,8 +340,7 @@ def parse_matrix(matrix_path: Path) -> list[dict[str, object]]:
     ``spec-vX.Y.0`` operational tag.
     """
     lines = matrix_path.read_text(encoding="utf-8").splitlines()
-    header_idx: int | None = None
-    header_cells: list[str] = []
+    header_candidates: list[tuple[int, list[str]]] = []
 
     # Locate the header row (contains "spec" and "csharp").
     for i, line in enumerate(lines):
@@ -336,12 +349,15 @@ def parse_matrix(matrix_path: Path) -> list[dict[str, object]]:
             continue
         cells = [c.strip() for c in stripped.strip("|").split("|")]
         if len(cells) >= 5 and cells[0].strip().lower() == "spec":
-            header_idx = i
-            header_cells = [cell.lower() for cell in cells]
-            break
+            header_candidates.append((i, [cell.lower() for cell in cells]))
 
-    if header_idx is None:
-        return []
+    if len(header_candidates) != 1:
+        raise ValueError(
+            "compatibility matrix must contain exactly one table headed by a spec column"
+        )
+    header_idx, header_cells = header_candidates[0]
+    if len(header_cells) != len(set(header_cells)):
+        raise ValueError("compatibility matrix header contains duplicate columns")
 
     rows: list[dict[str, object]] = []
     # Skip the header (+0) and separator (+1); data starts at +2.
@@ -351,12 +367,12 @@ def parse_matrix(matrix_path: Path) -> list[dict[str, object]]:
             break
         cells = [c.strip() for c in stripped.strip("|").split("|")]
         if len(cells) < 5:
-            continue
+            raise ValueError(f"compatibility matrix row is incomplete: {stripped!r}")
         spec_cell = cells[0].strip()
         legacy_semantic_tag_only = "[^legacy-semantic-tag-only]" in spec_cell
-        spec_row = re.sub(r"\[\^[^]]+\]", "", spec_cell).strip()
-        if not _SPEC_ROW_RE.match(spec_row):
-            continue
+        spec_row = re.sub(r"<!--.*?-->|\[\^[^]]+\]", "", spec_cell).strip()
+        if not _SPEC_ROW_RE.fullmatch(spec_row):
+            raise ValueError(f"compatibility matrix spec claim {spec_cell!r} is not exact X.Y.x")
 
         row: dict[str, object] = {"spec_row": spec_row}
         if legacy_semantic_tag_only:
@@ -368,14 +384,26 @@ def parse_matrix(matrix_path: Path) -> list[dict[str, object]]:
                 row[flavor] = []
                 continue
             cell = cells[idx].strip() if idx < len(cells) else ""
-            # Strip annotation parentheticals like "(subset)".
-            cell = re.sub(r"\s*\([^)]*\)", "", cell).strip()
+            # Strip documented annotations while validating the entire remaining
+            # version claim rather than accepting a SemVer-looking substring.
+            cell = re.sub(r"<!--.*?-->|\[\^[^]]+\]|\s*\([^)]*\)", "", cell).strip()
             if cell in ("—", "-", ""):
                 row[flavor] = []
             else:
-                row[flavor] = _VERSION_RE.findall(cell)
+                versions = re.split(r"\s*(?:\u2013|\u2014|\bto\b)\s*", cell)
+                if len(versions) not in (1, 2) or any(
+                    not _STABLE_SEMVER_RE.fullmatch(version) for version in versions
+                ):
+                    raise ValueError(
+                        "compatibility matrix "
+                        f"{spec_row} {flavor} claim {cells[idx].strip()!r} "
+                        "is not exact stable SemVer or a two-version range"
+                    )
+                row[flavor] = versions
         rows.append(row)
 
+    if not rows:
+        raise ValueError("compatibility matrix table contains no version rows")
     return rows
 
 
@@ -568,8 +596,7 @@ def validate_semver_values(
     check("spec/VERSION", spec_version)
     for flavor, info in sorted(manifests.items()):
         version = info.get("version", "")
-        if version:
-            check(f"{flavor} version", version)
+        check(f"{flavor} version", version)
         min_spec = info.get("min_spec_version", "")
         if min_spec:
             check(f"{flavor} min-spec version", min_spec)
@@ -690,7 +717,11 @@ def main(argv: Iterable[str] | None = None) -> int:
 
     spec_version = parse_spec_version(repo_root)
     manifests = collect_manifests(repo_root)
-    matrix_rows = parse_matrix(matrix_file)
+    try:
+        matrix_rows = parse_matrix(matrix_file)
+    except ValueError as error:
+        print(f"ERROR: {error}", file=sys.stderr)
+        return 1
     try:
         tags = get_git_tags(repo_root)
     except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
@@ -718,8 +749,7 @@ def main(argv: Iterable[str] | None = None) -> int:
 
     # Split the rest into enforced (major >= MIN_ENFORCED_MAJOR) and
     # informational (major < MIN_ENFORCED_MAJOR, e.g. pre-2.0 legacy rows).
-    enforced_missing = {t: r for t, r in remaining.items() if _tag_major(t) >= MIN_ENFORCED_MAJOR}
-    info_missing = {t: r for t, r in remaining.items() if _tag_major(t) < MIN_ENFORCED_MAJOR}
+    enforced_missing, info_missing = partition_missing_tags(remaining)
 
     report = render_report(
         spec_version,

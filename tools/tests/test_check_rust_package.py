@@ -51,6 +51,7 @@ def test_extracted_runtime_modules_are_allowlisted() -> None:
 def test_packaged_conformance_fixtures_are_allowlisted() -> None:
     assert {
         "src/fixtures/command-truthtable.json",
+        "src/fixtures/derived-properties.json",
         "src/fixtures/lifecycle-transitions.json",
         "src/fixtures/message-ordering.json",
     } <= checker.REQUIRED_PATHS

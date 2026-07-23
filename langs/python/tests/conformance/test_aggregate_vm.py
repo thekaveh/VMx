@@ -661,15 +661,24 @@ def test_aggregate_reconstruct_cleans_all_slots_and_candidates_after_disposal_fa
         .build()
     )
     aggregate.construct()
+    changes: list[str] = []
+    aggregate.property_changed.subscribe(changes.append)
 
     with pytest.raises(RuntimeError, match="first disposal failure"):
         aggregate.reconstruct()
 
     assert previous2.status is ConstructionStatus.DISPOSED
-    assert candidate1.status is ConstructionStatus.DISPOSED
-    assert candidate2.status is ConstructionStatus.DISPOSED
-    assert candidate1._parent is None
-    assert candidate2._parent is None
+    assert aggregate.status is ConstructionStatus.DESTRUCTED
+    assert aggregate.component_1 is candidate1
+    assert aggregate.component_2 is candidate2
+    assert candidate1.status is ConstructionStatus.DESTRUCTED
+    assert candidate2.status is ConstructionStatus.DESTRUCTED
+    assert candidate1._parent is aggregate._aggregate_parent
+    assert candidate2._parent is aggregate._aggregate_parent
+    assert [name for name in changes if name.startswith("component_")] == [
+        "component_1",
+        "component_2",
+    ]
 
 
 def test_aggregate_rejects_forwarding_aliases_of_one_canonical_component() -> None:

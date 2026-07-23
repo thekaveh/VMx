@@ -205,6 +205,58 @@ class GenerateDiagramsTests(unittest.TestCase):
             capability_box.lines,
         )
 
+    def test_viewmodel_family_arrows_match_explicit_structural_relationships(self) -> None:
+        diagram = self.generator.viewmodel_families()
+        boxes = {box.title: box for box in diagram.boxes}
+
+        def endpoint_title(point: tuple[int, int]) -> str | None:
+            for title, box in boxes.items():
+                on_vertical_edge = (
+                    point[0] in (box.x, box.x + box.w) and box.y <= point[1] <= box.y + box.h
+                )
+                on_horizontal_edge = (
+                    point[1] in (box.y, box.y + box.h) and box.x <= point[0] <= box.x + box.w
+                )
+                if on_vertical_edge or on_horizontal_edge:
+                    return title
+            return None
+
+        labeled = {
+            (endpoint_title(line.points[0]), endpoint_title(line.points[-1]), line.label)
+            for line in diagram.lines
+            if line.label is not None
+        }
+        lifecycle_targets = {
+            endpoint_title(line.points[-1])
+            for line in diagram.lines
+            if endpoint_title(line.points[0]) == "Lifecycle base" and line.color == "#22d3ee"
+        }
+
+        self.assertEqual(
+            labeled,
+            {
+                ("Lifecycle base", "Leaf family", "extends"),
+                ("Specialized companions", "Services + messages", "injects / posts"),
+            },
+        )
+        self.assertEqual(
+            lifecycle_targets,
+            {
+                "Leaf family",
+                "Selectable containers",
+                "Fixed-arity containers",
+                "Forwarding decorators",
+            },
+        )
+        self.assertEqual(
+            boxes["Specialized companions"].lines,
+            (
+                "Lifecycle VM: AsyncResourceVM",
+                "Coordinators: Form / Discriminator",
+                "Notification / Confirmation",
+            ),
+        )
+
     def test_commands_map_includes_sync_and_async_command_contracts(self) -> None:
         diagram = self.generator.commands_capabilities()
         rendered_text = {text for box in diagram.boxes for text in (box.title, *box.lines)}

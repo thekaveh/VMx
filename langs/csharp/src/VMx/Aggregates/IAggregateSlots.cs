@@ -43,7 +43,8 @@ internal static class AggregateOwnership
         IParentCompositeVM parent,
         IComponentVM?[] previous,
         IComponentVM[] next,
-        Action assign)
+        Action assign,
+        Action notifyCommittedError)
     {
         using var reservation = ComponentOwnership.BeginExclusiveReservationBatch(next);
         Validate(parent, next);
@@ -56,7 +57,7 @@ internal static class AggregateOwnership
                 firstError ??= System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error);
             }
         }
-        if (firstError is not null || parent.Owner?.Status == ConstructionStatus.Disposed)
+        if (parent.Owner?.Status == ConstructionStatus.Disposed)
         {
             foreach (var child in next)
             {
@@ -71,6 +72,11 @@ internal static class AggregateOwnership
         }
         assign();
         Commit(parent, previous, next);
+        if (firstError is not null)
+        {
+            notifyCommittedError();
+            firstError.Throw();
+        }
         return true;
     }
 

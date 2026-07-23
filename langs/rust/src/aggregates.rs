@@ -168,6 +168,16 @@ impl FixedAggregateOwnership {
         begin_membership_transaction(&self.transaction_active, &self.transaction_control)
     }
 
+    fn with_transaction<T>(&self, action: impl FnOnce() -> VmxResult<T>) -> VmxResult<T> {
+        let transaction = self.begin_transaction()?;
+        let result = action();
+        let finish_result = transaction.finish();
+        match result {
+            Err(error) => Err(error),
+            Ok(value) => finish_result.map(|()| value),
+        }
+    }
+
     fn begin_dispose(&self, deferred: impl FnOnce() -> VmxResult<()> + Send + 'static) -> bool {
         let mut deferred = Some(deferred);
         loop {
@@ -219,6 +229,11 @@ fn fixed_aggregate_parent<D: Dispatcher>(
 
 fn attach_fixed_aggregate_child<T: VmNode>(child: &T, parent: &ParentHandle) {
     child.set_parent_handle(Some(parent.clone()));
+}
+
+fn dispose_fixed_aggregate_child<T: VmNode>(child: &T, first_error: &mut Option<VmxError>) {
+    retain_first_error(first_error, child.dispose());
+    child.set_parent_handle(None);
 }
 
 fn replace_fixed_aggregate_child<T: VmNode, D: Dispatcher>(
@@ -358,45 +373,46 @@ impl<T1: VmNode, D: Dispatcher> AggregateVm1<T1, D> {
     pub fn construct(&self) -> VmxResult<()> {
         self.core
             .transition_with(LifecycleOperation::Construct, || {
-                let next1 = self.component1.next()?;
-                let mut ids = HashSet::new();
-                let mut claims = Vec::new();
-                let parent = self.ownership.handle();
-                validate_fixed_aggregate_candidate(
-                    &next1,
-                    &mut ids,
-                    &parent,
-                    self.component1.is_lazy(),
-                    &mut claims,
-                )?;
-                let transaction = self.ownership.begin_transaction()?;
-                let mut first_error = None;
-                let mut replacement_committed = true;
-                if self.component1.is_lazy() {
-                    replacement_committed &= replace_fixed_aggregate_child(
-                        &self.component1,
-                        next1.clone(),
+                self.ownership.with_transaction(|| {
+                    let next1 = self.component1.next()?;
+                    let mut ids = HashSet::new();
+                    let mut claims = Vec::new();
+                    let parent = self.ownership.handle();
+                    validate_fixed_aggregate_candidate(
+                        &next1,
+                        &mut ids,
                         &parent,
-                        &self.ownership,
-                        &self.core,
-                        &mut first_error,
-                    );
-                }
-                drop(claims);
-                if !replacement_committed {
-                    if first_error == Some(VmxError::Disposed) {
-                        return Ok(());
+                        self.component1.is_lazy(),
+                        &mut claims,
+                    )?;
+                    let mut first_error = None;
+                    let mut replacement_committed = true;
+                    if self.component1.is_lazy() {
+                        replacement_committed &= replace_fixed_aggregate_child(
+                            &self.component1,
+                            next1.clone(),
+                            &parent,
+                            &self.ownership,
+                            &self.core,
+                            &mut first_error,
+                        );
                     }
-                    return finish_with_first_error(first_error);
-                }
-                self.ownership.replace_ids(ids);
-                if let Err(error) = finish_with_first_error(first_error) {
+                    drop(claims);
+                    if !replacement_committed {
+                        if first_error == Some(VmxError::Disposed) {
+                            return Ok(());
+                        }
+                        return finish_with_first_error(first_error);
+                    }
+                    self.ownership.replace_ids(ids);
+                    if let Err(error) = finish_with_first_error(first_error) {
+                        self.core.notify_property_changed("component_1");
+                        return Err(error);
+                    }
                     self.core.notify_property_changed("component_1");
-                    return Err(error);
-                }
-                self.core.notify_property_changed("component_1");
-                next1.construct()?;
-                transaction.finish()
+                    next1.construct()?;
+                    Ok(())
+                })
             })
     }
 
@@ -418,8 +434,9 @@ impl<T1: VmNode, D: Dispatcher> AggregateVm1<T1, D> {
         }
         let mut first_error = None;
         if let Some(component1) = self.component_1() {
-            retain_first_error(&mut first_error, component1.dispose());
+            dispose_fixed_aggregate_child(&component1, &mut first_error);
         }
+        self.ownership.replace_ids(HashSet::new());
         retain_first_error(
             &mut first_error,
             self.core.transition(LifecycleOperation::Dispose),
@@ -699,66 +716,67 @@ impl<T1: VmNode, T2: VmNode, D: Dispatcher> AggregateVm2<T1, T2, D> {
     pub fn construct(&self) -> VmxResult<()> {
         self.core
             .transition_with(LifecycleOperation::Construct, || {
-                let next1 = self.component1.next()?;
-                let next2 = self.component2.next()?;
-                let parent = self.ownership.handle();
-                let mut ids = HashSet::new();
-                let mut claims = Vec::new();
-                validate_fixed_aggregate_candidate(
-                    &next1,
-                    &mut ids,
-                    &parent,
-                    self.component1.is_lazy(),
-                    &mut claims,
-                )?;
-                validate_fixed_aggregate_candidate(
-                    &next2,
-                    &mut ids,
-                    &parent,
-                    self.component2.is_lazy(),
-                    &mut claims,
-                )?;
-                let transaction = self.ownership.begin_transaction()?;
-                let mut first_error = None;
-                let mut replacement_committed = true;
-                if self.component1.is_lazy() {
-                    replacement_committed &= replace_fixed_aggregate_child(
-                        &self.component1,
-                        next1.clone(),
+                self.ownership.with_transaction(|| {
+                    let next1 = self.component1.next()?;
+                    let next2 = self.component2.next()?;
+                    let parent = self.ownership.handle();
+                    let mut ids = HashSet::new();
+                    let mut claims = Vec::new();
+                    validate_fixed_aggregate_candidate(
+                        &next1,
+                        &mut ids,
                         &parent,
-                        &self.ownership,
-                        &self.core,
-                        &mut first_error,
-                    );
-                }
-                if self.component2.is_lazy() {
-                    replacement_committed &= replace_fixed_aggregate_child(
-                        &self.component2,
-                        next2.clone(),
+                        self.component1.is_lazy(),
+                        &mut claims,
+                    )?;
+                    validate_fixed_aggregate_candidate(
+                        &next2,
+                        &mut ids,
                         &parent,
-                        &self.ownership,
-                        &self.core,
-                        &mut first_error,
-                    );
-                }
-                drop(claims);
-                if !replacement_committed {
-                    if first_error == Some(VmxError::Disposed) {
-                        return Ok(());
+                        self.component2.is_lazy(),
+                        &mut claims,
+                    )?;
+                    let mut first_error = None;
+                    let mut replacement_committed = true;
+                    if self.component1.is_lazy() {
+                        replacement_committed &= replace_fixed_aggregate_child(
+                            &self.component1,
+                            next1.clone(),
+                            &parent,
+                            &self.ownership,
+                            &self.core,
+                            &mut first_error,
+                        );
                     }
-                    return finish_with_first_error(first_error);
-                }
-                self.ownership.replace_ids(ids);
-                if let Err(error) = finish_with_first_error(first_error) {
+                    if self.component2.is_lazy() {
+                        replacement_committed &= replace_fixed_aggregate_child(
+                            &self.component2,
+                            next2.clone(),
+                            &parent,
+                            &self.ownership,
+                            &self.core,
+                            &mut first_error,
+                        );
+                    }
+                    drop(claims);
+                    if !replacement_committed {
+                        if first_error == Some(VmxError::Disposed) {
+                            return Ok(());
+                        }
+                        return finish_with_first_error(first_error);
+                    }
+                    self.ownership.replace_ids(ids);
+                    if let Err(error) = finish_with_first_error(first_error) {
+                        self.core.notify_property_changed("component_1");
+                        self.core.notify_property_changed("component_2");
+                        return Err(error);
+                    }
                     self.core.notify_property_changed("component_1");
+                    next1.construct()?;
                     self.core.notify_property_changed("component_2");
-                    return Err(error);
-                }
-                self.core.notify_property_changed("component_1");
-                next1.construct()?;
-                self.core.notify_property_changed("component_2");
-                next2.construct()?;
-                transaction.finish()
+                    next2.construct()?;
+                    Ok(())
+                })
             })
     }
 
@@ -783,11 +801,12 @@ impl<T1: VmNode, T2: VmNode, D: Dispatcher> AggregateVm2<T1, T2, D> {
         }
         let mut first_error = None;
         if let Some(component1) = self.component_1() {
-            retain_first_error(&mut first_error, component1.dispose());
+            dispose_fixed_aggregate_child(&component1, &mut first_error);
         }
         if let Some(component2) = self.component_2() {
-            retain_first_error(&mut first_error, component2.dispose());
+            dispose_fixed_aggregate_child(&component2, &mut first_error);
         }
+        self.ownership.replace_ids(HashSet::new());
         retain_first_error(
             &mut first_error,
             self.core.transition(LifecycleOperation::Dispose),
@@ -1025,83 +1044,84 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, D: Dispatcher> AggregateVm3<T1, T2, T3,
     pub fn construct(&self) -> VmxResult<()> {
         self.core
             .transition_with(LifecycleOperation::Construct, || {
-                let next1 = self.component1.next()?;
-                let next2 = self.component2.next()?;
-                let next3 = self.component3.next()?;
-                let parent = self.ownership.handle();
-                let mut ids = HashSet::new();
-                let mut claims = Vec::new();
-                validate_fixed_aggregate_candidate(
-                    &next1,
-                    &mut ids,
-                    &parent,
-                    self.component1.is_lazy(),
-                    &mut claims,
-                )?;
-                validate_fixed_aggregate_candidate(
-                    &next2,
-                    &mut ids,
-                    &parent,
-                    self.component2.is_lazy(),
-                    &mut claims,
-                )?;
-                validate_fixed_aggregate_candidate(
-                    &next3,
-                    &mut ids,
-                    &parent,
-                    self.component3.is_lazy(),
-                    &mut claims,
-                )?;
-                let transaction = self.ownership.begin_transaction()?;
-                let mut first_error = None;
-                let mut replacement_committed = true;
-                if self.component1.is_lazy() {
-                    replacement_committed &= replace_fixed_aggregate_child(
-                        &self.component1,
-                        next1.clone(),
+                self.ownership.with_transaction(|| {
+                    let next1 = self.component1.next()?;
+                    let next2 = self.component2.next()?;
+                    let next3 = self.component3.next()?;
+                    let parent = self.ownership.handle();
+                    let mut ids = HashSet::new();
+                    let mut claims = Vec::new();
+                    validate_fixed_aggregate_candidate(
+                        &next1,
+                        &mut ids,
                         &parent,
-                        &self.ownership,
-                        &self.core,
-                        &mut first_error,
-                    );
-                    replacement_committed &= replace_fixed_aggregate_child(
-                        &self.component2,
-                        next2.clone(),
+                        self.component1.is_lazy(),
+                        &mut claims,
+                    )?;
+                    validate_fixed_aggregate_candidate(
+                        &next2,
+                        &mut ids,
                         &parent,
-                        &self.ownership,
-                        &self.core,
-                        &mut first_error,
-                    );
-                    replacement_committed &= replace_fixed_aggregate_child(
-                        &self.component3,
-                        next3.clone(),
+                        self.component2.is_lazy(),
+                        &mut claims,
+                    )?;
+                    validate_fixed_aggregate_candidate(
+                        &next3,
+                        &mut ids,
                         &parent,
-                        &self.ownership,
-                        &self.core,
-                        &mut first_error,
-                    );
-                }
-                drop(claims);
-                if !replacement_committed {
-                    if first_error == Some(VmxError::Disposed) {
-                        return Ok(());
+                        self.component3.is_lazy(),
+                        &mut claims,
+                    )?;
+                    let mut first_error = None;
+                    let mut replacement_committed = true;
+                    if self.component1.is_lazy() {
+                        replacement_committed &= replace_fixed_aggregate_child(
+                            &self.component1,
+                            next1.clone(),
+                            &parent,
+                            &self.ownership,
+                            &self.core,
+                            &mut first_error,
+                        );
+                        replacement_committed &= replace_fixed_aggregate_child(
+                            &self.component2,
+                            next2.clone(),
+                            &parent,
+                            &self.ownership,
+                            &self.core,
+                            &mut first_error,
+                        );
+                        replacement_committed &= replace_fixed_aggregate_child(
+                            &self.component3,
+                            next3.clone(),
+                            &parent,
+                            &self.ownership,
+                            &self.core,
+                            &mut first_error,
+                        );
                     }
-                    return finish_with_first_error(first_error);
-                }
-                self.ownership.replace_ids(ids);
-                if let Err(error) = finish_with_first_error(first_error) {
+                    drop(claims);
+                    if !replacement_committed {
+                        if first_error == Some(VmxError::Disposed) {
+                            return Ok(());
+                        }
+                        return finish_with_first_error(first_error);
+                    }
+                    self.ownership.replace_ids(ids);
+                    if let Err(error) = finish_with_first_error(first_error) {
+                        self.core.notify_property_changed("component_1");
+                        self.core.notify_property_changed("component_2");
+                        self.core.notify_property_changed("component_3");
+                        return Err(error);
+                    }
                     self.core.notify_property_changed("component_1");
+                    next1.construct()?;
                     self.core.notify_property_changed("component_2");
+                    next2.construct()?;
                     self.core.notify_property_changed("component_3");
-                    return Err(error);
-                }
-                self.core.notify_property_changed("component_1");
-                next1.construct()?;
-                self.core.notify_property_changed("component_2");
-                next2.construct()?;
-                self.core.notify_property_changed("component_3");
-                next3.construct()?;
-                transaction.finish()
+                    next3.construct()?;
+                    Ok(())
+                })
             })
     }
 
@@ -1129,14 +1149,15 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, D: Dispatcher> AggregateVm3<T1, T2, T3,
         }
         let mut first_error = None;
         if let Some(component1) = self.component_1() {
-            retain_first_error(&mut first_error, component1.dispose());
+            dispose_fixed_aggregate_child(&component1, &mut first_error);
         }
         if let Some(component2) = self.component_2() {
-            retain_first_error(&mut first_error, component2.dispose());
+            dispose_fixed_aggregate_child(&component2, &mut first_error);
         }
         if let Some(component3) = self.component_3() {
-            retain_first_error(&mut first_error, component3.dispose());
+            dispose_fixed_aggregate_child(&component3, &mut first_error);
         }
+        self.ownership.replace_ids(HashSet::new());
         retain_first_error(
             &mut first_error,
             self.core.transition(LifecycleOperation::Dispose),
@@ -1354,102 +1375,103 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, D: Dispatcher>
     pub fn construct(&self) -> VmxResult<()> {
         self.core
             .transition_with(LifecycleOperation::Construct, || {
-                let next1 = self.component1.next()?;
-                let next2 = self.component2.next()?;
-                let next3 = self.component3.next()?;
-                let next4 = self.component4.next()?;
-                let parent = self.ownership.handle();
-                let mut ids = HashSet::new();
-                let mut claims = Vec::new();
-                validate_fixed_aggregate_candidate(
-                    &next1,
-                    &mut ids,
-                    &parent,
-                    self.component1.is_lazy(),
-                    &mut claims,
-                )?;
-                validate_fixed_aggregate_candidate(
-                    &next2,
-                    &mut ids,
-                    &parent,
-                    self.component2.is_lazy(),
-                    &mut claims,
-                )?;
-                validate_fixed_aggregate_candidate(
-                    &next3,
-                    &mut ids,
-                    &parent,
-                    self.component3.is_lazy(),
-                    &mut claims,
-                )?;
-                validate_fixed_aggregate_candidate(
-                    &next4,
-                    &mut ids,
-                    &parent,
-                    self.component4.is_lazy(),
-                    &mut claims,
-                )?;
-                let transaction = self.ownership.begin_transaction()?;
-                let mut first_error = None;
-                let mut replacement_committed = true;
-                if self.component1.is_lazy() {
-                    replacement_committed &= replace_fixed_aggregate_child(
-                        &self.component1,
-                        next1.clone(),
+                self.ownership.with_transaction(|| {
+                    let next1 = self.component1.next()?;
+                    let next2 = self.component2.next()?;
+                    let next3 = self.component3.next()?;
+                    let next4 = self.component4.next()?;
+                    let parent = self.ownership.handle();
+                    let mut ids = HashSet::new();
+                    let mut claims = Vec::new();
+                    validate_fixed_aggregate_candidate(
+                        &next1,
+                        &mut ids,
                         &parent,
-                        &self.ownership,
-                        &self.core,
-                        &mut first_error,
-                    );
-                    replacement_committed &= replace_fixed_aggregate_child(
-                        &self.component2,
-                        next2.clone(),
+                        self.component1.is_lazy(),
+                        &mut claims,
+                    )?;
+                    validate_fixed_aggregate_candidate(
+                        &next2,
+                        &mut ids,
                         &parent,
-                        &self.ownership,
-                        &self.core,
-                        &mut first_error,
-                    );
-                    replacement_committed &= replace_fixed_aggregate_child(
-                        &self.component3,
-                        next3.clone(),
+                        self.component2.is_lazy(),
+                        &mut claims,
+                    )?;
+                    validate_fixed_aggregate_candidate(
+                        &next3,
+                        &mut ids,
                         &parent,
-                        &self.ownership,
-                        &self.core,
-                        &mut first_error,
-                    );
-                    replacement_committed &= replace_fixed_aggregate_child(
-                        &self.component4,
-                        next4.clone(),
+                        self.component3.is_lazy(),
+                        &mut claims,
+                    )?;
+                    validate_fixed_aggregate_candidate(
+                        &next4,
+                        &mut ids,
                         &parent,
-                        &self.ownership,
-                        &self.core,
-                        &mut first_error,
-                    );
-                }
-                drop(claims);
-                if !replacement_committed {
-                    if first_error == Some(VmxError::Disposed) {
-                        return Ok(());
+                        self.component4.is_lazy(),
+                        &mut claims,
+                    )?;
+                    let mut first_error = None;
+                    let mut replacement_committed = true;
+                    if self.component1.is_lazy() {
+                        replacement_committed &= replace_fixed_aggregate_child(
+                            &self.component1,
+                            next1.clone(),
+                            &parent,
+                            &self.ownership,
+                            &self.core,
+                            &mut first_error,
+                        );
+                        replacement_committed &= replace_fixed_aggregate_child(
+                            &self.component2,
+                            next2.clone(),
+                            &parent,
+                            &self.ownership,
+                            &self.core,
+                            &mut first_error,
+                        );
+                        replacement_committed &= replace_fixed_aggregate_child(
+                            &self.component3,
+                            next3.clone(),
+                            &parent,
+                            &self.ownership,
+                            &self.core,
+                            &mut first_error,
+                        );
+                        replacement_committed &= replace_fixed_aggregate_child(
+                            &self.component4,
+                            next4.clone(),
+                            &parent,
+                            &self.ownership,
+                            &self.core,
+                            &mut first_error,
+                        );
                     }
-                    return finish_with_first_error(first_error);
-                }
-                self.ownership.replace_ids(ids);
-                if let Err(error) = finish_with_first_error(first_error) {
+                    drop(claims);
+                    if !replacement_committed {
+                        if first_error == Some(VmxError::Disposed) {
+                            return Ok(());
+                        }
+                        return finish_with_first_error(first_error);
+                    }
+                    self.ownership.replace_ids(ids);
+                    if let Err(error) = finish_with_first_error(first_error) {
+                        self.core.notify_property_changed("component_1");
+                        self.core.notify_property_changed("component_2");
+                        self.core.notify_property_changed("component_3");
+                        self.core.notify_property_changed("component_4");
+                        return Err(error);
+                    }
                     self.core.notify_property_changed("component_1");
+                    next1.construct()?;
                     self.core.notify_property_changed("component_2");
+                    next2.construct()?;
                     self.core.notify_property_changed("component_3");
+                    next3.construct()?;
                     self.core.notify_property_changed("component_4");
-                    return Err(error);
-                }
-                self.core.notify_property_changed("component_1");
-                next1.construct()?;
-                self.core.notify_property_changed("component_2");
-                next2.construct()?;
-                self.core.notify_property_changed("component_3");
-                next3.construct()?;
-                self.core.notify_property_changed("component_4");
-                next4.construct()?;
-                transaction.finish()
+                    next4.construct()?;
+                    Ok(())
+                })
             })
     }
 
@@ -1480,17 +1502,18 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, D: Dispatcher>
         }
         let mut first_error = None;
         if let Some(component1) = self.component_1() {
-            retain_first_error(&mut first_error, component1.dispose());
+            dispose_fixed_aggregate_child(&component1, &mut first_error);
         }
         if let Some(component2) = self.component_2() {
-            retain_first_error(&mut first_error, component2.dispose());
+            dispose_fixed_aggregate_child(&component2, &mut first_error);
         }
         if let Some(component3) = self.component_3() {
-            retain_first_error(&mut first_error, component3.dispose());
+            dispose_fixed_aggregate_child(&component3, &mut first_error);
         }
         if let Some(component4) = self.component_4() {
-            retain_first_error(&mut first_error, component4.dispose());
+            dispose_fixed_aggregate_child(&component4, &mut first_error);
         }
+        self.ownership.replace_ids(HashSet::new());
         retain_first_error(
             &mut first_error,
             self.core.transition(LifecycleOperation::Dispose),
@@ -1730,121 +1753,122 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, D: Dispatcher>
     pub fn construct(&self) -> VmxResult<()> {
         self.core
             .transition_with(LifecycleOperation::Construct, || {
-                let next1 = self.component1.next()?;
-                let next2 = self.component2.next()?;
-                let next3 = self.component3.next()?;
-                let next4 = self.component4.next()?;
-                let next5 = self.component5.next()?;
-                let parent = self.ownership.handle();
-                let mut ids = HashSet::new();
-                let mut claims = Vec::new();
-                validate_fixed_aggregate_candidate(
-                    &next1,
-                    &mut ids,
-                    &parent,
-                    self.component1.is_lazy(),
-                    &mut claims,
-                )?;
-                validate_fixed_aggregate_candidate(
-                    &next2,
-                    &mut ids,
-                    &parent,
-                    self.component2.is_lazy(),
-                    &mut claims,
-                )?;
-                validate_fixed_aggregate_candidate(
-                    &next3,
-                    &mut ids,
-                    &parent,
-                    self.component3.is_lazy(),
-                    &mut claims,
-                )?;
-                validate_fixed_aggregate_candidate(
-                    &next4,
-                    &mut ids,
-                    &parent,
-                    self.component4.is_lazy(),
-                    &mut claims,
-                )?;
-                validate_fixed_aggregate_candidate(
-                    &next5,
-                    &mut ids,
-                    &parent,
-                    self.component5.is_lazy(),
-                    &mut claims,
-                )?;
-                let transaction = self.ownership.begin_transaction()?;
-                let mut first_error = None;
-                let mut replacement_committed = true;
-                if self.component1.is_lazy() {
-                    replacement_committed &= replace_fixed_aggregate_child(
-                        &self.component1,
-                        next1.clone(),
+                self.ownership.with_transaction(|| {
+                    let next1 = self.component1.next()?;
+                    let next2 = self.component2.next()?;
+                    let next3 = self.component3.next()?;
+                    let next4 = self.component4.next()?;
+                    let next5 = self.component5.next()?;
+                    let parent = self.ownership.handle();
+                    let mut ids = HashSet::new();
+                    let mut claims = Vec::new();
+                    validate_fixed_aggregate_candidate(
+                        &next1,
+                        &mut ids,
                         &parent,
-                        &self.ownership,
-                        &self.core,
-                        &mut first_error,
-                    );
-                    replacement_committed &= replace_fixed_aggregate_child(
-                        &self.component2,
-                        next2.clone(),
+                        self.component1.is_lazy(),
+                        &mut claims,
+                    )?;
+                    validate_fixed_aggregate_candidate(
+                        &next2,
+                        &mut ids,
                         &parent,
-                        &self.ownership,
-                        &self.core,
-                        &mut first_error,
-                    );
-                    replacement_committed &= replace_fixed_aggregate_child(
-                        &self.component3,
-                        next3.clone(),
+                        self.component2.is_lazy(),
+                        &mut claims,
+                    )?;
+                    validate_fixed_aggregate_candidate(
+                        &next3,
+                        &mut ids,
                         &parent,
-                        &self.ownership,
-                        &self.core,
-                        &mut first_error,
-                    );
-                    replacement_committed &= replace_fixed_aggregate_child(
-                        &self.component4,
-                        next4.clone(),
+                        self.component3.is_lazy(),
+                        &mut claims,
+                    )?;
+                    validate_fixed_aggregate_candidate(
+                        &next4,
+                        &mut ids,
                         &parent,
-                        &self.ownership,
-                        &self.core,
-                        &mut first_error,
-                    );
-                    replacement_committed &= replace_fixed_aggregate_child(
-                        &self.component5,
-                        next5.clone(),
+                        self.component4.is_lazy(),
+                        &mut claims,
+                    )?;
+                    validate_fixed_aggregate_candidate(
+                        &next5,
+                        &mut ids,
                         &parent,
-                        &self.ownership,
-                        &self.core,
-                        &mut first_error,
-                    );
-                }
-                drop(claims);
-                if !replacement_committed {
-                    if first_error == Some(VmxError::Disposed) {
-                        return Ok(());
+                        self.component5.is_lazy(),
+                        &mut claims,
+                    )?;
+                    let mut first_error = None;
+                    let mut replacement_committed = true;
+                    if self.component1.is_lazy() {
+                        replacement_committed &= replace_fixed_aggregate_child(
+                            &self.component1,
+                            next1.clone(),
+                            &parent,
+                            &self.ownership,
+                            &self.core,
+                            &mut first_error,
+                        );
+                        replacement_committed &= replace_fixed_aggregate_child(
+                            &self.component2,
+                            next2.clone(),
+                            &parent,
+                            &self.ownership,
+                            &self.core,
+                            &mut first_error,
+                        );
+                        replacement_committed &= replace_fixed_aggregate_child(
+                            &self.component3,
+                            next3.clone(),
+                            &parent,
+                            &self.ownership,
+                            &self.core,
+                            &mut first_error,
+                        );
+                        replacement_committed &= replace_fixed_aggregate_child(
+                            &self.component4,
+                            next4.clone(),
+                            &parent,
+                            &self.ownership,
+                            &self.core,
+                            &mut first_error,
+                        );
+                        replacement_committed &= replace_fixed_aggregate_child(
+                            &self.component5,
+                            next5.clone(),
+                            &parent,
+                            &self.ownership,
+                            &self.core,
+                            &mut first_error,
+                        );
                     }
-                    return finish_with_first_error(first_error);
-                }
-                self.ownership.replace_ids(ids);
-                if let Err(error) = finish_with_first_error(first_error) {
+                    drop(claims);
+                    if !replacement_committed {
+                        if first_error == Some(VmxError::Disposed) {
+                            return Ok(());
+                        }
+                        return finish_with_first_error(first_error);
+                    }
+                    self.ownership.replace_ids(ids);
+                    if let Err(error) = finish_with_first_error(first_error) {
+                        self.core.notify_property_changed("component_1");
+                        self.core.notify_property_changed("component_2");
+                        self.core.notify_property_changed("component_3");
+                        self.core.notify_property_changed("component_4");
+                        self.core.notify_property_changed("component_5");
+                        return Err(error);
+                    }
                     self.core.notify_property_changed("component_1");
+                    next1.construct()?;
                     self.core.notify_property_changed("component_2");
+                    next2.construct()?;
                     self.core.notify_property_changed("component_3");
+                    next3.construct()?;
                     self.core.notify_property_changed("component_4");
+                    next4.construct()?;
                     self.core.notify_property_changed("component_5");
-                    return Err(error);
-                }
-                self.core.notify_property_changed("component_1");
-                next1.construct()?;
-                self.core.notify_property_changed("component_2");
-                next2.construct()?;
-                self.core.notify_property_changed("component_3");
-                next3.construct()?;
-                self.core.notify_property_changed("component_4");
-                next4.construct()?;
-                self.core.notify_property_changed("component_5");
-                next5.construct()?;
-                transaction.finish()
+                    next5.construct()?;
+                    Ok(())
+                })
             })
     }
 
@@ -1878,20 +1902,21 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, D: Dispatcher>
         }
         let mut first_error = None;
         if let Some(component1) = self.component_1() {
-            retain_first_error(&mut first_error, component1.dispose());
+            dispose_fixed_aggregate_child(&component1, &mut first_error);
         }
         if let Some(component2) = self.component_2() {
-            retain_first_error(&mut first_error, component2.dispose());
+            dispose_fixed_aggregate_child(&component2, &mut first_error);
         }
         if let Some(component3) = self.component_3() {
-            retain_first_error(&mut first_error, component3.dispose());
+            dispose_fixed_aggregate_child(&component3, &mut first_error);
         }
         if let Some(component4) = self.component_4() {
-            retain_first_error(&mut first_error, component4.dispose());
+            dispose_fixed_aggregate_child(&component4, &mut first_error);
         }
         if let Some(component5) = self.component_5() {
-            retain_first_error(&mut first_error, component5.dispose());
+            dispose_fixed_aggregate_child(&component5, &mut first_error);
         }
+        self.ownership.replace_ids(HashSet::new());
         retain_first_error(
             &mut first_error,
             self.core.transition(LifecycleOperation::Dispose),
@@ -2152,140 +2177,141 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, T6: VmNode, D: 
     pub fn construct(&self) -> VmxResult<()> {
         self.core
             .transition_with(LifecycleOperation::Construct, || {
-                let next1 = self.component1.next()?;
-                let next2 = self.component2.next()?;
-                let next3 = self.component3.next()?;
-                let next4 = self.component4.next()?;
-                let next5 = self.component5.next()?;
-                let next6 = self.component6.next()?;
-                let parent = self.ownership.handle();
-                let mut ids = HashSet::new();
-                let mut claims = Vec::new();
-                validate_fixed_aggregate_candidate(
-                    &next1,
-                    &mut ids,
-                    &parent,
-                    self.component1.is_lazy(),
-                    &mut claims,
-                )?;
-                validate_fixed_aggregate_candidate(
-                    &next2,
-                    &mut ids,
-                    &parent,
-                    self.component2.is_lazy(),
-                    &mut claims,
-                )?;
-                validate_fixed_aggregate_candidate(
-                    &next3,
-                    &mut ids,
-                    &parent,
-                    self.component3.is_lazy(),
-                    &mut claims,
-                )?;
-                validate_fixed_aggregate_candidate(
-                    &next4,
-                    &mut ids,
-                    &parent,
-                    self.component4.is_lazy(),
-                    &mut claims,
-                )?;
-                validate_fixed_aggregate_candidate(
-                    &next5,
-                    &mut ids,
-                    &parent,
-                    self.component5.is_lazy(),
-                    &mut claims,
-                )?;
-                validate_fixed_aggregate_candidate(
-                    &next6,
-                    &mut ids,
-                    &parent,
-                    self.component6.is_lazy(),
-                    &mut claims,
-                )?;
-                let transaction = self.ownership.begin_transaction()?;
-                let mut first_error = None;
-                let mut replacement_committed = true;
-                if self.component1.is_lazy() {
-                    replacement_committed &= replace_fixed_aggregate_child(
-                        &self.component1,
-                        next1.clone(),
+                self.ownership.with_transaction(|| {
+                    let next1 = self.component1.next()?;
+                    let next2 = self.component2.next()?;
+                    let next3 = self.component3.next()?;
+                    let next4 = self.component4.next()?;
+                    let next5 = self.component5.next()?;
+                    let next6 = self.component6.next()?;
+                    let parent = self.ownership.handle();
+                    let mut ids = HashSet::new();
+                    let mut claims = Vec::new();
+                    validate_fixed_aggregate_candidate(
+                        &next1,
+                        &mut ids,
                         &parent,
-                        &self.ownership,
-                        &self.core,
-                        &mut first_error,
-                    );
-                    replacement_committed &= replace_fixed_aggregate_child(
-                        &self.component2,
-                        next2.clone(),
+                        self.component1.is_lazy(),
+                        &mut claims,
+                    )?;
+                    validate_fixed_aggregate_candidate(
+                        &next2,
+                        &mut ids,
                         &parent,
-                        &self.ownership,
-                        &self.core,
-                        &mut first_error,
-                    );
-                    replacement_committed &= replace_fixed_aggregate_child(
-                        &self.component3,
-                        next3.clone(),
+                        self.component2.is_lazy(),
+                        &mut claims,
+                    )?;
+                    validate_fixed_aggregate_candidate(
+                        &next3,
+                        &mut ids,
                         &parent,
-                        &self.ownership,
-                        &self.core,
-                        &mut first_error,
-                    );
-                    replacement_committed &= replace_fixed_aggregate_child(
-                        &self.component4,
-                        next4.clone(),
+                        self.component3.is_lazy(),
+                        &mut claims,
+                    )?;
+                    validate_fixed_aggregate_candidate(
+                        &next4,
+                        &mut ids,
                         &parent,
-                        &self.ownership,
-                        &self.core,
-                        &mut first_error,
-                    );
-                    replacement_committed &= replace_fixed_aggregate_child(
-                        &self.component5,
-                        next5.clone(),
+                        self.component4.is_lazy(),
+                        &mut claims,
+                    )?;
+                    validate_fixed_aggregate_candidate(
+                        &next5,
+                        &mut ids,
                         &parent,
-                        &self.ownership,
-                        &self.core,
-                        &mut first_error,
-                    );
-                    replacement_committed &= replace_fixed_aggregate_child(
-                        &self.component6,
-                        next6.clone(),
+                        self.component5.is_lazy(),
+                        &mut claims,
+                    )?;
+                    validate_fixed_aggregate_candidate(
+                        &next6,
+                        &mut ids,
                         &parent,
-                        &self.ownership,
-                        &self.core,
-                        &mut first_error,
-                    );
-                }
-                drop(claims);
-                if !replacement_committed {
-                    if first_error == Some(VmxError::Disposed) {
-                        return Ok(());
+                        self.component6.is_lazy(),
+                        &mut claims,
+                    )?;
+                    let mut first_error = None;
+                    let mut replacement_committed = true;
+                    if self.component1.is_lazy() {
+                        replacement_committed &= replace_fixed_aggregate_child(
+                            &self.component1,
+                            next1.clone(),
+                            &parent,
+                            &self.ownership,
+                            &self.core,
+                            &mut first_error,
+                        );
+                        replacement_committed &= replace_fixed_aggregate_child(
+                            &self.component2,
+                            next2.clone(),
+                            &parent,
+                            &self.ownership,
+                            &self.core,
+                            &mut first_error,
+                        );
+                        replacement_committed &= replace_fixed_aggregate_child(
+                            &self.component3,
+                            next3.clone(),
+                            &parent,
+                            &self.ownership,
+                            &self.core,
+                            &mut first_error,
+                        );
+                        replacement_committed &= replace_fixed_aggregate_child(
+                            &self.component4,
+                            next4.clone(),
+                            &parent,
+                            &self.ownership,
+                            &self.core,
+                            &mut first_error,
+                        );
+                        replacement_committed &= replace_fixed_aggregate_child(
+                            &self.component5,
+                            next5.clone(),
+                            &parent,
+                            &self.ownership,
+                            &self.core,
+                            &mut first_error,
+                        );
+                        replacement_committed &= replace_fixed_aggregate_child(
+                            &self.component6,
+                            next6.clone(),
+                            &parent,
+                            &self.ownership,
+                            &self.core,
+                            &mut first_error,
+                        );
                     }
-                    return finish_with_first_error(first_error);
-                }
-                self.ownership.replace_ids(ids);
-                if let Err(error) = finish_with_first_error(first_error) {
+                    drop(claims);
+                    if !replacement_committed {
+                        if first_error == Some(VmxError::Disposed) {
+                            return Ok(());
+                        }
+                        return finish_with_first_error(first_error);
+                    }
+                    self.ownership.replace_ids(ids);
+                    if let Err(error) = finish_with_first_error(first_error) {
+                        self.core.notify_property_changed("component_1");
+                        self.core.notify_property_changed("component_2");
+                        self.core.notify_property_changed("component_3");
+                        self.core.notify_property_changed("component_4");
+                        self.core.notify_property_changed("component_5");
+                        self.core.notify_property_changed("component_6");
+                        return Err(error);
+                    }
                     self.core.notify_property_changed("component_1");
+                    next1.construct()?;
                     self.core.notify_property_changed("component_2");
+                    next2.construct()?;
                     self.core.notify_property_changed("component_3");
+                    next3.construct()?;
                     self.core.notify_property_changed("component_4");
+                    next4.construct()?;
                     self.core.notify_property_changed("component_5");
+                    next5.construct()?;
                     self.core.notify_property_changed("component_6");
-                    return Err(error);
-                }
-                self.core.notify_property_changed("component_1");
-                next1.construct()?;
-                self.core.notify_property_changed("component_2");
-                next2.construct()?;
-                self.core.notify_property_changed("component_3");
-                next3.construct()?;
-                self.core.notify_property_changed("component_4");
-                next4.construct()?;
-                self.core.notify_property_changed("component_5");
-                next5.construct()?;
-                self.core.notify_property_changed("component_6");
-                next6.construct()?;
-                transaction.finish()
+                    next6.construct()?;
+                    Ok(())
+                })
             })
     }
 
@@ -2322,23 +2348,24 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, T6: VmNode, D: 
         }
         let mut first_error = None;
         if let Some(component1) = self.component_1() {
-            retain_first_error(&mut first_error, component1.dispose());
+            dispose_fixed_aggregate_child(&component1, &mut first_error);
         }
         if let Some(component2) = self.component_2() {
-            retain_first_error(&mut first_error, component2.dispose());
+            dispose_fixed_aggregate_child(&component2, &mut first_error);
         }
         if let Some(component3) = self.component_3() {
-            retain_first_error(&mut first_error, component3.dispose());
+            dispose_fixed_aggregate_child(&component3, &mut first_error);
         }
         if let Some(component4) = self.component_4() {
-            retain_first_error(&mut first_error, component4.dispose());
+            dispose_fixed_aggregate_child(&component4, &mut first_error);
         }
         if let Some(component5) = self.component_5() {
-            retain_first_error(&mut first_error, component5.dispose());
+            dispose_fixed_aggregate_child(&component5, &mut first_error);
         }
         if let Some(component6) = self.component_6() {
-            retain_first_error(&mut first_error, component6.dispose());
+            dispose_fixed_aggregate_child(&component6, &mut first_error);
         }
+        self.ownership.replace_ids(HashSet::new());
         retain_first_error(
             &mut first_error,
             self.core.transition(LifecycleOperation::Dispose),

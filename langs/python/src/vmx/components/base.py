@@ -822,8 +822,10 @@ class _ComponentVMBase(ABC):
                 self._clear_in_flight()
 
     def _continue_reconstruct_with_construct_phase(self) -> bool:
-        self._set_status(ConstructionStatus.DESTRUCTED)
-        self._set_status(ConstructionStatus.CONSTRUCTING)
+        if not self._set_status(ConstructionStatus.DESTRUCTED):
+            return False
+        if not self._set_status(ConstructionStatus.CONSTRUCTING) or self._is_disposed():
+            return False
         try:
             self._on_construct()
         except BaseException:

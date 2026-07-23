@@ -86,6 +86,13 @@ export class AggregateVM5<
         this.#component4 = next4;
         this.#component5 = next5;
       },
+      () => {
+        this._notifyPropertyChanged("component1");
+        this._notifyPropertyChanged("component2");
+        this._notifyPropertyChanged("component3");
+        this._notifyPropertyChanged("component4");
+        this._notifyPropertyChanged("component5");
+      },
     )) return;
     this._notifyPropertyChanged("component1");
     this._notifyPropertyChanged("component2");

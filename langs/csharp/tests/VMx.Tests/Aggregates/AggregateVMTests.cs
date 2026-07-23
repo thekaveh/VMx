@@ -665,14 +665,23 @@ public class AggregateVMTests
             .Component2(() => ++calls2 == 1 ? previous2 : candidate2)
             .Build();
         aggregate.Construct();
+        var changes = new List<string?>();
+        aggregate.PropertyChanged += (_, args) => changes.Add(args.PropertyName);
 
         aggregate.Invoking(candidate => candidate.Reconstruct())
             .Should().Throw<InvalidOperationException>()
             .WithMessage("first disposal failure");
 
         previous2.Status.Should().Be(ConstructionStatus.Disposed);
-        candidate1.Status.Should().Be(ConstructionStatus.Disposed);
-        candidate2.Status.Should().Be(ConstructionStatus.Disposed);
+        aggregate.Status.Should().Be(ConstructionStatus.Destructed);
+        aggregate.Component1.Should().BeSameAs(candidate1);
+        aggregate.Component2.Should().BeSameAs(candidate2);
+        candidate1.Status.Should().Be(ConstructionStatus.Destructed);
+        candidate2.Status.Should().Be(ConstructionStatus.Destructed);
+        candidate1.GetParent()!.Owner.Should().BeSameAs(aggregate);
+        candidate2.GetParent()!.Owner.Should().BeSameAs(aggregate);
+        changes.Where(name => name?.StartsWith("Component", StringComparison.Ordinal) == true)
+            .Should().Equal(nameof(aggregate.Component1), nameof(aggregate.Component2));
     }
 }
 #pragma warning restore CA1715

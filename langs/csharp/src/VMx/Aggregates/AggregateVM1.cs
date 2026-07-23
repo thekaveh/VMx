@@ -63,7 +63,7 @@ public sealed class AggregateVM1<VM1> : ComponentVMBase, IAggregateVM1<VM1>, IAg
             if (!AggregateOwnership.Replace(_aggregateParent, previous, [next1], () =>
             {
                 _component1 = next1;
-            })) return;
+            }, () => NotifyPropertyChanged(nameof(Component1)))) return;
             NotifyPropertyChanged(nameof(Component1));
 
             CompleteLifecycleHookAfter(TransitionChildrenAsync(

@@ -57,7 +57,7 @@ export class AggregateVM1<VM1 extends ComponentVMBase> extends ComponentVMBase {
     // overwriting so subscribers don't leak across the Reconstruct boundary.
     if (!replaceAggregateSlots(this.#aggregateParent, previous, [next1], () => {
       this.#component1 = next1;
-    })) return;
+    }, () => this._notifyPropertyChanged("component1"))) return;
     this._notifyPropertyChanged("component1");
     next1.construct();
   }

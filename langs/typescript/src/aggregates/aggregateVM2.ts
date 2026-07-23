@@ -61,6 +61,9 @@ export class AggregateVM2<VM1 extends ComponentVMBase, VM2 extends ComponentVMBa
     if (!replaceAggregateSlots(this.#aggregateParent, previous, [next1, next2], () => {
       this.#component1 = next1;
       this.#component2 = next2;
+    }, () => {
+      this._notifyPropertyChanged("component1");
+      this._notifyPropertyChanged("component2");
     })) return;
     this._notifyPropertyChanged("component1");
     this._notifyPropertyChanged("component2");

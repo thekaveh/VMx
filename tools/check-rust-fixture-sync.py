@@ -21,6 +21,10 @@ def repo_root() -> Path:
 
 _FIXTURE_PAIRS: list[tuple[str, str]] = [
     (
+        "spec/fixtures/derived-properties.json",
+        "langs/rust/src/fixtures/derived-properties.json",
+    ),
+    (
         "spec/fixtures/command-truthtable.json",
         "langs/rust/src/fixtures/command-truthtable.json",
     ),

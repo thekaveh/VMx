@@ -98,6 +98,12 @@ public sealed class AggregateVM4<VM1, VM2, VM3, VM4> : ComponentVMBase, IAggrega
                 _component2 = next2;
                 _component3 = next3;
                 _component4 = next4;
+            }, () =>
+            {
+                NotifyPropertyChanged(nameof(Component1));
+                NotifyPropertyChanged(nameof(Component2));
+                NotifyPropertyChanged(nameof(Component3));
+                NotifyPropertyChanged(nameof(Component4));
             })) return;
             NotifyPropertyChanged(nameof(Component1));
             NotifyPropertyChanged(nameof(Component2));

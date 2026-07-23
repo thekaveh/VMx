@@ -140,7 +140,7 @@ class _AggregateVMBase(_ComponentVMBase):
                 except BaseException as error:
                     if first_error is None:
                         first_error = error
-            if first_error is not None or self.status is ConstructionStatus.DISPOSED:
+            if self.status is ConstructionStatus.DISPOSED:
                 try:
                     _dispose_children_then_self(new_slots, lambda: None)
                 except BaseException as error:
@@ -152,6 +152,10 @@ class _AggregateVMBase(_ComponentVMBase):
             for name, child in zip(slot_names, new_slots, strict=True):
                 setattr(self, name, child)
             self._replace_slot_parents(old_slots, new_slots)
+            if first_error is not None:
+                for name in slot_names:
+                    self._notify_property_changed(f"component_{name.removeprefix('_component')}")
+                raise first_error
             return True
 
     def _dispose_aggregate_slots(self, slot_names: tuple[str, ...]) -> None:

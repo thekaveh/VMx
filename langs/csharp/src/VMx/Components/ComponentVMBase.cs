@@ -328,6 +328,12 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         internal ManualResetEventSlim Completed { get; } = new(false);
     }
 
+    private sealed class LifecycleHookLease
+    {
+        internal int OwnerThreadId { get; } = Environment.CurrentManagedThreadId;
+        internal ManualResetEventSlim Completed { get; } = new(false);
+    }
+
     private readonly Queue<LifecycleDelivery> _lifecycleDeliveries = [];
     private bool _lifecycleDeliveryDraining;
     private int _lifecycleDeliveryDrainerThreadId;
@@ -339,6 +345,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     private volatile bool _inFlight;
     private readonly List<TaskCompletionSource<bool>> _lifecycleWaiters = [];
     private Task? _deferredLifecycleTask;
+    private LifecycleHookLease? _activeHookLease;
 
     // ── Selection state ─────────────────────────────────────────────────────
     private bool _isCurrent;
@@ -599,7 +606,8 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                 // Dispose() may have run between scheduling and execution.
                 // Re-check the terminal state under _gate and abort if disposed
                 // (spec/02 invariant 3): no OnConstruct(), no marshalled emission.
-                if (IsDisposed())
+                var hookLease = TryClaimLifecycleHook(ConstructionStatus.Constructing);
+                if (hookLease is null)
                 {
                     ClearInFlight();
                     return Disposable.Empty;
@@ -607,7 +615,8 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
 
                 try
                 {
-                    OnConstruct();
+                    try { OnConstruct(); }
+                    finally { FinishLifecycleHook(hookLease); }
                 }
                 catch (Exception error)
                 {
@@ -672,9 +681,13 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             var completionDeferred = false;
             try
             {
+                var hookLease = TryClaimLifecycleHook(ConstructionStatus.Constructing);
+                if (hookLease is null)
+                    return;
                 try
                 {
-                    OnConstruct();
+                    try { OnConstruct(); }
+                    finally { FinishLifecycleHook(hookLease); }
                 }
                 catch
                 {
@@ -773,7 +786,8 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                 // Dispose() may have run between scheduling and execution.
                 // Re-check the terminal state under _gate and abort if disposed
                 // (spec/02 invariant 3): no OnDestruct(), no marshalled emission.
-                if (IsDisposed())
+                var hookLease = TryClaimLifecycleHook(ConstructionStatus.Destructing);
+                if (hookLease is null)
                 {
                     ClearInFlight();
                     return Disposable.Empty;
@@ -781,7 +795,8 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
 
                 try
                 {
-                    OnDestruct();
+                    try { OnDestruct(); }
+                    finally { FinishLifecycleHook(hookLease); }
                 }
                 catch (Exception error)
                 {
@@ -843,9 +858,13 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             var completionDeferred = false;
             try
             {
+                var hookLease = TryClaimLifecycleHook(ConstructionStatus.Destructing);
+                if (hookLease is null)
+                    return;
                 try
                 {
-                    OnDestruct();
+                    try { OnDestruct(); }
+                    finally { FinishLifecycleHook(hookLease); }
                 }
                 catch
                 {
@@ -922,9 +941,13 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         var completionDeferred = false;
         try
         {
+            var hookLease = TryClaimLifecycleHook(ConstructionStatus.Destructing);
+            if (hookLease is null)
+                return;
             try
             {
-                OnDestruct();
+                try { OnDestruct(); }
+                finally { FinishLifecycleHook(hookLease); }
             }
             catch
             {
@@ -971,10 +994,16 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     private bool ContinueReconstructWithConstructPhase()
     {
         SetStatus(ConstructionStatus.Destructed);
+        if (IsDisposed())
+            return false;
         SetStatus(ConstructionStatus.Constructing);
+        var hookLease = TryClaimLifecycleHook(ConstructionStatus.Constructing);
+        if (hookLease is null)
+            return false;
         try
         {
-            OnConstruct();
+            try { OnConstruct(); }
+            finally { FinishLifecycleHook(hookLease); }
         }
         catch
         {
@@ -1066,6 +1095,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         ExceptionDispatchInfo? firstError = null;
         bool shouldDrain;
         LifecycleDelivery? delivery;
+        LifecycleHookLease? hookLease;
         lock (_gate)
         {
             if (_status == ConstructionStatus.Disposed) return;
@@ -1073,6 +1103,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             // Terminal publication is best-effort: an observer failure must not
             // prevent the remaining channels or mandatory cleanup from running.
             _status = ConstructionStatus.Disposed;
+            hookLease = _activeHookLease;
             var notifyTrigger = !_triggerDisposed;
             var statusDelivery = QueueLifecycleDeliveryLocked(() =>
             {
@@ -1093,6 +1124,9 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             delivery = waiterDelivery ?? statusDelivery;
         }
         DrainAndThrow(delivery!, shouldDrain);
+        if (hookLease is not null &&
+            hookLease.OwnerThreadId != Environment.CurrentManagedThreadId)
+            hookLease.Completed.Wait();
 
         // Subclass cleanup hook, matching Python `_on_dispose` (base.py) and
         // TS `_onDispose` (componentVMBase.ts). Runs immediately after the
@@ -1188,6 +1222,26 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         {
             return _status == ConstructionStatus.Disposed;
         }
+    }
+
+    private LifecycleHookLease? TryClaimLifecycleHook(ConstructionStatus expectedStatus)
+    {
+        lock (_gate)
+        {
+            if (_status != expectedStatus || _activeHookLease is not null)
+                return null;
+            return _activeHookLease = new LifecycleHookLease();
+        }
+    }
+
+    private void FinishLifecycleHook(LifecycleHookLease lease)
+    {
+        lock (_gate)
+        {
+            if (ReferenceEquals(_activeHookLease, lease))
+                _activeHookLease = null;
+        }
+        lease.Completed.Set();
     }
 
     private void ClearInFlight()

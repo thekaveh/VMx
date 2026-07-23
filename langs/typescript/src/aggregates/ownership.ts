@@ -71,6 +71,7 @@ export function replaceAggregateSlots(
   previous: readonly (ComponentVMBase | null)[],
   next: readonly ComponentVMBase[],
   assign: () => void,
+  notifyCommittedError: () => void,
 ): boolean {
   const identities = [...new Set(next.map((child) => child._ownershipIdentity))];
   if (identities.some((identity) => identity._ownershipInProgress)) {
@@ -87,7 +88,7 @@ export function replaceAggregateSlots(
       failed = true;
       firstError = error;
     }
-    if (failed || parent.owner.status === ConstructionStatus.Disposed) {
+    if (parent.owner.status === ConstructionStatus.Disposed) {
       try {
         disposeBestEffort(next.map((child) => () => child.dispose()));
       } catch (error) {
@@ -101,6 +102,10 @@ export function replaceAggregateSlots(
     }
     assign();
     commitAggregateSlots(parent, previous, next);
+    if (failed) {
+      notifyCommittedError();
+      throw firstError;
+    }
     return true;
   } finally {
     for (const identity of identities) identity._ownershipInProgress = false;

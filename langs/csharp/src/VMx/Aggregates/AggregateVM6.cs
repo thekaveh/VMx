@@ -129,6 +129,14 @@ public sealed class AggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6> : ComponentVMBase
                     _component4 = next4;
                     _component5 = next5;
                     _component6 = next6;
+                }, () =>
+                {
+                    NotifyPropertyChanged(nameof(Component1));
+                    NotifyPropertyChanged(nameof(Component2));
+                    NotifyPropertyChanged(nameof(Component3));
+                    NotifyPropertyChanged(nameof(Component4));
+                    NotifyPropertyChanged(nameof(Component5));
+                    NotifyPropertyChanged(nameof(Component6));
                 })) return;
             NotifyPropertyChanged(nameof(Component1));
             NotifyPropertyChanged(nameof(Component2));

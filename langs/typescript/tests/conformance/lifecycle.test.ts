@@ -142,6 +142,51 @@ describe("LIFE-004", () => {
       expect(observed).toContain(ConstructionStatus.Disposed);
     }
   });
+
+  it("suppresses a hook when a status observer disposes first", () => {
+    for (const phase of [ConstructionStatus.Constructing, ConstructionStatus.Destructing]) {
+      const hub = makeHub();
+      let hookCalls = 0;
+      const vm = ComponentVM.builder()
+        .name("observer-dispose")
+        .services(hub, makeDisp())
+        .onConstruct(() => { hookCalls += 1; })
+        .onDestruct(() => { hookCalls += 1; })
+        .build();
+      if (phase === ConstructionStatus.Destructing) vm.construct();
+      hookCalls = 0;
+      hub.messages.subscribe((message) => {
+        if (message instanceof ConstructionStatusChangedMessage && message.status === phase) {
+          vm.dispose();
+        }
+      });
+
+      if (phase === ConstructionStatus.Constructing) vm.construct();
+      else vm.destruct();
+
+      expect(vm.status).toBe(ConstructionStatus.Disposed);
+      expect(hookCalls).toBe(0);
+    }
+  });
+
+  it("does not enter reconstruct's construct hook after destruct disposes", () => {
+    let constructCalls = 0;
+    let disposeDuringDestruct = false;
+    let vm: ComponentVM;
+    vm = ComponentVM.builder()
+      .name("reconstruct-dispose")
+      .services(makeHub(), makeDisp())
+      .onConstruct(() => { constructCalls += 1; })
+      .onDestruct(() => { if (disposeDuringDestruct) vm.dispose(); })
+      .build();
+    vm.construct();
+    disposeDuringDestruct = true;
+
+    vm.reconstruct();
+
+    expect(vm.status).toBe(ConstructionStatus.Disposed);
+    expect(constructCalls).toBe(1);
+  });
 });
 
 // ---------------------------------------------------------------------------

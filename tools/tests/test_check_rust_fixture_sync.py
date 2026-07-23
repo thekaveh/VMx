@@ -7,6 +7,7 @@ import check_rust_fixture_sync as crfs
 
 FIXTURE_NAMES = (
     "command-truthtable.json",
+    "derived-properties.json",
     "lifecycle-transitions.json",
     "message-ordering.json",
 )

@@ -270,6 +270,10 @@ export abstract class ComponentVMBase {
     return this.#status;
   }
 
+  #isDisposed(): boolean {
+    return this.#status === ConstructionStatus.Disposed;
+  }
+
   get isConstructed(): boolean {
     return this.#status === ConstructionStatus.Constructed;
   }
@@ -424,6 +428,7 @@ export abstract class ComponentVMBase {
     } else {
       try {
         this._setStatus(ConstructionStatus.Constructing);
+        if (this.#isDisposed()) return;
         try {
           this._onConstruct();
         } catch (e) {
@@ -494,6 +499,7 @@ export abstract class ComponentVMBase {
     } else {
       try {
         this._setStatus(ConstructionStatus.Destructing);
+        if (this.#isDisposed()) return;
         try {
           this._onDestruct();
         } catch (e) {
@@ -520,6 +526,7 @@ export abstract class ComponentVMBase {
 
     try {
       this._setStatus(ConstructionStatus.Destructing);
+      if (this.#isDisposed()) return;
       try {
         this._onDestruct();
       } catch (e) {
@@ -529,8 +536,10 @@ export abstract class ComponentVMBase {
         throw e;
       }
       this._setStatus(ConstructionStatus.Destructed);
+      if (this.#isDisposed()) return;
 
       this._setStatus(ConstructionStatus.Constructing);
+      if (this.#isDisposed()) return;
       try {
         this._onConstruct();
       } catch (e) {

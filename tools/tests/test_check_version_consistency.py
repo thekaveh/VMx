@@ -161,6 +161,18 @@ def test_csharp_companion_manifests_require_package_specific_tags_but_not_curren
     assert "csharp-dependency-injection-v2.1.0" in missing
 
 
+def test_active_pre_v2_manifest_tag_is_enforced_while_historical_row_is_informational() -> None:
+    missing = {
+        "csharp-notifications-v1.2.0": ["csharp/VMx.Notifications manifest version='1.2.0'"],
+        "csharp-v1.1.0": ["compatibility-matrix.md row '1.1.x' [csharp='1.1.0']"],
+    }
+
+    enforced, informational = cvc.partition_missing_tags(missing)
+
+    assert set(enforced) == {"csharp-notifications-v1.2.0"}
+    assert set(informational) == {"csharp-v1.1.0"}
+
+
 def test_current_development_versions_includes_explicit_unreleased_companion() -> None:
     manifests = {
         "csharp/VMx.Extensions.DependencyInjection": {
@@ -201,6 +213,7 @@ def test_current_development_tags_are_namespace_aware() -> None:
     [
         ("not-semver", {}, [], "spec/VERSION"),
         ("3.22.0", {"typescript": {"version": "next"}}, [], "typescript version"),
+        ("3.22.0", {"typescript": {"version": ""}}, [], "typescript version"),
         (
             "3.22.0",
             {"python": {"version": "3.22.0", "min_spec_version": "current"}},
@@ -235,6 +248,20 @@ def test_main_fails_closed_for_malformed_spec_version(
 ) -> None:
     _make_repo_v3(tmp_path)
     (tmp_path / "spec" / "VERSION").write_text("next\n", encoding="utf-8")
+    monkeypatch.setattr(cvc, "get_git_tags", lambda _root: set(_TAGS_2_6_ONLY))
+
+    assert cvc.main(["--repo-root", str(tmp_path)]) == 1
+
+
+def test_main_fails_closed_for_malformed_matrix_cell(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _make_repo_v3(tmp_path)
+    matrix = tmp_path / "compatibility-matrix.md"
+    matrix.write_text(
+        matrix.read_text(encoding="utf-8").replace("2.6.0  |", "2.6.0-beta |", 1),
+        encoding="utf-8",
+    )
     monkeypatch.setattr(cvc, "get_git_tags", lambda _root: set(_TAGS_2_6_ONLY))
 
     assert cvc.main(["--repo-root", str(tmp_path)]) == 1
@@ -475,6 +502,31 @@ def test_parse_matrix_handles_version_range(tmp_path: Path) -> None:
     assert sorted(row["csharp"]) == ["1.1.0", "1.2.0"]
     assert sorted(row["python"]) == ["1.1.0", "1.2.0"]
     assert row["swift"] == []
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "# no table\n",
+        "| spec | csharp | python | typescript | swift | rust |\n"
+        "| --- | --- | --- | --- | --- | --- |\n",
+        "| spec | csharp | python | typescript | swift | rust |\n"
+        "| --- | --- | --- | --- | --- | --- |\n"
+        "| 3.22.z | 3.22.0 | — | — | — | — |\n",
+        "| spec | csharp | python | typescript | swift | rust |\n"
+        "| --- | --- | --- | --- | --- | --- |\n"
+        "| 3.22.x | 3.22.0oops | — | — | — | — |\n",
+        "| spec | csharp | python | typescript | swift | rust |\n"
+        "| --- | --- | --- | --- | --- | --- |\n"
+        "| 3.22.x | 3.22.0-beta | — | — | — | — |\n",
+    ],
+)
+def test_parse_matrix_rejects_missing_or_malformed_claims(tmp_path: Path, content: str) -> None:
+    matrix = tmp_path / "compatibility-matrix.md"
+    matrix.write_text(content, encoding="utf-8")
+
+    with pytest.raises(ValueError, match="compatibility matrix"):
+        cvc.parse_matrix(matrix)
 
 
 def test_parse_matrix_marks_legacy_semantic_tag_row(tmp_path: Path) -> None:

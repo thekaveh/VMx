@@ -409,12 +409,21 @@ describe("Aggregate fixed-slot ownership", () => {
       .component2(() => ++calls2 === 1 ? previous2 : candidate2)
       .build();
     aggregate.construct();
+    const changes: string[] = [];
+    aggregate.propertyChanged.subscribe((name) => changes.push(name));
 
     expect(() => aggregate.reconstruct()).toThrow("first disposal failure");
 
     expect(previous2.status).toBe(ConstructionStatus.Disposed);
-    expect(candidate1.status).toBe(ConstructionStatus.Disposed);
-    expect(candidate2.status).toBe(ConstructionStatus.Disposed);
+    expect(aggregate.status).toBe(ConstructionStatus.Destructed);
+    expect(aggregate.component1).toBe(candidate1);
+    expect(aggregate.component2).toBe(candidate2);
+    expect(candidate1.status).toBe(ConstructionStatus.Destructed);
+    expect(candidate2.status).toBe(ConstructionStatus.Destructed);
+    expect(changes.filter((name) => name.startsWith("component"))).toEqual([
+      "component1",
+      "component2",
+    ]);
   });
 
   it.each([1, 2])(

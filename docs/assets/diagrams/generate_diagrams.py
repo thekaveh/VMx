@@ -1547,11 +1547,11 @@ def viewmodel_families() -> Diagram:
                 170,
                 260,
                 132,
-                "Specialized VMs",
+                "Specialized companions",
                 (
-                    "FormVM / DiscriminatorVM",
-                    "NotificationVM / ConfirmationVM",
-                    "AsyncResourceVM",
+                    "Lifecycle VM: AsyncResourceVM",
+                    "Coordinators: Form / Discriminator",
+                    "Notification / Confirmation",
                 ),
                 "security",
             ),
@@ -1636,28 +1636,6 @@ def viewmodel_families() -> Diagram:
                 color="#22d3ee",
             ),
             Polyline(
-                ((340, 260), (375, 260), (375, 322), (1390, 322), (1390, 302)),
-                color="#22d3ee",
-            ),
-            Polyline(
-                ((510, 452), (510, 514)),
-                color="#34d399",
-                label="implements",
-                label_xy=(566, 486),
-            ),
-            Polyline(
-                ((800, 452), (800, 514)),
-                color="#a78bfa",
-                label="composes",
-                label_xy=(856, 486),
-            ),
-            Polyline(
-                ((1090, 302), (1090, 514)),
-                color="#fb923c",
-                label="wraps / decorates",
-                label_xy=(1174, 486),
-            ),
-            Polyline(
                 ((1390, 302), (1390, 514)),
                 color="#fb7185",
                 label="injects / posts",
@@ -1686,7 +1664,7 @@ def viewmodel_families() -> Diagram:
                 "Five idioms",
                 (
                     "Leaf, composite, group, aggregate, and hierarchical shapes are distinct on purpose.",
-                    "Forwarding decorators and specialized VMs stay outside the core container split.",
+                    "Forwarding decorators and specialized companions stay outside the core container split.",
                     "This is the same family map every flavor implements.",
                 ),
             ),

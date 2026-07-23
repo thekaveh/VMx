@@ -1,6 +1,43 @@
 use std::sync::{Arc, Mutex};
 
+use serde::Deserialize;
+use serde_json::Value;
 use vmx::{DerivedProperty, Message};
+
+#[derive(Deserialize)]
+struct DerivedPropertyFixture {
+    scenarios: Vec<DerivedPropertyScenario>,
+}
+
+#[derive(Deserialize)]
+struct DerivedPropertyScenario {
+    name: String,
+    sources_initial: Vec<Value>,
+    transform: String,
+    mutations: Vec<(usize, Value)>,
+    expected_values: Vec<Value>,
+}
+
+fn apply_transform(transform: &str, sources: &[Value]) -> Value {
+    match transform {
+        "sum" => sources
+            .iter()
+            .map(|value| value.as_i64().expect("sum source must be an integer"))
+            .sum::<i64>()
+            .into(),
+        "concat" => sources
+            .iter()
+            .map(|value| {
+                value
+                    .as_str()
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| value.to_string())
+            })
+            .collect::<String>()
+            .into(),
+        unknown => panic!("unknown derived-property fixture transform: {unknown}"),
+    }
+}
 
 /// DPROP-001 — Single-source derived value computes on construction
 #[test]
@@ -154,10 +191,40 @@ fn repeated_derived_property_dispose_is_inert_and_retains_value() {
 
 /// DPROP-012 — Derived-property scenarios match fixture
 #[test]
-fn fixture_style_sum_scenario_matches_expected_values() {
-    let property = DerivedProperty::new([1, 2, 3]);
+fn all_fixture_scenarios_match_expected_values() {
+    let fixture: DerivedPropertyFixture =
+        serde_json::from_str(include_str!("../../src/fixtures/derived-properties.json"))
+            .expect("derived-property fixture must be valid JSON");
 
-    property.recompute(|values| [values.iter().sum(), 0, 0]);
+    for scenario in fixture.scenarios {
+        assert_eq!(
+            scenario.expected_values.len(),
+            scenario.mutations.len() + 1,
+            "scenario {} must cover its initial value and every mutation",
+            scenario.name
+        );
+        let mut sources = scenario.sources_initial;
+        let property = DerivedProperty::new(apply_transform(&scenario.transform, &sources));
+        assert_eq!(
+            property.value(),
+            scenario.expected_values[0],
+            "scenario {} initial value",
+            scenario.name
+        );
 
-    assert_eq!(property.value(), [6, 0, 0]);
+        for ((index, value), expected) in scenario
+            .mutations
+            .into_iter()
+            .zip(scenario.expected_values.into_iter().skip(1))
+        {
+            sources[index] = value;
+            property.recompute(|_| apply_transform(&scenario.transform, &sources));
+            assert_eq!(
+                property.value(),
+                expected,
+                "scenario {} mutation",
+                scenario.name
+            );
+        }
+    }
 }

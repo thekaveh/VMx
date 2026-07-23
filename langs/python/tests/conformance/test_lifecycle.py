@@ -481,3 +481,65 @@ def test_LIFE_014_base_exception_rolls_back_every_hook_boundary() -> None:
     with pytest.raises(LifecycleAbort, match="stop"):
         reconstruct_construct.reconstruct()
     assert reconstruct_construct.status is ConstructionStatus.DESTRUCTED
+
+
+def test_dispose_during_status_publication_suppresses_later_lifecycle_hooks() -> None:
+    hub: MessageHub[object] = MessageHub()
+    construct_calls = 0
+
+    def on_construct() -> None:
+        nonlocal construct_calls
+        construct_calls += 1
+
+    vm = (
+        ComponentVMBuilder()
+        .name("publication-dispose")
+        .services(hub, _dispatcher())
+        .on_construct(on_construct)
+        .build()
+    )
+    subscription = hub.messages.subscribe(
+        lambda message: (
+            vm.dispose()
+            if isinstance(message, ConstructionStatusChangedMessage)
+            and message.sender is vm
+            and message.status is ConstructionStatus.CONSTRUCTING
+            else None
+        )
+    )
+
+    vm.construct()
+
+    subscription.dispose()
+    assert vm.status is ConstructionStatus.DISPOSED
+    assert construct_calls == 0
+
+
+def test_dispose_from_reconstruct_destruct_hook_suppresses_construct_hook() -> None:
+    construct_calls = 0
+    dispose_during_destruct = False
+    vm: ComponentVM
+
+    def on_construct() -> None:
+        nonlocal construct_calls
+        construct_calls += 1
+
+    def on_destruct() -> None:
+        if dispose_during_destruct:
+            vm.dispose()
+
+    vm = (
+        ComponentVMBuilder()
+        .name("reconstruct-dispose")
+        .services(_hub(), _dispatcher())
+        .on_construct(on_construct)
+        .on_destruct(on_destruct)
+        .build()
+    )
+    vm.construct()
+    dispose_during_destruct = True
+
+    vm.reconstruct()
+
+    assert vm.status is ConstructionStatus.DISPOSED
+    assert construct_calls == 1
