@@ -1,11 +1,11 @@
 use std::sync::{
-    atomic::{AtomicUsize, Ordering},
-    Arc,
+    atomic::{AtomicBool, AtomicUsize, Ordering},
+    mpsc, Arc, Mutex,
 };
 
 use vmx::{
     Command, ConstructionStatus, ForwardingComponentVm, Message, MessageHub, NullDispatcher,
-    VmNode, VmxError,
+    ParentHandle, VmNode, VmxError,
 };
 
 type TextVm = vmx::ComponentVm<&'static str>;
@@ -17,6 +17,78 @@ fn text(name: &'static str) -> TextVm {
 
 fn number(name: &'static str, value: i32) -> NumberVm {
     NumberVm::with_model(name, value, MessageHub::new(), NullDispatcher::new())
+}
+
+#[derive(Clone)]
+struct BlockingOwnershipNode {
+    inner: vmx::ComponentVm,
+    block_once: Arc<AtomicBool>,
+    entered: mpsc::Sender<()>,
+    release: Arc<Mutex<mpsc::Receiver<()>>>,
+}
+
+impl PartialEq for BlockingOwnershipNode {
+    fn eq(&self, other: &Self) -> bool {
+        self.id() == other.id()
+    }
+}
+
+impl VmNode for BlockingOwnershipNode {
+    fn id(&self) -> usize {
+        self.inner.id()
+    }
+
+    fn construct(&self) -> vmx::VmxResult<()> {
+        self.inner.construct()
+    }
+
+    fn destruct(&self) -> vmx::VmxResult<()> {
+        self.inner.destruct()
+    }
+
+    fn dispose(&self) -> vmx::VmxResult<()> {
+        self.inner.dispose()
+    }
+
+    fn status(&self) -> ConstructionStatus {
+        self.inner.status()
+    }
+
+    fn set_parent_id(&self, parent_id: Option<usize>) {
+        self.inner.set_parent_id(parent_id);
+    }
+
+    fn parent_id(&self) -> Option<usize> {
+        let parent_id = self.inner.parent_id();
+        if self.block_once.swap(false, Ordering::AcqRel) {
+            self.entered.send(()).unwrap();
+            self.release.lock().unwrap().recv().unwrap();
+        }
+        parent_id
+    }
+
+    fn set_parent_handle(&self, parent: Option<ParentHandle>) {
+        self.inner.set_parent_handle(parent);
+    }
+
+    fn parent_handle(&self) -> Option<ParentHandle> {
+        self.inner.parent_handle()
+    }
+}
+
+fn blocking_ownership_node() -> (BlockingOwnershipNode, mpsc::Receiver<()>, mpsc::Sender<()>) {
+    let (entered_send, entered_receive) = mpsc::channel();
+    let (release_send, release_receive) = mpsc::channel();
+    (
+        BlockingOwnershipNode {
+            inner: vmx::ComponentVm::new("shared"),
+            block_once: Arc::new(AtomicBool::new(true)),
+            entered: entered_send,
+            release: Arc::new(Mutex::new(release_receive)),
+        },
+        entered_receive,
+        release_send,
+    )
 }
 
 #[test]
@@ -314,6 +386,27 @@ fn fixed_aggregate_rejects_owned_and_duplicate_components() {
         Err(VmxError::InconsistentParent)
     ));
     assert_eq!(old_parent.items(), vec![inner]);
+}
+
+#[test]
+fn concurrent_fixed_aggregates_cannot_both_claim_one_child() {
+    let (child, entered, release) = blocking_ownership_node();
+    let first_child = child.clone();
+    let first = std::thread::spawn(move || vmx::AggregateVm1::try_new("first", first_child));
+    entered.recv().unwrap();
+
+    let second_child = child.clone();
+    let second = std::thread::spawn(move || vmx::AggregateVm1::try_new("second", second_child));
+    let second_result = second.join().unwrap();
+    release.send(()).unwrap();
+    let first_result = first.join().unwrap();
+
+    let successes = usize::from(first_result.is_ok()) + usize::from(second_result.is_ok());
+    assert_eq!(successes, 1);
+    assert!(matches!(
+        first_result.as_ref().err().or(second_result.as_ref().err()),
+        Some(VmxError::OwnershipTransactionInProgress | VmxError::InconsistentParent)
+    ));
 }
 
 #[test]

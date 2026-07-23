@@ -1356,27 +1356,35 @@ impl Drop for ParentTransfer {
     }
 }
 
-struct ActiveOwnershipGuard {
-    active: &'static Mutex<HashSet<usize>>,
+fn active_ownership_claims() -> &'static Mutex<HashSet<usize>> {
+    static ACTIVE: OnceLock<Mutex<HashSet<usize>>> = OnceLock::new();
+    ACTIVE.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+pub(crate) struct OwnershipClaim {
     child_id: usize,
 }
 
-impl Drop for ActiveOwnershipGuard {
+impl Drop for OwnershipClaim {
     fn drop(&mut self) {
-        lock(self.active).remove(&self.child_id);
+        lock(active_ownership_claims()).remove(&self.child_id);
     }
+}
+
+pub(crate) fn begin_ownership_claim(child_id: usize) -> VmxResult<OwnershipClaim> {
+    let inserted = lock(active_ownership_claims()).insert(child_id);
+    if !inserted {
+        return Err(VmxError::OwnershipTransactionInProgress);
+    }
+    Ok(OwnershipClaim { child_id })
 }
 
 pub(crate) fn begin_parent_transfer<T: VmNode>(
     child: &T,
     destination: &ParentHandle,
 ) -> VmxResult<Option<ParentTransfer>> {
-    static ACTIVE: OnceLock<Mutex<HashSet<usize>>> = OnceLock::new();
-    let active = ACTIVE.get_or_init(|| Mutex::new(HashSet::new()));
     let child_id = child.id();
-    if !lock(active).insert(child_id) {
-        return Err(VmxError::OwnershipTransactionInProgress);
-    }
+    let claim = begin_ownership_claim(child_id)?;
 
     let staged = (|| {
         if destination.contains(child_id) {
@@ -1414,19 +1422,16 @@ pub(crate) fn begin_parent_transfer<T: VmNode>(
         }
     })();
 
-    let staged = match staged {
-        Ok(staged) => staged,
-        Err(error) => {
-            lock(active).remove(&child_id);
-            return Err(error);
-        }
-    };
+    let staged = staged?;
     let staged = Arc::new(Mutex::new(staged));
+    let claim = Arc::new(Mutex::new(Some(claim)));
     let commit_state = Arc::clone(&staged);
     let rollback_state = Arc::clone(&staged);
+    let commit_claim = Arc::clone(&claim);
+    let rollback_claim = Arc::clone(&claim);
     Ok(Some(ParentTransfer::new(
         move || {
-            let _active_guard = ActiveOwnershipGuard { active, child_id };
+            let _claim = lock(&commit_claim).take();
             let transfer = lock(&commit_state).take();
             if let Some(transfer) = transfer {
                 transfer.commit()
@@ -1435,7 +1440,7 @@ pub(crate) fn begin_parent_transfer<T: VmNode>(
             }
         },
         move || {
-            let _active_guard = ActiveOwnershipGuard { active, child_id };
+            let _claim = lock(&rollback_claim).take();
             let transfer = lock(&rollback_state).take();
             if let Some(transfer) = transfer {
                 transfer.rollback()

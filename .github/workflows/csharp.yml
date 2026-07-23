@@ -11,6 +11,7 @@ on:
       - "examples/csharp/**"
       - "spec/**"
       - "tools/check-nuget-package.py"
+      - "tools/check-cobertura-threshold.py"
       - "tools/smoke-nuget-consumer.py"
       - ".github/workflows/csharp.yml"
   pull_request:
@@ -66,6 +67,11 @@ jobs:
 
       - name: Test
         run: dotnet test VMx.sln -c Release --no-build --collect:"XPlat Code Coverage" --results-directory ./TestResults --logger "trx"
+
+      - name: Enforce library coverage floors
+        if: matrix.os == 'ubuntu-latest'
+        working-directory: .
+        run: python3 tools/check-cobertura-threshold.py langs/csharp/TestResults --minimum-line 49 --minimum-branch 59
 
       - name: Upload coverage to Codecov
         if: matrix.os == 'ubuntu-latest'

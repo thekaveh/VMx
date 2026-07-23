@@ -8,6 +8,8 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### Changed
 
+- CI now enforces the measured aggregate Cobertura floor of 49% line coverage
+  and 59% branch coverage across both library test suites.
 - CI and release verification now exercise .NET 8, .NET 9, and the current
   .NET 10 LTS; System.Reactive and Microsoft.Reactive.Testing are upgraded to
   7.0.0 with their compatible immutable-collections graph.

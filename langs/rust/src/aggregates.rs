@@ -3,10 +3,10 @@
 //! Spec: `spec/08-aggregate-vm.md`; ADR-0013 and ADR-0094.
 
 use super::{
-    finish_with_first_error, lock, retain_first_error, Arc, ComponentCore, ConstructionStatus,
-    Dispatcher, HashSet, LifecycleOperation, MessageHub, Mutex, NullDispatcher, OnceLock,
-    ParentHandle, ParentRegistration, PropertyChangedStream, RelayCommand, VmNode, VmxError,
-    VmxResult,
+    begin_ownership_claim, finish_with_first_error, lock, retain_first_error, Arc, ComponentCore,
+    ConstructionStatus, Dispatcher, HashSet, LifecycleOperation, MessageHub, Mutex, NullDispatcher,
+    OnceLock, OwnershipClaim, ParentHandle, ParentRegistration, PropertyChangedStream,
+    RelayCommand, VmNode, VmxError, VmxResult,
 };
 use crate::components::ComponentCommands;
 
@@ -58,13 +58,16 @@ impl<T: VmNode> AggregateVm<T> {
 fn validate_fixed_aggregate_child<T: VmNode>(
     child: &T,
     seen: &mut HashSet<usize>,
+    claims: &mut Vec<OwnershipClaim>,
 ) -> VmxResult<()> {
     if !seen.insert(child.id()) {
         return Err(VmxError::DuplicateChild);
     }
+    let claim = begin_ownership_claim(child.id())?;
     if child.parent_handle().is_some() || child.parent_id().is_some() {
         return Err(VmxError::InconsistentParent);
     }
+    claims.push(claim);
     Ok(())
 }
 
@@ -72,16 +75,21 @@ fn validate_fixed_aggregate_candidate<T: VmNode>(
     child: &T,
     seen: &mut HashSet<usize>,
     owner: &ParentHandle,
+    claims: &mut Vec<OwnershipClaim>,
 ) -> VmxResult<()> {
     if !seen.insert(child.id()) {
         return Err(VmxError::DuplicateChild);
     }
-    match child.parent_handle() {
+    let claim = begin_ownership_claim(child.id())?;
+    let result = match child.parent_handle() {
         Some(parent) if parent.same_owner(owner) => Ok(()),
         Some(_) => Err(VmxError::InconsistentParent),
         None if child.parent_id().is_some() => Err(VmxError::InconsistentParent),
         None => Ok(()),
-    }
+    };
+    result?;
+    claims.push(claim);
+    Ok(())
 }
 
 type AggregateFactory<T> = Arc<dyn Fn() -> T + Send + Sync>;
@@ -232,7 +240,8 @@ impl<T1: VmNode, D: Dispatcher> AggregateVm1<T1, D> {
         component1: T1,
     ) -> VmxResult<Self> {
         let mut ids = HashSet::new();
-        validate_fixed_aggregate_child(&component1, &mut ids)?;
+        let mut claims = Vec::new();
+        validate_fixed_aggregate_child(&component1, &mut ids, &mut claims)?;
         let core = ComponentCore::new(name, hub, dispatcher);
         let ownership = fixed_aggregate_parent(&core, ids);
         attach_fixed_aggregate_child(&component1, &ownership.handle());
@@ -299,12 +308,14 @@ impl<T1: VmNode, D: Dispatcher> AggregateVm1<T1, D> {
             .transition_with(LifecycleOperation::Construct, || {
                 let next1 = self.component1.next()?;
                 let mut ids = HashSet::new();
+                let mut claims = Vec::new();
                 let parent = self.ownership.handle();
-                validate_fixed_aggregate_candidate(&next1, &mut ids, &parent)?;
+                validate_fixed_aggregate_candidate(&next1, &mut ids, &parent, &mut claims)?;
                 if self.component1.is_lazy() {
                     replace_fixed_aggregate_child(&self.component1, next1.clone(), &parent)?;
                 }
                 self.ownership.replace_ids(ids);
+                drop(claims);
                 self.core.notify_property_changed("component_1");
                 next1.construct()
             })
@@ -523,8 +534,9 @@ impl<T1: VmNode, T2: VmNode, D: Dispatcher> AggregateVm2<T1, T2, D> {
         component2: T2,
     ) -> VmxResult<Self> {
         let mut ids = HashSet::new();
-        validate_fixed_aggregate_child(&component1, &mut ids)?;
-        validate_fixed_aggregate_child(&component2, &mut ids)?;
+        let mut claims = Vec::new();
+        validate_fixed_aggregate_child(&component1, &mut ids, &mut claims)?;
+        validate_fixed_aggregate_child(&component2, &mut ids, &mut claims)?;
         let core = ComponentCore::new(name, hub, dispatcher);
         let ownership = fixed_aggregate_parent(&core, ids);
         let parent = ownership.handle();
@@ -608,8 +620,9 @@ impl<T1: VmNode, T2: VmNode, D: Dispatcher> AggregateVm2<T1, T2, D> {
                 let next2 = self.component2.next()?;
                 let parent = self.ownership.handle();
                 let mut ids = HashSet::new();
-                validate_fixed_aggregate_candidate(&next1, &mut ids, &parent)?;
-                validate_fixed_aggregate_candidate(&next2, &mut ids, &parent)?;
+                let mut claims = Vec::new();
+                validate_fixed_aggregate_candidate(&next1, &mut ids, &parent, &mut claims)?;
+                validate_fixed_aggregate_candidate(&next2, &mut ids, &parent, &mut claims)?;
                 if self.component1.is_lazy() {
                     replace_fixed_aggregate_child(&self.component1, next1.clone(), &parent)?;
                 }
@@ -617,6 +630,7 @@ impl<T1: VmNode, T2: VmNode, D: Dispatcher> AggregateVm2<T1, T2, D> {
                     replace_fixed_aggregate_child(&self.component2, next2.clone(), &parent)?;
                 }
                 self.ownership.replace_ids(ids);
+                drop(claims);
                 self.core.notify_property_changed("component_1");
                 next1.construct()?;
                 self.core.notify_property_changed("component_2");
@@ -781,9 +795,10 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, D: Dispatcher> AggregateVm3<T1, T2, T3,
         component3: T3,
     ) -> VmxResult<Self> {
         let mut ids = HashSet::new();
-        validate_fixed_aggregate_child(&component1, &mut ids)?;
-        validate_fixed_aggregate_child(&component2, &mut ids)?;
-        validate_fixed_aggregate_child(&component3, &mut ids)?;
+        let mut claims = Vec::new();
+        validate_fixed_aggregate_child(&component1, &mut ids, &mut claims)?;
+        validate_fixed_aggregate_child(&component2, &mut ids, &mut claims)?;
+        validate_fixed_aggregate_child(&component3, &mut ids, &mut claims)?;
         let core = ComponentCore::new(name, hub, dispatcher);
         let ownership = fixed_aggregate_parent(&core, ids);
         let parent = ownership.handle();
@@ -887,15 +902,17 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, D: Dispatcher> AggregateVm3<T1, T2, T3,
                 let next3 = self.component3.next()?;
                 let parent = self.ownership.handle();
                 let mut ids = HashSet::new();
-                validate_fixed_aggregate_candidate(&next1, &mut ids, &parent)?;
-                validate_fixed_aggregate_candidate(&next2, &mut ids, &parent)?;
-                validate_fixed_aggregate_candidate(&next3, &mut ids, &parent)?;
+                let mut claims = Vec::new();
+                validate_fixed_aggregate_candidate(&next1, &mut ids, &parent, &mut claims)?;
+                validate_fixed_aggregate_candidate(&next2, &mut ids, &parent, &mut claims)?;
+                validate_fixed_aggregate_candidate(&next3, &mut ids, &parent, &mut claims)?;
                 if self.component1.is_lazy() {
                     replace_fixed_aggregate_child(&self.component1, next1.clone(), &parent)?;
                     replace_fixed_aggregate_child(&self.component2, next2.clone(), &parent)?;
                     replace_fixed_aggregate_child(&self.component3, next3.clone(), &parent)?;
                 }
                 self.ownership.replace_ids(ids);
+                drop(claims);
                 self.core.notify_property_changed("component_1");
                 next1.construct()?;
                 self.core.notify_property_changed("component_2");
@@ -1035,10 +1052,11 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, D: Dispatcher>
         component4: T4,
     ) -> VmxResult<Self> {
         let mut ids = HashSet::new();
-        validate_fixed_aggregate_child(&component1, &mut ids)?;
-        validate_fixed_aggregate_child(&component2, &mut ids)?;
-        validate_fixed_aggregate_child(&component3, &mut ids)?;
-        validate_fixed_aggregate_child(&component4, &mut ids)?;
+        let mut claims = Vec::new();
+        validate_fixed_aggregate_child(&component1, &mut ids, &mut claims)?;
+        validate_fixed_aggregate_child(&component2, &mut ids, &mut claims)?;
+        validate_fixed_aggregate_child(&component3, &mut ids, &mut claims)?;
+        validate_fixed_aggregate_child(&component4, &mut ids, &mut claims)?;
         let core = ComponentCore::new(name, hub, dispatcher);
         let ownership = fixed_aggregate_parent(&core, ids);
         let parent = ownership.handle();
@@ -1155,10 +1173,11 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, D: Dispatcher>
                 let next4 = self.component4.next()?;
                 let parent = self.ownership.handle();
                 let mut ids = HashSet::new();
-                validate_fixed_aggregate_candidate(&next1, &mut ids, &parent)?;
-                validate_fixed_aggregate_candidate(&next2, &mut ids, &parent)?;
-                validate_fixed_aggregate_candidate(&next3, &mut ids, &parent)?;
-                validate_fixed_aggregate_candidate(&next4, &mut ids, &parent)?;
+                let mut claims = Vec::new();
+                validate_fixed_aggregate_candidate(&next1, &mut ids, &parent, &mut claims)?;
+                validate_fixed_aggregate_candidate(&next2, &mut ids, &parent, &mut claims)?;
+                validate_fixed_aggregate_candidate(&next3, &mut ids, &parent, &mut claims)?;
+                validate_fixed_aggregate_candidate(&next4, &mut ids, &parent, &mut claims)?;
                 if self.component1.is_lazy() {
                     replace_fixed_aggregate_child(&self.component1, next1.clone(), &parent)?;
                     replace_fixed_aggregate_child(&self.component2, next2.clone(), &parent)?;
@@ -1166,6 +1185,7 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, D: Dispatcher>
                     replace_fixed_aggregate_child(&self.component4, next4.clone(), &parent)?;
                 }
                 self.ownership.replace_ids(ids);
+                drop(claims);
                 self.core.notify_property_changed("component_1");
                 next1.construct()?;
                 self.core.notify_property_changed("component_2");
@@ -1326,11 +1346,12 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, D: Dispatcher>
         component5: T5,
     ) -> VmxResult<Self> {
         let mut ids = HashSet::new();
-        validate_fixed_aggregate_child(&component1, &mut ids)?;
-        validate_fixed_aggregate_child(&component2, &mut ids)?;
-        validate_fixed_aggregate_child(&component3, &mut ids)?;
-        validate_fixed_aggregate_child(&component4, &mut ids)?;
-        validate_fixed_aggregate_child(&component5, &mut ids)?;
+        let mut claims = Vec::new();
+        validate_fixed_aggregate_child(&component1, &mut ids, &mut claims)?;
+        validate_fixed_aggregate_child(&component2, &mut ids, &mut claims)?;
+        validate_fixed_aggregate_child(&component3, &mut ids, &mut claims)?;
+        validate_fixed_aggregate_child(&component4, &mut ids, &mut claims)?;
+        validate_fixed_aggregate_child(&component5, &mut ids, &mut claims)?;
         let core = ComponentCore::new(name, hub, dispatcher);
         let ownership = fixed_aggregate_parent(&core, ids);
         let parent = ownership.handle();
@@ -1456,11 +1477,12 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, D: Dispatcher>
                 let next5 = self.component5.next()?;
                 let parent = self.ownership.handle();
                 let mut ids = HashSet::new();
-                validate_fixed_aggregate_candidate(&next1, &mut ids, &parent)?;
-                validate_fixed_aggregate_candidate(&next2, &mut ids, &parent)?;
-                validate_fixed_aggregate_candidate(&next3, &mut ids, &parent)?;
-                validate_fixed_aggregate_candidate(&next4, &mut ids, &parent)?;
-                validate_fixed_aggregate_candidate(&next5, &mut ids, &parent)?;
+                let mut claims = Vec::new();
+                validate_fixed_aggregate_candidate(&next1, &mut ids, &parent, &mut claims)?;
+                validate_fixed_aggregate_candidate(&next2, &mut ids, &parent, &mut claims)?;
+                validate_fixed_aggregate_candidate(&next3, &mut ids, &parent, &mut claims)?;
+                validate_fixed_aggregate_candidate(&next4, &mut ids, &parent, &mut claims)?;
+                validate_fixed_aggregate_candidate(&next5, &mut ids, &parent, &mut claims)?;
                 if self.component1.is_lazy() {
                     replace_fixed_aggregate_child(&self.component1, next1.clone(), &parent)?;
                     replace_fixed_aggregate_child(&self.component2, next2.clone(), &parent)?;
@@ -1469,6 +1491,7 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, D: Dispatcher>
                     replace_fixed_aggregate_child(&self.component5, next5.clone(), &parent)?;
                 }
                 self.ownership.replace_ids(ids);
+                drop(claims);
                 self.core.notify_property_changed("component_1");
                 next1.construct()?;
                 self.core.notify_property_changed("component_2");
@@ -1645,12 +1668,13 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, T6: VmNode, D: 
         component6: T6,
     ) -> VmxResult<Self> {
         let mut ids = HashSet::new();
-        validate_fixed_aggregate_child(&component1, &mut ids)?;
-        validate_fixed_aggregate_child(&component2, &mut ids)?;
-        validate_fixed_aggregate_child(&component3, &mut ids)?;
-        validate_fixed_aggregate_child(&component4, &mut ids)?;
-        validate_fixed_aggregate_child(&component5, &mut ids)?;
-        validate_fixed_aggregate_child(&component6, &mut ids)?;
+        let mut claims = Vec::new();
+        validate_fixed_aggregate_child(&component1, &mut ids, &mut claims)?;
+        validate_fixed_aggregate_child(&component2, &mut ids, &mut claims)?;
+        validate_fixed_aggregate_child(&component3, &mut ids, &mut claims)?;
+        validate_fixed_aggregate_child(&component4, &mut ids, &mut claims)?;
+        validate_fixed_aggregate_child(&component5, &mut ids, &mut claims)?;
+        validate_fixed_aggregate_child(&component6, &mut ids, &mut claims)?;
         let core = ComponentCore::new(name, hub, dispatcher);
         let ownership = fixed_aggregate_parent(&core, ids);
         let parent = ownership.handle();
@@ -1789,12 +1813,13 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, T6: VmNode, D: 
                 let next6 = self.component6.next()?;
                 let parent = self.ownership.handle();
                 let mut ids = HashSet::new();
-                validate_fixed_aggregate_candidate(&next1, &mut ids, &parent)?;
-                validate_fixed_aggregate_candidate(&next2, &mut ids, &parent)?;
-                validate_fixed_aggregate_candidate(&next3, &mut ids, &parent)?;
-                validate_fixed_aggregate_candidate(&next4, &mut ids, &parent)?;
-                validate_fixed_aggregate_candidate(&next5, &mut ids, &parent)?;
-                validate_fixed_aggregate_candidate(&next6, &mut ids, &parent)?;
+                let mut claims = Vec::new();
+                validate_fixed_aggregate_candidate(&next1, &mut ids, &parent, &mut claims)?;
+                validate_fixed_aggregate_candidate(&next2, &mut ids, &parent, &mut claims)?;
+                validate_fixed_aggregate_candidate(&next3, &mut ids, &parent, &mut claims)?;
+                validate_fixed_aggregate_candidate(&next4, &mut ids, &parent, &mut claims)?;
+                validate_fixed_aggregate_candidate(&next5, &mut ids, &parent, &mut claims)?;
+                validate_fixed_aggregate_candidate(&next6, &mut ids, &parent, &mut claims)?;
                 if self.component1.is_lazy() {
                     replace_fixed_aggregate_child(&self.component1, next1.clone(), &parent)?;
                     replace_fixed_aggregate_child(&self.component2, next2.clone(), &parent)?;
@@ -1804,6 +1829,7 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, T6: VmNode, D: 
                     replace_fixed_aggregate_child(&self.component6, next6.clone(), &parent)?;
                 }
                 self.ownership.replace_ids(ids);
+                drop(claims);
                 self.core.notify_property_changed("component_1");
                 next1.construct()?;
                 self.core.notify_property_changed("component_2");

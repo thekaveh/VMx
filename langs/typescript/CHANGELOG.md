@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- CI now enforces calibrated library coverage floors of 85% statements, 78%
+  branches, 85% functions, and 88% lines.
 - The React Notes Showcase now verifies React 19, Vite 8, and ESLint 10. The
   library uses ESLint 10 while retaining TypeScript 5.9 until the current
   `@typescript-eslint` peer range supports TypeScript 7.

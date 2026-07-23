@@ -8,6 +8,9 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Fixed aggregates now share the same atomic per-child ownership claim as
+  mutable groups and composites, preventing concurrent constructors or lazy
+  reconstruction from retaining the same child under two parents.
 - Forwarding components now delegate the complete component surface, support
   real nested decorator layers and idiomatic hint overrides, and retain one
   canonical transferable container identity (FWD-001/002/004, ADR-0124).

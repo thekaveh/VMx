@@ -344,7 +344,7 @@ Smaller per-flavor demos:
 This README is the entry point; the documents below add focused detail.
 
 - [`docs/content/index.md`](docs/content/index.md) — canonical documentation
-  landing page and the overview for the generated `.io` site and GitHub wiki.
+  landing page and overview of the complete VMx documentation set.
 - Major documentation sections: [installation](docs/content/installation.md),
   [quickstart](docs/content/getting-started/index.md),
   [core concepts](docs/content/core-concepts.md),
@@ -425,8 +425,8 @@ This README is the entry point; the documents below add focused detail.
   Rust flavor and the four other flavors, with the canonical decision and
   proposed fix for each.
 - [`docs/maintenance/2026-07-16-swift-notesshowcase-test-deadlock.md`](docs/maintenance/2026-07-16-swift-notesshowcase-test-deadlock.md) —
-  the implemented Swift flagship command/test deadlock correction, including
-  root cause, local build evidence, and the outstanding CI runtime check.
+  the resolved Swift flagship command/test deadlock, including root cause,
+  correction, and successful CI runtime evidence.
 - [`tools/README.md`](tools/README.md) — conformance-coverage tool and
   cross-cutting scripts.
 

@@ -7,6 +7,18 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOWS = REPO_ROOT / ".github" / "workflows"
 
 
+def test_csharp_and_typescript_library_coverage_is_enforced() -> None:
+    csharp = (WORKFLOWS / "csharp.yml").read_text(encoding="utf-8")
+    typescript = (REPO_ROOT / "langs/typescript/vitest.config.ts").read_text(encoding="utf-8")
+
+    assert "tools/check-cobertura-threshold.py" in csharp
+    assert "minimum-line 49" in csharp
+    assert "minimum-branch 59" in csharp
+    assert "thresholds:" in typescript
+    for threshold in ("statements: 85", "branches: 78", "functions: 85", "lines: 88"):
+        assert threshold in typescript
+
+
 def test_every_workflow_change_triggers_the_pin_inventory() -> None:
     conformance = (WORKFLOWS / "conformance.yml").read_text(encoding="utf-8")
 
