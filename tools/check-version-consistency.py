@@ -70,6 +70,11 @@ CSHARP_TAG_PREFIXES: dict[str, str] = {
     "VMx.Notifications": "csharp-notifications",
     "VMx.Extensions.DependencyInjection": "csharp-dependency-injection",
 }
+CSHARP_UNRELEASED_PACKAGES = (
+    "VMx",
+    "VMx.Notifications",
+    "VMx.Extensions.DependencyInjection",
+)
 
 # ─── regexes ──────────────────────────────────────────────────────────
 
@@ -80,6 +85,7 @@ _SEMVER_COMPONENT = r"(?:0|[1-9][0-9]*)"
 _SEMVER_TRIPLE = rf"{_SEMVER_COMPONENT}\.{_SEMVER_COMPONENT}\.{_SEMVER_COMPONENT}"
 _VERSION_RE = re.compile(rf"\b({_SEMVER_TRIPLE})\b", re.ASCII)
 _STABLE_SEMVER_RE = re.compile(rf"^{_SEMVER_TRIPLE}$", re.ASCII)
+_CHANGELOG_HEADING_RE = re.compile(r"^## \[([^\]]+)\](?:\([^)]*\))?(?:\s+.*)?$")
 
 # Matches the spec column of a matrix row like "2.6.x" or "1.1.x".
 _SPEC_ROW_RE = re.compile(
@@ -208,9 +214,54 @@ def check_typescript_example_locks(repo_root: Path, expected_version: str) -> li
     return issues
 
 
+def _parse_changelog_sections(
+    changelog: Path, packages: tuple[str, ...] = ()
+) -> tuple[dict[str, list[str]], list[str]]:
+    """Parse canonical bracketed H2 sections, rejecting ambiguous keys."""
+    lines = changelog.read_text(encoding="utf-8").splitlines()
+    starts: list[tuple[str, int]] = []
+    seen: set[str] = set()
+    issues: list[str] = []
+    for index, line in enumerate(lines):
+        if not line.startswith("## ["):
+            continue
+        match = _CHANGELOG_HEADING_RE.fullmatch(line)
+        if match is None:
+            issues.append(f"  {changelog}: malformed bracketed CHANGELOG section heading {line!r}")
+            continue
+        key = match.group(1)
+        package_version = any(
+            key.startswith(f"{package} ")
+            and _STABLE_SEMVER_RE.fullmatch(key.removeprefix(f"{package} "))
+            for package in packages
+        )
+        if key != "Unreleased" and not _STABLE_SEMVER_RE.fullmatch(key) and not package_version:
+            issues.append(f"  {changelog}: invalid bracketed CHANGELOG section key {key!r}")
+            continue
+        if key in seen:
+            if key == "Unreleased":
+                issues.append(f"  {changelog}: expected exactly one [Unreleased] section")
+            else:
+                issues.append(f"  {changelog}: duplicate bracketed CHANGELOG section key {key!r}")
+            continue
+        seen.add(key)
+        starts.append((key, index))
+    if issues:
+        return {}, issues
+    sections = {
+        key: lines[
+            start + 1 : starts[position + 1][1] if position + 1 < len(starts) else len(lines)
+        ]
+        for position, (key, start) in enumerate(starts)
+    }
+    return sections, []
+
+
 def check_changelog_sections(repo_root: Path, manifests: dict[str, dict[str, str]]) -> list[str]:
     """Report missing or empty current-version CHANGELOG sections."""
     issues: list[str] = []
+    parsed: dict[Path, tuple[dict[str, list[str]], list[str]]] = {}
+    reported_parse_errors: set[Path] = set()
     for flavor, info in sorted(manifests.items()):
         version = info.get("version", "")
         if not version:
@@ -222,23 +273,25 @@ def check_changelog_sections(repo_root: Path, manifests: dict[str, dict[str, str
             continue
         package_id = info.get("package_id", "")
         heading = f"{package_id} {version}" if "/" in flavor else version
-        lines = changelog.read_text(encoding="utf-8").splitlines()
-        start = next(
-            (index for index, line in enumerate(lines) if line.startswith(f"## [{heading}]")),
-            None,
+        sections, parse_errors = parsed.setdefault(
+            changelog,
+            _parse_changelog_sections(
+                changelog,
+                CSHARP_UNRELEASED_PACKAGES if family == "csharp" else (),
+            ),
         )
-        if start is None:
+        if parse_errors:
+            if changelog not in reported_parse_errors:
+                issues.extend(parse_errors)
+                reported_parse_errors.add(changelog)
+            continue
+        if heading not in sections:
             issues.append(
                 f"  {flavor}: CHANGELOG section {heading!r} is missing for current version"
             )
             continue
-        body = lines[start + 1 :]
-        next_heading = next(
-            (index for index, line in enumerate(body) if line.startswith("## [")),
-            len(body),
-        )
         substantive = any(
-            line.strip() and not line.lstrip().startswith("#") for line in body[:next_heading]
+            line.strip() and not line.lstrip().startswith("#") for line in sections[heading]
         )
         if not substantive:
             issues.append(
@@ -249,19 +302,14 @@ def check_changelog_sections(repo_root: Path, manifests: dict[str, dict[str, str
 
 def check_release_unreleased(changelog: Path, package: str = "") -> list[str]:
     """Reject substantive notes left outside the immutable tagged section."""
-    lines = changelog.read_text(encoding="utf-8").splitlines()
-    starts = [index for index, line in enumerate(lines) if line.strip() == "## [Unreleased]"]
-    if not starts:
-        return [f"  {changelog}: missing [Unreleased] section"]
-    if len(starts) != 1:
-        return [f"  {changelog}: expected exactly one [Unreleased] section"]
-    start = starts[0]
-    body = lines[start + 1 :]
-    end = next(
-        (index for index, line in enumerate(body) if line.startswith("## [")),
-        len(body),
+    sections, parse_errors = _parse_changelog_sections(
+        changelog, CSHARP_UNRELEASED_PACKAGES if package else ()
     )
-    unreleased = body[:end]
+    if parse_errors:
+        return parse_errors
+    if "Unreleased" not in sections:
+        return [f"  {changelog}: missing [Unreleased] section"]
+    unreleased = sections["Unreleased"]
     if package:
         heading = f"### {package}"
         package_start = next(
@@ -287,28 +335,14 @@ def check_release_unreleased(changelog: Path, package: str = "") -> list[str]:
     return []
 
 
-CSHARP_UNRELEASED_PACKAGES = (
-    "VMx",
-    "VMx.Notifications",
-    "VMx.Extensions.DependencyInjection",
-)
-
-
 def check_csharp_unreleased_structure(changelog: Path) -> list[str]:
     """Require a fail-closed package partition for independent C# releases."""
-    lines = changelog.read_text(encoding="utf-8").splitlines()
-    starts = [index for index, line in enumerate(lines) if line.strip() == "## [Unreleased]"]
-    if not starts:
+    sections, parse_errors = _parse_changelog_sections(changelog, CSHARP_UNRELEASED_PACKAGES)
+    if parse_errors:
+        return parse_errors
+    if "Unreleased" not in sections:
         return [f"  {changelog}: missing [Unreleased] section"]
-    if len(starts) != 1:
-        return [f"  {changelog}: expected exactly one [Unreleased] section"]
-    start = starts[0]
-    body = lines[start + 1 :]
-    end = next(
-        (index for index, line in enumerate(body) if line.startswith("## [")),
-        len(body),
-    )
-    unreleased = body[:end]
+    unreleased = sections["Unreleased"]
     headings = [line.removeprefix("### ").strip() for line in unreleased if line.startswith("### ")]
     if headings != list(CSHARP_UNRELEASED_PACKAGES):
         expected = ", ".join(CSHARP_UNRELEASED_PACKAGES)

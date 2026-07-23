@@ -295,6 +295,52 @@ def test_changelog_sections_require_current_version_and_substantive_body(
     ]
 
 
+@pytest.mark.parametrize("heading", ["unreleased", " Unreleased ", "Draft"])
+def test_changelog_sections_reject_malformed_bracketed_keys(tmp_path: Path, heading: str) -> None:
+    (tmp_path / "langs/python").mkdir(parents=True)
+    changelog = tmp_path / "langs/python/CHANGELOG.md"
+    changelog.write_text(
+        f"## [Unreleased]\n\n## [{heading}]\n\n- Hidden pending note.\n\n"
+        "## [3.22.0]\n\n- Current release.\n",
+        encoding="utf-8",
+    )
+    manifests = {"python": {"version": "3.22.0"}}
+
+    assert cvc.check_changelog_sections(tmp_path, manifests) == [
+        f"  {changelog}: invalid bracketed CHANGELOG section key {heading!r}"
+    ]
+
+
+def test_changelog_sections_reject_duplicate_version_keys(tmp_path: Path) -> None:
+    (tmp_path / "langs/python").mkdir(parents=True)
+    changelog = tmp_path / "langs/python/CHANGELOG.md"
+    changelog.write_text(
+        "## [Unreleased]\n\n"
+        "## [3.22.0]\n\n- First release body.\n\n"
+        "## [3.22.0]\n\n- Duplicate release body.\n",
+        encoding="utf-8",
+    )
+    manifests = {"python": {"version": "3.22.0"}}
+
+    assert cvc.check_changelog_sections(tmp_path, manifests) == [
+        f"  {changelog}: duplicate bracketed CHANGELOG section key '3.22.0'"
+    ]
+
+
+def test_changelog_sections_accept_linked_version_key(tmp_path: Path) -> None:
+    (tmp_path / "langs/python").mkdir(parents=True)
+    changelog = tmp_path / "langs/python/CHANGELOG.md"
+    changelog.write_text(
+        "## [Unreleased]\n\n"
+        "## [3.22.0](https://example.test/compare) (2026-07-23)\n\n"
+        "- Current release.\n",
+        encoding="utf-8",
+    )
+    manifests = {"python": {"version": "3.22.0"}}
+
+    assert cvc.check_changelog_sections(tmp_path, manifests) == []
+
+
 def test_csharp_companion_changelog_section_uses_package_identity(
     tmp_path: Path,
 ) -> None:
@@ -1086,6 +1132,20 @@ def test_release_tag_rejects_duplicate_unreleased_sections(tmp_path: Path) -> No
     ]
 
 
+@pytest.mark.parametrize("heading", ["unreleased", " Unreleased ", "Draft"])
+def test_release_tag_rejects_malformed_bracketed_keys(tmp_path: Path, heading: str) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        f"## [Unreleased]\n\n## [{heading}]\n\n- Hidden pending note.\n\n"
+        "## [3.22.1]\n\n- Tagged notes.\n",
+        encoding="utf-8",
+    )
+
+    assert cvc.check_release_unreleased(changelog) == [
+        f"  {changelog}: invalid bracketed CHANGELOG section key {heading!r}"
+    ]
+
+
 def test_csharp_release_tag_checks_only_selected_package_notes(tmp_path: Path) -> None:
     changelog = tmp_path / "CHANGELOG.md"
     changelog.write_text(
@@ -1165,6 +1225,25 @@ def test_csharp_release_gates_reject_duplicate_unreleased_sections(tmp_path: Pat
     )
 
     expected = [f"  {changelog}: expected exactly one [Unreleased] section"]
+    assert cvc.check_csharp_unreleased_structure(changelog) == expected
+    for package in cvc.CSHARP_UNRELEASED_PACKAGES:
+        assert cvc.check_release_unreleased(changelog, package) == expected
+
+
+@pytest.mark.parametrize("heading", ["unreleased", " Unreleased ", "Draft"])
+def test_csharp_release_gates_reject_malformed_bracketed_keys(tmp_path: Path, heading: str) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        "## [Unreleased]\n\n"
+        "### VMx\n\n"
+        "### VMx.Notifications\n\n"
+        "### VMx.Extensions.DependencyInjection\n\n"
+        f"## [{heading}]\n\n- Hidden pending note.\n\n"
+        "## [3.22.1]\n\n- Tagged notes.\n",
+        encoding="utf-8",
+    )
+
+    expected = [f"  {changelog}: invalid bracketed CHANGELOG section key {heading!r}"]
     assert cvc.check_csharp_unreleased_structure(changelog) == expected
     for package in cvc.CSHARP_UNRELEASED_PACKAGES:
         assert cvc.check_release_unreleased(changelog, package) == expected

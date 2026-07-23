@@ -77,10 +77,10 @@ struct ChildrenMaterializationState {
     reentered_epoch: u64,
 }
 
-#[derive(Clone)]
 /// A recursive modeled VM with lazy children and derived topology properties.
 pub struct HierarchicalVm<M: Clone + PartialEq + Send + Sync + 'static> {
     inner: Arc<HierarchicalVmInner<M>>,
+    materialization_context: Option<u64>,
 }
 
 struct HierarchicalVmInner<M: Clone + PartialEq + Send + Sync + 'static> {
@@ -127,6 +127,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
                 parked_attach_items: Arc::new(Mutex::new(Vec::new())),
                 hub,
             }),
+            materialization_context: None,
         }
     }
 
@@ -188,7 +189,10 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
         lock(&self.inner.parent)
             .as_ref()
             .and_then(Weak::upgrade)
-            .map(|inner| Self { inner })
+            .map(|inner| Self {
+                inner,
+                materialization_context: None,
+            })
     }
 
     /// Adds or transfers `child` beneath this node.
@@ -805,7 +809,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
         let current = thread::current().id();
         let mut state = lock(&self.inner.materializing_children.0);
         if let Some(owner) = state.owner {
-            if owner == current {
+            if owner == current || self.materialization_context == Some(state.epoch) {
                 state.reentered_epoch = state.epoch;
                 return Err(VmxError::InvalidArgument(
                     "children factory re-entered a structural operation on its receiver"
@@ -817,6 +821,22 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
             ));
         }
         Ok(())
+    }
+}
+
+impl<M: Clone + PartialEq + Send + Sync + 'static> Clone for HierarchicalVm<M> {
+    fn clone(&self) -> Self {
+        let current = thread::current().id();
+        let state = lock(&self.inner.materializing_children.0);
+        let materialization_context = match state.owner {
+            Some(owner) if owner == current => Some(state.epoch),
+            _ => self.materialization_context,
+        };
+        drop(state);
+        Self {
+            inner: Arc::clone(&self.inner),
+            materialization_context,
+        }
     }
 }
 
