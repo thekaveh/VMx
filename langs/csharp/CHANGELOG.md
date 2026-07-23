@@ -18,8 +18,10 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### Fixed
 
-- Lazy aggregate reconstruction now rejects a factory that returns any
-  currently owned slot before disposing or overwriting that component.
+- Lazy aggregate reconstruction now reserves every proposed child from
+  validation through disposal, assignment, and parent commit, preventing two
+  concurrent aggregates from retaining the same slot. A factory that returns
+  any currently owned slot is rejected before mutation.
 - Pre-owned and multiply decorated components now retain one canonical,
   transferable container identity (FWD-004, ADR-0124).
 

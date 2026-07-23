@@ -38,6 +38,20 @@ internal sealed class AggregateParent(IComponentVM owner, IAggregateSlots slots)
 
 internal static class AggregateOwnership
 {
+    internal static void Replace(
+        IParentCompositeVM parent,
+        IComponentVM?[] previous,
+        IComponentVM[] next,
+        Action assign)
+    {
+        using var reservation = ComponentOwnership.BeginReservationBatch(next);
+        Validate(parent, next);
+        foreach (var child in previous)
+            child?.Dispose();
+        assign();
+        Commit(parent, previous, next);
+    }
+
     internal static void Validate(IParentCompositeVM parent, params IComponentVM[] children)
     {
         for (var index = 0; index < children.Length; index++)

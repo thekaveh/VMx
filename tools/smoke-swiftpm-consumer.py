@@ -108,6 +108,7 @@ def _run(args: list[str], *, cwd: Path, capture: bool = False) -> str:
         check=True,
         text=True,
         capture_output=capture,
+        timeout=300,
     )
     return result.stdout.strip() if capture else ""
 

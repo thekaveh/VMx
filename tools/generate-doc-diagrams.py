@@ -229,6 +229,7 @@ def render_png(svg_path: Path, png_path: Path) -> None:
                 str(svg_path),
             ],
             check=True,
+            timeout=120,
         )
         subprocess.run(
             [
@@ -243,6 +244,7 @@ def render_png(svg_path: Path, png_path: Path) -> None:
                 str(tmp_path),
             ],
             check=True,
+            timeout=120,
         )
     finally:
         tmp_path.unlink(missing_ok=True)

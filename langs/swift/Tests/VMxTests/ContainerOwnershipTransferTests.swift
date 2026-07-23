@@ -59,6 +59,105 @@ private final class OwnershipErrorStore: @unchecked Sendable {
     }
 }
 
+private final class AggregateFactoryBarrier: @unchecked Sendable {
+    private let lock = NSLock()
+    private let ready = DispatchSemaphore(value: 0)
+    private var arrivals = 0
+
+    func rendezvous() {
+        lock.lock()
+        arrivals += 1
+        let release = arrivals == 2
+        lock.unlock()
+        if release {
+            ready.signal()
+            ready.signal()
+        }
+        _ = ready.wait(timeout: .now() + 2)
+    }
+}
+
+private final class BlockingAggregateSlot: ComponentVMBase {
+    private let entered: DispatchSemaphore
+    private let release: DispatchSemaphore
+
+    init(_ name: String, entered: DispatchSemaphore, release: DispatchSemaphore) {
+        self.entered = entered
+        self.release = release
+        super.init(
+            name: name,
+            hub: NullMessageHub.INSTANCE,
+            dispatcher: NullDispatcher.INSTANCE
+        )
+    }
+
+    override var type: ViewModelType { .component }
+
+    override func _onDispose() {
+        entered.signal()
+        _ = release.wait(timeout: .now() + 2)
+    }
+}
+
+private final class AggregateRaceFactory: @unchecked Sendable {
+    private let lock = NSLock()
+    private var calls = 0
+    private let old: BlockingAggregateSlot
+    private let candidate: ComponentVMBase
+    private let barrier: AggregateFactoryBarrier
+
+    init(
+        old: BlockingAggregateSlot,
+        candidate: ComponentVMBase,
+        barrier: AggregateFactoryBarrier
+    ) {
+        self.old = old
+        self.candidate = candidate
+        self.barrier = barrier
+    }
+
+    func make() -> ComponentVMBase {
+        lock.lock()
+        calls += 1
+        let first = calls == 1
+        lock.unlock()
+        if first { return old }
+        barrier.rendezvous()
+        return candidate
+    }
+}
+
+private final class AggregateRaceResults: @unchecked Sendable {
+    private let lock = NSLock()
+    private(set) var successes = 0
+    private(set) var errors: [Error] = []
+
+    func record(_ operation: () throws -> Void) {
+        do {
+            try operation()
+            lock.lock()
+            successes += 1
+            lock.unlock()
+        } catch {
+            lock.lock()
+            errors.append(error)
+            lock.unlock()
+        }
+    }
+}
+
+private final class AggregateRaceAttempt: @unchecked Sendable {
+    let aggregate: AggregateVM1<ComponentVMBase>
+    let results: AggregateRaceResults
+
+    init(_ aggregate: AggregateVM1<ComponentVMBase>, results: AggregateRaceResults) {
+        self.aggregate = aggregate
+        self.results = results
+    }
+
+    func run() { results.record { try aggregate.reconstruct() } }
+}
+
 final class ContainerOwnershipTransferTests: XCTestCase {
     private var cancellables: Set<AnyCancellable> = []
 
@@ -69,6 +168,56 @@ final class ContainerOwnershipTransferTests: XCTestCase {
 
     private func leaf(_ name: String) throws -> ComponentVM {
         try ComponentVM.builder().name(name).withNullServices().build()
+    }
+
+    func testConcurrentAggregateReconstructionReservesSharedCandidate() throws {
+        let candidate = try leaf("candidate")
+        let barrier = AggregateFactoryBarrier()
+        let disposalEntered = DispatchSemaphore(value: 0)
+        let releaseDisposal = DispatchSemaphore(value: 0)
+
+        func aggregate(_ name: String) -> AggregateVM1<ComponentVMBase> {
+            let old = BlockingAggregateSlot(
+                "\(name)-old", entered: disposalEntered, release: releaseDisposal
+            )
+            let factory = AggregateRaceFactory(old: old, candidate: candidate, barrier: barrier)
+            return AggregateVM1<ComponentVMBase>(
+                name: name,
+                hub: NullMessageHub.INSTANCE,
+                dispatcher: NullDispatcher.INSTANCE,
+                factory1: factory.make
+            )
+        }
+
+        let first = aggregate("first")
+        let second = aggregate("second")
+        try first.construct()
+        try second.construct()
+        let results = AggregateRaceResults()
+        let attempts = [
+            AggregateRaceAttempt(first, results: results),
+            AggregateRaceAttempt(second, results: results),
+        ]
+        let group = DispatchGroup()
+        for attempt in attempts {
+            group.enter()
+            DispatchQueue.global().async {
+                attempt.run()
+                group.leave()
+            }
+        }
+
+        XCTAssertEqual(disposalEntered.wait(timeout: .now() + 2), .success)
+        releaseDisposal.signal()
+        releaseDisposal.signal()
+        XCTAssertEqual(group.wait(timeout: .now() + 5), .success)
+        XCTAssertEqual(results.successes, 1)
+        XCTAssertEqual(results.errors.count, 1)
+        XCTAssertEqual(
+            [first.component1, second.component1].compactMap { $0 }
+                .filter { $0 === candidate }.count,
+            1
+        )
     }
 
     /// COMP-038 — Adding an owned child transfers it between composite/group parents.

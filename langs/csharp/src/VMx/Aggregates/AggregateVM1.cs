@@ -54,18 +54,18 @@ public sealed class AggregateVM1<VM1> : ComponentVMBase, IAggregateVM1<VM1>, IAg
     protected override void OnConstruct()
     {
         var next1 = _factory1();
-        AggregateOwnership.Validate(_aggregateParent, next1);
         IComponentVM?[] previous = [_component1];
         // On Reconstruct, the previous slot instance is in Destructed state but
         // still holds hub subscriptions and command Subjects. Dispose it before
         // overwriting so subscribers don't leak across the Reconstruct boundary.
-        _component1?.Dispose();
-        _component1 = next1;
-        AggregateOwnership.Commit(_aggregateParent, previous, [next1]);
+        AggregateOwnership.Replace(_aggregateParent, previous, [next1], () =>
+        {
+            _component1 = next1;
+        });
         NotifyPropertyChanged(nameof(Component1));
 
         CompleteLifecycleHookAfter(TransitionChildrenAsync(
-            [_component1], construct: true));
+            [next1], construct: true));
     }
 
     /// <inheritdoc/>

@@ -112,9 +112,6 @@ def _relative_target_exists(source: Path, target: str) -> bool:
     candidate = (source.parent / clean).resolve()
     if candidate.exists():
         return True
-    if clean.endswith("/"):
-        sibling_page = (source.parent / f"{clean.rstrip('/')}.md").resolve()
-        return sibling_page.exists()
     return False
 
 
@@ -127,10 +124,6 @@ def _relative_target_path(source: Path, target: str) -> Path | None:
     candidate = (source.parent / clean).resolve()
     if candidate.is_file():
         return candidate
-    if clean.endswith("/"):
-        sibling_page = (source.parent / f"{clean.rstrip('/')}.md").resolve()
-        if sibling_page.is_file():
-            return sibling_page
     return None
 
 

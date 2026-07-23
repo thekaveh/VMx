@@ -87,6 +87,7 @@ def package_paths(package_dir: Path) -> set[str]:
         check=True,
         capture_output=True,
         text=True,
+        timeout=120,
     )
     payload = json_array(result.stdout)
     if not isinstance(payload, list) or len(payload) != 1:

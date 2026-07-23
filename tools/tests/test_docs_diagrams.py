@@ -171,6 +171,38 @@ def test_validate_reports_missing_reference_file(tmp_path: Path) -> None:
     assert validate(tmp_path, registry) == ["one: missing reference file docs/content/page.md"]
 
 
+def test_validate_reports_unregistered_canonical_reference(tmp_path: Path) -> None:
+    diagrams = tmp_path / "docs" / "assets" / "diagrams"
+    diagrams.mkdir(parents=True)
+    (diagrams / "one.html").write_text("<html></html>", encoding="utf-8")
+    (diagrams / "one.svg").write_text("<svg></svg>", encoding="utf-8")
+    write_png(diagrams / "one.png", 3200, 1800)
+    content = tmp_path / "docs" / "content"
+    content.mkdir(parents=True)
+    (content / "page.md").write_text("![One](../assets/diagrams/one.svg)", encoding="utf-8")
+    (content / "gallery.md").write_text("![One](../assets/diagrams/one.png)", encoding="utf-8")
+    registry = diagrams / "diagram-registry.json"
+    write_registry(
+        registry,
+        [
+            {
+                "id": "one",
+                "title": "One",
+                "html": "one.html",
+                "svg": "one.svg",
+                "png": "one.png",
+                "referencedBy": ["docs/content/page.md"],
+            }
+        ],
+    )
+
+    assert validate(tmp_path, registry) == [
+        "one: referencedBy mismatch; expected "
+        "['docs/content/gallery.md', 'docs/content/page.md'], "
+        "got ['docs/content/page.md']"
+    ]
+
+
 def test_validate_reports_site_diagram_link_that_resolves_to_wrong_output_path(
     tmp_path: Path,
 ) -> None:

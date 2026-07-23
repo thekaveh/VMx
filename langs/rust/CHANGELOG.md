@@ -8,6 +8,10 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Direct reconstruction now rejects destructed, transient, and disposed VMs as
+  required by the lifecycle fixture. The command, message-hub, and lifecycle
+  fixture conformance tests now execute and assert every fixture scenario
+  instead of merely loading those files beside marker-only examples.
 - Fixed aggregates now share the same atomic per-child ownership claim as
   mutable groups and composites, preventing concurrent constructors or lazy
   reconstruction from retaining the same child under two parents. A factory

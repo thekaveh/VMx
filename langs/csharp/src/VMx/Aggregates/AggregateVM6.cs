@@ -109,41 +109,34 @@ public sealed class AggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6> : ComponentVMBase
         var next4 = _factory4();
         var next5 = _factory5();
         var next6 = _factory6();
-        AggregateOwnership.Validate(_aggregateParent, next1, next2, next3, next4, next5, next6);
         IComponentVM?[] previous = [_component1, _component2, _component3, _component4, _component5, _component6];
         // On Reconstruct, dispose previous slot instances before overwriting
         // so their hub subscriptions and command Subjects don't leak.
-        _component1?.Dispose();
-        _component2?.Dispose();
-        _component3?.Dispose();
-        _component4?.Dispose();
-        _component5?.Dispose();
-        _component6?.Dispose();
-
         // Emit Hub message before the local PropertyChanged, matching arities
         // 1–5 and the Python/TS flavors (spec/08 §; relative order is uniform
         // across all aggregate arities).
-        _component1 = next1;
+        AggregateOwnership.Replace(
+            _aggregateParent,
+            previous,
+            [next1, next2, next3, next4, next5, next6],
+            () =>
+            {
+                _component1 = next1;
+                _component2 = next2;
+                _component3 = next3;
+                _component4 = next4;
+                _component5 = next5;
+                _component6 = next6;
+            });
         NotifyPropertyChanged(nameof(Component1));
-
-        _component2 = next2;
         NotifyPropertyChanged(nameof(Component2));
-
-        _component3 = next3;
         NotifyPropertyChanged(nameof(Component3));
-
-        _component4 = next4;
         NotifyPropertyChanged(nameof(Component4));
-
-        _component5 = next5;
         NotifyPropertyChanged(nameof(Component5));
-
-        _component6 = next6;
-        AggregateOwnership.Commit(_aggregateParent, previous, [next1, next2, next3, next4, next5, next6]);
         NotifyPropertyChanged(nameof(Component6));
 
         CompleteLifecycleHookAfter(TransitionChildrenAsync(
-            [_component1, _component2, _component3, _component4, _component5, _component6],
+            [next1, next2, next3, next4, next5, next6],
             construct: true));
     }
 

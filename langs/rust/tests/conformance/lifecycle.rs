@@ -6,6 +6,41 @@ use vmx::{
     GroupVm, ManualDispatcher, Message, MessageHub, NullDispatcher, ParentHandle, VmNode, VmxError,
 };
 
+#[derive(serde::Deserialize)]
+struct LifecycleFixture {
+    transitions: Vec<LifecycleRow>,
+}
+
+#[derive(serde::Deserialize)]
+struct LifecycleRow {
+    from: String,
+    via: String,
+    to_intermediate: Option<String>,
+    to_final: Option<String>,
+    legal: bool,
+}
+
+fn fixture_status(name: &str) -> ConstructionStatus {
+    match name {
+        "Disposed" => ConstructionStatus::Disposed,
+        "Destructing" => ConstructionStatus::Destructing,
+        "Destructed" => ConstructionStatus::Destructed,
+        "Constructing" => ConstructionStatus::Constructing,
+        "Constructed" => ConstructionStatus::Constructed,
+        _ => panic!("unknown lifecycle state: {name}"),
+    }
+}
+
+fn apply_fixture_operation(vm: &ComponentVm, operation: &str) -> vmx::VmxResult<()> {
+    match operation {
+        "construct" => vm.construct(),
+        "destruct" => vm.destruct(),
+        "reconstruct" => vm.reconstruct(),
+        "dispose" => vm.dispose(),
+        _ => panic!("unknown lifecycle operation: {operation}"),
+    }
+}
+
 #[derive(Clone)]
 struct BlockingAdmissionNode {
     inner: ComponentVm,
@@ -387,23 +422,70 @@ fn destruct_from_destructed_is_noop() {
 /// LIFE-011 — Lifecycle transition table matches fixture
 #[test]
 fn lifecycle_transition_fixture_contains_required_transitions() {
-    let fixture: serde_json::Value =
+    let fixture: LifecycleFixture =
         serde_json::from_str(vmx::lifecycle_transition_fixture()).unwrap();
-    let transitions = fixture["transitions"].as_array().unwrap();
+    for row in fixture.transitions {
+        let hub = MessageHub::new();
+        let vm = ComponentVm::with_services("fixture", hub.clone(), NullDispatcher::new());
+        if row.from == "Constructed" || row.from == "Destructing" {
+            vm.construct().unwrap();
+        } else if row.from == "Disposed" {
+            vm.dispose().unwrap();
+        }
 
-    assert!(transitions.iter().any(|row| {
-        row["from"] == "Destructed"
-            && row["via"] == "construct"
-            && row["to_intermediate"] == "Constructing"
-            && row["to_final"] == "Constructed"
-            && row["legal"] == true
-    }));
-    assert!(transitions.iter().any(|row| {
-        row["from"] == "Disposed"
-            && row["via"] == "construct"
-            && row["to_final"].is_null()
-            && row["legal"] == false
-    }));
+        if row.from == "Constructing" || row.from == "Destructing" {
+            let (entered_send, entered_receive) = mpsc::channel();
+            let (release_send, release_receive) = mpsc::channel();
+            let release = Arc::new(Mutex::new(release_receive));
+            if row.from == "Constructing" {
+                vm.on_construct(move || {
+                    entered_send.send(()).unwrap();
+                    release.lock().unwrap().recv().unwrap();
+                    Ok(())
+                });
+            } else {
+                vm.on_destruct(move || {
+                    entered_send.send(()).unwrap();
+                    release.lock().unwrap().recv().unwrap();
+                    Ok(())
+                });
+            }
+            let active = vm.clone();
+            let from = row.from.clone();
+            let worker = std::thread::spawn(move || {
+                if from == "Constructing" {
+                    active.construct()
+                } else {
+                    active.destruct()
+                }
+            });
+            entered_receive
+                .recv_timeout(Duration::from_secs(1))
+                .unwrap();
+            assert_eq!(vm.status(), fixture_status(&row.from));
+            let result = apply_fixture_operation(&vm, &row.via);
+            assert_eq!(result.is_ok(), row.legal, "{} via {}", row.from, row.via);
+            if let Some(final_state) = &row.to_final {
+                assert_eq!(vm.status(), fixture_status(final_state));
+            }
+            release_send.send(()).unwrap();
+            let _ = worker.join().unwrap();
+            continue;
+        }
+
+        let observed = statuses(&hub);
+        let result = apply_fixture_operation(&vm, &row.via);
+        assert_eq!(result.is_ok(), row.legal, "{} via {}", row.from, row.via);
+        if let Some(intermediate) = &row.to_intermediate {
+            assert_eq!(
+                observed.lock().unwrap().first(),
+                Some(&fixture_status(intermediate))
+            );
+        }
+        if let Some(final_state) = &row.to_final {
+            assert_eq!(vm.status(), fixture_status(final_state));
+        }
+    }
 }
 
 /// LIFE-012 — dispose from Disposed emits no message

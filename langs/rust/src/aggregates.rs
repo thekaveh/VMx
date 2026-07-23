@@ -2398,6 +2398,12 @@ macro_rules! impl_fixed_aggregate_baseline {
 
             /// Destructs and then constructs the aggregate.
             pub fn reconstruct(&self) -> VmxResult<()> {
+                if self.status() != ConstructionStatus::Constructed {
+                    return Err(VmxError::InvalidLifecycleTransition {
+                        from: self.status(),
+                        operation: "reconstruct",
+                    });
+                }
                 self.destruct()?;
                 self.construct()
             }

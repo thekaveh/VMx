@@ -49,6 +49,20 @@ func validateAggregateSlots(
     }
 }
 
+func replaceAggregateSlots(
+    parent: AggregateParent,
+    previous: [ComponentVMBase?],
+    next: [ComponentVMBase],
+    assign: () -> Void
+) throws {
+    try withOwnershipReservationBatch(next) {
+        try validateAggregateSlots(parent: parent, children: next)
+        for child in previous { child?.dispose() }
+        assign()
+        commitAggregateSlots(parent: parent, previous: previous, next: next)
+    }
+}
+
 func commitAggregateSlots(
     parent: AggregateParent,
     previous: [ComponentVMBase?],

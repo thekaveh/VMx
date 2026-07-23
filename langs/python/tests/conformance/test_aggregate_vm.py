@@ -12,8 +12,12 @@ AGG-006 — Arity-6 all six components reach Constructed; destruction waits for 
 
 from __future__ import annotations
 
+import threading
+from concurrent.futures import ThreadPoolExecutor
+
 import pytest
 
+from vmx.aggregates.aggregate_vm import AggregateVM1
 from vmx.aggregates.builders import (
     AggregateVM1Builder,
     AggregateVM2Builder,
@@ -23,6 +27,7 @@ from vmx.aggregates.builders import (
     AggregateVM6Builder,
 )
 from vmx.components.builders import ComponentVMBuilder
+from vmx.components.component_vm import ComponentVM
 from vmx.composites.builders import CompositeVMBuilder
 from vmx.forwarding.component import ForwardingComponentVM
 from vmx.lifecycle.status import ConstructionStatus
@@ -46,6 +51,26 @@ def _dispatcher() -> RxDispatcher:
 
 def _child(hub: MessageHub[object], dispatcher: RxDispatcher, name: str = "child") -> object:
     return ComponentVMBuilder().name(name).services(hub, dispatcher).build()
+
+
+class _BlockingDisposeComponent(ComponentVM):
+    def __init__(
+        self,
+        *,
+        name: str,
+        hub: MessageHub[object],
+        dispatcher: RxDispatcher,
+        entered: threading.Event,
+        release: threading.Event,
+    ) -> None:
+        super().__init__(name=name, hint="", hub=hub, dispatcher=dispatcher)
+        self._entered = entered
+        self._release = release
+
+    def _on_dispose(self) -> None:
+        self._entered.set()
+        if not self._release.wait(timeout=2):
+            raise TimeoutError("test did not release blocked slot disposal")
 
 
 # ---------------------------------------------------------------------------
@@ -80,6 +105,57 @@ def test_AGG_001_arity1_factory_invoked_on_construct() -> None:
     assert factory_call_count == 1, "Factory must be called exactly once"
     assert agg.component_1 is not None
     assert agg.component_1.status == ConstructionStatus.CONSTRUCTED  # type: ignore[union-attr]
+
+
+def test_concurrent_aggregate_reconstruction_reserves_shared_candidate() -> None:
+    hub = _hub()
+    dispatcher = _dispatcher()
+    candidate = ComponentVM(name="candidate", hint="", hub=hub, dispatcher=dispatcher)
+    factories_ready = threading.Barrier(2)
+    disposal_entered = threading.Event()
+    release_disposal = threading.Event()
+
+    def aggregate(name: str) -> AggregateVM1[ComponentVM]:
+        calls = 0
+
+        def factory() -> ComponentVM:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return _BlockingDisposeComponent(
+                    name=f"{name}-old",
+                    hub=hub,
+                    dispatcher=dispatcher,
+                    entered=disposal_entered,
+                    release=release_disposal,
+                )
+            factories_ready.wait(timeout=2)
+            return candidate
+
+        vm: AggregateVM1[ComponentVM] = (
+            AggregateVM1Builder().name(name).services(hub, dispatcher).component_1(factory).build()
+        )
+        vm.construct()
+        return vm
+
+    first = aggregate("first")
+    second = aggregate("second")
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(vm.reconstruct) for vm in (first, second)]
+        assert disposal_entered.wait(timeout=2)
+        release_disposal.set()
+        outcomes = []
+        for future in futures:
+            try:
+                future.result(timeout=2)
+                outcomes.append("success")
+            except ValueError:
+                outcomes.append("rejected")
+
+    assert sorted(outcomes) == ["rejected", "success"]
+    owners = [vm for vm in (first, second) if vm.component_1 is candidate]
+    assert len(owners) == 1
+    assert candidate._ownership_parent is owners[0]._aggregate_parent
 
 
 # ---------------------------------------------------------------------------

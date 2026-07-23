@@ -6,15 +6,15 @@ keeps C#, Python, TypeScript, Swift, and Rust aligned.
 
 <div class="vmx-card-grid">
   <div class="vmx-card">
-    <p class="vmx-card-title"><a href="installation/">Install</a></p>
+    <p class="vmx-card-title"><a href="installation.md">Install</a></p>
     <p>Check source-tree version status and package commands for each flavor.</p>
   </div>
   <div class="vmx-card">
-    <p class="vmx-card-title"><a href="getting-started/">Quickstart</a></p>
+    <p class="vmx-card-title"><a href="getting-started/index.md">Quickstart</a></p>
     <p>Build the shared component-plus-composite contract in each idiomatic flavor.</p>
   </div>
   <div class="vmx-card">
-    <p class="vmx-card-title"><a href="architecture/">Architecture Map</a></p>
+    <p class="vmx-card-title"><a href="architecture/index.md">Architecture Map</a></p>
     <p>Walk the system, class, and lifecycle diagrams, then browse the full gallery.</p>
   </div>
 </div>

@@ -10,7 +10,11 @@ from pathlib import Path
 
 def repo_root() -> Path:
     out = subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=True
+        ["git", "rev-parse", "--show-toplevel"],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=10,
     )
     return Path(out.stdout.strip())
 

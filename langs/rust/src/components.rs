@@ -295,6 +295,12 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
 
     /// Destructs and then constructs the component.
     pub fn reconstruct(&self) -> VmxResult<()> {
+        if self.status() != ConstructionStatus::Constructed {
+            return Err(VmxError::InvalidLifecycleTransition {
+                from: self.status(),
+                operation: "reconstruct",
+            });
+        }
         self.destruct()?;
         self.construct()
     }

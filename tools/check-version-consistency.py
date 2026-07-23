@@ -389,6 +389,7 @@ def get_git_tags(repo_root: Path) -> set[str]:
         text=True,
         cwd=str(repo_root),
         check=False,
+        timeout=10,
     )
     if result.returncode != 0:
         return set()

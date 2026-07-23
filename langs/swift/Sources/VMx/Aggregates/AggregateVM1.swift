@@ -26,11 +26,10 @@ open class AggregateVM1<C1: ComponentVMBase>: ComponentVMBase {
     open override func _onConstruct() throws {
         try super._onConstruct()
         let c1 = factory1()
-        try validateAggregateSlots(parent: aggregateParent, children: [c1])
         let previous: [ComponentVMBase?] = [component1]
-        component1?.dispose()
-        component1 = c1
-        commitAggregateSlots(parent: aggregateParent, previous: previous, next: [c1])
+        try replaceAggregateSlots(parent: aggregateParent, previous: previous, next: [c1]) {
+            component1 = c1
+        }
         _notifyPropertyChanged("component1")
         try c1.construct()
     }

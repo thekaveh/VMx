@@ -3,6 +3,28 @@ use std::sync::{mpsc, Arc, Barrier, Mutex};
 use std::time::Duration;
 use vmx::{Message, MessageHub, Subscription};
 
+#[derive(serde::Deserialize)]
+struct MessageFixture {
+    scenarios: Vec<MessageScenario>,
+}
+
+#[derive(serde::Deserialize)]
+struct MessageScenario {
+    id: String,
+    #[serde(default)]
+    producer_sends: Vec<String>,
+    #[serde(default)]
+    producer_sends_before_subscribe: Vec<String>,
+    #[serde(default)]
+    producer_sends_after_subscribe: Vec<String>,
+    #[serde(default)]
+    expected_observed: Vec<String>,
+    subscriber_count: Option<usize>,
+    expected_observed_per_subscriber: Option<Vec<String>>,
+    #[serde(default)]
+    unsubscribe_after_first: bool,
+}
+
 fn make_msg(name: &str) -> Message {
     Message::Custom {
         sender_id: 1,
@@ -127,16 +149,92 @@ fn multiple_subscribers_each_observe_every_message() {
 /// HUB-006 — Hub matches message-ordering fixture
 #[test]
 fn hub_matches_message_ordering_fixture() {
-    let fixture: serde_json::Value =
+    let fixture: MessageFixture =
         serde_json::from_str(include_str!("../../src/fixtures/message-ordering.json")).unwrap();
-    assert_eq!(
-        fixture["scenarios"][0]["id"], "single-producer-fifo",
-        "fixture must be available to Rust tests"
-    );
-    single_producer_fifo_order();
-    late_subscribers_do_not_see_prior_messages();
-    multiple_subscribers_each_observe_every_message();
-    subscriber_dispose_during_emit_does_not_crash();
+    for scenario in fixture.scenarios {
+        match scenario.id.as_str() {
+            "single-producer-fifo" | "late-subscribe-no-replay" => {
+                let hub = MessageHub::new();
+                for name in &scenario.producer_sends_before_subscribe {
+                    hub.send(make_msg(name));
+                }
+                let received = Arc::new(Mutex::new(Vec::new()));
+                let observed = received.clone();
+                let _subscription = hub.subscribe(move |message| {
+                    observed
+                        .lock()
+                        .unwrap()
+                        .push(custom_name(message).to_string());
+                });
+                for name in scenario
+                    .producer_sends
+                    .iter()
+                    .chain(&scenario.producer_sends_after_subscribe)
+                {
+                    hub.send(make_msg(name));
+                }
+                assert_eq!(
+                    *received.lock().unwrap(),
+                    scenario.expected_observed,
+                    "{}",
+                    scenario.id
+                );
+            }
+            "multiple-subscribers-same-message" => {
+                let hub = MessageHub::new();
+                let mut buckets = Vec::new();
+                let mut subscriptions = Vec::new();
+                for _ in 0..scenario.subscriber_count.expect("subscriber_count") {
+                    let bucket = Arc::new(Mutex::new(Vec::new()));
+                    let observed = bucket.clone();
+                    subscriptions.push(hub.subscribe(move |message| {
+                        observed
+                            .lock()
+                            .unwrap()
+                            .push(custom_name(message).to_string());
+                    }));
+                    buckets.push(bucket);
+                }
+                for name in &scenario.producer_sends {
+                    hub.send(make_msg(name));
+                }
+                let expected = scenario
+                    .expected_observed_per_subscriber
+                    .expect("expected list");
+                for bucket in buckets {
+                    assert_eq!(*bucket.lock().unwrap(), expected, "{}", scenario.id);
+                }
+                drop(subscriptions);
+            }
+            "unsubscribe-during-emit" if scenario.unsubscribe_after_first => {
+                let hub = MessageHub::new();
+                let received = Arc::new(Mutex::new(Vec::new()));
+                let slot: Arc<Mutex<Option<Subscription>>> = Arc::new(Mutex::new(None));
+                let observed = received.clone();
+                let observed_slot = slot.clone();
+                let subscription = hub.subscribe(move |message| {
+                    observed
+                        .lock()
+                        .unwrap()
+                        .push(custom_name(message).to_string());
+                    if let Some(subscription) = observed_slot.lock().unwrap().as_ref() {
+                        subscription.dispose();
+                    }
+                });
+                *slot.lock().unwrap() = Some(subscription);
+                for name in &scenario.producer_sends {
+                    hub.send(make_msg(name));
+                }
+                assert_eq!(
+                    *received.lock().unwrap(),
+                    scenario.expected_observed,
+                    "{}",
+                    scenario.id
+                );
+            }
+            _ => panic!("unknown message-ordering scenario: {}", scenario.id),
+        }
+    }
 }
 
 /// HUB-007 — Subscriber handler that raises does not break the hub

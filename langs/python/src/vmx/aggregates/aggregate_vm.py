@@ -12,6 +12,7 @@ from typing import Generic, TypeVar
 from vmx.components.base import (
     _ComponentVMBase,
     _dispose_children_then_self,
+    _ownership_reservation_batch,
     _ParentCompositeVM,
     _ParentTransfer,
 )
@@ -116,6 +117,22 @@ class _AggregateVMBase(_ComponentVMBase):
             if isinstance(child, _ComponentVMBase):
                 child._set_parent(self._aggregate_parent)
 
+    def _replace_slots(
+        self,
+        slot_names: tuple[str, ...],
+        new_slots: tuple[ComponentVMProto, ...],
+    ) -> None:
+        old_slots = tuple(getattr(self, name) for name in slot_names)
+        reservable = tuple(child for child in new_slots if isinstance(child, _ComponentVMBase))
+        with _ownership_reservation_batch(reservable):
+            self._validate_new_slots(new_slots)
+            for child in old_slots:
+                if child is not None:
+                    child.dispose()
+            for name, child in zip(slot_names, new_slots, strict=True):
+                setattr(self, name, child)
+            self._replace_slot_parents(old_slots, new_slots)
+
 
 # ---------------------------------------------------------------------------
 # AggregateVM1
@@ -171,15 +188,10 @@ class AggregateVM1(Generic[V1], _AggregateVMBase):
 
     def _on_construct(self) -> None:
         next1 = self._factory1()
-        self._validate_new_slots((next1,))
-        old_slots: tuple[ComponentVMProto | None, ...] = (self._component1,)
         # On Reconstruct, the previous slot instance is in Destructed state but
         # still holds hub subscriptions and command Subjects. Dispose it before
         # overwriting so subscribers don't leak across the Reconstruct boundary.
-        if self._component1 is not None:
-            self._component1.dispose()
-        self._component1 = next1
-        self._replace_slot_parents(old_slots, (next1,))
+        self._replace_slots(("_component1",), (next1,))
         self._notify_property_changed("component_1")
         self._complete_lifecycle_hook_after(
             self._transition_children(self.components(), construct=True)
@@ -253,23 +265,10 @@ class AggregateVM2(Generic[V1, V2], _AggregateVMBase):
     def _on_construct(self) -> None:
         next1 = self._factory1()
         next2 = self._factory2()
-        self._validate_new_slots((next1, next2))
-        old_slots: tuple[ComponentVMProto | None, ...] = (
-            self._component1,
-            self._component2,
-        )
         # On Reconstruct, dispose previous slot instances before overwriting
         # so their hub subscriptions and command Subjects don't leak.
-        if self._component1 is not None:
-            self._component1.dispose()
-        if self._component2 is not None:
-            self._component2.dispose()
-
-        self._component1 = next1
+        self._replace_slots(("_component1", "_component2"), (next1, next2))
         self._notify_property_changed("component_1")
-
-        self._component2 = next2
-        self._replace_slot_parents(old_slots, (next1, next2))
         self._notify_property_changed("component_2")
 
         self._complete_lifecycle_hook_after(
@@ -351,29 +350,11 @@ class AggregateVM3(Generic[V1, V2, V3], _AggregateVMBase):
         next1 = self._factory1()
         next2 = self._factory2()
         next3 = self._factory3()
-        self._validate_new_slots((next1, next2, next3))
-        old_slots: tuple[ComponentVMProto | None, ...] = (
-            self._component1,
-            self._component2,
-            self._component3,
-        )
         # On Reconstruct, dispose previous slot instances before overwriting
         # so their hub subscriptions and command Subjects don't leak.
-        if self._component1 is not None:
-            self._component1.dispose()
-        if self._component2 is not None:
-            self._component2.dispose()
-        if self._component3 is not None:
-            self._component3.dispose()
-
-        self._component1 = next1
+        self._replace_slots(("_component1", "_component2", "_component3"), (next1, next2, next3))
         self._notify_property_changed("component_1")
-
-        self._component2 = next2
         self._notify_property_changed("component_2")
-
-        self._component3 = next3
-        self._replace_slot_parents(old_slots, (next1, next2, next3))
         self._notify_property_changed("component_3")
 
         self._complete_lifecycle_hook_after(
@@ -466,35 +447,15 @@ class AggregateVM4(Generic[V1, V2, V3, V4], _AggregateVMBase):
         next2 = self._factory2()
         next3 = self._factory3()
         next4 = self._factory4()
-        self._validate_new_slots((next1, next2, next3, next4))
-        old_slots: tuple[ComponentVMProto | None, ...] = (
-            self._component1,
-            self._component2,
-            self._component3,
-            self._component4,
-        )
         # On Reconstruct, dispose previous slot instances before overwriting
         # so their hub subscriptions and command Subjects don't leak.
-        if self._component1 is not None:
-            self._component1.dispose()
-        if self._component2 is not None:
-            self._component2.dispose()
-        if self._component3 is not None:
-            self._component3.dispose()
-        if self._component4 is not None:
-            self._component4.dispose()
-
-        self._component1 = next1
+        self._replace_slots(
+            ("_component1", "_component2", "_component3", "_component4"),
+            (next1, next2, next3, next4),
+        )
         self._notify_property_changed("component_1")
-
-        self._component2 = next2
         self._notify_property_changed("component_2")
-
-        self._component3 = next3
         self._notify_property_changed("component_3")
-
-        self._component4 = next4
-        self._replace_slot_parents(old_slots, (next1, next2, next3, next4))
         self._notify_property_changed("component_4")
 
         self._complete_lifecycle_hook_after(
@@ -602,41 +563,22 @@ class AggregateVM5(Generic[V1, V2, V3, V4, V5], _AggregateVMBase):
         next3 = self._factory3()
         next4 = self._factory4()
         next5 = self._factory5()
-        self._validate_new_slots((next1, next2, next3, next4, next5))
-        old_slots: tuple[ComponentVMProto | None, ...] = (
-            self._component1,
-            self._component2,
-            self._component3,
-            self._component4,
-            self._component5,
-        )
         # On Reconstruct, dispose previous slot instances before overwriting
         # so their hub subscriptions and command Subjects don't leak.
-        if self._component1 is not None:
-            self._component1.dispose()
-        if self._component2 is not None:
-            self._component2.dispose()
-        if self._component3 is not None:
-            self._component3.dispose()
-        if self._component4 is not None:
-            self._component4.dispose()
-        if self._component5 is not None:
-            self._component5.dispose()
-
-        self._component1 = next1
+        self._replace_slots(
+            (
+                "_component1",
+                "_component2",
+                "_component3",
+                "_component4",
+                "_component5",
+            ),
+            (next1, next2, next3, next4, next5),
+        )
         self._notify_property_changed("component_1")
-
-        self._component2 = next2
         self._notify_property_changed("component_2")
-
-        self._component3 = next3
         self._notify_property_changed("component_3")
-
-        self._component4 = next4
         self._notify_property_changed("component_4")
-
-        self._component5 = next5
-        self._replace_slot_parents(old_slots, (next1, next2, next3, next4, next5))
         self._notify_property_changed("component_5")
 
         self._complete_lifecycle_hook_after(
@@ -757,47 +699,24 @@ class AggregateVM6(Generic[V1, V2, V3, V4, V5, V6], _AggregateVMBase):
         next4 = self._factory4()
         next5 = self._factory5()
         next6 = self._factory6()
-        self._validate_new_slots((next1, next2, next3, next4, next5, next6))
-        old_slots: tuple[ComponentVMProto | None, ...] = (
-            self._component1,
-            self._component2,
-            self._component3,
-            self._component4,
-            self._component5,
-            self._component6,
-        )
         # On Reconstruct, dispose previous slot instances before overwriting
         # so their hub subscriptions and command Subjects don't leak.
-        if self._component1 is not None:
-            self._component1.dispose()
-        if self._component2 is not None:
-            self._component2.dispose()
-        if self._component3 is not None:
-            self._component3.dispose()
-        if self._component4 is not None:
-            self._component4.dispose()
-        if self._component5 is not None:
-            self._component5.dispose()
-        if self._component6 is not None:
-            self._component6.dispose()
-
-        self._component1 = next1
+        self._replace_slots(
+            (
+                "_component1",
+                "_component2",
+                "_component3",
+                "_component4",
+                "_component5",
+                "_component6",
+            ),
+            (next1, next2, next3, next4, next5, next6),
+        )
         self._notify_property_changed("component_1")
-
-        self._component2 = next2
         self._notify_property_changed("component_2")
-
-        self._component3 = next3
         self._notify_property_changed("component_3")
-
-        self._component4 = next4
         self._notify_property_changed("component_4")
-
-        self._component5 = next5
         self._notify_property_changed("component_5")
-
-        self._component6 = next6
-        self._replace_slot_parents(old_slots, (next1, next2, next3, next4, next5, next6))
         self._notify_property_changed("component_6")
 
         self._complete_lifecycle_hook_after(

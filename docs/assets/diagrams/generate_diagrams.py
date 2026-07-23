@@ -5015,6 +5015,7 @@ def write_triplet(
                 str(svg_path),
             ],
             check=True,
+            timeout=120,
         )
         subprocess.run(
             [
@@ -5029,6 +5030,7 @@ def write_triplet(
                 str(tmp_path),
             ],
             check=True,
+            timeout=120,
         )
     finally:
         tmp_path.unlink(missing_ok=True)

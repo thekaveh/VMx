@@ -99,6 +99,19 @@ def test_repo_self_containment_scans_current_facing_markdown(tmp_path: Path) -> 
     assert "examples/example.md" in findings[0].message
 
 
+def test_canonical_links_reject_site_style_directory_fallback(tmp_path: Path) -> None:
+    content = tmp_path / "docs/content"
+    content.mkdir(parents=True)
+    (content / "guide.md").write_text("# 1. Guide\n", encoding="utf-8")
+    (content / "index.md").write_text("[Guide](guide/)\n", encoding="utf-8")
+
+    findings = check_canonical_links(tmp_path)
+
+    assert [finding.message for finding in findings] == [
+        "docs/content/index.md: target does not exist: guide/"
+    ]
+
+
 def test_canonical_link_check_rejects_missing_markdown_and_html_targets(tmp_path: Path) -> None:
     page = tmp_path / "docs/content/index.md"
     page.parent.mkdir(parents=True)

@@ -13,6 +13,7 @@ def _git(cwd: Path, *args: str) -> str:
         check=True,
         capture_output=True,
         text=True,
+        timeout=10,
     ).stdout.strip()
 
 

@@ -105,6 +105,7 @@ def package_paths(package_dir: Path) -> set[str]:
         check=True,
         capture_output=True,
         text=True,
+        timeout=300,
     )
     paths = [line.strip() for line in result.stdout.splitlines() if line.strip()]
     if len(paths) != len(set(paths)):

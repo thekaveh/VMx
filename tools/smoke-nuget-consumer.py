@@ -186,17 +186,19 @@ def run_smoke(
         restore = ["dotnet", "restore", "Smoke.csproj", "--source", NUGET_SOURCE]
         if package_dir is not None:
             restore.extend(["--source", str(package_dir.resolve())])
-        subprocess.run(restore, cwd=workdir, check=True)
+        subprocess.run(restore, cwd=workdir, check=True, timeout=300)
         subprocess.run(
             ["dotnet", "build", "Smoke.csproj", "-c", "Release", "--no-restore", "--nologo"],
             cwd=workdir,
             check=True,
+            timeout=300,
         )
         if framework == "net8.0":
             subprocess.run(
                 ["dotnet", "run", "--project", "Smoke.csproj", "-c", "Release", "--no-build"],
                 cwd=workdir,
                 check=True,
+                timeout=120,
             )
     finally:
         shutil.rmtree(workdir, ignore_errors=True)

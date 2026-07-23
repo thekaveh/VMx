@@ -6,6 +6,22 @@ use vmx::{
     RelayCommandOf, VmxError, VmxResult,
 };
 
+#[derive(serde::Deserialize)]
+struct CommandFixture {
+    cases: Vec<CommandCase>,
+}
+
+#[derive(serde::Deserialize)]
+struct CommandCase {
+    id: String,
+    predicate: Option<bool>,
+    task: Option<String>,
+    trigger_emits: bool,
+    can_execute: bool,
+    execute_invokes_task: bool,
+    can_execute_changed_fires: bool,
+}
+
 /// CMD-001 — execute invokes the configured task
 #[test]
 fn relay_command_execute_invokes_task() {
@@ -90,14 +106,48 @@ fn relay_command_without_task_is_noop() {
 /// CMD-007 — Command truth-table matches fixture
 #[test]
 fn relay_command_matches_truth_table_fixture() {
-    let fixture: serde_json::Value =
+    let fixture: CommandFixture =
         serde_json::from_str(include_str!("../../src/fixtures/command-truthtable.json")).unwrap();
-    assert_eq!(fixture["cases"].as_array().unwrap().len(), 5);
-
-    assert!(RelayCommand::noop().can_execute());
-    assert!(!RelayCommand::noop()
-        .with_can_execute(|| false)
-        .can_execute());
+    for case in fixture.cases {
+        assert!(
+            case.task.as_deref().is_none_or(|task| task == "noop"),
+            "{}",
+            case.id
+        );
+        let calls = Arc::new(AtomicUsize::new(0));
+        let observed_calls = calls.clone();
+        let mut command = match case.task {
+            Some(_) => RelayCommand::new(move || {
+                observed_calls.fetch_add(1, Ordering::SeqCst);
+            }),
+            None => RelayCommand::noop(),
+        };
+        if let Some(predicate) = case.predicate {
+            command = command.with_can_execute(move || predicate);
+        }
+        let events = Arc::new(AtomicUsize::new(0));
+        let observed_events = events.clone();
+        let _subscription = command.can_execute_changed().subscribe(move |_| {
+            observed_events.fetch_add(1, Ordering::SeqCst);
+        });
+        if case.trigger_emits {
+            command.trigger_can_execute_changed();
+        }
+        assert_eq!(command.can_execute(), case.can_execute, "{}", case.id);
+        command.execute();
+        assert_eq!(
+            calls.load(Ordering::SeqCst) > 0,
+            case.execute_invokes_task,
+            "{}",
+            case.id
+        );
+        assert_eq!(
+            events.load(Ordering::SeqCst) > 0,
+            case.can_execute_changed_fires,
+            "{}",
+            case.id
+        );
+    }
 }
 
 /// CMD-014 — imperative raise emits once without evaluating delegates

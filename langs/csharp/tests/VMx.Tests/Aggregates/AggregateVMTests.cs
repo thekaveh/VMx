@@ -15,6 +15,24 @@ namespace VMx.Tests.Aggregates;
 /// </summary>
 public class AggregateVMTests
 {
+    private sealed class BlockingDisposeVM(
+        string name,
+        TestHub hub,
+        TestDispatcher dispatcher,
+        ManualResetEventSlim entered,
+        ManualResetEventSlim release)
+        : ComponentVMBase(name, "", hub, dispatcher, null, null)
+    {
+        public override ViewModelType Type => ViewModelType.Component;
+
+        protected override void OnDispose()
+        {
+            entered.Set();
+            if (!release.Wait(TimeSpan.FromSeconds(2)))
+                throw new TimeoutException("test did not release blocked slot disposal");
+        }
+    }
+
     // ── Factory helpers ──────────────────────────────────────────────────────
 
     private static (TestHub hub, TestDispatcher dispatcher) MakeServices()
@@ -440,6 +458,51 @@ public class AggregateVMTests
             firstSlots[i].Status.Should().Be(ConstructionStatus.Disposed,
                 $"prior slot {i + 1} must be Disposed, not lingering in Destructed");
         }
+    }
+
+    [Fact]
+    public async Task Concurrent_Reconstruct_Reserves_Shared_Candidate_Atomically()
+    {
+        var (hub, dispatcher) = MakeServices();
+        var candidate = MakeLeaf(hub, dispatcher, "candidate");
+        using var factoriesReady = new Barrier(2);
+        using var disposalEntered = new ManualResetEventSlim();
+        using var releaseDisposal = new ManualResetEventSlim();
+
+        AggregateVM1<ComponentVMBase> Build(string name)
+        {
+            var calls = 0;
+            return AggregateVM1<ComponentVMBase>.Builder()
+                .Name(name).Services(hub, dispatcher)
+                .Component1(() =>
+                {
+                    if (Interlocked.Increment(ref calls) == 1)
+                        return new BlockingDisposeVM(
+                            $"{name}-old", hub, dispatcher, disposalEntered, releaseDisposal);
+                    if (!factoriesReady.SignalAndWait(TimeSpan.FromSeconds(2)))
+                        throw new TimeoutException("candidate factories did not rendezvous");
+                    return candidate;
+                })
+                .Build();
+        }
+
+        var first = Build("first");
+        var second = Build("second");
+        first.Construct();
+        second.Construct();
+        var attempts = new[]
+        {
+            Task.Run(() => Record.Exception(first.Reconstruct)),
+            Task.Run(() => Record.Exception(second.Reconstruct)),
+        };
+        disposalEntered.Wait(TimeSpan.FromSeconds(2)).Should().BeTrue();
+        releaseDisposal.Set();
+        var errors = await Task.WhenAll(attempts);
+
+        errors.Count(error => error is null).Should().Be(1);
+        errors.Count(error => error is InvalidOperationException).Should().Be(1);
+        new[] { first.Component1, second.Component1 }
+            .Count(slot => ReferenceEquals(slot, candidate)).Should().Be(1);
     }
 }
 #pragma warning restore CA1715

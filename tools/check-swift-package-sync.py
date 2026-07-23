@@ -74,6 +74,7 @@ def dump_package(repo_root: Path, package_path: Path) -> dict[str, object]:
         check=True,
         capture_output=True,
         text=True,
+        timeout=120,
     )
     payload = json.loads(result.stdout)
     if not isinstance(payload, dict):

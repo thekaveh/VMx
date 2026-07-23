@@ -87,30 +87,23 @@ public sealed class AggregateVM4<VM1, VM2, VM3, VM4> : ComponentVMBase, IAggrega
         var next2 = _factory2();
         var next3 = _factory3();
         var next4 = _factory4();
-        AggregateOwnership.Validate(_aggregateParent, next1, next2, next3, next4);
         IComponentVM?[] previous = [_component1, _component2, _component3, _component4];
         // On Reconstruct, dispose previous slot instances before overwriting
         // so their hub subscriptions and command Subjects don't leak.
-        _component1?.Dispose();
-        _component2?.Dispose();
-        _component3?.Dispose();
-        _component4?.Dispose();
-
-        _component1 = next1;
+        AggregateOwnership.Replace(_aggregateParent, previous, [next1, next2, next3, next4], () =>
+        {
+            _component1 = next1;
+            _component2 = next2;
+            _component3 = next3;
+            _component4 = next4;
+        });
         NotifyPropertyChanged(nameof(Component1));
-
-        _component2 = next2;
         NotifyPropertyChanged(nameof(Component2));
-
-        _component3 = next3;
         NotifyPropertyChanged(nameof(Component3));
-
-        _component4 = next4;
-        AggregateOwnership.Commit(_aggregateParent, previous, [next1, next2, next3, next4]);
         NotifyPropertyChanged(nameof(Component4));
 
         CompleteLifecycleHookAfter(TransitionChildrenAsync(
-            [_component1, _component2, _component3, _component4],
+            [next1, next2, next3, next4],
             construct: true));
     }
 

@@ -42,15 +42,14 @@ open class AggregateVM3<
         let c1 = factory1()
         let c2 = factory2()
         let c3 = factory3()
-        try validateAggregateSlots(parent: aggregateParent, children: [c1, c2, c3])
         let previous: [ComponentVMBase?] = [component1, component2, component3]
-        component1?.dispose(); component2?.dispose(); component3?.dispose()
-        component1 = c1
+        try replaceAggregateSlots(parent: aggregateParent, previous: previous, next: [c1, c2, c3]) {
+            component1 = c1
+            component2 = c2
+            component3 = c3
+        }
         _notifyPropertyChanged("component1")
-        component2 = c2
         _notifyPropertyChanged("component2")
-        component3 = c3
-        commitAggregateSlots(parent: aggregateParent, previous: previous, next: [c1, c2, c3])
         _notifyPropertyChanged("component3")
         try c1.construct(); try c2.construct(); try c3.construct()
     }

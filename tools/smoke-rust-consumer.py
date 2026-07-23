@@ -149,7 +149,7 @@ def wait_for_public(
 
 
 def _run(args: list[str], *, cwd: Path) -> None:
-    subprocess.run(args, cwd=cwd, check=True)
+    subprocess.run(args, cwd=cwd, check=True, timeout=300)
 
 
 def _package(package_dir: Path, version: str, cargo: str) -> Path:
