@@ -143,8 +143,11 @@ fn async_resource_retry_replaces_error() {
 #[test]
 fn async_resource_cancel_restores_idle() {
     let cancelled = Arc::new(AtomicBool::new(false));
+    let started = Arc::new(AtomicBool::new(false));
     let observed = cancelled.clone();
+    let loader_started = started.clone();
     let vm: AsyncResourceVm<i32> = AsyncResourceVm::new("resource", move |token| loop {
+        loader_started.store(true, Ordering::SeqCst);
         if token.is_cancelled() {
             observed.store(true, Ordering::SeqCst);
             return Err(VmxError::Other("cancelled".into()));
@@ -152,7 +155,7 @@ fn async_resource_cancel_restores_idle() {
         thread::sleep(Duration::from_millis(1));
     });
     let load = vm.load_async();
-    wait_until(|| vm.status() == AsyncResourceStatus::Loading);
+    wait_until(|| started.load(Ordering::SeqCst));
     vm.cancel_command().execute();
     load.join().unwrap().unwrap();
     wait_until(|| cancelled.load(Ordering::SeqCst));

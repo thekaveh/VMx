@@ -86,10 +86,14 @@ def test_python_ci_and_release_cover_314_and_audit_runtime_dependencies() -> Non
 def test_release_metadata_is_validated_before_python_publication() -> None:
     workflow = _workflow("release.yml")
     metadata = workflow.index("release-metadata:")
-    checker = workflow.index("python3 tools/check-version-consistency.py", metadata)
+    checker = workflow.index("tools/check-version-consistency.py", metadata)
     publish_job = workflow.index("python-build-and-publish:")
     publish = workflow.index("pypa/gh-action-pypi-publish@", publish_job)
 
     assert "needs: [python-test, release-metadata]" in workflow
-    assert 'python3 tools/check-version-consistency.py --release-tag "$GITHUB_REF_NAME"' in workflow
+    assert "uv --project langs/python sync --locked --extra tools" in workflow
+    assert "uv --project langs/python run python" in workflow
+    assert (
+        'tools/check-version-consistency.py\n          --release-tag "$GITHUB_REF_NAME"' in workflow
+    )
     assert metadata < checker < publish

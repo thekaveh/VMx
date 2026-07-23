@@ -1345,6 +1345,18 @@ def test_release_gates_ignore_list_contained_fenced_heading_examples(tmp_path: P
         assert cvc.check_release_unreleased(changelog, package) == []
 
 
+def test_empty_list_does_not_capture_a_later_indented_heading(tmp_path: Path) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        "## [Unreleased]\n\n## [3.22.1]\n\n-\n\n  ## [Unreleased]\n\n- Hidden pending note.\n",
+        encoding="utf-8",
+    )
+
+    assert cvc.check_release_unreleased(changelog) == [
+        f"  {changelog}: expected exactly one [Unreleased] section"
+    ]
+
+
 def test_release_gates_do_not_let_type7_html_interrupt_a_paragraph(tmp_path: Path) -> None:
     changelog = tmp_path / "CHANGELOG.md"
     changelog.write_text(
@@ -1366,7 +1378,42 @@ def test_release_gates_do_not_let_type7_html_interrupt_a_paragraph(tmp_path: Pat
         assert cvc.check_release_unreleased(changelog, package) == expected
 
 
-@pytest.mark.parametrize("preceding_block", ["### Fixed", "- Tagged note.", "> Quoted note."])
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        "Tagged notes.\n2. paragraph continuation",
+        "Tagged notes.\n*",
+        "<span =>",
+        "</span bogus>",
+        '<x "bad">',
+    ],
+)
+def test_release_gates_follow_commonmark_block_parsing_for_duplicate_sections(
+    tmp_path: Path, prefix: str
+) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        "## [Unreleased]\n\n"
+        "### VMx\n\n"
+        "### VMx.Notifications\n\n"
+        "### VMx.Extensions.DependencyInjection\n\n"
+        "## [3.22.1]\n\n"
+        f"{prefix}\n"
+        "   ## [Unreleased]\n\n- Hidden pending note.\n",
+        encoding="utf-8",
+    )
+
+    expected = [f"  {changelog}: expected exactly one [Unreleased] section"]
+    assert cvc.check_release_unreleased(changelog) == expected
+    assert cvc.check_csharp_unreleased_structure(changelog) == expected
+    for package in cvc.CSHARP_UNRELEASED_PACKAGES:
+        assert cvc.check_release_unreleased(changelog, package) == expected
+
+
+@pytest.mark.parametrize(
+    "preceding_block",
+    ["### Fixed", "- Tagged note.", "> Quoted note.", "[release]: https://example.test"],
+)
 def test_release_gates_treat_dash_lines_after_blocks_as_thematic_breaks(
     tmp_path: Path, preceding_block: str
 ) -> None:

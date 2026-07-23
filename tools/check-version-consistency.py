@@ -35,18 +35,17 @@ Exit codes:
        compatibility-matrix.md).
 
 Usage:
-    python3 tools/check-version-consistency.py [--repo-root PATH]
+    uv --project langs/python run python tools/check-version-consistency.py [--repo-root PATH]
 
 Examples:
     # Default: discover repo root automatically, report, and exit 1 on issues.
-    python3 tools/check-version-consistency.py
+    uv --project langs/python run python tools/check-version-consistency.py
 
     # Explicit root (useful in CI when cwd differs):
-    python3 tools/check-version-consistency.py --repo-root /workspace
+    uv --project langs/python run python tools/check-version-consistency.py --repo-root /workspace
 """
 
 import argparse
-import html
 import json
 import re
 import subprocess
@@ -54,6 +53,9 @@ import sys
 from collections.abc import Iterable
 from itertools import pairwise
 from pathlib import Path
+
+from markdown_it import MarkdownIt
+from markdown_it.token import Token
 
 # ─── enforcement policy ───────────────────────────────────────────────
 
@@ -89,29 +91,7 @@ _SEMVER_TRIPLE = rf"{_SEMVER_COMPONENT}\.{_SEMVER_COMPONENT}\.{_SEMVER_COMPONENT
 _VERSION_RE = re.compile(rf"\b({_SEMVER_TRIPLE})\b", re.ASCII)
 _STABLE_SEMVER_RE = re.compile(rf"^{_SEMVER_TRIPLE}$", re.ASCII)
 _CHANGELOG_HEADING_RE = re.compile(r"^## \[([^\]]+)\](?:\([^)]*\))?(?:\s+.*)?$")
-_CHANGELOG_ATX_H2_RE = re.compile(r"^ {0,3}##(?!#)(?:[ \t]+(.*))?$")
-_CHANGELOG_SETEXT_H2_RE = re.compile(r"^ {0,3}-+[ \t]*$")
-_MARKDOWN_ATX_HEADING_RE = re.compile(r"^ {0,3}#{1,6}(?:[ \t]+|$)")
-_MARKDOWN_THEMATIC_BREAK_RE = re.compile(
-    r"^ {0,3}(?:(?:\*[ \t]*){3,}|(?:_[ \t]*){3,}|(?:-[ \t]*){3,})$"
-)
-_MARKDOWN_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
-_MARKDOWN_LIST_ITEM_RE = re.compile(r"^( {0,3})([-+*]|\d{1,9}[.)])(?:( {1,4}|\t)(.*))?$")
-_MARKDOWN_HTML_RAW_TAG_RE = re.compile(
-    r"^ {0,3}<(script|pre|style|textarea)(?:[ \t>]|$)", re.IGNORECASE
-)
-_MARKDOWN_HTML_BLOCK_TAG_RE = re.compile(
-    r"^ {0,3}</?(?:address|article|aside|base|basefont|blockquote|body|caption|center|"
-    r"col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|"
-    r"form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|"
-    r"menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|"
-    r"tbody|td|tfoot|th|thead|title|tr|track|ul)(?:[ \t/>]|$)",
-    re.IGNORECASE,
-)
-_MARKDOWN_HTML_COMPLETE_TAG_RE = re.compile(
-    r"^ {0,3}</?[A-Za-z][A-Za-z0-9-]*(?:[ \t]+[^<>]*)?/?>[ \t]*$"
-)
-_MARKDOWN_BACKSLASH_ESCAPE_RE = re.compile(r"""\\([!"#$%&'()*+,\-./:;<=>?@\[\]\\^_`{|}~])""")
+_COMMONMARK = MarkdownIt("commonmark")
 
 # Matches the spec column of a matrix row like "2.6.x" or "1.1.x".
 _SPEC_ROW_RE = re.compile(
@@ -240,10 +220,36 @@ def check_typescript_example_locks(repo_root: Path, expected_version: str) -> li
     return issues
 
 
-def _normalize_markdown_inline(text: str) -> str:
-    """Return the visible plain text for release-heading comparisons."""
-    text = re.sub(r"[ \t]+#+[ \t]*$", "", text).strip()
-    return html.unescape(_MARKDOWN_BACKSLASH_ESCAPE_RE.sub(r"\1", text))
+def _inline_visible_text(token: Token) -> str:
+    """Return the rendered text of an inline CommonMark token."""
+    return "".join(
+        " "
+        if child.type in {"softbreak", "hardbreak"}
+        else child.content
+        if child.type in {"text", "code_inline", "image"}
+        else ""
+        for child in token.children or ()
+    ).strip()
+
+
+def _top_level_headings(lines: list[str], level: int) -> list[tuple[int, int, str]]:
+    """Return source spans and visible text for top-level CommonMark headings."""
+    source = "\n".join(lines)
+    if lines:
+        source += "\n"
+    tokens = _COMMONMARK.parse(source)
+    headings: list[tuple[int, int, str]] = []
+    for index, token in enumerate(tokens):
+        if (
+            token.type != "heading_open"
+            or token.tag != f"h{level}"
+            or token.level != 0
+            or token.map is None
+        ):
+            continue
+        inline = tokens[index + 1]
+        headings.append((token.map[0], token.map[1], _inline_visible_text(inline)))
+    return headings
 
 
 def _parse_changelog_sections(
@@ -254,118 +260,12 @@ def _parse_changelog_sections(
     starts: list[tuple[str, int]] = []
     seen: set[str] = set()
     issues: list[str] = []
-    fence: tuple[str, int] | None = None
-    html_end: tuple[str, bool] | None = None
-    html_until_blank = False
-    list_content_indent: int | None = None
-    paragraph_start: str | None = None
-    for index, line in enumerate(lines):
-        if html_end is not None:
-            terminator, case_insensitive = html_end
-            candidate = line.lower() if case_insensitive else line
-            if terminator in candidate:
-                html_end = None
-            continue
-        if html_until_blank:
-            if not line.strip():
-                html_until_blank = False
-            continue
-        if fence is not None:
-            marker, minimum = fence
-            if re.fullmatch(rf" {{0,3}}{re.escape(marker)}{{{minimum},}}[ \t]*", line):
-                fence = None
-            continue
-        line_indent = len(line) - len(line.lstrip(" "))
-        if list_content_indent is not None:
-            if not line.strip():
-                continue
-            if line_indent >= list_content_indent:
-                continue
-            list_content_indent = None
-        if not line.strip():
-            paragraph_start = None
-            continue
-        list_item = _MARKDOWN_LIST_ITEM_RE.fullmatch(line)
-        if list_item:
-            paragraph_start = None
-            whitespace = list_item.group(3) or " "
-            list_content_indent = (
-                len(list_item.group(1))
-                + len(list_item.group(2))
-                + (4 if whitespace == "\t" else len(whitespace))
-            )
-            continue
-        html_line = line.lstrip(" ")
-        if len(line) - len(html_line) <= 3:
-            html_terminator = next(
-                (
-                    terminator
-                    for opener, terminator in (
-                        ("<!--", "-->"),
-                        ("<?", "?>"),
-                        ("<![CDATA[", "]]>"),
-                    )
-                    if html_line.startswith(opener)
-                ),
-                None,
-            )
-            if html_terminator is not None:
-                paragraph_start = None
-                if html_terminator not in html_line:
-                    html_end = (html_terminator, False)
-                continue
-            raw_tag = _MARKDOWN_HTML_RAW_TAG_RE.match(line)
-            if raw_tag:
-                paragraph_start = None
-                terminator = f"</{raw_tag.group(1).lower()}>"
-                if terminator not in html_line.lower():
-                    html_end = (terminator, True)
-                continue
-            if re.match(r"^<![A-Z]", html_line):
-                paragraph_start = None
-                if ">" not in html_line:
-                    html_end = (">", False)
-                continue
-            block_tag = _MARKDOWN_HTML_BLOCK_TAG_RE.match(line)
-            complete_tag = _MARKDOWN_HTML_COMPLETE_TAG_RE.fullmatch(line)
-            if block_tag or (complete_tag and paragraph_start is None):
-                paragraph_start = None
-                html_until_blank = True
-                continue
-        if re.match(r"^ {0,3}>", line):
-            paragraph_start = None
-            continue
-        fence_match = _MARKDOWN_FENCE_RE.fullmatch(line)
-        if fence_match and not (
-            fence_match.group(1).startswith("`") and "`" in fence_match.group(2)
-        ):
-            paragraph_start = None
-            fence = (fence_match.group(1)[0], len(fence_match.group(1)))
-            continue
+    for index, end, _ in _top_level_headings(lines, 2):
+        line = lines[index]
         heading_line = line.lstrip(" ")
-        indent = len(line) - len(heading_line)
-        atx_h2 = _CHANGELOG_ATX_H2_RE.fullmatch(line)
-        if atx_h2 and not heading_line.startswith("## ["):
-            paragraph_start = None
+        if end != index + 1 or not heading_line.startswith("## ["):
             issues.append(f"  {changelog}: noncanonical bracketed CHANGELOG H2 {line!r}")
             continue
-        if _CHANGELOG_SETEXT_H2_RE.fullmatch(line):
-            if paragraph_start is not None:
-                issues.append(
-                    f"  {changelog}: noncanonical bracketed CHANGELOG H2 {paragraph_start!r}"
-                )
-            paragraph_start = None
-            continue
-        if _MARKDOWN_THEMATIC_BREAK_RE.fullmatch(line):
-            paragraph_start = None
-            continue
-        if _MARKDOWN_ATX_HEADING_RE.match(line):
-            paragraph_start = None
-        if indent > 3 or not heading_line.startswith("## ["):
-            if indent < 4 and paragraph_start is None and not _MARKDOWN_ATX_HEADING_RE.match(line):
-                paragraph_start = line
-            continue
-        paragraph_start = None
         match = _CHANGELOG_HEADING_RE.fullmatch(heading_line)
         if match is None:
             issues.append(f"  {changelog}: malformed bracketed CHANGELOG section heading {line!r}")
@@ -401,17 +301,6 @@ def _parse_changelog_sections(
         for position, (key, start) in enumerate(starts)
     }
     return sections, []
-
-
-def _atx_heading_text(line: str, level: int) -> str | None:
-    """Return a CommonMark ATX heading's text for one exact level."""
-    heading_line = line.lstrip(" ")
-    if len(line) - len(heading_line) > 3:
-        return None
-    prefix = "#" * level
-    if not re.match(rf"^{re.escape(prefix)}[ \t]+(?!#)", heading_line):
-        return None
-    return _normalize_markdown_inline(heading_line[level:].lstrip(" \t"))
 
 
 def _check_changelog_version_order(
@@ -527,24 +416,18 @@ def check_release_unreleased(changelog: Path, package: str = "") -> list[str]:
         return [f"  {changelog}: missing [Unreleased] section"]
     unreleased = sections["Unreleased"]
     if package:
-        package_starts = [
-            index for index, line in enumerate(unreleased) if _atx_heading_text(line, 3) == package
-        ]
+        headings = _top_level_headings(unreleased, 3)
+        package_starts = [(start, end) for start, end, text in headings if text == package]
         if not package_starts:
             return [f"  {changelog}: [Unreleased] missing {package} package section"]
         if len(package_starts) != 1:
             return [f"  {changelog}: [Unreleased] expected exactly one {package} package section"]
-        package_start = package_starts[0]
-        package_body = unreleased[package_start + 1 :]
+        package_start, package_body_start = package_starts[0]
         package_end = next(
-            (
-                index
-                for index, line in enumerate(package_body)
-                if _atx_heading_text(line, 3) is not None or _atx_heading_text(line, 2) is not None
-            ),
-            len(package_body),
+            (start for start, _, _ in headings if start > package_start),
+            len(unreleased),
         )
-        unreleased = package_body[:package_end]
+        unreleased = unreleased[package_body_start:package_end]
     substantive = any(line.strip() and not line.lstrip().startswith("#") for line in unreleased)
     if substantive:
         scope = f" {package}" if package else ""
@@ -560,18 +443,14 @@ def check_csharp_unreleased_structure(changelog: Path) -> list[str]:
     if "Unreleased" not in sections:
         return [f"  {changelog}: missing [Unreleased] section"]
     unreleased = sections["Unreleased"]
-    headings = [
-        heading for line in unreleased if (heading := _atx_heading_text(line, 3)) is not None
-    ]
-    if headings != list(CSHARP_UNRELEASED_PACKAGES):
+    headings = _top_level_headings(unreleased, 3)
+    if [text for _, _, text in headings] != list(CSHARP_UNRELEASED_PACKAGES):
         expected = ", ".join(CSHARP_UNRELEASED_PACKAGES)
         return [
             f"  {changelog}: [Unreleased] C# package sections must appear exactly "
             f"once in {expected} order"
         ]
-    first_heading = next(
-        index for index, line in enumerate(unreleased) if _atx_heading_text(line, 3) == "VMx"
-    )
+    first_heading = headings[0][0]
     if any(line.strip() for line in unreleased[:first_heading]):
         return [f"  {changelog}: [Unreleased] contains notes outside a C# package section"]
     return []
