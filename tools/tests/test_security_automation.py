@@ -90,6 +90,18 @@ def test_weekly_audit_covers_every_committed_lock_family() -> None:
     assert workflow.startswith("name: security-audit\n\npermissions:\n  contents: read\n")
 
 
+def test_required_security_gate_scans_committed_secrets() -> None:
+    workflow = (REPO_ROOT / ".github/workflows/security-audit.yml").read_text(encoding="utf-8")
+    policy = (REPO_ROOT / "SECURITY.md").read_text(encoding="utf-8")
+
+    assert "  secrets:\n    timeout-minutes: 10" in workflow
+    assert "fetch-depth: 0" in workflow
+    assert "gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7" in workflow
+    assert "needs: [secrets, codeql, npm, cargo, python, docs, nuget]" in workflow
+    assert "currently has no secret-scanner\nallowlist entries" in policy
+    assert "`.gitleaksignore`" in policy
+
+
 def test_codeql_covers_every_implementation_language() -> None:
     workflow = (REPO_ROOT / ".github/workflows/security-audit.yml").read_text(encoding="utf-8")
 

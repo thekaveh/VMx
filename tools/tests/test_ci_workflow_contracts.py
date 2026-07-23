@@ -20,6 +20,25 @@ def test_every_workflow_job_has_a_hard_timeout() -> None:
             )
 
 
+def test_release_verification_deadlines_fit_inside_job_timeouts() -> None:
+    workflow = (WORKFLOWS / "release.yml").read_text(encoding="utf-8")
+    cases = (
+        ("csharp-verify-published", 25, 1200),
+        ("typescript-verify-published", 20, 900),
+        ("rust-verify-published", 45, 2100),
+    )
+    for name, job_minutes, helper_seconds in cases:
+        match = re.search(
+            rf"(?ms)^  {re.escape(name)}:\n(?P<body>.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z)",
+            workflow,
+        )
+        assert match is not None
+        job = match.group("body")
+        assert f"    timeout-minutes: {job_minutes}\n" in job
+        assert f"--timeout {helper_seconds}" in job
+        assert helper_seconds + 300 <= job_minutes * 60
+
+
 def test_csharp_and_typescript_library_coverage_is_enforced() -> None:
     csharp = (WORKFLOWS / "csharp.yml").read_text(encoding="utf-8")
     typescript = (REPO_ROOT / "langs/typescript/vitest.config.ts").read_text(encoding="utf-8")
@@ -56,7 +75,7 @@ def test_protected_branch_checks_are_always_present_and_aggregate_every_job() ->
         "examples-contract-checks.yml": ("required: examples", None),
         "security-audit.yml": (
             "required: security",
-            "needs: [codeql, npm, cargo, python, docs, nuget]",
+            "needs: [secrets, codeql, npm, cargo, python, docs, nuget]",
         ),
         "spec-discipline.yml": ("required: spec discipline", None),
     }

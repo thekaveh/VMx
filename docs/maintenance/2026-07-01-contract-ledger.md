@@ -63,7 +63,7 @@ follow-up work rather than claims made by the current automated gates:
 ### 3.2 Immutable workflow action inventory
 
 All remote actions are pinned to full commits. The upstream tag shown here was
-resolved against the action repository on 2026-07-18; `dtolnay/rust-toolchain`
+resolved against the action repository on 2026-07-22; `dtolnay/rust-toolchain`
 uses its maintained `stable` branch because that action does not publish
 releases. `tools/check-workflow-pins.py` fails CI if a mutable reference appears
 or any workflow action is absent from this inventory.
@@ -86,6 +86,7 @@ or any workflow action is absent from this inventory.
 | `googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7` | `v5.0.0`              |
 | `github/codeql-action/analyze@7188fc363630916deb702c7fdcf4e481b751f97a`     | `v4.37.1`             |
 | `github/codeql-action/init@7188fc363630916deb702c7fdcf4e481b751f97a`        | `v4.37.1`             |
+| `gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7`         | `v2.3.9`              |
 | `pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b`      | `v1.14.0`             |
 | `rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18`  | `v1.0.5`              |
 

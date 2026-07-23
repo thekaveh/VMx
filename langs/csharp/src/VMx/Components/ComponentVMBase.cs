@@ -128,14 +128,21 @@ internal static class ComponentOwnership
     private sealed class ReservationBatch : IDisposable
     {
         private readonly OwnershipState[] _states;
+        private readonly bool _exclusive;
         private bool _disposed;
 
-        internal ReservationBatch(OwnershipState[] states) => _states = states;
+        internal ReservationBatch(OwnershipState[] states, bool exclusive = false)
+        {
+            _states = states;
+            _exclusive = exclusive;
+        }
 
         public void Dispose()
         {
             if (_disposed) return;
             _disposed = true;
+            if (_exclusive)
+                foreach (var state in _states) state.InProgress = false;
             for (var index = _states.Length - 1; index >= 0; index--)
                 Monitor.Exit(_states[index].Gate);
         }
@@ -187,6 +194,21 @@ internal static class ComponentOwnership
 
     internal static IDisposable BeginReservationBatch(IEnumerable<IComponentVM> children)
         => new ReservationBatch(AcquireStates(children));
+
+    internal static IDisposable BeginExclusiveReservationBatch(
+        IEnumerable<IComponentVM> children)
+    {
+        var states = AcquireStates(children);
+        if (states.Any(state => state.InProgress))
+        {
+            for (var index = states.Length - 1; index >= 0; index--)
+                Monitor.Exit(states[index].Gate);
+            throw new InvalidOperationException(
+                "An ownership transaction is already in progress for a reserved component.");
+        }
+        foreach (var state in states) state.InProgress = true;
+        return new ReservationBatch(states, exclusive: true);
+    }
 
     internal static void CommitThenPublish(
         ParentTransferToken? transfer,

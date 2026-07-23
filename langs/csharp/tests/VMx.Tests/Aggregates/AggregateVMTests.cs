@@ -2,6 +2,7 @@
 using FluentAssertions;
 using VMx.Aggregates;
 using VMx.Components;
+using VMx.Composites;
 using VMx.Lifecycle;
 using VMx.Messages;
 using VMx.Tests.Helpers;
@@ -31,6 +32,18 @@ public class AggregateVMTests
             if (!release.Wait(TimeSpan.FromSeconds(2)))
                 throw new TimeoutException("test did not release blocked slot disposal");
         }
+    }
+
+    private sealed class ReentrantDisposeVM(
+        string name,
+        TestHub hub,
+        TestDispatcher dispatcher,
+        Action onDispose)
+        : ComponentVMBase(name, "", hub, dispatcher, null, null)
+    {
+        public override ViewModelType Type => ViewModelType.Component;
+
+        protected override void OnDispose() => onDispose();
     }
 
     // ── Factory helpers ──────────────────────────────────────────────────────
@@ -503,6 +516,39 @@ public class AggregateVMTests
         errors.Count(error => error is InvalidOperationException).Should().Be(1);
         new[] { first.Component1, second.Component1 }
             .Count(slot => ReferenceEquals(slot, candidate)).Should().Be(1);
+    }
+
+    [Fact]
+    public void Reconstruct_Rejects_Reentrant_Attachment_Of_Reserved_Candidate()
+    {
+        var (hub, dispatcher) = MakeServices();
+        var candidate = MakeLeaf(hub, dispatcher, "candidate");
+        var destination = CompositeVM<IComponentVM>.Builder()
+            .Name("destination").Services(hub, dispatcher)
+            .Children(() => Array.Empty<IComponentVM>())
+            .Build();
+        destination.Construct();
+        Exception? admissionError = null;
+        var calls = 0;
+        var aggregate = AggregateVM1<IComponentVM>.Builder()
+            .Name("aggregate").Services(hub, dispatcher)
+            .Component1(() => ++calls == 1
+                ? new ReentrantDisposeVM(
+                    "old", hub, dispatcher,
+                    () =>
+                    {
+                        try { destination.Add(candidate); }
+                        catch (Exception error) { admissionError = error; }
+                    })
+                : candidate)
+            .Build();
+        aggregate.Construct();
+
+        aggregate.Reconstruct();
+
+        admissionError.Should().BeOfType<InvalidOperationException>();
+        destination.Count.Should().Be(0);
+        aggregate.Component1.Should().BeSameAs(candidate);
     }
 }
 #pragma warning restore CA1715

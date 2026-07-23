@@ -99,6 +99,26 @@ private final class BlockingAggregateSlot: ComponentVMBase {
     }
 }
 
+private final class ReentrantAggregateSlot: ComponentVMBase {
+    private let callback: () -> Void
+
+    init(_ name: String, callback: @escaping () -> Void) {
+        self.callback = callback
+        super.init(
+            name: name,
+            hub: NullMessageHub.INSTANCE,
+            dispatcher: NullDispatcher.INSTANCE
+        )
+    }
+
+    override var type: ViewModelType { .component }
+    override func _onDispose() { callback() }
+}
+
+private final class AdmissionResultStore {
+    var rejected = false
+}
+
 private final class AggregateRaceFactory: @unchecked Sendable {
     private let lock = NSLock()
     private var calls = 0
@@ -168,6 +188,41 @@ final class ContainerOwnershipTransferTests: XCTestCase {
 
     private func leaf(_ name: String) throws -> ComponentVM {
         try ComponentVM.builder().name(name).withNullServices().build()
+    }
+
+    func testAggregateReconstructRejectsReentrantAttachmentOfReservedCandidate() throws {
+        let candidate = try leaf("candidate")
+        let destination = CompositeVM<ComponentVMBase>(
+            name: "destination",
+            hub: NullMessageHub.INSTANCE,
+            dispatcher: NullDispatcher.INSTANCE
+        )
+        try destination.construct()
+        let admission = AdmissionResultStore()
+        var calls = 0
+        let aggregate = AggregateVM1<ComponentVMBase>(
+            name: "aggregate",
+            hub: NullMessageHub.INSTANCE,
+            dispatcher: NullDispatcher.INSTANCE,
+            factory1: {
+                calls += 1
+                if calls == 1 {
+                    return ReentrantAggregateSlot("old") {
+                        if case .failure = destination.addResult(candidate) {
+                            admission.rejected = true
+                        }
+                    }
+                }
+                return candidate
+            }
+        )
+        try aggregate.construct()
+
+        try aggregate.reconstruct()
+
+        XCTAssertTrue(admission.rejected)
+        XCTAssertEqual(destination.count, 0)
+        XCTAssertTrue(aggregate.component1 === candidate)
     }
 
     func testConcurrentAggregateReconstructionReservesSharedCandidate() throws {

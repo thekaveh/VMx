@@ -13,6 +13,7 @@ AGG-006 — Arity-6 all six components reach Constructed; destruction waits for 
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
@@ -71,6 +72,22 @@ class _BlockingDisposeComponent(ComponentVM):
         self._entered.set()
         if not self._release.wait(timeout=2):
             raise TimeoutError("test did not release blocked slot disposal")
+
+
+class _ReentrantDisposeComponent(ComponentVM):
+    def __init__(
+        self,
+        *,
+        name: str,
+        hub: MessageHub[object],
+        dispatcher: RxDispatcher,
+        on_dispose: Callable[[], None],
+    ) -> None:
+        super().__init__(name=name, hint="", hub=hub, dispatcher=dispatcher)
+        self._dispose_callback = on_dispose
+
+    def _on_dispose(self) -> None:
+        self._dispose_callback()
 
 
 # ---------------------------------------------------------------------------
@@ -423,6 +440,56 @@ def test_aggregate_rejects_owned_factory_result_without_mutation() -> None:
 
     assert composite.snapshot() == (child,)
     assert aggregate.component_1 is None
+
+
+def test_aggregate_reconstruct_rejects_reentrant_attachment_of_reserved_candidate() -> None:
+    hub = _hub()
+    dispatcher = _dispatcher()
+    candidate = ComponentVM(name="candidate", hint="", hub=hub, dispatcher=dispatcher)
+    destination = (
+        CompositeVMBuilder()
+        .name("destination")
+        .services(hub, dispatcher)
+        .children(lambda: ())
+        .build()
+    )
+    destination.construct()
+    admission_errors: list[BaseException] = []
+    calls = 0
+
+    def reentrant_admission() -> None:
+        try:
+            destination.add(candidate)
+        except BaseException as error:
+            admission_errors.append(error)
+
+    def factory() -> ComponentVM:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return _ReentrantDisposeComponent(
+                name="old",
+                hub=hub,
+                dispatcher=dispatcher,
+                on_dispose=reentrant_admission,
+            )
+        return candidate
+
+    aggregate = (
+        AggregateVM1Builder()
+        .name("aggregate")
+        .services(hub, dispatcher)
+        .component_1(factory)
+        .build()
+    )
+    aggregate.construct()
+
+    aggregate.reconstruct()
+
+    assert len(admission_errors) == 1
+    assert isinstance(admission_errors[0], RuntimeError)
+    assert destination.snapshot() == ()
+    assert aggregate.component_1 is candidate
 
 
 def test_aggregate_rejects_forwarding_aliases_of_one_canonical_component() -> None:

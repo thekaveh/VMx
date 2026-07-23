@@ -10,8 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - Lazy aggregate reconstruction now reserves every proposed child from
   validation through disposal, assignment, and parent commit, preventing two
-  concurrent aggregates from retaining the same slot. A factory that returns
-  any currently owned slot is rejected before mutation.
+  concurrent aggregates or a re-entrant disposal hook from retaining the same
+  slot. A factory that returns any currently owned slot is rejected before
+  mutation.
 - Pre-owned and multiply decorated components now retain one canonical,
   transferable container identity (FWD-004, ADR-0124).
 - Async-resource loading now revalidates its admitted operation after loading

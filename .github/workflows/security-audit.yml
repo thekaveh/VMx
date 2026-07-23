@@ -13,6 +13,21 @@ on:
   workflow_dispatch:
 
 jobs:
+  secrets:
+    timeout-minutes: 10
+    name: committed secrets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+      - name: Scan commits for secrets
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_ENABLE_COMMENTS: "false"
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: "false"
+
   codeql:
     timeout-minutes: 45
     name: "CodeQL (${{ matrix.language }})"
@@ -145,10 +160,10 @@ jobs:
     timeout-minutes: 5
     name: "required: security"
     if: always()
-    needs: [codeql, npm, cargo, python, docs, nuget]
+    needs: [secrets, codeql, npm, cargo, python, docs, nuget]
     runs-on: ubuntu-latest
     steps:
-      - name: Require code scanning and every dependency audit
+      - name: Require secret/code scanning and every dependency audit
         env:
           RESULTS: ${{ toJSON(needs) }}
         run: jq -e 'to_entries | all(.value.result == "success")' <<<"$RESULTS"

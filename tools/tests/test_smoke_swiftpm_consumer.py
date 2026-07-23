@@ -53,3 +53,15 @@ def test_validate_resources_reports_every_missing_fixture(tmp_path: Path) -> Non
     assert "command-truthtable.json" in message
     assert "derived-properties.json" in message
     assert "message-ordering.json" in message
+
+
+def test_main_handles_command_timeout_without_traceback(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def fail(*_args: object, **_kwargs: object) -> None:
+        raise smoke.subprocess.TimeoutExpired(["swift"], 1)
+
+    monkeypatch.setattr(smoke, "run_smoke", fail)
+
+    assert smoke.main(["--url", "https://github.com/thekaveh/VMx.git", "--version", "3.20.0"]) == 1
+    assert "ERROR: SwiftPM consumer smoke failed:" in capsys.readouterr().err

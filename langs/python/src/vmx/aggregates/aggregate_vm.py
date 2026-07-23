@@ -12,7 +12,7 @@ from typing import Generic, TypeVar
 from vmx.components.base import (
     _ComponentVMBase,
     _dispose_children_then_self,
-    _ownership_reservation_batch,
+    _exclusive_ownership_reservation_batch,
     _ParentCompositeVM,
     _ParentTransfer,
 )
@@ -124,7 +124,7 @@ class _AggregateVMBase(_ComponentVMBase):
     ) -> None:
         old_slots = tuple(getattr(self, name) for name in slot_names)
         reservable = tuple(child for child in new_slots if isinstance(child, _ComponentVMBase))
-        with _ownership_reservation_batch(reservable):
+        with _exclusive_ownership_reservation_batch(reservable):
             self._validate_new_slots(new_slots)
             for child in old_slots:
                 if child is not None:

@@ -213,6 +213,8 @@ def test_release_polls_registry_docs_and_public_consumers_before_notes() -> None
 
     assert 'toolchain: ["1.88.0", "stable"]' in jobs
     assert "--poll-timeout 1800" in jobs
+    assert "--timeout 2100" in jobs
+    assert "timeout-minutes: 45" in jobs
     assert "needs: rust-publish" in jobs
     assert "needs: rust-verify-published" in jobs
     assert "langs/rust/CHANGELOG.md" in jobs

@@ -169,16 +169,25 @@ def wait_for_packages(
         sleeper(interval_seconds)
 
 
+def _remaining(deadline: float, maximum: float) -> float:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError("NuGet consumer verification exceeded its end-to-end timeout")
+    return min(maximum, remaining)
+
+
 def run_smoke(
     packages: dict[str, str],
     framework: str,
     *,
     package_dir: Path | None = None,
     poll_timeout: float = 900,
+    timeout_seconds: float = 1200,
 ) -> None:
     """Restore, compile, and where possible run a disposable consumer."""
+    deadline = time.monotonic() + timeout_seconds
     if package_dir is None:
-        wait_for_packages(packages, poll_timeout)
+        wait_for_packages(packages, _remaining(deadline, poll_timeout))
     workdir = Path(tempfile.mkdtemp(prefix="vmx-nuget-smoke-"))
     try:
         (workdir / "Smoke.csproj").write_text(render_project(packages, framework), encoding="utf-8")
@@ -186,19 +195,19 @@ def run_smoke(
         restore = ["dotnet", "restore", "Smoke.csproj", "--source", NUGET_SOURCE]
         if package_dir is not None:
             restore.extend(["--source", str(package_dir.resolve())])
-        subprocess.run(restore, cwd=workdir, check=True, timeout=300)
+        subprocess.run(restore, cwd=workdir, check=True, timeout=_remaining(deadline, 300))
         subprocess.run(
             ["dotnet", "build", "Smoke.csproj", "-c", "Release", "--no-restore", "--nologo"],
             cwd=workdir,
             check=True,
-            timeout=300,
+            timeout=_remaining(deadline, 300),
         )
         if framework == "net8.0":
             subprocess.run(
                 ["dotnet", "run", "--project", "Smoke.csproj", "-c", "Release", "--no-build"],
                 cwd=workdir,
                 check=True,
-                timeout=120,
+                timeout=_remaining(deadline, 120),
             )
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
@@ -211,6 +220,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--framework", choices=("net8.0", "netstandard2.0"), required=True)
     parser.add_argument("--package-dir", type=Path)
     parser.add_argument("--poll-timeout", type=float, default=900)
+    parser.add_argument("--timeout", type=float, default=1200, dest="timeout_seconds")
     args = parser.parse_args(argv)
     try:
         if bool(args.package) == bool(args.project_root):
@@ -223,8 +233,15 @@ def main(argv: list[str] | None = None) -> int:
             args.framework,
             package_dir=args.package_dir,
             poll_timeout=args.poll_timeout,
+            timeout_seconds=args.timeout_seconds,
         )
-    except (OSError, ValueError, TimeoutError, subprocess.CalledProcessError) as error:
+    except (
+        OSError,
+        ValueError,
+        TimeoutError,
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+    ) as error:
         print(f"ERROR: NuGet consumer smoke failed: {error}", file=sys.stderr)
         return 1
     print(f"OK: NuGet {args.framework} consumer verified {len(packages)} exact package(s)")

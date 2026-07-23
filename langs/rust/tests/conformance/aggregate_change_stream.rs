@@ -34,6 +34,16 @@ impl TestNode {
         }
     }
 
+    fn with_runtime_id(name: &str) -> Self {
+        let inner = ComponentVm::new(name);
+        Self {
+            logical_id: inner.id(),
+            inner,
+            dispose_count: Arc::new(Mutex::new(0)),
+            lifetime: Arc::new(()),
+        }
+    }
+
     fn emit(&self) {
         self.inner.notify_property_changed("value");
     }
@@ -595,10 +605,9 @@ fn aggregate_disposal_ownership_and_normal_adapters_are_bounded() {
     let composite =
         CompositeVm::with_services("composite", shared_hub.clone(), NullDispatcher::new());
     let group = GroupVm::with_services("group", shared_hub.clone(), NullDispatcher::new());
-    // Keep the explicit test identity distinct from the generated container identities.
-    // Test execution order is nondeterministic, so a small fixed ID can otherwise collide
-    // with either container and make the cycle guard reject a valid reparenting operation.
-    let child = TestNode::new(composite.id().max(group.id()) + 1, "child");
+    // Use the production ID allocator so parallel tests cannot hold an ownership
+    // claim for the same numeric identity and reject this valid reparenting.
+    let child = TestNode::with_runtime_id("child");
     let composite_pulses = Arc::new(Mutex::new(0));
     let group_pulses = Arc::new(Mutex::new(0));
     let composite_capture = Arc::clone(&composite_pulses);

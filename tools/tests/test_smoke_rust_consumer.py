@@ -40,7 +40,8 @@ def test_local_package_generation_uses_lockfile(
 ) -> None:
     captured: list[str] = []
 
-    def fake_run(args: list[str], *, cwd: Path) -> None:
+    def fake_run(args: list[str], *, cwd: Path, timeout: float = 300) -> None:
+        assert timeout == 300
         captured.extend(args)
         tarball = cwd / "target/package/vmx-rs-0.20.0.crate"
         tarball.parent.mkdir(parents=True)
@@ -87,8 +88,24 @@ def test_extracted_crate_runs_its_shipped_tests(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     calls: list[tuple[list[str], Path]] = []
-    monkeypatch.setattr(smoke, "_run", lambda args, *, cwd: calls.append((args, cwd)))
+    monkeypatch.setattr(
+        smoke,
+        "_run",
+        lambda args, *, cwd, timeout=300: calls.append((args, cwd)),
+    )
 
     smoke.test_extracted_crate(tmp_path, "cargo-msrv")
 
     assert calls == [(["cargo-msrv", "test", "--locked", "--all-features"], tmp_path)]
+
+
+def test_main_handles_command_timeout_without_traceback(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def fail(*_args: object, **_kwargs: object) -> None:
+        raise smoke.subprocess.TimeoutExpired(["cargo"], 1)
+
+    monkeypatch.setattr(smoke, "run_smoke", fail)
+
+    assert smoke.main(["--version", "0.20.0"]) == 1
+    assert "ERROR: Rust consumer smoke failed:" in capsys.readouterr().err

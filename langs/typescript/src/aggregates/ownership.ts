@@ -62,3 +62,25 @@ export function commitAggregateSlots(
   }
   for (const child of next) child._parent = parent;
 }
+
+/** @internal Reserve replacement identities across validation, cleanup, and commit. */
+export function replaceAggregateSlots(
+  parent: AggregateParent,
+  previous: readonly (ComponentVMBase | null)[],
+  next: readonly ComponentVMBase[],
+  assign: () => void,
+): void {
+  const identities = [...new Set(next.map((child) => child._ownershipIdentity))];
+  if (identities.some((identity) => identity._ownershipInProgress)) {
+    throw new Error("Aggregate ownership transaction is already in progress");
+  }
+  for (const identity of identities) identity._ownershipInProgress = true;
+  try {
+    validateAggregateSlots(parent, next);
+    for (const child of previous) child?.dispose();
+    assign();
+    commitAggregateSlots(parent, previous, next);
+  } finally {
+    for (const identity of identities) identity._ownershipInProgress = false;
+  }
+}

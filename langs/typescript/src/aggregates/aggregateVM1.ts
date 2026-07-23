@@ -8,7 +8,7 @@ import { ViewModelType } from "../components/types.js";
 import type { IMessageHub } from "../services/messageHub.js";
 import type { IDispatcher } from "../services/dispatcher.js";
 import { BuilderValidationError } from "../builders/exceptions.js";
-import { AggregateParent, commitAggregateSlots, validateAggregateSlots } from "./ownership.js";
+import { AggregateParent, replaceAggregateSlots } from "./ownership.js";
 import { disposeBestEffort } from "../components/disposal.js";
 
 const SENTINEL = Symbol("not-set");
@@ -51,16 +51,15 @@ export class AggregateVM1<VM1 extends ComponentVMBase> extends ComponentVMBase {
 
   protected override _onConstruct(): void {
     const next1 = this.#factory1();
-    validateAggregateSlots(this.#aggregateParent, [next1]);
     const previous = [this.#component1];
     // On Reconstruct, the previous slot instance is in Destructed state but
     // still holds hub subscriptions and command Subjects. Dispose it before
     // overwriting so subscribers don't leak across the Reconstruct boundary.
-    this.#component1?.dispose();
-    this.#component1 = next1;
-    commitAggregateSlots(this.#aggregateParent, previous, [next1]);
+    replaceAggregateSlots(this.#aggregateParent, previous, [next1], () => {
+      this.#component1 = next1;
+    });
     this._notifyPropertyChanged("component1");
-    this.#component1.construct();
+    next1.construct();
   }
 
   protected override _onDestruct(): void {

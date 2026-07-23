@@ -10,8 +10,9 @@ All notable changes to the Python flavor are documented here. The format is base
 
 - Lazy aggregate reconstruction now reserves every proposed child from
   validation through disposal, assignment, and parent commit, preventing two
-  concurrent aggregates from retaining the same slot. A factory that returns
-  any currently owned slot is rejected before mutation.
+  concurrent aggregates or a re-entrant disposal hook from retaining the same
+  slot. A factory that returns any currently owned slot is rejected before
+  mutation.
 - Async-resource disposal now attempts every terminal command step and releases
   its retained value before re-raising the first observer failure (ARES-011).
 - Pre-owned and multiply decorated components now retain one canonical,

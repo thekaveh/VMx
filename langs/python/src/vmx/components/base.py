@@ -82,6 +82,27 @@ def _ownership_reservation_batch(children: Iterable[_ComponentVMBase]) -> Iterat
             identity._ownership_lock.release()
 
 
+@contextmanager
+def _exclusive_ownership_reservation_batch(
+    children: Iterable[_ComponentVMBase],
+) -> Iterator[None]:
+    """Reserve identities and reject same-thread nested ownership mutations."""
+    identities = _acquire_ownership_identities(child._ownership_identity for child in children)
+    if any(identity._ownership_in_progress for identity in identities):
+        for identity in reversed(identities):
+            identity._ownership_lock.release()
+        raise RuntimeError("ownership transaction is already in progress")
+    for identity in identities:
+        identity._ownership_in_progress = True
+    try:
+        yield
+    finally:
+        for identity in identities:
+            identity._ownership_in_progress = False
+        for identity in reversed(identities):
+            identity._ownership_lock.release()
+
+
 class _Disposable(Protocol):
     def dispose(self) -> None: ...
 

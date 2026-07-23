@@ -8,7 +8,7 @@ import { ViewModelType } from "../components/types.js";
 import type { IMessageHub } from "../services/messageHub.js";
 import type { IDispatcher } from "../services/dispatcher.js";
 import { BuilderValidationError } from "../builders/exceptions.js";
-import { AggregateParent, commitAggregateSlots, validateAggregateSlots } from "./ownership.js";
+import { AggregateParent, replaceAggregateSlots } from "./ownership.js";
 import { disposeBestEffort } from "../components/disposal.js";
 
 const SENTINEL = Symbol("not-set");
@@ -64,32 +64,24 @@ export class AggregateVM4<
     const next2 = this.#factory2();
     const next3 = this.#factory3();
     const next4 = this.#factory4();
-    validateAggregateSlots(this.#aggregateParent, [next1, next2, next3, next4]);
     const previous = [this.#component1, this.#component2, this.#component3, this.#component4];
     // On Reconstruct, dispose previous slot instances before overwriting
     // so their hub subscriptions and command Subjects don't leak.
-    this.#component1?.dispose();
-    this.#component2?.dispose();
-    this.#component3?.dispose();
-    this.#component4?.dispose();
-
-    this.#component1 = next1;
+    replaceAggregateSlots(this.#aggregateParent, previous, [next1, next2, next3, next4], () => {
+      this.#component1 = next1;
+      this.#component2 = next2;
+      this.#component3 = next3;
+      this.#component4 = next4;
+    });
     this._notifyPropertyChanged("component1");
-
-    this.#component2 = next2;
     this._notifyPropertyChanged("component2");
-
-    this.#component3 = next3;
     this._notifyPropertyChanged("component3");
-
-    this.#component4 = next4;
-    commitAggregateSlots(this.#aggregateParent, previous, [next1, next2, next3, next4]);
     this._notifyPropertyChanged("component4");
 
-    this.#component1.construct();
-    this.#component2.construct();
-    this.#component3.construct();
-    this.#component4.construct();
+    next1.construct();
+    next2.construct();
+    next3.construct();
+    next4.construct();
   }
 
   protected override _onDestruct(): void {

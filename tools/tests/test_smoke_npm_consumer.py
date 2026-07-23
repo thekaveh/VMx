@@ -99,6 +99,34 @@ def test_registry_lookup_is_bounded_by_remaining_poll_time(monkeypatch: pytest.M
     assert observed == [2.5]
 
 
+def test_wait_for_provenance_polls_until_attestation_is_visible() -> None:
+    responses = iter([False, True])
+    sleeps: list[float] = []
+
+    smoke.wait_for_provenance(
+        "@thekaveh/vmx",
+        "3.21.0",
+        1,
+        interval_seconds=0.01,
+        lookup=lambda _package, _version, _timeout: next(responses),
+        sleeper=sleeps.append,
+    )
+
+    assert sleeps == [0.01]
+
+
+def test_main_handles_command_timeout_without_traceback(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def fail(*_args: object, **_kwargs: object) -> None:
+        raise smoke.subprocess.TimeoutExpired(["npm"], 1)
+
+    monkeypatch.setattr(smoke, "run_smoke", fail)
+
+    assert smoke.main(["--version", "3.21.0"]) == 1
+    assert "ERROR: npm consumer smoke failed:" in capsys.readouterr().err
+
+
 @pytest.mark.parametrize("version", ["main", "3.21", "v3.21.0", "3.21.0-beta.1"])
 def test_renderers_reject_non_release_semver(version: str) -> None:
     with pytest.raises(ValueError, match=r"X\.Y\.Z"):

@@ -85,3 +85,15 @@ def test_discover_packages_reads_current_project_versions(tmp_path: Path) -> Non
     )
 
     assert smoke.discover_packages(tmp_path) == {"VMx": "3.20.0"}
+
+
+def test_main_handles_command_timeout_without_traceback(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def fail(*_args: object, **_kwargs: object) -> None:
+        raise smoke.subprocess.TimeoutExpired(["dotnet"], 1)
+
+    monkeypatch.setattr(smoke, "run_smoke", fail)
+
+    assert smoke.main(["--package", "VMx=3.20.0", "--framework", "net8.0"]) == 1
+    assert "ERROR: NuGet consumer smoke failed:" in capsys.readouterr().err

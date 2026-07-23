@@ -44,7 +44,7 @@ internal static class AggregateOwnership
         IComponentVM[] next,
         Action assign)
     {
-        using var reservation = ComponentOwnership.BeginReservationBatch(next);
+        using var reservation = ComponentOwnership.BeginExclusiveReservationBatch(next);
         Validate(parent, next);
         foreach (var child in previous)
             child?.Dispose();

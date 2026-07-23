@@ -4,6 +4,7 @@ import {
   MessageHub,
   RxDispatcher,
   ComponentVM,
+  ComponentVMBase,
   ComponentVMOf,
   CompositeVM,
   AggregateVM1,
@@ -15,12 +16,25 @@ import {
   ForwardingComponentVM,
   PropertyChangedMessage,
   ConstructionStatusChangedMessage,
+  ViewModelType,
 } from "../../src/index.js";
 
 function makeHub() { return new MessageHub(); }
 function makeDisp() { return RxDispatcher.immediate(); }
 function makeChild(hub: MessageHub, name: string) {
   return ComponentVM.builder().name(name).services(hub, makeDisp()).build();
+}
+
+class ReentrantDisposeVM extends ComponentVMBase {
+  readonly #onDispose: () => void;
+
+  constructor(name: string, hub: MessageHub, onDispose: () => void) {
+    super({ name, hint: "", hub, dispatcher: makeDisp() });
+    this.#onDispose = onDispose;
+  }
+
+  override get type(): ViewModelType { return ViewModelType.Component; }
+  protected override _onDispose(): void { this.#onDispose(); }
 }
 
 // ---------------------------------------------------------------------------
@@ -371,6 +385,40 @@ describe("AggregateVM reconstruct disposes previous slot", () => {
 });
 
 describe("Aggregate fixed-slot ownership", () => {
+  it("rejects reentrant attachment of a replacement candidate during disposal", () => {
+    const hub = makeHub();
+    const candidate = makeChild(hub, "candidate");
+    const destination = CompositeVM.builder<ComponentVMBase>()
+      .name("destination")
+      .services(hub, makeDisp())
+      .children(() => [])
+      .build();
+    destination.construct();
+    let admissionError: unknown;
+    let calls = 0;
+    const aggregate = AggregateVM1.builder<ComponentVMBase>()
+      .name("aggregate")
+      .services(hub, makeDisp())
+      .component1(() => ++calls === 1
+        ? new ReentrantDisposeVM("old", hub, () => {
+          try {
+            destination.add(candidate);
+          } catch (error) {
+            admissionError = error;
+          }
+        })
+        : candidate)
+      .build();
+    aggregate.construct();
+
+    aggregate.reconstruct();
+
+    expect(admissionError).toBeInstanceOf(Error);
+    expect((admissionError as Error).message).toMatch(/transaction is already in progress/);
+    expect(destination.snapshot()).toEqual([]);
+    expect(aggregate.component1).toBe(candidate);
+  });
+
   it("rejects forwarding aliases of one canonical component", () => {
     const hub = makeHub();
     const inner = ComponentVMOf.builder<string>()

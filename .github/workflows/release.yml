@@ -179,7 +179,7 @@ jobs:
           done < /tmp/csharp-main-packages.txt
 
   csharp-verify-published:
-    timeout-minutes: 20
+    timeout-minutes: 25
     needs: csharp-publish
     if: startsWith(github.ref, 'refs/tags/csharp-')
     runs-on: ubuntu-latest
@@ -217,7 +217,8 @@ jobs:
           python3 tools/smoke-nuget-consumer.py \
             "${packages[@]}" \
             --framework "${{ matrix.framework }}" \
-            --poll-timeout 900
+            --poll-timeout 900 \
+            --timeout 1200
 
   csharp-release-notes:
     timeout-minutes: 10
@@ -601,28 +602,8 @@ jobs:
           python3 tools/smoke-npm-consumer.py
           --version "${GITHUB_REF#refs/tags/typescript-v}"
           --poll-timeout 600
-      - name: Verify npm provenance attestation
-        run: |
-          set -euo pipefail
-          tag_version="${GITHUB_REF#refs/tags/typescript-v}"
-          for attempt in {1..60}; do
-            attestations="$(npm view "@thekaveh/vmx@${tag_version}" dist.attestations --json || true)"
-            if ATTESTATIONS="$attestations" node -e '
-              try {
-                const value = JSON.parse(process.env.ATTESTATIONS || "null");
-                process.exit(value?.url && value?.provenance?.predicateType ? 0 : 1);
-              } catch {
-                process.exit(1);
-              }
-            '; then
-              echo "$attestations"
-              exit 0
-            fi
-            echo "Waiting for npm provenance attestation (attempt ${attempt}/60)..."
-            sleep 10
-          done
-          echo "::error::npm package has no provenance attestation after 600 seconds." >&2
-          exit 1
+          --timeout 900
+          --require-provenance
 
   typescript-release-notes:
     timeout-minutes: 10
@@ -825,7 +806,7 @@ jobs:
     needs: rust-publish
     if: startsWith(github.ref, 'refs/tags/rust-v')
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 45
     permissions:
       contents: read
     strategy:
@@ -843,6 +824,7 @@ jobs:
           python3 tools/smoke-rust-consumer.py
           --version "${GITHUB_REF#refs/tags/rust-v}"
           --poll-timeout 1800
+          --timeout 2100
 
   rust-release-notes:
     timeout-minutes: 10

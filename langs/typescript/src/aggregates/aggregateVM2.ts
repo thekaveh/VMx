@@ -8,7 +8,7 @@ import { ViewModelType } from "../components/types.js";
 import type { IMessageHub } from "../services/messageHub.js";
 import type { IDispatcher } from "../services/dispatcher.js";
 import { BuilderValidationError } from "../builders/exceptions.js";
-import { AggregateParent, commitAggregateSlots, validateAggregateSlots } from "./ownership.js";
+import { AggregateParent, replaceAggregateSlots } from "./ownership.js";
 import { disposeBestEffort } from "../components/disposal.js";
 
 const SENTINEL = Symbol("not-set");
@@ -55,22 +55,18 @@ export class AggregateVM2<VM1 extends ComponentVMBase, VM2 extends ComponentVMBa
   protected override _onConstruct(): void {
     const next1 = this.#factory1();
     const next2 = this.#factory2();
-    validateAggregateSlots(this.#aggregateParent, [next1, next2]);
     const previous = [this.#component1, this.#component2];
     // On Reconstruct, dispose previous slot instances before overwriting
     // so their hub subscriptions and command Subjects don't leak.
-    this.#component1?.dispose();
-    this.#component2?.dispose();
-
-    this.#component1 = next1;
+    replaceAggregateSlots(this.#aggregateParent, previous, [next1, next2], () => {
+      this.#component1 = next1;
+      this.#component2 = next2;
+    });
     this._notifyPropertyChanged("component1");
-
-    this.#component2 = next2;
-    commitAggregateSlots(this.#aggregateParent, previous, [next1, next2]);
     this._notifyPropertyChanged("component2");
 
-    this.#component1.construct();
-    this.#component2.construct();
+    next1.construct();
+    next2.construct();
   }
 
   protected override _onDestruct(): void {
