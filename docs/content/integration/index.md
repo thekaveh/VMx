@@ -1,7 +1,7 @@
 # 9.1. Integration Recipes
 
-These framework-specific recipes are canonical documentation: the same pages
-render in the repository, the `.io` site, and the GitHub wiki.
+These framework-specific recipes show how VMx state and commands cross a host
+framework's binding, lifecycle, and dispatcher boundaries.
 
 ## 9.1.1. What The Recipes Cover
 

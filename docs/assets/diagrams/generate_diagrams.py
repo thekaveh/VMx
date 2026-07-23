@@ -658,7 +658,7 @@ def html_doc(diagram: Diagram, svg_name: str) -> str:
       <p class="subtitle">{escape(diagram.subtitle)}</p>
     </header>
     <div class="diagram">
-      <div class="svg-frame" role="img" aria-label="{escape(diagram.title)}">
+      <div class="svg-frame">
 {inline_svg}
       </div>
     </div>

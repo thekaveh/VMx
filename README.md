@@ -343,6 +343,18 @@ Smaller per-flavor demos:
 
 This README is the entry point; the documents below add focused detail.
 
+- [`docs/content/index.md`](docs/content/index.md) — canonical documentation
+  landing page and the overview for the generated `.io` site and GitHub wiki.
+- Major documentation sections: [installation](docs/content/installation.md),
+  [quickstart](docs/content/getting-started/index.md),
+  [core concepts](docs/content/core-concepts.md),
+  [architecture](docs/content/architecture/index.md),
+  [framework primitives](docs/content/primitives/index.md),
+  [language flavors](docs/content/flavors/index.md),
+  [examples](docs/content/examples/index.md),
+  [integration recipes](docs/content/integration/index.md),
+  [specification and conformance](docs/content/specification-conformance.md),
+  and [contributing and releases](docs/content/contributing-releases.md).
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — spec / ADR / conformance workflow,
   per-flavor build commands, pre-commit setup. Read before opening a PR.
 - [`SECURITY.md`](SECURITY.md) — supported-version table and how to report
@@ -410,7 +422,7 @@ This README is the entry point; the documents below add focused detail.
   run.
 - [`docs/maintenance/2026-07-16-rust-capability-parity.md`](docs/maintenance/2026-07-16-rust-capability-parity.md) —
   tracked capability-surface and behavioural parity gaps between the source-tree
-  Rust flavor and the four published flavors, with the canonical decision and
+  Rust flavor and the four other flavors, with the canonical decision and
   proposed fix for each.
 - [`docs/maintenance/2026-07-16-swift-notesshowcase-test-deadlock.md`](docs/maintenance/2026-07-16-swift-notesshowcase-test-deadlock.md) —
   the implemented Swift flagship command/test deadlock correction, including

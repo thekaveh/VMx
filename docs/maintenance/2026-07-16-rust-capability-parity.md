@@ -261,6 +261,37 @@ four-flavour + spec consensus; each is verified in the current tree:
   `can_execute_changed` notification the four peers emit** — spec/04 §5 makes this
   a MAY, so it is a soft parity gap, listed for completeness.
 
+### 12.4.8. Hot-Stream Completion And Notification Replay Are Missing
+
+Rust's `MessageHub::subscribe` accepts only a value callback. Disposing the hub
+clears subscribers without reporting stream completion, and a late subscription
+to `NullMessageHub` cannot observe the immediate completion required by spec/03
+§6. `NotificationHub` similarly exposes a current-list snapshot plus an untyped
+change hub instead of the replaying list observable required by spec/16 §2.3;
+its null variant has no empty-list-and-complete observable surface. The existing
+`PropertyChangedStream` proves that completion callbacks fit the owned facade,
+but these public shapes need a coordinated stream abstraction rather than a
+one-off callback patch.
+
+Proposed fix: extend the VMx-owned hot-stream facade with completion-aware
+subscriptions and a typed replaying value stream. Use the former for
+`MessageHub`/`NullMessageHub` and the latter for notification `Pending`, with
+tests for initial replay, late replay, update order, disposal completion, and
+immediate null-stream completion. Coordinate this with the source-observable
+work in §12.4.6 so Rust gains one coherent reactive facade.
+
+### 12.4.9. Pending Async Operations Retain Native Threads
+
+`make_confirm` and `ConfirmationDecoratorCommand` currently spawn one native
+thread that blocks for every unresolved decision. A notification that remains
+pending therefore retains an operating-system thread indefinitely, unlike the
+executor-neutral continuation behavior of the four peer flavors.
+
+Proposed fix: add continuation mapping to `AsyncValue` or return a composed
+future, then remove the blocking worker threads. Validate unresolved-operation
+resource bounds and preserve first-wins completion, panic isolation, and
+post-dispose behavior.
+
 ## 12.5. Related Spec-Wording Note (Not Rust-Specific)
 
 `spec/02-lifecycle.md` §7 lists the parent's terminal disposal work as "…command

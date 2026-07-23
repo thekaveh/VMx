@@ -1,8 +1,8 @@
 # 8.2. Example Diagram Gallery
 
-This gallery shows one generated architecture diagram for every committed VMx
-example app. Each diagram depicts the same three elements: the host and adapter
-boundary, the VMx-owned application state, and the verification/modeling rule.
+This gallery maps every committed VMx example app. Each diagram depicts the
+same three elements: the host and adapter boundary, the VMx-owned application
+state, and the verification/modeling rule.
 
 ## 8.2.1. C\#
 

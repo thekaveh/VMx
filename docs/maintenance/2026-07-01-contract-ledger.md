@@ -1,6 +1,6 @@
 # 2026-07 Maintenance Contract Ledger
 
-Last revalidated: **2026-07-18**. This branch-independent ledger records the
+Last revalidated: **2026-07-22**. This branch-independent ledger records the
 external package, tool, documentation, CI, and publication contracts consumed
 by the repository. It is not a release note and does not assert that a registry
 publication occurred during maintenance.
@@ -44,7 +44,23 @@ below. Live publishing remains an owner-approved release action.
 | Code scanning                | `.github/workflows/security-audit.yml`                                        | CodeQL scans C#, Python, TypeScript, Swift, and Rust on every PR and weekly; Swift is compiled on macOS while the other languages use supported no-build analysis.          | The `codeql` matrix feeds the protected `required: security` aggregate alongside every dependency audit                           |
 | Local hygiene                | `.pre-commit-config.yaml`                                                     | Ruff covers library, tools, docs scripts, docs tests, and diagram generators; C# formatting reuses restored assets; Markdown formatting stays on canonical docs/spec paths. | `pre-commit run --all-files` after language dependencies are installed                                                            |
 
-### 3.1 Immutable workflow action inventory
+### 3.1 Open quality gates
+
+The following improvements were revalidated on 2026-07-22 and remain focused
+follow-up work rather than claims made by the current automated gates:
+
+- Flagship parity currently verifies scenario names and conformance markers,
+  not shared inputs and expected outcomes. A future machine-readable scenario
+  fixture should drive all four flagship suites and include mutation tests for
+  assertion drift.
+- The Tk and WPF examples compile in CI but do not receive end-to-end host
+  interaction coverage. Add an Xvfb-backed Tk lifecycle smoke and a Windows
+  dispatcher/startup smoke before describing those hosts as runtime-tested.
+- Python branch CI builds both distributions but fresh-installs only the sdist.
+  Add exact-wheel installation, metadata/resource checks, and a representative
+  runtime path before immutable release tags are cut.
+
+### 3.2 Immutable workflow action inventory
 
 All remote actions are pinned to full commits. The upstream tag shown here was
 resolved against the action repository on 2026-07-18; `dtolnay/rust-toolchain`

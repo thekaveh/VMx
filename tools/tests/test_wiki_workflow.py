@@ -60,4 +60,12 @@ def test_wiki_workflow_watches_every_generated_input() -> None:
     for source_root in source_roots:
         assert f'      - "{"/".join(source_root)}/**"' in workflow
     assert '      - "docs/manifest.yaml"' in workflow
-    assert '      - "spec/VERSION"' in workflow
+    assert '      - "spec/**"' in workflow
+
+
+def test_wiki_workflow_runs_full_docs_gate_before_publication() -> None:
+    workflow = _WORKFLOW.read_text(encoding="utf-8")
+
+    docs_gate = workflow.index("run: make docs-check")
+    publish = workflow.index("name: Publish wiki")
+    assert docs_gate < publish
