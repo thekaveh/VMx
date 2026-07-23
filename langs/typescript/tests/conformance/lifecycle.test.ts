@@ -69,6 +69,34 @@ class DisposedPublicationFaultHub extends MessageHub {
   }
 }
 
+class StatusPublicationFaultHub extends MessageHub {
+  readonly #failures: Array<{
+    status: ConstructionStatus;
+    remaining: number;
+    failure: Error;
+  }> = [];
+
+  constructor() {
+    super({ developmentDiagnostics: false });
+  }
+
+  failNext(status: ConstructionStatus, failure: Error, occurrence = 1): void {
+    this.#failures.push({ status, remaining: occurrence, failure });
+  }
+
+  override send(message: IMessage): void {
+    if (message instanceof ConstructionStatusChangedMessage) {
+      const index = this.#failures.findIndex(({ status }) => status === message.status);
+      const pending = this.#failures[index];
+      if (pending !== undefined && --pending.remaining === 0) {
+        this.#failures.splice(index, 1);
+        throw pending.failure;
+      }
+    }
+    super.send(message);
+  }
+}
+
 class HookLeaseProbeVM extends ComponentVMBase {
   constructor(
     hub: MessageHub,
@@ -794,5 +822,59 @@ describe("LIFE-013", () => {
     expect(cleanupCalls).toBe(1);
     expect(() => vm.dispose()).not.toThrow();
     expect(cleanupCalls).toBe(1);
+  });
+
+  it.each([false, true])(
+    "rolls back a failed Constructing publication and preserves its first error (background=%s)",
+    (background) => {
+      const hub = new StatusPublicationFaultHub();
+      const publicationError = new Error("constructing publication failed");
+      const rollbackError = new Error("construct rollback publication failed");
+      const vm = ComponentVM.builder()
+        .name("probe")
+        .services(hub, makeDisp())
+        .background(background)
+        .build();
+      hub.failNext(ConstructionStatus.Constructing, publicationError);
+      hub.failNext(ConstructionStatus.Destructed, rollbackError);
+
+      let thrown: unknown;
+      try {
+        vm.construct();
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(thrown).toBe(publicationError);
+      expect(vm.status).toBe(ConstructionStatus.Destructed);
+      expect(() => vm.construct()).not.toThrow();
+      expect(vm.status).toBe(ConstructionStatus.Constructed);
+    },
+  );
+
+  it("rolls back failed Destructing and second reconstruct Constructing publications", () => {
+    const hub = new StatusPublicationFaultHub();
+    const vm = ComponentVM.builder()
+      .name("probe")
+      .services(hub, makeDisp())
+      .build();
+    vm.construct();
+
+    const destructError = new Error("destructing publication failed");
+    hub.failNext(ConstructionStatus.Destructing, destructError);
+    expect(() => vm.destruct()).toThrow(destructError);
+    expect(vm.status).toBe(ConstructionStatus.Constructed);
+
+    const reconstructDestructError = new Error("reconstruct destructing publication failed");
+    hub.failNext(ConstructionStatus.Destructing, reconstructDestructError);
+    expect(() => vm.reconstruct()).toThrow(reconstructDestructError);
+    expect(vm.status).toBe(ConstructionStatus.Constructed);
+
+    const reconstructError = new Error("reconstruct constructing publication failed");
+    hub.failNext(ConstructionStatus.Constructing, reconstructError);
+    expect(() => vm.reconstruct()).toThrow(reconstructError);
+    expect(vm.status).toBe(ConstructionStatus.Destructed);
+    expect(() => vm.construct()).not.toThrow();
+    expect(vm.status).toBe(ConstructionStatus.Constructed);
   });
 });

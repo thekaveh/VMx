@@ -16,6 +16,7 @@ natural home is the composite suite, so it is not duplicated here.
 from __future__ import annotations
 
 from collections.abc import Callable
+from concurrent.futures import Future
 
 import pytest
 
@@ -481,6 +482,110 @@ def test_LIFE_014_base_exception_rolls_back_every_hook_boundary() -> None:
     with pytest.raises(LifecycleAbort, match="stop"):
         reconstruct_construct.reconstruct()
     assert reconstruct_construct.status is ConstructionStatus.DESTRUCTED
+
+
+class _StatusPublicationFaultHub(MessageHub[object]):
+    def __init__(self) -> None:
+        super().__init__()
+        self._target: ConstructionStatus | None = None
+        self._failure: BaseException | None = None
+        self.before_failure: Callable[[], None] | None = None
+
+    def fail_next(self, status: ConstructionStatus, failure: BaseException) -> None:
+        self._target = status
+        self._failure = failure
+
+    def send(self, message: object) -> None:
+        if isinstance(message, ConstructionStatusChangedMessage) and message.status is self._target:
+            failure = self._failure
+            self._target = None
+            self._failure = None
+            if failure is not None:
+                if self.before_failure is not None:
+                    self.before_failure()
+                raise failure
+        super().send(message)
+
+
+@pytest.mark.parametrize("background", [False, True])
+def test_status_publication_failure_rolls_back_and_remains_recoverable(
+    background: bool,
+) -> None:
+    hub = _StatusPublicationFaultHub()
+    vm = (
+        ComponentVMBuilder()
+        .name("publication-fault")
+        .services(hub, _dispatcher())
+        .background(background)
+        .build()
+    )
+    construct_error = RuntimeError("constructing publication")
+    hub.fail_next(ConstructionStatus.CONSTRUCTING, construct_error)
+
+    with pytest.raises(RuntimeError) as raised:
+        vm.construct()
+    assert raised.value is construct_error
+    assert vm.status is ConstructionStatus.DESTRUCTED
+
+    vm.construct()
+    destruct_error = RuntimeError("destructing publication")
+    hub.fail_next(ConstructionStatus.DESTRUCTING, destruct_error)
+    with pytest.raises(RuntimeError) as raised:
+        vm.destruct()
+    assert raised.value is destruct_error
+    assert vm.status is ConstructionStatus.CONSTRUCTED
+
+
+def test_reconstruct_second_phase_publication_failure_restores_destructed() -> None:
+    hub = _StatusPublicationFaultHub()
+    vm = (
+        ComponentVMBuilder()
+        .name("reconstruct-publication-fault")
+        .services(hub, _dispatcher())
+        .build()
+    )
+    vm.construct()
+    destruct_error = RuntimeError("reconstruct destructing publication")
+    hub.fail_next(ConstructionStatus.DESTRUCTING, destruct_error)
+
+    with pytest.raises(RuntimeError) as raised:
+        vm.reconstruct()
+    assert raised.value is destruct_error
+    assert vm.status is ConstructionStatus.CONSTRUCTED
+
+    publication_error = RuntimeError("second constructing publication")
+    hub.fail_next(ConstructionStatus.CONSTRUCTING, publication_error)
+
+    with pytest.raises(RuntimeError) as raised:
+        vm.reconstruct()
+    assert raised.value is publication_error
+    assert vm.status is ConstructionStatus.DESTRUCTED
+
+    vm.construct()
+    assert vm.status is ConstructionStatus.CONSTRUCTED
+
+
+def test_construct_publication_failure_faults_joined_waiter_with_same_error() -> None:
+    hub = _StatusPublicationFaultHub()
+    vm = ComponentVMBuilder().name("publication-fault-waiter").services(hub, _dispatcher()).build()
+    publication_error = RuntimeError("constructing publication")
+    joined: Future[None] | None = None
+
+    def join_transition() -> None:
+        nonlocal joined
+        joined = vm._construct_future()
+
+    hub.before_failure = join_transition
+    hub.fail_next(ConstructionStatus.CONSTRUCTING, publication_error)
+
+    with pytest.raises(RuntimeError) as raised:
+        vm.construct()
+    assert raised.value is publication_error
+    assert joined is not None
+    with pytest.raises(RuntimeError) as joined_raised:
+        joined.result()
+    assert joined_raised.value is publication_error
+    assert vm.status is ConstructionStatus.DESTRUCTED
 
 
 def test_dispose_during_status_publication_suppresses_later_lifecycle_hooks() -> None:

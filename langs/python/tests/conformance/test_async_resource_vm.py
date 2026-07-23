@@ -335,6 +335,49 @@ async def test_command_cancellation_with_rollback_failure_stays_nonthrowing() ->
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("entry", ["direct", "command"])
+async def test_public_cancel_suppresses_rollback_observer_failure(entry: str) -> None:
+    started = asyncio.Event()
+    cleaned: list[int] = []
+    rollback_failures = 0
+
+    async def loader() -> int:
+        started.set()
+        try:
+            await asyncio.Future()
+        except asyncio.CancelledError:
+            await asyncio.sleep(0)
+            return 42
+
+    vm = _vm(loader, cleanup=cleaned.append)
+
+    def fail_first_idle_notification(_: None) -> None:
+        nonlocal rollback_failures
+        if vm.state.status is AsyncResourceStatus.IDLE and rollback_failures == 0:
+            rollback_failures += 1
+            raise RuntimeError("cancel rollback observer")
+
+    vm.load_command.can_execute_changed.subscribe(fail_first_idle_notification)
+    load = asyncio.create_task(vm.load())
+    await started.wait()
+
+    if entry == "direct":
+        vm.cancel()
+    else:
+        vm.cancel_command.execute()
+    await load
+    await _wait_until(lambda: cleaned == [42])
+
+    assert vm.state.status is AsyncResourceStatus.IDLE
+    assert vm._operation is None
+    assert rollback_failures == 1
+    assert cleaned == [42]
+    assert vm.load_command.can_execute()
+    assert not vm.reload_command.can_execute()
+    assert not vm.cancel_command.can_execute()
+
+
+@pytest.mark.asyncio
 @pytest.mark.conformance("ARES-003")
 async def test_ares_003_failure_is_state_not_command_error() -> None:
     failure = RuntimeError("offline")

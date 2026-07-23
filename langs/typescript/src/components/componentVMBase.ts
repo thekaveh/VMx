@@ -387,7 +387,13 @@ export abstract class ComponentVMBase {
     this.#inFlight = true;
 
     if (this.#background) {
-      this._setStatus(ConstructionStatus.Constructing);
+      try {
+        this._setStatus(ConstructionStatus.Constructing);
+      } catch (error) {
+        this.#restoreStatusAfterPublicationFailure(ConstructionStatus.Destructed);
+        this.#inFlight = false;
+        throw error;
+      }
       this.#dispatcher.background.schedule(() => {
         // dispose() may have run between scheduling and execution; Disposed is
         // terminal (spec/02 invariant 3), so skip the work and the marshalled
@@ -430,7 +436,12 @@ export abstract class ComponentVMBase {
       });
     } else {
       try {
-        this._setStatus(ConstructionStatus.Constructing);
+        try {
+          this._setStatus(ConstructionStatus.Constructing);
+        } catch (error) {
+          this.#restoreStatusAfterPublicationFailure(ConstructionStatus.Destructed);
+          throw error;
+        }
         if (this.#isDisposed()) return;
         try {
           this.#runLifecycleHook(() => this._onConstruct());
@@ -460,7 +471,13 @@ export abstract class ComponentVMBase {
     this.#inFlight = true;
 
     if (this.#background) {
-      this._setStatus(ConstructionStatus.Destructing);
+      try {
+        this._setStatus(ConstructionStatus.Destructing);
+      } catch (error) {
+        this.#restoreStatusAfterPublicationFailure(ConstructionStatus.Constructed);
+        this.#inFlight = false;
+        throw error;
+      }
       this.#dispatcher.background.schedule(() => {
         // dispose() may have run between scheduling and execution; Disposed is
         // terminal (spec/02 invariant 3), so skip the work and the marshalled
@@ -501,7 +518,12 @@ export abstract class ComponentVMBase {
       });
     } else {
       try {
-        this._setStatus(ConstructionStatus.Destructing);
+        try {
+          this._setStatus(ConstructionStatus.Destructing);
+        } catch (error) {
+          this.#restoreStatusAfterPublicationFailure(ConstructionStatus.Constructed);
+          throw error;
+        }
         if (this.#isDisposed()) return;
         try {
           this.#runLifecycleHook(() => this._onDestruct());
@@ -528,7 +550,12 @@ export abstract class ComponentVMBase {
     this.#inFlight = true;
 
     try {
-      this._setStatus(ConstructionStatus.Destructing);
+      try {
+        this._setStatus(ConstructionStatus.Destructing);
+      } catch (error) {
+        this.#restoreStatusAfterPublicationFailure(ConstructionStatus.Constructed);
+        throw error;
+      }
       if (this.#isDisposed()) return;
       try {
         this.#runLifecycleHook(() => this._onDestruct());
@@ -541,7 +568,12 @@ export abstract class ComponentVMBase {
       this._setStatus(ConstructionStatus.Destructed);
       if (this.#isDisposed()) return;
 
-      this._setStatus(ConstructionStatus.Constructing);
+      try {
+        this._setStatus(ConstructionStatus.Constructing);
+      } catch (error) {
+        this.#restoreStatusAfterPublicationFailure(ConstructionStatus.Destructed);
+        throw error;
+      }
       if (this.#isDisposed()) return;
       try {
         this.#runLifecycleHook(() => this._onConstruct());
@@ -595,6 +627,14 @@ export abstract class ComponentVMBase {
       () => this.#selectPreviousCommand.dispose(),
       () => this.#reconstructCommand.dispose(),
     ]);
+  }
+
+  #restoreStatusAfterPublicationFailure(status: ConstructionStatus): void {
+    try {
+      this._setStatus(status);
+    } catch {
+      // The original transition publication failure remains primary.
+    }
   }
 
   #runLifecycleHook(hook: () => void): void {

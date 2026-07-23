@@ -558,4 +558,79 @@ describe("AsyncResourceVM conformance", () => {
     expect(loaderCalls).toBe(1);
     expect(vm.state).toEqual({ status: AsyncResourceStatus.Ready, value: 1 });
   });
+
+  it.each(["direct", "command"] as const)(
+    "keeps %s cancellation nonthrowing when rollback publication fails",
+    async (entry) => {
+      const cleaned: number[] = [];
+      let statePublications = 0;
+      const hub = new CallbackMessageHub((message) => {
+        if (message instanceof PropertyChangedMessage && message.propertyName === "state") {
+          statePublications += 1;
+          if (statePublications === 2) throw new Error("cancel rollback publication");
+        }
+      });
+      const vm = new AsyncResourceVM<number>({
+        name: "resource",
+        hub,
+        dispatcher: NullDispatcher.INSTANCE,
+        cleanupValue: (value) => cleaned.push(value),
+        loader: (signal) => new Promise<number>((resolve) => {
+          signal.addEventListener("abort", () => resolve(42), { once: true });
+        }),
+      });
+      const load = vm.load();
+
+      if (entry === "direct") {
+        expect(() => vm.cancel()).not.toThrow();
+      } else {
+        expect(() => vm.cancelCommand.execute()).not.toThrow();
+      }
+      await load;
+
+      expect(vm.state).toEqual({ status: AsyncResourceStatus.Idle });
+      expect(cleaned).toEqual([42]);
+      expect(vm.loadCommand.canExecute()).toBe(true);
+      expect(vm.reloadCommand.canExecute()).toBe(false);
+      expect(vm.cancelCommand.canExecute()).toBe(false);
+    },
+  );
+
+  it.each(["direct", "command"] as const)(
+    "keeps a pre-aborted %s load completely silent",
+    async (entry) => {
+      const controller = new AbortController();
+      controller.abort();
+      let loaderCalls = 0;
+      const changes: string[] = [];
+      const shared: string[] = [];
+      const hub = new MessageHub();
+      const vm = new AsyncResourceVM<number>({
+        name: "resource",
+        hub,
+        dispatcher: NullDispatcher.INSTANCE,
+        loader: () => {
+          loaderCalls += 1;
+          return Promise.resolve(1);
+        },
+      });
+      vm.propertyChanged.subscribe((name) => changes.push(name));
+      hub.messages.subscribe((message) => {
+        if (message instanceof PropertyChangedMessage && message.sender === vm) {
+          shared.push(message.propertyName);
+        }
+      });
+
+      if (entry === "direct") {
+        await vm.load(controller.signal);
+      } else {
+        await vm.loadCommand.executeAsync(controller.signal);
+      }
+
+      expect(vm.state).toEqual({ status: AsyncResourceStatus.Idle });
+      expect(loaderCalls).toBe(0);
+      expect(changes).toEqual([]);
+      expect(shared).toEqual([]);
+    },
+  );
 });

@@ -403,7 +403,9 @@ def test_markdown_rewrite_preserves_links_and_generic_calls_inside_commonmark_co
         "```\n\n"
         "- ~~~~swift\n"
         '  ModalVM[str]("cancel")\n'
-        "  ~~~~\n"
+        "  ~~~~\n\n"
+        '<a title="[Attribute](../installation.md)" '
+        'href="../getting-started/index.md">HTML</a>\n'
     )
 
     rewritten = rewrite_for_surface(
@@ -417,6 +419,8 @@ def test_markdown_rewrite_preserves_links_and_generic_calls_inside_commonmark_co
 
     assert "ServicedObservableCollection[Note](hub)" in rewritten
     assert 'ModalVM[str]("cancel")' in rewritten
+    assert 'title="[Attribute](../installation.md)"' in rewritten
+    assert 'href="3-1-Quickstart"' in rewritten
     assert "[[Quickstart|3-1-Quickstart]]" in rewritten
 
 
@@ -487,6 +491,12 @@ def test_html_rewrite_quotes_unquoted_attributes_after_entity_decoding(
 def test_html_attribute_scanner_ignores_non_html_contexts() -> None:
     markdown = (
         "<a href=actual.md>Actual</a>\n"
+        '<a title="`code`" href="backtick-attribute.md">Backtick</a>\n'
+        '<a data-x="``code``" href="multi-backtick-attribute.md">Multi</a>\n'
+        r'\<a href="escaped-tag.md">Escaped tag</a>'
+        "\n"
+        r'\\<a href="even-backslash-tag.md">Even tag</a>'
+        "\n"
         "`<a href='inline.md'>Inline</a>`\n"
         "```\n<img src='fenced.png'>\n```\n"
         "- ```html\n"
@@ -509,7 +519,11 @@ def test_html_attribute_scanner_ignores_non_html_contexts() -> None:
     attributes = find_html_link_attributes(markdown)
 
     assert [(attribute.attribute.lower(), attribute.target) for attribute in attributes] == [
-        ("href", "actual.md")
+        ("href", "actual.md"),
+        ("href", "backtick-attribute.md"),
+        ("href", "multi-backtick-attribute.md"),
+        ("href", "even-backslash-tag.md"),
+        ("href", "pre-text.md"),
     ]
 
 
@@ -556,16 +570,19 @@ def test_generated_html_link_check_validates_routes_assets_and_fragments(
     (site / "guide/target.md").write_text("# Target\n\n## Existing\n", encoding="utf-8")
     (site / "assets/one.svg").write_text("<svg></svg>\n", encoding="utf-8")
     (wiki / "Source.md").write_text(
-        "<a href='Target#existing'>Good</a>\n<a HREF='Target#missing'>Bad fragment</a>\n",
+        "<a href='Target#existing'>Good</a>\n"
+        "<a HREF='Target#missing'>Bad fragment</a>\n"
+        "<a href='../../README.md'>Traversal</a>\n"
+        "<a href='/etc/hosts'>Absolute</a>\n",
         encoding="utf-8",
     )
     (wiki / "Target.md").write_text("# Target\n\n## Existing\n", encoding="utf-8")
 
     findings = check_generated_html_links(tmp_path)
 
-    assert len(findings) == 3
+    assert len(findings) == 5
     assert sum("heading fragment does not exist" in item.message for item in findings) == 2
-    assert sum("target does not exist" in item.message for item in findings) == 1
+    assert sum("target does not exist" in item.message for item in findings) == 3
 
 
 def test_generated_site_links_honor_deployment_base_and_decode_paths(
@@ -610,6 +627,52 @@ def test_markdown_link_scanner_does_not_cross_line_boundaries() -> None:
     assert find_links(markdown) == [
         find_links("[Composite](composite.md)")[0],
     ]
+
+
+@pytest.mark.parametrize(
+    "markdown",
+    [
+        "Text `` [Docs](guide.md) ``` tail",
+        "Text ` [Docs](guide.md) `` tail",
+        "Text `` [Docs](guide.md) ` tail",
+        "Text ``` [Docs](guide.md) `` tail",
+        "x <!--> [Docs](guide.md)",
+        "x <!---> [Docs](guide.md)",
+        "x <!-- unclosed [Docs](guide.md)",
+        r"\[Docs](guide.md)",
+        r"\![Docs](guide.md)",
+        r"!\[Docs](guide.md)",
+        r"\\[Docs](guide.md)",
+        r"\` [Docs](guide.md) `",
+        r"\`` [Docs](guide.md) ``",
+        r"\` [Docs](guide.md) \`",
+        r"\<!-- [Docs](guide.md) -->",
+        r"\<script>[Docs](guide.md)</script>",
+        "`foo <!-- ` [Docs](guide.md) -->",
+    ],
+)
+def test_markdown_link_scanner_keeps_links_after_mismatched_inline_constructs(
+    markdown: str,
+) -> None:
+    expected = [] if markdown.startswith((r"\[", r"!\[")) else ["guide.md"]
+    assert [link.target for link in find_links(markdown)] == expected
+
+
+@pytest.mark.parametrize(
+    "markdown",
+    [
+        "Text `` [Docs](guide.md) `` tail",
+        r"\\` [Docs](guide.md) `",
+        r"\\<!-- [Docs](guide.md) -->",
+        r"\\<script>[Docs](guide.md)</script>",
+        "x <!-- closed [Docs](guide.md) --> tail",
+        '<span title="[Docs](guide.md)">tail</span>',
+    ],
+)
+def test_markdown_link_scanner_masks_real_code_comments_and_html_attributes(
+    markdown: str,
+) -> None:
+    assert find_links(markdown) == []
 
 
 def test_wiki_rewrite_preserves_link_after_unmatched_bracket() -> None:

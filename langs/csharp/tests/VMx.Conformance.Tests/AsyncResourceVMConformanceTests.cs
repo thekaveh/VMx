@@ -362,6 +362,50 @@ public sealed class AsyncResourceVMConformanceTests
         vm.State.Error.Should().BeSameAs(failure);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Public_Cancel_Suppresses_Rollback_Observer_Failure(bool useCommand)
+    {
+        using var hub = new MessageHub();
+        var started = NewSource();
+        var result = NewSource<int>();
+        var cleaned = new List<int>();
+        var rollbackFailures = 0;
+        var vm = Create(hub, token =>
+        {
+            started.TrySetResult();
+            token.Register(() => result.TrySetResult(42));
+            return result.Task;
+        }, cleanup: cleaned.Add);
+        vm.LoadCommand.CanExecuteChanged += (_, _) =>
+        {
+            if (vm.State.Status == AsyncResourceStatus.Idle && rollbackFailures == 0)
+            {
+                rollbackFailures = 1;
+                throw new InvalidOperationException("cancel rollback observer");
+            }
+        };
+        var load = vm.LoadAsync();
+        await started.Task;
+
+        var cancel = () =>
+        {
+            if (useCommand) vm.CancelCommand.Execute(null);
+            else vm.Cancel();
+        };
+        cancel.Should().NotThrow();
+        await load;
+        await WaitUntilAsync(() => cleaned.Count == 1);
+
+        vm.State.Status.Should().Be(AsyncResourceStatus.Idle);
+        cleaned.Should().Equal(42);
+        rollbackFailures.Should().Be(1);
+        vm.LoadCommand.CanExecute(null).Should().BeTrue();
+        vm.ReloadCommand.CanExecute(null).Should().BeFalse();
+        vm.CancelCommand.CanExecute(null).Should().BeFalse();
+    }
+
     [Fact, Trait("Conformance", "ARES-007")]
     public async Task ARES_007_Discard_Cleans_Before_Loading()
     {

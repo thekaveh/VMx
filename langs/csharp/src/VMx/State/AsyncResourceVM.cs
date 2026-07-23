@@ -152,9 +152,12 @@ public sealed class AsyncResourceVM<T> : ComponentVMBase
             operation = _operation;
         }
 
-        operation.Cancel();
-        LoadCommand.Cancel();
-        ReloadCommand.Cancel();
+        try { operation.Cancel(); }
+        catch { /* Cancellation remains nonthrowing. */ }
+        try { LoadCommand.Cancel(); }
+        catch { /* Attempt every cancellation path. */ }
+        try { ReloadCommand.Cancel(); }
+        catch { /* Attempt every cancellation path. */ }
     }
 
     /// <inheritdoc/>
@@ -349,7 +352,11 @@ public sealed class AsyncResourceVM<T> : ComponentVMBase
                 notify = true;
             }
         }
-        if (notify) NotifyStateChanged();
+        if (notify)
+        {
+            try { NotifyStateChanged(); }
+            catch { /* Cancellation rollback remains authoritative and nonthrowing. */ }
+        }
     }
 
     private bool CompleteSuccess(ResourceOperation operation, T value)

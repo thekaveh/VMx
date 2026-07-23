@@ -598,7 +598,16 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                 ConstructionStatus.Constructing,
                 out shouldDrain);
         }
-        DrainAndThrow(delivery, shouldDrain);
+        try
+        {
+            DrainAndThrow(delivery, shouldDrain);
+        }
+        catch (Exception error)
+        {
+            RestoreStatusAfterPublicationFailure(ConstructionStatus.Destructed);
+            FailInFlight(error);
+            throw;
+        }
 
         if (_background)
         {
@@ -778,7 +787,16 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                 ConstructionStatus.Destructing,
                 out shouldDrain);
         }
-        DrainAndThrow(delivery, shouldDrain);
+        try
+        {
+            DrainAndThrow(delivery, shouldDrain);
+        }
+        catch (Exception error)
+        {
+            RestoreStatusAfterPublicationFailure(ConstructionStatus.Constructed);
+            FailInFlight(error);
+            throw;
+        }
 
         if (_background)
         {
@@ -937,7 +955,16 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                 ConstructionStatus.Destructing,
                 out shouldDrain);
         }
-        DrainAndThrow(delivery, shouldDrain);
+        try
+        {
+            DrainAndThrow(delivery, shouldDrain);
+        }
+        catch (Exception error)
+        {
+            RestoreStatusAfterPublicationFailure(ConstructionStatus.Constructed);
+            FailInFlight(error);
+            throw;
+        }
 
         var completionDeferred = false;
         try
@@ -997,7 +1024,16 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         SetStatus(ConstructionStatus.Destructed);
         if (IsDisposed())
             return false;
-        SetStatus(ConstructionStatus.Constructing);
+        try
+        {
+            SetStatus(ConstructionStatus.Constructing);
+        }
+        catch (Exception error)
+        {
+            RestoreStatusAfterPublicationFailure(ConstructionStatus.Destructed);
+            FailInFlight(error);
+            throw;
+        }
         var hookLease = TryClaimLifecycleHook(ConstructionStatus.Constructing);
         if (hookLease is null)
             return false;
@@ -1443,6 +1479,12 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             delivery = QueueStatusDeliveryLocked(newStatus, out shouldDrain);
         }
         DrainAndThrow(delivery, shouldDrain);
+    }
+
+    private void RestoreStatusAfterPublicationFailure(ConstructionStatus status)
+    {
+        try { SetStatus(status); }
+        catch { /* The original transition publication failure remains primary. */ }
     }
 
     private LifecycleDelivery QueueStatusDeliveryLocked(

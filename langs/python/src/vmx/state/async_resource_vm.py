@@ -201,9 +201,16 @@ class AsyncResourceVM(Generic[T], _ComponentVMBase):
         self._operation_identity += 1
         self._operation = None
         self._cancel_operation(operation)
-        self._set_state(operation.baseline)
-        self._load_command.cancel()
-        self._reload_command.cancel()
+        try:
+            self._set_state(operation.baseline)
+        except BaseException:
+            # Cancellation is nonthrowing; state rollback remains authoritative.
+            pass
+        for command in (self._load_command, self._reload_command):
+            try:
+                command.cancel()
+            except BaseException:
+                pass
 
     def _can_load(self) -> bool:
         return not self._resource_disposed and self._state.status is AsyncResourceStatus.IDLE

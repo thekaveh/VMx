@@ -168,6 +168,8 @@ export class AsyncResourceVM<T> extends ComponentVMBase {
   }
 
   async #start(externalSignal?: AbortSignal): Promise<void> {
+    if (externalSignal?.aborted) return;
+
     const previousController = this.#controller;
     const operationId = this.#operationId + 1;
     this.#operationId = operationId;
@@ -203,7 +205,11 @@ export class AsyncResourceVM<T> extends ComponentVMBase {
       if (!this.#isCurrent(operationId, controller)) return;
       this.#operationId += 1;
       this.#controller = null;
-      this.#setState(baseline);
+      try {
+        this.#setState(baseline);
+      } catch {
+        // Cancellation is nonthrowing; state rollback remains authoritative.
+      }
     };
     controller.signal.addEventListener("abort", finishCancellation, { once: true });
 

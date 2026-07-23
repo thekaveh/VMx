@@ -283,10 +283,21 @@ def _generated_wiki_target(source: Path, root: Path, target: str) -> Path | None
     clean = target.split("#", 1)[0].split("?", 1)[0].rstrip("/")
     if not clean:
         return source
-    candidate = (source.parent / clean).resolve()
+    if Path(clean).is_absolute():
+        return None
+    resolved_root = root.resolve()
+    try:
+        candidate = (source.parent / clean).resolve()
+        candidate.relative_to(resolved_root)
+    except (OSError, ValueError):
+        return None
     if candidate.is_file():
         return candidate
-    page = root / f"{clean}.md"
+    try:
+        page = (root / f"{clean}.md").resolve()
+        page.relative_to(resolved_root)
+    except (OSError, ValueError):
+        return None
     return page if page.is_file() else None
 
 

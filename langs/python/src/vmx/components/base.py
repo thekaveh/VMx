@@ -610,7 +610,13 @@ class _ComponentVMBase(ABC):
                 raise StatusTransitionError(self._status, "construct")
             self._in_flight = True
 
-        if not self._set_status(ConstructionStatus.CONSTRUCTING):
+        try:
+            admitted = self._set_status(ConstructionStatus.CONSTRUCTING)
+        except BaseException as error:
+            self._restore_status_after_publication_failure(ConstructionStatus.DESTRUCTED)
+            self._fail_in_flight(error)
+            raise
+        if not admitted:
             self._clear_in_flight()
             return
 
@@ -722,7 +728,13 @@ class _ComponentVMBase(ABC):
                 raise StatusTransitionError(self._status, "destruct")
             self._in_flight = True
 
-        if not self._set_status(ConstructionStatus.DESTRUCTING):
+        try:
+            admitted = self._set_status(ConstructionStatus.DESTRUCTING)
+        except BaseException as error:
+            self._restore_status_after_publication_failure(ConstructionStatus.CONSTRUCTED)
+            self._fail_in_flight(error)
+            raise
+        if not admitted:
             self._clear_in_flight()
             return
 
@@ -829,7 +841,13 @@ class _ComponentVMBase(ABC):
 
         # Destruct phase. Publication must happen after releasing the state
         # lock so opposing lifecycle observers cannot retain two VM locks.
-        if not self._set_status(ConstructionStatus.DESTRUCTING):
+        try:
+            admitted = self._set_status(ConstructionStatus.DESTRUCTING)
+        except BaseException as error:
+            self._restore_status_after_publication_failure(ConstructionStatus.CONSTRUCTED)
+            self._fail_in_flight(error)
+            raise
+        if not admitted:
             self._clear_in_flight()
             return
 
@@ -861,7 +879,13 @@ class _ComponentVMBase(ABC):
     def _continue_reconstruct_with_construct_phase(self) -> bool:
         if not self._set_status(ConstructionStatus.DESTRUCTED):
             return False
-        if not self._set_status(ConstructionStatus.CONSTRUCTING) or self._is_disposed():
+        try:
+            admitted = self._set_status(ConstructionStatus.CONSTRUCTING)
+        except BaseException as error:
+            self._restore_status_after_publication_failure(ConstructionStatus.DESTRUCTED)
+            self._fail_in_flight(error)
+            raise
+        if not admitted or self._is_disposed():
             return False
         try:
             if not self._invoke_lifecycle_hook(self._on_construct, ConstructionStatus.CONSTRUCTING):
@@ -1209,6 +1233,21 @@ class _ComponentVMBase(ABC):
         if publication is not None:
             self._await_lifecycle_publication(publication, should_drain)
 
+    def _fail_in_flight(self, error: BaseException) -> None:
+        """Clear the guard and fail every joined lifecycle waiter."""
+        with self._lifecycle_lock:
+            self._in_flight = False
+            waiters = self._lifecycle_waiters
+            self._lifecycle_waiters = []
+
+            def fail_waiters() -> None:
+                for waiter in waiters:
+                    if not waiter.done():
+                        waiter.set_exception(error)
+
+            publication, should_drain = self._enqueue_lifecycle_action_locked(fail_waiters)
+        self._await_lifecycle_publication(publication, should_drain)
+
     def _construct_future(self) -> Future[None]:
         with self._lifecycle_lock:
             if self._status is ConstructionStatus.CONSTRUCTED:
@@ -1311,6 +1350,13 @@ class _ComponentVMBase(ABC):
 
         self._await_lifecycle_publication(publication, should_drain)
         return True
+
+    def _restore_status_after_publication_failure(self, status: ConstructionStatus) -> None:
+        try:
+            self._set_status(status)
+        except BaseException:
+            # The original transition publication failure remains primary.
+            pass
 
     def _enqueue_lifecycle_publication_locked(
         self, status: ConstructionStatus
