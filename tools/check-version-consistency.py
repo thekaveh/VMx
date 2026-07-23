@@ -91,8 +91,12 @@ _STABLE_SEMVER_RE = re.compile(rf"^{_SEMVER_TRIPLE}$", re.ASCII)
 _CHANGELOG_HEADING_RE = re.compile(r"^## \[([^\]]+)\](?:\([^)]*\))?(?:\s+.*)?$")
 _CHANGELOG_ATX_H2_RE = re.compile(r"^ {0,3}##(?!#)(?:[ \t]+(.*))?$")
 _CHANGELOG_SETEXT_H2_RE = re.compile(r"^ {0,3}-+[ \t]*$")
+_MARKDOWN_ATX_HEADING_RE = re.compile(r"^ {0,3}#{1,6}(?:[ \t]+|$)")
+_MARKDOWN_THEMATIC_BREAK_RE = re.compile(
+    r"^ {0,3}(?:(?:\*[ \t]*){3,}|(?:_[ \t]*){3,}|(?:-[ \t]*){3,})$"
+)
 _MARKDOWN_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
-_MARKDOWN_LIST_FENCE_RE = re.compile(r"^( {0,3})(?:[-+*]|\d{1,9}[.)])([ \t]+)(`{3,}|~{3,})(.*)$")
+_MARKDOWN_LIST_ITEM_RE = re.compile(r"^( {0,3})([-+*]|\d{1,9}[.)])(?:( {1,4}|\t)(.*))?$")
 _MARKDOWN_HTML_RAW_TAG_RE = re.compile(
     r"^ {0,3}<(script|pre|style|textarea)(?:[ \t>]|$)", re.IGNORECASE
 )
@@ -250,9 +254,11 @@ def _parse_changelog_sections(
     starts: list[tuple[str, int]] = []
     seen: set[str] = set()
     issues: list[str] = []
-    fence: tuple[str, int, int, int] | None = None
+    fence: tuple[str, int] | None = None
     html_end: tuple[str, bool] | None = None
     html_until_blank = False
+    list_content_indent: int | None = None
+    paragraph_start: str | None = None
     for index, line in enumerate(lines):
         if html_end is not None:
             terminator, case_insensitive = html_end
@@ -265,12 +271,29 @@ def _parse_changelog_sections(
                 html_until_blank = False
             continue
         if fence is not None:
-            marker, minimum, min_indent, max_indent = fence
-            if re.fullmatch(
-                rf" {{{min_indent},{max_indent}}}{re.escape(marker)}{{{minimum},}}[ \t]*",
-                line,
-            ):
+            marker, minimum = fence
+            if re.fullmatch(rf" {{0,3}}{re.escape(marker)}{{{minimum},}}[ \t]*", line):
                 fence = None
+            continue
+        line_indent = len(line) - len(line.lstrip(" "))
+        if list_content_indent is not None:
+            if not line.strip():
+                continue
+            if line_indent >= list_content_indent:
+                continue
+            list_content_indent = None
+        if not line.strip():
+            paragraph_start = None
+            continue
+        list_item = _MARKDOWN_LIST_ITEM_RE.fullmatch(line)
+        if list_item:
+            paragraph_start = None
+            whitespace = list_item.group(3) or " "
+            list_content_indent = (
+                len(list_item.group(1))
+                + len(list_item.group(2))
+                + (4 if whitespace == "\t" else len(whitespace))
+            )
             continue
         html_line = line.lstrip(" ")
         if len(line) - len(html_line) <= 3:
@@ -287,62 +310,62 @@ def _parse_changelog_sections(
                 None,
             )
             if html_terminator is not None:
+                paragraph_start = None
                 if html_terminator not in html_line:
                     html_end = (html_terminator, False)
                 continue
             raw_tag = _MARKDOWN_HTML_RAW_TAG_RE.match(line)
             if raw_tag:
+                paragraph_start = None
                 terminator = f"</{raw_tag.group(1).lower()}>"
                 if terminator not in html_line.lower():
                     html_end = (terminator, True)
                 continue
             if re.match(r"^<![A-Z]", html_line):
+                paragraph_start = None
                 if ">" not in html_line:
                     html_end = (">", False)
                 continue
-            if _MARKDOWN_HTML_BLOCK_TAG_RE.match(line) or _MARKDOWN_HTML_COMPLETE_TAG_RE.fullmatch(
-                line
-            ):
+            block_tag = _MARKDOWN_HTML_BLOCK_TAG_RE.match(line)
+            complete_tag = _MARKDOWN_HTML_COMPLETE_TAG_RE.fullmatch(line)
+            if block_tag or (complete_tag and paragraph_start is None):
+                paragraph_start = None
                 html_until_blank = True
                 continue
-        list_fence_match = _MARKDOWN_LIST_FENCE_RE.fullmatch(line)
-        if list_fence_match and not (
-            list_fence_match.group(3).startswith("`") and "`" in list_fence_match.group(4)
-        ):
-            content_indent = (
-                len(list_fence_match.group(1))
-                + len(line.lstrip(" ").split(maxsplit=1)[0])
-                + len(list_fence_match.group(2))
-            )
-            fence = (
-                list_fence_match.group(3)[0],
-                len(list_fence_match.group(3)),
-                content_indent,
-                content_indent + 3,
-            )
+        if re.match(r"^ {0,3}>", line):
+            paragraph_start = None
             continue
         fence_match = _MARKDOWN_FENCE_RE.fullmatch(line)
         if fence_match and not (
             fence_match.group(1).startswith("`") and "`" in fence_match.group(2)
         ):
-            fence = (fence_match.group(1)[0], len(fence_match.group(1)), 0, 3)
+            paragraph_start = None
+            fence = (fence_match.group(1)[0], len(fence_match.group(1)))
             continue
         heading_line = line.lstrip(" ")
         indent = len(line) - len(heading_line)
         atx_h2 = _CHANGELOG_ATX_H2_RE.fullmatch(line)
         if atx_h2 and not heading_line.startswith("## ["):
+            paragraph_start = None
             issues.append(f"  {changelog}: noncanonical bracketed CHANGELOG H2 {line!r}")
             continue
-        if (
-            indent <= 3
-            and heading_line.strip()
-            and index + 1 < len(lines)
-            and _CHANGELOG_SETEXT_H2_RE.fullmatch(lines[index + 1])
-        ):
-            issues.append(f"  {changelog}: noncanonical bracketed CHANGELOG H2 {line!r}")
+        if _CHANGELOG_SETEXT_H2_RE.fullmatch(line):
+            if paragraph_start is not None:
+                issues.append(
+                    f"  {changelog}: noncanonical bracketed CHANGELOG H2 {paragraph_start!r}"
+                )
+            paragraph_start = None
             continue
+        if _MARKDOWN_THEMATIC_BREAK_RE.fullmatch(line):
+            paragraph_start = None
+            continue
+        if _MARKDOWN_ATX_HEADING_RE.match(line):
+            paragraph_start = None
         if indent > 3 or not heading_line.startswith("## ["):
+            if indent < 4 and paragraph_start is None and not _MARKDOWN_ATX_HEADING_RE.match(line):
+                paragraph_start = line
             continue
+        paragraph_start = None
         match = _CHANGELOG_HEADING_RE.fullmatch(heading_line)
         if match is None:
             issues.append(f"  {changelog}: malformed bracketed CHANGELOG section heading {line!r}")
