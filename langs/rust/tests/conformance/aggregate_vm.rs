@@ -754,6 +754,68 @@ fn aggregate_vm2_reconstruct_aborts_all_candidates_when_previous_disposal_dispos
 }
 
 #[test]
+fn aggregate_reconstruct_serializes_concurrent_parent_disposal() {
+    let old = vmx::ComponentVm::new("old");
+    let candidate = vmx::ComponentVm::new("candidate");
+    let (entered_send, entered_receive) = mpsc::channel();
+    let (release_send, release_receive) = mpsc::channel();
+    let release_receive = Arc::new(Mutex::new(release_receive));
+    old.on_dispose({
+        let release_receive = Arc::clone(&release_receive);
+        move || {
+            entered_send.send(()).unwrap();
+            release_receive.lock().unwrap().recv().unwrap();
+            Ok(())
+        }
+    });
+    let calls = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::clone(&calls);
+    let first = old.clone();
+    let next = candidate.clone();
+    let aggregate = vmx::AggregateVm1::builder()
+        .name("aggregate")
+        .services(MessageHub::new(), NullDispatcher::new())
+        .component_1(move || {
+            if observed.fetch_add(1, Ordering::SeqCst) == 0 {
+                first.clone()
+            } else {
+                next.clone()
+            }
+        })
+        .build()
+        .unwrap();
+    aggregate.construct().unwrap();
+
+    let reconstructing = {
+        let aggregate = aggregate.clone();
+        std::thread::spawn(move || aggregate.reconstruct())
+    };
+    entered_receive
+        .recv_timeout(Duration::from_secs(2))
+        .unwrap();
+    let (disposed_send, disposed_receive) = mpsc::channel();
+    let disposing = {
+        let aggregate = aggregate.clone();
+        std::thread::spawn(move || disposed_send.send(aggregate.dispose()).unwrap())
+    };
+    let early_disposal = disposed_receive.recv_timeout(Duration::from_millis(50));
+    assert!(
+        early_disposal.is_err(),
+        "early disposal: {early_disposal:?}"
+    );
+    release_send.send(()).unwrap();
+
+    reconstructing.join().unwrap().unwrap();
+    disposed_receive
+        .recv_timeout(Duration::from_secs(2))
+        .unwrap()
+        .unwrap();
+    disposing.join().unwrap();
+    assert_eq!(aggregate.status(), ConstructionStatus::Disposed);
+    assert_eq!(candidate.status(), ConstructionStatus::Disposed);
+}
+
+#[test]
 fn failed_reconstruction_preserves_all_previous_slots_and_parent_links() {
     let first = text("first");
     let second = text("second");

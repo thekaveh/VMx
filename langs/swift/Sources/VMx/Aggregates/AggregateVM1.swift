@@ -24,6 +24,7 @@ open class AggregateVM1<C1: ComponentVMBase>: ComponentVMBase {
     open override var type: ViewModelType { .aggregate }
 
     open override func _onConstruct() throws {
+        try aggregateParent.withTransaction {
         try super._onConstruct()
         let c1 = factory1()
         let previous: [ComponentVMBase?] = [component1]
@@ -32,6 +33,7 @@ open class AggregateVM1<C1: ComponentVMBase>: ComponentVMBase {
         }) else { return }
         _notifyPropertyChanged("component1")
         try c1.construct()
+        }
     }
 
     open override func _onDestruct() throws {
@@ -40,8 +42,10 @@ open class AggregateVM1<C1: ComponentVMBase>: ComponentVMBase {
     }
 
     open override func dispose() {
+        aggregateParent.withTransaction {
         component1?.dispose()
         super.dispose()
+        }
     }
 
     public static func builder() -> AggregateVM1Builder<C1> {

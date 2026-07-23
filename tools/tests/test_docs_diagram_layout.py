@@ -86,3 +86,34 @@ def test_all_diagram_routes_avoid_unrelated_boxes() -> None:
                     assert not _segment_enters_box(start, end, box), (
                         f"{diagram_id}: route {start}->{end} crosses {box.title}"
                     )
+
+
+def test_all_labeled_relationships_connect_component_perimeters() -> None:
+    generator = _generator()
+    for diagram_id, diagram in generator.build_diagrams().items():
+        for line in (line for line in diagram.lines if line.label):
+            for role, point in (("source", line.points[0]), ("target", line.points[-1])):
+                assert any(_on_perimeter(point, box) for box in diagram.boxes), (
+                    f"{diagram_id}: {line.label!r} {role} {point} is disconnected"
+                )
+
+
+def test_system_relationships_use_explicit_group_boxes() -> None:
+    diagram = _generator().system_architecture()
+
+    def owner(point):
+        return next(box.title for box in diagram.boxes if _on_perimeter(point, box))
+
+    edges = {
+        line.label: (owner(line.points[0]), owner(line.points[-1]))
+        for line in diagram.lines
+        if line.label
+    }
+    assert edges["catalogues"] == ("12-conformance", "CI gates")
+    assert edges["injected into"] == ("Services", "VM families")
+    assert edges["versioned separately"] == (
+        "Five flavor packages",
+        "Compatibility matrix",
+    )
+    assert edges["hosts"] == ("Four flagship hosts", "Flagship examples")
+    assert edges["enforces"] == ("CI gates", "Five flavor packages")

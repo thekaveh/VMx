@@ -175,6 +175,71 @@ def test_current_development_versions_includes_explicit_unreleased_companion() -
     assert versions == {"3.20.0", "2.1.1"}
 
 
+def test_current_development_tags_are_namespace_aware() -> None:
+    rows = [
+        {
+            "spec_row": "3.22.x",
+            "csharp": ["3.22.0"],
+            "python": [],
+            "typescript": ["3.23.0"],
+            "swift": [],
+            "rust": [],
+        }
+    ]
+
+    tags = cvc.current_development_tags("3.22.0", {}, rows)
+
+    assert "spec-v3.22.0" in tags
+    assert "v3.22.0" in tags
+    assert "csharp-v3.22.0" in tags
+    assert "typescript-v3.23.0" in tags
+    assert "typescript-v3.22.0" not in tags
+
+
+@pytest.mark.parametrize(
+    ("spec_version", "manifests", "rows", "source"),
+    [
+        ("not-semver", {}, [], "spec/VERSION"),
+        ("3.22.0", {"typescript": {"version": "next"}}, [], "typescript version"),
+        (
+            "3.22.0",
+            {"python": {"version": "3.22.0", "min_spec_version": "current"}},
+            [],
+            "python min-spec version",
+        ),
+        (
+            "3.22.0",
+            {},
+            [{"spec_row": "3.21.x", "typescript": ["bad"]}],
+            "compatibility-matrix.md row '3.21.x' typescript version",
+        ),
+    ],
+)
+def test_validate_semver_values_rejects_malformed_sources(
+    spec_version: str,
+    manifests: dict[str, dict[str, str]],
+    rows: list[dict[str, object]],
+    source: str,
+) -> None:
+    assert any(
+        source in issue for issue in cvc.validate_semver_values(spec_version, manifests, rows)
+    )
+
+
+def test_unparseable_tag_major_is_fail_closed() -> None:
+    assert cvc._tag_major("typescript-vnot-semver") >= cvc.MIN_ENFORCED_MAJOR
+
+
+def test_main_fails_closed_for_malformed_spec_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _make_repo_v3(tmp_path)
+    (tmp_path / "spec" / "VERSION").write_text("next\n", encoding="utf-8")
+    monkeypatch.setattr(cvc, "get_git_tags", lambda _root: set(_TAGS_2_6_ONLY))
+
+    assert cvc.main(["--repo-root", str(tmp_path)]) == 1
+
+
 def test_changelog_sections_require_current_version_and_substantive_body(
     tmp_path: Path,
 ) -> None:

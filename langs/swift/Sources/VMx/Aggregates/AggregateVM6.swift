@@ -49,6 +49,7 @@ open class AggregateVM6<
     open override var type: ViewModelType { .aggregate }
 
     open override func _onConstruct() throws {
+        try aggregateParent.withTransaction {
         try super._onConstruct()
         let c1 = factory1(); let c2 = factory2(); let c3 = factory3()
         let c4 = factory4(); let c5 = factory5(); let c6 = factory6()
@@ -70,6 +71,7 @@ open class AggregateVM6<
 
         try c1.construct(); try c2.construct(); try c3.construct()
         try c4.construct(); try c5.construct(); try c6.construct()
+        }
     }
 
     open override func _onDestruct() throws {
@@ -80,10 +82,12 @@ open class AggregateVM6<
     }
 
     open override func dispose() {
+        aggregateParent.withTransaction {
         component1?.dispose(); component2?.dispose()
         component3?.dispose(); component4?.dispose()
         component5?.dispose(); component6?.dispose()
         super.dispose()
+        }
     }
 
     public static func builder() -> AggregateVM6Builder<C1, C2, C3, C4, C5, C6> {

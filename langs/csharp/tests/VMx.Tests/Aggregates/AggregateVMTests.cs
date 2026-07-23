@@ -46,6 +46,18 @@ public class AggregateVMTests
         protected override void OnDispose() => onDispose();
     }
 
+    private sealed class ThrowingDisposeVM(
+        string name,
+        TestHub hub,
+        TestDispatcher dispatcher)
+        : ComponentVMBase(name, "", hub, dispatcher, null, null)
+    {
+        public override ViewModelType Type => ViewModelType.Component;
+
+        protected override void OnDispose() =>
+            throw new InvalidOperationException("first disposal failure");
+    }
+
     // ── Factory helpers ──────────────────────────────────────────────────────
 
     private static (TestHub hub, TestDispatcher dispatcher) MakeServices()
@@ -603,6 +615,62 @@ public class AggregateVMTests
         aggregate.Status.Should().Be(ConstructionStatus.Disposed);
         aggregate.Component1.Should().BeSameAs(previous1);
         aggregate.Component2.Should().BeSameAs(previous2);
+        candidate1.Status.Should().Be(ConstructionStatus.Disposed);
+        candidate2.Status.Should().Be(ConstructionStatus.Disposed);
+    }
+
+    [Fact]
+    public async Task Aggregate_Reconstruct_Serializes_Concurrent_Parent_Disposal()
+    {
+        var (hub, dispatcher) = MakeServices();
+        using var disposalEntered = new ManualResetEventSlim();
+        using var releaseDisposal = new ManualResetEventSlim();
+        var candidate = MakeLeaf(hub, dispatcher, "candidate");
+        var calls = 0;
+        var aggregate = AggregateVM1<IComponentVM>.Builder()
+            .Name("aggregate").Services(hub, dispatcher)
+            .Component1(() => ++calls == 1
+                ? new BlockingDisposeVM(
+                    "old", hub, dispatcher, disposalEntered, releaseDisposal)
+                : candidate)
+            .Build();
+        aggregate.Construct();
+
+        var reconstruction = Task.Run(aggregate.Reconstruct);
+        disposalEntered.Wait(TimeSpan.FromSeconds(2)).Should().BeTrue();
+        var disposal = Task.Run(aggregate.Dispose);
+        await Task.Delay(50);
+        disposal.IsCompleted.Should().BeFalse();
+        releaseDisposal.Set();
+        await Task.WhenAll(reconstruction, disposal);
+
+        aggregate.Status.Should().Be(ConstructionStatus.Disposed);
+        candidate.Status.Should().Be(ConstructionStatus.Disposed);
+    }
+
+    [Fact]
+    public void Aggregate_Reconstruct_Cleans_All_Slots_And_Candidates_After_Disposal_Failure()
+    {
+        var (hub, dispatcher) = MakeServices();
+        var candidate1 = MakeLeaf(hub, dispatcher, "candidate-1");
+        var candidate2 = MakeLeaf(hub, dispatcher, "candidate-2");
+        var previous2 = MakeLeaf(hub, dispatcher, "old-2");
+        var calls1 = 0;
+        var calls2 = 0;
+        var aggregate = AggregateVM2<IComponentVM, IComponentVM>.Builder()
+            .Name("aggregate").Services(hub, dispatcher)
+            .Component1(() => ++calls1 == 1
+                ? new ThrowingDisposeVM("old-1", hub, dispatcher)
+                : candidate1)
+            .Component2(() => ++calls2 == 1 ? previous2 : candidate2)
+            .Build();
+        aggregate.Construct();
+
+        aggregate.Invoking(candidate => candidate.Reconstruct())
+            .Should().Throw<InvalidOperationException>()
+            .WithMessage("first disposal failure");
+
+        previous2.Status.Should().Be(ConstructionStatus.Disposed);
         candidate1.Status.Should().Be(ConstructionStatus.Disposed);
         candidate2.Status.Should().Be(ConstructionStatus.Disposed);
     }

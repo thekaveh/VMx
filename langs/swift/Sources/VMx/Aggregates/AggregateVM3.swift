@@ -38,6 +38,7 @@ open class AggregateVM3<
     open override var type: ViewModelType { .aggregate }
 
     open override func _onConstruct() throws {
+        try aggregateParent.withTransaction {
         try super._onConstruct()
         let c1 = factory1()
         let c2 = factory2()
@@ -52,6 +53,7 @@ open class AggregateVM3<
         _notifyPropertyChanged("component2")
         _notifyPropertyChanged("component3")
         try c1.construct(); try c2.construct(); try c3.construct()
+        }
     }
 
     open override func _onDestruct() throws {
@@ -60,8 +62,10 @@ open class AggregateVM3<
     }
 
     open override func dispose() {
+        aggregateParent.withTransaction {
         component1?.dispose(); component2?.dispose(); component3?.dispose()
         super.dispose()
+        }
     }
 
     public static func builder() -> AggregateVM3Builder<C1, C2, C3> {

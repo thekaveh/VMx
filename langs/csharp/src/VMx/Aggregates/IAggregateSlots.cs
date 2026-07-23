@@ -47,11 +47,17 @@ internal static class AggregateOwnership
     {
         using var reservation = ComponentOwnership.BeginExclusiveReservationBatch(next);
         Validate(parent, next);
+        System.Runtime.ExceptionServices.ExceptionDispatchInfo? firstError = null;
         foreach (var child in previous)
-            child?.Dispose();
-        if (parent.Owner?.Status == ConstructionStatus.Disposed)
         {
-            System.Runtime.ExceptionServices.ExceptionDispatchInfo? firstError = null;
+            try { child?.Dispose(); }
+            catch (Exception error)
+            {
+                firstError ??= System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error);
+            }
+        }
+        if (firstError is not null || parent.Owner?.Status == ConstructionStatus.Disposed)
+        {
             foreach (var child in next)
             {
                 try { child.Dispose(); }

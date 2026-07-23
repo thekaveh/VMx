@@ -1,8 +1,11 @@
 // Fixed-slot ownership support shared by AggregateVM1...AggregateVM6.
 
+import Foundation
+
 final class AggregateParent: ParentVM, OwnershipParentVM {
     unowned let owner: ComponentVMBase
     private let slots: () -> [ComponentVMBase]
+    private let transactionLock = NSRecursiveLock()
 
     init(owner: ComponentVMBase, slots: @escaping () -> [ComponentVMBase]) {
         self.owner = owner
@@ -23,6 +26,12 @@ final class AggregateParent: ParentVM, OwnershipParentVM {
 
     func detachForTransfer(_ vm: ComponentVMBase) throws -> ParentTransfer {
         throw ContainerOwnershipError.inconsistentParent
+    }
+
+    func withTransaction<T>(_ action: () throws -> T) rethrows -> T {
+        transactionLock.lock()
+        defer { transactionLock.unlock() }
+        return try action()
     }
 }
 

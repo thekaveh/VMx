@@ -7,6 +7,8 @@ See spec/08-aggregate-vm.md and ADR-0007 (arity 6 added per ADR-0034).
 from __future__ import annotations
 
 from collections.abc import Callable
+from functools import wraps
+from threading import RLock
 from typing import Generic, TypeVar
 
 from vmx.components.base import (
@@ -28,6 +30,7 @@ V3 = TypeVar("V3", bound=ComponentVMProto)
 V4 = TypeVar("V4", bound=ComponentVMProto)
 V5 = TypeVar("V5", bound=ComponentVMProto)
 V6 = TypeVar("V6", bound=ComponentVMProto)
+A = TypeVar("A", bound="_AggregateVMBase")
 
 
 class _AggregateParent(_ParentCompositeVM):
@@ -82,6 +85,7 @@ class _AggregateVMBase(_ComponentVMBase):
         dispatcher: Dispatcher,
     ) -> None:
         super().__init__(name=name, hint=hint, hub=hub, dispatcher=dispatcher)
+        self._aggregate_lock = RLock()
         self._aggregate_parent = _AggregateParent(self)
 
     def components(self) -> list[ComponentVMProto]:
@@ -123,20 +127,48 @@ class _AggregateVMBase(_ComponentVMBase):
         slot_names: tuple[str, ...],
         new_slots: tuple[ComponentVMProto, ...],
     ) -> bool:
-        old_slots = tuple(getattr(self, name) for name in slot_names)
         reservable = tuple(child for child in new_slots if isinstance(child, _ComponentVMBase))
-        with _exclusive_ownership_reservation_batch(reservable):
+        with self._aggregate_lock, _exclusive_ownership_reservation_batch(reservable):
+            old_slots = tuple(getattr(self, name) for name in slot_names)
             self._validate_new_slots(new_slots)
+            first_error: BaseException | None = None
             for child in old_slots:
-                if child is not None:
+                if child is None:
+                    continue
+                try:
                     child.dispose()
-            if self.status is ConstructionStatus.DISPOSED:
-                _dispose_children_then_self(new_slots, lambda: None)
+                except BaseException as error:
+                    if first_error is None:
+                        first_error = error
+            if first_error is not None or self.status is ConstructionStatus.DISPOSED:
+                try:
+                    _dispose_children_then_self(new_slots, lambda: None)
+                except BaseException as error:
+                    if first_error is None:
+                        first_error = error
+                if first_error is not None:
+                    raise first_error
                 return False
             for name, child in zip(slot_names, new_slots, strict=True):
                 setattr(self, name, child)
             self._replace_slot_parents(old_slots, new_slots)
             return True
+
+    def _dispose_aggregate_slots(self, slot_names: tuple[str, ...]) -> None:
+        with self._aggregate_lock:
+            slots = tuple(getattr(self, name) for name in slot_names)
+            _dispose_children_then_self(slots, super().dispose)
+
+
+def _aggregate_transaction(method: Callable[[A], None]) -> Callable[[A], None]:
+    """Serialize fixed-slot replacement through child construction and disposal."""
+
+    @wraps(method)
+    def guarded(self: A) -> None:
+        with self._aggregate_lock:
+            method(self)
+
+    return guarded
 
 
 # ---------------------------------------------------------------------------
@@ -191,6 +223,7 @@ class AggregateVM1(Generic[V1], _AggregateVMBase):
         slots: tuple[ComponentVMProto | None, ...] = (self._component1,)
         return [c for c in slots if c is not None]
 
+    @_aggregate_transaction
     def _on_construct(self) -> None:
         next1 = self._factory1()
         # On Reconstruct, the previous slot instance is in Destructed state but
@@ -213,7 +246,7 @@ class AggregateVM1(Generic[V1], _AggregateVMBase):
         Mirrors C# / TS / Swift AggregateVM1.Dispose so subscribers observe child
         Disposed transitions before the aggregate's own Disposed transition — a
         single dispose-ordering rule across all aggregate arities."""
-        _dispose_children_then_self((self._component1,), super().dispose)
+        self._dispose_aggregate_slots(("_component1",))
 
 
 # ---------------------------------------------------------------------------
@@ -268,6 +301,7 @@ class AggregateVM2(Generic[V1, V2], _AggregateVMBase):
         )
         return [c for c in slots if c is not None]
 
+    @_aggregate_transaction
     def _on_construct(self) -> None:
         next1 = self._factory1()
         next2 = self._factory2()
@@ -290,7 +324,7 @@ class AggregateVM2(Generic[V1, V2], _AggregateVMBase):
     def dispose(self) -> None:
         """Depth-first dispose (LIFE-013): each component slot first, then self.
         See AggregateVM1.dispose for the cross-flavor ordering rationale."""
-        _dispose_children_then_self((self._component1, self._component2), super().dispose)
+        self._dispose_aggregate_slots(("_component1", "_component2"))
 
 
 # ---------------------------------------------------------------------------
@@ -353,6 +387,7 @@ class AggregateVM3(Generic[V1, V2, V3], _AggregateVMBase):
         )
         return [c for c in slots if c is not None]
 
+    @_aggregate_transaction
     def _on_construct(self) -> None:
         next1 = self._factory1()
         next2 = self._factory2()
@@ -379,9 +414,7 @@ class AggregateVM3(Generic[V1, V2, V3], _AggregateVMBase):
     def dispose(self) -> None:
         """Depth-first dispose (LIFE-013): each component slot first, then self.
         See AggregateVM1.dispose for the cross-flavor ordering rationale."""
-        _dispose_children_then_self(
-            (self._component1, self._component2, self._component3), super().dispose
-        )
+        self._dispose_aggregate_slots(("_component1", "_component2", "_component3"))
 
 
 # ---------------------------------------------------------------------------
@@ -452,6 +485,7 @@ class AggregateVM4(Generic[V1, V2, V3, V4], _AggregateVMBase):
         )
         return [c for c in slots if c is not None]
 
+    @_aggregate_transaction
     def _on_construct(self) -> None:
         next1 = self._factory1()
         next2 = self._factory2()
@@ -481,15 +515,7 @@ class AggregateVM4(Generic[V1, V2, V3, V4], _AggregateVMBase):
     def dispose(self) -> None:
         """Depth-first dispose (LIFE-013): each component slot first, then self.
         See AggregateVM1.dispose for the cross-flavor ordering rationale."""
-        _dispose_children_then_self(
-            (
-                self._component1,
-                self._component2,
-                self._component3,
-                self._component4,
-            ),
-            super().dispose,
-        )
+        self._dispose_aggregate_slots(("_component1", "_component2", "_component3", "_component4"))
 
 
 # ---------------------------------------------------------------------------
@@ -568,6 +594,7 @@ class AggregateVM5(Generic[V1, V2, V3, V4, V5], _AggregateVMBase):
         )
         return [c for c in slots if c is not None]
 
+    @_aggregate_transaction
     def _on_construct(self) -> None:
         next1 = self._factory1()
         next2 = self._factory2()
@@ -605,15 +632,8 @@ class AggregateVM5(Generic[V1, V2, V3, V4, V5], _AggregateVMBase):
     def dispose(self) -> None:
         """Depth-first dispose (LIFE-013): each component slot first, then self.
         See AggregateVM1.dispose for the cross-flavor ordering rationale."""
-        _dispose_children_then_self(
-            (
-                self._component1,
-                self._component2,
-                self._component3,
-                self._component4,
-                self._component5,
-            ),
-            super().dispose,
+        self._dispose_aggregate_slots(
+            ("_component1", "_component2", "_component3", "_component4", "_component5")
         )
 
 
@@ -704,6 +724,7 @@ class AggregateVM6(Generic[V1, V2, V3, V4, V5, V6], _AggregateVMBase):
         )
         return [c for c in slots if c is not None]
 
+    @_aggregate_transaction
     def _on_construct(self) -> None:
         next1 = self._factory1()
         next2 = self._factory2()
@@ -744,14 +765,13 @@ class AggregateVM6(Generic[V1, V2, V3, V4, V5, V6], _AggregateVMBase):
     def dispose(self) -> None:
         """Depth-first dispose (LIFE-013): each component slot first, then self.
         See AggregateVM1.dispose for the cross-flavor ordering rationale."""
-        _dispose_children_then_self(
+        self._dispose_aggregate_slots(
             (
-                self._component1,
-                self._component2,
-                self._component3,
-                self._component4,
-                self._component5,
-                self._component6,
-            ),
-            super().dispose,
+                "_component1",
+                "_component2",
+                "_component3",
+                "_component4",
+                "_component5",
+                "_component6",
+            )
         )

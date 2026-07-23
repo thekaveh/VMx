@@ -53,19 +53,22 @@ public sealed class AggregateVM1<VM1> : ComponentVMBase, IAggregateVM1<VM1>, IAg
     /// <inheritdoc/>
     protected override void OnConstruct()
     {
-        var next1 = _factory1();
-        IComponentVM?[] previous = [_component1];
-        // On Reconstruct, the previous slot instance is in Destructed state but
-        // still holds hub subscriptions and command Subjects. Dispose it before
-        // overwriting so subscribers don't leak across the Reconstruct boundary.
-        if (!AggregateOwnership.Replace(_aggregateParent, previous, [next1], () =>
+        lock (_aggregateParent)
         {
-            _component1 = next1;
-        })) return;
-        NotifyPropertyChanged(nameof(Component1));
+            var next1 = _factory1();
+            IComponentVM?[] previous = [_component1];
+            // On Reconstruct, the previous slot instance is in Destructed state but
+            // still holds hub subscriptions and command Subjects. Dispose it before
+            // overwriting so subscribers don't leak across the Reconstruct boundary.
+            if (!AggregateOwnership.Replace(_aggregateParent, previous, [next1], () =>
+            {
+                _component1 = next1;
+            })) return;
+            NotifyPropertyChanged(nameof(Component1));
 
-        CompleteLifecycleHookAfter(TransitionChildrenAsync(
-            [next1], construct: true));
+            CompleteLifecycleHookAfter(TransitionChildrenAsync(
+                [next1], construct: true));
+        }
     }
 
     /// <inheritdoc/>
@@ -81,13 +84,16 @@ public sealed class AggregateVM1<VM1> : ComponentVMBase, IAggregateVM1<VM1>, IAg
     /// </summary>
     public override void Dispose()
     {
-        var firstError = DisposeChildren([_component1]);
-        try { base.Dispose(); }
-        catch (Exception error)
+        lock (_aggregateParent)
         {
-            firstError ??= System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error);
+            var firstError = DisposeChildren([_component1]);
+            try { base.Dispose(); }
+            catch (Exception error)
+            {
+                firstError ??= System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error);
+            }
+            firstError?.Throw();
         }
-        firstError?.Throw();
     }
 
     // ── Builder factory ─────────────────────────────────────────────────────

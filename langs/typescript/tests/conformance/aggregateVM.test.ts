@@ -37,6 +37,15 @@ class ReentrantDisposeVM extends ComponentVMBase {
   protected override _onDispose(): void { this.#onDispose(); }
 }
 
+class ThrowingDisposeVM extends ComponentVMBase {
+  constructor(name: string, hub: MessageHub) {
+    super({ name, hint: "", hub, dispatcher: makeDisp() });
+  }
+
+  override get type(): ViewModelType { return ViewModelType.Component; }
+  protected override _onDispose(): void { throw new Error("first disposal failure"); }
+}
+
 // ---------------------------------------------------------------------------
 // AGG-001
 // ---------------------------------------------------------------------------
@@ -385,6 +394,29 @@ describe("AggregateVM reconstruct disposes previous slot", () => {
 });
 
 describe("Aggregate fixed-slot ownership", () => {
+  it("cleans every old slot and candidate after a disposal failure", () => {
+    const hub = makeHub();
+    const candidate1 = makeChild(hub, "candidate-1");
+    const candidate2 = makeChild(hub, "candidate-2");
+    const previous2 = makeChild(hub, "old-2");
+    let calls1 = 0;
+    let calls2 = 0;
+    const aggregate = AggregateVM2.builder<ComponentVMBase, ComponentVMBase>()
+      .name("aggregate").services(hub, makeDisp())
+      .component1(() => ++calls1 === 1
+        ? new ThrowingDisposeVM("old-1", hub)
+        : candidate1)
+      .component2(() => ++calls2 === 1 ? previous2 : candidate2)
+      .build();
+    aggregate.construct();
+
+    expect(() => aggregate.reconstruct()).toThrow("first disposal failure");
+
+    expect(previous2.status).toBe(ConstructionStatus.Disposed);
+    expect(candidate1.status).toBe(ConstructionStatus.Disposed);
+    expect(candidate2.status).toBe(ConstructionStatus.Disposed);
+  });
+
   it.each([1, 2])(
     "AggregateVM%d aborts replacement when previous disposal disposes the parent",
     (arity) => {

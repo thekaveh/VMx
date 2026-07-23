@@ -103,41 +103,44 @@ public sealed class AggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6> : ComponentVMBase
     /// <inheritdoc/>
     protected override void OnConstruct()
     {
-        var next1 = _factory1();
-        var next2 = _factory2();
-        var next3 = _factory3();
-        var next4 = _factory4();
-        var next5 = _factory5();
-        var next6 = _factory6();
-        IComponentVM?[] previous = [_component1, _component2, _component3, _component4, _component5, _component6];
-        // On Reconstruct, dispose previous slot instances before overwriting
-        // so their hub subscriptions and command Subjects don't leak.
-        // Emit Hub message before the local PropertyChanged, matching arities
-        // 1–5 and the Python/TS flavors (spec/08 §; relative order is uniform
-        // across all aggregate arities).
-        if (!AggregateOwnership.Replace(
-            _aggregateParent,
-            previous,
-            [next1, next2, next3, next4, next5, next6],
-            () =>
-            {
-                _component1 = next1;
-                _component2 = next2;
-                _component3 = next3;
-                _component4 = next4;
-                _component5 = next5;
-                _component6 = next6;
-            })) return;
-        NotifyPropertyChanged(nameof(Component1));
-        NotifyPropertyChanged(nameof(Component2));
-        NotifyPropertyChanged(nameof(Component3));
-        NotifyPropertyChanged(nameof(Component4));
-        NotifyPropertyChanged(nameof(Component5));
-        NotifyPropertyChanged(nameof(Component6));
+        lock (_aggregateParent)
+        {
+            var next1 = _factory1();
+            var next2 = _factory2();
+            var next3 = _factory3();
+            var next4 = _factory4();
+            var next5 = _factory5();
+            var next6 = _factory6();
+            IComponentVM?[] previous = [_component1, _component2, _component3, _component4, _component5, _component6];
+            // On Reconstruct, dispose previous slot instances before overwriting
+            // so their hub subscriptions and command Subjects don't leak.
+            // Emit Hub message before the local PropertyChanged, matching arities
+            // 1–5 and the Python/TS flavors (spec/08 §; relative order is uniform
+            // across all aggregate arities).
+            if (!AggregateOwnership.Replace(
+                _aggregateParent,
+                previous,
+                [next1, next2, next3, next4, next5, next6],
+                () =>
+                {
+                    _component1 = next1;
+                    _component2 = next2;
+                    _component3 = next3;
+                    _component4 = next4;
+                    _component5 = next5;
+                    _component6 = next6;
+                })) return;
+            NotifyPropertyChanged(nameof(Component1));
+            NotifyPropertyChanged(nameof(Component2));
+            NotifyPropertyChanged(nameof(Component3));
+            NotifyPropertyChanged(nameof(Component4));
+            NotifyPropertyChanged(nameof(Component5));
+            NotifyPropertyChanged(nameof(Component6));
 
-        CompleteLifecycleHookAfter(TransitionChildrenAsync(
-            [next1, next2, next3, next4, next5, next6],
-            construct: true));
+            CompleteLifecycleHookAfter(TransitionChildrenAsync(
+                [next1, next2, next3, next4, next5, next6],
+                construct: true));
+        }
     }
 
     /// <inheritdoc/>
@@ -157,14 +160,17 @@ public sealed class AggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6> : ComponentVMBase
     /// </summary>
     public override void Dispose()
     {
-        var firstError = DisposeChildren(
-            [_component1, _component2, _component3, _component4, _component5, _component6]);
-        try { base.Dispose(); }
-        catch (Exception error)
+        lock (_aggregateParent)
         {
-            firstError ??= System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error);
+            var firstError = DisposeChildren(
+                [_component1, _component2, _component3, _component4, _component5, _component6]);
+            try { base.Dispose(); }
+            catch (Exception error)
+            {
+                firstError ??= System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error);
+            }
+            firstError?.Throw();
         }
-        firstError?.Throw();
     }
 
     // ── Builder factory ─────────────────────────────────────────────────────

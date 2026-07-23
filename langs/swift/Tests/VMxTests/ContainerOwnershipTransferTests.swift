@@ -178,6 +178,21 @@ private final class AggregateRaceAttempt: @unchecked Sendable {
     func run() { results.record { try aggregate.reconstruct() } }
 }
 
+private final class AggregateDisposeAttempt: @unchecked Sendable {
+    let aggregate: AggregateVM1<ComponentVMBase>
+    let completed: DispatchSemaphore
+
+    init(_ aggregate: AggregateVM1<ComponentVMBase>, completed: DispatchSemaphore) {
+        self.aggregate = aggregate
+        self.completed = completed
+    }
+
+    func run() {
+        aggregate.dispose()
+        completed.signal()
+    }
+}
+
 final class ContainerOwnershipTransferTests: XCTestCase {
     private var cancellables: Set<AnyCancellable> = []
 
@@ -345,6 +360,51 @@ final class ContainerOwnershipTransferTests: XCTestCase {
                 .filter { $0 === candidate }.count,
             1
         )
+    }
+
+    func testAggregateReconstructSerializesConcurrentParentDisposal() throws {
+        let candidate = try leaf("candidate")
+        let disposalEntered = DispatchSemaphore(value: 0)
+        let releaseDisposal = DispatchSemaphore(value: 0)
+        let disposalCompleted = DispatchSemaphore(value: 0)
+        var calls = 0
+        let aggregate = AggregateVM1<ComponentVMBase>(
+            name: "aggregate",
+            hub: NullMessageHub.INSTANCE,
+            dispatcher: NullDispatcher.INSTANCE,
+            factory1: {
+                calls += 1
+                return calls == 1
+                    ? BlockingAggregateSlot(
+                        "old", entered: disposalEntered, release: releaseDisposal)
+                    : candidate
+            }
+        )
+        try aggregate.construct()
+        let results = AggregateRaceResults()
+        let reconstruction = AggregateRaceAttempt(aggregate, results: results)
+        let disposal = AggregateDisposeAttempt(aggregate, completed: disposalCompleted)
+        let group = DispatchGroup()
+
+        group.enter()
+        DispatchQueue.global().async {
+            reconstruction.run()
+            group.leave()
+        }
+        XCTAssertEqual(disposalEntered.wait(timeout: .now() + 2), .success)
+        group.enter()
+        DispatchQueue.global().async {
+            disposal.run()
+            group.leave()
+        }
+        XCTAssertEqual(disposalCompleted.wait(timeout: .now() + 0.05), .timedOut)
+        releaseDisposal.signal()
+
+        XCTAssertEqual(group.wait(timeout: .now() + 5), .success)
+        XCTAssertEqual(results.successes, 1)
+        XCTAssertTrue(results.errors.isEmpty)
+        XCTAssertEqual(aggregate.status, .disposed)
+        XCTAssertEqual(candidate.status, .disposed)
     }
 
     /// COMP-038 — Adding an owned child transfers it between composite/group parents.

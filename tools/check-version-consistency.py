@@ -75,6 +75,7 @@ CSHARP_TAG_PREFIXES: dict[str, str] = {
 
 # Matches a semver triple like 2.6.0 or 1.12.3.
 _VERSION_RE = re.compile(r"\b(\d+\.\d+\.\d+)\b")
+_STABLE_SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")
 
 # Matches the spec column of a matrix row like "2.6.x" or "1.1.x".
 _SPEC_ROW_RE = re.compile(r"^(\d+\.\d+)\.x$")
@@ -87,11 +88,11 @@ def _tag_major(tag: str) -> int:
     """Return the major version component embedded in a tag name.
 
     Handles patterns like ``csharp-v2.6.0``, ``spec-v1.0.0``, ``v2.4.0``.
-    Returns 0 for tags whose version cannot be parsed (treated as enforced,
-    i.e. fail-safe).
+    Returns the minimum enforced major for tags whose version cannot be parsed,
+    so unknown tag shapes fail closed.
     """
     m = re.search(r"[vV](\d+)\.\d+\.\d+", tag)
-    return int(m.group(1)) if m else 0
+    return int(m.group(1)) if m else MIN_ENFORCED_MAJOR
 
 
 def _tag_version(tag: str) -> str:
@@ -526,6 +527,66 @@ def current_development_versions(
     return versions
 
 
+def current_development_tags(
+    spec_version: str,
+    manifests: dict[str, dict[str, str]],
+    matrix_rows: list[dict[str, object]],
+) -> set[str]:
+    """Return exact tag identities belonging to the active source line."""
+    tags = {f"spec-v{spec_version}", f"v{spec_version}"}
+    spec_parts = spec_version.split(".")
+    if len(spec_parts) >= 2:
+        current_row = f"{spec_parts[0]}.{spec_parts[1]}.x"
+        row = next(
+            (candidate for candidate in matrix_rows if candidate.get("spec_row") == current_row),
+            None,
+        )
+        if row is not None:
+            for flavor in FLAVORS:
+                tags.update(f"{flavor}-v{version}" for version in row.get(flavor, []))  # type: ignore[union-attr]
+
+    for flavor, info in manifests.items():
+        version = info.get("version", "")
+        if info.get("unreleased") == "true" and version:
+            prefix = info.get("tag_prefix") or flavor.split("/", 1)[0]
+            tags.add(f"{prefix}-v{version}")
+    return tags
+
+
+def validate_semver_values(
+    spec_version: str,
+    manifests: dict[str, dict[str, str]],
+    matrix_rows: list[dict[str, object]],
+) -> list[str]:
+    """Return issues for version claims that are not exact stable SemVer."""
+    issues: list[str] = []
+
+    def check(source: str, value: object) -> None:
+        if not isinstance(value, str) or not _STABLE_SEMVER_RE.fullmatch(value):
+            issues.append(f"  {source}={value!r} is not exact stable SemVer (X.Y.Z)")
+
+    check("spec/VERSION", spec_version)
+    for flavor, info in sorted(manifests.items()):
+        version = info.get("version", "")
+        if version:
+            check(f"{flavor} version", version)
+        min_spec = info.get("min_spec_version", "")
+        if min_spec:
+            check(f"{flavor} min-spec version", min_spec)
+
+    for row in matrix_rows:
+        spec_row = str(row.get("spec_row", ""))
+        if not _SPEC_ROW_RE.fullmatch(spec_row):
+            issues.append(f"  compatibility-matrix.md spec row {spec_row!r} is not exact X.Y.x")
+        for flavor in FLAVORS:
+            for version in row.get(flavor, []):  # type: ignore[union-attr]
+                check(
+                    f"compatibility-matrix.md row {spec_row!r} {flavor} version",
+                    version,
+                )
+    return issues
+
+
 # ─── reporting ────────────────────────────────────────────────────────
 
 
@@ -636,7 +697,8 @@ def main(argv: Iterable[str] | None = None) -> int:
         print(f"ERROR: unable to inspect git tags: {error}", file=sys.stderr)
         return 2
 
-    msv_issues = check_min_spec_versions(spec_version, manifests)
+    msv_issues = validate_semver_values(spec_version, manifests, matrix_rows)
+    msv_issues.extend(check_min_spec_versions(spec_version, manifests))
     msv_issues.extend(check_changelog_sections(repo_root, manifests))
     typescript_version = manifests.get("typescript", {}).get("version", "")
     if typescript_version:
@@ -646,16 +708,12 @@ def main(argv: Iterable[str] | None = None) -> int:
     # Carve out current source lines first. Flavor package versions can advance
     # independently while their min-spec and current matrix row stay pinned to
     # spec/VERSION; none of those tags exists until release.
-    development_versions = current_development_versions(spec_version, manifests, matrix_rows)
+    development_tags = current_development_tags(spec_version, manifests, matrix_rows)
     indev_missing = {
-        tag: reasons
-        for tag, reasons in all_missing.items()
-        if _tag_version(tag) in development_versions
+        tag: reasons for tag, reasons in all_missing.items() if tag in development_tags
     }
     remaining = {
-        tag: reasons
-        for tag, reasons in all_missing.items()
-        if _tag_version(tag) not in development_versions
+        tag: reasons for tag, reasons in all_missing.items() if tag not in development_tags
     }
 
     # Split the rest into enforced (major >= MIN_ENFORCED_MAJOR) and

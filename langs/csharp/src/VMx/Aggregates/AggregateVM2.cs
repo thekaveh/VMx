@@ -63,21 +63,24 @@ public sealed class AggregateVM2<VM1, VM2> : ComponentVMBase, IAggregateVM2<VM1,
     /// <inheritdoc/>
     protected override void OnConstruct()
     {
-        var next1 = _factory1();
-        var next2 = _factory2();
-        IComponentVM?[] previous = [_component1, _component2];
-        // On Reconstruct, dispose previous slot instances before overwriting
-        // so their hub subscriptions and command Subjects don't leak.
-        if (!AggregateOwnership.Replace(_aggregateParent, previous, [next1, next2], () =>
+        lock (_aggregateParent)
         {
-            _component1 = next1;
-            _component2 = next2;
-        })) return;
-        NotifyPropertyChanged(nameof(Component1));
-        NotifyPropertyChanged(nameof(Component2));
+            var next1 = _factory1();
+            var next2 = _factory2();
+            IComponentVM?[] previous = [_component1, _component2];
+            // On Reconstruct, dispose previous slot instances before overwriting
+            // so their hub subscriptions and command Subjects don't leak.
+            if (!AggregateOwnership.Replace(_aggregateParent, previous, [next1, next2], () =>
+            {
+                _component1 = next1;
+                _component2 = next2;
+            })) return;
+            NotifyPropertyChanged(nameof(Component1));
+            NotifyPropertyChanged(nameof(Component2));
 
-        CompleteLifecycleHookAfter(TransitionChildrenAsync(
-            [next1, next2], construct: true));
+            CompleteLifecycleHookAfter(TransitionChildrenAsync(
+                [next1, next2], construct: true));
+        }
     }
 
     /// <inheritdoc/>
@@ -93,13 +96,16 @@ public sealed class AggregateVM2<VM1, VM2> : ComponentVMBase, IAggregateVM2<VM1,
     /// </summary>
     public override void Dispose()
     {
-        var firstError = DisposeChildren([_component1, _component2]);
-        try { base.Dispose(); }
-        catch (Exception error)
+        lock (_aggregateParent)
         {
-            firstError ??= System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error);
+            var firstError = DisposeChildren([_component1, _component2]);
+            try { base.Dispose(); }
+            catch (Exception error)
+            {
+                firstError ??= System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error);
+            }
+            firstError?.Throw();
         }
-        firstError?.Throw();
     }
 
     // ── Builder factory ─────────────────────────────────────────────────────

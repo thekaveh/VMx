@@ -79,9 +79,24 @@ export function replaceAggregateSlots(
   for (const identity of identities) identity._ownershipInProgress = true;
   try {
     validateAggregateSlots(parent, next);
-    for (const child of previous) child?.dispose();
-    if (parent.owner.status === ConstructionStatus.Disposed) {
-      disposeBestEffort(next.map((child) => () => child.dispose()));
+    let failed = false;
+    let firstError: unknown;
+    try {
+      disposeBestEffort(previous.map((child) => () => child?.dispose()));
+    } catch (error) {
+      failed = true;
+      firstError = error;
+    }
+    if (failed || parent.owner.status === ConstructionStatus.Disposed) {
+      try {
+        disposeBestEffort(next.map((child) => () => child.dispose()));
+      } catch (error) {
+        if (!failed) {
+          failed = true;
+          firstError = error;
+        }
+      }
+      if (failed) throw firstError;
       return false;
     }
     assign();
