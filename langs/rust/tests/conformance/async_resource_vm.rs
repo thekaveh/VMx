@@ -27,21 +27,27 @@ fn controlled_vm(
     receivers: Vec<Receiver<VmxResult<i32>>>,
     retention: AsyncResourceRetention,
     cleaned: Option<Arc<Mutex<Vec<i32>>>>,
-) -> AsyncResourceVm<i32> {
+) -> (AsyncResourceVm<i32>, Arc<AtomicUsize>) {
     let queue = Arc::new(Mutex::new(VecDeque::from(receivers)));
+    let starts = Arc::new(AtomicUsize::new(0));
+    let loader_starts = starts.clone();
     let cleanup = cleaned.map(|values| {
         Arc::new(move |value| values.lock().unwrap().push(value)) as Arc<dyn Fn(i32) + Send + Sync>
     });
-    AsyncResourceVm::with_options(
-        "resource",
-        move |_token| {
-            let receiver = queue.lock().unwrap().pop_front().unwrap();
-            receiver
-                .recv()
-                .unwrap_or_else(|_| Err(VmxError::Other("loader channel closed".into())))
-        },
-        retention,
-        cleanup,
+    (
+        AsyncResourceVm::with_options(
+            "resource",
+            move |_token| {
+                let receiver = queue.lock().unwrap().pop_front().unwrap();
+                loader_starts.fetch_add(1, Ordering::SeqCst);
+                receiver
+                    .recv()
+                    .unwrap_or_else(|_| Err(VmxError::Other("loader channel closed".into())))
+            },
+            retention,
+            cleanup,
+        ),
+        starts,
     )
 }
 
@@ -66,7 +72,7 @@ fn async_resource_initial_state_and_commands() {
 #[test]
 fn async_resource_success_notifies_loading_and_ready() {
     let (send, receive) = channel();
-    let vm = controlled_vm(vec![receive], AsyncResourceRetention::DiscardPrevious, None);
+    let (vm, starts) = controlled_vm(vec![receive], AsyncResourceRetention::DiscardPrevious, None);
     let changes = Arc::new(Mutex::new(Vec::new()));
     let seen = changes.clone();
     let _subscription = vm.property_changed().subscribe(move |name| {
@@ -74,7 +80,7 @@ fn async_resource_success_notifies_loading_and_ready() {
     });
 
     let load = vm.load_async();
-    wait_until(|| vm.status() == AsyncResourceStatus::Loading);
+    wait_until(|| starts.load(Ordering::SeqCst) == 1);
     send.send(Ok(42)).unwrap();
     load.join().unwrap().unwrap();
 
@@ -170,23 +176,25 @@ fn async_resource_retains_previous_through_cancel_and_failure() {
     let (send1, receive1) = channel();
     let (send2, receive2) = channel();
     let (send3, receive3) = channel();
-    let vm = controlled_vm(
+    let (vm, starts) = controlled_vm(
         vec![receive1, receive2, receive3],
         AsyncResourceRetention::RetainPrevious,
         None,
     );
     let first = vm.load_async();
+    wait_until(|| starts.load(Ordering::SeqCst) == 1);
     send1.send(Ok(3)).unwrap();
     first.join().unwrap().unwrap();
 
     let cancelled = vm.reload_async();
-    wait_until(|| vm.status() == AsyncResourceStatus::Loading);
+    wait_until(|| starts.load(Ordering::SeqCst) == 2);
     assert_eq!(vm.value(), Some(3));
     vm.cancel();
     cancelled.join().unwrap().unwrap();
     assert_eq!(vm.state(), AsyncResourceState::Ready { value: 3 });
 
     let failed = vm.reload_async();
+    wait_until(|| starts.load(Ordering::SeqCst) == 3);
     send3.send(Err(VmxError::Other("refresh".into()))).unwrap();
     failed.join().unwrap().unwrap();
     assert!(matches!(
@@ -206,22 +214,24 @@ fn async_resource_discard_cleans_at_reload_start() {
     let (_send2, receive2) = channel();
     let (send3, receive3) = channel();
     let cleaned = Arc::new(Mutex::new(Vec::new()));
-    let vm = controlled_vm(
+    let (vm, starts) = controlled_vm(
         vec![receive1, receive2, receive3],
         AsyncResourceRetention::DiscardPrevious,
         Some(cleaned.clone()),
     );
     let first = vm.load_async();
+    wait_until(|| starts.load(Ordering::SeqCst) == 1);
     send1.send(Ok(5)).unwrap();
     first.join().unwrap().unwrap();
     let reload = vm.reload_async();
-    wait_until(|| vm.status() == AsyncResourceStatus::Loading);
+    wait_until(|| starts.load(Ordering::SeqCst) == 2);
     assert_eq!(*cleaned.lock().unwrap(), vec![5]);
     assert_eq!(vm.value(), None);
     vm.cancel();
     reload.join().unwrap().unwrap();
     assert_eq!(vm.state(), AsyncResourceState::Idle);
     let failed = vm.load_async();
+    wait_until(|| starts.load(Ordering::SeqCst) == 3);
     send3.send(Err(VmxError::Other("offline".into()))).unwrap();
     failed.join().unwrap().unwrap();
     assert_eq!(vm.value(), None);
@@ -267,14 +277,15 @@ fn replacement_cleanup_that_starts_reload_suppresses_superseded_notification() {
 fn async_resource_latest_start_wins() {
     let (send1, receive1) = channel();
     let (send2, receive2) = channel();
-    let vm = controlled_vm(
+    let (vm, starts) = controlled_vm(
         vec![receive1, receive2],
         AsyncResourceRetention::DiscardPrevious,
         None,
     );
     let older = vm.load_async();
-    wait_until(|| vm.status() == AsyncResourceStatus::Loading);
+    wait_until(|| starts.load(Ordering::SeqCst) == 1);
     let newer = vm.reload_async();
+    wait_until(|| starts.load(Ordering::SeqCst) == 2);
     older.join().unwrap().unwrap();
     send1.send(Ok(1)).unwrap();
     thread::sleep(Duration::from_millis(5));
@@ -290,7 +301,7 @@ fn async_resource_stale_success_cleans_silently() {
     let (send1, receive1) = channel();
     let (send2, receive2) = channel();
     let cleaned = Arc::new(Mutex::new(Vec::new()));
-    let vm = controlled_vm(
+    let (vm, starts) = controlled_vm(
         vec![receive1, receive2],
         AsyncResourceRetention::DiscardPrevious,
         Some(cleaned.clone()),
@@ -301,8 +312,9 @@ fn async_resource_stale_success_cleans_silently() {
         count.fetch_add(1, Ordering::SeqCst);
     });
     let older = vm.load_async();
-    wait_until(|| vm.status() == AsyncResourceStatus::Loading);
+    wait_until(|| starts.load(Ordering::SeqCst) == 1);
     let newer = vm.reload_async();
+    wait_until(|| starts.load(Ordering::SeqCst) == 2);
     older.join().unwrap().unwrap();
     send2.send(Ok(2)).unwrap();
     newer.join().unwrap().unwrap();
@@ -341,7 +353,7 @@ fn async_resource_replacement_and_dispose_cleanup_once() {
 fn async_resource_dispose_cancels_and_late_completion_is_inert() {
     let (send, receive) = channel();
     let cleaned = Arc::new(Mutex::new(Vec::new()));
-    let vm = controlled_vm(
+    let (vm, starts) = controlled_vm(
         vec![receive],
         AsyncResourceRetention::DiscardPrevious,
         Some(cleaned.clone()),
@@ -352,7 +364,7 @@ fn async_resource_dispose_cancels_and_late_completion_is_inert() {
         count.fetch_add(1, Ordering::SeqCst);
     });
     let load = vm.load_async();
-    wait_until(|| vm.status() == AsyncResourceStatus::Loading);
+    wait_until(|| starts.load(Ordering::SeqCst) == 1);
     vm.dispose().unwrap();
     vm.dispose().unwrap();
     let notifications = changes.load(Ordering::SeqCst);

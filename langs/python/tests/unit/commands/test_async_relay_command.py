@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from collections.abc import Callable
 from threading import Barrier, Event, Lock, Thread
 
 import pytest
@@ -103,3 +104,70 @@ def test_dispose_attempts_all_terminal_steps_and_preserves_first_failure() -> No
     assert command._can_execute_changed_subject.is_disposed is True
     assert command._errors.is_disposed is True
     command.dispose()
+
+
+@pytest.mark.parametrize(
+    ("subject_name", "emit", "value"),
+    [
+        (
+            "_can_execute_changed_subject",
+            lambda command, _: command.raise_can_execute_changed(),
+            None,
+        ),
+        ("_errors", lambda command, error: command._emit_error(error), RuntimeError("boom")),
+    ],
+)
+def test_concurrent_dispose_waits_for_active_subject_emission(
+    subject_name: str,
+    emit: Callable[[AsyncRelayCommand, object], None],
+    value: object,
+) -> None:
+    emission_started = Event()
+    release_emission = Event()
+    dispose_started = Event()
+    dispose_finished = Event()
+
+    class BlockingSubject(Subject[object]):
+        def on_next(self, item: object) -> None:
+            emission_started.set()
+            assert release_emission.wait(1)
+            super().on_next(item)
+
+    command = AsyncRelayCommand.builder().build()
+    subject = BlockingSubject()
+    observed: list[object] = []
+    completions: list[None] = []
+    subject.subscribe(observed.append, on_completed=lambda: completions.append(None))
+    setattr(command, subject_name, subject)
+    emission_failures: list[BaseException] = []
+
+    def publish() -> None:
+        try:
+            emit(command, value)
+        except BaseException as error:
+            emission_failures.append(error)
+
+    emitter = Thread(target=publish, daemon=True)
+    emitter.start()
+    assert emission_started.wait(1)
+
+    def dispose() -> None:
+        dispose_started.set()
+        command.dispose()
+        dispose_finished.set()
+
+    disposer = Thread(target=dispose, daemon=True)
+    disposer.start()
+    assert dispose_started.wait(1)
+    disposed_during_emission = dispose_finished.wait(0.1)
+    release_emission.set()
+
+    emitter.join(timeout=1)
+    disposer.join(timeout=1)
+
+    assert not emitter.is_alive()
+    assert not disposer.is_alive()
+    assert not disposed_during_emission
+    assert emission_failures == []
+    assert observed == [value]
+    assert completions == [None]

@@ -1386,6 +1386,7 @@ def test_release_gates_do_not_let_type7_html_interrupt_a_paragraph(tmp_path: Pat
         "<span =>",
         "</span bogus>",
         '<x "bad">',
+        "<source attr",
     ],
 )
 def test_release_gates_follow_commonmark_block_parsing_for_duplicate_sections(
@@ -1408,6 +1409,26 @@ def test_release_gates_follow_commonmark_block_parsing_for_duplicate_sections(
     assert cvc.check_csharp_unreleased_structure(changelog) == expected
     for package in cvc.CSHARP_UNRELEASED_PACKAGES:
         assert cvc.check_release_unreleased(changelog, package) == expected
+
+
+def test_release_gates_use_current_commonmark_html_block_tags(tmp_path: Path) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        "## [Unreleased]\n\n"
+        "### VMx\n\n"
+        "### VMx.Notifications\n\n"
+        "### VMx.Extensions.DependencyInjection\n\n"
+        "## [3.22.1]\n\n- Tagged notes.\n\n"
+        "<search attr\n"
+        "## [Unreleased]\n\n"
+        "- This heading is inside the HTML block.\n",
+        encoding="utf-8",
+    )
+
+    assert cvc.check_release_unreleased(changelog) == []
+    assert cvc.check_csharp_unreleased_structure(changelog) == []
+    for package in cvc.CSHARP_UNRELEASED_PACKAGES:
+        assert cvc.check_release_unreleased(changelog, package) == []
 
 
 @pytest.mark.parametrize(

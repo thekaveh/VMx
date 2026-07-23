@@ -197,10 +197,12 @@ class AsyncRelayCommand:
             self._emit_error(exc)
 
     def _emit_error(self, exc: BaseException) -> None:
+        # Keep delivery inside the gate so disposal cannot terminally dispose
+        # the Reactivex subject between the liveness check and on_next().
         with self._gate:
             if self._disposed:
                 return
-        self._errors.on_next(exc)
+            self._errors.on_next(exc)
 
     def raise_can_execute_changed(self) -> None:
         """Emit one re-evaluation notification without invoking user delegates.
@@ -208,10 +210,12 @@ class AsyncRelayCommand:
         Valid while idle or in flight; repeated calls are additive. Calls after
         :meth:`dispose` are no-ops.
         """
+        # Reactivex raises on post-dispose delivery, unlike some flavor
+        # runtimes, so serialize this emission with the terminal sequence.
         with self._gate:
             if self._disposed:
                 return
-        self._can_execute_changed_subject.on_next(None)
+            self._can_execute_changed_subject.on_next(None)
 
     def dispose(self) -> None:
         """Cancel any in-flight task, release subscriptions, complete the subjects.
