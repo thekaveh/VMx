@@ -92,6 +92,21 @@ _CHANGELOG_HEADING_RE = re.compile(r"^## \[([^\]]+)\](?:\([^)]*\))?(?:\s+.*)?$")
 _CHANGELOG_ATX_H2_RE = re.compile(r"^ {0,3}##(?!#)(?:[ \t]+(.*))?$")
 _CHANGELOG_SETEXT_H2_RE = re.compile(r"^ {0,3}-+[ \t]*$")
 _MARKDOWN_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
+_MARKDOWN_LIST_FENCE_RE = re.compile(r"^( {0,3})(?:[-+*]|\d{1,9}[.)])([ \t]+)(`{3,}|~{3,})(.*)$")
+_MARKDOWN_HTML_RAW_TAG_RE = re.compile(
+    r"^ {0,3}<(script|pre|style|textarea)(?:[ \t>]|$)", re.IGNORECASE
+)
+_MARKDOWN_HTML_BLOCK_TAG_RE = re.compile(
+    r"^ {0,3}</?(?:address|article|aside|base|basefont|blockquote|body|caption|center|"
+    r"col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|"
+    r"form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|"
+    r"menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|"
+    r"tbody|td|tfoot|th|thead|title|tr|track|ul)(?:[ \t/>]|$)",
+    re.IGNORECASE,
+)
+_MARKDOWN_HTML_COMPLETE_TAG_RE = re.compile(
+    r"^ {0,3}</?[A-Za-z][A-Za-z0-9-]*(?:[ \t]+[^<>]*)?/?>[ \t]*$"
+)
 _MARKDOWN_BACKSLASH_ESCAPE_RE = re.compile(r"""\\([!"#$%&'()*+,\-./:;<=>?@\[\]\\^_`{|}~])""")
 
 # Matches the spec column of a matrix row like "2.6.x" or "1.1.x".
@@ -235,18 +250,82 @@ def _parse_changelog_sections(
     starts: list[tuple[str, int]] = []
     seen: set[str] = set()
     issues: list[str] = []
-    fence: tuple[str, int] | None = None
+    fence: tuple[str, int, int, int] | None = None
+    html_end: tuple[str, bool] | None = None
+    html_until_blank = False
     for index, line in enumerate(lines):
+        if html_end is not None:
+            terminator, case_insensitive = html_end
+            candidate = line.lower() if case_insensitive else line
+            if terminator in candidate:
+                html_end = None
+            continue
+        if html_until_blank:
+            if not line.strip():
+                html_until_blank = False
+            continue
         if fence is not None:
-            marker, minimum = fence
-            if re.fullmatch(rf" {{0,3}}{re.escape(marker)}{{{minimum},}}[ \t]*", line):
+            marker, minimum, min_indent, max_indent = fence
+            if re.fullmatch(
+                rf" {{{min_indent},{max_indent}}}{re.escape(marker)}{{{minimum},}}[ \t]*",
+                line,
+            ):
                 fence = None
+            continue
+        html_line = line.lstrip(" ")
+        if len(line) - len(html_line) <= 3:
+            html_terminator = next(
+                (
+                    terminator
+                    for opener, terminator in (
+                        ("<!--", "-->"),
+                        ("<?", "?>"),
+                        ("<![CDATA[", "]]>"),
+                    )
+                    if html_line.startswith(opener)
+                ),
+                None,
+            )
+            if html_terminator is not None:
+                if html_terminator not in html_line:
+                    html_end = (html_terminator, False)
+                continue
+            raw_tag = _MARKDOWN_HTML_RAW_TAG_RE.match(line)
+            if raw_tag:
+                terminator = f"</{raw_tag.group(1).lower()}>"
+                if terminator not in html_line.lower():
+                    html_end = (terminator, True)
+                continue
+            if re.match(r"^<![A-Z]", html_line):
+                if ">" not in html_line:
+                    html_end = (">", False)
+                continue
+            if _MARKDOWN_HTML_BLOCK_TAG_RE.match(line) or _MARKDOWN_HTML_COMPLETE_TAG_RE.fullmatch(
+                line
+            ):
+                html_until_blank = True
+                continue
+        list_fence_match = _MARKDOWN_LIST_FENCE_RE.fullmatch(line)
+        if list_fence_match and not (
+            list_fence_match.group(3).startswith("`") and "`" in list_fence_match.group(4)
+        ):
+            content_indent = (
+                len(list_fence_match.group(1))
+                + len(line.lstrip(" ").split(maxsplit=1)[0])
+                + len(list_fence_match.group(2))
+            )
+            fence = (
+                list_fence_match.group(3)[0],
+                len(list_fence_match.group(3)),
+                content_indent,
+                content_indent + 3,
+            )
             continue
         fence_match = _MARKDOWN_FENCE_RE.fullmatch(line)
         if fence_match and not (
             fence_match.group(1).startswith("`") and "`" in fence_match.group(2)
         ):
-            fence = (fence_match.group(1)[0], len(fence_match.group(1)))
+            fence = (fence_match.group(1)[0], len(fence_match.group(1)), 0, 3)
             continue
         heading_line = line.lstrip(" ")
         indent = len(line) - len(heading_line)

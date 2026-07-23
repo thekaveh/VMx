@@ -1294,6 +1294,56 @@ def test_release_tag_ignores_heading_examples_inside_fences(tmp_path: Path, fenc
     assert cvc.check_release_unreleased(changelog) == []
 
 
+@pytest.mark.parametrize(
+    "html_block",
+    [
+        "<!--\n```\n-->",
+        "<script>\n```\n</SCRIPT>",
+    ],
+)
+def test_release_gates_do_not_open_a_fence_inside_an_html_block(
+    tmp_path: Path, html_block: str
+) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        "## [Unreleased]\n\n"
+        "### VMx\n\n"
+        "### VMx.Notifications\n\n"
+        "### VMx.Extensions.DependencyInjection\n\n"
+        "## [3.22.1]\n\n- Tagged notes.\n\n"
+        f"{html_block}\n"
+        "## [Unreleased]\n\n- Hidden pending note.\n\n"
+        "```\n",
+        encoding="utf-8",
+    )
+
+    expected = [f"  {changelog}: expected exactly one [Unreleased] section"]
+    assert cvc.check_release_unreleased(changelog) == expected
+    assert cvc.check_csharp_unreleased_structure(changelog) == expected
+    for package in cvc.CSHARP_UNRELEASED_PACKAGES:
+        assert cvc.check_release_unreleased(changelog, package) == expected
+
+
+def test_release_gates_ignore_list_contained_fenced_heading_examples(tmp_path: Path) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        "## [Unreleased]\n\n"
+        "### VMx\n\n"
+        "### VMx.Notifications\n\n"
+        "### VMx.Extensions.DependencyInjection\n\n"
+        "## [3.22.1]\n\n- Tagged notes.\n\n"
+        "- ```markdown\n"
+        "  ## [Unreleased]\n"
+        "  ```\n",
+        encoding="utf-8",
+    )
+
+    assert cvc.check_release_unreleased(changelog) == []
+    assert cvc.check_csharp_unreleased_structure(changelog) == []
+    for package in cvc.CSHARP_UNRELEASED_PACKAGES:
+        assert cvc.check_release_unreleased(changelog, package) == []
+
+
 @pytest.mark.parametrize("heading", ["unreleased", " Unreleased ", "Draft"])
 def test_release_tag_rejects_malformed_bracketed_keys(tmp_path: Path, heading: str) -> None:
     changelog = tmp_path / "CHANGELOG.md"
