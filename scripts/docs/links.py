@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from markdown_it import MarkdownIt
+
 REPO_URL = "https://github.com/thekaveh/VMx"
 WIKI_URL = "https://github.com/thekaveh/VMx/wiki"
 SITE_URL = "https://thekaveh.github.io/VMx"
@@ -24,10 +26,25 @@ HTML_LINK_ATTR_RE = re.compile(
     r"""|(?P<unquoted_target>[^\s"'=<>`]+))""",
     re.IGNORECASE,
 )
+HTML_RAW_TEXT_RE = re.compile(
+    r"""<(?P<tag>script|style|pre|textarea|title|xmp|iframe|noembed|noframes)\b"""
+    r"""(?:\s+(?:"[^"]*"|'[^']*'|[^"'<>])*)?\s*>"""
+    r"""(?P<body>.*?)</(?P=tag)\s*>""",
+    re.IGNORECASE | re.DOTALL,
+)
 
 
 @dataclass(frozen=True)
 class Link:
+    label: str
+    target: str
+    image: bool = False
+
+
+@dataclass(frozen=True)
+class MarkdownLink:
+    start: int
+    end: int
     label: str
     target: str
     image: bool = False
@@ -45,27 +62,15 @@ class HtmlLinkAttribute:
 
 def _markdown_code_and_comment_mask(markdown: str) -> list[bool]:
     mask = [False] * len(markdown)
-    offset = 0
-    fence: tuple[str, int] | None = None
-    for line in markdown.splitlines(keepends=True):
-        stripped = line.lstrip(" \t")
-        marker = re.match(r"(?P<marker>`{3,}|~{3,})", stripped)
-        if fence is not None:
-            mask[offset : offset + len(line)] = [True] * len(line)
-            if (
-                marker is not None
-                and marker.group("marker")[0] == fence[0]
-                and len(marker.group("marker")) >= fence[1]
-                and not stripped[len(marker.group("marker")) :].strip()
-            ):
-                fence = None
-        elif marker is not None:
-            value = marker.group("marker")
-            fence = (value[0], len(value))
-            mask[offset : offset + len(line)] = [True] * len(line)
-        elif line.startswith(("    ", "\t")):
-            mask[offset : offset + len(line)] = [True] * len(line)
-        offset += len(line)
+    lines = markdown.splitlines(keepends=True)
+    offsets = [0]
+    for line in lines:
+        offsets.append(offsets[-1] + len(line))
+    for token in MarkdownIt("commonmark").parse(markdown):
+        if token.type not in {"fence", "code_block"} or token.map is None:
+            continue
+        start, end = token.map
+        mask[offsets[start] : offsets[end]] = [True] * (offsets[end] - offsets[start])
 
     cursor = 0
     while cursor < len(markdown):
@@ -90,7 +95,35 @@ def _markdown_code_and_comment_mask(markdown: str) -> list[bool]:
                 cursor = end
                 continue
         cursor += 1
+
+    for raw_text in HTML_RAW_TEXT_RE.finditer(markdown):
+        if any(mask[raw_text.start() : raw_text.start("body")]):
+            continue
+        start, end = raw_text.span("body")
+        mask[start:end] = [True] * (end - start)
     return mask
+
+
+def _masked_markdown(markdown: str) -> str:
+    mask = _markdown_code_and_comment_mask(markdown)
+    return "".join(
+        "\n" if character == "\n" else " " if masked else character
+        for character, masked in zip(markdown, mask, strict=True)
+    )
+
+
+def find_markdown_links(markdown: str) -> list[MarkdownLink]:
+    """Return inline Markdown links outside code, comments, and raw-text HTML."""
+    return [
+        MarkdownLink(
+            start=match.start(),
+            end=match.end(),
+            label=match.group("label"),
+            target=match.group("target"),
+            image=bool(match.group("image")),
+        )
+        for match in MARKDOWN_LINK_RE.finditer(_masked_markdown(markdown))
+    ]
 
 
 def find_html_link_attributes(markdown: str) -> list[HtmlLinkAttribute]:
@@ -119,13 +152,10 @@ def find_html_link_attributes(markdown: str) -> list[HtmlLinkAttribute]:
 
 
 def find_links(markdown: str) -> list[Link]:
-    links = [
-        Link(match.group("label"), match.group("target"), bool(match.group("image")))
-        for match in MARKDOWN_LINK_RE.finditer(markdown)
-    ]
+    links = [Link(link.label, link.target, link.image) for link in find_markdown_links(markdown)]
     links.extend(
         Link(match.group("label"), match.group("target"))
-        for match in MARKDOWN_REFERENCE_LINK_RE.finditer(markdown)
+        for match in MARKDOWN_REFERENCE_LINK_RE.finditer(_masked_markdown(markdown))
     )
     return links
 

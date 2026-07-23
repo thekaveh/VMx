@@ -239,6 +239,8 @@ def _generated_site_target(
     site_base_path: str,
 ) -> Path | None:
     clean = unquote(target.split("#", 1)[0].split("?", 1)[0])
+    if any(ord(character) < 32 or ord(character) == 127 for character in clean):
+        return None
     base = source.parent if source.name == "index.md" else source.with_suffix("")
     if not clean:
         return source
@@ -252,9 +254,15 @@ def _generated_site_target(
                 return index if index.is_file() else None
         else:
             clean = clean.lstrip("/")
-        route = (root / clean).resolve()
+        try:
+            route = (root / clean).resolve()
+        except (OSError, ValueError):
+            return None
     else:
-        route = (base / clean).resolve()
+        try:
+            route = (base / clean).resolve()
+        except (OSError, ValueError):
+            return None
     try:
         route.relative_to(root.resolve())
     except ValueError:
@@ -303,7 +311,10 @@ def check_generated_html_links(repo_root: Path) -> list[Finding]:
                 )
                 if target_path is None:
                     findings.append(
-                        Finding("error", f"{path}: {surface} target does not exist: {target}")
+                        Finding(
+                            "error",
+                            f"{path}: {surface} target does not exist: {target}",
+                        )
                     )
                     continue
                 if "#" not in target or target_path.suffix != ".md":
@@ -370,7 +381,10 @@ def check_historical_audits(repo_root: Path) -> list[Finding]:
         text = path.read_text(encoding="utf-8")
         if HISTORICAL_AUDIT_NOTICE not in "\n".join(text.splitlines()[:12]):
             findings.append(
-                Finding("error", f"{relative}: standardized historical audit notice is missing")
+                Finding(
+                    "error",
+                    f"{relative}: standardized historical audit notice is missing",
+                )
             )
         if f"({path.name})" not in index_text:
             findings.append(

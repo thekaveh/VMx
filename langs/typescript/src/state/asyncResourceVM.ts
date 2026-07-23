@@ -8,6 +8,7 @@ import type { IMessageHub } from "../services/messageHub.js";
 import { AsyncRelayCommand } from "../commands/asyncRelayCommand.js";
 import { RelayCommand } from "../commands/relayCommand.js";
 import { ComponentVMBase } from "../components/componentVMBase.js";
+import { disposeBestEffort } from "../components/disposal.js";
 import { ViewModelType } from "../components/types.js";
 
 export enum AsyncResourceStatus {
@@ -216,7 +217,30 @@ export class AsyncResourceVM<T> extends ComponentVMBase {
       }
     }
 
-    if (this.#isCurrent(operationId, controller)) this.#setState(loading);
+    if (this.#isCurrent(operationId, controller)) {
+      try {
+        this.#setState(loading);
+      } catch (error) {
+        if (this.#isCurrent(operationId, controller)) {
+          this.#operationId += 1;
+          this.#controller = null;
+          this.#state = baseline;
+          controller.signal.removeEventListener("abort", finishCancellation);
+          unlinkExternal();
+          controller.abort();
+          try {
+            this.#notifyStateChanged();
+          } catch {
+            // The admitted loading-publication failure remains primary.
+          }
+        } else {
+          controller.signal.removeEventListener("abort", finishCancellation);
+          unlinkExternal();
+          controller.abort();
+        }
+        throw error;
+      }
+    }
     if (controller.signal.aborted) return;
 
     let loaderPromise: Promise<T>;
@@ -291,10 +315,16 @@ export class AsyncResourceVM<T> extends ComponentVMBase {
   #setState(state: AsyncResourceState<T>): void {
     if (this.#disposed || this.#state === state) return;
     this.#state = state;
-    this._notifyPropertyChanged("state");
-    this.loadCommand.raiseCanExecuteChanged();
-    this.reloadCommand.raiseCanExecuteChanged();
-    this.cancelCommand.raiseCanExecuteChanged();
+    this.#notifyStateChanged();
+  }
+
+  #notifyStateChanged(): void {
+    disposeBestEffort([
+      () => this._notifyPropertyChanged("state"),
+      () => this.loadCommand.raiseCanExecuteChanged(),
+      () => this.reloadCommand.raiseCanExecuteChanged(),
+      () => this.cancelCommand.raiseCanExecuteChanged(),
+    ]);
   }
 
   #cleanup(value: T): void {

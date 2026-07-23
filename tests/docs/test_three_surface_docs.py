@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import html
 import re
 import textwrap
+from html.parser import HTMLParser
 from pathlib import Path
 
 import pytest
@@ -22,6 +24,19 @@ from scripts.docs.manifest import load_manifest
 from scripts.docs.transforms import build_source_map, rewrite_for_surface
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+class _StartTagCollector(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.attributes: list[list[tuple[str, str | None]]] = []
+
+    def handle_starttag(
+        self,
+        _tag: str,
+        attrs: list[tuple[str, str | None]],
+    ) -> None:
+        self.attributes.append(attrs)
 
 
 def test_descendant_heading_numbers_require_hierarchy_and_sequence() -> None:
@@ -114,7 +129,9 @@ def test_canonical_links_reject_site_style_directory_fallback(tmp_path: Path) ->
     ]
 
 
-def test_canonical_link_check_rejects_missing_markdown_and_html_targets(tmp_path: Path) -> None:
+def test_canonical_link_check_rejects_missing_markdown_and_html_targets(
+    tmp_path: Path,
+) -> None:
     page = tmp_path / "docs/content/index.md"
     page.parent.mkdir(parents=True)
     page.write_text(
@@ -258,7 +275,11 @@ def test_wiki_rewrite_maps_relative_html_routes_to_manifest_pages() -> None:
 @pytest.mark.parametrize(
     ("source", "target", "expected"),
     [
-        ("docs/content/installation.md", "index.md?mode=full#home", "../?mode=full#home"),
+        (
+            "docs/content/installation.md",
+            "index.md?mode=full#home",
+            "../?mode=full#home",
+        ),
         (
             "docs/content/architecture/system-architecture.md",
             "index.md#map",
@@ -364,11 +385,103 @@ def test_html_rewrite_supports_unquoted_attributes_and_preserves_code_and_commen
         repo_root=ROOT,
     )
 
-    assert rewritten.startswith("<a href=../notes-workspace-vm-layer/>Actual</a>")
+    assert rewritten.startswith('<a href="../notes-workspace-vm-layer/">Actual</a>')
     assert '`<a href="notes-workspace-vm-layer.md">inline</a>`' in rewritten
     assert '```html\n<a href="notes-workspace-vm-layer.md">fenced</a>\n```' in rewritten
     assert '    <a href="notes-workspace-vm-layer.md">indented</a>' in rewritten
     assert '<!-- <a href="notes-workspace-vm-layer.md">commented</a> -->' in rewritten
+
+
+def test_markdown_rewrite_preserves_links_and_generic_calls_inside_commonmark_code() -> None:
+    manifest = load_manifest(ROOT / "docs/manifest.yaml", ROOT)
+    source_map = build_source_map(manifest, "wiki")
+    source = Path("docs/content/flavors/python.md")
+    markdown = (
+        "[Quickstart](../getting-started/index.md)\n\n"
+        "```python\n"
+        "ServicedObservableCollection[Note](hub)\n"
+        "```\n\n"
+        "- ~~~~swift\n"
+        '  ModalVM[str]("cancel")\n'
+        "  ~~~~\n"
+    )
+
+    rewritten = rewrite_for_surface(
+        markdown,
+        surface="wiki",
+        current_source=source,
+        current_output=source_map[source],
+        source_map=source_map,
+        repo_root=ROOT,
+    )
+
+    assert "ServicedObservableCollection[Note](hub)" in rewritten
+    assert 'ModalVM[str]("cancel")' in rewritten
+    assert "[[Quickstart|3-1-Quickstart]]" in rewritten
+
+
+@pytest.mark.parametrize(
+    ("quote", "encoded", "expected"),
+    [
+        (
+            '"',
+            "notes-workspace-vm-layer.md?x=1&amp;y=&quot;two&quot;#details",
+            "../notes-workspace-vm-layer/?x=1&amp;y=&quot;two&quot;#details",
+        ),
+        (
+            "'",
+            "notes-workspace-vm-layer.md?x=&#39;two&#39;&amp;y=1#details",
+            "../notes-workspace-vm-layer/?x=&#x27;two&#x27;&amp;y=1#details",
+        ),
+    ],
+)
+def test_html_rewrite_escapes_decoded_attribute_delimiters(
+    quote: str,
+    encoded: str,
+    expected: str,
+) -> None:
+    manifest = load_manifest(ROOT / "docs/manifest.yaml", ROOT)
+    source_map = build_source_map(manifest, "site")
+    source = Path("docs/content/examples/notes-workspace.md")
+
+    rewritten = rewrite_for_surface(
+        f"<a href={quote}{encoded}{quote}>Target</a>",
+        surface="site",
+        current_source=source,
+        current_output=source_map[source],
+        source_map=source_map,
+        repo_root=ROOT,
+    )
+
+    attributes = find_html_link_attributes(rewritten)
+    assert len(attributes) == 1
+    assert attributes[0].target == expected
+
+
+@pytest.mark.parametrize("entity", ["&#32;", "&#9;", "&#10;", "&#61;", "&#96;"])
+def test_html_rewrite_quotes_unquoted_attributes_after_entity_decoding(
+    entity: str,
+) -> None:
+    manifest = load_manifest(ROOT / "docs/manifest.yaml", ROOT)
+    source_map = build_source_map(manifest, "site")
+    source = Path("docs/content/examples/notes-workspace.md")
+    target = f"notes-workspace-vm-layer.md?x{entity}tail"
+
+    rewritten = rewrite_for_surface(
+        f"<a href={target}>Target</a>",
+        surface="site",
+        current_source=source,
+        current_output=source_map[source],
+        source_map=source_map,
+        repo_root=ROOT,
+    )
+    parser = _StartTagCollector()
+    parser.feed(rewritten)
+
+    assert len(parser.attributes) == 1
+    assert parser.attributes[0] == [
+        ("href", f"../notes-workspace-vm-layer/?x{html.unescape(entity)}tail")
+    ]
 
 
 def test_html_attribute_scanner_ignores_non_html_contexts() -> None:
@@ -376,8 +489,21 @@ def test_html_attribute_scanner_ignores_non_html_contexts() -> None:
         "<a href=actual.md>Actual</a>\n"
         "`<a href='inline.md'>Inline</a>`\n"
         "```\n<img src='fenced.png'>\n```\n"
+        "- ```html\n"
+        "  <a href='list-fenced.md'>List fenced</a>\n"
+        "  ```\n"
+        "> ```html\n"
+        "> <a href='quoted-fenced.md'>Quoted fenced</a>\n"
+        "> ```\n"
+        "````\n"
+        "<a href='long-fenced.md'>Long fenced</a>\n"
+        "    ```\n"
+        "<a href='still-fenced.md'>Still fenced</a>\n"
+        "````\n"
         "    <a href='indented.md'>Indented</a>\n"
         "<!-- <a href='commented.md'>Commented</a> -->\n"
+        "<script>const example = \"<a href='script-text.md'>Text</a>\";</script>\n"
+        "<pre><a href='pre-text.md'>Text</a></pre>\n"
     )
 
     attributes = find_html_link_attributes(markdown)
@@ -442,7 +568,9 @@ def test_generated_html_link_check_validates_routes_assets_and_fragments(
     assert sum("target does not exist" in item.message for item in findings) == 1
 
 
-def test_generated_site_links_honor_deployment_base_and_decode_paths(tmp_path: Path) -> None:
+def test_generated_site_links_honor_deployment_base_and_decode_paths(
+    tmp_path: Path,
+) -> None:
     site = tmp_path / "generated/site"
     site.mkdir(parents=True)
     (tmp_path / "mkdocs.yml").write_text(
@@ -455,7 +583,9 @@ def test_generated_site_links_honor_deployment_base_and_decode_paths(tmp_path: P
         "<a href='/VMx/installation/#install'>Base-prefixed</a>\n"
         "<a href='/installation/'>Outside base</a>\n"
         "<a href='getting%2Dstarted/?mode=full#start'>Encoded</a>\n"
-        "<a href='/VMx/%2e%2e/secret/'>Traversal</a>\n",
+        "<a href='/VMx/%2e%2e/secret/'>Traversal</a>\n"
+        "<a href='/VMx/%00/'>NUL</a>\n"
+        "<a href='/VMx/%1f/'>Control</a>\n",
         encoding="utf-8",
     )
     (site / "installation.md").write_text("# Install\n\n## Install\n", encoding="utf-8")
@@ -466,10 +596,12 @@ def test_generated_site_links_honor_deployment_base_and_decode_paths(tmp_path: P
 
     findings = check_generated_html_links(tmp_path)
 
-    assert len(findings) == 2
+    assert len(findings) == 4
     assert all("target does not exist" in item.message for item in findings)
     assert any("/installation/" in item.message for item in findings)
     assert any("%2e%2e" in item.message for item in findings)
+    assert any("%00" in item.message for item in findings)
+    assert any("%1f" in item.message for item in findings)
 
 
 def test_markdown_link_scanner_does_not_cross_line_boundaries() -> None:
@@ -515,16 +647,29 @@ def test_build_generates_self_contained_surfaces() -> None:
         ROOT / "generated/site/primitives/viewmodel-families/specialized/form-vm.md"
     ).read_text(encoding="utf-8")
     releases_site = (ROOT / "generated/site/contributing-releases.md").read_text(encoding="utf-8")
+    python_site = (ROOT / "generated/site/flavors/python.md").read_text(encoding="utf-8")
+    python_wiki = (ROOT / "generated/wiki/7-3-Python.md").read_text(encoding="utf-8")
+    modal_site = (
+        ROOT / "generated/site/primitives/viewmodel-families/specialized/modal-vm.md"
+    ).read_text(encoding="utf-8")
+    modal_wiki = (ROOT / "generated/wiki/6-2-8-6-ModalVM.md").read_text(encoding="utf-8")
     assert "#1236-expandablestate-is-missing-members" in state_site
     assert "#1236-expandablestate-is-missing-members" in state_wiki
     assert "#1244-formvm-direct-approve-gates-on-strictdirty" in form_site
     assert "CONTRIBUTING.md#" not in releases_site
+    assert "ServicedObservableCollection[Note](hub)" in python_site
+    assert "ServicedObservableCollection[Note](hub)" in python_wiki
+    assert 'ModalVM[str]("cancel")' in modal_site
+    assert 'ModalVM[str]("cancel")' in modal_wiki
 
 
 def test_build_repo_root_is_fully_isolated(tmp_path: Path, monkeypatch) -> None:
     selected = tmp_path / "selected"
     other = tmp_path / "other"
-    for root, marker, version in ((selected, "SELECTED", "9.9.9"), (other, "OTHER", "1.0.0")):
+    for root, marker, version in (
+        (selected, "SELECTED", "9.9.9"),
+        (other, "OTHER", "1.0.0"),
+    ):
         (root / "docs/content").mkdir(parents=True)
         (root / "docs/content/index.md").write_text(
             f"# 1. {marker}\n\n[Details](details.md)\n", encoding="utf-8"

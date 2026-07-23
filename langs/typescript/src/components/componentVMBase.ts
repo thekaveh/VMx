@@ -560,12 +560,16 @@ export abstract class ComponentVMBase {
   dispose(): void {
     if (this.#status === ConstructionStatus.Disposed) return;
 
-    this._setStatus(ConstructionStatus.Disposed);
-    if (this.#activeLifecycleHook) {
-      this.#terminalCleanupPending = true;
-      return;
-    }
-    this.#finishTerminalCleanup();
+    disposeBestEffort([
+      () => this._setStatus(ConstructionStatus.Disposed),
+      () => {
+        if (this.#activeLifecycleHook) {
+          this.#terminalCleanupPending = true;
+        } else {
+          this.#finishTerminalCleanup();
+        }
+      },
+    ]);
   }
 
   #finishTerminalCleanup(): void {
@@ -697,16 +701,18 @@ export abstract class ComponentVMBase {
 
     this.#status = newStatus;
 
-    this.#hub.send(
-      ConstructionStatusChangedMessage.create(this, this.#name, newStatus),
-    );
-
-    this._raisePropertyChanged("status");
-    this._raisePropertyChanged("isConstructed");
-
-    if (!this.#triggersDisposed) {
-      this.#statusTrigger.next();
-    }
+    disposeBestEffort([
+      () => this.#hub.send(
+        ConstructionStatusChangedMessage.create(this, this.#name, newStatus),
+      ),
+      () => this._raisePropertyChanged("status"),
+      () => this._raisePropertyChanged("isConstructed"),
+      () => {
+        if (!this.#triggersDisposed) {
+          this.#statusTrigger.next();
+        }
+      },
+    ]);
   }
 
   protected get _hub(): IMessageHub {

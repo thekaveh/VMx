@@ -19,6 +19,8 @@ import {
   ComponentVMBase,
   ConstructionStatusChangedMessage,
   ViewModelType,
+  type IMessage,
+  type IMessageHub,
 } from "../../src/index.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -36,7 +38,7 @@ function makeVM(name = "vm") {
 class DisposeProbeVM extends ComponentVMBase {
   constructor(
     name: string,
-    hub: MessageHub,
+    hub: IMessageHub,
     private readonly disposeHook: () => void = () => undefined,
   ) {
     super({ name, hint: "", hub, dispatcher: makeDisp() });
@@ -48,6 +50,22 @@ class DisposeProbeVM extends ComponentVMBase {
 
   protected override _onDispose(): void {
     this.disposeHook();
+  }
+}
+
+class DisposedPublicationFaultHub extends MessageHub {
+  constructor(private readonly failure: Error) {
+    super({ developmentDiagnostics: false });
+  }
+
+  override send(message: IMessage): void {
+    if (
+      message instanceof ConstructionStatusChangedMessage
+      && message.status === ConstructionStatus.Disposed
+    ) {
+      throw this.failure;
+    }
+    super.send(message);
   }
 }
 
@@ -749,5 +767,32 @@ describe("LIFE-013", () => {
 
     expect(thrown).toBe(hookError);
     expect(completed).toBe(true);
+  });
+
+  it("finishes terminal cleanup while preserving a disposal publication failure", () => {
+    const publicationError = new Error("disposed publication failed");
+    const cleanupError = new Error("cleanup failed");
+    let cleanupCalls = 0;
+    const vm = new DisposeProbeVM(
+      "probe",
+      new DisposedPublicationFaultHub(publicationError),
+      () => {
+        cleanupCalls += 1;
+        throw cleanupError;
+      },
+    );
+
+    let thrown: unknown;
+    try {
+      vm.dispose();
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBe(publicationError);
+    expect(vm.status).toBe(ConstructionStatus.Disposed);
+    expect(cleanupCalls).toBe(1);
+    expect(() => vm.dispose()).not.toThrow();
+    expect(cleanupCalls).toBe(1);
   });
 });

@@ -6,9 +6,9 @@ import re
 from pathlib import Path
 
 from scripts.docs.links import (
-    MARKDOWN_LINK_RE,
     HtmlLinkAttribute,
     find_html_link_attributes,
+    find_markdown_links,
     is_forbidden,
 )
 from scripts.docs.manifest import Manifest, Section
@@ -119,10 +119,8 @@ def rewrite_for_surface(
 ) -> str:
     selected_root = (repo_root or Path.cwd()).resolve()
 
-    def replace(match: re.Match[str]) -> str:
-        image = bool(match.group("image"))
-        label = match.group("label")
-        target = html.unescape(match.group("target"))
+    def rewrite_markdown_link(label: str, raw_target: str, *, image: bool) -> str:
+        target = html.unescape(raw_target)
         if is_forbidden(target, surface):
             mapped = _mapped_target(
                 target,
@@ -152,7 +150,10 @@ def rewrite_for_surface(
             return f"[[{label}|{mapped[5:]}]]"
         return f"{'!' if image else ''}[{label}]({mapped})"
 
-    text = MARKDOWN_LINK_RE.sub(replace, markdown)
+    text = markdown
+    for link in reversed(find_markdown_links(markdown)):
+        replacement = rewrite_markdown_link(link.label, link.target, image=link.image)
+        text = f"{text[: link.start]}{replacement}{text[link.end :]}"
 
     def replace_html_link_attribute(attribute: HtmlLinkAttribute) -> str:
         target = html.unescape(attribute.target)
@@ -183,9 +184,9 @@ def rewrite_for_surface(
                 # Markdown links which MkDocs rewrites from the source file path.
                 mapped_path = f"../{mapped_path}"
             mapped = f"{mapped_path}{suffix}"
-        return (
-            f"{attribute.attribute}{attribute.separator}{attribute.quote}{mapped}{attribute.quote}"
-        )
+        escaped = html.escape(mapped, quote=True)
+        quote = attribute.quote or '"'
+        return f"{attribute.attribute}{attribute.separator}{quote}{escaped}{quote}"
 
     for attribute in reversed(find_html_link_attributes(text)):
         replacement = replace_html_link_attribute(attribute)

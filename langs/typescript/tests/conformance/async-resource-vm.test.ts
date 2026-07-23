@@ -6,6 +6,9 @@ import {
   MessageHub,
   NullDispatcher,
   PropertyChangedMessage,
+  ConstructionStatus,
+  ConstructionStatusChangedMessage,
+  type IMessage,
   type AsyncResourceState,
 } from "../../src/index.js";
 
@@ -31,6 +34,17 @@ function abortError(): DOMException {
 
 function hasValue<T>(state: AsyncResourceState<T>): boolean {
   return "value" in state;
+}
+
+class CallbackMessageHub extends MessageHub {
+  constructor(private readonly beforeSend: (message: IMessage) => void) {
+    super({ developmentDiagnostics: false });
+  }
+
+  override send(message: IMessage): void {
+    this.beforeSend(message);
+    super.send(message);
+  }
 }
 
 async function flush(): Promise<void> {
@@ -425,5 +439,123 @@ describe("AsyncResourceVM conformance", () => {
       expect(changes).toHaveLength(countAtDispose);
       expect(calls).toBe(1);
     });
+
+    it("finishes cleanup and makes intents inert after a reentrant disposal fault", async () => {
+      const disposalError = new Error("disposed publication failed");
+      const cleaned: number[] = [];
+      let calls = 0;
+      let vm!: AsyncResourceVM<number>;
+      const hub = new CallbackMessageHub((message) => {
+        if (
+          message instanceof ConstructionStatusChangedMessage
+          && message.status === ConstructionStatus.Disposed
+        ) {
+          vm.dispose();
+          throw disposalError;
+        }
+      });
+      vm = new AsyncResourceVM<number>({
+        name: "resource",
+        hub,
+        dispatcher: NullDispatcher.INSTANCE,
+        cleanupValue: (value) => cleaned.push(value),
+        loader: () => Promise.resolve(++calls),
+      });
+      await vm.load();
+
+      let thrown: unknown;
+      try {
+        vm.dispose();
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(thrown).toBe(disposalError);
+      expect(cleaned).toEqual([1]);
+      expect(vm.loadCommand.canExecute()).toBe(false);
+      expect(vm.reloadCommand.canExecute()).toBe(false);
+      expect(vm.cancelCommand.canExecute()).toBe(false);
+      await vm.load();
+      await vm.reload();
+      vm.cancel();
+      vm.dispose();
+      expect(calls).toBe(1);
+      expect(cleaned).toEqual([1]);
+    });
+  });
+
+  it("rolls back a failed loading publication before invoking the loader", async () => {
+    const startError = new Error("loading publication failed");
+    const rollbackError = new Error("rollback publication failed");
+    let statePublications = 0;
+    let loaderCalls = 0;
+    const hub = new CallbackMessageHub((message) => {
+      if (message instanceof PropertyChangedMessage && message.propertyName === "state") {
+        statePublications += 1;
+        throw statePublications === 1 ? startError : rollbackError;
+      }
+    });
+    const vm = new AsyncResourceVM<number>({
+      name: "resource",
+      hub,
+      dispatcher: NullDispatcher.INSTANCE,
+      loader: () => Promise.resolve(++loaderCalls),
+    });
+    const commandNotifications = { load: 0, reload: 0, cancel: 0 };
+    vm.loadCommand.canExecuteChanged.subscribe(() => { commandNotifications.load += 1; });
+    vm.reloadCommand.canExecuteChanged.subscribe(() => { commandNotifications.reload += 1; });
+    vm.cancelCommand.canExecuteChanged.subscribe(() => { commandNotifications.cancel += 1; });
+
+    let thrown: unknown;
+    try {
+      await vm.load();
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBe(startError);
+    expect(vm.state).toEqual({ status: AsyncResourceStatus.Idle });
+    expect(loaderCalls).toBe(0);
+    expect(vm.loadCommand.canExecute()).toBe(true);
+    expect(vm.reloadCommand.canExecute()).toBe(false);
+    expect(vm.cancelCommand.canExecute()).toBe(false);
+    expect(commandNotifications).toEqual({ load: 2, reload: 2, cancel: 2 });
+  });
+
+  it("does not let an older publication rollback clobber a reentrant reload", async () => {
+    const startError = new Error("older loading publication failed");
+    let reentered = false;
+    let loaderCalls = 0;
+    let reload = Promise.resolve();
+    let vm!: AsyncResourceVM<number>;
+    const hub = new CallbackMessageHub((message) => {
+      if (
+        !reentered
+        && message instanceof PropertyChangedMessage
+        && message.propertyName === "state"
+      ) {
+        reentered = true;
+        reload = vm.reload();
+        throw startError;
+      }
+    });
+    vm = new AsyncResourceVM<number>({
+      name: "resource",
+      hub,
+      dispatcher: NullDispatcher.INSTANCE,
+      loader: () => Promise.resolve(++loaderCalls),
+    });
+
+    let thrown: unknown;
+    try {
+      await vm.load();
+    } catch (error) {
+      thrown = error;
+    }
+    await reload;
+
+    expect(thrown).toBe(startError);
+    expect(loaderCalls).toBe(1);
+    expect(vm.state).toEqual({ status: AsyncResourceStatus.Ready, value: 1 });
   });
 });
