@@ -659,6 +659,101 @@ fn reconstruct_reinvokes_factories_and_disposes_replaced_slots() {
 }
 
 #[test]
+fn aggregate_vm1_reconstruct_aborts_when_previous_disposal_disposes_parent() {
+    let old = vmx::ComponentVm::new("old");
+    let candidate = vmx::ComponentVm::new("candidate");
+    let aggregate_holder = Arc::new(Mutex::new(None));
+    let disposal_target = Arc::clone(&aggregate_holder);
+    old.on_dispose(move || {
+        let aggregate: vmx::AggregateVm1<vmx::ComponentVm> = disposal_target
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("aggregate installed before construction");
+        aggregate.dispose()
+    });
+    let calls = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::clone(&calls);
+    let first = old.clone();
+    let next = candidate.clone();
+    let aggregate = vmx::AggregateVm1::builder()
+        .name("aggregate")
+        .services(MessageHub::new(), NullDispatcher::new())
+        .component_1(move || {
+            if observed.fetch_add(1, Ordering::SeqCst) == 0 {
+                first.clone()
+            } else {
+                next.clone()
+            }
+        })
+        .build()
+        .unwrap();
+    *aggregate_holder.lock().unwrap() = Some(aggregate.clone());
+    aggregate.construct().unwrap();
+
+    aggregate.reconstruct().unwrap();
+
+    assert_eq!(aggregate.status(), ConstructionStatus::Disposed);
+    assert_eq!(aggregate.component_1().unwrap().id(), old.id());
+    assert_eq!(candidate.status(), ConstructionStatus::Disposed);
+}
+
+#[test]
+fn aggregate_vm2_reconstruct_aborts_all_candidates_when_previous_disposal_disposes_parent() {
+    let old1 = vmx::ComponentVm::new("old-1");
+    let old2 = vmx::ComponentVm::new("old-2");
+    let candidate1 = vmx::ComponentVm::new("candidate-1");
+    let candidate2 = vmx::ComponentVm::new("candidate-2");
+    let aggregate_holder = Arc::new(Mutex::new(None));
+    let disposal_target = Arc::clone(&aggregate_holder);
+    old1.on_dispose(move || {
+        let aggregate: vmx::AggregateVm2<vmx::ComponentVm, vmx::ComponentVm> = disposal_target
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("aggregate installed before construction");
+        aggregate.dispose()
+    });
+    let calls1 = Arc::new(AtomicUsize::new(0));
+    let calls2 = Arc::new(AtomicUsize::new(0));
+    let observed1 = Arc::clone(&calls1);
+    let observed2 = Arc::clone(&calls2);
+    let first1 = old1.clone();
+    let first2 = old2.clone();
+    let next1 = candidate1.clone();
+    let next2 = candidate2.clone();
+    let aggregate = vmx::AggregateVm2::builder()
+        .name("aggregate")
+        .services(MessageHub::new(), NullDispatcher::new())
+        .component_1(move || {
+            if observed1.fetch_add(1, Ordering::SeqCst) == 0 {
+                first1.clone()
+            } else {
+                next1.clone()
+            }
+        })
+        .component_2(move || {
+            if observed2.fetch_add(1, Ordering::SeqCst) == 0 {
+                first2.clone()
+            } else {
+                next2.clone()
+            }
+        })
+        .build()
+        .unwrap();
+    *aggregate_holder.lock().unwrap() = Some(aggregate.clone());
+    aggregate.construct().unwrap();
+
+    aggregate.reconstruct().unwrap();
+
+    assert_eq!(aggregate.status(), ConstructionStatus::Disposed);
+    assert_eq!(aggregate.component_1().unwrap().id(), old1.id());
+    assert_eq!(aggregate.component_2().unwrap().id(), old2.id());
+    assert_eq!(candidate1.status(), ConstructionStatus::Disposed);
+    assert_eq!(candidate2.status(), ConstructionStatus::Disposed);
+}
+
+#[test]
 fn failed_reconstruction_preserves_all_previous_slots_and_parent_links() {
     let first = text("first");
     let second = text("second");

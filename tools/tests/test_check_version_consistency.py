@@ -6,11 +6,24 @@ under the underscore alias via importlib so plain imports work in tests).
 """
 
 import json
+import subprocess
 import textwrap
 from pathlib import Path
 
 import check_version_consistency as cvc
 import pytest
+
+
+def test_get_git_tags_propagates_timeout(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(
+        cvc.subprocess,
+        "run",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(subprocess.TimeoutExpired("git", 1)),
+    )
+
+    with pytest.raises(subprocess.TimeoutExpired):
+        cvc.get_git_tags(tmp_path)
+
 
 # ── parse_spec_version ────────────────────────────────────────────────
 
@@ -71,7 +84,9 @@ def test_parse_csharp_versions_reads_explicit_unreleased_marker(tmp_path: Path) 
     assert cvc.parse_csharp_versions(csproj)["unreleased"] == "true"
 
 
-def test_parse_csharp_versions_rejects_unmapped_package_namespace(tmp_path: Path) -> None:
+def test_parse_csharp_versions_rejects_unmapped_package_namespace(
+    tmp_path: Path,
+) -> None:
     csproj = tmp_path / "VMx.Future.csproj"
     csproj.write_text(
         "<Project><PropertyGroup><PackageId>VMx.Future</PackageId>"
@@ -160,7 +175,9 @@ def test_current_development_versions_includes_explicit_unreleased_companion() -
     assert versions == {"3.20.0", "2.1.1"}
 
 
-def test_changelog_sections_require_current_version_and_substantive_body(tmp_path: Path) -> None:
+def test_changelog_sections_require_current_version_and_substantive_body(
+    tmp_path: Path,
+) -> None:
     (tmp_path / "langs/python").mkdir(parents=True)
     changelog = tmp_path / "langs/python/CHANGELOG.md"
     manifests = {
@@ -176,7 +193,9 @@ def test_changelog_sections_require_current_version_and_substantive_body(tmp_pat
     ]
 
 
-def test_csharp_companion_changelog_section_uses_package_identity(tmp_path: Path) -> None:
+def test_csharp_companion_changelog_section_uses_package_identity(
+    tmp_path: Path,
+) -> None:
     (tmp_path / "langs/csharp").mkdir(parents=True)
     (tmp_path / "langs/csharp/CHANGELOG.md").write_text(
         "## [VMx.Notifications 1.2.0]\n\n- Initial package.\n",
@@ -566,7 +585,13 @@ def test_find_missing_tags_skips_empty_flavor_cells() -> None:
             "swift": [],  # no swift release for 2.3.x
         }
     ]
-    tags = {"csharp-v2.3.0", "python-v2.3.0", "typescript-v2.3.0", "spec-v2.3.0", "v2.3.0"}
+    tags = {
+        "csharp-v2.3.0",
+        "python-v2.3.0",
+        "typescript-v2.3.0",
+        "spec-v2.3.0",
+        "v2.3.0",
+    }
     missing = cvc.find_missing_tags("2.6.0", {}, rows, tags)
     assert "swift-v2.3.0" not in missing
 
@@ -705,7 +730,12 @@ def test_main_exits_nonzero_when_tags_missing(tmp_path: Path, monkeypatch: objec
     monkeypatch.setattr(
         _cvc,
         "get_git_tags",
-        lambda _root: {"csharp-v2.6.0", "python-v2.6.0", "typescript-v2.6.0", "swift-v2.6.0"},
+        lambda _root: {
+            "csharp-v2.6.0",
+            "python-v2.6.0",
+            "typescript-v2.6.0",
+            "swift-v2.6.0",
+        },
     )
     rc = _cvc.main(["--repo-root", str(tmp_path)])
     assert rc == 1
@@ -861,7 +891,12 @@ def test_main_still_fails_2x_missing_tags(tmp_path: Path, monkeypatch: object) -
     monkeypatch.setattr(
         _cvc,
         "get_git_tags",
-        lambda _root: {"csharp-v2.6.0", "python-v2.6.0", "typescript-v2.6.0", "swift-v2.6.0"},
+        lambda _root: {
+            "csharp-v2.6.0",
+            "python-v2.6.0",
+            "typescript-v2.6.0",
+            "swift-v2.6.0",
+        },
     )
     rc = _cvc.main(["--repo-root", str(tmp_path)])
     assert rc == 1

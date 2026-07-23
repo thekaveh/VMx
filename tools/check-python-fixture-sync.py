@@ -40,7 +40,11 @@ _FIXTURE_PAIRS: list[tuple[str, str]] = [
 
 
 def main() -> int:
-    root = repo_root()
+    try:
+        root = repo_root()
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+        print(f"ERROR: unable to locate repository root: {error}", file=sys.stderr)
+        return 2
     failed = False
     for source_rel, copy_rel in _FIXTURE_PAIRS:
         source = root / source_rel

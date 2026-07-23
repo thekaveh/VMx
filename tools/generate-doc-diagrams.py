@@ -320,7 +320,12 @@ def architecture(output_root: Path) -> None:
             300,
             160,
             "Services",
-            ("IDialogService", "ILocalizer", "Notification hub", "Null-object defaults"),
+            (
+                "IDialogService",
+                "ILocalizer",
+                "Notification hub",
+                "Null-object defaults",
+            ),
             "security",
         ),
         Box(
@@ -342,7 +347,11 @@ def architecture(output_root: Path) -> None:
             220,
             145,
             "Python Flavor",
-            ("reactivex", "Textual / Tk / NiceGUI", f"Full {LIBRARY_COUNT}+{THEME_COUNT} parity"),
+            (
+                "reactivex",
+                "Textual / Tk / NiceGUI",
+                f"Full {LIBRARY_COUNT}+{THEME_COUNT} parity",
+            ),
             "frontend",
         ),
         Box(
@@ -351,7 +360,11 @@ def architecture(output_root: Path) -> None:
             220,
             145,
             "TypeScript Flavor",
-            ("rxjs", "React / DOM adapters", f"Full {LIBRARY_COUNT}+{THEME_COUNT} parity"),
+            (
+                "rxjs",
+                "React / DOM adapters",
+                f"Full {LIBRARY_COUNT}+{THEME_COUNT} parity",
+            ),
             "frontend",
         ),
         Box(
@@ -360,7 +373,11 @@ def architecture(output_root: Path) -> None:
             220,
             145,
             "Swift Flavor",
-            ("Combine", "SwiftUI flagship", f"Full {LIBRARY_COUNT}+{THEME_COUNT} parity"),
+            (
+                "Combine",
+                "SwiftUI flagship",
+                f"Full {LIBRARY_COUNT}+{THEME_COUNT} parity",
+            ),
             "frontend",
         ),
         Box(
@@ -484,7 +501,13 @@ def class_diagram(output_root: Path) -> None:
             300,
             165,
             "Services",
-            ("MessageHub", "Dispatcher", "ILocalizer", "IDialogService", "Null* variants"),
+            (
+                "MessageHub",
+                "Dispatcher",
+                "ILocalizer",
+                "IDialogService",
+                "Null* variants",
+            ),
             "security",
         ),
         Box(
@@ -507,7 +530,12 @@ def class_diagram(output_root: Path) -> None:
             240,
             170,
             "Leaf VMs",
-            ("ComponentVM", "ComponentVM<M>", "ReadonlyComponentVM<M>", "ForwardingComponentVM"),
+            (
+                "ComponentVM",
+                "ComponentVM<M>",
+                "ReadonlyComponentVM<M>",
+                "ForwardingComponentVM",
+            ),
             "frontend",
         ),
         Box(
@@ -601,7 +629,12 @@ def class_diagram(output_root: Path) -> None:
             320,
             150,
             "State Helpers",
-            ("DerivedProperty", "SearchableState", "ExpandableState", "Discriminator active key"),
+            (
+                "DerivedProperty",
+                "SearchableState",
+                "ExpandableState",
+                "Discriminator active key",
+            ),
             "database",
         ),
         Box(
@@ -689,11 +722,11 @@ def showcase_hierarchy(output_root: Path) -> None:
             295,
             "NotebooksRootVM",
             (
-                "HierarchicalVM<NotebookModel,",
-                "NotebookVM>",
-                "recursive notebooks",
+                "flat parent-id navigation",
+                "HierarchicalVM-equivalent API",
+                "recursive notebook relationships",
                 "current notebook selection",
-                "expand/collapse state",
+                "walk / children accessors",
             ),
             "frontend",
         ),
@@ -704,10 +737,12 @@ def showcase_hierarchy(output_root: Path) -> None:
             295,
             "NotesViewVM",
             (
-                "CompositeVM<NoteVM>",
+                "app-owned current selection",
+                "storage varies by flavor",
+                "C#/Swift CompositeVM storage",
+                "Python list / TypeScript array",
                 "PagedComposition finite page state",
                 "SearchableState title search",
-                "IFilterable starred filter",
             ),
             "frontend",
         ),
@@ -759,7 +794,11 @@ def showcase_hierarchy(output_root: Path) -> None:
             320,
             130,
             "StatusBarVM",
-            ("DerivedProperty text slots", "notebook + count + dirty state", "view-bound only"),
+            (
+                "DerivedProperty text slots",
+                "notebook + count + dirty state",
+                "view-bound only",
+            ),
             "database",
         ),
         Box(
@@ -781,7 +820,11 @@ def showcase_hierarchy(output_root: Path) -> None:
             280,
             130,
             "Repository",
-            ("in-memory source of truth", "CRUD capability surface", "token-paged search method"),
+            (
+                "in-memory source of truth",
+                "CRUD capability surface",
+                "token-paged search method",
+            ),
             "cloud",
         ),
     ]
@@ -846,7 +889,12 @@ def showcase_components(output_root: Path) -> None:
             310,
             165,
             "Root Composition",
-            ("WorkspaceVM", "AggregateVM6", "ThemeVM sibling", "GlobalSearchVM sibling"),
+            (
+                "WorkspaceVM",
+                "AggregateVM6",
+                "ThemeVM sibling",
+                "GlobalSearchVM sibling",
+            ),
             "frontend",
         ),
         Box(
@@ -855,7 +903,12 @@ def showcase_components(output_root: Path) -> None:
             310,
             165,
             "Navigation Layer",
-            ("NotebooksRootVM", "HierarchicalVM", "NotebookVM recursion", "ExpandableState"),
+            (
+                "NotebooksRootVM",
+                "flat parent-id navigation",
+                "HierarchicalVM-equivalent API",
+                "NotebookVM recursion",
+            ),
             "frontend",
         ),
         Box(
@@ -866,9 +919,10 @@ def showcase_components(output_root: Path) -> None:
             "List Layer",
             (
                 "NotesViewVM",
-                "CompositeVM<NoteVM>",
+                "app-owned current selection",
+                "storage varies by flavor",
+                "CompositeVM / list / array",
                 "PagedComposition",
-                "SearchableState + IFilterable",
             ),
             "frontend",
         ),
@@ -878,7 +932,12 @@ def showcase_components(output_root: Path) -> None:
             310,
             165,
             "Editor Layer",
-            ("NoteFormVM", "FormVM validation", "DiscriminatorVM mode", "tag SearchableState"),
+            (
+                "NoteFormVM",
+                "FormVM validation",
+                "DiscriminatorVM mode",
+                "tag SearchableState",
+            ),
             "frontend",
         ),
         Box(
@@ -901,7 +960,12 @@ def showcase_components(output_root: Path) -> None:
             330,
             165,
             "Derived State",
-            ("DerivedProperty", "status bar text", "dirty / valid flags", "focused VM actions"),
+            (
+                "DerivedProperty",
+                "status bar text",
+                "dirty / valid flags",
+                "focused VM actions",
+            ),
             "database",
         ),
         Box(
@@ -919,7 +983,12 @@ def showcase_components(output_root: Path) -> None:
             330,
             145,
             "View Adapters",
-            ("Avalonia bindings", "Textual bridge", "React hooks", "SwiftUI ObservableObject"),
+            (
+                "Avalonia bindings",
+                "Textual bridge",
+                "React hooks",
+                "SwiftUI ObservableObject",
+            ),
             "generic",
         ),
         Box(

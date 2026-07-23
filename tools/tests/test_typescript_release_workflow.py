@@ -48,7 +48,7 @@ def test_release_uses_trusted_publishing_node_and_npm_floors_without_cache() -> 
     jobs = _typescript_release_jobs()
 
     assert 'node-version: "24"' in jobs
-    assert "npm install --global npm@11.5.1" in jobs
+    assert "npm install --global npm@11.18.0" in jobs
     assert "id-token: write" in jobs
     assert "environment:\n      name: npm-typescript" in jobs
     assert "cache: npm" not in jobs

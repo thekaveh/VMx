@@ -34,7 +34,7 @@ below. Live publishing remains an owner-approved release action.
 
 | Area                         | Authoritative pin or source                                                   | Contract                                                                                                                                                                    | Executable evidence                                                                                                               |
 | ---------------------------- | ----------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| Python CI bootstrap          | `.github/workflows/python.yml`                                                | `astral-sh/setup-uv` is pinned to its `v8.3.2` commit; workflow uv is exactly `0.11.28`.                                                                                    | The 3-OS / 5-version Python matrix plus example jobs                                                                              |
+| Python CI bootstrap          | `.github/workflows/python.yml`                                                | `astral-sh/setup-uv` is pinned to its `v9.0.0` commit; workflow uv is exactly `0.11.28`.                                                                                    | The 3-OS / 5-version Python matrix plus example jobs                                                                              |
 | Docs dependencies            | `docs/requirements.in`; hash-locked `docs/requirements.txt`                   | The Python 3.12 docs environment installs only hash-verified resolutions; pytest is `9.1.1`, pip-audit is `2.10.1`, MkDocs Material is `9.7.7`, and Ruff is `0.15.22`.      | `pip install --require-hashes`; `python -m pip_audit --local`                                                                     |
 | Three documentation surfaces | `docs/manifest.yaml`; `docs/content/**`                                       | Canonical Markdown generates in-repo navigation, the MkDocs `.io` site, and the GitHub wiki without source duplication.                                                     | `make docs-check`; strict MkDocs build; wiki dry-run/sync checks                                                                  |
 | Documentation diagrams       | `docs/assets/diagrams/generate_diagrams.py`; `tools/generate-doc-diagrams.py` | Every maintained diagram has synchronized HTML/SVG/PNG output; repo-derived counts, text bounds, and raster exports are checked without mutating the worktree.              | Both generators with `--check`; `python -m scripts.docs.validate_diagrams`; diagram unit tests; original-resolution visual review |
@@ -71,23 +71,23 @@ or any workflow action is absent from this inventory.
 | Action and immutable commit                                                 | Verified upstream ref |
 | --------------------------------------------------------------------------- | --------------------- |
 | `NuGet/login@8d196754b4036150537f80ac539e15c2f1028841`                      | `v1.2.0`              |
-| `actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0`                 | `v7.0.0`              |
+| `actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1`                 | `v7.0.1`              |
 | `actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d`          | `v6.0.0`              |
 | `actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128`             | `v5.0.0`              |
 | `actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c`        | `v8.0.1`              |
 | `actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68`             | `v6.0.0`              |
 | `actions/setup-node@820762786026740c76f36085b0efc47a31fe5020`               | `v7.0.0`              |
-| `actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1`             | `v6.3.0`              |
+| `actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97`             | `v7.0.0`              |
 | `actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`          | `v7.0.1`              |
 | `actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9`    | `v5.0.0`              |
-| `astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990`               | `v8.3.2`              |
+| `astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9`               | `v9.0.0`              |
 | `codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f`           | `v7.0.0`              |
 | `dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4`           | `stable` (2026-07-16) |
 | `googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7` | `v5.0.0`              |
-| `github/codeql-action/analyze@7188fc363630916deb702c7fdcf4e481b751f97a`     | `v4.37.1`             |
-| `github/codeql-action/init@7188fc363630916deb702c7fdcf4e481b751f97a`        | `v4.37.1`             |
-| `gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7`         | `v2.3.9`              |
-| `pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b`      | `v1.14.0`             |
+| `github/codeql-action/analyze@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81`     | `v4.37.3`             |
+| `github/codeql-action/init@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81`        | `v4.37.3`             |
+| `gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e`         | `v3.0.0`              |
+| `pypa/gh-action-pypi-publish@ba38be9e461d3875417946c167d0b5f3d385a247`      | `v1.14.1`             |
 | `rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18`  | `v1.0.5`              |
 
 The diagram jobs use `ubuntu-24.04` and install

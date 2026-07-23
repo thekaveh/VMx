@@ -141,9 +141,11 @@ def flat_container_url(package_id: str) -> str:
     return f"https://api.nuget.org/v3-flatcontainer/{package_id.lower()}/index.json"
 
 
-def _registry_has(package_id: str, version: str) -> bool:
+def _registry_has(package_id: str, version: str, timeout_seconds: float) -> bool:
     try:
-        with urllib.request.urlopen(flat_container_url(package_id), timeout=20) as response:
+        with urllib.request.urlopen(
+            flat_container_url(package_id), timeout=timeout_seconds
+        ) as response:
             payload = json.load(response)
     except (OSError, urllib.error.URLError, json.JSONDecodeError):
         return False
@@ -155,18 +157,29 @@ def wait_for_packages(
     timeout_seconds: float,
     *,
     interval_seconds: float = 15,
-    lookup: Callable[[str, str], bool] = _registry_has,
+    lookup: Callable[[str, str, float], bool] = _registry_has,
     sleeper: Callable[[float], None] = time.sleep,
+    clock: Callable[[], float] = time.monotonic,
 ) -> None:
     """Poll until every exact package version is visible."""
-    deadline = time.monotonic() + timeout_seconds
+    deadline = clock() + timeout_seconds
     while True:
-        if all(lookup(package_id, version) for package_id, version in packages.items()):
+        ready = True
+        for package_id, version in packages.items():
+            remaining = deadline - clock()
+            if remaining <= 0:
+                ready = False
+                break
+            if not lookup(package_id, version, remaining):
+                ready = False
+                break
+        if ready:
             return
-        if time.monotonic() >= deadline:
+        remaining = deadline - clock()
+        if remaining <= 0:
             values = ", ".join(f"{key}@{value}" for key, value in packages.items())
             raise TimeoutError(f"timed out waiting for {values} on NuGet")
-        sleeper(interval_seconds)
+        sleeper(min(interval_seconds, remaining))
 
 
 def _remaining(deadline: float, maximum: float) -> float:
@@ -197,14 +210,30 @@ def run_smoke(
             restore.extend(["--source", str(package_dir.resolve())])
         subprocess.run(restore, cwd=workdir, check=True, timeout=_remaining(deadline, 300))
         subprocess.run(
-            ["dotnet", "build", "Smoke.csproj", "-c", "Release", "--no-restore", "--nologo"],
+            [
+                "dotnet",
+                "build",
+                "Smoke.csproj",
+                "-c",
+                "Release",
+                "--no-restore",
+                "--nologo",
+            ],
             cwd=workdir,
             check=True,
             timeout=_remaining(deadline, 300),
         )
         if framework == "net8.0":
             subprocess.run(
-                ["dotnet", "run", "--project", "Smoke.csproj", "-c", "Release", "--no-build"],
+                [
+                    "dotnet",
+                    "run",
+                    "--project",
+                    "Smoke.csproj",
+                    "-c",
+                    "Release",
+                    "--no-build",
+                ],
                 cwd=workdir,
                 check=True,
                 timeout=_remaining(deadline, 120),

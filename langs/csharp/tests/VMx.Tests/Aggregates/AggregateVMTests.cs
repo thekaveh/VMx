@@ -550,5 +550,61 @@ public class AggregateVMTests
         destination.Count.Should().Be(0);
         aggregate.Component1.Should().BeSameAs(candidate);
     }
+
+    [Fact]
+    public void AggregateVM1_Reconstruct_Aborts_When_Previous_Disposal_Disposes_Parent()
+    {
+        var (hub, dispatcher) = MakeServices();
+        var candidate = MakeLeaf(hub, dispatcher, "candidate");
+        AggregateVM1<IComponentVM>? aggregate = null;
+        IComponentVM? previous = null;
+        var calls = 0;
+        aggregate = AggregateVM1<IComponentVM>.Builder()
+            .Name("aggregate").Services(hub, dispatcher)
+            .Component1(() => ++calls == 1
+                ? previous = new ReentrantDisposeVM(
+                    "old", hub, dispatcher, () => aggregate!.Dispose())
+                : candidate)
+            .Build();
+        aggregate.Construct();
+
+        aggregate.Reconstruct();
+
+        aggregate.Status.Should().Be(ConstructionStatus.Disposed);
+        aggregate.Component1.Should().BeSameAs(previous);
+        candidate.Status.Should().Be(ConstructionStatus.Disposed);
+    }
+
+    [Fact]
+    public void AggregateVM2_Reconstruct_Aborts_All_Candidates_When_Previous_Disposal_Disposes_Parent()
+    {
+        var (hub, dispatcher) = MakeServices();
+        var candidate1 = MakeLeaf(hub, dispatcher, "candidate-1");
+        var candidate2 = MakeLeaf(hub, dispatcher, "candidate-2");
+        AggregateVM2<IComponentVM, IComponentVM>? aggregate = null;
+        IComponentVM? previous1 = null;
+        IComponentVM? previous2 = null;
+        var calls1 = 0;
+        var calls2 = 0;
+        aggregate = AggregateVM2<IComponentVM, IComponentVM>.Builder()
+            .Name("aggregate").Services(hub, dispatcher)
+            .Component1(() => ++calls1 == 1
+                ? previous1 = new ReentrantDisposeVM(
+                    "old-1", hub, dispatcher, () => aggregate!.Dispose())
+                : candidate1)
+            .Component2(() => ++calls2 == 1
+                ? previous2 = MakeLeaf(hub, dispatcher, "old-2")
+                : candidate2)
+            .Build();
+        aggregate.Construct();
+
+        aggregate.Reconstruct();
+
+        aggregate.Status.Should().Be(ConstructionStatus.Disposed);
+        aggregate.Component1.Should().BeSameAs(previous1);
+        aggregate.Component2.Should().BeSameAs(previous2);
+        candidate1.Status.Should().Be(ConstructionStatus.Disposed);
+        candidate2.Status.Should().Be(ConstructionStatus.Disposed);
+    }
 }
 #pragma warning restore CA1715

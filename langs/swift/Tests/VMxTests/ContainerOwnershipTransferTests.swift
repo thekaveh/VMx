@@ -225,6 +225,78 @@ final class ContainerOwnershipTransferTests: XCTestCase {
         XCTAssertTrue(aggregate.component1 === candidate)
     }
 
+    func testAggregateVM1ReconstructAbortsWhenPreviousDisposalDisposesParent() throws {
+        let candidate = try leaf("candidate")
+        var calls = 0
+        var previous: ComponentVMBase?
+        var disposeAggregate: () -> Void = {}
+        let aggregate = AggregateVM1<ComponentVMBase>(
+            name: "aggregate",
+            hub: NullMessageHub.INSTANCE,
+            dispatcher: NullDispatcher.INSTANCE,
+            factory1: {
+                calls += 1
+                if calls == 1 {
+                    let old = ReentrantAggregateSlot("old", callback: disposeAggregate)
+                    previous = old
+                    return old
+                }
+                return candidate
+            }
+        )
+        disposeAggregate = aggregate.dispose
+        try aggregate.construct()
+
+        try aggregate.reconstruct()
+
+        XCTAssertEqual(aggregate.status, .disposed)
+        XCTAssertTrue(aggregate.component1 === previous)
+        XCTAssertEqual(candidate.status, .disposed)
+    }
+
+    func testAggregateVM2ReconstructAbortsAllCandidatesWhenPreviousDisposalDisposesParent() throws {
+        let candidate1 = try leaf("candidate-1")
+        let candidate2 = try leaf("candidate-2")
+        var calls1 = 0
+        var calls2 = 0
+        var previous1: ComponentVMBase?
+        var previous2: ComponentVMBase?
+        var disposeAggregate: () -> Void = {}
+        let aggregate = AggregateVM2<ComponentVMBase, ComponentVMBase>(
+            name: "aggregate",
+            hub: NullMessageHub.INSTANCE,
+            dispatcher: NullDispatcher.INSTANCE,
+            factory1: {
+                calls1 += 1
+                if calls1 == 1 {
+                    let old = ReentrantAggregateSlot("old-1", callback: disposeAggregate)
+                    previous1 = old
+                    return old
+                }
+                return candidate1
+            },
+            factory2: {
+                calls2 += 1
+                if calls2 == 1 {
+                    let old = try! self.leaf("old-2")
+                    previous2 = old
+                    return old
+                }
+                return candidate2
+            }
+        )
+        disposeAggregate = aggregate.dispose
+        try aggregate.construct()
+
+        try aggregate.reconstruct()
+
+        XCTAssertEqual(aggregate.status, .disposed)
+        XCTAssertTrue(aggregate.component1 === previous1)
+        XCTAssertTrue(aggregate.component2 === previous2)
+        XCTAssertEqual(candidate1.status, .disposed)
+        XCTAssertEqual(candidate2.status, .disposed)
+    }
+
     func testConcurrentAggregateReconstructionReservesSharedCandidate() throws {
         let candidate = try leaf("candidate")
         let barrier = AggregateFactoryBarrier()

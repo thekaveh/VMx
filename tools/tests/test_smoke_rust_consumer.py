@@ -68,13 +68,34 @@ def test_wait_for_public_requires_registry_and_docs() -> None:
         "0.20.0",
         10,
         interval_seconds=1,
-        crate_lookup=lambda _version: next(crate_results),
-        docs_lookup=lambda _version: next(docs_results),
+        crate_lookup=lambda _version, _timeout: next(crate_results),
+        docs_lookup=lambda _version, _timeout: next(docs_results),
         sleeper=sleeps.append,
-        clock=iter([0.0, 0.5, 1.0, 1.5]).__next__,
+        clock=iter([index / 10 for index in range(20)]).__next__,
     )
 
     assert sleeps == [1, 1]
+
+
+def test_wait_for_public_caps_requests_and_sleep_to_end_to_end_deadline() -> None:
+    crate_timeouts: list[float] = []
+    docs_timeouts: list[float] = []
+    sleeps: list[float] = []
+
+    with pytest.raises(TimeoutError, match="timed out waiting"):
+        smoke.wait_for_public(
+            "0.20.0",
+            1,
+            interval_seconds=5,
+            crate_lookup=lambda _version, timeout: crate_timeouts.append(timeout) or False,
+            docs_lookup=lambda _version, timeout: docs_timeouts.append(timeout) or False,
+            sleeper=sleeps.append,
+            clock=iter([0.0, 0.2, 0.4, 0.8, 1.0]).__next__,
+        )
+
+    assert crate_timeouts == pytest.approx([0.8])
+    assert docs_timeouts == pytest.approx([0.6])
+    assert sleeps == pytest.approx([0.2])
 
 
 def test_find_extracted_crate_requires_exact_directory(tmp_path: Path) -> None:

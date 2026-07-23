@@ -388,11 +388,9 @@ def get_git_tags(repo_root: Path) -> set[str]:
         capture_output=True,
         text=True,
         cwd=str(repo_root),
-        check=False,
+        check=True,
         timeout=10,
     )
-    if result.returncode != 0:
-        return set()
     return {line for line in result.stdout.splitlines() if line.strip()}
 
 
@@ -466,7 +464,10 @@ def find_missing_tags(
         )
         if has_stable_release:
             if not row.get("legacy_semantic_tag_only"):
-                _want(f"spec-v{spec_canonical}", f"compatibility-matrix.md row {spec_row!r}")
+                _want(
+                    f"spec-v{spec_canonical}",
+                    f"compatibility-matrix.md row {spec_row!r}",
+                )
             _want(
                 f"v{spec_canonical}",
                 f"compatibility-matrix.md row {spec_row!r} (repo-wide tag)",
@@ -629,7 +630,11 @@ def main(argv: Iterable[str] | None = None) -> int:
     spec_version = parse_spec_version(repo_root)
     manifests = collect_manifests(repo_root)
     matrix_rows = parse_matrix(matrix_file)
-    tags = get_git_tags(repo_root)
+    try:
+        tags = get_git_tags(repo_root)
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+        print(f"ERROR: unable to inspect git tags: {error}", file=sys.stderr)
+        return 2
 
     msv_issues = check_min_spec_versions(spec_version, manifests)
     msv_issues.extend(check_changelog_sections(repo_root, manifests))

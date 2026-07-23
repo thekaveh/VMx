@@ -18,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from vmx.aggregates.aggregate_vm import AggregateVM1
+from vmx.aggregates.aggregate_vm import AggregateVM1, AggregateVM2
 from vmx.aggregates.builders import (
     AggregateVM1Builder,
     AggregateVM2Builder,
@@ -490,6 +490,67 @@ def test_aggregate_reconstruct_rejects_reentrant_attachment_of_reserved_candidat
     assert isinstance(admission_errors[0], RuntimeError)
     assert destination.snapshot() == ()
     assert aggregate.component_1 is candidate
+
+
+@pytest.mark.parametrize("arity", [1, 2])
+def test_aggregate_reconstruct_aborts_when_previous_disposal_disposes_parent(
+    arity: int,
+) -> None:
+    hub = _hub()
+    dispatcher = _dispatcher()
+    candidates = [
+        ComponentVM(name=f"candidate-{index}", hint="", hub=hub, dispatcher=dispatcher)
+        for index in range(arity)
+    ]
+    previous: list[ComponentVM] = []
+    aggregate: AggregateVM1[ComponentVM] | AggregateVM2[ComponentVM, ComponentVM]
+    calls = [0, 0]
+
+    def first_factory() -> ComponentVM:
+        calls[0] += 1
+        if calls[0] == 1:
+            old = _ReentrantDisposeComponent(
+                name="old-1",
+                hub=hub,
+                dispatcher=dispatcher,
+                on_dispose=lambda: aggregate.dispose(),
+            )
+            previous.append(old)
+            return old
+        return candidates[0]
+
+    def second_factory() -> ComponentVM:
+        calls[1] += 1
+        if calls[1] == 1:
+            old = ComponentVM(name="old-2", hint="", hub=hub, dispatcher=dispatcher)
+            previous.append(old)
+            return old
+        return candidates[1]
+
+    if arity == 1:
+        aggregate = (
+            AggregateVM1Builder()
+            .name("aggregate")
+            .services(hub, dispatcher)
+            .component_1(first_factory)
+            .build()
+        )
+    else:
+        aggregate = (
+            AggregateVM2Builder()
+            .name("aggregate")
+            .services(hub, dispatcher)
+            .component_1(first_factory)
+            .component_2(second_factory)
+            .build()
+        )
+    aggregate.construct()
+
+    aggregate.reconstruct()
+
+    assert aggregate.status is ConstructionStatus.DISPOSED
+    assert aggregate.components() == previous
+    assert all(candidate.status is ConstructionStatus.DISPOSED for candidate in candidates)
 
 
 def test_aggregate_rejects_forwarding_aliases_of_one_canonical_component() -> None:

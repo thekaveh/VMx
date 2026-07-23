@@ -1,4 +1,5 @@
 using VMx.Components;
+using VMx.Lifecycle;
 
 namespace VMx.Aggregates;
 
@@ -38,7 +39,7 @@ internal sealed class AggregateParent(IComponentVM owner, IAggregateSlots slots)
 
 internal static class AggregateOwnership
 {
-    internal static void Replace(
+    internal static bool Replace(
         IParentCompositeVM parent,
         IComponentVM?[] previous,
         IComponentVM[] next,
@@ -48,8 +49,23 @@ internal static class AggregateOwnership
         Validate(parent, next);
         foreach (var child in previous)
             child?.Dispose();
+        if (parent.Owner?.Status == ConstructionStatus.Disposed)
+        {
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo? firstError = null;
+            foreach (var child in next)
+            {
+                try { child.Dispose(); }
+                catch (Exception error)
+                {
+                    firstError ??= System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error);
+                }
+            }
+            firstError?.Throw();
+            return false;
+        }
         assign();
         Commit(parent, previous, next);
+        return true;
     }
 
     internal static void Validate(IParentCompositeVM parent, params IComponentVM[] children)

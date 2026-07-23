@@ -1,5 +1,6 @@
 """Unit tests for tools/check-rust-fixture-sync.py."""
 
+import subprocess
 from pathlib import Path
 
 import check_rust_fixture_sync as crfs
@@ -9,6 +10,17 @@ FIXTURE_NAMES = (
     "lifecycle-transitions.json",
     "message-ordering.json",
 )
+
+
+def test_main_reports_repository_lookup_timeout(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        crfs,
+        "repo_root",
+        lambda: (_ for _ in ()).throw(subprocess.TimeoutExpired("git", 1)),
+    )
+
+    assert crfs.main() == 2
+    assert "unable to locate repository root" in capsys.readouterr().err
 
 
 def _fixture_tree(root: Path, copy_text: str = "{}\n") -> None:

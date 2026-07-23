@@ -11,6 +11,17 @@ def test_expected_package_paths_are_accepted() -> None:
     assert checker.validate_paths(set(checker.REQUIRED_PATHS)) == []
 
 
+def test_main_reports_package_timeout(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    monkeypatch.setattr(
+        checker,
+        "package_paths",
+        lambda _path: (_ for _ in ()).throw(subprocess.TimeoutExpired("cargo", 1)),
+    )
+
+    assert checker.main([]) == 2
+    assert "unable to inspect Rust crate package" in capsys.readouterr().err
+
+
 def test_extracted_runtime_modules_are_allowlisted() -> None:
     assert {
         "src/aggregates.rs",

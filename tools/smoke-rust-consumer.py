@@ -91,30 +91,37 @@ def public_add_command(cargo: str, version: str) -> list[str]:
     return [cargo, "add", f"{PACKAGE_NAME}@={version}"]
 
 
-def _request_json(url: str) -> object | None:
+def _request_json(url: str, timeout_seconds: float) -> object | None:
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
+        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
             return json.load(response)
-    except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+    except (
+        urllib.error.HTTPError,
+        urllib.error.URLError,
+        TimeoutError,
+        json.JSONDecodeError,
+    ):
         return None
 
 
-def _registry_has_version(version: str) -> bool:
-    payload = _request_json(f"https://crates.io/api/v1/crates/{PACKAGE_NAME}/{version}")
+def _registry_has_version(version: str, timeout_seconds: float) -> bool:
+    payload = _request_json(
+        f"https://crates.io/api/v1/crates/{PACKAGE_NAME}/{version}", timeout_seconds
+    )
     if not isinstance(payload, dict):
         return False
     released = payload.get("version")
     return isinstance(released, dict) and released.get("num") == version
 
 
-def _docs_has_version(version: str) -> bool:
+def _docs_has_version(version: str, timeout_seconds: float) -> bool:
     request = urllib.request.Request(
         f"https://docs.rs/{PACKAGE_NAME}/{version}/{LIBRARY_NAME}/",
         headers={"User-Agent": USER_AGENT},
     )
     try:
-        with urllib.request.urlopen(request, timeout=30) as response:
+        with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
             return response.status == 200
     except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError):
         return False
@@ -125,8 +132,8 @@ def wait_for_public(
     timeout_seconds: float,
     *,
     interval_seconds: float = 10,
-    crate_lookup: Callable[[str], bool] = _registry_has_version,
-    docs_lookup: Callable[[str], bool] = _docs_has_version,
+    crate_lookup: Callable[[str, float], bool] = _registry_has_version,
+    docs_lookup: Callable[[str, float], bool] = _docs_has_version,
     sleeper: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
 ) -> None:
@@ -134,18 +141,25 @@ def wait_for_public(
     _require_version(version)
     deadline = clock() + timeout_seconds
     while True:
-        crate_ready = crate_lookup(version)
-        docs_ready = docs_lookup(version)
+        remaining = deadline - clock()
+        if remaining <= 0:
+            raise TimeoutError(
+                f"timed out waiting for {PACKAGE_NAME} {version} on crates.io, docs.rs"
+            )
+        crate_ready = crate_lookup(version, remaining)
+        remaining = deadline - clock()
+        docs_ready = remaining > 0 and docs_lookup(version, remaining)
         if crate_ready and docs_ready:
             return
-        if clock() >= deadline:
+        remaining = deadline - clock()
+        if remaining <= 0:
             missing = ", ".join(
                 name
                 for name, ready in (("crates.io", crate_ready), ("docs.rs", docs_ready))
                 if not ready
             )
             raise TimeoutError(f"timed out waiting for {PACKAGE_NAME} {version} on {missing}")
-        sleeper(interval_seconds)
+        sleeper(min(interval_seconds, remaining))
 
 
 def _remaining(deadline: float, maximum: float) -> float:
@@ -163,7 +177,13 @@ def _package(package_dir: Path, version: str, cargo: str, *, timeout: float = 30
     tarball = package_dir / "target" / "package" / f"{PACKAGE_NAME}-{version}.crate"
     tarball.unlink(missing_ok=True)
     _run(
-        [cargo, "package", "--locked", "--manifest-path", str(package_dir / "Cargo.toml")],
+        [
+            cargo,
+            "package",
+            "--locked",
+            "--manifest-path",
+            str(package_dir / "Cargo.toml"),
+        ],
         cwd=package_dir,
         timeout=timeout,
     )

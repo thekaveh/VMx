@@ -101,14 +101,14 @@ public sealed class AggregateVM5<VM1, VM2, VM3, VM4, VM5> : ComponentVMBase, IAg
         IComponentVM?[] previous = [_component1, _component2, _component3, _component4, _component5];
         // On Reconstruct, dispose previous slot instances before overwriting
         // so their hub subscriptions and command Subjects don't leak.
-        AggregateOwnership.Replace(_aggregateParent, previous, [next1, next2, next3, next4, next5], () =>
+        if (!AggregateOwnership.Replace(_aggregateParent, previous, [next1, next2, next3, next4, next5], () =>
         {
             _component1 = next1;
             _component2 = next2;
             _component3 = next3;
             _component4 = next4;
             _component5 = next5;
-        });
+        })) return;
         NotifyPropertyChanged(nameof(Component1));
         NotifyPropertyChanged(nameof(Component2));
         NotifyPropertyChanged(nameof(Component3));

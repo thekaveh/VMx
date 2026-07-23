@@ -4,6 +4,7 @@ import argparse
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -62,7 +63,11 @@ def push_wiki(
         work = Path(tmp) / "wiki"
         if push or check_published:
             clone_remote = remote if push else _read_only_remote(remote)
-            _run(["git", "clone", "--depth", "1", clone_remote, str(work)], Path(tmp), env)
+            _run(
+                ["git", "clone", "--depth", "1", clone_remote, str(work)],
+                Path(tmp),
+                env,
+            )
         else:
             work.mkdir()
             _run(["git", "init", "-b", "master"], work, env)
@@ -97,12 +102,16 @@ def main() -> int:
     mode.add_argument("--check-published", action="store_true")
     args = parser.parse_args()
     remote = os.environ.get("WIKI_REMOTE", DEFAULT_REMOTE)
-    current = push_wiki(
-        Path(args.src),
-        remote,
-        push=args.push,
-        check_published=args.check_published,
-    )
+    try:
+        current = push_wiki(
+            Path(args.src),
+            remote,
+            push=args.push,
+            check_published=args.check_published,
+        )
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+        print(f"ERROR: unable to synchronize wiki: {error}", file=sys.stderr)
+        return 2
     return 0 if current else 1
 
 

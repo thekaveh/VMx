@@ -75,7 +75,7 @@ export class AggregateVM5<
     const previous = [this.#component1, this.#component2, this.#component3, this.#component4, this.#component5];
     // On Reconstruct, dispose previous slot instances before overwriting
     // so their hub subscriptions and command Subjects don't leak.
-    replaceAggregateSlots(
+    if (!replaceAggregateSlots(
       this.#aggregateParent,
       previous,
       [next1, next2, next3, next4, next5],
@@ -86,7 +86,7 @@ export class AggregateVM5<
         this.#component4 = next4;
         this.#component5 = next5;
       },
-    );
+    )) return;
     this._notifyPropertyChanged("component1");
     this._notifyPropertyChanged("component2");
     this._notifyPropertyChanged("component3");

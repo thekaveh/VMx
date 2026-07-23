@@ -62,11 +62,30 @@ def test_wait_for_packages_polls_until_every_exact_version_is_visible() -> None:
         {"VMx": "3.20.0", "VMx.Notifications": "1.2.0"},
         1,
         interval_seconds=0.01,
-        lookup=lambda _package, _version: next(responses),
+        lookup=lambda _package, _version, _timeout: next(responses),
         sleeper=sleeps.append,
+        clock=iter([0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]).__next__,
     )
 
     assert sleeps == [0.01, 0.01]
+
+
+def test_wait_for_packages_caps_lookup_and_sleep_to_end_to_end_deadline() -> None:
+    timeouts: list[float] = []
+    sleeps: list[float] = []
+
+    with pytest.raises(TimeoutError, match="timed out waiting"):
+        smoke.wait_for_packages(
+            {"VMx": "3.20.0"},
+            1,
+            interval_seconds=5,
+            lookup=lambda _package, _version, timeout: timeouts.append(timeout) or False,
+            sleeper=sleeps.append,
+            clock=iter([0.0, 0.2, 0.8, 1.0, 1.0]).__next__,
+        )
+
+    assert timeouts == pytest.approx([0.8])
+    assert sleeps == pytest.approx([0.2])
 
 
 def test_flat_container_url_normalizes_package_id() -> None:

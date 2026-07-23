@@ -1,5 +1,6 @@
 """Unit tests for tools/check-swift-package-sync.py."""
 
+import subprocess
 from copy import deepcopy
 
 import check_swift_package_sync as csps
@@ -91,3 +92,14 @@ def test_manifest_diff_reports_resource_rule_drift() -> None:
 
     assert "message-ordering.json" in diff
     assert '"copy"' in diff
+
+
+def test_main_reports_package_dump_timeout(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        csps,
+        "check",
+        lambda _root: (_ for _ in ()).throw(subprocess.TimeoutExpired("swift", 1)),
+    )
+
+    assert csps.main([]) == 2
+    assert "unable to compare SwiftPM manifests" in capsys.readouterr().err

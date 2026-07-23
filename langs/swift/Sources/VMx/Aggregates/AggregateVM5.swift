@@ -50,12 +50,11 @@ open class AggregateVM5<
         let c1 = factory1(); let c2 = factory2(); let c3 = factory3()
         let c4 = factory4(); let c5 = factory5()
         let previous: [ComponentVMBase?] = [component1, component2, component3, component4, component5]
-        try replaceAggregateSlots(
-            parent: aggregateParent, previous: previous, next: [c1, c2, c3, c4, c5]
-        ) {
+        guard try replaceAggregateSlots(
+            parent: aggregateParent, previous: previous, next: [c1, c2, c3, c4, c5], assign: {
             component1 = c1; component2 = c2; component3 = c3
             component4 = c4; component5 = c5
-        }
+        }) else { return }
         _notifyPropertyChanged("component1")
         _notifyPropertyChanged("component2")
         _notifyPropertyChanged("component3")

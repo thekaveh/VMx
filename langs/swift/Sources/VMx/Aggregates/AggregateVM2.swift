@@ -35,10 +35,10 @@ open class AggregateVM2<C1: ComponentVMBase, C2: ComponentVMBase>: ComponentVMBa
         let c1 = factory1()
         let c2 = factory2()
         let previous: [ComponentVMBase?] = [component1, component2]
-        try replaceAggregateSlots(parent: aggregateParent, previous: previous, next: [c1, c2]) {
+        guard try replaceAggregateSlots(parent: aggregateParent, previous: previous, next: [c1, c2], assign: {
             component1 = c1
             component2 = c2
-        }
+        }) else { return }
         _notifyPropertyChanged("component1")
         _notifyPropertyChanged("component2")
 

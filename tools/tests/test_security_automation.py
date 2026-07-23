@@ -96,7 +96,8 @@ def test_required_security_gate_scans_committed_secrets() -> None:
 
     assert "  secrets:\n    timeout-minutes: 10" in workflow
     assert "fetch-depth: 0" in workflow
-    assert "gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7" in workflow
+    assert "gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e" in workflow
+    assert 'GITLEAKS_VERSION: "8.30.1"' in workflow
     assert "needs: [secrets, codeql, npm, cargo, python, docs, nuget]" in workflow
     assert "currently has no secret-scanner\nallowlist entries" in policy
     assert "`.gitleaksignore`" in policy
@@ -114,8 +115,8 @@ def test_codeql_covers_every_implementation_language() -> None:
     assert codeql.count("            build-mode: none\n") == 4
     assert "swift build -c release --package-path langs/swift" in codeql
     assert "swift build -c release --package-path examples/swift/notes-showcase" in codeql
-    assert "github/codeql-action/init@7188fc363630916deb702c7fdcf4e481b751f97a" in codeql
-    assert "github/codeql-action/analyze@7188fc363630916deb702c7fdcf4e481b751f97a" in codeql
+    assert "github/codeql-action/init@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81" in codeql
+    assert "github/codeql-action/analyze@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81" in codeql
 
 
 def test_release_workflow_defaults_to_read_only() -> None:

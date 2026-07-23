@@ -58,10 +58,10 @@ export class AggregateVM2<VM1 extends ComponentVMBase, VM2 extends ComponentVMBa
     const previous = [this.#component1, this.#component2];
     // On Reconstruct, dispose previous slot instances before overwriting
     // so their hub subscriptions and command Subjects don't leak.
-    replaceAggregateSlots(this.#aggregateParent, previous, [next1, next2], () => {
+    if (!replaceAggregateSlots(this.#aggregateParent, previous, [next1, next2], () => {
       this.#component1 = next1;
       this.#component2 = next2;
-    });
+    })) return;
     this._notifyPropertyChanged("component1");
     this._notifyPropertyChanged("component2");
 

@@ -385,6 +385,63 @@ describe("AggregateVM reconstruct disposes previous slot", () => {
 });
 
 describe("Aggregate fixed-slot ownership", () => {
+  it.each([1, 2])(
+    "AggregateVM%d aborts replacement when previous disposal disposes the parent",
+    (arity) => {
+      const hub = makeHub();
+      const candidates = [
+        makeChild(hub, "candidate-1"),
+        makeChild(hub, "candidate-2"),
+      ];
+      const previous: ComponentVMBase[] = [];
+      let disposeAggregate = () => {};
+      let calls1 = 0;
+      let calls2 = 0;
+      const firstFactory = () => {
+        if (++calls1 === 1) {
+          const old = new ReentrantDisposeVM("old-1", hub, () => disposeAggregate());
+          previous.push(old);
+          return old;
+        }
+        return candidates[0]!;
+      };
+      const secondFactory = () => {
+        if (++calls2 === 1) {
+          const old = makeChild(hub, "old-2");
+          previous.push(old);
+          return old;
+        }
+        return candidates[1]!;
+      };
+
+      if (arity === 1) {
+        const aggregate = AggregateVM1.builder<ComponentVMBase>()
+          .name("aggregate").services(hub, makeDisp())
+          .component1(firstFactory).build();
+        disposeAggregate = () => aggregate.dispose();
+        aggregate.construct();
+
+        aggregate.reconstruct();
+
+        expect(aggregate.status).toBe(ConstructionStatus.Disposed);
+        expect(aggregate.components()).toEqual(previous);
+      } else {
+        const aggregate = AggregateVM2.builder<ComponentVMBase, ComponentVMBase>()
+          .name("aggregate").services(hub, makeDisp())
+          .component1(firstFactory).component2(secondFactory).build();
+        disposeAggregate = () => aggregate.dispose();
+        aggregate.construct();
+
+        aggregate.reconstruct();
+
+        expect(aggregate.status).toBe(ConstructionStatus.Disposed);
+        expect(aggregate.components()).toEqual(previous);
+      }
+      expect(candidates.slice(0, arity).map((candidate) => candidate.status))
+        .toEqual(Array.from({ length: arity }, () => ConstructionStatus.Disposed));
+    },
+  );
+
   it("rejects reentrant attachment of a replacement candidate during disposal", () => {
     const hub = makeHub();
     const candidate = makeChild(hub, "candidate");

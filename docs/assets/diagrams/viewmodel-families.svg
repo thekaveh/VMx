@@ -17,10 +17,10 @@
   <text x="40" y="54" fill="#f8fafc" font-size="28" font-weight="700" text-anchor="start">ViewModel Families Map</text>
   <text x="40" y="82" fill="#94a3b8" font-size="15" font-weight="400" text-anchor="start">one conceptual hierarchy, five idioms, and specialized companions</text>
   <polyline points="230,276 230,320" fill="none" stroke="#22d3ee" stroke-width="2.2" marker-end="url(#arrowhead)"/>
-<polyline points="340,224 390,224" fill="none" stroke="#22d3ee" stroke-width="2.2" marker-end="url(#arrowhead)"/>
-<polyline points="340,246 680,246" fill="none" stroke="#22d3ee" stroke-width="2.2" marker-end="url(#arrowhead)"/>
-<polyline points="340,268 970,268" fill="none" stroke="#22d3ee" stroke-width="2.2" marker-end="url(#arrowhead)"/>
-<polyline points="340,290 1260,290" fill="none" stroke="#22d3ee" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="340,224 360,224 360,310 510,310 510,302" fill="none" stroke="#22d3ee" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="340,246 365,246 365,314 800,314 800,302" fill="none" stroke="#22d3ee" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="340,268 370,268 370,318 1090,318 1090,302" fill="none" stroke="#22d3ee" stroke-width="2.2" marker-end="url(#arrowhead)"/>
+<polyline points="340,260 375,260 375,322 1390,322 1390,302" fill="none" stroke="#22d3ee" stroke-width="2.2" marker-end="url(#arrowhead)"/>
 <polyline points="510,452 510,514" fill="none" stroke="#34d399" stroke-width="2.2" marker-end="url(#arrowhead)"/>
 <polyline points="800,452 800,514" fill="none" stroke="#a78bfa" stroke-width="2.2" marker-end="url(#arrowhead)"/>
 <polyline points="1090,452 1090,514" fill="none" stroke="#fb923c" stroke-width="2.2" marker-end="url(#arrowhead)"/>

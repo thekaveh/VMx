@@ -115,7 +115,7 @@ public sealed class AggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6> : ComponentVMBase
         // Emit Hub message before the local PropertyChanged, matching arities
         // 1–5 and the Python/TS flavors (spec/08 §; relative order is uniform
         // across all aggregate arities).
-        AggregateOwnership.Replace(
+        if (!AggregateOwnership.Replace(
             _aggregateParent,
             previous,
             [next1, next2, next3, next4, next5, next6],
@@ -127,7 +127,7 @@ public sealed class AggregateVM6<VM1, VM2, VM3, VM4, VM5, VM6> : ComponentVMBase
                 _component4 = next4;
                 _component5 = next5;
                 _component6 = next6;
-            });
+            })) return;
         NotifyPropertyChanged(nameof(Component1));
         NotifyPropertyChanged(nameof(Component2));
         NotifyPropertyChanged(nameof(Component3));

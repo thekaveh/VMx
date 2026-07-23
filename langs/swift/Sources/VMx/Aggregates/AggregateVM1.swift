@@ -27,9 +27,9 @@ open class AggregateVM1<C1: ComponentVMBase>: ComponentVMBase {
         try super._onConstruct()
         let c1 = factory1()
         let previous: [ComponentVMBase?] = [component1]
-        try replaceAggregateSlots(parent: aggregateParent, previous: previous, next: [c1]) {
+        guard try replaceAggregateSlots(parent: aggregateParent, previous: previous, next: [c1], assign: {
             component1 = c1
-        }
+        }) else { return }
         _notifyPropertyChanged("component1")
         try c1.construct()
     }

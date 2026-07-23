@@ -68,11 +68,11 @@ public sealed class AggregateVM2<VM1, VM2> : ComponentVMBase, IAggregateVM2<VM1,
         IComponentVM?[] previous = [_component1, _component2];
         // On Reconstruct, dispose previous slot instances before overwriting
         // so their hub subscriptions and command Subjects don't leak.
-        AggregateOwnership.Replace(_aggregateParent, previous, [next1, next2], () =>
+        if (!AggregateOwnership.Replace(_aggregateParent, previous, [next1, next2], () =>
         {
             _component1 = next1;
             _component2 = next2;
-        });
+        })) return;
         NotifyPropertyChanged(nameof(Component1));
         NotifyPropertyChanged(nameof(Component2));
 

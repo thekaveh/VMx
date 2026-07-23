@@ -1,4 +1,6 @@
 import { ComponentVMBase } from "../components/componentVMBase.js";
+import { disposeBestEffort } from "../components/disposal.js";
+import { ConstructionStatus } from "../lifecycle/status.js";
 import type {
   IOwningParentVM,
   ParentTransfer,
@@ -69,7 +71,7 @@ export function replaceAggregateSlots(
   previous: readonly (ComponentVMBase | null)[],
   next: readonly ComponentVMBase[],
   assign: () => void,
-): void {
+): boolean {
   const identities = [...new Set(next.map((child) => child._ownershipIdentity))];
   if (identities.some((identity) => identity._ownershipInProgress)) {
     throw new Error("Aggregate ownership transaction is already in progress");
@@ -78,8 +80,13 @@ export function replaceAggregateSlots(
   try {
     validateAggregateSlots(parent, next);
     for (const child of previous) child?.dispose();
+    if (parent.owner.status === ConstructionStatus.Disposed) {
+      disposeBestEffort(next.map((child) => () => child.dispose()));
+      return false;
+    }
     assign();
     commitAggregateSlots(parent, previous, next);
+    return true;
   } finally {
     for (const identity of identities) identity._ownershipInProgress = false;
   }

@@ -58,10 +58,10 @@ public sealed class AggregateVM1<VM1> : ComponentVMBase, IAggregateVM1<VM1>, IAg
         // On Reconstruct, the previous slot instance is in Destructed state but
         // still holds hub subscriptions and command Subjects. Dispose it before
         // overwriting so subscribers don't leak across the Reconstruct boundary.
-        AggregateOwnership.Replace(_aggregateParent, previous, [next1], () =>
+        if (!AggregateOwnership.Replace(_aggregateParent, previous, [next1], () =>
         {
             _component1 = next1;
-        });
+        })) return;
         NotifyPropertyChanged(nameof(Component1));
 
         CompleteLifecycleHookAfter(TransitionChildrenAsync(

@@ -1,8 +1,21 @@
 """Unit tests for tools/check-typescript-package.py."""
 
 import json
+import subprocess
 
 import check_typescript_package as ctsp
+import pytest
+
+
+def test_main_reports_package_timeout(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    monkeypatch.setattr(
+        ctsp,
+        "package_paths",
+        lambda _path: (_ for _ in ()).throw(subprocess.TimeoutExpired("npm", 1)),
+    )
+
+    assert ctsp.main([]) == 2
+    assert "unable to inspect npm package" in capsys.readouterr().err
 
 
 def _valid_paths() -> set[str]:
