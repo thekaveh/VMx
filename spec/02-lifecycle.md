@@ -197,7 +197,8 @@ Swift's non-throwing scheduler closure cannot redeliver a background hook error
 to the already-returned caller (ADR-0053, ADR-0109). `OnDispose` is **not**
 subject to rollback — `dispose()` is terminal and idempotent.
 
-This behavior is verified by `LIFE-014`.
+This behavior is verified by `LIFE-014`. Coordination between an admitted hook
+and terminal disposal is verified by `LIFE-015`.
 
 ## 3. Invariants
 
@@ -305,7 +306,7 @@ directly.
 
 ## 9. Conformance
 
-`LIFE-001` through `LIFE-014` in `12-conformance.md` cover:
+`LIFE-001` through `LIFE-015` in `12-conformance.md` cover:
 
 - legal state transitions (construct / destruct / reconstruct / dispose)
 - predicates raising `StatusTransitionError` / `StatusTransitionException` on illegal calls
@@ -319,6 +320,9 @@ directly.
   terminal cleanup before propagating the first failure)
 - transactional rollback: a throwing `OnConstruct`/`OnDestruct` hook rolls `Status` back to
   the prior settled state and leaves the VM recoverable (`LIFE-014`, §2.5)
+- admitted-hook coordination: terminal disposal waits for the active hook,
+  performs terminal cleanup only after hook release, and suppresses post-hook
+  container work after terminal supersession (`LIFE-015`, §2.4)
 
 `DISP-001` adds the cross-cutting at-most-once assertion: invoking a parent
 dispose path more than once produces one observable terminal transition and

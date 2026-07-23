@@ -1050,6 +1050,29 @@ def test_tag_version_empty_when_unparseable() -> None:
     assert cvc._tag_version("not-a-tag") == ""
 
 
+def test_release_tag_rejects_substantive_unreleased_notes(tmp_path: Path) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        "## [Unreleased]\n\n### Fixed\n\n- Not in the tagged section.\n\n"
+        "## [3.22.1]\n\n- Tagged notes.\n",
+        encoding="utf-8",
+    )
+
+    assert cvc.check_release_unreleased(changelog) == [
+        f"  {changelog}: [Unreleased] contains substantive notes at tag publication"
+    ]
+
+
+def test_release_tag_accepts_empty_unreleased_section(tmp_path: Path) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        "## [Unreleased]\n\n## [3.22.1]\n\n- Tagged notes.\n",
+        encoding="utf-8",
+    )
+
+    assert cvc.check_release_unreleased(changelog) == []
+
+
 # ── in-development (== spec/VERSION) exemption ────────────────────────
 
 

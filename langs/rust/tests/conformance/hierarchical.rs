@@ -4,11 +4,67 @@ use std::time::Duration;
 
 use vmx::{
     walk_expanded, Command, ConstructionStatus, HierarchicalVm, Message, MessageHub,
-    ModeledCrudCommands, NullDispatcher, SearchableState, TreeStructureChange,
+    ModeledCrudCommands, NullDispatcher, SearchableState, TreeStructureChange, VmxError,
 };
 
 fn leaf(name: &str) -> HierarchicalVm<String> {
     HierarchicalVm::new(name, name.to_string())
+}
+
+/// HIER-031 — factory hydration validates the complete snapshot before mutation.
+#[test]
+fn factory_hydration_is_atomic_and_retryable() {
+    let first = leaf("first");
+    let second = leaf("second");
+    let snapshot = Arc::new(Mutex::new(vec![first.clone(), first.clone()]));
+    let captured = Arc::clone(&snapshot);
+    let root = HierarchicalVm::with_children_factory(
+        "root",
+        "root".to_string(),
+        move |_| captured.lock().unwrap().clone(),
+        false,
+        MessageHub::new(),
+    );
+
+    assert!(matches!(
+        root.try_children(),
+        Err(VmxError::InvalidArgument(message)) if message.contains("factory")
+    ));
+    assert!(first.parent().is_none());
+
+    *snapshot.lock().unwrap() = vec![first.clone(), second.clone()];
+    assert!(root.try_children().unwrap() == vec![first.clone(), second.clone()]);
+    assert!(first.parent().as_ref() == Some(&root));
+    assert!(second.parent().as_ref() == Some(&root));
+}
+
+/// HIER-031 — self and already-parented factory results are rejected.
+#[test]
+fn factory_hydration_rejects_invalid_topology() {
+    let self_slot = Arc::new(Mutex::new(None::<HierarchicalVm<String>>));
+    let captured = Arc::clone(&self_slot);
+    let self_node = HierarchicalVm::with_children_factory(
+        "self",
+        "self".to_string(),
+        move |_| vec![captured.lock().unwrap().as_ref().unwrap().clone()],
+        false,
+        MessageHub::new(),
+    );
+    *self_slot.lock().unwrap() = Some(self_node.clone());
+    assert!(self_node.try_children().is_err());
+    assert!(self_node.parent().is_none());
+
+    let old_parent = leaf("old");
+    let attached = leaf("attached");
+    old_parent.add_child(attached.clone()).unwrap();
+    let new_parent = HierarchicalVm::with_children_factory(
+        "new",
+        "new".to_string(),
+        move |_| vec![attached.clone()],
+        false,
+        MessageHub::new(),
+    );
+    assert!(new_parent.try_children().is_err());
 }
 
 /// HIER-001 — Recursive generic constraint compiles

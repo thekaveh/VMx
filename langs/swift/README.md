@@ -5,11 +5,11 @@ spec-compatible with the C# / Python / TypeScript / Rust flavors.
 
 ## 1. Status
 
-**v3.22.0 source — total parity.** Covers **all 397 of 397** library conformance IDs
-from `spec-v3.22.0` plus the 5 `THEME-00x` scenario IDs exercised by the
-`examples/swift/notes-showcase/` flagship app (ADR-0067) = **402 total**, at
+**v3.22.1 source — total parity.** Covers **all 399 of 399** library conformance IDs
+from `spec-v3.22.1` plus the 5 `THEME-00x` scenario IDs exercised by the
+`examples/swift/notes-showcase/` flagship app (ADR-0067) = **404 total**, at
 full parity with the C#, Python, and TypeScript UI-backed flavors. Rust has full
-397-ID library parity and no UI scenario suite. Library IDs accumulated
+399-ID library parity and no UI scenario suite. Library IDs accumulated
 incrementally (recounted honestly in ADR-0037; +COMP-025/COMP-026 added per
 ADR-0042; +LIFE-008 via the v3 throwing-convergence in ADR-0053; +50 leaf-area
 IDs via Phase-3 Inc-1 — ADR-0059; +30 collections IDs via Phase-3 Inc-2 —
@@ -252,9 +252,9 @@ this fixed VM. The `Equatable` overload uses `==`; use the `isEqual:` overload
 for custom equality. The host owns the returned `AnyCancellable`; VMx does not
 attach it to the observed VM's lifetime.
 
-## 5. Conformance — total parity (402)
+## 5. Conformance — total parity (404)
 
-This flavor implements **all 397 library conformance IDs** from the
+This flavor implements **all 399 library conformance IDs** from the
 cross-language conformance catalog (Inc-0: 44 base IDs per ADR-0037/ADR-0053;
 Inc-1: +50 leaf-area IDs per ADR-0059; Inc-2: +30 collections IDs per ADR-0060;
 Inc-3: +29 hierarchical/threading/expand-collapse IDs per ADR-0061;
@@ -483,7 +483,7 @@ ARES-001..011   cancellable latest-wins AsyncResourceVM (ADR-0100)
   `examples/swift/notes-showcase/NotesShowcaseTests/`; validated by the
   `examples (notes-showcase)` CI job in `.github/workflows/swift.yml`.
 
-**All 397 library conformance IDs are covered, and the 5 `THEME-00x` scenario IDs are covered by the `examples/swift/notes-showcase/` flagship. Swift is at total parity (402) with the C#, Python, and TypeScript UI-backed flavors. Rust has full library parity but no UI scenario suite.**
+**All 399 library conformance IDs are covered, and the 5 `THEME-00x` scenario IDs are covered by the `examples/swift/notes-showcase/` flagship. Swift is at total parity (404) with the C#, Python, and TypeScript UI-backed flavors. Rust has full library parity but no UI scenario suite.**
 
 Run the suite:
 

@@ -51,6 +51,30 @@ class DisposeProbeVM extends ComponentVMBase {
   }
 }
 
+class HookLeaseProbeVM extends ComponentVMBase {
+  constructor(
+    hub: MessageHub,
+    onConstruct: () => void,
+    private readonly onDispose: () => void,
+  ) {
+    super({
+      name: "hook-lease",
+      hint: "",
+      hub,
+      dispatcher: makeDisp(),
+      onConstruct,
+    });
+  }
+
+  get type(): ViewModelType {
+    return ViewModelType.Component;
+  }
+
+  protected override _onDispose(): void {
+    this.onDispose();
+  }
+}
+
 // ---------------------------------------------------------------------------
 // LIFE-001
 // ---------------------------------------------------------------------------
@@ -186,6 +210,27 @@ describe("LIFE-004", () => {
 
     expect(vm.status).toBe(ConstructionStatus.Disposed);
     expect(constructCalls).toBe(1);
+  });
+});
+
+describe("LIFE-015", () => {
+  it("defers terminal cleanup until an admitted hook returns", () => {
+    const trace: string[] = [];
+    let vm: HookLeaseProbeVM;
+    vm = new HookLeaseProbeVM(
+      makeHub(),
+      () => {
+        trace.push("hook:start");
+        vm.dispose();
+        trace.push("hook:end");
+      },
+      () => trace.push("cleanup"),
+    );
+
+    vm.construct();
+
+    expect(trace).toEqual(["hook:start", "hook:end", "cleanup"]);
+    expect(vm.status).toBe(ConstructionStatus.Disposed);
   });
 });
 

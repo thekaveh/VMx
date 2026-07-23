@@ -99,6 +99,20 @@ sequenceDiagram
 Default: **lazy.** `Children` is materialized on first access by invoking the
 children factory delegate.
 
+Factory hydration is a snapshot/preflight/commit transaction (ADR-0127). The
+complete result is materialized before mutation and MUST contain only distinct,
+detached object identities. A null-like entry, duplicate identity, this node or
+one of its ancestors, or any node with a non-null parent rejects the complete
+snapshot. Rejection installs no cache, changes no parent/path state, publishes
+no message, and a later access retries the factory. A valid snapshot is cached
+in factory order and its parent backpointers are assigned silently. Factory
+hydration never transfers a node; use `AddChild` for explicit transfer.
+
+Swift exposes fallible `tryChildren()` and Rust exposes `try_children()` for
+this validation result. Their existing `children` accessors delegate and fail
+fast on invalid factory output for source compatibility. C#, Python, and
+TypeScript use their ordinary invalid-operation errors.
+
 Constructor option `eagerChildren=true` (C# / TS) / `eager_children=True` (Python)
 flips to **eager**: the entire tree is materialized at construct time using
 depth-first traversal. Eager mode is required if the consumer wants
@@ -306,3 +320,6 @@ TreeStructureChangedMessage:
 - `HIER-029` — Every non-added item has a typed rejection; selector/attachment
   failures are contained and parent links remain atomic.
 - `HIER-030` — Disposing the structural root clears its parked batch state.
+- `HIER-031` — Factory hydration preflights the complete ordered snapshot and
+  either attaches distinct detached nodes silently or rejects atomically with
+  no cache, parent/path, or message mutation; rejection remains retryable.

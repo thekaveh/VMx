@@ -36,8 +36,8 @@ dispose the other VM.
   start after terminal supersession.
 - Cross-VM callback graphs remain deadlock-free without weakening terminal
   status or exactly-once cleanup.
-- This clarifies existing 3.22.0 lifecycle IDs and adds no API, fixture,
-  conformance ID, package version, or minimum-spec change.
+- The coordination contract is covered explicitly by `LIFE-015` from spec
+  3.22.1 onward.
 
 ## 4. Rejected alternatives
 

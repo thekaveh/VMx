@@ -63,6 +63,31 @@ def test_contract_ledger_matches_docs_and_dom_tooling() -> None:
     assert '"jsdom": "^29.1.1"' in typescript_package
     assert '"jsdom": "^29.1.1"' in react_package
     assert "jsdom `29.1.1`" in ledger
+    assert (
+        "Python branch CI builds, validates, and fresh-installs both the wheel and sdist." in ledger
+    )
+    assert "npm `11.18.0`" in ledger
+    assert "npm `11.5.1`" not in ledger
+
+
+def test_current_docs_match_library_conformance_catalog() -> None:
+    catalog = (ROOT / "spec/12-conformance.md").read_text(encoding="utf-8")
+    library_count = len(set(re.findall(r"^### (?!THEME-)[A-Z]+-[0-9]{3}\b", catalog, re.MULTILINE)))
+    assert library_count
+
+    overview = (ROOT / "spec/00-overview.md").read_text(encoding="utf-8")
+    rust_parity = (ROOT / "docs/maintenance/2026-07-16-rust-capability-parity.md").read_text(
+        encoding="utf-8"
+    )
+    assert f"{library_count} library IDs" in overview
+    assert f"all {library_count} library IDs" in rust_parity
+
+
+def test_python_release_guidance_is_stable_semver_only() -> None:
+    runbook = (ROOT / "langs/python/RELEASING.md").read_text(encoding="utf-8")
+
+    assert "Stable SemVer releases only" in runbook
+    assert "PEP 440 segments are supported" not in runbook
 
 
 def test_showcase_docs_match_current_react_and_swift_sources() -> None:

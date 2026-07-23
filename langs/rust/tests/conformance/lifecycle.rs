@@ -41,6 +41,7 @@ fn apply_fixture_operation(vm: &ComponentVm, operation: &str) -> vmx::VmxResult<
     }
 }
 
+/// LIFE-015 — disposal waits for an admitted lifecycle hook before cleanup.
 #[test]
 fn foreign_disposal_waits_for_an_admitted_lifecycle_hook() {
     let (entered_tx, entered_rx) = mpsc::channel();

@@ -6,6 +6,8 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ## [Unreleased]
 
+## [3.22.1] — 2026-07-23
+
 ### Changed
 
 - CI now union-merges duplicate source-line coverage across test hosts and
@@ -18,6 +20,9 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### Fixed
 
+- Hierarchy child factories now validate their complete snapshot before
+  assigning parents, rejecting duplicate, cyclic, or already-parented nodes
+  atomically and preserving retryability (HIER-031, ADR-0127).
 - Lazy aggregate reconstruction now reserves every proposed child from
   validation through disposal, assignment, and parent commit, preventing two
   concurrent aggregates or a re-entrant disposal hook from retaining the same

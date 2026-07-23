@@ -172,6 +172,9 @@ export abstract class ComponentVMBase {
   #activePropertyNotifications = 0;
   #propertyNotificationTeardownPending = false;
   #ownedResources: OwnedResource[] = [];
+  #activeLifecycleHook = false;
+  #terminalCleanupPending = false;
+  #terminalCleanupStarted = false;
 
   readonly #selectCommand: RelayCommand;
   readonly #deselectCommand: RelayCommand;
@@ -394,7 +397,7 @@ export abstract class ComponentVMBase {
           return;
         }
         try {
-          this._onConstruct();
+          this.#runLifecycleHook(() => this._onConstruct());
         } catch (e) {
           // VMX-007: roll _status back to Destructed (marshalled onto the
           // foreground per VMX-025; _setStatus re-checks Disposed) and clear the
@@ -430,7 +433,7 @@ export abstract class ComponentVMBase {
         this._setStatus(ConstructionStatus.Constructing);
         if (this.#isDisposed()) return;
         try {
-          this._onConstruct();
+          this.#runLifecycleHook(() => this._onConstruct());
         } catch (e) {
           // VMX-007: a throwing construct hook must not wedge the VM in the
           // transient Constructing state. Roll _status back to the prior settled
@@ -467,7 +470,7 @@ export abstract class ComponentVMBase {
           return;
         }
         try {
-          this._onDestruct();
+          this.#runLifecycleHook(() => this._onDestruct());
         } catch (e) {
           // VMX-007: roll _status back to Constructed (marshalled onto the
           // foreground per VMX-025; _setStatus re-checks Disposed) and clear the
@@ -501,7 +504,7 @@ export abstract class ComponentVMBase {
         this._setStatus(ConstructionStatus.Destructing);
         if (this.#isDisposed()) return;
         try {
-          this._onDestruct();
+          this.#runLifecycleHook(() => this._onDestruct());
         } catch (e) {
           // VMX-007: a throwing destruct hook must not wedge the VM in the
           // transient Destructing state. Roll _status back to the prior settled
@@ -528,7 +531,7 @@ export abstract class ComponentVMBase {
       this._setStatus(ConstructionStatus.Destructing);
       if (this.#isDisposed()) return;
       try {
-        this._onDestruct();
+        this.#runLifecycleHook(() => this._onDestruct());
       } catch (e) {
         // VMX-007: a failed destruct phase rolls back to Constructed (the state
         // reconstruct started from) so the VM stays recoverable.
@@ -541,7 +544,7 @@ export abstract class ComponentVMBase {
       this._setStatus(ConstructionStatus.Constructing);
       if (this.#isDisposed()) return;
       try {
-        this._onConstruct();
+        this.#runLifecycleHook(() => this._onConstruct());
       } catch (e) {
         // VMX-007: a failed construct phase rolls back to Destructed (the
         // destruct phase already completed) so the VM stays recoverable.
@@ -558,6 +561,16 @@ export abstract class ComponentVMBase {
     if (this.#status === ConstructionStatus.Disposed) return;
 
     this._setStatus(ConstructionStatus.Disposed);
+    if (this.#activeLifecycleHook) {
+      this.#terminalCleanupPending = true;
+      return;
+    }
+    this.#finishTerminalCleanup();
+  }
+
+  #finishTerminalCleanup(): void {
+    if (this.#terminalCleanupStarted) return;
+    this.#terminalCleanupStarted = true;
     disposeBestEffort([
       () => this._onDispose(),
       () => this.#disposeOwnedResources(),
@@ -578,6 +591,33 @@ export abstract class ComponentVMBase {
       () => this.#selectPreviousCommand.dispose(),
       () => this.#reconstructCommand.dispose(),
     ]);
+  }
+
+  #runLifecycleHook(hook: () => void): void {
+    this.#activeLifecycleHook = true;
+    let hookFailed = false;
+    let hookError: unknown;
+    try {
+      hook();
+    } catch (error) {
+      hookFailed = true;
+      hookError = error;
+    }
+    this.#activeLifecycleHook = false;
+
+    let cleanupFailed = false;
+    let cleanupError: unknown;
+    if (this.#terminalCleanupPending) {
+      this.#terminalCleanupPending = false;
+      try {
+        this.#finishTerminalCleanup();
+      } catch (error) {
+        cleanupFailed = true;
+        cleanupError = error;
+      }
+    }
+    if (hookFailed) throw hookError;
+    if (cleanupFailed) throw cleanupError;
   }
 
   // ── Selection ────────────────────────────────────────────────────────────

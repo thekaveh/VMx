@@ -109,20 +109,12 @@ release branch, then complete the bootstrap and reconciliation sequence above.
 
 > **Tag-ordering gotcha for new flavors.** When wiring `release-please` for the first time on a flavor (current Python adoption; future C#/TypeScript/Swift uplifts), push the bootstrap tag **before** merging the PR that adds the release-please config. Otherwise `release-please-action`'s first run on `main` sees no matching `<component>-v<X.Y.Z>` tag in the new format, walks the full repo history, and proposes a wildly-oversized release PR (it happened during the Python adoption — bot proposed `2.7.0` built from years-old `feat: absorption-cycle-*` commits). The branch lingers indefinitely after later runs correctly say "No user facing commits found"; recover with `git push origin --delete release-please--branches--main--components--<component>`.
 
-### 2.3 Pre-release (`alpha`, `beta`, `rc`)
+### 2.3 Stable version policy
 
-PEP 440 segments are supported. Tag examples:
-
-- `python-v2.7.0a1` → publishes `vmx==2.7.0a1` to PyPI.
-- `pip install vmx` (no version pin) will NOT pick up a pre-release; users must `pip install --pre vmx` or pin explicitly.
-
-The CHANGELOG section heading must match the version exactly (including the pre-release segment):
-
-```
-## [2.7.0a1] — 2026-07-15
-```
-
-For routine pre-releases via release-please, mark commits with `feat!:` / `fix!:` to drive the bump policy, or override the bump in the release-please PR before merging.
+Stable SemVer releases only (`X.Y.Z`) are accepted by the repository version,
+compatibility-matrix, tag, and changelog checks. PEP 440 pre-release segments
+are intentionally unsupported; introduce them only through a reviewed policy
+change that updates every release validator and workflow together.
 
 ## 3. Verifying a release
 

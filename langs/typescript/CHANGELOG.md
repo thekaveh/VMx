@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.23.1] — 2026-07-23
+
 ### Changed
 
 - CI now enforces calibrated library coverage floors of 85% statements, 78%
@@ -16,6 +18,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Hierarchy child factories now validate their complete snapshot before
+  assigning parents, rejecting duplicate, cyclic, or already-parented nodes
+  atomically and preserving retryability (HIER-031, ADR-0127).
+- Re-entrant disposal now defers terminal cleanup until the admitted lifecycle
+  hook returns, preserving the hook's causal failure (LIFE-015, ADR-0126).
 - Lazy aggregate reconstruction now reserves every proposed child from
   validation through disposal, assignment, and parent commit, preventing two
   concurrent aggregates or a re-entrant disposal hook from retaining the same

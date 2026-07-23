@@ -499,6 +499,24 @@ export abstract class HierarchicalVM<
     const children = Array.from(
       this.#childrenFactory(this.#self),
     );
+    const seen = new Set<TVM>();
+    const ancestors = new Set(this.path);
+    for (const child of children) {
+      const candidate: unknown = child;
+      if (candidate == null) {
+        throw new Error("children factory returned null or undefined");
+      }
+      if (seen.has(child)) {
+        throw new Error("children factory returned duplicate child identity");
+      }
+      seen.add(child);
+      if (ancestors.has(child)) {
+        throw new Error("children factory returned this node or one of its ancestors");
+      }
+      if (child.#hierarchicalParent !== null) {
+        throw new Error("children factory returned an already-parented child");
+      }
+    }
     for (const child of children) {
       child.#hierarchicalParent = this.#self;
     }

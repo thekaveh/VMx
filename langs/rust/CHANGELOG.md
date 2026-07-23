@@ -6,8 +6,14 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.25.1] — 2026-07-23
+
 ### Fixed
 
+- Hierarchy child factories now validate and commit their complete snapshot
+  under the topology gate. `try_children()` reports duplicate, cyclic, or
+  already-parented output without mutation and permits retry (HIER-031,
+  ADR-0127).
 - Direct reconstruction now rejects destructed, transient, and disposed VMs as
   required by the lifecycle fixture. The command, message-hub, and lifecycle
   fixture conformance tests now execute and assert every fixture scenario

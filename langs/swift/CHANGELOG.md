@@ -6,8 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.22.1] — 2026-07-23
+
 ### Fixed
 
+- Hierarchy child factories now validate their complete snapshot before
+  assigning parents. `tryChildren()` reports duplicate, cyclic, or
+  already-parented output without mutation and permits retry (HIER-031,
+  ADR-0127).
 - Lazy aggregate reconstruction now reserves every proposed child from
   validation through disposal, assignment, and parent commit, preventing two
   concurrent aggregates or a re-entrant disposal hook from retaining the same

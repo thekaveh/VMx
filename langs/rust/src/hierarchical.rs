@@ -188,7 +188,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
 
     /// Removes `child` from this node without disposing it.
     pub fn remove_child(&self, child: &Self) -> VmxResult<()> {
-        self.materialize_children();
+        self.try_children()?;
         let (removed, index) = {
             let _topology = lock(&HIERARCHY_TOPOLOGY_GATE);
             let mut children = lock(&self.inner.children);
@@ -225,7 +225,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
         // Materialize the destination before detaching so a child factory
         // failure cannot orphan an attached child.
         let (reparented, index) = loop {
-            self.materialize_children();
+            self.try_children()?;
             let attached = {
                 let _topology = lock(&HIERARCHY_TOPOLOGY_GATE);
                 if lock(&self.inner.children).is_none() {
@@ -463,6 +463,14 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
 
     /// Materializes and returns this node's ordered children.
     pub fn children(&self) -> Vec<Self> {
+        self.try_children().unwrap_or_else(|error| {
+            panic!("children factory returned structurally invalid output: {error}")
+        })
+    }
+
+    /// Materializes children after atomically validating the complete factory
+    /// snapshot. Invalid output leaves the hierarchy unchanged and can be retried.
+    pub fn try_children(&self) -> VmxResult<Vec<Self>> {
         self.materialize_children()
     }
 
@@ -578,27 +586,27 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
         *lock(&self.inner.expanded_for_walk) = expanded;
     }
 
-    fn materialize_children(&self) -> Vec<Self> {
+    fn materialize_children(&self) -> VmxResult<Vec<Self>> {
         let current = thread::current().id();
         loop {
             {
                 let _topology = lock(&HIERARCHY_TOPOLOGY_GATE);
                 if let Some(children) = lock(&self.inner.children).clone() {
-                    return children;
+                    return Ok(children);
                 }
             }
 
             let (owner, ready) = &*self.inner.materializing_children;
             let mut owner = lock(owner);
             if let Some(children) = lock(&self.inner.children).clone() {
-                return children;
+                return Ok(children);
             }
             match *owner {
                 None => {
                     *owner = Some(current);
                     break;
                 }
-                Some(active) if active == current => return Vec::new(),
+                Some(active) if active == current => return Ok(Vec::new()),
                 Some(_) => {
                     drop(wait(ready, owner));
                 }
@@ -613,13 +621,37 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
                 resume_unwind(error);
             }
         };
-        {
+        let committed = (|| -> VmxResult<Vec<Self>> {
             let _topology = lock(&HIERARCHY_TOPOLOGY_GATE);
+            let mut seen = HashSet::new();
+            for child in &children {
+                if !seen.insert(child.id()) {
+                    return Err(VmxError::InvalidArgument(
+                        "children factory returned duplicate child identity".to_string(),
+                    ));
+                }
+                let mut ancestor = Some(self.clone());
+                while let Some(node) = ancestor {
+                    if node == *child {
+                        return Err(VmxError::InvalidArgument(
+                            "children factory returned this node or one of its ancestors"
+                                .to_string(),
+                        ));
+                    }
+                    ancestor = node.parent_unlocked();
+                }
+                if child.parent_unlocked().is_some() {
+                    return Err(VmxError::InvalidArgument(
+                        "children factory returned an already-parented child".to_string(),
+                    ));
+                }
+            }
             for child in &children {
                 child.set_parent_state(Some(self.clone()));
             }
             *lock(&self.inner.children) = Some(children.clone());
-        }
+            Ok(children.clone())
+        })();
         self.finish_children_materialization();
         // First materialization is initial construction, not a parent *change*:
         // the children are born as this node's children. Emitting
@@ -627,7 +659,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
         // the first lazy children() access. The other four flavors assign the
         // parent silently on hydration (see the C# note in HierarchicalVM); real
         // reparents/detaches still emit via publish_parent_changed elsewhere.
-        children
+        committed
     }
 
     fn tree_root(&self) -> Self {

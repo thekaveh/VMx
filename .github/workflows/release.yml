@@ -40,7 +40,7 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
       - name: Validate versions, tags, and substantive release notes
-        run: python3 tools/check-version-consistency.py
+        run: python3 tools/check-version-consistency.py --release-tag "$GITHUB_REF_NAME"
 
   csharp-build:
     timeout-minutes: 40

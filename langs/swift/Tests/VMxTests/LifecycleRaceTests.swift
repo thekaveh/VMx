@@ -235,6 +235,8 @@ final class LifecycleRaceTests: XCTestCase {
         cancel.cancel()
     }
 
+    /// LIFE-015 — disposal waits for an admitted lifecycle hook and suppresses
+    /// post-hook work after terminal supersession.
     func testDisposeDuringReconstructDestructHookSkipsConstructPhase() throws {
         let hub = MessageHub()
         let destructEntered = DispatchSemaphore(value: 0)

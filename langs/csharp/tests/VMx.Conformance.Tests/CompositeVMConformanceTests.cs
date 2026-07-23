@@ -699,7 +699,9 @@ public class CompositeVMConformanceTests
         destination.Status.Should().Be(ConstructionStatus.Disposed);
     }
 
-    [Fact, Trait("Conformance", "COMP-040")]
+    [Fact]
+    [Trait("Conformance", "COMP-040")]
+    [Trait("Conformance", "LIFE-015")]
     public void COMP_040_Population_Disposal_Rolls_Back_Constructed_Child()
     {
         var hub = new TestHub();

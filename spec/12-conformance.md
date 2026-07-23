@@ -1,7 +1,7 @@
 # 12 — Conformance test catalog
 
 This document enumerates every stable conformance test identifier in the form
-`XXX-NNN`. Each of the five language flavors MUST implement all 397 library IDs
+`XXX-NNN`. Each of the five language flavors MUST implement all 399 library IDs
 in `langs/<lang>/tests/conformance/` before it can be marked stable. The five
 `THEME-00x` IDs are application-level scenarios implemented by the four
 UI-backed flagship examples. CI verifies library coverage via
@@ -197,6 +197,15 @@ reaches `Constructed`
 `Destructed`
 
 > Normatively defined in `02-lifecycle.md §2.5`.
+
+### LIFE-015 — Disposal coordinates with an admitted lifecycle hook
+
+**Given** a construct or destruct hook that has been admitted and has not returned
+**When** disposal is requested during that hook
+**Then** terminal cleanup does not overlap the admitted hook
+**And** cleanup completes exactly once after the hook releases its lease
+**And** terminal supersession prevents any post-hook container lifecycle work
+**And** opposing foreign hook waits cannot deadlock
 
 ______________________________________________________________________
 
@@ -3039,6 +3048,17 @@ rolled back before return
 **When** the root is disposed
 **Then** its parked count becomes zero
 **And** repeated disposal remains safe under the general disposal invariant
+
+### HIER-031 — Child-factory hydration is structurally atomic
+
+**Given** a lazy or eager child factory result snapshot
+**When** the snapshot contains a null-like entry, duplicate object identity,
+this node or an ancestor, or any node whose parent is already non-null
+**Then** the complete snapshot is rejected before any parent, path, cache, or
+message mutation
+**And** a later access can retry the factory
+**When** every returned node is distinct, detached, and acyclic
+**Then** the nodes are attached silently in factory order and cached
 
 ## 26. DIA — IDialogService (chapter 19) — spec v2.1
 

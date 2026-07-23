@@ -15,8 +15,8 @@
 
 A hierarchical, lifecycle-aware MVVM viewmodel framework — one language-neutral
 specification with five idiomatic source flavors (C# / Python / TypeScript /
-Swift / Rust). All five source flavors cover the 397 library conformance IDs;
-the flagship example apps cover 5 additional THEME scenario IDs for **402
+Swift / Rust). All five source flavors cover the 399 library conformance IDs;
+the flagship example apps cover 5 additional THEME scenario IDs for **404
 total** tracked scenarios. Catalog coverage is not a claim of member-for-member
 surface parity: the remaining Rust convergence backlog is tracked in
 [`docs/maintenance/2026-07-16-rust-capability-parity.md`](docs/maintenance/2026-07-16-rust-capability-parity.md).
@@ -120,8 +120,8 @@ linked spec chapters and ADRs.
 
 Each flavor implements the same conceptual stack:
 
-- **Spec** — `spec/` is the source of truth: 24 markdown chapters, 126 ADRs,
-  4 JSON fixtures, 402 conformance IDs, version pinned in `spec/VERSION`.
+- **Spec** — `spec/` is the source of truth: 24 markdown chapters, 127 ADRs,
+  4 JSON fixtures, 404 conformance IDs, version pinned in `spec/VERSION`.
 - **Application code** — your host app instantiates VMs through builders.
 - **Forwarding decorators** *(optional)* — `ForwardingComponentVM` and
   `ForwardingCompositeVM` wrap an inner VM for instrumentation, selective
@@ -149,11 +149,11 @@ Each flavor implements the same conceptual stack:
 
 | Flavor     | Source status     | Public package status                                                                  | Reactive primitive          |
 | ---------- | ----------------- | -------------------------------------------------------------------------------------- | --------------------------- |
-| C#         | v3.22.0 in source | NuGet package not published yet                                                        | System.Reactive             |
-| Python     | v3.22.0 in source | [`vmx`](https://pypi.org/project/vmx/) latest published: 3.1.0                         | reactivex                   |
-| TypeScript | v3.23.0 in source | npm package not published yet                                                          | rxjs                        |
-| Swift      | v3.22.0 in source | [`VMx` 3.20.0](https://github.com/thekaveh/VMx/releases/tag/swift-v3.20.0) via SwiftPM | Combine                     |
-| Rust       | v0.25.0 in source | crates.io package not published yet                                                    | VMx-owned hot-stream facade |
+| C#         | v3.22.1 in source | NuGet package not published yet                                                        | System.Reactive             |
+| Python     | v3.22.1 in source | [`vmx`](https://pypi.org/project/vmx/) latest published: 3.1.0                         | reactivex                   |
+| TypeScript | v3.23.1 in source | npm package not published yet                                                          | rxjs                        |
+| Swift      | v3.22.1 in source | [`VMx` 3.20.0](https://github.com/thekaveh/VMx/releases/tag/swift-v3.20.0) via SwiftPM | Combine                     |
+| Rust       | v0.25.1 in source | crates.io package not published yet                                                    | VMx-owned hot-stream facade |
 
 `main` may contain an in-development source version before that version is
 published to package registries. The §3.2 summary preserves source-line parity
@@ -162,8 +162,8 @@ history, including lines that were never published. The
 released compatibility plus the current in-development line; use each registry
 for installable package availability.
 
-All five source flavors implement the 397 library conformance IDs. The flagship
-example apps cover 5 additional THEME scenario IDs, for **402 total** tracked
+All five source flavors implement the 399 library conformance IDs. The flagship
+example apps cover 5 additional THEME scenario IDs, for **404 total** tracked
 scenarios. Swift covers those UI scenarios through
 `examples/swift/notes-showcase/` (ADR-0067). See
 [`langs/swift/README.md`](langs/swift/README.md) §5 for the Swift ID matrix.
@@ -190,7 +190,7 @@ ledger linked above for release status and the current in-development line.
 
 | spec   | csharp        | python        | typescript    | swift          | rust          |
 | ------ | ------------- | ------------- | ------------- | -------------- | ------------- |
-| 3.22.x | 3.22.0        | 3.22.0        | 3.23.0        | 3.22.0         | 0.25.0        |
+| 3.22.x | 3.22.1        | 3.22.1        | 3.23.1        | 3.22.1         | 0.25.1        |
 | 3.20.x | 3.20.0–3.20.1 | 3.20.0–3.20.1 | 3.20.0–3.21.1 | 3.20.0–3.20.1  | 0.20.0–0.22.0 |
 | 3.19.x | 3.19.0        | 3.19.0        | 3.19.0        | 3.19.0         | 0.19.0        |
 | 3.18.x | 3.18.0        | 3.18.0        | 3.18.0        | 3.18.0         | 0.18.0        |
@@ -249,7 +249,7 @@ cargo add vmx-rs --path langs/rust
   camelCase API, ESM imports, rxjs-backed observables.
 - [`docs/content/getting-started/swift.md`](docs/content/getting-started/swift.md) —
   camelCase API, Combine-backed publishers, SwiftPM install (Swift flavor is
-  at total parity on the v3.22.0 source line; see `langs/swift/README.md` §5).
+  at total parity on the v3.22.1 source line; see `langs/swift/README.md` §5).
 - [`docs/content/getting-started/rust.md`](docs/content/getting-started/rust.md) —
   Rust source-tree tutorial (ComponentVm, RelayCommand, CompositeVm with
   selection), with [`langs/rust/README.md`](langs/rust/README.md) for crate
@@ -327,7 +327,7 @@ Smaller per-flavor demos:
 │   ├── csharp/            VMx (NuGet) + VMx.Extensions.DependencyInjection + VMx.Notifications
 │   ├── python/            vmx (PyPI)
 │   ├── typescript/        @thekaveh/vmx (npm)
-│   ├── swift/             VMx Swift Package (v3.22.0 source, total parity — 397 library + 5 THEME)
+│   ├── swift/             VMx Swift Package (v3.22.1 source, total parity — 399 library + 5 THEME)
 │   └── rust/              vmx-rs crate (source-tree only; crates.io pending)
 ├── examples/              runnable example apps per flavor
 ├── docs/content/getting-started/  per-flavor quickstart tutorials
@@ -363,8 +363,8 @@ This README is the entry point; the documents below add focused detail.
   community guidelines.
 - [`compatibility-matrix.md`](compatibility-matrix.md) — spec ↔ flavor
   version pairing.
-- [`spec/README.md`](spec/README.md) — index of the 24 chapters, 126 ADRs,
-  4 fixtures, and the 402-ID conformance catalog.
+- [`spec/README.md`](spec/README.md) — index of the 24 chapters, 127 ADRs,
+  4 fixtures, and the 404-ID conformance catalog.
 - [`spec/ADRs/README.md`](spec/ADRs/README.md) — ADR catalogue index.
 - [`docs/content/primitives/disposal-contract.md`](docs/content/primitives/disposal-contract.md)
   — cross-flavor public disposal inventory and post-dispose contract.
@@ -372,7 +372,7 @@ This README is the entry point; the documents below add focused detail.
   [`langs/csharp/README.md`](langs/csharp/README.md),
   [`langs/python/README.md`](langs/python/README.md),
   [`langs/typescript/README.md`](langs/typescript/README.md),
-  [`langs/swift/README.md`](langs/swift/README.md) (v3.22.0 source, total parity — 397 library + 5 THEME),
+  [`langs/swift/README.md`](langs/swift/README.md) (v3.22.1 source, total parity — 399 library + 5 THEME),
   [`langs/rust/README.md`](langs/rust/README.md).
 - Per-flavor CHANGELOGs (release history):
   [`langs/csharp/CHANGELOG.md`](langs/csharp/CHANGELOG.md),
@@ -445,19 +445,19 @@ bump.
 
 ### 6.2 Conformance catalog
 
-`spec/12-conformance.md` enumerates 402 normative test scenarios keyed by ID
+`spec/12-conformance.md` enumerates 404 normative test scenarios keyed by ID
 (`LIFE-001`, `HUB-007`, `COMP-013`, `UTIL-002`, `CAP-020`, `DPROP-012`,
 `NOTIF-010`, `DIA-001`, `FORM-001`, `COL-001`, `HIER-001`, `AGG-006`,
-`AGCH-001`, `ARES-001`, `THEME-001`, …) — 397 library IDs plus 5 `THEME` scenario IDs. All five
-flavors (C# / Python / TypeScript / Swift / Rust) implement the 397 library IDs under
+`AGCH-001`, `ARES-001`, `THEME-001`, …) — 399 library IDs plus 5 `THEME` scenario IDs. All five
+flavors (C# / Python / TypeScript / Swift / Rust) implement the 399 library IDs under
 their registered conformance suites (`langs/csharp/tests/VMx.Conformance.Tests`,
 `langs/python/tests/conformance`, `langs/typescript/tests/conformance`, and
 `langs/swift/Tests/VMxTests`, and `langs/rust/tests/conformance`), and
 `tools/check-conformance-coverage.py` enforces 100% coverage in CI. The four
 UI-backed flavors also cover the 5 `THEME-00x` scenario IDs via their flagship
 example apps — Swift via `examples/swift/notes-showcase/` (ADR-0067). Those
-four flavors are at **total parity: 397 library + 5 THEME = 402**; Rust has
-full 397-ID library parity and intentionally has no UI scenario suite yet.
+four flavors are at **total parity: 399 library + 5 THEME = 404**; Rust has
+full 399-ID library parity and intentionally has no UI scenario suite yet.
 
 ```bash
 # Verify all catalog-complete flavors are at full catalog coverage

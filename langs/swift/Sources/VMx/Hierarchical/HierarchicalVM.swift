@@ -38,6 +38,7 @@ import Combine
 /// ancestors.
 public enum HierarchyError: Error {
     case invalidReparent
+    case invalidFactoryOutput
 }
 
 /// Missing-parent retention policy for batch hierarchy ingestion.
@@ -196,10 +197,34 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
     /// factory runs once (seeding each child's `parent` to this node), then the
     /// result is cached for the lifetime of the node.
     public var children: [TVM] {
-        if let cached = _children { return cached }
-        let materialized = materializeChildren()
+        switch tryChildren() {
+        case .success(let children):
+            return children
+        case .failure:
+            preconditionFailure("children factory returned structurally invalid output")
+        }
+    }
+
+    /// Materializes children after atomically validating the complete factory
+    /// snapshot. Invalid output leaves the hierarchy unchanged and can be retried.
+    public func tryChildren() -> Result<[TVM], HierarchyError> {
+        if let cached = _children { return .success(cached) }
+        let materialized = childrenFactory(selfNode)
+        var seen = Set<ObjectIdentifier>()
+        let ancestors = Set(path.map(ObjectIdentifier.init))
+        for child in materialized {
+            let identity = ObjectIdentifier(child)
+            guard seen.insert(identity).inserted,
+                  !ancestors.contains(identity),
+                  node(child).parent == nil else {
+                return .failure(.invalidFactoryOutput)
+            }
+        }
+        for child in materialized {
+            node(child).parent = selfNode
+        }
         _children = materialized
-        return materialized
+        return .success(materialized)
     }
 
     /// `true` when this node has no children. Accessing this materializes
@@ -502,16 +527,6 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
     }
 
     // ── Private helpers ─────────────────────────────────────────────────
-
-    /// Runs the factory and seeds each produced child's `parent` to this node
-    /// (via the CRTP `selfNode`).
-    private func materializeChildren() -> [TVM] {
-        let result = childrenFactory(selfNode)
-        for child in result {
-            node(child).parent = selfNode
-        }
-        return result
-    }
 
     private func treeRoot() -> TVM {
         var current = selfNode

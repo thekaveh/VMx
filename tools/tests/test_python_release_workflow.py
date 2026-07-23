@@ -91,4 +91,5 @@ def test_release_metadata_is_validated_before_python_publication() -> None:
     publish = workflow.index("pypa/gh-action-pypi-publish@", publish_job)
 
     assert "needs: [python-test, release-metadata]" in workflow
+    assert 'python3 tools/check-version-consistency.py --release-tag "$GITHUB_REF_NAME"' in workflow
     assert metadata < checker < publish

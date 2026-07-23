@@ -247,6 +247,36 @@ def check_changelog_sections(repo_root: Path, manifests: dict[str, dict[str, str
     return issues
 
 
+def check_release_unreleased(changelog: Path) -> list[str]:
+    """Reject substantive notes left outside the immutable tagged section."""
+    lines = changelog.read_text(encoding="utf-8").splitlines()
+    start = next(
+        (index for index, line in enumerate(lines) if line.strip() == "## [Unreleased]"),
+        None,
+    )
+    if start is None:
+        return [f"  {changelog}: missing [Unreleased] section"]
+    body = lines[start + 1 :]
+    end = next(
+        (index for index, line in enumerate(body) if line.startswith("## [")),
+        len(body),
+    )
+    substantive = any(line.strip() and not line.lstrip().startswith("#") for line in body[:end])
+    if substantive:
+        return [f"  {changelog}: [Unreleased] contains substantive notes at tag publication"]
+    return []
+
+
+def release_flavor(tag: str) -> str:
+    """Map one supported immutable release tag to its flavor directory."""
+    if tag.startswith("csharp-"):
+        return "csharp"
+    for flavor in ("python", "typescript", "rust", "swift"):
+        if tag.startswith(f"{flavor}-v"):
+            return flavor
+    return ""
+
+
 def parse_swift_versions(version_swift_path: Path) -> dict[str, str]:
     """Extract ``current`` and ``minSpecVersion`` from ``VMx/Version.swift``."""
     text = version_swift_path.read_text(encoding="utf-8")
@@ -594,6 +624,8 @@ def current_development_tags(
             None,
         )
         if row is not None:
+            canonical = f"{spec_parts[0]}.{spec_parts[1]}.0"
+            tags.update({f"spec-v{canonical}", f"v{canonical}"})
             for flavor in FLAVORS:
                 tags.update(f"{flavor}-v{version}" for version in row.get(flavor, []))  # type: ignore[union-attr]
 
@@ -721,6 +753,10 @@ def main(argv: Iterable[str] | None = None) -> int:
         default=str(Path(__file__).resolve().parents[1]),
         help="Repository root (default: parent of this script).",
     )
+    parser.add_argument(
+        "--release-tag",
+        help="Release tag being published; requires an empty flavor [Unreleased] section.",
+    )
     args = parser.parse_args(list(argv) if argv is not None else None)
     repo_root = Path(args.repo_root).resolve()
 
@@ -754,6 +790,14 @@ def main(argv: Iterable[str] | None = None) -> int:
     msv_issues = validate_semver_values(spec_version, manifests, matrix_rows)
     msv_issues.extend(check_min_spec_versions(spec_version, manifests))
     msv_issues.extend(check_changelog_sections(repo_root, manifests))
+    if args.release_tag:
+        flavor = release_flavor(args.release_tag)
+        if not flavor:
+            msv_issues.append(f"  unsupported release tag: {args.release_tag!r}")
+        else:
+            msv_issues.extend(
+                check_release_unreleased(repo_root / "langs" / flavor / "CHANGELOG.md")
+            )
     typescript_version = manifests.get("typescript", {}).get("version", "")
     if typescript_version:
         msv_issues.extend(check_typescript_example_locks(repo_root, typescript_version))

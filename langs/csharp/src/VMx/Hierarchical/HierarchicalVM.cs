@@ -483,6 +483,19 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
     private List<TVM> MaterializeChildren()
     {
         var list = new List<TVM>(_childrenFactory((TVM)this));
+        var seen = new List<TVM>();
+        foreach (var child in list)
+        {
+            if (child is null)
+                throw new InvalidOperationException("The children factory returned a null child.");
+            if (seen.Any(existing => ReferenceEquals(existing, child)))
+                throw new InvalidOperationException("The children factory returned duplicate child identity.");
+            seen.Add(child);
+            if (Path.Any(ancestor => ReferenceEquals(ancestor, child)))
+                throw new InvalidOperationException("The children factory returned this node or one of its ancestors.");
+            if (child._hierarchicalParent is not null)
+                throw new InvalidOperationException("The children factory returned an already-parented child.");
+        }
         // Direct-assign during initial factory hydration: parents do not
         // *change* on first materialization, so emitting `HierarchicalParent`
         // PropertyChangedMessage here would publish N spurious events on

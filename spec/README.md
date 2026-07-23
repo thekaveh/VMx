@@ -28,7 +28,7 @@ before any flavor releases a stable version.
 - `09-forwarding.md` — forwarding decorators.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
-- `12-conformance.md` — cross-language conformance test catalog (402 IDs).
+- `12-conformance.md` — cross-language conformance test catalog (404 IDs).
 - `13-tree-utilities.md` — `walk` / `find` / `walk_expanded` tree introspection.
 
 ### 1.2 Chapters (v2.0 additions)
@@ -589,11 +589,21 @@ to 397 library IDs plus 5 scenario IDs.
 
 See ADR-0108 through ADR-0126 and the affected behavior chapters.
 
-### 1.33 Supporting artefacts
+### 1.33 v3.22.0 → v3.22.1 changes
 
-- `VERSION` — current spec SemVer (`3.22.0`).
+v3.22.1 makes hierarchy factory hydration an atomic snapshot/preflight/commit
+operation. Invalid duplicate, cyclic, or already-parented output cannot mutate
+the tree and remains retryable (`HIER-031`). It also gives admitted lifecycle
+hook coordination an explicit cross-flavor scenario (`LIFE-015`), bringing the
+catalog to 399 library IDs plus 5 scenario IDs.
+
+See ADR-0127 and chapters 02 and 18.
+
+### 1.34 Supporting artefacts
+
+- `VERSION` — current spec SemVer (`3.22.1`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0126); see
+- `ADRs/` — Architecture Decision Records (0001-0127); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `schemas/` — versioned supporting machine contracts. The consumer
   conformance v1 schema is non-normative; see ADR-0102.

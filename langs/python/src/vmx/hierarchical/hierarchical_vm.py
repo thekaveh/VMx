@@ -574,6 +574,19 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
 
     def _materialize_children(self) -> list[TVM]:
         children = list(self._children_factory(self))  # type: ignore[arg-type]
+        seen: set[int] = set()
+        ancestors = {id(node) for node in self.path}
+        for child in children:
+            if child is None:
+                raise ValueError("children factory returned None")
+            identity = id(child)
+            if identity in seen:
+                raise ValueError("children factory returned duplicate child identity")
+            seen.add(identity)
+            if identity in ancestors:
+                raise ValueError("children factory returned this node or one of its ancestors")
+            if child._hierarchical_parent is not None:
+                raise ValueError("children factory returned an already-parented child")
         for child in children:
             child._hierarchical_parent = self
         return children

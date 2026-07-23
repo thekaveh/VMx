@@ -1463,6 +1463,7 @@ def test_COMP_040_late_disposal_failure_does_not_retry_committed_population() ->
 
 
 @pytest.mark.conformance("COMP-040")
+@pytest.mark.conformance("LIFE-015")
 def test_COMP_040_concurrent_old_parent_disposal_waits_for_transfer_commit() -> None:
     hook_entered = Event()
     release_hook = Event()
