@@ -5,11 +5,10 @@ import os
 import re
 from pathlib import Path
 
-from scripts.docs.links import MARKDOWN_LINK_RE, is_forbidden
+from scripts.docs.links import HTML_LINK_ATTR_RE, MARKDOWN_LINK_RE, is_forbidden
 from scripts.docs.manifest import Manifest, Section
 
 ASSET_PREFIX_RE = re.compile(r"(?P<prefix>(?:\.\./)+)assets/diagrams/(?P<asset>[^)\s]+)")
-HTML_HREF_RE = re.compile(r'href="(?P<target>[^"]+)"')
 
 
 def wiki_name(section: Section) -> str:
@@ -150,7 +149,7 @@ def rewrite_for_surface(
 
     text = MARKDOWN_LINK_RE.sub(replace, markdown)
 
-    def replace_html_href(match: re.Match[str]) -> str:
+    def replace_html_link_attribute(match: re.Match[str]) -> str:
         target = html.unescape(match.group("target"))
         mapped = _mapped_target(
             target,
@@ -161,13 +160,13 @@ def rewrite_for_surface(
             repo_root=selected_root,
         )
         if mapped is None:
-            return match.group(0)
+            return "" if is_forbidden(target, surface) else match.group(0)
         if mapped.startswith("wiki:"):
             mapped = mapped[5:]
         else:
             mapped_path, suffix = _split_url_bits(mapped)
             converted_page = False
-            if mapped_path.endswith("/index.md"):
+            if mapped_path == "index.md" or mapped_path.endswith("/index.md"):
                 mapped_path = mapped_path.removesuffix("index.md")
                 converted_page = True
             elif mapped_path.endswith(".md"):
@@ -179,9 +178,12 @@ def rewrite_for_surface(
                 # Markdown links which MkDocs rewrites from the source file path.
                 mapped_path = f"../{mapped_path}"
             mapped = f"{mapped_path}{suffix}"
-        return f'href="{mapped}"'
+        return (
+            f"{match.group('attribute')}{match.group('separator')}"
+            f"{match.group('quote')}{mapped}{match.group('quote')}"
+        )
 
-    text = HTML_HREF_RE.sub(replace_html_href, text)
+    text = HTML_LINK_ATTR_RE.sub(replace_html_link_attribute, text)
     if surface == "wiki":
         text = ASSET_PREFIX_RE.sub(r"assets/diagrams/\g<asset>", text)
     return text

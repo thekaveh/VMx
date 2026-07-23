@@ -4,11 +4,13 @@ import re
 import textwrap
 from pathlib import Path
 
+import pytest
 from scripts.docs import build_docs
 from scripts.docs.check_docs import (
     _check_descendant_heading_numbers,
     check,
     check_canonical_links,
+    check_generated_html_links,
     check_generated_wiki_links,
     check_historical_audits,
     check_professional_markdown,
@@ -127,6 +129,22 @@ def test_canonical_link_check_rejects_missing_markdown_and_html_targets(tmp_path
     assert all("target does not exist" in finding.message for finding in findings)
 
 
+def test_canonical_link_check_accepts_case_and_quote_variants_for_html_attributes(
+    tmp_path: Path,
+) -> None:
+    page = tmp_path / "docs/content/index.md"
+    page.parent.mkdir(parents=True)
+    page.write_text(
+        "<A HREF='missing.md'>Missing</A>\n<img SRC='missing.png'>\n",
+        encoding="utf-8",
+    )
+
+    findings = check_canonical_links(tmp_path)
+
+    assert len(findings) == 2
+    assert all("target does not exist" in finding.message for finding in findings)
+
+
 def test_canonical_link_check_rejects_missing_heading_fragment(tmp_path: Path) -> None:
     content = tmp_path / "docs/content"
     content.mkdir(parents=True)
@@ -235,6 +253,49 @@ def test_wiki_rewrite_maps_relative_html_routes_to_manifest_pages() -> None:
     assert 'href="3-1-Quickstart"' in rewritten
 
 
+@pytest.mark.parametrize(
+    ("source", "target", "expected"),
+    [
+        ("docs/content/installation.md", "index.md?mode=full#home", "../?mode=full#home"),
+        (
+            "docs/content/architecture/system-architecture.md",
+            "index.md#map",
+            "../#map",
+        ),
+        ("docs/content/architecture/index.md", "index.md#map", "#map"),
+        (
+            "docs/content/installation.md",
+            "getting-started/index.md",
+            "../getting-started/",
+        ),
+        (
+            "docs/content/architecture/system-architecture.md",
+            "../getting-started/index.md",
+            "../../getting-started/",
+        ),
+    ],
+)
+def test_site_rewrite_maps_index_html_links_to_directory_routes(
+    source: str,
+    target: str,
+    expected: str,
+) -> None:
+    manifest = load_manifest(ROOT / "docs/manifest.yaml", ROOT)
+    source_map = build_source_map(manifest, "site")
+    current_source = Path(source)
+
+    rewritten = rewrite_for_surface(
+        f"<a href='{target}'>Target</a>",
+        surface="site",
+        current_source=current_source,
+        current_output=source_map[current_source],
+        source_map=source_map,
+        repo_root=ROOT,
+    )
+
+    assert rewritten == f"<a href='{expected}'>Target</a>"
+
+
 def test_site_rewrite_maps_same_directory_html_markdown_link_to_sibling_route() -> None:
     manifest = load_manifest(ROOT / "docs/manifest.yaml", ROOT)
     site_map = build_source_map(manifest, "site")
@@ -261,6 +322,65 @@ def test_site_rewrite_maps_same_directory_html_markdown_link_to_sibling_route() 
 
     assert site == '<a href="../notes-workspace-vm-layer/">VM layer</a>'
     assert wiki == '<a href="8-4-VM-Layer-Map">VM layer</a>'
+
+
+def test_html_rewrite_accepts_case_and_quote_variants() -> None:
+    manifest = load_manifest(ROOT / "docs/manifest.yaml", ROOT)
+    source_map = build_source_map(manifest, "site")
+    source = Path("docs/content/examples/notes-workspace.md")
+
+    rewritten = rewrite_for_surface(
+        "<A HREF='notes-workspace-vm-layer.md#details'>VM layer</A>",
+        surface="site",
+        current_source=source,
+        current_output=source_map[source],
+        source_map=source_map,
+        repo_root=ROOT,
+    )
+
+    assert rewritten == "<A HREF='../notes-workspace-vm-layer/#details'>VM layer</A>"
+
+
+def test_self_containment_checks_raw_html_attributes(tmp_path: Path) -> None:
+    (tmp_path / "README.md").write_text(
+        "<A HREF='https://github.com/thekaveh/VMx/wiki'>Wiki</A>\n",
+        encoding="utf-8",
+    )
+
+    findings = check_self_containment(tmp_path)
+
+    assert len(findings) == 1
+    assert "forbidden repo-surface link" in findings[0].message
+
+
+def test_generated_html_link_check_validates_routes_assets_and_fragments(
+    tmp_path: Path,
+) -> None:
+    site = tmp_path / "generated/site"
+    wiki = tmp_path / "generated/wiki"
+    (site / "guide").mkdir(parents=True)
+    (site / "assets").mkdir()
+    wiki.mkdir(parents=True)
+    (site / "guide/source.md").write_text(
+        "<a href='../target/#existing'>Good</a>\n"
+        "<a HREF='../target/#missing'>Bad fragment</a>\n"
+        "<a href='../absent/'>Bad route</a>\n"
+        "<img SRC='../../assets/one.svg'>\n",
+        encoding="utf-8",
+    )
+    (site / "guide/target.md").write_text("# Target\n\n## Existing\n", encoding="utf-8")
+    (site / "assets/one.svg").write_text("<svg></svg>\n", encoding="utf-8")
+    (wiki / "Source.md").write_text(
+        "<a href='Target#existing'>Good</a>\n<a HREF='Target#missing'>Bad fragment</a>\n",
+        encoding="utf-8",
+    )
+    (wiki / "Target.md").write_text("# Target\n\n## Existing\n", encoding="utf-8")
+
+    findings = check_generated_html_links(tmp_path)
+
+    assert len(findings) == 3
+    assert sum("heading fragment does not exist" in item.message for item in findings) == 2
+    assert sum("target does not exist" in item.message for item in findings) == 1
 
 
 def test_markdown_link_scanner_does_not_cross_line_boundaries() -> None:

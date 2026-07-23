@@ -13,6 +13,11 @@ MARKDOWN_LINK_RE = re.compile(
 MARKDOWN_REFERENCE_LINK_RE = re.compile(
     r"^ {0,3}\[(?P<label>[^\]]+)\]:\s*(?P<target>\S+)", re.MULTILINE
 )
+HTML_LINK_ATTR_RE = re.compile(
+    r"""(?P<attribute>(?<![-:\w])(?:href|src))(?P<separator>\s*=\s*)"""
+    r"""(?P<quote>["'])(?P<target>.*?)(?P=quote)""",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)

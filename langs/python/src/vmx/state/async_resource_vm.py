@@ -252,7 +252,22 @@ class AsyncResourceVM(Generic[T], _ComponentVMBase):
         self._operation = operation
         if previous_operation is not None:
             self._cancel_operation(previous_operation)
-        self._set_state(loading)
+        try:
+            self._set_state(loading)
+        except BaseException:
+            rollback = self._is_operation_current(operation)
+            if rollback:
+                self._operation_identity += 1
+                self._operation = None
+                self._state = baseline
+            self._cancel_operation(operation)
+            self._register_late_cleanup(operation)
+            if rollback:
+                try:
+                    self._notify_state_changed()
+                except BaseException:
+                    pass
+            raise
 
         try:
             done, _pending = await asyncio.wait(
@@ -335,10 +350,15 @@ class AsyncResourceVM(Generic[T], _ComponentVMBase):
         if self._resource_disposed or self._state is state:
             return
         self._state = state
-        self._notify_property_changed("state")
-        self._load_command.raise_can_execute_changed()
-        self._reload_command.raise_can_execute_changed()
-        self._cancel_command.raise_can_execute_changed()
+        self._notify_state_changed()
+
+    def _notify_state_changed(self) -> None:
+        _run_disposal_steps(
+            lambda: self._notify_property_changed("state"),
+            self._load_command.raise_can_execute_changed,
+            self._reload_command.raise_can_execute_changed,
+            self._cancel_command.raise_can_execute_changed,
+        )
 
     def _cleanup(self, value: T) -> None:
         if self._cleanup_value is None:

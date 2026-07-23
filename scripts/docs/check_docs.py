@@ -8,7 +8,7 @@ from pathlib import Path
 from urllib.parse import unquote
 
 from scripts.docs import build_docs
-from scripts.docs.links import find_links, is_forbidden
+from scripts.docs.links import HTML_LINK_ATTR_RE, find_links, is_forbidden
 from scripts.docs.manifest import load_manifest
 
 PLACEHOLDER_RE = re.compile(r"\b(TODO|TBD|FIXME)\b")
@@ -20,7 +20,6 @@ PLACEHOLDER_RE = re.compile(r"\b(TODO|TBD|FIXME)\b")
 MD_ESCAPE_RE = re.compile(r"\\([!-/:-@\[-`{-~])")
 ATX_HEADING_RE = re.compile(r"^(#{2,6})\s+(.+?)\s*$")
 NUMBER_PREFIX_RE = re.compile(r"^(\d+(?:\.\d+)*)(\.)?\s+")
-HTML_HREF_RE = re.compile(r'href="(?P<target>[^"]+)"')
 HTML_HEADING_RE = re.compile(r"<\s*h[1-6](?:\s|>)", re.IGNORECASE)
 ANY_ATX_HEADING_RE = re.compile(r"^#{1,6}\s+(.+?)\s*$", re.MULTILINE)
 HTML_ID_RE = re.compile(r'<(?:a|h[1-6])\b[^>]*\bid=["\']([^"\']+)["\']', re.IGNORECASE)
@@ -88,18 +87,21 @@ def check_self_containment(repo_root: Path) -> list[Finding]:
     ):
         for path in _scan_markdown(root):
             text = path.read_text(encoding="utf-8")
-            for link in find_links(text):
-                if is_forbidden(link.target, surface):
-                    findings.append(
-                        Finding("error", f"{path}: forbidden {surface} link {link.target}")
-                    )
+            targets = [link.target for link in find_links(text)]
+            targets.extend(match.group("target") for match in HTML_LINK_ATTR_RE.finditer(text))
+            for target in targets:
+                if is_forbidden(target, surface):
+                    findings.append(Finding("error", f"{path}: forbidden {surface} link {target}"))
     for path in _scan_repo_surface_markdown(repo_root):
-        for link in find_links(path.read_text(encoding="utf-8")):
-            if is_forbidden(link.target, "repo"):
+        text = path.read_text(encoding="utf-8")
+        targets = [link.target for link in find_links(text)]
+        targets.extend(match.group("target") for match in HTML_LINK_ATTR_RE.finditer(text))
+        for target in targets:
+            if is_forbidden(target, "repo"):
                 findings.append(
                     Finding(
                         "error",
-                        f"{path.relative_to(repo_root)}: forbidden repo-surface link {link.target}",
+                        f"{path.relative_to(repo_root)}: forbidden repo-surface link {target}",
                     )
                 )
     return findings
@@ -168,7 +170,7 @@ def check_canonical_links(repo_root: Path) -> list[Finding]:
     for path in _scan_markdown(repo_root / "docs/content"):
         text = _without_fenced_code(path.read_text(encoding="utf-8"))
         targets = [link.target for link in find_links(text)]
-        targets.extend(match.group("target") for match in HTML_HREF_RE.finditer(text))
+        targets.extend(match.group("target") for match in HTML_LINK_ATTR_RE.finditer(text))
         for target in targets:
             if not _relative_target_exists(path, target):
                 findings.append(
@@ -216,21 +218,73 @@ def check_generated_wiki_links(repo_root: Path) -> list[Finding]:
                             f"{path}:{line_number}: wiki target does not exist: {target}",
                         )
                     )
-            for match in HTML_HREF_RE.finditer(line):
-                target = match.group("target").split("#", 1)[0].rstrip("/")
-                if target and not target.startswith(("http://", "https://", "mailto:")):
-                    target_exists = (
-                        (path.parent / target).resolve().is_file()
-                        if "/" in target or "." in Path(target).name
-                        else target in pages
+    return findings
+
+
+def _generated_site_target(source: Path, root: Path, target: str) -> Path | None:
+    clean = target.split("#", 1)[0].split("?", 1)[0]
+    base = source.parent if source.name == "index.md" else source.with_suffix("")
+    if not clean:
+        return source
+    route = (
+        (root / clean.lstrip("/")).resolve() if clean.startswith("/") else (base / clean).resolve()
+    )
+    try:
+        route.relative_to(root.resolve())
+    except ValueError:
+        return None
+    if route.is_file():
+        return route
+    if clean.endswith("/"):
+        page = route.with_suffix(".md")
+        if page.is_file():
+            return page
+        index = route / "index.md"
+        if index.is_file():
+            return index
+    return None
+
+
+def _generated_wiki_target(source: Path, root: Path, target: str) -> Path | None:
+    clean = target.split("#", 1)[0].split("?", 1)[0].rstrip("/")
+    if not clean:
+        return source
+    candidate = (source.parent / clean).resolve()
+    if candidate.is_file():
+        return candidate
+    page = root / f"{clean}.md"
+    return page if page.is_file() else None
+
+
+def check_generated_html_links(repo_root: Path) -> list[Finding]:
+    """Reject broken raw-HTML routes and fragments on generated surfaces."""
+    findings: list[Finding] = []
+    for surface, root, resolver in (
+        ("site", repo_root / "generated/site", _generated_site_target),
+        ("wiki", repo_root / "generated/wiki", _generated_wiki_target),
+    ):
+        for path in _scan_markdown(root):
+            text = _without_fenced_code(path.read_text(encoding="utf-8"))
+            for match in HTML_LINK_ATTR_RE.finditer(text):
+                target = html.unescape(match.group("target"))
+                if target.startswith(("http://", "https://", "mailto:", "data:")):
+                    continue
+                target_path = resolver(path, root, target)
+                if target_path is None:
+                    findings.append(
+                        Finding("error", f"{path}: {surface} target does not exist: {target}")
                     )
-                    if not target_exists:
-                        findings.append(
-                            Finding(
-                                "error",
-                                f"{path}:{line_number}: wiki target does not exist: {target}",
-                            )
+                    continue
+                if "#" not in target or target_path.suffix != ".md":
+                    continue
+                fragment = unquote(target.split("#", 1)[1].split("?", 1)[0])
+                if fragment and fragment not in _heading_anchors(target_path):
+                    findings.append(
+                        Finding(
+                            "error",
+                            f"{path}: {surface} heading fragment does not exist: {target}",
                         )
+                    )
     return findings
 
 
@@ -412,6 +466,7 @@ def check(repo_root: Path) -> list[Finding]:
     findings.extend(check_self_containment(repo_root))
     findings.extend(check_canonical_links(repo_root))
     findings.extend(check_generated_wiki_links(repo_root))
+    findings.extend(check_generated_html_links(repo_root))
     findings.extend(check_raw_html_headings(repo_root))
     findings.extend(check_professional_markdown(repo_root))
     findings.extend(check_historical_audits(repo_root))

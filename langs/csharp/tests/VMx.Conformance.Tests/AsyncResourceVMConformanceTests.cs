@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Reactive.Linq;
+using System.Reflection;
 using FluentAssertions;
 using VMx.Components;
 using VMx.Messages;
@@ -57,6 +58,166 @@ public sealed class AsyncResourceVMConformanceTests
         vm.LoadCommand.CanExecute(null).Should().BeFalse();
         vm.ReloadCommand.CanExecute(null).Should().BeTrue();
         vm.CancelCommand.CanExecute(null).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Start_Notification_Failure_Rolls_Back_Without_Invoking_Loader()
+    {
+        using var hub = new MessageHub();
+        var calls = 0;
+        var vm = Create(hub, _ =>
+        {
+            calls++;
+            return Task.FromResult(42);
+        });
+        vm.LoadCommand.CanExecuteChanged += (_, _) =>
+            throw new InvalidOperationException("observer");
+
+        Func<Task> act = () => vm.LoadAsync();
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("observer");
+        vm.State.Status.Should().Be(AsyncResourceStatus.Idle);
+        calls.Should().Be(0);
+        vm.LoadCommand.CanExecute(null).Should().BeTrue();
+        vm.ReloadCommand.CanExecute(null).Should().BeFalse();
+        vm.CancelCommand.CanExecute(null).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Awaited_Command_Preserves_Start_Notification_Failure_And_Rolls_Back()
+    {
+        using var hub = new MessageHub();
+        var calls = 0;
+        var vm = Create(hub, _ =>
+        {
+            calls++;
+            return Task.FromResult(42);
+        });
+        vm.LoadCommand.CanExecuteChanged += (_, _) =>
+        {
+            if (vm.State.Status == AsyncResourceStatus.Loading)
+                throw new InvalidOperationException("start observer");
+        };
+
+        Func<Task> act = () => vm.LoadCommand.ExecuteAsync();
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("start observer");
+        vm.State.Status.Should().Be(AsyncResourceStatus.Idle);
+        calls.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Fire_And_Forget_Routes_Start_Notification_Failure_After_Rollback()
+    {
+        using var hub = new MessageHub();
+        var observed = NewSource<Exception>();
+        var vm = Create(hub, _ => Task.FromResult(42));
+        vm.LoadCommand.CanExecuteChanged += (_, _) =>
+        {
+            if (vm.State.Status == AsyncResourceStatus.Loading)
+                throw new InvalidOperationException("start observer");
+        };
+        using var subscription = vm.LoadCommand.Errors.Subscribe(observed.SetResult);
+
+        vm.LoadCommand.Execute(null);
+        var error = await observed.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        error.Should().BeOfType<InvalidOperationException>()
+            .Which.Message.Should().Be("start observer");
+        vm.State.Status.Should().Be(AsyncResourceStatus.Idle);
+    }
+
+    [Fact]
+    public async Task Completion_Notification_Failure_Keeps_Ready_Disposes_And_Notifies_All()
+    {
+        using var hub = new MessageHub();
+        var result = NewSource<int>();
+        var vm = Create(hub, _ => result.Task);
+        var reloadNotifications = 0;
+        var cancelNotifications = 0;
+        vm.LoadCommand.CanExecuteChanged += (_, _) =>
+        {
+            if (vm.State.Status == AsyncResourceStatus.Ready)
+                throw new InvalidOperationException("completion observer");
+        };
+        vm.ReloadCommand.CanExecuteChanged += (_, _) => reloadNotifications++;
+        vm.CancelCommand.CanExecuteChanged += (_, _) => cancelNotifications++;
+
+        var load = vm.LoadAsync();
+        var cancellation = CurrentCancellation(vm);
+        result.SetResult(42);
+        Func<Task> act = async () => await load;
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("completion observer");
+        vm.State.Status.Should().Be(AsyncResourceStatus.Ready);
+        vm.State.Value.Should().Be(42);
+        reloadNotifications.Should().Be(2);
+        cancelNotifications.Should().Be(2);
+        Action accessDisposedSource = () => _ = cancellation.Token;
+        accessDisposedSource.Should().Throw<ObjectDisposedException>();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Command_Routes_Completion_Notification_Failure_With_Ready_State(
+        bool fireAndForget)
+    {
+        using var hub = new MessageHub();
+        var observed = NewSource<Exception>();
+        var vm = Create(hub, _ => Task.FromResult(42));
+        vm.LoadCommand.CanExecuteChanged += (_, _) =>
+        {
+            if (vm.State.Status == AsyncResourceStatus.Ready)
+                throw new InvalidOperationException("completion observer");
+        };
+        using var subscription = vm.LoadCommand.Errors.Subscribe(observed.SetResult);
+
+        if (fireAndForget)
+        {
+            vm.LoadCommand.Execute(null);
+            var error = await observed.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            error.Should().BeOfType<InvalidOperationException>()
+                .Which.Message.Should().Be("completion observer");
+        }
+        else
+        {
+            Func<Task> act = () => vm.LoadCommand.ExecuteAsync();
+            await act.Should().ThrowAsync<InvalidOperationException>()
+                .WithMessage("completion observer");
+            observed.Task.IsCompleted.Should().BeFalse();
+        }
+
+        vm.State.Status.Should().Be(AsyncResourceStatus.Ready);
+        vm.State.Value.Should().Be(42);
+    }
+
+    [Fact]
+    public async Task Failure_Notification_Exception_Still_Disposes_Operation()
+    {
+        using var hub = new MessageHub();
+        var result = NewSource<int>();
+        var vm = Create(hub, _ => result.Task);
+        vm.LoadCommand.CanExecuteChanged += (_, _) =>
+        {
+            if (vm.State.Status == AsyncResourceStatus.Error)
+                throw new InvalidOperationException("failure observer");
+        };
+
+        var load = vm.LoadAsync();
+        var cancellation = CurrentCancellation(vm);
+        result.SetException(new ArgumentException("loader"));
+        Func<Task> act = async () => await load;
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("failure observer");
+        vm.State.Status.Should().Be(AsyncResourceStatus.Error);
+        vm.State.Error.Should().BeOfType<ArgumentException>();
+        Action accessDisposedSource = () => _ = cancellation.Token;
+        accessDisposedSource.Should().Throw<ObjectDisposedException>();
     }
 
     [Fact, Trait("Conformance", "ARES-003")]
@@ -392,6 +553,16 @@ public sealed class AsyncResourceVMConformanceTests
 
     private static TaskCompletionSource NewSource() =>
         new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+    private static CancellationTokenSource CurrentCancellation(AsyncResourceVM<int> vm)
+    {
+        var operation = typeof(AsyncResourceVM<int>)
+            .GetField("_operation", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(vm)!;
+        return (CancellationTokenSource)operation.GetType()
+            .GetProperty("Cancellation", BindingFlags.Instance | BindingFlags.Public)!
+            .GetValue(operation)!;
+    }
 
     private static async Task WaitUntilAsync(Func<bool> predicate)
     {

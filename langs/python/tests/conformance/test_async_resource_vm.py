@@ -104,6 +104,159 @@ async def test_ares_002_success_and_ordinary_notification() -> None:
 
 
 @pytest.mark.asyncio
+async def test_start_notification_failure_rolls_back_without_orphaning_loader() -> None:
+    calls = 0
+
+    async def loader() -> int:
+        nonlocal calls
+        calls += 1
+        return 42
+
+    vm = _vm(loader)
+    vm.load_command.can_execute_changed.subscribe(
+        lambda _: (_ for _ in ()).throw(RuntimeError("observer"))
+    )
+
+    with pytest.raises(RuntimeError, match="observer"):
+        await vm.load()
+    await _flush()
+
+    assert vm.state.status is AsyncResourceStatus.IDLE
+    assert vm._operation is None
+    assert calls == 0
+    assert vm.load_command.can_execute()
+    assert not vm.reload_command.can_execute()
+    assert not vm.cancel_command.can_execute()
+
+
+@pytest.mark.asyncio
+async def test_awaited_command_preserves_start_notification_failure_and_rolls_back() -> None:
+    calls = 0
+
+    async def loader() -> int:
+        nonlocal calls
+        calls += 1
+        return 42
+
+    vm = _vm(loader)
+
+    def observe(_: None) -> None:
+        if vm.state.status is AsyncResourceStatus.LOADING:
+            raise RuntimeError("start observer")
+
+    vm.load_command.can_execute_changed.subscribe(observe)
+
+    with pytest.raises(RuntimeError, match="start observer"):
+        await vm.load_command.execute_async()
+    await _flush()
+
+    assert vm.state.status is AsyncResourceStatus.IDLE
+    assert vm._operation is None
+    assert calls == 0
+
+
+@pytest.mark.asyncio
+async def test_fire_and_forget_routes_start_notification_failure_after_rollback() -> None:
+    observed = asyncio.Event()
+    errors: list[BaseException] = []
+    vm = _vm(lambda: asyncio.sleep(0, result=42))
+
+    def observe(_: None) -> None:
+        if vm.state.status is AsyncResourceStatus.LOADING:
+            raise RuntimeError("start observer")
+
+    def on_error(error: BaseException) -> None:
+        errors.append(error)
+        observed.set()
+
+    vm.load_command.can_execute_changed.subscribe(observe)
+    vm.load_command.errors.subscribe(on_error)
+
+    vm.load_command.execute()
+    await asyncio.wait_for(observed.wait(), timeout=1)
+    await _flush()
+
+    assert len(errors) == 1
+    assert isinstance(errors[0], RuntimeError)
+    assert str(errors[0]) == "start observer"
+    assert vm.state.status is AsyncResourceStatus.IDLE
+    assert vm._operation is None
+
+
+@pytest.mark.asyncio
+async def test_completion_notification_failure_keeps_ready_and_notifies_all_commands() -> None:
+    result: asyncio.Future[int] = asyncio.get_running_loop().create_future()
+    vm = _vm(lambda: result)
+    reload_notifications = 0
+    cancel_notifications = 0
+
+    def fail_when_ready(_: None) -> None:
+        if vm.state.status is AsyncResourceStatus.READY:
+            raise RuntimeError("completion observer")
+
+    def observe_reload(_: None) -> None:
+        nonlocal reload_notifications
+        reload_notifications += 1
+
+    def observe_cancel(_: None) -> None:
+        nonlocal cancel_notifications
+        cancel_notifications += 1
+
+    vm.load_command.can_execute_changed.subscribe(fail_when_ready)
+    vm.reload_command.can_execute_changed.subscribe(observe_reload)
+    vm.cancel_command.can_execute_changed.subscribe(observe_cancel)
+
+    load = asyncio.create_task(vm.load())
+    await _wait_until(lambda: vm.state.status is AsyncResourceStatus.LOADING)
+    result.set_result(42)
+
+    with pytest.raises(RuntimeError, match="completion observer"):
+        await load
+
+    assert vm.state.status is AsyncResourceStatus.READY
+    assert vm.state.value == 42
+    assert vm._operation is None
+    assert reload_notifications == 2
+    assert cancel_notifications == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("fire_and_forget", [False, True])
+async def test_command_routes_completion_notification_failure_with_ready_state(
+    fire_and_forget: bool,
+) -> None:
+    observed = asyncio.Event()
+    errors: list[BaseException] = []
+    vm = _vm(lambda: asyncio.sleep(0, result=42))
+
+    def fail_when_ready(_: None) -> None:
+        if vm.state.status is AsyncResourceStatus.READY:
+            raise RuntimeError("completion observer")
+
+    def on_error(error: BaseException) -> None:
+        errors.append(error)
+        observed.set()
+
+    vm.load_command.can_execute_changed.subscribe(fail_when_ready)
+    vm.load_command.errors.subscribe(on_error)
+
+    if fire_and_forget:
+        vm.load_command.execute()
+        await asyncio.wait_for(observed.wait(), timeout=1)
+        assert len(errors) == 1
+        assert isinstance(errors[0], RuntimeError)
+        assert str(errors[0]) == "completion observer"
+    else:
+        with pytest.raises(RuntimeError, match="completion observer"):
+            await vm.load_command.execute_async()
+        assert errors == []
+
+    assert vm.state.status is AsyncResourceStatus.READY
+    assert vm.state.value == 42
+    assert vm._operation is None
+
+
+@pytest.mark.asyncio
 @pytest.mark.conformance("ARES-003")
 async def test_ares_003_failure_is_state_not_command_error() -> None:
     failure = RuntimeError("offline")

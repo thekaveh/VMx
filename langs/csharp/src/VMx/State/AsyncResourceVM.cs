@@ -176,14 +176,14 @@ public sealed class AsyncResourceVM<T> : ComponentVMBase
 
         ExceptionDispatchInfo? firstError = null;
         if (operation is not null)
-            CaptureDisposalFailure(ref firstError, operation.Cancel);
-        CaptureDisposalFailure(ref firstError, LoadCommand.Cancel);
-        CaptureDisposalFailure(ref firstError, ReloadCommand.Cancel);
-        CaptureDisposalFailure(ref firstError, LoadCommand.Dispose);
-        CaptureDisposalFailure(ref firstError, ReloadCommand.Dispose);
-        CaptureDisposalFailure(ref firstError, CancelCommand.Dispose);
+            CaptureFailure(ref firstError, operation.Cancel);
+        CaptureFailure(ref firstError, LoadCommand.Cancel);
+        CaptureFailure(ref firstError, ReloadCommand.Cancel);
+        CaptureFailure(ref firstError, LoadCommand.Dispose);
+        CaptureFailure(ref firstError, ReloadCommand.Dispose);
+        CaptureFailure(ref firstError, CancelCommand.Dispose);
         if (hasAccepted)
-            CaptureDisposalFailure(ref firstError, () => Cleanup(accepted!));
+            CaptureFailure(ref firstError, () => Cleanup(accepted!));
         firstError?.Throw();
     }
 
@@ -254,7 +254,30 @@ public sealed class AsyncResourceVM<T> : ComponentVMBase
                 return;
             }
         }
-        NotifyStateChanged();
+        try
+        {
+            NotifyStateChanged();
+        }
+        catch (Exception error)
+        {
+            var firstError = ExceptionDispatchInfo.Capture(error);
+            bool rollback;
+            lock (_resourceGate)
+            {
+                rollback = IsCurrentUnsafe(operation);
+                if (rollback)
+                {
+                    unchecked { _operationIdentity++; }
+                    _operation = null;
+                    _state = operation.Baseline;
+                }
+            }
+            CaptureFailure(ref firstError, operation.Cancel);
+            CaptureFailure(ref firstError, operation.Dispose);
+            if (rollback)
+                CaptureFailure(ref firstError, NotifyStateChanged);
+            firstError!.Throw();
+        }
         // Register only after Loading has been published. Registration invokes
         // synchronously if cancellation raced admission, so the handler then
         // publishes the restored baseline in the correct visible order.
@@ -300,17 +323,23 @@ public sealed class AsyncResourceVM<T> : ComponentVMBase
             }
             if (error is OperationCanceledException && operation.Cancellation.IsCancellationRequested)
             {
-                HandleCancellation(operation);
-                operation.Dispose();
+                try { HandleCancellation(operation); }
+                finally { operation.Dispose(); }
                 return;
             }
-            CompleteFailure(operation, error);
-            operation.Dispose();
+            try { CompleteFailure(operation, error); }
+            finally { operation.Dispose(); }
             return;
         }
 
-        if (!CompleteSuccess(operation, value)) Cleanup(value);
-        operation.Dispose();
+        try
+        {
+            if (!CompleteSuccess(operation, value)) Cleanup(value);
+        }
+        finally
+        {
+            operation.Dispose();
+        }
     }
 
     private void HandleCancellation(ResourceOperation operation)
@@ -402,10 +431,12 @@ public sealed class AsyncResourceVM<T> : ComponentVMBase
 
     private void NotifyStateChanged()
     {
-        NotifyPropertyChanged(nameof(State));
-        LoadCommand.RaiseCanExecuteChanged();
-        ReloadCommand.RaiseCanExecuteChanged();
-        CancelCommand.RaiseCanExecuteChanged();
+        ExceptionDispatchInfo? firstError = null;
+        CaptureFailure(ref firstError, () => NotifyPropertyChanged(nameof(State)));
+        CaptureFailure(ref firstError, LoadCommand.RaiseCanExecuteChanged);
+        CaptureFailure(ref firstError, ReloadCommand.RaiseCanExecuteChanged);
+        CaptureFailure(ref firstError, CancelCommand.RaiseCanExecuteChanged);
+        firstError?.Throw();
     }
 
     private void Cleanup(T value)
@@ -414,7 +445,7 @@ public sealed class AsyncResourceVM<T> : ComponentVMBase
         catch { /* best-effort ownership cleanup, matching ComponentVMBase.Own */ }
     }
 
-    private static void CaptureDisposalFailure(
+    private static void CaptureFailure(
         ref ExceptionDispatchInfo? firstError,
         Action action)
     {
