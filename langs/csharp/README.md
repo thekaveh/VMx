@@ -5,7 +5,7 @@ spec-compatible with the Python, TypeScript, Swift, and Rust flavors.
 
 ## 1. Status
 
-**v3.22.1** — implements `spec-v3.22.1` end-to-end. 399/399 library conformance IDs
+**v3.22.1** — implements `spec-v3.22.1` end-to-end. 400/400 library conformance IDs
 pass. Multi-targets `netstandard2.0` and `net8.0`.
 Two companion assemblies ship: `VMx.Extensions.DependencyInjection`
 (`services.AddVMx(...)`) at `2.1.1` and `VMx.Notifications` (opt-in
@@ -292,7 +292,7 @@ The companion package `VMx.Notifications` (spec v2.1+) adds:
 
 ## 5. Conformance
 
-All 399 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5).
+All 400 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5).
 
 ```
 v1.x   LIFE-001..013  HUB-001..007  PROP-001..004  CMD-001..007

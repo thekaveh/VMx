@@ -28,7 +28,7 @@ before any flavor releases a stable version.
 - `09-forwarding.md` — forwarding decorators.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
-- `12-conformance.md` — cross-language conformance test catalog (404 IDs).
+- `12-conformance.md` — cross-language conformance test catalog (405 IDs).
 - `13-tree-utilities.md` — `walk` / `find` / `walk_expanded` tree introspection.
 
 ### 1.2 Chapters (v2.0 additions)
@@ -595,7 +595,7 @@ v3.22.1 makes hierarchy factory hydration an atomic snapshot/preflight/commit
 operation. Invalid duplicate, cyclic, or already-parented output cannot mutate
 the tree and remains retryable (`HIER-031`). It also gives admitted lifecycle
 hook coordination an explicit cross-flavor scenario (`LIFE-015`), bringing the
-catalog to 399 library IDs plus 5 scenario IDs.
+catalog to 400 library IDs plus 5 scenario IDs.
 
 See ADR-0127 and chapters 02 and 18.
 

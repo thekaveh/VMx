@@ -247,7 +247,7 @@ def check_changelog_sections(repo_root: Path, manifests: dict[str, dict[str, str
     return issues
 
 
-def check_release_unreleased(changelog: Path) -> list[str]:
+def check_release_unreleased(changelog: Path, package: str = "") -> list[str]:
     """Reject substantive notes left outside the immutable tagged section."""
     lines = changelog.read_text(encoding="utf-8").splitlines()
     start = next(
@@ -261,9 +261,29 @@ def check_release_unreleased(changelog: Path) -> list[str]:
         (index for index, line in enumerate(body) if line.startswith("## [")),
         len(body),
     )
-    substantive = any(line.strip() and not line.lstrip().startswith("#") for line in body[:end])
+    unreleased = body[:end]
+    if package:
+        heading = f"### {package}"
+        package_start = next(
+            (index for index, line in enumerate(unreleased) if line.strip() == heading),
+            None,
+        )
+        if package_start is None:
+            return [f"  {changelog}: [Unreleased] missing {package} package section"]
+        package_body = unreleased[package_start + 1 :]
+        package_end = next(
+            (
+                index
+                for index, line in enumerate(package_body)
+                if line.startswith("### ") or line.startswith("## ")
+            ),
+            len(package_body),
+        )
+        unreleased = package_body[:package_end]
+    substantive = any(line.strip() and not line.lstrip().startswith("#") for line in unreleased)
     if substantive:
-        return [f"  {changelog}: [Unreleased] contains substantive notes at tag publication"]
+        scope = f" {package}" if package else ""
+        return [f"  {changelog}: [Unreleased]{scope} contains substantive notes at tag publication"]
     return []
 
 
@@ -274,6 +294,17 @@ def release_flavor(tag: str) -> str:
     for flavor in ("python", "typescript", "rust", "swift"):
         if tag.startswith(f"{flavor}-v"):
             return flavor
+    return ""
+
+
+def csharp_release_package(tag: str) -> str:
+    """Map one C# release tag to its independently versioned package."""
+    if tag.startswith("csharp-notifications-v"):
+        return "VMx.Notifications"
+    if tag.startswith("csharp-dependency-injection-v"):
+        return "VMx.Extensions.DependencyInjection"
+    if tag.startswith("csharp-v"):
+        return "VMx"
     return ""
 
 
@@ -795,8 +826,9 @@ def main(argv: Iterable[str] | None = None) -> int:
         if not flavor:
             msv_issues.append(f"  unsupported release tag: {args.release_tag!r}")
         else:
+            package = csharp_release_package(args.release_tag) if flavor == "csharp" else ""
             msv_issues.extend(
-                check_release_unreleased(repo_root / "langs" / flavor / "CHANGELOG.md")
+                check_release_unreleased(repo_root / "langs" / flavor / "CHANGELOG.md", package)
             )
     typescript_version = manifests.get("typescript", {}).get("version", "")
     if typescript_version:

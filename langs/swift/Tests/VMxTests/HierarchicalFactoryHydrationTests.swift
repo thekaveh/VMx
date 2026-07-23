@@ -20,6 +20,15 @@ final class HierarchicalFactoryHydrationTests: XCTestCase {
             hub: hub,
             dispatcher: ImmediateDispatcher.INSTANCE
         )
+        let grandchild = HydrationNode(
+            model: "grandchild",
+            childrenFactory: { _ in [] },
+            hub: hub,
+            dispatcher: ImmediateDispatcher.INSTANCE
+        )
+        _ = first.addChild(grandchild)
+        XCTAssertEqual(first.path.map(\.model), ["first"])
+        XCTAssertEqual(grandchild.path.map(\.model), ["first", "grandchild"])
         var snapshot = [first, first]
         let root = HydrationNode(
             model: "root",
@@ -40,6 +49,8 @@ final class HierarchicalFactoryHydrationTests: XCTestCase {
         XCTAssertEqual(children.count, 2)
         XCTAssertTrue(first.parent === root)
         XCTAssertTrue(second.parent === root)
+        XCTAssertEqual(first.path.map(\.model), ["root", "first"])
+        XCTAssertEqual(grandchild.path.map(\.model), ["root", "first", "grandchild"])
     }
 
     /// HIER-031 — self, ancestor, and already-parented results are rejected.
@@ -97,5 +108,47 @@ final class HierarchicalFactoryHydrationTests: XCTestCase {
             return XCTFail("ancestor must be rejected")
         }
         XCTAssertTrue(descendant.parent === ancestor)
+    }
+
+    /// HIER-032 — structural reentry through a materializing receiver rejects
+    /// the complete attempt without mutation and a later clean retry succeeds.
+    func testHier032StructuralReentryIsRejectedAndRetryable() {
+        for operation in ["add", "remove", "invalidate"] {
+            let hub = MessageHub()
+            let child = HydrationNode(
+                model: "child",
+                childrenFactory: { _ in [] },
+                hub: hub,
+                dispatcher: ImmediateDispatcher.INSTANCE
+            )
+            var firstAttempt = true
+            let root = HydrationNode(
+                model: "root",
+                childrenFactory: { parent in
+                    if firstAttempt {
+                        firstAttempt = false
+                        if operation == "add" {
+                            _ = parent.addChild(child)
+                        } else if operation == "remove" {
+                            parent.removeChild(child)
+                        } else {
+                            parent.invalidateChildren()
+                        }
+                    }
+                    return [child]
+                },
+                hub: hub,
+                dispatcher: ImmediateDispatcher.INSTANCE
+            )
+
+            guard case .failure = root.tryChildren() else {
+                return XCTFail("\(operation) reentry must reject hydration")
+            }
+            guard case .success(let children) = root.tryChildren() else {
+                return XCTFail("\(operation) retry must succeed")
+            }
+            XCTAssertEqual(children.count, 1)
+            XCTAssertTrue(child.parent === root)
+        }
     }
 }

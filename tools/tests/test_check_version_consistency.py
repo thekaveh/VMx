@@ -1073,6 +1073,36 @@ def test_release_tag_accepts_empty_unreleased_section(tmp_path: Path) -> None:
     assert cvc.check_release_unreleased(changelog) == []
 
 
+def test_csharp_release_tag_checks_only_selected_package_notes(tmp_path: Path) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        "## [Unreleased]\n\n"
+        "### VMx\n\n"
+        "### VMx.Notifications\n\n- Pending companion fix.\n\n"
+        "### VMx.Extensions.DependencyInjection\n\n"
+        "## [3.22.1]\n\n- Tagged notes.\n",
+        encoding="utf-8",
+    )
+
+    assert cvc.check_release_unreleased(changelog, "VMx") == []
+    assert cvc.check_release_unreleased(changelog, "VMx.Notifications") == [
+        f"  {changelog}: [Unreleased] VMx.Notifications contains substantive notes "
+        "at tag publication"
+    ]
+
+
+def test_csharp_release_tag_requires_selected_package_heading(tmp_path: Path) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        "## [Unreleased]\n\n### VMx\n\n## [3.22.1]\n\n- Tagged notes.\n",
+        encoding="utf-8",
+    )
+
+    assert cvc.check_release_unreleased(changelog, "VMx.Extensions.DependencyInjection") == [
+        f"  {changelog}: [Unreleased] missing VMx.Extensions.DependencyInjection package section"
+    ]
+
+
 # ── in-development (== spec/VERSION) exemption ────────────────────────
 
 

@@ -34,6 +34,11 @@ def test_HIER_031_factory_hydration_preflights_before_mutation_and_can_retry() -
     hub.messages.subscribe(messages.append)
     first = _Node("first", hub=hub)
     second = _Node("second", hub=hub)
+    grandchild = _Node("grandchild", hub=hub)
+    first.add_child(grandchild)
+    assert list(first.path) == [first]
+    assert list(grandchild.path) == [first, grandchild]
+    messages.clear()
     snapshot = [first, first]
     root = _Node("root", lambda _: snapshot, hub)
 
@@ -47,6 +52,8 @@ def test_HIER_031_factory_hydration_preflights_before_mutation_and_can_retry() -
     assert list(root.children) == [first, second]
     assert first.parent is root
     assert second.parent is root
+    assert list(first.path) == [root, first]
+    assert list(grandchild.path) == [root, first, grandchild]
     assert messages == []
 
 
@@ -84,3 +91,33 @@ def test_HIER_031_factory_rejects_structurally_invalid_nodes(invalid_kind: str) 
         assert root.parent is existing_parent
     else:
         assert root.parent is None
+
+
+@pytest.mark.conformance("HIER-032")
+@pytest.mark.parametrize("operation", ["add", "remove", "invalidate"])
+def test_HIER_032_factory_reentry_is_rejected_and_retryable(operation: str) -> None:
+    hub: MessageHub[Any] = MessageHub()
+    messages: list[object] = []
+    hub.messages.subscribe(messages.append)
+    child = _Node("child", hub=hub)
+    first_attempt = True
+
+    def factory(parent: _Node) -> list[_Node]:
+        nonlocal first_attempt
+        if first_attempt:
+            first_attempt = False
+            if operation == "add":
+                parent.add_child(child)
+            elif operation == "remove":
+                parent.remove_child(child)
+            else:
+                parent.invalidate_children()
+        return [child]
+
+    root = _Node("root", factory, hub)
+    with pytest.raises(ValueError, match="factory"):
+        _ = root.children
+
+    assert list(root.children) == [child]
+    assert child.parent is root
+    assert messages == []

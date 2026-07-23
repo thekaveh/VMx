@@ -32,6 +32,11 @@ public sealed class HIER_031_FactoryHydrationTests
         using var subscription = hub.Messages.Subscribe(messages.Add);
         var first = new Node("first", hub: hub);
         var second = new Node("second", hub: hub);
+        var grandchild = new Node("grandchild", hub: hub);
+        first.AddChild(grandchild);
+        first.Path.Should().Equal(first);
+        grandchild.Path.Should().Equal(first, grandchild);
+        messages.Clear();
         var snapshot = new List<Node> { first, first };
         var root = new Node("root", _ => snapshot, hub);
 
@@ -45,6 +50,8 @@ public sealed class HIER_031_FactoryHydrationTests
         root.Children.Should().Equal(first, second);
         first.HierarchicalParent.Should().BeSameAs(root);
         second.HierarchicalParent.Should().BeSameAs(root);
+        first.Path.Should().Equal(root, first);
+        grandchild.Path.Should().Equal(root, first, grandchild);
         messages.Should().BeEmpty();
     }
 
@@ -77,5 +84,36 @@ public sealed class HIER_031_FactoryHydrationTests
         var attachedRead = () => newParent.Children;
         attachedRead.Should().Throw<InvalidOperationException>().WithMessage("*factory*");
         attached.HierarchicalParent.Should().BeSameAs(oldParent);
+    }
+
+    [Theory]
+    [InlineData("add")]
+    [InlineData("remove")]
+    [InlineData("invalidate")]
+    [Trait("Conformance", "HIER-032")]
+    public void HIER_032_Rejects_Structural_Reentry_And_Permits_Retry(string operation)
+    {
+        using var hub = new TestHub();
+        var messages = new List<IMessage>();
+        using var subscription = hub.Messages.Subscribe(messages.Add);
+        var child = new Node("child", hub: hub);
+        var firstAttempt = true;
+        var root = new Node("root", parent =>
+        {
+            if (firstAttempt)
+            {
+                firstAttempt = false;
+                if (operation == "add") parent.AddChild(child);
+                else if (operation == "remove") parent.RemoveChild(child);
+                else parent.InvalidateChildren();
+            }
+            return [child];
+        }, hub);
+
+        var firstRead = () => root.Children;
+        firstRead.Should().Throw<InvalidOperationException>().WithMessage("*factory*");
+        root.Children.Should().Equal(child);
+        child.HierarchicalParent.Should().BeSameAs(root);
+        messages.Should().BeEmpty();
     }
 }

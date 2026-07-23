@@ -6,7 +6,12 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-## [0.25.1] — 2026-07-23
+## [0.26.0] — 2026-07-23
+
+### Added
+
+- Added the fallible `try_children()` accessor for reporting invalid lazy
+  factory output without panicking.
 
 ### Fixed
 
@@ -14,6 +19,10 @@ project adheres to [Semantic Versioning](https://semver.org/).
   under the topology gate. `try_children()` reports duplicate, cyclic, or
   already-parented output without mutation and permits retry (HIER-031,
   ADR-0127).
+- Factory hydration now clears prewarmed path caches for every attached
+  descendant and rejects same-receiver structural re-entry atomically
+  (HIER-031/032, ADR-0127).
+
 - Direct reconstruction now rejects destructed, transient, and disposed VMs as
   required by the lifecycle fixture. The command, message-hub, and lifecycle
   fixture conformance tests now execute and assert every fixture scenario

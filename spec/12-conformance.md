@@ -1,7 +1,7 @@
 # 12 — Conformance test catalog
 
 This document enumerates every stable conformance test identifier in the form
-`XXX-NNN`. Each of the five language flavors MUST implement all 399 library IDs
+`XXX-NNN`. Each of the five language flavors MUST implement all 400 library IDs
 in `langs/<lang>/tests/conformance/` before it can be marked stable. The five
 `THEME-00x` IDs are application-level scenarios implemented by the four
 UI-backed flagship examples. CI verifies library coverage via
@@ -3059,6 +3059,16 @@ message mutation
 **And** a later access can retry the factory
 **When** every returned node is distinct, detached, and acyclic
 **Then** the nodes are attached silently in factory order and cached
+
+### HIER-032 — Child-factory structural re-entry is rejected atomically
+
+**Given** an unmaterialized node whose child factory performs a structural
+operation on that same node
+**When** the operation adds, removes, reparents, batch-attaches, or invalidates
+children or the subtree
+**Then** the complete hydration attempt is rejected before topology, cache,
+path, or message mutation
+**And** a later access retries the factory and can succeed
 
 ## 26. DIA — IDialogService (chapter 19) — spec v2.1
 

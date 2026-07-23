@@ -6,7 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-## [3.22.1] — 2026-07-23
+## [3.23.0] — 2026-07-23
+
+### Added
+
+- Added the fallible `tryChildren()` accessor for reporting invalid lazy
+  factory output without trapping.
 
 ### Fixed
 
@@ -14,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   assigning parents. `tryChildren()` reports duplicate, cyclic, or
   already-parented output without mutation and permits retry (HIER-031,
   ADR-0127).
+- Factory hydration now clears prewarmed path caches for every attached
+  descendant and rejects same-receiver structural re-entry atomically
+  (HIER-031/032, ADR-0127).
+
 - Lazy aggregate reconstruction now reserves every proposed child from
   validation through disposal, assignment, and parent commit, preventing two
   concurrent aggregates or a re-entrant disposal hook from retaining the same

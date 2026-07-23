@@ -6,7 +6,7 @@ Updated alongside spec and flavor releases.
 
 | spec  | python          | csharp          | typescript      | swift           | rust          |
 | ----- | --------------- | --------------- | --------------- | --------------- | ------------- |
-| 3.22.x | 3.22.0–3.22.1[^current] <!-- x-release-please-version --> | 3.22.0–3.22.1[^current] | 3.23.0–3.23.1[^current] | 3.22.0–3.22.1[^swift] | 0.25.0–0.25.1[^rust] |
+| 3.22.x | 3.22.0–3.22.1[^current] <!-- x-release-please-version --> | 3.22.0–3.22.1[^current] | 3.23.0–3.23.1[^current] | 3.22.0–3.23.0[^swift] | 0.25.0–0.26.0[^rust] |
 | 3.21.x | —               | —               | —               | —               | —             |
 | 3.20.x[^legacy-semantic-tag-only] | —               | —               | —               | 3.20.0[^swift] | 0.20.0–0.22.0[^rust-source] |
 | 3.19.x | —               | —               | —               | —               | 0.19.0[^rust-source] |
@@ -53,7 +53,7 @@ semantics, `FormVM` (snapshot/dirty/approve/deny lifecycle), dialog
 service (`DialogService` / `NullDialogService`), and the notifications
 sub-package (`NotificationHub`, `NotificationVM`, `ConfirmationVM`,
 `makeConfirm` bridge) —
-**399 of 399 library conformance IDs + 5 `THEME-00x` scenario IDs = 404 total
+**400 of 400 library conformance IDs + 5 `THEME-00x` scenario IDs = 405 total
 (Swift UI-backed total parity) as of ADR-0066/ADR-0067 and ADR-0068..ADR-0100** (library IDs: base 44 per
 ADR-0037/ADR-0053; +50 leaf-area IDs per ADR-0059; +30 collections IDs per
 ADR-0060; +29 hierarchical/threading/expand-collapse IDs per ADR-0061;
@@ -74,10 +74,14 @@ and public-hub IDs per ADR-0090; +1 inert modeled-assignment ID per ADR-0091;
 +7 searchable-source-reactivity IDs per ADR-0099;
 +11 async-resource IDs per ADR-0100;
 +4 atomic container-ownership IDs per ADR-0107;
++1 disposal/hook coordination ID (`LIFE-015`) per ADR-0126;
 +1 canonical forwarding-ownership ID per ADR-0124;
-+1 aggregate reconstruction transaction ID per ADR-0125;
++1 aggregate reconstruction transaction ID (`AGG-007`) per ADR-0125;
++4 composite transfer/rollback IDs (`COMP-038..041`);
++2 hierarchy factory-hydration IDs (`HIER-031..032`) per ADR-0127;
 THEME-001..005 covered by the
-`examples/swift/notes-showcase/` flagship — ADR-0067). Swift has member-level
+`examples/swift/notes-showcase/` flagship — ADR-0067). This increment ledger is
+current through spec 3.22.1 / HIER-032. Swift has member-level
 parity with C#, Python, and TypeScript. Rust is catalog-complete but retains the
 documented source-surface convergence backlog. See `langs/swift/README.md` §5
 and `docs/maintenance/2026-07-16-rust-capability-parity.md`.
@@ -88,15 +92,15 @@ TypeScript 3.23.1 implements spec 3.22.1. Python's latest PyPI release remains
 packages remain pending. Their release jobs refuse to green-skip a publish
 without configured credentials.
 
-[^swift]: Swift 3.22.1 is the current source line. Swift 3.20.0 remains publicly
+[^swift]: Swift 3.23.0 is the current source line. Swift 3.20.0 remains publicly
 installable from the repository root through
 the immutable `v3.20.0` semantic tag. The matching `swift-v3.20.0` operational
 tag and [GitHub Release](https://github.com/thekaveh/VMx/releases/tag/swift-v3.20.0)
 point to the same `main` commit.
 
 [^rust]: Rust is a source-tree, catalog-complete flavor promoted by ADR-0081. It
-is at source version 0.25.1, declares `MIN_SPEC_VERSION = "3.22.1"`, and carries
-behavioral tests for all 399 library conformance IDs. Residual member and edge-
+is at source version 0.26.0, declares `MIN_SPEC_VERSION = "3.22.1"`, and carries
+behavioral tests for all 400 library conformance IDs. Residual member and edge-
 behavior convergence is tracked in
 `docs/maintenance/2026-07-16-rust-capability-parity.md`; it has not yet been
 published to crates.io.

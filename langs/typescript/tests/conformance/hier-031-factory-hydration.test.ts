@@ -34,6 +34,11 @@ describe("HIER-031", () => {
     hub.messages.subscribe({ next: (message) => messages.push(message) });
     const first = new Node("first", undefined, hub);
     const second = new Node("second", undefined, hub);
+    const grandchild = new Node("grandchild", undefined, hub);
+    first.addChild(grandchild);
+    expect(first.path).toEqual([first]);
+    expect(grandchild.path).toEqual([first, grandchild]);
+    messages.splice(0);
     const snapshot = [first, first];
     const root = new Node("root", () => snapshot, hub);
 
@@ -45,6 +50,8 @@ describe("HIER-031", () => {
     expect(root.children).toEqual([first, second]);
     expect(first.parent).toBe(root);
     expect(second.parent).toBe(root);
+    expect(first.path).toEqual([root, first]);
+    expect(grandchild.path).toEqual([root, first, grandchild]);
     expect(messages).toEqual([]);
   });
 
@@ -74,4 +81,35 @@ describe("HIER-031", () => {
     expect(() => newParent.children).toThrow(/factory/i);
     expect(attached.parent).toBe(oldParent);
   });
+});
+
+describe("HIER-032", () => {
+  it.each(["add", "remove", "invalidate"] as const)(
+    "rejects %s reentry without mutation and permits retry",
+    (operation) => {
+      const hub = new MessageHub();
+      const messages: unknown[] = [];
+      hub.messages.subscribe({ next: (message) => messages.push(message) });
+      const child = new Node("child", undefined, hub);
+      let firstAttempt = true;
+      const root = new Node(
+        "root",
+        (parent) => {
+          if (firstAttempt) {
+            firstAttempt = false;
+            if (operation === "add") parent.addChild(child);
+            else if (operation === "remove") parent.removeChild(child);
+            else parent.invalidateChildren();
+          }
+          return [child];
+        },
+        hub,
+      );
+
+      expect(() => root.children).toThrow(/factory/i);
+      expect(root.children).toEqual([child]);
+      expect(child.parent).toBe(root);
+      expect(messages).toEqual([]);
+    },
+  );
 });

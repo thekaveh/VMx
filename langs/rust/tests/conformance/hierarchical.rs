@@ -16,6 +16,16 @@ fn leaf(name: &str) -> HierarchicalVm<String> {
 fn factory_hydration_is_atomic_and_retryable() {
     let first = leaf("first");
     let second = leaf("second");
+    let grandchild = leaf("grandchild");
+    first.add_child(grandchild.clone()).unwrap();
+    assert_eq!(
+        grandchild
+            .path()
+            .iter()
+            .map(|node| node.model())
+            .collect::<Vec<_>>(),
+        vec!["first", "grandchild"]
+    );
     let snapshot = Arc::new(Mutex::new(vec![first.clone(), first.clone()]));
     let captured = Arc::clone(&snapshot);
     let root = HierarchicalVm::with_children_factory(
@@ -36,6 +46,14 @@ fn factory_hydration_is_atomic_and_retryable() {
     assert!(root.try_children().unwrap() == vec![first.clone(), second.clone()]);
     assert!(first.parent().as_ref() == Some(&root));
     assert!(second.parent().as_ref() == Some(&root));
+    assert_eq!(
+        grandchild
+            .path()
+            .iter()
+            .map(|node| node.model())
+            .collect::<Vec<_>>(),
+        vec!["root", "first", "grandchild"]
+    );
 }
 
 /// HIER-031 — self and already-parented factory results are rejected.
@@ -65,6 +83,42 @@ fn factory_hydration_rejects_invalid_topology() {
         MessageHub::new(),
     );
     assert!(new_parent.try_children().is_err());
+}
+
+/// HIER-032 — structural factory reentry rejects atomically and remains retryable.
+#[test]
+fn factory_structural_reentry_is_rejected_and_retryable() {
+    for operation in ["add", "remove", "invalidate"] {
+        let child = leaf("child");
+        let captured_child = child.clone();
+        let first_attempt = Arc::new(AtomicUsize::new(0));
+        let captured_attempt = Arc::clone(&first_attempt);
+        let root = HierarchicalVm::with_children_factory(
+            "root",
+            "root".to_string(),
+            move |parent| {
+                if captured_attempt.fetch_add(1, Ordering::SeqCst) == 0 {
+                    if operation == "add" {
+                        let _ = parent.add_child(captured_child.clone());
+                    } else if operation == "remove" {
+                        let _ = parent.remove_child(&captured_child);
+                    } else {
+                        parent.invalidate_children();
+                    }
+                }
+                vec![captured_child.clone()]
+            },
+            false,
+            MessageHub::new(),
+        );
+
+        assert!(
+            root.try_children().is_err(),
+            "{operation} reentry must fail"
+        );
+        assert!(root.try_children().unwrap() == vec![child.clone()]);
+        assert!(child.parent().as_ref() == Some(&root));
+    }
 }
 
 /// HIER-001 — Recursive generic constraint compiles

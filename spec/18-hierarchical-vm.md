@@ -107,6 +107,10 @@ snapshot. Rejection installs no cache, changes no parent/path state, publishes
 no message, and a later access retries the factory. A valid snapshot is cached
 in factory order and its parent backpointers are assigned silently. Factory
 hydration never transfers a node; use `AddChild` for explicit transfer.
+If the factory re-enters a structural operation on its receiver, including
+add, remove, reparent, batch attach, or cache invalidation, the complete
+hydration attempt is rejected with the same no-mutation/no-message guarantee.
+The cache remains empty and a later access retries the factory.
 
 Swift exposes fallible `tryChildren()` and Rust exposes `try_children()` for
 this validation result. Their existing `children` accessors delegate and fail
@@ -323,3 +327,6 @@ TreeStructureChangedMessage:
 - `HIER-031` — Factory hydration preflights the complete ordered snapshot and
   either attaches distinct detached nodes silently or rejects atomically with
   no cache, parent/path, or message mutation; rejection remains retryable.
+- `HIER-032` — A factory that re-enters a structural operation on its receiver
+  rejects the complete hydration attempt without mutation or messages; a later
+  access retries normally.

@@ -23,7 +23,21 @@ def test_current_docs_match_adr_inventory() -> None:
     assert f"{count} ADRs" in agents
     assert f"{count} ADRs" in claude
     assert readme.count(f"{count} ADRs") >= 2
+    assert f"(0001..{last})" in readme
     assert f"(0001-{last})" in spec_readme
+
+
+def test_adr_metadata_links_resolve() -> None:
+    adr_dir = ROOT / "spec/ADRs"
+    for adr in adr_dir.glob("[0-9][0-9][0-9][0-9]-*.md"):
+        text = adr.read_text(encoding="utf-8")
+        metadata = "\n".join(
+            line
+            for line in text.splitlines()
+            if line.startswith(("**Extends:**", "**Related:**", "**Supersedes:**"))
+        )
+        for target in re.findall(r"\[[^\]]+\]\(([^)#]+\.md)\)", metadata):
+            assert (adr.parent / target).is_file(), f"{adr}: missing {target}"
 
 
 def test_contract_ledger_matches_current_rust_package() -> None:
@@ -68,6 +82,19 @@ def test_contract_ledger_matches_docs_and_dom_tooling() -> None:
     )
     assert "npm `11.18.0`" in ledger
     assert "npm `11.5.1`" not in ledger
+
+
+def test_release_runbooks_match_pinned_tooling_and_manifest_versions() -> None:
+    typescript = (ROOT / "langs/typescript/RELEASING.md").read_text(encoding="utf-8")
+    workflow = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+    assert "npm 11.18.0" in typescript
+    assert "npm@11.18.0" in workflow
+
+    csharp = (ROOT / "langs/csharp/RELEASING.md").read_text(encoding="utf-8")
+    assert "core_version=$(sed" in csharp
+    assert 'core_tag="csharp-v${core_version}"' in csharp
+    assert "csharp-v3.22.0" not in csharp
+    assert "VMx >= 3.20.0" not in csharp
 
 
 def test_current_docs_match_library_conformance_catalog() -> None:

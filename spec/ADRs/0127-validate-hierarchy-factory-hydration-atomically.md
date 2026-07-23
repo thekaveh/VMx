@@ -2,7 +2,7 @@
 
 **Status:** Accepted (2026-07-23)
 **Spec version:** introduced in 3.22.1
-**Extends:** [ADR-0028](0028-hierarchical-vm.md), [ADR-0105](0105-hierarchical-add-child-transfer.md)
+**Extends:** [ADR-0028](0028-hierarchical-vm.md), [ADR-0105](0105-atomic-hierarchy-attachment.md)
 
 ## 1. Context
 
@@ -21,7 +21,12 @@ the tree. A late failure could also leave a partially mutated snapshot.
   any parent/path state, or publishing messages. A later access retries the
   factory.
 - Commit a valid snapshot in factory order by assigning parent backpointers
-  silently and installing the cache only after validation succeeds.
+  silently, invalidating any detached-node path caches, and installing the
+  cache only after validation succeeds.
+- Reject structural re-entry by the factory on its receiver, including add,
+  remove, reparent, batch attach, and cache invalidation. The outer hydration
+  attempt remains uncommitted and retryable even when the nested API cannot
+  surface an error directly.
 - Keep ordinary `AddChild` as the explicit transfer API.
 - Swift adds `tryChildren() -> Result<[TVM], HierarchyError>` and Rust adds
   `try_children() -> VmxResult<Vec<Self>>`; their existing `children` accessors
@@ -35,8 +40,10 @@ the tree. A late failure could also leave a partially mutated snapshot.
 - Factory hydration is structurally atomic, silent, ordered, and retryable.
 - Factories must return newly detached node identities; callers that intend to
   transfer nodes use `AddChild`.
-- `HIER-031` covers valid hydration plus duplicate, self/ancestor, and
-  already-parented rejection in all five flavors.
+- `HIER-031` covers valid hydration, including stale detached path caches, plus
+  duplicate, self/ancestor, and already-parented rejection in all five flavors.
+- `HIER-032` covers same-receiver structural re-entry, atomic rejection, and
+  retryability in all five flavors.
 
 ## 4. Rejected alternatives
 

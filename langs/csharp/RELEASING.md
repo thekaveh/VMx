@@ -43,15 +43,24 @@ must be limited to the exact `VMx*` IDs; never add an undocumented token path.
 
 ## 2. Independent package versions
 
-The current first-publication sequence is deliberate:
+Read the release candidates from the package manifests; never copy a version
+from this runbook:
 
-1. `csharp-v3.22.0` publishes `VMx` 3.22.0.
-2. `csharp-notifications-v1.2.0` publishes `VMx.Notifications` 1.2.0 after core
-   verifies.
-3. `csharp-dependency-injection-v2.1.1` publishes
-   `VMx.Extensions.DependencyInjection` 2.1.1 after core verifies.
+```bash
+core_version=$(sed -n 's:.*<Version>\\(.*\\)</Version>.*:\\1:p' \
+  langs/csharp/src/VMx/VMx.csproj)
+notifications_version=$(sed -n 's:.*<Version>\\(.*\\)</Version>.*:\\1:p' \
+  langs/csharp/src/VMx.Notifications/VMx.Notifications.csproj)
+di_version=$(sed -n 's:.*<Version>\\(.*\\)</Version>.*:\\1:p' \
+  langs/csharp/src/VMx.Extensions.DependencyInjection/VMx.Extensions.DependencyInjection.csproj)
+core_tag="csharp-v${core_version}"
+notifications_tag="csharp-notifications-v${notifications_version}"
+di_tag="csharp-dependency-injection-v${di_version}"
+```
 
-Both companions pack with `VMx >= 3.22.0` for net8.0 and netstandard2.0. DI
+Publish core first, then Notifications, then DI after each preceding public
+artifact verifies. Both companions pack with the current core dependency floor
+(`VMx >= 3.22.1` at this source line) for net8.0 and netstandard2.0. DI
 uses packaging-only patch 2.1.1 because the old shared selector made immutable
 core tag `csharp-v2.1.0` collide with that companion version. The new
 package-specific namespace prevents future collisions; do not rewind the
@@ -65,15 +74,15 @@ already-advanced package version, and never move or reuse the historical tag.
    absent. For example:
 
    ```bash
-   git ls-remote --exit-code --tags origin refs/tags/csharp-v3.22.0 || true
+   git ls-remote --exit-code --tags origin "refs/tags/${core_tag}" || true
    curl -fsS https://api.nuget.org/v3-flatcontainer/vmx/index.json || true
    ```
 
 3. Create the immutable tag on verified main and push it:
 
    ```bash
-   git tag csharp-v3.22.0 origin/main
-   git push origin csharp-v3.22.0
+   git tag "${core_tag}" origin/main
+   git push origin "${core_tag}"
    ```
 
    For companions, substitute the matching package namespace, for example
@@ -112,14 +121,15 @@ Repeat public checks outside the release job:
 
 ```bash
 python3 tools/smoke-nuget-consumer.py \
-  --package VMx=3.22.0 --framework net8.0 --poll-timeout 900
+  --package "VMx=${core_version}" --framework net8.0 --poll-timeout 900
 python3 tools/smoke-nuget-consumer.py \
-  --package VMx=3.22.0 --framework netstandard2.0 --poll-timeout 900
-gh release view csharp-v3.22.0 --repo thekaveh/VMx
+  --package "VMx=${core_version}" --framework netstandard2.0 --poll-timeout 900
+gh release view "${core_tag}" --repo thekaveh/VMx
 ```
 
-For a companion, pass its exact package/version; the tool pins core 3.22.0 as
-well, and inspect the matching package-specific GitHub Release tag. Verify the
+For a companion, pass its exact package/version; the tool pins the manifest's
+current core version as well. Inspect the matching package-specific GitHub
+Release tag. Verify the
 NuGet package page and symbol availability before changing documentation or the
 roadmap item to Done.
 
