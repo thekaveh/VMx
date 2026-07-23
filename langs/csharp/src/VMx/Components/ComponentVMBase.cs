@@ -1272,7 +1272,14 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             lease.DeferredDisposal = null;
         }
         lease.Completed.Set();
-        deferredDisposal?.Invoke();
+        if (deferredDisposal is not null)
+        {
+            // A cycle-broken Dispose call has no synchronous caller left to
+            // receive this deferred failure. Never let it replace an exception
+            // already propagating from the admitted hook.
+            try { deferredDisposal(); }
+            catch (Exception) { }
+        }
     }
 
     private void ClearInFlight()

@@ -129,7 +129,7 @@ prefer `CompositeVM<VM>` or `GroupVM<VM>` with a heterogeneous-base-type
 
 ## 8. Conformance
 
-`AGG-001` through `AGG-006` in `12-conformance.md` cover:
+`AGG-001` through `AGG-007` in `12-conformance.md` cover:
 
 - arity-1 component factory invoked on construct
 - arity-2 both components reach Constructed
@@ -138,12 +138,14 @@ prefer `CompositeVM<VM>` or `GroupVM<VM>` with a heterogeneous-base-type
 - ComponentN property change fires on construct
 - destruction waits for all children
 - arity-6 construction and destruction ordering
+- transactional reconstruction under preflight failure, cleanup failure, and
+  terminal disposal
 
 `DISP-001` additionally requires repeated aggregate disposal to produce one
 observable terminal transition per slot and for the aggregate itself.
 
-The exceptional reconstruction transaction is a clarification of the combined
-`AGG-001`, `AGG-004`, and `LIFE-013` requirements rather than a new catalog
-surface. Focused aggregate regression tests in all five flavors cover factory
-preflight rollback, first-error cleanup, candidate commit, and concurrent
-terminal abort.
+`AGG-007` composes the factory, slot-publication, and complete-cleanup rules into
+one explicit reconstruction scenario. Focused aggregate regression tests in
+all five flavors cover factory preflight rollback, candidate commit, and
+concurrent terminal abort. Throwing/result-based flavors additionally cover
+first-error propagation; Swift's disposal surface is intentionally nonthrowing.

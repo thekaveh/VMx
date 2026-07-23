@@ -159,6 +159,19 @@ same primitive together with an in-flight guard: a second `construct()` /
 than rely on an unsynchronized `Status` read. The enforcement primitive is
 named normatively so flavors do not detect re-entrancy with a racy status read.
 
+Hook admission is part of the same atomic transition decision. Once a
+construct/destruct hook is admitted, foreign `dispose()` publishes the terminal
+status but waits for that hook and its container action before running terminal
+cleanup. The hook rechecks terminal supersession before any post-hook container
+action, so disposed parents cannot begin new child work. If two active hooks
+cross-dispose their peers, the global lifecycle wait graph breaks the cycle by
+deferring one VM's terminal cleanup to its admitted hook's completion; both
+hooks and both teardown paths still run exactly once. TypeScript's
+single-threaded event loop cannot form this foreign-thread wait. Swift keeps its
+documented nonthrowing disposal surface. Throwing/result-based flavors preserve
+the earliest already-propagating failure when deferred cleanup also fails;
+later cleanup failures never replace it (ADR-0126).
+
 ### 2.5 Transactional hook failure (rollback)
 
 If `OnConstruct` or `OnDestruct` raises, the transition is **transactional**: the

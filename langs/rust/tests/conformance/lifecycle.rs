@@ -1,6 +1,6 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Barrier, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use vmx::{
     AggregateVm2, ComponentVm, CompositeVm, ConstructionStatus, ConstructionStatusChangedMessage,
     GroupVm, ManualDispatcher, Message, MessageHub, NullDispatcher, ParentHandle, VmNode, VmxError,
@@ -39,6 +39,134 @@ fn apply_fixture_operation(vm: &ComponentVm, operation: &str) -> vmx::VmxResult<
         "dispose" => vm.dispose(),
         _ => panic!("unknown lifecycle operation: {operation}"),
     }
+}
+
+#[test]
+fn foreign_disposal_waits_for_an_admitted_lifecycle_hook() {
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let disposed = Arc::new(AtomicBool::new(false));
+    let observed_disposed = Arc::clone(&disposed);
+    let vm = ComponentVm::new("hook-wait");
+    vm.on_construct(move || {
+        entered_tx.send(()).unwrap();
+        release_rx.recv().unwrap();
+        Ok(())
+    });
+    vm.on_dispose(move || {
+        observed_disposed.store(true, Ordering::SeqCst);
+        Ok(())
+    });
+    let constructor = {
+        let vm = vm.clone();
+        std::thread::spawn(move || vm.construct())
+    };
+    entered_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    let (done_tx, done_rx) = mpsc::channel();
+    let disposer = {
+        let vm = vm.clone();
+        std::thread::spawn(move || done_tx.send(vm.dispose()).unwrap())
+    };
+
+    let early = done_rx.recv_timeout(Duration::from_millis(50));
+    assert!(
+        early.is_err(),
+        "disposal completed before hook release: {early:?}"
+    );
+    assert!(!disposed.load(Ordering::SeqCst));
+    release_tx.send(()).unwrap();
+    assert_eq!(
+        done_rx.recv_timeout(Duration::from_secs(2)).unwrap(),
+        Ok(())
+    );
+    assert_eq!(constructor.join().unwrap(), Ok(()));
+    disposer.join().unwrap();
+    assert!(disposed.load(Ordering::SeqCst));
+    assert_eq!(vm.status(), ConstructionStatus::Disposed);
+}
+
+#[test]
+fn disposed_parent_skips_post_hook_child_construction() {
+    let child_constructs = Arc::new(AtomicUsize::new(0));
+    let observed_constructs = Arc::clone(&child_constructs);
+    let child = ComponentVm::new("child");
+    child.on_construct(move || {
+        observed_constructs.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    });
+    let parent = CompositeVm::new("parent");
+    parent.add(child.clone()).unwrap();
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    parent.on_construct(move || {
+        entered_tx.send(()).unwrap();
+        release_rx.recv().unwrap();
+        Ok(())
+    });
+    let constructor = {
+        let parent = parent.clone();
+        std::thread::spawn(move || parent.construct())
+    };
+    entered_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    let disposer = {
+        let parent = parent.clone();
+        std::thread::spawn(move || parent.dispose())
+    };
+
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while parent.status() != ConstructionStatus::Disposed && Instant::now() < deadline {
+        std::thread::yield_now();
+    }
+    assert_eq!(parent.status(), ConstructionStatus::Disposed);
+    release_tx.send(()).unwrap();
+    assert_eq!(constructor.join().unwrap(), Ok(()));
+    assert_eq!(disposer.join().unwrap(), Ok(()));
+    assert_eq!(parent.status(), ConstructionStatus::Disposed);
+    assert_eq!(child.status(), ConstructionStatus::Disposed);
+    assert_eq!(child_constructs.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn opposing_active_lifecycle_hooks_cross_dispose_without_deadlock() {
+    let rendezvous = Arc::new(Barrier::new(2));
+    let targets: Arc<Mutex<Vec<ComponentVm>>> = Arc::new(Mutex::new(Vec::new()));
+    let vms = (0..2)
+        .map(|index| {
+            let rendezvous = Arc::clone(&rendezvous);
+            let targets = Arc::clone(&targets);
+            let vm = ComponentVm::new(format!("hook-{index}"));
+            vm.on_construct(move || {
+                rendezvous.wait();
+                let target = targets.lock().unwrap()[1 - index].clone();
+                target.dispose().unwrap();
+                Ok(())
+            });
+            vm
+        })
+        .collect::<Vec<_>>();
+    *targets.lock().unwrap() = vms.clone();
+    let (done_tx, done_rx) = mpsc::channel();
+    let threads = vms
+        .clone()
+        .into_iter()
+        .map(|vm| {
+            let done_tx = done_tx.clone();
+            std::thread::spawn(move || done_tx.send(vm.construct()).unwrap())
+        })
+        .collect::<Vec<_>>();
+
+    for _ in 0..2 {
+        assert_eq!(
+            done_rx.recv_timeout(Duration::from_secs(3)).unwrap(),
+            Ok(())
+        );
+    }
+    for thread in threads {
+        thread.join().unwrap();
+    }
+    assert!(vms
+        .iter()
+        .all(|vm| vm.status() == ConstructionStatus::Disposed));
 }
 
 #[derive(Clone)]
@@ -284,6 +412,29 @@ fn dispose_supersedes_constructing_without_resurrection() {
 }
 
 #[test]
+fn deferred_disposal_runs_after_an_admitted_hook_failure_without_replacing_it() {
+    let dispose_runs = Arc::new(AtomicUsize::new(0));
+    let observed_dispose_runs = Arc::clone(&dispose_runs);
+    let vm = ComponentVm::new("deferred-error");
+    vm.on_dispose(move || {
+        observed_dispose_runs.fetch_add(1, Ordering::SeqCst);
+        Err(VmxError::Other("dispose failure".to_string()))
+    });
+    let hook_vm = vm.clone();
+    vm.on_construct(move || {
+        hook_vm.dispose()?;
+        Err(VmxError::Other("hook failure".to_string()))
+    });
+
+    assert_eq!(
+        vm.construct(),
+        Err(VmxError::Other("hook failure".to_string()))
+    );
+    assert_eq!(dispose_runs.load(Ordering::SeqCst), 1);
+    assert_eq!(vm.status(), ConstructionStatus::Disposed);
+}
+
+#[test]
 fn dispose_supersedes_destructing_without_resurrection() {
     let hub = MessageHub::new();
     let vm = ComponentVm::with_services("vm", hub.clone(), NullDispatcher::new());
@@ -467,6 +618,20 @@ fn lifecycle_transition_fixture_contains_required_transitions() {
                 .recv_timeout(Duration::from_secs(1))
                 .unwrap();
             assert_eq!(vm.status(), fixture_status(&row.from));
+            if row.via == "dispose" {
+                let active = vm.clone();
+                let operation = std::thread::spawn(move || active.dispose());
+                let deadline = Instant::now() + Duration::from_secs(1);
+                while vm.status() != ConstructionStatus::Disposed && Instant::now() < deadline {
+                    std::thread::yield_now();
+                }
+                assert_eq!(vm.status(), ConstructionStatus::Disposed);
+                release_send.send(()).unwrap();
+                let result = operation.join().unwrap();
+                assert_eq!(result.is_ok(), row.legal, "{} via {}", row.from, row.via);
+                let _ = worker.join().unwrap();
+                continue;
+            }
             let result = apply_fixture_operation(&vm, &row.via);
             assert_eq!(result.is_ok(), row.legal, "{} via {}", row.from, row.via);
             if let Some(final_state) = &row.to_final {

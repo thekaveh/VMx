@@ -1503,6 +1503,7 @@ pub(crate) type ModelHint<M> = Arc<dyn Fn(&M) -> Option<String> + Send + Sync>;
 #[derive(Clone)]
 pub(crate) struct ComponentCore<D: Dispatcher = NullDispatcher> {
     inner: Arc<Mutex<ComponentCoreInner<D>>>,
+    hook_ready: Arc<Condvar>,
 }
 
 struct ComponentCoreInner<D: Dispatcher> {
@@ -1521,6 +1522,8 @@ struct ComponentCoreInner<D: Dispatcher> {
     on_destruct: Option<Hook>,
     on_dispose: Option<Hook>,
     owned_cleanups: Vec<OwnedCleanup>,
+    active_hook_owner: Option<ThreadId>,
+    deferred_core_disposal: bool,
     selected: bool,
     expanded: bool,
 }
@@ -1544,9 +1547,12 @@ impl<D: Dispatcher> ComponentCore<D> {
                 on_destruct: None,
                 on_dispose: None,
                 owned_cleanups: Vec::new(),
+                active_hook_owner: None,
+                deferred_core_disposal: false,
                 selected: false,
                 expanded: false,
             })),
+            hook_ready: Arc::new(Condvar::new()),
         }
     }
 
@@ -1638,6 +1644,9 @@ impl<D: Dispatcher> ComponentCore<D> {
                     let generation = inner.transition_generation;
                     inner.transitioning = true;
                     inner.status = transition_status;
+                    if operation != LifecycleOperation::Dispose {
+                        inner.active_hook_owner = Some(thread::current().id());
+                    }
                     let hook = match operation {
                         LifecycleOperation::Construct => inner.on_construct.clone(),
                         LifecycleOperation::Destruct => inner.on_destruct.clone(),
@@ -1676,10 +1685,60 @@ impl<D: Dispatcher> ComponentCore<D> {
             return Ok(());
         };
 
-        let operation_result = hook
-            .map(|hook| (lock(&hook))())
-            .unwrap_or(Ok(()))
-            .and_then(|_| action());
+        if operation == LifecycleOperation::Dispose {
+            let current = thread::current().id();
+            let mut inner = lock(&self.inner);
+            while let Some(owner) = inner.active_hook_owner {
+                if owner == current {
+                    inner.deferred_core_disposal = true;
+                    return Ok(());
+                }
+                let (next, cyclic) =
+                    wait_for_message_hub_owner(&self.hook_ready, inner, current, owner);
+                inner = next;
+                if cyclic {
+                    inner.deferred_core_disposal = true;
+                    return Ok(());
+                }
+            }
+        }
+
+        let execution = catch_unwind(AssertUnwindSafe(|| {
+            let hook_result = hook.map(|hook| (lock(&hook))()).unwrap_or(Ok(()));
+            let action_allowed = operation == LifecycleOperation::Dispose || {
+                let inner = lock(&self.inner);
+                inner.transition_generation == generation
+                    && inner.status != ConstructionStatus::Disposed
+            };
+            hook_result.and_then(|_| if action_allowed { action() } else { Ok(()) })
+        }));
+        let deferred_disposal = if operation == LifecycleOperation::Dispose {
+            false
+        } else {
+            let mut inner = lock(&self.inner);
+            if inner.active_hook_owner == Some(thread::current().id()) {
+                inner.active_hook_owner = None;
+            }
+            let deferred = inner.deferred_core_disposal;
+            inner.deferred_core_disposal = false;
+            self.hook_ready.notify_all();
+            deferred
+        };
+        let mut operation_result = match execution {
+            Ok(result) => result,
+            Err(payload) => {
+                if deferred_disposal {
+                    let _ = self.finish_deferred_core_disposal();
+                }
+                resume_unwind(payload)
+            }
+        };
+        if deferred_disposal {
+            let disposal_result = self.finish_deferred_core_disposal();
+            if operation_result.is_ok() {
+                operation_result = disposal_result;
+            }
+        }
         if operation == LifecycleOperation::Dispose {
             self.dispose_owned();
             self.property_changed_stream().dispose();
@@ -1765,6 +1824,17 @@ impl<D: Dispatcher> ComponentCore<D> {
             }));
         }
         Ok(())
+    }
+
+    fn finish_deferred_core_disposal(&self) -> VmxResult<()> {
+        let (hook, property_changed) = {
+            let inner = lock(&self.inner);
+            (inner.on_dispose.clone(), inner.property_changed.clone())
+        };
+        let result = hook.map(|hook| (lock(&hook))()).unwrap_or(Ok(()));
+        self.dispose_owned();
+        property_changed.dispose();
+        result
     }
 
     fn publication_is_current(&self, generation: u64, status: ConstructionStatus) -> bool {

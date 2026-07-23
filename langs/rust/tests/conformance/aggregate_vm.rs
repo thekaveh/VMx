@@ -914,6 +914,7 @@ fn deferred_parent_disposal_failure_is_returned_from_reconstruct() {
     assert_eq!(candidate.status(), ConstructionStatus::Disposed);
 }
 
+/// AGG-007 — Fixed-slot reconstruction preserves ownership or commits all candidates.
 #[test]
 fn failed_reconstruction_preserves_all_previous_slots_and_parent_links() {
     let first = text("first");

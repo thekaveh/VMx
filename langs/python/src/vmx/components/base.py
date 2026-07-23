@@ -1022,7 +1022,13 @@ class _ComponentVMBase(ABC):
                 lease.deferred_disposal = None
             lease.completed.set()
             if deferred_disposal is not None:
-                deferred_disposal()
+                # The cycle-broken dispose call has already returned. A deferred
+                # cleanup failure must not replace an exception propagating from
+                # the admitted hook that released this lease.
+                try:
+                    deferred_disposal()
+                except BaseException:
+                    pass
         return True
 
     def _on_construct(self) -> None:

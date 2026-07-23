@@ -362,6 +362,7 @@ final class ContainerOwnershipTransferTests: XCTestCase {
         )
     }
 
+    /// AGG-007 — fixed-slot reconstruction is transactional under concurrent disposal.
     func testAggregateReconstructSerializesConcurrentParentDisposal() throws {
         let candidate = try leaf("candidate")
         let disposalEntered = DispatchSemaphore(value: 0)

@@ -648,7 +648,7 @@ public class AggregateVMTests
         candidate.Status.Should().Be(ConstructionStatus.Disposed);
     }
 
-    [Fact]
+    [Fact, Trait("Conformance", "AGG-007")]
     public void Aggregate_Reconstruct_Cleans_All_Slots_And_Candidates_After_Disposal_Failure()
     {
         var (hub, dispatcher) = MakeServices();

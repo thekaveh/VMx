@@ -27,6 +27,7 @@ def _preload(script_filename: str, module_alias: str) -> None:
 
 # Pre-load all check-*.py scripts under hyphen-stripped aliases.
 _preload("check-conformance-coverage.py", "check_conformance_coverage")
+_preload("check-fixture-contracts.py", "check_fixture_contracts")
 _preload("check-axaml-codebehind.py", "check_axaml_codebehind")
 _preload("check-textual-views.py", "check_textual_views")
 _preload("check-layer-imports.py", "check_layer_imports")
@@ -34,6 +35,7 @@ _preload("check-showcase-parity.py", "check_showcase_parity")
 _preload("check-version-consistency.py", "check_version_consistency")
 _preload("check-workflow-pins.py", "check_workflow_pins")
 _preload("check-python-fixture-sync.py", "check_python_fixture_sync")
+_preload("check-python-package.py", "check_python_package")
 _preload("check-release-please-state.py", "check_release_please_state")
 _preload("check-rust-fixture-sync.py", "check_rust_fixture_sync")
 _preload("check-swift-package-sync.py", "check_swift_package_sync")

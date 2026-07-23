@@ -26,10 +26,9 @@ stopped at the first error, or whether candidates committed after cleanup.
 - When re-entrant or concurrent disposal makes the aggregate terminal, dispose
   every candidate and commit none. External disposal waits for the active
   reconstruction decision before taking its terminal child snapshot.
-- Keep the existing catalog unchanged: `AGG-001`, `AGG-004`, and `LIFE-013`
-  already define the constituent factory, slot-publication, and complete
-  cleanup obligations. Focused tests in every flavor cover their exceptional
-  composition.
+- Add `AGG-007` to compose the constituent factory, slot-publication, complete
+  cleanup, and terminal-abort obligations into one explicit reconstruction
+  scenario, with coverage in all five flavors.
 
 ## 3. Consequences
 
@@ -38,8 +37,8 @@ stopped at the first error, or whether candidates committed after cleanup.
   causal failure.
 - Non-throwing disposal flavors retain the same state and ownership outcome
   without inventing a throwing public surface.
-- This records already-aligned 3.22.0 behavior; it adds no API, conformance ID,
-  fixture, package version, or minimum-spec change.
+- This records already-aligned 3.22.0 behavior; it adds one conformance ID but
+  no API, fixture, package version, or minimum-spec change.
 
 ## 4. Rejected alternatives
 

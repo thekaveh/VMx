@@ -372,6 +372,9 @@ jobs:
       - name: Build wheel and sdist
         run: uv build --project langs/python --out-dir dist
 
+      - name: Verify exact wheel and sdist contents
+        run: uv run --project langs/python python tools/check-python-package.py --dist dist
+
       - name: Twine check
         # Catches common metadata issues (missing long_description, invalid
         # RST/MD, malformed classifiers) before uploading. Cheap pre-flight.

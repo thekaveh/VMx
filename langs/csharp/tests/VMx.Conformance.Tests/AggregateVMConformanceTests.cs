@@ -436,7 +436,7 @@ public class AggregateVMConformanceTests
         aggregate.Component1.Should().BeNull();
     }
 
-    [Fact]
+    [Fact, Trait("Conformance", "AGG-007")]
     public void Aggregate_Reconstruct_Rejects_Its_Current_Slot_Without_Disposing_It()
     {
         var (hub, dispatcher) = MakeServices();

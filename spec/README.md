@@ -28,7 +28,7 @@ before any flavor releases a stable version.
 - `09-forwarding.md` — forwarding decorators.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
-- `12-conformance.md` — cross-language conformance test catalog (401 IDs).
+- `12-conformance.md` — cross-language conformance test catalog (402 IDs).
 - `13-tree-utilities.md` — `walk` / `find` / `walk_expanded` tree introspection.
 
 ### 1.2 Chapters (v2.0 additions)
@@ -585,15 +585,15 @@ ID-based sender identity. It also records targeted TypeScript and documentation
 contract corrections, current five-flavor catalog clarifications, and stable
 membership ordering for disposal racing ownership transfer. The final
 forwarding-ownership clarification adds `FWD-004`, bringing the current catalog
-to 396 library IDs plus 5 scenario IDs.
+to 397 library IDs plus 5 scenario IDs.
 
-See ADR-0108 through ADR-0125 and the affected behavior chapters.
+See ADR-0108 through ADR-0126 and the affected behavior chapters.
 
 ### 1.33 Supporting artefacts
 
 - `VERSION` — current spec SemVer (`3.22.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0125); see
+- `ADRs/` — Architecture Decision Records (0001-0126); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `schemas/` — versioned supporting machine contracts. The consumer
   conformance v1 schema is non-normative; see ADR-0102.

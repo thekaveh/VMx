@@ -3,7 +3,8 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from scripts.docs.push_wiki import push_wiki
+import pytest
+from scripts.docs.push_wiki import _env_with_identity, push_wiki
 
 
 def _git(cwd: Path, *args: str) -> str:
@@ -15,6 +16,20 @@ def _git(cwd: Path, *args: str) -> str:
         text=True,
         timeout=10,
     ).stdout.strip()
+
+
+def test_deploy_key_takes_precedence_over_token_askpass(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    key = tmp_path / "wiki-key"
+    key.touch()
+    monkeypatch.setenv("WIKI_DEPLOY_KEY", str(key))
+    monkeypatch.setenv("WIKI_TOKEN", "secret")
+
+    env = _env_with_identity()
+
+    assert env["GIT_SSH_COMMAND"].startswith(f"ssh -i {key}")
+    assert "GIT_ASKPASS" not in env
 
 
 def test_check_compares_live_wiki_without_committing_or_pushing(tmp_path: Path) -> None:

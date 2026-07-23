@@ -393,7 +393,7 @@ describe("AggregateVM reconstruct disposes previous slot", () => {
   );
 });
 
-describe("Aggregate fixed-slot ownership", () => {
+describe("AGG-007", () => {
   it("cleans every old slot and candidate after a disposal failure", () => {
     const hub = makeHub();
     const candidate1 = makeChild(hub, "candidate-1");

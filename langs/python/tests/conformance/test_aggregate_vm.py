@@ -634,6 +634,7 @@ def test_aggregate_dispose_cannot_race_fixed_slot_commit(reconstruct: bool) -> N
     assert candidate.status is ConstructionStatus.DISPOSED
 
 
+@pytest.mark.conformance("AGG-007")
 def test_aggregate_reconstruct_cleans_all_slots_and_candidates_after_disposal_failure() -> None:
     hub = _hub()
     dispatcher = _dispatcher()

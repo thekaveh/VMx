@@ -53,7 +53,7 @@ semantics, `FormVM` (snapshot/dirty/approve/deny lifecycle), dialog
 service (`DialogService` / `NullDialogService`), and the notifications
 sub-package (`NotificationHub`, `NotificationVM`, `ConfirmationVM`,
 `makeConfirm` bridge) —
-**396 of 396 library conformance IDs + 5 `THEME-00x` scenario IDs = 401 total
+**397 of 397 library conformance IDs + 5 `THEME-00x` scenario IDs = 402 total
 (Swift UI-backed total parity) as of ADR-0066/ADR-0067 and ADR-0068..ADR-0100** (library IDs: base 44 per
 ADR-0037/ADR-0053; +50 leaf-area IDs per ADR-0059; +30 collections IDs per
 ADR-0060; +29 hierarchical/threading/expand-collapse IDs per ADR-0061;
@@ -75,6 +75,7 @@ and public-hub IDs per ADR-0090; +1 inert modeled-assignment ID per ADR-0091;
 +11 async-resource IDs per ADR-0100;
 +4 atomic container-ownership IDs per ADR-0107;
 +1 canonical forwarding-ownership ID per ADR-0124;
++1 aggregate reconstruction transaction ID per ADR-0125;
 THEME-001..005 covered by the
 `examples/swift/notes-showcase/` flagship — ADR-0067). Swift has member-level
 parity with C#, Python, and TypeScript. Rust is catalog-complete but retains the
@@ -95,7 +96,7 @@ point to the same `main` commit.
 
 [^rust]: Rust is a source-tree, catalog-complete flavor promoted by ADR-0081. It
 is at source version 0.25.0, declares `MIN_SPEC_VERSION = "3.22.0"`, and carries
-behavioral tests for all 396 library conformance IDs. Residual member and edge-
+behavioral tests for all 397 library conformance IDs. Residual member and edge-
 behavior convergence is tracked in
 `docs/maintenance/2026-07-16-rust-capability-parity.md`; it has not yet been
 published to crates.io.

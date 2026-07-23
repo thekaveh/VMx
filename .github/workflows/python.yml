@@ -220,6 +220,16 @@ jobs:
         run: uv python install 3.12
       - name: Build wheel and sdist
         run: uv build --project langs/python --out-dir dist
+      - name: Verify exact wheel and sdist contents
+        run: uv run --project langs/python python tools/check-python-package.py --dist dist
+      - name: Verify exact local wheel in a fresh environment
+        run: |
+          set -euo pipefail
+          version=$(uv run --project langs/python python -c \
+            "from vmx.__about__ import __version__; print(__version__)")
+          uv venv --python 3.12 .package-venv
+          uv pip install --python .package-venv/bin/python dist/*.whl
+          .package-venv/bin/python langs/python/scripts/smoke_test.py "$version"
       - name: Test extracted sdist
         run: |
           set -euo pipefail

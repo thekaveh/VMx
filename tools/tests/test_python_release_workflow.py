@@ -55,6 +55,17 @@ def test_python_ci_and_release_test_the_extracted_sdist() -> None:
         )
 
 
+def test_python_ci_and_release_verify_exact_archives_and_ci_smokes_wheel() -> None:
+    ci = _workflow("python.yml")
+    release = _workflow("release.yml")
+    checker = "python tools/check-python-package.py --dist dist"
+
+    assert checker in ci
+    assert checker in release
+    assert "uv pip install --python .package-venv/bin/python dist/*.whl" in ci
+    assert '.package-venv/bin/python langs/python/scripts/smoke_test.py "$version"' in ci
+
+
 def test_conformance_job_uses_the_tracked_python_lockfile() -> None:
     workflow = _workflow("conformance.yml")
 

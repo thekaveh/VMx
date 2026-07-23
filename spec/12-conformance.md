@@ -1,7 +1,7 @@
 # 12 — Conformance test catalog
 
 This document enumerates every stable conformance test identifier in the form
-`XXX-NNN`. Each of the five language flavors MUST implement all 396 library IDs
+`XXX-NNN`. Each of the five language flavors MUST implement all 397 library IDs
 in `langs/<lang>/tests/conformance/` before it can be marked stable. The five
 `THEME-00x` IDs are application-level scenarios implemented by the four
 UI-backed flagship examples. CI verifies library coverage via
@@ -880,6 +880,24 @@ ONLY AFTER every `ComponentI.Status` has reached `Constructed`
 **And** `agg.Status == Destructed`
 
 (Added in spec 2.2.0 per ADR-0034.)
+
+### AGG-007 — Fixed-slot reconstruction is transactional under failure and disposal
+
+**Given** a constructed fixed-slot aggregate whose replacement factories
+produce valid unowned candidates
+**When** `reconstruct()` encounters a previous-slot cleanup failure
+**Then** every previous slot is offered cleanup and the first cleanup failure
+is retained where disposal can report failures
+**And** if the aggregate remains viable, all candidates commit together in
+`Destructed`, acquire the aggregate parent, and publish their slot changes
+before that failure is propagated
+**And** a factory or ownership-preflight failure instead preserves every old
+slot and parent link exactly
+**And** if re-entrant or concurrent disposal makes the aggregate terminal, all
+candidates are disposed, no candidate commits, and terminal disposal observes
+one stable slot snapshot
+
+(Clarified in spec 3.22.0 per ADR-0125.)
 
 ______________________________________________________________________
 

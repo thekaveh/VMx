@@ -68,6 +68,46 @@ public class ComponentVMLifecycleRaceTests
         second.Status.Should().Be(ConstructionStatus.Disposed);
     }
 
+    [Fact]
+    public async Task Cycle_Broken_Deferred_Cleanup_Does_Not_Replace_First_Failure()
+    {
+        using var barrier = new Barrier(2);
+        var cleanupOrder = new ConcurrentQueue<string>();
+        FailingHookDisposeVM? first = null;
+        FailingHookDisposeVM? second = null;
+        first = new FailingHookDisposeVM("first", cleanupOrder, () =>
+        {
+            barrier.SignalAndWait(TimeSpan.FromSeconds(2));
+            second!.Dispose();
+        });
+        second = new FailingHookDisposeVM("second", cleanupOrder, () =>
+        {
+            barrier.SignalAndWait(TimeSpan.FromSeconds(2));
+            first.Dispose();
+        });
+        var failures = new ConcurrentQueue<Exception>();
+
+        var transitions = Task.WhenAll(
+            Task.Run(() => RecordFailure(first.Construct, failures)),
+            Task.Run(() => RecordFailure(second.Construct, failures)));
+        (await Task.WhenAny(transitions, Task.Delay(TimeSpan.FromSeconds(3))))
+            .Should().BeSameAs(transitions);
+        await transitions;
+
+        cleanupOrder.Should().BeEquivalentTo(["first", "second"]);
+        failures.Should().ContainSingle();
+        cleanupOrder.TryPeek(out var earliest).Should().BeTrue();
+        failures.Single().Message.Should().Be($"dispose failure {earliest}");
+        first.Status.Should().Be(ConstructionStatus.Disposed);
+        second.Status.Should().Be(ConstructionStatus.Disposed);
+    }
+
+    private static void RecordFailure(Action action, ConcurrentQueue<Exception> failures)
+    {
+        try { action(); }
+        catch (Exception error) { failures.Enqueue(error); }
+    }
+
     [Theory]
     [InlineData(ConstructionStatus.Constructing)]
     [InlineData(ConstructionStatus.Destructing)]
@@ -649,6 +689,30 @@ internal sealed class OnDisposeProbeVM : ComponentVMBase
     protected override void OnDispose()
     {
         Interlocked.Increment(ref _disposeCalls);
+    }
+}
+
+internal sealed class FailingHookDisposeVM : ComponentVMBase
+{
+    private readonly string _failureName;
+    private readonly ConcurrentQueue<string> _cleanupOrder;
+
+    public FailingHookDisposeVM(
+        string name,
+        ConcurrentQueue<string> cleanupOrder,
+        Action onConstruct)
+        : base(name, "", new TestHub(), new TestDispatcher(), onConstruct, null)
+    {
+        _failureName = name;
+        _cleanupOrder = cleanupOrder;
+    }
+
+    public override ViewModelType Type => ViewModelType.Component;
+
+    protected override void OnDispose()
+    {
+        _cleanupOrder.Enqueue(_failureName);
+        throw new InvalidOperationException($"dispose failure {_failureName}");
     }
 }
 

@@ -74,6 +74,9 @@ jobs:
         # git tag (pre-v2.0 rows are informational-only; the tool exits 0).
         run: uv --project langs/python run python tools/check-version-consistency.py
 
+      - name: Validate canonical fixture contracts
+        run: uv --project langs/python run python tools/check-fixture-contracts.py
+
       - name: Check workflow pin inventory
         run: uv --project langs/python run python tools/check-workflow-pins.py
 
@@ -101,7 +104,7 @@ jobs:
 
       - name: Enforce conformance coverage (csharp + python + typescript + swift + rust)
         # All five flavors ship at the current spec version and are enforced at
-        # 100% coverage of the full 396-ID library catalog. Swift and Rust use
+        # 100% coverage of the full 397-ID library catalog. Swift and Rust use
         # doc-comment markers attached to real test functions, so this coverage
         # check does not need either toolchain. The tool exits non-zero if any
         # required language falls below full catalog coverage.
