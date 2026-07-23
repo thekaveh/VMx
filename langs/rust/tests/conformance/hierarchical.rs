@@ -96,7 +96,19 @@ fn factory_structural_reentry_is_rejected_and_retryable() {
         "invalidate-children",
         "invalidate-subtree",
     ] {
-        let child = leaf("child");
+        let hub = MessageHub::new();
+        let messages = Arc::new(Mutex::new(Vec::<Message>::new()));
+        let captured_messages = Arc::clone(&messages);
+        let _subscription = hub.subscribe(move |message| {
+            captured_messages.lock().unwrap().push(message.clone());
+        });
+        let child = HierarchicalVm::with_children_factory(
+            "child",
+            "child".to_string(),
+            |_| Vec::new(),
+            false,
+            hub.clone(),
+        );
         let captured_child = child.clone();
         let first_attempt = Arc::new(AtomicUsize::new(0));
         let captured_attempt = Arc::clone(&first_attempt);
@@ -127,38 +139,42 @@ fn factory_structural_reentry_is_rejected_and_retryable() {
                 vec![captured_child.clone()]
             },
             false,
-            MessageHub::new(),
+            hub,
         );
 
         assert!(
             root.try_children().is_err(),
             "{operation} reentry must fail"
         );
+        assert!(child.parent().is_none());
+        assert!(child.path() == vec![child.clone()]);
+        assert_eq!(first_attempt.load(Ordering::SeqCst), 1);
+        assert!(messages.lock().unwrap().is_empty());
         assert!(root.try_children().unwrap() == vec![child.clone()]);
         assert!(child.parent().as_ref() == Some(&root));
+        assert_eq!(first_attempt.load(Ordering::SeqCst), 2);
+        assert!(messages.lock().unwrap().is_empty());
     }
 }
 
-/// HIER-032 — delegated structural reentry rejects without a cross-thread wait cycle.
+/// HIER-032 — unrelated structural overlap rejects without poisoning hydration.
 #[test]
-fn factory_cross_thread_structural_reentry_is_bounded_and_retryable() {
+fn foreign_structural_overlap_is_bounded_without_poisoning_hydration() {
     let child = leaf("child");
     let captured_child = child.clone();
     let attempts = Arc::new(AtomicUsize::new(0));
     let captured_attempts = Arc::clone(&attempts);
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let release_rx = Arc::new(Mutex::new(release_rx));
+    let captured_release = Arc::clone(&release_rx);
     let root = HierarchicalVm::with_children_factory(
         "root",
         "root".to_string(),
-        move |parent| {
+        move |_| {
             if captured_attempts.fetch_add(1, Ordering::SeqCst) == 0 {
-                std::thread::scope(|scope| {
-                    let parent = parent.clone();
-                    let child = captured_child.clone();
-                    scope
-                        .spawn(move || assert!(parent.add_child(child).is_err()))
-                        .join()
-                        .unwrap();
-                });
+                entered_tx.send(()).unwrap();
+                captured_release.lock().unwrap().recv().unwrap();
             }
             vec![captured_child.clone()]
         },
@@ -169,11 +185,19 @@ fn factory_cross_thread_structural_reentry_is_bounded_and_retryable() {
     let (result_tx, result_rx) = mpsc::channel();
     let first_root = root.clone();
     std::thread::spawn(move || {
-        result_tx.send(first_root.try_children().is_err()).unwrap();
+        result_tx.send(first_root.try_children()).unwrap();
     });
-    assert_eq!(result_rx.recv_timeout(Duration::from_millis(500)), Ok(true));
-    assert!(root.try_children().unwrap() == vec![child.clone()]);
+    entered_rx.recv_timeout(Duration::from_millis(500)).unwrap();
+
+    assert!(root.add_child(leaf("unrelated")).is_err());
+    release_tx.send(()).unwrap();
+    match result_rx.recv_timeout(Duration::from_millis(500)) {
+        Ok(Ok(items)) => assert!(items == vec![child.clone()]),
+        Ok(Err(error)) => panic!("unrelated overlap poisoned hydration: {error}"),
+        Err(error) => panic!("hydration did not complete: {error}"),
+    }
     assert!(child.parent().as_ref() == Some(&root));
+    assert_eq!(attempts.load(Ordering::SeqCst), 1);
 }
 
 /// HIER-032 — a rejected owner releases state before a waiting owner starts.

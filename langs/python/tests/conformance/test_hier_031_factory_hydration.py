@@ -103,12 +103,13 @@ def test_HIER_032_factory_reentry_is_rejected_and_retryable(operation: str) -> N
     messages: list[object] = []
     hub.messages.subscribe(messages.append)
     child = _Node("child", hub=hub)
-    first_attempt = True
+    _ = child.path
+    attempts = 0
 
     def factory(parent: _Node) -> list[_Node]:
-        nonlocal first_attempt
-        if first_attempt:
-            first_attempt = False
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
             if operation == "add":
                 parent.add_child(child)
             elif operation == "remove":
@@ -131,6 +132,11 @@ def test_HIER_032_factory_reentry_is_rejected_and_retryable(operation: str) -> N
     with pytest.raises(ValueError, match="factory"):
         _ = root.children
 
+    assert child.parent is None
+    assert child.path == [child]
+    assert attempts == 1
+    assert messages == []
     assert list(root.children) == [child]
     assert child.parent is root
+    assert attempts == 2
     assert messages == []

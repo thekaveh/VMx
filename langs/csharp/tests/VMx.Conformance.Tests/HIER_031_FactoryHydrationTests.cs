@@ -100,12 +100,12 @@ public sealed class HIER_031_FactoryHydrationTests
         var messages = new List<IMessage>();
         using var subscription = hub.Messages.Subscribe(messages.Add);
         var child = new Node("child", hub: hub);
-        var firstAttempt = true;
+        _ = child.Path;
+        var attempts = 0;
         var root = new Node("root", parent =>
         {
-            if (firstAttempt)
+            if (attempts++ == 0)
             {
-                firstAttempt = false;
                 if (operation == "add") parent.AddChild(child);
                 else if (operation == "remove") parent.RemoveChild(child);
                 else if (operation == "reparent") parent.ReparentChild(child);
@@ -122,8 +122,13 @@ public sealed class HIER_031_FactoryHydrationTests
 
         var firstRead = () => root.Children;
         firstRead.Should().Throw<InvalidOperationException>().WithMessage("*factory*");
+        child.HierarchicalParent.Should().BeNull();
+        child.Path.Should().Equal(child);
+        attempts.Should().Be(1);
+        messages.Should().BeEmpty();
         root.Children.Should().Equal(child);
         child.HierarchicalParent.Should().BeSameAs(root);
+        attempts.Should().Be(2);
         messages.Should().BeEmpty();
     }
 }

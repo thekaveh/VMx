@@ -1,3 +1,4 @@
+import Combine
 import XCTest
 @testable import VMx
 
@@ -122,18 +123,22 @@ final class HierarchicalFactoryHydrationTests: XCTestCase {
             "invalidate-subtree"
         ] {
             let hub = MessageHub()
+            var messages: [any Message] = []
+            var cancellables = Set<AnyCancellable>()
+            hub.messages.sink { messages.append($0) }.store(in: &cancellables)
             let child = HydrationNode(
                 model: "child",
                 childrenFactory: { _ in [] },
                 hub: hub,
                 dispatcher: ImmediateDispatcher.INSTANCE
             )
-            var firstAttempt = true
+            _ = child.path
+            var attempts = 0
             let root = HydrationNode(
                 model: "root",
                 childrenFactory: { parent in
-                    if firstAttempt {
-                        firstAttempt = false
+                    attempts += 1
+                    if attempts == 1 {
                         if operation == "add" {
                             _ = parent.addChild(child)
                         } else if operation == "remove" {
@@ -161,11 +166,18 @@ final class HierarchicalFactoryHydrationTests: XCTestCase {
             guard case .failure = root.tryChildren() else {
                 return XCTFail("\(operation) reentry must reject hydration")
             }
+            XCTAssertNil(child.parent)
+            XCTAssertEqual(child.path.count, 1)
+            XCTAssertTrue(child.path.first === child)
+            XCTAssertEqual(attempts, 1)
+            XCTAssertTrue(messages.isEmpty)
             guard case .success(let children) = root.tryChildren() else {
                 return XCTFail("\(operation) retry must succeed")
             }
             XCTAssertEqual(children.count, 1)
             XCTAssertTrue(child.parent === root)
+            XCTAssertEqual(attempts, 2)
+            XCTAssertTrue(messages.isEmpty)
         }
     }
 }

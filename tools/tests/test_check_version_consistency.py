@@ -1073,6 +1073,19 @@ def test_release_tag_accepts_empty_unreleased_section(tmp_path: Path) -> None:
     assert cvc.check_release_unreleased(changelog) == []
 
 
+def test_release_tag_rejects_duplicate_unreleased_sections(tmp_path: Path) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        "## [Unreleased]\n\n## [Unreleased]\n\n- Hidden pending note.\n\n"
+        "## [3.22.1]\n\n- Tagged notes.\n",
+        encoding="utf-8",
+    )
+
+    assert cvc.check_release_unreleased(changelog) == [
+        f"  {changelog}: expected exactly one [Unreleased] section"
+    ]
+
+
 def test_csharp_release_tag_checks_only_selected_package_notes(tmp_path: Path) -> None:
     changelog = tmp_path / "CHANGELOG.md"
     changelog.write_text(
@@ -1134,6 +1147,27 @@ def test_csharp_unreleased_structure_requires_unique_ordered_sections(tmp_path: 
         f"  {changelog}: [Unreleased] C# package sections must appear exactly once "
         "in VMx, VMx.Notifications, VMx.Extensions.DependencyInjection order"
     ]
+
+
+def test_csharp_release_gates_reject_duplicate_unreleased_sections(tmp_path: Path) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        "## [Unreleased]\n\n"
+        "### VMx\n\n"
+        "### VMx.Notifications\n\n"
+        "### VMx.Extensions.DependencyInjection\n\n"
+        "## [Unreleased]\n\n"
+        "### VMx\n\n- Hidden core fix.\n\n"
+        "### VMx.Notifications\n\n"
+        "### VMx.Extensions.DependencyInjection\n\n"
+        "## [3.22.1]\n\n- Tagged notes.\n",
+        encoding="utf-8",
+    )
+
+    expected = [f"  {changelog}: expected exactly one [Unreleased] section"]
+    assert cvc.check_csharp_unreleased_structure(changelog) == expected
+    for package in cvc.CSHARP_UNRELEASED_PACKAGES:
+        assert cvc.check_release_unreleased(changelog, package) == expected
 
 
 # ── in-development (== spec/VERSION) exemption ────────────────────────

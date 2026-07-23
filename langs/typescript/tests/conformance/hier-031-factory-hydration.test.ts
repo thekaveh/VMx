@@ -98,12 +98,13 @@ describe("HIER-032", () => {
       const messages: unknown[] = [];
       hub.messages.subscribe({ next: (message) => messages.push(message) });
       const child = new Node("child", undefined, hub);
-      let firstAttempt = true;
+      void child.path;
+      let attempts = 0;
       const root = new Node(
         "root",
         (parent) => {
-          if (firstAttempt) {
-            firstAttempt = false;
+          attempts += 1;
+          if (attempts === 1) {
             if (operation === "add") parent.addChild(child);
             else if (operation === "remove") parent.removeChild(child);
             else if (operation === "reparent") parent.reparentChild(child);
@@ -124,8 +125,13 @@ describe("HIER-032", () => {
       );
 
       expect(() => root.children).toThrow(/factory/i);
+      expect(child.parent).toBeNull();
+      expect(child.path).toEqual([child]);
+      expect(attempts).toBe(1);
+      expect(messages).toEqual([]);
       expect(root.children).toEqual([child]);
       expect(child.parent).toBe(root);
+      expect(attempts).toBe(2);
       expect(messages).toEqual([]);
     },
   );

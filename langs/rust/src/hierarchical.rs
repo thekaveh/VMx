@@ -802,11 +802,18 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
     }
 
     fn reject_structural_reentry(&self) -> VmxResult<()> {
+        let current = thread::current().id();
         let mut state = lock(&self.inner.materializing_children.0);
-        if state.owner.is_some() {
-            state.reentered_epoch = state.epoch;
+        if let Some(owner) = state.owner {
+            if owner == current {
+                state.reentered_epoch = state.epoch;
+                return Err(VmxError::InvalidArgument(
+                    "children factory re-entered a structural operation on its receiver"
+                        .to_string(),
+                ));
+            }
             return Err(VmxError::InvalidArgument(
-                "children factory re-entered a structural operation on its receiver".to_string(),
+                "structural operation overlaps active children materialization".to_string(),
             ));
         }
         Ok(())

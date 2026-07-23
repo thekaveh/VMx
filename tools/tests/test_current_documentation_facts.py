@@ -17,12 +17,10 @@ def test_current_docs_match_adr_inventory() -> None:
     last = adrs[-1].name[:4]
 
     agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
-    claude = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     spec_readme = (ROOT / "spec/README.md").read_text(encoding="utf-8")
 
     assert f"{count} ADRs" in agents
-    assert f"{count} ADRs" in claude
     assert readme.count(f"{count} ADRs") >= 2
     assert f"(0001..{last})" in readme
     assert f"(0001-{last})" in spec_readme

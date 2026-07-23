@@ -250,12 +250,12 @@ def check_changelog_sections(repo_root: Path, manifests: dict[str, dict[str, str
 def check_release_unreleased(changelog: Path, package: str = "") -> list[str]:
     """Reject substantive notes left outside the immutable tagged section."""
     lines = changelog.read_text(encoding="utf-8").splitlines()
-    start = next(
-        (index for index, line in enumerate(lines) if line.strip() == "## [Unreleased]"),
-        None,
-    )
-    if start is None:
+    starts = [index for index, line in enumerate(lines) if line.strip() == "## [Unreleased]"]
+    if not starts:
         return [f"  {changelog}: missing [Unreleased] section"]
+    if len(starts) != 1:
+        return [f"  {changelog}: expected exactly one [Unreleased] section"]
+    start = starts[0]
     body = lines[start + 1 :]
     end = next(
         (index for index, line in enumerate(body) if line.startswith("## [")),
@@ -297,12 +297,12 @@ CSHARP_UNRELEASED_PACKAGES = (
 def check_csharp_unreleased_structure(changelog: Path) -> list[str]:
     """Require a fail-closed package partition for independent C# releases."""
     lines = changelog.read_text(encoding="utf-8").splitlines()
-    start = next(
-        (index for index, line in enumerate(lines) if line.strip() == "## [Unreleased]"),
-        None,
-    )
-    if start is None:
+    starts = [index for index, line in enumerate(lines) if line.strip() == "## [Unreleased]"]
+    if not starts:
         return [f"  {changelog}: missing [Unreleased] section"]
+    if len(starts) != 1:
+        return [f"  {changelog}: expected exactly one [Unreleased] section"]
+    start = starts[0]
     body = lines[start + 1 :]
     end = next(
         (index for index, line in enumerate(body) if line.startswith("## [")),
