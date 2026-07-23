@@ -69,11 +69,12 @@ jobs:
           GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
           GIT_COMMITTER_NAME: github-actions[bot]
           GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          WIKI_TOKEN: ${{ github.token }}
         run: |
           if [ -s "$WIKI_DEPLOY_KEY" ]; then
             python -m scripts.docs.push_wiki --push
           else
-            WIKI_REMOTE="https://x-access-token:${{ github.token }}@github.com/thekaveh/VMx.wiki.git" \
+            WIKI_REMOTE="https://github.com/thekaveh/VMx.wiki.git" \
               python -m scripts.docs.push_wiki --push
           fi
       - name: Verify published wiki

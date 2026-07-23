@@ -151,6 +151,10 @@ fn multiple_subscribers_each_observe_every_message() {
 fn hub_matches_message_ordering_fixture() {
     let fixture: MessageFixture =
         serde_json::from_str(include_str!("../../src/fixtures/message-ordering.json")).unwrap();
+    assert!(
+        !fixture.scenarios.is_empty(),
+        "message-ordering fixture must contain at least one scenario"
+    );
     for scenario in fixture.scenarios {
         match scenario.id.as_str() {
             "single-producer-fifo" | "late-subscribe-no-replay" => {

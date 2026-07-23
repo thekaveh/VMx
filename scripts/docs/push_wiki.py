@@ -22,6 +22,10 @@ def _env_with_identity() -> dict[str, str]:
         env["GIT_SSH_COMMAND"] = (
             f"ssh -i {key_path} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
         )
+    token = env.get("WIKI_TOKEN")
+    if token:
+        env["GIT_TERMINAL_PROMPT"] = "0"
+        env["GIT_ASKPASS"] = str(Path(__file__).with_name("wiki_askpass.py"))
     return env
 
 

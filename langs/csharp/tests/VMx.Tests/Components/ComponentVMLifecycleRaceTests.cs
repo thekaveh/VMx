@@ -33,6 +33,41 @@ public class ComponentVMLifecycleRaceTests
         return (vm, hub, dispatcher);
     }
 
+    [Fact]
+    public async Task Opposing_Active_Lifecycle_Hooks_Cross_Dispose_Without_Deadlock()
+    {
+        using var barrier = new Barrier(2);
+        ComponentVM<string>? first = null;
+        ComponentVM<string>? second = null;
+        first = ComponentVM<string>.Builder()
+            .Name("first")
+            .Services(NullMessageHub.Instance, NullDispatcher.Instance)
+            .Model("first")
+            .OnConstruct(() =>
+            {
+                barrier.SignalAndWait(TimeSpan.FromSeconds(2));
+                second!.Dispose();
+            })
+            .Build();
+        second = ComponentVM<string>.Builder()
+            .Name("second")
+            .Services(NullMessageHub.Instance, NullDispatcher.Instance)
+            .Model("second")
+            .OnConstruct(() =>
+            {
+                barrier.SignalAndWait(TimeSpan.FromSeconds(2));
+                first.Dispose();
+            })
+            .Build();
+
+        var transitions = Task.WhenAll(Task.Run(first.Construct), Task.Run(second.Construct));
+        (await Task.WhenAny(transitions, Task.Delay(TimeSpan.FromSeconds(3))))
+            .Should().BeSameAs(transitions, "cross-disposal from admitted hooks must not deadlock");
+        await transitions;
+        first.Status.Should().Be(ConstructionStatus.Disposed);
+        second.Status.Should().Be(ConstructionStatus.Disposed);
+    }
+
     [Theory]
     [InlineData(ConstructionStatus.Constructing)]
     [InlineData(ConstructionStatus.Destructing)]

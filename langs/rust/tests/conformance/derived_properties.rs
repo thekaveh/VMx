@@ -195,6 +195,10 @@ fn all_fixture_scenarios_match_expected_values() {
     let fixture: DerivedPropertyFixture =
         serde_json::from_str(include_str!("../../src/fixtures/derived-properties.json"))
             .expect("derived-property fixture must be valid JSON");
+    assert!(
+        !fixture.scenarios.is_empty(),
+        "derived-property fixture must contain at least one scenario"
+    );
 
     for scenario in fixture.scenarios {
         assert_eq!(

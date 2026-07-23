@@ -332,6 +332,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     {
         internal int OwnerThreadId { get; } = Environment.CurrentManagedThreadId;
         internal ManualResetEventSlim Completed { get; } = new(false);
+        internal Action? DeferredDisposal { get; set; }
     }
 
     private readonly Queue<LifecycleDelivery> _lifecycleDeliveries = [];
@@ -1124,56 +1125,82 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             delivery = waiterDelivery ?? statusDelivery;
         }
         DrainAndThrow(delivery!, shouldDrain);
+        void FinishDisposal()
+        {
+            // Subclass cleanup hook, matching Python `_on_dispose` (base.py) and
+            // TS `_onDispose` (componentVMBase.ts). Runs immediately after the
+            // status reaches Disposed and *before* the status trigger is
+            // completed, so a subclass override can still publish a final
+            // status value or touch hub-published subjects during cleanup.
+            CaptureDisposalFailure(ref firstError, OnDispose);
+            CaptureDisposalFailure(ref firstError, DisposeOwnedResources);
+
+            // Admit trigger teardown under _gate, then invoke Subject observers in
+            // lifecycle-delivery order outside it. The terminal OnNext admitted
+            // above therefore always precedes OnCompleted, including re-entrant
+            // disposal while another lifecycle notification is being drained.
+            lock (_gate)
+            {
+                if (!_triggerDisposed)
+                {
+                    _triggerDisposed = true;
+                    delivery = QueueLifecycleDeliveryLocked(() =>
+                    {
+                        CaptureDisposalFailure(ref firstError, _statusTrigger.OnCompleted);
+                        CaptureDisposalFailure(ref firstError, _statusTrigger.Dispose);
+                    }, out shouldDrain);
+                }
+                else
+                {
+                    shouldDrain = false;
+                    delivery = null;
+                }
+            }
+            if (delivery is not null)
+                DrainAndThrow(delivery, shouldDrain);
+
+            foreach (var command in new IDisposable?[]
+                     {
+                         _selectCommand as IDisposable,
+                         _deselectCommand as IDisposable,
+                         _selectNextCommand as IDisposable,
+                         _selectPreviousCommand as IDisposable,
+                         _reconstructCommand as IDisposable,
+                     })
+            {
+                if (command is not null)
+                    CaptureDisposalFailure(ref firstError, command.Dispose);
+            }
+
+            firstError?.Throw();
+        }
+
         if (hookLease is not null &&
             hookLease.OwnerThreadId != Environment.CurrentManagedThreadId)
-            hookLease.Completed.Wait();
-
-        // Subclass cleanup hook, matching Python `_on_dispose` (base.py) and
-        // TS `_onDispose` (componentVMBase.ts). Runs immediately after the
-        // status reaches Disposed and *before* the status trigger is
-        // completed, so a subclass override can still publish a final
-        // status value or touch hub-published subjects during cleanup.
-        CaptureDisposalFailure(ref firstError, OnDispose);
-        CaptureDisposalFailure(ref firstError, DisposeOwnedResources);
-
-        // Admit trigger teardown under _gate, then invoke Subject observers in
-        // lifecycle-delivery order outside it. The terminal OnNext admitted
-        // above therefore always precedes OnCompleted, including re-entrant
-        // disposal while another lifecycle notification is being drained.
-        lock (_gate)
         {
-            if (!_triggerDisposed)
+            var caller = Environment.CurrentManagedThreadId;
+            if (RegisterLifecycleWait(caller, hookLease.OwnerThreadId))
             {
-                _triggerDisposed = true;
-                delivery = QueueLifecycleDeliveryLocked(() =>
+                lock (_gate)
                 {
-                    CaptureDisposalFailure(ref firstError, _statusTrigger.OnCompleted);
-                    CaptureDisposalFailure(ref firstError, _statusTrigger.Dispose);
-                }, out shouldDrain);
+                    if (ReferenceEquals(_activeHookLease, hookLease))
+                    {
+                        hookLease.DeferredDisposal = FinishDisposal;
+                        return;
+                    }
+                }
             }
             else
             {
-                shouldDrain = false;
-                delivery = null;
+                try { hookLease.Completed.Wait(); }
+                finally
+                {
+                    lock (s_lifecycleWaitGraphGate)
+                        s_lifecycleWaitGraph.Remove(caller);
+                }
             }
         }
-        if (delivery is not null)
-            DrainAndThrow(delivery, shouldDrain);
-
-        foreach (var command in new IDisposable?[]
-                 {
-                     _selectCommand as IDisposable,
-                     _deselectCommand as IDisposable,
-                     _selectNextCommand as IDisposable,
-                     _selectPreviousCommand as IDisposable,
-                     _reconstructCommand as IDisposable,
-                 })
-        {
-            if (command is not null)
-                CaptureDisposalFailure(ref firstError, command.Dispose);
-        }
-
-        firstError?.Throw();
+        FinishDisposal();
     }
 
     private static void CaptureDisposalFailure(
@@ -1236,12 +1263,16 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
 
     private void FinishLifecycleHook(LifecycleHookLease lease)
     {
+        Action? deferredDisposal;
         lock (_gate)
         {
             if (ReferenceEquals(_activeHookLease, lease))
                 _activeHookLease = null;
+            deferredDisposal = lease.DeferredDisposal;
+            lease.DeferredDisposal = null;
         }
         lease.Completed.Set();
+        deferredDisposal?.Invoke();
     }
 
     private void ClearInFlight()

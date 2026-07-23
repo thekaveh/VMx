@@ -36,6 +36,14 @@ def test_wiki_workflow_does_not_reference_secrets_in_conditions() -> None:
     assert "WIKI_DEPLOY_KEY_VALUE: ${{ secrets.WIKI_DEPLOY_KEY }}" in workflow
 
 
+def test_wiki_workflow_keeps_token_expressions_out_of_shell_bodies() -> None:
+    workflow = _WORKFLOW.read_text(encoding="utf-8")
+
+    assert "WIKI_TOKEN: ${{ github.token }}" in workflow
+    assert "x-access-token:${{ github.token }}" not in workflow
+    assert 'WIKI_REMOTE="https://github.com/thekaveh/VMx.wiki.git"' in workflow
+
+
 def test_wiki_workflow_changes_trigger_tool_tests() -> None:
     workflow = _CONFORMANCE_WORKFLOW.read_text(encoding="utf-8")
 

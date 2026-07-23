@@ -424,6 +424,10 @@ fn destruct_from_destructed_is_noop() {
 fn lifecycle_transition_fixture_contains_required_transitions() {
     let fixture: LifecycleFixture =
         serde_json::from_str(vmx::lifecycle_transition_fixture()).unwrap();
+    assert!(
+        !fixture.transitions.is_empty(),
+        "lifecycle fixture must contain at least one transition"
+    );
     for row in fixture.transitions {
         let hub = MessageHub::new();
         let vm = ComponentVm::with_services("fixture", hub.clone(), NullDispatcher::new());

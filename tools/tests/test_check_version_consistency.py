@@ -212,8 +212,18 @@ def test_current_development_tags_are_namespace_aware() -> None:
     ("spec_version", "manifests", "rows", "source"),
     [
         ("not-semver", {}, [], "spec/VERSION"),
+        ("01.2.3", {}, [], "spec/VERSION"),
+        ("1.02.3", {}, [], "spec/VERSION"),
+        ("1.2.03", {}, [], "spec/VERSION"),
+        ("\u0661.\u0662.\u0663", {}, [], "spec/VERSION"),
         ("3.22.0", {"typescript": {"version": "next"}}, [], "typescript version"),
         ("3.22.0", {"typescript": {"version": ""}}, [], "typescript version"),
+        (
+            "3.22.0",
+            {"typescript": {"version": "3.22.0", "min_spec_version": ""}},
+            [],
+            "typescript min-spec version",
+        ),
         (
             "3.22.0",
             {"python": {"version": "3.22.0", "min_spec_version": "current"}},
@@ -435,11 +445,11 @@ def test_parse_matrix_basic(tmp_path: Path) -> None:
 
             ## 1. Matrix
 
-            | spec  | csharp | python | typescript | swift          |
-            | ----- | ------ | ------ | ---------- | -------------- |
-            | 2.6.x | 2.6.0  | 2.6.1  | 2.6.0      | 2.6.0 (subset) |
-            | 2.5.x | 2.5.0  | 2.5.0  | 2.5.0      | 2.5.0 (subset) |
-            | 2.0.x | 2.0.0  | 2.0.0  | 2.0.0      | —              |
+            | spec  | csharp | python | typescript | swift          | rust |
+            | ----- | ------ | ------ | ---------- | -------------- | ---- |
+            | 2.6.x | 2.6.0  | 2.6.1  | 2.6.0      | 2.6.0 (subset) | —    |
+            | 2.5.x | 2.5.0  | 2.5.0  | 2.5.0      | 2.5.0 (subset) | —    |
+            | 2.0.x | 2.0.0  | 2.0.0  | 2.0.0      | —              | —    |
         """),
         encoding="utf-8",
     )
@@ -490,9 +500,9 @@ def test_parse_matrix_handles_version_range(tmp_path: Path) -> None:
     matrix = tmp_path / "compatibility-matrix.md"
     matrix.write_text(
         textwrap.dedent(f"""\
-            | spec  | csharp             | python             | typescript         | swift |
-            | ----- | ------------------ | ------------------ | ------------------ | ----- |
-            | 1.1.x | 1.1.0 {en} 1.2.0  | 1.1.0 {en} 1.2.0  | 1.1.0 {en} 1.2.0  | —     |
+            | spec  | csharp             | python             | typescript         | swift | rust |
+            | ----- | ------------------ | ------------------ | ------------------ | ----- | ---- |
+            | 1.1.x | 1.1.0 {en} 1.2.0  | 1.1.0 {en} 1.2.0  | 1.1.0 {en} 1.2.0  | —     | —    |
         """),
         encoding="utf-8",
     )
@@ -519,6 +529,13 @@ def test_parse_matrix_handles_version_range(tmp_path: Path) -> None:
         "| spec | csharp | python | typescript | swift | rust |\n"
         "| --- | --- | --- | --- | --- | --- |\n"
         "| 3.22.x | 3.22.0-beta | — | — | — | — |\n",
+        "| spec | csharp | python | typescript | swift |\n"
+        "| --- | --- | --- | --- | --- |\n"
+        "| 3.22.x | 3.22.0 | — | — | — |\n",
+        "| spec | csharp | python | typescript | swift | rust |\n"
+        "| --- | --- | --- | --- | --- | --- |\n"
+        "| 3.22.x | 3.22.0 | — | — | — | — |\n"
+        "| 3.22.x | 3.22.1 | — | — | — | — |\n",
     ],
 )
 def test_parse_matrix_rejects_missing_or_malformed_claims(tmp_path: Path, content: str) -> None:
@@ -558,9 +575,9 @@ def test_parse_matrix_dash_cell(tmp_path: Path) -> None:
     matrix = tmp_path / "compatibility-matrix.md"
     matrix.write_text(
         textwrap.dedent("""\
-            | spec  | csharp | python | typescript | swift |
-            | ----- | ------ | ------ | ---------- | ----- |
-            | 1.0.x | 1.0.0  | 1.0.0  | —          | —     |
+            | spec  | csharp | python | typescript | swift | rust |
+            | ----- | ------ | ------ | ---------- | ----- | ---- |
+            | 1.0.x | 1.0.0  | 1.0.0  | —          | —     | —    |
         """),
         encoding="utf-8",
     )
@@ -789,10 +806,10 @@ def _make_repo(tmp_path: Path) -> None:
 
             ## 1. Matrix
 
-            | spec  | csharp | python | typescript | swift |
-            | ----- | ------ | ------ | ---------- | ----- |
-            | 2.6.x | 2.6.0  | 2.6.0  | 2.6.0      | 2.6.0 |
-            | 2.5.x | 2.5.0  | 2.5.0  | 2.5.0      | 2.5.0 |
+            | spec  | csharp | python | typescript | swift | rust |
+            | ----- | ------ | ------ | ---------- | ----- | ---- |
+            | 2.6.x | 2.6.0  | 2.6.0  | 2.6.0      | 2.6.0 | —    |
+            | 2.5.x | 2.5.0  | 2.5.0  | 2.5.0      | 2.5.0 | —    |
         """),
         encoding="utf-8",
     )
@@ -947,11 +964,11 @@ def test_main_tolerates_missing_1x_tags(tmp_path: Path, monkeypatch: object) -> 
 
             ## 1. Matrix
 
-            | spec  | csharp | python | typescript | swift |
-            | ----- | ------ | ------ | ---------- | ----- |
-            | 2.6.x | 2.6.0  | 2.6.0  | 2.6.0      | 2.6.0 |
-            | 1.1.x | 1.1.0  | 1.1.0  | 1.1.0      | —     |
-            | 1.0.x | 1.0.0  | 1.0.0  | —          | —     |
+            | spec  | csharp | python | typescript | swift | rust |
+            | ----- | ------ | ------ | ---------- | ----- | ---- |
+            | 2.6.x | 2.6.0  | 2.6.0  | 2.6.0      | 2.6.0 | —    |
+            | 1.1.x | 1.1.0  | 1.1.0  | 1.1.0      | —     | —    |
+            | 1.0.x | 1.0.0  | 1.0.0  | —          | —     | —    |
         """),
         encoding="utf-8",
     )
@@ -1048,10 +1065,10 @@ def _make_repo_v3(tmp_path: Path) -> None:
 
             ## 1. Matrix
 
-            | spec  | csharp | python | typescript | swift          |
-            | ----- | ------ | ------ | ---------- | -------------- |
-            | 3.0.x | 3.0.0  | 3.0.0  | 3.0.0      | 3.0.0 (subset) |
-            | 2.6.x | 2.6.0  | 2.6.0  | 2.6.0      | 2.6.0          |
+            | spec  | csharp | python | typescript | swift          | rust |
+            | ----- | ------ | ------ | ---------- | -------------- | ---- |
+            | 3.0.x | 3.0.0  | 3.0.0  | 3.0.0      | 3.0.0 (subset) | —    |
+            | 2.6.x | 2.6.0  | 2.6.0  | 2.6.0      | 2.6.0          | —    |
         """),
         encoding="utf-8",
     )

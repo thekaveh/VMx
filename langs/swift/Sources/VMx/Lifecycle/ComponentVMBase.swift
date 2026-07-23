@@ -1210,7 +1210,22 @@ open class ComponentVMBase {
                 }
                 lifecycleLock.unlock()
             } else {
-                lease.completed.wait()
+                let caller = Self.currentThreadID
+                if LifecycleWaitCoordinator.shared.beginWait(
+                    caller: caller,
+                    owner: lease.threadID
+                ) {
+                    defer { LifecycleWaitCoordinator.shared.endWait(caller: caller) }
+                    lease.completed.wait()
+                } else {
+                    lifecycleLock.lock()
+                    if activeHookLease === lease {
+                        disposalCleanupPendingForHook = true
+                        lifecycleLock.unlock()
+                        return
+                    }
+                    lifecycleLock.unlock()
+                }
             }
         }
         _finishDisposalNow()

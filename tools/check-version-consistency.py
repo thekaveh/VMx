@@ -73,12 +73,19 @@ CSHARP_TAG_PREFIXES: dict[str, str] = {
 
 # ─── regexes ──────────────────────────────────────────────────────────
 
-# Matches a semver triple like 2.6.0 or 1.12.3.
-_VERSION_RE = re.compile(r"\b(\d+\.\d+\.\d+)\b")
-_STABLE_SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")
+# Matches a canonical stable SemVer triple like 2.6.0 or 1.12.3.  ASCII-only
+# components and the no-leading-zero rule keep visually similar or ambiguous
+# claims out of release metadata.
+_SEMVER_COMPONENT = r"(?:0|[1-9][0-9]*)"
+_SEMVER_TRIPLE = rf"{_SEMVER_COMPONENT}\.{_SEMVER_COMPONENT}\.{_SEMVER_COMPONENT}"
+_VERSION_RE = re.compile(rf"\b({_SEMVER_TRIPLE})\b", re.ASCII)
+_STABLE_SEMVER_RE = re.compile(rf"^{_SEMVER_TRIPLE}$", re.ASCII)
 
 # Matches the spec column of a matrix row like "2.6.x" or "1.1.x".
-_SPEC_ROW_RE = re.compile(r"^(\d+\.\d+)\.x$")
+_SPEC_ROW_RE = re.compile(
+    rf"^({_SEMVER_COMPONENT}\.{_SEMVER_COMPONENT})\.x$",
+    re.ASCII,
+)
 
 
 # ─── helpers ──────────────────────────────────────────────────────────
@@ -91,7 +98,7 @@ def _tag_major(tag: str) -> int:
     Returns the minimum enforced major for tags whose version cannot be parsed,
     so unknown tag shapes fail closed.
     """
-    m = re.search(r"[vV](\d+)\.\d+\.\d+", tag)
+    m = re.search(rf"[vV]({_SEMVER_COMPONENT})\.{_SEMVER_COMPONENT}\.{_SEMVER_COMPONENT}", tag)
     return int(m.group(1)) if m else MIN_ENFORCED_MAJOR
 
 
@@ -116,7 +123,7 @@ def _tag_version(tag: str) -> str:
     Used to identify tags for the current (in-development) version, which is
     exempt from the tag requirement until it is tagged at release.
     """
-    m = re.search(r"[vV](\d+\.\d+\.\d+)", tag)
+    m = re.search(rf"[vV]({_SEMVER_TRIPLE})", tag)
     return m.group(1) if m else ""
 
 
@@ -358,21 +365,38 @@ def parse_matrix(matrix_path: Path) -> list[dict[str, object]]:
     header_idx, header_cells = header_candidates[0]
     if len(header_cells) != len(set(header_cells)):
         raise ValueError("compatibility matrix header contains duplicate columns")
+    required_columns = {"spec", *FLAVORS}
+    if set(header_cells) != required_columns:
+        missing = sorted(required_columns - set(header_cells))
+        extra = sorted(set(header_cells) - required_columns)
+        raise ValueError(f"compatibility matrix header mismatch: missing={missing}, extra={extra}")
+
+    if header_idx + 1 >= len(lines):
+        raise ValueError("compatibility matrix table has no separator row")
+    separator_cells = [cell.strip() for cell in lines[header_idx + 1].strip().strip("|").split("|")]
+    if len(separator_cells) != len(header_cells) or any(
+        re.fullmatch(r":?-{3,}:?", cell) is None for cell in separator_cells
+    ):
+        raise ValueError("compatibility matrix table has an invalid separator row")
 
     rows: list[dict[str, object]] = []
+    seen_spec_rows: set[str] = set()
     # Skip the header (+0) and separator (+1); data starts at +2.
     for line in lines[header_idx + 2 :]:
         stripped = line.strip()
         if not stripped.startswith("|"):
             break
         cells = [c.strip() for c in stripped.strip("|").split("|")]
-        if len(cells) < 5:
-            raise ValueError(f"compatibility matrix row is incomplete: {stripped!r}")
+        if len(cells) != len(header_cells):
+            raise ValueError(f"compatibility matrix row has the wrong column count: {stripped!r}")
         spec_cell = cells[0].strip()
         legacy_semantic_tag_only = "[^legacy-semantic-tag-only]" in spec_cell
         spec_row = re.sub(r"<!--.*?-->|\[\^[^]]+\]", "", spec_cell).strip()
         if not _SPEC_ROW_RE.fullmatch(spec_row):
             raise ValueError(f"compatibility matrix spec claim {spec_cell!r} is not exact X.Y.x")
+        if spec_row in seen_spec_rows:
+            raise ValueError(f"compatibility matrix spec row {spec_row!r} is duplicated")
+        seen_spec_rows.add(spec_row)
 
         row: dict[str, object] = {"spec_row": spec_row}
         if legacy_semantic_tag_only:
@@ -598,8 +622,7 @@ def validate_semver_values(
         version = info.get("version", "")
         check(f"{flavor} version", version)
         min_spec = info.get("min_spec_version", "")
-        if min_spec:
-            check(f"{flavor} min-spec version", min_spec)
+        check(f"{flavor} min-spec version", min_spec)
 
     for row in matrix_rows:
         spec_row = str(row.get("spec_row", ""))

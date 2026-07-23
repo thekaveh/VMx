@@ -108,6 +108,10 @@ fn relay_command_without_task_is_noop() {
 fn relay_command_matches_truth_table_fixture() {
     let fixture: CommandFixture =
         serde_json::from_str(include_str!("../../src/fixtures/command-truthtable.json")).unwrap();
+    assert!(
+        !fixture.cases.is_empty(),
+        "command truth-table fixture must contain at least one case"
+    );
     for case in fixture.cases {
         assert!(
             case.task.as_deref().is_none_or(|task| task == "noop"),
