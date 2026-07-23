@@ -89,8 +89,9 @@ _SEMVER_TRIPLE = rf"{_SEMVER_COMPONENT}\.{_SEMVER_COMPONENT}\.{_SEMVER_COMPONENT
 _VERSION_RE = re.compile(rf"\b({_SEMVER_TRIPLE})\b", re.ASCII)
 _STABLE_SEMVER_RE = re.compile(rf"^{_SEMVER_TRIPLE}$", re.ASCII)
 _CHANGELOG_HEADING_RE = re.compile(r"^## \[([^\]]+)\](?:\([^)]*\))?(?:\s+.*)?$")
-_CHANGELOG_ATX_H2_RE = re.compile(r"^ {0,3}##(?!#)[ \t]+(.*)$")
+_CHANGELOG_ATX_H2_RE = re.compile(r"^ {0,3}##(?!#)(?:[ \t]+(.*))?$")
 _CHANGELOG_SETEXT_H2_RE = re.compile(r"^ {0,3}-+[ \t]*$")
+_MARKDOWN_FENCE_RE = re.compile(r"^ {0,3}(`{3,}|~{3,})(.*)$")
 _MARKDOWN_BACKSLASH_ESCAPE_RE = re.compile(r"""\\([!"#$%&'()*+,\-./:;<=>?@\[\]\\^_`{|}~])""")
 
 # Matches the spec column of a matrix row like "2.6.x" or "1.1.x".
@@ -234,22 +235,28 @@ def _parse_changelog_sections(
     starts: list[tuple[str, int]] = []
     seen: set[str] = set()
     issues: list[str] = []
+    fence: tuple[str, int] | None = None
     for index, line in enumerate(lines):
+        if fence is not None:
+            marker, minimum = fence
+            if re.fullmatch(rf" {{0,3}}{re.escape(marker)}{{{minimum},}}[ \t]*", line):
+                fence = None
+            continue
+        fence_match = _MARKDOWN_FENCE_RE.fullmatch(line)
+        if fence_match and not (
+            fence_match.group(1).startswith("`") and "`" in fence_match.group(2)
+        ):
+            fence = (fence_match.group(1)[0], len(fence_match.group(1)))
+            continue
         heading_line = line.lstrip(" ")
         indent = len(line) - len(heading_line)
         atx_h2 = _CHANGELOG_ATX_H2_RE.fullmatch(line)
-        visible_atx_text = _normalize_markdown_inline(atx_h2.group(1)) if atx_h2 else ""
-        if (
-            visible_atx_text.startswith("[")
-            and "]" in visible_atx_text
-            and not heading_line.startswith("## [")
-        ):
+        if atx_h2 and not heading_line.startswith("## ["):
             issues.append(f"  {changelog}: noncanonical bracketed CHANGELOG H2 {line!r}")
             continue
         if (
             indent <= 3
-            and _normalize_markdown_inline(heading_line).startswith("[")
-            and "]" in _normalize_markdown_inline(heading_line)
+            and heading_line.strip()
             and index + 1 < len(lines)
             and _CHANGELOG_SETEXT_H2_RE.fullmatch(lines[index + 1])
         ):

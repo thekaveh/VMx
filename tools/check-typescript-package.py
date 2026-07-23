@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 
 ENTRIES = ("index", "notifications", "conformance")
+EXPECTED_PACKAGE_NAME = "@thekaveh/vmx"
 FIXTURES = (
     "command-truthtable.json",
     "derived-properties.json",
@@ -65,6 +66,13 @@ def validate_paths(paths: set[str]) -> list[str]:
     return errors
 
 
+def validate_name(name: str) -> list[str]:
+    """Require the publish target encoded in the packed npm metadata."""
+    if name != EXPECTED_PACKAGE_NAME:
+        return [f"package name {name!r} != expected {EXPECTED_PACKAGE_NAME!r}"]
+    return []
+
+
 def json_array(output: str) -> list[object]:
     """Return the trailing JSON array after any npm lifecycle output."""
     for index in range(len(output) - 1, -1, -1):
@@ -79,8 +87,8 @@ def json_array(output: str) -> list[object]:
     raise ValueError("npm command did not emit a valid JSON array")
 
 
-def package_paths(package_dir: Path) -> set[str]:
-    """Run npm's real dry-run pack and return the included file paths."""
+def package_contents(package_dir: Path) -> tuple[str, set[str]]:
+    """Run npm's real dry-run pack and return its identity and file paths."""
     result = subprocess.run(
         ["npm", "pack", "--dry-run", "--json"],
         cwd=package_dir,
@@ -95,6 +103,9 @@ def package_paths(package_dir: Path) -> set[str]:
     package = payload[0]
     if not isinstance(package, dict) or not isinstance(package.get("files"), list):
         raise ValueError("npm pack JSON has no files array")
+    name = package.get("name")
+    if not isinstance(name, str):
+        raise ValueError("npm pack JSON has no package name")
     paths = {
         item["path"]
         for item in package["files"]
@@ -102,7 +113,7 @@ def package_paths(package_dir: Path) -> set[str]:
     }
     if len(paths) != len(package["files"]):
         raise ValueError("npm pack files contain invalid or duplicate paths")
-    return paths
+    return name, paths
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -115,8 +126,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        paths = package_paths(args.package_dir.resolve())
-        errors = validate_paths(paths)
+        name, paths = package_contents(args.package_dir.resolve())
+        errors = validate_name(name) + validate_paths(paths)
     except (
         OSError,
         ValueError,
@@ -134,7 +145,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"ERROR: {error}", file=sys.stderr)
         return 1
 
-    print(f"OK: TypeScript npm package contains {len(paths)} allowlisted files")
+    print(f"OK: TypeScript npm package {name} contains {len(paths)} allowlisted files")
     return 0
 
 

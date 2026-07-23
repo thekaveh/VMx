@@ -13,6 +13,13 @@ use super::{
 type HierChildrenFactory<M> =
     Arc<dyn Fn(&HierarchicalVm<M>) -> Vec<HierarchicalVm<M>> + Send + Sync>;
 
+#[cfg(test)]
+type MaterializationValidationHook = Box<dyn Fn() + Send + 'static>;
+
+#[cfg(test)]
+static MATERIALIZATION_VALIDATION_HOOK: Mutex<Option<MaterializationValidationHook>> =
+    Mutex::new(None);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// Controls how batch attachment handles items whose parent key is unavailable.
 pub enum MissingParentPolicy {
@@ -678,6 +685,10 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
         let mut owner_released = false;
         let committed = (|| -> VmxResult<Vec<Self>> {
             let _topology = lock(&HIERARCHY_TOPOLOGY_GATE);
+            #[cfg(test)]
+            if let Some(hook) = lock(&MATERIALIZATION_VALIDATION_HOOK).as_ref() {
+                hook();
+            }
             let mut seen = HashSet::new();
             for child in &children {
                 if !seen.insert(child.id()) {
@@ -1047,4 +1058,96 @@ pub fn walk_expanded<T: TreeNode>(root: &T) -> Vec<T> {
         }
     }
     nodes
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    #[test]
+    fn late_contextual_reentry_is_rejected_at_the_commit_boundary() {
+        let hub = MessageHub::new();
+        let messages = Arc::new(Mutex::new(Vec::<Message>::new()));
+        let captured_messages = Arc::clone(&messages);
+        let _subscription = hub.subscribe(move |message| {
+            captured_messages.lock().unwrap().push(message.clone());
+        });
+        let retry_child = HierarchicalVm::new("retry-child", "retry-child".to_string());
+        let captured_retry_child = retry_child.clone();
+        let late_child = HierarchicalVm::new("late-child", "late-child".to_string());
+        let captured_late_child = late_child.clone();
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let captured_attempts = Arc::clone(&attempts);
+        let (release_worker_tx, release_worker_rx) = mpsc::channel();
+        let release_worker_rx = Arc::new(Mutex::new(release_worker_rx));
+        let captured_release_worker = Arc::clone(&release_worker_rx);
+        let (worker_result_tx, worker_result_rx) = mpsc::channel();
+        let root = HierarchicalVm::with_children_factory(
+            "root",
+            "root".to_string(),
+            move |parent| {
+                if captured_attempts.fetch_add(1, Ordering::SeqCst) == 0 {
+                    let delegated_parent: HierarchicalVm<String> = (*parent).clone();
+                    let delegated_child = captured_late_child.clone();
+                    let worker_release = Arc::clone(&captured_release_worker);
+                    let result_tx = worker_result_tx.clone();
+                    std::thread::spawn(move || {
+                        worker_release.lock().unwrap().recv().unwrap();
+                        result_tx
+                            .send(delegated_parent.add_child(delegated_child))
+                            .unwrap();
+                    });
+                    vec![HierarchicalVm::new(
+                        "first-attempt",
+                        "first-attempt".to_string(),
+                    )]
+                } else {
+                    vec![captured_retry_child.clone()]
+                }
+            },
+            false,
+            hub,
+        );
+
+        let (at_boundary_tx, at_boundary_rx) = mpsc::channel();
+        let (resume_tx, resume_rx) = mpsc::channel();
+        let resume_rx = Arc::new(Mutex::new(resume_rx));
+        let captured_resume = Arc::clone(&resume_rx);
+        *lock(&MATERIALIZATION_VALIDATION_HOOK) = Some(Box::new(move || {
+            at_boundary_tx.send(()).unwrap();
+            captured_resume.lock().unwrap().recv().unwrap();
+        }));
+
+        let (hydration_tx, hydration_rx) = mpsc::channel();
+        let first_root = root.clone();
+        std::thread::spawn(move || {
+            hydration_tx.send(first_root.try_children()).unwrap();
+        });
+        at_boundary_rx
+            .recv_timeout(Duration::from_millis(500))
+            .unwrap();
+        release_worker_tx.send(()).unwrap();
+        assert!(matches!(
+            worker_result_rx
+                .recv_timeout(Duration::from_millis(500))
+                .unwrap(),
+            Err(VmxError::InvalidArgument(message)) if message.contains("factory re-entered")
+        ));
+        resume_tx.send(()).unwrap();
+        assert!(hydration_rx
+            .recv_timeout(Duration::from_millis(500))
+            .unwrap()
+            .is_err());
+        *lock(&MATERIALIZATION_VALIDATION_HOOK) = None;
+
+        assert!(late_child.parent().is_none());
+        assert!(messages.lock().unwrap().is_empty());
+        assert!(root.try_children().unwrap() == vec![retry_child.clone()]);
+        assert!(retry_child.parent().as_ref() == Some(&root));
+        assert_eq!(attempts.load(Ordering::SeqCst), 2);
+        assert!(messages.lock().unwrap().is_empty());
+    }
 }

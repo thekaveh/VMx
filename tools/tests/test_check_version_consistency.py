@@ -1256,9 +1256,15 @@ def test_release_tag_rejects_indented_duplicate_unreleased_section(
         "##\t[Unreleased]",
         "  ##  [Unreleased]",
         "[Unreleased]\n---",
+        "**[Unreleased]**\n---",
+        "Draft\n---",
         r"## \[Unreleased]",
         "## &#91;Unreleased]",
         "## &#x5B;Unreleased]",
+        "## **[Unreleased]**",
+        "## <span>[Unreleased]</span>",
+        "## Draft",
+        "##",
     ],
 )
 def test_release_tag_rejects_noncanonical_markdown_h2(tmp_path: Path, heading: str) -> None:
@@ -1273,6 +1279,19 @@ def test_release_tag_rejects_noncanonical_markdown_h2(tmp_path: Path, heading: s
     assert cvc.check_release_unreleased(changelog) == [
         f"  {changelog}: noncanonical bracketed CHANGELOG H2 {first_line!r}"
     ]
+
+
+@pytest.mark.parametrize("fence", ["```", "~~~"])
+def test_release_tag_ignores_heading_examples_inside_fences(tmp_path: Path, fence: str) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        "## [Unreleased]\n\n"
+        "## [3.22.1]\n\n- Tagged notes.\n\n"
+        f"{fence}markdown\n## [Unreleased]\n## Draft\nDraft\n---\n{fence}\n",
+        encoding="utf-8",
+    )
+
+    assert cvc.check_release_unreleased(changelog) == []
 
 
 @pytest.mark.parametrize("heading", ["unreleased", " Unreleased ", "Draft"])
@@ -1398,9 +1417,15 @@ def test_csharp_release_gates_reject_malformed_bracketed_keys(tmp_path: Path, he
         "##  [Unreleased]",
         "##\t[Unreleased]",
         "[Unreleased]\n---",
+        "**[Unreleased]**\n---",
+        "Draft\n---",
         r"## \[Unreleased]",
         "## &#91;Unreleased]",
         "## &#x5B;Unreleased]",
+        "## **[Unreleased]**",
+        "## <span>[Unreleased]</span>",
+        "## Draft",
+        "##",
     ],
 )
 def test_csharp_release_gates_reject_noncanonical_markdown_h2(tmp_path: Path, heading: str) -> None:
