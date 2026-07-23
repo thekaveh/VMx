@@ -1249,6 +1249,29 @@ def test_release_tag_rejects_indented_duplicate_unreleased_section(
     ]
 
 
+@pytest.mark.parametrize(
+    "heading",
+    [
+        "##  [Unreleased]",
+        "##\t[Unreleased]",
+        "  ##  [Unreleased]",
+        "[Unreleased]\n---",
+    ],
+)
+def test_release_tag_rejects_noncanonical_markdown_h2(tmp_path: Path, heading: str) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        "## [Unreleased]\n\n## [3.22.1]\n\n- Tagged notes.\n\n"
+        f"{heading}\n\n- Hidden pending note.\n",
+        encoding="utf-8",
+    )
+
+    first_line = heading.splitlines()[0]
+    assert cvc.check_release_unreleased(changelog) == [
+        f"  {changelog}: noncanonical bracketed CHANGELOG H2 {first_line!r}"
+    ]
+
+
 @pytest.mark.parametrize("heading", ["unreleased", " Unreleased ", "Draft"])
 def test_release_tag_rejects_malformed_bracketed_keys(tmp_path: Path, heading: str) -> None:
     changelog = tmp_path / "CHANGELOG.md"
@@ -1364,6 +1387,54 @@ def test_csharp_release_gates_reject_malformed_bracketed_keys(tmp_path: Path, he
     assert cvc.check_csharp_unreleased_structure(changelog) == expected
     for package in cvc.CSHARP_UNRELEASED_PACKAGES:
         assert cvc.check_release_unreleased(changelog, package) == expected
+
+
+@pytest.mark.parametrize(
+    "heading",
+    ["##  [Unreleased]", "##\t[Unreleased]", "[Unreleased]\n---"],
+)
+def test_csharp_release_gates_reject_noncanonical_markdown_h2(tmp_path: Path, heading: str) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        "## [Unreleased]\n\n"
+        "### VMx\n\n"
+        "### VMx.Notifications\n\n"
+        "### VMx.Extensions.DependencyInjection\n\n"
+        "## [3.22.1]\n\n- Tagged notes.\n\n"
+        f"{heading}\n\n- Hidden pending note.\n",
+        encoding="utf-8",
+    )
+
+    first_line = heading.splitlines()[0]
+    expected = [f"  {changelog}: noncanonical bracketed CHANGELOG H2 {first_line!r}"]
+    assert cvc.check_csharp_unreleased_structure(changelog) == expected
+    for package in cvc.CSHARP_UNRELEASED_PACKAGES:
+        assert cvc.check_release_unreleased(changelog, package) == expected
+
+
+@pytest.mark.parametrize("indent", [" ", "  ", "   "])
+def test_csharp_release_gates_reject_indented_duplicate_package_heading(
+    tmp_path: Path, indent: str
+) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        "## [Unreleased]\n\n"
+        "### VMx\n\n"
+        "### VMx.Notifications\n\n"
+        "### VMx.Extensions.DependencyInjection\n\n"
+        f"{indent}### VMx\n\n- Hidden core fix.\n\n"
+        "## [3.22.1]\n\n- Tagged notes.\n",
+        encoding="utf-8",
+    )
+
+    expected = [
+        f"  {changelog}: [Unreleased] C# package sections must appear exactly once "
+        "in VMx, VMx.Notifications, VMx.Extensions.DependencyInjection order"
+    ]
+    assert cvc.check_csharp_unreleased_structure(changelog) == expected
+    assert cvc.check_release_unreleased(changelog, "VMx") == [
+        f"  {changelog}: [Unreleased] expected exactly one VMx package section"
+    ]
 
 
 # ── in-development (== spec/VERSION) exemption ────────────────────────

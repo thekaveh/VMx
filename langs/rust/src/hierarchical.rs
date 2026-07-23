@@ -646,7 +646,9 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
                     drop(topology);
                     break epoch;
                 }
-                Some(active) if active == current => {
+                Some(active)
+                    if active == current || self.materialization_context == Some(state.epoch) =>
+                {
                     state.reentered_epoch = state.epoch;
                     return Err(VmxError::InvalidArgument(
                         "children factory re-entered structural materialization".to_string(),

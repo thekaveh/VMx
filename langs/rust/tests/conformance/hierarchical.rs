@@ -293,6 +293,71 @@ fn borrowed_factory_structural_reentry_is_rejected_and_retryable() {
     assert!(messages.lock().unwrap().is_empty());
 }
 
+/// HIER-032 — delegated recursive reads reject instead of waiting on their factory.
+#[test]
+fn delegated_factory_recursive_read_is_bounded_and_retryable() {
+    for cloned_worker in [false, true] {
+        let hub = MessageHub::new();
+        let messages = Arc::new(Mutex::new(Vec::<Message>::new()));
+        let captured_messages = Arc::clone(&messages);
+        let _subscription = hub.subscribe(move |message| {
+            captured_messages.lock().unwrap().push(message.clone());
+        });
+        let child = leaf("child");
+        let captured_child = child.clone();
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let captured_attempts = Arc::clone(&attempts);
+        let root = HierarchicalVm::with_children_factory(
+            "root",
+            "root".to_string(),
+            move |parent| {
+                if captured_attempts.fetch_add(1, Ordering::SeqCst) == 0 {
+                    let delegated_result = if cloned_worker {
+                        let delegated_parent: HierarchicalVm<String> = (*parent).clone();
+                        std::thread::spawn(move || delegated_parent.try_children())
+                            .join()
+                            .unwrap()
+                    } else {
+                        std::thread::scope(|scope| {
+                            scope.spawn(move || parent.try_children()).join().unwrap()
+                        })
+                    };
+                    assert!(matches!(
+                        delegated_result,
+                        Err(VmxError::InvalidArgument(message))
+                            if message.contains("re-entered")
+                    ));
+                }
+                vec![captured_child.clone()]
+            },
+            false,
+            hub,
+        );
+
+        let (result_tx, result_rx) = mpsc::channel();
+        let first_root = root.clone();
+        std::thread::spawn(move || {
+            result_tx.send(first_root.try_children()).unwrap();
+        });
+        assert!(
+            result_rx
+                .recv_timeout(Duration::from_millis(500))
+                .unwrap()
+                .is_err(),
+            "delegated recursive read must reject outer hydration"
+        );
+        assert!(child.parent().is_none());
+        assert!(child.path() == vec![child.clone()]);
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+        assert!(messages.lock().unwrap().is_empty());
+
+        assert!(root.try_children().unwrap() == vec![child.clone()]);
+        assert!(child.parent().as_ref() == Some(&root));
+        assert_eq!(attempts.load(Ordering::SeqCst), 2);
+        assert!(messages.lock().unwrap().is_empty());
+    }
+}
+
 /// HIER-032 — a rejected owner releases state before a waiting owner starts.
 #[test]
 fn rejected_factory_handoff_cannot_clear_the_successor_state() {

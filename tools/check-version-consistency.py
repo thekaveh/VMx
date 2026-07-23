@@ -88,6 +88,8 @@ _SEMVER_TRIPLE = rf"{_SEMVER_COMPONENT}\.{_SEMVER_COMPONENT}\.{_SEMVER_COMPONENT
 _VERSION_RE = re.compile(rf"\b({_SEMVER_TRIPLE})\b", re.ASCII)
 _STABLE_SEMVER_RE = re.compile(rf"^{_SEMVER_TRIPLE}$", re.ASCII)
 _CHANGELOG_HEADING_RE = re.compile(r"^## \[([^\]]+)\](?:\([^)]*\))?(?:\s+.*)?$")
+_CHANGELOG_H2_CANDIDATE_RE = re.compile(r"^ {0,3}##[ \t]+\[")
+_CHANGELOG_SETEXT_H2_RE = re.compile(r"^ {0,3}-+[ \t]*$")
 
 # Matches the spec column of a matrix row like "2.6.x" or "1.1.x".
 _SPEC_ROW_RE = re.compile(
@@ -227,6 +229,20 @@ def _parse_changelog_sections(
     for index, line in enumerate(lines):
         heading_line = line.lstrip(" ")
         indent = len(line) - len(heading_line)
+        if _CHANGELOG_H2_CANDIDATE_RE.match(line) and not (
+            indent <= 3 and heading_line.startswith("## [")
+        ):
+            issues.append(f"  {changelog}: noncanonical bracketed CHANGELOG H2 {line!r}")
+            continue
+        if (
+            indent <= 3
+            and heading_line.startswith("[")
+            and "]" in heading_line
+            and index + 1 < len(lines)
+            and _CHANGELOG_SETEXT_H2_RE.fullmatch(lines[index + 1])
+        ):
+            issues.append(f"  {changelog}: noncanonical bracketed CHANGELOG H2 {line!r}")
+            continue
         if indent > 3 or not heading_line.startswith("## ["):
             continue
         match = _CHANGELOG_HEADING_RE.fullmatch(heading_line)
@@ -264,6 +280,17 @@ def _parse_changelog_sections(
         for position, (key, start) in enumerate(starts)
     }
     return sections, []
+
+
+def _atx_heading_text(line: str, level: int) -> str | None:
+    """Return a CommonMark ATX heading's text for one exact level."""
+    heading_line = line.lstrip(" ")
+    if len(line) - len(heading_line) > 3:
+        return None
+    prefix = "#" * level
+    if not re.match(rf"^{re.escape(prefix)}[ \t]+(?!#)", heading_line):
+        return None
+    return heading_line[level:].lstrip(" \t").strip()
 
 
 def _check_changelog_version_order(
@@ -379,19 +406,20 @@ def check_release_unreleased(changelog: Path, package: str = "") -> list[str]:
         return [f"  {changelog}: missing [Unreleased] section"]
     unreleased = sections["Unreleased"]
     if package:
-        heading = f"### {package}"
-        package_start = next(
-            (index for index, line in enumerate(unreleased) if line.strip() == heading),
-            None,
-        )
-        if package_start is None:
+        package_starts = [
+            index for index, line in enumerate(unreleased) if _atx_heading_text(line, 3) == package
+        ]
+        if not package_starts:
             return [f"  {changelog}: [Unreleased] missing {package} package section"]
+        if len(package_starts) != 1:
+            return [f"  {changelog}: [Unreleased] expected exactly one {package} package section"]
+        package_start = package_starts[0]
         package_body = unreleased[package_start + 1 :]
         package_end = next(
             (
                 index
                 for index, line in enumerate(package_body)
-                if line.startswith("### ") or line.startswith("## ")
+                if _atx_heading_text(line, 3) is not None or _atx_heading_text(line, 2) is not None
             ),
             len(package_body),
         )
@@ -411,7 +439,9 @@ def check_csharp_unreleased_structure(changelog: Path) -> list[str]:
     if "Unreleased" not in sections:
         return [f"  {changelog}: missing [Unreleased] section"]
     unreleased = sections["Unreleased"]
-    headings = [line.removeprefix("### ").strip() for line in unreleased if line.startswith("### ")]
+    headings = [
+        heading for line in unreleased if (heading := _atx_heading_text(line, 3)) is not None
+    ]
     if headings != list(CSHARP_UNRELEASED_PACKAGES):
         expected = ", ".join(CSHARP_UNRELEASED_PACKAGES)
         return [
@@ -419,7 +449,7 @@ def check_csharp_unreleased_structure(changelog: Path) -> list[str]:
             f"once in {expected} order"
         ]
     first_heading = next(
-        index for index, line in enumerate(unreleased) if line.strip() == "### VMx"
+        index for index, line in enumerate(unreleased) if _atx_heading_text(line, 3) == "VMx"
     )
     if any(line.strip() for line in unreleased[:first_heading]):
         return [f"  {changelog}: [Unreleased] contains notes outside a C# package section"]
