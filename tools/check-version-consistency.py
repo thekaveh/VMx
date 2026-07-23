@@ -252,6 +252,20 @@ def _top_level_headings(lines: list[str], level: int) -> list[tuple[int, int, st
     return headings
 
 
+def _has_substantive_markdown(lines: list[str]) -> bool:
+    """Return whether lines contain content beyond top-level headings."""
+    source = "\n".join(lines)
+    if lines:
+        source += "\n"
+    heading_lines = {
+        line
+        for token in _COMMONMARK.parse(source)
+        if token.type == "heading_open" and token.level == 0 and token.map is not None
+        for line in range(*token.map)
+    }
+    return any(line.strip() and index not in heading_lines for index, line in enumerate(lines))
+
+
 def _parse_changelog_sections(
     changelog: Path, packages: tuple[str, ...] = ()
 ) -> tuple[dict[str, list[str]], list[str]]:
@@ -395,9 +409,7 @@ def check_changelog_sections(repo_root: Path, manifests: dict[str, dict[str, str
                 f"  {flavor}: CHANGELOG section {heading!r} is missing for current version"
             )
             continue
-        substantive = any(
-            line.strip() and not line.lstrip().startswith("#") for line in sections[heading]
-        )
+        substantive = _has_substantive_markdown(sections[heading])
         if not substantive:
             issues.append(
                 f"  {flavor}: CHANGELOG section {heading!r} has no substantive release notes"
@@ -428,7 +440,7 @@ def check_release_unreleased(changelog: Path, package: str = "") -> list[str]:
             len(unreleased),
         )
         unreleased = unreleased[package_body_start:package_end]
-    substantive = any(line.strip() and not line.lstrip().startswith("#") for line in unreleased)
+    substantive = _has_substantive_markdown(unreleased)
     if substantive:
         scope = f" {package}" if package else ""
         return [f"  {changelog}: [Unreleased]{scope} contains substantive notes at tag publication"]

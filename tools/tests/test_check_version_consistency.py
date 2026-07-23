@@ -1210,6 +1210,21 @@ def test_release_tag_rejects_substantive_unreleased_notes(tmp_path: Path) -> Non
     ]
 
 
+@pytest.mark.parametrize("note", ["#Pending breaking change.", "    # Pending code example."])
+def test_release_tag_treats_hash_prefixed_nonheadings_as_substantive(
+    tmp_path: Path, note: str
+) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        f"## [Unreleased]\n\n{note}\n\n## [3.22.1]\n\n- Tagged notes.\n",
+        encoding="utf-8",
+    )
+
+    assert cvc.check_release_unreleased(changelog) == [
+        f"  {changelog}: [Unreleased] contains substantive notes at tag publication"
+    ]
+
+
 def test_release_tag_accepts_empty_unreleased_section(tmp_path: Path) -> None:
     changelog = tmp_path / "CHANGELOG.md"
     changelog.write_text(
@@ -1485,6 +1500,34 @@ def test_csharp_release_tag_checks_only_selected_package_notes(tmp_path: Path) -
         f"  {changelog}: [Unreleased] VMx.Notifications contains substantive notes "
         "at tag publication"
     ]
+
+
+@pytest.mark.parametrize("package", cvc.CSHARP_UNRELEASED_PACKAGES)
+@pytest.mark.parametrize("note", ["#Pending breaking change.", "    # Pending code example."])
+def test_csharp_release_gates_treat_hash_prefixed_nonheadings_as_substantive(
+    tmp_path: Path, package: str, note: str
+) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    package_sections = "".join(
+        f"### {candidate}\n\n{note if candidate == package else ''}\n"
+        for candidate in cvc.CSHARP_UNRELEASED_PACKAGES
+    )
+    changelog.write_text(
+        f"## [Unreleased]\n\n{package_sections}\n## [3.22.1]\n\n- Tagged notes.\n",
+        encoding="utf-8",
+    )
+
+    assert cvc.check_csharp_unreleased_structure(changelog) == []
+    for candidate in cvc.CSHARP_UNRELEASED_PACKAGES:
+        expected = (
+            [
+                f"  {changelog}: [Unreleased] {candidate} contains substantive notes "
+                "at tag publication"
+            ]
+            if candidate == package
+            else []
+        )
+        assert cvc.check_release_unreleased(changelog, candidate) == expected
 
 
 def test_csharp_release_tag_requires_selected_package_heading(tmp_path: Path) -> None:

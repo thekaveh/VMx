@@ -171,3 +171,46 @@ def test_concurrent_dispose_waits_for_active_subject_emission(
     assert emission_failures == []
     assert observed == [value]
     assert completions == [None]
+
+
+@pytest.mark.parametrize(
+    ("channel", "emit", "value"),
+    [
+        (
+            "can_execute_changed",
+            lambda command, _: command.raise_can_execute_changed(),
+            None,
+        ),
+        ("errors", lambda command, error: command._emit_error(error), RuntimeError("boom")),
+    ],
+)
+def test_reentrant_dispose_defers_terminal_until_active_delivery_finishes(
+    channel: str,
+    emit: Callable[[AsyncRelayCommand, object], None],
+    value: object,
+) -> None:
+    command = AsyncRelayCommand.builder().build()
+    observable = getattr(command, channel)
+    events: list[tuple[str, object]] = []
+
+    def first(item: object) -> None:
+        events.append(("first-next", item))
+        command.dispose()
+
+    observable.subscribe(first, on_completed=lambda: events.append(("first-complete", None)))
+    observable.subscribe(
+        lambda item: events.append(("second-next", item)),
+        on_completed=lambda: events.append(("second-complete", None)),
+    )
+
+    emit(command, value)
+
+    assert events == [
+        ("first-next", value),
+        ("second-next", value),
+        ("first-complete", None),
+        ("second-complete", None),
+    ]
+    assert command._can_execute_changed_subject.is_disposed is True
+    assert command._errors.is_disposed is True
+    command.dispose()

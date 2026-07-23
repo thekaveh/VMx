@@ -27,6 +27,7 @@ import dataclasses
 from collections.abc import Awaitable, Callable
 from concurrent.futures import Future
 from threading import RLock
+from typing import TypeVar
 
 import reactivex as rx
 from reactivex import operators as ops
@@ -34,6 +35,8 @@ from reactivex.subject import Subject
 
 from vmx._asyncio_runner import submit_background
 from vmx.commands.relay_command import _run_disposal_steps
+
+TEmission = TypeVar("TEmission")
 
 
 class AsyncRelayCommand:
@@ -61,6 +64,8 @@ class AsyncRelayCommand:
         self._cancel_requested = False
         self._is_executing = False
         self._disposed = False
+        self._active_emissions = 0
+        self._terminal_pending = False
         self._subscriptions = [
             t.subscribe(lambda _: self.raise_can_execute_changed()) for t in triggers
         ]
@@ -197,12 +202,33 @@ class AsyncRelayCommand:
             self._emit_error(exc)
 
     def _emit_error(self, exc: BaseException) -> None:
-        # Keep delivery inside the gate so disposal cannot terminally dispose
-        # the Reactivex subject between the liveness check and on_next().
+        self._emit_subject(self._errors, exc)
+
+    def _emit_subject(self, subject: Subject[TEmission], value: TEmission) -> None:
+        """Serialize delivery with disposal and defer a reentrant terminal."""
+        delivery_error: BaseException | None = None
+        tear_down = False
         with self._gate:
             if self._disposed:
                 return
-            self._errors.on_next(exc)
+            self._active_emissions += 1
+            try:
+                subject.on_next(value)
+            except BaseException as error:
+                delivery_error = error
+            finally:
+                self._active_emissions -= 1
+                if self._active_emissions == 0 and self._terminal_pending:
+                    self._terminal_pending = False
+                    tear_down = True
+        if tear_down:
+            try:
+                self._tear_down()
+            except BaseException:
+                if delivery_error is None:
+                    raise
+        if delivery_error is not None:
+            raise delivery_error
 
     def raise_can_execute_changed(self) -> None:
         """Emit one re-evaluation notification without invoking user delegates.
@@ -210,12 +236,7 @@ class AsyncRelayCommand:
         Valid while idle or in flight; repeated calls are additive. Calls after
         :meth:`dispose` are no-ops.
         """
-        # Reactivex raises on post-dispose delivery, unlike some flavor
-        # runtimes, so serialize this emission with the terminal sequence.
-        with self._gate:
-            if self._disposed:
-                return
-            self._can_execute_changed_subject.on_next(None)
+        self._emit_subject(self._can_execute_changed_subject, None)
 
     def dispose(self) -> None:
         """Cancel any in-flight task, release subscriptions, complete the subjects.
@@ -226,6 +247,13 @@ class AsyncRelayCommand:
             if self._disposed:
                 return
             self._disposed = True
+            if self._active_emissions:
+                self._terminal_pending = True
+                return
+        self._tear_down()
+
+    def _tear_down(self) -> None:
+        """Run every terminal step, preserving the first failure."""
         _run_disposal_steps(
             self.cancel,
             *(sub.dispose for sub in self._subscriptions),
