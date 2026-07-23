@@ -286,10 +286,13 @@ def test_changelog_sections_require_current_version_and_substantive_body(
         "python": {"version": "3.22.0"},
     }
 
-    changelog.write_text("## [3.22.0]\n\n### Fixed\n\n- Repaired packaging.\n", encoding="utf-8")
+    changelog.write_text(
+        "## [Unreleased]\n\n## [3.22.0]\n\n### Fixed\n\n- Repaired packaging.\n",
+        encoding="utf-8",
+    )
     assert cvc.check_changelog_sections(tmp_path, manifests) == []
 
-    changelog.write_text("## [3.22.0]\n\n### Fixed\n", encoding="utf-8")
+    changelog.write_text("## [Unreleased]\n\n## [3.22.0]\n\n### Fixed\n", encoding="utf-8")
     assert cvc.check_changelog_sections(tmp_path, manifests) == [
         "  python: CHANGELOG section '3.22.0' has no substantive release notes"
     ]
@@ -341,12 +344,51 @@ def test_changelog_sections_accept_linked_version_key(tmp_path: Path) -> None:
     assert cvc.check_changelog_sections(tmp_path, manifests) == []
 
 
+def test_changelog_sections_require_unreleased_then_current_descending_history(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "langs/python").mkdir(parents=True)
+    changelog = tmp_path / "langs/python/CHANGELOG.md"
+    manifests = {"python": {"version": "3.22.0"}}
+
+    changelog.write_text(
+        "## [99.0.0]\n\n- Hidden pending work.\n\n"
+        "## [Unreleased]\n\n"
+        "## [3.22.0]\n\n- Current release.\n",
+        encoding="utf-8",
+    )
+    assert cvc.check_changelog_sections(tmp_path, manifests) == [
+        f"  {changelog}: [Unreleased] must be the first bracketed CHANGELOG section"
+    ]
+
+    changelog.write_text(
+        "## [Unreleased]\n\n"
+        "## [99.0.0]\n\n- Hidden pending work.\n\n"
+        "## [3.22.0]\n\n- Current release.\n",
+        encoding="utf-8",
+    )
+    assert cvc.check_changelog_sections(tmp_path, manifests) == [
+        f"  {changelog}: first core version '99.0.0' != manifest version '3.22.0'"
+    ]
+
+    changelog.write_text(
+        "## [Unreleased]\n\n"
+        "## [3.22.0]\n\n- Current release.\n\n"
+        "## [3.20.0]\n\n- Older release.\n\n"
+        "## [3.21.0]\n\n- Out-of-order release.\n",
+        encoding="utf-8",
+    )
+    assert cvc.check_changelog_sections(tmp_path, manifests) == [
+        f"  {changelog}: core CHANGELOG versions are not strictly descending at '3.20.0', '3.21.0'"
+    ]
+
+
 def test_csharp_companion_changelog_section_uses_package_identity(
     tmp_path: Path,
 ) -> None:
     (tmp_path / "langs/csharp").mkdir(parents=True)
     (tmp_path / "langs/csharp/CHANGELOG.md").write_text(
-        "## [VMx.Notifications 1.2.0]\n\n- Initial package.\n",
+        "## [Unreleased]\n\n## [VMx.Notifications 1.2.0]\n\n- Initial package.\n",
         encoding="utf-8",
     )
     manifests = {
@@ -357,6 +399,65 @@ def test_csharp_companion_changelog_section_uses_package_identity(
     }
 
     assert cvc.check_changelog_sections(tmp_path, manifests) == []
+
+
+@pytest.mark.parametrize(
+    ("flavor", "package_id", "current", "newer"),
+    [
+        ("csharp", "", "3.22.1", "99.0.0"),
+        (
+            "csharp/VMx.Notifications",
+            "VMx.Notifications",
+            "1.2.0",
+            "VMx.Notifications 99.0.0",
+        ),
+        (
+            "csharp/VMx.Extensions.DependencyInjection",
+            "VMx.Extensions.DependencyInjection",
+            "2.1.1",
+            "VMx.Extensions.DependencyInjection 99.0.0",
+        ),
+    ],
+)
+def test_csharp_changelog_requires_manifest_version_first_in_each_namespace(
+    tmp_path: Path,
+    flavor: str,
+    package_id: str,
+    current: str,
+    newer: str,
+) -> None:
+    (tmp_path / "langs/csharp").mkdir(parents=True)
+    heading = f"{package_id} {current}" if package_id else current
+    changelog = tmp_path / "langs/csharp/CHANGELOG.md"
+    changelog.write_text(
+        f"## [Unreleased]\n\n## [{newer}]\n\n- Hidden pending work.\n\n"
+        f"## [{heading}]\n\n- Current release.\n",
+        encoding="utf-8",
+    )
+    manifests = {
+        flavor: {
+            "version": current,
+            **({"package_id": package_id} if package_id else {}),
+        }
+    }
+    namespace = package_id or "core"
+
+    assert cvc.check_changelog_sections(tmp_path, manifests) == [
+        f"  {changelog}: first {namespace} version '99.0.0' != manifest version {current!r}"
+    ]
+
+
+def test_csharp_changelog_rejects_package_qualified_core_alias(tmp_path: Path) -> None:
+    (tmp_path / "langs/csharp").mkdir(parents=True)
+    changelog = tmp_path / "langs/csharp/CHANGELOG.md"
+    changelog.write_text(
+        "## [Unreleased]\n\n## [VMx 3.22.1]\n\n- Ambiguous core release.\n",
+        encoding="utf-8",
+    )
+
+    assert cvc.check_changelog_sections(tmp_path, {"csharp": {"version": "3.22.1"}}) == [
+        f"  {changelog}: invalid bracketed CHANGELOG section key 'VMx 3.22.1'"
+    ]
 
 
 # ── parse_python_versions ─────────────────────────────────────────────
@@ -895,7 +996,7 @@ def _make_repo(tmp_path: Path) -> None:
     )
     for flavor in ("csharp", "python", "typescript", "swift"):
         (tmp_path / "langs" / flavor / "CHANGELOG.md").write_text(
-            "## [2.6.0]\n\n- Current release.\n",
+            "## [Unreleased]\n\n## [2.6.0]\n\n- Current release.\n",
             encoding="utf-8",
         )
 
@@ -1041,7 +1142,7 @@ def test_main_tolerates_missing_1x_tags(tmp_path: Path, monkeypatch: object) -> 
     )
     for flavor in ("csharp", "python", "typescript"):
         (tmp_path / "langs" / flavor / "CHANGELOG.md").write_text(
-            "## [2.6.0]\n\n- Current release.\n",
+            "## [Unreleased]\n\n## [2.6.0]\n\n- Current release.\n",
             encoding="utf-8",
         )
     import check_version_consistency as _cvc
@@ -1124,6 +1225,22 @@ def test_release_tag_rejects_duplicate_unreleased_sections(tmp_path: Path) -> No
     changelog.write_text(
         "## [Unreleased]\n\n## [Unreleased]\n\n- Hidden pending note.\n\n"
         "## [3.22.1]\n\n- Tagged notes.\n",
+        encoding="utf-8",
+    )
+
+    assert cvc.check_release_unreleased(changelog) == [
+        f"  {changelog}: expected exactly one [Unreleased] section"
+    ]
+
+
+@pytest.mark.parametrize("indent", [" ", "  ", "   "])
+def test_release_tag_rejects_indented_duplicate_unreleased_section(
+    tmp_path: Path, indent: str
+) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        "## [Unreleased]\n\n## [3.22.1]\n\n- Tagged notes.\n\n"
+        f"{indent}## [Unreleased]\n\n- Hidden pending note.\n",
         encoding="utf-8",
     )
 
@@ -1298,9 +1415,7 @@ def _make_repo_v3(tmp_path: Path) -> None:
         'static let current = "3.0.0"\nstatic let minSpecVersion = "3.0.0"\n',
         encoding="utf-8",
     )
-    notes = "\n".join(
-        f"## [{version}]\n\n- Current release.\n" for version in ("3.0.0", "3.0.1", "3.1.0")
-    )
+    notes = "## [Unreleased]\n\n## [3.0.0]\n\n- Current release.\n"
     for flavor in ("csharp", "python", "typescript", "swift"):
         (tmp_path / "langs" / flavor / "CHANGELOG.md").write_text(notes, encoding="utf-8")
 
@@ -1342,6 +1457,12 @@ def test_main_exempts_independently_versioned_current_flavor(
     )
     package_json = tmp_path / "langs" / "typescript" / "package.json"
     package_json.write_text(json.dumps({"version": "3.1.0"}), encoding="utf-8")
+    (tmp_path / "langs" / "typescript" / "CHANGELOG.md").write_text(
+        "## [Unreleased]\n\n"
+        "## [3.1.0]\n\n- Current release.\n\n"
+        "## [3.0.0]\n\n- Earlier source history.\n",
+        encoding="utf-8",
+    )
     import check_version_consistency as _cvc
 
     monkeypatch.setattr(_cvc, "get_git_tags", lambda _root: set(_TAGS_2_6_ONLY))
@@ -1365,6 +1486,12 @@ def test_main_exempts_untagged_source_history_in_current_row(
     csproj = tmp_path / "langs" / "csharp" / "src" / "VMx" / "VMx.csproj"
     csproj.write_text(
         "<Version>3.0.1</Version><MinSpecVersion>3.0.0</MinSpecVersion>",
+        encoding="utf-8",
+    )
+    (tmp_path / "langs" / "csharp" / "CHANGELOG.md").write_text(
+        "## [Unreleased]\n\n"
+        "## [3.0.1]\n\n- Current release.\n\n"
+        "## [3.0.0]\n\n- Earlier source history.\n",
         encoding="utf-8",
     )
     import check_version_consistency as _cvc

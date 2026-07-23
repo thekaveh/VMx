@@ -51,6 +51,7 @@ import re
 import subprocess
 import sys
 from collections.abc import Iterable
+from itertools import pairwise
 from pathlib import Path
 
 # ─── enforcement policy ───────────────────────────────────────────────
@@ -75,6 +76,7 @@ CSHARP_UNRELEASED_PACKAGES = (
     "VMx.Notifications",
     "VMx.Extensions.DependencyInjection",
 )
+CSHARP_CHANGELOG_PACKAGES = CSHARP_UNRELEASED_PACKAGES[1:]
 
 # ─── regexes ──────────────────────────────────────────────────────────
 
@@ -223,9 +225,11 @@ def _parse_changelog_sections(
     seen: set[str] = set()
     issues: list[str] = []
     for index, line in enumerate(lines):
-        if not line.startswith("## ["):
+        heading_line = line.lstrip(" ")
+        indent = len(line) - len(heading_line)
+        if indent > 3 or not heading_line.startswith("## ["):
             continue
-        match = _CHANGELOG_HEADING_RE.fullmatch(line)
+        match = _CHANGELOG_HEADING_RE.fullmatch(heading_line)
         if match is None:
             issues.append(f"  {changelog}: malformed bracketed CHANGELOG section heading {line!r}")
             continue
@@ -248,6 +252,11 @@ def _parse_changelog_sections(
         starts.append((key, index))
     if issues:
         return {}, issues
+    if starts and starts[0][0] != "Unreleased":
+        return (
+            {},
+            [f"  {changelog}: [Unreleased] must be the first bracketed CHANGELOG section"],
+        )
     sections = {
         key: lines[
             start + 1 : starts[position + 1][1] if position + 1 < len(starts) else len(lines)
@@ -257,11 +266,61 @@ def _parse_changelog_sections(
     return sections, []
 
 
+def _check_changelog_version_order(
+    changelog: Path,
+    sections: dict[str, list[str]],
+    expected_versions: dict[str, str],
+) -> list[str]:
+    """Require each package namespace to start current and descend strictly."""
+    versions: dict[str, list[str]] = {}
+    for key in sections:
+        if key == "Unreleased":
+            continue
+        if _STABLE_SEMVER_RE.fullmatch(key):
+            namespace, version = "", key
+        else:
+            namespace = next(
+                package for package in CSHARP_CHANGELOG_PACKAGES if key.startswith(f"{package} ")
+            )
+            version = key.removeprefix(f"{namespace} ")
+        versions.setdefault(namespace, []).append(version)
+
+    for namespace, expected in expected_versions.items():
+        history = versions.get(namespace, [])
+        if not history:
+            continue
+        label = namespace or "core"
+        if history[0] != expected:
+            return [
+                f"  {changelog}: first {label} version {history[0]!r} "
+                f"!= manifest version {expected!r}"
+            ]
+        for previous, current in pairwise(history):
+            previous_key = tuple(int(part) for part in previous.split("."))
+            current_key = tuple(int(part) for part in current.split("."))
+            if previous_key <= current_key:
+                return [
+                    f"  {changelog}: {label} CHANGELOG versions are not strictly "
+                    f"descending at {previous!r}, {current!r}"
+                ]
+    return []
+
+
 def check_changelog_sections(repo_root: Path, manifests: dict[str, dict[str, str]]) -> list[str]:
     """Report missing or empty current-version CHANGELOG sections."""
     issues: list[str] = []
     parsed: dict[Path, tuple[dict[str, list[str]], list[str]]] = {}
     reported_parse_errors: set[Path] = set()
+    expected_by_changelog: dict[Path, dict[str, str]] = {}
+    for flavor, info in manifests.items():
+        version = info.get("version", "")
+        if not version:
+            continue
+        family = flavor.split("/", 1)[0]
+        changelog = repo_root / "langs" / family / "CHANGELOG.md"
+        namespace = info.get("package_id", "") if "/" in flavor else ""
+        expected_by_changelog.setdefault(changelog, {})[namespace] = version
+    order_errors: dict[Path, list[str]] = {}
     for flavor, info in sorted(manifests.items()):
         version = info.get("version", "")
         if not version:
@@ -277,12 +336,21 @@ def check_changelog_sections(repo_root: Path, manifests: dict[str, dict[str, str
             changelog,
             _parse_changelog_sections(
                 changelog,
-                CSHARP_UNRELEASED_PACKAGES if family == "csharp" else (),
+                CSHARP_CHANGELOG_PACKAGES if family == "csharp" else (),
             ),
         )
         if parse_errors:
             if changelog not in reported_parse_errors:
                 issues.extend(parse_errors)
+                reported_parse_errors.add(changelog)
+            continue
+        changelog_order_errors = order_errors.setdefault(
+            changelog,
+            _check_changelog_version_order(changelog, sections, expected_by_changelog[changelog]),
+        )
+        if changelog_order_errors:
+            if changelog not in reported_parse_errors:
+                issues.extend(changelog_order_errors)
                 reported_parse_errors.add(changelog)
             continue
         if heading not in sections:
@@ -303,7 +371,7 @@ def check_changelog_sections(repo_root: Path, manifests: dict[str, dict[str, str
 def check_release_unreleased(changelog: Path, package: str = "") -> list[str]:
     """Reject substantive notes left outside the immutable tagged section."""
     sections, parse_errors = _parse_changelog_sections(
-        changelog, CSHARP_UNRELEASED_PACKAGES if package else ()
+        changelog, CSHARP_CHANGELOG_PACKAGES if package else ()
     )
     if parse_errors:
         return parse_errors
@@ -337,7 +405,7 @@ def check_release_unreleased(changelog: Path, package: str = "") -> list[str]:
 
 def check_csharp_unreleased_structure(changelog: Path) -> list[str]:
     """Require a fail-closed package partition for independent C# releases."""
-    sections, parse_errors = _parse_changelog_sections(changelog, CSHARP_UNRELEASED_PACKAGES)
+    sections, parse_errors = _parse_changelog_sections(changelog, CSHARP_CHANGELOG_PACKAGES)
     if parse_errors:
         return parse_errors
     if "Unreleased" not in sections:

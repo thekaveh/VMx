@@ -659,7 +659,13 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
             }
         };
 
-        let generated = catch_unwind(AssertUnwindSafe(|| (self.inner.children_factory)(self)));
+        let factory_receiver = Self {
+            inner: Arc::clone(&self.inner),
+            materialization_context: Some(epoch),
+        };
+        let generated = catch_unwind(AssertUnwindSafe(|| {
+            (self.inner.children_factory)(&factory_receiver)
+        }));
         let children = match generated {
             Ok(children) => children,
             Err(error) => {

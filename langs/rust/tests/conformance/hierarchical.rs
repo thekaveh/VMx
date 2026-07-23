@@ -245,6 +245,54 @@ fn delegated_factory_structural_reentry_is_rejected_and_retryable() {
     assert!(messages.lock().unwrap().is_empty());
 }
 
+/// HIER-032 — a scoped worker borrowing the factory receiver remains causal.
+#[test]
+fn borrowed_factory_structural_reentry_is_rejected_and_retryable() {
+    let hub = MessageHub::new();
+    let messages = Arc::new(Mutex::new(Vec::<Message>::new()));
+    let captured_messages = Arc::clone(&messages);
+    let _subscription = hub.subscribe(move |message| {
+        captured_messages.lock().unwrap().push(message.clone());
+    });
+    let child = leaf("child");
+    let captured_child = child.clone();
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let captured_attempts = Arc::clone(&attempts);
+    let root = HierarchicalVm::with_children_factory(
+        "root",
+        "root".to_string(),
+        move |parent| {
+            if captured_attempts.fetch_add(1, Ordering::SeqCst) == 0 {
+                let delegated_child = captured_child.clone();
+                std::thread::scope(|scope| {
+                    assert!(matches!(
+                        scope
+                            .spawn(move || parent.add_child(delegated_child))
+                            .join()
+                            .unwrap(),
+                        Err(VmxError::InvalidArgument(message))
+                            if message.contains("factory re-entered")
+                    ));
+                });
+            }
+            vec![captured_child.clone()]
+        },
+        false,
+        hub,
+    );
+
+    assert!(root.try_children().is_err());
+    assert!(child.parent().is_none());
+    assert!(child.path() == vec![child.clone()]);
+    assert_eq!(attempts.load(Ordering::SeqCst), 1);
+    assert!(messages.lock().unwrap().is_empty());
+
+    assert!(root.try_children().unwrap() == vec![child.clone()]);
+    assert!(child.parent().as_ref() == Some(&root));
+    assert_eq!(attempts.load(Ordering::SeqCst), 2);
+    assert!(messages.lock().unwrap().is_empty());
+}
+
 /// HIER-032 — a rejected owner releases state before a waiting owner starts.
 #[test]
 fn rejected_factory_handoff_cannot_clear_the_successor_state() {
