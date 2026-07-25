@@ -77,6 +77,35 @@ def test_execute_gated_when_predicate_false() -> None:
     assert called == []
 
 
+def test_predicate_disposal_invalidates_relay_and_parameterized_admission() -> None:
+    called: list[int] = []
+    cmd: RelayCommand
+    parameterized: RelayCommandOf[int]
+
+    def dispose_relay() -> bool:
+        cmd.dispose()
+        return True
+
+    def dispose_parameterized(_: int | None) -> bool:
+        parameterized.dispose()
+        return True
+
+    cmd = RelayCommand.builder().predicate(dispose_relay).task(lambda: called.append(1)).build()
+    parameterized = (
+        RelayCommandOf[int]
+        .builder()
+        .predicate(dispose_parameterized)
+        .task(lambda _: called.append(2))
+        .build()
+    )
+
+    assert cmd.can_execute() is False
+    cmd.execute()
+    assert parameterized.can_execute(1) is False
+    parameterized.execute(1)
+    assert called == []
+
+
 def test_execute_propagates_task_exception() -> None:
     def boom() -> None:
         raise ValueError("task error")

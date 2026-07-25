@@ -11,6 +11,11 @@ All notable changes to the Python flavor are documented here. The format is base
 - `AsyncRelayCommand` now preserves the first cancellation channel, so an
   externally cancelled execution remains throwing even if command cancellation
   follows.
+- Async-command predicate evaluation now detects an intervening admission,
+  preventing a reentrant execution from completing before the outer execution
+  is admitted while preserving concurrent predicate evaluation.
+- Relay-command predicate disposal now invalidates both ordinary and
+  parameterized execution admission.
 - Async-command event delivery no longer holds the command state lock, and its
   independent notification and error channels no longer block one another
   across observer callbacks.

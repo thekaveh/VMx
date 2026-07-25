@@ -53,7 +53,7 @@ export class RelayCommand implements ICommand {
     if (this.#disposed) return false;
     if (this.#predicate === null) return true;
     try {
-      return this.#predicate();
+      return this.#predicate() && !this.#disposed;
     } catch {
       return false;
     }
@@ -159,7 +159,7 @@ export class RelayCommandOf<T> implements ICommandOf<T> {
     if (this.#disposed) return false;
     if (this.#predicate === null) return true;
     try {
-      return this.#predicate(parameter);
+      return this.#predicate(parameter) && !this.#disposed;
     } catch {
       return false;
     }

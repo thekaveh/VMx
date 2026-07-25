@@ -26,7 +26,7 @@ type AsyncTask = (signal: AbortSignal) => Promise<void>;
 type CancellationOrigin = "command" | "external";
 
 export class AsyncRelayCommand implements IAsyncCommand {
-  readonly #task: AsyncTask;
+  readonly #task: AsyncTask | null;
   readonly #predicate: (() => boolean) | null;
   readonly #throwOnCancel: boolean;
   readonly #canExecuteChangedSubject = new Subject<void>();
@@ -47,7 +47,7 @@ export class AsyncRelayCommand implements IAsyncCommand {
     triggers: Observable<unknown>[],
     throwOnCancel: boolean,
   ) {
-    this.#task = task ?? (() => Promise.resolve());
+    this.#task = task;
     this.#predicate = predicate;
     this.#throwOnCancel = throwOnCancel;
     for (const t of triggers) {
@@ -108,6 +108,7 @@ export class AsyncRelayCommand implements IAsyncCommand {
   }
 
   async executeAsync(externalSignal?: AbortSignal): Promise<void> {
+    if (this.#task === null) return;
     if (!this.canExecute()) return;
     this.#cancellationOrigin = null;
 

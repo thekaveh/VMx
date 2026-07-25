@@ -14,6 +14,33 @@ from vmx.commands import AsyncRelayCommand
 
 
 @pytest.mark.asyncio
+async def test_predicate_cannot_reentrantly_admit_a_second_execution() -> None:
+    calls = 0
+    reentered = False
+    command: AsyncRelayCommand
+
+    async def task() -> None:
+        nonlocal calls
+        calls += 1
+
+    def predicate() -> bool:
+        nonlocal reentered
+        if not reentered:
+            reentered = True
+            nested = Thread(target=lambda: asyncio.run(command.execute_async()))
+            nested.start()
+            nested.join(timeout=1)
+            assert not nested.is_alive()
+        return True
+
+    command = AsyncRelayCommand.builder().task(task).predicate(predicate).build()
+
+    await command.execute_async()
+
+    assert calls == 1
+
+
+@pytest.mark.asyncio
 async def test_start_observer_failure_restores_idle_without_running_task() -> None:
     calls = 0
 

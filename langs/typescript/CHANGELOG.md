@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `AsyncRelayCommand` now rejects re-entrant or disposal-invalidated predicate
   admission and preserves the first cancellation channel when command and
   caller cancellation race.
+- Relay-command predicate disposal now invalidates both ordinary and
+  parameterized execution admission.
+- A taskless async command is now a true no-op and does not emit transient
+  execution-state notifications.
 - The locked ESLint dependency graph now uses `brace-expansion` 5.0.8, removing
   the unbounded-expansion denial-of-service advisory.
 

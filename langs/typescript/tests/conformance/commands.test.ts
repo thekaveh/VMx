@@ -44,6 +44,32 @@ describe("CMD-003", () => {
     const cmd = RelayCommand.builder().predicate(() => false).build();
     expect(cmd.canExecute()).toBe(false);
   });
+
+  it("predicate disposal invalidates relay and parameterized admission", () => {
+    const calls: number[] = [];
+    let relay: RelayCommand;
+    relay = RelayCommand.builder()
+      .predicate(() => {
+        relay.dispose();
+        return true;
+      })
+      .task(() => calls.push(1))
+      .build();
+    let parameterized: RelayCommandOf<number>;
+    parameterized = RelayCommandOf.builder<number>()
+      .predicate(() => {
+        parameterized.dispose();
+        return true;
+      })
+      .task(() => calls.push(2))
+      .build();
+
+    expect(relay.canExecute()).toBe(false);
+    relay.execute();
+    expect(parameterized.canExecute(1)).toBe(false);
+    parameterized.execute(1);
+    expect(calls).toEqual([]);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -286,6 +312,18 @@ describe("CMD-013", () => {
 // ---------------------------------------------------------------------------
 
 describe("CMD-012", () => {
+  it("taskless async execution is a no-op", async () => {
+    const command = AsyncRelayCommand.builder().build();
+    let notifications = 0;
+    command.canExecuteChanged.subscribe(() => notifications++);
+
+    command.execute();
+    await command.executeAsync();
+
+    expect(command.isExecuting).toBe(false);
+    expect(notifications).toBe(0);
+  });
+
   it("does not admit a task when the predicate disposes the command", async () => {
     const task = vi.fn(() => Promise.resolve());
     let cmd!: AsyncRelayCommand;

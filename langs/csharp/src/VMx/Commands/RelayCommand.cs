@@ -56,7 +56,7 @@ public sealed class RelayCommand : ICommand, IDisposable
     {
         if (_disposed) return false;
         if (_predicate is null) return true;
-        try { return _predicate(); }
+        try { return _predicate() && !_disposed; }
         catch { return false; }
     }
 

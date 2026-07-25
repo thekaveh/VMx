@@ -89,7 +89,7 @@ class RelayCommand:
         if self._predicate is None:
             return True
         try:
-            return self._predicate()
+            return self._predicate() and not self._disposed
         except Exception:
             return False
 
@@ -220,7 +220,7 @@ class RelayCommandOf(Generic[T]):
         if self._predicate is None:
             return True
         try:
-            return self._predicate(parameter)
+            return self._predicate(parameter) and not self._disposed
         except Exception:
             return False
 

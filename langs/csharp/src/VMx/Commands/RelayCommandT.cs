@@ -64,7 +64,7 @@ public sealed class RelayCommand<T> : ICommand, IDisposable
         if (_disposed) return false;
         if (parameter is not T typed) return false;
         if (_predicate is null) return true;
-        try { return _predicate(typed); }
+        try { return _predicate(typed) && !_disposed; }
         catch { return false; }
     }
 

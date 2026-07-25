@@ -142,6 +142,25 @@ fn confirmation_decorator_awaits_pending_decision() {
 }
 
 #[test]
+fn confirmation_decorator_async_path_is_gated_before_confirming() {
+    let confirms = Arc::new(AtomicUsize::new(0));
+    let command = ConfirmationDecoratorCommand::new(
+        recording_command(Arc::new(Mutex::new(Vec::new())), "disabled", false),
+        {
+            let confirms = confirms.clone();
+            move || {
+                confirms.fetch_add(1, Ordering::SeqCst);
+                AsyncValue::ready(true)
+            }
+        },
+    );
+
+    command.execute_async().join().unwrap();
+
+    assert_eq!(confirms.load(Ordering::SeqCst), 0);
+}
+
+#[test]
 fn confirmation_decorator_async_path_propagates_inner_panic() {
     let command =
         ConfirmationDecoratorCommand::new(RelayCommand::new(|| panic!("inner boom")), || {

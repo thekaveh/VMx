@@ -94,6 +94,7 @@ public final class AsyncRelayCommand: AsyncCommand {
     // MARK: - AsyncCommand
 
     /// True while an execution is in flight.
+    private var isAdmitting: Bool = false
     private var _isExecuting: Bool = false
 
     public var isExecuting: Bool {
@@ -106,10 +107,18 @@ public final class AsyncRelayCommand: AsyncCommand {
     /// and fires `canExecuteChanged` on start and finish.  Handles `CancellationError`
     /// per the `throwOnCancelFlag` / first-cancellation origin (spec §10.3).
     public func executeAsync() async throws {
-        guard canExecute() else { return }
+        guard body != nil else { return }
+        let mayEvaluate = stateQueue.sync { () -> Bool in
+            guard !disposed && !isAdmitting && !_isExecuting else { return false }
+            isAdmitting = true
+            return true
+        }
+        guard mayEvaluate else { return }
+        let allowed = predicate?() ?? true
 
         let began = stateQueue.sync { () -> Bool in
-            guard !disposed && !_isExecuting else { return false }
+            isAdmitting = false
+            guard allowed && !disposed && !_isExecuting else { return false }
             cancellationOrigin = nil
             _isExecuting = true
             return true
@@ -211,9 +220,12 @@ public final class AsyncRelayCommand: AsyncCommand {
     /// The stored predicate is non-throwing (`() -> Bool`), matching the
     /// cross-flavor contract that predicates must not raise (spec §2).
     public func canExecute() -> Bool {
-        if stateQueue.sync(execute: { disposed || _isExecuting }) { return false }
+        if stateQueue.sync(execute: { disposed || isAdmitting || _isExecuting }) {
+            return false
+        }
         guard let predicate else { return true }
-        return predicate()
+        let allowed = predicate()
+        return stateQueue.sync { allowed && !disposed && !isAdmitting && !_isExecuting }
     }
 
     /// Publisher that fires whenever `canExecute()` may have changed.

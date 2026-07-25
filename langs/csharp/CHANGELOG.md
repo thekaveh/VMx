@@ -13,6 +13,10 @@ All notable changes to the C# flavor are documented here. The format is based on
 - `AsyncRelayCommand` now evaluates predicates outside its state lock, rejects
   re-entrant or disposal-invalidated admission, and preserves the first
   cancellation channel when command and caller cancellation race.
+- Relay-command predicate disposal now invalidates both ordinary and
+  parameterized execution admission.
+- A taskless async command is now a true no-op and does not emit transient
+  execution-state notifications.
 
 ### VMx.Notifications
 

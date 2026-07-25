@@ -61,9 +61,76 @@ private actor CancellationRaceGate {
     }
 }
 
+private final class ReentrantAdmissionState: @unchecked Sendable {
+    private let queue = DispatchQueue(label: "VMxTests.ReentrantAdmissionState")
+    private var didReenter = false
+    private var calls = 0
+    private var command: AsyncRelayCommand?
+    private(set) var nestedFinished = false
+
+    func install(_ command: AsyncRelayCommand) {
+        queue.sync { self.command = command }
+    }
+
+    func predicate() -> Bool {
+        let nestedCommand = queue.sync { () -> AsyncRelayCommand? in
+            guard !didReenter else { return nil }
+            didReenter = true
+            return command
+        }
+        guard let nestedCommand else { return true }
+        let finished = DispatchSemaphore(value: 0)
+        Task.detached {
+            try? await nestedCommand.executeAsync()
+            finished.signal()
+        }
+        let result = finished.wait(timeout: .now() + 1)
+        queue.sync { nestedFinished = result == .success }
+        return true
+    }
+
+    func recordCall() {
+        queue.sync { calls += 1 }
+    }
+
+    func snapshot() -> (calls: Int, nestedFinished: Bool) {
+        queue.sync { (calls, nestedFinished) }
+    }
+}
+
 final class AsyncRelayCommandTests: XCTestCase {
 
     // MARK: - CMD-012
+
+    func testTasklessExecutionIsANoop() async throws {
+        let command = AsyncRelayCommand.builder().build()
+        var notifications = 0
+        let subscription = command.canExecuteChanged.sink { notifications += 1 }
+
+        command.execute()
+        try await command.executeAsync()
+
+        XCTAssertFalse(command.isExecuting)
+        XCTAssertEqual(notifications, 0)
+        subscription.cancel()
+        command.dispose()
+    }
+
+    func testPredicateCannotReentrantlyAdmitSecondExecution() async throws {
+        let state = ReentrantAdmissionState()
+        let command = AsyncRelayCommand.builder()
+            .task { state.recordCall() }
+            .predicate { state.predicate() }
+            .build()
+        state.install(command)
+
+        try await command.executeAsync()
+
+        let snapshot = state.snapshot()
+        XCTAssertTrue(snapshot.nestedFinished)
+        XCTAssertEqual(snapshot.calls, 1)
+        command.dispose()
+    }
 
     /// CMD-018 — async imperative raise while idle emits exactly once.
     func testCmd018ImperativeRaiseWhileIdleEmitsOnce() {

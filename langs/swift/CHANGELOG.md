@@ -10,6 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - `AsyncRelayCommand` now preserves the first cancellation channel, so later
   command cancellation cannot hide an externally cancelled parent task.
+- Async-command predicate evaluation now reserves admission, preventing a
+  reentrant execution from completing before the outer execution is admitted.
+- Relay-command predicate disposal now invalidates both ordinary and
+  parameterized execution admission.
+- A taskless async command is now a true no-op and does not emit transient
+  execution-state notifications.
 
 ## [3.23.0] — 2026-07-23
 

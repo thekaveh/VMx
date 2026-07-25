@@ -99,6 +99,7 @@ class AsyncRelayCommand:
         self._current_task: asyncio.Task[None] | None = None
         self._current_loop: asyncio.AbstractEventLoop | None = None
         self._cancellation_origin: CancellationOrigin | None = None
+        self._admission_epoch = 0
         self._is_executing = False
         self._disposed = False
         self._active_emissions = 0
@@ -148,17 +149,24 @@ class AsyncRelayCommand:
         with self._gate:
             if self._disposed or self._is_executing:
                 return
+            admission_epoch = self._admission_epoch
+        allowed = True
         if self._predicate is not None:
             try:
-                if not self._predicate():
-                    return
+                allowed = self._predicate()
             except Exception:
-                return
+                allowed = False
         with self._gate:
-            if self._disposed or self._is_executing:
+            if (
+                not allowed
+                or self._disposed
+                or self._is_executing
+                or self._admission_epoch != admission_epoch
+            ):
                 return
             self._cancellation_origin = None
             self._is_executing = True
+            self._admission_epoch += 1
         first_error: tuple[BaseException, TracebackType | None] | None = None
         try:
             self.raise_can_execute_changed()

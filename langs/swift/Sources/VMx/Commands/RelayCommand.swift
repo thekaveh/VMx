@@ -49,7 +49,7 @@ public final class RelayCommand: Command {
         // Swift closures can't "throw and be treated as false" without an
         // explicit `throws` signature; this matches the other flavors'
         // behavior at the level of "predicate returned false".
-        return predicate()
+        return predicate() && !disposed
     }
 
     public func execute() {

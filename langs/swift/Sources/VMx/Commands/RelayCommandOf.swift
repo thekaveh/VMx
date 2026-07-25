@@ -42,7 +42,7 @@ public final class RelayCommandOf<T> {
     public func canExecute(_ parameter: T) -> Bool {
         guard !disposed else { return false }
         guard let predicate else { return true }
-        return predicate(parameter)
+        return predicate(parameter) && !disposed
     }
 
     public func execute(_ parameter: T) {

@@ -68,6 +68,37 @@ public class RelayCommandTests
     }
 
     [Fact]
+    public void Predicate_Disposal_Invalidates_Relay_And_Parameterized_Admission()
+    {
+        var invoked = false;
+        RelayCommand? relay = null;
+        relay = RelayCommand.Builder()
+            .Predicate(() =>
+            {
+                relay!.Dispose();
+                return true;
+            })
+            .Task(() => invoked = true)
+            .Build();
+        RelayCommand<int>? parameterized = null;
+        parameterized = RelayCommand<int>.Builder()
+            .Predicate(_ =>
+            {
+                parameterized!.Dispose();
+                return true;
+            })
+            .Task(_ => invoked = true)
+            .Build();
+
+        relay.CanExecute(null).Should().BeFalse();
+        relay.Execute(null);
+        parameterized.CanExecute(1).Should().BeFalse();
+        parameterized.Execute(1);
+
+        invoked.Should().BeFalse();
+    }
+
+    [Fact]
     public void Trigger_Emission_Fires_CanExecuteChanged()
     {
         var trigger = new Subject<System.Reactive.Unit>();

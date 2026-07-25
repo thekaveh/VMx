@@ -265,6 +265,22 @@ fn async_imperative_raise_while_idle_emits_once() {
     assert_eq!(fired.load(Ordering::SeqCst), 1);
 }
 
+#[test]
+fn taskless_async_command_execution_is_a_noop() {
+    let command = AsyncRelayCommand::noop();
+    let fired = Arc::new(AtomicUsize::new(0));
+    let fired_clone = fired.clone();
+    let _subscription = command.can_execute_changed().subscribe(move |_| {
+        fired_clone.fetch_add(1, Ordering::SeqCst);
+    });
+
+    command.execute();
+    command.execute_async().join().unwrap().unwrap();
+
+    assert!(!command.is_executing());
+    assert_eq!(fired.load(Ordering::SeqCst), 0);
+}
+
 /// CMD-019 — async imperative raise while in flight is additive with state flips
 #[test]
 fn async_imperative_raise_while_in_flight_is_additive() {
@@ -293,6 +309,80 @@ fn async_imperative_raise_while_in_flight_is_additive() {
     run.join().unwrap().unwrap();
 
     assert_eq!(fired.load(Ordering::SeqCst), 3);
+}
+
+#[test]
+fn async_predicate_cannot_reentrantly_admit_a_second_execution() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let holder = Arc::new(Mutex::new(None::<AsyncRelayCommand>));
+    let reentered = Arc::new(AtomicBool::new(false));
+    let command = AsyncRelayCommand::builder()
+        .task({
+            let calls = calls.clone();
+            move |_| {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            }
+        })
+        .predicate({
+            let holder = holder.clone();
+            let reentered = reentered.clone();
+            move || {
+                if !reentered.swap(true, Ordering::SeqCst) {
+                    let nested = holder.lock().unwrap().as_ref().unwrap().execute_async();
+                    nested.join().unwrap().unwrap();
+                }
+                true
+            }
+        })
+        .build();
+    *holder.lock().unwrap() = Some(command.clone());
+
+    command.execute_async().join().unwrap().unwrap();
+
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn relay_predicate_can_dispose_its_command_without_deadlock() {
+    let holder = Arc::new(Mutex::new(None::<RelayCommand>));
+    let command = RelayCommand::noop().with_can_execute({
+        let holder = holder.clone();
+        move || {
+            let command = holder.lock().unwrap().as_ref().unwrap().clone();
+            command.dispose();
+            true
+        }
+    });
+    *holder.lock().unwrap() = Some(command.clone());
+    let (sender, receiver) = mpsc::channel();
+
+    std::thread::spawn(move || sender.send(command.can_execute()).unwrap());
+
+    assert!(!receiver.recv_timeout(Duration::from_secs(1)).unwrap());
+}
+
+#[test]
+fn parameterized_relay_predicate_disposal_invalidates_admission() {
+    let holder = Arc::new(Mutex::new(None::<RelayCommandOf<i32>>));
+    let invoked = Arc::new(AtomicBool::new(false));
+    let command = RelayCommandOf::new({
+        let invoked = invoked.clone();
+        move |_| invoked.store(true, Ordering::SeqCst)
+    })
+    .with_can_execute({
+        let holder = holder.clone();
+        move |_| {
+            let command = holder.lock().unwrap().as_ref().unwrap().clone();
+            command.dispose();
+            true
+        }
+    });
+    *holder.lock().unwrap() = Some(command.clone());
+
+    assert!(!command.can_execute(&1));
+    command.execute(1);
+    assert!(!invoked.load(Ordering::SeqCst));
 }
 
 /// CMD-012 — `AsyncRelayCommand.Cancel()` cancels an in-flight async task, non-throwing by default

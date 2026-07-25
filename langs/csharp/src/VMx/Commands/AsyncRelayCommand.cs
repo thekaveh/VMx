@@ -27,7 +27,7 @@ namespace VMx.Commands;
 /// </summary>
 public sealed class AsyncRelayCommand : IAsyncCommand, IDisposable
 {
-    private readonly Func<CancellationToken, Task> _task;
+    private readonly Func<CancellationToken, Task>? _task;
     private readonly Func<bool>? _predicate;
     private readonly bool _throwOnCancel;
     private readonly List<IDisposable> _triggerSubscriptions = [];
@@ -50,7 +50,7 @@ public sealed class AsyncRelayCommand : IAsyncCommand, IDisposable
         bool throwOnCancel,
         IReadOnlyList<IObservable<Unit>> triggers)
     {
-        _task = task ?? (_ => Task.CompletedTask);
+        _task = task;
         _predicate = predicate;
         _throwOnCancel = throwOnCancel;
         foreach (var t in triggers)
@@ -140,6 +140,7 @@ public sealed class AsyncRelayCommand : IAsyncCommand, IDisposable
     /// <inheritdoc/>
     public async Task ExecuteAsync(object? parameter = null, CancellationToken cancellationToken = default)
     {
+        if (_task is null) return;
         var cts = TryBeginExecution(cancellationToken, out var externalRegistration);
         if (cts is null) return;
 

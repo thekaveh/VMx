@@ -6,6 +6,18 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Async-command predicate evaluation now reserves admission, preventing a
+  reentrant execution from completing before the outer execution is admitted.
+- Relay-command predicate disposal now invalidates both ordinary and
+  parameterized execution admission without retaining the disposal lock across
+  user code.
+- The awaitable confirmation-decorator entry point now applies the inner
+  eligibility gate before invoking the confirmation delegate.
+- A taskless async command is now a true no-op and does not emit transient
+  execution-state notifications.
+
 ## [0.26.0] — 2026-07-23
 
 ### Added

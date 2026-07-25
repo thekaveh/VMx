@@ -12,6 +12,22 @@ import Combine
 
 final class RelayCommandTests: XCTestCase {
 
+    func testPredicateDisposalInvalidatesAdmission() {
+        var invoked = false
+        var command: RelayCommand!
+        command = RelayCommand.builder()
+            .predicate {
+                command.dispose()
+                return true
+            }
+            .task { invoked = true }
+            .build()
+
+        XCTAssertFalse(command.canExecute())
+        command.execute()
+        XCTAssertFalse(invoked)
+    }
+
     /// CMD-001 — execute invokes the configured task.
     func testCmd001ExecuteInvokesTask() {
         var calls = 0

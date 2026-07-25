@@ -10,6 +10,20 @@ namespace VMx.Tests.Commands;
 public class AsyncRelayCommandTests
 {
     [Fact]
+    public async Task Taskless_Execution_Is_A_NoOp()
+    {
+        var command = AsyncRelayCommand.Builder().Build();
+        var notifications = 0;
+        command.CanExecuteChanged += (_, _) => notifications++;
+
+        command.Execute(null);
+        await command.ExecuteAsync();
+
+        command.IsExecuting.Should().BeFalse();
+        notifications.Should().Be(0);
+    }
+
+    [Fact]
     public async Task Predicate_Can_Wait_For_Foreign_Dispose_Without_Deadlock()
     {
         using var disposeFinished = new ManualResetEventSlim();
