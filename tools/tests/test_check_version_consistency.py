@@ -562,6 +562,21 @@ def test_check_typescript_example_locks_reports_stale_metadata(tmp_path: Path) -
     assert "3.21.0" in issues[0]
 
 
+def test_check_rust_example_locks_report_stale_local_package_version(tmp_path: Path) -> None:
+    lock_path = tmp_path / cvc.RUST_EXAMPLE_LOCKS[0]
+    lock_path.parent.mkdir(parents=True)
+    lock_path.write_text(
+        'version = 4\n\n[[package]]\nname = "vmx-rs"\nversion = "0.25.0"\n',
+        encoding="utf-8",
+    )
+
+    issues = cvc.check_rust_example_locks(tmp_path, "0.26.0")
+
+    assert len(issues) == 1
+    assert "0.25.0" in issues[0]
+    assert "0.26.0" in issues[0]
+
+
 # ── parse_swift_versions ──────────────────────────────────────────────
 
 

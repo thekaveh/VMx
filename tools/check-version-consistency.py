@@ -15,8 +15,9 @@ Rules enforced:
      flavor release also implies ``spec-v<X.Y.0>`` and ``v<X.Y.0>``.
      Source-only rows containing only a pre-1.0 Rust flavor do not imply
      repository release tags.
-  4. TypeScript example lockfiles must record the current local VMx package
-     version so dependency refreshes cannot retain stale workspace metadata.
+  4. TypeScript and Rust example lockfiles must record the current local VMx
+     package version so dependency refreshes cannot retain stale workspace
+     metadata.
   5. Every current package version must have a non-empty bracketed CHANGELOG
      section before a release tag can publish an immutable artifact.
 
@@ -71,6 +72,10 @@ FLAVORS: tuple[str, ...] = ("csharp", "python", "typescript", "swift", "rust")
 TYPESCRIPT_EXAMPLE_LOCKS: tuple[Path, ...] = (
     Path("examples/typescript/console/hello-vmx/package-lock.json"),
     Path("examples/typescript/react/notes-showcase/package-lock.json"),
+)
+RUST_EXAMPLE_LOCKS: tuple[Path, ...] = (
+    Path("examples/rust/console/hello-vmx/Cargo.lock"),
+    Path("examples/rust/tui/notes-showcase/Cargo.lock"),
 )
 CSHARP_TAG_PREFIXES: dict[str, str] = {
     "VMx": "csharp",
@@ -218,6 +223,35 @@ def check_typescript_example_locks(repo_root: Path, expected_version: str) -> li
         if actual_version != expected_version:
             issues.append(
                 f"  {relative_path}: local @thekaveh/vmx version {actual_version!r} "
+                f"!= manifest version {expected_version!r}"
+            )
+    return issues
+
+
+def check_rust_example_locks(repo_root: Path, expected_version: str) -> list[str]:
+    """Report stale local ``vmx-rs`` metadata in tracked Rust example locks."""
+    issues: list[str] = []
+    for relative_path in RUST_EXAMPLE_LOCKS:
+        lock_path = repo_root / relative_path
+        if not lock_path.is_file():
+            continue
+        package_blocks = re.findall(
+            r"(?ms)^\[\[package\]\]\s*\n(.*?)(?=^\[\[package\]\]|\Z)",
+            lock_path.read_text(encoding="utf-8"),
+        )
+        local_blocks = [
+            block
+            for block in package_blocks
+            if re.search(r'^name = "vmx-rs"$', block, re.MULTILINE)
+        ]
+        if not local_blocks:
+            issues.append(f"  {relative_path}: local vmx-rs package metadata is missing")
+            continue
+        version_match = re.search(r'^version = "([^"]*)"$', local_blocks[0], re.MULTILINE)
+        actual_version = version_match.group(1) if version_match else ""
+        if actual_version != expected_version:
+            issues.append(
+                f"  {relative_path}: local vmx-rs version {actual_version!r} "
                 f"!= manifest version {expected_version!r}"
             )
     return issues
@@ -1027,6 +1061,9 @@ def main(argv: Iterable[str] | None = None) -> int:
     typescript_version = manifests.get("typescript", {}).get("version", "")
     if typescript_version:
         msv_issues.extend(check_typescript_example_locks(repo_root, typescript_version))
+    rust_version = manifests.get("rust", {}).get("version", "")
+    if rust_version:
+        msv_issues.extend(check_rust_example_locks(repo_root, rust_version))
     all_missing = find_missing_tags(spec_version, manifests, matrix_rows, tags)
 
     # Carve out current source lines first. Flavor package versions can advance
