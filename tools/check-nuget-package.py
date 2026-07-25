@@ -15,6 +15,26 @@ from zipfile import BadZipFile, ZipFile
 REPO_URL = "https://github.com/thekaveh/VMx"
 FRAMEWORKS = {"net8.0", ".NETStandard2.0"}
 _CORE_PROPERTIES = re.compile(r"^package/services/metadata/core-properties/[0-9a-f]+\.psmdcp$")
+_CORE_DEPENDENCIES = {
+    "net8.0": [("System.Reactive", "7.0.0")],
+    ".NETStandard2.0": [
+        ("Microsoft.Bcl.AsyncInterfaces", "8.0.0"),
+        ("System.Collections.Immutable", "10.0.10"),
+        ("System.Reactive", "7.0.0"),
+        ("System.Text.Json", "8.0.6"),
+    ],
+}
+_PACKAGE_DEPENDENCIES = {
+    "VMx": _CORE_DEPENDENCIES,
+    "VMx.Notifications": _CORE_DEPENDENCIES,
+    "VMx.Extensions.DependencyInjection": {
+        framework: [
+            ("Microsoft.Extensions.DependencyInjection.Abstractions", "8.0.2"),
+            *dependencies,
+        ]
+        for framework, dependencies in _CORE_DEPENDENCIES.items()
+    },
+}
 
 
 def expected_paths(package_id: str, *, symbols: bool) -> set[str]:
@@ -89,12 +109,18 @@ def _validate_nuspec(
         errors.append("nuspec dependency groups must be net8.0 and .NETStandard2.0")
     for group in groups:
         dependency_items = group.findall("{*}dependency")
-        dependencies = [(item.get("id"), item.get("version")) for item in dependency_items]
-        expected_dependencies = [] if vmx_floor is None else [("VMx", vmx_floor)]
-        if dependencies != expected_dependencies:
+        dependencies = [
+            (item.get("id") or "", item.get("version") or "") for item in dependency_items
+        ]
+        framework = group.get("targetFramework", "")
+        expected_dependencies = [
+            *([] if vmx_floor is None else [("VMx", vmx_floor)]),
+            *_PACKAGE_DEPENDENCIES.get(package_id, {}).get(framework, []),
+        ]
+        if sorted(dependencies) != sorted(expected_dependencies):
             errors.append(
-                f"{group.get('targetFramework')} dependencies must be exactly "
-                f"{expected_dependencies}"
+                f"{framework} dependencies must be exactly "
+                f"{sorted(expected_dependencies)}; found {sorted(dependencies)}"
             )
     return errors
 
