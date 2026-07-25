@@ -173,10 +173,12 @@ jobs:
         run: npm ci --prefix examples/typescript/console/hello-vmx
 
       - name: console example type-check
-        run: npm run typecheck --prefix examples/typescript/console/hello-vmx
+        # The library was installed and built once above. Suppress only the
+        # example's pretypecheck hook so CI does not reinstall/rebuild it.
+        run: npm run typecheck --prefix examples/typescript/console/hello-vmx --ignore-scripts
 
       - name: console example smoke
-        run: npm start --prefix examples/typescript/console/hello-vmx
+        run: npm start --prefix examples/typescript/console/hello-vmx --ignore-scripts
 
       - name: notes-showcase install
         # `npm ci` requires a checked-in package-lock.json — committed under
@@ -190,10 +192,10 @@ jobs:
         run: npm audit --prefix examples/typescript/react/notes-showcase --package-lock-only --audit-level=moderate
 
       - name: notes-showcase test
-        run: npm test --prefix examples/typescript/react/notes-showcase
+        run: npm test --prefix examples/typescript/react/notes-showcase --ignore-scripts
 
       - name: notes-showcase type-check
-        run: npm run typecheck --prefix examples/typescript/react/notes-showcase
+        run: npm run typecheck --prefix examples/typescript/react/notes-showcase --ignore-scripts
 
       - name: notes-showcase lint
         # Includes the Pure-VM import and hub-subscription restrictions for
@@ -201,7 +203,7 @@ jobs:
         run: npm run lint --prefix examples/typescript/react/notes-showcase
 
       - name: notes-showcase production build
-        run: npm run build --prefix examples/typescript/react/notes-showcase
+        run: npm run build --prefix examples/typescript/react/notes-showcase --ignore-scripts
 
   required:
     timeout-minutes: 5

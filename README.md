@@ -366,6 +366,10 @@ This README is the entry point; the documents below add focused detail.
 - [`spec/README.md`](spec/README.md) — index of the 24 chapters, 127 ADRs,
   4 fixtures, and the 405-ID conformance catalog.
 - [`spec/ADRs/README.md`](spec/ADRs/README.md) — ADR catalogue index.
+- [`docs/audit/README.md`](docs/audit/README.md) — index of historical
+  documentation audit reports.
+- [`docs/assets/diagrams/README.md`](docs/assets/diagrams/README.md) — diagram
+  source, regeneration, and validation contract.
 - [`docs/content/primitives/disposal-contract.md`](docs/content/primitives/disposal-contract.md)
   — cross-flavor public disposal inventory and post-dispose contract.
 - Per-flavor READMEs (status, install, API surface, dev commands):
