@@ -192,7 +192,7 @@ def test_dispose_attempts_all_terminal_steps_and_preserves_first_failure() -> No
         ("_errors", lambda command, error: command._emit_error(error), RuntimeError("boom")),
     ],
 )
-def test_concurrent_dispose_waits_for_active_subject_emission(
+def test_concurrent_dispose_returns_but_defers_terminal_for_active_subject_emission(
     subject_name: str,
     emit: Callable[[AsyncRelayCommand, object], None],
     value: object,
@@ -235,6 +235,7 @@ def test_concurrent_dispose_waits_for_active_subject_emission(
     disposer.start()
     assert dispose_started.wait(1)
     disposed_during_emission = dispose_finished.wait(0.1)
+    assert completions == []
     release_emission.set()
 
     emitter.join(timeout=1)
@@ -242,10 +243,55 @@ def test_concurrent_dispose_waits_for_active_subject_emission(
 
     assert not emitter.is_alive()
     assert not disposer.is_alive()
-    assert not disposed_during_emission
+    assert disposed_during_emission
     assert emission_failures == []
     assert observed == [value]
     assert completions == [None]
+
+
+@pytest.mark.parametrize(
+    ("channel", "emit", "value"),
+    [
+        (
+            "can_execute_changed",
+            lambda command, _: command.raise_can_execute_changed(),
+            None,
+        ),
+        ("errors", lambda command, error: command._emit_error(error), RuntimeError("boom")),
+    ],
+)
+def test_observer_can_wait_for_foreign_disposer_without_deadlock(
+    channel: str,
+    emit: Callable[[AsyncRelayCommand, object], None],
+    value: object,
+) -> None:
+    command = AsyncRelayCommand.builder().build()
+    observable = getattr(command, channel)
+    dispose_finished = Event()
+    disposer_threads: list[Thread] = []
+    events: list[tuple[str, object]] = []
+
+    def observe(item: object) -> None:
+        events.append(("next", item))
+        disposer = Thread(
+            target=lambda: (command.dispose(), dispose_finished.set()),
+            daemon=True,
+        )
+        disposer_threads.append(disposer)
+        disposer.start()
+        assert dispose_finished.wait(1), "dispose must not wait on observer-held progress"
+
+    observable.subscribe(
+        observe,
+        on_completed=lambda: events.append(("complete", None)),
+    )
+
+    emit(command, value)
+    for disposer in disposer_threads:
+        disposer.join(timeout=1)
+
+    assert all(not disposer.is_alive() for disposer in disposer_threads)
+    assert events == [("next", value), ("complete", None)]
 
 
 @pytest.mark.parametrize(

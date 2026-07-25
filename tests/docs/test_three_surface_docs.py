@@ -649,6 +649,16 @@ def test_markdown_link_scanner_bounds_nested_candidate_validation() -> None:
     assert time.monotonic() - started < 3.0
 
 
+def test_markdown_link_scanner_bounds_unclosed_angle_recovery() -> None:
+    markdown = "[bad](<x " * 2_000 + "[Docs](guide.md)"
+    started = time.monotonic()
+
+    links = find_links(markdown)
+
+    assert links[-1].target == "guide.md"
+    assert time.monotonic() - started < 2.0
+
+
 @pytest.mark.parametrize(
     "markdown",
     [
@@ -661,6 +671,9 @@ def test_markdown_link_scanner_bounds_nested_candidate_validation() -> None:
         "[bad]( 'unterminated\n[Docs](guide.md)",
         '[bad]( "unterminated\n[Docs](guide.md)',
         "[bad]( <unterminated\n[Docs](guide.md)",
+        "[bad](foo 'unclosed [Docs](guide.md)",
+        '[bad](foo "unclosed [Docs](guide.md)',
+        "[bad](<unclosed [Docs](guide.md)",
     ],
 )
 def test_markdown_link_scanner_ignores_unmatched_prose_parentheses(
@@ -678,6 +691,7 @@ def test_markdown_link_scanner_ignores_unmatched_prose_parentheses(
         ("[Docs](guide.md 'title')", "Docs", "guide.md"),
         ("[Docs](guide.md (title))", "Docs", "guide.md"),
         ('[Docs](guide.md "line one\nline two")', "Docs", "guide.md"),
+        ('[Docs](guide.md "literal [Other](other.md) text")', "Docs", "guide.md"),
         ("[Docs](it's.md)", "Docs", "it's.md"),
         ('[Docs](say"hi.md)', "Docs", 'say"hi.md'),
         ("[Docs](foo'bar(baz).md)", "Docs", "foo'bar(baz).md"),

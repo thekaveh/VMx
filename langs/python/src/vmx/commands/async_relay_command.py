@@ -58,6 +58,7 @@ class AsyncRelayCommand:
         self._predicate = predicate
         self._throw_on_cancel = throw_on_cancel
         self._gate = RLock()
+        self._delivery_gate = RLock()
         self._can_execute_changed_subject: Subject[None] = Subject()
         self._errors: Subject[BaseException] = Subject()
         self._current_task: asyncio.Task[None] | None = None
@@ -224,11 +225,13 @@ class AsyncRelayCommand:
             if self._disposed:
                 return
             self._active_emissions += 1
-            try:
+        try:
+            with self._delivery_gate:
                 subject.on_next(value)
-            except BaseException as error:
-                delivery_error = error
-            finally:
+        except BaseException as error:
+            delivery_error = error
+        finally:
+            with self._gate:
                 self._active_emissions -= 1
                 if self._active_emissions == 0 and self._terminal_pending:
                     self._terminal_pending = False

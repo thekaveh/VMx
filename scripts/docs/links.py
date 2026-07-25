@@ -80,26 +80,58 @@ def _is_backslash_escaped(text: str, index: int) -> bool:
     return backslashes % 2 == 1
 
 
-def _quoted_title_closes(
-    text: str,
-    quote: str,
-    start: int,
-) -> bool:
-    index = start
-    while index < len(text):
+def _closure_lookaheads(text: str) -> tuple[dict[str, list[bool]], list[bool]]:
+    escaped = [False] * len(text)
+    index = 0
+    while index + 1 < len(text):
+        if text[index] == "\\":
+            escaped[index + 1] = True
+            index += 2
+        else:
+            index += 1
+
+    paragraph_breaks = {match.end() for match in re.finditer(r"\n[ \t]*\n", text)}
+    paragraph_ids: list[int] = []
+    paragraph = 0
+    for index in range(len(text)):
+        if index in paragraph_breaks:
+            paragraph += 1
+        paragraph_ids.append(paragraph)
+
+    next_nonspace = [len(text)] * len(text)
+    following = len(text)
+    for index in range(len(text) - 1, -1, -1):
+        next_nonspace[index] = following
+        if not text[index].isspace():
+            following = index
+
+    quote_ahead: dict[str, list[bool]] = {}
+    for quote in ('"', "'"):
+        ahead = [False] * (len(text) + 1)
+        seen_by_paragraph: dict[int, bool] = {}
+        for index in range(len(text) - 1, -1, -1):
+            paragraph = paragraph_ids[index]
+            ahead[index] = seen_by_paragraph.get(paragraph, False)
+            after = next_nonspace[index]
+            if (
+                text[index] == quote
+                and not escaped[index]
+                and after < len(text)
+                and paragraph_ids[after] == paragraph
+                and text[after] == ")"
+            ):
+                seen_by_paragraph[paragraph] = True
+        quote_ahead[quote] = ahead
+
+    angle_ahead = [False] * (len(text) + 1)
+    found = False
+    for index in range(len(text) - 1, -1, -1):
         if text[index] == "\n":
-            next_content = index + 1
-            while next_content < len(text) and text[next_content] in " \t":
-                next_content += 1
-            if next_content < len(text) and text[next_content] == "\n":
-                return False
-        if text[index] == quote and not _is_backslash_escaped(text, index):
-            after = index + 1
-            while after < len(text) and text[after].isspace():
-                after += 1
-            return after < len(text) and text[after] == ")"
-        index += 1
-    return False
+            found = False
+        elif text[index] == ">" and not escaped[index]:
+            found = True
+        angle_ahead[index] = found
+    return quote_ahead, angle_ahead
 
 
 def _balanced_pairs(
@@ -113,33 +145,53 @@ def _balanced_pairs(
     stack: list[int] = []
     pairs: dict[int, int] = {}
     quote: str | None = None
+    quote_closes = False
     angled = False
+    angle_closes = False
+    quote_lookahead: dict[str, list[bool]] = {}
+    angle_lookahead: list[bool] = []
+    if markdown_parentheses:
+        quote_lookahead, angle_lookahead = _closure_lookaheads(text)
     index = 0
     while index < len(text):
         character = text[index]
+        if (
+            markdown_parentheses
+            and stack
+            and candidate_openers is not None
+            and index in candidate_openers
+            and ((quote is not None and not quote_closes) or (angled and not angle_closes))
+        ):
+            stack.clear()
+            quote = None
+            quote_closes = False
+            angled = False
+            angle_closes = False
         if markdown_parentheses and stack and character == "\n":
             next_content = index + 1
             while next_content < len(text) and text[next_content] in " \t":
                 next_content += 1
             blank_line = next_content < len(text) and text[next_content] == "\n"
-            invalid_multiline_state = angled or (
-                quote is not None and not _quoted_title_closes(text, quote, index + 1)
-            )
+            invalid_multiline_state = angled or (quote is not None and not quote_closes)
             if blank_line or invalid_multiline_state:
                 stack.clear()
                 quote = None
+                quote_closes = False
                 angled = False
+                angle_closes = False
         if character == "\\":
             index += 2
             continue
         if quote is not None:
             if character == quote:
                 quote = None
+                quote_closes = False
             index += 1
             continue
         if angled:
             if character == ">":
                 angled = False
+                angle_closes = False
             index += 1
             continue
         if (
@@ -150,8 +202,10 @@ def _balanced_pairs(
             and text[index - 1].isspace()
         ):
             quote = character
+            quote_closes = quote_lookahead[quote][index + 1]
         elif markdown_parentheses and stack and character == "<":
             angled = True
+            angle_closes = angle_lookahead[index + 1]
         elif character == opener and (
             not markdown_parentheses
             or stack
