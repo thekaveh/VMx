@@ -274,18 +274,6 @@ public sealed class AsyncResourceVM<T> : ComponentVMBase
             RollBackStart(operation, error).Throw();
             throw;
         }
-        // Register only after Loading has been published. Registration invokes
-        // synchronously if cancellation raced admission, so the handler then
-        // publishes the restored baseline in the correct visible order.
-        operation.Registration = operation.Cancellation.Token.Register(
-            () => HandleCancellation(operation));
-
-        if (operation.Cancelled.Task.IsCompleted)
-        {
-            operation.Dispose();
-            return;
-        }
-
         Task<T> loaderTask;
         try
         {
@@ -296,6 +284,19 @@ public sealed class AsyncResourceVM<T> : ComponentVMBase
             loaderTask = Task.FromException<T>(error);
         }
         operation.LoaderTask = loaderTask;
+
+        // Register after the loader has installed its own token callbacks. .NET
+        // invokes cancellation callbacks in LIFO order, so VMx must invalidate
+        // and restore the operation before a loader callback can complete a
+        // value that would otherwise race into the accepted state.
+        operation.Registration = operation.Cancellation.Token.Register(
+            () => HandleCancellation(operation));
+
+        if (operation.Cancelled.Task.IsCompleted)
+        {
+            ObserveLate(operation, loaderTask);
+            return;
+        }
 
         var completed = await Task.WhenAny(loaderTask, operation.Cancelled.Task)
             .ConfigureAwait(false);

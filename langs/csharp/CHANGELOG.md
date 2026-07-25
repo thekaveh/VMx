@@ -10,6 +10,9 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 #### Fixed
 
+- Async-resource cancellation now invalidates the current acquisition before
+  loader cancellation callbacks can complete a value, preserving rollback and
+  exactly-once cleanup under direct, command, and external cancellation races.
 - `AsyncRelayCommand` now evaluates predicates outside its state lock, rejects
   re-entrant or disposal-invalidated admission, and preserves the first
   cancellation channel when command and caller cancellation race.

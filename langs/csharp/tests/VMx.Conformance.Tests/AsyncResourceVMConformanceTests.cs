@@ -370,12 +370,19 @@ public sealed class AsyncResourceVMConformanceTests
         using var hub = new MessageHub();
         var started = NewSource();
         var result = NewSource<int>();
+        var cancellationCallbackEntered = NewSource();
+        var releaseCancellationCallback = NewSource();
         var cleaned = new List<int>();
         var rollbackFailures = 0;
         var vm = Create(hub, token =>
         {
             started.TrySetResult();
-            token.Register(() => result.TrySetResult(42));
+            token.Register(() =>
+            {
+                result.TrySetResult(42);
+                cancellationCallbackEntered.TrySetResult();
+                releaseCancellationCallback.Task.GetAwaiter().GetResult();
+            });
             return result.Task;
         }, cleanup: cleaned.Add);
         vm.LoadCommand.CanExecuteChanged += (_, _) =>
@@ -394,16 +401,65 @@ public sealed class AsyncResourceVMConformanceTests
             if (useCommand) vm.CancelCommand.Execute(null);
             else vm.Cancel();
         };
-        cancel.Should().NotThrow();
+        var cancellation = Task.Run(cancel);
+        await cancellationCallbackEntered.Task;
+        try
+        {
+            await WaitUntilAsync(() => vm.State.Status != AsyncResourceStatus.Loading);
+            vm.State.Status.Should().Be(AsyncResourceStatus.Idle);
+        }
+        finally
+        {
+            releaseCancellationCallback.TrySetResult();
+        }
+        await cancellation;
         await load;
         await WaitUntilAsync(() => cleaned.Count == 1);
 
-        vm.State.Status.Should().Be(AsyncResourceStatus.Idle);
         cleaned.Should().Equal(42);
         rollbackFailures.Should().Be(1);
         vm.LoadCommand.CanExecute(null).Should().BeTrue();
         vm.ReloadCommand.CanExecute(null).Should().BeFalse();
         vm.CancelCommand.CanExecute(null).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task External_Cancellation_Invalidates_Before_Loader_Callback_Completes()
+    {
+        using var hub = new MessageHub();
+        using var cancellationSource = new CancellationTokenSource();
+        var cancellationCallbackEntered = NewSource();
+        var releaseCancellationCallback = NewSource();
+        var result = NewSource<int>();
+        var cleaned = new List<int>();
+        var vm = Create(hub, token =>
+        {
+            token.Register(() =>
+            {
+                result.TrySetResult(42);
+                cancellationCallbackEntered.TrySetResult();
+                releaseCancellationCallback.Task.GetAwaiter().GetResult();
+            });
+            return result.Task;
+        }, cleanup: cleaned.Add);
+        var load = vm.LoadAsync(cancellationSource.Token);
+
+        var cancellation = Task.Run(cancellationSource.Cancel);
+        await cancellationCallbackEntered.Task;
+        try
+        {
+            await WaitUntilAsync(() => vm.State.Status != AsyncResourceStatus.Loading);
+            vm.State.Status.Should().Be(AsyncResourceStatus.Idle);
+        }
+        finally
+        {
+            releaseCancellationCallback.TrySetResult();
+        }
+        await cancellation;
+        await load;
+        await WaitUntilAsync(() => cleaned.Count == 1);
+
+        cleaned.Should().Equal(42);
     }
 
     [Fact, Trait("Conformance", "ARES-007")]
