@@ -286,6 +286,43 @@ describe("CMD-013", () => {
 // ---------------------------------------------------------------------------
 
 describe("CMD-012", () => {
+  it("does not admit a task when the predicate disposes the command", async () => {
+    const task = vi.fn(() => Promise.resolve());
+    let cmd!: AsyncRelayCommand;
+    cmd = AsyncRelayCommand.builder()
+      .predicate(() => {
+        cmd.dispose();
+        return true;
+      })
+      .task(task)
+      .build();
+
+    await cmd.executeAsync();
+
+    expect(task).not.toHaveBeenCalled();
+    expect(cmd.isExecuting).toBe(false);
+    expect(cmd.canExecute()).toBe(false);
+  });
+
+  it("admits only one execution when the predicate reenters executeAsync", async () => {
+    const task = vi.fn(() => Promise.resolve());
+    let predicateCalls = 0;
+    let cmd!: AsyncRelayCommand;
+    cmd = AsyncRelayCommand.builder()
+      .predicate(() => {
+        predicateCalls++;
+        if (predicateCalls === 1) void cmd.executeAsync();
+        return true;
+      })
+      .task(task)
+      .build();
+
+    await cmd.executeAsync();
+
+    expect(predicateCalls).toBe(1);
+    expect(task).toHaveBeenCalledTimes(1);
+  });
+
   it("removes the external abort listener after normal completion", async () => {
     const external = new AbortController();
     const addSpy = vi.spyOn(external.signal, "addEventListener");
@@ -425,6 +462,74 @@ describe("CMD-012", () => {
     // by the non-throwing default (which covers only our own cancel()/dispose()).
     await expect(run).rejects.toBeDefined();
     expect(cmd.isExecuting).toBe(false);
+    cmd.dispose();
+  });
+
+  it("preserves an external-first cancellation when command cancel follows", async () => {
+    let startedResolve!: () => void;
+    const started = new Promise<void>((resolve) => {
+      startedResolve = resolve;
+    });
+    const external = new AbortController();
+    const cmd = AsyncRelayCommand.builder()
+      .task(
+        (signal) =>
+          new Promise<void>((_, reject) => {
+            startedResolve();
+            signal.addEventListener(
+              "abort",
+              () =>
+                reject(
+                  signal.reason instanceof Error
+                    ? signal.reason
+                    : new DOMException("Aborted", "AbortError"),
+                ),
+              { once: true },
+            );
+          }),
+      )
+      .build();
+    const run = cmd.executeAsync(external.signal);
+    await started;
+
+    external.abort();
+    cmd.cancel();
+
+    await expect(run).rejects.toBeDefined();
+    cmd.dispose();
+  });
+
+  it("preserves a command-first cancellation when external cancel follows", async () => {
+    let startedResolve!: () => void;
+    const started = new Promise<void>((resolve) => {
+      startedResolve = resolve;
+    });
+    const external = new AbortController();
+    const cmd = AsyncRelayCommand.builder()
+      .task(
+        (signal) =>
+          new Promise<void>((_, reject) => {
+            startedResolve();
+            signal.addEventListener(
+              "abort",
+              () =>
+                reject(
+                  signal.reason instanceof Error
+                    ? signal.reason
+                    : new DOMException("Aborted", "AbortError"),
+                ),
+              { once: true },
+            );
+          }),
+      )
+      .build();
+    const run = cmd.executeAsync(external.signal);
+    await started;
+
+    cmd.cancel();
+    external.abort();
+
+    await expect(run).resolves.toBeUndefined();
     cmd.dispose();
   });
 

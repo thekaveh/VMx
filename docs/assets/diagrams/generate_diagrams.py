@@ -1377,7 +1377,7 @@ def class_architecture() -> Diagram:
             Relationship("class extends", ((1270, 616), (1210, 616)), (1240, 535)),
             Relationship(
                 "implements",
-                ((465, 744), (465, 700), (195, 700), (195, 852)),
+                ((465, 744), (465, 700), (195, 700), (195, 756)),
                 (310, 740),
             ),
             Relationship(

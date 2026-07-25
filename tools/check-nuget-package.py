@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import argparse
 import re
+import stat
 import sys
 import xml.etree.ElementTree as ET
+from collections import Counter
 from pathlib import Path
 from zipfile import BadZipFile, ZipFile
 
@@ -86,15 +88,13 @@ def _validate_nuspec(
     if {group.get("targetFramework") for group in groups} != FRAMEWORKS:
         errors.append("nuspec dependency groups must be net8.0 and .NETStandard2.0")
     for group in groups:
-        dependencies = {
-            item.get("id"): item.get("version") for item in group.findall("{*}dependency")
-        }
-        if vmx_floor is None:
-            if "VMx" in dependencies:
-                errors.append("core package must not depend on itself")
-        elif dependencies.get("VMx") != vmx_floor:
+        dependency_items = group.findall("{*}dependency")
+        dependencies = [(item.get("id"), item.get("version")) for item in dependency_items]
+        expected_dependencies = [] if vmx_floor is None else [("VMx", vmx_floor)]
+        if dependencies != expected_dependencies:
             errors.append(
-                f"{group.get('targetFramework')} VMx dependency must be exactly {vmx_floor}"
+                f"{group.get('targetFramework')} dependencies must be exactly "
+                f"{expected_dependencies}"
             )
     return errors
 
@@ -111,7 +111,23 @@ def validate_package_pair(
             continue
         try:
             with ZipFile(archive) as package:
-                paths = set(package.namelist())
+                members = package.infolist()
+                names = [member.filename for member in members]
+                duplicates = sorted(name for name, count in Counter(names).items() if count > 1)
+                for name in duplicates:
+                    errors.append(f"{archive.name}: duplicate package file: {name}")
+                for member in members:
+                    mode = member.external_attr >> 16
+                    if member.create_system == 3 and stat.S_ISLNK(mode):
+                        errors.append(
+                            f"{archive.name}: symbolic links are forbidden: {member.filename}"
+                        )
+                core_properties = [name for name in names if _CORE_PROPERTIES.fullmatch(name)]
+                if len(core_properties) != 1:
+                    errors.append(
+                        f"{archive.name}: expected exactly one core-properties metadata file"
+                    )
+                paths = set(names)
                 expected = expected_paths(package_id, symbols=symbols)
                 normalized = _normalized_paths(paths)
                 for path in sorted(expected - normalized):

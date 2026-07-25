@@ -30,6 +30,37 @@ private actor CancellationObservation {
     }
 }
 
+private actor CancellationRaceGate {
+    private var observed = false
+    private var released = false
+    private var observationWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func runUntilReleasedAfterCancellation() async throws {
+        while !Task.isCancelled {
+            await Task.yield()
+        }
+        observed = true
+        observationWaiters.forEach { $0.resume() }
+        observationWaiters.removeAll()
+        if !released {
+            await withCheckedContinuation { releaseWaiters.append($0) }
+        }
+        throw CancellationError()
+    }
+
+    func waitUntilObserved() async {
+        if observed { return }
+        await withCheckedContinuation { observationWaiters.append($0) }
+    }
+
+    func release() {
+        released = true
+        releaseWaiters.forEach { $0.resume() }
+        releaseWaiters.removeAll()
+    }
+}
+
 final class AsyncRelayCommandTests: XCTestCase {
 
     // MARK: - CMD-012
@@ -246,6 +277,59 @@ final class AsyncRelayCommandTests: XCTestCase {
         let bodyWasCancelled = await observation.bodyWasCancelled
         XCTAssertTrue(bodyWasCancelled)
         XCTAssertFalse(cmd.isExecuting)
+        cmd.dispose()
+    }
+
+    func testCmd012ExternalFirstCancellationRemainsThrowing() async {
+        let startedExp = expectation(description: "external-first body is running")
+        let gate = CancellationRaceGate()
+        let cmd = AsyncRelayCommand.builder()
+            .task {
+                startedExp.fulfill()
+                try await gate.runUntilReleasedAfterCancellation()
+            }
+            .build()
+        let run = Task<Void, Error> { try await cmd.executeAsync() }
+        await fulfillment(of: [startedExp], timeout: 2.0)
+
+        run.cancel()
+        await gate.waitUntilObserved()
+        cmd.cancel()
+        await gate.release()
+
+        do {
+            try await run.value
+            XCTFail("external-first cancellation must remain throwing")
+        } catch is CancellationError {
+            // Expected.
+        } catch {
+            XCTFail("external-first cancellation must preserve CancellationError; got: \(error)")
+        }
+        cmd.dispose()
+    }
+
+    func testCmd012CommandFirstCancellationRemainsNonthrowing() async {
+        let startedExp = expectation(description: "command-first body is running")
+        let gate = CancellationRaceGate()
+        let cmd = AsyncRelayCommand.builder()
+            .task {
+                startedExp.fulfill()
+                try await gate.runUntilReleasedAfterCancellation()
+            }
+            .build()
+        let run = Task<Void, Error> { try await cmd.executeAsync() }
+        await fulfillment(of: [startedExp], timeout: 2.0)
+
+        cmd.cancel()
+        await gate.waitUntilObserved()
+        run.cancel()
+        await gate.release()
+
+        do {
+            try await run.value
+        } catch {
+            XCTFail("command-first cancellation must remain nonthrowing; got: \(error)")
+        }
         cmd.dispose()
     }
 

@@ -8,6 +8,12 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
+#### Fixed
+
+- `AsyncRelayCommand` now evaluates predicates outside its state lock, rejects
+  re-entrant or disposal-invalidated admission, and preserves the first
+  cancellation channel when command and caller cancellation race.
+
 ### VMx.Notifications
 
 ### VMx.Extensions.DependencyInjection

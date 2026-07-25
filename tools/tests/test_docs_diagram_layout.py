@@ -57,8 +57,6 @@ def _on_perimeter(point, box) -> bool:
 
 def _segment_enters_box(start, end, box) -> bool:
     """Return whether a segment enters the strict interior of an axis-aligned box."""
-    if _on_perimeter(start, box) or _on_perimeter(end, box):
-        return False
     intervals = []
     for first, second, low, high in (
         (start[0], end[0], box.x, box.x + box.w),

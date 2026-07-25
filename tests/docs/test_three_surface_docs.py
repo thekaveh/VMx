@@ -74,6 +74,24 @@ def test_descendant_heading_numbers_ignore_fenced_code() -> None:
     assert _check_descendant_heading_numbers(markdown, "3.1", Path("page.md")) == []
 
 
+def test_descendant_heading_numbers_respect_longer_and_container_fences() -> None:
+    markdown = """# 3.1. Page
+
+## 3.1.1. Real
+
+````markdown
+```
+## Not a real heading
+```
+````
+
+> ```markdown
+> ## Also not a real heading
+> ```
+"""
+    assert _check_descendant_heading_numbers(markdown, "3.1", Path("page.md")) == []
+
+
 def test_manifest_loads_all_canonical_pages() -> None:
     manifest = load_manifest(ROOT / "docs/manifest.yaml", ROOT)
     sources = {section.source for section in manifest.pages()}
@@ -101,6 +119,38 @@ def test_forbidden_link_matrix_keeps_surfaces_self_contained() -> None:
     assert is_forbidden("https://thekaveh.github.io/VMx/quickstart/", "wiki")
     assert is_forbidden("https://github.com/thekaveh/VMx/wiki", "repo")
     assert not is_forbidden("https://example.com/VMx", "site")
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        "HTTPS://GITHUB.COM/thekaveh/VMx/wiki",
+        "https://github.com/thekaveh/VMx%2Fwiki",
+        "https://github.com/thekaveh/VMx&#x2F;wiki",
+    ],
+)
+def test_surface_containment_normalizes_equivalent_url_spellings(target: str) -> None:
+    assert is_forbidden(target, "repo")
+
+
+def test_surface_containment_requires_a_repository_path_boundary() -> None:
+    assert not is_forbidden("https://github.com/thekaveh/VMxOther/wiki", "repo")
+
+
+def test_repo_self_containment_normalizes_markdown_and_html_targets(
+    tmp_path: Path,
+) -> None:
+    readme = tmp_path / "README.md"
+    readme.write_text(
+        "[Wiki](HTTPS://GITHUB.COM/thekaveh/VMx/wiki)\n"
+        '<a href="https://github.com/thekaveh/VMx&#x2F;wiki">Wiki</a>\n',
+        encoding="utf-8",
+    )
+
+    findings = check_self_containment(tmp_path)
+
+    assert len(findings) == 2
+    assert all("forbidden repo-surface link" in item.message for item in findings)
 
 
 def test_repo_self_containment_scans_current_facing_markdown(tmp_path: Path) -> None:
@@ -223,6 +273,34 @@ def test_generated_wiki_link_check_rejects_malformed_and_missing_targets(
     assert len(findings) == 2
     assert any("malformed wiki link" in finding.message for finding in findings)
     assert any("wiki target does not exist: Absent" in finding.message for finding in findings)
+
+
+@pytest.mark.parametrize(
+    "definition",
+    [
+        "[guide]: missing.md",
+        "> [guide]: missing.md",
+        "- item\n\n  [guide]: missing.md",
+    ],
+)
+def test_reference_style_links_are_rejected_in_canonical_and_wiki_docs(
+    tmp_path: Path,
+    definition: str,
+) -> None:
+    canonical = tmp_path / "docs/content/index.md"
+    canonical.parent.mkdir(parents=True)
+    canonical.write_text(f"[Guide][guide]\n\n{definition}\n", encoding="utf-8")
+    wiki = tmp_path / "generated/wiki/Home.md"
+    wiki.parent.mkdir(parents=True)
+    wiki.write_text(f"[Guide][guide]\n\n{definition}\n", encoding="utf-8")
+
+    canonical_findings = check_canonical_links(tmp_path)
+    wiki_findings = check_generated_wiki_links(tmp_path)
+
+    assert any(
+        "reference-style links are unsupported" in item.message for item in canonical_findings
+    )
+    assert any("unsupported reference-style link" in item.message for item in wiki_findings)
 
 
 def test_canonical_docs_reject_raw_html_heading_elements(tmp_path: Path) -> None:
@@ -674,6 +752,9 @@ def test_markdown_link_scanner_bounds_unclosed_angle_recovery() -> None:
         "[bad](foo 'unclosed [Docs](guide.md)",
         '[bad](foo "unclosed [Docs](guide.md)',
         "[bad](<unclosed [Docs](guide.md)",
+        "[bad](foo 'unclosed [Docs](guide.md 'title')",
+        '[bad](foo "unclosed [Docs](guide.md "title")',
+        "[bad](<unclosed [Docs](<guide.md>)",
     ],
 )
 def test_markdown_link_scanner_ignores_unmatched_prose_parentheses(

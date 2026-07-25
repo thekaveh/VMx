@@ -91,6 +91,22 @@ MESSAGE_FIELDS = {
         "expected_observed",
     },
 }
+LIFECYCLE_STATES = [
+    "Disposed",
+    "Destructing",
+    "Destructed",
+    "Constructing",
+    "Constructed",
+]
+LIFECYCLE_OPERATIONS = {"construct", "destruct", "reconstruct", "dispose"}
+
+
+def _is_bool(value: object) -> bool:
+    return isinstance(value, bool)
+
+
+def _is_string_list(value: object) -> bool:
+    return isinstance(value, list) and all(isinstance(item, str) for item in value)
 
 
 def _object(path: Path) -> dict[str, Any]:
@@ -110,6 +126,14 @@ def validate_fixture(path: Path) -> list[str]:
         return [f"{path.name}: {error}"]
     errors: list[str] = []
     if path.name == "lifecycle-transitions.json":
+        if value.get("states") != LIFECYCLE_STATES:
+            errors.append(f"{path.name}: states must contain the exact lifecycle state inventory")
+        if value.get("initial_state") != "Destructed":
+            errors.append(f"{path.name}: initial_state must be 'Destructed'")
+        if value.get("terminal_states") != ["Disposed"]:
+            errors.append(f"{path.name}: terminal_states must be ['Disposed']")
+        if not isinstance(value.get("notes"), dict):
+            errors.append(f"{path.name}: notes must be an object")
         rows = value.get("transitions")
         if not isinstance(rows, list):
             return [f"{path.name}: transitions must be an array"]
@@ -124,6 +148,22 @@ def validate_fixture(path: Path) -> list[str]:
             for row in rows
         ):
             errors.append(f"{path.name}: every transition must contain the exact required fields")
+        states = set(LIFECYCLE_STATES)
+        if any(
+            not isinstance(row, dict)
+            or row.get("from") not in states
+            or row.get("via") not in LIFECYCLE_OPERATIONS
+            or row.get("to_intermediate") not in states | {None}
+            or row.get("to_final") not in states | {None}
+            or not _is_bool(row.get("legal"))
+            or (
+                row.get("legal") is False
+                and (row.get("to_intermediate") is not None or row.get("to_final") is not None)
+            )
+            or (row.get("legal") is True and row.get("to_final") is None)
+            for row in rows
+        ):
+            errors.append(f"{path.name}: transition values violate lifecycle domains")
         return errors
 
     array_name, id_name, expected = EXPECTED_IDS[path.name]
@@ -147,9 +187,29 @@ def validate_fixture(path: Path) -> list[str]:
     }[path.name]
     if any(not isinstance(row, dict) or set(row) != required_fields(row) for row in rows):
         errors.append(f"{path.name}: every row must contain its exact required fields")
-    if path.name == "derived-properties.json":
+    if path.name == "command-truthtable.json":
+        if any(
+            not isinstance(row, dict)
+            or not (row.get("predicate") is None or _is_bool(row.get("predicate")))
+            or row.get("task") not in {"noop", None}
+            or any(
+                not _is_bool(row.get(field))
+                for field in (
+                    "trigger_emits",
+                    "can_execute",
+                    "execute_invokes_task",
+                    "can_execute_changed_fires",
+                )
+            )
+            for row in rows
+        ):
+            errors.append(f"{path.name}: row values violate command field domains")
+    elif path.name == "derived-properties.json":
         transforms = value.get("transforms")
-        if not isinstance(transforms, dict):
+        if not isinstance(transforms, dict) or not all(
+            isinstance(name, str) and isinstance(expression, str)
+            for name, expression in transforms.items()
+        ):
             errors.append(f"{path.name}: transforms must be an object")
         else:
             for row in rows:
@@ -157,9 +217,58 @@ def validate_fixture(path: Path) -> list[str]:
                     errors.append(f"{path.name}: scenario references an unknown transform")
                 if (
                     isinstance(row, dict)
-                    and len(row.get("expected_values", [])) != len(row.get("mutations", [])) + 1
+                    and isinstance(row.get("expected_values"), list)
+                    and isinstance(row.get("mutations"), list)
+                    and len(row["expected_values"]) != len(row["mutations"]) + 1
                 ):
                     errors.append(f"{path.name}: expected_values must cover initial plus mutations")
+        if any(
+            not isinstance(row, dict)
+            or not isinstance(row.get("sources_initial"), list)
+            or not row["sources_initial"]
+            or not isinstance(row.get("transform"), str)
+            or not isinstance(row.get("mutations"), list)
+            or not isinstance(row.get("expected_values"), list)
+            or any(
+                not isinstance(mutation, list)
+                or len(mutation) != 2
+                or not isinstance(mutation[0], int)
+                or isinstance(mutation[0], bool)
+                or mutation[0] < 0
+                or mutation[0] >= len(row["sources_initial"])
+                for mutation in row.get("mutations", [])
+            )
+            for row in rows
+        ):
+            errors.append(f"{path.name}: scenario values violate derived-property domains")
+    elif path.name == "message-ordering.json":
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            arrays = [
+                value
+                for key, value in row.items()
+                if key.startswith("producer_sends") or key.startswith("expected_observed")
+            ]
+            if (
+                not isinstance(row.get("description"), str)
+                or not row["description"].strip()
+                or any(not _is_string_list(items) for items in arrays)
+                or (
+                    "subscriber_count" in row
+                    and (
+                        not isinstance(row["subscriber_count"], int)
+                        or isinstance(row["subscriber_count"], bool)
+                        or row["subscriber_count"] < 1
+                    )
+                )
+                or (
+                    "unsubscribe_after_first" in row
+                    and not _is_bool(row["unsubscribe_after_first"])
+                )
+            ):
+                errors.append(f"{path.name}: scenario values violate message field domains")
+                break
     return errors
 
 

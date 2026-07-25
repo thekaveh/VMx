@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `AsyncRelayCommand` now preserves the first cancellation channel, so later
+  command cancellation cannot hide an externally cancelled parent task.
+
 ## [3.23.0] — 2026-07-23
 
 ### Added

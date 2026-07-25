@@ -88,6 +88,43 @@ async def test_fire_and_forget_routes_body_failure_before_completion_observer() 
     assert str(errors[0]) == "body failure"
 
 
+@pytest.mark.asyncio
+async def test_external_cancellation_remains_throwing_when_command_cancel_follows() -> None:
+    started = asyncio.Event()
+
+    async def task() -> None:
+        started.set()
+        await asyncio.sleep(3600)
+
+    command = AsyncRelayCommand.builder().task(task).build()
+    run = asyncio.create_task(command.execute_async())
+    await started.wait()
+
+    run.cancel()
+    command.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await run
+
+
+@pytest.mark.asyncio
+async def test_command_cancellation_remains_nonthrowing_when_external_cancel_follows() -> None:
+    started = asyncio.Event()
+
+    async def task() -> None:
+        started.set()
+        await asyncio.sleep(3600)
+
+    command = AsyncRelayCommand.builder().task(task).build()
+    run = asyncio.create_task(command.execute_async())
+    await started.wait()
+
+    command.cancel()
+    run.cancel()
+
+    await run
+
+
 def test_execute_without_running_loop_returns_before_async_work_finishes() -> None:
     started = Event()
     release = Event()
@@ -292,6 +329,54 @@ def test_observer_can_wait_for_foreign_disposer_without_deadlock(
 
     assert all(not disposer.is_alive() for disposer in disposer_threads)
     assert events == [("next", value), ("complete", None)]
+
+
+@pytest.mark.parametrize(
+    ("source_channel", "source_emit", "source_value", "target_emit", "target_value"),
+    [
+        (
+            "can_execute_changed",
+            lambda command, _: command.raise_can_execute_changed(),
+            None,
+            lambda command, error: command._emit_error(error),
+            RuntimeError("boom"),
+        ),
+        (
+            "errors",
+            lambda command, error: command._emit_error(error),
+            RuntimeError("boom"),
+            lambda command, _: command.raise_can_execute_changed(),
+            None,
+        ),
+    ],
+)
+def test_observer_can_wait_for_other_channel_emission_without_deadlock(
+    source_channel: str,
+    source_emit: Callable[[AsyncRelayCommand, object], None],
+    source_value: object,
+    target_emit: Callable[[AsyncRelayCommand, object], None],
+    target_value: object,
+) -> None:
+    command = AsyncRelayCommand.builder().build()
+    target_finished = Event()
+    target_threads: list[Thread] = []
+
+    def observe(_: object) -> None:
+        target = Thread(
+            target=lambda: (target_emit(command, target_value), target_finished.set()),
+            daemon=True,
+        )
+        target_threads.append(target)
+        target.start()
+        assert target_finished.wait(1), "independent channels must not share delivery progress"
+
+    getattr(command, source_channel).subscribe(observe)
+
+    source_emit(command, source_value)
+    for target in target_threads:
+        target.join(timeout=1)
+
+    assert all(not target.is_alive() for target in target_threads)
 
 
 @pytest.mark.parametrize(

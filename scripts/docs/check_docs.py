@@ -13,7 +13,12 @@ import yaml
 from markdown_it import MarkdownIt
 
 from scripts.docs import build_docs
-from scripts.docs.links import find_html_link_attributes, find_links, is_forbidden
+from scripts.docs.links import (
+    find_html_link_attributes,
+    find_links,
+    find_reference_links,
+    is_forbidden,
+)
 from scripts.docs.manifest import load_manifest
 
 PLACEHOLDER_RE = re.compile(r"\b(TODO|TBD|FIXME)\b")
@@ -133,7 +138,10 @@ def check_self_containment(repo_root: Path) -> list[Finding]:
             for link in links:
                 if not link.image and not _visible_markdown_text(link.label):
                     findings.append(
-                        Finding("error", f"{path}: generated link has a whitespace-only label")
+                        Finding(
+                            "error",
+                            f"{path}: generated link has a whitespace-only label",
+                        )
                     )
             targets = [link.target for link in links]
             targets.extend(attribute.target for attribute in find_html_link_attributes(text))
@@ -197,19 +205,12 @@ def _heading_anchors(path: Path) -> set[str]:
 
 
 def _without_fenced_code(markdown: str) -> str:
-    output: list[str] = []
-    fence: str | None = None
-    for line in markdown.splitlines(keepends=True):
-        stripped = line.lstrip()
-        if stripped.startswith(("```", "~~~")):
-            marker = stripped[:3]
-            fence = None if fence == marker else marker if fence is None else fence
-            output.append("\n")
-        elif fence is None:
-            output.append(line)
-        else:
-            output.append("\n")
-    return "".join(output)
+    lines = markdown.splitlines(keepends=True)
+    hidden: set[int] = set()
+    for token in MarkdownIt("commonmark").parse(markdown):
+        if token.type in {"fence", "code_block"} and token.map is not None:
+            hidden.update(range(*token.map))
+    return "".join("\n" if index in hidden else line for index, line in enumerate(lines))
 
 
 def check_canonical_links(repo_root: Path) -> list[Finding]:
@@ -217,6 +218,14 @@ def check_canonical_links(repo_root: Path) -> list[Finding]:
     findings: list[Finding] = []
     for path in _scan_markdown(repo_root / "docs/content"):
         text = _without_fenced_code(path.read_text(encoding="utf-8"))
+        for reference in find_reference_links(text):
+            findings.append(
+                Finding(
+                    "error",
+                    f"{path.relative_to(repo_root)}: reference-style links are unsupported; "
+                    f"use an inline link for {reference.label}",
+                )
+            )
         targets = [link.target for link in find_links(text)]
         targets.extend(attribute.target for attribute in find_html_link_attributes(text))
         for target in targets:
@@ -253,6 +262,14 @@ def check_generated_wiki_links(repo_root: Path) -> list[Finding]:
     findings: list[Finding] = []
     for path in _scan_markdown(wiki_root):
         text = _without_fenced_code(path.read_text(encoding="utf-8"))
+        for reference in find_reference_links(text):
+            findings.append(
+                Finding(
+                    "error",
+                    f"{path.relative_to(repo_root)}: generated wiki contains an unsupported "
+                    f"reference-style link: {reference.label}",
+                )
+            )
         for line_number, line in enumerate(text.splitlines(), start=1):
             scrubbed = WIKI_LINK_RE.sub("", line)
             if ("[[" in scrubbed or "]]" in scrubbed) and "|" in scrubbed:
@@ -503,17 +520,8 @@ def _check_descendant_heading_numbers(
     """Validate baked H2-H6 numbering while ignoring fenced examples."""
     findings: list[Finding] = []
     counters = [0, 0, 0, 0, 0]
-    fence: str | None = None
 
-    for line_number, line in enumerate(markdown.splitlines(), start=1):
-        stripped = line.lstrip()
-        if stripped.startswith(("```", "~~~")):
-            marker = stripped[:3]
-            fence = None if fence == marker else marker if fence is None else fence
-            continue
-        if fence is not None:
-            continue
-
+    for line_number, line in enumerate(_without_fenced_code(markdown).splitlines(), start=1):
         match = ATX_HEADING_RE.match(line)
         if match is None:
             continue

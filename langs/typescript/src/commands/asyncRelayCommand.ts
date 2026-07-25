@@ -23,6 +23,7 @@ import type { Observable } from "rxjs";
 import type { IAsyncCommand } from "./types.js";
 
 type AsyncTask = (signal: AbortSignal) => Promise<void>;
+type CancellationOrigin = "command" | "external";
 
 export class AsyncRelayCommand implements IAsyncCommand {
   readonly #task: AsyncTask;
@@ -33,12 +34,12 @@ export class AsyncRelayCommand implements IAsyncCommand {
   // Single root Subscription (VMX-094): exception-safe trigger teardown.
   readonly #subscriptions = new Subscription();
   #controller: AbortController | null = null;
+  #evaluatingPredicate = false;
   #isExecuting = false;
   #disposed = false;
-  // Set by cancel()/dispose() so the catch swallows only a cancellation we
-  // requested through the command's own channel; a cancellation from the
-  // externally-supplied AbortSignal (flag unset) is re-raised per spec/04 §10.3.
-  #cancelRequested = false;
+  // First cancellation channel to affect the current execution. A later command
+  // cancel must not retroactively hide an already-external cancellation.
+  #cancellationOrigin: CancellationOrigin | null = null;
 
   constructor(
     task: AsyncTask | null,
@@ -85,11 +86,16 @@ export class AsyncRelayCommand implements IAsyncCommand {
   canExecute(): boolean {
     if (this.#disposed) return false;
     if (this.#isExecuting) return false;
+    if (this.#evaluatingPredicate) return false;
     if (this.#predicate === null) return true;
+    this.#evaluatingPredicate = true;
     try {
-      return this.#predicate();
+      const allowed = this.#predicate();
+      return allowed && this.#isAdmissionStillValid();
     } catch {
       return false;
+    } finally {
+      this.#evaluatingPredicate = false;
     }
   }
 
@@ -103,16 +109,20 @@ export class AsyncRelayCommand implements IAsyncCommand {
 
   async executeAsync(externalSignal?: AbortSignal): Promise<void> {
     if (!this.canExecute()) return;
-    this.#cancelRequested = false;
+    this.#cancellationOrigin = null;
 
     const controller = new AbortController();
     this.#controller = controller;
     let externalAbortListener: (() => void) | null = null;
     if (externalSignal !== undefined) {
       if (externalSignal.aborted) {
+        this.#cancellationOrigin = "external";
         controller.abort(externalSignal.reason);
       } else {
-        externalAbortListener = () => controller.abort(externalSignal.reason);
+        externalAbortListener = () => {
+          this.#cancellationOrigin ??= "external";
+          controller.abort(externalSignal.reason);
+        };
         externalSignal.addEventListener(
           "abort",
           externalAbortListener,
@@ -129,13 +139,9 @@ export class AsyncRelayCommand implements IAsyncCommand {
       // Non-throwing default (DIA-007 alignment): swallow only a cancellation we
       // requested through the command's own channel (cancel()/dispose()) unless
       // throwing is opted in. A cancellation from the externally-supplied signal
-      // (#cancelRequested false) is re-raised per spec/04 §10.3; arbitrary task
-      // faults after abort still propagate.
-      // #cancelRequested is flipped true by cancel()/dispose() DURING the awaited
-      // task above, so the control-flow narrowing to `false` from the start-of-method
-      // reset does not hold here.
-      // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-      if (this.#cancelRequested && isCancellationError(err)) {
+      // remains external even if cancel() follows, and is re-raised per spec/04
+      // §10.3; arbitrary task faults after abort still propagate.
+      if (this.#wasCommandCancellation() && isCancellationError(err)) {
         if (this.#throwOnCancel) {
           throw err;
         }
@@ -148,20 +154,30 @@ export class AsyncRelayCommand implements IAsyncCommand {
       }
       this.#isExecuting = false;
       this.#controller = null;
+      this.#cancellationOrigin = null;
       this.raiseCanExecuteChanged();
     }
   }
 
   cancel(): void {
-    this.#cancelRequested = true;
+    if (!this.#isExecuting) return;
+    this.#cancellationOrigin ??= "command";
     this.#controller?.abort();
+  }
+
+  #wasCommandCancellation(): boolean {
+    return this.#cancellationOrigin === "command";
+  }
+
+  #isAdmissionStillValid(): boolean {
+    return !this.#disposed && !this.#isExecuting;
   }
 
   /** Idempotent: subsequent calls are a no-op. */
   dispose(): void {
     if (this.#disposed) return;
     this.#disposed = true;
-    this.#cancelRequested = true;
+    if (this.#isExecuting) this.#cancellationOrigin ??= "command";
     this.#controller?.abort();
     this.#canExecuteChangedSubject.complete();
     this.#errorsSubject.complete();

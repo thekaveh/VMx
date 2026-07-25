@@ -10,6 +10,155 @@ namespace VMx.Tests.Commands;
 public class AsyncRelayCommandTests
 {
     [Fact]
+    public async Task Predicate_Can_Wait_For_Foreign_Dispose_Without_Deadlock()
+    {
+        using var disposeFinished = new ManualResetEventSlim();
+        var disposeFinishedInsidePredicate = false;
+        Thread? disposer = null;
+        AsyncRelayCommand? command = null;
+        command = AsyncRelayCommand.Builder()
+            .Predicate(() =>
+            {
+                disposer = new Thread(() =>
+                {
+                    command!.Dispose();
+                    disposeFinished.Set();
+                });
+                disposer.Start();
+                disposeFinishedInsidePredicate = disposeFinished.Wait(TimeSpan.FromSeconds(1));
+                return true;
+            })
+            .Task(_ => Task.CompletedTask)
+            .Build();
+
+        await command.ExecuteAsync();
+        disposer!.Join(TimeSpan.FromSeconds(1)).Should().BeTrue();
+
+        disposeFinishedInsidePredicate.Should().BeTrue();
+        command.IsExecuting.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Predicate_Disposal_Prevents_Task_Admission()
+    {
+        var calls = 0;
+        AsyncRelayCommand? command = null;
+        command = AsyncRelayCommand.Builder()
+            .Predicate(() =>
+            {
+                command!.Dispose();
+                return true;
+            })
+            .Task(_ =>
+            {
+                calls++;
+                return Task.CompletedTask;
+            })
+            .Build();
+
+        await command.ExecuteAsync();
+
+        calls.Should().Be(0);
+        command.IsExecuting.Should().BeFalse();
+        command.CanExecute(null).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Reentrant_Predicate_Admits_Only_Outer_Execution()
+    {
+        var predicateCalls = 0;
+        var taskCalls = 0;
+        AsyncRelayCommand? command = null;
+        command = AsyncRelayCommand.Builder()
+            .Predicate(() =>
+            {
+                predicateCalls++;
+                if (predicateCalls == 1)
+                    _ = command!.ExecuteAsync();
+                return true;
+            })
+            .Task(_ =>
+            {
+                taskCalls++;
+                return Task.CompletedTask;
+            })
+            .Build();
+
+        await command.ExecuteAsync();
+
+        predicateCalls.Should().Be(1);
+        taskCalls.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task External_Cancellation_Remains_Throwing_When_Command_Cancel_Follows()
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cancellationSeen = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var external = new CancellationTokenSource();
+        using var command = AsyncRelayCommand.Builder()
+            .Task(async token =>
+            {
+                started.SetResult();
+                try
+                {
+                    await Task.Delay(Timeout.Infinite, token);
+                }
+                catch (OperationCanceledException)
+                {
+                    cancellationSeen.SetResult();
+                    await release.Task;
+                    throw;
+                }
+            })
+            .Build();
+        var run = command.ExecuteAsync(null, external.Token);
+        await started.Task;
+
+        external.Cancel();
+        await cancellationSeen.Task;
+        command.Cancel();
+        release.SetResult();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await run);
+    }
+
+    [Fact]
+    public async Task Command_Cancellation_Remains_Nonthrowing_When_External_Cancel_Follows()
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var cancellationSeen = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var external = new CancellationTokenSource();
+        using var command = AsyncRelayCommand.Builder()
+            .Task(async token =>
+            {
+                started.SetResult();
+                try
+                {
+                    await Task.Delay(Timeout.Infinite, token);
+                }
+                catch (OperationCanceledException)
+                {
+                    cancellationSeen.SetResult();
+                    await release.Task;
+                    throw;
+                }
+            })
+            .Build();
+        var run = command.ExecuteAsync(null, external.Token);
+        await started.Task;
+
+        command.Cancel();
+        await cancellationSeen.Task;
+        external.Cancel();
+        release.SetResult();
+
+        await run;
+    }
+
+    [Fact]
     public async Task Start_Observer_Failure_Restores_Idle_Without_Running_Task()
     {
         var calls = 0;

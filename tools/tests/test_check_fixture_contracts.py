@@ -63,6 +63,58 @@ def test_rejects_missing_required_field(tmp_path: Path) -> None:
     )
     assert cfc.main(["--fixtures", str(fixtures)]) == 1
 
+
+@pytest.mark.parametrize(
+    ("name", "mutation"),
+    [
+        (
+            "lifecycle-transitions.json",
+            lambda value: value.__setitem__("states", ["Banana"]),
+        ),
+        (
+            "lifecycle-transitions.json",
+            lambda value: value.__setitem__("initial_state", "Banana"),
+        ),
+        (
+            "lifecycle-transitions.json",
+            lambda value: value.__setitem__("terminal_states", []),
+        ),
+        (
+            "lifecycle-transitions.json",
+            lambda value: value["transitions"][0].__setitem__("legal", "yes"),
+        ),
+        (
+            "command-truthtable.json",
+            lambda value: value["cases"][0].__setitem__("predicate", "maybe"),
+        ),
+        (
+            "command-truthtable.json",
+            lambda value: value["cases"][0].__setitem__("can_execute", 17),
+        ),
+        (
+            "derived-properties.json",
+            lambda value: value["scenarios"][0].__setitem__("sources_initial", "not-an-array"),
+        ),
+        (
+            "derived-properties.json",
+            lambda value: value["scenarios"][1].__setitem__("mutations", [[9, 20]]),
+        ),
+        (
+            "message-ordering.json",
+            lambda value: value["scenarios"][0].__setitem__("producer_sends", "ABC"),
+        ),
+        (
+            "message-ordering.json",
+            lambda value: value["scenarios"][2].__setitem__("subscriber_count", 0),
+        ),
+    ],
+)
+def test_rejects_values_outside_fixture_domains(tmp_path: Path, name: str, mutation) -> None:
+    fixtures = _copy_fixtures(tmp_path)
+    _mutate(fixtures / name, mutation)
+
+    assert cfc.main(["--fixtures", str(fixtures)]) == 1
+
     fixtures = _copy_fixtures(tmp_path / "schema")
     _mutate(
         fixtures / "message-ordering.json",

@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `AsyncRelayCommand` now rejects re-entrant or disposal-invalidated predicate
+  admission and preserves the first cancellation channel when command and
+  caller cancellation race.
+- The locked ESLint dependency graph now uses `brace-expansion` 5.0.8, removing
+  the unbounded-expansion denial-of-service advisory.
+
 ## [3.23.1] — 2026-07-23
 
 ### Changed

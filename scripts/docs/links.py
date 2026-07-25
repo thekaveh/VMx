@@ -1,18 +1,13 @@
 from __future__ import annotations
 
+import html
 import re
 from dataclasses import dataclass
+from urllib.parse import unquote, urlsplit
 
 from markdown_it import MarkdownIt
 from markdown_it.common.html_re import HTML_TAG_RE as COMMONMARK_HTML_TAG_RE
 
-REPO_URL = "https://github.com/thekaveh/VMx"
-WIKI_URL = "https://github.com/thekaveh/VMx/wiki"
-SITE_URL = "https://thekaveh.github.io/VMx"
-
-MARKDOWN_REFERENCE_LINK_RE = re.compile(
-    r"^ {0,3}\[(?P<label>[^\]]+)\]:\s*(?P<target>\S+)", re.MULTILINE
-)
 AUTOLINK_RE = re.compile(
     r"<(?P<target>"
     r"[A-Za-z][A-Za-z0-9+.-]{1,31}:[^<>\s]*"
@@ -108,25 +103,21 @@ def _closure_lookaheads(text: str) -> tuple[dict[str, list[bool]], list[bool]]:
     quote_ahead: dict[str, list[bool]] = {}
     for quote in ('"', "'"):
         ahead = [False] * (len(text) + 1)
-        seen_by_paragraph: dict[int, bool] = {}
+        first_closes_by_paragraph: dict[int, bool] = {}
         for index in range(len(text) - 1, -1, -1):
             paragraph = paragraph_ids[index]
-            ahead[index] = seen_by_paragraph.get(paragraph, False)
+            ahead[index] = first_closes_by_paragraph.get(paragraph, False)
             after = next_nonspace[index]
-            if (
-                text[index] == quote
-                and not escaped[index]
-                and after < len(text)
-                and paragraph_ids[after] == paragraph
-                and text[after] == ")"
-            ):
-                seen_by_paragraph[paragraph] = True
+            if text[index] == quote and not escaped[index]:
+                first_closes_by_paragraph[paragraph] = (
+                    after < len(text) and paragraph_ids[after] == paragraph and text[after] == ")"
+                )
         quote_ahead[quote] = ahead
 
     angle_ahead = [False] * (len(text) + 1)
     found = False
     for index in range(len(text) - 1, -1, -1):
-        if text[index] == "\n":
+        if text[index] in {"\n", "<"} and not escaped[index]:
             found = False
         elif text[index] == ">" and not escaped[index]:
             found = True
@@ -492,10 +483,7 @@ def find_html_link_attributes(markdown: str) -> list[HtmlLinkAttribute]:
 def find_links(markdown: str) -> list[Link]:
     links = [Link(link.label, link.target, link.image) for link in find_markdown_links(markdown)]
     masked = _masked_markdown(markdown, html=True)
-    links.extend(
-        Link(match.group("label"), match.group("target"))
-        for match in MARKDOWN_REFERENCE_LINK_RE.finditer(masked)
-    )
+    links.extend(find_reference_links(markdown))
     for match in AUTOLINK_RE.finditer(masked):
         if _is_backslash_escaped(masked, match.start()):
             continue
@@ -505,12 +493,55 @@ def find_links(markdown: str) -> list[Link]:
     return links
 
 
+def find_reference_links(markdown: str) -> list[Link]:
+    """Return CommonMark reference definitions, including container-nested ones."""
+    if not any("[" in line and "]:" in line for line in markdown.splitlines()):
+        return []
+    environment: dict[str, object] = {}
+    MarkdownIt("commonmark").parse(markdown, environment)
+    references = environment.get("references")
+    if not isinstance(references, dict):
+        return []
+
+    links: list[Link] = []
+    for label, definition in references.items():
+        if not isinstance(label, str) or not isinstance(definition, dict):
+            continue
+        target = definition.get("href")
+        if isinstance(target, str):
+            links.append(Link(label, target))
+    return links
+
+
+def _normalized_http_target(target: str) -> tuple[str, str] | None:
+    decoded = html.unescape(target.strip())
+    for _ in range(3):
+        unquoted = unquote(decoded)
+        if unquoted == decoded:
+            break
+        decoded = unquoted
+    parsed = urlsplit(decoded)
+    if parsed.scheme.lower() not in {"http", "https"} or parsed.hostname is None:
+        return None
+    return parsed.hostname.lower(), parsed.path.rstrip("/")
+
+
+def _path_is_at_or_below(path: str, root: str) -> bool:
+    return path == root or path.startswith(f"{root}/")
+
+
 def is_forbidden(target: str, surface: str) -> bool:
-    normalized = target.rstrip("/")
+    normalized = _normalized_http_target(target)
+    if normalized is None:
+        return False
+    host, path = normalized
+    is_repo = host == "github.com" and _path_is_at_or_below(path, "/thekaveh/VMx")
+    is_wiki = host == "github.com" and _path_is_at_or_below(path, "/thekaveh/VMx/wiki")
+    is_site = host == "thekaveh.github.io" and _path_is_at_or_below(path, "/VMx")
     if surface == "site":
-        return normalized.startswith(REPO_URL) or normalized.startswith(WIKI_URL)
+        return is_repo
     if surface == "wiki":
-        return normalized.startswith(SITE_URL) or normalized.startswith(REPO_URL)
+        return is_site or is_repo
     if surface == "repo":
-        return normalized.startswith(SITE_URL) or normalized.startswith(WIKI_URL)
+        return is_site or is_wiki
     raise ValueError(f"unknown surface: {surface}")
