@@ -66,7 +66,10 @@ jobs:
         run: python3 tools/check-showcase-parity.py
 
       - name: source accessibility contracts
-        run: uvx --from pytest==9.1.1 pytest tools/tests/test_example_accessibility.py -q
+        run: >-
+          uvx --from pytest==9.1.1
+          --with markdown-it-py==4.2.0
+          pytest tools/tests/test_example_accessibility.py -q
 
       - name: install React showcase dependencies
         run: npm ci --prefix examples/typescript/react/notes-showcase

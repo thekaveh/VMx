@@ -26,12 +26,7 @@ def _build_workspace() -> tuple[WorkspaceVM, InMemoryNoteRepository]:
         load_all_delay=0.0,
         load_notes_delay=0.0,
     )
-    workspace = (
-        WorkspaceVM.builder()
-        .repository(repo)
-        .dialog_service(NullDialogService())
-        .build()
-    )
+    workspace = WorkspaceVM.builder().repository(repo).dialog_service(NullDialogService()).build()
     return workspace, repo
 
 
@@ -90,9 +85,7 @@ async def test_selecting_another_notebook_rebinds_the_notes_list() -> None:
         first_id = workspace.notes_view.bound_notebook_id
         assert first_id is not None
 
-        other = next(
-            nb for nb in workspace.notebooks_root.roots if nb.model.id != first_id
-        )
+        other = next(nb for nb in workspace.notebooks_root.roots if nb.model.id != first_id)
         # The tree's on_tree_node_selected handler performs exactly this
         # assignment; everything downstream is the wiring under test.
         workspace.notebooks_root.current = other
@@ -254,21 +247,14 @@ async def test_rapid_notebook_switch_lands_on_the_last_selection() -> None:
         load_all_delay=0.0,
         load_notes_delay=0.05,
     )
-    workspace = (
-        WorkspaceVM.builder()
-        .repository(repo)
-        .dialog_service(NullDialogService())
-        .build()
-    )
+    workspace = WorkspaceVM.builder().repository(repo).dialog_service(NullDialogService()).build()
     await workspace.construct_async()
     app = NotesShowcaseApp(workspace)
     async with app.run_test(size=(160, 50)) as pilot:
         await _settle(pilot)
         nb_a = workspace.notebooks_root.current
         assert nb_a is not None
-        nb_b = next(
-            nb for nb in workspace.notebooks_root.roots if nb.model.id != nb_a.model.id
-        )
+        nb_b = next(nb for nb in workspace.notebooks_root.roots if nb.model.id != nb_a.model.id)
 
         workspace.notebooks_root.current = nb_b
         workspace.notebooks_root.current = nb_a

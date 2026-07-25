@@ -44,7 +44,7 @@ class TextualDispatcher:
 
     def __init__(self, app: App[object]) -> None:
         self._app = app
-        loop = app._loop  # noqa: SLF001 — Textual exposes the loop only privately.
+        loop = app._loop
         if loop is None:
             raise RuntimeError(
                 "TextualDispatcher requires a running App event loop; "

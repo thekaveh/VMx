@@ -12,7 +12,6 @@ from typing import cast
 
 import pytest
 from reactivex.scheduler import ImmediateScheduler
-
 from vmx import MessageHub, PropertyChangedMessage, RxDispatcher
 from vmx.messages.protocols import Message
 
@@ -31,9 +30,7 @@ from notes_showcase.viewmodels.theme_vm import ThemeVM, ThemeVMBuilder
 
 def _build(initial: ThemeModel = DARK_PRESET) -> ThemeVM:
     hub = MessageHub[Message]()
-    dispatcher = RxDispatcher(
-        foreground=ImmediateScheduler(), background=ImmediateScheduler()
-    )
+    dispatcher = RxDispatcher(foreground=ImmediateScheduler(), background=ImmediateScheduler())
     vm = (
         ThemeVM.builder()
         .name("theme")
@@ -274,9 +271,7 @@ def test_follow_system_command_default_adopts_dark_preset_under_flag() -> None:
 
 def test_follow_system_command_uses_custom_provider() -> None:
     hub = MessageHub[Message]()
-    dispatcher = RxDispatcher(
-        foreground=ImmediateScheduler(), background=ImmediateScheduler()
-    )
+    dispatcher = RxDispatcher(foreground=ImmediateScheduler(), background=ImmediateScheduler())
     vm = (
         ThemeVM.builder()
         .name("theme")

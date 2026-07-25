@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import cast
 
 from reactivex.scheduler import ImmediateScheduler
-
 from vmx import (
     ICollapsible,
     IExpandable,
@@ -85,9 +84,7 @@ def test_setting_model_emits_model_and_notebook_name_messages() -> None:
         )
     )
 
-    vm.model = NotebookModel(
-        id=vm.model.id, name="New Name", parent_id=vm.model.parent_id
-    )
+    vm.model = NotebookModel(id=vm.model.id, name="New Name", parent_id=vm.model.parent_id)
 
     assert "model" in observed
     assert "notebook_name" in observed

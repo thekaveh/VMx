@@ -4,10 +4,8 @@ and :func:`on_derived_change` (Phase 5.b binding-gap #3).
 
 from __future__ import annotations
 
-from textual.widgets import Static
-
 from reactivex.subject import BehaviorSubject
-
+from textual.widgets import Static
 from vmx import from_sources
 
 from notes_showcase.views.adapter import bind_derived_property, on_derived_change

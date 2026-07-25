@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from textual.widgets import Tree
 from textual.widgets.tree import TreeNode
-
 from vmx.components.protocols import ComponentVMProto
 
 

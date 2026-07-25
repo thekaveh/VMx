@@ -6,7 +6,6 @@ from datetime import datetime, timezone
 
 import pytest
 from reactivex.scheduler import ImmediateScheduler
-
 from vmx import MessageHub, RxDispatcher
 from vmx.messages.protocols import Message
 
@@ -28,9 +27,7 @@ def _bootstrap() -> tuple[StatusBarVM, NotesViewVM, NotebooksRootVM, NoteFormVM]
         add_notebook_delay=0.0,
     )
     hub = MessageHub[Message]()
-    dispatcher = RxDispatcher(
-        foreground=ImmediateScheduler(), background=ImmediateScheduler()
-    )
+    dispatcher = RxDispatcher(foreground=ImmediateScheduler(), background=ImmediateScheduler())
     notebooks = (
         NotebooksRootVM.builder()
         .name("notebooks")
@@ -39,19 +36,9 @@ def _bootstrap() -> tuple[StatusBarVM, NotesViewVM, NotebooksRootVM, NoteFormVM]
         .build()
     )
     notes_view = (
-        NotesViewVM.builder()
-        .name("notes")
-        .services(hub, dispatcher)
-        .repository(repo)
-        .build()
+        NotesViewVM.builder().name("notes").services(hub, dispatcher).repository(repo).build()
     )
-    note_form = (
-        NoteFormVM.builder()
-        .name("form")
-        .services(hub, dispatcher)
-        .repository(repo)
-        .build()
-    )
+    note_form = NoteFormVM.builder().name("form").services(hub, dispatcher).repository(repo).build()
     status = (
         StatusBarVM.builder()
         .name("status")

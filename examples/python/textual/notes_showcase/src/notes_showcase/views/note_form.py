@@ -31,38 +31,22 @@ from notes_showcase.views.adapter import (
 )
 
 
-def _wire_bindings(view: "NoteFormView") -> CompositeDisposable:
+def _wire_bindings(view: NoteFormView) -> CompositeDisposable:
     vm = view._vm
     return CompositeDisposable(
         # Two-way scalar bindings (binding-gap #1 fix).
-        bind_property_two_way(
-            view.query_one("#form_title", Input), "value", vm, "title"
-        ),
-        bind_property(
-            view.query_one("#form_title_error", Static), "renderable", vm, "title_error"
-        ),
-        bind_property_two_way(
-            view.query_one("#form_starred", Checkbox), "value", vm, "starred"
-        ),
-        bind_property_two_way(
-            view.query_one("#form_body", TextArea), "text", vm, "body"
-        ),
+        bind_property_two_way(view.query_one("#form_title", Input), "value", vm, "title"),
+        bind_property(view.query_one("#form_title_error", Static), "renderable", vm, "title_error"),
+        bind_property_two_way(view.query_one("#form_starred", Checkbox), "value", vm, "starred"),
+        bind_property_two_way(view.query_one("#form_body", TextArea), "text", vm, "body"),
         # Tag draft (text input) + add/save/revert commands.
-        bind_property_two_way(
-            view.query_one("#form_tag_draft", Input), "value", vm, "tag_draft"
-        ),
+        bind_property_two_way(view.query_one("#form_tag_draft", Input), "value", vm, "tag_draft"),
         bind_command(view.query_one("#form_add_tag", Button), vm.add_tag_command),
-        bind_command(
-            view.query_one("#form_mode_edit", Button), vm.show_edit_mode_command
-        ),
-        bind_command(
-            view.query_one("#form_mode_preview", Button), vm.show_preview_mode_command
-        ),
+        bind_command(view.query_one("#form_mode_edit", Button), vm.show_edit_mode_command),
+        bind_command(view.query_one("#form_mode_preview", Button), vm.show_preview_mode_command),
         bind_command(view.query_one("#form_save", Button), vm.approve_command),
         bind_command(view.query_one("#form_revert", Button), vm.deny_command),
-        bind_property(
-            view.query_one("#form_body", TextArea), "display", vm, "is_edit_mode"
-        ),
+        bind_property(view.query_one("#form_body", TextArea), "display", vm, "is_edit_mode"),
         bind_property(
             view.query_one("#form_body_preview", Static),
             "display",
@@ -93,9 +77,7 @@ def _wire_bindings(view: "NoteFormView") -> CompositeDisposable:
         # Dirty marker ← DerivedProperty (binding-gap #3 fix). Uses the
         # bridge that subscribes to ``DerivedProperty.value_changed`` rather
         # than the hub (DerivedProperty does not publish PropertyChangedMessage).
-        bind_derived_property(
-            view.query_one("#form_status", Static), "renderable", vm.is_dirty
-        ),
+        bind_derived_property(view.query_one("#form_status", Static), "renderable", vm.is_dirty),
     )
 
 

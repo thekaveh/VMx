@@ -8,11 +8,11 @@ commands.
 
 from __future__ import annotations
 
-from typing import cast
+from typing import ClassVar, cast
 
 from reactivex.abc import DisposableBase
 from textual.app import App
-from textual.binding import Binding
+from textual.binding import Binding, BindingType
 from textual.widgets import Input
 
 from notes_showcase.viewmodels.workspace_vm import WorkspaceVM
@@ -24,7 +24,7 @@ class NotesShowcaseApp(App[None]):
     """Notes Workspace TUI rooted at a :class:`WorkspaceVM`."""
 
     CSS_PATH = "theme.tcss"
-    BINDINGS = [
+    BINDINGS: ClassVar[list[BindingType]] = [
         Binding("ctrl+s", "save", "Save"),
         Binding("ctrl+n", "new_note", "New note"),
         Binding("ctrl+shift+n", "new_notebook", "New notebook"),
@@ -42,9 +42,7 @@ class NotesShowcaseApp(App[None]):
         # (THEME-001..005). bind_theme seeds the current palette and re-applies
         # on every effective change; the subscription is released on unmount.
         # cast: App[None] → App[object] (the adapter ignores the ReturnType).
-        self._theme_subscription = bind_theme(
-            cast("App[object]", self), self.workspace.theme
-        )
+        self._theme_subscription = bind_theme(cast("App[object]", self), self.workspace.theme)
 
     def on_unmount(self) -> None:
         if self._theme_subscription is not None:

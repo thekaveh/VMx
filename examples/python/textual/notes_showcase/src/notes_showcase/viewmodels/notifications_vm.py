@@ -14,7 +14,6 @@ from datetime import timedelta
 
 from reactivex.abc import DisposableBase, SchedulerBase
 from reactivex.scheduler import TimeoutScheduler
-
 from vmx import (
     ComponentVM,
     MessageHub,
@@ -176,11 +175,7 @@ class NotificationsVMBuilder:
         if self._notification_hub is None:
             raise ValueError("notification_hub is required")
         hub = self._hub if self._hub is not None else MessageHub[Message]()
-        dispatcher = (
-            self._dispatcher
-            if self._dispatcher is not None
-            else RxDispatcher.immediate()
-        )
+        dispatcher = self._dispatcher if self._dispatcher is not None else RxDispatcher.immediate()
         return NotificationsVM(
             name=self._name,
             hint=self._hint,

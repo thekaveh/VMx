@@ -29,7 +29,7 @@ def _summary(visible: object) -> str:
     return "\n".join(vm.notification.message for vm in visible)  # type: ignore[attr-defined]
 
 
-def _wire_bindings(view: "NotificationsView") -> CompositeDisposable:
+def _wire_bindings(view: NotificationsView) -> CompositeDisposable:
     # ``visible`` is an ObservableList; the bounded mirror publishes a
     # PropertyChangedMessage on every sync (see NotificationsVM._sync_*),
     # so bind_property re-reads the collection and the transform renders a

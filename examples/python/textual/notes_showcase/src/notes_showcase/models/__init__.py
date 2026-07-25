@@ -16,12 +16,12 @@ from notes_showcase.models.theme_model import (
 __all__ = [
     "DARK_PRESET",
     "HIGH_CONTRAST_PRESET",
+    "LIGHT_PRESET",
+    "PRESETS",
     "INoteRepository",
     "InMemoryNoteRepository",
-    "LIGHT_PRESET",
     "NoteModel",
     "NotebookModel",
-    "PRESETS",
     "ThemeModel",
     "build_seed",
 ]

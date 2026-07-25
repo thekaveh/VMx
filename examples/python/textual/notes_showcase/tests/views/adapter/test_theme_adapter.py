@@ -24,7 +24,6 @@ from notes_showcase.views.adapter.theme_adapter import (
     bind_theme,
 )
 
-
 # ── Pure projection ────────────────────────────────────────────────────────
 
 

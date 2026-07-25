@@ -18,7 +18,6 @@ import asyncio
 
 import pytest
 from reactivex.scheduler import ImmediateScheduler
-
 from vmx import MessageHub, RxDispatcher
 from vmx.messages.protocols import Message
 from vmx.notifications import NotificationHub
@@ -30,7 +29,6 @@ from notes_showcase.models.seed import build_seed
 from notes_showcase.viewmodels.note_form_vm import NoteFormVM
 from notes_showcase.viewmodels.notes_view_vm import NotesViewVM
 from notes_showcase.viewmodels.workspace_vm import WorkspaceVM
-
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -125,9 +123,7 @@ async def test_note_form_approve_swallows_repo_save_failure() -> None:
         save_note_delay=0.0,
     )
     hub = MessageHub[Message]()
-    dispatcher = RxDispatcher(
-        foreground=ImmediateScheduler(), background=ImmediateScheduler()
-    )
+    dispatcher = RxDispatcher(foreground=ImmediateScheduler(), background=ImmediateScheduler())
     notification_hub = NotificationHub()
     form = (
         NoteFormVM.builder()
@@ -194,9 +190,7 @@ async def test_rapid_notebook_selection_b_wins_over_stale_a() -> None:
         save_note_delay=0.0,
     )
     hub = MessageHub[Message]()
-    dispatcher = RxDispatcher(
-        foreground=ImmediateScheduler(), background=ImmediateScheduler()
-    )
+    dispatcher = RxDispatcher(foreground=ImmediateScheduler(), background=ImmediateScheduler())
     view = (
         NotesViewVM.builder()
         .name("notes")
@@ -241,9 +235,7 @@ async def test_capability_actions_add_note_disabled_for_readonly_notebook() -> N
       * CapabilityActionsVM's predicate consults notes_view
     """
     seed_notebooks = [
-        NotebookModel(
-            id="nb-readonly", name="Archive", parent_id=None, is_readonly=True
-        ),
+        NotebookModel(id="nb-readonly", name="Archive", parent_id=None, is_readonly=True),
     ]
     ws, _ = _build_workspace((seed_notebooks, []))
     await ws.construct_async()

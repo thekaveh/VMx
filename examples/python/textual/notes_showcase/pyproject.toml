@@ -66,3 +66,13 @@ explicit_package_bases = true
 [[tool.mypy.overrides]]
 module = ["reactivex.*"]
 ignore_missing_imports = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/conformance/*.py" = ["N802"]

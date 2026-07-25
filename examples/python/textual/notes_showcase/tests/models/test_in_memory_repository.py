@@ -173,9 +173,7 @@ def test_build_seed_is_deterministic() -> None:
         ("nb-archive", 0),
     ],
 )
-async def test_seed_distribution_matches_csharp(
-    notebook_id: str, expected_count: int
-) -> None:
+async def test_seed_distribution_matches_csharp(notebook_id: str, expected_count: int) -> None:
     repo = _fast_repo()
     notes = await repo.load_notes(notebook_id)
     assert len(notes) == expected_count

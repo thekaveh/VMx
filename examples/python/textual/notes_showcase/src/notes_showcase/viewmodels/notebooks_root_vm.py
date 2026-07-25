@@ -18,9 +18,6 @@ from __future__ import annotations
 import dataclasses
 import uuid
 
-from notes_showcase.models.note_repository import INoteRepository
-from notes_showcase.models.notebook_model import NotebookModel
-from notes_showcase.viewmodels.notebook_vm import NotebookVM
 from vmx import (
     AsyncRelayCommand,
     ComponentVM,
@@ -37,6 +34,10 @@ from vmx import (
 from vmx.messages.protocols import Message
 from vmx.notifications import INotificationHub, Notification, NotificationType
 from vmx.services.dispatcher import Dispatcher
+
+from notes_showcase.models.note_repository import INoteRepository
+from notes_showcase.models.notebook_model import NotebookModel
+from notes_showcase.viewmodels.notebook_vm import NotebookVM
 
 
 class NotebooksRootVM(ComponentVM, INewCreatable, IReconstructable):
@@ -247,11 +248,7 @@ class NotebooksRootVMBuilder:
         if self._repo is None:
             raise ValueError("repository is required")
         hub = self._hub if self._hub is not None else MessageHub[Message]()
-        dispatcher = (
-            self._dispatcher
-            if self._dispatcher is not None
-            else RxDispatcher.immediate()
-        )
+        dispatcher = self._dispatcher if self._dispatcher is not None else RxDispatcher.immediate()
         return NotebooksRootVM(
             name=self._name,
             hint=self._hint,

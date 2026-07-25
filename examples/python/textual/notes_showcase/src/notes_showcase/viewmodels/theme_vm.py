@@ -41,7 +41,6 @@ from collections.abc import Callable
 from typing import cast
 
 from reactivex.subject import BehaviorSubject
-
 from vmx import (
     ComponentVMOf,
     DerivedProperty,
@@ -105,9 +104,7 @@ class ThemeVM(ComponentVMOf[ThemeModel]):
             dispatcher=dispatcher,
         )
         self._host_theme_provider = (
-            host_theme_provider
-            if host_theme_provider is not None
-            else _default_host_theme_provider
+            host_theme_provider if host_theme_provider is not None else _default_host_theme_provider
         )
 
         # Drives both DerivedProperties. Seeded with the initial model; updated
@@ -178,10 +175,7 @@ class ThemeVM(ComponentVMOf[ThemeModel]):
         # follow_system_command — non-parameterised. Sets ``follows_system``
         # and adopts the host theme snapshot.
         self._follow_system_command: RelayCommand = (
-            RelayCommand.builder()
-            .predicate(lambda: True)
-            .task(self._follow_system_impl)
-            .build()
+            RelayCommand.builder().predicate(lambda: True).task(self._follow_system_impl).build()
         )
 
     # ── Public surface ──────────────────────────────────────────────────────
@@ -234,9 +228,7 @@ class ThemeVM(ComponentVMOf[ThemeModel]):
         if name is None or not name:
             return
         if name not in PRESETS:
-            raise ValueError(
-                f"Unknown theme preset: {name!r}. Known presets: {sorted(PRESETS)!r}."
-            )
+            raise ValueError(f"Unknown theme preset: {name!r}. Known presets: {sorted(PRESETS)!r}.")
         preset = PRESETS[name]
         # Preserve user-tuned accent + scale when switching presets? Per the
         # scenario the answer is "no — presets are atomic" — switching to a
@@ -342,9 +334,7 @@ class ThemeVMBuilder:
         """Set the initial :class:`ThemeModel`. Defaults to :data:`DARK_PRESET`."""
         return dataclasses.replace(self, _initial=value)
 
-    def services(
-        self, hub: MessageHubProto[Message], dispatcher: Dispatcher
-    ) -> ThemeVMBuilder:
+    def services(self, hub: MessageHubProto[Message], dispatcher: Dispatcher) -> ThemeVMBuilder:
         return dataclasses.replace(self, _hub=hub, _dispatcher=dispatcher)
 
     def host_theme_provider(self, provider: Callable[[], ThemeModel]) -> ThemeVMBuilder:
@@ -358,11 +348,7 @@ class ThemeVMBuilder:
         if self._name is None:
             raise ValueError("name is required")
         hub = self._hub if self._hub is not None else MessageHub[Message]()
-        dispatcher = (
-            self._dispatcher
-            if self._dispatcher is not None
-            else RxDispatcher.immediate()
-        )
+        dispatcher = self._dispatcher if self._dispatcher is not None else RxDispatcher.immediate()
         return ThemeVM(
             name=self._name,
             hint=self._hint,

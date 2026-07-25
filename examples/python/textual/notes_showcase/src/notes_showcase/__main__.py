@@ -20,12 +20,7 @@ from notes_showcase.views.app import NotesShowcaseApp
 
 async def main() -> None:
     repo = InMemoryNoteRepository(build_seed())
-    workspace = (
-        WorkspaceVM.builder()
-        .repository(repo)
-        .dialog_service(NullDialogService())
-        .build()
-    )
+    workspace = WorkspaceVM.builder().repository(repo).dialog_service(NullDialogService()).build()
     await workspace.construct_async()
     app = NotesShowcaseApp(workspace)
     # Late-bind the dialog service now that the App exists.

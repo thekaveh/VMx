@@ -7,7 +7,6 @@ from datetime import datetime, timezone
 
 import pytest
 from reactivex.scheduler import ImmediateScheduler
-
 from vmx import (
     IReconstructable,
     MessageHub,
@@ -22,21 +21,15 @@ from notes_showcase.models.seed import build_seed
 from notes_showcase.viewmodels.note_form_vm import NoteFormVM
 
 
-def _build_vm(
-    *, with_notification_hub: bool = False
-) -> tuple[NoteFormVM, NotificationHub | None]:
+def _build_vm(*, with_notification_hub: bool = False) -> tuple[NoteFormVM, NotificationHub | None]:
     repo = InMemoryNoteRepository(
         build_seed(),
         load_all_delay=0.0,
         save_note_delay=0.0,
     )
     hub = MessageHub[Message]()
-    dispatcher = RxDispatcher(
-        foreground=ImmediateScheduler(), background=ImmediateScheduler()
-    )
-    builder = (
-        NoteFormVM.builder().name("form").services(hub, dispatcher).repository(repo)
-    )
+    dispatcher = RxDispatcher(foreground=ImmediateScheduler(), background=ImmediateScheduler())
+    builder = NoteFormVM.builder().name("form").services(hub, dispatcher).repository(repo)
     notification_hub: NotificationHub | None = None
     if with_notification_hub:
         notification_hub = NotificationHub()
@@ -142,9 +135,7 @@ async def test_approve_persists_and_publishes_notification() -> None:
     assert vm.snapshot.title == "Edited title"
     assert vm.is_dirty.value is False
     # Notification posted — assert exactly one "Saved" with the new title.
-    saved = [
-        n for n in observed if "Saved" in n.message and "Edited title" in n.message
-    ]
+    saved = [n for n in observed if "Saved" in n.message and "Edited title" in n.message]
     assert len(saved) == 1
 
 
@@ -180,9 +171,7 @@ def test_remove_tag_drops_tag_case_insensitively() -> None:
     assert "alpha" not in vm.draft.tags
 
 
-async def test_tag_suggestions_filter_workspace_tag_catalog_through_searchable_state() -> (
-    None
-):
+async def test_tag_suggestions_filter_workspace_tag_catalog_through_searchable_state() -> None:
     vm, _ = _build_vm()
     vm.bind_to(_sample_note())
     vm.draft = dataclasses.replace(vm.draft, tags=())

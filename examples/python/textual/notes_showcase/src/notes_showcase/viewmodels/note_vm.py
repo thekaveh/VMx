@@ -55,10 +55,10 @@ class NoteVM(
         model: NoteModel,
         hub: MessageHubProto[Message],
         dispatcher: Dispatcher,
-        on_close: Callable[["NoteVM"], None] | None = None,
+        on_close: Callable[[NoteVM], None] | None = None,
         on_delete: NoteHandler | None = None,
         on_save: NoteHandler | None = None,
-        confirm_delete: Callable[["NoteVM"], Awaitable[bool]] | None = None,
+        confirm_delete: Callable[[NoteVM], Awaitable[bool]] | None = None,
         notification_hub: INotificationHub | None = None,
     ) -> None:
         super().__init__(
@@ -137,15 +137,15 @@ class NoteVM(
         if self._on_close is not None:
             self._on_close(self)
 
-    def can_delete(self, item: "NoteVM") -> bool:
+    def can_delete(self, item: NoteVM) -> bool:
         return item is self and self._status == ConstructionStatus.CONSTRUCTED
 
-    def delete(self, item: "NoteVM") -> None:
+    def delete(self, item: NoteVM) -> None:
         if not self.can_delete(item):
             return
         self._inner_delete_command.execute()
 
-    async def _perform_delete(self, item: "NoteVM") -> None:
+    async def _perform_delete(self, item: NoteVM) -> None:
         """Inner delete: invokes the host callback and posts the notification.
 
         Called by the (decorated) DeleteCommand pipeline after the confirm
@@ -166,15 +166,15 @@ class NoteVM(
                 )
             )
 
-    def can_save(self, item: "NoteVM") -> bool:
+    def can_save(self, item: NoteVM) -> bool:
         return item is self and self._status == ConstructionStatus.CONSTRUCTED
 
-    def save(self, item: "NoteVM") -> None:
+    def save(self, item: NoteVM) -> None:
         if not self.can_save(item):
             return
         self._save_command.execute()
 
-    async def _perform_save(self, item: "NoteVM") -> None:
+    async def _perform_save(self, item: NoteVM) -> None:
         if not self.can_save(item):
             return
         if self._on_save is not None:
@@ -258,9 +258,7 @@ class NoteVMBuilder:
     def model(self, value: NoteModel) -> NoteVMBuilder:
         return dataclasses.replace(self, _model=value)
 
-    def services(
-        self, hub: MessageHubProto[Message], dispatcher: Dispatcher
-    ) -> NoteVMBuilder:
+    def services(self, hub: MessageHubProto[Message], dispatcher: Dispatcher) -> NoteVMBuilder:
         return dataclasses.replace(self, _hub=hub, _dispatcher=dispatcher)
 
     def on_close(self, callback: Callable[[NoteVM], None]) -> NoteVMBuilder:
@@ -272,9 +270,7 @@ class NoteVMBuilder:
     def on_save(self, callback: NoteHandler) -> NoteVMBuilder:
         return dataclasses.replace(self, _on_save=callback)
 
-    def confirm_delete(
-        self, callback: Callable[[NoteVM], Awaitable[bool]]
-    ) -> NoteVMBuilder:
+    def confirm_delete(self, callback: Callable[[NoteVM], Awaitable[bool]]) -> NoteVMBuilder:
         """When set, :attr:`NoteVM.delete_command` is wrapped in a
         :class:`ConfirmationDecoratorCommand` calling this delegate. Typically
         wires to ``IDialogService.confirm(f"Delete “{note.title}”?")`` —
@@ -295,11 +291,7 @@ class NoteVMBuilder:
         if self._model is None:
             raise ValueError("model is required")
         hub = self._hub if self._hub is not None else MessageHub[Message]()
-        dispatcher = (
-            self._dispatcher
-            if self._dispatcher is not None
-            else RxDispatcher.immediate()
-        )
+        dispatcher = self._dispatcher if self._dispatcher is not None else RxDispatcher.immediate()
         return NoteVM(
             name=self._name,
             hint=self._hint,

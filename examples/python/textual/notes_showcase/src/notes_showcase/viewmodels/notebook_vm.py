@@ -14,7 +14,6 @@ from __future__ import annotations
 import dataclasses
 from collections.abc import Callable
 
-from notes_showcase.models.notebook_model import NotebookModel
 from vmx import (
     ComponentVMOf,
     ExpandableState,
@@ -29,6 +28,8 @@ from vmx import (
 )
 from vmx.messages.protocols import Message
 from vmx.services.dispatcher import Dispatcher
+
+from notes_showcase.models.notebook_model import NotebookModel
 
 
 class NotebookVM(
@@ -92,9 +93,7 @@ class NotebookVM(
             return []
         return self._children_getter(self)
 
-    def set_children_getter(
-        self, getter: Callable[[NotebookVM], list[NotebookVM]] | None
-    ) -> None:
+    def set_children_getter(self, getter: Callable[[NotebookVM], list[NotebookVM]] | None) -> None:
         """Late-bind the children resolver (used by :class:`NotebooksRootVM`)."""
         self._children_getter = getter
 
@@ -178,9 +177,7 @@ class NotebookVMBuilder:
     def model(self, value: NotebookModel) -> NotebookVMBuilder:
         return dataclasses.replace(self, _model=value)
 
-    def services(
-        self, hub: MessageHubProto[Message], dispatcher: Dispatcher
-    ) -> NotebookVMBuilder:
+    def services(self, hub: MessageHubProto[Message], dispatcher: Dispatcher) -> NotebookVMBuilder:
         return dataclasses.replace(self, _hub=hub, _dispatcher=dispatcher)
 
     def initially_expanded(self, value: bool) -> NotebookVMBuilder:
@@ -197,11 +194,7 @@ class NotebookVMBuilder:
         if self._model is None:
             raise ValueError("model is required")
         hub = self._hub if self._hub is not None else MessageHub[Message]()
-        dispatcher = (
-            self._dispatcher
-            if self._dispatcher is not None
-            else RxDispatcher.immediate()
-        )
+        dispatcher = self._dispatcher if self._dispatcher is not None else RxDispatcher.immediate()
         return NotebookVM(
             name=self._name,
             hint=self._hint,

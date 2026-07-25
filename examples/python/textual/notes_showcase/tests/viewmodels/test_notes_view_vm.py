@@ -5,7 +5,6 @@ from __future__ import annotations
 import pytest
 from reactivex.scheduler import ImmediateScheduler
 from reactivex.testing import TestScheduler
-
 from vmx import (
     ConstructionStatus,
     Filterable,
@@ -36,9 +35,7 @@ def _build(
         save_note_delay=0.0,
     )
     hub = MessageHub[Message]()
-    dispatcher = RxDispatcher(
-        foreground=ImmediateScheduler(), background=ImmediateScheduler()
-    )
+    dispatcher = RxDispatcher(foreground=ImmediateScheduler(), background=ImmediateScheduler())
     builder = (
         NotesViewVM.builder()
         .name("notes")
@@ -230,9 +227,7 @@ async def test_destruct_and_direct_dispose_release_all_note_children() -> None:
     assert destructed.inner.count == 0
     assert destructed.current is None
     assert destructed.bound_notebook_id is None
-    assert all(
-        child.status == ConstructionStatus.DISPOSED for child in destructed_children
-    )
+    assert all(child.status == ConstructionStatus.DISPOSED for child in destructed_children)
     destructed.dispose()
 
     disposed = _build()
@@ -244,9 +239,7 @@ async def test_destruct_and_direct_dispose_release_all_note_children() -> None:
 
     assert disposed.inner.count == 0
     assert disposed.bound_notebook_id is None
-    assert all(
-        child.status == ConstructionStatus.DISPOSED for child in disposed_children
-    )
+    assert all(child.status == ConstructionStatus.DISPOSED for child in disposed_children)
 
 
 # ── delete-confirmation symmetry: delete-with-confirm wiring ───
@@ -255,27 +248,26 @@ async def test_destruct_and_direct_dispose_release_all_note_children() -> None:
 class _AcceptDialog:
     """IDialogService stub that auto-accepts confirms."""
 
-    async def pick_file_to_open(self, filter=None, title=None) -> str | None:  # noqa: ARG002
+    async def pick_file_to_open(self, filter=None, title=None) -> str | None:
         return None
 
-    async def pick_file_to_save(
-        self, filter=None, title=None, suggested_name=None
-    ) -> str | None:  # noqa: ARG002
+    async def pick_file_to_save(self, filter=None, title=None, suggested_name=None) -> str | None:
         return None
 
-    async def confirm(self, message: str, title=None) -> bool:  # noqa: ARG002
+    async def confirm(self, message: str, title=None) -> bool:
         return True
 
-    async def notify(self, message, title=None, severity=None) -> None:  # noqa: ARG002
+    async def notify(self, message, title=None, severity=None) -> None:
         return None
 
 
-async def test_delete_via_dialog_removes_note_and_posts_notification(tmp_path) -> None:  # noqa: ARG001
+async def test_delete_via_dialog_removes_note_and_posts_notification(tmp_path) -> None:
     """When ``dialog_service`` + ``notification_hub`` are wired, a confirmed
     delete on a NoteVM removes it from the inner collection and posts a
     "Note deleted" notification.
     """
     import asyncio
+
     from vmx.notifications import Notification, NotificationHub
 
     repo = InMemoryNoteRepository(
@@ -286,9 +278,7 @@ async def test_delete_via_dialog_removes_note_and_posts_notification(tmp_path) -
         delete_note_delay=0.0,
     )
     hub = MessageHub[Message]()
-    dispatcher = RxDispatcher(
-        foreground=ImmediateScheduler(), background=ImmediateScheduler()
-    )
+    dispatcher = RxDispatcher(foreground=ImmediateScheduler(), background=ImmediateScheduler())
     notification_hub = NotificationHub()
     observed: list[Notification] = []
     notification_hub.pending.subscribe(
@@ -337,16 +327,8 @@ async def test_capability_save_persists_the_focused_note() -> None:
         save_note_delay=0.0,
     )
     hub = MessageHub[Message]()
-    dispatcher = RxDispatcher(
-        foreground=ImmediateScheduler(), background=ImmediateScheduler()
-    )
-    vm = (
-        NotesViewVM.builder()
-        .name("notes")
-        .services(hub, dispatcher)
-        .repository(repo)
-        .build()
-    )
+    dispatcher = RxDispatcher(foreground=ImmediateScheduler(), background=ImmediateScheduler())
+    vm = NotesViewVM.builder().name("notes").services(hub, dispatcher).repository(repo).build()
     vm.construct()
     await vm.bind_to_async("nb-personal")
     target = vm.inner[0]
@@ -357,9 +339,7 @@ async def test_capability_save_persists_the_focused_note() -> None:
     await asyncio.sleep(0.05)  # drain the fire-and-forget save
 
     persisted = await repo.load_notes(original.notebook_id)
-    assert any(
-        n.id == original.id and n.title == "Saved by capability bar" for n in persisted
-    )
+    assert any(n.id == original.id and n.title == "Saved by capability bar" for n in persisted)
 
 
 async def test_repository_search_notes_returns_token_pages_over_all_notes() -> None:
@@ -369,9 +349,7 @@ async def test_repository_search_notes_returns_token_pages_over_all_notes() -> N
 
     assert len(first[0]) == 2
     assert first[1] == "2"
-    assert all(
-        "review" in f"{n.title} {n.body} {' '.join(n.tags)}".lower() for n in first[0]
-    )
+    assert all("review" in f"{n.title} {n.body} {' '.join(n.tags)}".lower() for n in first[0])
 
     second = await repo.search_notes("review", token=first[1], page_size=2)
     assert len(second[0]) > 0
@@ -394,9 +372,7 @@ async def test_global_search_vm_refreshes_resets_terms_and_loads_more() -> None:
 
     repo = InMemoryNoteRepository(build_seed(), load_notes_delay=0.0)
     hub = MessageHub[Message]()
-    dispatcher = RxDispatcher(
-        foreground=ImmediateScheduler(), background=ImmediateScheduler()
-    )
+    dispatcher = RxDispatcher(foreground=ImmediateScheduler(), background=ImmediateScheduler())
     vm = (
         GlobalSearchVM.builder()
         .name("global-search")
