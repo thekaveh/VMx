@@ -601,6 +601,16 @@ def collect_manifests(repo_root: Path) -> dict[str, dict[str, str]]:
 # ─── matrix parser ────────────────────────────────────────────────────
 
 
+def _strip_html_comments(value: str) -> str:
+    """Remove complete HTML comments, including comments spanning newlines."""
+    while (start := value.find("<!--")) != -1:
+        end = value.find("-->", start + 4)
+        if end == -1:
+            return value[:start]
+        value = value[:start] + value[end + 3 :]
+    return value
+
+
 def parse_matrix(matrix_path: Path) -> list[dict[str, object]]:
     """Parse the main table from ``compatibility-matrix.md``.
 
@@ -670,7 +680,7 @@ def parse_matrix(matrix_path: Path) -> list[dict[str, object]]:
             raise ValueError(f"compatibility matrix row has the wrong column count: {stripped!r}")
         spec_cell = cells[0].strip()
         legacy_semantic_tag_only = "[^legacy-semantic-tag-only]" in spec_cell
-        spec_row = re.sub(r"<!--.*?-->|\[\^[^]]+\]", "", spec_cell).strip()
+        spec_row = re.sub(r"\[\^[^]]+\]", "", _strip_html_comments(spec_cell)).strip()
         if not _SPEC_ROW_RE.fullmatch(spec_row):
             raise ValueError(f"compatibility matrix spec claim {spec_cell!r} is not exact X.Y.x")
         if spec_row in seen_spec_rows:
@@ -689,7 +699,7 @@ def parse_matrix(matrix_path: Path) -> list[dict[str, object]]:
             cell = cells[idx].strip() if idx < len(cells) else ""
             # Strip documented annotations while validating the entire remaining
             # version claim rather than accepting a SemVer-looking substring.
-            cell = re.sub(r"<!--.*?-->|\[\^[^]]+\]|\s*\([^)]*\)", "", cell).strip()
+            cell = re.sub(r"\[\^[^]]+\]|\s*\([^)]*\)", "", _strip_html_comments(cell)).strip()
             if cell in ("—", "-", ""):
                 row[flavor] = []
             else:

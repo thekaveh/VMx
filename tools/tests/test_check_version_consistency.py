@@ -599,6 +599,10 @@ def test_parse_swift_versions(tmp_path: Path) -> None:
 # ── parse_matrix ──────────────────────────────────────────────────────
 
 
+def test_strip_html_comments_handles_multiline_comments() -> None:
+    assert cvc._strip_html_comments("3.22.1 <!-- first\nsecond --> stable") == "3.22.1  stable"
+
+
 def test_parse_matrix_basic(tmp_path: Path) -> None:
     matrix = tmp_path / "compatibility-matrix.md"
     matrix.write_text(
