@@ -25,6 +25,11 @@ This crate implements the VMx spec with idiomatic Rust naming and error handling
   additive triggers, an awaitable join handle, and fire-and-forget error routing;
 - `AsyncValue<T>` gives dialogs, notification waiters, modal completion, and
   confirmation gates an executor-neutral `Future` plus synchronous `wait()`;
+- confirmation-decorator `execute_async()` returns the thread-free
+  `ConfirmationExecution` future; use `.await`, `.join()`, or
+  `.is_finished()`. Rust 0.27.0 intentionally replaces the unpublished
+  pre-release `JoinHandle<()>` return type, so explicitly typed callers must
+  migrate and no `thread()` accessor exists;
 - `FormVm::builder().reset_on_approved(...)` derives a pristine model after a
   successful persist without exposing a mutable form to the persister;
 - `FormVm::set_model(...)` publishes one model hub message only after validation

@@ -18,6 +18,13 @@ project adheres to [Semantic Versioning](https://semver.org/).
 - A public non-modal `set_active_key` releases every saved modal frame,
   including for a same-key notification no-op, while modal close preserves
   nested LIFO restoration (`DISC-009`, ADR-0128).
+- **Breaking pre-publication correction:** confirmation-decorator
+  `execute_async()` now returns the executor-neutral `ConfirmationExecution`
+  future instead of `std::thread::JoinHandle<()>`, eliminating one retained
+  operating-system thread per unresolved decision. Inferred `.join()` callers
+  retain that call shape; explicitly typed callers must migrate to
+  `ConfirmationExecution`, which also supports `.await` and `.is_finished()`.
+  It intentionally has no `thread()` accessor because no native worker exists.
 
 ### Fixed
 

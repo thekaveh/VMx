@@ -893,6 +893,11 @@ impl MessageHub {
     pub fn dispose(&self) {
         let current = thread::current().id();
         let mut inner = lock(&self.inner.state);
+        if inner.draining_owner == Some(current) {
+            inner.dispose_requested = true;
+            self.inner.ready.notify_all();
+            return;
+        }
         loop {
             let owner = inner
                 .batch_owner

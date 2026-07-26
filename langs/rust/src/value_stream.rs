@@ -1,6 +1,6 @@
 //! VMx-owned typed value streams.
 
-use crate::{lock, Arc, AssertUnwindSafe, AtomicBool, BTreeMap, Mutex, Ordering, Weak};
+use crate::{lock, Arc, AssertUnwindSafe, AtomicBool, BTreeMap, Mutex, Ordering, VecDeque, Weak};
 use std::panic::catch_unwind;
 
 type ValueSubscriber<T> = Arc<dyn Fn(T) + Send + Sync + 'static>;
@@ -16,6 +16,9 @@ struct ValueStreamState<T> {
     current: T,
     revision: usize,
     subscribers: BTreeMap<usize, ValueStreamSubscriber<T>>,
+    pending: VecDeque<T>,
+    draining: bool,
+    dispose_requested: bool,
     replay_current: bool,
     disposed: bool,
 }
@@ -40,6 +43,9 @@ impl<T: Clone + Send + 'static> ValueStream<T> {
                 current: initial,
                 revision: 0,
                 subscribers: BTreeMap::new(),
+                pending: VecDeque::new(),
+                draining: false,
+                dispose_requested: false,
                 replay_current: true,
                 disposed: false,
             })),
@@ -58,6 +64,9 @@ impl<T: Clone + Send + 'static> ValueStream<T> {
                 current: initial,
                 revision: 0,
                 subscribers: BTreeMap::new(),
+                pending: VecDeque::new(),
+                draining: false,
+                dispose_requested: false,
                 replay_current: false,
                 disposed: false,
             })),
@@ -96,7 +105,7 @@ impl<T: Clone + Send + 'static> ValueStream<T> {
     ) -> ValueSubscription {
         if !lock(&self.inner).replay_current {
             let mut state = lock(&self.inner);
-            if state.disposed {
+            if state.disposed || state.dispose_requested {
                 drop(state);
                 if let Some(completion) = completion {
                     let _ = catch_unwind(AssertUnwindSafe(|| completion()));
@@ -117,7 +126,11 @@ impl<T: Clone + Send + 'static> ValueStream<T> {
 
         let (value, revision, disposed) = {
             let state = lock(&self.inner);
-            (state.current.clone(), state.revision, state.disposed)
+            (
+                state.current.clone(),
+                state.revision,
+                state.disposed || state.dispose_requested,
+            )
         };
         let _ = catch_unwind(AssertUnwindSafe(|| handler(value)));
         if disposed {
@@ -128,7 +141,7 @@ impl<T: Clone + Send + 'static> ValueStream<T> {
         }
 
         let mut state = lock(&self.inner);
-        if state.disposed {
+        if state.disposed || state.dispose_requested {
             let latest = (state.revision != revision).then(|| state.current.clone());
             drop(state);
             if let Some(latest) = latest {
@@ -144,7 +157,7 @@ impl<T: Clone + Send + 'static> ValueStream<T> {
             drop(state);
             let _ = catch_unwind(AssertUnwindSafe(|| handler(latest)));
             state = lock(&self.inner);
-            if state.disposed {
+            if state.disposed || state.dispose_requested {
                 drop(state);
                 if let Some(completion) = completion {
                     let _ = catch_unwind(AssertUnwindSafe(|| completion()));
@@ -167,22 +180,49 @@ impl<T: Clone + Send + 'static> ValueStream<T> {
 
     /// Publishes `value` to current subscribers unless the stream is disposed.
     pub fn send(&self, value: T) {
-        let subscribers = {
+        let should_drain = {
             let mut state = lock(&self.inner);
-            if state.disposed {
+            if state.disposed || state.dispose_requested {
                 return;
             }
             state.current = value.clone();
             state.revision = state.revision.wrapping_add(1);
-            state
-                .subscribers
-                .values()
-                .map(|subscriber| subscriber.value.clone())
-                .collect::<Vec<_>>()
+            state.pending.push_back(value);
+            if state.draining {
+                false
+            } else {
+                state.draining = true;
+                true
+            }
         };
-        for subscriber in subscribers {
-            let value = value.clone();
-            let _ = catch_unwind(AssertUnwindSafe(|| subscriber(value)));
+        if !should_drain {
+            return;
+        }
+
+        loop {
+            let next = {
+                let mut state = lock(&self.inner);
+                if state.dispose_requested {
+                    let completions = Self::finish_dispose(&mut state);
+                    drop(state);
+                    Self::notify_completions(completions);
+                    return;
+                }
+                let Some(value) = state.pending.pop_front() else {
+                    state.draining = false;
+                    return;
+                };
+                let subscribers = state
+                    .subscribers
+                    .values()
+                    .map(|subscriber| subscriber.value.clone())
+                    .collect::<Vec<_>>();
+                (value, subscribers)
+            };
+            for subscriber in next.1 {
+                let value = next.0.clone();
+                let _ = catch_unwind(AssertUnwindSafe(|| subscriber(value)));
+            }
         }
     }
 
@@ -190,15 +230,30 @@ impl<T: Clone + Send + 'static> ValueStream<T> {
     pub fn dispose(&self) {
         let completions = {
             let mut state = lock(&self.inner);
-            if state.disposed {
+            if state.disposed || state.dispose_requested {
                 return;
             }
-            state.disposed = true;
-            std::mem::take(&mut state.subscribers)
-                .into_values()
-                .filter_map(|subscriber| subscriber.completion)
-                .collect::<Vec<_>>()
+            if state.draining {
+                state.dispose_requested = true;
+                return;
+            }
+            Self::finish_dispose(&mut state)
         };
+        Self::notify_completions(completions);
+    }
+
+    fn finish_dispose(state: &mut ValueStreamState<T>) -> Vec<ValueCompletion> {
+        state.disposed = true;
+        state.dispose_requested = false;
+        state.draining = false;
+        state.pending.clear();
+        std::mem::take(&mut state.subscribers)
+            .into_values()
+            .filter_map(|subscriber| subscriber.completion)
+            .collect()
+    }
+
+    fn notify_completions(completions: Vec<ValueCompletion>) {
         for completion in completions {
             let _ = catch_unwind(AssertUnwindSafe(|| completion()));
         }

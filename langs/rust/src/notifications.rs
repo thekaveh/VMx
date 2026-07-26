@@ -4,7 +4,7 @@
 
 use super::{
     lock, Arc, AsyncValue, AtomicU64, BTreeMap, Context, Future, HashMap, Message, MessageHub,
-    Mutex, Ordering, Pin, Poll, ValueStream,
+    Mutex, Ordering, Pin, Poll, ValueStream, VecDeque,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,7 +84,15 @@ struct NotificationHubState {
     reactions: HashMap<u64, NotificationReaction>,
     completions: HashMap<u64, AsyncValue<NotificationReaction>>,
     pending_snapshots: Vec<Vec<Notification>>,
+    pending_publications: VecDeque<PendingPublication>,
+    publishing_pending: bool,
     disposed: bool,
+}
+
+struct PendingPublication {
+    snapshot: Vec<Notification>,
+    completions: Vec<(AsyncValue<NotificationReaction>, NotificationReaction)>,
+    terminal: bool,
 }
 
 #[derive(Clone)]
@@ -114,7 +122,7 @@ impl NotificationHub {
     /// Posts `notification` or reuses its existing pending waiter.
     pub fn post_notification(&self, notification: Notification) -> NotificationWaiter {
         let notification_id = notification.id;
-        let (completion, publish) = {
+        let (completion, drain) = {
             let mut state = lock(&self.state);
             if state.disposed {
                 state
@@ -132,13 +140,14 @@ impl NotificationHub {
                 state
                     .completions
                     .insert(notification_id, completion.clone());
-                let snapshot = state.pending.values().cloned().collect();
-                state.pending_snapshots.push(snapshot);
-                (completion, true)
+                let snapshot = state.pending.values().cloned().collect::<Vec<_>>();
+                let drain =
+                    Self::enqueue_pending_publication(&mut state, snapshot, Vec::new(), false);
+                (completion, drain)
             }
         };
-        if publish {
-            self.publish_pending();
+        if drain {
+            self.drain_pending_publications();
         }
         NotificationWaiter { completion }
     }
@@ -163,23 +172,23 @@ impl NotificationHub {
 
     /// Resolves a pending notification once and removes it from the queue.
     pub fn resolve(&self, notification_id: u64, reaction: NotificationReaction) {
-        let completion = {
+        let drain = {
             let mut state = lock(&self.state);
             if state.pending.remove(&notification_id).is_none() {
                 return;
             }
             state.reactions.insert(notification_id, reaction);
-            let completion = state.completions.remove(&notification_id);
-            let snapshot = state.pending.values().cloned().collect();
-            state.pending_snapshots.push(snapshot);
-            completion
+            let completions = state
+                .completions
+                .remove(&notification_id)
+                .into_iter()
+                .map(|completion| (completion, reaction))
+                .collect();
+            let snapshot = state.pending.values().cloned().collect::<Vec<_>>();
+            Self::enqueue_pending_publication(&mut state, snapshot, completions, false)
         };
-        // spec/16-notifications.md §2.2: emit the new Pending value BEFORE
-        // completing the awaitable returned by the original post. The four peers
-        // publish then complete; do the same.
-        self.publish_pending();
-        if let Some(completion) = completion {
-            completion.resolve(reaction);
+        if drain {
+            self.drain_pending_publications();
         }
     }
 
@@ -214,7 +223,7 @@ impl NotificationHub {
 
     /// Resolves all pending waiters as pending and closes the hub.
     pub fn dispose(&self) {
-        let completions = {
+        let drain = {
             let mut state = lock(&self.state);
             if state.disposed {
                 return;
@@ -227,29 +236,60 @@ impl NotificationHub {
             let completions = state
                 .completions
                 .drain()
-                .map(|(_, value)| value)
+                .map(|(_, completion)| (completion, NotificationReaction::Pending))
                 .collect::<Vec<_>>();
             state.pending.clear();
-            state.pending_snapshots.push(Vec::new());
-            completions
+            Self::enqueue_pending_publication(&mut state, Vec::new(), completions, true)
         };
-        // spec §2.2 order: emit the (now empty) Pending value before resuming
-        // waiters, matching resolve() and the four peers.
-        self.publish_pending();
-        self.pending_stream.dispose();
-        self.pending_changed.dispose();
-        for completion in completions {
-            completion.resolve(NotificationReaction::Pending);
+        if drain {
+            self.drain_pending_publications();
         }
     }
 
-    fn publish_pending(&self) {
-        self.pending_stream.send(self.pending());
-        self.pending_changed.send(Message::Custom {
-            sender_id: 0,
-            sender_name: "NotificationHub".to_string(),
-            name: "pending".to_string(),
+    fn enqueue_pending_publication(
+        state: &mut NotificationHubState,
+        snapshot: Vec<Notification>,
+        completions: Vec<(AsyncValue<NotificationReaction>, NotificationReaction)>,
+        terminal: bool,
+    ) -> bool {
+        state.pending_snapshots.push(snapshot.clone());
+        state.pending_publications.push_back(PendingPublication {
+            snapshot,
+            completions,
+            terminal,
         });
+        if state.publishing_pending {
+            false
+        } else {
+            state.publishing_pending = true;
+            true
+        }
+    }
+
+    fn drain_pending_publications(&self) {
+        loop {
+            let publication = {
+                let mut state = lock(&self.state);
+                let Some(publication) = state.pending_publications.pop_front() else {
+                    state.publishing_pending = false;
+                    return;
+                };
+                publication
+            };
+            self.pending_stream.send(publication.snapshot);
+            self.pending_changed.send(Message::Custom {
+                sender_id: 0,
+                sender_name: "NotificationHub".to_string(),
+                name: "pending".to_string(),
+            });
+            if publication.terminal {
+                self.pending_stream.dispose();
+                self.pending_changed.dispose();
+            }
+            for (completion, reaction) in publication.completions {
+                completion.resolve(reaction);
+            }
+        }
     }
 }
 

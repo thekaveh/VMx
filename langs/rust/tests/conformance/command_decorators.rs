@@ -134,8 +134,10 @@ fn confirmation_decorator_awaits_pending_decision() {
     );
 
     let execution = command.execute_async();
+    assert!(!execution.is_finished());
     assert!(log.lock().unwrap().is_empty());
     decision.resolve(true);
+    assert!(execution.is_finished());
     execution.join().unwrap();
 
     assert_eq!(*log.lock().unwrap(), vec!["confirmed"]);

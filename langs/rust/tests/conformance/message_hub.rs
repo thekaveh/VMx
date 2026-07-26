@@ -84,6 +84,42 @@ fn disposal_completes_current_and_late_message_subscriptions_once() {
     assert_eq!(late_completions.load(Ordering::SeqCst), 1);
 }
 
+#[test]
+fn reentrant_dispose_completes_after_in_flight_message_reaches_subscribers() {
+    let hub = MessageHub::new();
+    let trace = Arc::new(Mutex::new(Vec::new()));
+    let first_trace = trace.clone();
+    let first_completion = trace.clone();
+    let reentrant = hub.clone();
+    let _first = hub.subscribe_with_completion(
+        move |_| {
+            first_trace.lock().unwrap().push("first:start");
+            reentrant.dispose();
+            first_trace.lock().unwrap().push("first:end");
+        },
+        move || first_completion.lock().unwrap().push("first:completed"),
+    );
+    let second_trace = trace.clone();
+    let second_completion = trace.clone();
+    let _second = hub.subscribe_with_completion(
+        move |_| second_trace.lock().unwrap().push("second:message"),
+        move || second_completion.lock().unwrap().push("second:completed"),
+    );
+
+    hub.send(make_msg("dispose"));
+
+    assert_eq!(
+        *trace.lock().unwrap(),
+        vec![
+            "first:start",
+            "first:end",
+            "second:message",
+            "first:completed",
+            "second:completed",
+        ]
+    );
+}
+
 /// HUB-002 — Late subscribers do not see prior messages
 #[test]
 fn late_subscribers_do_not_see_prior_messages() {

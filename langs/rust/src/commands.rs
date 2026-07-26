@@ -867,8 +867,20 @@ enum ConfirmationExecutionOutcome {
 /// Executor-neutral completion returned by
 /// [`ConfirmationDecoratorCommand::execute_async`].
 ///
-/// The handle implements [`Future`] and retains the historical blocking
-/// `join()` convenience without creating a native worker thread.
+/// The handle implements [`Future`] and exposes blocking [`join`](Self::join)
+/// plus non-blocking [`is_finished`](Self::is_finished) conveniences without
+/// creating a native worker thread.
+///
+/// # Migration from the pre-publication API
+///
+/// Before Rust 0.27.0, `execute_async` returned
+/// `std::thread::JoinHandle<()>` and retained one operating-system thread for
+/// every unresolved confirmation. Rust 0.27.0 intentionally changes that
+/// concrete return type to `ConfirmationExecution`. Inferred callers using
+/// `.join()` keep the same call shape; callers that named `JoinHandle<()>`
+/// should use this type and may also `.await` it. `is_finished()` is retained
+/// as a truthful compatibility-shaped poll. There is no `thread()` accessor
+/// because no native worker exists.
 pub struct ConfirmationExecution {
     completion: AsyncValue<ConfirmationExecutionOutcome>,
 }
@@ -896,6 +908,14 @@ impl ConfirmationExecution {
             ConfirmationExecutionOutcome::Completed => Ok(()),
             ConfirmationExecutionOutcome::Panicked(message) => Err(Box::new((*message).clone())),
         }
+    }
+
+    /// Reports whether the confirmation flow has reached a terminal outcome.
+    ///
+    /// This mirrors the useful polling shape of `JoinHandle::is_finished`
+    /// without implying that a native thread exists.
+    pub fn is_finished(&self) -> bool {
+        self.completion.try_get().is_some()
     }
 }
 

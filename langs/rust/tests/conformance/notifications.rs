@@ -79,6 +79,89 @@ fn post_adds_notification_to_pending_snapshot() {
         .contains(&notification));
 }
 
+#[test]
+fn reentrant_pending_mutation_publishes_each_committed_snapshot_once() {
+    let hub = NotificationHub::new();
+    let first = Notification::new(NotificationType::Notification, "first");
+    let second = Notification::new(NotificationType::Notification, "second");
+    let observed = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let snapshots = observed.clone();
+    let reentrant = hub.clone();
+    let first_for_callback = first.clone();
+    let second_for_callback = second.clone();
+    let _subscription = hub.pending_stream().subscribe(move |pending| {
+        snapshots.lock().unwrap().push(pending.clone());
+        if pending == vec![first_for_callback.clone()] {
+            reentrant.post_notification(second_for_callback.clone());
+        }
+    });
+
+    hub.post_notification(first.clone());
+
+    assert_eq!(
+        *observed.lock().unwrap(),
+        vec![
+            Vec::<Notification>::new(),
+            vec![first.clone()],
+            vec![first.clone(), second.clone()],
+        ]
+    );
+    assert_eq!(
+        hub.pending_snapshots(),
+        vec![vec![first.clone()], vec![first, second]]
+    );
+}
+
+#[test]
+fn concurrent_pending_delivery_matches_committed_snapshot_order() {
+    use std::sync::{mpsc, Arc, Mutex};
+
+    let hub = NotificationHub::new();
+    let first = Notification::new(NotificationType::Notification, "first");
+    let second = Notification::new(NotificationType::Notification, "second");
+    let observed = Arc::new(Mutex::new(Vec::new()));
+    let snapshots = observed.clone();
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let release_rx = Arc::new(Mutex::new(release_rx));
+    let release = release_rx.clone();
+    let _subscription = hub.pending_stream().subscribe(move |pending| {
+        if pending.len() == 1 {
+            entered_tx.send(()).unwrap();
+            release.lock().unwrap().recv().unwrap();
+        }
+        snapshots.lock().unwrap().push(pending);
+    });
+
+    let first_poster = {
+        let hub = hub.clone();
+        let first = first.clone();
+        std::thread::spawn(move || hub.post_notification(first))
+    };
+    entered_rx.recv().unwrap();
+    let second_poster = {
+        let hub = hub.clone();
+        let second = second.clone();
+        std::thread::spawn(move || hub.post_notification(second))
+    };
+    second_poster.join().unwrap();
+    release_tx.send(()).unwrap();
+    first_poster.join().unwrap();
+
+    assert_eq!(
+        *observed.lock().unwrap(),
+        vec![
+            Vec::<Notification>::new(),
+            vec![first.clone()],
+            vec![first.clone(), second.clone()],
+        ]
+    );
+    assert_eq!(
+        hub.pending_snapshots(),
+        vec![vec![first.clone()], vec![first, second]]
+    );
+}
+
 /// NOTIF-003 — Resolve removes the notification from Pending
 #[test]
 fn resolve_removes_notification_from_pending_snapshot() {
