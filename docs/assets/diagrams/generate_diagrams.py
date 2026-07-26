@@ -514,7 +514,14 @@ def relationship_legend(x: int, y: int) -> str:
             f'stroke-width="{style["width"]}"{dash} marker-end="url(#arrowhead)"/>'
         )
         parts.append(
-            svg_text(x + 72, row_y + 4, kind, size=12, color=SVG_THEME["body"], anchor="start")
+            svg_text(
+                x + 72,
+                row_y + 4,
+                kind,
+                size=12,
+                color=SVG_THEME["body"],
+                anchor="start",
+            )
         )
     return "\n".join(parts)
 
@@ -658,7 +665,7 @@ def html_doc(diagram: Diagram, svg_name: str) -> str:
       <p class="subtitle">{escape(diagram.subtitle)}</p>
     </header>
     <div class="diagram">
-      <div class="svg-frame" role="img" aria-label="{escape(diagram.title)}">
+      <div class="svg-frame">
 {inline_svg}
       </div>
     </div>
@@ -711,7 +718,11 @@ def system_architecture() -> Diagram:
                 170,
                 96,
                 "fixtures",
-                (f"{facts.fixture_count} JSON fixtures", "lifecycle + hubs", "commands + derived"),
+                (
+                    f"{facts.fixture_count} JSON fixtures",
+                    "lifecycle + hubs",
+                    "commands + derived",
+                ),
                 "cloud",
             ),
             Box(
@@ -742,7 +753,11 @@ def system_architecture() -> Diagram:
                 250,
                 110,
                 "VM families",
-                ("component + composite", "group + aggregate", "shared collection + move"),
+                (
+                    "component + composite",
+                    "group + aggregate",
+                    "shared collection + move",
+                ),
                 "frontend",
             ),
             Box(
@@ -782,7 +797,12 @@ def system_architecture() -> Diagram:
                 220,
                 130,
                 "Collections + state",
-                ("lists + VMCollection", "DerivedProperty", "SearchableState", "AsyncResourceVM"),
+                (
+                    "lists + VMCollection",
+                    "DerivedProperty",
+                    "SearchableState",
+                    "AsyncResourceVM",
+                ),
                 "database",
                 title_size=16,
             ),
@@ -861,6 +881,26 @@ def system_architecture() -> Diagram:
             ),
             Box(
                 300,
+                700,
+                300,
+                72,
+                "Four flagship hosts",
+                ("C# + Python + TypeScript + Swift",),
+                "bus",
+                title_size=16,
+            ),
+            Box(
+                1050,
+                700,
+                300,
+                72,
+                "Five flavor packages",
+                ("C# + Python + TypeScript + Swift + Rust",),
+                "bus",
+                title_size=16,
+            ),
+            Box(
+                300,
                 820,
                 300,
                 108,
@@ -886,19 +926,34 @@ def system_architecture() -> Diagram:
                 300,
                 108,
                 "Release posture",
-                ("shared normative concepts", "idiomatic per language", "repo facts drive docs"),
+                (
+                    "shared normative concepts",
+                    "idiomatic per language",
+                    "repo facts drive docs",
+                ),
                 "cloud",
             ),
         ),
         lines=(
             Polyline(((260, 200), (280, 200)), color="#fbbf24"),
-            Polyline(((450, 200), (550, 200)), color="#fbbf24", label="norms", label_xy=(500, 186)),
             Polyline(
-                ((450, 312), (550, 312)), color="#fb923c", label="catalogues", label_xy=(500, 298)
+                ((450, 200), (550, 200)),
+                color="#fbbf24",
+                label="norms",
+                label_xy=(500, 186),
+            ),
+            Polyline(
+                ((270, 370), (270, 460), (80, 460), (80, 780), (850, 780), (850, 820)),
+                color="#fb923c",
+                label="catalogues",
+                label_xy=(140, 766),
             ),
             Polyline(((770, 206), (790, 206)), color="#22d3ee"),
             Polyline(
-                ((1040, 206), (1150, 206)), color="#34d399", label="injects", label_xy=(1096, 192)
+                ((1150, 206), (1040, 206)),
+                color="#34d399",
+                label="injected into",
+                label_xy=(1096, 192),
             ),
             Polyline(
                 ((1040, 344), (1150, 344)),
@@ -918,17 +973,28 @@ def system_architecture() -> Diagram:
             Polyline(((920, 398), (975, 536)), color="#22d3ee"),
             Polyline(((1040, 398), (1215, 536)), color="#22d3ee"),
             Polyline(
-                ((1270, 398), (1460, 536)),
+                ((1350, 736), (1460, 736), (1460, 672)),
                 color="#a78bfa",
                 label="versioned separately",
-                label_xy=(1380, 450),
-            ),
-            Polyline(((410, 672), (450, 820)), color="#64748b", label="hosts", label_xy=(432, 744)),
-            Polyline(
-                ((845, 672), (850, 820)), color="#fb923c", label="enforces", label_xy=(872, 742)
+                label_xy=(1405, 722),
             ),
             Polyline(
-                ((1400, 672), (1250, 820)), color="#34d399", label="documents", label_xy=(1320, 740)
+                ((450, 772), (450, 820)),
+                color="#64748b",
+                label="hosts",
+                label_xy=(492, 800),
+            ),
+            Polyline(
+                ((850, 820), (850, 790), (1200, 790), (1200, 772)),
+                color="#fb923c",
+                label="enforces",
+                label_xy=(1025, 786),
+            ),
+            Polyline(
+                ((1400, 672), (1400, 780), (1250, 780), (1250, 820)),
+                color="#34d399",
+                label="documents",
+                label_xy=(1325, 766),
             ),
         ),
         cards=(
@@ -970,7 +1036,14 @@ def class_architecture() -> Diagram:
         boundaries=(
             Boundary(60, 118, 1680, 204, "Core VM lineage", "#22d3ee"),
             Boundary(60, 352, 1680, 322, "Wrappers and specialized companions", "#34d399"),
-            Boundary(60, 704, 1680, 352, "Commands, paging, and notification adapters", "#a78bfa"),
+            Boundary(
+                60,
+                704,
+                1680,
+                352,
+                "Commands, paging, and notification adapters",
+                "#a78bfa",
+            ),
         ),
         boxes=(
             Box(
@@ -1042,7 +1115,11 @@ def class_architecture() -> Diagram:
                 260,
                 120,
                 "ForwardingComponentVM",
-                ("wraps IComponentVM<M>", "default delegation", "override selected members"),
+                (
+                    "wraps IComponentVM<M>",
+                    "default delegation",
+                    "override selected members",
+                ),
                 "frontend",
             ),
             Box(
@@ -1082,7 +1159,11 @@ def class_architecture() -> Diagram:
                 250,
                 132,
                 "FormVM",
-                ("snapshot + IsDirty", "approve_async + errors", "validation-aware flow"),
+                (
+                    "snapshot + IsDirty",
+                    "approve_async + errors",
+                    "validation-aware flow",
+                ),
                 "frontend",
             ),
             Box(
@@ -1101,7 +1182,11 @@ def class_architecture() -> Diagram:
                 260,
                 132,
                 "Persister + validation",
-                ("persister / snapshotter", "validators + equality", "hub messages on deny"),
+                (
+                    "persister / snapshotter",
+                    "validators + equality",
+                    "hub messages on deny",
+                ),
                 "security",
                 title_size=16,
             ),
@@ -1156,7 +1241,11 @@ def class_architecture() -> Diagram:
                 270,
                 132,
                 "ConfirmationDecoratorCommand",
-                ("confirm delegate gate", "errors observable", "fire-and-forget + async entry"),
+                (
+                    "confirm delegate gate",
+                    "errors observable",
+                    "fire-and-forget + async entry",
+                ),
                 "bus",
                 title_size=14,
             ),
@@ -1198,7 +1287,11 @@ def class_architecture() -> Diagram:
                 260,
                 120,
                 "TokenPagedComposition",
-                ("forward-only fetch_next", "load_more + refresh", "items accumulator + token"),
+                (
+                    "forward-only fetch_next",
+                    "load_more + refresh",
+                    "items accumulator + token",
+                ),
                 "database",
             ),
             Box(
@@ -1232,39 +1325,80 @@ def class_architecture() -> Diagram:
         ),
         relationships=(
             Relationship(
-                "class extends", ((500, 262), (500, 278), (150, 278), (150, 258)), (365, 274)
+                "class extends",
+                ((500, 262), (500, 278), (150, 278), (150, 258)),
+                (365, 274),
             ),
             Relationship(
-                "class extends", ((780, 262), (780, 286), (180, 286), (180, 258)), (635, 282)
+                "class extends",
+                ((780, 262), (780, 286), (180, 286), (180, 258)),
+                (635, 282),
             ),
             Relationship(
-                "class extends", ((1060, 262), (1060, 294), (210, 294), (210, 258)), (920, 290)
+                "class extends",
+                ((1060, 262), (1060, 294), (210, 294), (210, 258)),
+                (920, 290),
             ),
             Relationship(
-                "class extends", ((1340, 262), (1340, 302), (240, 302), (240, 258)), (1195, 298)
+                "class extends",
+                ((1340, 262), (1340, 302), (240, 302), (240, 258)),
+                (1195, 298),
             ),
             Relationship(
-                "class extends", ((1620, 262), (1620, 310), (270, 310), (270, 258)), (1480, 306)
+                "class extends",
+                ((1620, 262), (1620, 310), (270, 310), (270, 258)),
+                (1480, 306),
             ),
             Relationship(
-                "implements", ((500, 262), (500, 330), (200, 330), (200, 402)), (330, 350)
+                "implements",
+                ((500, 262), (500, 330), (200, 330), (200, 402)),
+                (330, 350),
             ),
             Relationship(
-                "implements", ((780, 262), (780, 330), (800, 330), (800, 402)), (828, 350)
+                "implements",
+                ((780, 262), (780, 330), (800, 330), (800, 402)),
+                (828, 350),
             ),
             Relationship("wraps", ((360, 450), (310, 450)), (336, 434)),
             Relationship("wraps", ((960, 450), (910, 450)), (936, 434)),
             Relationship("owns", ((340, 616), (390, 616)), (365, 535)),
-            Relationship("owns", ((340, 642), (650, 642)), (515, 535)),
+            Relationship(
+                "owns",
+                (
+                    (340, 642),
+                    (360, 642),
+                    (360, 690),
+                    (630, 690),
+                    (630, 642),
+                    (650, 642),
+                ),
+                (515, 686),
+            ),
             Relationship("class extends", ((1270, 616), (1210, 616)), (1240, 535)),
             Relationship(
-                "implements", ((465, 744), (465, 700), (195, 700), (195, 852)), (310, 740)
+                "implements",
+                ((465, 744), (465, 700), (195, 700), (195, 756)),
+                (310, 740),
             ),
-            Relationship("decorates", ((630, 804), (300, 804)), (464, 690)),
-            Relationship("decorates", ((920, 804), (300, 804)), (628, 690)),
-            Relationship("owns", ((1055, 864), (1055, 900), (1600, 900), (1600, 916)), (1340, 884)),
             Relationship(
-                "implements", ((465, 904), (465, 872), (195, 872), (195, 916)), (314, 892)
+                "decorates",
+                ((750, 744), (750, 704), (195, 704), (195, 756)),
+                (474, 700),
+            ),
+            Relationship(
+                "decorates",
+                ((1055, 732), (1055, 688), (195, 688), (195, 756)),
+                (630, 684),
+            ),
+            Relationship(
+                "owns",
+                ((1055, 864), (1055, 900), (1600, 900), (1600, 916)),
+                (1340, 884),
+            ),
+            Relationship(
+                "implements",
+                ((465, 904), (465, 872), (195, 872), (195, 916)),
+                (314, 892),
             ),
             Relationship("adapts", ((1450, 964), (1510, 964)), (1480, 948)),
         ),
@@ -1375,7 +1509,11 @@ def viewmodel_families() -> Diagram:
                 240,
                 132,
                 "Fixed-arity containers",
-                ("AggregateVM1..6", "heterogeneous components", "typed ComponentN slots"),
+                (
+                    "AggregateVM1..6",
+                    "heterogeneous components",
+                    "typed ComponentN slots",
+                ),
                 "frontend",
             ),
             Box(
@@ -1384,7 +1522,11 @@ def viewmodel_families() -> Diagram:
                 240,
                 116,
                 "Recursive container",
-                ("HierarchicalVM<TModel,TVM>", "Parent / Depth / Path", "structural messages"),
+                (
+                    "HierarchicalVM<TModel,TVM>",
+                    "Parent / Depth / Path",
+                    "structural messages",
+                ),
                 "frontend",
             ),
             Box(
@@ -1393,7 +1535,11 @@ def viewmodel_families() -> Diagram:
                 240,
                 132,
                 "Forwarding decorators",
-                ("ForwardingComponentVM", "ForwardingCompositeVM", "instrumentation / overrides"),
+                (
+                    "ForwardingComponentVM",
+                    "ForwardingCompositeVM",
+                    "instrumentation / overrides",
+                ),
                 "frontend",
             ),
             Box(
@@ -1401,8 +1547,12 @@ def viewmodel_families() -> Diagram:
                 170,
                 260,
                 132,
-                "Specialized VMs",
-                ("FormVM / DiscriminatorVM", "NotificationVM / ConfirmationVM", "AsyncResourceVM"),
+                "Specialized companions",
+                (
+                    "Lifecycle VM: AsyncResourceVM",
+                    "Coordinators: Form / Discriminator",
+                    "Notification / Confirmation",
+                ),
                 "security",
             ),
             Box(
@@ -1424,7 +1574,11 @@ def viewmodel_families() -> Diagram:
                 240,
                 128,
                 "State helpers",
-                ("DerivedProperty", "ExpandableState / SearchableState", "AsyncResourceVM"),
+                (
+                    "DerivedProperty",
+                    "ExpandableState / SearchableState",
+                    "AsyncResourceVM",
+                ),
                 "database",
             ),
             Box(
@@ -1442,7 +1596,12 @@ def viewmodel_families() -> Diagram:
                 260,
                 128,
                 "Services + messages",
-                ("MessageHub", "IDialogService", "INotificationHub", "PropertyChangedMessage"),
+                (
+                    "MessageHub",
+                    "IDialogService",
+                    "INotificationHub",
+                    "PropertyChangedMessage",
+                ),
                 "bus",
             ),
             Box(
@@ -1459,26 +1618,25 @@ def viewmodel_families() -> Diagram:
         ),
         lines=(
             Polyline(
-                ((230, 276), (230, 320)), color="#22d3ee", label="extends", label_xy=(278, 300)
-            ),
-            Polyline(((340, 224), (390, 224)), color="#22d3ee"),
-            Polyline(((340, 246), (680, 246)), color="#22d3ee"),
-            Polyline(((340, 268), (970, 268)), color="#22d3ee"),
-            Polyline(((340, 290), (1260, 290)), color="#22d3ee"),
-            Polyline(
-                ((510, 452), (510, 514)), color="#34d399", label="implements", label_xy=(566, 486)
+                ((230, 276), (230, 320)),
+                color="#22d3ee",
+                label="extends",
+                label_xy=(278, 300),
             ),
             Polyline(
-                ((800, 452), (800, 514)), color="#a78bfa", label="composes", label_xy=(856, 486)
+                ((340, 224), (360, 224), (360, 310), (510, 310), (510, 302)),
+                color="#22d3ee",
             ),
             Polyline(
-                ((1090, 452), (1090, 514)),
-                color="#fb923c",
-                label="wraps / decorates",
-                label_xy=(1174, 486),
+                ((340, 246), (365, 246), (365, 314), (800, 314), (800, 302)),
+                color="#22d3ee",
             ),
             Polyline(
-                ((1390, 452), (1390, 514)),
+                ((340, 268), (370, 268), (370, 318), (1090, 318), (1090, 302)),
+                color="#22d3ee",
+            ),
+            Polyline(
+                ((1390, 302), (1390, 514)),
                 color="#fb7185",
                 label="injects / posts",
                 label_xy=(1468, 486),
@@ -1506,7 +1664,7 @@ def viewmodel_families() -> Diagram:
                 "Five idioms",
                 (
                     "Leaf, composite, group, aggregate, and hierarchical shapes are distinct on purpose.",
-                    "Forwarding decorators and specialized VMs stay outside the core container split.",
+                    "Forwarding decorators and specialized companions stay outside the core container split.",
                     "This is the same family map every flavor implements.",
                 ),
             ),
@@ -1586,7 +1744,15 @@ def lifecycle_messaging() -> Diagram:
                 ("Current clears first", "OnDestruct hook"),
                 "backend",
             ),
-            Box(1030, 170, 180, 94, "Disposed", ("terminal", "late completion aborts"), "security"),
+            Box(
+                1030,
+                170,
+                180,
+                94,
+                "Disposed",
+                ("terminal", "late completion aborts"),
+                "security",
+            ),
             Box(
                 1300,
                 160,
@@ -1614,7 +1780,12 @@ def lifecycle_messaging() -> Diagram:
                 250,
                 122,
                 "Predicates",
-                ("can_construct()", "can_destruct()", "can_reconstruct()", "safe no-op states"),
+                (
+                    "can_construct()",
+                    "can_destruct()",
+                    "can_reconstruct()",
+                    "safe no-op states",
+                ),
                 "security",
             ),
             Box(
@@ -1662,7 +1833,11 @@ def lifecycle_messaging() -> Diagram:
                 220,
                 132,
                 "Status messages",
-                ("construction status", "2 / 4 lifecycle emissions", "hot FIFO delivery"),
+                (
+                    "construction status",
+                    "2 / 4 lifecycle emissions",
+                    "hot FIFO delivery",
+                ),
                 "bus",
             ),
             Box(
@@ -1713,14 +1888,23 @@ def lifecycle_messaging() -> Diagram:
         ),
         lines=(
             Polyline(
-                ((290, 217), (340, 217)), color="#22d3ee", label="construct()", label_xy=(318, 202)
+                ((290, 217), (340, 217)),
+                color="#22d3ee",
+                label="construct()",
+                label_xy=(318, 202),
             ),
             Polyline(((520, 217), (570, 217)), color="#22d3ee"),
             Polyline(
-                ((750, 217), (800, 217)), color="#fb923c", label="destruct()", label_xy=(776, 202)
+                ((750, 217), (800, 217)),
+                color="#fb923c",
+                label="destruct()",
+                label_xy=(776, 202),
             ),
             Polyline(
-                ((980, 217), (1030, 217)), color="#fb7185", label="dispose()", label_xy=(1006, 202)
+                ((980, 217), (1030, 217)),
+                color="#fb7185",
+                label="dispose()",
+                label_xy=(1006, 202),
             ),
             Polyline(
                 ((660, 264), (660, 310), (430, 310), (430, 264)),
@@ -1742,7 +1926,10 @@ def lifecycle_messaging() -> Diagram:
                 label_xy=(548, 612),
             ),
             Polyline(
-                ((820, 542), (965, 684)), color="#fb7185", label="serializes", label_xy=(914, 612)
+                ((820, 542), (965, 684)),
+                color="#fb7185",
+                label="serializes",
+                label_xy=(914, 612),
             ),
             Polyline(
                 ((1130, 542), (965, 684)),
@@ -1942,7 +2129,11 @@ def composite_family() -> Diagram:
                 290,
                 120,
                 "PagedComposition",
-                ("finite page slice", "implements IPageable", "decorates iterable source"),
+                (
+                    "finite page slice",
+                    "implements IPageable",
+                    "decorates iterable source",
+                ),
                 "database",
             ),
             Box(
@@ -1964,7 +2155,11 @@ def composite_family() -> Diagram:
                 290,
                 120,
                 "ForwardingCompositeVM",
-                ("wraps ICompositeVM<VM>", "override single behaviors", "still forwards disposal"),
+                (
+                    "wraps ICompositeVM<VM>",
+                    "override single behaviors",
+                    "still forwards disposal",
+                ),
                 "frontend",
             ),
         ),
@@ -1988,16 +2183,28 @@ def composite_family() -> Diagram:
                 label_xy=(1116, 150),
             ),
             Polyline(
-                ((255, 338), (255, 398)), color="#fbbf24", label="selection", label_xy=(300, 370)
+                ((255, 338), (255, 398)),
+                color="#fbbf24",
+                label="selection",
+                label_xy=(300, 370),
             ),
             Polyline(
-                ((595, 338), (630, 398)), color="#a78bfa", label="events", label_xy=(650, 370)
+                ((595, 338), (630, 398)),
+                color="#a78bfa",
+                label="events",
+                label_xy=(650, 370),
             ),
             Polyline(
-                ((940, 338), (970, 398)), color="#34d399", label="lifecycle", label_xy=(1000, 370)
+                ((940, 338), (970, 398)),
+                color="#34d399",
+                label="lifecycle",
+                label_xy=(1000, 370),
             ),
             Polyline(
-                ((1350, 338), (1350, 398)), color="#fb7185", label="structure", label_xy=(1400, 370)
+                ((1350, 338), (1350, 398)),
+                color="#fb7185",
+                label="structure",
+                label_xy=(1400, 370),
             ),
             Polyline(
                 ((325, 560), (325, 680), (685, 680), (685, 810)),
@@ -2012,7 +2219,10 @@ def composite_family() -> Diagram:
                 label_xy=(794, 955),
             ),
             Polyline(
-                ((1210, 870), (1280, 870)), color="#fb923c", label="wraps", label_xy=(1246, 854)
+                ((1210, 870), (1280, 870)),
+                color="#fb923c",
+                label="wraps",
+                label_xy=(1246, 854),
             ),
         ),
         notes=(
@@ -2096,7 +2306,11 @@ def component_family() -> Diagram:
                 300,
                 112,
                 "ComponentVM<M>",
-                ("mutable model payload", "ModeledHint recomputes", "model change notifications"),
+                (
+                    "mutable model payload",
+                    "ModeledHint recomputes",
+                    "model change notifications",
+                ),
                 "frontend",
             ),
             Box(
@@ -2114,7 +2328,11 @@ def component_family() -> Diagram:
                 260,
                 112,
                 "Selection commands",
-                ("Select / Deselect", "Toggle selection", "next/previous inert on leaf"),
+                (
+                    "Select / Deselect",
+                    "Toggle selection",
+                    "next/previous inert on leaf",
+                ),
                 "bus",
             ),
             Box(
@@ -2132,7 +2350,11 @@ def component_family() -> Diagram:
                 260,
                 112,
                 "Dual-channel helper",
-                ("equality + assignment first", "hub message exactly once", "inert after disposal"),
+                (
+                    "equality + assignment first",
+                    "hub message exactly once",
+                    "inert after disposal",
+                ),
                 "bus",
             ),
             Box(
@@ -2182,16 +2404,28 @@ def component_family() -> Diagram:
         ),
         lines=(
             Polyline(
-                ((380, 220), (450, 220)), color="#22d3ee", label="extends", label_xy=(416, 204)
+                ((380, 220), (450, 220)),
+                color="#22d3ee",
+                label="extends",
+                label_xy=(416, 204),
             ),
             Polyline(
-                ((710, 220), (780, 220)), color="#22d3ee", label="modeled", label_xy=(746, 204)
+                ((710, 220), (780, 220)),
+                color="#22d3ee",
+                label="modeled",
+                label_xy=(746, 204),
             ),
             Polyline(
-                ((1080, 220), (1150, 220)), color="#22d3ee", label="readonly", label_xy=(1116, 204)
+                ((1080, 220), (1150, 220)),
+                color="#22d3ee",
+                label="readonly",
+                label_xy=(1116, 204),
             ),
             Polyline(
-                ((580, 276), (280, 462)), color="#fb923c", label="commands", label_xy=(398, 366)
+                ((580, 276), (280, 462)),
+                color="#fb923c",
+                label="commands",
+                label_xy=(398, 366),
             ),
             Polyline(
                 ((580, 276), (600, 462)),
@@ -2200,7 +2434,10 @@ def component_family() -> Diagram:
                 label_xy=(668, 366),
             ),
             Polyline(
-                ((710, 276), (920, 462)), color="#fb923c", label="hub first", label_xy=(842, 366)
+                ((710, 276), (920, 462)),
+                color="#fb923c",
+                label="hub first",
+                label_xy=(842, 366),
             ),
             Polyline(
                 ((1050, 518), (1110, 518)),
@@ -2216,7 +2453,10 @@ def component_family() -> Diagram:
                 label_xy=(812, 650),
             ),
             Polyline(
-                ((1265, 574), (1190, 724)), color="#fb923c", label="wraps", label_xy=(1250, 650)
+                ((1265, 574), (1190, 724)),
+                color="#fb923c",
+                label="wraps",
+                label_xy=(1250, 650),
             ),
         ),
         notes=(
@@ -2333,7 +2573,11 @@ def aggregate_family() -> Diagram:
                 300,
                 112,
                 "Destruct cascade",
-                ("children first", "parent settles after slots", "dispose remains terminal"),
+                (
+                    "children first",
+                    "parent settles after slots",
+                    "dispose remains terminal",
+                ),
                 "backend",
             ),
             Box(
@@ -2390,17 +2634,29 @@ def aggregate_family() -> Diagram:
                 label_xy=(462, 208),
             ),
             Polyline(
-                ((750, 225), (830, 225)), color="#22d3ee", label="creates", label_xy=(792, 208)
+                ((750, 225), (830, 225)),
+                color="#22d3ee",
+                label="creates",
+                label_xy=(792, 208),
             ),
             Polyline(
-                ((1080, 225), (1160, 225)), color="#fb7185", label="preserves", label_xy=(1122, 208)
+                ((1080, 225), (1160, 225)),
+                color="#fb7185",
+                label="preserves",
+                label_xy=(1122, 208),
             ),
             Polyline(
-                ((270, 284), (300, 486)), color="#34d399", label="construct()", label_xy=(352, 388)
+                ((270, 284), (300, 486)),
+                color="#34d399",
+                label="construct()",
+                label_xy=(352, 388),
             ),
             Polyline(((625, 284), (670, 486)), color="#34d399"),
             Polyline(
-                ((955, 284), (1040, 486)), color="#fb923c", label="publish", label_xy=(1040, 388)
+                ((955, 284), (1040, 486)),
+                color="#fb923c",
+                label="publish",
+                label_xy=(1040, 388),
             ),
             Polyline(
                 ((1325, 284), (1400, 486)),
@@ -2478,7 +2734,11 @@ def group_family() -> Diagram:
                 300,
                 120,
                 "GroupVM<VM>",
-                ("homogeneous children", "ordered list surface", "parent is selectable"),
+                (
+                    "homogeneous children",
+                    "ordered list surface",
+                    "parent is selectable",
+                ),
                 "frontend",
             ),
             Box(
@@ -2487,7 +2747,11 @@ def group_family() -> Diagram:
                 280,
                 120,
                 "Peer children",
-                ("no Current", "child select command disabled", "selection lives elsewhere"),
+                (
+                    "no Current",
+                    "child select command disabled",
+                    "selection lives elsewhere",
+                ),
                 "security",
             ),
             Box(
@@ -2509,7 +2773,11 @@ def group_family() -> Diagram:
                 270,
                 120,
                 "Collection messages",
-                ("one Move with both indices", "BatchUpdate -> Reset", "same-index move is silent"),
+                (
+                    "one Move with both indices",
+                    "BatchUpdate -> Reset",
+                    "same-index move is silent",
+                ),
                 "bus",
             ),
             Box(
@@ -2581,15 +2849,29 @@ def group_family() -> Diagram:
             ),
         ),
         lines=(
-            Polyline(((420, 226), (500, 226)), color="#22d3ee", label="owns", label_xy=(462, 210)),
             Polyline(
-                ((780, 226), (860, 226)), color="#a78bfa", label="mutates", label_xy=(822, 210)
+                ((420, 226), (500, 226)),
+                color="#22d3ee",
+                label="owns",
+                label_xy=(462, 210),
             ),
             Polyline(
-                ((1140, 226), (1220, 226)), color="#fb923c", label="publishes", label_xy=(1182, 210)
+                ((780, 226), (860, 226)),
+                color="#a78bfa",
+                label="mutates",
+                label_xy=(822, 210),
             ),
             Polyline(
-                ((270, 286), (300, 466)), color="#34d399", label="construct()", label_xy=(346, 376)
+                ((1140, 226), (1220, 226)),
+                color="#fb923c",
+                label="publishes",
+                label_xy=(1182, 210),
+            ),
+            Polyline(
+                ((270, 286), (300, 466)),
+                color="#34d399",
+                label="construct()",
+                label_xy=(346, 376),
             ),
             Polyline(((640, 286), (670, 466)), color="#34d399"),
             Polyline(
@@ -2661,7 +2943,12 @@ def hierarchical_family() -> Diagram:
         boundaries=(
             Boundary(70, 118, 1580, 286, "Recursive node contract", "#22d3ee"),
             Boundary(
-                70, 434, 1580, 258, "Materialization, batch hydration, and mutation", "#34d399"
+                70,
+                434,
+                1580,
+                258,
+                "Materialization, batch hydration, and mutation",
+                "#34d399",
             ),
             Boundary(70, 722, 1580, 176, "Traversal and host rendering", "#a78bfa"),
         ),
@@ -2703,7 +2990,11 @@ def hierarchical_family() -> Diagram:
                 330,
                 122,
                 "Cycle protection",
-                ("reject ancestor cycles", "reject parent-key cycles", "stable parent links"),
+                (
+                    "reject ancestor cycles",
+                    "reject parent-key cycles",
+                    "stable parent links",
+                ),
                 "security",
             ),
             Box(
@@ -2725,7 +3016,11 @@ def hierarchical_family() -> Diagram:
                 300,
                 116,
                 "attachMany / attach_many",
-                ("consumer key selectors", "stable fixpoint + dedupe", "park or reject orphans"),
+                (
+                    "consumer key selectors",
+                    "stable fixpoint + dedupe",
+                    "park or reject orphans",
+                ),
                 "database",
             ),
             Box(
@@ -2734,7 +3029,11 @@ def hierarchical_family() -> Diagram:
                 300,
                 116,
                 "TreeStructureChangedMessage",
-                ("add/remove/reparent", "each successful attach", "recursive observers"),
+                (
+                    "add/remove/reparent",
+                    "each successful attach",
+                    "recursive observers",
+                ),
                 "bus",
             ),
             Box(
@@ -2780,14 +3079,28 @@ def hierarchical_family() -> Diagram:
         ),
         lines=(
             Polyline(
-                ((420, 226), (500, 226)), color="#22d3ee", label="exposes", label_xy=(462, 210)
+                ((420, 226), (500, 226)),
+                color="#22d3ee",
+                label="exposes",
+                label_xy=(462, 210),
             ),
-            Polyline(((750, 226), (830, 226)), color="#a78bfa", label="owns", label_xy=(792, 210)),
             Polyline(
-                ((1080, 226), (1160, 226)), color="#fb7185", label="guards", label_xy=(1122, 210)
+                ((750, 226), (830, 226)),
+                color="#a78bfa",
+                label="owns",
+                label_xy=(792, 210),
             ),
             Polyline(
-                ((270, 288), (300, 482)), color="#34d399", label="materialize", label_xy=(354, 384)
+                ((1080, 226), (1160, 226)),
+                color="#fb7185",
+                label="guards",
+                label_xy=(1122, 210),
+            ),
+            Polyline(
+                ((270, 288), (300, 482)),
+                color="#34d399",
+                label="materialize",
+                label_xy=(354, 384),
             ),
             Polyline(
                 ((955, 288), (670, 482)),
@@ -2802,14 +3115,23 @@ def hierarchical_family() -> Diagram:
                 label_xy=(1034, 384),
             ),
             Polyline(
-                ((1325, 288), (1400, 482)), color="#34d399", label="cascade", label_xy=(1440, 384)
+                ((1325, 288), (1400, 482)),
+                color="#34d399",
+                label="cascade",
+                label_xy=(1440, 384),
             ),
             Polyline(((300, 598), (345, 762)), color="#64748b"),
             Polyline(
-                ((670, 598), (785, 762)), color="#64748b", label="resolve", label_xy=(760, 682)
+                ((670, 598), (785, 762)),
+                color="#64748b",
+                label="resolve",
+                label_xy=(760, 682),
             ),
             Polyline(
-                ((1040, 598), (1225, 762)), color="#64748b", label="render", label_xy=(1180, 682)
+                ((1040, 598), (1225, 762)),
+                color="#64748b",
+                label="render",
+                label_xy=(1180, 682),
             ),
         ),
         notes=(
@@ -2881,7 +3203,11 @@ def forwarding_wrapper_family() -> Diagram:
                 300,
                 120,
                 "ForwardingComponentVM<M>",
-                ("wraps component contract", "delegates by default", "override selected members"),
+                (
+                    "wraps component contract",
+                    "delegates by default",
+                    "override selected members",
+                ),
                 "frontend",
             ),
             Box(
@@ -2903,7 +3229,11 @@ def forwarding_wrapper_family() -> Diagram:
                 270,
                 120,
                 "Inner VM",
-                ("canonical implementation", "owns real state", "publishes real messages"),
+                (
+                    "canonical implementation",
+                    "owns real state",
+                    "publishes real messages",
+                ),
                 "backend",
             ),
             Box(
@@ -2947,7 +3277,11 @@ def forwarding_wrapper_family() -> Diagram:
                 280,
                 112,
                 "Command wrapping",
-                ("gate existing command", "log or meter execution", "policy before delegate"),
+                (
+                    "gate existing command",
+                    "log or meter execution",
+                    "policy before delegate",
+                ),
                 "bus",
             ),
             Box(
@@ -2956,7 +3290,11 @@ def forwarding_wrapper_family() -> Diagram:
                 300,
                 112,
                 "Selective override",
-                ("small behavior patch", "adapter-specific shape", "test seam without fork"),
+                (
+                    "small behavior patch",
+                    "adapter-specific shape",
+                    "test seam without fork",
+                ),
                 "database",
             ),
             Box(
@@ -2989,30 +3327,59 @@ def forwarding_wrapper_family() -> Diagram:
         ),
         lines=(
             Polyline(
-                ((420, 226), (500, 226)), color="#22d3ee", label="same pattern", label_xy=(462, 210)
-            ),
-            Polyline(((800, 226), (880, 226)), color="#fb923c", label="wraps", label_xy=(842, 210)),
-            Polyline(
-                ((1150, 226), (1230, 226)), color="#34d399", label="exposes", label_xy=(1192, 210)
-            ),
-            Polyline(
-                ((270, 286), (290, 476)), color="#34d399", label="delegate", label_xy=(340, 384)
+                ((420, 226), (500, 226)),
+                color="#22d3ee",
+                label="same pattern",
+                label_xy=(462, 210),
             ),
             Polyline(
-                ((650, 286), (640, 476)), color="#fb923c", label="mirror", label_xy=(704, 384)
+                ((800, 226), (880, 226)),
+                color="#fb923c",
+                label="wraps",
+                label_xy=(842, 210),
             ),
             Polyline(
-                ((1015, 286), (990, 476)), color="#fb923c", label="wrap calls", label_xy=(1060, 384)
+                ((1150, 226), (1230, 226)),
+                color="#34d399",
+                label="exposes",
+                label_xy=(1192, 210),
             ),
             Polyline(
-                ((1370, 286), (1350, 476)), color="#a78bfa", label="override", label_xy=(1420, 384)
+                ((270, 286), (290, 476)),
+                color="#34d399",
+                label="delegate",
+                label_xy=(340, 384),
+            ),
+            Polyline(
+                ((650, 286), (640, 476)),
+                color="#fb923c",
+                label="mirror",
+                label_xy=(704, 384),
+            ),
+            Polyline(
+                ((1015, 286), (990, 476)),
+                color="#fb923c",
+                label="wrap calls",
+                label_xy=(1060, 384),
+            ),
+            Polyline(
+                ((1370, 286), (1350, 476)),
+                color="#a78bfa",
+                label="override",
+                label_xy=(1420, 384),
             ),
             Polyline(((290, 588), (340, 744)), color="#64748b"),
             Polyline(
-                ((990, 588), (770, 744)), color="#64748b", label="policy hooks", label_xy=(850, 674)
+                ((990, 588), (770, 744)),
+                color="#64748b",
+                label="policy hooks",
+                label_xy=(850, 674),
             ),
             Polyline(
-                ((1350, 588), (1200, 744)), color="#64748b", label="host seam", label_xy=(1300, 674)
+                ((1350, 588), (1200, 744)),
+                color="#64748b",
+                label="host seam",
+                label_xy=(1300, 674),
             ),
         ),
         notes=(
@@ -3076,7 +3443,11 @@ def specialized_vm_family() -> Diagram:
                 270,
                 122,
                 "FormVM",
-                ("snapshot + dirty state", "validation + approval", "deny restores model"),
+                (
+                    "snapshot + dirty state",
+                    "validation + approval",
+                    "deny restores model",
+                ),
                 "frontend",
             ),
             Box(
@@ -3094,7 +3465,11 @@ def specialized_vm_family() -> Diagram:
                 270,
                 122,
                 "NotificationVM",
-                ("render-ready notification", "dismiss command", "auto-resolve by lifespan"),
+                (
+                    "render-ready notification",
+                    "dismiss command",
+                    "auto-resolve by lifespan",
+                ),
                 "security",
             ),
             Box(
@@ -3103,7 +3478,11 @@ def specialized_vm_family() -> Diagram:
                 270,
                 122,
                 "ConfirmationVM",
-                ("inherits NotificationVM", "approve/reject commands", "no timeout auto-resolve"),
+                (
+                    "inherits NotificationVM",
+                    "approve/reject commands",
+                    "no timeout auto-resolve",
+                ),
                 "security",
             ),
             Box(
@@ -3121,7 +3500,11 @@ def specialized_vm_family() -> Diagram:
                 300,
                 116,
                 "IDialogService",
-                ("confirm / notify / pick file", "VM-backed modal seam", "safe null service"),
+                (
+                    "confirm / notify / pick file",
+                    "VM-backed modal seam",
+                    "safe null service",
+                ),
                 "security",
             ),
             Box(
@@ -3139,7 +3522,11 @@ def specialized_vm_family() -> Diagram:
                 300,
                 116,
                 "Command adapters",
-                ("ConfirmationDecoratorCommand", "make_confirm helper", "approve/deny wiring"),
+                (
+                    "ConfirmationDecoratorCommand",
+                    "make_confirm helper",
+                    "approve/deny wiring",
+                ),
                 "bus",
             ),
             Box(
@@ -3178,10 +3565,16 @@ def specialized_vm_family() -> Diagram:
                 label_xy=(426, 210),
             ),
             Polyline(
-                ((1070, 226), (1140, 226)), color="#22d3ee", label="extends", label_xy=(1106, 210)
+                ((1070, 226), (1140, 226)),
+                color="#22d3ee",
+                label="extends",
+                label_xy=(1106, 210),
             ),
             Polyline(
-                ((255, 288), (300, 482)), color="#fb923c", label="modal edit", label_xy=(360, 384)
+                ((255, 288), (300, 482)),
+                color="#fb923c",
+                label="modal edit",
+                label_xy=(360, 384),
             ),
             Polyline(
                 ((595, 288), (670, 482)),
@@ -3190,15 +3583,29 @@ def specialized_vm_family() -> Diagram:
                 label_xy=(724, 384),
             ),
             Polyline(
-                ((935, 288), (1040, 482)), color="#fb7185", label="posts", label_xy=(1010, 384)
+                ((935, 288), (1040, 482)),
+                color="#fb7185",
+                label="posts",
+                label_xy=(1010, 384),
             ),
             Polyline(
-                ((1275, 288), (1410, 482)), color="#fb923c", label="commands", label_xy=(1404, 384)
+                ((1275, 288), (1410, 482)),
+                color="#fb923c",
+                label="commands",
+                label_xy=(1404, 384),
             ),
             Polyline(((300, 598), (345, 762)), color="#64748b"),
-            Polyline(((670, 598), (785, 762)), color="#64748b", label="await", label_xy=(760, 682)),
             Polyline(
-                ((1040, 598), (1225, 762)), color="#64748b", label="render", label_xy=(1180, 682)
+                ((670, 598), (785, 762)),
+                color="#64748b",
+                label="await",
+                label_xy=(760, 682),
+            ),
+            Polyline(
+                ((1040, 598), (1225, 762)),
+                color="#64748b",
+                label="render",
+                label_xy=(1180, 682),
             ),
             Polyline(((1410, 598), (785, 762)), color="#64748b"),
         ),
@@ -3311,7 +3718,10 @@ def commands_capabilities() -> Diagram:
                 420,
                 102,
                 "CompositeCommand",
-                ("execute every enabled inner command", "aggregate CanExecute over children"),
+                (
+                    "execute every enabled inner command",
+                    "aggregate CanExecute over children",
+                ),
                 "bus",
             ),
             Box(
@@ -3474,7 +3884,10 @@ def commands_capabilities() -> Diagram:
                 label="implemented by helpers",
                 label_xy=(1260, 696),
             ),
-            Polyline(((1520, 478), (1520, 730)), color="#a78bfa"),
+            Polyline(
+                ((1520, 478), (1690, 478), (1690, 690), (1520, 690), (1520, 730)),
+                color="#a78bfa",
+            ),
             Polyline(((840, 654), (840, 730)), color="#a78bfa"),
             Polyline(((1520, 302), (1520, 346)), color="#94a3b8"),
             Polyline(((1180, 302), (1180, 346)), color="#94a3b8"),
@@ -3563,7 +3976,11 @@ def forms_dialogs_notifications() -> Diagram:
                 200,
                 118,
                 "ApproveCommand",
-                ("persist captured model", "reset -> pristine", "errors -> ApproveErrors"),
+                (
+                    "persist captured model",
+                    "reset -> pristine",
+                    "errors -> ApproveErrors",
+                ),
                 "bus",
             ),
             Box(
@@ -3701,10 +4118,16 @@ def forms_dialogs_notifications() -> Diagram:
         ),
         lines=(
             Polyline(
-                ((320, 298), (220, 336)), color="#94a3b8", label="cancel path", label_xy=(242, 320)
+                ((320, 298), (220, 336)),
+                color="#94a3b8",
+                label="cancel path",
+                label_xy=(242, 320),
             ),
             Polyline(
-                ((340, 298), (440, 336)), color="#94a3b8", label="save path", label_xy=(418, 320)
+                ((340, 298), (440, 336)),
+                color="#94a3b8",
+                label="save path",
+                label_xy=(418, 320),
             ),
             Polyline(((220, 454), (220, 494)), color="#34d399"),
             Polyline(((440, 454), (440, 494)), color="#34d399"),
@@ -3729,7 +4152,10 @@ def forms_dialogs_notifications() -> Diagram:
             ),
             Polyline(((1385, 298), (1385, 338)), color="#fb7185"),
             Polyline(
-                ((1270, 456), (1270, 494)), color="#a78bfa", label="adapts", label_xy=(1318, 478)
+                ((1270, 456), (1270, 494)),
+                color="#a78bfa",
+                label="adapts",
+                label_xy=(1318, 478),
             ),
             Polyline(((1495, 456), (1495, 494)), color="#a78bfa"),
             Polyline(((1385, 634), (1385, 678)), color="#94a3b8"),
@@ -3874,7 +4300,11 @@ def examples_vm_layer() -> Diagram:
                 230,
                 180,
                 "NotificationsVM",
-                ("visible NotificationVM list", "hub-driven toast region", "cap 5 visible items"),
+                (
+                    "visible NotificationVM list",
+                    "hub-driven toast region",
+                    "cap 5 visible items",
+                ),
                 "frontend",
             ),
             Box(
@@ -3892,7 +4322,10 @@ def examples_vm_layer() -> Diagram:
                 320,
                 122,
                 "Repository + models",
-                ("NotebookModel / NoteModel", "loadAll, loadNotes, save, delete, search"),
+                (
+                    "NotebookModel / NoteModel",
+                    "loadAll, loadNotes, save, delete, search",
+                ),
                 "cloud",
             ),
             Box(
@@ -3931,16 +4364,28 @@ def examples_vm_layer() -> Diagram:
         ),
         lines=(
             Polyline(
-                ((490, 270), (235, 340)), color="#22d3ee", label="Component1", label_xy=(332, 292)
+                ((490, 270), (235, 340)),
+                color="#22d3ee",
+                label="Component1",
+                label_xy=(332, 292),
             ),
             Polyline(
-                ((620, 270), (530, 340)), color="#22d3ee", label="Component2", label_xy=(580, 292)
+                ((620, 270), (530, 340)),
+                color="#22d3ee",
+                label="Component2",
+                label_xy=(580, 292),
             ),
             Polyline(
-                ((760, 270), (835, 340)), color="#22d3ee", label="Component3", label_xy=(806, 292)
+                ((760, 270), (835, 340)),
+                color="#22d3ee",
+                label="Component3",
+                label_xy=(806, 292),
             ),
             Polyline(
-                ((920, 270), (1125, 340)), color="#22d3ee", label="Component4", label_xy=(1004, 292)
+                ((920, 270), (1125, 340)),
+                color="#22d3ee",
+                label="Component4",
+                label_xy=(1004, 292),
             ),
             Polyline(
                 ((1060, 270), (1395, 340)),
@@ -3968,7 +4413,10 @@ def examples_vm_layer() -> Diagram:
                 label_xy=(420, 318),
             ),
             Polyline(
-                ((660, 430), (700, 430)), color="#94a3b8", label="current note", label_xy=(680, 318)
+                ((660, 430), (700, 430)),
+                color="#94a3b8",
+                label="current note",
+                label_xy=(680, 318),
             ),
             Polyline(
                 ((835, 520), (835, 620), (1125, 620), (1125, 520)),
@@ -4093,7 +4541,11 @@ def rust_tui_notes_showcase() -> Diagram:
                 270,
                 150,
                 "NotesViewVm",
-                ("CompositeVm<NoteVm>", "FilteredCompositeVm search", "PagedComposition pages"),
+                (
+                    "CompositeVm<NoteVm>",
+                    "FilteredCompositeVm search",
+                    "PagedComposition pages",
+                ),
                 "frontend",
             ),
             Box(
@@ -4102,7 +4554,11 @@ def rust_tui_notes_showcase() -> Diagram:
                 250,
                 150,
                 "NoteFormVm",
-                ("FormVm<NoteDraft>", "strict dirty tracking", "field + model validators"),
+                (
+                    "FormVm<NoteDraft>",
+                    "strict dirty tracking",
+                    "field + model validators",
+                ),
                 "frontend",
             ),
             Box(
@@ -4138,7 +4594,11 @@ def rust_tui_notes_showcase() -> Diagram:
                 300,
                 120,
                 "Repository + models",
-                ("NotebookModel / NoteModel", "NoteDraft snapshots", "in-memory persistence"),
+                (
+                    "NotebookModel / NoteModel",
+                    "NoteDraft snapshots",
+                    "in-memory persistence",
+                ),
                 "cloud",
             ),
             Box(
@@ -4198,16 +4658,28 @@ def rust_tui_notes_showcase() -> Diagram:
         ),
         lines=(
             Polyline(
-                ((780, 268), (238, 340)), color="#22d3ee", label="component1", label_xy=(472, 286)
+                ((780, 268), (238, 340)),
+                color="#22d3ee",
+                label="component1",
+                label_xy=(472, 286),
             ),
             Polyline(
-                ((850, 268), (525, 340)), color="#22d3ee", label="component2", label_xy=(640, 302)
+                ((850, 268), (525, 340)),
+                color="#22d3ee",
+                label="component2",
+                label_xy=(640, 302),
             ),
             Polyline(
-                ((910, 268), (825, 340)), color="#22d3ee", label="component3", label_xy=(880, 302)
+                ((910, 268), (825, 340)),
+                color="#22d3ee",
+                label="component3",
+                label_xy=(880, 302),
             ),
             Polyline(
-                ((975, 268), (1130, 340)), color="#22d3ee", label="component4", label_xy=(1064, 302)
+                ((975, 268), (1130, 340)),
+                color="#22d3ee",
+                label="component4",
+                label_xy=(1064, 302),
             ),
             Polyline(
                 ((1040, 268), (1420, 340)),
@@ -4228,7 +4700,10 @@ def rust_tui_notes_showcase() -> Diagram:
                 label_xy=(430, 548),
             ),
             Polyline(
-                ((825, 490), (670, 565)), color="#fb923c", label="commands", label_xy=(720, 528)
+                ((825, 490), (670, 565)),
+                color="#fb923c",
+                label="commands",
+                label_xy=(720, 528),
             ),
             Polyline(
                 ((1130, 490), (1020, 565)),
@@ -4243,10 +4718,16 @@ def rust_tui_notes_showcase() -> Diagram:
                 label_xy=(1450, 528),
             ),
             Polyline(
-                ((400, 685), (400, 900)), color="#64748b", label="snapshots", label_xy=(462, 812)
+                ((400, 685), (400, 900)),
+                color="#64748b",
+                label="snapshots",
+                label_xy=(462, 812),
             ),
             Polyline(
-                ((900, 685), (900, 900)), color="#64748b", label="execute", label_xy=(950, 812)
+                ((900, 685), (900, 900)),
+                color="#64748b",
+                label="execute",
+                label_xy=(950, 812),
             ),
             Polyline(
                 ((1410, 900), (1410, 812), (900, 812), (900, 900)),
@@ -4334,7 +4815,11 @@ def example_app_diagram(
                 300,
                 116,
                 "User gestures",
-                ("events become VM calls", "no domain state in host", "render from VM snapshots"),
+                (
+                    "events become VM calls",
+                    "no domain state in host",
+                    "render from VM snapshots",
+                ),
                 "bus",
             ),
             Box(
@@ -4343,7 +4828,11 @@ def example_app_diagram(
                 260,
                 116,
                 "Run surface",
-                ("local example command", "smoke-friendly path", "documented README entry"),
+                (
+                    "local example command",
+                    "smoke-friendly path",
+                    "documented README entry",
+                ),
                 "cloud",
             ),
             Box(120, 444, 300, 122, root[0], root[1], "frontend"),
@@ -4354,35 +4843,77 @@ def example_app_diagram(
             Box(760, 738, 620, 90, rule[0], rule[1], "generic"),
         ),
         lines=(
-            Polyline(((420, 224), (510, 224)), color="#22d3ee", label="binds", label_xy=(466, 208)),
             Polyline(
-                ((810, 224), (900, 224)), color="#fb923c", label="routes", label_xy=(856, 208)
+                ((420, 224), (510, 224)),
+                color="#22d3ee",
+                label="binds",
+                label_xy=(466, 208),
             ),
             Polyline(
-                ((1200, 224), (1290, 224)), color="#fbbf24", label="runs", label_xy=(1246, 208)
-            ),
-            Polyline(((270, 282), (270, 444)), color="#34d399", label="owns", label_xy=(326, 366)),
-            Polyline(
-                ((660, 282), (660, 444)), color="#34d399", label="projects", label_xy=(724, 366)
-            ),
-            Polyline(
-                ((1050, 282), (1050, 444)), color="#fb923c", label="executes", label_xy=(1116, 366)
+                ((810, 224), (900, 224)),
+                color="#fb923c",
+                label="routes",
+                label_xy=(856, 208),
             ),
             Polyline(
-                ((1420, 282), (1420, 444)), color="#a78bfa", label="loads", label_xy=(1470, 366)
+                ((1200, 224), (1290, 224)),
+                color="#fbbf24",
+                label="runs",
+                label_xy=(1246, 208),
             ),
             Polyline(
-                ((420, 505), (510, 505)), color="#22d3ee", label="children", label_xy=(466, 489)
+                ((270, 282), (270, 444)),
+                color="#34d399",
+                label="owns",
+                label_xy=(326, 366),
             ),
             Polyline(
-                ((810, 505), (900, 505)), color="#fb923c", label="commands", label_xy=(856, 489)
+                ((660, 282), (660, 444)),
+                color="#34d399",
+                label="projects",
+                label_xy=(724, 366),
             ),
             Polyline(
-                ((1200, 505), (1290, 505)), color="#34d399", label="data", label_xy=(1246, 489)
+                ((1050, 282), (1050, 444)),
+                color="#fb923c",
+                label="executes",
+                label_xy=(1116, 366),
             ),
-            Polyline(((660, 566), (425, 738)), color="#64748b", label="tests", label_xy=(544, 660)),
             Polyline(
-                ((1050, 566), (1070, 738)), color="#64748b", label="boundary", label_xy=(1114, 660)
+                ((1420, 282), (1420, 444)),
+                color="#a78bfa",
+                label="loads",
+                label_xy=(1470, 366),
+            ),
+            Polyline(
+                ((420, 505), (510, 505)),
+                color="#22d3ee",
+                label="children",
+                label_xy=(466, 489),
+            ),
+            Polyline(
+                ((810, 505), (900, 505)),
+                color="#fb923c",
+                label="commands",
+                label_xy=(856, 489),
+            ),
+            Polyline(
+                ((1200, 505), (1290, 505)),
+                color="#34d399",
+                label="data",
+                label_xy=(1246, 489),
+            ),
+            Polyline(
+                ((660, 566), (425, 738)),
+                color="#64748b",
+                label="tests",
+                label_xy=(544, 660),
+            ),
+            Polyline(
+                ((1050, 566), (1070, 738)),
+                color="#64748b",
+                label="boundary",
+                label_xy=(1114, 660),
             ),
         ),
         notes=(
@@ -4408,7 +4939,10 @@ def csharp_console_hello_vmx() -> Diagram:
         diagram_id="csharp-console-hello-vmx",
         title="C# Console HelloVMx Example",
         subtitle="minimal .NET host for ComponentVM lifecycle, hub messages, and model equality",
-        host=("Console program", ("Program.cs entrypoint", "net8.0 command", "stdout narrative")),
+        host=(
+            "Console program",
+            ("Program.cs entrypoint", "net8.0 command", "stdout narrative"),
+        ),
         adapter=(
             "Message subscriptions",
             ("hub observers", "status/property logs", "no UI framework"),
@@ -4465,7 +4999,10 @@ def csharp_wpf_todo_app() -> Diagram:
         diagram_id="csharp-wpf-todo-app",
         title="C# WPF Todo App Example",
         subtitle="Windows WPF host showing VMx commands with idiomatic XAML binding wrappers",
-        host=("WPF window", ("MainWindow.xaml", "ListBox + buttons", "Windows-only launch")),
+        host=(
+            "WPF window",
+            ("MainWindow.xaml", "ListBox + buttons", "Windows-only launch"),
+        ),
         adapter=(
             "INPC wrappers",
             ("TodoItemVM forwards VMx", "ICommand bridge", "XAML data binding"),
@@ -4493,7 +5030,10 @@ def csharp_wpf_todo_app() -> Diagram:
         cards=(
             (
                 "Wrapper pattern",
-                ("VMx stays inside row wrappers.", "WPF sees familiar binding contracts."),
+                (
+                    "VMx stays inside row wrappers.",
+                    "WPF sees familiar binding contracts.",
+                ),
             ),
             (
                 "Command ownership",
@@ -4504,7 +5044,10 @@ def csharp_wpf_todo_app() -> Diagram:
             ),
             (
                 "Platform note",
-                ("Build can succeed off Windows.", "Running WPF still requires Windows."),
+                (
+                    "Build can succeed off Windows.",
+                    "Running WPF still requires Windows.",
+                ),
             ),
         ),
         footer="",
@@ -4526,16 +5069,32 @@ def csharp_avalonia_notes_showcase() -> Diagram:
         ),
         adapter=(
             "Avalonia adapters",
-            ("BindableVm / Derived", "collection + command bridges", "dispatcher + dialogs"),
+            (
+                "BindableVm / Derived",
+                "collection + command bridges",
+                "dispatcher + dialogs",
+            ),
         ),
-        root=("WorkspaceVM", ("AggregateVM6 shell", "async construct", "theme sibling")),
+        root=(
+            "WorkspaceVM",
+            ("AggregateVM6 shell", "async construct", "theme sibling"),
+        ),
         primary=(
             "Notebook + note VMs",
             ("tree projection", "paged notes list", "strict NoteFormVM"),
         ),
-        support=("Workflow services", ("dialogs", "notifications", "global token search")),
-        model=("Repository + models", ("in-memory notes", "seed notebooks", "theme model")),
-        verification=("Pure-VM tests", ("dotnet test", "adapter tests", "code-behind checker")),
+        support=(
+            "Workflow services",
+            ("dialogs", "notifications", "global token search"),
+        ),
+        model=(
+            "Repository + models",
+            ("in-memory notes", "seed notebooks", "theme model"),
+        ),
+        verification=(
+            "Pure-VM tests",
+            ("dotnet test", "adapter tests", "code-behind checker"),
+        ),
         rule=(
             "Best-fit use",
             (
@@ -4552,7 +5111,10 @@ def csharp_avalonia_notes_showcase() -> Diagram:
             ),
             (
                 "Adapter seam",
-                ("Avalonia specifics live in Views/Adapter.", "VMs remain host-independent."),
+                (
+                    "Avalonia specifics live in Views/Adapter.",
+                    "VMs remain host-independent.",
+                ),
             ),
             (
                 "Parity role",
@@ -4568,7 +5130,10 @@ def python_console_hello_vmx() -> Diagram:
         diagram_id="python-console-hello-vmx",
         title="Python Console hello_vmx Example",
         subtitle="minimal uv-run script for ComponentVMOf lifecycle and reactivex-backed hub messages",
-        host=("Python module", ("python -m hello_vmx", "uv-managed env", "stdout narrative")),
+        host=(
+            "Python module",
+            ("python -m hello_vmx", "uv-managed env", "stdout narrative"),
+        ),
         adapter=(
             "Reactive observers",
             ("hub.messages subscribe", "status/property printout", "no UI toolkit"),
@@ -4625,9 +5190,18 @@ def python_tk_todo_app() -> Diagram:
         diagram_id="python-tk-todo-app",
         title="Python tkinter Todo App Example",
         subtitle="small GUI host using CompositeVM rows and RelayCommand-driven todo actions",
-        host=("tkinter window", ("entry + listbox", "button callbacks", "display required")),
-        adapter=("View callbacks", ("button -> command", "selection -> VM", "render from VM list")),
-        root=("MainWindowViewModel", ("CompositeVM[TodoItemVM]", "add_command", "remove_command")),
+        host=(
+            "tkinter window",
+            ("entry + listbox", "button callbacks", "display required"),
+        ),
+        adapter=(
+            "View callbacks",
+            ("button -> command", "selection -> VM", "render from VM list"),
+        ),
+        root=(
+            "MainWindowViewModel",
+            ("CompositeVM[TodoItemVM]", "add_command", "remove_command"),
+        ),
         primary=(
             "TodoItemVM rows",
             ("ComponentVMOf[TodoItem]", "toggle_done command", "row projection"),
@@ -4677,14 +5251,23 @@ def python_textual_inspector() -> Diagram:
         title="Python Textual Inspector Example",
         subtitle="live TUI for walking VMx hierarchies and observing hub message traffic",
         host=("Textual app", ("tree widget", "details panel", "message table")),
-        adapter=("Inspector views", ("vmx.tree.walk", "highlighted node actions", "hub log sink")),
+        adapter=(
+            "Inspector views",
+            ("vmx.tree.walk", "highlighted node actions", "hub log sink"),
+        ),
         root=(
             "Sample hierarchy",
             ("ComponentVM nodes", "constructable tree", "selected node context"),
         ),
         primary=("Tree projection", ("walk output", "node metadata", "details view")),
-        support=("Lifecycle actions", ("construct", "destruct", "reconstruct", "dispose / select")),
-        model=("Hub stream", ("PropertyChanged", "ConstructionStatusChanged", "ordered log rows")),
+        support=(
+            "Lifecycle actions",
+            ("construct", "destruct", "reconstruct", "dispose / select"),
+        ),
+        model=(
+            "Hub stream",
+            ("PropertyChanged", "ConstructionStatusChanged", "ordered log rows"),
+        ),
         verification=(
             "Smoke test",
             ("uv run project", "Textual import smoke", "sample hierarchy renders"),
@@ -4729,7 +5312,10 @@ def python_textual_notes_showcase() -> Diagram:
             "Textual adapters",
             ("property binders", "collection bridge", "dialog + dispatcher ports"),
         ),
-        root=("WorkspaceVM", ("AggregateVM6 shell", "async construct", "theme sibling")),
+        root=(
+            "WorkspaceVM",
+            ("AggregateVM6 shell", "async construct", "theme sibling"),
+        ),
         primary=(
             "Notebook + note VMs",
             ("tree projection", "PagedComposition", "strict NoteFormVM"),
@@ -4738,7 +5324,10 @@ def python_textual_notes_showcase() -> Diagram:
             "Workflow services",
             ("TokenPagedComposition", "NotificationVM", "DiscriminatorVM"),
         ),
-        model=("Repository + models", ("in-memory notes", "seed notebooks", "theme model")),
+        model=(
+            "Repository + models",
+            ("in-memory notes", "seed notebooks", "theme model"),
+        ),
         verification=(
             "VM + view tests",
             ("uv run pytest", "Pure-VM contract", "adapter smoke tests"),
@@ -4762,7 +5351,10 @@ def python_textual_notes_showcase() -> Diagram:
                     "VM tests cover the domain behavior.",
                 ),
             ),
-            ("Parity role", ("Matches the C#, TypeScript, and Swift flagship scenario.",)),
+            (
+                "Parity role",
+                ("Matches the C#, TypeScript, and Swift flagship scenario.",),
+            ),
         ),
         footer="",
     )
@@ -4786,7 +5378,10 @@ def typescript_console_hello_vmx() -> Diagram:
             "UserModel projection",
             ("typed object model", "Alice -> Bob mutation", "equality guard"),
         ),
-        support=("MessageHub", ("ConstructionStatusChanged", "PropertyChanged", "rxjs stream")),
+        support=(
+            "MessageHub",
+            ("ConstructionStatusChanged", "PropertyChanged", "rxjs stream"),
+        ),
         model=("UserModel", ("name", "age", "structural payload")),
         verification=("Manual smoke", ("npm ci", "npm start", "local VMx build first")),
         rule=(
@@ -4810,7 +5405,10 @@ def typescript_console_hello_vmx() -> Diagram:
                     "Equal assignments produce no message.",
                 ),
             ),
-            ("Next step", ("Move to the React showcase when host hooks and adapters matter.",)),
+            (
+                "Next step",
+                ("Move to the React showcase when host hooks and adapters matter.",),
+            ),
         ),
         footer="",
     )
@@ -4821,12 +5419,18 @@ def typescript_react_notes_showcase() -> Diagram:
         diagram_id="typescript-react-notes-showcase",
         title="TypeScript React Notes Showcase Example",
         subtitle="flagship web host with hooks as VMx adapters and React components as pure renderers",
-        host=("React components", ("Vite app shell", "pure render components", "hotkey hooks")),
+        host=(
+            "React components",
+            ("Vite app shell", "pure render components", "hotkey hooks"),
+        ),
         adapter=(
             "React adapter hooks",
             ("useVm / useCommand", "collection + derived hooks", "dialog overlay"),
         ),
-        root=("WorkspaceVM", ("AggregateVM6 shell", "async construct", "theme sibling")),
+        root=(
+            "WorkspaceVM",
+            ("AggregateVM6 shell", "async construct", "theme sibling"),
+        ),
         primary=(
             "Notebook + note VMs",
             ("tree projection", "PagedComposition", "strict NoteFormVM"),
@@ -4835,7 +5439,10 @@ def typescript_react_notes_showcase() -> Diagram:
             "Workflow services",
             ("TokenPagedComposition", "NotificationVM", "DiscriminatorVM"),
         ),
-        model=("Repository + models", ("in-memory notes", "seed notebooks", "theme model")),
+        model=(
+            "Repository + models",
+            ("in-memory notes", "seed notebooks", "theme model"),
+        ),
         verification=(
             "Vitest + lint",
             ("npm test", "typecheck", "no useState/useReducer in views"),
@@ -4870,16 +5477,31 @@ def swift_notes_showcase() -> Diagram:
         diagram_id="swift-notes-showcase",
         title="Swift Notes Showcase Example",
         subtitle="SwiftUI + Combine flagship with a pure NotesShowcaseCore VM layer",
-        host=("SwiftUI views", ("RootView layout", "Combine subscriptions", "macOS app target")),
+        host=(
+            "SwiftUI views",
+            ("RootView layout", "Combine subscriptions", "macOS app target"),
+        ),
         adapter=(
             "SwiftUI adapters",
             ("BindableVM", "BindableCollection", "command + derived bridges"),
         ),
-        root=("WorkspaceVM", ("AggregateVM6 shell", "async construct", "theme sibling")),
-        primary=("Notebook + note VMs", ("tree projection", "paged notes", "strict NoteFormVM")),
-        support=("Workflow services", ("global token search", "notifications", "dialogs + theme")),
+        root=(
+            "WorkspaceVM",
+            ("AggregateVM6 shell", "async construct", "theme sibling"),
+        ),
+        primary=(
+            "Notebook + note VMs",
+            ("tree projection", "paged notes", "strict NoteFormVM"),
+        ),
+        support=(
+            "Workflow services",
+            ("global token search", "notifications", "dialogs + theme"),
+        ),
         model=("Core package", ("models", "repository", "ThemeChangedMessage")),
-        verification=("Swift tests", ("swift build", "swift test with Xcode", "THEME-001..005")),
+        verification=(
+            "Swift tests",
+            ("swift build", "swift test with Xcode", "THEME-001..005"),
+        ),
         rule=(
             "Best-fit use",
             (
@@ -4898,7 +5520,10 @@ def swift_notes_showcase() -> Diagram:
                 "Combine bridge",
                 ("Adapters expose VMx state to SwiftUI.", "Commands remain VM-owned."),
             ),
-            ("Parity role", ("Matches the C#, Python, and TypeScript flagship scenario.",)),
+            (
+                "Parity role",
+                ("Matches the C#, Python, and TypeScript flagship scenario.",),
+            ),
         ),
         footer="",
     )
@@ -4914,12 +5539,18 @@ def rust_console_hello_vmx() -> Diagram:
             "Console projection",
             ("print current note", "print search count", "no TUI state"),
         ),
-        root=("CompositeVm rows", ("modeled note rows", "initial current", "construct + dispose")),
+        root=(
+            "CompositeVm rows",
+            ("modeled note rows", "initial current", "construct + dispose"),
+        ),
         primary=(
             "FilteredCompositeVm",
             ("live search result", "rust query", "selected note remains VM-owned"),
         ),
-        support=("RelayCommand", ("command execution", "VMx services", "hub + dispatcher")),
+        support=(
+            "RelayCommand",
+            ("command execution", "VMx services", "hub + dispatcher"),
+        ),
         model=(
             "ComponentVm<String>",
             ("3 seeded notes", "name slug + model title", "fixed rust predicate"),
@@ -4949,7 +5580,10 @@ def rust_console_hello_vmx() -> Diagram:
                     "Console output is only a projection.",
                 ),
             ),
-            ("Next step", ("Move to Ratatui Notes Showcase for full MVVM terminal composition.",)),
+            (
+                "Next step",
+                ("Move to Ratatui Notes Showcase for full MVVM terminal composition.",),
+            ),
         ),
         footer="",
     )
@@ -5015,6 +5649,7 @@ def write_triplet(
                 str(svg_path),
             ],
             check=True,
+            timeout=120,
         )
         subprocess.run(
             [
@@ -5029,6 +5664,7 @@ def write_triplet(
                 str(tmp_path),
             ],
             check=True,
+            timeout=120,
         )
     finally:
         tmp_path.unlink(missing_ok=True)

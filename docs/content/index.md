@@ -6,15 +6,15 @@ keeps C#, Python, TypeScript, Swift, and Rust aligned.
 
 <div class="vmx-card-grid">
   <div class="vmx-card">
-    <p class="vmx-card-title"><a href="installation/">Install</a></p>
+    <p class="vmx-card-title"><a href="installation.md">Install</a></p>
     <p>Check source-tree version status and package commands for each flavor.</p>
   </div>
   <div class="vmx-card">
-    <p class="vmx-card-title"><a href="getting-started/">Quickstart</a></p>
+    <p class="vmx-card-title"><a href="getting-started/index.md">Quickstart</a></p>
     <p>Build the shared component-plus-composite contract in each idiomatic flavor.</p>
   </div>
   <div class="vmx-card">
-    <p class="vmx-card-title"><a href="architecture/">Architecture Map</a></p>
+    <p class="vmx-card-title"><a href="architecture/index.md">Architecture Map</a></p>
     <p>Walk the system, class, and lifecycle diagrams, then browse the full gallery.</p>
   </div>
 </div>
@@ -23,7 +23,7 @@ keeps C#, Python, TypeScript, Swift, and Rust aligned.
 
 - `spec/` is the source of truth for behavior, lifecycle, and conformance.
 - Every flavor implements the shared normative concepts while following native naming conventions.
-- The conformance catalog keeps 396 library IDs aligned across all five
+- The conformance catalog keeps 400 library IDs aligned across all five
   catalog-complete source flavors, plus 5 scenario IDs for flagship examples.
 - Catalog coverage is distinct from member-level surface parity; the remaining
   [Rust convergence backlog](../maintenance/2026-07-16-rust-capability-parity.md)

@@ -29,25 +29,37 @@ concurrency:
 
 jobs:
   release-metadata:
+    timeout-minutes: 5
     name: release — metadata preflight
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           fetch-tags: true
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.11.28"
+      - name: Set up Python
+        run: uv python install 3.12
+      - name: Sync release metadata dependencies
+        run: uv --project langs/python sync --locked --extra tools
       - name: Validate versions, tags, and substantive release notes
-        run: python3 tools/check-version-consistency.py
+        run: >-
+          uv --project langs/python run --locked --extra tools python
+          tools/check-version-consistency.py
+          --release-tag "$GITHUB_REF_NAME"
 
   csharp-build:
+    timeout-minutes: 40
     if: startsWith(github.ref, 'refs/tags/csharp-')
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Verify tag commit is on main
         run: |
           set -euo pipefail
@@ -127,6 +139,7 @@ jobs:
           if-no-files-found: error
 
   csharp-publish:
+    timeout-minutes: 20
     needs: [csharp-build, release-metadata]
     if: startsWith(github.ref, 'refs/tags/csharp-')
     runs-on: ubuntu-latest
@@ -159,6 +172,8 @@ jobs:
         with:
           user: ${{ secrets.NUGET_USER }}
       - name: Push exact selected packages and symbols
+        env:
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
         run: |
           set -euo pipefail
           python3 - <<'PY' > /tmp/csharp-main-packages.txt
@@ -171,11 +186,12 @@ jobs:
           PY
           while IFS= read -r package; do
             dotnet nuget push "$package" \
-              --api-key "${{ steps.login.outputs.NUGET_API_KEY }}" \
+              --api-key "$NUGET_API_KEY" \
               --source https://api.nuget.org/v3/index.json
           done < /tmp/csharp-main-packages.txt
 
   csharp-verify-published:
+    timeout-minutes: 25
     needs: csharp-publish
     if: startsWith(github.ref, 'refs/tags/csharp-')
     runs-on: ubuntu-latest
@@ -186,7 +202,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: 8.0.x
@@ -213,16 +229,18 @@ jobs:
           python3 tools/smoke-nuget-consumer.py \
             "${packages[@]}" \
             --framework "${{ matrix.framework }}" \
-            --poll-timeout 900
+            --poll-timeout 900 \
+            --timeout 1200
 
   csharp-release-notes:
+    timeout-minutes: 10
     needs: csharp-verify-published
     if: startsWith(github.ref, 'refs/tags/csharp-')
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Download release manifest
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -275,7 +293,7 @@ jobs:
       matrix:
         python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Verify tag commit is on main
         run: |
           set -euo pipefail
@@ -284,7 +302,7 @@ jobs:
             echo "::error::Release tags must point at commits reachable from origin/main." >&2
             exit 1
           fi
-      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           version: "0.11.28"
           enable-cache: true
@@ -334,8 +352,8 @@ jobs:
       id-token: write
       contents: read
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           version: "0.11.28"
           enable-cache: true
@@ -363,6 +381,9 @@ jobs:
 
       - name: Build wheel and sdist
         run: uv build --project langs/python --out-dir dist
+
+      - name: Verify exact wheel and sdist contents
+        run: uv run --project langs/python python tools/check-python-package.py --dist dist
 
       - name: Twine check
         # Catches common metadata issues (missing long_description, invalid
@@ -393,7 +414,7 @@ jobs:
       - name: Publish to PyPI
         # Sigstore attestations (`attestations: true`, PEP 740) ship signed
         # provenance alongside the sdist and wheel.
-        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
+        uses: pypa/gh-action-pypi-publish@ba38be9e461d3875417946c167d0b5f3d385a247 # v1.14.1
         with:
           packages-dir: dist/
           attestations: true
@@ -413,8 +434,8 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
       - name: Wait for PyPI CDN + install in fresh venv
@@ -442,6 +463,7 @@ jobs:
           .verify-venv/bin/python langs/python/scripts/smoke_test.py "$version"
 
   python-release-notes:
+    timeout-minutes: 10
     # Create a GitHub Release with the matching CHANGELOG section as the
     # body. Runs only after verify-published succeeds, so a GitHub Release
     # exists iff the package is genuinely live and importable on PyPI.
@@ -452,7 +474,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Extract CHANGELOG section
         run: |
           set -euo pipefail
@@ -484,6 +506,7 @@ jobs:
             --target "$GITHUB_SHA"
 
   typescript:
+    timeout-minutes: 30
     needs: release-metadata
     if: startsWith(github.ref, 'refs/tags/typescript-v')
     runs-on: ubuntu-latest
@@ -494,7 +517,7 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Select npm publication authentication
         id: npm-auth
         env:
@@ -518,7 +541,7 @@ jobs:
           node-version: "24"
           registry-url: "https://registry.npmjs.org"
       - name: Install trusted-publishing npm CLI
-        run: npm install --global npm@11.5.1
+        run: npm install --global npm@11.18.0
       - name: Verify tag matches package version
         working-directory: langs/typescript
         run: |
@@ -573,6 +596,7 @@ jobs:
         run: npm publish --access public
 
   typescript-verify-published:
+    timeout-minutes: 20
     needs: typescript
     if: startsWith(github.ref, 'refs/tags/typescript-v')
     runs-on: ubuntu-latest
@@ -583,7 +607,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ matrix.node-version }}
@@ -593,37 +617,18 @@ jobs:
           python3 tools/smoke-npm-consumer.py
           --version "${GITHUB_REF#refs/tags/typescript-v}"
           --poll-timeout 600
-      - name: Verify npm provenance attestation
-        run: |
-          set -euo pipefail
-          tag_version="${GITHUB_REF#refs/tags/typescript-v}"
-          for attempt in {1..60}; do
-            attestations="$(npm view "@thekaveh/vmx@${tag_version}" dist.attestations --json || true)"
-            if ATTESTATIONS="$attestations" node -e '
-              try {
-                const value = JSON.parse(process.env.ATTESTATIONS || "null");
-                process.exit(value?.url && value?.provenance?.predicateType ? 0 : 1);
-              } catch {
-                process.exit(1);
-              }
-            '; then
-              echo "$attestations"
-              exit 0
-            fi
-            echo "Waiting for npm provenance attestation (attempt ${attempt}/60)..."
-            sleep 10
-          done
-          echo "::error::npm package has no provenance attestation after 600 seconds." >&2
-          exit 1
+          --timeout 900
+          --require-provenance
 
   typescript-release-notes:
+    timeout-minutes: 10
     needs: typescript-verify-published
     if: startsWith(github.ref, 'refs/tags/typescript-v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Extract TypeScript release notes
         run: |
           set -euo pipefail
@@ -660,7 +665,7 @@ jobs:
       matrix:
         toolchain: ["1.88.0", "stable"]
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Verify tag commit is on main
         run: |
           set -euo pipefail
@@ -710,11 +715,11 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
           fetch-tags: true
-      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           version: "0.11.28"
       - name: Set up Python
@@ -734,7 +739,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install stable Rust
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable 2026-07-16
         with:
@@ -757,7 +762,7 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Select crates.io publication authentication
         id: crates-auth-mode
         env:
@@ -816,7 +821,7 @@ jobs:
     needs: rust-publish
     if: startsWith(github.ref, 'refs/tags/rust-v')
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 45
     permissions:
       contents: read
     strategy:
@@ -824,7 +829,7 @@ jobs:
       matrix:
         toolchain: ["1.88.0", "stable"]
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install Rust ${{ matrix.toolchain }}
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable 2026-07-16
         with:
@@ -834,8 +839,10 @@ jobs:
           python3 tools/smoke-rust-consumer.py
           --version "${GITHUB_REF#refs/tags/rust-v}"
           --poll-timeout 1800
+          --timeout 2100
 
   rust-release-notes:
+    timeout-minutes: 10
     name: rust — GitHub Release
     needs: rust-verify-published
     if: startsWith(github.ref, 'refs/tags/rust-v')
@@ -843,7 +850,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Extract Rust release notes
         run: |
           set -euo pipefail
@@ -869,6 +876,7 @@ jobs:
             --target "$GITHUB_SHA"
 
   swift-verify:
+    timeout-minutes: 30
     # The Swift flavor has no central registry (no NuGet/PyPI/npm analog —
     # SwiftPM consumes packages directly from git URLs). The release here just
     # cuts a GitHub Release pointing at the tag so SwiftPM consumers get a
@@ -880,7 +888,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Verify tag commit is on main
         run: |
           set -euo pipefail
@@ -923,6 +931,7 @@ jobs:
             --version "$tag_version"
 
   swift-release:
+    timeout-minutes: 15
     name: swift — GitHub Release
     needs: [swift-verify, release-metadata]
     if: startsWith(github.ref, 'refs/tags/swift-v')
@@ -930,7 +939,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Extract Swift release notes
         run: |
           set -euo pipefail

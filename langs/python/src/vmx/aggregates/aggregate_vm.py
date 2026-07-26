@@ -7,15 +7,19 @@ See spec/08-aggregate-vm.md and ADR-0007 (arity 6 added per ADR-0034).
 from __future__ import annotations
 
 from collections.abc import Callable
+from functools import wraps
+from threading import RLock
 from typing import Generic, TypeVar
 
 from vmx.components.base import (
     _ComponentVMBase,
     _dispose_children_then_self,
+    _exclusive_ownership_reservation_batch,
     _ParentCompositeVM,
     _ParentTransfer,
 )
 from vmx.components.protocols import ComponentVMProto, ViewModelType
+from vmx.lifecycle.status import ConstructionStatus
 from vmx.messages.protocols import Message
 from vmx.services.dispatcher import Dispatcher
 from vmx.services.message_hub import MessageHub
@@ -26,6 +30,7 @@ V3 = TypeVar("V3", bound=ComponentVMProto)
 V4 = TypeVar("V4", bound=ComponentVMProto)
 V5 = TypeVar("V5", bound=ComponentVMProto)
 V6 = TypeVar("V6", bound=ComponentVMProto)
+A = TypeVar("A", bound="_AggregateVMBase")
 
 
 class _AggregateParent(_ParentCompositeVM):
@@ -80,6 +85,7 @@ class _AggregateVMBase(_ComponentVMBase):
         dispatcher: Dispatcher,
     ) -> None:
         super().__init__(name=name, hint=hint, hub=hub, dispatcher=dispatcher)
+        self._aggregate_lock = RLock()
         self._aggregate_parent = _AggregateParent(self)
 
     def components(self) -> list[ComponentVMProto]:
@@ -97,11 +103,7 @@ class _AggregateVMBase(_ComponentVMBase):
             if isinstance(child, _ComponentVMBase):
                 ownership_parent = child._ownership_parent
                 if ownership_parent is not None:
-                    if not (
-                        ownership_parent is self._aggregate_parent
-                        and self._aggregate_parent.contains_child(child)
-                    ):
-                        raise ValueError(f"component {child.name!r} already has a parent")
+                    raise ValueError(f"component {child.name!r} already has a parent")
             cursor: _ParentCompositeVM | None = self._aggregate_parent
             while cursor is not None:
                 if cursor.owner._ownership_identity is identity:
@@ -119,6 +121,58 @@ class _AggregateVMBase(_ComponentVMBase):
         for child in new_slots:
             if isinstance(child, _ComponentVMBase):
                 child._set_parent(self._aggregate_parent)
+
+    def _replace_slots(
+        self,
+        slot_names: tuple[str, ...],
+        new_slots: tuple[ComponentVMProto, ...],
+    ) -> bool:
+        reservable = tuple(child for child in new_slots if isinstance(child, _ComponentVMBase))
+        with self._aggregate_lock, _exclusive_ownership_reservation_batch(reservable):
+            old_slots = tuple(getattr(self, name) for name in slot_names)
+            self._validate_new_slots(new_slots)
+            first_error: BaseException | None = None
+            for child in old_slots:
+                if child is None:
+                    continue
+                try:
+                    child.dispose()
+                except BaseException as error:
+                    if first_error is None:
+                        first_error = error
+            if self.status is ConstructionStatus.DISPOSED:
+                try:
+                    _dispose_children_then_self(new_slots, lambda: None)
+                except BaseException as error:
+                    if first_error is None:
+                        first_error = error
+                if first_error is not None:
+                    raise first_error
+                return False
+            for name, child in zip(slot_names, new_slots, strict=True):
+                setattr(self, name, child)
+            self._replace_slot_parents(old_slots, new_slots)
+            if first_error is not None:
+                for name in slot_names:
+                    self._notify_property_changed(f"component_{name.removeprefix('_component')}")
+                raise first_error
+            return True
+
+    def _dispose_aggregate_slots(self, slot_names: tuple[str, ...]) -> None:
+        with self._aggregate_lock:
+            slots = tuple(getattr(self, name) for name in slot_names)
+            _dispose_children_then_self(slots, super().dispose)
+
+
+def _aggregate_transaction(method: Callable[[A], None]) -> Callable[[A], None]:
+    """Serialize fixed-slot replacement through child construction and disposal."""
+
+    @wraps(method)
+    def guarded(self: A) -> None:
+        with self._aggregate_lock:
+            method(self)
+
+    return guarded
 
 
 # ---------------------------------------------------------------------------
@@ -173,17 +227,14 @@ class AggregateVM1(Generic[V1], _AggregateVMBase):
         slots: tuple[ComponentVMProto | None, ...] = (self._component1,)
         return [c for c in slots if c is not None]
 
+    @_aggregate_transaction
     def _on_construct(self) -> None:
         next1 = self._factory1()
-        self._validate_new_slots((next1,))
-        old_slots: tuple[ComponentVMProto | None, ...] = (self._component1,)
         # On Reconstruct, the previous slot instance is in Destructed state but
         # still holds hub subscriptions and command Subjects. Dispose it before
         # overwriting so subscribers don't leak across the Reconstruct boundary.
-        if self._component1 is not None:
-            self._component1.dispose()
-        self._component1 = next1
-        self._replace_slot_parents(old_slots, (next1,))
+        if not self._replace_slots(("_component1",), (next1,)):
+            return
         self._notify_property_changed("component_1")
         self._complete_lifecycle_hook_after(
             self._transition_children(self.components(), construct=True)
@@ -199,7 +250,7 @@ class AggregateVM1(Generic[V1], _AggregateVMBase):
         Mirrors C# / TS / Swift AggregateVM1.Dispose so subscribers observe child
         Disposed transitions before the aggregate's own Disposed transition — a
         single dispose-ordering rule across all aggregate arities."""
-        _dispose_children_then_self((self._component1,), super().dispose)
+        self._dispose_aggregate_slots(("_component1",))
 
 
 # ---------------------------------------------------------------------------
@@ -254,26 +305,15 @@ class AggregateVM2(Generic[V1, V2], _AggregateVMBase):
         )
         return [c for c in slots if c is not None]
 
+    @_aggregate_transaction
     def _on_construct(self) -> None:
         next1 = self._factory1()
         next2 = self._factory2()
-        self._validate_new_slots((next1, next2))
-        old_slots: tuple[ComponentVMProto | None, ...] = (
-            self._component1,
-            self._component2,
-        )
         # On Reconstruct, dispose previous slot instances before overwriting
         # so their hub subscriptions and command Subjects don't leak.
-        if self._component1 is not None:
-            self._component1.dispose()
-        if self._component2 is not None:
-            self._component2.dispose()
-
-        self._component1 = next1
+        if not self._replace_slots(("_component1", "_component2"), (next1, next2)):
+            return
         self._notify_property_changed("component_1")
-
-        self._component2 = next2
-        self._replace_slot_parents(old_slots, (next1, next2))
         self._notify_property_changed("component_2")
 
         self._complete_lifecycle_hook_after(
@@ -288,7 +328,7 @@ class AggregateVM2(Generic[V1, V2], _AggregateVMBase):
     def dispose(self) -> None:
         """Depth-first dispose (LIFE-013): each component slot first, then self.
         See AggregateVM1.dispose for the cross-flavor ordering rationale."""
-        _dispose_children_then_self((self._component1, self._component2), super().dispose)
+        self._dispose_aggregate_slots(("_component1", "_component2"))
 
 
 # ---------------------------------------------------------------------------
@@ -351,33 +391,19 @@ class AggregateVM3(Generic[V1, V2, V3], _AggregateVMBase):
         )
         return [c for c in slots if c is not None]
 
+    @_aggregate_transaction
     def _on_construct(self) -> None:
         next1 = self._factory1()
         next2 = self._factory2()
         next3 = self._factory3()
-        self._validate_new_slots((next1, next2, next3))
-        old_slots: tuple[ComponentVMProto | None, ...] = (
-            self._component1,
-            self._component2,
-            self._component3,
-        )
         # On Reconstruct, dispose previous slot instances before overwriting
         # so their hub subscriptions and command Subjects don't leak.
-        if self._component1 is not None:
-            self._component1.dispose()
-        if self._component2 is not None:
-            self._component2.dispose()
-        if self._component3 is not None:
-            self._component3.dispose()
-
-        self._component1 = next1
+        if not self._replace_slots(
+            ("_component1", "_component2", "_component3"), (next1, next2, next3)
+        ):
+            return
         self._notify_property_changed("component_1")
-
-        self._component2 = next2
         self._notify_property_changed("component_2")
-
-        self._component3 = next3
-        self._replace_slot_parents(old_slots, (next1, next2, next3))
         self._notify_property_changed("component_3")
 
         self._complete_lifecycle_hook_after(
@@ -392,9 +418,7 @@ class AggregateVM3(Generic[V1, V2, V3], _AggregateVMBase):
     def dispose(self) -> None:
         """Depth-first dispose (LIFE-013): each component slot first, then self.
         See AggregateVM1.dispose for the cross-flavor ordering rationale."""
-        _dispose_children_then_self(
-            (self._component1, self._component2, self._component3), super().dispose
-        )
+        self._dispose_aggregate_slots(("_component1", "_component2", "_component3"))
 
 
 # ---------------------------------------------------------------------------
@@ -465,40 +489,22 @@ class AggregateVM4(Generic[V1, V2, V3, V4], _AggregateVMBase):
         )
         return [c for c in slots if c is not None]
 
+    @_aggregate_transaction
     def _on_construct(self) -> None:
         next1 = self._factory1()
         next2 = self._factory2()
         next3 = self._factory3()
         next4 = self._factory4()
-        self._validate_new_slots((next1, next2, next3, next4))
-        old_slots: tuple[ComponentVMProto | None, ...] = (
-            self._component1,
-            self._component2,
-            self._component3,
-            self._component4,
-        )
         # On Reconstruct, dispose previous slot instances before overwriting
         # so their hub subscriptions and command Subjects don't leak.
-        if self._component1 is not None:
-            self._component1.dispose()
-        if self._component2 is not None:
-            self._component2.dispose()
-        if self._component3 is not None:
-            self._component3.dispose()
-        if self._component4 is not None:
-            self._component4.dispose()
-
-        self._component1 = next1
+        if not self._replace_slots(
+            ("_component1", "_component2", "_component3", "_component4"),
+            (next1, next2, next3, next4),
+        ):
+            return
         self._notify_property_changed("component_1")
-
-        self._component2 = next2
         self._notify_property_changed("component_2")
-
-        self._component3 = next3
         self._notify_property_changed("component_3")
-
-        self._component4 = next4
-        self._replace_slot_parents(old_slots, (next1, next2, next3, next4))
         self._notify_property_changed("component_4")
 
         self._complete_lifecycle_hook_after(
@@ -513,15 +519,7 @@ class AggregateVM4(Generic[V1, V2, V3, V4], _AggregateVMBase):
     def dispose(self) -> None:
         """Depth-first dispose (LIFE-013): each component slot first, then self.
         See AggregateVM1.dispose for the cross-flavor ordering rationale."""
-        _dispose_children_then_self(
-            (
-                self._component1,
-                self._component2,
-                self._component3,
-                self._component4,
-            ),
-            super().dispose,
-        )
+        self._dispose_aggregate_slots(("_component1", "_component2", "_component3", "_component4"))
 
 
 # ---------------------------------------------------------------------------
@@ -600,47 +598,30 @@ class AggregateVM5(Generic[V1, V2, V3, V4, V5], _AggregateVMBase):
         )
         return [c for c in slots if c is not None]
 
+    @_aggregate_transaction
     def _on_construct(self) -> None:
         next1 = self._factory1()
         next2 = self._factory2()
         next3 = self._factory3()
         next4 = self._factory4()
         next5 = self._factory5()
-        self._validate_new_slots((next1, next2, next3, next4, next5))
-        old_slots: tuple[ComponentVMProto | None, ...] = (
-            self._component1,
-            self._component2,
-            self._component3,
-            self._component4,
-            self._component5,
-        )
         # On Reconstruct, dispose previous slot instances before overwriting
         # so their hub subscriptions and command Subjects don't leak.
-        if self._component1 is not None:
-            self._component1.dispose()
-        if self._component2 is not None:
-            self._component2.dispose()
-        if self._component3 is not None:
-            self._component3.dispose()
-        if self._component4 is not None:
-            self._component4.dispose()
-        if self._component5 is not None:
-            self._component5.dispose()
-
-        self._component1 = next1
+        if not self._replace_slots(
+            (
+                "_component1",
+                "_component2",
+                "_component3",
+                "_component4",
+                "_component5",
+            ),
+            (next1, next2, next3, next4, next5),
+        ):
+            return
         self._notify_property_changed("component_1")
-
-        self._component2 = next2
         self._notify_property_changed("component_2")
-
-        self._component3 = next3
         self._notify_property_changed("component_3")
-
-        self._component4 = next4
         self._notify_property_changed("component_4")
-
-        self._component5 = next5
-        self._replace_slot_parents(old_slots, (next1, next2, next3, next4, next5))
         self._notify_property_changed("component_5")
 
         self._complete_lifecycle_hook_after(
@@ -655,15 +636,8 @@ class AggregateVM5(Generic[V1, V2, V3, V4, V5], _AggregateVMBase):
     def dispose(self) -> None:
         """Depth-first dispose (LIFE-013): each component slot first, then self.
         See AggregateVM1.dispose for the cross-flavor ordering rationale."""
-        _dispose_children_then_self(
-            (
-                self._component1,
-                self._component2,
-                self._component3,
-                self._component4,
-                self._component5,
-            ),
-            super().dispose,
+        self._dispose_aggregate_slots(
+            ("_component1", "_component2", "_component3", "_component4", "_component5")
         )
 
 
@@ -754,6 +728,7 @@ class AggregateVM6(Generic[V1, V2, V3, V4, V5, V6], _AggregateVMBase):
         )
         return [c for c in slots if c is not None]
 
+    @_aggregate_transaction
     def _on_construct(self) -> None:
         next1 = self._factory1()
         next2 = self._factory2()
@@ -761,47 +736,25 @@ class AggregateVM6(Generic[V1, V2, V3, V4, V5, V6], _AggregateVMBase):
         next4 = self._factory4()
         next5 = self._factory5()
         next6 = self._factory6()
-        self._validate_new_slots((next1, next2, next3, next4, next5, next6))
-        old_slots: tuple[ComponentVMProto | None, ...] = (
-            self._component1,
-            self._component2,
-            self._component3,
-            self._component4,
-            self._component5,
-            self._component6,
-        )
         # On Reconstruct, dispose previous slot instances before overwriting
         # so their hub subscriptions and command Subjects don't leak.
-        if self._component1 is not None:
-            self._component1.dispose()
-        if self._component2 is not None:
-            self._component2.dispose()
-        if self._component3 is not None:
-            self._component3.dispose()
-        if self._component4 is not None:
-            self._component4.dispose()
-        if self._component5 is not None:
-            self._component5.dispose()
-        if self._component6 is not None:
-            self._component6.dispose()
-
-        self._component1 = next1
+        if not self._replace_slots(
+            (
+                "_component1",
+                "_component2",
+                "_component3",
+                "_component4",
+                "_component5",
+                "_component6",
+            ),
+            (next1, next2, next3, next4, next5, next6),
+        ):
+            return
         self._notify_property_changed("component_1")
-
-        self._component2 = next2
         self._notify_property_changed("component_2")
-
-        self._component3 = next3
         self._notify_property_changed("component_3")
-
-        self._component4 = next4
         self._notify_property_changed("component_4")
-
-        self._component5 = next5
         self._notify_property_changed("component_5")
-
-        self._component6 = next6
-        self._replace_slot_parents(old_slots, (next1, next2, next3, next4, next5, next6))
         self._notify_property_changed("component_6")
 
         self._complete_lifecycle_hook_after(
@@ -816,14 +769,13 @@ class AggregateVM6(Generic[V1, V2, V3, V4, V5, V6], _AggregateVMBase):
     def dispose(self) -> None:
         """Depth-first dispose (LIFE-013): each component slot first, then self.
         See AggregateVM1.dispose for the cross-flavor ordering rationale."""
-        _dispose_children_then_self(
+        self._dispose_aggregate_slots(
             (
-                self._component1,
-                self._component2,
-                self._component3,
-                self._component4,
-                self._component5,
-                self._component6,
-            ),
-            super().dispose,
+                "_component1",
+                "_component2",
+                "_component3",
+                "_component4",
+                "_component5",
+                "_component6",
+            )
         )

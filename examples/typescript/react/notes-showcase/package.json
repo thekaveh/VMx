@@ -18,8 +18,8 @@
   },
   "dependencies": {
     "@thekaveh/vmx": "file:../../../../langs/typescript",
-    "react": "^19.2.7",
-    "react-dom": "^19.2.7",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "rxjs": "^7.8.1"
   },
   "devDependencies": {
@@ -27,12 +27,12 @@
     "@testing-library/react": "^16.1.0",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
-    "@typescript-eslint/eslint-plugin": "^8.64.0",
-    "@typescript-eslint/parser": "^8.64.0",
-    "@vitejs/plugin-react": "^6.0.3",
+    "@typescript-eslint/eslint-plugin": "^8.65.0",
+    "@typescript-eslint/parser": "^8.65.0",
+    "@vitejs/plugin-react": "^6.0.4",
     "@vitest/coverage-v8": "^4.1.8",
     "axe-core": "^4.12.1",
-    "eslint": "^10.7.0",
+    "eslint": "^10.8.0",
     "globals": "^17.7.0",
     "jsdom": "^29.1.1",
     "typescript": "^5.7.2",

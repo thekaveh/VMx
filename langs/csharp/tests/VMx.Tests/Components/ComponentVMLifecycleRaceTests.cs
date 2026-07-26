@@ -34,6 +34,139 @@ public class ComponentVMLifecycleRaceTests
     }
 
     [Fact]
+    public async Task Opposing_Active_Lifecycle_Hooks_Cross_Dispose_Without_Deadlock()
+    {
+        using var barrier = new Barrier(2);
+        ComponentVM<string>? first = null;
+        ComponentVM<string>? second = null;
+        first = ComponentVM<string>.Builder()
+            .Name("first")
+            .Services(NullMessageHub.Instance, NullDispatcher.Instance)
+            .Model("first")
+            .OnConstruct(() =>
+            {
+                barrier.SignalAndWait(TimeSpan.FromSeconds(2));
+                second!.Dispose();
+            })
+            .Build();
+        second = ComponentVM<string>.Builder()
+            .Name("second")
+            .Services(NullMessageHub.Instance, NullDispatcher.Instance)
+            .Model("second")
+            .OnConstruct(() =>
+            {
+                barrier.SignalAndWait(TimeSpan.FromSeconds(2));
+                first.Dispose();
+            })
+            .Build();
+
+        var transitions = Task.WhenAll(Task.Run(first.Construct), Task.Run(second.Construct));
+        (await Task.WhenAny(transitions, Task.Delay(TimeSpan.FromSeconds(3))))
+            .Should().BeSameAs(transitions, "cross-disposal from admitted hooks must not deadlock");
+        await transitions;
+        first.Status.Should().Be(ConstructionStatus.Disposed);
+        second.Status.Should().Be(ConstructionStatus.Disposed);
+    }
+
+    [Fact]
+    public async Task Cycle_Broken_Deferred_Cleanup_Does_Not_Replace_First_Failure()
+    {
+        using var barrier = new Barrier(2);
+        var cleanupOrder = new ConcurrentQueue<string>();
+        FailingHookDisposeVM? first = null;
+        FailingHookDisposeVM? second = null;
+        first = new FailingHookDisposeVM("first", cleanupOrder, () =>
+        {
+            barrier.SignalAndWait(TimeSpan.FromSeconds(2));
+            second!.Dispose();
+        });
+        second = new FailingHookDisposeVM("second", cleanupOrder, () =>
+        {
+            barrier.SignalAndWait(TimeSpan.FromSeconds(2));
+            first.Dispose();
+        });
+        var failures = new ConcurrentQueue<Exception>();
+
+        var transitions = Task.WhenAll(
+            Task.Run(() => RecordFailure(first.Construct, failures)),
+            Task.Run(() => RecordFailure(second.Construct, failures)));
+        (await Task.WhenAny(transitions, Task.Delay(TimeSpan.FromSeconds(3))))
+            .Should().BeSameAs(transitions);
+        await transitions;
+
+        cleanupOrder.Should().BeEquivalentTo(["first", "second"]);
+        failures.Should().ContainSingle();
+        cleanupOrder.TryPeek(out var earliest).Should().BeTrue();
+        failures.Single().Message.Should().Be($"dispose failure {earliest}");
+        first.Status.Should().Be(ConstructionStatus.Disposed);
+        second.Status.Should().Be(ConstructionStatus.Disposed);
+    }
+
+    private static void RecordFailure(Action action, ConcurrentQueue<Exception> failures)
+    {
+        try { action(); }
+        catch (Exception error) { failures.Enqueue(error); }
+    }
+
+    [Theory]
+    [InlineData(ConstructionStatus.Constructing)]
+    [InlineData(ConstructionStatus.Destructing)]
+    public void Dispose_From_Status_Observer_Suppresses_Not_Yet_Started_Hook(
+        ConstructionStatus phase)
+    {
+        var hub = new TestHub();
+        var hookCalls = 0;
+        var vm = ComponentVM<string>.Builder()
+            .Name("vm")
+            .Services(hub, new TestDispatcher())
+            .Model("m")
+            .OnConstruct(() => hookCalls++)
+            .OnDestruct(() => hookCalls++)
+            .Build();
+        if (phase == ConstructionStatus.Destructing)
+            vm.Construct();
+        hookCalls = 0;
+        using var subscription = hub.Messages
+            .OfType<IConstructionStatusChangedMessage>()
+            .Where(message => message.SenderObject == vm && message.Status == phase)
+            .Subscribe(_ => vm.Dispose());
+
+        if (phase == ConstructionStatus.Constructing)
+            vm.Construct();
+        else
+            vm.Destruct();
+
+        vm.Status.Should().Be(ConstructionStatus.Disposed);
+        hookCalls.Should().Be(0);
+    }
+
+    [Fact]
+    public void Reconstruct_Does_Not_Construct_After_Destruct_Hook_Disposes()
+    {
+        var constructCalls = 0;
+        var disposeDuringDestruct = false;
+        ComponentVM<string>? vm = null;
+        vm = ComponentVM<string>.Builder()
+            .Name("vm")
+            .Services(new TestHub(), new TestDispatcher())
+            .Model("m")
+            .OnConstruct(() => constructCalls++)
+            .OnDestruct(() =>
+            {
+                if (disposeDuringDestruct)
+                    vm!.Dispose();
+            })
+            .Build();
+        vm.Construct();
+        disposeDuringDestruct = true;
+
+        vm.Reconstruct();
+
+        vm.Status.Should().Be(ConstructionStatus.Disposed);
+        constructCalls.Should().Be(1);
+    }
+
+    [Fact]
     public void ConstructAsync_On_Already_Constructed_Background_Vm_Completes_Synchronously()
     {
         var (vm, _, dispatcher) = BuildBackgroundVm();
@@ -556,6 +689,30 @@ internal sealed class OnDisposeProbeVM : ComponentVMBase
     protected override void OnDispose()
     {
         Interlocked.Increment(ref _disposeCalls);
+    }
+}
+
+internal sealed class FailingHookDisposeVM : ComponentVMBase
+{
+    private readonly string _failureName;
+    private readonly ConcurrentQueue<string> _cleanupOrder;
+
+    public FailingHookDisposeVM(
+        string name,
+        ConcurrentQueue<string> cleanupOrder,
+        Action onConstruct)
+        : base(name, "", new TestHub(), new TestDispatcher(), onConstruct, null)
+    {
+        _failureName = name;
+        _cleanupOrder = cleanupOrder;
+    }
+
+    public override ViewModelType Type => ViewModelType.Component;
+
+    protected override void OnDispose()
+    {
+        _cleanupOrder.Enqueue(_failureName);
+        throw new InvalidOperationException($"dispose failure {_failureName}");
     }
 }
 

@@ -4,7 +4,8 @@
 
 use super::{
     catch_unwind, evaluate_command_predicate, lock, Arc, AssertUnwindSafe, AsyncValue, AtomicBool,
-    Message, MessageHub, Mutex, NullMessageHub, Ordering, Subscription, VmxError, VmxResult,
+    AtomicU64, Message, MessageHub, Mutex, NullMessageHub, Ordering, Subscription, VmxError,
+    VmxResult,
 };
 
 /// A parameterless action with queryable execution eligibility.
@@ -157,12 +158,15 @@ impl RelayCommand {
 
 impl Command for RelayCommand {
     fn can_execute(&self) -> bool {
-        !*lock(&self.disposed)
-            && self
-                .predicate
-                .as_ref()
-                .map(|predicate| evaluate_command_predicate(|| predicate()))
-                .unwrap_or(true)
+        if *lock(&self.disposed) {
+            return false;
+        }
+        let allowed = self
+            .predicate
+            .as_ref()
+            .map(|predicate| evaluate_command_predicate(|| predicate()))
+            .unwrap_or(true);
+        allowed && !*lock(&self.disposed)
     }
 
     fn execute(&self) {
@@ -275,12 +279,15 @@ impl<T: Clone + Send + 'static> RelayCommandOf<T> {
 
 impl<T: Clone + Send + 'static> CommandOf<T> for RelayCommandOf<T> {
     fn can_execute(&self, parameter: &T) -> bool {
-        !*lock(&self.disposed)
-            && self
-                .predicate
-                .as_ref()
-                .map(|predicate| evaluate_command_predicate(|| predicate(parameter)))
-                .unwrap_or(true)
+        if *lock(&self.disposed) {
+            return false;
+        }
+        let allowed = self
+            .predicate
+            .as_ref()
+            .map(|predicate| evaluate_command_predicate(|| predicate(parameter)))
+            .unwrap_or(true);
+        allowed && !*lock(&self.disposed)
     }
 
     fn execute(&self, parameter: T) {
@@ -328,7 +335,7 @@ pub struct AsyncRelayCommand {
     action: Option<AsyncCommandAction>,
     predicate: Option<AsyncCommandPredicate>,
     disposed: Arc<AtomicBool>,
-    executing: Arc<AtomicBool>,
+    execution_epoch: Arc<AtomicU64>,
     active_token: Arc<Mutex<Option<CancellationToken>>>,
     cancel_pending: Arc<AtomicBool>,
     can_execute_changed: MessageHub,
@@ -338,7 +345,7 @@ pub struct AsyncRelayCommand {
 }
 
 struct AsyncExecutionGuard {
-    executing: Arc<AtomicBool>,
+    execution_epoch: Arc<AtomicU64>,
     active_token: Arc<Mutex<Option<CancellationToken>>>,
     cancel_pending: Arc<AtomicBool>,
     can_execute_changed: MessageHub,
@@ -348,7 +355,7 @@ struct AsyncExecutionGuard {
 impl Drop for AsyncExecutionGuard {
     fn drop(&mut self) {
         let mut active_token = lock(&self.active_token);
-        self.executing.store(false, Ordering::SeqCst);
+        self.execution_epoch.fetch_add(1, Ordering::SeqCst);
         *active_token = None;
         self.cancel_pending.store(false, Ordering::SeqCst);
         drop(active_token);
@@ -386,7 +393,7 @@ impl AsyncRelayCommand {
             action,
             predicate,
             disposed: Arc::new(AtomicBool::new(false)),
-            executing: Arc::new(AtomicBool::new(false)),
+            execution_epoch: Arc::new(AtomicU64::new(0)),
             active_token: Arc::new(Mutex::new(None)),
             cancel_pending: Arc::new(AtomicBool::new(false)),
             can_execute_changed: MessageHub::new(),
@@ -416,13 +423,16 @@ impl AsyncRelayCommand {
 
     /// Reports whether a new execution can be admitted.
     pub fn can_execute(&self) -> bool {
-        !self.disposed.load(Ordering::SeqCst)
-            && !self.executing.load(Ordering::SeqCst)
+        let epoch = self.execution_epoch.load(Ordering::SeqCst);
+        epoch.is_multiple_of(2)
+            && !self.disposed.load(Ordering::SeqCst)
             && self
                 .predicate
                 .as_ref()
                 .map(|predicate| evaluate_command_predicate(|| predicate()))
                 .unwrap_or(true)
+            && !self.disposed.load(Ordering::SeqCst)
+            && self.execution_epoch.load(Ordering::SeqCst) == epoch
     }
 
     /// Starts fire-and-forget execution and routes failures to the error hub.
@@ -439,21 +449,23 @@ impl AsyncRelayCommand {
         &self,
         route_fire_and_forget_errors: bool,
     ) -> std::thread::JoinHandle<VmxResult<()>> {
-        if self.disposed.load(Ordering::SeqCst)
-            || !self
-                .predicate
-                .as_ref()
-                .map(|predicate| evaluate_command_predicate(|| predicate()))
-                .unwrap_or(true)
-            || self
-                .executing
-                .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-                .is_err()
+        let epoch = self.execution_epoch.load(Ordering::SeqCst);
+        if self.action.is_none() || !epoch.is_multiple_of(2) || self.disposed.load(Ordering::SeqCst)
         {
             return std::thread::spawn(|| Ok(()));
         }
-        if self.disposed.load(Ordering::SeqCst) {
-            self.executing.store(false, Ordering::SeqCst);
+        let allowed = self
+            .predicate
+            .as_ref()
+            .map(|predicate| evaluate_command_predicate(|| predicate()))
+            .unwrap_or(true);
+        if !allowed
+            || self.disposed.load(Ordering::SeqCst)
+            || self
+                .execution_epoch
+                .compare_exchange(epoch, epoch + 1, Ordering::SeqCst, Ordering::SeqCst)
+                .is_err()
+        {
             return std::thread::spawn(|| Ok(()));
         }
         let token = CancellationToken::new();
@@ -467,7 +479,7 @@ impl AsyncRelayCommand {
         if self.disposed.load(Ordering::SeqCst) {
             token.cancel();
             *lock(&self.active_token) = None;
-            self.executing.store(false, Ordering::SeqCst);
+            self.execution_epoch.fetch_add(1, Ordering::SeqCst);
             return std::thread::spawn(|| Ok(()));
         }
         self.raise_can_execute_changed();
@@ -476,7 +488,7 @@ impl AsyncRelayCommand {
         let throw_on_cancel = self.throw_on_cancel;
         let disposed = self.disposed.clone();
         let guard = AsyncExecutionGuard {
-            executing: self.executing.clone(),
+            execution_epoch: self.execution_epoch.clone(),
             active_token: self.active_token.clone(),
             cancel_pending: self.cancel_pending.clone(),
             can_execute_changed: self.can_execute_changed.clone(),
@@ -516,11 +528,11 @@ impl AsyncRelayCommand {
 
     /// Requests cancellation of the admitted execution, if any.
     pub fn cancel(&self) {
-        if !self.executing.load(Ordering::SeqCst) {
+        if !self.is_executing() {
             return;
         }
         let active_token = lock(&self.active_token);
-        if !self.executing.load(Ordering::SeqCst) {
+        if !self.is_executing() {
             return;
         }
         if let Some(token) = active_token.as_ref() {
@@ -532,7 +544,10 @@ impl AsyncRelayCommand {
 
     /// Reports whether an execution is currently admitted.
     pub fn is_executing(&self) -> bool {
-        self.executing.load(Ordering::SeqCst)
+        !self
+            .execution_epoch
+            .load(Ordering::SeqCst)
+            .is_multiple_of(2)
     }
 
     /// Cancels active work and disposes command-owned notification hubs.
@@ -852,6 +867,9 @@ impl<C: Command + Clone + 'static> ConfirmationDecoratorCommand<C> {
 
     /// Waits for confirmation on a worker thread and executes when approved.
     pub fn execute_async(&self) -> std::thread::JoinHandle<()> {
+        if !self.can_execute() {
+            return std::thread::spawn(|| {});
+        }
         let decision = (self.confirm)();
         let command = self.clone();
         std::thread::spawn(move || {

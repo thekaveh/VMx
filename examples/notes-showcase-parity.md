@@ -12,11 +12,9 @@ Published walkthroughs:
 
 ## 1. VM hierarchy
 
-The diagram below is the canonical visual of the example's VM tree —
-derived from the scenario contract, so it applies identically to all four
-flagship implementations (names appear in their language-neutral form per
-ADR-0006). The same diagram is linked from each flavor's NotesShowcase
-README.
+The VM tree is derived from the scenario contract and applies identically to
+all four flagship implementations. Names use their language-neutral form per
+ADR-0006.
 
 ![Notes-Showcase VM hierarchy](assets/notes-showcase-vm-hierarchy.svg)
 

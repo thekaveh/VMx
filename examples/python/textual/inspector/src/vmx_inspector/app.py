@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any, ClassVar, cast
 
 from reactivex.abc import DisposableBase
 from textual.app import App, ComposeResult
-from textual.binding import Binding
-from textual.message import Message as TextualMessage
+from textual.binding import Binding, BindingType
 from textual.containers import Vertical
+from textual.message import Message as TextualMessage
 from textual.widgets import Footer, Header, Tree
 from textual.widgets.tree import TreeNode
-
 from vmx.components.protocols import ComponentVMProto
 from vmx.lifecycle import StatusTransitionError
 from vmx.messages.protocols import Message
@@ -64,7 +63,7 @@ class VMxInspectorApp(App[None]):
     }
     """
 
-    BINDINGS = [
+    BINDINGS: ClassVar[list[BindingType]] = [
         Binding("q", "quit", "Quit"),
         Binding("c", "construct", "Construct"),
         Binding("d", "destruct", "Destruct"),
@@ -114,7 +113,7 @@ class VMxInspectorApp(App[None]):
         # refreshed, silently (selection-refresh regression).
         self.post_message(HubMessageArrived(msg))
 
-    def on_hub_message_arrived(self, event: "HubMessageArrived") -> None:
+    def on_hub_message_arrived(self, event: HubMessageArrived) -> None:
         log = self.query_one(MessageLog)
         log.append_message(event.hub_message)
         self._refresh_tree()
@@ -136,9 +135,7 @@ class VMxInspectorApp(App[None]):
             return None
         return node.data
 
-    def on_tree_node_highlighted(
-        self, event: Tree.NodeHighlighted[ComponentVMProto]
-    ) -> None:
+    def on_tree_node_highlighted(self, event: Tree.NodeHighlighted[ComponentVMProto]) -> None:
         details = self.query_one(DetailsView)
         details.selected_vm = event.node.data
 

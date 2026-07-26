@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import cast
 
 from reactivex.scheduler import ImmediateScheduler
-
 from vmx import (
     INewCreatable,
     IReconstructable,
@@ -29,9 +28,7 @@ def _build() -> NotebooksRootVM:
         add_notebook_delay=0.0,
     )
     hub = MessageHub[Message]()
-    dispatcher = RxDispatcher(
-        foreground=ImmediateScheduler(), background=ImmediateScheduler()
-    )
+    dispatcher = RxDispatcher(foreground=ImmediateScheduler(), background=ImmediateScheduler())
     return (
         NotebooksRootVM.builder()
         .name("notebooks")
@@ -91,9 +88,7 @@ async def test_add_notebook_emits_tree_structure_changed_message() -> None:
 
     new_vm = await vm.add_notebook(parent_id=None, name="Side project")
 
-    assert any(
-        e.change == TreeStructureChange.ADDED and e.affected is new_vm for e in events
-    )
+    assert any(e.change == TreeStructureChange.ADDED and e.affected is new_vm for e in events)
     assert new_vm in list(vm.all)
 
 

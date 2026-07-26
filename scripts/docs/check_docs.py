@@ -3,12 +3,22 @@ from __future__ import annotations
 import argparse
 import html
 import re
+import unicodedata
 from dataclasses import dataclass
+from html.parser import HTMLParser
 from pathlib import Path
-from urllib.parse import unquote
+from urllib.parse import unquote, urlparse
+
+import yaml
+from markdown_it import MarkdownIt
 
 from scripts.docs import build_docs
-from scripts.docs.links import find_links, is_forbidden
+from scripts.docs.links import (
+    find_html_link_attributes,
+    find_links,
+    find_reference_links,
+    is_forbidden,
+)
 from scripts.docs.manifest import load_manifest
 
 PLACEHOLDER_RE = re.compile(r"\b(TODO|TBD|FIXME)\b")
@@ -20,7 +30,6 @@ PLACEHOLDER_RE = re.compile(r"\b(TODO|TBD|FIXME)\b")
 MD_ESCAPE_RE = re.compile(r"\\([!-/:-@\[-`{-~])")
 ATX_HEADING_RE = re.compile(r"^(#{2,6})\s+(.+?)\s*$")
 NUMBER_PREFIX_RE = re.compile(r"^(\d+(?:\.\d+)*)(\.)?\s+")
-HTML_HREF_RE = re.compile(r'href="(?P<target>[^"]+)"')
 HTML_HEADING_RE = re.compile(r"<\s*h[1-6](?:\s|>)", re.IGNORECASE)
 ANY_ATX_HEADING_RE = re.compile(r"^#{1,6}\s+(.+?)\s*$", re.MULTILINE)
 HTML_ID_RE = re.compile(r'<(?:a|h[1-6])\b[^>]*\bid=["\']([^"\']+)["\']', re.IGNORECASE)
@@ -46,6 +55,43 @@ class Finding:
 
 def _scan_markdown(root: Path) -> list[Path]:
     return sorted(path for path in root.rglob("*.md") if path.is_file())
+
+
+class _AccessibleHtmlParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.accessible_text: list[str] = []
+
+    def handle_starttag(
+        self,
+        tag: str,
+        attrs: list[tuple[str, str | None]],
+    ) -> None:
+        attributes = {name.lower(): value or "" for name, value in attrs}
+        if tag.lower() == "img" and attributes.get("alt"):
+            self.accessible_text.append(attributes["alt"])
+        elif attributes.get("aria-label"):
+            self.accessible_text.append(attributes["aria-label"])
+
+
+def _visible_markdown_text(markdown: str) -> str:
+    parsed = MarkdownIt("commonmark").parseInline(markdown)
+    if len(parsed) != 1 or parsed[0].children is None:
+        return ""
+    visible: list[str] = []
+    for token in parsed[0].children:
+        if token.type in {"text", "code_inline", "image"}:
+            visible.append(token.content)
+        elif token.type == "html_inline":
+            parser = _AccessibleHtmlParser()
+            parser.feed(token.content)
+            visible.extend(parser.accessible_text)
+        elif token.type in {"softbreak", "hardbreak"}:
+            visible.append(" ")
+    decoded = html.unescape("".join(visible))
+    return "".join(
+        character for character in decoded if not unicodedata.category(character).startswith("C")
+    ).strip()
 
 
 def _scan_repo_surface_markdown(repo_root: Path) -> list[Path]:
@@ -88,18 +134,30 @@ def check_self_containment(repo_root: Path) -> list[Finding]:
     ):
         for path in _scan_markdown(root):
             text = path.read_text(encoding="utf-8")
-            for link in find_links(text):
-                if is_forbidden(link.target, surface):
+            links = find_links(text)
+            for link in links:
+                if not link.image and not _visible_markdown_text(link.label):
                     findings.append(
-                        Finding("error", f"{path}: forbidden {surface} link {link.target}")
+                        Finding(
+                            "error",
+                            f"{path}: generated link has a whitespace-only label",
+                        )
                     )
+            targets = [link.target for link in links]
+            targets.extend(attribute.target for attribute in find_html_link_attributes(text))
+            for target in targets:
+                if is_forbidden(target, surface):
+                    findings.append(Finding("error", f"{path}: forbidden {surface} link {target}"))
     for path in _scan_repo_surface_markdown(repo_root):
-        for link in find_links(path.read_text(encoding="utf-8")):
-            if is_forbidden(link.target, "repo"):
+        text = path.read_text(encoding="utf-8")
+        targets = [link.target for link in find_links(text)]
+        targets.extend(attribute.target for attribute in find_html_link_attributes(text))
+        for target in targets:
+            if is_forbidden(target, "repo"):
                 findings.append(
                     Finding(
                         "error",
-                        f"{path.relative_to(repo_root)}: forbidden repo-surface link {link.target}",
+                        f"{path.relative_to(repo_root)}: forbidden repo-surface link {target}",
                     )
                 )
     return findings
@@ -112,9 +170,6 @@ def _relative_target_exists(source: Path, target: str) -> bool:
     candidate = (source.parent / clean).resolve()
     if candidate.exists():
         return True
-    if clean.endswith("/"):
-        sibling_page = (source.parent / f"{clean.rstrip('/')}.md").resolve()
-        return sibling_page.exists()
     return False
 
 
@@ -127,10 +182,6 @@ def _relative_target_path(source: Path, target: str) -> Path | None:
     candidate = (source.parent / clean).resolve()
     if candidate.is_file():
         return candidate
-    if clean.endswith("/"):
-        sibling_page = (source.parent / f"{clean.rstrip('/')}.md").resolve()
-        if sibling_page.is_file():
-            return sibling_page
     return None
 
 
@@ -154,19 +205,12 @@ def _heading_anchors(path: Path) -> set[str]:
 
 
 def _without_fenced_code(markdown: str) -> str:
-    output: list[str] = []
-    fence: str | None = None
-    for line in markdown.splitlines(keepends=True):
-        stripped = line.lstrip()
-        if stripped.startswith(("```", "~~~")):
-            marker = stripped[:3]
-            fence = None if fence == marker else marker if fence is None else fence
-            output.append("\n")
-        elif fence is None:
-            output.append(line)
-        else:
-            output.append("\n")
-    return "".join(output)
+    lines = markdown.splitlines(keepends=True)
+    hidden: set[int] = set()
+    for token in MarkdownIt("commonmark").parse(markdown):
+        if token.type in {"fence", "code_block"} and token.map is not None:
+            hidden.update(range(*token.map))
+    return "".join("\n" if index in hidden else line for index, line in enumerate(lines))
 
 
 def check_canonical_links(repo_root: Path) -> list[Finding]:
@@ -174,8 +218,16 @@ def check_canonical_links(repo_root: Path) -> list[Finding]:
     findings: list[Finding] = []
     for path in _scan_markdown(repo_root / "docs/content"):
         text = _without_fenced_code(path.read_text(encoding="utf-8"))
+        for reference in find_reference_links(text):
+            findings.append(
+                Finding(
+                    "error",
+                    f"{path.relative_to(repo_root)}: reference-style links are unsupported; "
+                    f"use an inline link for {reference.label}",
+                )
+            )
         targets = [link.target for link in find_links(text)]
-        targets.extend(match.group("target") for match in HTML_HREF_RE.finditer(text))
+        targets.extend(attribute.target for attribute in find_html_link_attributes(text))
         for target in targets:
             if not _relative_target_exists(path, target):
                 findings.append(
@@ -210,11 +262,26 @@ def check_generated_wiki_links(repo_root: Path) -> list[Finding]:
     findings: list[Finding] = []
     for path in _scan_markdown(wiki_root):
         text = _without_fenced_code(path.read_text(encoding="utf-8"))
+        for reference in find_reference_links(text):
+            findings.append(
+                Finding(
+                    "error",
+                    f"{path.relative_to(repo_root)}: generated wiki contains an unsupported "
+                    f"reference-style link: {reference.label}",
+                )
+            )
         for line_number, line in enumerate(text.splitlines(), start=1):
             scrubbed = WIKI_LINK_RE.sub("", line)
             if ("[[" in scrubbed or "]]" in scrubbed) and "|" in scrubbed:
                 findings.append(Finding("error", f"{path}:{line_number}: malformed wiki link"))
             for match in WIKI_LINK_RE.finditer(line):
+                if not _visible_markdown_text(match.group("label")):
+                    findings.append(
+                        Finding(
+                            "error",
+                            f"{path}:{line_number}: wiki link has a whitespace-only label",
+                        )
+                    )
                 target = match.group("target").split("#", 1)[0]
                 if target and target not in pages:
                     findings.append(
@@ -223,21 +290,124 @@ def check_generated_wiki_links(repo_root: Path) -> list[Finding]:
                             f"{path}:{line_number}: wiki target does not exist: {target}",
                         )
                     )
-            for match in HTML_HREF_RE.finditer(line):
-                target = match.group("target").split("#", 1)[0].rstrip("/")
-                if target and not target.startswith(("http://", "https://", "mailto:")):
-                    target_exists = (
-                        (path.parent / target).resolve().is_file()
-                        if "/" in target or "." in Path(target).name
-                        else target in pages
-                    )
-                    if not target_exists:
-                        findings.append(
-                            Finding(
-                                "error",
-                                f"{path}:{line_number}: wiki target does not exist: {target}",
-                            )
+    return findings
+
+
+def _site_base_path(repo_root: Path) -> str:
+    config = repo_root / "mkdocs.yml"
+    if not config.is_file():
+        return ""
+    data = yaml.safe_load(config.read_text(encoding="utf-8")) or {}
+    site_url = data.get("site_url", "")
+    return urlparse(site_url).path.rstrip("/") if isinstance(site_url, str) else ""
+
+
+def _generated_site_target(
+    source: Path,
+    root: Path,
+    target: str,
+    site_base_path: str,
+) -> Path | None:
+    clean = unquote(target.split("#", 1)[0].split("?", 1)[0])
+    if any(ord(character) < 32 or ord(character) == 127 for character in clean):
+        return None
+    base = source.parent if source.name == "index.md" else source.with_suffix("")
+    if not clean:
+        return source
+    if clean.startswith("/"):
+        if site_base_path:
+            if clean != site_base_path and not clean.startswith(f"{site_base_path}/"):
+                return None
+            clean = clean.removeprefix(site_base_path).lstrip("/")
+            if not clean:
+                index = root / "index.md"
+                return index if index.is_file() else None
+        else:
+            clean = clean.lstrip("/")
+        try:
+            route = (root / clean).resolve()
+        except (OSError, ValueError):
+            return None
+    else:
+        try:
+            route = (base / clean).resolve()
+        except (OSError, ValueError):
+            return None
+    try:
+        route.relative_to(root.resolve())
+    except ValueError:
+        return None
+    if route.is_file():
+        return route
+    if clean.endswith("/"):
+        page = route.with_suffix(".md")
+        if page.is_file():
+            return page
+        index = route / "index.md"
+        if index.is_file():
+            return index
+    return None
+
+
+def _generated_wiki_target(source: Path, root: Path, target: str) -> Path | None:
+    clean = target.split("#", 1)[0].split("?", 1)[0].rstrip("/")
+    if not clean:
+        return source
+    if Path(clean).is_absolute():
+        return None
+    resolved_root = root.resolve()
+    try:
+        candidate = (source.parent / clean).resolve()
+        candidate.relative_to(resolved_root)
+    except (OSError, ValueError):
+        return None
+    if candidate.is_file():
+        return candidate
+    try:
+        page = (root / f"{clean}.md").resolve()
+        page.relative_to(resolved_root)
+    except (OSError, ValueError):
+        return None
+    return page if page.is_file() else None
+
+
+def check_generated_html_links(repo_root: Path) -> list[Finding]:
+    """Reject broken raw-HTML routes and fragments on generated surfaces."""
+    findings: list[Finding] = []
+    site_base_path = _site_base_path(repo_root)
+    for surface, root in (
+        ("site", repo_root / "generated/site"),
+        ("wiki", repo_root / "generated/wiki"),
+    ):
+        for path in _scan_markdown(root):
+            text = _without_fenced_code(path.read_text(encoding="utf-8"))
+            for attribute in find_html_link_attributes(text):
+                target = html.unescape(attribute.target)
+                if target.startswith(("http://", "https://", "mailto:", "data:")):
+                    continue
+                target_path = (
+                    _generated_site_target(path, root, target, site_base_path)
+                    if surface == "site"
+                    else _generated_wiki_target(path, root, target)
+                )
+                if target_path is None:
+                    findings.append(
+                        Finding(
+                            "error",
+                            f"{path}: {surface} target does not exist: {target}",
                         )
+                    )
+                    continue
+                if "#" not in target or target_path.suffix != ".md":
+                    continue
+                fragment = unquote(target.split("#", 1)[1].split("?", 1)[0])
+                if fragment and fragment not in _heading_anchors(target_path):
+                    findings.append(
+                        Finding(
+                            "error",
+                            f"{path}: {surface} heading fragment does not exist: {target}",
+                        )
+                    )
     return findings
 
 
@@ -292,7 +462,10 @@ def check_historical_audits(repo_root: Path) -> list[Finding]:
         text = path.read_text(encoding="utf-8")
         if HISTORICAL_AUDIT_NOTICE not in "\n".join(text.splitlines()[:12]):
             findings.append(
-                Finding("error", f"{relative}: standardized historical audit notice is missing")
+                Finding(
+                    "error",
+                    f"{relative}: standardized historical audit notice is missing",
+                )
             )
         if f"({path.name})" not in index_text:
             findings.append(
@@ -347,17 +520,8 @@ def _check_descendant_heading_numbers(
     """Validate baked H2-H6 numbering while ignoring fenced examples."""
     findings: list[Finding] = []
     counters = [0, 0, 0, 0, 0]
-    fence: str | None = None
 
-    for line_number, line in enumerate(markdown.splitlines(), start=1):
-        stripped = line.lstrip()
-        if stripped.startswith(("```", "~~~")):
-            marker = stripped[:3]
-            fence = None if fence == marker else marker if fence is None else fence
-            continue
-        if fence is not None:
-            continue
-
+    for line_number, line in enumerate(_without_fenced_code(markdown).splitlines(), start=1):
         match = ATX_HEADING_RE.match(line)
         if match is None:
             continue
@@ -419,6 +583,7 @@ def check(repo_root: Path) -> list[Finding]:
     findings.extend(check_self_containment(repo_root))
     findings.extend(check_canonical_links(repo_root))
     findings.extend(check_generated_wiki_links(repo_root))
+    findings.extend(check_generated_html_links(repo_root))
     findings.extend(check_raw_html_headings(repo_root))
     findings.extend(check_professional_markdown(repo_root))
     findings.extend(check_historical_audits(repo_root))

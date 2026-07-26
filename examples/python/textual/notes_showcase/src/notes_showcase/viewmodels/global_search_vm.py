@@ -7,9 +7,6 @@ import threading
 
 from reactivex.abc import SchedulerBase
 from reactivex.scheduler import ImmediateScheduler
-
-from notes_showcase.models.note_repository import INoteRepository
-from notes_showcase.viewmodels.note_vm import NoteVM
 from vmx import (
     AsyncRelayCommand,
     ComponentVM,
@@ -21,6 +18,9 @@ from vmx import (
 )
 from vmx.messages.protocols import Message
 from vmx.services.dispatcher import Dispatcher
+
+from notes_showcase.models.note_repository import INoteRepository
+from notes_showcase.viewmodels.note_vm import NoteVM
 
 _DEFAULT_PAGE_SIZE = 5
 _DEFAULT_SEARCH_DEBOUNCE_S = 0.150
@@ -102,9 +102,7 @@ class GlobalSearchVM(ComponentVM):
         return self._paged.load_more_command
 
     async def _fetch_next(self, token: str | None) -> tuple[list[NoteVM], str | None]:
-        page, next_token = await self._repo.search_notes(
-            self.search_term, token, self._page_size
-        )
+        page, next_token = await self._repo.search_notes(self.search_term, token, self._page_size)
         return (
             [
                 self._own_result(
@@ -193,11 +191,7 @@ class GlobalSearchVMBuilder:
         if self._name is None:
             raise ValueError("name is required")
         hub = self._hub if self._hub is not None else MessageHub[Message]()
-        dispatcher = (
-            self._dispatcher
-            if self._dispatcher is not None
-            else RxDispatcher.immediate()
-        )
+        dispatcher = self._dispatcher if self._dispatcher is not None else RxDispatcher.immediate()
         if self._repo is None:
             raise ValueError("repository is required")
         return GlobalSearchVM(

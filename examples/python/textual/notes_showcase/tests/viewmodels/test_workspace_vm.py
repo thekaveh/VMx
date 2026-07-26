@@ -6,7 +6,6 @@ import asyncio
 
 import pytest
 from reactivex.scheduler import ImmediateScheduler
-
 from vmx import ConstructionStatus, MessageHub, RxDispatcher
 from vmx.messages.protocols import Message
 from vmx.notifications import Notification, NotificationHub
@@ -27,9 +26,7 @@ def _build(*, with_notification_hub: bool = True) -> WorkspaceVM:
         export_delay=0.0,
     )
     hub = MessageHub[Message]()
-    dispatcher = RxDispatcher(
-        foreground=ImmediateScheduler(), background=ImmediateScheduler()
-    )
+    dispatcher = RxDispatcher(foreground=ImmediateScheduler(), background=ImmediateScheduler())
     builder = (
         WorkspaceVM.builder()
         .name("workspace")
@@ -63,9 +60,7 @@ async def test_failed_selection_bind_is_observed_and_retryable() -> None:
     ws = WorkspaceVM.builder().repository(repo).build()
     await ws.construct_async()
     personal = next(
-        notebook
-        for notebook in ws.notebooks_root.roots
-        if notebook.model.id == "nb-personal"
+        notebook for notebook in ws.notebooks_root.roots if notebook.model.id == "nb-personal"
     )
     loop = asyncio.get_running_loop()
     unhandled: list[dict[str, object]] = []
@@ -80,9 +75,7 @@ async def test_failed_selection_bind_is_observed_and_retryable() -> None:
         assert unhandled == []
 
         work = next(
-            notebook
-            for notebook in ws.notebooks_root.roots
-            if notebook.model.id == "nb-work"
+            notebook for notebook in ws.notebooks_root.roots if notebook.model.id == "nb-work"
         )
         ws.notebooks_root.current = work
         await asyncio.sleep(0)
@@ -181,20 +174,18 @@ class _StubDialogService(IDialogService):
         self.confirm_calls = 0
         self.notify_calls = 0
 
-    async def pick_file_to_open(self, filter=None, title=None) -> str | None:  # noqa: ARG002
+    async def pick_file_to_open(self, filter=None, title=None) -> str | None:
         return None
 
-    async def pick_file_to_save(
-        self, filter=None, title=None, suggested_name=None
-    ) -> str | None:  # noqa: ARG002
+    async def pick_file_to_save(self, filter=None, title=None, suggested_name=None) -> str | None:
         self.save_calls += 1
         return self._save_path
 
-    async def confirm(self, message: str, title=None) -> bool:  # noqa: ARG002
+    async def confirm(self, message: str, title=None) -> bool:
         self.confirm_calls += 1
         return True
 
-    async def notify(self, message, title=None, severity=None) -> None:  # noqa: ARG002
+    async def notify(self, message, title=None, severity=None) -> None:
         self.notify_calls += 1
 
 
@@ -205,9 +196,7 @@ async def test_new_notebook_command_adds_notebook_and_fires_notification() -> No
     notification_hub = NotificationHub()
     observed: list[Notification] = []
     notification_hub.pending.subscribe(
-        on_next=lambda snapshot: [
-            observed.append(n) for n in snapshot if n not in observed
-        ]
+        on_next=lambda snapshot: [observed.append(n) for n in snapshot if n not in observed]
     )
     ws = (
         WorkspaceVM.builder()
@@ -393,18 +382,16 @@ async def test_setting_notes_view_current_rebinds_note_form() -> None:
 class _AcceptDialog(IDialogService):
     """Test-only dialog service whose confirm() always accepts."""
 
-    async def pick_file_to_open(self, filter=None, title=None) -> str | None:  # noqa: ARG002
+    async def pick_file_to_open(self, filter=None, title=None) -> str | None:
         return None
 
-    async def pick_file_to_save(
-        self, filter=None, title=None, suggested_name=None
-    ) -> str | None:  # noqa: ARG002
+    async def pick_file_to_save(self, filter=None, title=None, suggested_name=None) -> str | None:
         return None
 
-    async def confirm(self, message: str, title=None) -> bool:  # noqa: ARG002
+    async def confirm(self, message: str, title=None) -> bool:
         return True
 
-    async def notify(self, message, title=None, severity=None) -> None:  # noqa: ARG002
+    async def notify(self, message, title=None, severity=None) -> None:
         return None
 
 

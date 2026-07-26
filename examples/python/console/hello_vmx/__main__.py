@@ -23,7 +23,6 @@ from vmx.messages.protocols import Message
 from vmx.services.dispatcher import RxDispatcher
 from vmx.services.message_hub import MessageHub
 
-
 # ---------------------------------------------------------------------------
 # Domain model
 # ---------------------------------------------------------------------------

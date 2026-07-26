@@ -436,6 +436,24 @@ public class AggregateVMConformanceTests
         aggregate.Component1.Should().BeNull();
     }
 
+    [Fact, Trait("Conformance", "AGG-007")]
+    public void Aggregate_Reconstruct_Rejects_Its_Current_Slot_Without_Disposing_It()
+    {
+        var (hub, dispatcher) = MakeServices();
+        var child = MakeLeaf(hub, dispatcher);
+        var aggregate = AggregateVM1<ComponentVM<string>>.Builder()
+            .Name("aggregate").Services(hub, dispatcher)
+            .Component1(() => child).Build();
+        aggregate.Construct();
+
+        var act = aggregate.Invoking(candidate => candidate.Reconstruct());
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*already has a parent*");
+        aggregate.Component1.Should().BeSameAs(child);
+        child.Status.Should().Be(ConstructionStatus.Destructed);
+        child.GetParent().Should().NotBeNull();
+    }
+
     [Fact]
     public void Fixed_Aggregate_Slot_Cannot_Transfer_To_Mutable_Parent()
     {

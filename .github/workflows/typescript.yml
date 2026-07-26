@@ -22,7 +22,21 @@ defaults:
     working-directory: langs/typescript
 
 jobs:
+  schema-sync:
+    timeout-minutes: 5
+    name: tracked schema sync
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check tracked conformance schema
+        run: python3 tools/check-typescript-schema-sync.py
+
   build:
+    needs: schema-sync
+    timeout-minutes: 30
     name: build & test (${{ matrix.os }} / node${{ matrix.node-version }})
     runs-on: ${{ matrix.os }}
     strategy:
@@ -33,7 +47,7 @@ jobs:
         # is EOL, and also cover every current supported even-numbered line.
         node-version: ["20", "22", "24", "26"]
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -50,6 +64,9 @@ jobs:
 
       - name: Sync spec fixtures
         run: npm run sync-fixtures
+
+      - name: Reject tracked schema drift repaired by sync
+        run: git diff --exit-code -- src/conformance/schemas
 
       - name: Type-check
         run: npm run typecheck
@@ -78,6 +95,7 @@ jobs:
           fail_ci_if_error: false
 
   package:
+    timeout-minutes: 15
     name: package (node${{ matrix.node-version }})
     runs-on: ubuntu-latest
     strategy:
@@ -88,7 +106,7 @@ jobs:
       run:
         working-directory: .
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -112,6 +130,7 @@ jobs:
             --version "$package_version"
 
   examples:
+    timeout-minutes: 30
     # Installs + tests the Notes-Showcase React example (Phase 8 of the
     # notes-showcase plan). Kept as a separate job because the existing
     # `build` job pins `defaults.run.working-directory: langs/typescript` and
@@ -126,7 +145,7 @@ jobs:
       run:
         working-directory: .
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -154,10 +173,12 @@ jobs:
         run: npm ci --prefix examples/typescript/console/hello-vmx
 
       - name: console example type-check
-        run: npm run typecheck --prefix examples/typescript/console/hello-vmx
+        # The library was installed and built once above. Suppress only the
+        # example's pretypecheck hook so CI does not reinstall/rebuild it.
+        run: npm run typecheck --prefix examples/typescript/console/hello-vmx --ignore-scripts
 
       - name: console example smoke
-        run: npm start --prefix examples/typescript/console/hello-vmx
+        run: npm start --prefix examples/typescript/console/hello-vmx --ignore-scripts
 
       - name: notes-showcase install
         # `npm ci` requires a checked-in package-lock.json — committed under
@@ -171,10 +192,10 @@ jobs:
         run: npm audit --prefix examples/typescript/react/notes-showcase --package-lock-only --audit-level=moderate
 
       - name: notes-showcase test
-        run: npm test --prefix examples/typescript/react/notes-showcase
+        run: npm test --prefix examples/typescript/react/notes-showcase --ignore-scripts
 
       - name: notes-showcase type-check
-        run: npm run typecheck --prefix examples/typescript/react/notes-showcase
+        run: npm run typecheck --prefix examples/typescript/react/notes-showcase --ignore-scripts
 
       - name: notes-showcase lint
         # Includes the Pure-VM import and hub-subscription restrictions for
@@ -182,9 +203,10 @@ jobs:
         run: npm run lint --prefix examples/typescript/react/notes-showcase
 
       - name: notes-showcase production build
-        run: npm run build --prefix examples/typescript/react/notes-showcase
+        run: npm run build --prefix examples/typescript/react/notes-showcase --ignore-scripts
 
   required:
+    timeout-minutes: 5
     name: "required: typescript"
     if: always()
     needs: [build, package, examples]

@@ -8,7 +8,6 @@ from typing import cast
 
 import pytest
 from reactivex.scheduler import ImmediateScheduler
-
 from vmx import (
     AsyncRelayCommand,
     IClosable,
@@ -29,9 +28,7 @@ from notes_showcase.viewmodels.note_vm import NoteVM
 _T0 = datetime(2026, 5, 29, 12, 0, tzinfo=timezone.utc)
 
 
-def _model(
-    *, note_id: str = "note-01", title: str = "Hello", starred: bool = False
-) -> NoteModel:
+def _model(*, note_id: str = "note-01", title: str = "Hello", starred: bool = False) -> NoteModel:
     return NoteModel(
         id=note_id,
         notebook_id="nb-1",
@@ -46,9 +43,7 @@ def _model(
 
 def _build(**kwargs: object) -> NoteVM:
     hub = MessageHub[Message]()
-    dispatcher = RxDispatcher(
-        foreground=ImmediateScheduler(), background=ImmediateScheduler()
-    )
+    dispatcher = RxDispatcher(foreground=ImmediateScheduler(), background=ImmediateScheduler())
     builder = NoteVM.builder().name("note").services(hub, dispatcher).model(_model())
     for k, v in kwargs.items():
         builder = getattr(builder, k)(v)
@@ -179,9 +174,7 @@ def _build_with_confirm(
     ConfirmationDecoratorCommand returning ``confirm``.
     """
     hub = MessageHub[Message]()
-    dispatcher = RxDispatcher(
-        foreground=ImmediateScheduler(), background=ImmediateScheduler()
-    )
+    dispatcher = RxDispatcher(foreground=ImmediateScheduler(), background=ImmediateScheduler())
 
     async def _confirm(_vm: NoteVM) -> bool:
         return confirm
@@ -232,9 +225,7 @@ async def test_delete_command_with_confirm_true_invokes_on_delete() -> None:
     assert captured == [vm]
 
 
-async def test_delete_command_with_confirm_true_publishes_note_deleted_notification() -> (
-    None
-):
+async def test_delete_command_with_confirm_true_publishes_note_deleted_notification() -> None:
     """Successful confirmed delete + a NotificationHub posts 'Note deleted'."""
     from vmx.commands import ConfirmationDecoratorCommand
     from vmx.notifications import NotificationHub
@@ -274,9 +265,7 @@ async def test_delete_success_notification_waits_for_async_callback() -> None:
     notification_hub = NotificationHub()
     notification_hub.pending.subscribe(
         on_next=lambda snapshot: (
-            notified.set()
-            if any("Note deleted" in n.message for n in snapshot)
-            else None
+            notified.set() if any("Note deleted" in n.message for n in snapshot) else None
         )
     )
     vm = _build_with_confirm(

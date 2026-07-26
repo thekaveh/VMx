@@ -20,11 +20,6 @@ from typing import cast
 
 from reactivex.abc import SchedulerBase
 from reactivex.scheduler import ImmediateScheduler
-
-from notes_showcase.models.note_model import NoteModel
-from notes_showcase.models.note_repository import INoteRepository
-from notes_showcase.viewmodels.dialog_service import IDialogService
-from notes_showcase.viewmodels.note_vm import NoteVM
 from vmx import (
     ComponentVM,
     ConstructionStatus,
@@ -45,6 +40,11 @@ from vmx import (
 from vmx.messages.protocols import Message
 from vmx.notifications import INotificationHub
 from vmx.services.dispatcher import Dispatcher
+
+from notes_showcase.models.note_model import NoteModel
+from notes_showcase.models.note_repository import INoteRepository
+from notes_showcase.viewmodels.dialog_service import IDialogService
+from notes_showcase.viewmodels.note_vm import NoteVM
 
 _DEFAULT_PAGE_SIZE = 5
 _DEFAULT_SEARCH_DEBOUNCE_S = 0.150
@@ -511,9 +511,7 @@ class NotesViewVMBuilder:
     def hint(self, value: str) -> NotesViewVMBuilder:
         return dataclasses.replace(self, _hint=value)
 
-    def services(
-        self, hub: MessageHubProto[Message], dispatcher: Dispatcher
-    ) -> NotesViewVMBuilder:
+    def services(self, hub: MessageHubProto[Message], dispatcher: Dispatcher) -> NotesViewVMBuilder:
         return dataclasses.replace(self, _hub=hub, _dispatcher=dispatcher)
 
     def repository(self, repo: INoteRepository) -> NotesViewVMBuilder:
@@ -540,11 +538,7 @@ class NotesViewVMBuilder:
         if self._repo is None:
             raise ValueError("repository is required")
         hub = self._hub if self._hub is not None else MessageHub[Message]()
-        dispatcher = (
-            self._dispatcher
-            if self._dispatcher is not None
-            else RxDispatcher.immediate()
-        )
+        dispatcher = self._dispatcher if self._dispatcher is not None else RxDispatcher.immediate()
         return NotesViewVM(
             name=self._name,
             hint=self._hint,

@@ -3,9 +3,7 @@
 from __future__ import annotations
 
 from reactivex.subject import Subject
-
 from textual.widgets import Button
-
 from vmx.commands.relay_command import RelayCommand
 
 from notes_showcase.views.adapter import bind_command
@@ -33,9 +31,7 @@ def test_bind_command_seeds_disabled_from_can_execute() -> None:
     state = [True]
     invocations: list[int] = []
     trigger: Subject[object] = Subject()
-    cmd = _build_command(
-        predicate_state=state, invocations=invocations, trigger=trigger
-    )
+    cmd = _build_command(predicate_state=state, invocations=invocations, trigger=trigger)
     button = Button("go")
 
     sub = bind_command(button, cmd)
@@ -50,9 +46,7 @@ def test_bind_command_button_press_executes_command() -> None:
     state = [True]
     invocations: list[int] = []
     trigger: Subject[object] = Subject()
-    cmd = _build_command(
-        predicate_state=state, invocations=invocations, trigger=trigger
-    )
+    cmd = _build_command(predicate_state=state, invocations=invocations, trigger=trigger)
     button = Button("go")
 
     sub = bind_command(button, cmd)
@@ -68,9 +62,7 @@ def test_bind_command_tracks_can_execute_flipping_to_false() -> None:
     state = [True]
     invocations: list[int] = []
     trigger: Subject[object] = Subject()
-    cmd = _build_command(
-        predicate_state=state, invocations=invocations, trigger=trigger
-    )
+    cmd = _build_command(predicate_state=state, invocations=invocations, trigger=trigger)
     button = Button("go")
 
     sub = bind_command(button, cmd)
@@ -88,9 +80,7 @@ def test_bind_command_tracks_can_execute_flipping_back_to_true() -> None:
     state = [False]
     invocations: list[int] = []
     trigger: Subject[object] = Subject()
-    cmd = _build_command(
-        predicate_state=state, invocations=invocations, trigger=trigger
-    )
+    cmd = _build_command(predicate_state=state, invocations=invocations, trigger=trigger)
     button = Button("go")
 
     sub = bind_command(button, cmd)
@@ -108,9 +98,7 @@ def test_bind_command_dispose_unsubscribes() -> None:
     state = [True]
     invocations: list[int] = []
     trigger: Subject[object] = Subject()
-    cmd = _build_command(
-        predicate_state=state, invocations=invocations, trigger=trigger
-    )
+    cmd = _build_command(predicate_state=state, invocations=invocations, trigger=trigger)
     button = Button("go")
     sub = bind_command(button, cmd)
     sub.dispose()

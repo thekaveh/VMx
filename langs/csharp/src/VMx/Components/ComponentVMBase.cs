@@ -128,14 +128,21 @@ internal static class ComponentOwnership
     private sealed class ReservationBatch : IDisposable
     {
         private readonly OwnershipState[] _states;
+        private readonly bool _exclusive;
         private bool _disposed;
 
-        internal ReservationBatch(OwnershipState[] states) => _states = states;
+        internal ReservationBatch(OwnershipState[] states, bool exclusive = false)
+        {
+            _states = states;
+            _exclusive = exclusive;
+        }
 
         public void Dispose()
         {
             if (_disposed) return;
             _disposed = true;
+            if (_exclusive)
+                foreach (var state in _states) state.InProgress = false;
             for (var index = _states.Length - 1; index >= 0; index--)
                 Monitor.Exit(_states[index].Gate);
         }
@@ -187,6 +194,21 @@ internal static class ComponentOwnership
 
     internal static IDisposable BeginReservationBatch(IEnumerable<IComponentVM> children)
         => new ReservationBatch(AcquireStates(children));
+
+    internal static IDisposable BeginExclusiveReservationBatch(
+        IEnumerable<IComponentVM> children)
+    {
+        var states = AcquireStates(children);
+        if (states.Any(state => state.InProgress))
+        {
+            for (var index = states.Length - 1; index >= 0; index--)
+                Monitor.Exit(states[index].Gate);
+            throw new InvalidOperationException(
+                "An ownership transaction is already in progress for a reserved component.");
+        }
+        foreach (var state in states) state.InProgress = true;
+        return new ReservationBatch(states, exclusive: true);
+    }
 
     internal static void CommitThenPublish(
         ParentTransferToken? transfer,
@@ -306,6 +328,13 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         internal ManualResetEventSlim Completed { get; } = new(false);
     }
 
+    private sealed class LifecycleHookLease
+    {
+        internal int OwnerThreadId { get; } = Environment.CurrentManagedThreadId;
+        internal ManualResetEventSlim Completed { get; } = new(false);
+        internal Action? DeferredDisposal { get; set; }
+    }
+
     private readonly Queue<LifecycleDelivery> _lifecycleDeliveries = [];
     private bool _lifecycleDeliveryDraining;
     private int _lifecycleDeliveryDrainerThreadId;
@@ -317,6 +346,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     private volatile bool _inFlight;
     private readonly List<TaskCompletionSource<bool>> _lifecycleWaiters = [];
     private Task? _deferredLifecycleTask;
+    private LifecycleHookLease? _activeHookLease;
 
     // ── Selection state ─────────────────────────────────────────────────────
     private bool _isCurrent;
@@ -568,7 +598,16 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                 ConstructionStatus.Constructing,
                 out shouldDrain);
         }
-        DrainAndThrow(delivery, shouldDrain);
+        try
+        {
+            DrainAndThrow(delivery, shouldDrain);
+        }
+        catch (Exception error)
+        {
+            RestoreStatusAfterPublicationFailure(ConstructionStatus.Destructed);
+            FailInFlight(error);
+            throw;
+        }
 
         if (_background)
         {
@@ -577,7 +616,8 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                 // Dispose() may have run between scheduling and execution.
                 // Re-check the terminal state under _gate and abort if disposed
                 // (spec/02 invariant 3): no OnConstruct(), no marshalled emission.
-                if (IsDisposed())
+                var hookLease = TryClaimLifecycleHook(ConstructionStatus.Constructing);
+                if (hookLease is null)
                 {
                     ClearInFlight();
                     return Disposable.Empty;
@@ -585,7 +625,8 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
 
                 try
                 {
-                    OnConstruct();
+                    try { OnConstruct(); }
+                    finally { FinishLifecycleHook(hookLease); }
                 }
                 catch (Exception error)
                 {
@@ -650,9 +691,13 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             var completionDeferred = false;
             try
             {
+                var hookLease = TryClaimLifecycleHook(ConstructionStatus.Constructing);
+                if (hookLease is null)
+                    return;
                 try
                 {
-                    OnConstruct();
+                    try { OnConstruct(); }
+                    finally { FinishLifecycleHook(hookLease); }
                 }
                 catch
                 {
@@ -742,7 +787,16 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                 ConstructionStatus.Destructing,
                 out shouldDrain);
         }
-        DrainAndThrow(delivery, shouldDrain);
+        try
+        {
+            DrainAndThrow(delivery, shouldDrain);
+        }
+        catch (Exception error)
+        {
+            RestoreStatusAfterPublicationFailure(ConstructionStatus.Constructed);
+            FailInFlight(error);
+            throw;
+        }
 
         if (_background)
         {
@@ -751,7 +805,8 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                 // Dispose() may have run between scheduling and execution.
                 // Re-check the terminal state under _gate and abort if disposed
                 // (spec/02 invariant 3): no OnDestruct(), no marshalled emission.
-                if (IsDisposed())
+                var hookLease = TryClaimLifecycleHook(ConstructionStatus.Destructing);
+                if (hookLease is null)
                 {
                     ClearInFlight();
                     return Disposable.Empty;
@@ -759,7 +814,8 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
 
                 try
                 {
-                    OnDestruct();
+                    try { OnDestruct(); }
+                    finally { FinishLifecycleHook(hookLease); }
                 }
                 catch (Exception error)
                 {
@@ -821,9 +877,13 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             var completionDeferred = false;
             try
             {
+                var hookLease = TryClaimLifecycleHook(ConstructionStatus.Destructing);
+                if (hookLease is null)
+                    return;
                 try
                 {
-                    OnDestruct();
+                    try { OnDestruct(); }
+                    finally { FinishLifecycleHook(hookLease); }
                 }
                 catch
                 {
@@ -895,14 +955,27 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                 ConstructionStatus.Destructing,
                 out shouldDrain);
         }
-        DrainAndThrow(delivery, shouldDrain);
+        try
+        {
+            DrainAndThrow(delivery, shouldDrain);
+        }
+        catch (Exception error)
+        {
+            RestoreStatusAfterPublicationFailure(ConstructionStatus.Constructed);
+            FailInFlight(error);
+            throw;
+        }
 
         var completionDeferred = false;
         try
         {
+            var hookLease = TryClaimLifecycleHook(ConstructionStatus.Destructing);
+            if (hookLease is null)
+                return;
             try
             {
-                OnDestruct();
+                try { OnDestruct(); }
+                finally { FinishLifecycleHook(hookLease); }
             }
             catch
             {
@@ -949,10 +1022,25 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     private bool ContinueReconstructWithConstructPhase()
     {
         SetStatus(ConstructionStatus.Destructed);
-        SetStatus(ConstructionStatus.Constructing);
+        if (IsDisposed())
+            return false;
         try
         {
-            OnConstruct();
+            SetStatus(ConstructionStatus.Constructing);
+        }
+        catch (Exception error)
+        {
+            RestoreStatusAfterPublicationFailure(ConstructionStatus.Destructed);
+            FailInFlight(error);
+            throw;
+        }
+        var hookLease = TryClaimLifecycleHook(ConstructionStatus.Constructing);
+        if (hookLease is null)
+            return false;
+        try
+        {
+            try { OnConstruct(); }
+            finally { FinishLifecycleHook(hookLease); }
         }
         catch
         {
@@ -1044,6 +1132,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         ExceptionDispatchInfo? firstError = null;
         bool shouldDrain;
         LifecycleDelivery? delivery;
+        LifecycleHookLease? hookLease;
         lock (_gate)
         {
             if (_status == ConstructionStatus.Disposed) return;
@@ -1051,6 +1140,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             // Terminal publication is best-effort: an observer failure must not
             // prevent the remaining channels or mandatory cleanup from running.
             _status = ConstructionStatus.Disposed;
+            hookLease = _activeHookLease;
             var notifyTrigger = !_triggerDisposed;
             var statusDelivery = QueueLifecycleDeliveryLocked(() =>
             {
@@ -1071,53 +1161,82 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             delivery = waiterDelivery ?? statusDelivery;
         }
         DrainAndThrow(delivery!, shouldDrain);
-
-        // Subclass cleanup hook, matching Python `_on_dispose` (base.py) and
-        // TS `_onDispose` (componentVMBase.ts). Runs immediately after the
-        // status reaches Disposed and *before* the status trigger is
-        // completed, so a subclass override can still publish a final
-        // status value or touch hub-published subjects during cleanup.
-        CaptureDisposalFailure(ref firstError, OnDispose);
-        CaptureDisposalFailure(ref firstError, DisposeOwnedResources);
-
-        // Admit trigger teardown under _gate, then invoke Subject observers in
-        // lifecycle-delivery order outside it. The terminal OnNext admitted
-        // above therefore always precedes OnCompleted, including re-entrant
-        // disposal while another lifecycle notification is being drained.
-        lock (_gate)
+        void FinishDisposal()
         {
-            if (!_triggerDisposed)
+            // Subclass cleanup hook, matching Python `_on_dispose` (base.py) and
+            // TS `_onDispose` (componentVMBase.ts). Runs immediately after the
+            // status reaches Disposed and *before* the status trigger is
+            // completed, so a subclass override can still publish a final
+            // status value or touch hub-published subjects during cleanup.
+            CaptureDisposalFailure(ref firstError, OnDispose);
+            CaptureDisposalFailure(ref firstError, DisposeOwnedResources);
+
+            // Admit trigger teardown under _gate, then invoke Subject observers in
+            // lifecycle-delivery order outside it. The terminal OnNext admitted
+            // above therefore always precedes OnCompleted, including re-entrant
+            // disposal while another lifecycle notification is being drained.
+            lock (_gate)
             {
-                _triggerDisposed = true;
-                delivery = QueueLifecycleDeliveryLocked(() =>
+                if (!_triggerDisposed)
                 {
-                    CaptureDisposalFailure(ref firstError, _statusTrigger.OnCompleted);
-                    CaptureDisposalFailure(ref firstError, _statusTrigger.Dispose);
-                }, out shouldDrain);
+                    _triggerDisposed = true;
+                    delivery = QueueLifecycleDeliveryLocked(() =>
+                    {
+                        CaptureDisposalFailure(ref firstError, _statusTrigger.OnCompleted);
+                        CaptureDisposalFailure(ref firstError, _statusTrigger.Dispose);
+                    }, out shouldDrain);
+                }
+                else
+                {
+                    shouldDrain = false;
+                    delivery = null;
+                }
+            }
+            if (delivery is not null)
+                DrainAndThrow(delivery, shouldDrain);
+
+            foreach (var command in new IDisposable?[]
+                     {
+                         _selectCommand as IDisposable,
+                         _deselectCommand as IDisposable,
+                         _selectNextCommand as IDisposable,
+                         _selectPreviousCommand as IDisposable,
+                         _reconstructCommand as IDisposable,
+                     })
+            {
+                if (command is not null)
+                    CaptureDisposalFailure(ref firstError, command.Dispose);
+            }
+
+            firstError?.Throw();
+        }
+
+        if (hookLease is not null &&
+            hookLease.OwnerThreadId != Environment.CurrentManagedThreadId)
+        {
+            var caller = Environment.CurrentManagedThreadId;
+            if (RegisterLifecycleWait(caller, hookLease.OwnerThreadId))
+            {
+                lock (_gate)
+                {
+                    if (ReferenceEquals(_activeHookLease, hookLease))
+                    {
+                        hookLease.DeferredDisposal = FinishDisposal;
+                        return;
+                    }
+                }
             }
             else
             {
-                shouldDrain = false;
-                delivery = null;
+                try { hookLease.Completed.Wait(); }
+                finally
+                {
+                    lock (s_lifecycleWaitGraphGate)
+                        s_lifecycleWaitGraph.Remove(caller);
+                }
             }
         }
-        if (delivery is not null)
-            DrainAndThrow(delivery, shouldDrain);
-
-        foreach (var command in new IDisposable?[]
-                 {
-                     _selectCommand as IDisposable,
-                     _deselectCommand as IDisposable,
-                     _selectNextCommand as IDisposable,
-                     _selectPreviousCommand as IDisposable,
-                     _reconstructCommand as IDisposable,
-                 })
-        {
-            if (command is not null)
-                CaptureDisposalFailure(ref firstError, command.Dispose);
-        }
-
-        firstError?.Throw();
+        FinishDisposal();
     }
 
     private static void CaptureDisposalFailure(
@@ -1165,6 +1284,37 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         lock (_gate)
         {
             return _status == ConstructionStatus.Disposed;
+        }
+    }
+
+    private LifecycleHookLease? TryClaimLifecycleHook(ConstructionStatus expectedStatus)
+    {
+        lock (_gate)
+        {
+            if (_status != expectedStatus || _activeHookLease is not null)
+                return null;
+            return _activeHookLease = new LifecycleHookLease();
+        }
+    }
+
+    private void FinishLifecycleHook(LifecycleHookLease lease)
+    {
+        Action? deferredDisposal;
+        lock (_gate)
+        {
+            if (ReferenceEquals(_activeHookLease, lease))
+                _activeHookLease = null;
+            deferredDisposal = lease.DeferredDisposal;
+            lease.DeferredDisposal = null;
+        }
+        lease.Completed.Set();
+        if (deferredDisposal is not null)
+        {
+            // A cycle-broken Dispose call has no synchronous caller left to
+            // receive this deferred failure. Never let it replace an exception
+            // already propagating from the admitted hook.
+            try { deferredDisposal(); }
+            catch (Exception) { }
         }
     }
 
@@ -1331,6 +1481,12 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         DrainAndThrow(delivery, shouldDrain);
     }
 
+    private void RestoreStatusAfterPublicationFailure(ConstructionStatus status)
+    {
+        try { SetStatus(status); }
+        catch { /* The original transition publication failure remains primary. */ }
+    }
+
     private LifecycleDelivery QueueStatusDeliveryLocked(
         ConstructionStatus newStatus,
         out bool shouldDrain)
@@ -1461,14 +1617,13 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         // External observers run outside the lifecycle gate. Once admitted by
         // the terminal-state check, both channels complete even when a hub
         // observer disposes this VM re-entrantly.
-        try
-        {
-            _hub.Send(PropertyChangedMessage<IComponentVM>.Create(this, Name, propertyName));
-        }
-        finally
-        {
-            RaisePropertyChanged(propertyName);
-        }
+        ExceptionDispatchInfo? firstError = null;
+        CaptureDisposalFailure(
+            ref firstError,
+            () => _hub.Send(
+                PropertyChangedMessage<IComponentVM>.Create(this, Name, propertyName)));
+        CaptureDisposalFailure(ref firstError, () => RaisePropertyChanged(propertyName));
+        firstError?.Throw();
     }
 
     /// <summary>Raises only the local <see cref="PropertyChanged"/> event.</summary>

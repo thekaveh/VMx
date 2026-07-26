@@ -1,8 +1,8 @@
 # Notes Workspace — reference screenshots
 
-This directory hosts one PNG per flagship Notes Workspace flavor. Screenshots
-are captured manually (no CI step) so the binary churn stays out of automated
-runs.
+This directory is reserved for one PNG per flagship Notes Workspace flavor.
+Screenshots are captured manually (no CI step) so the binary churn stays out
+of automated runs.
 
 | File           | Source app                                                          | Capture command                                                              |
 | -------------- | ------------------------------------------------------------------- | ---------------------------------------------------------------------------- |

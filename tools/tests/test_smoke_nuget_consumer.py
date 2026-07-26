@@ -9,7 +9,7 @@ import smoke_nuget_consumer as smoke
 def test_parse_packages_accepts_known_exact_versions_and_adds_core_floor() -> None:
     packages = smoke.parse_packages(["VMx.Notifications=1.2.0"])
 
-    assert packages == {"VMx": "3.22.0", "VMx.Notifications": "1.2.0"}
+    assert packages == {"VMx": "3.22.1", "VMx.Notifications": "1.2.0"}
 
 
 @pytest.mark.parametrize("specification", ["Unknown=1.0.0", "VMx=main", "VMx=3.20", "VMx"])
@@ -62,11 +62,30 @@ def test_wait_for_packages_polls_until_every_exact_version_is_visible() -> None:
         {"VMx": "3.20.0", "VMx.Notifications": "1.2.0"},
         1,
         interval_seconds=0.01,
-        lookup=lambda _package, _version: next(responses),
+        lookup=lambda _package, _version, _timeout: next(responses),
         sleeper=sleeps.append,
+        clock=iter([0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]).__next__,
     )
 
     assert sleeps == [0.01, 0.01]
+
+
+def test_wait_for_packages_caps_lookup_and_sleep_to_end_to_end_deadline() -> None:
+    timeouts: list[float] = []
+    sleeps: list[float] = []
+
+    with pytest.raises(TimeoutError, match="timed out waiting"):
+        smoke.wait_for_packages(
+            {"VMx": "3.20.0"},
+            1,
+            interval_seconds=5,
+            lookup=lambda _package, _version, timeout: timeouts.append(timeout) or False,
+            sleeper=sleeps.append,
+            clock=iter([0.0, 0.2, 0.8, 1.0, 1.0]).__next__,
+        )
+
+    assert timeouts == pytest.approx([0.8])
+    assert sleeps == pytest.approx([0.2])
 
 
 def test_flat_container_url_normalizes_package_id() -> None:
@@ -85,3 +104,15 @@ def test_discover_packages_reads_current_project_versions(tmp_path: Path) -> Non
     )
 
     assert smoke.discover_packages(tmp_path) == {"VMx": "3.20.0"}
+
+
+def test_main_handles_command_timeout_without_traceback(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def fail(*_args: object, **_kwargs: object) -> None:
+        raise smoke.subprocess.TimeoutExpired(["dotnet"], 1)
+
+    monkeypatch.setattr(smoke, "run_smoke", fail)
+
+    assert smoke.main(["--package", "VMx=3.20.0", "--framework", "net8.0"]) == 1
+    assert "ERROR: NuGet consumer smoke failed:" in capsys.readouterr().err

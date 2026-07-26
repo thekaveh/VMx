@@ -24,7 +24,6 @@ from collections.abc import Callable
 from typing import Any
 
 from reactivex.abc import DisposableBase
-
 from vmx.messages.property_changed import PropertyChangedMessage
 from vmx.properties.derived import DerivedProperty
 

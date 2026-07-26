@@ -5,11 +5,11 @@ spec-compatible with the C# / Python / TypeScript / Rust flavors.
 
 ## 1. Status
 
-**v3.22.0 source — total parity.** Covers **all 396 of 396** library conformance IDs
-from `spec-v3.22.0` plus the 5 `THEME-00x` scenario IDs exercised by the
-`examples/swift/notes-showcase/` flagship app (ADR-0067) = **401 total**, at
+**v3.23.0 source — total parity.** Covers **all 400 of 400** library conformance IDs
+from `spec-v3.22.1` plus the 5 `THEME-00x` scenario IDs exercised by the
+`examples/swift/notes-showcase/` flagship app (ADR-0067) = **405 total**, at
 full parity with the C#, Python, and TypeScript UI-backed flavors. Rust has full
-396-ID library parity and no UI scenario suite. Library IDs accumulated
+400-ID library parity and no UI scenario suite. Library IDs accumulated
 incrementally (recounted honestly in ADR-0037; +COMP-025/COMP-026 added per
 ADR-0042; +LIFE-008 via the v3 throwing-convergence in ADR-0053; +50 leaf-area
 IDs via Phase-3 Inc-1 — ADR-0059; +30 collections IDs via Phase-3 Inc-2 —
@@ -26,8 +26,10 @@ modeled-component republish ID via ADR-0093; +4 fixed-source selected-state
 subscription IDs via ADR-0095; +8 serviced-collection parity IDs via ADR-0096;
 +9 keyed serviced-collection IDs via ADR-0097; +10 dynamic aggregate change
 stream IDs via ADR-0098; +7 searchable source-reactivity IDs via ADR-0099;
-+11 async-resource IDs via ADR-0100; +4 atomic container-ownership IDs via
-ADR-0107; +1 canonical forwarding-ownership ID via ADR-0124):
++11 async-resource IDs via ADR-0100; +4 atomic container-ownership IDs
+(`COMP-038..041`) via ADR-0107; +1 disposal/hook coordination ID via ADR-0126; +1 aggregate
+reconstruction transaction ID via ADR-0125; +1 canonical forwarding-ownership
+ID via ADR-0124; +2 factory-hydration IDs through HIER-032 via ADR-0127):
 the lifecycle state machine, the modeled
 and unmodeled `ComponentVM`, `CompositeVM`, `CompositeVMOf`, `GroupVM`,
 `AggregateVM1..6`, `RelayCommand`, `RelayCommandOf<T>`, `AsyncRelayCommand`,
@@ -251,9 +253,9 @@ this fixed VM. The `Equatable` overload uses `==`; use the `isEqual:` overload
 for custom equality. The host owns the returned `AnyCancellable`; VMx does not
 attach it to the observed VM's lifetime.
 
-## 5. Conformance — total parity (401)
+## 5. Conformance — total parity (405)
 
-This flavor implements **all 396 library conformance IDs** from the
+This flavor implements **all 400 library conformance IDs** from the
 cross-language conformance catalog (Inc-0: 44 base IDs per ADR-0037/ADR-0053;
 Inc-1: +50 leaf-area IDs per ADR-0059; Inc-2: +30 collections IDs per ADR-0060;
 Inc-3: +29 hierarchical/threading/expand-collapse IDs per ADR-0061;
@@ -482,7 +484,7 @@ ARES-001..011   cancellable latest-wins AsyncResourceVM (ADR-0100)
   `examples/swift/notes-showcase/NotesShowcaseTests/`; validated by the
   `examples (notes-showcase)` CI job in `.github/workflows/swift.yml`.
 
-**All 396 library conformance IDs are covered, and the 5 `THEME-00x` scenario IDs are covered by the `examples/swift/notes-showcase/` flagship. Swift is at total parity (401) with the C#, Python, and TypeScript UI-backed flavors. Rust has full library parity but no UI scenario suite.**
+**All 400 library conformance IDs are covered, and the 5 `THEME-00x` scenario IDs are covered by the `examples/swift/notes-showcase/` flagship. Swift is at total parity (405) with the C#, Python, and TypeScript UI-backed flavors. Rust has full library parity but no UI scenario suite.**
 
 Run the suite:
 

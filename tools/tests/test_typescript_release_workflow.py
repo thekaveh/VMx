@@ -48,7 +48,7 @@ def test_release_uses_trusted_publishing_node_and_npm_floors_without_cache() -> 
     jobs = _typescript_release_jobs()
 
     assert 'node-version: "24"' in jobs
-    assert "npm install --global npm@11.5.1" in jobs
+    assert "npm install --global npm@11.18.0" in jobs
     assert "id-token: write" in jobs
     assert "environment:\n      name: npm-typescript" in jobs
     assert "cache: npm" not in jobs
@@ -90,10 +90,12 @@ def test_release_polls_public_package_and_provenance_on_supported_node_lines() -
     assert "typescript-verify-published:" in jobs
     assert 'node-version: ["20", "22", "24", "26"]' in jobs
     assert "--poll-timeout 600" in jobs
-    assert "dist.attestations" in jobs
-    assert "predicateType" in jobs
-    assert "for attempt in {1..60}" in jobs
-    assert "sleep 10" in jobs
+    assert "--timeout 900" in jobs
+    assert "--require-provenance" in jobs
+    helper = (REPO_ROOT / "tools/smoke-npm-consumer.py").read_text(encoding="utf-8")
+    assert '"dist.attestations"' in helper
+    assert "predicateType" in helper
+    assert "for attempt in {1..60}" not in jobs
 
 
 def test_release_notes_follow_public_verification() -> None:

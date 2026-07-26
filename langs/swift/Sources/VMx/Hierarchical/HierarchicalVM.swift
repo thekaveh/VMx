@@ -38,6 +38,7 @@ import Combine
 /// ancestors.
 public enum HierarchyError: Error {
     case invalidReparent
+    case invalidFactoryOutput
 }
 
 /// Missing-parent retention policy for batch hierarchy ingestion.
@@ -125,6 +126,8 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
     /// Cached root→self path. `nil` until first access. (Invalidation on
     /// reparent keeps the cached path consistent with structural mutation.)
     private var _pathCache: [TVM]?
+    private var materializingChildren = false
+    private var materializationReentered = false
 
     /// Missing-parent items retained on this structural root.
     private var parkedAttachItems: [TVM] = []
@@ -196,10 +199,55 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
     /// factory runs once (seeding each child's `parent` to this node), then the
     /// result is cached for the lifetime of the node.
     public var children: [TVM] {
-        if let cached = _children { return cached }
-        let materialized = materializeChildren()
+        switch tryChildren() {
+        case .success(let children):
+            return children
+        case .failure:
+            preconditionFailure("children factory returned structurally invalid output")
+        }
+    }
+
+    /// Materializes children after atomically validating the complete factory
+    /// snapshot. Invalid output leaves the hierarchy unchanged and can be retried.
+    public func tryChildren() -> Result<[TVM], HierarchyError> {
+        if let cached = _children { return .success(cached) }
+        if materializingChildren {
+            materializationReentered = true
+            return .failure(.invalidFactoryOutput)
+        }
+        materializingChildren = true
+        materializationReentered = false
+        defer {
+            materializingChildren = false
+            materializationReentered = false
+        }
+        let materialized = childrenFactory(selfNode)
+        guard !materializationReentered else {
+            return .failure(.invalidFactoryOutput)
+        }
+        var seen = Set<ObjectIdentifier>()
+        var ancestors = Set<ObjectIdentifier>()
+        var ancestor: TVM? = selfNode
+        while let current = ancestor {
+            ancestors.insert(ObjectIdentifier(current))
+            ancestor = node(current).parent
+        }
+        for child in materialized {
+            let identity = ObjectIdentifier(child)
+            guard seen.insert(identity).inserted,
+                  !ancestors.contains(identity),
+                  node(child).parent == nil else {
+                return .failure(.invalidFactoryOutput)
+            }
+        }
+        for child in materialized {
+            let childNode = node(child)
+            childNode.parent = selfNode
+            childNode._pathCache = nil
+            invalidatePathCacheDescendants(of: child)
+        }
         _children = materialized
-        return materialized
+        return .success(materialized)
     }
 
     /// `true` when this node has no children. Accessing this materializes
@@ -261,12 +309,14 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
     /// 2. `TreeStructureChangedMessage(.added, …)` (HIER-011).
     @discardableResult
     public func addChild(_ child: TVM) -> Result<Void, HierarchyError> {
-        attachChild(child, explicitReparent: false)
+        if rejectStructuralReentry() { return .failure(.invalidFactoryOutput) }
+        return attachChild(child, explicitReparent: false)
     }
 
     /// Removes `child` from this node's children list, clears its parent, invalidates
     /// path caches, and publishes `TreeStructureChangedMessage(.removed, …)` (HIER-011).
     public func removeChild(_ child: TVM) {
+        if rejectStructuralReentry() { return }
         guard let idx = _children?.firstIndex(where: { $0 === child }) else { return }
         _children!.remove(at: idx)
         setHierarchicalParent(of: child, to: nil) // → PropertyChangedMessage
@@ -286,6 +336,7 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
     ///   `self`'s ancestors — attaching would create a parent cycle (HIER-018). On
     ///   rejection the tree is completely unchanged and no message is published.
     public func reparentChild(_ child: TVM) throws {
+        if rejectStructuralReentry() { throw HierarchyError.invalidFactoryOutput }
         switch attachChild(child, explicitReparent: true) {
         case .success:
             return
@@ -347,6 +398,20 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
         parentKeyOf: (TVM) throws -> Key?,
         onMissingParent: MissingParentPolicy = .park
     ) -> BatchAttachResult<TVM> {
+        if rejectStructuralReentry() {
+            return BatchAttachResult(
+                added: [],
+                duplicates: [],
+                orphans: [],
+                rejections: items.map {
+                    BatchAttachRejection(
+                        item: $0,
+                        reason: .attachmentFailed,
+                        detail: "children factory structural reentry"
+                    )
+                }
+            )
+        }
         let rootNode = treeRoot()
         let root = node(rootNode)
         let parked = root.parkedAttachItems
@@ -471,6 +536,7 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
     /// invokes the children factory again. Invalidating an unmaterialized node
     /// is a no-op.
     public func invalidateChildren() {
+        if rejectStructuralReentry() { return }
         guard let cached = _children else { return }
         for child in cached {
             let childNode = node(child)
@@ -489,6 +555,7 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
 
     /// Drops cached children for this node and all materialized descendants.
     public func invalidateSubtree() {
+        if rejectStructuralReentry() { return }
         guard let cached = _children else { return }
         for child in cached {
             node(child).invalidateSubtree()
@@ -503,20 +570,16 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
 
     // ── Private helpers ─────────────────────────────────────────────────
 
-    /// Runs the factory and seeds each produced child's `parent` to this node
-    /// (via the CRTP `selfNode`).
-    private func materializeChildren() -> [TVM] {
-        let result = childrenFactory(selfNode)
-        for child in result {
-            node(child).parent = selfNode
-        }
-        return result
-    }
-
     private func treeRoot() -> TVM {
         var current = selfNode
         while let parent = node(current).parent { current = parent }
         return current
+    }
+
+    private func rejectStructuralReentry() -> Bool {
+        guard materializingChildren else { return false }
+        materializationReentered = true
+        return true
     }
 
     private func materializedSubtree() -> [TVM] {

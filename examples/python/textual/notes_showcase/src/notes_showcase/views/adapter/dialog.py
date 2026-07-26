@@ -12,12 +12,12 @@ from __future__ import annotations
 from typing import Any
 
 from textual.app import App
+from vmx.dialogs import FileFilter, NotificationSeverity
 
 from notes_showcase.viewmodels.dialog_service import IDialogService
 from notes_showcase.views.modals.confirm_modal import ConfirmModal
 from notes_showcase.views.modals.notify_modal import NotifyModal
 from notes_showcase.views.modals.save_file_modal import SaveFileModal
-from vmx.dialogs import FileFilter, NotificationSeverity
 
 
 class TextualDialogService(IDialogService):
@@ -60,6 +60,4 @@ class TextualDialogService(IDialogService):
         title: str | None = None,
         severity: NotificationSeverity = NotificationSeverity.INFO,
     ) -> None:
-        await self._app.push_screen_wait(
-            NotifyModal(message, title=title, severity=severity)
-        )
+        await self._app.push_screen_wait(NotifyModal(message, title=title, severity=severity))

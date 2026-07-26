@@ -25,3 +25,12 @@ public issue tracker and Security-tab issue flow are not confidential channels.
 
 You will receive an acknowledgement within 72 hours. Coordinated disclosure
 timelines are negotiated case by case.
+
+## 3. Secret Scanning and Allowlist Review
+
+Pull requests and protected-branch pushes run Gitleaks, and the weekly security
+workflow scans repository history. VMx currently has no secret-scanner
+allowlist entries. If a verified false positive requires one, add its exact
+fingerprint to `.gitleaksignore` with a review comment explaining why the value
+is non-secret; broad path, rule, or regular-expression exclusions are not
+accepted.

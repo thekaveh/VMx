@@ -4,6 +4,7 @@ import argparse
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -21,11 +22,14 @@ def _env_with_identity() -> dict[str, str]:
         env["GIT_SSH_COMMAND"] = (
             f"ssh -i {key_path} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
         )
+    elif env.get("WIKI_TOKEN"):
+        env["GIT_TERMINAL_PROMPT"] = "0"
+        env["GIT_ASKPASS"] = str(Path(__file__).with_name("wiki_askpass.py"))
     return env
 
 
 def _run(cmd: list[str], cwd: Path, env: dict[str, str] | None = None) -> None:
-    subprocess.run(cmd, cwd=cwd, env=env, check=True)
+    subprocess.run(cmd, cwd=cwd, env=env, check=True, timeout=300)
 
 
 def sync_wiki(src: Path, repo_dir: Path) -> None:
@@ -62,13 +66,19 @@ def push_wiki(
         work = Path(tmp) / "wiki"
         if push or check_published:
             clone_remote = remote if push else _read_only_remote(remote)
-            _run(["git", "clone", "--depth", "1", clone_remote, str(work)], Path(tmp), env)
+            _run(
+                ["git", "clone", "--depth", "1", clone_remote, str(work)],
+                Path(tmp),
+                env,
+            )
         else:
             work.mkdir()
             _run(["git", "init", "-b", "master"], work, env)
         sync_wiki(src, work)
         _run(["git", "add", "-A"], work, env)
-        diff = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=work, env=env)
+        diff = subprocess.run(
+            ["git", "diff", "--cached", "--quiet"], cwd=work, env=env, timeout=300
+        )
         if diff.returncode == 0:
             print("wiki already up to date")
             return True
@@ -95,12 +105,16 @@ def main() -> int:
     mode.add_argument("--check-published", action="store_true")
     args = parser.parse_args()
     remote = os.environ.get("WIKI_REMOTE", DEFAULT_REMOTE)
-    current = push_wiki(
-        Path(args.src),
-        remote,
-        push=args.push,
-        check_published=args.check_published,
-    )
+    try:
+        current = push_wiki(
+            Path(args.src),
+            remote,
+            push=args.push,
+            check_published=args.check_published,
+        )
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+        print(f"ERROR: unable to synchronize wiki: {error}", file=sys.stderr)
+        return 2
     return 0 if current else 1
 
 

@@ -40,7 +40,8 @@ def test_local_package_generation_uses_lockfile(
 ) -> None:
     captured: list[str] = []
 
-    def fake_run(args: list[str], *, cwd: Path) -> None:
+    def fake_run(args: list[str], *, cwd: Path, timeout: float = 300) -> None:
+        assert timeout == 300
         captured.extend(args)
         tarball = cwd / "target/package/vmx-rs-0.20.0.crate"
         tarball.parent.mkdir(parents=True)
@@ -67,13 +68,34 @@ def test_wait_for_public_requires_registry_and_docs() -> None:
         "0.20.0",
         10,
         interval_seconds=1,
-        crate_lookup=lambda _version: next(crate_results),
-        docs_lookup=lambda _version: next(docs_results),
+        crate_lookup=lambda _version, _timeout: next(crate_results),
+        docs_lookup=lambda _version, _timeout: next(docs_results),
         sleeper=sleeps.append,
-        clock=iter([0.0, 0.5, 1.0, 1.5]).__next__,
+        clock=iter([index / 10 for index in range(20)]).__next__,
     )
 
     assert sleeps == [1, 1]
+
+
+def test_wait_for_public_caps_requests_and_sleep_to_end_to_end_deadline() -> None:
+    crate_timeouts: list[float] = []
+    docs_timeouts: list[float] = []
+    sleeps: list[float] = []
+
+    with pytest.raises(TimeoutError, match="timed out waiting"):
+        smoke.wait_for_public(
+            "0.20.0",
+            1,
+            interval_seconds=5,
+            crate_lookup=lambda _version, timeout: crate_timeouts.append(timeout) or False,
+            docs_lookup=lambda _version, timeout: docs_timeouts.append(timeout) or False,
+            sleeper=sleeps.append,
+            clock=iter([0.0, 0.2, 0.4, 0.8, 1.0]).__next__,
+        )
+
+    assert crate_timeouts == pytest.approx([0.8])
+    assert docs_timeouts == pytest.approx([0.6])
+    assert sleeps == pytest.approx([0.2])
 
 
 def test_find_extracted_crate_requires_exact_directory(tmp_path: Path) -> None:
@@ -87,8 +109,24 @@ def test_extracted_crate_runs_its_shipped_tests(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     calls: list[tuple[list[str], Path]] = []
-    monkeypatch.setattr(smoke, "_run", lambda args, *, cwd: calls.append((args, cwd)))
+    monkeypatch.setattr(
+        smoke,
+        "_run",
+        lambda args, *, cwd, timeout=300: calls.append((args, cwd)),
+    )
 
     smoke.test_extracted_crate(tmp_path, "cargo-msrv")
 
     assert calls == [(["cargo-msrv", "test", "--locked", "--all-features"], tmp_path)]
+
+
+def test_main_handles_command_timeout_without_traceback(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    def fail(*_args: object, **_kwargs: object) -> None:
+        raise smoke.subprocess.TimeoutExpired(["cargo"], 1)
+
+    monkeypatch.setattr(smoke, "run_smoke", fail)
+
+    assert smoke.main(["--version", "0.20.0"]) == 1
+    assert "ERROR: Rust consumer smoke failed:" in capsys.readouterr().err

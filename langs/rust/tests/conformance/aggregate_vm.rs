@@ -1,11 +1,12 @@
 use std::sync::{
-    atomic::{AtomicUsize, Ordering},
-    Arc,
+    atomic::{AtomicBool, AtomicUsize, Ordering},
+    mpsc, Arc, Mutex,
 };
+use std::time::Duration;
 
 use vmx::{
     Command, ConstructionStatus, ForwardingComponentVm, Message, MessageHub, NullDispatcher,
-    VmNode, VmxError,
+    ParentHandle, VmNode, VmxError,
 };
 
 type TextVm = vmx::ComponentVm<&'static str>;
@@ -17,6 +18,78 @@ fn text(name: &'static str) -> TextVm {
 
 fn number(name: &'static str, value: i32) -> NumberVm {
     NumberVm::with_model(name, value, MessageHub::new(), NullDispatcher::new())
+}
+
+#[derive(Clone)]
+struct BlockingOwnershipNode {
+    inner: vmx::ComponentVm,
+    block_once: Arc<AtomicBool>,
+    entered: mpsc::Sender<()>,
+    release: Arc<Mutex<mpsc::Receiver<()>>>,
+}
+
+impl PartialEq for BlockingOwnershipNode {
+    fn eq(&self, other: &Self) -> bool {
+        self.id() == other.id()
+    }
+}
+
+impl VmNode for BlockingOwnershipNode {
+    fn id(&self) -> usize {
+        self.inner.id()
+    }
+
+    fn construct(&self) -> vmx::VmxResult<()> {
+        self.inner.construct()
+    }
+
+    fn destruct(&self) -> vmx::VmxResult<()> {
+        self.inner.destruct()
+    }
+
+    fn dispose(&self) -> vmx::VmxResult<()> {
+        self.inner.dispose()
+    }
+
+    fn status(&self) -> ConstructionStatus {
+        self.inner.status()
+    }
+
+    fn set_parent_id(&self, parent_id: Option<usize>) {
+        self.inner.set_parent_id(parent_id);
+    }
+
+    fn parent_id(&self) -> Option<usize> {
+        let parent_id = self.inner.parent_id();
+        if self.block_once.swap(false, Ordering::AcqRel) {
+            self.entered.send(()).unwrap();
+            self.release.lock().unwrap().recv().unwrap();
+        }
+        parent_id
+    }
+
+    fn set_parent_handle(&self, parent: Option<ParentHandle>) {
+        self.inner.set_parent_handle(parent);
+    }
+
+    fn parent_handle(&self) -> Option<ParentHandle> {
+        self.inner.parent_handle()
+    }
+}
+
+fn blocking_ownership_node() -> (BlockingOwnershipNode, mpsc::Receiver<()>, mpsc::Sender<()>) {
+    let (entered_send, entered_receive) = mpsc::channel();
+    let (release_send, release_receive) = mpsc::channel();
+    (
+        BlockingOwnershipNode {
+            inner: vmx::ComponentVm::new("shared"),
+            block_once: Arc::new(AtomicBool::new(true)),
+            entered: entered_send,
+            release: Arc::new(Mutex::new(release_receive)),
+        },
+        entered_receive,
+        release_send,
+    )
 }
 
 #[test]
@@ -317,6 +390,149 @@ fn fixed_aggregate_rejects_owned_and_duplicate_components() {
 }
 
 #[test]
+fn fixed_aggregate_reconstruct_rejects_its_current_slot_without_disposing_it() {
+    let child = text("child");
+    let candidate = child.clone();
+    let aggregate = vmx::AggregateVm1::builder()
+        .name("aggregate")
+        .services(MessageHub::new(), NullDispatcher::new())
+        .component_1(move || candidate.clone())
+        .build()
+        .unwrap();
+    aggregate.construct().unwrap();
+
+    assert_eq!(aggregate.reconstruct(), Err(VmxError::InconsistentParent));
+    assert_eq!(aggregate.component_1(), Some(child.clone()));
+    assert_eq!(child.status(), ConstructionStatus::Destructed);
+    assert_eq!(child.parent_id(), Some(aggregate.id()));
+}
+
+#[test]
+fn concurrent_fixed_aggregates_cannot_both_claim_one_child() {
+    let (child, entered, release) = blocking_ownership_node();
+    let (first_send, first_receive) = mpsc::channel();
+    let first_child = child.clone();
+    let first = std::thread::spawn(move || {
+        first_send
+            .send(vmx::AggregateVm1::try_new("first", first_child))
+            .unwrap();
+    });
+    entered.recv_timeout(Duration::from_secs(1)).unwrap();
+
+    let (second_send, second_receive) = mpsc::channel();
+    let second_child = child.clone();
+    let second = std::thread::spawn(move || {
+        second_send
+            .send(vmx::AggregateVm1::try_new("second", second_child))
+            .unwrap();
+    });
+    let second_result = second_receive.recv_timeout(Duration::from_secs(1)).unwrap();
+    release.send(()).unwrap();
+    let first_result = first_receive.recv_timeout(Duration::from_secs(1)).unwrap();
+    first.join().unwrap();
+    second.join().unwrap();
+
+    let successes = usize::from(first_result.is_ok()) + usize::from(second_result.is_ok());
+    assert_eq!(successes, 1);
+    assert!(matches!(
+        first_result.as_ref().err().or(second_result.as_ref().err()),
+        Some(VmxError::OwnershipTransactionInProgress | VmxError::InconsistentParent)
+    ));
+}
+
+fn assert_disposal_failure_keeps_reconstructed_slots_consistent(failing_slot: usize) {
+    let first = text("first");
+    let second = text("second");
+    if failing_slot == 1 {
+        first.on_dispose(|| Err(VmxError::Other("first disposal failed".to_string())));
+    } else {
+        second.on_dispose(|| Err(VmxError::Other("second disposal failed".to_string())));
+    }
+    let replacement1 = text("replacement-1");
+    let replacement2 = text("replacement-2");
+    let calls1 = Arc::new(AtomicUsize::new(0));
+    let calls2 = Arc::new(AtomicUsize::new(0));
+    let observed1 = Arc::clone(&calls1);
+    let observed2 = Arc::clone(&calls2);
+    let original1 = first.clone();
+    let original2 = second.clone();
+    let next1 = replacement1.clone();
+    let next2 = replacement2.clone();
+    let hub = MessageHub::new();
+    let aggregate = vmx::AggregateVm2::builder()
+        .name("aggregate")
+        .services(hub.clone(), NullDispatcher::new())
+        .component_1(move || {
+            if observed1.fetch_add(1, Ordering::SeqCst) == 0 {
+                original1.clone()
+            } else {
+                next1.clone()
+            }
+        })
+        .component_2(move || {
+            if observed2.fetch_add(1, Ordering::SeqCst) == 0 {
+                original2.clone()
+            } else {
+                next2.clone()
+            }
+        })
+        .build()
+        .unwrap();
+    aggregate.construct().unwrap();
+    let local_names = Arc::new(Mutex::new(Vec::new()));
+    let observed_names = Arc::clone(&local_names);
+    let _subscription = aggregate.property_changed().subscribe(move |name| {
+        if name.starts_with("component_") {
+            observed_names.lock().unwrap().push(name.to_string());
+        }
+    });
+    let initial_hub_count = hub
+        .history()
+        .iter()
+        .filter(|message| matches!(message, Message::PropertyChanged(change) if change.property_name.starts_with("component_")))
+        .count();
+
+    assert!(matches!(aggregate.reconstruct(), Err(VmxError::Other(_))));
+
+    assert_eq!(
+        *local_names.lock().unwrap(),
+        vec!["component_1".to_string(), "component_2".to_string()]
+    );
+    let final_hub_count = hub
+        .history()
+        .iter()
+        .filter(|message| matches!(message, Message::PropertyChanged(change) if change.property_name.starts_with("component_")))
+        .count();
+    assert_eq!(final_hub_count - initial_hub_count, 2);
+
+    assert_eq!(aggregate.component_1(), Some(replacement1.clone()));
+    assert_eq!(aggregate.component_2(), Some(replacement2.clone()));
+    assert_eq!(first.parent_id(), None);
+    assert_eq!(second.parent_id(), None);
+    assert_eq!(replacement1.parent_id(), Some(aggregate.id()));
+    assert_eq!(replacement2.parent_id(), Some(aggregate.id()));
+    let destination = vmx::CompositeVm::new("destination");
+    assert_eq!(
+        destination.add(replacement1),
+        Err(VmxError::InconsistentParent)
+    );
+    assert_eq!(
+        destination.add(replacement2),
+        Err(VmxError::InconsistentParent)
+    );
+}
+
+#[test]
+fn first_slot_disposal_failure_keeps_reconstructed_slots_consistent() {
+    assert_disposal_failure_keeps_reconstructed_slots_consistent(1);
+}
+
+#[test]
+fn later_slot_disposal_failure_keeps_reconstructed_slots_consistent() {
+    assert_disposal_failure_keeps_reconstructed_slots_consistent(2);
+}
+
+#[test]
 fn fixed_aggregate_component_cannot_transfer_to_mutable_parent() {
     let child = text("child");
     let aggregate = vmx::AggregateVm1::try_new("aggregate", child.clone()).unwrap();
@@ -442,6 +658,263 @@ fn reconstruct_reinvokes_factories_and_disposes_replaced_slots() {
     assert_eq!(calls.load(Ordering::SeqCst), 2);
 }
 
+#[test]
+fn aggregate_vm1_reconstruct_aborts_when_previous_disposal_disposes_parent() {
+    let old = vmx::ComponentVm::new("old");
+    let candidate = vmx::ComponentVm::new("candidate");
+    let aggregate_holder = Arc::new(Mutex::new(None));
+    let disposal_target = Arc::clone(&aggregate_holder);
+    old.on_dispose(move || {
+        let aggregate: vmx::AggregateVm1<vmx::ComponentVm> = disposal_target
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("aggregate installed before construction");
+        aggregate.dispose()
+    });
+    let calls = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::clone(&calls);
+    let first = old.clone();
+    let next = candidate.clone();
+    let aggregate = vmx::AggregateVm1::builder()
+        .name("aggregate")
+        .services(MessageHub::new(), NullDispatcher::new())
+        .component_1(move || {
+            if observed.fetch_add(1, Ordering::SeqCst) == 0 {
+                first.clone()
+            } else {
+                next.clone()
+            }
+        })
+        .build()
+        .unwrap();
+    *aggregate_holder.lock().unwrap() = Some(aggregate.clone());
+    aggregate.construct().unwrap();
+
+    aggregate.reconstruct().unwrap();
+
+    assert_eq!(aggregate.status(), ConstructionStatus::Disposed);
+    assert_eq!(aggregate.component_1().unwrap().id(), old.id());
+    assert_eq!(candidate.status(), ConstructionStatus::Disposed);
+}
+
+#[test]
+fn aggregate_vm2_reconstruct_aborts_all_candidates_when_previous_disposal_disposes_parent() {
+    let old1 = vmx::ComponentVm::new("old-1");
+    let old2 = vmx::ComponentVm::new("old-2");
+    let candidate1 = vmx::ComponentVm::new("candidate-1");
+    let candidate2 = vmx::ComponentVm::new("candidate-2");
+    let aggregate_holder = Arc::new(Mutex::new(None));
+    let disposal_target = Arc::clone(&aggregate_holder);
+    old1.on_dispose(move || {
+        let aggregate: vmx::AggregateVm2<vmx::ComponentVm, vmx::ComponentVm> = disposal_target
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("aggregate installed before construction");
+        aggregate.dispose()
+    });
+    let calls1 = Arc::new(AtomicUsize::new(0));
+    let calls2 = Arc::new(AtomicUsize::new(0));
+    let observed1 = Arc::clone(&calls1);
+    let observed2 = Arc::clone(&calls2);
+    let first1 = old1.clone();
+    let first2 = old2.clone();
+    let next1 = candidate1.clone();
+    let next2 = candidate2.clone();
+    let aggregate = vmx::AggregateVm2::builder()
+        .name("aggregate")
+        .services(MessageHub::new(), NullDispatcher::new())
+        .component_1(move || {
+            if observed1.fetch_add(1, Ordering::SeqCst) == 0 {
+                first1.clone()
+            } else {
+                next1.clone()
+            }
+        })
+        .component_2(move || {
+            if observed2.fetch_add(1, Ordering::SeqCst) == 0 {
+                first2.clone()
+            } else {
+                next2.clone()
+            }
+        })
+        .build()
+        .unwrap();
+    *aggregate_holder.lock().unwrap() = Some(aggregate.clone());
+    aggregate.construct().unwrap();
+
+    aggregate.reconstruct().unwrap();
+
+    assert_eq!(aggregate.status(), ConstructionStatus::Disposed);
+    assert_eq!(aggregate.component_1().unwrap().id(), old1.id());
+    assert_eq!(aggregate.component_2().unwrap().id(), old2.id());
+    assert_eq!(candidate1.status(), ConstructionStatus::Disposed);
+    assert_eq!(candidate2.status(), ConstructionStatus::Disposed);
+}
+
+#[test]
+fn aggregate_reconstruct_serializes_concurrent_parent_disposal() {
+    let old = vmx::ComponentVm::new("old");
+    let candidate = vmx::ComponentVm::new("candidate");
+    let (entered_send, entered_receive) = mpsc::channel();
+    let (release_send, release_receive) = mpsc::channel();
+    let release_receive = Arc::new(Mutex::new(release_receive));
+    old.on_dispose({
+        let release_receive = Arc::clone(&release_receive);
+        move || {
+            entered_send.send(()).unwrap();
+            release_receive.lock().unwrap().recv().unwrap();
+            Ok(())
+        }
+    });
+    let calls = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::clone(&calls);
+    let first = old.clone();
+    let next = candidate.clone();
+    let aggregate = vmx::AggregateVm1::builder()
+        .name("aggregate")
+        .services(MessageHub::new(), NullDispatcher::new())
+        .component_1(move || {
+            if observed.fetch_add(1, Ordering::SeqCst) == 0 {
+                first.clone()
+            } else {
+                next.clone()
+            }
+        })
+        .build()
+        .unwrap();
+    aggregate.construct().unwrap();
+
+    let reconstructing = {
+        let aggregate = aggregate.clone();
+        std::thread::spawn(move || aggregate.reconstruct())
+    };
+    entered_receive
+        .recv_timeout(Duration::from_secs(2))
+        .unwrap();
+    let (disposed_send, disposed_receive) = mpsc::channel();
+    let disposing = {
+        let aggregate = aggregate.clone();
+        std::thread::spawn(move || disposed_send.send(aggregate.dispose()).unwrap())
+    };
+    let early_disposal = disposed_receive.recv_timeout(Duration::from_millis(50));
+    assert!(
+        early_disposal.is_err(),
+        "early disposal: {early_disposal:?}"
+    );
+    release_send.send(()).unwrap();
+
+    reconstructing.join().unwrap().unwrap();
+    disposed_receive
+        .recv_timeout(Duration::from_secs(2))
+        .unwrap()
+        .unwrap();
+    disposing.join().unwrap();
+    assert_eq!(aggregate.status(), ConstructionStatus::Disposed);
+    assert_eq!(candidate.status(), ConstructionStatus::Disposed);
+}
+
+#[test]
+fn aggregate_reconstruct_serializes_disposal_before_replacement_factory_runs() {
+    let old = vmx::ComponentVm::new("old");
+    let candidate = vmx::ComponentVm::new("candidate");
+    let (entered_send, entered_receive) = mpsc::channel();
+    let (release_send, release_receive) = mpsc::channel();
+    let release_receive = Arc::new(Mutex::new(release_receive));
+    let calls = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::clone(&calls);
+    let first = old.clone();
+    let next = candidate.clone();
+    let aggregate = vmx::AggregateVm1::builder()
+        .name("aggregate")
+        .services(MessageHub::new(), NullDispatcher::new())
+        .component_1(move || {
+            if observed.fetch_add(1, Ordering::SeqCst) == 0 {
+                first.clone()
+            } else {
+                entered_send.send(()).unwrap();
+                release_receive.lock().unwrap().recv().unwrap();
+                next.clone()
+            }
+        })
+        .build()
+        .unwrap();
+    aggregate.construct().unwrap();
+
+    let reconstructing = {
+        let aggregate = aggregate.clone();
+        std::thread::spawn(move || aggregate.reconstruct())
+    };
+    entered_receive
+        .recv_timeout(Duration::from_secs(2))
+        .unwrap();
+    let (disposed_send, disposed_receive) = mpsc::channel();
+    let disposing = {
+        let aggregate = aggregate.clone();
+        std::thread::spawn(move || disposed_send.send(aggregate.dispose()).unwrap())
+    };
+    assert!(
+        disposed_receive
+            .recv_timeout(Duration::from_millis(50))
+            .is_err(),
+        "parent disposal must wait for replacement production and commit"
+    );
+    release_send.send(()).unwrap();
+
+    reconstructing.join().unwrap().unwrap();
+    disposed_receive
+        .recv_timeout(Duration::from_secs(2))
+        .unwrap()
+        .unwrap();
+    disposing.join().unwrap();
+    assert_eq!(aggregate.status(), ConstructionStatus::Disposed);
+    assert_eq!(candidate.status(), ConstructionStatus::Disposed);
+    assert_eq!(candidate.parent_id(), None);
+}
+
+#[test]
+fn deferred_parent_disposal_failure_is_returned_from_reconstruct() {
+    let old = vmx::ComponentVm::new("old");
+    let candidate = vmx::ComponentVm::new("candidate");
+    let aggregate_holder = Arc::new(Mutex::new(None));
+    let disposal_target = Arc::clone(&aggregate_holder);
+    old.on_dispose(move || {
+        let aggregate: vmx::AggregateVm1<vmx::ComponentVm> = disposal_target
+            .lock()
+            .unwrap()
+            .clone()
+            .expect("aggregate installed before construction");
+        aggregate.dispose()
+    });
+    let calls = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::clone(&calls);
+    let first = old.clone();
+    let next = candidate.clone();
+    let aggregate = vmx::AggregateVm1::builder()
+        .name("aggregate")
+        .services(MessageHub::new(), NullDispatcher::new())
+        .component_1(move || {
+            if observed.fetch_add(1, Ordering::SeqCst) == 0 {
+                first.clone()
+            } else {
+                next.clone()
+            }
+        })
+        .build()
+        .unwrap();
+    aggregate.on_dispose(|| Err(VmxError::Other("terminal failure".to_string())));
+    *aggregate_holder.lock().unwrap() = Some(aggregate.clone());
+    aggregate.construct().unwrap();
+
+    let result = aggregate.reconstruct();
+
+    assert_eq!(result, Err(VmxError::Other("terminal failure".to_string())));
+    assert_eq!(aggregate.status(), ConstructionStatus::Disposed);
+    assert_eq!(candidate.status(), ConstructionStatus::Disposed);
+}
+
+/// AGG-007 — Fixed-slot reconstruction preserves ownership or commits all candidates.
 #[test]
 fn failed_reconstruction_preserves_all_previous_slots_and_parent_links() {
     let first = text("first");

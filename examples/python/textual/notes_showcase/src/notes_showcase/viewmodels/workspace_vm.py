@@ -19,10 +19,8 @@ import uuid
 from datetime import datetime, timezone
 
 from reactivex import operators as ops
-from reactivex.scheduler import TimeoutScheduler
-
 from reactivex.abc import DisposableBase
-
+from reactivex.scheduler import TimeoutScheduler
 from vmx import (
     AggregateVM6,
     AsyncRelayCommand,
@@ -181,9 +179,7 @@ class WorkspaceVM:
         # held directly and lifecycle-driven alongside the aggregate. It shares
         # the workspace hub + dispatcher so its ThemeChangedMessage rides the
         # same bus, and ``views.app`` binds the Textual ``theme_adapter`` to it.
-        self._theme: ThemeVM = (
-            ThemeVM.builder().name("theme").services(hub, dispatcher).build()
-        )
+        self._theme: ThemeVM = ThemeVM.builder().name("theme").services(hub, dispatcher).build()
         self._global_search: GlobalSearchVM = global_search
 
         # current-selection rebinding: rebind note_form whenever notes_view.current
@@ -260,9 +256,7 @@ class WorkspaceVM:
         )
         self._new_note_command = (
             AsyncRelayCommand.builder()
-            .predicate(
-                lambda: self.is_constructed and self.notebooks_root.current is not None
-            )
+            .predicate(lambda: self.is_constructed and self.notebooks_root.current is not None)
             .task(self._add_new_note_to_current)
             .build()
         )
@@ -421,10 +415,7 @@ class WorkspaceVM:
         async def _bind() -> None:
             if self._requested_notebook_id != notebook_id:
                 return  # superseded by a newer selection before we ran
-            if (
-                self.notes_view.bound_notebook_id == notebook_id
-                and self._inflight_binds == 0
-            ):
+            if self.notes_view.bound_notebook_id == notebook_id and self._inflight_binds == 0:
                 # Already bound and nothing racing: construct_async awaits
                 # the initial bind explicitly, so the task its own
                 # current-assignment queues must not reload. The in-flight

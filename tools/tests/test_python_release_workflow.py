@@ -55,10 +55,22 @@ def test_python_ci_and_release_test_the_extracted_sdist() -> None:
         )
 
 
+def test_python_ci_and_release_verify_exact_archives_and_ci_smokes_wheel() -> None:
+    ci = _workflow("python.yml")
+    release = _workflow("release.yml")
+    checker = "python tools/check-python-package.py --dist dist"
+
+    assert checker in ci
+    assert checker in release
+    assert "uv pip install --python .package-venv/bin/python dist/*.whl" in ci
+    assert '.package-venv/bin/python langs/python/scripts/smoke_test.py "$version"' in ci
+
+
 def test_conformance_job_uses_the_tracked_python_lockfile() -> None:
     workflow = _workflow("conformance.yml")
 
     assert "uv --project langs/python sync --locked --all-extras" in workflow
+    assert "uv --project langs/python run --locked --extra tools python" in workflow
 
 
 def test_python_ci_and_release_cover_314_and_audit_runtime_dependencies() -> None:
@@ -75,9 +87,14 @@ def test_python_ci_and_release_cover_314_and_audit_runtime_dependencies() -> Non
 def test_release_metadata_is_validated_before_python_publication() -> None:
     workflow = _workflow("release.yml")
     metadata = workflow.index("release-metadata:")
-    checker = workflow.index("python3 tools/check-version-consistency.py", metadata)
+    checker = workflow.index("tools/check-version-consistency.py", metadata)
     publish_job = workflow.index("python-build-and-publish:")
     publish = workflow.index("pypa/gh-action-pypi-publish@", publish_job)
 
     assert "needs: [python-test, release-metadata]" in workflow
+    assert "uv --project langs/python sync --locked --extra tools" in workflow
+    assert "uv --project langs/python run --locked --extra tools python" in workflow
+    assert (
+        'tools/check-version-consistency.py\n          --release-tag "$GITHUB_REF_NAME"' in workflow
+    )
     assert metadata < checker < publish

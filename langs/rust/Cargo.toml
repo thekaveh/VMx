@@ -1,6 +1,6 @@
 [package]
 name = "vmx-rs"
-version = "0.25.0"
+version = "0.26.0"
 edition = "2021"
 rust-version = "1.88"
 description = "Hierarchical, lifecycle-aware MVVM viewmodel framework."
@@ -20,8 +20,8 @@ name = "vmx"
 path = "src/lib.rs"
 
 [dependencies]
-serde = { version = "1.0.228", features = ["derive"] }
-thiserror = "2.0.18"
+serde = { version = "1.0.229", features = ["derive"] }
+thiserror = "2.0.19"
 
 [dev-dependencies]
 pretty_assertions = "1.4.1"

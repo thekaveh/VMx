@@ -22,7 +22,7 @@ PACKAGE_IDS = {
     "VMx.Notifications",
     "VMx.Extensions.DependencyInjection",
 }
-CORE_VERSION = "3.22.0"
+CORE_VERSION = "3.22.1"
 NUGET_SOURCE = "https://api.nuget.org/v3/index.json"
 _SEMVER = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
 
@@ -141,9 +141,11 @@ def flat_container_url(package_id: str) -> str:
     return f"https://api.nuget.org/v3-flatcontainer/{package_id.lower()}/index.json"
 
 
-def _registry_has(package_id: str, version: str) -> bool:
+def _registry_has(package_id: str, version: str, timeout_seconds: float) -> bool:
     try:
-        with urllib.request.urlopen(flat_container_url(package_id), timeout=20) as response:
+        with urllib.request.urlopen(
+            flat_container_url(package_id), timeout=timeout_seconds
+        ) as response:
             payload = json.load(response)
     except (OSError, urllib.error.URLError, json.JSONDecodeError):
         return False
@@ -155,18 +157,36 @@ def wait_for_packages(
     timeout_seconds: float,
     *,
     interval_seconds: float = 15,
-    lookup: Callable[[str, str], bool] = _registry_has,
+    lookup: Callable[[str, str, float], bool] = _registry_has,
     sleeper: Callable[[float], None] = time.sleep,
+    clock: Callable[[], float] = time.monotonic,
 ) -> None:
     """Poll until every exact package version is visible."""
-    deadline = time.monotonic() + timeout_seconds
+    deadline = clock() + timeout_seconds
     while True:
-        if all(lookup(package_id, version) for package_id, version in packages.items()):
+        ready = True
+        for package_id, version in packages.items():
+            remaining = deadline - clock()
+            if remaining <= 0:
+                ready = False
+                break
+            if not lookup(package_id, version, remaining):
+                ready = False
+                break
+        if ready:
             return
-        if time.monotonic() >= deadline:
+        remaining = deadline - clock()
+        if remaining <= 0:
             values = ", ".join(f"{key}@{value}" for key, value in packages.items())
             raise TimeoutError(f"timed out waiting for {values} on NuGet")
-        sleeper(interval_seconds)
+        sleeper(min(interval_seconds, remaining))
+
+
+def _remaining(deadline: float, maximum: float) -> float:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError("NuGet consumer verification exceeded its end-to-end timeout")
+    return min(maximum, remaining)
 
 
 def run_smoke(
@@ -175,10 +195,12 @@ def run_smoke(
     *,
     package_dir: Path | None = None,
     poll_timeout: float = 900,
+    timeout_seconds: float = 1200,
 ) -> None:
     """Restore, compile, and where possible run a disposable consumer."""
+    deadline = time.monotonic() + timeout_seconds
     if package_dir is None:
-        wait_for_packages(packages, poll_timeout)
+        wait_for_packages(packages, _remaining(deadline, poll_timeout))
     workdir = Path(tempfile.mkdtemp(prefix="vmx-nuget-smoke-"))
     try:
         (workdir / "Smoke.csproj").write_text(render_project(packages, framework), encoding="utf-8")
@@ -186,17 +208,35 @@ def run_smoke(
         restore = ["dotnet", "restore", "Smoke.csproj", "--source", NUGET_SOURCE]
         if package_dir is not None:
             restore.extend(["--source", str(package_dir.resolve())])
-        subprocess.run(restore, cwd=workdir, check=True)
+        subprocess.run(restore, cwd=workdir, check=True, timeout=_remaining(deadline, 300))
         subprocess.run(
-            ["dotnet", "build", "Smoke.csproj", "-c", "Release", "--no-restore", "--nologo"],
+            [
+                "dotnet",
+                "build",
+                "Smoke.csproj",
+                "-c",
+                "Release",
+                "--no-restore",
+                "--nologo",
+            ],
             cwd=workdir,
             check=True,
+            timeout=_remaining(deadline, 300),
         )
         if framework == "net8.0":
             subprocess.run(
-                ["dotnet", "run", "--project", "Smoke.csproj", "-c", "Release", "--no-build"],
+                [
+                    "dotnet",
+                    "run",
+                    "--project",
+                    "Smoke.csproj",
+                    "-c",
+                    "Release",
+                    "--no-build",
+                ],
                 cwd=workdir,
                 check=True,
+                timeout=_remaining(deadline, 120),
             )
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
@@ -209,6 +249,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--framework", choices=("net8.0", "netstandard2.0"), required=True)
     parser.add_argument("--package-dir", type=Path)
     parser.add_argument("--poll-timeout", type=float, default=900)
+    parser.add_argument("--timeout", type=float, default=1200, dest="timeout_seconds")
     args = parser.parse_args(argv)
     try:
         if bool(args.package) == bool(args.project_root):
@@ -221,8 +262,15 @@ def main(argv: list[str] | None = None) -> int:
             args.framework,
             package_dir=args.package_dir,
             poll_timeout=args.poll_timeout,
+            timeout_seconds=args.timeout_seconds,
         )
-    except (OSError, ValueError, TimeoutError, subprocess.CalledProcessError) as error:
+    except (
+        OSError,
+        ValueError,
+        TimeoutError,
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+    ) as error:
         print(f"ERROR: NuGet consumer smoke failed: {error}", file=sys.stderr)
         return 1
     print(f"OK: NuGet {args.framework} consumer verified {len(packages)} exact package(s)")

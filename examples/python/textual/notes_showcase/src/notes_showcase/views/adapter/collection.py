@@ -35,7 +35,6 @@ from typing import Any
 
 from reactivex.abc import DisposableBase
 from reactivex.disposable import CompositeDisposable
-
 from vmx.collections.collection_changed import CollectionChangedEvent
 from vmx.messages.property_changed import PropertyChangedMessage
 from vmx.messages.tree_structure_changed import TreeStructureChangedMessage
@@ -102,9 +101,7 @@ def bind_collection(
             return
         list_view.index = _index_of_current(vm_collection)
 
-    subscriptions.add(
-        resolve_hub(vm_collection).messages.subscribe(on_next=_on_message)
-    )
+    subscriptions.add(resolve_hub(vm_collection).messages.subscribe(on_next=_on_message))
 
     # Seed list_view.index from the VM (None → -1 / first row blank).
     list_view.index = _index_of_current(vm_collection)
@@ -190,11 +187,7 @@ def bind_observable_list(
             on_next=lambda evt: list_view.append(factory(evt[0]))
         )
     )
-    subs.add(
-        observable_list.on_item_removed.subscribe(
-            on_next=lambda evt: list_view.pop(evt[1])
-        )
-    )
+    subs.add(observable_list.on_item_removed.subscribe(on_next=lambda evt: list_view.pop(evt[1])))
 
     def _rebuild_full(_: object = None) -> None:
         list_view.clear()

@@ -8,6 +8,44 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Async-command predicate evaluation now reserves admission, preventing a
+  reentrant execution from completing before the outer execution is admitted.
+- Relay-command predicate disposal now invalidates both ordinary and
+  parameterized execution admission without retaining the disposal lock across
+  user code.
+- The awaitable confirmation-decorator entry point now applies the inner
+  eligibility gate before invoking the confirmation delegate.
+- A taskless async command is now a true no-op and does not emit transient
+  execution-state notifications.
+
+## [0.26.0] — 2026-07-23
+
+### Added
+
+- Added the fallible `try_children()` accessor for reporting invalid lazy
+  factory output without panicking.
+
+### Fixed
+
+- Hierarchy child factories now validate and commit their complete snapshot
+  under the topology gate. `try_children()` reports duplicate, cyclic, or
+  already-parented output without mutation and permits retry (HIER-031,
+  ADR-0127).
+- Factory hydration now clears prewarmed path caches for every attached
+  descendant and rejects same-receiver structural re-entry atomically
+  (HIER-031/032, ADR-0127).
+
+- Direct reconstruction now rejects destructed, transient, and disposed VMs as
+  required by the lifecycle fixture. The command, message-hub, and lifecycle
+  fixture conformance tests now execute and assert every fixture scenario
+  instead of merely loading those files beside marker-only examples.
+- Fixed aggregates now share the same atomic per-child ownership claim as
+  mutable groups and composites, preventing concurrent constructors or lazy
+  reconstruction from retaining the same child under two parents. A factory
+  that returns a currently owned slot is rejected before mutation. Lazy
+  reconstruction also completes every validated slot swap, commits the new
+  ownership registry, and publishes each slot change before returning the first
+  prior-child disposal failure.
 - Forwarding components now delegate the complete component surface, support
   real nested decorator layers and idiomatic hint overrides, and retain one
   canonical transferable container identity (FWD-001/002/004, ADR-0124).

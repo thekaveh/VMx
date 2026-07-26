@@ -8,7 +8,7 @@ on:
       - "docs/content/**"
       - "docs/maintenance/**"
       - "docs/manifest.yaml"
-      - "spec/VERSION"
+      - "spec/**"
       - "scripts/docs/**"
       - "tools/docs/validate_diagrams.py"
       - "Makefile"
@@ -29,10 +29,11 @@ permissions:
 
 jobs:
   publish:
+    timeout-minutes: 30
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
       - name: Install docs dependencies
@@ -44,6 +45,8 @@ jobs:
           python -m pip install --require-hashes -r docs/requirements.txt
       - name: Audit docs dependencies
         run: python -m pip_audit --local
+      - name: Run full documentation gate
+        run: make docs-check
       - name: Generate wiki
         run: python -m scripts.docs.build_docs --wiki
       - name: Validate diagrams
@@ -66,11 +69,12 @@ jobs:
           GIT_AUTHOR_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
           GIT_COMMITTER_NAME: github-actions[bot]
           GIT_COMMITTER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+          WIKI_TOKEN: ${{ github.token }}
         run: |
           if [ -s "$WIKI_DEPLOY_KEY" ]; then
             python -m scripts.docs.push_wiki --push
           else
-            WIKI_REMOTE="https://x-access-token:${{ github.token }}@github.com/thekaveh/VMx.wiki.git" \
+            WIKI_REMOTE="https://github.com/thekaveh/VMx.wiki.git" \
               python -m scripts.docs.push_wiki --push
           fi
       - name: Verify published wiki

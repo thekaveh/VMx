@@ -27,19 +27,22 @@ namespace VMx.Commands;
 /// </summary>
 public sealed class AsyncRelayCommand : IAsyncCommand, IDisposable
 {
-    private readonly Func<CancellationToken, Task> _task;
+    private readonly Func<CancellationToken, Task>? _task;
     private readonly Func<bool>? _predicate;
     private readonly bool _throwOnCancel;
     private readonly List<IDisposable> _triggerSubscriptions = [];
     private readonly Subject<Exception> _errors = new();
     private readonly object _gate = new();
     private CancellationTokenSource? _cts;
+    private bool _isAdmitting;
     private bool _isExecuting;
     private bool _disposed;
-    // Set by Cancel()/Dispose() so the catch block swallows only a cancellation we
-    // requested through the command's own channel; an externally-supplied token's
-    // cancellation (flag unset) is re-raised per spec/04 §10.3.
-    private volatile bool _cancelRequested;
+    // First cancellation channel to affect the current execution. Interlocked
+    // ordering prevents a later command cancel from hiding an external one.
+    private int _cancellationOrigin;
+    private const int NoCancellation = 0;
+    private const int CommandCancellation = 1;
+    private const int ExternalCancellation = 2;
 
     internal AsyncRelayCommand(
         Func<CancellationToken, Task>? task,
@@ -47,7 +50,7 @@ public sealed class AsyncRelayCommand : IAsyncCommand, IDisposable
         bool throwOnCancel,
         IReadOnlyList<IObservable<Unit>> triggers)
     {
-        _task = task ?? (_ => Task.CompletedTask);
+        _task = task;
         _predicate = predicate;
         _throwOnCancel = throwOnCancel;
         foreach (var t in triggers)
@@ -85,11 +88,16 @@ public sealed class AsyncRelayCommand : IAsyncCommand, IDisposable
     {
         lock (_gate)
         {
-            if (_disposed || _isExecuting) return false;
+            if (_disposed || _isAdmitting || _isExecuting) return false;
         }
         if (_predicate is null) return true;
-        try { return _predicate(); }
+        bool allowed;
+        try { allowed = _predicate(); }
         catch { return false; }
+        lock (_gate)
+        {
+            return allowed && !_disposed && !_isAdmitting && !_isExecuting;
+        }
     }
 
     /// <summary>
@@ -132,33 +140,45 @@ public sealed class AsyncRelayCommand : IAsyncCommand, IDisposable
     /// <inheritdoc/>
     public async Task ExecuteAsync(object? parameter = null, CancellationToken cancellationToken = default)
     {
-        var cts = TryBeginExecution(cancellationToken);
+        if (_task is null) return;
+        var cts = TryBeginExecution(cancellationToken, out var externalRegistration);
         if (cts is null) return;
 
-        RaiseCanExecuteChanged();
+        ExceptionDispatchInfo? firstError = null;
         try
         {
-            await _task(cts.Token).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException) when (!_throwOnCancel && _cancelRequested)
-        {
-            // Non-throwing cancellation (DIA-007 alignment): the cancel was requested
-            // through this command's own channel (Cancel()/Dispose()), so complete
-            // normally. An externally-supplied token's cancellation leaves
-            // _cancelRequested false and is re-raised (spec/04 §10.3, parity with
-            // Python/Swift).
-        }
-        finally
-        {
-            lock (_gate)
-            {
-                if (ReferenceEquals(_cts, cts))
-                    _cts = null;
-                _isExecuting = false;
-            }
-            cts.Dispose();
             RaiseCanExecuteChanged();
+            try
+            {
+                await _task(cts.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (
+                !_throwOnCancel
+                && Volatile.Read(ref _cancellationOrigin) == CommandCancellation)
+            {
+                // Non-throwing cancellation (DIA-007 alignment): the cancel was requested
+                // through this command's own channel (Cancel()/Dispose()), so complete
+                // normally. An externally-supplied token remains the first recorded
+                // origin even if Cancel() follows, and is re-raised (spec/04 §10.3,
+                // parity with Python/Swift).
+            }
         }
+        catch (Exception error)
+        {
+            firstError = ExceptionDispatchInfo.Capture(error);
+        }
+
+        CaptureFailure(ref firstError, externalRegistration.Dispose);
+        CaptureFailure(ref firstError, cts.Dispose);
+        lock (_gate)
+        {
+            if (ReferenceEquals(_cts, cts))
+                _cts = null;
+            _isExecuting = false;
+            _cancellationOrigin = NoCancellation;
+        }
+        CaptureFailure(ref firstError, RaiseCanExecuteChanged);
+        firstError?.Throw();
     }
 
     /// <inheritdoc/>
@@ -167,11 +187,16 @@ public sealed class AsyncRelayCommand : IAsyncCommand, IDisposable
         CancellationTokenSource? cts;
         lock (_gate)
         {
-            _cancelRequested = true;
             cts = _cts;
         }
         if (cts is not null)
+        {
+            Interlocked.CompareExchange(
+                ref _cancellationOrigin,
+                CommandCancellation,
+                NoCancellation);
             CancelIgnoringDisposed(cts);
+        }
     }
 
     // ExecuteAsync's finally disposes the CTS off-gate right after nulling _cts.
@@ -197,12 +222,17 @@ public sealed class AsyncRelayCommand : IAsyncCommand, IDisposable
         {
             if (_disposed) return;
             _disposed = true;
-            _cancelRequested = true;
             cts = _cts;
         }
         ExceptionDispatchInfo? firstError = null;
         if (cts is not null)
+        {
+            Interlocked.CompareExchange(
+                ref _cancellationOrigin,
+                CommandCancellation,
+                NoCancellation);
             CaptureFailure(ref firstError, () => CancelIgnoringDisposed(cts));
+        }
         foreach (var subscription in _triggerSubscriptions)
             CaptureFailure(ref firstError, subscription.Dispose);
         CaptureFailure(ref firstError, _errors.OnCompleted);
@@ -216,22 +246,36 @@ public sealed class AsyncRelayCommand : IAsyncCommand, IDisposable
         catch (Exception error) { firstError ??= ExceptionDispatchInfo.Capture(error); }
     }
 
-    private CancellationTokenSource? TryBeginExecution(CancellationToken cancellationToken)
+    private CancellationTokenSource? TryBeginExecution(
+        CancellationToken cancellationToken,
+        out CancellationTokenRegistration externalRegistration)
     {
+        externalRegistration = default;
         lock (_gate)
         {
-            if (_disposed || _isExecuting) return null;
-            if (_predicate is not null)
-            {
-                bool allowed;
-                try { allowed = _predicate(); }
-                catch { return null; }
-                if (!allowed) return null;
-            }
+            if (_disposed || _isAdmitting || _isExecuting) return null;
+            _isAdmitting = true;
+        }
 
-            var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        bool allowed;
+        try { allowed = _predicate?.Invoke() ?? true; }
+        catch { allowed = false; }
+
+        lock (_gate)
+        {
+            _isAdmitting = false;
+            if (!allowed || _disposed || _isExecuting) return null;
+            _cancellationOrigin = NoCancellation;
+            var cts = new CancellationTokenSource();
+            externalRegistration = cancellationToken.Register(() =>
+            {
+                Interlocked.CompareExchange(
+                    ref _cancellationOrigin,
+                    ExternalCancellation,
+                    NoCancellation);
+                CancelIgnoringDisposed(cts);
+            });
             _cts = cts;
-            _cancelRequested = false;
             _isExecuting = true;
             return cts;
         }

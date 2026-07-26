@@ -5,6 +5,7 @@
     <AssemblyName>VMx.Notifications</AssemblyName>
     <PackageId>VMx.Notifications</PackageId>
     <Version>1.2.0</Version>
+    <IsUnreleased>true</IsUnreleased>
     <Description>VMx notification / confirmation hub. See spec/16-notifications.md.</Description>
     <PackageTags>mvvm;viewmodel;reactive;notifications</PackageTags>
     <MinSpecVersion>2.6.0</MinSpecVersion>

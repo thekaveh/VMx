@@ -6,7 +6,9 @@
     "svg": "system-architecture.svg",
     "png": "system-architecture.png",
     "referencedBy": [
-      "docs/content/architecture/system-architecture.md"
+      "docs/content/architecture/system-architecture.md",
+      "docs/content/architecture/diagram-gallery.md",
+      "docs/content/architecture/index.md"
     ]
   },
   {
@@ -16,7 +18,8 @@
     "svg": "class-architecture.svg",
     "png": "class-architecture.png",
     "referencedBy": [
-      "docs/content/architecture/class-architecture.md"
+      "docs/content/architecture/class-architecture.md",
+      "docs/content/architecture/diagram-gallery.md"
     ]
   },
   {
@@ -26,7 +29,8 @@
     "svg": "viewmodel-families.svg",
     "png": "viewmodel-families.png",
     "referencedBy": [
-      "docs/content/primitives/viewmodel-families/index.md"
+      "docs/content/primitives/viewmodel-families/index.md",
+      "docs/content/architecture/diagram-gallery.md"
     ]
   },
   {
@@ -36,7 +40,8 @@
     "svg": "lifecycle-messaging.svg",
     "png": "lifecycle-messaging.png",
     "referencedBy": [
-      "docs/content/architecture/lifecycle-messaging.md"
+      "docs/content/architecture/lifecycle-messaging.md",
+      "docs/content/architecture/diagram-gallery.md"
     ]
   },
   {
@@ -46,7 +51,8 @@
     "svg": "component-family.svg",
     "png": "component-family.png",
     "referencedBy": [
-      "docs/content/primitives/viewmodel-families/component-family.md"
+      "docs/content/primitives/viewmodel-families/component-family.md",
+      "docs/content/architecture/diagram-gallery.md"
     ]
   },
   {
@@ -56,7 +62,8 @@
     "svg": "aggregate-family.svg",
     "png": "aggregate-family.png",
     "referencedBy": [
-      "docs/content/primitives/viewmodel-families/aggregate-family.md"
+      "docs/content/primitives/viewmodel-families/aggregate-family.md",
+      "docs/content/architecture/diagram-gallery.md"
     ]
   },
   {
@@ -66,7 +73,8 @@
     "svg": "group-family.svg",
     "png": "group-family.png",
     "referencedBy": [
-      "docs/content/primitives/viewmodel-families/group-family.md"
+      "docs/content/primitives/viewmodel-families/group-family.md",
+      "docs/content/architecture/diagram-gallery.md"
     ]
   },
   {
@@ -76,7 +84,8 @@
     "svg": "composite-family.svg",
     "png": "composite-family.png",
     "referencedBy": [
-      "docs/content/primitives/viewmodel-families/composite-family.md"
+      "docs/content/primitives/viewmodel-families/composite-family.md",
+      "docs/content/architecture/diagram-gallery.md"
     ]
   },
   {
@@ -86,7 +95,8 @@
     "svg": "hierarchical-family.svg",
     "png": "hierarchical-family.png",
     "referencedBy": [
-      "docs/content/primitives/viewmodel-families/hierarchical-family.md"
+      "docs/content/primitives/viewmodel-families/hierarchical-family.md",
+      "docs/content/architecture/diagram-gallery.md"
     ]
   },
   {
@@ -96,7 +106,8 @@
     "svg": "forwarding-wrapper-family.svg",
     "png": "forwarding-wrapper-family.png",
     "referencedBy": [
-      "docs/content/primitives/viewmodel-families/forwarding-wrapper-family.md"
+      "docs/content/primitives/viewmodel-families/forwarding-wrapper-family.md",
+      "docs/content/architecture/diagram-gallery.md"
     ]
   },
   {
@@ -106,7 +117,8 @@
     "svg": "specialized-vm-family.svg",
     "png": "specialized-vm-family.png",
     "referencedBy": [
-      "docs/content/primitives/viewmodel-families/specialized/index.md"
+      "docs/content/primitives/viewmodel-families/specialized/index.md",
+      "docs/content/architecture/diagram-gallery.md"
     ]
   },
   {
@@ -116,7 +128,8 @@
     "svg": "commands-capabilities.svg",
     "png": "commands-capabilities.png",
     "referencedBy": [
-      "docs/content/primitives/command-families.md"
+      "docs/content/primitives/command-families.md",
+      "docs/content/architecture/diagram-gallery.md"
     ]
   },
   {
@@ -126,7 +139,8 @@
     "svg": "forms-dialogs-notifications.svg",
     "png": "forms-dialogs-notifications.png",
     "referencedBy": [
-      "docs/content/primitives/viewmodel-families/specialized/form-vm.md"
+      "docs/content/primitives/viewmodel-families/specialized/form-vm.md",
+      "docs/content/architecture/diagram-gallery.md"
     ]
   },
   {
@@ -136,7 +150,9 @@
     "svg": "examples-vm-layer.svg",
     "png": "examples-vm-layer.png",
     "referencedBy": [
-      "docs/content/examples/notes-workspace-vm-layer.md"
+      "docs/content/examples/notes-workspace-vm-layer.md",
+      "docs/content/examples/notes-workspace.md",
+      "docs/content/architecture/diagram-gallery.md"
     ]
   },
   {
@@ -257,7 +273,8 @@
     "png": "rust-tui-notes-showcase.png",
     "referencedBy": [
       "docs/content/examples/rust-tui-notes-showcase.md",
-      "docs/content/architecture/diagram-gallery.md"
+      "docs/content/architecture/diagram-gallery.md",
+      "docs/content/examples/example-diagram-gallery.md"
     ]
   }
 ]

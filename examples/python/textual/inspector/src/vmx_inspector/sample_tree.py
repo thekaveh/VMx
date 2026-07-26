@@ -47,16 +47,10 @@ def build_sample_tree() -> tuple[CompositeVM[Any], MessageHub[Message], RxDispat
 
     editor = cast(
         "ComponentVMOf[str]",
-        ComponentVMOf.builder()
-        .name("editor")
-        .services(hub, dispatcher)
-        .model("untitled")
-        .build(),
+        ComponentVMOf.builder().name("editor").services(hub, dispatcher).model("untitled").build(),
     )
 
-    terminal: ComponentVM = (
-        ComponentVM.builder().name("terminal").services(hub, dispatcher).build()
-    )
+    terminal: ComponentVM = ComponentVM.builder().name("terminal").services(hub, dispatcher).build()
 
     inspector_vm = cast(
         "ReadonlyComponentVMOf[int]",
@@ -88,11 +82,7 @@ def build_sample_tree() -> tuple[CompositeVM[Any], MessageHub[Message], RxDispat
         .child_model_to_child_view_model(
             lambda m: cast(
                 "ComponentVMOf[str]",
-                ComponentVMOf.builder()
-                .name(m)
-                .services(hub, dispatcher)
-                .model(m)
-                .build(),
+                ComponentVMOf.builder().name(m).services(hub, dispatcher).model(m).build(),
             )
         )
         .build(),
@@ -101,11 +91,7 @@ def build_sample_tree() -> tuple[CompositeVM[Any], MessageHub[Message], RxDispat
     def lab_node(name: str, model: str) -> ComponentVMOf[str]:
         return cast(
             "ComponentVMOf[str]",
-            ComponentVMOf.builder()
-            .name(name)
-            .services(hub, dispatcher)
-            .model(model)
-            .build(),
+            ComponentVMOf.builder().name(name).services(hub, dispatcher).model(model).build(),
         )
 
     state_lab = cast(
@@ -117,9 +103,7 @@ def build_sample_tree() -> tuple[CompositeVM[Any], MessageHub[Message], RxDispat
             lambda: [
                 lab_node("form-vm", "FormVM strict validation"),
                 lab_node("discriminator-vm", "DiscriminatorVM edit/preview active key"),
-                lab_node(
-                    "token-paged-composition", "TokenPagedComposition forward paging"
-                ),
+                lab_node("token-paged-composition", "TokenPagedComposition forward paging"),
             ]
         )
         .build(),

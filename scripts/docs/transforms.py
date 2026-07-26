@@ -5,11 +5,16 @@ import os
 import re
 from pathlib import Path
 
-from scripts.docs.links import MARKDOWN_LINK_RE, is_forbidden
+from scripts.docs.links import (
+    HtmlLinkAttribute,
+    MarkdownLink,
+    find_html_link_attributes,
+    find_markdown_links,
+    is_forbidden,
+)
 from scripts.docs.manifest import Manifest, Section
 
 ASSET_PREFIX_RE = re.compile(r"(?P<prefix>(?:\.\./)+)assets/diagrams/(?P<asset>[^)\s]+)")
-HTML_HREF_RE = re.compile(r'href="(?P<target>[^"]+)"')
 
 
 def wiki_name(section: Section) -> str:
@@ -36,6 +41,13 @@ def _bare_link(label: str, target: str, *, image: bool) -> str:
     if image:
         return label or Path(target).name
     return label or target
+
+
+def _markdown_destination(target: str, *, angled: bool) -> str:
+    if angled or any(character.isspace() or character in "()" for character in target):
+        escaped = target.replace("\\", "\\\\").replace("<", "\\<").replace(">", "\\>")
+        return f"<{escaped}>"
+    return target
 
 
 def _split_url_bits(target: str) -> tuple[str, str]:
@@ -115,10 +127,20 @@ def rewrite_for_surface(
 ) -> str:
     selected_root = (repo_root or Path.cwd()).resolve()
 
-    def replace(match: re.Match[str]) -> str:
-        image = bool(match.group("image"))
-        label = match.group("label")
-        target = html.unescape(match.group("target"))
+    def markdown_form(link: MarkdownLink, target: str) -> str:
+        destination = _markdown_destination(
+            target,
+            angled=link.angled_destination,
+        )
+        return f"{'!' if link.image else ''}[{link.label}]({destination}{link.title_suffix})"
+
+    def wiki_alias_safe(link: MarkdownLink) -> bool:
+        return not any(character in link.label for character in "]|\r\n")
+
+    def rewrite_markdown_link(link: MarkdownLink) -> str:
+        target = html.unescape(link.target)
+        if not target:
+            return markdown_form(link, target)
         if is_forbidden(target, surface):
             mapped = _mapped_target(
                 target,
@@ -129,10 +151,12 @@ def rewrite_for_surface(
                 repo_root=selected_root,
             )
             if not mapped:
-                return _bare_link(label, target, image=image)
+                return _bare_link(link.label, target, image=link.image)
             if surface == "wiki" and mapped.startswith("wiki:"):
-                return f"[[{label}|{mapped[5:]}]]"
-            return f"{'!' if image else ''}[{label}]({mapped})"
+                if link.title_suffix or not wiki_alias_safe(link):
+                    return markdown_form(link, mapped[5:])
+                return f"[[{link.label}|{mapped[5:]}]]"
+            return markdown_form(link, mapped)
 
         mapped = _mapped_target(
             target,
@@ -143,15 +167,20 @@ def rewrite_for_surface(
             repo_root=selected_root,
         )
         if mapped is None:
-            return _bare_link(label, target, image=image)
+            return _bare_link(link.label, target, image=link.image)
         if mapped.startswith("wiki:"):
-            return f"[[{label}|{mapped[5:]}]]"
-        return f"{'!' if image else ''}[{label}]({mapped})"
+            if link.title_suffix or not wiki_alias_safe(link):
+                return markdown_form(link, mapped[5:])
+            return f"[[{link.label}|{mapped[5:]}]]"
+        return markdown_form(link, mapped)
 
-    text = MARKDOWN_LINK_RE.sub(replace, markdown)
+    text = markdown
+    for link in reversed(find_markdown_links(markdown)):
+        replacement = rewrite_markdown_link(link)
+        text = f"{text[: link.start]}{replacement}{text[link.end :]}"
 
-    def replace_html_href(match: re.Match[str]) -> str:
-        target = html.unescape(match.group("target"))
+    def replace_html_link_attribute(attribute: HtmlLinkAttribute) -> str:
+        target = html.unescape(attribute.target)
         mapped = _mapped_target(
             target,
             current_source=current_source,
@@ -161,19 +190,31 @@ def rewrite_for_surface(
             repo_root=selected_root,
         )
         if mapped is None:
-            return match.group(0)
+            return "" if is_forbidden(target, surface) else text[attribute.start : attribute.end]
         if mapped.startswith("wiki:"):
             mapped = mapped[5:]
         else:
             mapped_path, suffix = _split_url_bits(mapped)
-            if mapped_path.endswith("/index.md"):
+            converted_page = False
+            if mapped_path == "index.md" or mapped_path.endswith("/index.md"):
                 mapped_path = mapped_path.removesuffix("index.md")
+                converted_page = True
             elif mapped_path.endswith(".md"):
                 mapped_path = f"{mapped_path.removesuffix('.md')}/"
+                converted_page = True
+            if converted_page and current_output.name != "index.md":
+                # MkDocs serves non-index pages at directory URLs. Raw HTML hrefs
+                # resolve in the browser from that extra page directory, unlike
+                # Markdown links which MkDocs rewrites from the source file path.
+                mapped_path = f"../{mapped_path}"
             mapped = f"{mapped_path}{suffix}"
-        return f'href="{mapped}"'
+        escaped = html.escape(mapped, quote=True)
+        quote = attribute.quote or '"'
+        return f"{attribute.attribute}{attribute.separator}{quote}{escaped}{quote}"
 
-    text = HTML_HREF_RE.sub(replace_html_href, text)
+    for attribute in reversed(find_html_link_attributes(text)):
+        replacement = replace_html_link_attribute(attribute)
+        text = f"{text[: attribute.start]}{replacement}{text[attribute.end :]}"
     if surface == "wiki":
         text = ASSET_PREFIX_RE.sub(r"assets/diagrams/\g<asset>", text)
     return text

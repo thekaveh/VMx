@@ -82,6 +82,27 @@ def _ownership_reservation_batch(children: Iterable[_ComponentVMBase]) -> Iterat
             identity._ownership_lock.release()
 
 
+@contextmanager
+def _exclusive_ownership_reservation_batch(
+    children: Iterable[_ComponentVMBase],
+) -> Iterator[None]:
+    """Reserve identities and reject same-thread nested ownership mutations."""
+    identities = _acquire_ownership_identities(child._ownership_identity for child in children)
+    if any(identity._ownership_in_progress for identity in identities):
+        for identity in reversed(identities):
+            identity._ownership_lock.release()
+        raise RuntimeError("ownership transaction is already in progress")
+    for identity in identities:
+        identity._ownership_in_progress = True
+    try:
+        yield
+    finally:
+        for identity in identities:
+            identity._ownership_in_progress = False
+        for identity in reversed(identities):
+            identity._ownership_lock.release()
+
+
 class _Disposable(Protocol):
     def dispose(self) -> None: ...
 
@@ -98,6 +119,15 @@ class _LifecyclePublication:
         self.action = action
         self.error: BaseException | None = None
         self.completed = threading.Event()
+
+
+class _LifecycleHookLease:
+    """Atomic admission token for one active lifecycle hook."""
+
+    def __init__(self) -> None:
+        self.owner_thread = threading.get_ident()
+        self.completed = threading.Event()
+        self.deferred_disposal: Callable[[], None] | None = None
 
 
 _lifecycle_wait_graph_gate = threading.RLock()
@@ -312,6 +342,7 @@ class _ComponentVMBase(ABC):
         self._in_flight: bool = False
         self._lifecycle_waiters: list[Future[None]] = []
         self._deferred_lifecycle_future: Future[None] | None = None
+        self._active_hook_lease: _LifecycleHookLease | None = None
 
         # Serializes every lifecycle state transition — the ``_status`` RMW, the
         # hub publish, and the status-trigger emission inside ``_set_status`` —
@@ -460,23 +491,33 @@ class _ComponentVMBase(ABC):
             if self._status == ConstructionStatus.DISPOSED or self._trigger_disposed:
                 return
             self._active_property_notifications += 1
-        try:
+        first_error: BaseException | None = None
+
+        def attempt(action: Callable[[], None]) -> None:
+            nonlocal first_error
             try:
-                self._hub.send(PropertyChangedMessage.create(self, self._name, property_name))
-            finally:
-                # This call was admitted before disposal. Its local half must
-                # still run if a hub observer disposes the VM re-entrantly.
-                self._property_changed_subject.on_next(property_name)
-        finally:
-            with self._lifecycle_lock:
-                self._active_property_notifications -= 1
-                if (
-                    self._active_property_notifications == 0
-                    and self._property_notification_teardown_pending
-                ):
-                    self._property_notification_teardown_pending = False
-                    self._property_changed_subject.on_completed()
-                    self._property_changed_subject.dispose()
+                action()
+            except BaseException as error:
+                if first_error is None:
+                    first_error = error
+
+        attempt(
+            lambda: self._hub.send(PropertyChangedMessage.create(self, self._name, property_name))
+        )
+        # This call was admitted before disposal. Its local half must still run
+        # if a hub observer disposes the VM re-entrantly.
+        attempt(lambda: self._property_changed_subject.on_next(property_name))
+        with self._lifecycle_lock:
+            self._active_property_notifications -= 1
+            if (
+                self._active_property_notifications == 0
+                and self._property_notification_teardown_pending
+            ):
+                self._property_notification_teardown_pending = False
+                attempt(self._property_changed_subject.on_completed)
+                attempt(self._property_changed_subject.dispose)
+        if first_error is not None:
+            raise first_error
 
     # ── Built-in commands (lazily built + cached — VMX-018) ──────────────────
     def _build_command(
@@ -569,7 +610,13 @@ class _ComponentVMBase(ABC):
                 raise StatusTransitionError(self._status, "construct")
             self._in_flight = True
 
-        if not self._set_status(ConstructionStatus.CONSTRUCTING):
+        try:
+            admitted = self._set_status(ConstructionStatus.CONSTRUCTING)
+        except BaseException as error:
+            self._restore_status_after_publication_failure(ConstructionStatus.DESTRUCTED)
+            self._fail_in_flight(error)
+            raise
+        if not admitted:
             self._clear_in_flight()
             return
 
@@ -585,7 +632,11 @@ class _ComponentVMBase(ABC):
                     return
 
                 try:
-                    self._on_construct()
+                    if not self._invoke_lifecycle_hook(
+                        self._on_construct, ConstructionStatus.CONSTRUCTING
+                    ):
+                        self._clear_in_flight()
+                        return
                 except BaseException:
                     # VMX-007: a throwing background construct hook must not wedge
                     # the VM in the transient Constructing state. Roll _status back
@@ -636,7 +687,10 @@ class _ComponentVMBase(ABC):
                 if self._is_disposed():
                     return
                 try:
-                    self._on_construct()
+                    if not self._invoke_lifecycle_hook(
+                        self._on_construct, ConstructionStatus.CONSTRUCTING
+                    ):
+                        return
                 except BaseException:
                     # VMX-007: roll _status back to the prior settled state
                     # (Destructed) under the same lock _set_status uses, then
@@ -674,7 +728,13 @@ class _ComponentVMBase(ABC):
                 raise StatusTransitionError(self._status, "destruct")
             self._in_flight = True
 
-        if not self._set_status(ConstructionStatus.DESTRUCTING):
+        try:
+            admitted = self._set_status(ConstructionStatus.DESTRUCTING)
+        except BaseException as error:
+            self._restore_status_after_publication_failure(ConstructionStatus.CONSTRUCTED)
+            self._fail_in_flight(error)
+            raise
+        if not admitted:
             self._clear_in_flight()
             return
 
@@ -689,7 +749,11 @@ class _ComponentVMBase(ABC):
                     return
 
                 try:
-                    self._on_destruct()
+                    if not self._invoke_lifecycle_hook(
+                        self._on_destruct, ConstructionStatus.DESTRUCTING
+                    ):
+                        self._clear_in_flight()
+                        return
                 except BaseException:
                     # VMX-007: a throwing background destruct hook must not wedge
                     # the VM in the transient Destructing state. Roll _status back
@@ -738,7 +802,10 @@ class _ComponentVMBase(ABC):
                 if self._is_disposed():
                     return
                 try:
-                    self._on_destruct()
+                    if not self._invoke_lifecycle_hook(
+                        self._on_destruct, ConstructionStatus.DESTRUCTING
+                    ):
+                        return
                 except BaseException:
                     # VMX-007: roll _status back to the prior settled state
                     # (Constructed) under the lock, then re-raise. The VM is left
@@ -774,7 +841,13 @@ class _ComponentVMBase(ABC):
 
         # Destruct phase. Publication must happen after releasing the state
         # lock so opposing lifecycle observers cannot retain two VM locks.
-        if not self._set_status(ConstructionStatus.DESTRUCTING):
+        try:
+            admitted = self._set_status(ConstructionStatus.DESTRUCTING)
+        except BaseException as error:
+            self._restore_status_after_publication_failure(ConstructionStatus.CONSTRUCTED)
+            self._fail_in_flight(error)
+            raise
+        if not admitted:
             self._clear_in_flight()
             return
 
@@ -783,7 +856,10 @@ class _ComponentVMBase(ABC):
             if self._is_disposed():
                 return
             try:
-                self._on_destruct()
+                if not self._invoke_lifecycle_hook(
+                    self._on_destruct, ConstructionStatus.DESTRUCTING
+                ):
+                    return
             except BaseException:
                 # VMX-007: a failed destruct phase rolls back to Constructed
                 # (the state reconstruct started from) so the VM stays recoverable.
@@ -801,10 +877,19 @@ class _ComponentVMBase(ABC):
                 self._clear_in_flight()
 
     def _continue_reconstruct_with_construct_phase(self) -> bool:
-        self._set_status(ConstructionStatus.DESTRUCTED)
-        self._set_status(ConstructionStatus.CONSTRUCTING)
+        if not self._set_status(ConstructionStatus.DESTRUCTED):
+            return False
         try:
-            self._on_construct()
+            admitted = self._set_status(ConstructionStatus.CONSTRUCTING)
+        except BaseException as error:
+            self._restore_status_after_publication_failure(ConstructionStatus.DESTRUCTED)
+            self._fail_in_flight(error)
+            raise
+        if not admitted or self._is_disposed():
+            return False
+        try:
+            if not self._invoke_lifecycle_hook(self._on_construct, ConstructionStatus.CONSTRUCTING):
+                return False
         except BaseException:
             self._set_status(ConstructionStatus.DESTRUCTED)
             raise
@@ -868,6 +953,7 @@ class _ComponentVMBase(ABC):
             # Terminal notification is best-effort: an observer failure must not
             # prevent the remaining channels or mandatory cleanup from running.
             self._status = ConstructionStatus.DISPOSED
+            hook_lease = self._active_hook_lease
             publication, should_drain = self._enqueue_lifecycle_publication_locked(
                 ConstructionStatus.DISPOSED
             )
@@ -879,29 +965,45 @@ class _ComponentVMBase(ABC):
             should_drain |= waiter_should_drain
 
         attempt(lambda: self._await_lifecycle_publication(publication, should_drain))
-        attempt(self._on_dispose)
-        attempt(self._dispose_owned_resources)
 
-        with self._lifecycle_lock:
-            teardown, should_drain = self._enqueue_lifecycle_action_locked(
-                self._finish_terminal_publication
-            )
-        attempt(lambda: self._await_lifecycle_publication(teardown, should_drain))
+        def finish_disposal() -> None:
+            attempt(self._on_dispose)
+            attempt(self._dispose_owned_resources)
 
-        # Only commands that were actually accessed (lazily built — VMX-018)
-        # need disposal; un-built slots are still None.
-        for command in (
-            self._select_command,
-            self._deselect_command,
-            self._select_next_command,
-            self._select_previous_command,
-            self._reconstruct_command,
-        ):
-            if command is not None:
-                attempt(command.dispose)
+            with self._lifecycle_lock:
+                teardown, finish_should_drain = self._enqueue_lifecycle_action_locked(
+                    self._finish_terminal_publication
+                )
+            attempt(lambda: self._await_lifecycle_publication(teardown, finish_should_drain))
 
-        if first_error is not None:
-            raise first_error
+            # Only commands that were actually accessed (lazily built — VMX-018)
+            # need disposal; un-built slots are still None.
+            for command in (
+                self._select_command,
+                self._deselect_command,
+                self._select_next_command,
+                self._select_previous_command,
+                self._reconstruct_command,
+            ):
+                if command is not None:
+                    attempt(command.dispose)
+
+            if first_error is not None:
+                raise first_error
+
+        if hook_lease is not None and hook_lease.owner_thread != threading.get_ident():
+            caller = threading.get_ident()
+            if _register_lifecycle_wait(caller, hook_lease.owner_thread):
+                with self._lifecycle_lock:
+                    if self._active_hook_lease is hook_lease:
+                        hook_lease.deferred_disposal = finish_disposal
+                        return
+            else:
+                try:
+                    hook_lease.completed.wait()
+                finally:
+                    _unregister_lifecycle_wait(caller)
+        finish_disposal()
 
     # ── Selection predicates ─────────────────────────────────────────────────
     def can_select(self) -> bool:
@@ -933,6 +1035,36 @@ class _ComponentVMBase(ABC):
             self._parent.deselect_child(self)
 
     # ── Overridable lifecycle hooks (for composites/groups) ──────────────────
+    def _invoke_lifecycle_hook(
+        self,
+        hook: Callable[[], None],
+        expected_status: ConstructionStatus,
+    ) -> bool:
+        """Atomically admit and run a hook unless disposal already won."""
+        with self._lifecycle_lock:
+            if self._status is not expected_status or self._active_hook_lease is not None:
+                return False
+            lease = _LifecycleHookLease()
+            self._active_hook_lease = lease
+        try:
+            hook()
+        finally:
+            with self._lifecycle_lock:
+                if self._active_hook_lease is lease:
+                    self._active_hook_lease = None
+                deferred_disposal = lease.deferred_disposal
+                lease.deferred_disposal = None
+            lease.completed.set()
+            if deferred_disposal is not None:
+                # The cycle-broken dispose call has already returned. A deferred
+                # cleanup failure must not replace an exception propagating from
+                # the admitted hook that released this lease.
+                try:
+                    deferred_disposal()
+                except BaseException:
+                    pass
+        return True
+
     def _on_construct(self) -> None:
         """Called between Constructing and Constructed transitions.
 
@@ -1101,6 +1233,21 @@ class _ComponentVMBase(ABC):
         if publication is not None:
             self._await_lifecycle_publication(publication, should_drain)
 
+    def _fail_in_flight(self, error: BaseException) -> None:
+        """Clear the guard and fail every joined lifecycle waiter."""
+        with self._lifecycle_lock:
+            self._in_flight = False
+            waiters = self._lifecycle_waiters
+            self._lifecycle_waiters = []
+
+            def fail_waiters() -> None:
+                for waiter in waiters:
+                    if not waiter.done():
+                        waiter.set_exception(error)
+
+            publication, should_drain = self._enqueue_lifecycle_action_locked(fail_waiters)
+        self._await_lifecycle_publication(publication, should_drain)
+
     def _construct_future(self) -> Future[None]:
         with self._lifecycle_lock:
             if self._status is ConstructionStatus.CONSTRUCTED:
@@ -1203,6 +1350,13 @@ class _ComponentVMBase(ABC):
 
         self._await_lifecycle_publication(publication, should_drain)
         return True
+
+    def _restore_status_after_publication_failure(self, status: ConstructionStatus) -> None:
+        try:
+            self._set_status(status)
+        except BaseException:
+            # The original transition publication failure remains primary.
+            pass
 
     def _enqueue_lifecycle_publication_locked(
         self, status: ConstructionStatus

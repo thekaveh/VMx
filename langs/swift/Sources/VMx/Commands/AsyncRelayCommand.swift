@@ -48,6 +48,10 @@ public protocol AsyncCommand: Command {
 
 /// Cancellable async command. Build via `AsyncRelayCommand.builder()`.
 public final class AsyncRelayCommand: AsyncCommand {
+    private enum CancellationOrigin {
+        case command
+        case external
+    }
 
     // MARK: Private storage
 
@@ -62,9 +66,8 @@ public final class AsyncRelayCommand: AsyncCommand {
     /// Closure that cancels the in-flight task; set on each `executeAsync()` run.
     private var cancelHandle: (() -> Void)?
 
-    /// Set to `true` by our own `cancel()` so the catch-block can distinguish
-    /// command-initiated cancellation from external (parent-Task) cancellation.
-    private var cancelRequested: Bool = false
+    /// First cancellation channel to affect the current execution.
+    private var cancellationOrigin: CancellationOrigin?
 
     private var disposed: Bool = false
 
@@ -91,6 +94,7 @@ public final class AsyncRelayCommand: AsyncCommand {
     // MARK: - AsyncCommand
 
     /// True while an execution is in flight.
+    private var isAdmitting: Bool = false
     private var _isExecuting: Bool = false
 
     public var isExecuting: Bool {
@@ -101,13 +105,21 @@ public final class AsyncRelayCommand: AsyncCommand {
     ///
     /// Guards against double-run (`isExecuting` / predicate), flips `isExecuting`
     /// and fires `canExecuteChanged` on start and finish.  Handles `CancellationError`
-    /// per the `throwOnCancelFlag` / `cancelRequested` state (spec §10.3).
+    /// per the `throwOnCancelFlag` / first-cancellation origin (spec §10.3).
     public func executeAsync() async throws {
-        guard canExecute() else { return }
+        guard body != nil else { return }
+        let mayEvaluate = stateQueue.sync { () -> Bool in
+            guard !disposed && !isAdmitting && !_isExecuting else { return false }
+            isAdmitting = true
+            return true
+        }
+        guard mayEvaluate else { return }
+        let allowed = predicate?() ?? true
 
         let began = stateQueue.sync { () -> Bool in
-            guard !disposed && !_isExecuting else { return false }
-            cancelRequested = false
+            isAdmitting = false
+            guard allowed && !disposed && !_isExecuting else { return false }
+            cancellationOrigin = nil
             _isExecuting = true
             return true
         }
@@ -124,7 +136,7 @@ public final class AsyncRelayCommand: AsyncCommand {
         }
         let cancelDuringAdmission = stateQueue.sync { () -> Bool in
             cancelHandle = { bodyTask.cancel() }
-            return cancelRequested
+            return cancellationOrigin != nil
         }
         if cancelDuringAdmission {
             bodyTask.cancel()
@@ -141,21 +153,26 @@ public final class AsyncRelayCommand: AsyncCommand {
             }
         }
 
+        let command = UncheckedSendableBox(self)
         do {
             try await withTaskCancellationHandler {
                 try await bodyTask.value
             } onCancel: {
+                command.value.stateQueue.sync {
+                    if command.value.cancellationOrigin == nil {
+                        command.value.cancellationOrigin = .external
+                    }
+                }
                 bodyTask.cancel()
             }
         } catch is CancellationError {
-            // Command-initiated cancel (cancelRequested == true) is swallowed by
-            // default (DIA-007 non-throwing alignment).
-            // External (parent-Task) cancellation (cancelRequested == false) is
-            // always re-raised so Swift's structured concurrency semantics are
-            // preserved (spec §10.3).
+            // A command-originated first cancellation is swallowed by default
+            // (DIA-007 non-throwing alignment). An external (parent-Task) first
+            // cancellation is always re-raised so Swift's structured concurrency
+            // semantics are preserved (spec §10.3).
             // throwOnCancelFlag re-raises for command-initiated cancel too.
-            let requested = stateQueue.sync { cancelRequested }
-            if throwOnCancelFlag || !requested {
+            let origin = stateQueue.sync { cancellationOrigin }
+            if throwOnCancelFlag || origin != .command {
                 throw CancellationError()
             }
             // else: complete normally — no throw
@@ -187,7 +204,10 @@ public final class AsyncRelayCommand: AsyncCommand {
     /// Requests cancellation of the in-flight task. No-op when idle.
     public func cancel() {
         let handle = stateQueue.sync { () -> (() -> Void)? in
-            cancelRequested = true
+            guard _isExecuting else { return nil }
+            if cancellationOrigin == nil {
+                cancellationOrigin = .command
+            }
             return cancelHandle
         }
         handle?()
@@ -200,9 +220,12 @@ public final class AsyncRelayCommand: AsyncCommand {
     /// The stored predicate is non-throwing (`() -> Bool`), matching the
     /// cross-flavor contract that predicates must not raise (spec §2).
     public func canExecute() -> Bool {
-        if stateQueue.sync(execute: { disposed || _isExecuting }) { return false }
+        if stateQueue.sync(execute: { disposed || isAdmitting || _isExecuting }) {
+            return false
+        }
         guard let predicate else { return true }
-        return predicate()
+        let allowed = predicate()
+        return stateQueue.sync { allowed && !disposed && !isAdmitting && !_isExecuting }
     }
 
     /// Publisher that fires whenever `canExecute()` may have changed.
@@ -233,7 +256,9 @@ public final class AsyncRelayCommand: AsyncCommand {
         let result = stateQueue.sync { () -> (Bool, (() -> Void)?) in
             guard !disposed else { return (false, nil) }
             disposed = true
-            cancelRequested = true
+            if _isExecuting && cancellationOrigin == nil {
+                cancellationOrigin = .command
+            }
             let handle = cancelHandle
             cancelHandle = nil
             return (true, handle)

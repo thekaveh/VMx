@@ -1,14 +1,429 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Barrier, Mutex};
+use std::sync::{mpsc, Arc, Barrier, Mutex};
 use std::time::Duration;
 
 use vmx::{
     walk_expanded, Command, ConstructionStatus, HierarchicalVm, Message, MessageHub,
-    ModeledCrudCommands, NullDispatcher, SearchableState, TreeStructureChange,
+    ModeledCrudCommands, NullDispatcher, SearchableState, TreeStructureChange, VmxError,
 };
 
 fn leaf(name: &str) -> HierarchicalVm<String> {
     HierarchicalVm::new(name, name.to_string())
+}
+
+/// HIER-031 — factory hydration validates the complete snapshot before mutation.
+#[test]
+fn factory_hydration_is_atomic_and_retryable() {
+    let first = leaf("first");
+    let second = leaf("second");
+    let grandchild = leaf("grandchild");
+    first.add_child(grandchild.clone()).unwrap();
+    assert_eq!(
+        grandchild
+            .path()
+            .iter()
+            .map(|node| node.model())
+            .collect::<Vec<_>>(),
+        vec!["first", "grandchild"]
+    );
+    let snapshot = Arc::new(Mutex::new(vec![first.clone(), first.clone()]));
+    let captured = Arc::clone(&snapshot);
+    let root = HierarchicalVm::with_children_factory(
+        "root",
+        "root".to_string(),
+        move |_| captured.lock().unwrap().clone(),
+        false,
+        MessageHub::new(),
+    );
+
+    assert!(matches!(
+        root.try_children(),
+        Err(VmxError::InvalidArgument(message)) if message.contains("factory")
+    ));
+    assert!(first.parent().is_none());
+
+    *snapshot.lock().unwrap() = vec![first.clone(), second.clone()];
+    assert!(root.try_children().unwrap() == vec![first.clone(), second.clone()]);
+    assert!(first.parent().as_ref() == Some(&root));
+    assert!(second.parent().as_ref() == Some(&root));
+    assert_eq!(
+        grandchild
+            .path()
+            .iter()
+            .map(|node| node.model())
+            .collect::<Vec<_>>(),
+        vec!["root", "first", "grandchild"]
+    );
+}
+
+/// HIER-031 — self and already-parented factory results are rejected.
+#[test]
+fn factory_hydration_rejects_invalid_topology() {
+    let self_slot = Arc::new(Mutex::new(None::<HierarchicalVm<String>>));
+    let captured = Arc::clone(&self_slot);
+    let self_node = HierarchicalVm::with_children_factory(
+        "self",
+        "self".to_string(),
+        move |_| vec![captured.lock().unwrap().as_ref().unwrap().clone()],
+        false,
+        MessageHub::new(),
+    );
+    *self_slot.lock().unwrap() = Some(self_node.clone());
+    assert!(self_node.try_children().is_err());
+    assert!(self_node.parent().is_none());
+
+    let old_parent = leaf("old");
+    let attached = leaf("attached");
+    old_parent.add_child(attached.clone()).unwrap();
+    let new_parent = HierarchicalVm::with_children_factory(
+        "new",
+        "new".to_string(),
+        move |_| vec![attached.clone()],
+        false,
+        MessageHub::new(),
+    );
+    assert!(new_parent.try_children().is_err());
+}
+
+/// HIER-032 — structural factory reentry rejects atomically and remains retryable.
+#[test]
+fn factory_structural_reentry_is_rejected_and_retryable() {
+    for operation in [
+        "add",
+        "remove",
+        "reparent",
+        "attach",
+        "invalidate-children",
+        "invalidate-subtree",
+    ] {
+        let hub = MessageHub::new();
+        let messages = Arc::new(Mutex::new(Vec::<Message>::new()));
+        let captured_messages = Arc::clone(&messages);
+        let _subscription = hub.subscribe(move |message| {
+            captured_messages.lock().unwrap().push(message.clone());
+        });
+        let child = HierarchicalVm::with_children_factory(
+            "child",
+            "child".to_string(),
+            |_| Vec::new(),
+            false,
+            hub.clone(),
+        );
+        let captured_child = child.clone();
+        let first_attempt = Arc::new(AtomicUsize::new(0));
+        let captured_attempt = Arc::clone(&first_attempt);
+        let root = HierarchicalVm::with_children_factory(
+            "root",
+            "root".to_string(),
+            move |parent| {
+                if captured_attempt.fetch_add(1, Ordering::SeqCst) == 0 {
+                    if operation == "add" {
+                        let _ = parent.add_child(captured_child.clone());
+                    } else if operation == "remove" {
+                        let _ = parent.remove_child(&captured_child);
+                    } else if operation == "reparent" {
+                        let _ = parent.reparent_child(&captured_child);
+                    } else if operation == "attach" {
+                        let _ = parent.attach_many(
+                            vec![captured_child.clone()],
+                            |node| Ok(node.model()),
+                            |_| Ok(None::<String>),
+                            vmx::MissingParentPolicy::Park,
+                        );
+                    } else if operation == "invalidate-children" {
+                        parent.invalidate_children();
+                    } else {
+                        parent.invalidate_subtree();
+                    }
+                }
+                vec![captured_child.clone()]
+            },
+            false,
+            hub,
+        );
+
+        assert!(
+            root.try_children().is_err(),
+            "{operation} reentry must fail"
+        );
+        assert!(child.parent().is_none());
+        assert!(child.path() == vec![child.clone()]);
+        assert_eq!(first_attempt.load(Ordering::SeqCst), 1);
+        assert!(messages.lock().unwrap().is_empty());
+        assert!(root.try_children().unwrap() == vec![child.clone()]);
+        assert!(child.parent().as_ref() == Some(&root));
+        assert_eq!(first_attempt.load(Ordering::SeqCst), 2);
+        assert!(messages.lock().unwrap().is_empty());
+    }
+}
+
+/// HIER-032 — unrelated structural overlap rejects without poisoning hydration.
+#[test]
+fn foreign_structural_overlap_is_bounded_without_poisoning_hydration() {
+    let child = leaf("child");
+    let captured_child = child.clone();
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let captured_attempts = Arc::clone(&attempts);
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let release_rx = Arc::new(Mutex::new(release_rx));
+    let captured_release = Arc::clone(&release_rx);
+    let root = HierarchicalVm::with_children_factory(
+        "root",
+        "root".to_string(),
+        move |_| {
+            if captured_attempts.fetch_add(1, Ordering::SeqCst) == 0 {
+                entered_tx.send(()).unwrap();
+                captured_release.lock().unwrap().recv().unwrap();
+            }
+            vec![captured_child.clone()]
+        },
+        false,
+        MessageHub::new(),
+    );
+
+    let (result_tx, result_rx) = mpsc::channel();
+    let first_root = root.clone();
+    std::thread::spawn(move || {
+        result_tx.send(first_root.try_children()).unwrap();
+    });
+    entered_rx.recv_timeout(Duration::from_millis(500)).unwrap();
+
+    assert!(root.add_child(leaf("unrelated")).is_err());
+    release_tx.send(()).unwrap();
+    match result_rx.recv_timeout(Duration::from_millis(500)) {
+        Ok(Ok(items)) => assert!(items == vec![child.clone()]),
+        Ok(Err(error)) => panic!("unrelated overlap poisoned hydration: {error}"),
+        Err(error) => panic!("hydration did not complete: {error}"),
+    }
+    assert!(child.parent().as_ref() == Some(&root));
+    assert_eq!(attempts.load(Ordering::SeqCst), 1);
+}
+
+/// HIER-032 — factory work delegated to a joined thread still poisons hydration.
+#[test]
+fn delegated_factory_structural_reentry_is_rejected_and_retryable() {
+    let hub = MessageHub::new();
+    let messages = Arc::new(Mutex::new(Vec::<Message>::new()));
+    let captured_messages = Arc::clone(&messages);
+    let _subscription = hub.subscribe(move |message| {
+        captured_messages.lock().unwrap().push(message.clone());
+    });
+    let child = leaf("child");
+    let captured_child = child.clone();
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let captured_attempts = Arc::clone(&attempts);
+    let root = HierarchicalVm::with_children_factory(
+        "root",
+        "root".to_string(),
+        move |parent| {
+            if captured_attempts.fetch_add(1, Ordering::SeqCst) == 0 {
+                let delegated_parent: HierarchicalVm<String> = (*parent).clone();
+                let delegated_child = captured_child.clone();
+                assert!(matches!(
+                    std::thread::spawn(move || delegated_parent.add_child(delegated_child))
+                        .join()
+                        .unwrap(),
+                    Err(VmxError::InvalidArgument(message)) if message.contains("factory re-entered")
+                ));
+            }
+            vec![captured_child.clone()]
+        },
+        false,
+        hub,
+    );
+
+    assert!(root.try_children().is_err());
+    assert!(child.parent().is_none());
+    assert!(child.path() == vec![child.clone()]);
+    assert_eq!(attempts.load(Ordering::SeqCst), 1);
+    assert!(messages.lock().unwrap().is_empty());
+
+    assert!(root.try_children().unwrap() == vec![child.clone()]);
+    assert!(child.parent().as_ref() == Some(&root));
+    assert_eq!(attempts.load(Ordering::SeqCst), 2);
+    assert!(messages.lock().unwrap().is_empty());
+}
+
+/// HIER-032 — a scoped worker borrowing the factory receiver remains causal.
+#[test]
+fn borrowed_factory_structural_reentry_is_rejected_and_retryable() {
+    let hub = MessageHub::new();
+    let messages = Arc::new(Mutex::new(Vec::<Message>::new()));
+    let captured_messages = Arc::clone(&messages);
+    let _subscription = hub.subscribe(move |message| {
+        captured_messages.lock().unwrap().push(message.clone());
+    });
+    let child = leaf("child");
+    let captured_child = child.clone();
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let captured_attempts = Arc::clone(&attempts);
+    let root = HierarchicalVm::with_children_factory(
+        "root",
+        "root".to_string(),
+        move |parent| {
+            if captured_attempts.fetch_add(1, Ordering::SeqCst) == 0 {
+                let delegated_child = captured_child.clone();
+                std::thread::scope(|scope| {
+                    assert!(matches!(
+                        scope
+                            .spawn(move || parent.add_child(delegated_child))
+                            .join()
+                            .unwrap(),
+                        Err(VmxError::InvalidArgument(message))
+                            if message.contains("factory re-entered")
+                    ));
+                });
+            }
+            vec![captured_child.clone()]
+        },
+        false,
+        hub,
+    );
+
+    assert!(root.try_children().is_err());
+    assert!(child.parent().is_none());
+    assert!(child.path() == vec![child.clone()]);
+    assert_eq!(attempts.load(Ordering::SeqCst), 1);
+    assert!(messages.lock().unwrap().is_empty());
+
+    assert!(root.try_children().unwrap() == vec![child.clone()]);
+    assert!(child.parent().as_ref() == Some(&root));
+    assert_eq!(attempts.load(Ordering::SeqCst), 2);
+    assert!(messages.lock().unwrap().is_empty());
+}
+
+/// HIER-032 — delegated recursive reads reject instead of waiting on their factory.
+#[test]
+fn delegated_factory_recursive_reads_are_bounded_and_retryable() {
+    for (cloned_worker, panicking_reader) in
+        [(false, false), (false, true), (true, false), (true, true)]
+    {
+        let hub = MessageHub::new();
+        let messages = Arc::new(Mutex::new(Vec::<Message>::new()));
+        let captured_messages = Arc::clone(&messages);
+        let _subscription = hub.subscribe(move |message| {
+            captured_messages.lock().unwrap().push(message.clone());
+        });
+        let child = leaf("child");
+        let captured_child = child.clone();
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let captured_attempts = Arc::clone(&attempts);
+        let root = HierarchicalVm::with_children_factory(
+            "root",
+            "root".to_string(),
+            move |parent| {
+                if captured_attempts.fetch_add(1, Ordering::SeqCst) == 0 {
+                    let rejected = if cloned_worker {
+                        let delegated_parent: HierarchicalVm<String> = (*parent).clone();
+                        if panicking_reader {
+                            std::thread::spawn(move || delegated_parent.children())
+                                .join()
+                                .is_err()
+                        } else {
+                            matches!(
+                                std::thread::spawn(move || delegated_parent.try_children())
+                                    .join()
+                                    .unwrap(),
+                                Err(VmxError::InvalidArgument(message))
+                                    if message.contains("re-entered")
+                            )
+                        }
+                    } else if panicking_reader {
+                        std::thread::scope(|scope| {
+                            scope.spawn(move || parent.children()).join().is_err()
+                        })
+                    } else {
+                        std::thread::scope(|scope| {
+                            matches!(
+                                scope.spawn(move || parent.try_children()).join().unwrap(),
+                                Err(VmxError::InvalidArgument(message))
+                                    if message.contains("re-entered")
+                            )
+                        })
+                    };
+                    assert!(rejected);
+                }
+                vec![captured_child.clone()]
+            },
+            false,
+            hub,
+        );
+
+        let (result_tx, result_rx) = mpsc::channel();
+        let first_root = root.clone();
+        std::thread::spawn(move || {
+            result_tx.send(first_root.try_children()).unwrap();
+        });
+        assert!(
+            result_rx
+                .recv_timeout(Duration::from_millis(500))
+                .unwrap()
+                .is_err(),
+            "delegated recursive read must reject outer hydration"
+        );
+        assert!(child.parent().is_none());
+        assert!(child.path() == vec![child.clone()]);
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+        assert!(messages.lock().unwrap().is_empty());
+
+        assert!(root.try_children().unwrap() == vec![child.clone()]);
+        assert!(child.parent().as_ref() == Some(&root));
+        assert_eq!(attempts.load(Ordering::SeqCst), 2);
+        assert!(messages.lock().unwrap().is_empty());
+    }
+}
+
+/// HIER-032 — a rejected owner releases state before a waiting owner starts.
+#[test]
+fn rejected_factory_handoff_cannot_clear_the_successor_state() {
+    let child = leaf("child");
+    let captured_child = child.clone();
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let captured_attempts = Arc::clone(&attempts);
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let release_rx = Arc::new(Mutex::new(release_rx));
+    let captured_release = Arc::clone(&release_rx);
+    let root = HierarchicalVm::with_children_factory(
+        "root",
+        "root".to_string(),
+        move |parent| {
+            if captured_attempts.fetch_add(1, Ordering::SeqCst) == 0 {
+                let _ = parent.add_child(captured_child.clone());
+                entered_tx.send(()).unwrap();
+                captured_release.lock().unwrap().recv().unwrap();
+            }
+            vec![captured_child.clone()]
+        },
+        false,
+        MessageHub::new(),
+    );
+
+    let (first_tx, first_rx) = mpsc::channel();
+    let first_root = root.clone();
+    let first = std::thread::spawn(move || {
+        first_tx.send(first_root.try_children().is_err()).unwrap();
+    });
+    entered_rx.recv_timeout(Duration::from_millis(500)).unwrap();
+
+    let (second_tx, second_rx) = mpsc::channel();
+    let second_root = root.clone();
+    let second = std::thread::spawn(move || {
+        second_tx
+            .send(second_root.try_children().map(|items| items.len()))
+            .unwrap();
+    });
+    release_tx.send(()).unwrap();
+
+    assert_eq!(first_rx.recv_timeout(Duration::from_millis(500)), Ok(true));
+    assert!(matches!(
+        second_rx.recv_timeout(Duration::from_millis(500)),
+        Ok(Ok(1))
+    ));
+    first.join().unwrap();
+    second.join().unwrap();
+    assert!(child.parent().as_ref() == Some(&root));
 }
 
 /// HIER-001 — Recursive generic constraint compiles

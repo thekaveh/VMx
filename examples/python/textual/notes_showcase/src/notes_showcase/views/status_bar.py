@@ -22,7 +22,7 @@ from notes_showcase.viewmodels.status_bar_vm import StatusBarVM
 from notes_showcase.views.adapter import bind_derived_property
 
 
-def _wire_bindings(view: "StatusBarView") -> CompositeDisposable:
+def _wire_bindings(view: StatusBarView) -> CompositeDisposable:
     return CompositeDisposable(
         bind_derived_property(
             view.query_one("#status_note_count", Static),

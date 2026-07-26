@@ -1,8 +1,8 @@
 # 2. Installation
 
-VMx has five catalog-complete source flavors. C#, Python, and Swift implement
-v3.22.0; TypeScript 3.23.0 implements spec 3.22.0, and Rust 0.25.0
-declares `MIN_SPEC_VERSION = "3.22.0"`. “Catalog-complete” means all 396 library
+VMx has five catalog-complete source flavors implementing spec 3.22.1. Their
+current package source versions are listed below; Rust 0.26.0
+declares `MIN_SPEC_VERSION = "3.22.1"`. “Catalog-complete” means all 400 library
 IDs are represented; it does not hide the documented
 [Rust surface-convergence backlog](../maintenance/2026-07-16-rust-capability-parity.md).
 Public package availability can lag the source tree, so check the flavor README
@@ -10,11 +10,11 @@ and registry before pinning a release.
 
 | Flavor     | Source tree   | Public package status               |
 | ---------- | ------------- | ----------------------------------- |
-| C#         | v3.22.0       | NuGet package not published yet     |
-| Python     | v3.22.0       | `vmx` latest published: 3.1.0       |
-| TypeScript | v3.23.0       | npm package not published yet       |
-| Swift      | v3.22.0       | SwiftPM release 3.20.0              |
-| Rust       | 0.25.0        | crates.io package not published yet |
+| C#         | v3.22.1       | NuGet package not published yet     |
+| Python     | v3.22.1       | `vmx` latest published: 3.1.0       |
+| TypeScript | v3.23.1       | npm package not published yet       |
+| Swift      | v3.23.0       | SwiftPM release 3.20.0              |
+| Rust       | 0.26.0        | crates.io package not published yet |
 
 === "C#"
 

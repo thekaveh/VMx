@@ -15,8 +15,9 @@ Rules enforced:
      flavor release also implies ``spec-v<X.Y.0>`` and ``v<X.Y.0>``.
      Source-only rows containing only a pre-1.0 Rust flavor do not imply
      repository release tags.
-  4. TypeScript example lockfiles must record the current local VMx package
-     version so dependency refreshes cannot retain stale workspace metadata.
+  4. TypeScript and Rust example lockfiles must record the current local VMx
+     package version so dependency refreshes cannot retain stale workspace
+     metadata.
   5. Every current package version must have a non-empty bracketed CHANGELOG
      section before a release tag can publish an immutable artifact.
 
@@ -35,14 +36,17 @@ Exit codes:
        compatibility-matrix.md).
 
 Usage:
-    python3 tools/check-version-consistency.py [--repo-root PATH]
+    uv --project langs/python run --locked --extra tools \
+        python tools/check-version-consistency.py [--repo-root PATH]
 
 Examples:
     # Default: discover repo root automatically, report, and exit 1 on issues.
-    python3 tools/check-version-consistency.py
+    uv --project langs/python run --locked --extra tools \
+        python tools/check-version-consistency.py
 
     # Explicit root (useful in CI when cwd differs):
-    python3 tools/check-version-consistency.py --repo-root /workspace
+    uv --project langs/python run --locked --extra tools \
+        python tools/check-version-consistency.py --repo-root /workspace
 """
 
 import argparse
@@ -51,7 +55,11 @@ import re
 import subprocess
 import sys
 from collections.abc import Iterable
+from itertools import pairwise
 from pathlib import Path
+
+from markdown_it import MarkdownIt
+from markdown_it.token import Token
 
 # ─── enforcement policy ───────────────────────────────────────────────
 
@@ -65,19 +73,39 @@ TYPESCRIPT_EXAMPLE_LOCKS: tuple[Path, ...] = (
     Path("examples/typescript/console/hello-vmx/package-lock.json"),
     Path("examples/typescript/react/notes-showcase/package-lock.json"),
 )
+RUST_EXAMPLE_LOCKS: tuple[Path, ...] = (
+    Path("examples/rust/console/hello-vmx/Cargo.lock"),
+    Path("examples/rust/tui/notes-showcase/Cargo.lock"),
+)
 CSHARP_TAG_PREFIXES: dict[str, str] = {
     "VMx": "csharp",
     "VMx.Notifications": "csharp-notifications",
     "VMx.Extensions.DependencyInjection": "csharp-dependency-injection",
 }
+CSHARP_UNRELEASED_PACKAGES = (
+    "VMx",
+    "VMx.Notifications",
+    "VMx.Extensions.DependencyInjection",
+)
+CSHARP_CHANGELOG_PACKAGES = CSHARP_UNRELEASED_PACKAGES[1:]
 
 # ─── regexes ──────────────────────────────────────────────────────────
 
-# Matches a semver triple like 2.6.0 or 1.12.3.
-_VERSION_RE = re.compile(r"\b(\d+\.\d+\.\d+)\b")
+# Matches a canonical stable SemVer triple like 2.6.0 or 1.12.3.  ASCII-only
+# components and the no-leading-zero rule keep visually similar or ambiguous
+# claims out of release metadata.
+_SEMVER_COMPONENT = r"(?:0|[1-9][0-9]*)"
+_SEMVER_TRIPLE = rf"{_SEMVER_COMPONENT}\.{_SEMVER_COMPONENT}\.{_SEMVER_COMPONENT}"
+_VERSION_RE = re.compile(rf"\b({_SEMVER_TRIPLE})\b", re.ASCII)
+_STABLE_SEMVER_RE = re.compile(rf"^{_SEMVER_TRIPLE}$", re.ASCII)
+_CHANGELOG_HEADING_RE = re.compile(r"^## \[([^\]]+)\](?:\([^)]*\))?(?:\s+.*)?$")
+_COMMONMARK = MarkdownIt("commonmark")
 
 # Matches the spec column of a matrix row like "2.6.x" or "1.1.x".
-_SPEC_ROW_RE = re.compile(r"^(\d+\.\d+)\.x$")
+_SPEC_ROW_RE = re.compile(
+    rf"^({_SEMVER_COMPONENT}\.{_SEMVER_COMPONENT})\.x$",
+    re.ASCII,
+)
 
 
 # ─── helpers ──────────────────────────────────────────────────────────
@@ -87,11 +115,25 @@ def _tag_major(tag: str) -> int:
     """Return the major version component embedded in a tag name.
 
     Handles patterns like ``csharp-v2.6.0``, ``spec-v1.0.0``, ``v2.4.0``.
-    Returns 0 for tags whose version cannot be parsed (treated as enforced,
-    i.e. fail-safe).
+    Returns the minimum enforced major for tags whose version cannot be parsed,
+    so unknown tag shapes fail closed.
     """
-    m = re.search(r"[vV](\d+)\.\d+\.\d+", tag)
-    return int(m.group(1)) if m else 0
+    m = re.search(rf"[vV]({_SEMVER_COMPONENT})\.{_SEMVER_COMPONENT}\.{_SEMVER_COMPONENT}", tag)
+    return int(m.group(1)) if m else MIN_ENFORCED_MAJOR
+
+
+def partition_missing_tags(
+    missing: dict[str, list[str]],
+) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
+    """Separate enforced claims from informational historical matrix gaps."""
+    enforced = {
+        tag: reasons
+        for tag, reasons in missing.items()
+        if _tag_major(tag) >= MIN_ENFORCED_MAJOR
+        or any("manifest version=" in reason for reason in reasons)
+    }
+    informational = {tag: reasons for tag, reasons in missing.items() if tag not in enforced}
+    return enforced, informational
 
 
 def _tag_version(tag: str) -> str:
@@ -101,7 +143,7 @@ def _tag_version(tag: str) -> str:
     Used to identify tags for the current (in-development) version, which is
     exempt from the tag requirement until it is tagged at release.
     """
-    m = re.search(r"[vV](\d+\.\d+\.\d+)", tag)
+    m = re.search(rf"[vV]({_SEMVER_TRIPLE})", tag)
     return m.group(1) if m else ""
 
 
@@ -186,9 +228,187 @@ def check_typescript_example_locks(repo_root: Path, expected_version: str) -> li
     return issues
 
 
+def check_rust_example_locks(repo_root: Path, expected_version: str) -> list[str]:
+    """Report stale local ``vmx-rs`` metadata in tracked Rust example locks."""
+    issues: list[str] = []
+    for relative_path in RUST_EXAMPLE_LOCKS:
+        lock_path = repo_root / relative_path
+        if not lock_path.is_file():
+            continue
+        package_blocks = re.findall(
+            r"(?ms)^\[\[package\]\]\s*\n(.*?)(?=^\[\[package\]\]|\Z)",
+            lock_path.read_text(encoding="utf-8"),
+        )
+        local_blocks = [
+            block
+            for block in package_blocks
+            if re.search(r'^name = "vmx-rs"$', block, re.MULTILINE)
+        ]
+        if not local_blocks:
+            issues.append(f"  {relative_path}: local vmx-rs package metadata is missing")
+            continue
+        version_match = re.search(r'^version = "([^"]*)"$', local_blocks[0], re.MULTILINE)
+        actual_version = version_match.group(1) if version_match else ""
+        if actual_version != expected_version:
+            issues.append(
+                f"  {relative_path}: local vmx-rs version {actual_version!r} "
+                f"!= manifest version {expected_version!r}"
+            )
+    return issues
+
+
+def _inline_visible_text(token: Token) -> str:
+    """Return the rendered text of an inline CommonMark token."""
+    return "".join(
+        " "
+        if child.type in {"softbreak", "hardbreak"}
+        else child.content
+        if child.type in {"text", "code_inline", "image"}
+        else ""
+        for child in token.children or ()
+    ).strip()
+
+
+def _top_level_headings(lines: list[str], level: int) -> list[tuple[int, int, str]]:
+    """Return source spans and visible text for top-level CommonMark headings."""
+    source = "\n".join(lines)
+    if lines:
+        source += "\n"
+    tokens = _COMMONMARK.parse(source)
+    headings: list[tuple[int, int, str]] = []
+    for index, token in enumerate(tokens):
+        if (
+            token.type != "heading_open"
+            or token.tag != f"h{level}"
+            or token.level != 0
+            or token.map is None
+        ):
+            continue
+        inline = tokens[index + 1]
+        headings.append((token.map[0], token.map[1], _inline_visible_text(inline)))
+    return headings
+
+
+def _has_substantive_markdown(lines: list[str]) -> bool:
+    """Return whether lines contain content beyond top-level headings."""
+    source = "\n".join(lines)
+    if lines:
+        source += "\n"
+    heading_lines = {
+        line
+        for token in _COMMONMARK.parse(source)
+        if token.type == "heading_open" and token.level == 0 and token.map is not None
+        for line in range(*token.map)
+    }
+    return any(line.strip() and index not in heading_lines for index, line in enumerate(lines))
+
+
+def _parse_changelog_sections(
+    changelog: Path, packages: tuple[str, ...] = ()
+) -> tuple[dict[str, list[str]], list[str]]:
+    """Parse canonical bracketed H2 sections, rejecting ambiguous keys."""
+    lines = changelog.read_text(encoding="utf-8").splitlines()
+    starts: list[tuple[str, int]] = []
+    seen: set[str] = set()
+    issues: list[str] = []
+    for index, end, _ in _top_level_headings(lines, 2):
+        line = lines[index]
+        heading_line = line.lstrip(" ")
+        if end != index + 1 or not heading_line.startswith("## ["):
+            issues.append(f"  {changelog}: noncanonical bracketed CHANGELOG H2 {line!r}")
+            continue
+        match = _CHANGELOG_HEADING_RE.fullmatch(heading_line)
+        if match is None:
+            issues.append(f"  {changelog}: malformed bracketed CHANGELOG section heading {line!r}")
+            continue
+        key = match.group(1)
+        package_version = any(
+            key.startswith(f"{package} ")
+            and _STABLE_SEMVER_RE.fullmatch(key.removeprefix(f"{package} "))
+            for package in packages
+        )
+        if key != "Unreleased" and not _STABLE_SEMVER_RE.fullmatch(key) and not package_version:
+            issues.append(f"  {changelog}: invalid bracketed CHANGELOG section key {key!r}")
+            continue
+        if key in seen:
+            if key == "Unreleased":
+                issues.append(f"  {changelog}: expected exactly one [Unreleased] section")
+            else:
+                issues.append(f"  {changelog}: duplicate bracketed CHANGELOG section key {key!r}")
+            continue
+        seen.add(key)
+        starts.append((key, index))
+    if issues:
+        return {}, issues
+    if starts and starts[0][0] != "Unreleased":
+        return (
+            {},
+            [f"  {changelog}: [Unreleased] must be the first bracketed CHANGELOG section"],
+        )
+    sections = {
+        key: lines[
+            start + 1 : starts[position + 1][1] if position + 1 < len(starts) else len(lines)
+        ]
+        for position, (key, start) in enumerate(starts)
+    }
+    return sections, []
+
+
+def _check_changelog_version_order(
+    changelog: Path,
+    sections: dict[str, list[str]],
+    expected_versions: dict[str, str],
+) -> list[str]:
+    """Require each package namespace to start current and descend strictly."""
+    versions: dict[str, list[str]] = {}
+    for key in sections:
+        if key == "Unreleased":
+            continue
+        if _STABLE_SEMVER_RE.fullmatch(key):
+            namespace, version = "", key
+        else:
+            namespace = next(
+                package for package in CSHARP_CHANGELOG_PACKAGES if key.startswith(f"{package} ")
+            )
+            version = key.removeprefix(f"{namespace} ")
+        versions.setdefault(namespace, []).append(version)
+
+    for namespace, expected in expected_versions.items():
+        history = versions.get(namespace, [])
+        if not history:
+            continue
+        label = namespace or "core"
+        if history[0] != expected:
+            return [
+                f"  {changelog}: first {label} version {history[0]!r} "
+                f"!= manifest version {expected!r}"
+            ]
+        for previous, current in pairwise(history):
+            previous_key = tuple(int(part) for part in previous.split("."))
+            current_key = tuple(int(part) for part in current.split("."))
+            if previous_key <= current_key:
+                return [
+                    f"  {changelog}: {label} CHANGELOG versions are not strictly "
+                    f"descending at {previous!r}, {current!r}"
+                ]
+    return []
+
+
 def check_changelog_sections(repo_root: Path, manifests: dict[str, dict[str, str]]) -> list[str]:
     """Report missing or empty current-version CHANGELOG sections."""
     issues: list[str] = []
+    parsed: dict[Path, tuple[dict[str, list[str]], list[str]]] = {}
+    reported_parse_errors: set[Path] = set()
+    expected_by_changelog: dict[Path, dict[str, str]] = {}
+    for flavor, info in manifests.items():
+        version = info.get("version", "")
+        if not version:
+            continue
+        family = flavor.split("/", 1)[0]
+        changelog = repo_root / "langs" / family / "CHANGELOG.md"
+        namespace = info.get("package_id", "") if "/" in flavor else ""
+        expected_by_changelog.setdefault(changelog, {})[namespace] = version
+    order_errors: dict[Path, list[str]] = {}
     for flavor, info in sorted(manifests.items()):
         version = info.get("version", "")
         if not version:
@@ -200,29 +420,110 @@ def check_changelog_sections(repo_root: Path, manifests: dict[str, dict[str, str
             continue
         package_id = info.get("package_id", "")
         heading = f"{package_id} {version}" if "/" in flavor else version
-        lines = changelog.read_text(encoding="utf-8").splitlines()
-        start = next(
-            (index for index, line in enumerate(lines) if line.startswith(f"## [{heading}]")),
-            None,
+        sections, parse_errors = parsed.setdefault(
+            changelog,
+            _parse_changelog_sections(
+                changelog,
+                CSHARP_CHANGELOG_PACKAGES if family == "csharp" else (),
+            ),
         )
-        if start is None:
+        if parse_errors:
+            if changelog not in reported_parse_errors:
+                issues.extend(parse_errors)
+                reported_parse_errors.add(changelog)
+            continue
+        changelog_order_errors = order_errors.setdefault(
+            changelog,
+            _check_changelog_version_order(changelog, sections, expected_by_changelog[changelog]),
+        )
+        if changelog_order_errors:
+            if changelog not in reported_parse_errors:
+                issues.extend(changelog_order_errors)
+                reported_parse_errors.add(changelog)
+            continue
+        if heading not in sections:
             issues.append(
                 f"  {flavor}: CHANGELOG section {heading!r} is missing for current version"
             )
             continue
-        body = lines[start + 1 :]
-        next_heading = next(
-            (index for index, line in enumerate(body) if line.startswith("## [")),
-            len(body),
-        )
-        substantive = any(
-            line.strip() and not line.lstrip().startswith("#") for line in body[:next_heading]
-        )
+        substantive = _has_substantive_markdown(sections[heading])
         if not substantive:
             issues.append(
                 f"  {flavor}: CHANGELOG section {heading!r} has no substantive release notes"
             )
     return issues
+
+
+def check_release_unreleased(changelog: Path, package: str = "") -> list[str]:
+    """Reject substantive notes left outside the immutable tagged section."""
+    sections, parse_errors = _parse_changelog_sections(
+        changelog, CSHARP_CHANGELOG_PACKAGES if package else ()
+    )
+    if parse_errors:
+        return parse_errors
+    if "Unreleased" not in sections:
+        return [f"  {changelog}: missing [Unreleased] section"]
+    unreleased = sections["Unreleased"]
+    if package:
+        headings = _top_level_headings(unreleased, 3)
+        package_starts = [(start, end) for start, end, text in headings if text == package]
+        if not package_starts:
+            return [f"  {changelog}: [Unreleased] missing {package} package section"]
+        if len(package_starts) != 1:
+            return [f"  {changelog}: [Unreleased] expected exactly one {package} package section"]
+        package_start, package_body_start = package_starts[0]
+        package_end = next(
+            (start for start, _, _ in headings if start > package_start),
+            len(unreleased),
+        )
+        unreleased = unreleased[package_body_start:package_end]
+    substantive = _has_substantive_markdown(unreleased)
+    if substantive:
+        scope = f" {package}" if package else ""
+        return [f"  {changelog}: [Unreleased]{scope} contains substantive notes at tag publication"]
+    return []
+
+
+def check_csharp_unreleased_structure(changelog: Path) -> list[str]:
+    """Require a fail-closed package partition for independent C# releases."""
+    sections, parse_errors = _parse_changelog_sections(changelog, CSHARP_CHANGELOG_PACKAGES)
+    if parse_errors:
+        return parse_errors
+    if "Unreleased" not in sections:
+        return [f"  {changelog}: missing [Unreleased] section"]
+    unreleased = sections["Unreleased"]
+    headings = _top_level_headings(unreleased, 3)
+    if [text for _, _, text in headings] != list(CSHARP_UNRELEASED_PACKAGES):
+        expected = ", ".join(CSHARP_UNRELEASED_PACKAGES)
+        return [
+            f"  {changelog}: [Unreleased] C# package sections must appear exactly "
+            f"once in {expected} order"
+        ]
+    first_heading = headings[0][0]
+    if any(line.strip() for line in unreleased[:first_heading]):
+        return [f"  {changelog}: [Unreleased] contains notes outside a C# package section"]
+    return []
+
+
+def release_flavor(tag: str) -> str:
+    """Map one supported immutable release tag to its flavor directory."""
+    if tag.startswith("csharp-"):
+        return "csharp"
+    for flavor in ("python", "typescript", "rust", "swift"):
+        if tag.startswith(f"{flavor}-v"):
+            return flavor
+    return ""
+
+
+def csharp_release_package(tag: str) -> str:
+    """Map one C# release tag to its independently versioned package."""
+    if tag.startswith("csharp-notifications-v"):
+        return "VMx.Notifications"
+    if tag.startswith("csharp-dependency-injection-v"):
+        return "VMx.Extensions.DependencyInjection"
+    if tag.startswith("csharp-v"):
+        return "VMx"
+    return ""
 
 
 def parse_swift_versions(version_swift_path: Path) -> dict[str, str]:
@@ -300,6 +601,16 @@ def collect_manifests(repo_root: Path) -> dict[str, dict[str, str]]:
 # ─── matrix parser ────────────────────────────────────────────────────
 
 
+def _strip_html_comments(value: str) -> str:
+    """Remove complete HTML comments, including comments spanning newlines."""
+    while (start := value.find("<!--")) != -1:
+        end = value.find("-->", start + 4)
+        if end == -1:
+            return value[:start]
+        value = value[:start] + value[end + 3 :]
+    return value
+
+
 def parse_matrix(matrix_path: Path) -> list[dict[str, object]]:
     """Parse the main table from ``compatibility-matrix.md``.
 
@@ -325,8 +636,7 @@ def parse_matrix(matrix_path: Path) -> list[dict[str, object]]:
     ``spec-vX.Y.0`` operational tag.
     """
     lines = matrix_path.read_text(encoding="utf-8").splitlines()
-    header_idx: int | None = None
-    header_cells: list[str] = []
+    header_candidates: list[tuple[int, list[str]]] = []
 
     # Locate the header row (contains "spec" and "csharp").
     for i, line in enumerate(lines):
@@ -335,27 +645,47 @@ def parse_matrix(matrix_path: Path) -> list[dict[str, object]]:
             continue
         cells = [c.strip() for c in stripped.strip("|").split("|")]
         if len(cells) >= 5 and cells[0].strip().lower() == "spec":
-            header_idx = i
-            header_cells = [cell.lower() for cell in cells]
-            break
+            header_candidates.append((i, [cell.lower() for cell in cells]))
 
-    if header_idx is None:
-        return []
+    if len(header_candidates) != 1:
+        raise ValueError(
+            "compatibility matrix must contain exactly one table headed by a spec column"
+        )
+    header_idx, header_cells = header_candidates[0]
+    if len(header_cells) != len(set(header_cells)):
+        raise ValueError("compatibility matrix header contains duplicate columns")
+    required_columns = {"spec", *FLAVORS}
+    if set(header_cells) != required_columns:
+        missing = sorted(required_columns - set(header_cells))
+        extra = sorted(set(header_cells) - required_columns)
+        raise ValueError(f"compatibility matrix header mismatch: missing={missing}, extra={extra}")
+
+    if header_idx + 1 >= len(lines):
+        raise ValueError("compatibility matrix table has no separator row")
+    separator_cells = [cell.strip() for cell in lines[header_idx + 1].strip().strip("|").split("|")]
+    if len(separator_cells) != len(header_cells) or any(
+        re.fullmatch(r":?-{3,}:?", cell) is None for cell in separator_cells
+    ):
+        raise ValueError("compatibility matrix table has an invalid separator row")
 
     rows: list[dict[str, object]] = []
+    seen_spec_rows: set[str] = set()
     # Skip the header (+0) and separator (+1); data starts at +2.
     for line in lines[header_idx + 2 :]:
         stripped = line.strip()
         if not stripped.startswith("|"):
             break
         cells = [c.strip() for c in stripped.strip("|").split("|")]
-        if len(cells) < 5:
-            continue
+        if len(cells) != len(header_cells):
+            raise ValueError(f"compatibility matrix row has the wrong column count: {stripped!r}")
         spec_cell = cells[0].strip()
         legacy_semantic_tag_only = "[^legacy-semantic-tag-only]" in spec_cell
-        spec_row = re.sub(r"\[\^[^]]+\]", "", spec_cell).strip()
-        if not _SPEC_ROW_RE.match(spec_row):
-            continue
+        spec_row = re.sub(r"\[\^[^]]+\]", "", _strip_html_comments(spec_cell)).strip()
+        if not _SPEC_ROW_RE.fullmatch(spec_row):
+            raise ValueError(f"compatibility matrix spec claim {spec_cell!r} is not exact X.Y.x")
+        if spec_row in seen_spec_rows:
+            raise ValueError(f"compatibility matrix spec row {spec_row!r} is duplicated")
+        seen_spec_rows.add(spec_row)
 
         row: dict[str, object] = {"spec_row": spec_row}
         if legacy_semantic_tag_only:
@@ -367,14 +697,26 @@ def parse_matrix(matrix_path: Path) -> list[dict[str, object]]:
                 row[flavor] = []
                 continue
             cell = cells[idx].strip() if idx < len(cells) else ""
-            # Strip annotation parentheticals like "(subset)".
-            cell = re.sub(r"\s*\([^)]*\)", "", cell).strip()
+            # Strip documented annotations while validating the entire remaining
+            # version claim rather than accepting a SemVer-looking substring.
+            cell = re.sub(r"\[\^[^]]+\]|\s*\([^)]*\)", "", _strip_html_comments(cell)).strip()
             if cell in ("—", "-", ""):
                 row[flavor] = []
             else:
-                row[flavor] = _VERSION_RE.findall(cell)
+                versions = re.split(r"\s*(?:\u2013|\u2014|\bto\b)\s*", cell)
+                if len(versions) not in (1, 2) or any(
+                    not _STABLE_SEMVER_RE.fullmatch(version) for version in versions
+                ):
+                    raise ValueError(
+                        "compatibility matrix "
+                        f"{spec_row} {flavor} claim {cells[idx].strip()!r} "
+                        "is not exact stable SemVer or a two-version range"
+                    )
+                row[flavor] = versions
         rows.append(row)
 
+    if not rows:
+        raise ValueError("compatibility matrix table contains no version rows")
     return rows
 
 
@@ -388,10 +730,9 @@ def get_git_tags(repo_root: Path) -> set[str]:
         capture_output=True,
         text=True,
         cwd=str(repo_root),
-        check=False,
+        check=True,
+        timeout=10,
     )
-    if result.returncode != 0:
-        return set()
     return {line for line in result.stdout.splitlines() if line.strip()}
 
 
@@ -465,7 +806,10 @@ def find_missing_tags(
         )
         if has_stable_release:
             if not row.get("legacy_semantic_tag_only"):
-                _want(f"spec-v{spec_canonical}", f"compatibility-matrix.md row {spec_row!r}")
+                _want(
+                    f"spec-v{spec_canonical}",
+                    f"compatibility-matrix.md row {spec_row!r}",
+                )
             _want(
                 f"v{spec_canonical}",
                 f"compatibility-matrix.md row {spec_row!r} (repo-wide tag)",
@@ -522,6 +866,66 @@ def current_development_versions(
         ):
             versions.add(version)
     return versions
+
+
+def current_development_tags(
+    spec_version: str,
+    manifests: dict[str, dict[str, str]],
+    matrix_rows: list[dict[str, object]],
+) -> set[str]:
+    """Return exact tag identities belonging to the active source line."""
+    tags = {f"spec-v{spec_version}", f"v{spec_version}"}
+    spec_parts = spec_version.split(".")
+    if len(spec_parts) >= 2:
+        current_row = f"{spec_parts[0]}.{spec_parts[1]}.x"
+        row = next(
+            (candidate for candidate in matrix_rows if candidate.get("spec_row") == current_row),
+            None,
+        )
+        if row is not None:
+            canonical = f"{spec_parts[0]}.{spec_parts[1]}.0"
+            tags.update({f"spec-v{canonical}", f"v{canonical}"})
+            for flavor in FLAVORS:
+                tags.update(f"{flavor}-v{version}" for version in row.get(flavor, []))  # type: ignore[union-attr]
+
+    for flavor, info in manifests.items():
+        version = info.get("version", "")
+        if info.get("unreleased") == "true" and version:
+            prefix = info.get("tag_prefix") or flavor.split("/", 1)[0]
+            tags.add(f"{prefix}-v{version}")
+    return tags
+
+
+def validate_semver_values(
+    spec_version: str,
+    manifests: dict[str, dict[str, str]],
+    matrix_rows: list[dict[str, object]],
+) -> list[str]:
+    """Return issues for version claims that are not exact stable SemVer."""
+    issues: list[str] = []
+
+    def check(source: str, value: object) -> None:
+        if not isinstance(value, str) or not _STABLE_SEMVER_RE.fullmatch(value):
+            issues.append(f"  {source}={value!r} is not exact stable SemVer (X.Y.Z)")
+
+    check("spec/VERSION", spec_version)
+    for flavor, info in sorted(manifests.items()):
+        version = info.get("version", "")
+        check(f"{flavor} version", version)
+        min_spec = info.get("min_spec_version", "")
+        check(f"{flavor} min-spec version", min_spec)
+
+    for row in matrix_rows:
+        spec_row = str(row.get("spec_row", ""))
+        if not _SPEC_ROW_RE.fullmatch(spec_row):
+            issues.append(f"  compatibility-matrix.md spec row {spec_row!r} is not exact X.Y.x")
+        for flavor in FLAVORS:
+            for version in row.get(flavor, []):  # type: ignore[union-attr]
+                check(
+                    f"compatibility-matrix.md row {spec_row!r} {flavor} version",
+                    version,
+                )
+    return issues
 
 
 # ─── reporting ────────────────────────────────────────────────────────
@@ -608,6 +1012,10 @@ def main(argv: Iterable[str] | None = None) -> int:
         default=str(Path(__file__).resolve().parents[1]),
         help="Repository root (default: parent of this script).",
     )
+    parser.add_argument(
+        "--release-tag",
+        help="Release tag being published; requires an empty flavor [Unreleased] section.",
+    )
     args = parser.parse_args(list(argv) if argv is not None else None)
     repo_root = Path(args.repo_root).resolve()
 
@@ -627,35 +1035,61 @@ def main(argv: Iterable[str] | None = None) -> int:
 
     spec_version = parse_spec_version(repo_root)
     manifests = collect_manifests(repo_root)
-    matrix_rows = parse_matrix(matrix_file)
-    tags = get_git_tags(repo_root)
+    try:
+        matrix_rows = parse_matrix(matrix_file)
+    except ValueError as error:
+        print(f"ERROR: {error}", file=sys.stderr)
+        return 1
+    try:
+        tags = get_git_tags(repo_root)
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+        print(f"ERROR: unable to inspect git tags: {error}", file=sys.stderr)
+        return 2
 
-    msv_issues = check_min_spec_versions(spec_version, manifests)
+    msv_issues = validate_semver_values(spec_version, manifests, matrix_rows)
+    msv_issues.extend(check_min_spec_versions(spec_version, manifests))
     msv_issues.extend(check_changelog_sections(repo_root, manifests))
+    if any(
+        flavor in manifests
+        for flavor in (
+            "csharp/VMx.Notifications",
+            "csharp/VMx.Extensions.DependencyInjection",
+        )
+    ):
+        msv_issues.extend(
+            check_csharp_unreleased_structure(repo_root / "langs/csharp/CHANGELOG.md")
+        )
+    if args.release_tag:
+        flavor = release_flavor(args.release_tag)
+        if not flavor:
+            msv_issues.append(f"  unsupported release tag: {args.release_tag!r}")
+        else:
+            package = csharp_release_package(args.release_tag) if flavor == "csharp" else ""
+            msv_issues.extend(
+                check_release_unreleased(repo_root / "langs" / flavor / "CHANGELOG.md", package)
+            )
     typescript_version = manifests.get("typescript", {}).get("version", "")
     if typescript_version:
         msv_issues.extend(check_typescript_example_locks(repo_root, typescript_version))
+    rust_version = manifests.get("rust", {}).get("version", "")
+    if rust_version:
+        msv_issues.extend(check_rust_example_locks(repo_root, rust_version))
     all_missing = find_missing_tags(spec_version, manifests, matrix_rows, tags)
 
     # Carve out current source lines first. Flavor package versions can advance
     # independently while their min-spec and current matrix row stay pinned to
     # spec/VERSION; none of those tags exists until release.
-    development_versions = current_development_versions(spec_version, manifests, matrix_rows)
+    development_tags = current_development_tags(spec_version, manifests, matrix_rows)
     indev_missing = {
-        tag: reasons
-        for tag, reasons in all_missing.items()
-        if _tag_version(tag) in development_versions
+        tag: reasons for tag, reasons in all_missing.items() if tag in development_tags
     }
     remaining = {
-        tag: reasons
-        for tag, reasons in all_missing.items()
-        if _tag_version(tag) not in development_versions
+        tag: reasons for tag, reasons in all_missing.items() if tag not in development_tags
     }
 
     # Split the rest into enforced (major >= MIN_ENFORCED_MAJOR) and
     # informational (major < MIN_ENFORCED_MAJOR, e.g. pre-2.0 legacy rows).
-    enforced_missing = {t: r for t, r in remaining.items() if _tag_major(t) >= MIN_ENFORCED_MAJOR}
-    info_missing = {t: r for t, r in remaining.items() if _tag_major(t) < MIN_ENFORCED_MAJOR}
+    enforced_missing, info_missing = partition_missing_tags(remaining)
 
     report = render_report(
         spec_version,

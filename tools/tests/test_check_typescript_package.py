@@ -1,8 +1,21 @@
 """Unit tests for tools/check-typescript-package.py."""
 
 import json
+import subprocess
 
 import check_typescript_package as ctsp
+import pytest
+
+
+def test_main_reports_package_timeout(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    monkeypatch.setattr(
+        ctsp,
+        "package_contents",
+        lambda _path: (_ for _ in ()).throw(subprocess.TimeoutExpired("npm", 1)),
+    )
+
+    assert ctsp.main([]) == 2
+    assert "unable to inspect npm package" in capsys.readouterr().err
 
 
 def _valid_paths() -> set[str]:
@@ -38,6 +51,20 @@ def _valid_paths() -> set[str]:
 
 def test_validate_paths_accepts_expected_entries_fixtures_and_chunks() -> None:
     assert ctsp.validate_paths(_valid_paths()) == []
+
+
+def test_validate_name_requires_the_canonical_publish_target() -> None:
+    assert ctsp.validate_name("@thekaveh/vmx") == []
+    assert ctsp.validate_name("wrong-name") == [
+        "package name 'wrong-name' != expected '@thekaveh/vmx'"
+    ]
+
+
+def test_main_rejects_wrong_packed_package_name(monkeypatch: pytest.MonkeyPatch, capsys) -> None:
+    monkeypatch.setattr(ctsp, "package_contents", lambda _path: ("wrong-name", _valid_paths()))
+
+    assert ctsp.main([]) == 1
+    assert "package name 'wrong-name' != expected '@thekaveh/vmx'" in capsys.readouterr().err
 
 
 def test_legal_files_are_required() -> None:

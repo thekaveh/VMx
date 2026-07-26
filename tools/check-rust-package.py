@@ -30,6 +30,7 @@ src/derived_property.rs
 src/discriminator.rs
 src/dialogs.rs
 src/fixtures/command-truthtable.json
+src/fixtures/derived-properties.json
 src/fixtures/lifecycle-transitions.json
 src/fixtures/message-ordering.json
 src/forms.rs
@@ -105,6 +106,7 @@ def package_paths(package_dir: Path) -> set[str]:
         check=True,
         capture_output=True,
         text=True,
+        timeout=300,
     )
     paths = [line.strip() for line in result.stdout.splitlines() if line.strip()]
     if len(paths) != len(set(paths)):
@@ -124,7 +126,12 @@ def main(argv: list[str] | None = None) -> int:
     try:
         paths = package_paths(args.package_dir.resolve())
         errors = validate_paths(paths)
-    except (OSError, ValueError, subprocess.CalledProcessError) as error:
+    except (
+        OSError,
+        ValueError,
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+    ) as error:
         print(f"ERROR: unable to inspect Rust crate package: {error}", file=sys.stderr)
         if isinstance(error, subprocess.CalledProcessError) and error.stderr:
             print(error.stderr.rstrip(), file=sys.stderr)

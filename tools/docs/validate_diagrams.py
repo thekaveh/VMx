@@ -84,6 +84,20 @@ def validate_all_site_diagram_links(root: Path, asset_names: set[str]) -> list[s
     return errors
 
 
+def canonical_diagram_references(root: Path, asset_names: set[str]) -> dict[str, set[str]]:
+    references = {name: set() for name in asset_names}
+    content_root = root / "docs/content"
+    if not content_root.exists():
+        return references
+    for ref_path in sorted(content_root.rglob("*.md")):
+        ref = ref_path.relative_to(root).as_posix()
+        for target in diagram_links(ref_path.read_text(encoding="utf-8")):
+            asset_name = Path(target.split("#", 1)[0].split("?", 1)[0]).name
+            if asset_name in references:
+                references[asset_name].add(ref)
+    return references
+
+
 def load_registry(path: Path) -> tuple[list[object], list[str]]:
     try:
         registry = json.loads(path.read_text(encoding="utf-8"))
@@ -149,11 +163,13 @@ def validate(root: Path, registry_path: Path, *, assets_only: bool = False) -> l
     registry, registry_errors = load_registry(registry_path)
     errors.extend(registry_errors)
     all_asset_names: set[str] = set()
+    diagrams: list[Diagram] = []
     for index, item in enumerate(registry):
         diagram, row_errors = validate_diagram_row(item, index)
         errors.extend(row_errors)
         if diagram is None:
             continue
+        diagrams.append(diagram)
         all_asset_names.update({diagram["html"], diagram["svg"], diagram["png"]})
         for key in ("html", "svg", "png"):
             asset = diagrams_dir / diagram[key]
@@ -184,6 +200,21 @@ def validate(root: Path, registry_path: Path, *, assets_only: bool = False) -> l
             ):
                 errors.append(f"{diagram['id']}: {ref} does not reference diagram asset")
     if not assets_only:
+        actual_references = canonical_diagram_references(root, all_asset_names)
+        for diagram in diagrams:
+            expected = set(diagram["referencedBy"])
+            actual = set().union(
+                *(
+                    actual_references[name]
+                    for name in (diagram["html"], diagram["svg"], diagram["png"])
+                )
+            )
+            declared_files_exist = all((root / ref).exists() for ref in expected)
+            if declared_files_exist and expected != actual:
+                errors.append(
+                    f"{diagram['id']}: referencedBy mismatch; "
+                    f"expected {sorted(actual)}, got {sorted(expected)}"
+                )
         errors.extend(validate_all_site_diagram_links(root, all_asset_names))
     return errors
 

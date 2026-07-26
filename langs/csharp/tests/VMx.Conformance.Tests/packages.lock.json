@@ -166,13 +166,13 @@
         "type": "Project",
         "dependencies": {
           "Microsoft.Extensions.DependencyInjection.Abstractions": "[8.0.2, )",
-          "VMx": "[3.22.0, )"
+          "VMx": "[3.22.1, )"
         }
       },
       "vmx.notifications": {
         "type": "Project",
         "dependencies": {
-          "VMx": "[3.22.0, )"
+          "VMx": "[3.22.1, )"
         }
       },
       "vmx.tests": {
@@ -182,7 +182,7 @@
           "Microsoft.Extensions.DependencyInjection": "[8.0.1, )",
           "Microsoft.NET.Test.Sdk": "[17.14.1, )",
           "Microsoft.Reactive.Testing": "[7.0.0, )",
-          "VMx": "[3.22.0, )",
+          "VMx": "[3.22.1, )",
           "VMx.Extensions.DependencyInjection": "[2.1.1, )",
           "coverlet.collector": "[6.0.4, )",
           "xunit": "[2.9.3, )",
@@ -377,13 +377,13 @@
         "type": "Project",
         "dependencies": {
           "Microsoft.Extensions.DependencyInjection.Abstractions": "[8.0.2, )",
-          "VMx": "[3.22.0, )"
+          "VMx": "[3.22.1, )"
         }
       },
       "vmx.notifications": {
         "type": "Project",
         "dependencies": {
-          "VMx": "[3.22.0, )"
+          "VMx": "[3.22.1, )"
         }
       },
       "vmx.tests": {
@@ -393,7 +393,7 @@
           "Microsoft.Extensions.DependencyInjection": "[8.0.1, )",
           "Microsoft.NET.Test.Sdk": "[17.14.1, )",
           "Microsoft.Reactive.Testing": "[7.0.0, )",
-          "VMx": "[3.22.0, )",
+          "VMx": "[3.22.1, )",
           "VMx.Extensions.DependencyInjection": "[2.1.1, )",
           "coverlet.collector": "[6.0.4, )",
           "xunit": "[2.9.3, )",
@@ -594,13 +594,13 @@
         "type": "Project",
         "dependencies": {
           "Microsoft.Extensions.DependencyInjection.Abstractions": "[8.0.2, )",
-          "VMx": "[3.22.0, )"
+          "VMx": "[3.22.1, )"
         }
       },
       "vmx.notifications": {
         "type": "Project",
         "dependencies": {
-          "VMx": "[3.22.0, )"
+          "VMx": "[3.22.1, )"
         }
       },
       "vmx.tests": {
@@ -610,7 +610,7 @@
           "Microsoft.Extensions.DependencyInjection": "[8.0.1, )",
           "Microsoft.NET.Test.Sdk": "[17.14.1, )",
           "Microsoft.Reactive.Testing": "[7.0.0, )",
-          "VMx": "[3.22.0, )",
+          "VMx": "[3.22.1, )",
           "VMx.Extensions.DependencyInjection": "[2.1.1, )",
           "coverlet.collector": "[6.0.4, )",
           "xunit": "[2.9.3, )",
