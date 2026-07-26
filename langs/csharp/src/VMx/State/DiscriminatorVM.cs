@@ -26,15 +26,18 @@ public sealed class DiscriminatorVM<TKey> : IDisposable
     /// <summary>Observable of active-key changes.</summary>
     public IObservable<TKey> ActiveChanged => _activeChanged.AsObservable();
 
+    /// <summary>Number of saved modal frames.</summary>
+    public int ModalDepth => _modalStack.Count;
+
     /// <summary>Returns <see langword="true"/> when <paramref name="key"/> is active.</summary>
     public bool IsActive(TKey key) => EqualityComparer<TKey>.Default.Equals(ActiveKey, key);
 
-    /// <summary>Set the active key. Re-setting the same key is a no-op.</summary>
+    /// <summary>Set the active key and abandon any saved modal history.</summary>
     public void SetActiveKey(TKey key)
     {
-        if (_disposed || IsActive(key)) return;
-        ActiveKey = key;
-        _activeChanged.OnNext(key);
+        if (_disposed) return;
+        _modalStack.Clear();
+        SetActiveKeyPreservingModals(key);
     }
 
     /// <summary>Activate <paramref name="modalKey"/> and remember the previous key.</summary>
@@ -42,14 +45,21 @@ public sealed class DiscriminatorVM<TKey> : IDisposable
     {
         if (_disposed) return;
         _modalStack.Push(ActiveKey);
-        SetActiveKey(modalKey);
+        SetActiveKeyPreservingModals(modalKey);
     }
 
     /// <summary>Restore the active key that preceded the most recent modal.</summary>
     public void ModalClose()
     {
         if (_disposed || _modalStack.Count == 0) return;
-        SetActiveKey(_modalStack.Pop());
+        SetActiveKeyPreservingModals(_modalStack.Pop());
+    }
+
+    /// <summary>Release all saved modal frames without changing the active key.</summary>
+    public void ClearModals()
+    {
+        if (_disposed) return;
+        _modalStack.Clear();
     }
 
     /// <summary>Complete the active-changed stream. Idempotent.</summary>
@@ -57,7 +67,15 @@ public sealed class DiscriminatorVM<TKey> : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        _modalStack.Clear();
         _activeChanged.OnCompleted();
         _activeChanged.Dispose();
+    }
+
+    private void SetActiveKeyPreservingModals(TKey key)
+    {
+        if (IsActive(key)) return;
+        ActiveKey = key;
+        _activeChanged.OnNext(key);
     }
 }

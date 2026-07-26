@@ -634,7 +634,8 @@ def parse_matrix(matrix_path: Path) -> list[dict[str, object]]:
     ``["1.1.0", "1.2.0"]``.  A spec-cell
     ``[^legacy-semantic-tag-only]`` marker records the historical case where
     the immutable semantic ``vX.Y.0`` tag exists without a duplicate
-    ``spec-vX.Y.0`` operational tag.
+    ``spec-vX.Y.0`` operational tag. ``[^source-only]`` records an
+    implementation line that was never published or tagged.
     """
     lines = matrix_path.read_text(encoding="utf-8").splitlines()
     header_candidates: list[tuple[int, list[str]]] = []
@@ -681,6 +682,7 @@ def parse_matrix(matrix_path: Path) -> list[dict[str, object]]:
             raise ValueError(f"compatibility matrix row has the wrong column count: {stripped!r}")
         spec_cell = cells[0].strip()
         legacy_semantic_tag_only = "[^legacy-semantic-tag-only]" in spec_cell
+        source_only = "[^source-only]" in spec_cell
         spec_row = re.sub(r"\[\^[^]]+\]", "", _strip_html_comments(spec_cell)).strip()
         if not _SPEC_ROW_RE.fullmatch(spec_row):
             raise ValueError(f"compatibility matrix spec claim {spec_cell!r} is not exact X.Y.x")
@@ -691,6 +693,8 @@ def parse_matrix(matrix_path: Path) -> list[dict[str, object]]:
         row: dict[str, object] = {"spec_row": spec_row}
         if legacy_semantic_tag_only:
             row["legacy_semantic_tag_only"] = True
+        if source_only:
+            row["source_only"] = True
         for flavor in FLAVORS:
             try:
                 idx = header_cells.index(flavor)
@@ -792,6 +796,8 @@ def find_missing_tags(
 
     # From matrix rows
     for row in matrix_rows:
+        if row.get("source_only"):
+            continue
         spec_row = str(row.get("spec_row", ""))
         m = _SPEC_ROW_RE.match(spec_row)
         if not m:

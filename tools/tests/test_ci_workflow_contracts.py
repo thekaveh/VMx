@@ -150,7 +150,7 @@ def test_python_release_updates_the_compatibility_matrix() -> None:
     matrix = (REPO_ROOT / "compatibility-matrix.md").read_text(encoding="utf-8")
     header = next(line for line in matrix.splitlines() if line.startswith("| spec"))
     assert header.index("python") < header.index("csharp")
-    current = next(line for line in matrix.splitlines() if line.startswith("| 3.22.x"))
+    current = next(line for line in matrix.splitlines() if line.startswith("| 3.23.x"))
     assert "x-release-please-version" in current
 
 

@@ -17,28 +17,35 @@ Core members:
 
 - `ActiveKey`
 - `ActiveChanged`
+- `ModalDepth`
 - `IsActive(key)`
 - `SetActiveKey(key)`
 - `ModalOpen(modalKey)`
 - `ModalClose()`
+- `ClearModals()`
 
 ## 6.2.8.3.3. Lifecycle And Messaging
 
 The behavior is straightforward and important:
 
-- setting the same key is a no-op
+- every non-modal active-key set abandons saved modal history
+- setting the same key remains notification-free while releasing history
 - setting a different key updates state and emits one change
 - modal opens push the prior active key
 - modal closes restore keys in LIFO order
-- dispose completes the change stream and makes later mutations inert
+- explicit clear releases history without changing the active key
+- dispose releases history, completes the change stream, and makes later
+  mutations inert
 
 ## 6.2.8.3.4. Cross-Language Surface
 
-| Concept       | C#               | Python            | TypeScript       | Swift            |
-| ------------- | ---------------- | ----------------- | ---------------- | ---------------- |
-| Active key    | `ActiveKey`      | `active_key`      | `activeKey`      | `activeKey`      |
-| Change stream | `ActiveChanged`  | `active_changed`  | `activeChanged`  | `activeChanged`  |
-| Open modal    | `ModalOpen(...)` | `modal_open(...)` | `modalOpen(...)` | `modalOpen(...)` |
+| Concept       | C#               | Python            | TypeScript       | Swift            | Rust              |
+| ------------- | ---------------- | ----------------- | ---------------- | ---------------- | ----------------- |
+| Active key    | `ActiveKey`      | `active_key`      | `activeKey`      | `activeKey`      | `active_key()`    |
+| Change stream | `ActiveChanged`  | `active_changed`  | `activeChanged`  | `activeChanged`  | `active_changed()` |
+| Modal depth   | `ModalDepth`     | `modal_depth`     | `modalDepth`     | `modalDepth`     | `modal_depth()`   |
+| Open modal    | `ModalOpen(...)` | `modal_open(...)` | `modalOpen(...)` | `modalOpen(...)` | `modal_open(...)` |
+| Clear history | `ClearModals()`  | `clear_modals()`  | `clearModals()`  | `clearModals()`  | `clear_modals()`  |
 
 ## 6.2.8.3.5. Example
 
@@ -98,6 +105,8 @@ spreading active-mode booleans across unrelated properties.
   to reconcile them manually.
 - Forgetting that modal precedence is stack-based; nested modal restore order is
   LIFO by contract.
+- Treating a non-modal set as a modal close. It deliberately abandons every
+  saved frame; use `ModalClose()` when restoration is intended.
 
 ## 6.2.8.3.7. Related Primitives
 
