@@ -1,4 +1,6 @@
 import { ComponentVMBase } from "../components/componentVMBase.js";
+import { disposeBestEffort } from "../components/disposal.js";
+import { ConstructionStatus } from "../lifecycle/status.js";
 import type {
   IOwningParentVM,
   ParentTransfer,
@@ -38,10 +40,9 @@ export function validateAggregateSlots(
       throw new Error("Aggregate factories returned duplicate canonical identity");
     }
     seen.add(identity);
-    if (
-      child._parent !== null &&
-      !(child._parent === parent && parent.containsChild(child))
-    ) throw new Error(`Cannot populate aggregate with '${child.name}': already owned`);
+    if (child._parent !== null) {
+      throw new Error(`Cannot populate aggregate with '${child.name}': already owned`);
+    }
     let cursor: IOwningParentVM | null = parent;
     while (cursor !== null) {
       if (cursor.owner._ownershipIdentity === identity) {
@@ -62,4 +63,51 @@ export function commitAggregateSlots(
     if (child?._parent === parent) child._parent = null;
   }
   for (const child of next) child._parent = parent;
+}
+
+/** @internal Reserve replacement identities across validation, cleanup, and commit. */
+export function replaceAggregateSlots(
+  parent: AggregateParent,
+  previous: readonly (ComponentVMBase | null)[],
+  next: readonly ComponentVMBase[],
+  assign: () => void,
+  notifyCommittedError: () => void,
+): boolean {
+  const identities = [...new Set(next.map((child) => child._ownershipIdentity))];
+  if (identities.some((identity) => identity._ownershipInProgress)) {
+    throw new Error("Aggregate ownership transaction is already in progress");
+  }
+  for (const identity of identities) identity._ownershipInProgress = true;
+  try {
+    validateAggregateSlots(parent, next);
+    let failed = false;
+    let firstError: unknown;
+    try {
+      disposeBestEffort(previous.map((child) => () => child?.dispose()));
+    } catch (error) {
+      failed = true;
+      firstError = error;
+    }
+    if (parent.owner.status === ConstructionStatus.Disposed) {
+      try {
+        disposeBestEffort(next.map((child) => () => child.dispose()));
+      } catch (error) {
+        if (!failed) {
+          failed = true;
+          firstError = error;
+        }
+      }
+      if (failed) throw firstError;
+      return false;
+    }
+    assign();
+    commitAggregateSlots(parent, previous, next);
+    if (failed) {
+      notifyCommittedError();
+      throw firstError;
+    }
+    return true;
+  } finally {
+    for (const identity of identities) identity._ownershipInProgress = false;
+  }
 }

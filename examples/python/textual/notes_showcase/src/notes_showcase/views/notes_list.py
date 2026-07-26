@@ -50,7 +50,7 @@ class _NoteListItem(ListItem):
         self.note_vm = note_vm
 
 
-def _rebuild_rows(view: "NotesListView") -> None:
+def _rebuild_rows(view: NotesListView) -> None:
     list_view = view.query_one("#notes_list", ListView)
     list_view.clear()
     current = view._vm.current
@@ -71,12 +71,10 @@ def _forward_selection(vm: NotesViewVM, event: ListView.Selected) -> None:
         vm.current = item.note_vm
 
 
-def _wire_bindings(view: "NotesListView") -> CompositeDisposable:
+def _wire_bindings(view: NotesListView) -> CompositeDisposable:
     vm = view._vm
     return CompositeDisposable(
-        bind_property_two_way(
-            view.query_one("#search_input", Input), "value", vm, "search_term"
-        ),
+        bind_property_two_way(view.query_one("#search_input", Input), "value", vm, "search_term"),
         bind_property_two_way(
             view.query_one("#starred_filter", Checkbox),
             "value",
@@ -84,22 +82,12 @@ def _wire_bindings(view: "NotesListView") -> CompositeDisposable:
             "show_starred_only",
         ),
         on_vm_property_change(vm, _ROW_SIGNALS, lambda _name: _rebuild_rows(view)),
-        bind_command(
-            view.query_one("#page_first", Button), vm.move_to_first_page_command
-        ),
-        bind_command(
-            view.query_one("#page_prev", Button), vm.move_to_previous_page_command
-        ),
-        bind_command(
-            view.query_one("#page_next", Button), vm.move_to_next_page_command
-        ),
-        bind_command(
-            view.query_one("#page_last", Button), vm.move_to_last_page_command
-        ),
+        bind_command(view.query_one("#page_first", Button), vm.move_to_first_page_command),
+        bind_command(view.query_one("#page_prev", Button), vm.move_to_previous_page_command),
+        bind_command(view.query_one("#page_next", Button), vm.move_to_next_page_command),
+        bind_command(view.query_one("#page_last", Button), vm.move_to_last_page_command),
         # ``page_label`` is a DerivedProperty[str] → bind via the derived bridge.
-        bind_derived_property(
-            view.query_one("#page_label", Static), "renderable", vm.page_label
-        ),
+        bind_derived_property(view.query_one("#page_label", Static), "renderable", vm.page_label),
     )
 
 

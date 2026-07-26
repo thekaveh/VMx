@@ -24,7 +24,7 @@ from notes_showcase.viewmodels.capability_actions_vm import CapabilityActionsVM
 from notes_showcase.views.adapter import bind_command, on_derived_change
 
 
-def _rebuild_buttons(view: "CapabilityActionsView", actions: list[ActionVM]) -> None:
+def _rebuild_buttons(view: CapabilityActionsView, actions: list[ActionVM]) -> None:
     """Schedule a button-row rebuild on the widget's message pump.
 
     ``Widget.remove()`` is asynchronous — removing and mounting in the same
@@ -36,9 +36,7 @@ def _rebuild_buttons(view: "CapabilityActionsView", actions: list[ActionVM]) -> 
     view.call_later(_rebuild_buttons_async, view, list(actions))
 
 
-async def _rebuild_buttons_async(
-    view: "CapabilityActionsView", actions: list[ActionVM]
-) -> None:
+async def _rebuild_buttons_async(view: CapabilityActionsView, actions: list[ActionVM]) -> None:
     view._button_bindings.dispose()
     view._button_bindings = CompositeDisposable()
     await view.remove_children()
@@ -51,7 +49,7 @@ async def _rebuild_buttons_async(
         view._button_bindings.add(bind_command(button, action.command))
 
 
-def _dispose_all(view: "CapabilityActionsView") -> None:
+def _dispose_all(view: CapabilityActionsView) -> None:
     """Tear down both the derived-change subscription and the latest
     generation of per-button command bindings.
     """
@@ -59,12 +57,10 @@ def _dispose_all(view: "CapabilityActionsView") -> None:
     view._button_bindings.dispose()
 
 
-def _wire_bindings(view: "CapabilityActionsView") -> CompositeDisposable:
+def _wire_bindings(view: CapabilityActionsView) -> CompositeDisposable:
     """Subscribe to ``vm.actions`` and seed the first button render."""
     return CompositeDisposable(
-        on_derived_change(
-            view._vm.actions, lambda actions: _rebuild_buttons(view, actions)
-        ),
+        on_derived_change(view._vm.actions, lambda actions: _rebuild_buttons(view, actions)),
     )
 
 

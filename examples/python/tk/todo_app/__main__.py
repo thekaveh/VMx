@@ -24,14 +24,12 @@ from dataclasses import dataclass, replace
 from typing import Literal
 
 from reactivex.subject import Subject
-
 from vmx.commands.relay_command import RelayCommand
 from vmx.components.component_vm import ComponentVMOf
 from vmx.composites.composite_vm import CompositeVM
 from vmx.messages.protocols import Message
 from vmx.services.dispatcher import RxDispatcher
 from vmx.services.message_hub import MessageHub
-
 
 # ---------------------------------------------------------------------------
 # Domain model
@@ -263,9 +261,7 @@ class MainWindow:
         )
 
         # Subscribe to hub messages to catch model changes (e.g. toggle done).
-        self._hub_sub = self._vm.hub.messages.subscribe(
-            on_next=lambda _: self._refresh_list()
-        )
+        self._hub_sub = self._vm.hub.messages.subscribe(on_next=lambda _: self._refresh_list())
         self._add_command_sub = self._vm.add_command.can_execute_changed.subscribe(
             on_next=lambda _: self._refresh_add_button_state()
         )
@@ -313,14 +309,10 @@ class MainWindow:
         action_frame = tk.Frame(root)
         action_frame.pack(fill=tk.X, padx=8, pady=(2, 8))
 
-        self._toggle_btn = tk.Button(
-            action_frame, text="Toggle Done", command=self._on_toggle
-        )
+        self._toggle_btn = tk.Button(action_frame, text="Toggle Done", command=self._on_toggle)
         self._toggle_btn.pack(side=tk.LEFT)
 
-        self._remove_btn = tk.Button(
-            action_frame, text="Remove", command=self._on_remove
-        )
+        self._remove_btn = tk.Button(action_frame, text="Remove", command=self._on_remove)
         self._remove_btn.pack(side=tk.LEFT, padx=(4, 0))
 
     # ── Event handlers ────────────────────────────────────────────────────
@@ -386,16 +378,12 @@ class MainWindow:
 
     def _refresh_button_states(self) -> None:
         has_selection = self._vm.composite.current is not None
-        state: Literal["normal", "disabled"] = (
-            tk.NORMAL if has_selection else tk.DISABLED
-        )
+        state: Literal["normal", "disabled"] = tk.NORMAL if has_selection else tk.DISABLED
         self._toggle_btn.config(state=state)
         self._remove_btn.config(state=state)
 
     def _refresh_add_button_state(self) -> None:
-        self._add_btn.config(
-            state=tk.NORMAL if self._vm.add_command.can_execute() else tk.DISABLED
-        )
+        self._add_btn.config(state=tk.NORMAL if self._vm.add_command.can_execute() else tk.DISABLED)
 
 
 # ---------------------------------------------------------------------------

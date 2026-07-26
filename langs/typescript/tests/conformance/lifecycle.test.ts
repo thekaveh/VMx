@@ -19,6 +19,8 @@ import {
   ComponentVMBase,
   ConstructionStatusChangedMessage,
   ViewModelType,
+  type IMessage,
+  type IMessageHub,
 } from "../../src/index.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -36,7 +38,7 @@ function makeVM(name = "vm") {
 class DisposeProbeVM extends ComponentVMBase {
   constructor(
     name: string,
-    hub: MessageHub,
+    hub: IMessageHub,
     private readonly disposeHook: () => void = () => undefined,
   ) {
     super({ name, hint: "", hub, dispatcher: makeDisp() });
@@ -48,6 +50,74 @@ class DisposeProbeVM extends ComponentVMBase {
 
   protected override _onDispose(): void {
     this.disposeHook();
+  }
+}
+
+class DisposedPublicationFaultHub extends MessageHub {
+  constructor(private readonly failure: Error) {
+    super({ developmentDiagnostics: false });
+  }
+
+  override send(message: IMessage): void {
+    if (
+      message instanceof ConstructionStatusChangedMessage
+      && message.status === ConstructionStatus.Disposed
+    ) {
+      throw this.failure;
+    }
+    super.send(message);
+  }
+}
+
+class StatusPublicationFaultHub extends MessageHub {
+  readonly #failures: Array<{
+    status: ConstructionStatus;
+    remaining: number;
+    failure: Error;
+  }> = [];
+
+  constructor() {
+    super({ developmentDiagnostics: false });
+  }
+
+  failNext(status: ConstructionStatus, failure: Error, occurrence = 1): void {
+    this.#failures.push({ status, remaining: occurrence, failure });
+  }
+
+  override send(message: IMessage): void {
+    if (message instanceof ConstructionStatusChangedMessage) {
+      const index = this.#failures.findIndex(({ status }) => status === message.status);
+      const pending = this.#failures[index];
+      if (pending !== undefined && --pending.remaining === 0) {
+        this.#failures.splice(index, 1);
+        throw pending.failure;
+      }
+    }
+    super.send(message);
+  }
+}
+
+class HookLeaseProbeVM extends ComponentVMBase {
+  constructor(
+    hub: MessageHub,
+    onConstruct: () => void,
+    private readonly onDispose: () => void,
+  ) {
+    super({
+      name: "hook-lease",
+      hint: "",
+      hub,
+      dispatcher: makeDisp(),
+      onConstruct,
+    });
+  }
+
+  get type(): ViewModelType {
+    return ViewModelType.Component;
+  }
+
+  protected override _onDispose(): void {
+    this.onDispose();
   }
 }
 
@@ -141,6 +211,72 @@ describe("LIFE-004", () => {
       expect(vm.status).toBe(ConstructionStatus.Disposed);
       expect(observed).toContain(ConstructionStatus.Disposed);
     }
+  });
+
+  it("suppresses a hook when a status observer disposes first", () => {
+    for (const phase of [ConstructionStatus.Constructing, ConstructionStatus.Destructing]) {
+      const hub = makeHub();
+      let hookCalls = 0;
+      const vm = ComponentVM.builder()
+        .name("observer-dispose")
+        .services(hub, makeDisp())
+        .onConstruct(() => { hookCalls += 1; })
+        .onDestruct(() => { hookCalls += 1; })
+        .build();
+      if (phase === ConstructionStatus.Destructing) vm.construct();
+      hookCalls = 0;
+      hub.messages.subscribe((message) => {
+        if (message instanceof ConstructionStatusChangedMessage && message.status === phase) {
+          vm.dispose();
+        }
+      });
+
+      if (phase === ConstructionStatus.Constructing) vm.construct();
+      else vm.destruct();
+
+      expect(vm.status).toBe(ConstructionStatus.Disposed);
+      expect(hookCalls).toBe(0);
+    }
+  });
+
+  it("does not enter reconstruct's construct hook after destruct disposes", () => {
+    let constructCalls = 0;
+    let disposeDuringDestruct = false;
+    let vm: ComponentVM;
+    vm = ComponentVM.builder()
+      .name("reconstruct-dispose")
+      .services(makeHub(), makeDisp())
+      .onConstruct(() => { constructCalls += 1; })
+      .onDestruct(() => { if (disposeDuringDestruct) vm.dispose(); })
+      .build();
+    vm.construct();
+    disposeDuringDestruct = true;
+
+    vm.reconstruct();
+
+    expect(vm.status).toBe(ConstructionStatus.Disposed);
+    expect(constructCalls).toBe(1);
+  });
+});
+
+describe("LIFE-015", () => {
+  it("defers terminal cleanup until an admitted hook returns", () => {
+    const trace: string[] = [];
+    let vm: HookLeaseProbeVM;
+    vm = new HookLeaseProbeVM(
+      makeHub(),
+      () => {
+        trace.push("hook:start");
+        vm.dispose();
+        trace.push("hook:end");
+      },
+      () => trace.push("cleanup"),
+    );
+
+    vm.construct();
+
+    expect(trace).toEqual(["hook:start", "hook:end", "cleanup"]);
+    expect(vm.status).toBe(ConstructionStatus.Disposed);
   });
 });
 
@@ -659,5 +795,86 @@ describe("LIFE-013", () => {
 
     expect(thrown).toBe(hookError);
     expect(completed).toBe(true);
+  });
+
+  it("finishes terminal cleanup while preserving a disposal publication failure", () => {
+    const publicationError = new Error("disposed publication failed");
+    const cleanupError = new Error("cleanup failed");
+    let cleanupCalls = 0;
+    const vm = new DisposeProbeVM(
+      "probe",
+      new DisposedPublicationFaultHub(publicationError),
+      () => {
+        cleanupCalls += 1;
+        throw cleanupError;
+      },
+    );
+
+    let thrown: unknown;
+    try {
+      vm.dispose();
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBe(publicationError);
+    expect(vm.status).toBe(ConstructionStatus.Disposed);
+    expect(cleanupCalls).toBe(1);
+    expect(() => vm.dispose()).not.toThrow();
+    expect(cleanupCalls).toBe(1);
+  });
+
+  it.each([false, true])(
+    "rolls back a failed Constructing publication and preserves its first error (background=%s)",
+    (background) => {
+      const hub = new StatusPublicationFaultHub();
+      const publicationError = new Error("constructing publication failed");
+      const rollbackError = new Error("construct rollback publication failed");
+      const vm = ComponentVM.builder()
+        .name("probe")
+        .services(hub, makeDisp())
+        .background(background)
+        .build();
+      hub.failNext(ConstructionStatus.Constructing, publicationError);
+      hub.failNext(ConstructionStatus.Destructed, rollbackError);
+
+      let thrown: unknown;
+      try {
+        vm.construct();
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(thrown).toBe(publicationError);
+      expect(vm.status).toBe(ConstructionStatus.Destructed);
+      expect(() => vm.construct()).not.toThrow();
+      expect(vm.status).toBe(ConstructionStatus.Constructed);
+    },
+  );
+
+  it("rolls back failed Destructing and second reconstruct Constructing publications", () => {
+    const hub = new StatusPublicationFaultHub();
+    const vm = ComponentVM.builder()
+      .name("probe")
+      .services(hub, makeDisp())
+      .build();
+    vm.construct();
+
+    const destructError = new Error("destructing publication failed");
+    hub.failNext(ConstructionStatus.Destructing, destructError);
+    expect(() => vm.destruct()).toThrow(destructError);
+    expect(vm.status).toBe(ConstructionStatus.Constructed);
+
+    const reconstructDestructError = new Error("reconstruct destructing publication failed");
+    hub.failNext(ConstructionStatus.Destructing, reconstructDestructError);
+    expect(() => vm.reconstruct()).toThrow(reconstructDestructError);
+    expect(vm.status).toBe(ConstructionStatus.Constructed);
+
+    const reconstructError = new Error("reconstruct constructing publication failed");
+    hub.failNext(ConstructionStatus.Constructing, reconstructError);
+    expect(() => vm.reconstruct()).toThrow(reconstructError);
+    expect(vm.status).toBe(ConstructionStatus.Destructed);
+    expect(() => vm.construct()).not.toThrow();
+    expect(vm.status).toBe(ConstructionStatus.Constructed);
   });
 });

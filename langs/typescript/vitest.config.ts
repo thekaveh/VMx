@@ -9,6 +9,12 @@ export default defineConfig({
       provider: "v8",
       include: ["src/**"],
       exclude: ["src/fixtures/**"],
+      thresholds: {
+        statements: 85,
+        branches: 78,
+        functions: 85,
+        lines: 88,
+      },
     },
   },
   resolve: {

@@ -28,12 +28,7 @@ def _build_workspace() -> WorkspaceVM:
         load_all_delay=0.0,
         load_notes_delay=0.0,
     )
-    return (
-        WorkspaceVM.builder()
-        .repository(repo)
-        .dialog_service(NullDialogService())
-        .build()
-    )
+    return WorkspaceVM.builder().repository(repo).dialog_service(NullDialogService()).build()
 
 
 @pytest.mark.asyncio

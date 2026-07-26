@@ -49,36 +49,29 @@ open class AggregateVM6<
     open override var type: ViewModelType { .aggregate }
 
     open override func _onConstruct() throws {
+        try aggregateParent.withTransaction {
         try super._onConstruct()
         let c1 = factory1(); let c2 = factory2(); let c3 = factory3()
         let c4 = factory4(); let c5 = factory5(); let c6 = factory6()
-        try validateAggregateSlots(parent: aggregateParent, children: [c1, c2, c3, c4, c5, c6])
         let previous: [ComponentVMBase?] = [
             component1, component2, component3, component4, component5, component6
         ]
-        component1?.dispose(); component2?.dispose()
-        component3?.dispose(); component4?.dispose()
-        component5?.dispose(); component6?.dispose()
-
-        component1 = c1
-        _notifyPropertyChanged("component1")
-        component2 = c2
-        _notifyPropertyChanged("component2")
-        component3 = c3
-        _notifyPropertyChanged("component3")
-        component4 = c4
-        _notifyPropertyChanged("component4")
-        component5 = c5
-        _notifyPropertyChanged("component5")
-        component6 = c6
-        commitAggregateSlots(
+        guard try replaceAggregateSlots(
             parent: aggregateParent, previous: previous,
-            next: [c1, c2, c3, c4, c5, c6]
-        )
+            next: [c1, c2, c3, c4, c5, c6], assign: {
+            component1 = c1; component2 = c2; component3 = c3
+            component4 = c4; component5 = c5; component6 = c6
+        }) else { return }
+        _notifyPropertyChanged("component1")
+        _notifyPropertyChanged("component2")
+        _notifyPropertyChanged("component3")
+        _notifyPropertyChanged("component4")
+        _notifyPropertyChanged("component5")
         _notifyPropertyChanged("component6")
 
         try c1.construct(); try c2.construct(); try c3.construct()
         try c4.construct(); try c5.construct(); try c6.construct()
+        }
     }
 
     open override func _onDestruct() throws {
@@ -89,10 +82,12 @@ open class AggregateVM6<
     }
 
     open override func dispose() {
+        aggregateParent.withTransaction {
         component1?.dispose(); component2?.dispose()
         component3?.dispose(); component4?.dispose()
         component5?.dispose(); component6?.dispose()
         super.dispose()
+        }
     }
 
     public static func builder() -> AggregateVM6Builder<C1, C2, C3, C4, C5, C6> {

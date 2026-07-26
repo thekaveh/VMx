@@ -141,6 +141,15 @@ def test_contributing_rust_commands_match_release_baseline() -> None:
     assert "--allow-dirty" not in rust
 
 
+def test_branch_rust_ci_treats_rustdoc_warnings_as_errors() -> None:
+    workflow = _workflow("rust.yml")
+
+    assert "RUSTDOCFLAGS: -D warnings" in workflow
+    assert (
+        "cargo doc --locked --manifest-path langs/rust/Cargo.toml --all-features --no-deps"
+    ) in workflow
+
+
 def test_contract_suite_triggers_on_rust_and_release_workflow_changes() -> None:
     workflow = _workflow("conformance.yml")
 
@@ -213,6 +222,8 @@ def test_release_polls_registry_docs_and_public_consumers_before_notes() -> None
 
     assert 'toolchain: ["1.88.0", "stable"]' in jobs
     assert "--poll-timeout 1800" in jobs
+    assert "--timeout 2100" in jobs
+    assert "timeout-minutes: 45" in jobs
     assert "needs: rust-publish" in jobs
     assert "needs: rust-verify-published" in jobs
     assert "langs/rust/CHANGELOG.md" in jobs

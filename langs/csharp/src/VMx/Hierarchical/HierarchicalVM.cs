@@ -32,6 +32,8 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
     private List<TVM>? _children;
     private ReadOnlyCollection<TVM>? _pathCache;
     private readonly List<TVM> _parkedAttachItems = [];
+    private bool _materializingChildren;
+    private bool _materializationReentered;
 
     private sealed class BatchCandidate<TKey> where TKey : notnull
     {
@@ -200,6 +202,7 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
     /// </summary>
     public void AddChild(TVM child)
     {
+        RejectStructuralReentry();
         ThrowHelper.ThrowIfNull(child, nameof(child));
         AttachChild(child, explicitReparent: false);
     }
@@ -210,6 +213,7 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
     /// </summary>
     public void RemoveChild(TVM child)
     {
+        RejectStructuralReentry();
         ThrowHelper.ThrowIfNull(child, nameof(child));
 
         EnsureChildrenMaterialized();
@@ -236,6 +240,7 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
     /// </summary>
     public void ReparentChild(TVM child)
     {
+        RejectStructuralReentry();
         ThrowHelper.ThrowIfNull(child, nameof(child));
         AttachChild(child, explicitReparent: true);
     }
@@ -293,6 +298,7 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
         MissingParentPolicy onMissingParent = MissingParentPolicy.Park)
         where TKey : notnull
     {
+        RejectStructuralReentry();
         ThrowHelper.ThrowIfNull(items, nameof(items));
         ThrowHelper.ThrowIfNull(keyOf, nameof(keyOf));
         ThrowHelper.ThrowIfNull(parentKeyOf, nameof(parentKeyOf));
@@ -447,6 +453,7 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
     /// </summary>
     public void InvalidateChildren()
     {
+        RejectStructuralReentry();
         if (_children is null) return;
         foreach (var child in _children)
         {
@@ -465,6 +472,7 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
     /// </summary>
     public void InvalidateSubtree()
     {
+        RejectStructuralReentry();
         if (_children is null) return;
         foreach (var child in _children.ToArray())
             child.InvalidateSubtree();
@@ -482,15 +490,63 @@ public abstract class HierarchicalVM<TModel, TVM> : ComponentVMBase, IEnumerable
 
     private List<TVM> MaterializeChildren()
     {
-        var list = new List<TVM>(_childrenFactory((TVM)this));
-        // Direct-assign during initial factory hydration: parents do not
-        // *change* on first materialization, so emitting `HierarchicalParent`
-        // PropertyChangedMessage here would publish N spurious events on
-        // the first lazy access (or eager construct). Python and TypeScript
-        // do the same direct-assign — this keeps the three flavors in sync.
-        foreach (var child in list)
-            child._hierarchicalParent = (TVM)this;
-        return list;
+        if (_materializingChildren)
+        {
+            _materializationReentered = true;
+            throw new InvalidOperationException(
+                "The children factory re-entered structural materialization.");
+        }
+        _materializingChildren = true;
+        _materializationReentered = false;
+        try
+        {
+            var list = new List<TVM>(_childrenFactory((TVM)this));
+            if (_materializationReentered)
+                throw new InvalidOperationException(
+                    "The children factory re-entered a structural operation.");
+
+            var seen = new List<TVM>();
+            foreach (var child in list)
+            {
+                if (child is null)
+                    throw new InvalidOperationException("The children factory returned a null child.");
+                if (seen.Any(existing => ReferenceEquals(existing, child)))
+                    throw new InvalidOperationException("The children factory returned duplicate child identity.");
+                seen.Add(child);
+                for (TVM? ancestor = (TVM)this;
+                     ancestor is not null;
+                     ancestor = ancestor._hierarchicalParent)
+                {
+                    if (ReferenceEquals(ancestor, child))
+                        throw new InvalidOperationException(
+                            "The children factory returned this node or one of its ancestors.");
+                }
+                if (child._hierarchicalParent is not null)
+                    throw new InvalidOperationException("The children factory returned an already-parented child.");
+            }
+            // Initial hydration is silent, but it still changes ancestry.
+            // Clear any path cached by the factory before exposing the commit.
+            foreach (var child in list)
+            {
+                child._hierarchicalParent = (TVM)this;
+                child._pathCache = null;
+                child.InvalidatePathCacheDescendants();
+            }
+            return list;
+        }
+        finally
+        {
+            _materializingChildren = false;
+            _materializationReentered = false;
+        }
+    }
+
+    private void RejectStructuralReentry()
+    {
+        if (!_materializingChildren) return;
+        _materializationReentered = true;
+        throw new InvalidOperationException(
+            "The children factory re-entered a structural operation on its receiver.");
     }
 
     private TVM GetTreeRoot()

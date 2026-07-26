@@ -8,7 +8,6 @@ from datetime import timedelta
 import pytest
 from reactivex.scheduler import ImmediateScheduler
 from reactivex.testing import TestScheduler
-
 from vmx import MessageHub, RxDispatcher
 from vmx.messages.protocols import Message
 from vmx.notifications import Notification, NotificationHub, NotificationType
@@ -23,9 +22,7 @@ def _build(
     lifespan: timedelta | None = None,
 ) -> tuple[NotificationsVM, NotificationHub]:
     hub = MessageHub[Message]()
-    dispatcher = RxDispatcher(
-        foreground=ImmediateScheduler(), background=ImmediateScheduler()
-    )
+    dispatcher = RxDispatcher(foreground=ImmediateScheduler(), background=ImmediateScheduler())
     notification_hub = NotificationHub()
     # Default to TestScheduler so notification lifespans don't fire real timers
     # during tests; pass a custom scheduler when timer behavior is exercised.
@@ -66,9 +63,7 @@ async def test_posting_a_notification_adds_visible_entry() -> None:
 async def test_cap_drops_oldest_when_over_limit() -> None:
     vm, hub = _build(cap=3)
     vm.construct()
-    futures = [
-        hub.post(Notification(NotificationType.NOTIFICATION, f"m{i}")) for i in range(5)
-    ]
+    futures = [hub.post(Notification(NotificationType.NOTIFICATION, f"m{i}")) for i in range(5)]
     assert vm.visible.count == 3
     # Newest three should remain.
     titles = [v.notification.message for v in vm.visible]

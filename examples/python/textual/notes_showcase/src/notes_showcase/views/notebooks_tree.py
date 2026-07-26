@@ -45,7 +45,7 @@ def _add_node(parent_node: TreeNode[NotebookVM], nb_vm: NotebookVM) -> None:
         _add_node(node, child)
 
 
-def _wire_bindings(view: "NotebooksTreeView") -> CompositeDisposable:
+def _wire_bindings(view: NotebooksTreeView) -> CompositeDisposable:
     tree = view.query_one("#notebooks_tree", Tree)
     _populate_tree(tree, view._vm)
     return CompositeDisposable(

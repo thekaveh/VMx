@@ -170,6 +170,8 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
         # reparent) and is identity-stable across accesses.
         self._children_view: _ReadOnlyList[TVM] | None = None
         self._path_cache: _ReadOnlyList[TVM] | None = None
+        self._materializing_children = False
+        self._materialization_reentered = False
         # Missing-parent items retained by attach_many. Calls made on a
         # descendant always redirect here on the structural root.
         self._parked_attach_items: list[TVM] = []
@@ -279,6 +281,7 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
         """Add *child* to this node's children, set its parent, and publish
         :class:`~vmx.messages.TreeStructureChangedMessage`.
         """
+        self._reject_structural_reentry()
         if child is None:
             raise ValueError("child must not be None")
         self._attach_child(child, explicit_reparent=False)
@@ -287,6 +290,7 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
         """Remove *child* from this node's children and publish
         :class:`~vmx.messages.TreeStructureChangedMessage`.
         """
+        self._reject_structural_reentry()
         if child is None:
             raise ValueError("child must not be None")
         self._ensure_children_materialized()
@@ -316,6 +320,7 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
         """Move *child* from its current parent to this node and publish a
         REPARENTED :class:`~vmx.messages.TreeStructureChangedMessage`.
         """
+        self._reject_structural_reentry()
         if child is None:
             raise ValueError("child must not be None")
         self._attach_child(child, explicit_reparent=True)
@@ -397,6 +402,7 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
         already-attached nodes are reported rather than raised. Only genuine
         missing-parent items are retained by the ``PARK`` policy.
         """
+        self._reject_structural_reentry()
         root = self._tree_root()
         incoming = list(items)
         parked = list(root._parked_attach_items)
@@ -541,6 +547,7 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
         The next :attr:`children` access invokes ``children_factory`` again.
         Invalidating an unmaterialized node is a no-op.
         """
+        self._reject_structural_reentry()
         if self._children_list is None:
             return
         for child in self._children_list:
@@ -560,6 +567,7 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
 
     def invalidate_subtree(self) -> None:
         """Drop cached children for this node and all materialized descendants."""
+        self._reject_structural_reentry()
         if self._children_list is None:
             return
         for child in list(self._children_list):
@@ -573,10 +581,46 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
     # ── Internal helpers ─────────────────────────────────────────────────────
 
     def _materialize_children(self) -> list[TVM]:
-        children = list(self._children_factory(self))  # type: ignore[arg-type]
-        for child in children:
-            child._hierarchical_parent = self
-        return children
+        if self._materializing_children:
+            self._materialization_reentered = True
+            raise ValueError("children factory re-entered structural materialization")
+        self._materializing_children = True
+        self._materialization_reentered = False
+        try:
+            children = list(self._children_factory(self))  # type: ignore[arg-type]
+            if self._materialization_reentered:
+                raise ValueError("children factory re-entered a structural operation")
+            seen: set[int] = set()
+            ancestors: set[int] = set()
+            ancestor: Any = self
+            while ancestor is not None:
+                ancestors.add(id(ancestor))
+                ancestor = ancestor._hierarchical_parent
+            for child in children:
+                if child is None:
+                    raise ValueError("children factory returned None")
+                identity = id(child)
+                if identity in seen:
+                    raise ValueError("children factory returned duplicate child identity")
+                seen.add(identity)
+                if identity in ancestors:
+                    raise ValueError("children factory returned this node or one of its ancestors")
+                if child._hierarchical_parent is not None:
+                    raise ValueError("children factory returned an already-parented child")
+            for child in children:
+                child._hierarchical_parent = self
+                child._path_cache = None
+                child._invalidate_path_cache_descendants()
+            return children
+        finally:
+            self._materializing_children = False
+            self._materialization_reentered = False
+
+    def _reject_structural_reentry(self) -> None:
+        if not self._materializing_children:
+            return
+        self._materialization_reentered = True
+        raise ValueError("children factory re-entered a structural operation on its receiver")
 
     def _tree_root(self) -> TVM:
         node: TVM = self  # type: ignore[assignment]  # CRTP self view

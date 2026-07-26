@@ -104,8 +104,11 @@ def test_release_uses_protected_nuget_oidc_without_long_lived_key() -> None:
     assert "id-token: write" in jobs
     assert "NuGet/login@8d196754b4036150537f80ac539e15c2f1028841" in jobs
     assert "user: ${{ secrets.NUGET_USER }}" in jobs
-    assert "NUGET_API_KEY" not in jobs.replace("steps.login.outputs.NUGET_API_KEY", "")
+    assert "secrets.NUGET_API_KEY" not in jobs
     assert "--skip-duplicate" not in jobs
+    assert "NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}" in jobs
+    assert '--api-key "$NUGET_API_KEY"' in jobs
+    assert '--api-key "${{ steps.login.outputs.NUGET_API_KEY }}"' not in jobs
 
 
 def test_release_verifies_public_frameworks_before_release_notes() -> None:
@@ -114,6 +117,8 @@ def test_release_verifies_public_frameworks_before_release_notes() -> None:
     assert "csharp-verify-published:" in jobs
     assert 'framework: ["net8.0", "netstandard2.0"]' in jobs
     assert "--poll-timeout 900" in jobs
+    assert "--timeout 1200" in jobs
+    assert "csharp-verify-published:\n    timeout-minutes: 25" in jobs
     assert "csharp-release-notes:" in jobs
     assert "needs: csharp-verify-published" in jobs
     assert "tools/render-csharp-release-notes.py" in jobs

@@ -6,14 +6,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `AsyncRelayCommand` now rejects re-entrant or disposal-invalidated predicate
+  admission and preserves the first cancellation channel when command and
+  caller cancellation race.
+- Relay-command predicate disposal now invalidates both ordinary and
+  parameterized execution admission.
+- A taskless async command is now a true no-op and does not emit transient
+  execution-state notifications.
+- The locked ESLint dependency graph now uses `brace-expansion` 5.0.8, removing
+  the unbounded-expansion denial-of-service advisory.
+
+## [3.23.1] — 2026-07-23
+
 ### Changed
 
+- CI now enforces calibrated library coverage floors of 85% statements, 78%
+  branches, 85% functions, and 88% lines.
 - The React Notes Showcase now verifies React 19, Vite 8, and ESLint 10. The
   library uses ESLint 10 while retaining TypeScript 5.9 until the current
   `@typescript-eslint` peer range supports TypeScript 7.
 
 ### Fixed
 
+- Hierarchy child factories now validate their complete snapshot before
+  assigning parents, rejecting duplicate, cyclic, or already-parented nodes
+  atomically and preserving retryability (HIER-031, ADR-0127).
+- Valid factory hydration now clears prewarmed descendant path caches, and
+  same-receiver structural re-entry rejects without mutation or messages
+  (HIER-031/032, ADR-0127).
+- Re-entrant disposal now defers terminal cleanup until the admitted lifecycle
+  hook returns, preserving the hook's causal failure (LIFE-015, ADR-0126).
+- Lazy aggregate reconstruction now reserves every proposed child from
+  validation through disposal, assignment, and parent commit, preventing two
+  concurrent aggregates or a re-entrant disposal hook from retaining the same
+  slot. A factory that returns any currently owned slot is rejected before
+  mutation.
 - Pre-owned and multiply decorated components now retain one canonical,
   transferable container identity (FWD-004, ADR-0124).
 - Async-resource replacement cleanup can synchronously start a newer reload

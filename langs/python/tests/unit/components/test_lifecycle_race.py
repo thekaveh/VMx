@@ -339,3 +339,78 @@ def test_opposing_lifecycle_observers_do_not_deadlock() -> None:
         ConstructionStatus.DISPOSED,
     ]
     assert all(history[-1] is ConstructionStatus.DISPOSED for history in histories)
+
+
+def test_opposing_active_lifecycle_hooks_cross_dispose_without_deadlock() -> None:
+    """Hook-to-hook disposal cycles defer cleanup instead of mutually waiting."""
+    barrier = threading.Barrier(2)
+    vms: list[Any] = []
+
+    def hook(index: int) -> None:
+        barrier.wait(timeout=2)
+        vms[1 - index].dispose()
+
+    vms.extend(
+        ComponentVMOfBuilder()
+        .name(f"vm-{index}")
+        .with_null_services()
+        .model(index)
+        .on_construct(lambda index=index: hook(index))
+        .build()
+        for index in range(2)
+    )
+    threads = [threading.Thread(target=vm.construct) for vm in vms]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=3)
+
+    assert all(not thread.is_alive() for thread in threads)
+    assert all(vm.status is ConstructionStatus.DISPOSED for vm in vms)
+
+
+def test_cycle_broken_deferred_cleanup_does_not_replace_first_failure() -> None:
+    barrier = threading.Barrier(2)
+    vms: list[Any] = []
+    cleanup_order: list[str] = []
+    failures: list[BaseException] = []
+
+    def hook(index: int) -> None:
+        barrier.wait(timeout=2)
+        vms[1 - index].dispose()
+
+    def failing_dispose(self: object, name: str) -> None:
+        cleanup_order.append(name)
+        raise RuntimeError(f"dispose failure {name}")
+
+    for index, name in enumerate(("first", "second")):
+        vm = (
+            ComponentVMOfBuilder()
+            .name(name)
+            .with_null_services()
+            .model(index)
+            .on_construct(lambda index=index: hook(index))
+            .build()
+        )
+        vm._on_dispose = types.MethodType(  # type: ignore[method-assign]
+            lambda self, name=name: failing_dispose(self, name), vm
+        )
+        vms.append(vm)
+
+    def construct(vm: Any) -> None:
+        try:
+            vm.construct()
+        except BaseException as error:
+            failures.append(error)
+
+    threads = [threading.Thread(target=construct, args=(vm,)) for vm in vms]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=3)
+
+    assert all(not thread.is_alive() for thread in threads)
+    assert sorted(cleanup_order) == ["first", "second"]
+    assert len(failures) == 1
+    assert str(failures[0]) == f"dispose failure {cleanup_order[0]}"
+    assert all(vm.status is ConstructionStatus.DISPOSED for vm in vms)

@@ -6,11 +6,24 @@ under the underscore alias via importlib so plain imports work in tests).
 """
 
 import json
+import subprocess
 import textwrap
 from pathlib import Path
 
 import check_version_consistency as cvc
 import pytest
+
+
+def test_get_git_tags_propagates_timeout(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(
+        cvc.subprocess,
+        "run",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(subprocess.TimeoutExpired("git", 1)),
+    )
+
+    with pytest.raises(subprocess.TimeoutExpired):
+        cvc.get_git_tags(tmp_path)
+
 
 # ── parse_spec_version ────────────────────────────────────────────────
 
@@ -71,7 +84,9 @@ def test_parse_csharp_versions_reads_explicit_unreleased_marker(tmp_path: Path) 
     assert cvc.parse_csharp_versions(csproj)["unreleased"] == "true"
 
 
-def test_parse_csharp_versions_rejects_unmapped_package_namespace(tmp_path: Path) -> None:
+def test_parse_csharp_versions_rejects_unmapped_package_namespace(
+    tmp_path: Path,
+) -> None:
     csproj = tmp_path / "VMx.Future.csproj"
     csproj.write_text(
         "<Project><PropertyGroup><PackageId>VMx.Future</PackageId>"
@@ -146,6 +161,18 @@ def test_csharp_companion_manifests_require_package_specific_tags_but_not_curren
     assert "csharp-dependency-injection-v2.1.0" in missing
 
 
+def test_active_pre_v2_manifest_tag_is_enforced_while_historical_row_is_informational() -> None:
+    missing = {
+        "csharp-notifications-v1.2.0": ["csharp/VMx.Notifications manifest version='1.2.0'"],
+        "csharp-v1.1.0": ["compatibility-matrix.md row '1.1.x' [csharp='1.1.0']"],
+    }
+
+    enforced, informational = cvc.partition_missing_tags(missing)
+
+    assert set(enforced) == {"csharp-notifications-v1.2.0"}
+    assert set(informational) == {"csharp-v1.1.0"}
+
+
 def test_current_development_versions_includes_explicit_unreleased_companion() -> None:
     manifests = {
         "csharp/VMx.Extensions.DependencyInjection": {
@@ -160,26 +187,208 @@ def test_current_development_versions_includes_explicit_unreleased_companion() -
     assert versions == {"3.20.0", "2.1.1"}
 
 
-def test_changelog_sections_require_current_version_and_substantive_body(tmp_path: Path) -> None:
+def test_current_development_tags_are_namespace_aware() -> None:
+    rows = [
+        {
+            "spec_row": "3.22.x",
+            "csharp": ["3.22.0"],
+            "python": [],
+            "typescript": ["3.23.0"],
+            "swift": [],
+            "rust": [],
+        }
+    ]
+
+    tags = cvc.current_development_tags("3.22.0", {}, rows)
+
+    assert "spec-v3.22.0" in tags
+    assert "v3.22.0" in tags
+    assert "csharp-v3.22.0" in tags
+    assert "typescript-v3.23.0" in tags
+    assert "typescript-v3.22.0" not in tags
+
+
+@pytest.mark.parametrize(
+    ("spec_version", "manifests", "rows", "source"),
+    [
+        ("not-semver", {}, [], "spec/VERSION"),
+        ("01.2.3", {}, [], "spec/VERSION"),
+        ("1.02.3", {}, [], "spec/VERSION"),
+        ("1.2.03", {}, [], "spec/VERSION"),
+        ("\u0661.\u0662.\u0663", {}, [], "spec/VERSION"),
+        ("3.22.0", {"typescript": {"version": "next"}}, [], "typescript version"),
+        ("3.22.0", {"typescript": {"version": ""}}, [], "typescript version"),
+        (
+            "3.22.0",
+            {"typescript": {"version": "3.22.0", "min_spec_version": ""}},
+            [],
+            "typescript min-spec version",
+        ),
+        (
+            "3.22.0",
+            {"python": {"version": "3.22.0", "min_spec_version": "current"}},
+            [],
+            "python min-spec version",
+        ),
+        (
+            "3.22.0",
+            {},
+            [{"spec_row": "3.21.x", "typescript": ["bad"]}],
+            "compatibility-matrix.md row '3.21.x' typescript version",
+        ),
+    ],
+)
+def test_validate_semver_values_rejects_malformed_sources(
+    spec_version: str,
+    manifests: dict[str, dict[str, str]],
+    rows: list[dict[str, object]],
+    source: str,
+) -> None:
+    assert any(
+        source in issue for issue in cvc.validate_semver_values(spec_version, manifests, rows)
+    )
+
+
+def test_unparseable_tag_major_is_fail_closed() -> None:
+    assert cvc._tag_major("typescript-vnot-semver") >= cvc.MIN_ENFORCED_MAJOR
+
+
+def test_main_fails_closed_for_malformed_spec_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _make_repo_v3(tmp_path)
+    (tmp_path / "spec" / "VERSION").write_text("next\n", encoding="utf-8")
+    monkeypatch.setattr(cvc, "get_git_tags", lambda _root: set(_TAGS_2_6_ONLY))
+
+    assert cvc.main(["--repo-root", str(tmp_path)]) == 1
+
+
+def test_main_fails_closed_for_malformed_matrix_cell(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _make_repo_v3(tmp_path)
+    matrix = tmp_path / "compatibility-matrix.md"
+    matrix.write_text(
+        matrix.read_text(encoding="utf-8").replace("2.6.0  |", "2.6.0-beta |", 1),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(cvc, "get_git_tags", lambda _root: set(_TAGS_2_6_ONLY))
+
+    assert cvc.main(["--repo-root", str(tmp_path)]) == 1
+
+
+def test_changelog_sections_require_current_version_and_substantive_body(
+    tmp_path: Path,
+) -> None:
     (tmp_path / "langs/python").mkdir(parents=True)
     changelog = tmp_path / "langs/python/CHANGELOG.md"
     manifests = {
         "python": {"version": "3.22.0"},
     }
 
-    changelog.write_text("## [3.22.0]\n\n### Fixed\n\n- Repaired packaging.\n", encoding="utf-8")
+    changelog.write_text(
+        "## [Unreleased]\n\n## [3.22.0]\n\n### Fixed\n\n- Repaired packaging.\n",
+        encoding="utf-8",
+    )
     assert cvc.check_changelog_sections(tmp_path, manifests) == []
 
-    changelog.write_text("## [3.22.0]\n\n### Fixed\n", encoding="utf-8")
+    changelog.write_text("## [Unreleased]\n\n## [3.22.0]\n\n### Fixed\n", encoding="utf-8")
     assert cvc.check_changelog_sections(tmp_path, manifests) == [
         "  python: CHANGELOG section '3.22.0' has no substantive release notes"
     ]
 
 
-def test_csharp_companion_changelog_section_uses_package_identity(tmp_path: Path) -> None:
+@pytest.mark.parametrize("heading", ["unreleased", " Unreleased ", "Draft"])
+def test_changelog_sections_reject_malformed_bracketed_keys(tmp_path: Path, heading: str) -> None:
+    (tmp_path / "langs/python").mkdir(parents=True)
+    changelog = tmp_path / "langs/python/CHANGELOG.md"
+    changelog.write_text(
+        f"## [Unreleased]\n\n## [{heading}]\n\n- Hidden pending note.\n\n"
+        "## [3.22.0]\n\n- Current release.\n",
+        encoding="utf-8",
+    )
+    manifests = {"python": {"version": "3.22.0"}}
+
+    assert cvc.check_changelog_sections(tmp_path, manifests) == [
+        f"  {changelog}: invalid bracketed CHANGELOG section key {heading!r}"
+    ]
+
+
+def test_changelog_sections_reject_duplicate_version_keys(tmp_path: Path) -> None:
+    (tmp_path / "langs/python").mkdir(parents=True)
+    changelog = tmp_path / "langs/python/CHANGELOG.md"
+    changelog.write_text(
+        "## [Unreleased]\n\n"
+        "## [3.22.0]\n\n- First release body.\n\n"
+        "## [3.22.0]\n\n- Duplicate release body.\n",
+        encoding="utf-8",
+    )
+    manifests = {"python": {"version": "3.22.0"}}
+
+    assert cvc.check_changelog_sections(tmp_path, manifests) == [
+        f"  {changelog}: duplicate bracketed CHANGELOG section key '3.22.0'"
+    ]
+
+
+def test_changelog_sections_accept_linked_version_key(tmp_path: Path) -> None:
+    (tmp_path / "langs/python").mkdir(parents=True)
+    changelog = tmp_path / "langs/python/CHANGELOG.md"
+    changelog.write_text(
+        "## [Unreleased]\n\n"
+        "## [3.22.0](https://example.test/compare) (2026-07-23)\n\n"
+        "- Current release.\n",
+        encoding="utf-8",
+    )
+    manifests = {"python": {"version": "3.22.0"}}
+
+    assert cvc.check_changelog_sections(tmp_path, manifests) == []
+
+
+def test_changelog_sections_require_unreleased_then_current_descending_history(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "langs/python").mkdir(parents=True)
+    changelog = tmp_path / "langs/python/CHANGELOG.md"
+    manifests = {"python": {"version": "3.22.0"}}
+
+    changelog.write_text(
+        "## [99.0.0]\n\n- Hidden pending work.\n\n"
+        "## [Unreleased]\n\n"
+        "## [3.22.0]\n\n- Current release.\n",
+        encoding="utf-8",
+    )
+    assert cvc.check_changelog_sections(tmp_path, manifests) == [
+        f"  {changelog}: [Unreleased] must be the first bracketed CHANGELOG section"
+    ]
+
+    changelog.write_text(
+        "## [Unreleased]\n\n"
+        "## [99.0.0]\n\n- Hidden pending work.\n\n"
+        "## [3.22.0]\n\n- Current release.\n",
+        encoding="utf-8",
+    )
+    assert cvc.check_changelog_sections(tmp_path, manifests) == [
+        f"  {changelog}: first core version '99.0.0' != manifest version '3.22.0'"
+    ]
+
+    changelog.write_text(
+        "## [Unreleased]\n\n"
+        "## [3.22.0]\n\n- Current release.\n\n"
+        "## [3.20.0]\n\n- Older release.\n\n"
+        "## [3.21.0]\n\n- Out-of-order release.\n",
+        encoding="utf-8",
+    )
+    assert cvc.check_changelog_sections(tmp_path, manifests) == [
+        f"  {changelog}: core CHANGELOG versions are not strictly descending at '3.20.0', '3.21.0'"
+    ]
+
+
+def test_csharp_companion_changelog_section_uses_package_identity(
+    tmp_path: Path,
+) -> None:
     (tmp_path / "langs/csharp").mkdir(parents=True)
     (tmp_path / "langs/csharp/CHANGELOG.md").write_text(
-        "## [VMx.Notifications 1.2.0]\n\n- Initial package.\n",
+        "## [Unreleased]\n\n## [VMx.Notifications 1.2.0]\n\n- Initial package.\n",
         encoding="utf-8",
     )
     manifests = {
@@ -190,6 +399,65 @@ def test_csharp_companion_changelog_section_uses_package_identity(tmp_path: Path
     }
 
     assert cvc.check_changelog_sections(tmp_path, manifests) == []
+
+
+@pytest.mark.parametrize(
+    ("flavor", "package_id", "current", "newer"),
+    [
+        ("csharp", "", "3.22.1", "99.0.0"),
+        (
+            "csharp/VMx.Notifications",
+            "VMx.Notifications",
+            "1.2.0",
+            "VMx.Notifications 99.0.0",
+        ),
+        (
+            "csharp/VMx.Extensions.DependencyInjection",
+            "VMx.Extensions.DependencyInjection",
+            "2.1.1",
+            "VMx.Extensions.DependencyInjection 99.0.0",
+        ),
+    ],
+)
+def test_csharp_changelog_requires_manifest_version_first_in_each_namespace(
+    tmp_path: Path,
+    flavor: str,
+    package_id: str,
+    current: str,
+    newer: str,
+) -> None:
+    (tmp_path / "langs/csharp").mkdir(parents=True)
+    heading = f"{package_id} {current}" if package_id else current
+    changelog = tmp_path / "langs/csharp/CHANGELOG.md"
+    changelog.write_text(
+        f"## [Unreleased]\n\n## [{newer}]\n\n- Hidden pending work.\n\n"
+        f"## [{heading}]\n\n- Current release.\n",
+        encoding="utf-8",
+    )
+    manifests = {
+        flavor: {
+            "version": current,
+            **({"package_id": package_id} if package_id else {}),
+        }
+    }
+    namespace = package_id or "core"
+
+    assert cvc.check_changelog_sections(tmp_path, manifests) == [
+        f"  {changelog}: first {namespace} version '99.0.0' != manifest version {current!r}"
+    ]
+
+
+def test_csharp_changelog_rejects_package_qualified_core_alias(tmp_path: Path) -> None:
+    (tmp_path / "langs/csharp").mkdir(parents=True)
+    changelog = tmp_path / "langs/csharp/CHANGELOG.md"
+    changelog.write_text(
+        "## [Unreleased]\n\n## [VMx 3.22.1]\n\n- Ambiguous core release.\n",
+        encoding="utf-8",
+    )
+
+    assert cvc.check_changelog_sections(tmp_path, {"csharp": {"version": "3.22.1"}}) == [
+        f"  {changelog}: invalid bracketed CHANGELOG section key 'VMx 3.22.1'"
+    ]
 
 
 # ── parse_python_versions ─────────────────────────────────────────────
@@ -294,6 +562,21 @@ def test_check_typescript_example_locks_reports_stale_metadata(tmp_path: Path) -
     assert "3.21.0" in issues[0]
 
 
+def test_check_rust_example_locks_report_stale_local_package_version(tmp_path: Path) -> None:
+    lock_path = tmp_path / cvc.RUST_EXAMPLE_LOCKS[0]
+    lock_path.parent.mkdir(parents=True)
+    lock_path.write_text(
+        'version = 4\n\n[[package]]\nname = "vmx-rs"\nversion = "0.25.0"\n',
+        encoding="utf-8",
+    )
+
+    issues = cvc.check_rust_example_locks(tmp_path, "0.26.0")
+
+    assert len(issues) == 1
+    assert "0.25.0" in issues[0]
+    assert "0.26.0" in issues[0]
+
+
 # ── parse_swift_versions ──────────────────────────────────────────────
 
 
@@ -316,6 +599,10 @@ def test_parse_swift_versions(tmp_path: Path) -> None:
 # ── parse_matrix ──────────────────────────────────────────────────────
 
 
+def test_strip_html_comments_handles_multiline_comments() -> None:
+    assert cvc._strip_html_comments("3.22.1 <!-- first\nsecond --> stable") == "3.22.1  stable"
+
+
 def test_parse_matrix_basic(tmp_path: Path) -> None:
     matrix = tmp_path / "compatibility-matrix.md"
     matrix.write_text(
@@ -324,11 +611,11 @@ def test_parse_matrix_basic(tmp_path: Path) -> None:
 
             ## 1. Matrix
 
-            | spec  | csharp | python | typescript | swift          |
-            | ----- | ------ | ------ | ---------- | -------------- |
-            | 2.6.x | 2.6.0  | 2.6.1  | 2.6.0      | 2.6.0 (subset) |
-            | 2.5.x | 2.5.0  | 2.5.0  | 2.5.0      | 2.5.0 (subset) |
-            | 2.0.x | 2.0.0  | 2.0.0  | 2.0.0      | —              |
+            | spec  | csharp | python | typescript | swift          | rust |
+            | ----- | ------ | ------ | ---------- | -------------- | ---- |
+            | 2.6.x | 2.6.0  | 2.6.1  | 2.6.0      | 2.6.0 (subset) | —    |
+            | 2.5.x | 2.5.0  | 2.5.0  | 2.5.0      | 2.5.0 (subset) | —    |
+            | 2.0.x | 2.0.0  | 2.0.0  | 2.0.0      | —              | —    |
         """),
         encoding="utf-8",
     )
@@ -379,9 +666,9 @@ def test_parse_matrix_handles_version_range(tmp_path: Path) -> None:
     matrix = tmp_path / "compatibility-matrix.md"
     matrix.write_text(
         textwrap.dedent(f"""\
-            | spec  | csharp             | python             | typescript         | swift |
-            | ----- | ------------------ | ------------------ | ------------------ | ----- |
-            | 1.1.x | 1.1.0 {en} 1.2.0  | 1.1.0 {en} 1.2.0  | 1.1.0 {en} 1.2.0  | —     |
+            | spec  | csharp             | python             | typescript         | swift | rust |
+            | ----- | ------------------ | ------------------ | ------------------ | ----- | ---- |
+            | 1.1.x | 1.1.0 {en} 1.2.0  | 1.1.0 {en} 1.2.0  | 1.1.0 {en} 1.2.0  | —     | —    |
         """),
         encoding="utf-8",
     )
@@ -391,6 +678,38 @@ def test_parse_matrix_handles_version_range(tmp_path: Path) -> None:
     assert sorted(row["csharp"]) == ["1.1.0", "1.2.0"]
     assert sorted(row["python"]) == ["1.1.0", "1.2.0"]
     assert row["swift"] == []
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "# no table\n",
+        "| spec | csharp | python | typescript | swift | rust |\n"
+        "| --- | --- | --- | --- | --- | --- |\n",
+        "| spec | csharp | python | typescript | swift | rust |\n"
+        "| --- | --- | --- | --- | --- | --- |\n"
+        "| 3.22.z | 3.22.0 | — | — | — | — |\n",
+        "| spec | csharp | python | typescript | swift | rust |\n"
+        "| --- | --- | --- | --- | --- | --- |\n"
+        "| 3.22.x | 3.22.0oops | — | — | — | — |\n",
+        "| spec | csharp | python | typescript | swift | rust |\n"
+        "| --- | --- | --- | --- | --- | --- |\n"
+        "| 3.22.x | 3.22.0-beta | — | — | — | — |\n",
+        "| spec | csharp | python | typescript | swift |\n"
+        "| --- | --- | --- | --- | --- |\n"
+        "| 3.22.x | 3.22.0 | — | — | — |\n",
+        "| spec | csharp | python | typescript | swift | rust |\n"
+        "| --- | --- | --- | --- | --- | --- |\n"
+        "| 3.22.x | 3.22.0 | — | — | — | — |\n"
+        "| 3.22.x | 3.22.1 | — | — | — | — |\n",
+    ],
+)
+def test_parse_matrix_rejects_missing_or_malformed_claims(tmp_path: Path, content: str) -> None:
+    matrix = tmp_path / "compatibility-matrix.md"
+    matrix.write_text(content, encoding="utf-8")
+
+    with pytest.raises(ValueError, match="compatibility matrix"):
+        cvc.parse_matrix(matrix)
 
 
 def test_parse_matrix_marks_legacy_semantic_tag_row(tmp_path: Path) -> None:
@@ -422,9 +741,9 @@ def test_parse_matrix_dash_cell(tmp_path: Path) -> None:
     matrix = tmp_path / "compatibility-matrix.md"
     matrix.write_text(
         textwrap.dedent("""\
-            | spec  | csharp | python | typescript | swift |
-            | ----- | ------ | ------ | ---------- | ----- |
-            | 1.0.x | 1.0.0  | 1.0.0  | —          | —     |
+            | spec  | csharp | python | typescript | swift | rust |
+            | ----- | ------ | ------ | ---------- | ----- | ---- |
+            | 1.0.x | 1.0.0  | 1.0.0  | —          | —     | —    |
         """),
         encoding="utf-8",
     )
@@ -566,7 +885,13 @@ def test_find_missing_tags_skips_empty_flavor_cells() -> None:
             "swift": [],  # no swift release for 2.3.x
         }
     ]
-    tags = {"csharp-v2.3.0", "python-v2.3.0", "typescript-v2.3.0", "spec-v2.3.0", "v2.3.0"}
+    tags = {
+        "csharp-v2.3.0",
+        "python-v2.3.0",
+        "typescript-v2.3.0",
+        "spec-v2.3.0",
+        "v2.3.0",
+    }
     missing = cvc.find_missing_tags("2.6.0", {}, rows, tags)
     assert "swift-v2.3.0" not in missing
 
@@ -647,10 +972,10 @@ def _make_repo(tmp_path: Path) -> None:
 
             ## 1. Matrix
 
-            | spec  | csharp | python | typescript | swift |
-            | ----- | ------ | ------ | ---------- | ----- |
-            | 2.6.x | 2.6.0  | 2.6.0  | 2.6.0      | 2.6.0 |
-            | 2.5.x | 2.5.0  | 2.5.0  | 2.5.0      | 2.5.0 |
+            | spec  | csharp | python | typescript | swift | rust |
+            | ----- | ------ | ------ | ---------- | ----- | ---- |
+            | 2.6.x | 2.6.0  | 2.6.0  | 2.6.0      | 2.6.0 | —    |
+            | 2.5.x | 2.5.0  | 2.5.0  | 2.5.0      | 2.5.0 | —    |
         """),
         encoding="utf-8",
     )
@@ -690,7 +1015,7 @@ def _make_repo(tmp_path: Path) -> None:
     )
     for flavor in ("csharp", "python", "typescript", "swift"):
         (tmp_path / "langs" / flavor / "CHANGELOG.md").write_text(
-            "## [2.6.0]\n\n- Current release.\n",
+            "## [Unreleased]\n\n## [2.6.0]\n\n- Current release.\n",
             encoding="utf-8",
         )
 
@@ -705,7 +1030,12 @@ def test_main_exits_nonzero_when_tags_missing(tmp_path: Path, monkeypatch: objec
     monkeypatch.setattr(
         _cvc,
         "get_git_tags",
-        lambda _root: {"csharp-v2.6.0", "python-v2.6.0", "typescript-v2.6.0", "swift-v2.6.0"},
+        lambda _root: {
+            "csharp-v2.6.0",
+            "python-v2.6.0",
+            "typescript-v2.6.0",
+            "swift-v2.6.0",
+        },
     )
     rc = _cvc.main(["--repo-root", str(tmp_path)])
     assert rc == 1
@@ -800,11 +1130,11 @@ def test_main_tolerates_missing_1x_tags(tmp_path: Path, monkeypatch: object) -> 
 
             ## 1. Matrix
 
-            | spec  | csharp | python | typescript | swift |
-            | ----- | ------ | ------ | ---------- | ----- |
-            | 2.6.x | 2.6.0  | 2.6.0  | 2.6.0      | 2.6.0 |
-            | 1.1.x | 1.1.0  | 1.1.0  | 1.1.0      | —     |
-            | 1.0.x | 1.0.0  | 1.0.0  | —          | —     |
+            | spec  | csharp | python | typescript | swift | rust |
+            | ----- | ------ | ------ | ---------- | ----- | ---- |
+            | 2.6.x | 2.6.0  | 2.6.0  | 2.6.0      | 2.6.0 | —    |
+            | 1.1.x | 1.1.0  | 1.1.0  | 1.1.0      | —     | —    |
+            | 1.0.x | 1.0.0  | 1.0.0  | —          | —     | —    |
         """),
         encoding="utf-8",
     )
@@ -831,7 +1161,7 @@ def test_main_tolerates_missing_1x_tags(tmp_path: Path, monkeypatch: object) -> 
     )
     for flavor in ("csharp", "python", "typescript"):
         (tmp_path / "langs" / flavor / "CHANGELOG.md").write_text(
-            "## [2.6.0]\n\n- Current release.\n",
+            "## [Unreleased]\n\n## [2.6.0]\n\n- Current release.\n",
             encoding="utf-8",
         )
     import check_version_consistency as _cvc
@@ -861,7 +1191,12 @@ def test_main_still_fails_2x_missing_tags(tmp_path: Path, monkeypatch: object) -
     monkeypatch.setattr(
         _cvc,
         "get_git_tags",
-        lambda _root: {"csharp-v2.6.0", "python-v2.6.0", "typescript-v2.6.0", "swift-v2.6.0"},
+        lambda _root: {
+            "csharp-v2.6.0",
+            "python-v2.6.0",
+            "typescript-v2.6.0",
+            "swift-v2.6.0",
+        },
     )
     rc = _cvc.main(["--repo-root", str(tmp_path)])
     assert rc == 1
@@ -881,6 +1216,488 @@ def test_tag_version_empty_when_unparseable() -> None:
     assert cvc._tag_version("not-a-tag") == ""
 
 
+def test_release_tag_rejects_substantive_unreleased_notes(tmp_path: Path) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        "## [Unreleased]\n\n### Fixed\n\n- Not in the tagged section.\n\n"
+        "## [3.22.1]\n\n- Tagged notes.\n",
+        encoding="utf-8",
+    )
+
+    assert cvc.check_release_unreleased(changelog) == [
+        f"  {changelog}: [Unreleased] contains substantive notes at tag publication"
+    ]
+
+
+@pytest.mark.parametrize("note", ["#Pending breaking change.", "    # Pending code example."])
+def test_release_tag_treats_hash_prefixed_nonheadings_as_substantive(
+    tmp_path: Path, note: str
+) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        f"## [Unreleased]\n\n{note}\n\n## [3.22.1]\n\n- Tagged notes.\n",
+        encoding="utf-8",
+    )
+
+    assert cvc.check_release_unreleased(changelog) == [
+        f"  {changelog}: [Unreleased] contains substantive notes at tag publication"
+    ]
+
+
+def test_release_tag_accepts_empty_unreleased_section(tmp_path: Path) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        "## [Unreleased]\n\n## [3.22.1]\n\n- Tagged notes.\n",
+        encoding="utf-8",
+    )
+
+    assert cvc.check_release_unreleased(changelog) == []
+
+
+def test_release_tag_rejects_duplicate_unreleased_sections(tmp_path: Path) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        "## [Unreleased]\n\n## [Unreleased]\n\n- Hidden pending note.\n\n"
+        "## [3.22.1]\n\n- Tagged notes.\n",
+        encoding="utf-8",
+    )
+
+    assert cvc.check_release_unreleased(changelog) == [
+        f"  {changelog}: expected exactly one [Unreleased] section"
+    ]
+
+
+@pytest.mark.parametrize("indent", [" ", "  ", "   "])
+def test_release_tag_rejects_indented_duplicate_unreleased_section(
+    tmp_path: Path, indent: str
+) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        "## [Unreleased]\n\n## [3.22.1]\n\nTagged notes.\n\n"
+        f"{indent}## [Unreleased]\n\n- Hidden pending note.\n",
+        encoding="utf-8",
+    )
+
+    assert cvc.check_release_unreleased(changelog) == [
+        f"  {changelog}: expected exactly one [Unreleased] section"
+    ]
+
+
+@pytest.mark.parametrize(
+    "heading",
+    [
+        "##  [Unreleased]",
+        "##\t[Unreleased]",
+        "  ##  [Unreleased]",
+        "[Unreleased]\n---",
+        "**[Unreleased]**\n---",
+        "Draft\n---",
+        r"## \[Unreleased]",
+        "## &#91;Unreleased]",
+        "## &#x5B;Unreleased]",
+        "## **[Unreleased]**",
+        "## <span>[Unreleased]</span>",
+        "## Draft",
+        "##",
+    ],
+)
+def test_release_tag_rejects_noncanonical_markdown_h2(tmp_path: Path, heading: str) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        f"## [Unreleased]\n\n## [3.22.1]\n\nTagged notes.\n\n{heading}\n\n- Hidden pending note.\n",
+        encoding="utf-8",
+    )
+
+    first_line = heading.splitlines()[0]
+    assert cvc.check_release_unreleased(changelog) == [
+        f"  {changelog}: noncanonical bracketed CHANGELOG H2 {first_line!r}"
+    ]
+
+
+@pytest.mark.parametrize("fence", ["```", "~~~"])
+def test_release_tag_ignores_heading_examples_inside_fences(tmp_path: Path, fence: str) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        "## [Unreleased]\n\n"
+        "## [3.22.1]\n\n- Tagged notes.\n\n"
+        f"{fence}markdown\n## [Unreleased]\n## Draft\nDraft\n---\n{fence}\n",
+        encoding="utf-8",
+    )
+
+    assert cvc.check_release_unreleased(changelog) == []
+
+
+@pytest.mark.parametrize(
+    "html_block",
+    [
+        "<!--\n```\n-->",
+        "<script>\n```\n</SCRIPT>",
+    ],
+)
+def test_release_gates_do_not_open_a_fence_inside_an_html_block(
+    tmp_path: Path, html_block: str
+) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        "## [Unreleased]\n\n"
+        "### VMx\n\n"
+        "### VMx.Notifications\n\n"
+        "### VMx.Extensions.DependencyInjection\n\n"
+        "## [3.22.1]\n\n- Tagged notes.\n\n"
+        f"{html_block}\n"
+        "## [Unreleased]\n\n- Hidden pending note.\n\n"
+        "```\n",
+        encoding="utf-8",
+    )
+
+    expected = [f"  {changelog}: expected exactly one [Unreleased] section"]
+    assert cvc.check_release_unreleased(changelog) == expected
+    assert cvc.check_csharp_unreleased_structure(changelog) == expected
+    for package in cvc.CSHARP_UNRELEASED_PACKAGES:
+        assert cvc.check_release_unreleased(changelog, package) == expected
+
+
+def test_release_gates_ignore_list_contained_fenced_heading_examples(tmp_path: Path) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        "## [Unreleased]\n\n"
+        "### VMx\n\n"
+        "### VMx.Notifications\n\n"
+        "### VMx.Extensions.DependencyInjection\n\n"
+        "## [3.22.1]\n\n- Tagged notes.\n\n"
+        "- Changelog example:\n"
+        "  ## [Unreleased]\n"
+        "- ```markdown\n"
+        "  ## [Unreleased]\n"
+        "  ```\n",
+        encoding="utf-8",
+    )
+
+    assert cvc.check_release_unreleased(changelog) == []
+    assert cvc.check_csharp_unreleased_structure(changelog) == []
+    for package in cvc.CSHARP_UNRELEASED_PACKAGES:
+        assert cvc.check_release_unreleased(changelog, package) == []
+
+
+def test_empty_list_does_not_capture_a_later_indented_heading(tmp_path: Path) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        "## [Unreleased]\n\n## [3.22.1]\n\n-\n\n  ## [Unreleased]\n\n- Hidden pending note.\n",
+        encoding="utf-8",
+    )
+
+    assert cvc.check_release_unreleased(changelog) == [
+        f"  {changelog}: expected exactly one [Unreleased] section"
+    ]
+
+
+def test_release_gates_do_not_let_type7_html_interrupt_a_paragraph(tmp_path: Path) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        "## [Unreleased]\n\n"
+        "### VMx\n\n"
+        "### VMx.Notifications\n\n"
+        "### VMx.Extensions.DependencyInjection\n\n"
+        "## [3.22.1]\n\n"
+        "Tagged notes.\n"
+        "<span>\n"
+        "## [Unreleased]\n\n- Hidden pending note.\n",
+        encoding="utf-8",
+    )
+
+    expected = [f"  {changelog}: expected exactly one [Unreleased] section"]
+    assert cvc.check_release_unreleased(changelog) == expected
+    assert cvc.check_csharp_unreleased_structure(changelog) == expected
+    for package in cvc.CSHARP_UNRELEASED_PACKAGES:
+        assert cvc.check_release_unreleased(changelog, package) == expected
+
+
+@pytest.mark.parametrize(
+    "prefix",
+    [
+        "Tagged notes.\n2. paragraph continuation",
+        "Tagged notes.\n*",
+        "<span =>",
+        "</span bogus>",
+        '<x "bad">',
+        "<source attr",
+    ],
+)
+def test_release_gates_follow_commonmark_block_parsing_for_duplicate_sections(
+    tmp_path: Path, prefix: str
+) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        "## [Unreleased]\n\n"
+        "### VMx\n\n"
+        "### VMx.Notifications\n\n"
+        "### VMx.Extensions.DependencyInjection\n\n"
+        "## [3.22.1]\n\n"
+        f"{prefix}\n"
+        "   ## [Unreleased]\n\n- Hidden pending note.\n",
+        encoding="utf-8",
+    )
+
+    expected = [f"  {changelog}: expected exactly one [Unreleased] section"]
+    assert cvc.check_release_unreleased(changelog) == expected
+    assert cvc.check_csharp_unreleased_structure(changelog) == expected
+    for package in cvc.CSHARP_UNRELEASED_PACKAGES:
+        assert cvc.check_release_unreleased(changelog, package) == expected
+
+
+def test_release_gates_use_current_commonmark_html_block_tags(tmp_path: Path) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        "## [Unreleased]\n\n"
+        "### VMx\n\n"
+        "### VMx.Notifications\n\n"
+        "### VMx.Extensions.DependencyInjection\n\n"
+        "## [3.22.1]\n\n- Tagged notes.\n\n"
+        "<search attr\n"
+        "## [Unreleased]\n\n"
+        "- This heading is inside the HTML block.\n",
+        encoding="utf-8",
+    )
+
+    assert cvc.check_release_unreleased(changelog) == []
+    assert cvc.check_csharp_unreleased_structure(changelog) == []
+    for package in cvc.CSHARP_UNRELEASED_PACKAGES:
+        assert cvc.check_release_unreleased(changelog, package) == []
+
+
+@pytest.mark.parametrize(
+    "preceding_block",
+    ["### Fixed", "- Tagged note.", "> Quoted note.", "[release]: https://example.test"],
+)
+def test_release_gates_treat_dash_lines_after_blocks_as_thematic_breaks(
+    tmp_path: Path, preceding_block: str
+) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        "## [Unreleased]\n\n"
+        "### VMx\n\n"
+        "### VMx.Notifications\n\n"
+        "### VMx.Extensions.DependencyInjection\n\n"
+        "## [3.22.1]\n\n"
+        f"{preceding_block}\n---\n",
+        encoding="utf-8",
+    )
+
+    assert cvc.check_release_unreleased(changelog) == []
+    assert cvc.check_csharp_unreleased_structure(changelog) == []
+    for package in cvc.CSHARP_UNRELEASED_PACKAGES:
+        assert cvc.check_release_unreleased(changelog, package) == []
+
+
+@pytest.mark.parametrize("heading", ["unreleased", " Unreleased ", "Draft"])
+def test_release_tag_rejects_malformed_bracketed_keys(tmp_path: Path, heading: str) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        f"## [Unreleased]\n\n## [{heading}]\n\n- Hidden pending note.\n\n"
+        "## [3.22.1]\n\n- Tagged notes.\n",
+        encoding="utf-8",
+    )
+
+    assert cvc.check_release_unreleased(changelog) == [
+        f"  {changelog}: invalid bracketed CHANGELOG section key {heading!r}"
+    ]
+
+
+def test_csharp_release_tag_checks_only_selected_package_notes(tmp_path: Path) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        "## [Unreleased]\n\n"
+        "### VMx\n\n"
+        "### VMx.Notifications\n\n- Pending companion fix.\n\n"
+        "### VMx.Extensions.DependencyInjection\n\n"
+        "## [3.22.1]\n\n- Tagged notes.\n",
+        encoding="utf-8",
+    )
+
+    assert cvc.check_release_unreleased(changelog, "VMx") == []
+    assert cvc.check_release_unreleased(changelog, "VMx.Notifications") == [
+        f"  {changelog}: [Unreleased] VMx.Notifications contains substantive notes "
+        "at tag publication"
+    ]
+
+
+@pytest.mark.parametrize("package", cvc.CSHARP_UNRELEASED_PACKAGES)
+@pytest.mark.parametrize("note", ["#Pending breaking change.", "    # Pending code example."])
+def test_csharp_release_gates_treat_hash_prefixed_nonheadings_as_substantive(
+    tmp_path: Path, package: str, note: str
+) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    package_sections = "".join(
+        f"### {candidate}\n\n{note if candidate == package else ''}\n"
+        for candidate in cvc.CSHARP_UNRELEASED_PACKAGES
+    )
+    changelog.write_text(
+        f"## [Unreleased]\n\n{package_sections}\n## [3.22.1]\n\n- Tagged notes.\n",
+        encoding="utf-8",
+    )
+
+    assert cvc.check_csharp_unreleased_structure(changelog) == []
+    for candidate in cvc.CSHARP_UNRELEASED_PACKAGES:
+        expected = (
+            [
+                f"  {changelog}: [Unreleased] {candidate} contains substantive notes "
+                "at tag publication"
+            ]
+            if candidate == package
+            else []
+        )
+        assert cvc.check_release_unreleased(changelog, candidate) == expected
+
+
+def test_csharp_release_tag_requires_selected_package_heading(tmp_path: Path) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        "## [Unreleased]\n\n### VMx\n\n## [3.22.1]\n\n- Tagged notes.\n",
+        encoding="utf-8",
+    )
+
+    assert cvc.check_release_unreleased(changelog, "VMx.Extensions.DependencyInjection") == [
+        f"  {changelog}: [Unreleased] missing VMx.Extensions.DependencyInjection package section"
+    ]
+
+
+def test_csharp_unreleased_structure_rejects_uncategorized_notes(tmp_path: Path) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        "## [Unreleased]\n\n- Escapes every package gate.\n\n"
+        "### VMx\n\n"
+        "### VMx.Notifications\n\n"
+        "### VMx.Extensions.DependencyInjection\n\n"
+        "## [3.22.1]\n\n- Tagged notes.\n",
+        encoding="utf-8",
+    )
+
+    assert cvc.check_csharp_unreleased_structure(changelog) == [
+        f"  {changelog}: [Unreleased] contains notes outside a C# package section"
+    ]
+
+
+def test_csharp_unreleased_structure_requires_unique_ordered_sections(tmp_path: Path) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        "## [Unreleased]\n\n"
+        "### VMx.Notifications\n\n"
+        "### VMx\n\n"
+        "### VMx\n\n"
+        "## [3.22.1]\n\n- Tagged notes.\n",
+        encoding="utf-8",
+    )
+
+    assert cvc.check_csharp_unreleased_structure(changelog) == [
+        f"  {changelog}: [Unreleased] C# package sections must appear exactly once "
+        "in VMx, VMx.Notifications, VMx.Extensions.DependencyInjection order"
+    ]
+
+
+def test_csharp_release_gates_reject_duplicate_unreleased_sections(tmp_path: Path) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        "## [Unreleased]\n\n"
+        "### VMx\n\n"
+        "### VMx.Notifications\n\n"
+        "### VMx.Extensions.DependencyInjection\n\n"
+        "## [Unreleased]\n\n"
+        "### VMx\n\n- Hidden core fix.\n\n"
+        "### VMx.Notifications\n\n"
+        "### VMx.Extensions.DependencyInjection\n\n"
+        "## [3.22.1]\n\n- Tagged notes.\n",
+        encoding="utf-8",
+    )
+
+    expected = [f"  {changelog}: expected exactly one [Unreleased] section"]
+    assert cvc.check_csharp_unreleased_structure(changelog) == expected
+    for package in cvc.CSHARP_UNRELEASED_PACKAGES:
+        assert cvc.check_release_unreleased(changelog, package) == expected
+
+
+@pytest.mark.parametrize("heading", ["unreleased", " Unreleased ", "Draft"])
+def test_csharp_release_gates_reject_malformed_bracketed_keys(tmp_path: Path, heading: str) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        "## [Unreleased]\n\n"
+        "### VMx\n\n"
+        "### VMx.Notifications\n\n"
+        "### VMx.Extensions.DependencyInjection\n\n"
+        f"## [{heading}]\n\n- Hidden pending note.\n\n"
+        "## [3.22.1]\n\n- Tagged notes.\n",
+        encoding="utf-8",
+    )
+
+    expected = [f"  {changelog}: invalid bracketed CHANGELOG section key {heading!r}"]
+    assert cvc.check_csharp_unreleased_structure(changelog) == expected
+    for package in cvc.CSHARP_UNRELEASED_PACKAGES:
+        assert cvc.check_release_unreleased(changelog, package) == expected
+
+
+@pytest.mark.parametrize(
+    "heading",
+    [
+        "##  [Unreleased]",
+        "##\t[Unreleased]",
+        "[Unreleased]\n---",
+        "**[Unreleased]**\n---",
+        "Draft\n---",
+        r"## \[Unreleased]",
+        "## &#91;Unreleased]",
+        "## &#x5B;Unreleased]",
+        "## **[Unreleased]**",
+        "## <span>[Unreleased]</span>",
+        "## Draft",
+        "##",
+    ],
+)
+def test_csharp_release_gates_reject_noncanonical_markdown_h2(tmp_path: Path, heading: str) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        "## [Unreleased]\n\n"
+        "### VMx\n\n"
+        "### VMx.Notifications\n\n"
+        "### VMx.Extensions.DependencyInjection\n\n"
+        "## [3.22.1]\n\n- Tagged notes.\n\n"
+        f"{heading}\n\n- Hidden pending note.\n",
+        encoding="utf-8",
+    )
+
+    first_line = heading.splitlines()[0]
+    expected = [f"  {changelog}: noncanonical bracketed CHANGELOG H2 {first_line!r}"]
+    assert cvc.check_csharp_unreleased_structure(changelog) == expected
+    for package in cvc.CSHARP_UNRELEASED_PACKAGES:
+        assert cvc.check_release_unreleased(changelog, package) == expected
+
+
+@pytest.mark.parametrize(
+    "heading",
+    [" ### VMx", "  ### VMx", "   ### VMx", "### V&#77;x"],
+)
+def test_csharp_release_gates_reject_indented_duplicate_package_heading(
+    tmp_path: Path, heading: str
+) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(
+        "## [Unreleased]\n\n"
+        "### VMx\n\n"
+        "### VMx.Notifications\n\n"
+        "### VMx.Extensions.DependencyInjection\n\n"
+        f"{heading}\n\n- Hidden core fix.\n\n"
+        "## [3.22.1]\n\n- Tagged notes.\n",
+        encoding="utf-8",
+    )
+
+    expected = [
+        f"  {changelog}: [Unreleased] C# package sections must appear exactly once "
+        "in VMx, VMx.Notifications, VMx.Extensions.DependencyInjection order"
+    ]
+    assert cvc.check_csharp_unreleased_structure(changelog) == expected
+    assert cvc.check_release_unreleased(changelog, "VMx") == [
+        f"  {changelog}: [Unreleased] expected exactly one VMx package section"
+    ]
+
+
 # ── in-development (== spec/VERSION) exemption ────────────────────────
 
 
@@ -896,10 +1713,10 @@ def _make_repo_v3(tmp_path: Path) -> None:
 
             ## 1. Matrix
 
-            | spec  | csharp | python | typescript | swift          |
-            | ----- | ------ | ------ | ---------- | -------------- |
-            | 3.0.x | 3.0.0  | 3.0.0  | 3.0.0      | 3.0.0 (subset) |
-            | 2.6.x | 2.6.0  | 2.6.0  | 2.6.0      | 2.6.0          |
+            | spec  | csharp | python | typescript | swift          | rust |
+            | ----- | ------ | ------ | ---------- | -------------- | ---- |
+            | 3.0.x | 3.0.0  | 3.0.0  | 3.0.0      | 3.0.0 (subset) | —    |
+            | 2.6.x | 2.6.0  | 2.6.0  | 2.6.0      | 2.6.0          | —    |
         """),
         encoding="utf-8",
     )
@@ -930,9 +1747,7 @@ def _make_repo_v3(tmp_path: Path) -> None:
         'static let current = "3.0.0"\nstatic let minSpecVersion = "3.0.0"\n',
         encoding="utf-8",
     )
-    notes = "\n".join(
-        f"## [{version}]\n\n- Current release.\n" for version in ("3.0.0", "3.0.1", "3.1.0")
-    )
+    notes = "## [Unreleased]\n\n## [3.0.0]\n\n- Current release.\n"
     for flavor in ("csharp", "python", "typescript", "swift"):
         (tmp_path / "langs" / flavor / "CHANGELOG.md").write_text(notes, encoding="utf-8")
 
@@ -974,6 +1789,12 @@ def test_main_exempts_independently_versioned_current_flavor(
     )
     package_json = tmp_path / "langs" / "typescript" / "package.json"
     package_json.write_text(json.dumps({"version": "3.1.0"}), encoding="utf-8")
+    (tmp_path / "langs" / "typescript" / "CHANGELOG.md").write_text(
+        "## [Unreleased]\n\n"
+        "## [3.1.0]\n\n- Current release.\n\n"
+        "## [3.0.0]\n\n- Earlier source history.\n",
+        encoding="utf-8",
+    )
     import check_version_consistency as _cvc
 
     monkeypatch.setattr(_cvc, "get_git_tags", lambda _root: set(_TAGS_2_6_ONLY))
@@ -997,6 +1818,12 @@ def test_main_exempts_untagged_source_history_in_current_row(
     csproj = tmp_path / "langs" / "csharp" / "src" / "VMx" / "VMx.csproj"
     csproj.write_text(
         "<Version>3.0.1</Version><MinSpecVersion>3.0.0</MinSpecVersion>",
+        encoding="utf-8",
+    )
+    (tmp_path / "langs" / "csharp" / "CHANGELOG.md").write_text(
+        "## [Unreleased]\n\n"
+        "## [3.0.1]\n\n- Current release.\n\n"
+        "## [3.0.0]\n\n- Earlier source history.\n",
         encoding="utf-8",
     )
     import check_version_consistency as _cvc

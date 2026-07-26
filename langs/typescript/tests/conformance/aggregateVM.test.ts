@@ -4,6 +4,7 @@ import {
   MessageHub,
   RxDispatcher,
   ComponentVM,
+  ComponentVMBase,
   ComponentVMOf,
   CompositeVM,
   AggregateVM1,
@@ -15,12 +16,34 @@ import {
   ForwardingComponentVM,
   PropertyChangedMessage,
   ConstructionStatusChangedMessage,
+  ViewModelType,
 } from "../../src/index.js";
 
 function makeHub() { return new MessageHub(); }
 function makeDisp() { return RxDispatcher.immediate(); }
 function makeChild(hub: MessageHub, name: string) {
   return ComponentVM.builder().name(name).services(hub, makeDisp()).build();
+}
+
+class ReentrantDisposeVM extends ComponentVMBase {
+  readonly #onDispose: () => void;
+
+  constructor(name: string, hub: MessageHub, onDispose: () => void) {
+    super({ name, hint: "", hub, dispatcher: makeDisp() });
+    this.#onDispose = onDispose;
+  }
+
+  override get type(): ViewModelType { return ViewModelType.Component; }
+  protected override _onDispose(): void { this.#onDispose(); }
+}
+
+class ThrowingDisposeVM extends ComponentVMBase {
+  constructor(name: string, hub: MessageHub) {
+    super({ name, hint: "", hub, dispatcher: makeDisp() });
+  }
+
+  override get type(): ViewModelType { return ViewModelType.Component; }
+  protected override _onDispose(): void { throw new Error("first disposal failure"); }
 }
 
 // ---------------------------------------------------------------------------
@@ -370,7 +393,130 @@ describe("AggregateVM reconstruct disposes previous slot", () => {
   );
 });
 
-describe("Aggregate fixed-slot ownership", () => {
+describe("AGG-007", () => {
+  it("cleans every old slot and candidate after a disposal failure", () => {
+    const hub = makeHub();
+    const candidate1 = makeChild(hub, "candidate-1");
+    const candidate2 = makeChild(hub, "candidate-2");
+    const previous2 = makeChild(hub, "old-2");
+    let calls1 = 0;
+    let calls2 = 0;
+    const aggregate = AggregateVM2.builder<ComponentVMBase, ComponentVMBase>()
+      .name("aggregate").services(hub, makeDisp())
+      .component1(() => ++calls1 === 1
+        ? new ThrowingDisposeVM("old-1", hub)
+        : candidate1)
+      .component2(() => ++calls2 === 1 ? previous2 : candidate2)
+      .build();
+    aggregate.construct();
+    const changes: string[] = [];
+    aggregate.propertyChanged.subscribe((name) => changes.push(name));
+
+    expect(() => aggregate.reconstruct()).toThrow("first disposal failure");
+
+    expect(previous2.status).toBe(ConstructionStatus.Disposed);
+    expect(aggregate.status).toBe(ConstructionStatus.Destructed);
+    expect(aggregate.component1).toBe(candidate1);
+    expect(aggregate.component2).toBe(candidate2);
+    expect(candidate1.status).toBe(ConstructionStatus.Destructed);
+    expect(candidate2.status).toBe(ConstructionStatus.Destructed);
+    expect(changes.filter((name) => name.startsWith("component"))).toEqual([
+      "component1",
+      "component2",
+    ]);
+  });
+
+  it.each([1, 2])(
+    "AggregateVM%d aborts replacement when previous disposal disposes the parent",
+    (arity) => {
+      const hub = makeHub();
+      const candidates = [
+        makeChild(hub, "candidate-1"),
+        makeChild(hub, "candidate-2"),
+      ];
+      const previous: ComponentVMBase[] = [];
+      let disposeAggregate = () => {};
+      let calls1 = 0;
+      let calls2 = 0;
+      const firstFactory = () => {
+        if (++calls1 === 1) {
+          const old = new ReentrantDisposeVM("old-1", hub, () => disposeAggregate());
+          previous.push(old);
+          return old;
+        }
+        return candidates[0]!;
+      };
+      const secondFactory = () => {
+        if (++calls2 === 1) {
+          const old = makeChild(hub, "old-2");
+          previous.push(old);
+          return old;
+        }
+        return candidates[1]!;
+      };
+
+      if (arity === 1) {
+        const aggregate = AggregateVM1.builder<ComponentVMBase>()
+          .name("aggregate").services(hub, makeDisp())
+          .component1(firstFactory).build();
+        disposeAggregate = () => aggregate.dispose();
+        aggregate.construct();
+
+        aggregate.reconstruct();
+
+        expect(aggregate.status).toBe(ConstructionStatus.Disposed);
+        expect(aggregate.components()).toEqual(previous);
+      } else {
+        const aggregate = AggregateVM2.builder<ComponentVMBase, ComponentVMBase>()
+          .name("aggregate").services(hub, makeDisp())
+          .component1(firstFactory).component2(secondFactory).build();
+        disposeAggregate = () => aggregate.dispose();
+        aggregate.construct();
+
+        aggregate.reconstruct();
+
+        expect(aggregate.status).toBe(ConstructionStatus.Disposed);
+        expect(aggregate.components()).toEqual(previous);
+      }
+      expect(candidates.slice(0, arity).map((candidate) => candidate.status))
+        .toEqual(Array.from({ length: arity }, () => ConstructionStatus.Disposed));
+    },
+  );
+
+  it("rejects reentrant attachment of a replacement candidate during disposal", () => {
+    const hub = makeHub();
+    const candidate = makeChild(hub, "candidate");
+    const destination = CompositeVM.builder<ComponentVMBase>()
+      .name("destination")
+      .services(hub, makeDisp())
+      .children(() => [])
+      .build();
+    destination.construct();
+    let admissionError: unknown;
+    let calls = 0;
+    const aggregate = AggregateVM1.builder<ComponentVMBase>()
+      .name("aggregate")
+      .services(hub, makeDisp())
+      .component1(() => ++calls === 1
+        ? new ReentrantDisposeVM("old", hub, () => {
+          try {
+            destination.add(candidate);
+          } catch (error) {
+            admissionError = error;
+          }
+        })
+        : candidate)
+      .build();
+    aggregate.construct();
+
+    aggregate.reconstruct();
+
+    expect(admissionError).toBeInstanceOf(Error);
+    expect((admissionError as Error).message).toMatch(/transaction is already in progress/);
+    expect(destination.snapshot()).toEqual([]);
+    expect(aggregate.component1).toBe(candidate);
+  });
+
   it("rejects forwarding aliases of one canonical component", () => {
     const hub = makeHub();
     const inner = ComponentVMOf.builder<string>()
@@ -426,6 +572,22 @@ describe("Aggregate fixed-slot ownership", () => {
     expect(() => aggregate.construct()).toThrow(/already owned/);
     expect(composite.snapshot()).toEqual([child]);
     expect(aggregate.component1).toBeNull();
+  });
+
+  it("rejects its current slot on reconstruct without disposing it", () => {
+    const hub = makeHub();
+    const child = makeChild(hub, "child");
+    const aggregate = AggregateVM1.builder<ComponentVM>()
+      .name("aggregate")
+      .services(hub, makeDisp())
+      .component1(() => child)
+      .build();
+    aggregate.construct();
+
+    expect(() => aggregate.reconstruct()).toThrow(/already owned/);
+    expect(aggregate.component1).toBe(child);
+    expect(child.status).toBe(ConstructionStatus.Destructed);
+    expect(child._parent).not.toBeNull();
   });
 
   it("does not allow a mutable container to transfer a fixed aggregate slot", () => {

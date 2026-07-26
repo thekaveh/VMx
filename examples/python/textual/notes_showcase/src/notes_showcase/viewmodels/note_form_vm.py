@@ -16,9 +16,6 @@ from typing import cast
 
 from reactivex import Observable
 from reactivex.abc import DisposableBase
-
-from notes_showcase.models.note_model import NoteModel
-from notes_showcase.models.note_repository import INoteRepository
 from vmx import (
     AsyncRelayCommand,
     ComponentVM,
@@ -37,6 +34,9 @@ from vmx import (
 from vmx.messages.protocols import Message
 from vmx.notifications import INotificationHub, Notification, NotificationType
 from vmx.services.dispatcher import Dispatcher
+
+from notes_showcase.models.note_model import NoteModel
+from notes_showcase.models.note_repository import INoteRepository
 
 _EMPTY_NOTE = NoteModel(
     id="",
@@ -144,9 +144,7 @@ class NoteFormVM(ComponentVM, IReconstructable):
         # bindings on every change notification, so their no-op-fallback
         # pattern is safe there; here
         # the property must hand out one object for the VM's lifetime.
-        self._deny_command: RelayCommand = (
-            RelayCommand.builder().task(self._deny_current).build()
-        )
+        self._deny_command: RelayCommand = RelayCommand.builder().task(self._deny_current).build()
         self._show_edit_mode_command = (
             RelayCommand.builder()
             .predicate(lambda: not self.is_edit_mode)
@@ -393,9 +391,7 @@ class NoteFormVM(ComponentVM, IReconstructable):
             persister=self._persist,
             hub=self._hub,
             strict=True,
-            validators={
-                "title": lambda m: _TITLE_REQUIRED if not m.title.strip() else None
-            },
+            validators={"title": lambda m: _TITLE_REQUIRED if not m.title.strip() else None},
         )
         form.on_approved.subscribe(on_next=self._handle_approved)
         self._form = form
@@ -584,9 +580,7 @@ class NoteFormVMBuilder:
     def hint(self, value: str) -> NoteFormVMBuilder:
         return dataclasses.replace(self, _hint=value)
 
-    def services(
-        self, hub: MessageHubProto[Message], dispatcher: Dispatcher
-    ) -> NoteFormVMBuilder:
+    def services(self, hub: MessageHubProto[Message], dispatcher: Dispatcher) -> NoteFormVMBuilder:
         return dataclasses.replace(self, _hub=hub, _dispatcher=dispatcher)
 
     def repository(self, repo: INoteRepository) -> NoteFormVMBuilder:
@@ -601,11 +595,7 @@ class NoteFormVMBuilder:
         if self._repo is None:
             raise ValueError("repository is required")
         hub = self._hub if self._hub is not None else MessageHub[Message]()
-        dispatcher = (
-            self._dispatcher
-            if self._dispatcher is not None
-            else RxDispatcher.immediate()
-        )
+        dispatcher = self._dispatcher if self._dispatcher is not None else RxDispatcher.immediate()
         return NoteFormVM(
             name=self._name,
             hint=self._hint,

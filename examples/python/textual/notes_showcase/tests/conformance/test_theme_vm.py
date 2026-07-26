@@ -15,7 +15,6 @@ from typing import cast
 
 import pytest
 from reactivex.scheduler import ImmediateScheduler
-
 from vmx import MessageHub, RxDispatcher
 from vmx.messages.protocols import Message
 
@@ -36,16 +35,12 @@ def _build(
     host_theme_provider: object = None,
 ) -> ThemeVM:
     hub = MessageHub[Message]()
-    dispatcher = RxDispatcher(
-        foreground=ImmediateScheduler(), background=ImmediateScheduler()
-    )
+    dispatcher = RxDispatcher(foreground=ImmediateScheduler(), background=ImmediateScheduler())
     builder = ThemeVM.builder().name("theme").initial(initial).services(hub, dispatcher)
     if host_theme_provider is not None:
         from collections.abc import Callable
 
-        builder = builder.host_theme_provider(
-            cast(Callable[[], ThemeModel], host_theme_provider)
-        )
+        builder = builder.host_theme_provider(cast(Callable[[], ThemeModel], host_theme_provider))
     vm = builder.build()
     vm.construct()
     return vm

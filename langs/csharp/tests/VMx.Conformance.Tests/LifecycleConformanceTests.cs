@@ -3,6 +3,7 @@ using VMx.Components;
 using VMx.Composites;
 using VMx.Lifecycle;
 using VMx.Messages;
+using VMx.Services;
 using VMx.Tests.Helpers;
 using Xunit;
 
@@ -493,6 +494,117 @@ public class LifecycleConformanceTests
         dtorVm.Destruct();
         dtorVm.Status.Should().Be(ConstructionStatus.Destructed,
             "the VM is recoverable after the rollback");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Status_Publication_Failures_Roll_Back_And_Remain_Recoverable(bool background)
+    {
+        using var hub = new TestHub();
+        ConstructionStatus? target = ConstructionStatus.Constructing;
+        var constructError = new InvalidOperationException("constructing publication");
+        Exception failure = constructError;
+        using var subscription = hub.Messages.Subscribe(message =>
+        {
+            if (message is ConstructionStatusChangedMessage status && status.Status == target)
+            {
+                target = null;
+                throw failure;
+            }
+        });
+        var vm = ComponentVM<string>.Builder()
+            .Name("publication-fault")
+            .Services(hub, RxDispatcher.Immediate())
+            .Background(background)
+            .Model("m")
+            .Build();
+
+        Assert.Same(constructError, Assert.Throws<InvalidOperationException>(vm.Construct));
+        vm.Status.Should().Be(ConstructionStatus.Destructed);
+        vm.Construct();
+
+        var destructError = new InvalidOperationException("destructing publication");
+        target = ConstructionStatus.Destructing;
+        failure = destructError;
+        Assert.Same(destructError, Assert.Throws<InvalidOperationException>(vm.Destruct));
+        vm.Status.Should().Be(ConstructionStatus.Constructed);
+    }
+
+    [Fact]
+    public void Reconstruct_Second_Constructing_Publication_Failure_Restores_Destructed()
+    {
+        using var hub = new TestHub();
+        var armed = false;
+        var failure = new InvalidOperationException("second constructing publication");
+        using var subscription = hub.Messages.Subscribe(message =>
+        {
+            if (armed &&
+                message is ConstructionStatusChangedMessage status &&
+                status.Status == ConstructionStatus.Constructing)
+            {
+                armed = false;
+                throw failure;
+            }
+        });
+        var vm = ComponentVM<string>.Builder()
+            .Name("reconstruct-publication-fault")
+            .Services(hub, new TestDispatcher())
+            .Model("m")
+            .Build();
+        vm.Construct();
+        var destructFailure = new InvalidOperationException(
+            "reconstruct destructing publication");
+        using var destructSubscription = hub.Messages.Subscribe(message =>
+        {
+            if (message is ConstructionStatusChangedMessage status &&
+                status.Status == ConstructionStatus.Destructing)
+            {
+                throw destructFailure;
+            }
+        });
+        Assert.Same(
+            destructFailure,
+            Assert.Throws<InvalidOperationException>(vm.Reconstruct));
+        vm.Status.Should().Be(ConstructionStatus.Constructed);
+        destructSubscription.Dispose();
+
+        armed = true;
+
+        Assert.Same(failure, Assert.Throws<InvalidOperationException>(vm.Reconstruct));
+        vm.Status.Should().Be(ConstructionStatus.Destructed);
+        vm.Construct();
+        vm.Status.Should().Be(ConstructionStatus.Constructed);
+    }
+
+    [Fact]
+    public async Task Construct_Publication_Failure_Faults_Joined_Waiter_With_Same_Error()
+    {
+        using var hub = new TestHub();
+        var failure = new InvalidOperationException("constructing publication");
+        Task? joined = null;
+        ComponentVM<string>? vm = null;
+        using var subscription = hub.Messages.Subscribe(message =>
+        {
+            if (message is ConstructionStatusChangedMessage status &&
+                status.Status == ConstructionStatus.Constructing)
+            {
+                joined = ((IComponentVMInternals)vm!).ConstructOrJoinAsync();
+                throw failure;
+            }
+        });
+        vm = ComponentVM<string>.Builder()
+            .Name("publication-fault-waiter")
+            .Services(hub, new TestDispatcher())
+            .Model("m")
+            .Build();
+
+        Assert.Same(failure, Assert.Throws<InvalidOperationException>(vm.Construct));
+        joined.Should().NotBeNull();
+        var joinedFailure = await Assert.ThrowsAsync<InvalidOperationException>(
+            async () => await joined!);
+        Assert.Same(failure, joinedFailure);
+        vm.Status.Should().Be(ConstructionStatus.Destructed);
     }
 
     private sealed class FixtureRoot

@@ -94,6 +94,8 @@ export abstract class HierarchicalVM<
   #children: TVM[] | null = null;
   #pathCache: readonly TVM[] | null = null;
   #parkedAttachItems: TVM[] = [];
+  #materializingChildren = false;
+  #materializationReentered = false;
 
   readonly #model: TModel;
 
@@ -230,6 +232,7 @@ export abstract class HierarchicalVM<
    * a TreeStructureChangedMessage(Added) on the hub.
    */
   addChild(child: TVM): void {
+    this.#rejectStructuralReentry();
     // Runtime guard: callers may pass null/undefined from untyped contexts.
     if ((child as unknown) == null) throw new Error("child must not be null");
     this.#attachChild(child, false);
@@ -240,6 +243,7 @@ export abstract class HierarchicalVM<
    * a TreeStructureChangedMessage(Removed) on the hub.
    */
   removeChild(child: TVM): void {
+    this.#rejectStructuralReentry();
     // Runtime guard: callers may pass null/undefined from untyped contexts.
     if ((child as unknown) == null) throw new Error("child must not be null");
     const list = this.#requireChildren();
@@ -263,6 +267,7 @@ export abstract class HierarchicalVM<
    * a TreeStructureChangedMessage(Reparented) on the hub.
    */
   reparentChild(child: TVM): void {
+    this.#rejectStructuralReentry();
     // Runtime guard: callers may pass null/undefined from untyped contexts.
     if ((child as unknown) == null) throw new Error("child must not be null");
     this.#attachChild(child, true);
@@ -332,6 +337,7 @@ export abstract class HierarchicalVM<
     items: Iterable<TVM>,
     options: BatchAttachOptions<TVM, TKey>,
   ): BatchAttachResult<TVM> {
+    this.#rejectStructuralReentry();
     const root = this.#treeRoot();
     const incoming = Array.from(items);
     const parked = [...root.#parkedAttachItems];
@@ -462,6 +468,7 @@ export abstract class HierarchicalVM<
    * no-op.
    */
   invalidateChildren(): void {
+    this.#rejectStructuralReentry();
     if (this.#children === null) return;
     for (const child of this.#children) {
       if (child.#hierarchicalParent !== this.#self) continue;
@@ -481,6 +488,7 @@ export abstract class HierarchicalVM<
 
   /** Drops cached children for this node and all materialized descendants. */
   invalidateSubtree(): void {
+    this.#rejectStructuralReentry();
     if (this.#children === null) return;
     for (const child of [...this.#children]) {
       child.invalidateSubtree();
@@ -496,13 +504,64 @@ export abstract class HierarchicalVM<
   // ── Private helpers ──────────────────────────────────────────────────────
 
   #materializeChildren(): TVM[] {
-    const children = Array.from(
-      this.#childrenFactory(this.#self),
-    );
-    for (const child of children) {
-      child.#hierarchicalParent = this.#self;
+    if (this.#materializingChildren) {
+      this.#materializationReentered = true;
+      throw new Error("children factory re-entered structural materialization");
     }
-    return children;
+    this.#materializingChildren = true;
+    this.#materializationReentered = false;
+    try {
+      const children = Array.from(
+        this.#childrenFactory(this.#self),
+      );
+      if (this.#didMaterializationReenter()) {
+        throw new Error("children factory re-entered a structural operation");
+      }
+      const seen = new Set<TVM>();
+      const ancestors = new Set<TVM>();
+      let ancestor: TVM | null = this.#self;
+      while (ancestor !== null) {
+        ancestors.add(ancestor);
+        ancestor = ancestor.#hierarchicalParent;
+      }
+      for (const child of children) {
+        const candidate: unknown = child;
+        if (candidate == null) {
+          throw new Error("children factory returned null or undefined");
+        }
+        if (seen.has(child)) {
+          throw new Error("children factory returned duplicate child identity");
+        }
+        seen.add(child);
+        if (ancestors.has(child)) {
+          throw new Error("children factory returned this node or one of its ancestors");
+        }
+        if (child.#hierarchicalParent !== null) {
+          throw new Error("children factory returned an already-parented child");
+        }
+      }
+      for (const child of children) {
+        child.#hierarchicalParent = this.#self;
+        child.#pathCache = null;
+        child.#invalidatePathCacheDescendants();
+      }
+      return children;
+    } finally {
+      this.#materializingChildren = false;
+      this.#materializationReentered = false;
+    }
+  }
+
+  #rejectStructuralReentry(): void {
+    if (!this.#materializingChildren) return;
+    this.#materializationReentered = true;
+    throw new Error(
+      "children factory re-entered a structural operation on its receiver",
+    );
+  }
+
+  #didMaterializationReenter(): boolean {
+    return this.#materializationReentered;
   }
 
   #treeRoot(): TVM {

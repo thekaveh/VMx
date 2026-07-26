@@ -1,4 +1,5 @@
 using VMx.Components;
+using VMx.Lifecycle;
 
 namespace VMx.Aggregates;
 
@@ -38,6 +39,47 @@ internal sealed class AggregateParent(IComponentVM owner, IAggregateSlots slots)
 
 internal static class AggregateOwnership
 {
+    internal static bool Replace(
+        IParentCompositeVM parent,
+        IComponentVM?[] previous,
+        IComponentVM[] next,
+        Action assign,
+        Action notifyCommittedError)
+    {
+        using var reservation = ComponentOwnership.BeginExclusiveReservationBatch(next);
+        Validate(parent, next);
+        System.Runtime.ExceptionServices.ExceptionDispatchInfo? firstError = null;
+        foreach (var child in previous)
+        {
+            try { child?.Dispose(); }
+            catch (Exception error)
+            {
+                firstError ??= System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error);
+            }
+        }
+        if (parent.Owner?.Status == ConstructionStatus.Disposed)
+        {
+            foreach (var child in next)
+            {
+                try { child.Dispose(); }
+                catch (Exception error)
+                {
+                    firstError ??= System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error);
+                }
+            }
+            firstError?.Throw();
+            return false;
+        }
+        assign();
+        Commit(parent, previous, next);
+        if (firstError is not null)
+        {
+            notifyCommittedError();
+            firstError.Throw();
+        }
+        return true;
+    }
+
     internal static void Validate(IParentCompositeVM parent, params IComponentVM[] children)
     {
         for (var index = 0; index < children.Length; index++)
@@ -49,8 +91,7 @@ internal static class AggregateOwnership
                 throw new InvalidOperationException(
                     "Aggregate factories returned the same canonical component identity more than once.");
             var existingParent = child.GetParent();
-            if (existingParent is not null &&
-                !(ReferenceEquals(existingParent, parent) && parent.ContainsChild(child)))
+            if (existingParent is not null)
                 throw new InvalidOperationException(
                     $"Cannot populate aggregate slot with '{child.Name}': it already has a parent.");
 

@@ -27,6 +27,8 @@ import dataclasses
 from collections.abc import Awaitable, Callable
 from concurrent.futures import Future
 from threading import RLock
+from types import TracebackType
+from typing import Literal, TypeVar
 
 import reactivex as rx
 from reactivex import operators as ops
@@ -34,6 +36,42 @@ from reactivex.subject import Subject
 
 from vmx._asyncio_runner import submit_background
 from vmx.commands.relay_command import _run_disposal_steps
+
+TEmission = TypeVar("TEmission")
+CancellationOrigin = Literal["command", "external"]
+
+
+class _ExecutionWaiter(asyncio.Future[None]):
+    """Bridge inner completion while observing caller cancellation synchronously."""
+
+    def __init__(
+        self,
+        inner: asyncio.Task[None],
+        on_external_cancel: Callable[[], None],
+    ) -> None:
+        super().__init__()
+        self._inner = inner
+        self._on_external_cancel = on_external_cancel
+        inner.add_done_callback(self._complete_from_inner)
+
+    def cancel(self, msg: object | None = None) -> bool:
+        self._on_external_cancel()
+        self._inner.cancel()
+        return super().cancel(msg)
+
+    def _complete_from_inner(self, inner: asyncio.Task[None]) -> None:
+        if self.done():
+            if not inner.cancelled():
+                inner.exception()
+            return
+        if inner.cancelled():
+            self.set_exception(asyncio.CancelledError())
+            return
+        error = inner.exception()
+        if error is not None:
+            self.set_exception(error)
+        else:
+            self.set_result(None)
 
 
 class AsyncRelayCommand:
@@ -54,13 +92,18 @@ class AsyncRelayCommand:
         self._predicate = predicate
         self._throw_on_cancel = throw_on_cancel
         self._gate = RLock()
+        self._can_execute_changed_delivery_gate = RLock()
+        self._errors_delivery_gate = RLock()
         self._can_execute_changed_subject: Subject[None] = Subject()
         self._errors: Subject[BaseException] = Subject()
         self._current_task: asyncio.Task[None] | None = None
         self._current_loop: asyncio.AbstractEventLoop | None = None
-        self._cancel_requested = False
+        self._cancellation_origin: CancellationOrigin | None = None
+        self._admission_epoch = 0
         self._is_executing = False
         self._disposed = False
+        self._active_emissions = 0
+        self._terminal_pending = False
         self._subscriptions = [
             t.subscribe(lambda _: self.raise_can_execute_changed()) for t in triggers
         ]
@@ -106,41 +149,60 @@ class AsyncRelayCommand:
         with self._gate:
             if self._disposed or self._is_executing:
                 return
+            admission_epoch = self._admission_epoch
+        allowed = True
         if self._predicate is not None:
             try:
-                if not self._predicate():
-                    return
+                allowed = self._predicate()
             except Exception:
-                return
+                allowed = False
         with self._gate:
-            if self._disposed or self._is_executing:
+            if (
+                not allowed
+                or self._disposed
+                or self._is_executing
+                or self._admission_epoch != admission_epoch
+            ):
                 return
-            self._cancel_requested = False
+            self._cancellation_origin = None
             self._is_executing = True
-        self.raise_can_execute_changed()
+            self._admission_epoch += 1
+        first_error: tuple[BaseException, TracebackType | None] | None = None
         try:
-            inner: asyncio.Task[None] = asyncio.ensure_future(task_factory())
-            with self._gate:
-                self._current_task = inner
-                self._current_loop = asyncio.get_running_loop()
-                cancel_immediately = self._cancel_requested or self._disposed
-            if cancel_immediately:
-                inner.cancel()
-            await inner
-        except asyncio.CancelledError:
-            # Non-throwing default (DIA-007 alignment): swallow only the
-            # cancellation WE requested via cancel(); re-raise an external one so
-            # asyncio cancellation semantics are preserved.
-            with self._gate:
-                cancel_requested = self._cancel_requested
-            if self._throw_on_cancel or not cancel_requested:
-                raise
+            self.raise_can_execute_changed()
+            try:
+                inner: asyncio.Task[None] = asyncio.ensure_future(task_factory())
+                with self._gate:
+                    self._current_task = inner
+                    self._current_loop = asyncio.get_running_loop()
+                    cancel_immediately = self._cancellation_origin is not None or self._disposed
+                if cancel_immediately:
+                    inner.cancel()
+                await _ExecutionWaiter(inner, self._mark_external_cancellation)
+            except asyncio.CancelledError:
+                # Non-throwing default (DIA-007 alignment): swallow only the
+                # cancellation WE requested via cancel(); re-raise an external one so
+                # asyncio cancellation semantics are preserved.
+                with self._gate:
+                    cancellation_origin = self._cancellation_origin
+                if self._throw_on_cancel or cancellation_origin != "command":
+                    raise
+        except BaseException as error:
+            first_error = (error, error.__traceback__)
         finally:
             with self._gate:
                 self._is_executing = False
                 self._current_task = None
                 self._current_loop = None
-            self.raise_can_execute_changed()
+                self._cancellation_origin = None
+            try:
+                self.raise_can_execute_changed()
+            except BaseException as error:
+                if first_error is None:
+                    first_error = (error, error.__traceback__)
+        if first_error is not None:
+            primary_exception, traceback = first_error
+            raise primary_exception.with_traceback(traceback)
 
     def execute(self, parameter: object = None) -> None:
         """Fire-and-forget. Schedules ``execute_async`` on the current event loop.
@@ -160,7 +222,10 @@ class AsyncRelayCommand:
     def cancel(self) -> None:
         """Request cancellation of the in-flight task; a no-op when idle."""
         with self._gate:
-            self._cancel_requested = True
+            if not self._is_executing:
+                return
+            if self._cancellation_origin is None:
+                self._cancellation_origin = "command"
             task = self._current_task
             loop = self._current_loop
         if task is not None and not task.done():
@@ -168,6 +233,11 @@ class AsyncRelayCommand:
                 loop.call_soon_threadsafe(task.cancel)
             else:
                 task.cancel()
+
+    def _mark_external_cancellation(self) -> None:
+        with self._gate:
+            if self._cancellation_origin is None:
+                self._cancellation_origin = "external"
 
     @property
     def can_execute_changed(self) -> rx.Observable[None]:
@@ -197,10 +267,40 @@ class AsyncRelayCommand:
             self._emit_error(exc)
 
     def _emit_error(self, exc: BaseException) -> None:
+        self._emit_subject(self._errors, exc, self._errors_delivery_gate)
+
+    def _emit_subject(
+        self,
+        subject: Subject[TEmission],
+        value: TEmission,
+        delivery_gate: RLock,
+    ) -> None:
+        """Serialize delivery with disposal and defer a reentrant terminal."""
+        delivery_error: BaseException | None = None
+        tear_down = False
         with self._gate:
             if self._disposed:
                 return
-        self._errors.on_next(exc)
+            self._active_emissions += 1
+        try:
+            with delivery_gate:
+                subject.on_next(value)
+        except BaseException as error:
+            delivery_error = error
+        finally:
+            with self._gate:
+                self._active_emissions -= 1
+                if self._active_emissions == 0 and self._terminal_pending:
+                    self._terminal_pending = False
+                    tear_down = True
+        if tear_down:
+            try:
+                self._tear_down()
+            except BaseException:
+                if delivery_error is None:
+                    raise
+        if delivery_error is not None:
+            raise delivery_error
 
     def raise_can_execute_changed(self) -> None:
         """Emit one re-evaluation notification without invoking user delegates.
@@ -208,10 +308,11 @@ class AsyncRelayCommand:
         Valid while idle or in flight; repeated calls are additive. Calls after
         :meth:`dispose` are no-ops.
         """
-        with self._gate:
-            if self._disposed:
-                return
-        self._can_execute_changed_subject.on_next(None)
+        self._emit_subject(
+            self._can_execute_changed_subject,
+            None,
+            self._can_execute_changed_delivery_gate,
+        )
 
     def dispose(self) -> None:
         """Cancel any in-flight task, release subscriptions, complete the subjects.
@@ -222,6 +323,13 @@ class AsyncRelayCommand:
             if self._disposed:
                 return
             self._disposed = True
+            if self._active_emissions:
+                self._terminal_pending = True
+                return
+        self._tear_down()
+
+    def _tear_down(self) -> None:
+        """Run every terminal step, preserving the first failure."""
         _run_disposal_steps(
             self.cancel,
             *(sub.dispose for sub in self._subscriptions),

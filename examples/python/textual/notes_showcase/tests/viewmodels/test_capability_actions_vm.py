@@ -7,7 +7,6 @@ from datetime import datetime, timezone
 
 import pytest
 from reactivex.scheduler import ImmediateScheduler
-
 from vmx import MessageHub, RxDispatcher
 from vmx.messages.protocols import Message
 
@@ -27,9 +26,7 @@ def _focus_state() -> dict[str, object | None]:
 
 def _build_actions_vm(getter_state: dict[str, object | None]) -> CapabilityActionsVM:
     hub = MessageHub[Message]()
-    dispatcher = RxDispatcher(
-        foreground=ImmediateScheduler(), background=ImmediateScheduler()
-    )
+    dispatcher = RxDispatcher(foreground=ImmediateScheduler(), background=ImmediateScheduler())
     return (
         CapabilityActionsVM.builder()
         .name("actions")
@@ -74,9 +71,7 @@ def test_actions_is_empty_when_no_focus() -> None:
     assert vm.actions.value == []
 
 
-def test_actions_for_notebook_vm_include_select_expand_collapse_toggle_reconstruct() -> (
-    None
-):
+def test_actions_for_notebook_vm_include_select_expand_collapse_toggle_reconstruct() -> None:
     state = _focus_state()
     vm = _build_actions_vm(state)
     notebook = _build_notebook_vm()
@@ -84,9 +79,7 @@ def test_actions_for_notebook_vm_include_select_expand_collapse_toggle_reconstru
     state["focused"] = notebook
     vm.recompute_actions()
     labels = {a.label for a in vm.actions.value}
-    assert {"Select", "Expand", "Collapse", "Toggle Expansion", "Reconstruct"}.issubset(
-        labels
-    )
+    assert {"Select", "Expand", "Collapse", "Toggle Expansion", "Reconstruct"}.issubset(labels)
     # NotebookVM does NOT implement IClosable / INewCreatable.
     assert "Close" not in labels
     assert "New" not in labels
@@ -105,13 +98,9 @@ def test_actions_for_note_vm_include_close_save_delete_reconstruct() -> None:
 
 
 def test_actions_for_notebooks_root_vm_includes_new() -> None:
-    repo = InMemoryNoteRepository(
-        build_seed(), load_all_delay=0.0, add_notebook_delay=0.0
-    )
+    repo = InMemoryNoteRepository(build_seed(), load_all_delay=0.0, add_notebook_delay=0.0)
     hub = MessageHub[Message]()
-    dispatcher = RxDispatcher(
-        foreground=ImmediateScheduler(), background=ImmediateScheduler()
-    )
+    dispatcher = RxDispatcher(foreground=ImmediateScheduler(), background=ImmediateScheduler())
     root = (
         NotebooksRootVM.builder()
         .name("notebooks")

@@ -30,9 +30,107 @@ private actor CancellationObservation {
     }
 }
 
+private actor CancellationRaceGate {
+    private var observed = false
+    private var released = false
+    private var observationWaiters: [CheckedContinuation<Void, Never>] = []
+    private var releaseWaiters: [CheckedContinuation<Void, Never>] = []
+
+    func runUntilReleasedAfterCancellation() async throws {
+        while !Task.isCancelled {
+            await Task.yield()
+        }
+        observed = true
+        observationWaiters.forEach { $0.resume() }
+        observationWaiters.removeAll()
+        if !released {
+            await withCheckedContinuation { releaseWaiters.append($0) }
+        }
+        throw CancellationError()
+    }
+
+    func waitUntilObserved() async {
+        if observed { return }
+        await withCheckedContinuation { observationWaiters.append($0) }
+    }
+
+    func release() {
+        released = true
+        releaseWaiters.forEach { $0.resume() }
+        releaseWaiters.removeAll()
+    }
+}
+
+private final class ReentrantAdmissionState: @unchecked Sendable {
+    private let queue = DispatchQueue(label: "VMxTests.ReentrantAdmissionState")
+    private var didReenter = false
+    private var calls = 0
+    private var command: AsyncRelayCommand?
+    private(set) var nestedFinished = false
+
+    func install(_ command: AsyncRelayCommand) {
+        queue.sync { self.command = command }
+    }
+
+    func predicate() -> Bool {
+        let nestedCommand = queue.sync { () -> AsyncRelayCommand? in
+            guard !didReenter else { return nil }
+            didReenter = true
+            return command
+        }
+        guard let nestedCommand else { return true }
+        let finished = DispatchSemaphore(value: 0)
+        Task.detached {
+            try? await nestedCommand.executeAsync()
+            finished.signal()
+        }
+        let result = finished.wait(timeout: .now() + 1)
+        queue.sync { nestedFinished = result == .success }
+        return true
+    }
+
+    func recordCall() {
+        queue.sync { calls += 1 }
+    }
+
+    func snapshot() -> (calls: Int, nestedFinished: Bool) {
+        queue.sync { (calls, nestedFinished) }
+    }
+}
+
 final class AsyncRelayCommandTests: XCTestCase {
 
     // MARK: - CMD-012
+
+    func testTasklessExecutionIsANoop() async throws {
+        let command = AsyncRelayCommand.builder().build()
+        var notifications = 0
+        let subscription = command.canExecuteChanged.sink { notifications += 1 }
+
+        command.execute()
+        try await command.executeAsync()
+
+        XCTAssertFalse(command.isExecuting)
+        XCTAssertEqual(notifications, 0)
+        subscription.cancel()
+        command.dispose()
+    }
+
+    func testPredicateCannotReentrantlyAdmitSecondExecution() async throws {
+        let state = ReentrantAdmissionState()
+        let command = AsyncRelayCommand.builder()
+            .task { state.recordCall() }
+            .predicate { state.predicate() }
+            .build()
+        state.install(command)
+
+        try await command.executeAsync()
+
+        let snapshot = state.snapshot()
+        XCTAssertTrue(snapshot.nestedFinished)
+        XCTAssertEqual(snapshot.calls, 1)
+        command.dispose()
+    }
 
     /// CMD-018 — async imperative raise while idle emits exactly once.
     func testCmd018ImperativeRaiseWhileIdleEmitsOnce() {
@@ -246,6 +344,59 @@ final class AsyncRelayCommandTests: XCTestCase {
         let bodyWasCancelled = await observation.bodyWasCancelled
         XCTAssertTrue(bodyWasCancelled)
         XCTAssertFalse(cmd.isExecuting)
+        cmd.dispose()
+    }
+
+    func testCmd012ExternalFirstCancellationRemainsThrowing() async {
+        let startedExp = expectation(description: "external-first body is running")
+        let gate = CancellationRaceGate()
+        let cmd = AsyncRelayCommand.builder()
+            .task {
+                startedExp.fulfill()
+                try await gate.runUntilReleasedAfterCancellation()
+            }
+            .build()
+        let run = Task<Void, Error> { try await cmd.executeAsync() }
+        await fulfillment(of: [startedExp], timeout: 2.0)
+
+        run.cancel()
+        await gate.waitUntilObserved()
+        cmd.cancel()
+        await gate.release()
+
+        do {
+            try await run.value
+            XCTFail("external-first cancellation must remain throwing")
+        } catch is CancellationError {
+            // Expected.
+        } catch {
+            XCTFail("external-first cancellation must preserve CancellationError; got: \(error)")
+        }
+        cmd.dispose()
+    }
+
+    func testCmd012CommandFirstCancellationRemainsNonthrowing() async {
+        let startedExp = expectation(description: "command-first body is running")
+        let gate = CancellationRaceGate()
+        let cmd = AsyncRelayCommand.builder()
+            .task {
+                startedExp.fulfill()
+                try await gate.runUntilReleasedAfterCancellation()
+            }
+            .build()
+        let run = Task<Void, Error> { try await cmd.executeAsync() }
+        await fulfillment(of: [startedExp], timeout: 2.0)
+
+        cmd.cancel()
+        await gate.waitUntilObserved()
+        run.cancel()
+        await gate.release()
+
+        do {
+            try await run.value
+        } catch {
+            XCTFail("command-first cancellation must remain nonthrowing; got: \(error)")
+        }
         cmd.dispose()
     }
 

@@ -93,40 +93,41 @@ public sealed class AggregateVM5<VM1, VM2, VM3, VM4, VM5> : ComponentVMBase, IAg
     /// <inheritdoc/>
     protected override void OnConstruct()
     {
-        var next1 = _factory1();
-        var next2 = _factory2();
-        var next3 = _factory3();
-        var next4 = _factory4();
-        var next5 = _factory5();
-        AggregateOwnership.Validate(_aggregateParent, next1, next2, next3, next4, next5);
-        IComponentVM?[] previous = [_component1, _component2, _component3, _component4, _component5];
-        // On Reconstruct, dispose previous slot instances before overwriting
-        // so their hub subscriptions and command Subjects don't leak.
-        _component1?.Dispose();
-        _component2?.Dispose();
-        _component3?.Dispose();
-        _component4?.Dispose();
-        _component5?.Dispose();
+        lock (_aggregateParent)
+        {
+            var next1 = _factory1();
+            var next2 = _factory2();
+            var next3 = _factory3();
+            var next4 = _factory4();
+            var next5 = _factory5();
+            IComponentVM?[] previous = [_component1, _component2, _component3, _component4, _component5];
+            // On Reconstruct, dispose previous slot instances before overwriting
+            // so their hub subscriptions and command Subjects don't leak.
+            if (!AggregateOwnership.Replace(_aggregateParent, previous, [next1, next2, next3, next4, next5], () =>
+            {
+                _component1 = next1;
+                _component2 = next2;
+                _component3 = next3;
+                _component4 = next4;
+                _component5 = next5;
+            }, () =>
+            {
+                NotifyPropertyChanged(nameof(Component1));
+                NotifyPropertyChanged(nameof(Component2));
+                NotifyPropertyChanged(nameof(Component3));
+                NotifyPropertyChanged(nameof(Component4));
+                NotifyPropertyChanged(nameof(Component5));
+            })) return;
+            NotifyPropertyChanged(nameof(Component1));
+            NotifyPropertyChanged(nameof(Component2));
+            NotifyPropertyChanged(nameof(Component3));
+            NotifyPropertyChanged(nameof(Component4));
+            NotifyPropertyChanged(nameof(Component5));
 
-        _component1 = next1;
-        NotifyPropertyChanged(nameof(Component1));
-
-        _component2 = next2;
-        NotifyPropertyChanged(nameof(Component2));
-
-        _component3 = next3;
-        NotifyPropertyChanged(nameof(Component3));
-
-        _component4 = next4;
-        NotifyPropertyChanged(nameof(Component4));
-
-        _component5 = next5;
-        AggregateOwnership.Commit(_aggregateParent, previous, [next1, next2, next3, next4, next5]);
-        NotifyPropertyChanged(nameof(Component5));
-
-        CompleteLifecycleHookAfter(TransitionChildrenAsync(
-            [_component1, _component2, _component3, _component4, _component5],
-            construct: true));
+            CompleteLifecycleHookAfter(TransitionChildrenAsync(
+                [next1, next2, next3, next4, next5],
+                construct: true));
+        }
     }
 
     /// <inheritdoc/>
@@ -143,14 +144,17 @@ public sealed class AggregateVM5<VM1, VM2, VM3, VM4, VM5> : ComponentVMBase, IAg
     /// </summary>
     public override void Dispose()
     {
-        var firstError = DisposeChildren(
-            [_component1, _component2, _component3, _component4, _component5]);
-        try { base.Dispose(); }
-        catch (Exception error)
+        lock (_aggregateParent)
         {
-            firstError ??= System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error);
+            var firstError = DisposeChildren(
+                [_component1, _component2, _component3, _component4, _component5]);
+            try { base.Dispose(); }
+            catch (Exception error)
+            {
+                firstError ??= System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error);
+            }
+            firstError?.Throw();
         }
-        firstError?.Throw();
     }
 
     // ── Builder factory ─────────────────────────────────────────────────────

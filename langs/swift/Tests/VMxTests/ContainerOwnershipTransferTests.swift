@@ -59,6 +59,140 @@ private final class OwnershipErrorStore: @unchecked Sendable {
     }
 }
 
+private final class AggregateFactoryBarrier: @unchecked Sendable {
+    private let lock = NSLock()
+    private let ready = DispatchSemaphore(value: 0)
+    private var arrivals = 0
+
+    func rendezvous() {
+        lock.lock()
+        arrivals += 1
+        let release = arrivals == 2
+        lock.unlock()
+        if release {
+            ready.signal()
+            ready.signal()
+        }
+        _ = ready.wait(timeout: .now() + 2)
+    }
+}
+
+private final class BlockingAggregateSlot: ComponentVMBase {
+    private let entered: DispatchSemaphore
+    private let release: DispatchSemaphore
+
+    init(_ name: String, entered: DispatchSemaphore, release: DispatchSemaphore) {
+        self.entered = entered
+        self.release = release
+        super.init(
+            name: name,
+            hub: NullMessageHub.INSTANCE,
+            dispatcher: NullDispatcher.INSTANCE
+        )
+    }
+
+    override var type: ViewModelType { .component }
+
+    override func _onDispose() {
+        entered.signal()
+        _ = release.wait(timeout: .now() + 2)
+    }
+}
+
+private final class ReentrantAggregateSlot: ComponentVMBase {
+    private let callback: () -> Void
+
+    init(_ name: String, callback: @escaping () -> Void) {
+        self.callback = callback
+        super.init(
+            name: name,
+            hub: NullMessageHub.INSTANCE,
+            dispatcher: NullDispatcher.INSTANCE
+        )
+    }
+
+    override var type: ViewModelType { .component }
+    override func _onDispose() { callback() }
+}
+
+private final class AdmissionResultStore {
+    var rejected = false
+}
+
+private final class AggregateRaceFactory: @unchecked Sendable {
+    private let lock = NSLock()
+    private var calls = 0
+    private let old: BlockingAggregateSlot
+    private let candidate: ComponentVMBase
+    private let barrier: AggregateFactoryBarrier
+
+    init(
+        old: BlockingAggregateSlot,
+        candidate: ComponentVMBase,
+        barrier: AggregateFactoryBarrier
+    ) {
+        self.old = old
+        self.candidate = candidate
+        self.barrier = barrier
+    }
+
+    func make() -> ComponentVMBase {
+        lock.lock()
+        calls += 1
+        let first = calls == 1
+        lock.unlock()
+        if first { return old }
+        barrier.rendezvous()
+        return candidate
+    }
+}
+
+private final class AggregateRaceResults: @unchecked Sendable {
+    private let lock = NSLock()
+    private(set) var successes = 0
+    private(set) var errors: [Error] = []
+
+    func record(_ operation: () throws -> Void) {
+        do {
+            try operation()
+            lock.lock()
+            successes += 1
+            lock.unlock()
+        } catch {
+            lock.lock()
+            errors.append(error)
+            lock.unlock()
+        }
+    }
+}
+
+private final class AggregateRaceAttempt: @unchecked Sendable {
+    let aggregate: AggregateVM1<ComponentVMBase>
+    let results: AggregateRaceResults
+
+    init(_ aggregate: AggregateVM1<ComponentVMBase>, results: AggregateRaceResults) {
+        self.aggregate = aggregate
+        self.results = results
+    }
+
+    func run() { results.record { try aggregate.reconstruct() } }
+}
+
+private final class AggregateDisposeAttempt: @unchecked Sendable {
+    let aggregate: AggregateVM1<ComponentVMBase>
+    let completed: DispatchSemaphore
+
+    init(_ aggregate: AggregateVM1<ComponentVMBase>, completed: DispatchSemaphore) {
+        self.aggregate = aggregate
+        self.completed = completed
+    }
+
+    func run() {
+        aggregate.dispose()
+        completed.signal()
+    }
+}
+
 final class ContainerOwnershipTransferTests: XCTestCase {
     private var cancellables: Set<AnyCancellable> = []
 
@@ -69,6 +203,209 @@ final class ContainerOwnershipTransferTests: XCTestCase {
 
     private func leaf(_ name: String) throws -> ComponentVM {
         try ComponentVM.builder().name(name).withNullServices().build()
+    }
+
+    func testAggregateReconstructRejectsReentrantAttachmentOfReservedCandidate() throws {
+        let candidate = try leaf("candidate")
+        let destination = CompositeVM<ComponentVMBase>(
+            name: "destination",
+            hub: NullMessageHub.INSTANCE,
+            dispatcher: NullDispatcher.INSTANCE
+        )
+        try destination.construct()
+        let admission = AdmissionResultStore()
+        var calls = 0
+        let aggregate = AggregateVM1<ComponentVMBase>(
+            name: "aggregate",
+            hub: NullMessageHub.INSTANCE,
+            dispatcher: NullDispatcher.INSTANCE,
+            factory1: {
+                calls += 1
+                if calls == 1 {
+                    return ReentrantAggregateSlot("old") {
+                        if case .failure = destination.addResult(candidate) {
+                            admission.rejected = true
+                        }
+                    }
+                }
+                return candidate
+            }
+        )
+        try aggregate.construct()
+
+        try aggregate.reconstruct()
+
+        XCTAssertTrue(admission.rejected)
+        XCTAssertEqual(destination.count, 0)
+        XCTAssertTrue(aggregate.component1 === candidate)
+    }
+
+    func testAggregateVM1ReconstructAbortsWhenPreviousDisposalDisposesParent() throws {
+        let candidate = try leaf("candidate")
+        var calls = 0
+        var previous: ComponentVMBase?
+        var disposeAggregate: () -> Void = {}
+        let aggregate = AggregateVM1<ComponentVMBase>(
+            name: "aggregate",
+            hub: NullMessageHub.INSTANCE,
+            dispatcher: NullDispatcher.INSTANCE,
+            factory1: {
+                calls += 1
+                if calls == 1 {
+                    let old = ReentrantAggregateSlot("old", callback: disposeAggregate)
+                    previous = old
+                    return old
+                }
+                return candidate
+            }
+        )
+        disposeAggregate = aggregate.dispose
+        try aggregate.construct()
+
+        try aggregate.reconstruct()
+
+        XCTAssertEqual(aggregate.status, .disposed)
+        XCTAssertTrue(aggregate.component1 === previous)
+        XCTAssertEqual(candidate.status, .disposed)
+    }
+
+    func testAggregateVM2ReconstructAbortsAllCandidatesWhenPreviousDisposalDisposesParent() throws {
+        let candidate1 = try leaf("candidate-1")
+        let candidate2 = try leaf("candidate-2")
+        var calls1 = 0
+        var calls2 = 0
+        var previous1: ComponentVMBase?
+        var previous2: ComponentVMBase?
+        var disposeAggregate: () -> Void = {}
+        let aggregate = AggregateVM2<ComponentVMBase, ComponentVMBase>(
+            name: "aggregate",
+            hub: NullMessageHub.INSTANCE,
+            dispatcher: NullDispatcher.INSTANCE,
+            factory1: {
+                calls1 += 1
+                if calls1 == 1 {
+                    let old = ReentrantAggregateSlot("old-1", callback: disposeAggregate)
+                    previous1 = old
+                    return old
+                }
+                return candidate1
+            },
+            factory2: {
+                calls2 += 1
+                if calls2 == 1 {
+                    let old = try! self.leaf("old-2")
+                    previous2 = old
+                    return old
+                }
+                return candidate2
+            }
+        )
+        disposeAggregate = aggregate.dispose
+        try aggregate.construct()
+
+        try aggregate.reconstruct()
+
+        XCTAssertEqual(aggregate.status, .disposed)
+        XCTAssertTrue(aggregate.component1 === previous1)
+        XCTAssertTrue(aggregate.component2 === previous2)
+        XCTAssertEqual(candidate1.status, .disposed)
+        XCTAssertEqual(candidate2.status, .disposed)
+    }
+
+    func testConcurrentAggregateReconstructionReservesSharedCandidate() throws {
+        let candidate = try leaf("candidate")
+        let barrier = AggregateFactoryBarrier()
+        let disposalEntered = DispatchSemaphore(value: 0)
+        let releaseDisposal = DispatchSemaphore(value: 0)
+
+        func aggregate(_ name: String) -> AggregateVM1<ComponentVMBase> {
+            let old = BlockingAggregateSlot(
+                "\(name)-old", entered: disposalEntered, release: releaseDisposal
+            )
+            let factory = AggregateRaceFactory(old: old, candidate: candidate, barrier: barrier)
+            return AggregateVM1<ComponentVMBase>(
+                name: name,
+                hub: NullMessageHub.INSTANCE,
+                dispatcher: NullDispatcher.INSTANCE,
+                factory1: factory.make
+            )
+        }
+
+        let first = aggregate("first")
+        let second = aggregate("second")
+        try first.construct()
+        try second.construct()
+        let results = AggregateRaceResults()
+        let attempts = [
+            AggregateRaceAttempt(first, results: results),
+            AggregateRaceAttempt(second, results: results),
+        ]
+        let group = DispatchGroup()
+        for attempt in attempts {
+            group.enter()
+            DispatchQueue.global().async {
+                attempt.run()
+                group.leave()
+            }
+        }
+
+        XCTAssertEqual(disposalEntered.wait(timeout: .now() + 2), .success)
+        releaseDisposal.signal()
+        releaseDisposal.signal()
+        XCTAssertEqual(group.wait(timeout: .now() + 5), .success)
+        XCTAssertEqual(results.successes, 1)
+        XCTAssertEqual(results.errors.count, 1)
+        XCTAssertEqual(
+            [first.component1, second.component1].compactMap { $0 }
+                .filter { $0 === candidate }.count,
+            1
+        )
+    }
+
+    /// AGG-007 — fixed-slot reconstruction is transactional under concurrent disposal.
+    func testAggregateReconstructSerializesConcurrentParentDisposal() throws {
+        let candidate = try leaf("candidate")
+        let disposalEntered = DispatchSemaphore(value: 0)
+        let releaseDisposal = DispatchSemaphore(value: 0)
+        let disposalCompleted = DispatchSemaphore(value: 0)
+        var calls = 0
+        let aggregate = AggregateVM1<ComponentVMBase>(
+            name: "aggregate",
+            hub: NullMessageHub.INSTANCE,
+            dispatcher: NullDispatcher.INSTANCE,
+            factory1: {
+                calls += 1
+                return calls == 1
+                    ? BlockingAggregateSlot(
+                        "old", entered: disposalEntered, release: releaseDisposal)
+                    : candidate
+            }
+        )
+        try aggregate.construct()
+        let results = AggregateRaceResults()
+        let reconstruction = AggregateRaceAttempt(aggregate, results: results)
+        let disposal = AggregateDisposeAttempt(aggregate, completed: disposalCompleted)
+        let group = DispatchGroup()
+
+        group.enter()
+        DispatchQueue.global().async {
+            reconstruction.run()
+            group.leave()
+        }
+        XCTAssertEqual(disposalEntered.wait(timeout: .now() + 2), .success)
+        group.enter()
+        DispatchQueue.global().async {
+            disposal.run()
+            group.leave()
+        }
+        XCTAssertEqual(disposalCompleted.wait(timeout: .now() + 0.05), .timedOut)
+        releaseDisposal.signal()
+
+        XCTAssertEqual(group.wait(timeout: .now() + 5), .success)
+        XCTAssertEqual(results.successes, 1)
+        XCTAssertTrue(results.errors.isEmpty)
+        XCTAssertEqual(aggregate.status, .disposed)
+        XCTAssertEqual(candidate.status, .disposed)
     }
 
     /// COMP-038 — Adding an owned child transfers it between composite/group parents.

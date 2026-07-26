@@ -51,8 +51,8 @@ package settings with these exact values:
 
 Then delete the `NPM_TOKEN` environment secret and revoke the bootstrap token.
 The workflow detects the absent secret and uses OIDC. Trusted publishing
-requires Node.js 22.14 or newer and npm CLI 11.5.1 or newer; the publish job pins
-Node 24 and npm 11.5.1. npm automatically attaches provenance for an eligible
+requires Node.js 22.14 or newer and npm CLI 11.18.0 or newer; the publish job pins
+Node 24 and npm 11.18.0. npm automatically attaches provenance for an eligible
 GitHub-hosted trusted-publishing run.
 
 ## 2. Cutting a release
@@ -87,7 +87,7 @@ GitHub-hosted trusted-publishing run.
 Before publishing, CI verifies main ancestry and exact tag/package version,
 then runs fixture sync, both typechecks, lint, build, tests, audit, a strict
 package-content allowlist, and a packed local consumer smoke test. The publish
-job uses Node 24 and npm 11.5.1 without an npm dependency cache.
+job uses Node 24 and npm 11.18.0 without an npm dependency cache.
 
 After npm accepts the package, separate Node 20, 22, 24, and 26 jobs poll for
 and install the exact public version in clean consumers. They test ESM imports,

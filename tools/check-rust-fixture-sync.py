@@ -10,12 +10,20 @@ from pathlib import Path
 
 def repo_root() -> Path:
     out = subprocess.run(
-        ["git", "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=True
+        ["git", "rev-parse", "--show-toplevel"],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=10,
     )
     return Path(out.stdout.strip())
 
 
 _FIXTURE_PAIRS: list[tuple[str, str]] = [
+    (
+        "spec/fixtures/derived-properties.json",
+        "langs/rust/src/fixtures/derived-properties.json",
+    ),
     (
         "spec/fixtures/command-truthtable.json",
         "langs/rust/src/fixtures/command-truthtable.json",
@@ -32,7 +40,11 @@ _FIXTURE_PAIRS: list[tuple[str, str]] = [
 
 
 def main() -> int:
-    root = repo_root()
+    try:
+        root = repo_root()
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+        print(f"ERROR: unable to locate repository root: {error}", file=sys.stderr)
+        return 2
     failed = False
     for source_rel, copy_rel in _FIXTURE_PAIRS:
         source = root / source_rel

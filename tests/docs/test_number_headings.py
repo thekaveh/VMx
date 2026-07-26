@@ -42,6 +42,26 @@ def test_number_descendant_headings_supports_standalone_documents() -> None:
     assert number_descendant_headings(expected, None) == expected
 
 
+def test_number_descendant_headings_preserves_longer_and_container_fences() -> None:
+    source = """# Page
+
+## Real
+
+````markdown
+```
+## Example
+```
+````
+
+> ```markdown
+> ## Quoted example
+> ```
+"""
+    expected = source.replace("## Real", "## 1. Real")
+
+    assert number_descendant_headings(source, None) == expected
+
+
 def test_number_descendant_headings_rejects_missing_parent() -> None:
     source = "# 1. Page\n\n### Detail without a section\n"
 

@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from textual.widgets import Static
-
 from vmx import MessageHub
 from vmx.messages.property_changed import PropertyChangedMessage
 from vmx.messages.protocols import Message

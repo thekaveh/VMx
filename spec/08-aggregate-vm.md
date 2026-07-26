@@ -82,14 +82,37 @@ an existing aggregate because doing so would leave an invalid empty slot.
 As with `construct()`, the order is unspecified and the reference
 implementations drive the slots sequentially.
 
-## 4. Disposal
+## 4. Reconstruction transactions
+
+`reconstruct()` replaces the fixed slots as one aggregate-owned transaction:
+
+1. Every replacement factory runs and every candidate passes duplicate,
+   ownership, and cycle preflight before any previous slot is disposed.
+1. Previous slots are disposed in slot order. Cleanup continues after a
+   disposal failure and retains the first failure for propagation.
+1. If cleanup leaves the aggregate viable, all replacement candidates commit
+   together, remain `Destructed`, acquire the aggregate parent, and publish one
+   property change per slot before the first cleanup failure is propagated.
+1. If re-entrant or concurrent disposal makes the aggregate terminal, every
+   candidate is disposed and no slot is committed. A concurrent external
+   `dispose()` waits for the active reconstruction transaction before taking
+   its terminal slot snapshot.
+
+A factory/preflight failure occurs before cleanup and therefore preserves the
+existing slots and parent links exactly. Cleanup failures do not roll back
+already-disposed previous slots; candidate commit is the stable recoverable
+state unless terminal disposal won. This contract is flavor-neutral even where
+the disposal surface cannot throw: such flavors still perform the same cleanup
+and commit-or-terminal-abort steps.
+
+## 5. Disposal
 
 `dispose()` invokes `dispose()` on each `ComponentN` slot before the aggregate
 itself transitions to `Disposed`. This mirrors the depth-first cascade specified
 by LIFE-013 for `CompositeVM` / `GroupVM`: child `Disposed` transitions are
 observed before the aggregate's own. The order across slots is unspecified.
 
-## 5. Selection
+## 6. Selection
 
 The aggregate itself can be selected (via its parent's `Current`), and like any other
 `IComponentVM` it exposes `SelectCommand`, `DeselectCommand`, `SelectNextCommand`, and
@@ -97,16 +120,16 @@ The aggregate itself can be selected (via its parent's `Current`), and like any 
 slots, however, are not selectable — they are the aggregate's fixed structure, not
 navigable peers, so there are no `select_component` / `deselect_component` methods.
 
-## 6. Arity rationale
+## 7. Arity rationale
 
 ADR-0007 documents why arities 1–5 were the original supported range, and
 ADR-0034 extends the cap to 6. For more than 6 heterogeneous children,
 prefer `CompositeVM<VM>` or `GroupVM<VM>` with a heterogeneous-base-type
 `VM`, or compose multiple aggregates.
 
-## 7. Conformance
+## 8. Conformance
 
-`AGG-001` through `AGG-006` in `12-conformance.md` cover:
+`AGG-001` through `AGG-007` in `12-conformance.md` cover:
 
 - arity-1 component factory invoked on construct
 - arity-2 both components reach Constructed
@@ -115,6 +138,14 @@ prefer `CompositeVM<VM>` or `GroupVM<VM>` with a heterogeneous-base-type
 - ComponentN property change fires on construct
 - destruction waits for all children
 - arity-6 construction and destruction ordering
+- transactional reconstruction under preflight failure, cleanup failure, and
+  terminal disposal
 
 `DISP-001` additionally requires repeated aggregate disposal to produce one
 observable terminal transition per slot and for the aggregate itself.
+
+`AGG-007` composes the factory, slot-publication, and complete-cleanup rules into
+one explicit reconstruction scenario. Focused aggregate regression tests in
+all five flavors cover factory preflight rollback, candidate commit, and
+concurrent terminal abort. Throwing/result-based flavors additionally cover
+first-error propagation; Swift's disposal surface is intentionally nonthrowing.

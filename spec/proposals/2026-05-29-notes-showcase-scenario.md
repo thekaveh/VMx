@@ -4,7 +4,11 @@
 **Date:** 2026-05-29
 **Target spec version:** 2.2.0 (minor bump — adds `AggregateVM6`)
 **Branch:** `examples-notes-showcase` off `main` (merged)
-**Sister artefacts (shipped):** [`examples/notes-showcase-parity.md`](../../examples/notes-showcase-parity.md) (16-row × 3-flavor parity matrix; row 16 — ThemeVM — added in v2.4.0 per `2026-06-02-theme-vm-scenario.md`), `assets/notes-showcase/{avalonia,textual,react}.png` (placeholder note — manual screenshot capture pending), and [ADR-0034](../ADRs/0034-aggregate-vm6.md) (extends `AggregateVM` arity to 6).
+**Sister artefacts:** [`examples/notes-showcase-parity.md`](../../examples/notes-showcase-parity.md)
+is the maintained 19-feature × 4-flavor parity matrix; [ADR-0034](../ADRs/0034-aggregate-vm6.md)
+shipped the `AggregateVM6` extension. The four framework screenshots remain an
+explicit capture backlog in [`assets/notes-showcase/README.md`](../../assets/notes-showcase/README.md);
+they are not shipped artefacts.
 
 ## 1. Executive summary
 
@@ -75,8 +79,9 @@ exercised by the example.
   are not normative; the AGG-006 addition is driven by the `AggregateVM6`
   spec extension (Phase 2.s), not by the example apps themselves.
   Conformance is at 220 IDs after this branch lands.
-- N3. Pixel-perfect visual parity or visual regression tests. Three screenshots
-  in `assets/notes-showcase/` are the manual reference.
+- N3. Pixel-perfect visual parity or visual regression tests. Four framework
+  screenshots are planned as manual references; their capture status is tracked
+  in `assets/notes-showcase/README.md`.
 - N4. End-to-end simulated-user tests (Playwright / FlaUI / pyautogui). Headless
   smoke per framework (§9.3) is the substitute.
 - N5. Multiple frameworks per language *in this PR* — see §4.2 for the

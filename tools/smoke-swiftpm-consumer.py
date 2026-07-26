@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 EXPECTED_RESOURCES = frozenset(
@@ -101,13 +102,21 @@ def validate_resources(build_root: Path) -> None:
         raise RuntimeError("built VMx resource bundle is missing: " + ", ".join(missing))
 
 
-def _run(args: list[str], *, cwd: Path, capture: bool = False) -> str:
+def _remaining(deadline: float, maximum: float) -> float:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError("SwiftPM consumer verification exceeded its end-to-end timeout")
+    return min(maximum, remaining)
+
+
+def _run(args: list[str], *, cwd: Path, capture: bool = False, timeout: float = 300) -> str:
     result = subprocess.run(
         args,
         cwd=cwd,
         check=True,
         text=True,
         capture_output=capture,
+        timeout=timeout,
     )
     return result.stdout.strip() if capture else ""
 
@@ -116,10 +125,12 @@ def run_smoke(
     url: str,
     version: str,
     *,
+    timeout_seconds: float = 900,
     keep_directory: bool = False,
 ) -> Path | None:
     """Create, build, and run a disposable remote SwiftPM consumer."""
     _validate_inputs(url, version)
+    deadline = time.monotonic() + timeout_seconds
     workdir = Path(tempfile.mkdtemp(prefix="vmx-swiftpm-smoke-"))
     try:
         sources = workdir / "Sources" / "VMxSmoke"
@@ -130,16 +141,21 @@ def run_smoke(
         )
         (sources / "main.swift").write_text(render_main(version), encoding="utf-8")
 
-        _run(["swift", "build"], cwd=workdir)
+        _run(["swift", "build"], cwd=workdir, timeout=_remaining(deadline, 300))
         validate_resources(workdir / ".build")
         bin_path = Path(
             _run(
                 ["swift", "build", "--show-bin-path"],
                 cwd=workdir,
                 capture=True,
+                timeout=_remaining(deadline, 300),
             )
         )
-        _run([str(bin_path / "VMxSmoke")], cwd=workdir)
+        _run(
+            [str(bin_path / "VMxSmoke")],
+            cwd=workdir,
+            timeout=_remaining(deadline, 300),
+        )
         print(f"OK: public SwiftPM consumer resolved VMx {version} and bundled all fixtures")
         if keep_directory:
             print(f"Kept smoke package at {workdir}")
@@ -154,6 +170,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--url", required=True)
     parser.add_argument("--version", required=True)
+    parser.add_argument("--timeout", type=float, default=900, dest="timeout_seconds")
     parser.add_argument("--keep-directory", action="store_true")
     args = parser.parse_args(argv)
 
@@ -161,9 +178,17 @@ def main(argv: list[str] | None = None) -> int:
         run_smoke(
             args.url,
             args.version,
+            timeout_seconds=args.timeout_seconds,
             keep_directory=args.keep_directory,
         )
-    except (OSError, RuntimeError, ValueError, subprocess.CalledProcessError) as error:
+    except (
+        OSError,
+        RuntimeError,
+        TimeoutError,
+        ValueError,
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+    ) as error:
         print(f"ERROR: SwiftPM consumer smoke failed: {error}", file=sys.stderr)
         return 1
     return 0

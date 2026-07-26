@@ -9,6 +9,22 @@ import Combine
 
 final class RelayCommandOfTests: XCTestCase {
 
+    func testPredicateDisposalInvalidatesAdmission() {
+        var invoked = false
+        var command: RelayCommandOf<Int>!
+        command = RelayCommandOf<Int>.builder()
+            .predicate { _ in
+                command.dispose()
+                return true
+            }
+            .task { _ in invoked = true }
+            .build()
+
+        XCTAssertFalse(command.canExecute(1))
+        command.execute(1)
+        XCTAssertFalse(invoked)
+    }
+
     /// CMD-005 — Parameterized variant passes parameter to the task; predicate gates on parameter.
     func testCmd005ParameterizedVariantPassesParameter() {
         var recorder: [Int] = []

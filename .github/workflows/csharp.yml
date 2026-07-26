@@ -11,6 +11,7 @@ on:
       - "examples/csharp/**"
       - "spec/**"
       - "tools/check-nuget-package.py"
+      - "tools/check-cobertura-threshold.py"
       - "tools/smoke-nuget-consumer.py"
       - ".github/workflows/csharp.yml"
   pull_request:
@@ -23,6 +24,7 @@ defaults:
 
 jobs:
   build:
+    timeout-minutes: 30
     name: build & test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
@@ -30,7 +32,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Install the supported/current SDKs:
       # - 8.0.x: builds the library and runs both test suites at the runtime floor
@@ -67,6 +69,16 @@ jobs:
       - name: Test
         run: dotnet test VMx.sln -c Release --no-build --collect:"XPlat Code Coverage" --results-directory ./TestResults --logger "trx"
 
+      - name: Enforce library coverage floors
+        if: matrix.os == 'ubuntu-latest'
+        working-directory: .
+        run: >-
+          python3 tools/check-cobertura-threshold.py langs/csharp/TestResults
+          --minimum-line 90 --minimum-branch 82
+          --package VMx
+          --package VMx.Extensions.DependencyInjection
+          --package VMx.Notifications
+
       - name: Upload coverage to Codecov
         if: matrix.os == 'ubuntu-latest'
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
@@ -76,6 +88,7 @@ jobs:
           fail_ci_if_error: false
 
   package:
+    timeout-minutes: 15
     name: package (${{ matrix.framework }})
     runs-on: ubuntu-latest
     strategy:
@@ -86,7 +99,7 @@ jobs:
       run:
         working-directory: .
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Setup .NET 8 + .NET 9 + .NET 10
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
@@ -117,6 +130,7 @@ jobs:
           --package-dir /tmp/vmx-nupkgs
 
   examples:
+    timeout-minutes: 20
     # Builds + tests the Notes-Showcase Avalonia example (Phase 8 of the
     # notes-showcase plan). Lives under `examples/csharp/avalonia/` and
     # references the library via ProjectReference (not NuGet), so it must run
@@ -131,7 +145,7 @@ jobs:
       run:
         working-directory: .
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup .NET 8 + .NET 9 + .NET 10
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
@@ -162,13 +176,14 @@ jobs:
 
 
   wpf-example:
+    timeout-minutes: 15
     name: example (WPF / Windows)
     runs-on: windows-latest
     defaults:
       run:
         working-directory: .
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Setup .NET 8 + .NET 9 + .NET 10
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
@@ -184,6 +199,7 @@ jobs:
         run: dotnet build examples/csharp/wpf/TodoApp/WpfTodoApp.csproj -c Release
 
   required:
+    timeout-minutes: 5
     name: "required: csharp"
     if: always()
     needs: [build, package, examples, wpf-example]

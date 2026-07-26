@@ -214,6 +214,23 @@ final class AggregateVMTests: XCTestCase {
         XCTAssertNil(aggregate.component1)
     }
 
+    func testReconstructRejectsCurrentSlotWithoutDisposingIt() throws {
+        let child = leaf("child")
+        let aggregate = try AggregateVM1<ComponentVM>.builder()
+            .name("aggregate").withNullServices().component1 { child }.build()
+        try aggregate.construct()
+
+        XCTAssertThrowsError(try aggregate.reconstruct()) { error in
+            guard let ownershipError = error as? ContainerOwnershipError,
+                  case .inconsistentParent = ownershipError else {
+                return XCTFail("expected inconsistentParent, got \(error)")
+            }
+        }
+        XCTAssertTrue(aggregate.component1 === child)
+        XCTAssertEqual(child.status, .destructed)
+        XCTAssertNotNil(child._ownershipParent)
+    }
+
     func testForwardingAliasesOfOneCanonicalComponentAreRejected() throws {
         // ForwardingComponentVM wraps ComponentVMOf<Model>; the canonical it
         // aliases must be a modeled component, not an untyped ComponentVM leaf.

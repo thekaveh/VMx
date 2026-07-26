@@ -1356,27 +1356,35 @@ impl Drop for ParentTransfer {
     }
 }
 
-struct ActiveOwnershipGuard {
-    active: &'static Mutex<HashSet<usize>>,
+fn active_ownership_claims() -> &'static Mutex<HashSet<usize>> {
+    static ACTIVE: OnceLock<Mutex<HashSet<usize>>> = OnceLock::new();
+    ACTIVE.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+pub(crate) struct OwnershipClaim {
     child_id: usize,
 }
 
-impl Drop for ActiveOwnershipGuard {
+impl Drop for OwnershipClaim {
     fn drop(&mut self) {
-        lock(self.active).remove(&self.child_id);
+        lock(active_ownership_claims()).remove(&self.child_id);
     }
+}
+
+pub(crate) fn begin_ownership_claim(child_id: usize) -> VmxResult<OwnershipClaim> {
+    let inserted = lock(active_ownership_claims()).insert(child_id);
+    if !inserted {
+        return Err(VmxError::OwnershipTransactionInProgress);
+    }
+    Ok(OwnershipClaim { child_id })
 }
 
 pub(crate) fn begin_parent_transfer<T: VmNode>(
     child: &T,
     destination: &ParentHandle,
 ) -> VmxResult<Option<ParentTransfer>> {
-    static ACTIVE: OnceLock<Mutex<HashSet<usize>>> = OnceLock::new();
-    let active = ACTIVE.get_or_init(|| Mutex::new(HashSet::new()));
     let child_id = child.id();
-    if !lock(active).insert(child_id) {
-        return Err(VmxError::OwnershipTransactionInProgress);
-    }
+    let claim = begin_ownership_claim(child_id)?;
 
     let staged = (|| {
         if destination.contains(child_id) {
@@ -1414,19 +1422,16 @@ pub(crate) fn begin_parent_transfer<T: VmNode>(
         }
     })();
 
-    let staged = match staged {
-        Ok(staged) => staged,
-        Err(error) => {
-            lock(active).remove(&child_id);
-            return Err(error);
-        }
-    };
+    let staged = staged?;
     let staged = Arc::new(Mutex::new(staged));
+    let claim = Arc::new(Mutex::new(Some(claim)));
     let commit_state = Arc::clone(&staged);
     let rollback_state = Arc::clone(&staged);
+    let commit_claim = Arc::clone(&claim);
+    let rollback_claim = Arc::clone(&claim);
     Ok(Some(ParentTransfer::new(
         move || {
-            let _active_guard = ActiveOwnershipGuard { active, child_id };
+            let _claim = lock(&commit_claim).take();
             let transfer = lock(&commit_state).take();
             if let Some(transfer) = transfer {
                 transfer.commit()
@@ -1435,7 +1440,7 @@ pub(crate) fn begin_parent_transfer<T: VmNode>(
             }
         },
         move || {
-            let _active_guard = ActiveOwnershipGuard { active, child_id };
+            let _claim = lock(&rollback_claim).take();
             let transfer = lock(&rollback_state).take();
             if let Some(transfer) = transfer {
                 transfer.rollback()
@@ -1498,6 +1503,7 @@ pub(crate) type ModelHint<M> = Arc<dyn Fn(&M) -> Option<String> + Send + Sync>;
 #[derive(Clone)]
 pub(crate) struct ComponentCore<D: Dispatcher = NullDispatcher> {
     inner: Arc<Mutex<ComponentCoreInner<D>>>,
+    hook_ready: Arc<Condvar>,
 }
 
 struct ComponentCoreInner<D: Dispatcher> {
@@ -1516,6 +1522,8 @@ struct ComponentCoreInner<D: Dispatcher> {
     on_destruct: Option<Hook>,
     on_dispose: Option<Hook>,
     owned_cleanups: Vec<OwnedCleanup>,
+    active_hook_owner: Option<ThreadId>,
+    deferred_core_disposal: bool,
     selected: bool,
     expanded: bool,
 }
@@ -1539,9 +1547,12 @@ impl<D: Dispatcher> ComponentCore<D> {
                 on_destruct: None,
                 on_dispose: None,
                 owned_cleanups: Vec::new(),
+                active_hook_owner: None,
+                deferred_core_disposal: false,
                 selected: false,
                 expanded: false,
             })),
+            hook_ready: Arc::new(Condvar::new()),
         }
     }
 
@@ -1633,6 +1644,9 @@ impl<D: Dispatcher> ComponentCore<D> {
                     let generation = inner.transition_generation;
                     inner.transitioning = true;
                     inner.status = transition_status;
+                    if operation != LifecycleOperation::Dispose {
+                        inner.active_hook_owner = Some(thread::current().id());
+                    }
                     let hook = match operation {
                         LifecycleOperation::Construct => inner.on_construct.clone(),
                         LifecycleOperation::Destruct => inner.on_destruct.clone(),
@@ -1671,10 +1685,60 @@ impl<D: Dispatcher> ComponentCore<D> {
             return Ok(());
         };
 
-        let operation_result = hook
-            .map(|hook| (lock(&hook))())
-            .unwrap_or(Ok(()))
-            .and_then(|_| action());
+        if operation == LifecycleOperation::Dispose {
+            let current = thread::current().id();
+            let mut inner = lock(&self.inner);
+            while let Some(owner) = inner.active_hook_owner {
+                if owner == current {
+                    inner.deferred_core_disposal = true;
+                    return Ok(());
+                }
+                let (next, cyclic) =
+                    wait_for_message_hub_owner(&self.hook_ready, inner, current, owner);
+                inner = next;
+                if cyclic {
+                    inner.deferred_core_disposal = true;
+                    return Ok(());
+                }
+            }
+        }
+
+        let execution = catch_unwind(AssertUnwindSafe(|| {
+            let hook_result = hook.map(|hook| (lock(&hook))()).unwrap_or(Ok(()));
+            let action_allowed = operation == LifecycleOperation::Dispose || {
+                let inner = lock(&self.inner);
+                inner.transition_generation == generation
+                    && inner.status != ConstructionStatus::Disposed
+            };
+            hook_result.and_then(|_| if action_allowed { action() } else { Ok(()) })
+        }));
+        let deferred_disposal = if operation == LifecycleOperation::Dispose {
+            false
+        } else {
+            let mut inner = lock(&self.inner);
+            if inner.active_hook_owner == Some(thread::current().id()) {
+                inner.active_hook_owner = None;
+            }
+            let deferred = inner.deferred_core_disposal;
+            inner.deferred_core_disposal = false;
+            self.hook_ready.notify_all();
+            deferred
+        };
+        let mut operation_result = match execution {
+            Ok(result) => result,
+            Err(payload) => {
+                if deferred_disposal {
+                    let _ = self.finish_deferred_core_disposal();
+                }
+                resume_unwind(payload)
+            }
+        };
+        if deferred_disposal {
+            let disposal_result = self.finish_deferred_core_disposal();
+            if operation_result.is_ok() {
+                operation_result = disposal_result;
+            }
+        }
         if operation == LifecycleOperation::Dispose {
             self.dispose_owned();
             self.property_changed_stream().dispose();
@@ -1760,6 +1824,17 @@ impl<D: Dispatcher> ComponentCore<D> {
             }));
         }
         Ok(())
+    }
+
+    fn finish_deferred_core_disposal(&self) -> VmxResult<()> {
+        let (hook, property_changed) = {
+            let inner = lock(&self.inner);
+            (inner.on_dispose.clone(), inner.property_changed.clone())
+        };
+        let result = hook.map(|hook| (lock(&hook))()).unwrap_or(Ok(()));
+        self.dispose_owned();
+        property_changed.dispose();
+        result
     }
 
     fn publication_is_current(&self, generation: u64, status: ConstructionStatus) -> bool {

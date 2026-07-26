@@ -1,12 +1,13 @@
 # 2026-07 Swift NotesShowcase Test Deadlock
 
-Filed: **2026-07-16**; fix implemented: **2026-07-18**; CI verification pending.
+Filed: **2026-07-16**; fix implemented: **2026-07-18**; resolved: **2026-07-22**.
 The Swift flagship example
 test suite (`examples/swift/notes-showcase`, CI job `examples (notes-showcase)` in `.github/workflows/swift.yml`) deadlocked because three
 awaited commands also awaited notification resolution. The maintenance run
-identified the command-completion defect and implemented its correction. A
-fresh green CI example-test run is still required before this record can call
-the incident resolved.
+identified the command-completion defect and implemented its correction. Swift
+workflow runs `29961801784` and `29962692629` subsequently passed; the latter
+ran the `examples (notes-showcase)` job successfully in 107 seconds on main
+commit `288b3f996537db411a7409fc5cb3fb7c09afad58`.
 
 ## 1. Symptom
 
@@ -56,6 +57,9 @@ The workflow retains its 30-minute job bound and now runs the example tests with
 attributable in the logs. A complete strict-concurrency release build passes
 locally. Full XCTest execution still requires an accepted local Xcode license;
 CI supplies the authoritative runtime verification.
+
+The two successful Swift workflow runs provide that runtime verification. The
+incident is resolved; the retained 30-minute bound remains a regression guard.
 
 ## 5. Investigation Evidence
 

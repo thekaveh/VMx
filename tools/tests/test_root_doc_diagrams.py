@@ -80,7 +80,9 @@ def test_root_diagram_facts_are_derived_from_canonical_sources() -> None:
     assert generator.LIBRARY_COUNT == sum(not item.startswith("THEME-") for item in ids)
 
 
-def test_root_diagrams_render_derived_facts_without_hidden_literals(tmp_path: Path) -> None:
+def test_root_diagrams_render_derived_facts_without_hidden_literals(
+    tmp_path: Path,
+) -> None:
     generator = _load_generator()
     rendered: list[str] = []
     generator.FIXTURE_COUNT = 91
@@ -97,6 +99,25 @@ def test_root_diagrams_render_derived_facts_without_hidden_literals(tmp_path: Pa
     output = "\n".join(rendered)
     for sentinel in (91, 92, 93, 94):
         assert str(sentinel) in output
+
+
+def test_showcase_diagrams_describe_conceptual_parity_without_claiming_shared_storage(
+    tmp_path: Path,
+) -> None:
+    generator = _load_generator()
+    rendered: list[str] = []
+    generator.write_triplet = lambda *args: rendered.append(repr(args))
+
+    generator.showcase_hierarchy(tmp_path)
+    generator.showcase_components(tmp_path)
+
+    output = "\n".join(rendered)
+    assert "flat parent-id navigation" in output
+    assert "HierarchicalVM-equivalent" in output
+    assert "app-owned current selection" in output
+    assert "CompositeVM / list / array" in output
+    assert "HierarchicalVM<NotebookModel" not in output
+    assert "CompositeVM<NoteVM>" not in output
 
 
 def test_html_footer_text_meets_wcag_aa_contrast() -> None:
@@ -119,7 +140,9 @@ def test_html_footer_text_meets_wcag_aa_contrast() -> None:
 
 
 @_REQUIRES_RSVG
-def test_class_diagram_names_real_message_types_and_capabilities(tmp_path: Path) -> None:
+def test_class_diagram_names_real_message_types_and_capabilities(
+    tmp_path: Path,
+) -> None:
     generator = _load_generator()
 
     generator.class_diagram(tmp_path)

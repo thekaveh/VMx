@@ -8,6 +8,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `AsyncRelayCommand` now preserves the first cancellation channel, so later
+  command cancellation cannot hide an externally cancelled parent task.
+- Async-command predicate evaluation now reserves admission, preventing a
+  reentrant execution from completing before the outer execution is admitted.
+- Relay-command predicate disposal now invalidates both ordinary and
+  parameterized execution admission.
+- A taskless async command is now a true no-op and does not emit transient
+  execution-state notifications.
+
+## [3.23.0] — 2026-07-23
+
+### Added
+
+- Added the fallible `tryChildren()` accessor for reporting invalid lazy
+  factory output without trapping.
+
+### Fixed
+
+- Hierarchy child factories now validate their complete snapshot before
+  assigning parents. `tryChildren()` reports duplicate, cyclic, or
+  already-parented output without mutation and permits retry (HIER-031,
+  ADR-0127).
+- Factory hydration now clears prewarmed path caches for every attached
+  descendant and rejects same-receiver structural re-entry atomically
+  (HIER-031/032, ADR-0127).
+
+- Lazy aggregate reconstruction now reserves every proposed child from
+  validation through disposal, assignment, and parent commit, preventing two
+  concurrent aggregates or a re-entrant disposal hook from retaining the same
+  slot. A factory that returns any currently owned slot is rejected before
+  mutation.
 - Pre-owned and multiply decorated components now retain one canonical,
   transferable container identity (FWD-004, ADR-0124).
 - Async-resource loading now revalidates its admitted operation after loading

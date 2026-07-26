@@ -150,6 +150,23 @@ func withOwnershipReservationBatch<T>(
     return try body()
 }
 
+func withExclusiveOwnershipReservationBatch<T>(
+    _ children: [ComponentVMBase],
+    _ body: () throws -> T
+) throws -> T {
+    let identities = acquireOwnershipIdentities(children)
+    guard !identities.contains(where: { $0.ownershipInProgress }) else {
+        for identity in identities.reversed() { identity.ownershipGate.unlock() }
+        throw ContainerOwnershipTransactionError()
+    }
+    for identity in identities { identity.ownershipInProgress = true }
+    defer {
+        for identity in identities { identity.ownershipInProgress = false }
+        for identity in identities.reversed() { identity.ownershipGate.unlock() }
+    }
+    return try body()
+}
+
 func beginParentTransfer(
     _ child: ComponentVMBase,
     to destination: OwnershipParentVM,
@@ -1193,7 +1210,22 @@ open class ComponentVMBase {
                 }
                 lifecycleLock.unlock()
             } else {
-                lease.completed.wait()
+                let caller = Self.currentThreadID
+                if LifecycleWaitCoordinator.shared.beginWait(
+                    caller: caller,
+                    owner: lease.threadID
+                ) {
+                    defer { LifecycleWaitCoordinator.shared.endWait(caller: caller) }
+                    lease.completed.wait()
+                } else {
+                    lifecycleLock.lock()
+                    if activeHookLease === lease {
+                        disposalCleanupPendingForHook = true
+                        lifecycleLock.unlock()
+                        return
+                    }
+                    lifecycleLock.unlock()
+                }
             }
         }
         _finishDisposalNow()

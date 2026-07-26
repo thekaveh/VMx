@@ -6,14 +6,50 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ## [Unreleased]
 
+### VMx
+
+#### Fixed
+
+- Async-resource cancellation now invalidates the current acquisition before
+  loader cancellation callbacks can complete a value, preserving rollback and
+  exactly-once cleanup under direct, command, and external cancellation races.
+- `AsyncRelayCommand` now evaluates predicates outside its state lock, rejects
+  re-entrant or disposal-invalidated admission, and preserves the first
+  cancellation channel when command and caller cancellation race.
+- Relay-command predicate disposal now invalidates both ordinary and
+  parameterized execution admission.
+- A taskless async command is now a true no-op and does not emit transient
+  execution-state notifications.
+
+### VMx.Notifications
+
+### VMx.Extensions.DependencyInjection
+
+## [3.22.1] — 2026-07-23
+
 ### Changed
 
+- CI now union-merges duplicate source-line coverage across test hosts and
+  target frameworks, then enforces measured floors of 90% line coverage and
+  82% branch coverage across the three production packages while excluding
+  test assemblies.
 - CI and release verification now exercise .NET 8, .NET 9, and the current
   .NET 10 LTS; System.Reactive and Microsoft.Reactive.Testing are upgraded to
   7.0.0 with their compatible immutable-collections graph.
 
 ### Fixed
 
+- Hierarchy child factories now validate their complete snapshot before
+  assigning parents, rejecting duplicate, cyclic, or already-parented nodes
+  atomically and preserving retryability (HIER-031, ADR-0127).
+- Valid factory hydration now clears prewarmed descendant path caches, and
+  same-receiver structural re-entry rejects without mutation or messages
+  (HIER-031/032, ADR-0127).
+- Lazy aggregate reconstruction now reserves every proposed child from
+  validation through disposal, assignment, and parent commit, preventing two
+  concurrent aggregates or a re-entrant disposal hook from retaining the same
+  slot. A factory that returns any currently owned slot is rejected before
+  mutation.
 - Pre-owned and multiply decorated components now retain one canonical,
   transferable container identity (FWD-004, ADR-0124).
 
@@ -126,7 +162,7 @@ Implements `spec-v3.20.1` with 391/391 library conformance IDs covered.
 
 - Packaging-only patch for the first public NuGet artifact. The package keeps
   its 2.1.x API and min-spec declaration while recording the current
-  `VMx >= 3.20.0` dependency floor. Version 2.1.0 is not reused because
+  `VMx >= 3.22.1` dependency floor. Version 2.1.0 is not reused because
   `csharp-v2.1.0` is an existing immutable historical core tag.
 
 ## [VMx.Notifications 1.2.0] — 2026-07-13
@@ -134,7 +170,7 @@ Implements `spec-v3.20.1` with 391/391 library conformance IDs covered.
 ### Changed
 
 - Prepared the independently versioned notification package for its first
-  public NuGet artifact, including symbols and the current `VMx >= 3.20.0`
+  public NuGet artifact, including symbols and the current `VMx >= 3.22.1`
   dependency floor. No notification behavior or public API changed.
 
 ## [3.20.0] — 2026-07-12

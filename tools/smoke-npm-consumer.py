@@ -116,17 +116,47 @@ def typescript_command() -> list[str]:
     ]
 
 
-def _registry_version(package: str, version: str) -> str | None:
-    result = subprocess.run(
-        ["npm", "view", f"{package}@{version}", "version", "--json"],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
+def _registry_version(package: str, version: str, timeout_seconds: float) -> str | None:
+    try:
+        result = subprocess.run(
+            ["npm", "view", f"{package}@{version}", "version", "--json"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired:
+        return None
     if result.returncode != 0:
         return None
     value = json.loads(result.stdout)
     return value if isinstance(value, str) else None
+
+
+def _registry_has_provenance(package: str, version: str, timeout_seconds: float) -> bool:
+    try:
+        result = subprocess.run(
+            ["npm", "view", f"{package}@{version}", "dist.attestations", "--json"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired:
+        return False
+    if result.returncode != 0:
+        return False
+    try:
+        value = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return False
+    provenance = value.get("provenance") if isinstance(value, dict) else None
+    return bool(
+        isinstance(value, dict)
+        and value.get("url")
+        and isinstance(provenance, dict)
+        and provenance.get("predicateType")
+    )
 
 
 def wait_for_version(
@@ -135,18 +165,52 @@ def wait_for_version(
     timeout_seconds: float,
     *,
     interval_seconds: float = 10,
-    lookup: Callable[[str, str], str | None] = _registry_version,
+    lookup: Callable[[str, str, float], str | None] = _registry_version,
     sleeper: Callable[[float], None] = time.sleep,
 ) -> None:
     """Poll npm until the exact immutable package version is visible."""
     _require_version(version)
     deadline = time.monotonic() + timeout_seconds
     while True:
-        if lookup(package, version) == version:
-            return
-        if time.monotonic() >= deadline:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
             raise TimeoutError(f"timed out waiting for {package}@{version} on npm")
-        sleeper(interval_seconds)
+        if lookup(package, version, remaining) == version:
+            return
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError(f"timed out waiting for {package}@{version} on npm")
+        sleeper(min(interval_seconds, remaining))
+
+
+def wait_for_provenance(
+    package: str,
+    version: str,
+    timeout_seconds: float,
+    *,
+    interval_seconds: float = 10,
+    lookup: Callable[[str, str, float], bool] = _registry_has_provenance,
+    sleeper: Callable[[float], None] = time.sleep,
+) -> None:
+    """Poll npm until provenance metadata for the exact version is visible."""
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError(f"timed out waiting for {package}@{version} provenance")
+        if lookup(package, version, remaining):
+            return
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError(f"timed out waiting for {package}@{version} provenance")
+        sleeper(min(interval_seconds, remaining))
+
+
+def _remaining(deadline: float, maximum: float) -> float:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError("npm consumer verification exceeded its end-to-end timeout")
+    return min(maximum, remaining)
 
 
 def json_array(output: str) -> list[object]:
@@ -163,13 +227,14 @@ def json_array(output: str) -> list[object]:
     raise ValueError("npm command did not emit a valid JSON array")
 
 
-def _pack(package_dir: Path, destination: Path) -> Path:
+def _pack(package_dir: Path, destination: Path, *, timeout: float = 120) -> Path:
     result = subprocess.run(
         ["npm", "pack", "--json", "--pack-destination", str(destination)],
         cwd=package_dir,
         check=True,
         capture_output=True,
         text=True,
+        timeout=timeout,
     )
     payload = json_array(result.stdout)
     if len(payload) != 1 or not isinstance(payload[0], dict):
@@ -183,8 +248,8 @@ def _pack(package_dir: Path, destination: Path) -> Path:
     return tarball
 
 
-def _run(args: list[str], *, cwd: Path) -> None:
-    subprocess.run(args, cwd=cwd, check=True)
+def _run(args: list[str], *, cwd: Path, timeout: float = 120) -> None:
+    subprocess.run(args, cwd=cwd, check=True, timeout=timeout)
 
 
 def run_smoke(
@@ -192,17 +257,20 @@ def run_smoke(
     *,
     package_dir: Path | None = None,
     poll_timeout: float = 600,
+    timeout_seconds: float = 900,
+    require_provenance: bool = False,
     keep_directory: bool = False,
 ) -> Path | None:
     """Install and probe a local packed package or exact public version."""
     _require_version(version)
+    deadline = time.monotonic() + timeout_seconds
     workdir = Path(tempfile.mkdtemp(prefix="vmx-npm-smoke-"))
     try:
         if package_dir is None:
-            wait_for_version(PACKAGE_NAME, version, poll_timeout)
+            wait_for_version(PACKAGE_NAME, version, _remaining(deadline, poll_timeout))
             package_spec = version
         else:
-            tarball = _pack(package_dir.resolve(), workdir)
+            tarball = _pack(package_dir.resolve(), workdir, timeout=_remaining(deadline, 120))
             package_spec = tarball.as_uri()
 
         (workdir / "package.json").write_text(render_package_json(package_spec), encoding="utf-8")
@@ -213,10 +281,17 @@ def run_smoke(
         _run(
             ["npm", "install", "--ignore-scripts", "--no-audit", "--no-fund"],
             cwd=workdir,
+            timeout=_remaining(deadline, 120),
         )
-        _run(["node", "smoke.mjs"], cwd=workdir)
-        _run(["node", "smoke.cjs"], cwd=workdir)
-        _run(typescript_command(), cwd=workdir)
+        _run(["node", "smoke.mjs"], cwd=workdir, timeout=_remaining(deadline, 120))
+        _run(["node", "smoke.cjs"], cwd=workdir, timeout=_remaining(deadline, 120))
+        _run(typescript_command(), cwd=workdir, timeout=_remaining(deadline, 120))
+        if require_provenance:
+            wait_for_provenance(
+                PACKAGE_NAME,
+                version,
+                _remaining(deadline, poll_timeout),
+            )
         print(
             f"OK: npm consumer verified {PACKAGE_NAME}@{version} "
             "as ESM, CommonJS, and NodeNext declarations"
@@ -235,6 +310,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--version", required=True)
     parser.add_argument("--package-dir", type=Path)
     parser.add_argument("--poll-timeout", type=float, default=600)
+    parser.add_argument("--timeout", type=float, default=900, dest="timeout_seconds")
+    parser.add_argument("--require-provenance", action="store_true")
     parser.add_argument("--keep-directory", action="store_true")
     args = parser.parse_args(argv)
     try:
@@ -242,6 +319,8 @@ def main(argv: list[str] | None = None) -> int:
             args.version,
             package_dir=args.package_dir,
             poll_timeout=args.poll_timeout,
+            timeout_seconds=args.timeout_seconds,
+            require_provenance=args.require_provenance,
             keep_directory=args.keep_directory,
         )
     except (
@@ -251,6 +330,7 @@ def main(argv: list[str] | None = None) -> int:
         ValueError,
         json.JSONDecodeError,
         subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
     ) as error:
         print(f"ERROR: npm consumer smoke failed: {error}", file=sys.stderr)
         return 1

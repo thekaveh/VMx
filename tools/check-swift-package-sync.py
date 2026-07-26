@@ -74,6 +74,7 @@ def dump_package(repo_root: Path, package_path: Path) -> dict[str, object]:
         check=True,
         capture_output=True,
         text=True,
+        timeout=120,
     )
     payload = json.loads(result.stdout)
     if not isinstance(payload, dict):
@@ -99,7 +100,13 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         diff = check(args.repo_root.resolve())
-    except (OSError, ValueError, json.JSONDecodeError, subprocess.CalledProcessError) as error:
+    except (
+        OSError,
+        ValueError,
+        json.JSONDecodeError,
+        subprocess.CalledProcessError,
+        subprocess.TimeoutExpired,
+    ) as error:
         print(f"ERROR: unable to compare SwiftPM manifests: {error}", file=sys.stderr)
         if isinstance(error, subprocess.CalledProcessError) and error.stderr:
             print(error.stderr.rstrip(), file=sys.stderr)

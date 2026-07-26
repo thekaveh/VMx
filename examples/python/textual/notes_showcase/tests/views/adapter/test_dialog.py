@@ -13,12 +13,12 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from vmx.dialogs import NotificationSeverity
 
 from notes_showcase.views.adapter.dialog import TextualDialogService
 from notes_showcase.views.modals.confirm_modal import ConfirmModal
 from notes_showcase.views.modals.notify_modal import NotifyModal
 from notes_showcase.views.modals.save_file_modal import SaveFileModal
-from vmx.dialogs import NotificationSeverity
 
 
 def _make_app(return_value: Any = None) -> MagicMock:

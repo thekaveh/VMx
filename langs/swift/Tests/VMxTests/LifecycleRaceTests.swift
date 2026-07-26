@@ -123,6 +123,40 @@ final class LifecycleRaceTests: XCTestCase {
         secondCancel.cancel()
     }
 
+    func testOpposingActiveLifecycleHooksCrossDisposeWithoutDeadlock() throws {
+        let rendezvous = DispatchGroup()
+        rendezvous.enter()
+        rendezvous.enter()
+        var first: ComponentVM!
+        var second: ComponentVM!
+        first = try ComponentVM.builder().name("first")
+            .services(hub: NullMessageHub.INSTANCE, dispatcher: NullDispatcher.INSTANCE)
+            .onConstruct {
+                rendezvous.leave()
+                rendezvous.wait()
+                second.dispose()
+            }
+            .build()
+        second = try ComponentVM.builder().name("second")
+            .services(hub: NullMessageHub.INSTANCE, dispatcher: NullDispatcher.INSTANCE)
+            .onConstruct {
+                rendezvous.leave()
+                rendezvous.wait()
+                first.dispose()
+            }
+            .build()
+        let firstDone = DispatchSemaphore(value: 0)
+        let secondDone = DispatchSemaphore(value: 0)
+
+        DispatchQueue.global().async { try? first.construct(); firstDone.signal() }
+        DispatchQueue.global().async { try? second.construct(); secondDone.signal() }
+
+        XCTAssertEqual(firstDone.wait(timeout: .now() + 3), .success)
+        XCTAssertEqual(secondDone.wait(timeout: .now() + 3), .success)
+        XCTAssertEqual(first.status, .disposed)
+        XCTAssertEqual(second.status, .disposed)
+    }
+
     func testConstructingSubscriberDisposePreventsForegroundHook() throws {
         let hub = MessageHub()
         var constructCalls = 0
@@ -201,6 +235,8 @@ final class LifecycleRaceTests: XCTestCase {
         cancel.cancel()
     }
 
+    /// LIFE-015 — disposal waits for an admitted lifecycle hook and suppresses
+    /// post-hook work after terminal supersession.
     func testDisposeDuringReconstructDestructHookSkipsConstructPhase() throws {
         let hub = MessageHub()
         let destructEntered = DispatchSemaphore(value: 0)

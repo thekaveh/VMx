@@ -7,7 +7,6 @@ from datetime import datetime
 from textual.app import ComposeResult
 from textual.widget import Widget
 from textual.widgets import DataTable, Label
-
 from vmx.messages import ConstructionStatusChangedMessage, PropertyChangedMessage
 from vmx.messages.protocols import Message
 

@@ -13,6 +13,13 @@ use super::{
 type HierChildrenFactory<M> =
     Arc<dyn Fn(&HierarchicalVm<M>) -> Vec<HierarchicalVm<M>> + Send + Sync>;
 
+#[cfg(test)]
+type MaterializationValidationHook = Box<dyn Fn() + Send + 'static>;
+
+#[cfg(test)]
+static MATERIALIZATION_VALIDATION_HOOK: Mutex<Option<MaterializationValidationHook>> =
+    Mutex::new(None);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// Controls how batch attachment handles items whose parent key is unavailable.
 pub enum MissingParentPolicy {
@@ -70,16 +77,23 @@ struct BatchAttachCandidate<N, K> {
     retain_if_missing: bool,
 }
 
-#[derive(Clone)]
+#[derive(Default)]
+struct ChildrenMaterializationState {
+    owner: Option<ThreadId>,
+    epoch: u64,
+    reentered_epoch: u64,
+}
+
 /// A recursive modeled VM with lazy children and derived topology properties.
 pub struct HierarchicalVm<M: Clone + PartialEq + Send + Sync + 'static> {
     inner: Arc<HierarchicalVmInner<M>>,
+    materialization_context: Option<u64>,
 }
 
 struct HierarchicalVmInner<M: Clone + PartialEq + Send + Sync + 'static> {
     component: ComponentVm<M>,
     children: Arc<Mutex<Option<Vec<HierarchicalVm<M>>>>>,
-    materializing_children: Arc<(Mutex<Option<ThreadId>>, Condvar)>,
+    materializing_children: Arc<(Mutex<ChildrenMaterializationState>, Condvar)>,
     parent: Mutex<Option<Weak<HierarchicalVmInner<M>>>>,
     children_factory: HierChildrenFactory<M>,
     eager_children: Arc<Mutex<bool>>,
@@ -109,7 +123,10 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
             inner: Arc::new(HierarchicalVmInner {
                 component: ComponentVm::with_model(name, model, hub.clone(), NullDispatcher::new()),
                 children: Arc::new(Mutex::new(None)),
-                materializing_children: Arc::new((Mutex::new(None), Condvar::new())),
+                materializing_children: Arc::new((
+                    Mutex::new(ChildrenMaterializationState::default()),
+                    Condvar::new(),
+                )),
                 parent: Mutex::new(None),
                 children_factory: Arc::new(children_factory),
                 eager_children: Arc::new(Mutex::new(eager_children)),
@@ -117,6 +134,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
                 parked_attach_items: Arc::new(Mutex::new(Vec::new())),
                 hub,
             }),
+            materialization_context: None,
         }
     }
 
@@ -178,17 +196,22 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
         lock(&self.inner.parent)
             .as_ref()
             .and_then(Weak::upgrade)
-            .map(|inner| Self { inner })
+            .map(|inner| Self {
+                inner,
+                materialization_context: None,
+            })
     }
 
     /// Adds or transfers `child` beneath this node.
     pub fn add_child(&self, child: Self) -> VmxResult<()> {
+        self.reject_structural_reentry()?;
         self.attach_child(&child)
     }
 
     /// Removes `child` from this node without disposing it.
     pub fn remove_child(&self, child: &Self) -> VmxResult<()> {
-        self.materialize_children();
+        self.reject_structural_reentry()?;
+        self.try_children()?;
         let (removed, index) = {
             let _topology = lock(&HIERARCHY_TOPOLOGY_GATE);
             let mut children = lock(&self.inner.children);
@@ -218,6 +241,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
 
     /// Transfers `child` from its current parent beneath this node.
     pub fn reparent_child(&self, child: &Self) -> VmxResult<()> {
+        self.reject_structural_reentry()?;
         self.attach_child(child)
     }
 
@@ -225,7 +249,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
         // Materialize the destination before detaching so a child factory
         // failure cannot orphan an attached child.
         let (reparented, index) = loop {
-            self.materialize_children();
+            self.try_children()?;
             let attached = {
                 let _topology = lock(&HIERARCHY_TOPOLOGY_GATE);
                 if lock(&self.inner.children).is_none() {
@@ -291,6 +315,21 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
         FKey: Fn(&Self) -> VmxResult<K>,
         FParent: Fn(&Self) -> VmxResult<Option<K>>,
     {
+        if let Err(error) = self.reject_structural_reentry() {
+            return BatchAttachResult {
+                added: Vec::new(),
+                duplicates: Vec::new(),
+                orphans: Vec::new(),
+                rejections: items
+                    .into_iter()
+                    .map(|item| BatchAttachRejection {
+                        item,
+                        reason: BatchAttachRejectionReason::AttachmentFailed,
+                        detail: Some(error.to_string()),
+                    })
+                    .collect(),
+            };
+        }
         let root = self.tree_root();
         let parked = std::mem::take(&mut *lock(&root.inner.parked_attach_items));
         let mut added = Vec::new();
@@ -463,6 +502,14 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
 
     /// Materializes and returns this node's ordered children.
     pub fn children(&self) -> Vec<Self> {
+        self.try_children().unwrap_or_else(|error| {
+            panic!("children factory returned structurally invalid output: {error}")
+        })
+    }
+
+    /// Materializes children after atomically validating the complete factory
+    /// snapshot. Invalid output leaves the hierarchy unchanged and can be retried.
+    pub fn try_children(&self) -> VmxResult<Vec<Self>> {
         self.materialize_children()
     }
 
@@ -530,6 +577,9 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
 
     /// Detaches materialized children so the factory runs on the next read.
     pub fn invalidate_children(&self) {
+        if self.reject_structural_reentry().is_err() {
+            return;
+        }
         let was_materialized = {
             let _topology = lock(&HIERARCHY_TOPOLOGY_GATE);
             let discarded = lock(&self.inner.children).take();
@@ -556,6 +606,9 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
 
     /// Invalidates this node and every currently materialized descendant.
     pub fn invalidate_subtree(&self) {
+        if self.reject_structural_reentry().is_err() {
+            return;
+        }
         let materialized_children = lock(&self.inner.children).clone();
         if let Some(children) = materialized_children {
             for child in children {
@@ -578,56 +631,121 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
         *lock(&self.inner.expanded_for_walk) = expanded;
     }
 
-    fn materialize_children(&self) -> Vec<Self> {
+    fn materialize_children(&self) -> VmxResult<Vec<Self>> {
         let current = thread::current().id();
-        loop {
-            {
-                let _topology = lock(&HIERARCHY_TOPOLOGY_GATE);
-                if let Some(children) = lock(&self.inner.children).clone() {
-                    return children;
-                }
-            }
-
-            let (owner, ready) = &*self.inner.materializing_children;
-            let mut owner = lock(owner);
+        let epoch = loop {
+            let topology = lock(&HIERARCHY_TOPOLOGY_GATE);
             if let Some(children) = lock(&self.inner.children).clone() {
-                return children;
+                return Ok(children);
             }
-            match *owner {
-                None => {
-                    *owner = Some(current);
-                    break;
-                }
-                Some(active) if active == current => return Vec::new(),
-                Some(_) => {
-                    drop(wait(ready, owner));
-                }
-            }
-        }
 
-        let generated = catch_unwind(AssertUnwindSafe(|| (self.inner.children_factory)(self)));
+            let (state, ready) = &*self.inner.materializing_children;
+            let mut state = lock(state);
+            if let Some(children) = lock(&self.inner.children).clone() {
+                return Ok(children);
+            }
+            match state.owner {
+                None => {
+                    state.epoch = state.epoch.wrapping_add(1).max(1);
+                    let epoch = state.epoch;
+                    state.owner = Some(current);
+                    drop(state);
+                    drop(topology);
+                    break epoch;
+                }
+                Some(active)
+                    if active == current || self.materialization_context == Some(state.epoch) =>
+                {
+                    state.reentered_epoch = state.epoch;
+                    return Err(VmxError::InvalidArgument(
+                        "children factory re-entered structural materialization".to_string(),
+                    ));
+                }
+                Some(_) => {
+                    drop(topology);
+                    drop(wait(ready, state));
+                }
+            }
+        };
+
+        let factory_receiver = Self {
+            inner: Arc::clone(&self.inner),
+            materialization_context: Some(epoch),
+        };
+        let generated = catch_unwind(AssertUnwindSafe(|| {
+            (self.inner.children_factory)(&factory_receiver)
+        }));
         let children = match generated {
             Ok(children) => children,
             Err(error) => {
-                self.finish_children_materialization();
+                self.finish_children_materialization(epoch);
                 resume_unwind(error);
             }
         };
-        {
+        let mut owner_released = false;
+        let committed = (|| -> VmxResult<Vec<Self>> {
             let _topology = lock(&HIERARCHY_TOPOLOGY_GATE);
+            #[cfg(test)]
+            if let Some(hook) = lock(&MATERIALIZATION_VALIDATION_HOOK).as_ref() {
+                hook();
+            }
+            let mut seen = HashSet::new();
             for child in &children {
-                child.set_parent_state(Some(self.clone()));
+                if !seen.insert(child.id()) {
+                    return Err(VmxError::InvalidArgument(
+                        "children factory returned duplicate child identity".to_string(),
+                    ));
+                }
+                let mut ancestor = Some(self.clone());
+                while let Some(node) = ancestor {
+                    if node == *child {
+                        return Err(VmxError::InvalidArgument(
+                            "children factory returned this node or one of its ancestors"
+                                .to_string(),
+                        ));
+                    }
+                    ancestor = node.parent_unlocked();
+                }
+                if child.parent_unlocked().is_some() {
+                    return Err(VmxError::InvalidArgument(
+                        "children factory returned an already-parented child".to_string(),
+                    ));
+                }
+            }
+            let (materialization_state, ready) = &*self.inner.materializing_children;
+            let mut materialization_state = lock(materialization_state);
+            if materialization_state.epoch != epoch
+                || materialization_state.owner != Some(current)
+                || materialization_state.reentered_epoch == epoch
+            {
+                return Err(VmxError::InvalidArgument(
+                    "children factory re-entered a structural operation".to_string(),
+                ));
+            }
+            for child in &children {
+                child.set_parent_state(Some(Self {
+                    inner: Arc::clone(&self.inner),
+                    materialization_context: None,
+                }));
             }
             *lock(&self.inner.children) = Some(children.clone());
+            let result = children.clone();
+            materialization_state.owner = None;
+            drop(materialization_state);
+            ready.notify_all();
+            owner_released = true;
+            Ok(result)
+        })();
+        if !owner_released {
+            self.finish_children_materialization(epoch);
         }
-        self.finish_children_materialization();
         // First materialization is initial construction, not a parent *change*:
         // the children are born as this node's children. Emitting
         // PropertyChanged("parent") here would publish N spurious hub messages on
         // the first lazy children() access. The other four flavors assign the
         // parent silently on hydration (see the C# note in HierarchicalVM); real
         // reparents/detaches still emit via publish_parent_changed elsewhere.
-        children
+        committed
     }
 
     fn tree_root(&self) -> Self {
@@ -712,10 +830,48 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
         Ok(())
     }
 
-    fn finish_children_materialization(&self) {
-        let (owner, ready) = &*self.inner.materializing_children;
-        *lock(owner) = None;
+    fn finish_children_materialization(&self, epoch: u64) {
+        let (state, ready) = &*self.inner.materializing_children;
+        let mut state = lock(state);
+        if state.epoch == epoch {
+            state.owner = None;
+        }
+        drop(state);
         ready.notify_all();
+    }
+
+    fn reject_structural_reentry(&self) -> VmxResult<()> {
+        let current = thread::current().id();
+        let mut state = lock(&self.inner.materializing_children.0);
+        if let Some(owner) = state.owner {
+            if owner == current || self.materialization_context == Some(state.epoch) {
+                state.reentered_epoch = state.epoch;
+                return Err(VmxError::InvalidArgument(
+                    "children factory re-entered a structural operation on its receiver"
+                        .to_string(),
+                ));
+            }
+            return Err(VmxError::InvalidArgument(
+                "structural operation overlaps active children materialization".to_string(),
+            ));
+        }
+        Ok(())
+    }
+}
+
+impl<M: Clone + PartialEq + Send + Sync + 'static> Clone for HierarchicalVm<M> {
+    fn clone(&self) -> Self {
+        let current = thread::current().id();
+        let state = lock(&self.inner.materializing_children.0);
+        let materialization_context = match state.owner {
+            Some(owner) if owner == current => Some(state.epoch),
+            _ => self.materialization_context,
+        };
+        drop(state);
+        Self {
+            inner: Arc::clone(&self.inner),
+            materialization_context,
+        }
     }
 }
 
@@ -902,4 +1058,96 @@ pub fn walk_expanded<T: TreeNode>(root: &T) -> Vec<T> {
         }
     }
     nodes
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    #[test]
+    fn late_contextual_reentry_is_rejected_at_the_commit_boundary() {
+        let hub = MessageHub::new();
+        let messages = Arc::new(Mutex::new(Vec::<Message>::new()));
+        let captured_messages = Arc::clone(&messages);
+        let _subscription = hub.subscribe(move |message| {
+            captured_messages.lock().unwrap().push(message.clone());
+        });
+        let retry_child = HierarchicalVm::new("retry-child", "retry-child".to_string());
+        let captured_retry_child = retry_child.clone();
+        let late_child = HierarchicalVm::new("late-child", "late-child".to_string());
+        let captured_late_child = late_child.clone();
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let captured_attempts = Arc::clone(&attempts);
+        let (release_worker_tx, release_worker_rx) = mpsc::channel();
+        let release_worker_rx = Arc::new(Mutex::new(release_worker_rx));
+        let captured_release_worker = Arc::clone(&release_worker_rx);
+        let (worker_result_tx, worker_result_rx) = mpsc::channel();
+        let root = HierarchicalVm::with_children_factory(
+            "root",
+            "root".to_string(),
+            move |parent| {
+                if captured_attempts.fetch_add(1, Ordering::SeqCst) == 0 {
+                    let delegated_parent: HierarchicalVm<String> = (*parent).clone();
+                    let delegated_child = captured_late_child.clone();
+                    let worker_release = Arc::clone(&captured_release_worker);
+                    let result_tx = worker_result_tx.clone();
+                    std::thread::spawn(move || {
+                        worker_release.lock().unwrap().recv().unwrap();
+                        result_tx
+                            .send(delegated_parent.add_child(delegated_child))
+                            .unwrap();
+                    });
+                    vec![HierarchicalVm::new(
+                        "first-attempt",
+                        "first-attempt".to_string(),
+                    )]
+                } else {
+                    vec![captured_retry_child.clone()]
+                }
+            },
+            false,
+            hub,
+        );
+
+        let (at_boundary_tx, at_boundary_rx) = mpsc::channel();
+        let (resume_tx, resume_rx) = mpsc::channel();
+        let resume_rx = Arc::new(Mutex::new(resume_rx));
+        let captured_resume = Arc::clone(&resume_rx);
+        *lock(&MATERIALIZATION_VALIDATION_HOOK) = Some(Box::new(move || {
+            at_boundary_tx.send(()).unwrap();
+            captured_resume.lock().unwrap().recv().unwrap();
+        }));
+
+        let (hydration_tx, hydration_rx) = mpsc::channel();
+        let first_root = root.clone();
+        std::thread::spawn(move || {
+            hydration_tx.send(first_root.try_children()).unwrap();
+        });
+        at_boundary_rx
+            .recv_timeout(Duration::from_millis(500))
+            .unwrap();
+        release_worker_tx.send(()).unwrap();
+        assert!(matches!(
+            worker_result_rx
+                .recv_timeout(Duration::from_millis(500))
+                .unwrap(),
+            Err(VmxError::InvalidArgument(message)) if message.contains("factory re-entered")
+        ));
+        resume_tx.send(()).unwrap();
+        assert!(hydration_rx
+            .recv_timeout(Duration::from_millis(500))
+            .unwrap()
+            .is_err());
+        *lock(&MATERIALIZATION_VALIDATION_HOOK) = None;
+
+        assert!(late_child.parent().is_none());
+        assert!(messages.lock().unwrap().is_empty());
+        assert!(root.try_children().unwrap() == vec![retry_child.clone()]);
+        assert!(retry_child.parent().as_ref() == Some(&root));
+        assert_eq!(attempts.load(Ordering::SeqCst), 2);
+        assert!(messages.lock().unwrap().is_empty());
+    }
 }

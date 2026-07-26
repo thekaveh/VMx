@@ -6,6 +6,22 @@ use vmx::{
     RelayCommandOf, VmxError, VmxResult,
 };
 
+#[derive(serde::Deserialize)]
+struct CommandFixture {
+    cases: Vec<CommandCase>,
+}
+
+#[derive(serde::Deserialize)]
+struct CommandCase {
+    id: String,
+    predicate: Option<bool>,
+    task: Option<String>,
+    trigger_emits: bool,
+    can_execute: bool,
+    execute_invokes_task: bool,
+    can_execute_changed_fires: bool,
+}
+
 /// CMD-001 — execute invokes the configured task
 #[test]
 fn relay_command_execute_invokes_task() {
@@ -90,14 +106,52 @@ fn relay_command_without_task_is_noop() {
 /// CMD-007 — Command truth-table matches fixture
 #[test]
 fn relay_command_matches_truth_table_fixture() {
-    let fixture: serde_json::Value =
+    let fixture: CommandFixture =
         serde_json::from_str(include_str!("../../src/fixtures/command-truthtable.json")).unwrap();
-    assert_eq!(fixture["cases"].as_array().unwrap().len(), 5);
-
-    assert!(RelayCommand::noop().can_execute());
-    assert!(!RelayCommand::noop()
-        .with_can_execute(|| false)
-        .can_execute());
+    assert!(
+        !fixture.cases.is_empty(),
+        "command truth-table fixture must contain at least one case"
+    );
+    for case in fixture.cases {
+        assert!(
+            case.task.as_deref().is_none_or(|task| task == "noop"),
+            "{}",
+            case.id
+        );
+        let calls = Arc::new(AtomicUsize::new(0));
+        let observed_calls = calls.clone();
+        let mut command = match case.task {
+            Some(_) => RelayCommand::new(move || {
+                observed_calls.fetch_add(1, Ordering::SeqCst);
+            }),
+            None => RelayCommand::noop(),
+        };
+        if let Some(predicate) = case.predicate {
+            command = command.with_can_execute(move || predicate);
+        }
+        let events = Arc::new(AtomicUsize::new(0));
+        let observed_events = events.clone();
+        let _subscription = command.can_execute_changed().subscribe(move |_| {
+            observed_events.fetch_add(1, Ordering::SeqCst);
+        });
+        if case.trigger_emits {
+            command.trigger_can_execute_changed();
+        }
+        assert_eq!(command.can_execute(), case.can_execute, "{}", case.id);
+        command.execute();
+        assert_eq!(
+            calls.load(Ordering::SeqCst) > 0,
+            case.execute_invokes_task,
+            "{}",
+            case.id
+        );
+        assert_eq!(
+            events.load(Ordering::SeqCst) > 0,
+            case.can_execute_changed_fires,
+            "{}",
+            case.id
+        );
+    }
 }
 
 /// CMD-014 — imperative raise emits once without evaluating delegates
@@ -211,6 +265,22 @@ fn async_imperative_raise_while_idle_emits_once() {
     assert_eq!(fired.load(Ordering::SeqCst), 1);
 }
 
+#[test]
+fn taskless_async_command_execution_is_a_noop() {
+    let command = AsyncRelayCommand::noop();
+    let fired = Arc::new(AtomicUsize::new(0));
+    let fired_clone = fired.clone();
+    let _subscription = command.can_execute_changed().subscribe(move |_| {
+        fired_clone.fetch_add(1, Ordering::SeqCst);
+    });
+
+    command.execute();
+    command.execute_async().join().unwrap().unwrap();
+
+    assert!(!command.is_executing());
+    assert_eq!(fired.load(Ordering::SeqCst), 0);
+}
+
 /// CMD-019 — async imperative raise while in flight is additive with state flips
 #[test]
 fn async_imperative_raise_while_in_flight_is_additive() {
@@ -239,6 +309,80 @@ fn async_imperative_raise_while_in_flight_is_additive() {
     run.join().unwrap().unwrap();
 
     assert_eq!(fired.load(Ordering::SeqCst), 3);
+}
+
+#[test]
+fn async_predicate_cannot_reentrantly_admit_a_second_execution() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let holder = Arc::new(Mutex::new(None::<AsyncRelayCommand>));
+    let reentered = Arc::new(AtomicBool::new(false));
+    let command = AsyncRelayCommand::builder()
+        .task({
+            let calls = calls.clone();
+            move |_| {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            }
+        })
+        .predicate({
+            let holder = holder.clone();
+            let reentered = reentered.clone();
+            move || {
+                if !reentered.swap(true, Ordering::SeqCst) {
+                    let nested = holder.lock().unwrap().as_ref().unwrap().execute_async();
+                    nested.join().unwrap().unwrap();
+                }
+                true
+            }
+        })
+        .build();
+    *holder.lock().unwrap() = Some(command.clone());
+
+    command.execute_async().join().unwrap().unwrap();
+
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn relay_predicate_can_dispose_its_command_without_deadlock() {
+    let holder = Arc::new(Mutex::new(None::<RelayCommand>));
+    let command = RelayCommand::noop().with_can_execute({
+        let holder = holder.clone();
+        move || {
+            let command = holder.lock().unwrap().as_ref().unwrap().clone();
+            command.dispose();
+            true
+        }
+    });
+    *holder.lock().unwrap() = Some(command.clone());
+    let (sender, receiver) = mpsc::channel();
+
+    std::thread::spawn(move || sender.send(command.can_execute()).unwrap());
+
+    assert!(!receiver.recv_timeout(Duration::from_secs(1)).unwrap());
+}
+
+#[test]
+fn parameterized_relay_predicate_disposal_invalidates_admission() {
+    let holder = Arc::new(Mutex::new(None::<RelayCommandOf<i32>>));
+    let invoked = Arc::new(AtomicBool::new(false));
+    let command = RelayCommandOf::new({
+        let invoked = invoked.clone();
+        move |_| invoked.store(true, Ordering::SeqCst)
+    })
+    .with_can_execute({
+        let holder = holder.clone();
+        move |_| {
+            let command = holder.lock().unwrap().as_ref().unwrap().clone();
+            command.dispose();
+            true
+        }
+    });
+    *holder.lock().unwrap() = Some(command.clone());
+
+    assert!(!command.can_execute(&1));
+    command.execute(1);
+    assert!(!invoked.load(Ordering::SeqCst));
 }
 
 /// CMD-012 — `AsyncRelayCommand.Cancel()` cancels an in-flight async task, non-throwing by default

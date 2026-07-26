@@ -48,6 +48,14 @@ Construction and destruction cascade through the slot children:
 Each successful slot population publishes a property-changed message for that
 slot (`Component1`, `component_1`, `component1`, and so on).
 
+Reconstruction is transactional across every slot. VMx creates and validates
+all candidates before disposing old slots. It continues cleanup after a slot
+failure, remembers the first failure, and then either commits every viable
+candidate together or disposes them all if the aggregate became terminal.
+Factory or ownership preflight failure leaves all old slots and parent links
+unchanged. Concurrent disposal waits for this decision, so it never observes a
+half-replaced aggregate.
+
 ## 6.2.3.4. Cross-Language Surface
 
 | Concept              | C#                  | Python              | TypeScript          | Swift               | Rust                |

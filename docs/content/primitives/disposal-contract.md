@@ -69,6 +69,10 @@ guarantee repeated and re-entrant disposal on their supported execution model.
 - Disposal requested from a current-changed callback is likewise deferred until
   selection publication finishes, without blocking the callback on its own
   membership transaction.
+- Disposal racing an already-admitted construct/destruct hook waits until the
+  hook settles before terminal resource and stream teardown. Opposing hooks
+  that cross-dispose use cycle-aware deferral, so neither thread deadlocks and
+  no post-hook child work begins after the parent becomes terminal.
 - A forwarding VM delegates disposal to the wrapped VM; it does not introduce
   reference counting.
 - Command decorators and composites do not dispose caller-owned inner commands

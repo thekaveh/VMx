@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from markdown_it import MarkdownIt
+
 from scripts.docs.check_docs import (
     ATX_HEADING_RE,
     NUMBER_PREFIX_RE,
@@ -15,20 +17,17 @@ def number_descendant_headings(markdown: str, page_number: str | None) -> str:
     """Return Markdown with deterministic hierarchical H2-H6 prefixes."""
     counters = [0, 0, 0, 0, 0]
     output: list[str] = []
-    fence: str | None = None
+    hidden: set[int] = set()
+    for token in MarkdownIt("commonmark").parse(markdown):
+        if token.type in {"fence", "code_block"} and token.map is not None:
+            hidden.update(range(*token.map))
 
-    for line in markdown.splitlines(keepends=True):
+    for line_number, line in enumerate(markdown.splitlines(keepends=True)):
+        if line_number in hidden:
+            output.append(line)
+            continue
         content = line.rstrip("\r\n")
         ending = line[len(content) :]
-        stripped = content.lstrip()
-        if stripped.startswith(("```", "~~~")):
-            marker = stripped[:3]
-            fence = None if fence == marker else marker if fence is None else fence
-            output.append(line)
-            continue
-        if fence is not None:
-            output.append(line)
-            continue
 
         match = ATX_HEADING_RE.match(content)
         if match is None:

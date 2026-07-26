@@ -12,7 +12,6 @@ import dataclasses
 from collections.abc import Awaitable, Callable
 
 from reactivex.subject import BehaviorSubject
-
 from vmx import (
     AsyncRelayCommand,
     ComponentVM,
@@ -59,9 +58,7 @@ class CapabilityActionsVM(ComponentVM):
     ) -> None:
         super().__init__(name=name, hint=hint, hub=hub, dispatcher=dispatcher)
         self._focused_getter = focused_getter
-        self._focus_subject: BehaviorSubject[object | None] = BehaviorSubject(
-            focused_getter()
-        )
+        self._focus_subject: BehaviorSubject[object | None] = BehaviorSubject(focused_getter())
         self._actions: DerivedProperty[list[ActionVM]] = from_sources(
             self._focus_subject,
             transform=_project,
@@ -140,10 +137,7 @@ def _project(focused: object | None) -> list[ActionVM]:
         actions.append(
             ActionVM(
                 "Select",
-                RelayCommand.builder()
-                .predicate(focused.can_select)
-                .task(focused.select)
-                .build(),
+                RelayCommand.builder().predicate(focused.can_select).task(focused.select).build(),
             )
         )
     if isinstance(focused, IDeselectable):
@@ -172,10 +166,7 @@ def _project(focused: object | None) -> list[ActionVM]:
         actions.append(
             ActionVM(
                 "Expand",
-                RelayCommand.builder()
-                .predicate(focused.can_expand)
-                .task(focused.expand)
-                .build(),
+                RelayCommand.builder().predicate(focused.can_expand).task(focused.expand).build(),
             )
         )
     if isinstance(focused, ICollapsible):
@@ -204,30 +195,21 @@ def _project(focused: object | None) -> list[ActionVM]:
         actions.append(
             ActionVM(
                 "Close",
-                RelayCommand.builder()
-                .predicate(focused.can_close)
-                .task(focused.close)
-                .build(),
+                RelayCommand.builder().predicate(focused.can_close).task(focused.close).build(),
             )
         )
     if isinstance(focused, IApprovable):
         actions.append(
             ActionVM(
                 "Approve",
-                RelayCommand.builder()
-                .predicate(focused.can_approve)
-                .task(focused.approve)
-                .build(),
+                RelayCommand.builder().predicate(focused.can_approve).task(focused.approve).build(),
             )
         )
     if isinstance(focused, ICancelable):
         actions.append(
             ActionVM(
                 "Cancel",
-                RelayCommand.builder()
-                .predicate(focused.can_cancel)
-                .task(focused.cancel)
-                .build(),
+                RelayCommand.builder().predicate(focused.can_cancel).task(focused.cancel).build(),
             )
         )
 
@@ -294,9 +276,7 @@ class CapabilityActionsVMBuilder:
     ) -> CapabilityActionsVMBuilder:
         return dataclasses.replace(self, _hub=hub, _dispatcher=dispatcher)
 
-    def focused_getter(
-        self, getter: Callable[[], object | None]
-    ) -> CapabilityActionsVMBuilder:
+    def focused_getter(self, getter: Callable[[], object | None]) -> CapabilityActionsVMBuilder:
         return dataclasses.replace(self, _focused_getter=getter)
 
     def add_note_action(
@@ -320,11 +300,7 @@ class CapabilityActionsVMBuilder:
         if self._focused_getter is None:
             raise ValueError("focused_getter is required")
         hub = self._hub if self._hub is not None else MessageHub[Message]()
-        dispatcher = (
-            self._dispatcher
-            if self._dispatcher is not None
-            else RxDispatcher.immediate()
-        )
+        dispatcher = self._dispatcher if self._dispatcher is not None else RxDispatcher.immediate()
         return CapabilityActionsVM(
             name=self._name,
             hint=self._hint,

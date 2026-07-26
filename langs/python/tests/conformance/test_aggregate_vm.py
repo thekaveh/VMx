@@ -12,8 +12,13 @@ AGG-006 — Arity-6 all six components reach Constructed; destruction waits for 
 
 from __future__ import annotations
 
+import threading
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
+
 import pytest
 
+from vmx.aggregates.aggregate_vm import AggregateVM1, AggregateVM2
 from vmx.aggregates.builders import (
     AggregateVM1Builder,
     AggregateVM2Builder,
@@ -23,6 +28,7 @@ from vmx.aggregates.builders import (
     AggregateVM6Builder,
 )
 from vmx.components.builders import ComponentVMBuilder
+from vmx.components.component_vm import ComponentVM
 from vmx.composites.builders import CompositeVMBuilder
 from vmx.forwarding.component import ForwardingComponentVM
 from vmx.lifecycle.status import ConstructionStatus
@@ -46,6 +52,81 @@ def _dispatcher() -> RxDispatcher:
 
 def _child(hub: MessageHub[object], dispatcher: RxDispatcher, name: str = "child") -> object:
     return ComponentVMBuilder().name(name).services(hub, dispatcher).build()
+
+
+class _BlockingDisposeComponent(ComponentVM):
+    def __init__(
+        self,
+        *,
+        name: str,
+        hub: MessageHub[object],
+        dispatcher: RxDispatcher,
+        entered: threading.Event,
+        release: threading.Event,
+    ) -> None:
+        super().__init__(name=name, hint="", hub=hub, dispatcher=dispatcher)
+        self._entered = entered
+        self._release = release
+
+    def _on_dispose(self) -> None:
+        self._entered.set()
+        if not self._release.wait(timeout=2):
+            raise TimeoutError("test did not release blocked slot disposal")
+
+
+class _ReentrantDisposeComponent(ComponentVM):
+    def __init__(
+        self,
+        *,
+        name: str,
+        hub: MessageHub[object],
+        dispatcher: RxDispatcher,
+        on_dispose: Callable[[], None],
+    ) -> None:
+        super().__init__(name=name, hint="", hub=hub, dispatcher=dispatcher)
+        self._dispose_callback = on_dispose
+
+    def _on_dispose(self) -> None:
+        self._dispose_callback()
+
+
+class _ThrowingDisposeComponent(ComponentVM):
+    def _on_dispose(self) -> None:
+        raise RuntimeError("first disposal failure")
+
+
+class _StatusReadBarrierAggregate(AggregateVM1[ComponentVM]):
+    """Pause the replacement's terminal check after capturing its value."""
+
+    def __init__(
+        self,
+        *,
+        hub: MessageHub[object],
+        dispatcher: RxDispatcher,
+        factory: Callable[[], ComponentVM],
+        status_read: threading.Event,
+        disposal_attempted: threading.Event,
+    ) -> None:
+        super().__init__(
+            name="aggregate",
+            hint="",
+            hub=hub,
+            dispatcher=dispatcher,
+            factory1=factory,
+        )
+        self._pause_status_read = False
+        self._status_read = status_read
+        self._disposal_attempted = disposal_attempted
+
+    @property
+    def status(self) -> ConstructionStatus:
+        captured = super().status
+        if self._pause_status_read:
+            self._pause_status_read = False
+            self._status_read.set()
+            if not self._disposal_attempted.wait(timeout=2):
+                raise TimeoutError("test did not attempt aggregate disposal")
+        return captured
 
 
 # ---------------------------------------------------------------------------
@@ -80,6 +161,57 @@ def test_AGG_001_arity1_factory_invoked_on_construct() -> None:
     assert factory_call_count == 1, "Factory must be called exactly once"
     assert agg.component_1 is not None
     assert agg.component_1.status == ConstructionStatus.CONSTRUCTED  # type: ignore[union-attr]
+
+
+def test_concurrent_aggregate_reconstruction_reserves_shared_candidate() -> None:
+    hub = _hub()
+    dispatcher = _dispatcher()
+    candidate = ComponentVM(name="candidate", hint="", hub=hub, dispatcher=dispatcher)
+    factories_ready = threading.Barrier(2)
+    disposal_entered = threading.Event()
+    release_disposal = threading.Event()
+
+    def aggregate(name: str) -> AggregateVM1[ComponentVM]:
+        calls = 0
+
+        def factory() -> ComponentVM:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return _BlockingDisposeComponent(
+                    name=f"{name}-old",
+                    hub=hub,
+                    dispatcher=dispatcher,
+                    entered=disposal_entered,
+                    release=release_disposal,
+                )
+            factories_ready.wait(timeout=2)
+            return candidate
+
+        vm: AggregateVM1[ComponentVM] = (
+            AggregateVM1Builder().name(name).services(hub, dispatcher).component_1(factory).build()
+        )
+        vm.construct()
+        return vm
+
+    first = aggregate("first")
+    second = aggregate("second")
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(vm.reconstruct) for vm in (first, second)]
+        assert disposal_entered.wait(timeout=2)
+        release_disposal.set()
+        outcomes = []
+        for future in futures:
+            try:
+                future.result(timeout=2)
+                outcomes.append("success")
+            except ValueError:
+                outcomes.append("rejected")
+
+    assert sorted(outcomes) == ["rejected", "success"]
+    owners = [vm for vm in (first, second) if vm.component_1 is candidate]
+    assert len(owners) == 1
+    assert candidate._ownership_parent is owners[0]._aggregate_parent
 
 
 # ---------------------------------------------------------------------------
@@ -349,6 +481,207 @@ def test_aggregate_rejects_owned_factory_result_without_mutation() -> None:
     assert aggregate.component_1 is None
 
 
+def test_aggregate_reconstruct_rejects_reentrant_attachment_of_reserved_candidate() -> None:
+    hub = _hub()
+    dispatcher = _dispatcher()
+    candidate = ComponentVM(name="candidate", hint="", hub=hub, dispatcher=dispatcher)
+    destination = (
+        CompositeVMBuilder()
+        .name("destination")
+        .services(hub, dispatcher)
+        .children(lambda: ())
+        .build()
+    )
+    destination.construct()
+    admission_errors: list[BaseException] = []
+    calls = 0
+
+    def reentrant_admission() -> None:
+        try:
+            destination.add(candidate)
+        except BaseException as error:
+            admission_errors.append(error)
+
+    def factory() -> ComponentVM:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return _ReentrantDisposeComponent(
+                name="old",
+                hub=hub,
+                dispatcher=dispatcher,
+                on_dispose=reentrant_admission,
+            )
+        return candidate
+
+    aggregate = (
+        AggregateVM1Builder()
+        .name("aggregate")
+        .services(hub, dispatcher)
+        .component_1(factory)
+        .build()
+    )
+    aggregate.construct()
+
+    aggregate.reconstruct()
+
+    assert len(admission_errors) == 1
+    assert isinstance(admission_errors[0], RuntimeError)
+    assert destination.snapshot() == ()
+    assert aggregate.component_1 is candidate
+
+
+@pytest.mark.parametrize("arity", [1, 2])
+def test_aggregate_reconstruct_aborts_when_previous_disposal_disposes_parent(
+    arity: int,
+) -> None:
+    hub = _hub()
+    dispatcher = _dispatcher()
+    candidates = [
+        ComponentVM(name=f"candidate-{index}", hint="", hub=hub, dispatcher=dispatcher)
+        for index in range(arity)
+    ]
+    previous: list[ComponentVM] = []
+    aggregate: AggregateVM1[ComponentVM] | AggregateVM2[ComponentVM, ComponentVM]
+    calls = [0, 0]
+
+    def first_factory() -> ComponentVM:
+        calls[0] += 1
+        if calls[0] == 1:
+            old = _ReentrantDisposeComponent(
+                name="old-1",
+                hub=hub,
+                dispatcher=dispatcher,
+                on_dispose=lambda: aggregate.dispose(),
+            )
+            previous.append(old)
+            return old
+        return candidates[0]
+
+    def second_factory() -> ComponentVM:
+        calls[1] += 1
+        if calls[1] == 1:
+            old = ComponentVM(name="old-2", hint="", hub=hub, dispatcher=dispatcher)
+            previous.append(old)
+            return old
+        return candidates[1]
+
+    if arity == 1:
+        aggregate = (
+            AggregateVM1Builder()
+            .name("aggregate")
+            .services(hub, dispatcher)
+            .component_1(first_factory)
+            .build()
+        )
+    else:
+        aggregate = (
+            AggregateVM2Builder()
+            .name("aggregate")
+            .services(hub, dispatcher)
+            .component_1(first_factory)
+            .component_2(second_factory)
+            .build()
+        )
+    aggregate.construct()
+
+    aggregate.reconstruct()
+
+    assert aggregate.status is ConstructionStatus.DISPOSED
+    assert aggregate.components() == previous
+    assert all(candidate.status is ConstructionStatus.DISPOSED for candidate in candidates)
+
+
+@pytest.mark.parametrize("reconstruct", [False, True])
+def test_aggregate_dispose_cannot_race_fixed_slot_commit(reconstruct: bool) -> None:
+    hub = _hub()
+    dispatcher = _dispatcher()
+    status_read = threading.Event()
+    disposal_attempted = threading.Event()
+    created: list[ComponentVM] = []
+
+    def factory() -> ComponentVM:
+        child = ComponentVM(name=f"child-{len(created)}", hint="", hub=hub, dispatcher=dispatcher)
+        created.append(child)
+        return child
+
+    aggregate = _StatusReadBarrierAggregate(
+        hub=hub,
+        dispatcher=dispatcher,
+        factory=factory,
+        status_read=status_read,
+        disposal_attempted=disposal_attempted,
+    )
+    if reconstruct:
+        aggregate.construct()
+    aggregate._pause_status_read = True
+
+    operation = aggregate.reconstruct if reconstruct else aggregate.construct
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        operation_result = pool.submit(operation)
+        assert status_read.wait(timeout=2)
+
+        def dispose() -> None:
+            disposal_attempted.set()
+            aggregate.dispose()
+
+        disposal_result = pool.submit(dispose)
+        operation_result.result(timeout=2)
+        disposal_result.result(timeout=2)
+
+    candidate = created[-1]
+    assert aggregate.status is ConstructionStatus.DISPOSED
+    assert candidate.status is ConstructionStatus.DISPOSED
+
+
+@pytest.mark.conformance("AGG-007")
+def test_aggregate_reconstruct_cleans_all_slots_and_candidates_after_disposal_failure() -> None:
+    hub = _hub()
+    dispatcher = _dispatcher()
+    candidate1 = ComponentVM(name="candidate-1", hint="", hub=hub, dispatcher=dispatcher)
+    candidate2 = ComponentVM(name="candidate-2", hint="", hub=hub, dispatcher=dispatcher)
+    previous2 = ComponentVM(name="old-2", hint="", hub=hub, dispatcher=dispatcher)
+    calls = [0, 0]
+
+    def factory1() -> ComponentVM:
+        calls[0] += 1
+        if calls[0] == 1:
+            return _ThrowingDisposeComponent(name="old-1", hint="", hub=hub, dispatcher=dispatcher)
+        return candidate1
+
+    def factory2() -> ComponentVM:
+        calls[1] += 1
+        return previous2 if calls[1] == 1 else candidate2
+
+    aggregate = (
+        AggregateVM2Builder()
+        .name("aggregate")
+        .services(hub, dispatcher)
+        .component_1(factory1)
+        .component_2(factory2)
+        .build()
+    )
+    aggregate.construct()
+    changes: list[str] = []
+    aggregate.property_changed.subscribe(changes.append)
+
+    with pytest.raises(RuntimeError, match="first disposal failure"):
+        aggregate.reconstruct()
+
+    assert previous2.status is ConstructionStatus.DISPOSED
+    assert aggregate.status is ConstructionStatus.DESTRUCTED
+    assert aggregate.component_1 is candidate1
+    assert aggregate.component_2 is candidate2
+    assert candidate1.status is ConstructionStatus.DESTRUCTED
+    assert candidate2.status is ConstructionStatus.DESTRUCTED
+    assert candidate1._parent is aggregate._aggregate_parent
+    assert candidate2._parent is aggregate._aggregate_parent
+    assert [name for name in changes if name.startswith("component_")] == [
+        "component_1",
+        "component_2",
+    ]
+
+
 def test_aggregate_rejects_forwarding_aliases_of_one_canonical_component() -> None:
     inner = ComponentVMBuilder().name("inner").with_null_services().build()
     first = ForwardingComponentVM(inner)
@@ -367,6 +700,27 @@ def test_aggregate_rejects_forwarding_aliases_of_one_canonical_component() -> No
 
     assert aggregate.component_1 is None
     assert aggregate.component_2 is None
+
+
+def test_aggregate_reconstruct_rejects_current_slot_without_disposing_it() -> None:
+    hub = _hub()
+    dispatcher = _dispatcher()
+    child = _child(hub, dispatcher)
+    aggregate = (
+        AggregateVM1Builder()
+        .name("aggregate")
+        .services(hub, dispatcher)
+        .component_1(lambda: child)
+        .build()
+    )
+    aggregate.construct()
+
+    with pytest.raises(ValueError, match="already has a parent"):
+        aggregate.reconstruct()
+
+    assert aggregate.component_1 is child
+    assert child.status is ConstructionStatus.DESTRUCTED  # type: ignore[attr-defined]
+    assert child._ownership_parent is not None  # type: ignore[attr-defined]
 
 
 def test_aggregate_rejects_forwarding_alias_of_owned_component() -> None:

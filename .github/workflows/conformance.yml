@@ -12,6 +12,7 @@ on:
       - "langs/**/tests/conformance/**"
       - "langs/csharp/tests/VMx.Conformance.Tests/**"
       - "langs/swift/Tests/VMxTests/**"
+      - "langs/typescript/src/conformance/schemas/**"
       - "langs/rust/src/fixtures/**"
       - "langs/python/src/vmx/lifecycle/_data/**"
       - "langs/swift/Sources/VMx/Resources/**"
@@ -26,10 +27,11 @@ on:
 
 jobs:
   coverage:
+    timeout-minutes: 15
     name: "required: conformance"
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # check-version-consistency.py reconciles the compatibility matrix
           # against git tags; the default shallow checkout fetches no tags, so
@@ -38,7 +40,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install uv
-        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           version: "0.11.28"
 
@@ -71,7 +73,12 @@ jobs:
         # Verifies that spec/VERSION, all flavor manifests, and compatibility-matrix.md
         # are mutually consistent, and that every matrix-row version has a matching
         # git tag (pre-v2.0 rows are informational-only; the tool exits 0).
-        run: uv --project langs/python run python tools/check-version-consistency.py
+        run: >-
+          uv --project langs/python run --locked --extra tools python
+          tools/check-version-consistency.py
+
+      - name: Validate canonical fixture contracts
+        run: uv --project langs/python run python tools/check-fixture-contracts.py
 
       - name: Check workflow pin inventory
         run: uv --project langs/python run python tools/check-workflow-pins.py
@@ -81,6 +88,9 @@ jobs:
 
       - name: Check Rust fixture sync
         run: uv --project langs/python run python tools/check-rust-fixture-sync.py
+
+      - name: Check TypeScript schema sync
+        run: uv --project langs/python run python tools/check-typescript-schema-sync.py
 
       - name: mdformat check (spec/ + docs/)
         # CI backstop for the pre-commit mdformat hook — contributors without
@@ -100,7 +110,7 @@ jobs:
 
       - name: Enforce conformance coverage (csharp + python + typescript + swift + rust)
         # All five flavors ship at the current spec version and are enforced at
-        # 100% coverage of the full 396-ID library catalog. Swift and Rust use
+        # 100% coverage of the full library catalog. Swift and Rust use
         # doc-comment markers attached to real test functions, so this coverage
         # check does not need either toolchain. The tool exits non-zero if any
         # required language falls below full catalog coverage.

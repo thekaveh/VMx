@@ -86,14 +86,13 @@ class InMemoryNoteRepository:
             parsed = int(token) if token is not None else 0
         except ValueError:
             parsed = 0
-        start = parsed if parsed > 0 else 0
+        start = max(0, parsed)
         safe_page_size = max(1, page_size)
         async with self._gate:
             matches = [
                 n
                 for n in self._notes
-                if not normalized
-                or normalized in f"{n.title} {n.body} {' '.join(n.tags)}".lower()
+                if not normalized or normalized in f"{n.title} {n.body} {' '.join(n.tags)}".lower()
             ]
             items = matches[start : start + safe_page_size]
             next_index = start + len(items)
@@ -145,8 +144,7 @@ class InMemoryNoteRepository:
         self._consume_failure()
         payload = {
             "notebooks": [
-                {"id": n.id, "name": n.name, "parent_id": n.parent_id}
-                for n in notebooks
+                {"id": n.id, "name": n.name, "parent_id": n.parent_id} for n in notebooks
             ],
             "notes": [
                 {
