@@ -17,9 +17,8 @@ ______________________________________________________________________
 
 ## 3.5.1. Install
 
-VMx Swift 3.24.0 is the current source line. VMx Swift 3.20.0 is publicly
-installable from the repository root. SwiftPM
-resolves the immutable semantic tag `v3.20.0`; `swift-v3.20.0` is the matching
+VMx Swift 3.24.0 is publicly installable from the repository root. SwiftPM
+resolves the immutable semantic tag `v3.24.0`; `swift-v3.24.0` is the matching
 operational tag and GitHub Release.
 
 Add VMx as a Swift Package dependency in `Package.swift`:
@@ -34,7 +33,7 @@ let package = Package(
         .iOS(.v16), .macOS(.v13), .tvOS(.v16), .watchOS(.v9),
     ],
     dependencies: [
-        .package(url: "https://github.com/thekaveh/VMx.git", from: "3.20.0"),
+        .package(url: "https://github.com/thekaveh/VMx.git", from: "3.24.0"),
     ],
     targets: [
         .target(name: "MyApp", dependencies: [

@@ -9,7 +9,7 @@ Updated alongside spec and flavor releases.
 | 3.23.x | 3.23.0[^current] <!-- x-release-please-version --> | 3.23.0[^current] | 3.24.0[^current] | 3.24.0[^swift] | 0.27.0[^rust] |
 | 3.22.x[^source-only] | 3.22.0–3.22.1 | 3.22.0–3.22.1 | 3.23.0–3.23.1 | 3.22.0–3.23.0 | 0.25.0–0.26.0 |
 | 3.21.x | —               | —               | —               | —               | —             |
-| 3.20.x[^legacy-semantic-tag-only] | —               | —               | —               | 3.20.0[^swift] | 0.20.0–0.22.0[^rust-source] |
+| 3.20.x[^legacy-semantic-tag-only] | —               | —               | —               | 3.20.0         | 0.20.0–0.22.0[^rust-source] |
 | 3.19.x | —               | —               | —               | —               | 0.19.0[^rust-source] |
 | 3.18.x | —               | —               | —               | —               | 0.18.0[^rust-source] |
 | 3.17.x | —               | —               | —               | —               | 0.17.0[^rust-source] |
@@ -94,11 +94,10 @@ TypeScript 3.24.0 implements spec 3.23.0. Python's latest PyPI release remains
 packages remain pending. Their release jobs refuse to green-skip a publish
 without configured credentials.
 
-[^swift]: Swift 3.24.0 is the current source line. Swift 3.20.0 remains publicly
-installable from the repository root through
-the immutable `v3.20.0` semantic tag. The matching `swift-v3.20.0` operational
-tag and [GitHub Release](https://github.com/thekaveh/VMx/releases/tag/swift-v3.20.0)
-point to the same `main` commit.
+[^swift]: Swift 3.24.0 is publicly installable from the repository root through
+the immutable `v3.24.0` semantic tag. The matching `swift-v3.24.0` operational
+tag and [GitHub Release](https://github.com/thekaveh/VMx/releases/tag/swift-v3.24.0)
+point to the same verified `main` commit.
 
 [^rust]: Rust is a source-tree, catalog-complete flavor promoted by ADR-0081. It
 is at source version 0.27.0, declares `MIN_SPEC_VERSION = "3.23.0"`, and carries

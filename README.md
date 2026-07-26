@@ -153,7 +153,7 @@ Each flavor implements the same conceptual stack:
 | C#         | v3.23.0 in source | NuGet package not published yet                                                        | System.Reactive             |
 | Python     | v3.23.0 in source | [`vmx`](https://pypi.org/project/vmx/) latest published: 3.1.0                         | reactivex                   |
 | TypeScript | v3.24.0 in source | npm package not published yet                                                          | rxjs                        |
-| Swift      | v3.24.0 in source | [`VMx` 3.20.0](https://github.com/thekaveh/VMx/releases/tag/swift-v3.20.0) via SwiftPM | Combine                     |
+| Swift      | v3.24.0           | [`VMx` 3.24.0](https://github.com/thekaveh/VMx/releases/tag/swift-v3.24.0) via SwiftPM | Combine                     |
 | Rust       | v0.27.0 in source | crates.io package not published yet                                                    | VMx-owned hot-stream facade |
 
 `main` may contain an in-development source version before that version is
