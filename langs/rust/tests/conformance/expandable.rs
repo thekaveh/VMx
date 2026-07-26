@@ -1,8 +1,6 @@
-use vmx::{walk_expanded, Expandable, ExpandableState, HierarchicalVm, Message};
+use vmx::{walk_expanded, ExpandableState, Message};
 
-fn leaf(name: &str) -> HierarchicalVm<String> {
-    HierarchicalVm::new(name, name.to_string())
-}
+use super::expandable_support::ExpandableHierarchy;
 
 /// EXP-001 — ExpandableState defaults to collapsed
 #[test]
@@ -76,15 +74,13 @@ fn expandable_state_dispose_is_idempotent_and_makes_changes_inert() {
 /// EXP-005 — walk_expanded skips descendants of collapsed nodes
 #[test]
 fn walk_expanded_skips_collapsed_descendants() {
-    let root = leaf("root");
-    let a = leaf("a");
-    let b = leaf("b");
-    b.set_expanded_for_walk(false);
-    assert!(!Expandable::is_expanded(&b));
-    b.add_child(leaf("b1")).unwrap();
-    b.add_child(leaf("b2")).unwrap();
-    root.add_child(a).unwrap();
-    root.add_child(b.clone()).unwrap();
+    let root = ExpandableHierarchy::expandable("root", true);
+    let a = ExpandableHierarchy::plain("a");
+    let b = ExpandableHierarchy::expandable("b", false);
+    b.add_child(ExpandableHierarchy::plain("b1"));
+    b.add_child(ExpandableHierarchy::plain("b2"));
+    root.add_child(a);
+    root.add_child(b.clone());
 
     let names = walk_expanded(&root)
         .into_iter()
@@ -93,7 +89,7 @@ fn walk_expanded_skips_collapsed_descendants() {
 
     assert_eq!(names, vec!["root", "a", "b"]);
 
-    Expandable::expand(&b);
+    b.expansion().unwrap().expand();
     let names = walk_expanded(&root)
         .into_iter()
         .map(|node| node.model())

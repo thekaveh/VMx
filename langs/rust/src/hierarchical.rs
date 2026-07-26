@@ -85,6 +85,16 @@ struct ChildrenMaterializationState {
 }
 
 /// A recursive modeled VM with lazy children and derived topology properties.
+///
+/// Hierarchies do not implicitly opt in to expansion; consumers compose
+/// [`crate::ExpandableState`] in a wrapper when expanded traversal is needed:
+///
+/// ```compile_fail
+/// use vmx::{Expandable, HierarchicalVm};
+///
+/// fn requires_expandable<T: Expandable>(_: &T) {}
+/// requires_expandable(&HierarchicalVm::new("root", "root".to_string()));
+/// ```
 pub struct HierarchicalVm<M: Clone + PartialEq + Send + Sync + 'static> {
     inner: Arc<HierarchicalVmInner<M>>,
     materialization_context: Option<u64>,
@@ -97,7 +107,6 @@ struct HierarchicalVmInner<M: Clone + PartialEq + Send + Sync + 'static> {
     parent: Mutex<Option<Weak<HierarchicalVmInner<M>>>>,
     children_factory: HierChildrenFactory<M>,
     eager_children: Arc<Mutex<bool>>,
-    expanded_for_walk: Arc<Mutex<bool>>,
     parked_attach_items: Arc<Mutex<Vec<HierarchicalVm<M>>>>,
     hub: MessageHub,
 }
@@ -130,7 +139,6 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
                 parent: Mutex::new(None),
                 children_factory: Arc::new(children_factory),
                 eager_children: Arc::new(Mutex::new(eager_children)),
-                expanded_for_walk: Arc::new(Mutex::new(true)),
                 parked_attach_items: Arc::new(Mutex::new(Vec::new())),
                 hub,
             }),
@@ -626,11 +634,6 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
         self.inner.component.dispose()
     }
 
-    /// Sets the expansion flag consumed by [`walk_expanded`].
-    pub fn set_expanded_for_walk(&self, expanded: bool) {
-        *lock(&self.inner.expanded_for_walk) = expanded;
-    }
-
     fn materialize_children(&self) -> VmxResult<Vec<Self>> {
         let current = thread::current().id();
         let epoch = loop {
@@ -924,24 +927,6 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> VmNode for HierarchicalVm<M> 
 impl<M: Clone + PartialEq + Send + Sync + 'static> TreeNode for HierarchicalVm<M> {
     fn children_nodes(&self) -> Vec<Self> {
         self.children()
-    }
-
-    fn expandable(&self) -> Option<&dyn Expandable> {
-        Some(self)
-    }
-}
-
-impl<M: Clone + PartialEq + Send + Sync + 'static> Expandable for HierarchicalVm<M> {
-    fn can_expand(&self) -> bool {
-        !self.is_expanded()
-    }
-
-    fn is_expanded(&self) -> bool {
-        *lock(&self.inner.expanded_for_walk)
-    }
-
-    fn expand(&self) {
-        self.set_expanded_for_walk(true);
     }
 }
 

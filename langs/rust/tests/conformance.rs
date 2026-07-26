@@ -13,6 +13,7 @@ mod conformance {
     mod dialogs;
     mod discriminator;
     mod expandable;
+    mod expandable_support;
     mod filtered_composite;
     mod form_model_hub_publication;
     mod forms;

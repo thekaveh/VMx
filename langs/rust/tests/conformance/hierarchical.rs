@@ -3,9 +3,11 @@ use std::sync::{mpsc, Arc, Barrier, Mutex};
 use std::time::Duration;
 
 use vmx::{
-    walk_expanded, Command, ConstructionStatus, Expandable, HierarchicalVm, Message, MessageHub,
+    walk_expanded, Command, ConstructionStatus, HierarchicalVm, Message, MessageHub,
     ModeledCrudCommands, NullDispatcher, SearchableState, TreeStructureChange, VmxError,
 };
+
+use super::expandable_support::ExpandableHierarchy;
 
 fn leaf(name: &str) -> HierarchicalVm<String> {
     HierarchicalVm::new(name, name.to_string())
@@ -757,13 +759,11 @@ fn structural_mutations_publish_tree_structure_changed() {
 /// HIER-012 — walk_expanded honors lazy boundaries via ExpandableState
 #[test]
 fn walk_expanded_honors_hierarchy_expansion_boundary() {
-    let root = leaf("root");
-    root.set_expanded_for_walk(false);
-    root.add_child(leaf("child")).unwrap();
+    let root = ExpandableHierarchy::expandable("root", false);
+    root.add_child(ExpandableHierarchy::plain("child"));
 
-    assert!(!Expandable::is_expanded(&root));
     assert_eq!(walk_expanded(&root).len(), 1);
-    Expandable::expand(&root);
+    root.expansion().unwrap().expand();
     assert_eq!(walk_expanded(&root).len(), 2);
 }
 
