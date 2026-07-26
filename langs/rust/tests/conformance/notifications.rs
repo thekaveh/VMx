@@ -34,6 +34,37 @@ fn post_waiter_remains_pending_until_resolve() {
 }
 
 #[test]
+fn panicking_waiter_waker_does_not_escape_resolution() {
+    use std::future::Future;
+    use std::pin::Pin;
+    use std::sync::Arc;
+    use std::task::{Context, Poll, Wake, Waker};
+
+    struct PanicWake;
+
+    impl Wake for PanicWake {
+        fn wake(self: Arc<Self>) {
+            panic!("waker boom");
+        }
+    }
+
+    let hub = NotificationHub::new();
+    let (notification, waiter) =
+        hub.post_with_waiter(NotificationType::Notification, "panic isolation");
+    let mut polled_waiter = waiter.clone();
+    let waker = Waker::from(Arc::new(PanicWake));
+    let mut context = Context::from_waker(&waker);
+    assert_eq!(
+        Pin::new(&mut polled_waiter).poll(&mut context),
+        Poll::Pending
+    );
+
+    hub.resolve(notification.id, NotificationReaction::Approve);
+
+    assert_eq!(waiter.wait(), NotificationReaction::Approve);
+}
+
+#[test]
 fn reposting_same_notification_reuses_pending_completion() {
     let hub = NotificationHub::new();
     let notification = Notification::new(NotificationType::Notification, "info");
@@ -51,9 +82,27 @@ fn reposting_same_notification_reuses_pending_completion() {
 #[test]
 fn post_adds_notification_to_pending_snapshot() {
     let hub = NotificationHub::new();
+    let observed = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let values = observed.clone();
+    let _subscription = hub
+        .pending_stream()
+        .subscribe(move |pending| values.lock().unwrap().push(pending));
     let notification = hub.post(NotificationType::Notification, "info");
 
     assert!(hub.pending().contains(&notification));
+    assert_eq!(
+        *observed.lock().unwrap(),
+        vec![Vec::new(), vec![notification.clone()]]
+    );
+    let late_values = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let late_observed = late_values.clone();
+    let _late = hub
+        .pending_stream()
+        .subscribe(move |pending| late_observed.lock().unwrap().push(pending));
+    assert_eq!(
+        *late_values.lock().unwrap(),
+        vec![vec![notification.clone()]]
+    );
     assert!(hub
         .pending_snapshots()
         .last()
@@ -61,11 +110,174 @@ fn post_adds_notification_to_pending_snapshot() {
         .contains(&notification));
 }
 
+#[test]
+fn reentrant_pending_mutation_publishes_each_committed_snapshot_once() {
+    let hub = NotificationHub::new();
+    let first = Notification::new(NotificationType::Notification, "first");
+    let second = Notification::new(NotificationType::Notification, "second");
+    let observed = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let snapshots = observed.clone();
+    let reentrant = hub.clone();
+    let first_for_callback = first.clone();
+    let second_for_callback = second.clone();
+    let _subscription = hub.pending_stream().subscribe(move |pending| {
+        snapshots.lock().unwrap().push(pending.clone());
+        if pending == vec![first_for_callback.clone()] {
+            reentrant.post_notification(second_for_callback.clone());
+        }
+    });
+
+    hub.post_notification(first.clone());
+
+    assert_eq!(
+        *observed.lock().unwrap(),
+        vec![
+            Vec::<Notification>::new(),
+            vec![first.clone()],
+            vec![first.clone(), second.clone()],
+        ]
+    );
+    assert_eq!(
+        hub.pending_snapshots(),
+        vec![vec![first.clone()], vec![first, second]]
+    );
+}
+
+#[test]
+fn concurrent_pending_delivery_matches_committed_snapshot_order() {
+    use std::sync::{mpsc, Arc, Mutex};
+
+    let hub = NotificationHub::new();
+    let first = Notification::new(NotificationType::Notification, "first");
+    let second = Notification::new(NotificationType::Notification, "second");
+    let observed = Arc::new(Mutex::new(Vec::new()));
+    let snapshots = observed.clone();
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let release_rx = Arc::new(Mutex::new(release_rx));
+    let release = release_rx.clone();
+    let _subscription = hub.pending_stream().subscribe(move |pending| {
+        if pending.len() == 1 {
+            entered_tx.send(()).unwrap();
+            release.lock().unwrap().recv().unwrap();
+        }
+        snapshots.lock().unwrap().push(pending);
+    });
+
+    let first_poster = {
+        let hub = hub.clone();
+        let first = first.clone();
+        std::thread::spawn(move || hub.post_notification(first))
+    };
+    entered_rx.recv().unwrap();
+    let second_poster = {
+        let hub = hub.clone();
+        let second = second.clone();
+        let (returned_tx, returned_rx) = mpsc::channel();
+        (
+            std::thread::spawn(move || {
+                hub.post_notification(second);
+                returned_tx.send(()).unwrap();
+            }),
+            returned_rx,
+        )
+    };
+    while hub.pending().len() != 2 {
+        std::thread::yield_now();
+    }
+    let returned_before_publication = second_poster
+        .1
+        .recv_timeout(std::time::Duration::from_millis(50))
+        .is_ok();
+    release_tx.send(()).unwrap();
+    second_poster.0.join().unwrap();
+    first_poster.join().unwrap();
+
+    assert!(
+        !returned_before_publication,
+        "post_notification returned before its committed snapshot was published"
+    );
+    assert_eq!(second_poster.1.try_recv(), Ok(()));
+    assert_eq!(
+        *observed.lock().unwrap(),
+        vec![
+            Vec::<Notification>::new(),
+            vec![first.clone()],
+            vec![first.clone(), second.clone()],
+        ]
+    );
+    assert_eq!(
+        hub.pending_snapshots(),
+        vec![vec![first.clone()], vec![first, second]]
+    );
+}
+
+#[test]
+fn concurrent_resolve_returns_after_its_queued_snapshot_and_waiter_completion() {
+    use std::sync::{mpsc, Arc, Mutex};
+
+    let hub = NotificationHub::new();
+    let (target, waiter) = hub.post_with_waiter(NotificationType::Notification, "resolve-target");
+    let blocker = Notification::new(NotificationType::Notification, "blocker");
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let release_rx = Arc::new(Mutex::new(release_rx));
+    let release = release_rx.clone();
+    let _subscription = hub.pending_stream().subscribe(move |pending| {
+        if pending.len() == 2 {
+            entered_tx.send(()).unwrap();
+            release.lock().unwrap().recv().unwrap();
+        }
+    });
+
+    let posting_hub = hub.clone();
+    let poster = std::thread::spawn(move || posting_hub.post_notification(blocker));
+    entered_rx.recv().unwrap();
+
+    let (returned_tx, returned_rx) = mpsc::channel();
+    let resolving_hub = hub.clone();
+    let target_id = target.id;
+    let resolver = std::thread::spawn(move || {
+        resolving_hub.resolve(target_id, NotificationReaction::Approve);
+        returned_tx.send(()).unwrap();
+    });
+    while hub.pending().contains(&target) {
+        std::thread::yield_now();
+    }
+    let returned_before_publication = returned_rx
+        .recv_timeout(std::time::Duration::from_millis(50))
+        .is_ok();
+    assert_eq!(waiter.try_get(), None);
+
+    release_tx.send(()).unwrap();
+    poster.join().unwrap();
+    resolver.join().unwrap();
+
+    assert!(
+        !returned_before_publication,
+        "resolve returned before its committed snapshot was published"
+    );
+    assert_eq!(returned_rx.try_recv(), Ok(()));
+    assert_eq!(waiter.try_get(), Some(NotificationReaction::Approve));
+}
+
 /// NOTIF-003 — Resolve removes the notification from Pending
 #[test]
 fn resolve_removes_notification_from_pending_snapshot() {
     let hub = NotificationHub::new();
-    let notification = hub.post(NotificationType::Notification, "info");
+    let (notification, waiter) =
+        hub.post_with_waiter(NotificationType::Notification, "publish-before-complete");
+    let waiter_at_publish = waiter.clone();
+    let completion_state = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let observed_state = completion_state.clone();
+    let _subscription = hub.pending_stream().subscribe(move |pending| {
+        if pending.is_empty() {
+            observed_state
+                .lock()
+                .unwrap()
+                .push(waiter_at_publish.try_get());
+        }
+    });
 
     hub.resolve(notification.id, NotificationReaction::Approve);
 
@@ -75,6 +287,12 @@ fn resolve_removes_notification_from_pending_snapshot() {
         .last()
         .unwrap()
         .contains(&notification));
+    assert_eq!(
+        *completion_state.lock().unwrap(),
+        vec![None],
+        "pending must publish before its waiter is completed"
+    );
+    assert_eq!(waiter.try_get(), Some(NotificationReaction::Approve));
 }
 
 /// NOTIF-004 — NotificationType has Error / Notification / Confirmation values
@@ -154,6 +372,18 @@ fn null_notification_hub_resolves_approve() {
     let waiter = NullNotificationHub::post(notification);
 
     assert_eq!(waiter.wait(), NotificationReaction::Approve);
+
+    let values = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let observed = values.clone();
+    let completed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let completion = completed.clone();
+    let _subscription = NullNotificationHub::pending_stream().subscribe_with_completion(
+        move |pending| observed.lock().unwrap().push(pending),
+        move || completion.store(true, std::sync::atomic::Ordering::SeqCst),
+    );
+
+    assert_eq!(*values.lock().unwrap(), vec![Vec::<Notification>::new()]);
+    assert!(completed.load(std::sync::atomic::Ordering::SeqCst));
 }
 
 /// NOTIF-010 — make_confirm helper returns true iff resolved Approve
@@ -162,11 +392,19 @@ fn make_confirm_style_flow_maps_approve_to_true() {
     let hub = NotificationHub::new();
     let confirm = make_confirm(hub.clone(), "ok?");
     let decision = confirm();
+    let resolving_thread = std::thread::current().id();
+    let continuation_thread = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let observed_thread = continuation_thread.clone();
+    let completed = decision.map(move |value| {
+        *observed_thread.lock().unwrap() = Some(std::thread::current().id());
+        value
+    });
     let notification = hub.pending().into_iter().next().unwrap();
 
     hub.resolve(notification.id, NotificationReaction::Approve);
 
-    assert!(decision.wait());
+    assert!(completed.wait());
+    assert_eq!(*continuation_thread.lock().unwrap(), Some(resolving_thread));
 }
 
 /// NOTIF-011 — NotificationVM opacity decays linearly from 1.0 to 0.0 over Lifespan
@@ -262,11 +500,83 @@ fn manual_clock_expiry_is_deterministic() {
 fn hub_dispose_resolves_waiters_pending() {
     let hub = NotificationHub::new();
     let (_notification, waiter) = hub.post_with_waiter(NotificationType::Notification, "info");
+    let completed = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let observed = completed.clone();
+    let _subscription = hub.pending_stream().subscribe_with_completion(
+        |_| {},
+        move || {
+            observed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        },
+    );
 
     hub.dispose();
 
     assert_eq!(waiter.wait(), NotificationReaction::Pending);
     assert!(hub.pending().is_empty());
+    assert_eq!(completed.load(std::sync::atomic::Ordering::SeqCst), 1);
+}
+
+#[test]
+fn concurrent_dispose_returns_after_queued_terminal_publication_and_completions() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{mpsc, Arc, Mutex};
+
+    let hub = NotificationHub::new();
+    let (_target, target_waiter) =
+        hub.post_with_waiter(NotificationType::Notification, "dispose-target");
+    let blocker = Notification::new(NotificationType::Notification, "blocker");
+    let completions = Arc::new(AtomicUsize::new(0));
+    let completed = completions.clone();
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let release_rx = Arc::new(Mutex::new(release_rx));
+    let release = release_rx.clone();
+    let _subscription = hub.pending_stream().subscribe_with_completion(
+        move |pending| {
+            if pending.len() == 2 {
+                entered_tx.send(()).unwrap();
+                release.lock().unwrap().recv().unwrap();
+            }
+        },
+        move || {
+            completed.fetch_add(1, Ordering::SeqCst);
+        },
+    );
+
+    let posting_hub = hub.clone();
+    let poster = std::thread::spawn(move || posting_hub.post_notification(blocker));
+    entered_rx.recv().unwrap();
+
+    let (returned_tx, returned_rx) = mpsc::channel();
+    let disposing_hub = hub.clone();
+    let disposer = std::thread::spawn(move || {
+        disposing_hub.dispose();
+        returned_tx.send(()).unwrap();
+    });
+    while !hub.pending().is_empty() {
+        std::thread::yield_now();
+    }
+    let returned_before_terminal = returned_rx
+        .recv_timeout(std::time::Duration::from_millis(50))
+        .is_ok();
+    assert_eq!(target_waiter.try_get(), None);
+    assert_eq!(completions.load(Ordering::SeqCst), 0);
+
+    release_tx.send(()).unwrap();
+    let blocker_waiter = poster.join().unwrap();
+    disposer.join().unwrap();
+
+    assert!(
+        !returned_before_terminal,
+        "dispose returned before its terminal publication and callbacks"
+    );
+    assert_eq!(returned_rx.try_recv(), Ok(()));
+    assert_eq!(target_waiter.try_get(), Some(NotificationReaction::Pending));
+    assert_eq!(
+        blocker_waiter.try_get(),
+        Some(NotificationReaction::Pending)
+    );
+    assert_eq!(completions.load(Ordering::SeqCst), 1);
 }
 
 /// DISP-003 — concurrent disposal of a thread-safe hub performs terminal work once

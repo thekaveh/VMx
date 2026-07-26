@@ -2,7 +2,9 @@
 //!
 //! Spec: `spec/06-composite-vm.md` §Search / filter; ADR-0014.
 
-use super::{lock, Arc, AtomicBool, Message, MessageHub, Mutex, Ordering, Subscription};
+use super::{
+    lock, Arc, AtomicBool, Message, MessageHub, Mutex, Ordering, Searchable, Subscription,
+};
 
 type ItemsProvider<T> = Arc<dyn Fn() -> Vec<T> + Send + Sync>;
 type SearchPredicate<T> = Arc<dyn Fn(&T, &str) -> bool + Send + Sync>;
@@ -106,6 +108,9 @@ impl<T: Clone + Send + Sync + 'static> SearchableState<T> {
 
     /// Returns the current search term.
     pub fn search_term(&self) -> String {
+        if self.disposed.load(Ordering::Acquire) {
+            return String::new();
+        }
         lock(&self.search_term).clone()
     }
 
@@ -137,11 +142,17 @@ impl<T: Clone + Send + Sync + 'static> SearchableState<T> {
 
     /// Evaluates and returns the current filtered projection.
     pub fn search(&self) -> Vec<T> {
+        if self.disposed.load(Ordering::Acquire) {
+            return Vec::new();
+        }
         self.filtered()
     }
 
     /// Pulls the source and returns items accepted by the current term.
     pub fn filtered(&self) -> Vec<T> {
+        if self.disposed.load(Ordering::Acquire) {
+            return Vec::new();
+        }
         let term = self.search_term();
         (self.source)()
             .into_iter()
@@ -151,7 +162,7 @@ impl<T: Clone + Send + Sync + 'static> SearchableState<T> {
 
     /// Reports whether the current source contains any searchable items.
     pub fn can_search(&self) -> bool {
-        !(self.source)().is_empty()
+        !self.disposed.load(Ordering::Acquire) && !(self.source)().is_empty()
     }
 
     /// Returns the hub that announces filtered-projection changes.
@@ -168,5 +179,23 @@ impl<T: Clone + Send + Sync + 'static> SearchableState<T> {
         }
         lock(&self.source_changes_subscription).take();
         self.filtered_changed.dispose();
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> Searchable for SearchableState<T> {
+    fn can_search(&self) -> bool {
+        SearchableState::can_search(self)
+    }
+
+    fn search_term(&self) -> String {
+        SearchableState::search_term(self)
+    }
+
+    fn set_search_term(&self, term: String) {
+        SearchableState::set_search_term(self, term);
+    }
+
+    fn search(&self) {
+        let _ = SearchableState::search(self);
     }
 }

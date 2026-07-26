@@ -30,9 +30,9 @@ The current catalog contains:
 The source overview is here:
 [spec/12-conformance.md](../../spec/12-conformance.md).
 
-Catalog completeness is an executable ID-coverage statement. Residual Rust
-member and edge-behavior convergence is tracked separately in the
-[Rust parity ledger](../maintenance/2026-07-16-rust-capability-parity.md).
+Catalog completeness is an executable ID-coverage statement. The completed
+[Rust parity ledger](../maintenance/2026-07-16-rust-capability-parity.md)
+supplements it with focused member and edge-behavior evidence for Rust 0.27.0.
 
 ## 10.4. How The Repo Enforces It
 

@@ -1093,9 +1093,21 @@ fn observable_list_remove_emits_remove() {
     let list = ObservableList::new(1, hub.clone());
     list.push("a");
 
-    assert_eq!(list.remove_at(0), Some("a"));
+    assert_eq!(list.remove_at(0).unwrap(), "a");
 
     assert!(collection_actions(&hub).contains(&CollectionChangeAction::Remove));
+}
+
+#[test]
+fn observable_list_remove_at_rejects_an_out_of_range_index() {
+    let hub = MessageHub::new();
+    let list = ObservableList::<&str>::new(1, hub.clone());
+
+    assert_eq!(
+        list.remove_at(0),
+        Err(VmxError::InvalidArgument("index out of range".to_string()))
+    );
+    assert!(hub.history().is_empty());
 }
 
 /// COL-007 — ObservableList<T> ItemReplaced payload shape
@@ -1228,7 +1240,7 @@ fn paged_composition_page_count_tracks_add_remove() {
 
     pages.push(3);
     assert_eq!(pages.page_count(), 2);
-    pages.remove_at(2);
+    pages.remove_at(2).unwrap();
     assert_eq!(pages.page_count(), 1);
 }
 

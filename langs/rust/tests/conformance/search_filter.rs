@@ -282,6 +282,45 @@ fn dispose_cancels_source_observation_without_owning_source() {
     assert_eq!(independent_hits.load(Ordering::SeqCst), 1);
 }
 
+#[test]
+fn disposed_searchable_state_reads_an_empty_term() {
+    let state = SearchableState::new(vec!["alpha"], contains);
+    state.set_search_term("alp");
+    assert_eq!(state.search_term(), "alp");
+
+    state.dispose();
+    state.set_search_term("changed");
+
+    assert_eq!(state.search_term(), "");
+}
+
+#[test]
+fn search_after_disposal_is_inert_without_calling_user_code() {
+    let provider_calls = Arc::new(AtomicUsize::new(0));
+    let predicate_calls = Arc::new(AtomicUsize::new(0));
+    let state = SearchableState::from_items(
+        {
+            let provider_calls = provider_calls.clone();
+            move || {
+                provider_calls.fetch_add(1, Ordering::SeqCst);
+                vec!["alpha"]
+            }
+        },
+        {
+            let predicate_calls = predicate_calls.clone();
+            move |_item, _term| {
+                predicate_calls.fetch_add(1, Ordering::SeqCst);
+                true
+            }
+        },
+    );
+    state.dispose();
+
+    assert!(state.search().is_empty());
+    assert_eq!(provider_calls.load(Ordering::SeqCst), 0);
+    assert_eq!(predicate_calls.load(Ordering::SeqCst), 0);
+}
+
 #[derive(Clone)]
 struct OwnedSearchItem {
     value: &'static str,

@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use vmx::{
     ComponentVm, ComponentVmOptions, CompositeVm, CompositeVmOptions, GroupVm, GroupVmOptions,
-    Message, MessageHub, NullDispatcher, RelayCommand,
+    Message, MessageHub, NullDispatcher, RelayCommand, ViewModelType,
 };
 
 type Child = ComponentVm<&'static str>;
@@ -101,10 +101,19 @@ fn common_options_factories_match_builder_shape() {
         name: Some("component".to_string()),
         hint: Some("hint".to_string()),
         model: Some("model"),
+        view_model_type: ViewModelType::Aggregate,
         hub: MessageHub::new(),
         dispatcher: NullDispatcher::new(),
     })
     .unwrap();
+    let builder_component = ComponentVm::builder()
+        .name("component")
+        .hint("hint")
+        .model("model")
+        .view_model_type(ViewModelType::Aggregate)
+        .services(MessageHub::new(), NullDispatcher::new())
+        .build()
+        .unwrap();
     let composite = CompositeVm::create(CompositeVmOptions {
         name: Some("composite".to_string()),
         hint: None,
@@ -126,6 +135,14 @@ fn common_options_factories_match_builder_shape() {
 
     assert_eq!(component.name(), "component");
     assert_eq!(component.hint(), Some("hint".to_string()));
+    assert_eq!(component.name(), builder_component.name());
+    assert_eq!(component.hint(), builder_component.hint());
+    assert_eq!(component.model(), builder_component.model());
+    assert_eq!(component.view_model_type(), ViewModelType::Aggregate);
+    assert_eq!(
+        component.view_model_type(),
+        builder_component.view_model_type()
+    );
     assert_eq!(composite.len(), 1);
     assert_eq!(group.len(), 1);
 }

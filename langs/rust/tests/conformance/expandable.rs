@@ -1,8 +1,6 @@
-use vmx::{walk_expanded, ExpandableState, HierarchicalVm};
+use vmx::{walk_expanded, ExpandableState, Message};
 
-fn leaf(name: &str) -> HierarchicalVm<String> {
-    HierarchicalVm::new(name, name.to_string())
-}
+use super::expandable_support::ExpandableHierarchy;
 
 /// EXP-001 — ExpandableState defaults to collapsed
 #[test]
@@ -12,6 +10,12 @@ fn expandable_state_defaults_to_collapsed() {
     assert!(!state.is_expanded());
     assert!(state.can_expand());
     assert!(!state.can_collapse());
+}
+
+#[test]
+fn expandable_state_supports_initially_expanded_construction() {
+    assert!(ExpandableState::with_initial(true).is_expanded());
+    assert!(ExpandableState::new_expanded().is_expanded());
 }
 
 /// EXP-002 — Expand flips state and emits IsExpandedChanged
@@ -49,17 +53,34 @@ fn toggle_expansion_alternates_state() {
     assert!(state.is_expanded());
 }
 
+#[test]
+fn expandable_state_dispose_is_idempotent_and_makes_changes_inert() {
+    let state = ExpandableState::new_expanded();
+    let changes = state.expanded_changed();
+
+    state.dispose();
+    state.dispose();
+    state.collapse();
+    changes.send(Message::Custom {
+        sender_id: 0,
+        sender_name: "test".to_string(),
+        name: "after_dispose".to_string(),
+    });
+
+    assert!(state.is_expanded());
+    assert!(changes.history().is_empty());
+}
+
 /// EXP-005 — walk_expanded skips descendants of collapsed nodes
 #[test]
 fn walk_expanded_skips_collapsed_descendants() {
-    let root = leaf("root");
-    let a = leaf("a");
-    let b = leaf("b");
-    b.set_expanded_for_walk(false);
-    b.add_child(leaf("b1")).unwrap();
-    b.add_child(leaf("b2")).unwrap();
-    root.add_child(a).unwrap();
-    root.add_child(b).unwrap();
+    let root = ExpandableHierarchy::expandable("root", true);
+    let a = ExpandableHierarchy::plain("a");
+    let b = ExpandableHierarchy::expandable("b", false);
+    b.add_child(ExpandableHierarchy::plain("b1"));
+    b.add_child(ExpandableHierarchy::plain("b2"));
+    root.add_child(a);
+    root.add_child(b.clone());
 
     let names = walk_expanded(&root)
         .into_iter()
@@ -67,4 +88,11 @@ fn walk_expanded_skips_collapsed_descendants() {
         .collect::<Vec<_>>();
 
     assert_eq!(names, vec!["root", "a", "b"]);
+
+    b.expansion().unwrap().expand();
+    let names = walk_expanded(&root)
+        .into_iter()
+        .map(|node| node.model())
+        .collect::<Vec<_>>();
+    assert_eq!(names, vec!["root", "a", "b", "b1", "b2"]);
 }

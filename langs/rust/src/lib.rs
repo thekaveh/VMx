@@ -22,6 +22,7 @@ use std::thread::{self, ThreadId};
 mod aggregate_change_stream;
 mod async_resource_vm;
 mod async_value;
+mod value_stream;
 pub use aggregate_change_stream::{
     AggregateChange, AggregateChangeObservable, AggregateChangeReason, AggregateChangeStream,
     AggregateChangeSubscription, AggregateObserveOptions, ObservableMembershipSource,
@@ -31,6 +32,7 @@ pub use async_resource_vm::{
     AsyncResourceRetention, AsyncResourceState, AsyncResourceStatus, AsyncResourceVm,
 };
 pub use async_value::AsyncValue;
+pub use value_stream::{ValueStream, ValueSubscription};
 
 /// Version of the compiled Rust package.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -48,13 +50,15 @@ pub(crate) use runtime::{
 };
 
 mod components;
-pub use components::{ComponentVm, ComponentVmBuilder, ComponentVmOptions, ReadonlyComponentVm};
+pub use components::{
+    ComponentVm, ComponentVmBuilder, ComponentVmOptions, ReadonlyComponentVm, ViewModelType,
+};
 
 mod commands;
 pub use commands::{
     AsyncRelayCommand, AsyncRelayCommandBuilder, CancellationToken, Command, CommandOf,
-    CompositeCommand, ConfirmationDecoratorCommand, DecoratorCommand, RelayCommand,
-    RelayCommandBuilder, RelayCommandOf,
+    CompositeCommand, ConfirmationDecoratorCommand, ConfirmationExecution, DecoratorCommand,
+    RelayCommand, RelayCommandBuilder, RelayCommandOf,
 };
 
 mod collections;
@@ -113,8 +117,8 @@ mod capabilities;
 pub use capabilities::{
     Approvable, Cancelable, Closable, Collapsible, Constructable, CurrentDeletable,
     CurrentUpdatable, Deletable, Deselectable, Destructable, Expandable, ExpandableState,
-    ExpansionTogglable, Filterable, Managable, NewCreatable, Pageable, Reconstructable, Savable,
-    Searchable, Selectable, SelectionTogglable, Updatable,
+    ExpansionTogglable, FilterPredicate, Filterable, Managable, NewCreatable, Pageable,
+    Reconstructable, Savable, Searchable, Selectable, SelectionTogglable, Updatable,
 };
 mod aggregates;
 pub use aggregates::{

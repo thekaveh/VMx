@@ -4,9 +4,9 @@
 
 use super::{
     catch_unwind, lock, resume_unwind, thread, wait, Arc, AssertUnwindSafe, ComponentVm, Condvar,
-    ConstructionStatus, Hash, HashMap, HashSet, Message, MessageHub, Mutex, NullDispatcher,
-    ParentHandle, PropertyChangedMessage, PropertyChangedStream, ThreadId, TreeNode,
-    TreeStructureChange, TreeStructureChangedMessage, VmNode, VmxError, VmxResult, Weak,
+    ConstructionStatus, Expandable, Hash, HashMap, HashSet, Message, MessageHub, Mutex,
+    NullDispatcher, ParentHandle, PropertyChangedMessage, PropertyChangedStream, ThreadId,
+    TreeNode, TreeStructureChange, TreeStructureChangedMessage, VmNode, VmxError, VmxResult, Weak,
     HIERARCHY_TOPOLOGY_GATE,
 };
 
@@ -85,6 +85,16 @@ struct ChildrenMaterializationState {
 }
 
 /// A recursive modeled VM with lazy children and derived topology properties.
+///
+/// Hierarchies do not implicitly opt in to expansion; consumers compose
+/// [`crate::ExpandableState`] in a wrapper when expanded traversal is needed:
+///
+/// ```compile_fail
+/// use vmx::{Expandable, HierarchicalVm};
+///
+/// fn requires_expandable<T: Expandable>(_: &T) {}
+/// requires_expandable(&HierarchicalVm::new("root", "root".to_string()));
+/// ```
 pub struct HierarchicalVm<M: Clone + PartialEq + Send + Sync + 'static> {
     inner: Arc<HierarchicalVmInner<M>>,
     materialization_context: Option<u64>,
@@ -97,7 +107,6 @@ struct HierarchicalVmInner<M: Clone + PartialEq + Send + Sync + 'static> {
     parent: Mutex<Option<Weak<HierarchicalVmInner<M>>>>,
     children_factory: HierChildrenFactory<M>,
     eager_children: Arc<Mutex<bool>>,
-    expanded_for_walk: Arc<Mutex<bool>>,
     parked_attach_items: Arc<Mutex<Vec<HierarchicalVm<M>>>>,
     hub: MessageHub,
 }
@@ -130,7 +139,6 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
                 parent: Mutex::new(None),
                 children_factory: Arc::new(children_factory),
                 eager_children: Arc::new(Mutex::new(eager_children)),
-                expanded_for_walk: Arc::new(Mutex::new(true)),
                 parked_attach_items: Arc::new(Mutex::new(Vec::new())),
                 hub,
             }),
@@ -151,6 +159,11 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
     /// Returns this node's name.
     pub fn name(&self) -> String {
         self.inner.component.name()
+    }
+
+    /// Returns the canonical component family discriminator.
+    pub fn view_model_type(&self) -> crate::ViewModelType {
+        self.inner.component.view_model_type()
     }
 
     /// Returns this node's model.
@@ -205,14 +218,14 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
     /// Adds or transfers `child` beneath this node.
     pub fn add_child(&self, child: Self) -> VmxResult<()> {
         self.reject_structural_reentry()?;
-        self.attach_child(&child)
+        self.attach_child(&child, false)
     }
 
     /// Removes `child` from this node without disposing it.
     pub fn remove_child(&self, child: &Self) -> VmxResult<()> {
         self.reject_structural_reentry()?;
         self.try_children()?;
-        let (removed, index) = {
+        let removed = {
             let _topology = lock(&HIERARCHY_TOPOLOGY_GATE);
             let mut children = lock(&self.inner.children);
             let children = children.as_mut().expect("children materialized");
@@ -224,8 +237,10 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
                 removed.set_parent_state(None);
             }
             removed
-        }
-        .ok_or(VmxError::NonChild)?;
+        };
+        let Some((removed, index)) = removed else {
+            return Ok(());
+        };
         removed.publish_parent_changed();
         self.inner
             .hub
@@ -242,10 +257,10 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
     /// Transfers `child` from its current parent beneath this node.
     pub fn reparent_child(&self, child: &Self) -> VmxResult<()> {
         self.reject_structural_reentry()?;
-        self.attach_child(child)
+        self.attach_child(child, true)
     }
 
-    fn attach_child(&self, child: &Self) -> VmxResult<()> {
+    fn attach_child(&self, child: &Self, explicit_reparent: bool) -> VmxResult<()> {
         // Materialize the destination before detaching so a child factory
         // failure cannot orphan an attached child.
         let (reparented, index) = loop {
@@ -260,7 +275,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
                     if old_parent.as_ref() == Some(self) {
                         return Ok(());
                     }
-                    let reparented = old_parent.is_some();
+                    let reparented = explicit_reparent || old_parent.is_some();
                     if let Some(parent) = &old_parent {
                         if let Some(children) = lock(&parent.inner.children).as_mut() {
                             children.retain(|candidate| candidate != child);
@@ -626,11 +641,6 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
         self.inner.component.dispose()
     }
 
-    /// Sets the expansion flag consumed by [`walk_expanded`].
-    pub fn set_expanded_for_walk(&self, expanded: bool) {
-        *lock(&self.inner.expanded_for_walk) = expanded;
-    }
-
     fn materialize_children(&self) -> VmxResult<Vec<Self>> {
         let current = thread::current().id();
         let epoch = loop {
@@ -925,10 +935,6 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> TreeNode for HierarchicalVm<M
     fn children_nodes(&self) -> Vec<Self> {
         self.children()
     }
-
-    fn is_expanded_for_walk(&self) -> bool {
-        *lock(&self.inner.expanded_for_walk)
-    }
 }
 
 #[derive(Clone)]
@@ -1052,7 +1058,7 @@ where
 /// Returns a depth-first snapshot while skipping collapsed descendants.
 pub fn walk_expanded<T: TreeNode>(root: &T) -> Vec<T> {
     let mut nodes = vec![root.clone()];
-    if root.is_expanded_for_walk() {
+    if root.expandable().is_none_or(Expandable::is_expanded) {
         for child in root.children_nodes() {
             nodes.extend(walk_expanded(&child));
         }

@@ -10,7 +10,7 @@ with child selection — all in a plain Cargo binary.
 > it as a path or git dependency (below). See
 > [`langs/rust/README.md`](../../../langs/rust/README.md) for the current status
 > and [`docs/maintenance/2026-07-16-rust-capability-parity.md`](../../../docs/maintenance/2026-07-16-rust-capability-parity.md)
-> for the tracked capability and behavioural parity gaps.
+> for the completed capability and behavioural convergence evidence.
 >
 > For the normative contracts behind each type, see `spec/05-component-vm.md`,
 > `spec/04-commands.md`, and `spec/06-composite-vm.md`.

@@ -2,7 +2,7 @@
 //!
 //! Spec: `spec/21-collections.md`.
 
-use super::{lock, Arc, Mutex};
+use super::{lock, Arc, Mutex, Pageable};
 
 /// A mutable in-memory collection exposed as fixed-size indexed pages.
 ///
@@ -85,6 +85,17 @@ impl<T: Clone + Send + 'static> PagedComposition<T> {
         *lock(&self.current_page_index)
     }
 
+    /// Selects a page index, clamped to the available range.
+    pub fn set_current_page_index(&self, index: usize) {
+        let max_index = self.page_count().saturating_sub(1);
+        *lock(&self.current_page_index) = index.min(max_index);
+    }
+
+    /// Reports whether finite paging is enabled.
+    pub fn is_paging_enabled(&self) -> bool {
+        self.page_size() > 0
+    }
+
     /// Returns a snapshot of the items in the current page.
     pub fn current_page(&self) -> Vec<T> {
         let source = lock(&self.source);
@@ -109,9 +120,71 @@ impl<T: Clone + Send + 'static> PagedComposition<T> {
         *current = current.saturating_sub(1);
     }
 
+    /// Moves to the first page, remaining there when already at the bound.
+    pub fn move_to_first_page(&self) {
+        self.set_current_page_index(0);
+    }
+
+    /// Moves to the previous page, remaining there when already at the bound.
+    pub fn move_to_previous_page(&self) {
+        self.previous_page();
+    }
+
+    /// Moves to the next page, remaining there when already at the bound.
+    pub fn move_to_next_page(&self) {
+        self.next_page();
+    }
+
+    /// Moves to the last page, remaining at zero for an empty source.
+    pub fn move_to_last_page(&self) {
+        self.set_current_page_index(self.page_count().saturating_sub(1));
+    }
+
     fn clamp(&self) {
         let max_index = self.page_count().saturating_sub(1);
         let mut current = lock(&self.current_page_index);
         *current = (*current).min(max_index);
+    }
+}
+
+impl<T: Clone + Send + 'static> Pageable for PagedComposition<T> {
+    fn page_size(&self) -> usize {
+        PagedComposition::page_size(self)
+    }
+
+    fn set_page_size(&self, page_size: usize) {
+        PagedComposition::set_page_size(self, page_size);
+    }
+
+    fn current_page_index(&self) -> usize {
+        PagedComposition::current_page_index(self)
+    }
+
+    fn set_current_page_index(&self, index: usize) {
+        PagedComposition::set_current_page_index(self, index);
+    }
+
+    fn page_count(&self) -> usize {
+        PagedComposition::page_count(self)
+    }
+
+    fn is_paging_enabled(&self) -> bool {
+        PagedComposition::is_paging_enabled(self)
+    }
+
+    fn move_to_first_page(&self) {
+        PagedComposition::move_to_first_page(self);
+    }
+
+    fn move_to_previous_page(&self) {
+        PagedComposition::move_to_previous_page(self);
+    }
+
+    fn move_to_next_page(&self) {
+        PagedComposition::move_to_next_page(self);
+    }
+
+    fn move_to_last_page(&self) {
+        PagedComposition::move_to_last_page(self);
     }
 }

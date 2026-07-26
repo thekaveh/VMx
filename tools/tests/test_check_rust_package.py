@@ -45,6 +45,15 @@ def test_extracted_runtime_modules_are_allowlisted() -> None:
         "src/searchable_state.rs",
         "src/specialized_vms.rs",
         "src/token_paging.rs",
+        "src/value_stream.rs",
+    } <= checker.REQUIRED_PATHS
+
+
+def test_reactive_parity_conformance_files_are_allowlisted() -> None:
+    assert {
+        "tests/conformance/async_value.rs",
+        "tests/conformance/expandable_support.rs",
+        "tests/conformance/value_stream.rs",
     } <= checker.REQUIRED_PATHS
 
 

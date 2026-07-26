@@ -2,8 +2,11 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 use vmx::{
-    Command, ComponentVm, ConstructionStatus, ForwardingComponentVm, Message, MessageHub,
-    NullDispatcher, NullMessageHub, ReadonlyComponentVm, TreeNode, VmNode,
+    AggregateVm1, AggregateVm2, AggregateVm3, AggregateVm4, AggregateVm5, AggregateVm6,
+    AsyncResourceVm, Command, ComponentVm, CompositeVm, ConstructionStatus, FilteredCompositeVm,
+    FormVm, ForwardingComponentVm, ForwardingCompositeVm, GroupVm, HierarchicalVm, Message,
+    MessageHub, ModeledCompositeVm, NullDispatcher, NullMessageHub, ReadonlyComponentVm, TreeNode,
+    ViewModelType, VmNode,
 };
 
 /// CVM-001 — Construct emits ConstructionStatusChangedMessage(Constructed)
@@ -67,6 +70,125 @@ fn readonly_component_exposes_model_without_setter_surface() {
     assert!(vm.is_current());
     assert_eq!(parent.current(), Some(vm.clone()));
     assert!(!select.can_execute());
+}
+
+#[test]
+fn component_variants_expose_their_view_model_type() {
+    let component = ComponentVm::new("component");
+    let readonly =
+        ReadonlyComponentVm::new("readonly", 1, MessageHub::new(), NullDispatcher::new());
+    let tagged = ComponentVm::builder()
+        .name("tagged")
+        .model(())
+        .view_model_type(ViewModelType::Aggregate)
+        .services(MessageHub::new(), NullDispatcher::new())
+        .build()
+        .unwrap();
+    let forwarding = ForwardingComponentVm::new(tagged.clone());
+    let nested_forwarding = ForwardingComponentVm::wrap(forwarding.clone());
+    let twice_nested_forwarding = ForwardingComponentVm::wrap(nested_forwarding.clone());
+
+    assert_eq!(component.view_model_type(), ViewModelType::Component);
+    assert_eq!(readonly.view_model_type(), ViewModelType::ReadOnlyComponent);
+    assert_eq!(tagged.view_model_type(), ViewModelType::Aggregate);
+    assert_eq!(
+        forwarding.view_model_type(),
+        tagged.view_model_type(),
+        "forwarding must delegate the wrapped type"
+    );
+    assert_eq!(
+        nested_forwarding.view_model_type(),
+        tagged.view_model_type(),
+        "nested forwarding must delegate through two layers"
+    );
+    assert_eq!(
+        twice_nested_forwarding.view_model_type(),
+        tagged.view_model_type(),
+        "nested forwarding must delegate through three layers"
+    );
+}
+
+#[test]
+fn every_component_vm_family_exposes_its_canonical_view_model_type() {
+    let group = GroupVm::<ComponentVm>::new("group");
+    let composite = CompositeVm::<ComponentVm>::new("composite");
+    let modeled = ModeledCompositeVm::new(
+        "modeled",
+        MessageHub::new(),
+        NullDispatcher::new(),
+        Vec::<i32>::new,
+        |model| ComponentVm::with_model("child", model, MessageHub::new(), NullDispatcher::new()),
+    );
+    let filtered = FilteredCompositeVm::new(composite.clone(), |_| true);
+    let forwarding = ForwardingCompositeVm::new(composite.clone());
+    let hierarchy = HierarchicalVm::new("hierarchy", 1);
+    let form = FormVm::new("form", 1);
+    let resource = AsyncResourceVm::new("resource", |_| Ok::<_, vmx::VmxError>(1));
+
+    assert_eq!(group.view_model_type(), ViewModelType::Group);
+    assert_eq!(composite.view_model_type(), ViewModelType::Composite);
+    assert_eq!(modeled.view_model_type(), ViewModelType::Composite);
+    assert_eq!(filtered.view_model_type(), ViewModelType::Composite);
+    assert_eq!(forwarding.view_model_type(), ViewModelType::Composite);
+    assert_eq!(hierarchy.view_model_type(), ViewModelType::Component);
+    assert_eq!(form.view_model_type(), ViewModelType::Component);
+    assert_eq!(resource.view_model_type(), ViewModelType::Component);
+
+    assert_eq!(
+        AggregateVm1::new("a1", ComponentVm::new("a1c1")).view_model_type(),
+        ViewModelType::Aggregate
+    );
+    assert_eq!(
+        AggregateVm2::new("a2", ComponentVm::new("a2c1"), ComponentVm::new("a2c2"))
+            .view_model_type(),
+        ViewModelType::Aggregate
+    );
+    assert_eq!(
+        AggregateVm3::new(
+            "a3",
+            ComponentVm::new("a3c1"),
+            ComponentVm::new("a3c2"),
+            ComponentVm::new("a3c3")
+        )
+        .view_model_type(),
+        ViewModelType::Aggregate
+    );
+    assert_eq!(
+        AggregateVm4::new(
+            "a4",
+            ComponentVm::new("a4c1"),
+            ComponentVm::new("a4c2"),
+            ComponentVm::new("a4c3"),
+            ComponentVm::new("a4c4")
+        )
+        .view_model_type(),
+        ViewModelType::Aggregate
+    );
+    assert_eq!(
+        AggregateVm5::new(
+            "a5",
+            ComponentVm::new("a5c1"),
+            ComponentVm::new("a5c2"),
+            ComponentVm::new("a5c3"),
+            ComponentVm::new("a5c4"),
+            ComponentVm::new("a5c5")
+        )
+        .view_model_type(),
+        ViewModelType::Aggregate
+    );
+    assert_eq!(
+        AggregateVm6::new(
+            "a6",
+            ComponentVm::new("a6c1"),
+            ComponentVm::new("a6c2"),
+            ComponentVm::new("a6c3"),
+            ComponentVm::new("a6c4"),
+            ComponentVm::new("a6c5"),
+            ComponentVm::new("a6c6")
+        )
+        .view_model_type(),
+        ViewModelType::Aggregate
+    );
 }
 
 #[test]

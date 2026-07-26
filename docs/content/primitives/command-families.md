@@ -132,8 +132,9 @@ Canonical relay-command shape:
     ```
 
 The same normative command structure appears across all catalog-complete source
-flavors with casing and trait-import changes. Catalog coverage does not erase
-the separately documented Rust public-surface backlog.
+flavors with casing and trait-import changes. Rust's command-disposal and
+thread-free confirmation convergence is recorded in the completed
+[Rust parity ledger](../../maintenance/2026-07-16-rust-capability-parity.md).
 The Notes Workspace editor and delete flows are concrete examples.
 
 ## 6.3.7. Common Pitfalls

@@ -162,6 +162,11 @@ impl<T> AsyncResourceVm<T>
 where
     T: Clone + Send + 'static,
 {
+    /// Returns the canonical component family discriminator.
+    pub fn view_model_type(&self) -> crate::ViewModelType {
+        self.inner.component.view_model_type()
+    }
+
     /// Creates a resource VM that discards previous values and needs no cleanup.
     pub fn new<F>(name: impl Into<String>, loader: F) -> Self
     where
