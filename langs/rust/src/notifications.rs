@@ -3,8 +3,9 @@
 //! Spec: `spec/16-notifications.md`; ADR-0031.
 
 use super::{
-    lock, Arc, AsyncValue, AtomicU64, BTreeMap, Context, Future, HashMap, Message, MessageHub,
-    Mutex, Ordering, Pin, Poll, ValueStream, VecDeque,
+    catch_unwind, lock, thread, wait, Arc, AssertUnwindSafe, AsyncValue, AtomicU64, BTreeMap,
+    Condvar, Context, Future, HashMap, Message, MessageHub, Mutex, Ordering, Pin, Poll, ThreadId,
+    ValueStream, VecDeque,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -85,14 +86,43 @@ struct NotificationHubState {
     completions: HashMap<u64, AsyncValue<NotificationReaction>>,
     pending_snapshots: Vec<Vec<Notification>>,
     pending_publications: VecDeque<PendingPublication>,
-    publishing_pending: bool,
+    publishing_owner: Option<ThreadId>,
+    dispose_completion: Option<Arc<PendingPublicationCompletion>>,
     disposed: bool,
+}
+
+#[derive(Default)]
+struct PendingPublicationCompletion {
+    finished: Mutex<bool>,
+    ready: Condvar,
+}
+
+impl PendingPublicationCompletion {
+    fn wait(&self) {
+        let mut finished = lock(&self.finished);
+        while !*finished {
+            finished = wait(&self.ready, finished);
+        }
+    }
+
+    fn finish(&self) {
+        *lock(&self.finished) = true;
+        self.ready.notify_all();
+    }
 }
 
 struct PendingPublication {
     snapshot: Vec<Notification>,
     completions: Vec<(AsyncValue<NotificationReaction>, NotificationReaction)>,
     terminal: bool,
+    completion: Arc<PendingPublicationCompletion>,
+}
+
+struct PendingPublicationAdmission {
+    completion: Arc<PendingPublicationCompletion>,
+    owner: ThreadId,
+    should_drain: bool,
+    reentrant: bool,
 }
 
 #[derive(Clone)]
@@ -122,15 +152,15 @@ impl NotificationHub {
     /// Posts `notification` or reuses its existing pending waiter.
     pub fn post_notification(&self, notification: Notification) -> NotificationWaiter {
         let notification_id = notification.id;
-        let (completion, drain) = {
+        let (completion, admission) = {
             let mut state = lock(&self.state);
             if state.disposed {
                 state
                     .reactions
                     .insert(notification_id, NotificationReaction::Pending);
-                (AsyncValue::ready(NotificationReaction::Pending), false)
+                (AsyncValue::ready(NotificationReaction::Pending), None)
             } else if let Some(completion) = state.completions.get(&notification_id).cloned() {
-                (completion, false)
+                (completion, None)
             } else {
                 let completion = AsyncValue::pending();
                 state.pending.insert(notification_id, notification);
@@ -141,13 +171,13 @@ impl NotificationHub {
                     .completions
                     .insert(notification_id, completion.clone());
                 let snapshot = state.pending.values().cloned().collect::<Vec<_>>();
-                let drain =
+                let admission =
                     Self::enqueue_pending_publication(&mut state, snapshot, Vec::new(), false);
-                (completion, drain)
+                (completion, Some(admission))
             }
         };
-        if drain {
-            self.drain_pending_publications();
+        if let Some(admission) = admission {
+            self.complete_pending_publication(admission);
         }
         NotificationWaiter { completion }
     }
@@ -172,7 +202,7 @@ impl NotificationHub {
 
     /// Resolves a pending notification once and removes it from the queue.
     pub fn resolve(&self, notification_id: u64, reaction: NotificationReaction) {
-        let drain = {
+        let admission = {
             let mut state = lock(&self.state);
             if state.pending.remove(&notification_id).is_none() {
                 return;
@@ -187,9 +217,7 @@ impl NotificationHub {
             let snapshot = state.pending.values().cloned().collect::<Vec<_>>();
             Self::enqueue_pending_publication(&mut state, snapshot, completions, false)
         };
-        if drain {
-            self.drain_pending_publications();
-        }
+        self.complete_pending_publication(admission);
     }
 
     /// Returns a snapshot of currently pending notifications.
@@ -223,9 +251,16 @@ impl NotificationHub {
 
     /// Resolves all pending waiters as pending and closes the hub.
     pub fn dispose(&self) {
-        let drain = {
+        let current = thread::current().id();
+        let admission = {
             let mut state = lock(&self.state);
             if state.disposed {
+                let completion = state.dispose_completion.clone();
+                let reentrant = state.publishing_owner == Some(current);
+                drop(state);
+                if let Some(completion) = completion.filter(|_| !reentrant) {
+                    completion.wait();
+                }
                 return;
             }
             state.disposed = true;
@@ -239,11 +274,12 @@ impl NotificationHub {
                 .map(|(_, completion)| (completion, NotificationReaction::Pending))
                 .collect::<Vec<_>>();
             state.pending.clear();
-            Self::enqueue_pending_publication(&mut state, Vec::new(), completions, true)
+            let admission =
+                Self::enqueue_pending_publication(&mut state, Vec::new(), completions, true);
+            state.dispose_completion = Some(admission.completion.clone());
+            admission
         };
-        if drain {
-            self.drain_pending_publications();
-        }
+        self.complete_pending_publication(admission);
     }
 
     fn enqueue_pending_publication(
@@ -251,29 +287,46 @@ impl NotificationHub {
         snapshot: Vec<Notification>,
         completions: Vec<(AsyncValue<NotificationReaction>, NotificationReaction)>,
         terminal: bool,
-    ) -> bool {
+    ) -> PendingPublicationAdmission {
+        let current = thread::current().id();
+        let completion = Arc::new(PendingPublicationCompletion::default());
         state.pending_snapshots.push(snapshot.clone());
         state.pending_publications.push_back(PendingPublication {
             snapshot,
             completions,
             terminal,
+            completion: completion.clone(),
         });
-        if state.publishing_pending {
-            false
-        } else {
-            state.publishing_pending = true;
-            true
+        let reentrant = state.publishing_owner == Some(current);
+        let should_drain = state.publishing_owner.is_none();
+        if should_drain {
+            state.publishing_owner = Some(current);
+        }
+        PendingPublicationAdmission {
+            completion,
+            owner: current,
+            should_drain,
+            reentrant,
         }
     }
 
-    fn drain_pending_publications(&self) {
+    fn complete_pending_publication(&self, admission: PendingPublicationAdmission) {
+        if admission.should_drain {
+            self.drain_pending_publications(admission.owner);
+        } else if !admission.reentrant {
+            admission.completion.wait();
+        }
+    }
+
+    fn drain_pending_publications(&self, current: ThreadId) {
         loop {
             let publication = {
                 let mut state = lock(&self.state);
                 let Some(publication) = state.pending_publications.pop_front() else {
-                    state.publishing_pending = false;
+                    state.publishing_owner = None;
                     return;
                 };
+                debug_assert_eq!(state.publishing_owner, Some(current));
                 publication
             };
             self.pending_stream.send(publication.snapshot);
@@ -287,8 +340,9 @@ impl NotificationHub {
                 self.pending_changed.dispose();
             }
             for (completion, reaction) in publication.completions {
-                completion.resolve(reaction);
+                let _ = catch_unwind(AssertUnwindSafe(|| completion.resolve(reaction)));
             }
+            publication.completion.finish();
         }
     }
 }

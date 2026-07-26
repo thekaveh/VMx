@@ -1,6 +1,9 @@
 //! VMx-owned typed value streams.
 
-use crate::{lock, Arc, AssertUnwindSafe, AtomicBool, BTreeMap, Mutex, Ordering, VecDeque, Weak};
+use crate::{
+    lock, thread, wait, Arc, AssertUnwindSafe, AtomicBool, BTreeMap, Condvar, Mutex, Ordering,
+    ThreadId, VecDeque, Weak,
+};
 use std::panic::catch_unwind;
 
 type ValueSubscriber<T> = Arc<dyn Fn(T) + Send + Sync + 'static>;
@@ -11,14 +14,52 @@ struct ValueStreamSubscriber<T> {
     completion: Option<ValueCompletion>,
 }
 
+#[derive(Default)]
+struct DeliveryCompletion {
+    finished: Mutex<bool>,
+    ready: Condvar,
+}
+
+impl DeliveryCompletion {
+    fn wait(&self) {
+        let mut finished = lock(&self.finished);
+        while !*finished {
+            finished = wait(&self.ready, finished);
+        }
+    }
+
+    fn finish(&self) {
+        *lock(&self.finished) = true;
+        self.ready.notify_all();
+    }
+}
+
+struct PendingValue<T> {
+    value: T,
+    subscribers: Vec<ValueSubscriber<T>>,
+    completion: Arc<DeliveryCompletion>,
+}
+
+struct PendingTerminal {
+    completions: Vec<ValueCompletion>,
+}
+
+enum PendingDelivery<T> {
+    Value(PendingValue<T>),
+    Terminal(PendingTerminal),
+    Done,
+}
+
 struct ValueStreamState<T> {
     next_subscription_id: usize,
     current: T,
     revision: usize,
     subscribers: BTreeMap<usize, ValueStreamSubscriber<T>>,
-    pending: VecDeque<T>,
-    draining: bool,
+    pending: VecDeque<PendingValue<T>>,
+    pending_terminal: Option<PendingTerminal>,
+    draining_owner: Option<ThreadId>,
     dispose_requested: bool,
+    dispose_completion: Option<Arc<DeliveryCompletion>>,
     replay_current: bool,
     disposed: bool,
 }
@@ -44,8 +85,10 @@ impl<T: Clone + Send + 'static> ValueStream<T> {
                 revision: 0,
                 subscribers: BTreeMap::new(),
                 pending: VecDeque::new(),
-                draining: false,
+                pending_terminal: None,
+                draining_owner: None,
                 dispose_requested: false,
+                dispose_completion: None,
                 replay_current: true,
                 disposed: false,
             })),
@@ -65,8 +108,10 @@ impl<T: Clone + Send + 'static> ValueStream<T> {
                 revision: 0,
                 subscribers: BTreeMap::new(),
                 pending: VecDeque::new(),
-                draining: false,
+                pending_terminal: None,
+                draining_owner: None,
                 dispose_requested: false,
+                dispose_completion: None,
                 replay_current: false,
                 disposed: false,
             })),
@@ -124,133 +169,176 @@ impl<T: Clone + Send + 'static> ValueStream<T> {
             return ValueSubscription::new(id, Arc::downgrade(&self.inner));
         }
 
-        let (value, revision, disposed) = {
-            let state = lock(&self.inner);
-            (
-                state.current.clone(),
-                state.revision,
-                state.disposed || state.dispose_requested,
-            )
-        };
-        let _ = catch_unwind(AssertUnwindSafe(|| handler(value)));
-        if disposed {
-            if let Some(completion) = completion {
-                let _ = catch_unwind(AssertUnwindSafe(|| completion()));
-            }
-            return ValueSubscription::noop();
-        }
-
-        let mut state = lock(&self.inner);
-        if state.disposed || state.dispose_requested {
-            let latest = (state.revision != revision).then(|| state.current.clone());
-            drop(state);
-            if let Some(latest) = latest {
-                let _ = catch_unwind(AssertUnwindSafe(|| handler(latest)));
-            }
-            if let Some(completion) = completion {
-                let _ = catch_unwind(AssertUnwindSafe(|| completion()));
-            }
-            return ValueSubscription::noop();
-        }
-        if state.revision != revision {
-            let latest = state.current.clone();
-            drop(state);
-            let _ = catch_unwind(AssertUnwindSafe(|| handler(latest)));
-            state = lock(&self.inner);
-            if state.disposed || state.dispose_requested {
-                drop(state);
+        loop {
+            let (value, revision, disposed) = {
+                let state = lock(&self.inner);
+                (
+                    state.current.clone(),
+                    state.revision,
+                    state.disposed || state.dispose_requested,
+                )
+            };
+            let _ = catch_unwind(AssertUnwindSafe(|| handler(value)));
+            if disposed {
                 if let Some(completion) = completion {
                     let _ = catch_unwind(AssertUnwindSafe(|| completion()));
                 }
                 return ValueSubscription::noop();
             }
-        }
 
-        state.next_subscription_id += 1;
-        let id = state.next_subscription_id;
-        state.subscribers.insert(
-            id,
-            ValueStreamSubscriber {
-                value: handler,
-                completion,
-            },
-        );
-        ValueSubscription::new(id, Arc::downgrade(&self.inner))
+            let mut state = lock(&self.inner);
+            if state.disposed || state.dispose_requested {
+                let latest = (state.revision != revision).then(|| state.current.clone());
+                drop(state);
+                if let Some(latest) = latest {
+                    let _ = catch_unwind(AssertUnwindSafe(|| handler(latest)));
+                }
+                if let Some(completion) = completion {
+                    let _ = catch_unwind(AssertUnwindSafe(|| completion()));
+                }
+                return ValueSubscription::noop();
+            }
+            if state.revision != revision {
+                continue;
+            }
+
+            state.next_subscription_id += 1;
+            let id = state.next_subscription_id;
+            state.subscribers.insert(
+                id,
+                ValueStreamSubscriber {
+                    value: handler,
+                    completion,
+                },
+            );
+            return ValueSubscription::new(id, Arc::downgrade(&self.inner));
+        }
     }
 
     /// Publishes `value` to current subscribers unless the stream is disposed.
     pub fn send(&self, value: T) {
-        let should_drain = {
+        let current = thread::current().id();
+        let (completion, should_drain, reentrant) = {
             let mut state = lock(&self.inner);
             if state.disposed || state.dispose_requested {
                 return;
             }
             state.current = value.clone();
             state.revision = state.revision.wrapping_add(1);
-            state.pending.push_back(value);
-            if state.draining {
-                false
-            } else {
-                state.draining = true;
-                true
+            let subscribers = state
+                .subscribers
+                .values()
+                .map(|subscriber| subscriber.value.clone())
+                .collect();
+            let completion = Arc::new(DeliveryCompletion::default());
+            state.pending.push_back(PendingValue {
+                value,
+                subscribers,
+                completion: completion.clone(),
+            });
+            let reentrant = state.draining_owner == Some(current);
+            let should_drain = state.draining_owner.is_none();
+            if should_drain {
+                state.draining_owner = Some(current);
             }
+            (completion, should_drain, reentrant)
         };
-        if !should_drain {
-            return;
+        if should_drain {
+            self.drain(current);
+        } else if !reentrant {
+            completion.wait();
         }
+    }
 
+    fn drain(&self, current: ThreadId) {
         loop {
             let next = {
                 let mut state = lock(&self.inner);
-                if state.dispose_requested {
-                    let completions = Self::finish_dispose(&mut state);
-                    drop(state);
-                    Self::notify_completions(completions);
+                debug_assert_eq!(state.draining_owner, Some(current));
+                if let Some(value) = state.pending.pop_front() {
+                    PendingDelivery::Value(value)
+                } else if let Some(terminal) = state.pending_terminal.take() {
+                    PendingDelivery::Terminal(terminal)
+                } else {
+                    state.draining_owner = None;
+                    PendingDelivery::Done
+                }
+            };
+            match next {
+                PendingDelivery::Value(next) => {
+                    for subscriber in next.subscribers {
+                        let value = next.value.clone();
+                        let _ = catch_unwind(AssertUnwindSafe(|| subscriber(value)));
+                    }
+                    next.completion.finish();
+                }
+                PendingDelivery::Terminal(terminal) => {
+                    Self::notify_completions(terminal.completions);
+
+                    let completion = {
+                        let mut state = lock(&self.inner);
+                        state.disposed = true;
+                        state.dispose_requested = false;
+                        state.draining_owner = None;
+                        state.dispose_completion.clone()
+                    };
+                    completion
+                        .expect("accepted terminal has a completion")
+                        .finish();
                     return;
                 }
-                let Some(value) = state.pending.pop_front() else {
-                    state.draining = false;
+                PendingDelivery::Done => {
                     return;
-                };
-                let subscribers = state
-                    .subscribers
-                    .values()
-                    .map(|subscriber| subscriber.value.clone())
-                    .collect::<Vec<_>>();
-                (value, subscribers)
-            };
-            for subscriber in next.1 {
-                let value = next.0.clone();
-                let _ = catch_unwind(AssertUnwindSafe(|| subscriber(value)));
+                }
             }
         }
     }
 
     /// Completes the stream once and makes later sends inert.
     pub fn dispose(&self) {
-        let completions = {
+        let current = thread::current().id();
+        let (completion, should_drain, reentrant) = {
             let mut state = lock(&self.inner);
-            if state.disposed || state.dispose_requested {
+            if state.disposed {
+                let completion = state.dispose_completion.clone();
+                drop(state);
+                if let Some(completion) = completion {
+                    completion.wait();
+                }
                 return;
             }
-            if state.draining {
-                state.dispose_requested = true;
+            if state.dispose_requested {
+                let completion = state
+                    .dispose_completion
+                    .clone()
+                    .expect("requested disposal has a completion");
+                let reentrant = state.draining_owner == Some(current);
+                drop(state);
+                if !reentrant {
+                    completion.wait();
+                }
                 return;
             }
-            Self::finish_dispose(&mut state)
+            let completions = std::mem::take(&mut state.subscribers)
+                .into_values()
+                .filter_map(|subscriber| subscriber.completion)
+                .collect();
+            let completion = Arc::new(DeliveryCompletion::default());
+            state.pending_terminal = Some(PendingTerminal { completions });
+            state.dispose_requested = true;
+            state.dispose_completion = Some(completion.clone());
+            let reentrant = state.draining_owner == Some(current);
+            let should_drain = state.draining_owner.is_none();
+            if should_drain {
+                state.draining_owner = Some(current);
+            }
+            (completion, should_drain, reentrant)
         };
-        Self::notify_completions(completions);
-    }
-
-    fn finish_dispose(state: &mut ValueStreamState<T>) -> Vec<ValueCompletion> {
-        state.disposed = true;
-        state.dispose_requested = false;
-        state.draining = false;
-        state.pending.clear();
-        std::mem::take(&mut state.subscribers)
-            .into_values()
-            .filter_map(|subscriber| subscriber.completion)
-            .collect()
+        if should_drain {
+            self.drain(current);
+        } else if !reentrant {
+            completion.wait();
+        }
     }
 
     fn notify_completions(completions: Vec<ValueCompletion>) {
