@@ -202,10 +202,30 @@ def test_current_development_tags_are_namespace_aware() -> None:
     tags = cvc.current_development_tags("3.22.0", {}, rows)
 
     assert "spec-v3.22.0" in tags
-    assert "v3.22.0" in tags
+    assert "v3.22.0" not in tags
     assert "csharp-v3.22.0" in tags
     assert "typescript-v3.23.0" in tags
     assert "typescript-v3.22.0" not in tags
+
+
+def test_current_development_tags_include_swiftpm_semantic_tag() -> None:
+    rows = [
+        {
+            "spec_row": "3.22.x",
+            "csharp": [],
+            "python": [],
+            "typescript": [],
+            "swift": ["3.23.0"],
+            "rust": [],
+        }
+    ]
+
+    tags = cvc.current_development_tags("3.22.0", {}, rows)
+
+    assert "spec-v3.22.0" in tags
+    assert "swift-v3.23.0" in tags
+    assert "v3.23.0" in tags
+    assert "v3.22.0" not in tags
 
 
 @pytest.mark.parametrize(
@@ -802,21 +822,24 @@ def test_find_missing_tags_flags_fabricated_matrix_row() -> None:
     assert "v2.5.0" in missing
 
 
-def test_find_missing_tags_flags_missing_spec_tag() -> None:
-    """(b) A manifest spec/VERSION with no matching spec-v/v tags is flagged."""
+def test_find_missing_tags_assigns_generic_semver_tag_to_swift_not_spec() -> None:
+    """The generic tag is SwiftPM's semantic tag, not a duplicate spec tag."""
     manifests = {
         "csharp": {"version": "2.6.0", "min_spec_version": "2.6.0"},
         "python": {"version": "2.6.1", "min_spec_version": "2.6.0"},
+        "swift": {"version": "2.7.0", "min_spec_version": "2.6.0"},
     }
-    # Flavor tags exist but spec/repo-wide tags are absent
-    tags = {"csharp-v2.6.0", "python-v2.6.1"}
+    # Flavor tags exist but the spec and Swift semantic tags are absent.
+    tags = {"csharp-v2.6.0", "python-v2.6.1", "swift-v2.7.0"}
     missing = cvc.find_missing_tags("2.6.0", manifests, [], tags)
 
     assert "spec-v2.6.0" in missing
-    assert "v2.6.0" in missing
+    assert "v2.6.0" not in missing
+    assert "v2.7.0" in missing
     # Flavor tags are present, so not reported
     assert "csharp-v2.6.0" not in missing
     assert "python-v2.6.1" not in missing
+    assert "swift-v2.7.0" not in missing
 
 
 def test_find_missing_tags_passes_fully_consistent_fixture() -> None:
@@ -915,6 +938,42 @@ def test_find_missing_tags_does_not_invent_release_tags_for_source_only_rust_row
     assert "v3.2.0" not in missing
 
 
+def test_find_missing_tags_does_not_require_generic_tag_without_swift_release() -> None:
+    rows = [
+        {
+            "spec_row": "4.0.x",
+            "csharp": ["4.0.0"],
+            "python": [],
+            "typescript": [],
+            "swift": [],
+            "rust": [],
+        }
+    ]
+
+    missing = cvc.find_missing_tags("4.1.0", {}, rows, set())
+
+    assert "spec-v4.0.0" in missing
+    assert "v4.0.0" not in missing
+
+
+def test_find_missing_tags_requires_generic_tag_for_each_swift_release() -> None:
+    rows = [
+        {
+            "spec_row": "4.0.x",
+            "csharp": [],
+            "python": [],
+            "typescript": [],
+            "swift": ["4.1.0"],
+            "rust": [],
+        }
+    ]
+
+    missing = cvc.find_missing_tags("4.2.0", {}, rows, {"swift-v4.1.0", "spec-v4.0.0"})
+
+    assert "v4.1.0" in missing
+    assert "v4.0.0" not in missing
+
+
 def test_find_missing_tags_requires_release_tags_for_stable_rust_only_row() -> None:
     rows = [
         {
@@ -931,7 +990,7 @@ def test_find_missing_tags_requires_release_tags_for_stable_rust_only_row() -> N
 
     assert "rust-v2.0.0" in missing
     assert "spec-v4.0.0" in missing
-    assert "v4.0.0" in missing
+    assert "v4.0.0" not in missing
 
 
 def test_find_missing_tags_accepts_explicit_legacy_semantic_tag_only_row() -> None:

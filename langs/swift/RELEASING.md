@@ -20,6 +20,10 @@ semantic `v<X.Y.Z>` tag, while `swift-v<X.Y.Z>` triggers
 `.github/workflows/release.yml` and owns the GitHub Release. Both immutable tags
 must be pushed together at the same verified `main` commit.
 
+The generic `v<X.Y.Z>` namespace is reserved for SwiftPM. Specification
+releases use only `spec-v<X.Y.Z>`, so independently versioned spec and Swift
+lines cannot compete for the same generic tag.
+
 ## 1. Prerequisites
 
 - Full Xcode is available in CI (`macos-latest`) so root and nested
