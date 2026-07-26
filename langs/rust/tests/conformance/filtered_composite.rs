@@ -20,6 +20,15 @@ fn source_with(values: &[i32]) -> CompositeVm<ComponentVm<i32>> {
     source
 }
 
+#[test]
+fn filtered_cursor_defaults_to_snap_to_first() {
+    let source = source_with(&[1, 2]);
+
+    let filtered = FilteredCompositeVm::new(source, |_| true);
+
+    assert_eq!(filtered.current().unwrap().model(), 1);
+}
+
 /// COMP-028 — FilteredCompositeVM visible projection
 #[test]
 fn filtered_visible_projection_preserves_source_order() {
@@ -112,18 +121,37 @@ fn cursor_policies_clear_or_snap_to_first() {
     assert_eq!(filtered.current().unwrap().model(), 1);
 }
 
+#[test]
+fn preserve_if_visible_keeps_only_a_visible_current_item() {
+    let source = source_with(&[1, 2, 3]);
+    let filtered = FilteredCompositeVm::new(source.clone(), |_| true);
+    filtered.set_cursor_policy(FilteredCursorPolicy::PreserveIfVisible);
+    filtered
+        .set_current(Some(source.items()[1].clone()))
+        .unwrap();
+
+    filtered.refresh();
+    assert_eq!(filtered.current().unwrap().model(), 2);
+
+    filtered.set_predicate(|vm: &ComponentVm<i32>| vm.model() != 2);
+    assert!(filtered.current().is_none());
+}
+
 /// COMP-034 — visible navigation
 #[test]
 fn visible_navigation_clamps_at_bounds() {
     let source = source_with(&[1, 2, 3]);
     let filtered = FilteredCompositeVm::new(source, |vm: &ComponentVm<i32>| vm.model() >= 1);
 
-    filtered.move_next_visible();
     assert_eq!(filtered.current().unwrap().model(), 1);
     filtered.move_next_visible();
     assert_eq!(filtered.current().unwrap().model(), 2);
+    filtered.move_next_visible();
+    assert_eq!(filtered.current().unwrap().model(), 3);
+    filtered.move_next_visible();
+    assert_eq!(filtered.current().unwrap().model(), 3);
     filtered.move_previous_visible();
-    assert_eq!(filtered.current().unwrap().model(), 1);
+    assert_eq!(filtered.current().unwrap().model(), 2);
 }
 
 /// COMP-035 — filtered view disposal

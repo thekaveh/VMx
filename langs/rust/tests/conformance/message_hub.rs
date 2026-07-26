@@ -55,6 +55,71 @@ fn send_delivers_to_current_subscribers() {
     assert_eq!(custom_name(&received.lock().unwrap()[0]), "A");
 }
 
+#[test]
+fn disposal_completes_current_and_late_message_subscriptions_once() {
+    let hub = MessageHub::new();
+    let completions = Arc::new(AtomicUsize::new(0));
+    let completed = completions.clone();
+    let _subscription = hub.subscribe_with_completion(
+        |_| {},
+        move || {
+            completed.fetch_add(1, Ordering::SeqCst);
+        },
+    );
+
+    hub.dispose();
+    hub.dispose();
+
+    assert_eq!(completions.load(Ordering::SeqCst), 1);
+
+    let late_completions = Arc::new(AtomicUsize::new(0));
+    let late_completed = late_completions.clone();
+    let _late = hub.subscribe_with_completion(
+        |_| {},
+        move || {
+            late_completed.fetch_add(1, Ordering::SeqCst);
+        },
+    );
+
+    assert_eq!(late_completions.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn reentrant_dispose_completes_after_in_flight_message_reaches_subscribers() {
+    let hub = MessageHub::new();
+    let trace = Arc::new(Mutex::new(Vec::new()));
+    let first_trace = trace.clone();
+    let first_completion = trace.clone();
+    let reentrant = hub.clone();
+    let _first = hub.subscribe_with_completion(
+        move |_| {
+            first_trace.lock().unwrap().push("first:start");
+            reentrant.dispose();
+            first_trace.lock().unwrap().push("first:end");
+        },
+        move || first_completion.lock().unwrap().push("first:completed"),
+    );
+    let second_trace = trace.clone();
+    let second_completion = trace.clone();
+    let _second = hub.subscribe_with_completion(
+        move |_| second_trace.lock().unwrap().push("second:message"),
+        move || second_completion.lock().unwrap().push("second:completed"),
+    );
+
+    hub.send(make_msg("dispose"));
+
+    assert_eq!(
+        *trace.lock().unwrap(),
+        vec![
+            "first:start",
+            "first:end",
+            "second:message",
+            "first:completed",
+            "second:completed",
+        ]
+    );
+}
+
 /// HUB-002 — Late subscribers do not see prior messages
 #[test]
 fn late_subscribers_do_not_see_prior_messages() {

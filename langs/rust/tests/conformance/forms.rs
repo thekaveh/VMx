@@ -145,13 +145,48 @@ fn revert_publishes_form_reverted_and_model_changed() {
 /// FORM-009 — Strict mode: ApproveCommand.CanExecute gates on IsDirty
 #[test]
 fn strict_mode_gates_approval_on_dirty_state() {
-    let strict = FormVm::with_options("form", 1, |_| Ok(()), true, MessageHub::new());
+    let persisted = Arc::new(Mutex::new(Vec::new()));
+    let persisted_inner = persisted.clone();
+    let strict = FormVm::with_options(
+        "form",
+        1,
+        move |model| {
+            persisted_inner.lock().unwrap().push(*model);
+            Ok(())
+        },
+        true,
+        MessageHub::new(),
+    );
     assert!(!strict.approve_command().can_execute());
+    strict.approve().unwrap();
+    assert_eq!(*persisted.lock().unwrap(), vec![1]);
+
     strict.set_model(2);
     assert!(strict.approve_command().can_execute());
 
     let non_strict = FormVm::with_options("form", 1, |_| Ok(()), false, MessageHub::new());
     assert!(non_strict.approve_command().can_execute());
+}
+
+#[test]
+fn direct_approval_of_an_invalid_form_is_a_noop() {
+    let persisted = Arc::new(AtomicUsize::new(0));
+    let persisted_inner = persisted.clone();
+    let form = FormVm::builder()
+        .initial(String::new())
+        .persister(move |_| {
+            persisted_inner.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        })
+        .validator("value", |model| {
+            model.is_empty().then(|| "required".to_string())
+        })
+        .build()
+        .unwrap();
+
+    assert!(!form.is_valid());
+    assert_eq!(form.approve(), Ok(()));
+    assert_eq!(persisted.load(Ordering::SeqCst), 0);
 }
 
 /// FORM-010 — Integration with IDialogService.Confirm
@@ -297,7 +332,7 @@ fn form_dispose_closes_commands_and_owned_channels() {
 
     assert!(!approve.can_execute());
     assert!(!deny.can_execute());
-    assert_eq!(notifications.load(Ordering::SeqCst), 0);
+    assert_eq!(notifications.load(Ordering::SeqCst), 2);
     drop(subscriptions);
 }
 
@@ -492,7 +527,7 @@ fn invalid_form_blocks_approval() {
     });
 
     assert!(!form.approve_command().can_execute());
-    assert!(form.approve().is_err());
+    assert_eq!(form.approve(), Ok(()));
     assert_eq!(*persisted.lock().unwrap(), 0);
 }
 
@@ -749,7 +784,7 @@ fn reset_is_skipped_without_successful_approval() {
         .reset_on_approved(reset)
         .build()
         .unwrap();
-    assert!(invalid.approve().is_err());
+    assert_eq!(invalid.approve(), Ok(()));
     let failed_calls = calls.clone();
     let failed = FormVm::builder()
         .initial(1)

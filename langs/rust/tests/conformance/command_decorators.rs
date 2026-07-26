@@ -134,11 +134,54 @@ fn confirmation_decorator_awaits_pending_decision() {
     );
 
     let execution = command.execute_async();
+    assert!(!execution.is_finished());
     assert!(log.lock().unwrap().is_empty());
     decision.resolve(true);
+    assert!(execution.is_finished());
     execution.join().unwrap();
 
     assert_eq!(*log.lock().unwrap(), vec!["confirmed"]);
+}
+
+#[test]
+fn pending_confirmation_uses_a_resolver_thread_continuation() {
+    let execution_threads = Arc::new(Mutex::new(Vec::new()));
+    let observed_threads = execution_threads.clone();
+    let decision = AsyncValue::pending();
+    let pending_decision = decision.clone();
+    let command = ConfirmationDecoratorCommand::new(
+        RelayCommand::new(move || {
+            observed_threads
+                .lock()
+                .unwrap()
+                .push(std::thread::current().id());
+        }),
+        move || pending_decision.clone(),
+    );
+
+    command.execute();
+    assert_eq!(decision.pending_continuation_count(), 1);
+    let resolving_thread = std::thread::current().id();
+    decision.resolve(true);
+
+    assert_eq!(*execution_threads.lock().unwrap(), vec![resolving_thread]);
+}
+
+#[test]
+fn many_pending_confirmations_retain_one_continuation_each() {
+    let decisions = (0..128).map(|_| AsyncValue::pending()).collect::<Vec<_>>();
+    let command = ConfirmationDecoratorCommand::new(RelayCommand::noop(), {
+        let decisions = Arc::new(Mutex::new(decisions.clone()));
+        move || decisions.lock().unwrap().pop().unwrap()
+    });
+
+    for _ in 0..decisions.len() {
+        command.execute();
+    }
+
+    assert!(decisions
+        .iter()
+        .all(|decision| decision.pending_continuation_count() == 1));
 }
 
 #[test]
@@ -174,6 +217,24 @@ fn confirmation_decorator_async_path_propagates_inner_panic() {
 
     assert!(command.execute_async().join().is_err());
     assert_eq!(errors.load(Ordering::SeqCst), 0);
+}
+
+#[derive(Debug, PartialEq)]
+struct ConfirmationPanicPayload(u32);
+
+#[test]
+fn confirmation_execution_join_preserves_the_original_panic_payload() {
+    let command = ConfirmationDecoratorCommand::new(
+        RelayCommand::new(|| std::panic::panic_any(ConfirmationPanicPayload(42))),
+        || AsyncValue::ready(true),
+    );
+
+    let payload = command.execute_async().join().unwrap_err();
+    let payload = payload
+        .downcast::<ConfirmationPanicPayload>()
+        .expect("join should retain the concrete panic payload");
+
+    assert_eq!(*payload, ConfirmationPanicPayload(42));
 }
 
 /// CMDD-008 — ConfirmationDecoratorCommand.CanExecute delegates to inner
@@ -224,6 +285,78 @@ fn confirmation_decorator_surfaces_fire_and_forget_errors() {
     confirming.execute();
 
     assert_eq!(errors.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn confirmation_decorator_isolates_confirm_panics_by_execution_mode() {
+    let fire_and_forget =
+        ConfirmationDecoratorCommand::new(RelayCommand::noop(), || panic!("confirm boom"));
+    let errors = Arc::new(AtomicUsize::new(0));
+    let observed = errors.clone();
+    let _subscription = fire_and_forget.errors().subscribe(move |_| {
+        observed.fetch_add(1, Ordering::SeqCst);
+    });
+
+    fire_and_forget.execute();
+
+    assert_eq!(errors.load(Ordering::SeqCst), 1);
+
+    let awaited =
+        ConfirmationDecoratorCommand::new(RelayCommand::noop(), || panic!("awaited confirm boom"));
+    assert!(awaited.execute_async().join().is_err());
+}
+
+#[test]
+fn confirmation_decorator_disposal_stops_in_flight_and_late_emissions() {
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let decision = AsyncValue::pending();
+    let pending_decision = decision.clone();
+    let confirming = ConfirmationDecoratorCommand::new(
+        recording_command(log.clone(), "confirmed", true),
+        move || pending_decision.clone(),
+    );
+    let errors = confirming.errors();
+    let deliveries = Arc::new(AtomicUsize::new(0));
+    let deliveries_inner = deliveries.clone();
+    let _subscription = errors.subscribe(move |_| {
+        deliveries_inner.fetch_add(1, Ordering::SeqCst);
+    });
+
+    let execution = confirming.execute_async();
+    confirming.dispose();
+    confirming.dispose();
+    decision.resolve(true);
+    execution.join().unwrap();
+    errors.send(vmx::Message::Custom {
+        sender_id: 0,
+        sender_name: "test".to_string(),
+        name: "late".to_string(),
+    });
+    confirming.execute();
+
+    assert!(log.lock().unwrap().is_empty());
+    assert_eq!(deliveries.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn confirmation_error_value_precedes_disposal_completion() {
+    let confirming =
+        ConfirmationDecoratorCommand::new(RelayCommand::new(|| panic!("inner boom")), || {
+            AsyncValue::ready(true)
+        });
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let values = events.clone();
+    let completion = events.clone();
+    let _subscription = confirming.errors().subscribe_with_completion(
+        move |_| values.lock().unwrap().push("value"),
+        move || completion.lock().unwrap().push("completion"),
+    );
+
+    confirming.execute();
+    confirming.dispose();
+    confirming.execute();
+
+    assert_eq!(*events.lock().unwrap(), vec!["value", "completion"]);
 }
 
 /// CMD-008 — Confirm(delegate) is equivalent to explicit ConfirmationDecoratorCommand

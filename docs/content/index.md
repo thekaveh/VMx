@@ -25,9 +25,9 @@ keeps C#, Python, TypeScript, Swift, and Rust aligned.
 - Every flavor implements the shared normative concepts while following native naming conventions.
 - The conformance catalog keeps 403 library IDs aligned across all five
   catalog-complete source flavors, plus 5 scenario IDs for flagship examples.
-- Catalog coverage is distinct from member-level surface parity; the remaining
-  [Rust convergence backlog](../maintenance/2026-07-16-rust-capability-parity.md)
-  is explicit.
+- The completed
+  [Rust convergence ledger](../maintenance/2026-07-16-rust-capability-parity.md)
+  ties its 0.27.0 capability and behavior claims to focused tests.
 
 ## 1.2. Start Here
 

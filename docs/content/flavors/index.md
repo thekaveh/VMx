@@ -35,8 +35,9 @@ language.
 ## 7.1.4. Common Rules
 
 - All five catalog-complete source flavors target the same VM family model and
-  403-ID library conformance catalog. Catalog coverage is distinct from the
-  [remaining Rust surface-convergence work](../../maintenance/2026-07-16-rust-capability-parity.md).
+  403-ID library conformance catalog. The completed
+  [Rust convergence ledger](../../maintenance/2026-07-16-rust-capability-parity.md)
+  records its focused 0.27.0 public-surface and behavior evidence.
 - Public naming follows ADR-0006: PascalCase in C#, snake_case in Python,
   camelCase in TypeScript and Swift, and snake_case for Rust methods with
   Rust-style type names such as `ComponentVm`.

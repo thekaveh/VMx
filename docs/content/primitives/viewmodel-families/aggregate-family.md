@@ -75,10 +75,9 @@ half-replaced aggregate.
 The Notes Workspace shell uses this pattern as its six-pane root in the C#,
 Python, TypeScript, and Swift examples.
 
-Rust implements the same aggregate type and builder shape. Its remaining
-member- and edge-behavior differences are recorded in the active
-[Rust parity ledger](../../../maintenance/2026-07-16-rust-capability-parity.md)
-rather than hidden by the catalog-complete claim.
+Rust implements the same aggregate type and builder shape. Its slot-notification
+and construction ordering evidence is recorded in the completed
+[Rust parity ledger](../../../maintenance/2026-07-16-rust-capability-parity.md).
 
 ## 6.2.3.6. Common Pitfalls
 

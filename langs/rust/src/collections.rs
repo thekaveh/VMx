@@ -830,13 +830,13 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
         Ok(())
     }
 
-    /// Removes and returns the item at `index`, if present.
-    pub fn remove_at(&self, index: usize) -> Option<T> {
-        let item = self.remove_at_silent(index);
-        if item.is_some() {
-            self.publish(CollectionChangeAction::Remove, Some(index), None, true);
-        }
-        item
+    /// Removes and returns the item at `index`.
+    pub fn remove_at(&self, index: usize) -> VmxResult<T> {
+        let item = self
+            .remove_at_silent(index)
+            .ok_or_else(|| VmxError::InvalidArgument("index out of range".to_string()))?;
+        self.publish(CollectionChangeAction::Remove, Some(index), None, true);
+        Ok(item)
     }
 
     pub(crate) fn remove_at_silent(&self, index: usize) -> Option<T> {

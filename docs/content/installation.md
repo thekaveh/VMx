@@ -2,11 +2,11 @@
 
 VMx has five catalog-complete source flavors implementing spec 3.23.0. Their
 current package source versions are listed below; Rust 0.27.0
-declares `MIN_SPEC_VERSION = "3.23.0"`. “Catalog-complete” means all 403 library
-IDs are represented; it does not hide the documented
-[Rust surface-convergence backlog](../maintenance/2026-07-16-rust-capability-parity.md).
-Public package availability can lag the source tree, so check the flavor README
-and registry before pinning a release.
+declares `MIN_SPEC_VERSION = "3.23.0"`. All five implement the canonical
+concepts and behavior, with intentional flavor idioms documented by ADR; the
+completed [Rust convergence ledger](../maintenance/2026-07-16-rust-capability-parity.md)
+records the focused 0.27.0 evidence. Public package availability can lag the
+source tree, so check the flavor README and registry before pinning a release.
 
 | Flavor     | Source tree   | Public package status               |
 | ---------- | ------------- | ----------------------------------- |

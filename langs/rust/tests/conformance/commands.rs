@@ -235,6 +235,41 @@ fn imperative_raise_after_disposal_is_noop() {
     drop(subscriptions);
 }
 
+#[test]
+fn relay_disposal_emits_one_final_can_execute_notification() {
+    let relay = RelayCommand::noop();
+    let parameterized = RelayCommandOf::<i32>::noop();
+    let relay_events = Arc::new(Mutex::new(Vec::new()));
+    let parameterized_events = Arc::new(Mutex::new(Vec::new()));
+    let relay_values = relay_events.clone();
+    let relay_completion = relay_events.clone();
+    let parameterized_values = parameterized_events.clone();
+    let parameterized_completion = parameterized_events.clone();
+    let _relay_subscription = relay.can_execute_changed().subscribe_with_completion(
+        move |_| relay_values.lock().unwrap().push("value"),
+        move || relay_completion.lock().unwrap().push("completion"),
+    );
+    let _parameterized_subscription = parameterized
+        .can_execute_changed()
+        .subscribe_with_completion(
+            move |_| parameterized_values.lock().unwrap().push("value"),
+            move || {
+                parameterized_completion.lock().unwrap().push("completion");
+            },
+        );
+
+    relay.dispose();
+    parameterized.dispose();
+    relay.dispose();
+    parameterized.dispose();
+
+    assert_eq!(*relay_events.lock().unwrap(), vec!["value", "completion"]);
+    assert_eq!(
+        *parameterized_events.lock().unwrap(),
+        vec!["value", "completion"]
+    );
+}
+
 /// CMD-017 — parameterized imperative raise emits exactly once
 #[test]
 fn parameterized_imperative_raise_emits_once() {

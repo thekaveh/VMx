@@ -57,6 +57,11 @@ pub struct FormVm<M: Clone + PartialEq + Send + 'static> {
 }
 
 impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
+    /// Returns the canonical component family discriminator.
+    pub fn view_model_type(&self) -> crate::ViewModelType {
+        self.component.view_model_type()
+    }
+
     /// Creates a non-strict form with a no-op persister and a private hub.
     pub fn new(name: impl Into<String>, model: M) -> Self {
         Self::with_options(name, model, |_| Ok(()), false, MessageHub::new())
@@ -213,8 +218,8 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         if *lock(&self.disposed) {
             return Ok(());
         }
-        if !self.can_approve() {
-            return Err(VmxError::InvalidArgument("form cannot approve".to_string()));
+        if !self.is_valid() {
+            return Ok(());
         }
         let model = self.model();
         (self.persister)(&model)?;

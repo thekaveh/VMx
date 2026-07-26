@@ -45,10 +45,12 @@ src/runtime.rs
 src/searchable_state.rs
 src/specialized_vms.rs
 src/token_paging.rs
+src/value_stream.rs
 tests/conformance.rs
 tests/conformance/aggregate_change_stream.rs
 tests/conformance/aggregate_vm.rs
 tests/conformance/async_resource_vm.rs
+tests/conformance/async_value.rs
 tests/conformance/builders.rs
 tests/conformance/capabilities.rs
 tests/conformance/collections.rs
@@ -60,6 +62,7 @@ tests/conformance/derived_properties.rs
 tests/conformance/dialogs.rs
 tests/conformance/discriminator.rs
 tests/conformance/expandable.rs
+tests/conformance/expandable_support.rs
 tests/conformance/filtered_composite.rs
 tests/conformance/form_model_hub_publication.rs
 tests/conformance/forms.rs
@@ -81,6 +84,7 @@ tests/conformance/search_filter.rs
 tests/conformance/subscribe_value.rs
 tests/conformance/threading.rs
 tests/conformance/tree_utils.rs
+tests/conformance/value_stream.rs
 tests/conformance/vm_collection_move.rs""".splitlines()
 )
 

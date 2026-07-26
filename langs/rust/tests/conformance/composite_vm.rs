@@ -491,14 +491,17 @@ fn membership_uses_node_identity_when_partial_eq_is_value_based() {
     let composite = vmx::CompositeVm::new("composite");
     composite.add(child.clone()).unwrap();
     child.construct().unwrap();
+    composite.select_component(&child).unwrap();
 
     assert!(!composite.can_select_component(&foreign));
     assert_eq!(
         composite.set_current(Some(foreign.clone())),
         Err(VmxError::NonChild)
     );
-    assert_eq!(composite.remove(&foreign), Err(VmxError::NonChild));
+    assert_eq!(composite.remove(&foreign), Ok(()));
     assert_eq!(composite.items()[0].id(), child.id());
+    assert_eq!(composite.current().map(|item| item.id()), Some(child.id()));
+    assert!(child.is_current());
 
     let filtered = vmx::FilteredCompositeVm::new(composite.clone(), |_| true);
     assert_eq!(filtered.set_current(Some(foreign)), Err(VmxError::NonChild));
@@ -508,7 +511,7 @@ fn membership_uses_node_identity_when_partial_eq_is_value_based() {
     let group = vmx::GroupVm::new("group");
     group.add(group_child.clone()).unwrap();
 
-    assert_eq!(group.remove(&group_foreign), Err(VmxError::NonChild));
+    assert_eq!(group.remove(&group_foreign), Ok(()));
     assert_eq!(group.items()[0].id(), group_child.id());
 }
 

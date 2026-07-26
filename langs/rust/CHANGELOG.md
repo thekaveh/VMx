@@ -12,15 +12,64 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 - `DiscriminatorVm` now exposes `modal_depth()` and `clear_modals()` for
   explicit modal-history ownership (`DISC-007/008`, ADR-0128).
+- Capability parity now includes predicate-based `Filterable<T>`, the complete
+  `Pageable` navigation surface on `PagedComposition`, `Expandable::is_expanded`,
+  mutable `Searchable`, and fully constructible/disposable `ExpandableState`.
+- The VMx-owned reactive layer now includes typed, replaying, completion-aware
+  `ValueStream<T>`; completion-aware message-hub subscriptions; and replaying
+  notification pending streams, including immediate empty completion for null
+  services.
+- `DerivedProperty` now has one- through five-source constructors that own their
+  subscriptions, automatically recompute on source changes, suppress equal
+  outputs, and stop on disposal.
+- `AsyncValue` now supports executor-neutral `map` and `and_then`
+  continuations, with deterministic retained-continuation diagnostics.
 
 ### Changed
 
 - A public non-modal `set_active_key` releases every saved modal frame,
   including for a same-key notification no-op, while modal close preserves
   nested LIFO restoration (`DISC-009`, ADR-0128).
+- Explicit hierarchy reparenting of a detached child reports `Reparented`;
+  removing a non-member from a hierarchy, group, or composite is a successful
+  no-op; and fixed aggregates publish all populated-slot notifications before
+  constructing any child.
+- Direct form approval now gates on disposal and validity only. Strict/dirty
+  gating remains on approve-command eligibility.
+- The complete component VM family now exposes `view_model_type`, including
+  groups, composite variants/wrappers, aggregate arities one through six,
+  hierarchies, forms, and async-resource VMs. Component options and forwarding
+  wrappers preserve or delegate the canonical value.
+- **Breaking pre-publication correction:** confirmation-decorator
+  `execute_async()` now returns the executor-neutral `ConfirmationExecution`
+  future instead of `std::thread::JoinHandle<()>`, eliminating one retained
+  operating-system thread per unresolved decision. Inferred `.join()` callers
+  retain that call shape; explicitly typed callers must migrate to
+  `ConfirmationExecution`, which also supports `.await` and `.is_finished()`.
+  It intentionally has no `thread()` accessor because no native worker exists;
+  `.join()` preserves the original boxed panic payload for downcasting.
 
 ### Fixed
 
+- Expanded tree walking now uses the `Expandable` capability. Disposed
+  searchable state reads as an empty term, and explicit search returns empty
+  without invoking the item provider or predicate.
+- Message, value, and notification streams now serialize value/terminal
+  delivery, preserve synchronous resolver-thread continuation semantics, and
+  isolate subscriber, continuation, mapper, and waker panics. Opposing
+  cross-stream callbacks enqueue without waiting on a foreign drainer, avoiding
+  callback cycles while ordinary foreign-thread sends and disposal remain
+  synchronous.
+- Concurrent multi-source `DerivedProperty` transforms now commit and publish
+  through one serialized snapshot-revision stream, preventing an older delayed
+  result from overwriting or publishing after the newer latest-at-emission
+  value.
+- Notification pending snapshots replay in committed order and publish before
+  waiter completion. Confirmation helpers and decorators no longer retain one
+  native thread per unresolved decision.
+- Confirmation-decorator disposal now completes its error channel and guards
+  later work. Relay-command disposal emits the optional final
+  `can_execute_changed` notification before stream completion.
 - Async-command predicate evaluation now reserves admission, preventing a
   reentrant execution from completing before the outer execution is admitted.
 - Relay-command predicate disposal now invalidates both ordinary and

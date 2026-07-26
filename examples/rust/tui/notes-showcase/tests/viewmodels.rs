@@ -46,7 +46,11 @@ fn form_validation_save_and_revert_use_form_vm_contracts() {
     form.set_title("");
     assert!(!form.is_valid());
     assert_eq!(form.title_error(), Some("Title is required".to_string()));
-    assert!(form.save().is_err());
+    form.save().expect("invalid direct save is a no-op");
+    assert_eq!(
+        repository.note("rust-parity").expect("original note").title,
+        "Rust flavor parity"
+    );
 
     form.set_title("Rust VMx showcase");
     form.set_body("A terminal app with a pure VMx view model layer.");
