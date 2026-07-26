@@ -2,7 +2,9 @@
 //!
 //! Spec: `spec/14-capabilities.md`; ADR-0010, ADR-0057.
 
-use super::{lock, Arc, ConstructionStatus, Message, MessageHub, Mutex, VmNode};
+use super::{
+    lock, Arc, AtomicBool, ConstructionStatus, Message, MessageHub, Mutex, Ordering, VmNode,
+};
 
 /// Opt-in selection capability.
 pub trait Selectable {
@@ -32,6 +34,8 @@ pub trait SelectionTogglable {
 pub trait Expandable {
     /// Reports whether expansion is currently admitted.
     fn can_expand(&self) -> bool;
+    /// Reports whether the receiver is expanded.
+    fn is_expanded(&self) -> bool;
     /// Expands the receiver.
     fn expand(&self);
 }
@@ -66,6 +70,8 @@ pub trait Searchable {
     fn can_search(&self) -> bool;
     /// Returns the current search term.
     fn search_term(&self) -> String;
+    /// Replaces the current search term.
+    fn set_search_term(&self, term: String);
     /// Executes the current search.
     fn search(&self);
 }
@@ -166,24 +172,50 @@ pub trait Reconstructable {
     fn reconstruct(&self);
 }
 
+/// A shared, thread-safe predicate stored by [`Filterable`].
+pub type FilterPredicate<T> = Arc<dyn Fn(&T) -> bool + Send + Sync>;
+
 /// Opt-in filtering capability over typed items.
+///
+/// Core VM types do not implement filtering unless a wrapper opts in:
+///
+/// ```compile_fail
+/// use vmx::{ComponentVm, Filterable};
+///
+/// fn requires_filterable<T: Filterable<&'static str>>(_: &T) {}
+/// requires_filterable(&ComponentVm::new("component"));
+/// ```
 pub trait Filterable<T> {
-    /// Returns the current filter term.
-    fn filter_term(&self) -> String;
-    /// Replaces the current filter term.
-    fn set_filter_term(&mut self, term: impl Into<String>);
-    /// Reports whether `item` passes the current filter.
-    fn accepts(&self, item: &T) -> bool;
+    /// Returns the current predicate, or `None` when filtering is cleared.
+    fn filter(&self) -> Option<FilterPredicate<T>>;
+    /// Replaces or clears the current predicate.
+    fn set_filter(&mut self, filter: Option<FilterPredicate<T>>);
+    /// Reports whether filtering is currently admitted.
+    fn can_filter(&self) -> bool;
 }
 
 /// Opt-in finite-page navigation capability.
 pub trait Pageable {
+    /// Returns the maximum number of items exposed by one page.
+    fn page_size(&self) -> usize;
+    /// Changes the maximum number of items exposed by one page.
+    fn set_page_size(&self, page_size: usize);
     /// Returns the current zero-based page index.
-    fn page_index(&self) -> usize;
+    fn current_page_index(&self) -> usize;
+    /// Selects a zero-based page index, clamped to the available range.
+    fn set_current_page_index(&self, index: usize);
     /// Returns the number of available pages.
     fn page_count(&self) -> usize;
-    /// Selects a zero-based page index.
-    fn set_page_index(&mut self, index: usize);
+    /// Reports whether finite paging is enabled.
+    fn is_paging_enabled(&self) -> bool;
+    /// Moves to the first page.
+    fn move_to_first_page(&self);
+    /// Moves to the previous page.
+    fn move_to_previous_page(&self);
+    /// Moves to the next page.
+    fn move_to_next_page(&self);
+    /// Moves to the last page.
+    fn move_to_last_page(&self);
 }
 
 #[derive(Clone, Default)]
@@ -191,12 +223,26 @@ pub trait Pageable {
 pub struct ExpandableState {
     expanded: Arc<Mutex<bool>>,
     expanded_changed: MessageHub,
+    disposed: Arc<AtomicBool>,
 }
 
 impl ExpandableState {
     /// Creates collapsed expansion state.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Creates expansion state with the requested initial value.
+    pub fn with_initial(initially_expanded: bool) -> Self {
+        Self {
+            expanded: Arc::new(Mutex::new(initially_expanded)),
+            ..Self::default()
+        }
+    }
+
+    /// Creates expanded expansion state.
+    pub fn new_expanded() -> Self {
+        Self::with_initial(true)
     }
 
     /// Reports whether the state is expanded.
@@ -234,7 +280,20 @@ impl ExpandableState {
         self.expanded_changed.clone()
     }
 
+    /// Disposes the owned change hub and makes later mutations inert.
+    ///
+    /// Disposal is idempotent.
+    pub fn dispose(&self) {
+        if self.disposed.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        self.expanded_changed.dispose();
+    }
+
     fn set_expanded(&self, expanded: bool) {
+        if self.disposed.load(Ordering::Acquire) {
+            return;
+        }
         let changed = {
             let mut current = lock(&self.expanded);
             if *current == expanded {
@@ -257,6 +316,10 @@ impl ExpandableState {
 impl Expandable for ExpandableState {
     fn can_expand(&self) -> bool {
         ExpandableState::can_expand(self)
+    }
+
+    fn is_expanded(&self) -> bool {
+        ExpandableState::is_expanded(self)
     }
 
     fn expand(&self) {

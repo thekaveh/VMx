@@ -1,4 +1,4 @@
-use vmx::{walk_expanded, ExpandableState, HierarchicalVm};
+use vmx::{walk_expanded, Expandable, ExpandableState, HierarchicalVm, Message};
 
 fn leaf(name: &str) -> HierarchicalVm<String> {
     HierarchicalVm::new(name, name.to_string())
@@ -12,6 +12,12 @@ fn expandable_state_defaults_to_collapsed() {
     assert!(!state.is_expanded());
     assert!(state.can_expand());
     assert!(!state.can_collapse());
+}
+
+#[test]
+fn expandable_state_supports_initially_expanded_construction() {
+    assert!(ExpandableState::with_initial(true).is_expanded());
+    assert!(ExpandableState::new_expanded().is_expanded());
 }
 
 /// EXP-002 — Expand flips state and emits IsExpandedChanged
@@ -49,6 +55,24 @@ fn toggle_expansion_alternates_state() {
     assert!(state.is_expanded());
 }
 
+#[test]
+fn expandable_state_dispose_is_idempotent_and_makes_changes_inert() {
+    let state = ExpandableState::new_expanded();
+    let changes = state.expanded_changed();
+
+    state.dispose();
+    state.dispose();
+    state.collapse();
+    changes.send(Message::Custom {
+        sender_id: 0,
+        sender_name: "test".to_string(),
+        name: "after_dispose".to_string(),
+    });
+
+    assert!(state.is_expanded());
+    assert!(changes.history().is_empty());
+}
+
 /// EXP-005 — walk_expanded skips descendants of collapsed nodes
 #[test]
 fn walk_expanded_skips_collapsed_descendants() {
@@ -56,10 +80,11 @@ fn walk_expanded_skips_collapsed_descendants() {
     let a = leaf("a");
     let b = leaf("b");
     b.set_expanded_for_walk(false);
+    assert!(!Expandable::is_expanded(&b));
     b.add_child(leaf("b1")).unwrap();
     b.add_child(leaf("b2")).unwrap();
     root.add_child(a).unwrap();
-    root.add_child(b).unwrap();
+    root.add_child(b.clone()).unwrap();
 
     let names = walk_expanded(&root)
         .into_iter()
@@ -67,4 +92,11 @@ fn walk_expanded_skips_collapsed_descendants() {
         .collect::<Vec<_>>();
 
     assert_eq!(names, vec!["root", "a", "b"]);
+
+    Expandable::expand(&b);
+    let names = walk_expanded(&root)
+        .into_iter()
+        .map(|node| node.model())
+        .collect::<Vec<_>>();
+    assert_eq!(names, vec!["root", "a", "b", "b1", "b2"]);
 }

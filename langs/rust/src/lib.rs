@@ -113,8 +113,8 @@ mod capabilities;
 pub use capabilities::{
     Approvable, Cancelable, Closable, Collapsible, Constructable, CurrentDeletable,
     CurrentUpdatable, Deletable, Deselectable, Destructable, Expandable, ExpandableState,
-    ExpansionTogglable, Filterable, Managable, NewCreatable, Pageable, Reconstructable, Savable,
-    Searchable, Selectable, SelectionTogglable, Updatable,
+    ExpansionTogglable, FilterPredicate, Filterable, Managable, NewCreatable, Pageable,
+    Reconstructable, Savable, Searchable, Selectable, SelectionTogglable, Updatable,
 };
 mod aggregates;
 pub use aggregates::{

@@ -3,7 +3,7 @@ use std::sync::{mpsc, Arc, Barrier, Mutex};
 use std::time::Duration;
 
 use vmx::{
-    walk_expanded, Command, ConstructionStatus, HierarchicalVm, Message, MessageHub,
+    walk_expanded, Command, ConstructionStatus, Expandable, HierarchicalVm, Message, MessageHub,
     ModeledCrudCommands, NullDispatcher, SearchableState, TreeStructureChange, VmxError,
 };
 
@@ -761,8 +761,9 @@ fn walk_expanded_honors_hierarchy_expansion_boundary() {
     root.set_expanded_for_walk(false);
     root.add_child(leaf("child")).unwrap();
 
+    assert!(!Expandable::is_expanded(&root));
     assert_eq!(walk_expanded(&root).len(), 1);
-    root.set_expanded_for_walk(true);
+    Expandable::expand(&root);
     assert_eq!(walk_expanded(&root).len(), 2);
 }
 

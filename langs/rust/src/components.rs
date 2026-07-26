@@ -449,11 +449,7 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> VmNode for ComponentV
     }
 }
 
-impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> TreeNode for ComponentVm<M, D> {
-    fn is_expanded_for_walk(&self) -> bool {
-        self.is_expanded()
-    }
-}
+impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> TreeNode for ComponentVm<M, D> {}
 
 impl<M, D: Dispatcher> PartialEq for ComponentVm<M, D> {
     fn eq(&self, other: &Self) -> bool {
@@ -743,11 +739,7 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> VmNode for ReadonlyCo
     }
 }
 
-impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> TreeNode for ReadonlyComponentVm<M, D> {
-    fn is_expanded_for_walk(&self) -> bool {
-        self.is_expanded()
-    }
-}
+impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> TreeNode for ReadonlyComponentVm<M, D> {}
 
 impl<M: Clone + Send + 'static, D: Dispatcher> PartialEq for ReadonlyComponentVm<M, D> {
     fn eq(&self, other: &Self) -> bool {

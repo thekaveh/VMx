@@ -1490,9 +1490,9 @@ pub trait TreeNode: VmNode {
         Vec::new()
     }
 
-    /// Reports whether expanded-only traversal should enter this node.
-    fn is_expanded_for_walk(&self) -> bool {
-        true
+    /// Returns the node's opt-in expansion capability, when present.
+    fn expandable(&self) -> Option<&dyn crate::Expandable> {
+        None
     }
 }
 

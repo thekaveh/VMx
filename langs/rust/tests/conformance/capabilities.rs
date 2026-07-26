@@ -1,14 +1,17 @@
+use std::cell::Cell;
+use std::sync::{Arc, Mutex};
+
 use vmx::{
     Approvable, Cancelable, Closable, Collapsible, Constructable, CurrentDeletable,
     CurrentUpdatable, Deletable, Deselectable, Destructable, Expandable, ExpansionTogglable,
-    Filterable, Managable, NewCreatable, Pageable, Reconstructable, Savable, Searchable,
-    Selectable, SelectionTogglable, Updatable,
+    FilterPredicate, Filterable, Managable, NewCreatable, Pageable, PagedComposition,
+    Reconstructable, Savable, Searchable, SearchableState, Selectable, SelectionTogglable,
+    Updatable,
 };
 
 #[derive(Default)]
 struct Fixture {
-    calls: usize,
-    text: String,
+    expanded: Cell<bool>,
 }
 
 impl Selectable for Fixture {
@@ -34,9 +37,14 @@ impl SelectionTogglable for Fixture {
 
 impl Expandable for Fixture {
     fn can_expand(&self) -> bool {
-        true
+        !self.is_expanded()
     }
-    fn expand(&self) {}
+    fn is_expanded(&self) -> bool {
+        self.expanded.get()
+    }
+    fn expand(&self) {
+        self.expanded.set(true);
+    }
 }
 
 impl Collapsible for Fixture {
@@ -58,16 +66,6 @@ impl Closable for Fixture {
         true
     }
     fn close(&self) {}
-}
-
-impl Searchable for Fixture {
-    fn can_search(&self) -> bool {
-        true
-    }
-    fn search_term(&self) -> String {
-        self.text.clone()
-    }
-    fn search(&self) {}
 }
 
 impl Approvable for Fixture {
@@ -154,27 +152,22 @@ impl Reconstructable for Fixture {
     fn reconstruct(&self) {}
 }
 
-impl Filterable<&'static str> for Fixture {
-    fn filter_term(&self) -> String {
-        self.text.clone()
-    }
-    fn set_filter_term(&mut self, term: impl Into<String>) {
-        self.text = term.into();
-    }
-    fn accepts(&self, item: &&'static str) -> bool {
-        item.contains(&self.text)
-    }
+#[derive(Default)]
+struct FilterFixture {
+    filter: Option<FilterPredicate<&'static str>>,
 }
 
-impl Pageable for Fixture {
-    fn page_index(&self) -> usize {
-        self.calls
+impl Filterable<&'static str> for FilterFixture {
+    fn filter(&self) -> Option<FilterPredicate<&'static str>> {
+        self.filter.clone()
     }
-    fn page_count(&self) -> usize {
-        3
+
+    fn set_filter(&mut self, filter: Option<FilterPredicate<&'static str>>) {
+        self.filter = filter;
     }
-    fn set_page_index(&mut self, index: usize) {
-        self.calls = index.min(self.page_count().saturating_sub(1));
+
+    fn can_filter(&self) -> bool {
+        true
     }
 }
 
@@ -207,7 +200,9 @@ fn selection_togglable_contract() {
 fn expandable_contract() {
     let fixture = Fixture::default();
     assert!(fixture.can_expand());
+    assert!(!fixture.is_expanded());
     fixture.expand();
+    assert!(fixture.is_expanded());
 }
 
 /// CAP-005 — ICollapsible contract
@@ -237,13 +232,19 @@ fn closable_contract() {
 /// CAP-008 — ISearchable contract
 #[test]
 fn searchable_contract() {
-    let fixture = Fixture {
-        text: "abc".to_string(),
-        ..Fixture::default()
-    };
-    assert!(fixture.can_search());
-    assert_eq!(fixture.search_term(), "abc");
-    fixture.search();
+    let searched_terms = Arc::new(Mutex::new(Vec::new()));
+    let seen = searched_terms.clone();
+    let state = SearchableState::new(vec!["alpha"], move |_item, term| {
+        seen.lock().unwrap().push(term.to_string());
+        true
+    });
+
+    Searchable::set_search_term(&state, "abc".to_string());
+    assert!(Searchable::can_search(&state));
+    Searchable::search(&state);
+
+    assert_eq!(Searchable::search_term(&state), "abc");
+    assert_eq!(searched_terms.lock().unwrap().as_slice(), &["abc"]);
 }
 
 /// CAP-009 — IApprovable contract
@@ -356,16 +357,47 @@ fn core_vm_types_do_not_implement_non_baseline_capabilities_by_default() {
 /// CAP-021 — `IFilterable<TItem>` capability contract surface and opt-in behavior
 #[test]
 fn filterable_contract() {
-    let mut fixture = Fixture::default();
-    fixture.set_filter_term("a");
-    assert!(fixture.accepts(&"alpha"));
-    assert!(!fixture.accepts(&"rhythm"));
+    let mut fixture = FilterFixture::default();
+    assert!(fixture.can_filter());
+
+    fixture.set_filter(Some(Arc::new(|item| item.contains('a'))));
+    let filter = fixture.filter().expect("filter should be stored");
+    assert!(filter(&"alpha"));
+    assert!(!filter(&"rhythm"));
+
+    fixture.set_filter(None);
+    assert!(fixture.filter().is_none());
 }
 
 /// CAP-022 — `IPageable` capability contract surface and clamping/navigation behavior
 #[test]
 fn pageable_contract() {
-    let mut fixture = Fixture::default();
-    fixture.set_page_index(99);
-    assert_eq!(fixture.page_index(), 2);
+    fn requires_pageable<T: Pageable>(_: &T) {}
+
+    let pages = PagedComposition::new(vec![1, 2, 3, 4, 5], 2);
+    requires_pageable(&pages);
+    assert_eq!(Pageable::page_size(&pages), 2);
+    assert_eq!(Pageable::page_count(&pages), 3);
+    assert!(Pageable::is_paging_enabled(&pages));
+
+    Pageable::set_current_page_index(&pages, 99);
+    assert_eq!(Pageable::current_page_index(&pages), 2);
+    Pageable::move_to_next_page(&pages);
+    assert_eq!(Pageable::current_page_index(&pages), 2);
+
+    Pageable::move_to_first_page(&pages);
+    Pageable::move_to_first_page(&pages);
+    Pageable::move_to_previous_page(&pages);
+    assert_eq!(Pageable::current_page_index(&pages), 0);
+
+    Pageable::move_to_last_page(&pages);
+    Pageable::move_to_last_page(&pages);
+    Pageable::move_to_next_page(&pages);
+    assert_eq!(Pageable::current_page_index(&pages), 2);
+
+    Pageable::set_page_size(&pages, 0);
+    assert_eq!(Pageable::page_size(&pages), 0);
+    assert_eq!(Pageable::page_count(&pages), 1);
+    assert_eq!(Pageable::current_page_index(&pages), 0);
+    assert!(!Pageable::is_paging_enabled(&pages));
 }

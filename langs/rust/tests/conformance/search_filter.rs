@@ -282,6 +282,18 @@ fn dispose_cancels_source_observation_without_owning_source() {
     assert_eq!(independent_hits.load(Ordering::SeqCst), 1);
 }
 
+#[test]
+fn disposed_searchable_state_reads_an_empty_term() {
+    let state = SearchableState::new(vec!["alpha"], contains);
+    state.set_search_term("alp");
+    assert_eq!(state.search_term(), "alp");
+
+    state.dispose();
+    state.set_search_term("changed");
+
+    assert_eq!(state.search_term(), "");
+}
+
 #[derive(Clone)]
 struct OwnedSearchItem {
     value: &'static str,

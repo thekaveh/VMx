@@ -4,9 +4,9 @@
 
 use super::{
     catch_unwind, lock, resume_unwind, thread, wait, Arc, AssertUnwindSafe, ComponentVm, Condvar,
-    ConstructionStatus, Hash, HashMap, HashSet, Message, MessageHub, Mutex, NullDispatcher,
-    ParentHandle, PropertyChangedMessage, PropertyChangedStream, ThreadId, TreeNode,
-    TreeStructureChange, TreeStructureChangedMessage, VmNode, VmxError, VmxResult, Weak,
+    ConstructionStatus, Expandable, Hash, HashMap, HashSet, Message, MessageHub, Mutex,
+    NullDispatcher, ParentHandle, PropertyChangedMessage, PropertyChangedStream, ThreadId,
+    TreeNode, TreeStructureChange, TreeStructureChangedMessage, VmNode, VmxError, VmxResult, Weak,
     HIERARCHY_TOPOLOGY_GATE,
 };
 
@@ -926,8 +926,22 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> TreeNode for HierarchicalVm<M
         self.children()
     }
 
-    fn is_expanded_for_walk(&self) -> bool {
+    fn expandable(&self) -> Option<&dyn Expandable> {
+        Some(self)
+    }
+}
+
+impl<M: Clone + PartialEq + Send + Sync + 'static> Expandable for HierarchicalVm<M> {
+    fn can_expand(&self) -> bool {
+        !self.is_expanded()
+    }
+
+    fn is_expanded(&self) -> bool {
         *lock(&self.inner.expanded_for_walk)
+    }
+
+    fn expand(&self) {
+        self.set_expanded_for_walk(true);
     }
 }
 
@@ -1052,7 +1066,7 @@ where
 /// Returns a depth-first snapshot while skipping collapsed descendants.
 pub fn walk_expanded<T: TreeNode>(root: &T) -> Vec<T> {
     let mut nodes = vec![root.clone()];
-    if root.is_expanded_for_walk() {
+    if root.expandable().is_none_or(Expandable::is_expanded) {
         for child in root.children_nodes() {
             nodes.extend(walk_expanded(&child));
         }
