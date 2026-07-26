@@ -63,7 +63,7 @@ impl<T: Clone + Send + 'static> AsyncValue<T> {
         };
         self.inner.ready.notify_all();
         for waker in wakers {
-            waker.wake();
+            let _ = catch_unwind(AssertUnwindSafe(|| waker.wake()));
         }
         for continuation in continuations {
             let value = value.clone();
