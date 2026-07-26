@@ -772,8 +772,8 @@ impl<T1: VmNode, T2: VmNode, D: Dispatcher> AggregateVm2<T1, T2, D> {
                         return Err(error);
                     }
                     self.core.notify_property_changed("component_1");
-                    next1.construct()?;
                     self.core.notify_property_changed("component_2");
+                    next1.construct()?;
                     next2.construct()?;
                     Ok(())
                 })
@@ -1115,10 +1115,10 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, D: Dispatcher> AggregateVm3<T1, T2, T3,
                         return Err(error);
                     }
                     self.core.notify_property_changed("component_1");
-                    next1.construct()?;
                     self.core.notify_property_changed("component_2");
-                    next2.construct()?;
                     self.core.notify_property_changed("component_3");
+                    next1.construct()?;
+                    next2.construct()?;
                     next3.construct()?;
                     Ok(())
                 })
@@ -1463,12 +1463,12 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, D: Dispatcher>
                         return Err(error);
                     }
                     self.core.notify_property_changed("component_1");
-                    next1.construct()?;
                     self.core.notify_property_changed("component_2");
-                    next2.construct()?;
                     self.core.notify_property_changed("component_3");
-                    next3.construct()?;
                     self.core.notify_property_changed("component_4");
+                    next1.construct()?;
+                    next2.construct()?;
+                    next3.construct()?;
                     next4.construct()?;
                     Ok(())
                 })
@@ -1858,14 +1858,14 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, D: Dispatcher>
                         return Err(error);
                     }
                     self.core.notify_property_changed("component_1");
-                    next1.construct()?;
                     self.core.notify_property_changed("component_2");
-                    next2.construct()?;
                     self.core.notify_property_changed("component_3");
-                    next3.construct()?;
                     self.core.notify_property_changed("component_4");
-                    next4.construct()?;
                     self.core.notify_property_changed("component_5");
+                    next1.construct()?;
+                    next2.construct()?;
+                    next3.construct()?;
+                    next4.construct()?;
                     next5.construct()?;
                     Ok(())
                 })
@@ -2299,16 +2299,16 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, T6: VmNode, D: 
                         return Err(error);
                     }
                     self.core.notify_property_changed("component_1");
-                    next1.construct()?;
                     self.core.notify_property_changed("component_2");
-                    next2.construct()?;
                     self.core.notify_property_changed("component_3");
-                    next3.construct()?;
                     self.core.notify_property_changed("component_4");
-                    next4.construct()?;
                     self.core.notify_property_changed("component_5");
-                    next5.construct()?;
                     self.core.notify_property_changed("component_6");
+                    next1.construct()?;
+                    next2.construct()?;
+                    next3.construct()?;
+                    next4.construct()?;
+                    next5.construct()?;
                     next6.construct()?;
                     Ok(())
                 })

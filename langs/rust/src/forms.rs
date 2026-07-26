@@ -213,8 +213,8 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         if *lock(&self.disposed) {
             return Ok(());
         }
-        if !self.can_approve() {
-            return Err(VmxError::InvalidArgument("form cannot approve".to_string()));
+        if !self.is_valid() {
+            return Ok(());
         }
         let model = self.model();
         (self.persister)(&model)?;

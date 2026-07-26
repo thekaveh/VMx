@@ -8,6 +8,21 @@ use super::{
     RelayCommand, Subscription, TreeNode, VmNode, VmxError, VmxResult,
 };
 
+/// Identifies the role a view model plays in the VM hierarchy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ViewModelType {
+    /// A modeled or unmodeled leaf component.
+    Component,
+    /// A modeled leaf component whose model is immutable.
+    ReadOnlyComponent,
+    /// A heterogeneous fixed-slot aggregate.
+    Aggregate,
+    /// A homogeneous non-selectable group.
+    Group,
+    /// A homogeneous selectable composite.
+    Composite,
+}
+
 #[derive(Clone)]
 pub(crate) struct ComponentCommands {
     select: RelayCommand,
@@ -126,6 +141,7 @@ pub struct ComponentVm<M = (), D: Dispatcher = NullDispatcher> {
     pub(crate) core: ComponentCore<D>,
     model: Arc<Mutex<M>>,
     model_hint: ModelHint<M>,
+    view_model_type: ViewModelType,
     commands: ComponentCommands,
 }
 
@@ -160,6 +176,7 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
             core,
             model: Arc::new(Mutex::new(model)),
             model_hint: Arc::new(|_| None),
+            view_model_type: ViewModelType::Component,
             commands,
         }
     }
@@ -183,6 +200,11 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
     /// Returns the immutable component name.
     pub fn name(&self) -> String {
         self.core.name()
+    }
+
+    /// Returns the immutable role discriminator for this component.
+    pub fn view_model_type(&self) -> ViewModelType {
+        self.view_model_type
     }
 
     /// Returns the immutable static presentation hint.
@@ -515,6 +537,11 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ReadonlyComponentVm<M
         self.inner.name()
     }
 
+    /// Returns the read-only component role discriminator.
+    pub fn view_model_type(&self) -> ViewModelType {
+        ViewModelType::ReadOnlyComponent
+    }
+
     /// Returns the immutable static presentation hint.
     pub fn hint(&self) -> Option<String> {
         self.inner.hint()
@@ -770,6 +797,7 @@ pub struct ComponentVmBuilder<M: Clone + PartialEq + Send + 'static, D: Dispatch
     hub: Option<MessageHub>,
     dispatcher: Option<D>,
     model_hint: Option<ModelHint<M>>,
+    view_model_type: ViewModelType,
 }
 
 impl<M: Clone + PartialEq + Send + 'static> Default for ComponentVmBuilder<M, NullDispatcher> {
@@ -781,6 +809,7 @@ impl<M: Clone + PartialEq + Send + 'static> Default for ComponentVmBuilder<M, Nu
             hub: None,
             dispatcher: None,
             model_hint: None,
+            view_model_type: ViewModelType::Component,
         }
     }
 }
@@ -801,6 +830,12 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVmBuilder<M,
     /// Sets the required initial model.
     pub fn model(mut self, model: M) -> Self {
         self.model = Some(model);
+        self
+    }
+
+    /// Sets the immutable role discriminator returned by the built component.
+    pub fn view_model_type(mut self, view_model_type: ViewModelType) -> Self {
+        self.view_model_type = view_model_type;
         self
     }
 
@@ -834,7 +869,8 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVmBuilder<M,
         let dispatcher = self
             .dispatcher
             .ok_or_else(|| VmxError::BuilderValidation("dispatcher is required".to_string()))?;
-        let vm = ComponentVm::with_model(name, model, hub, dispatcher);
+        let mut vm = ComponentVm::with_model(name, model, hub, dispatcher);
+        vm.view_model_type = self.view_model_type;
         if let Some(hint) = self.hint {
             vm.core.set_hint(Some(hint));
         }

@@ -213,14 +213,14 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
     /// Adds or transfers `child` beneath this node.
     pub fn add_child(&self, child: Self) -> VmxResult<()> {
         self.reject_structural_reentry()?;
-        self.attach_child(&child)
+        self.attach_child(&child, false)
     }
 
     /// Removes `child` from this node without disposing it.
     pub fn remove_child(&self, child: &Self) -> VmxResult<()> {
         self.reject_structural_reentry()?;
         self.try_children()?;
-        let (removed, index) = {
+        let removed = {
             let _topology = lock(&HIERARCHY_TOPOLOGY_GATE);
             let mut children = lock(&self.inner.children);
             let children = children.as_mut().expect("children materialized");
@@ -232,8 +232,10 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
                 removed.set_parent_state(None);
             }
             removed
-        }
-        .ok_or(VmxError::NonChild)?;
+        };
+        let Some((removed, index)) = removed else {
+            return Ok(());
+        };
         removed.publish_parent_changed();
         self.inner
             .hub
@@ -250,10 +252,10 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
     /// Transfers `child` from its current parent beneath this node.
     pub fn reparent_child(&self, child: &Self) -> VmxResult<()> {
         self.reject_structural_reentry()?;
-        self.attach_child(child)
+        self.attach_child(child, true)
     }
 
-    fn attach_child(&self, child: &Self) -> VmxResult<()> {
+    fn attach_child(&self, child: &Self, explicit_reparent: bool) -> VmxResult<()> {
         // Materialize the destination before detaching so a child factory
         // failure cannot orphan an attached child.
         let (reparented, index) = loop {
@@ -268,7 +270,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
                     if old_parent.as_ref() == Some(self) {
                         return Ok(());
                     }
-                    let reparented = old_parent.is_some();
+                    let reparented = explicit_reparent || old_parent.is_some();
                     if let Some(parent) = &old_parent {
                         if let Some(children) = lock(&parent.inner.children).as_mut() {
                             children.retain(|candidate| candidate != child);

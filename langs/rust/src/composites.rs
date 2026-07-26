@@ -830,15 +830,18 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             &self.membership_transaction_active,
             &self.membership_transaction_control,
         )?;
-        let (index, removed) = {
+        let removed = {
             let _gate = lock(&self.membership_gate);
-            let index = self
-                .items()
+            self.items()
                 .iter()
                 .position(|candidate| same_node(candidate, item))
-                .ok_or(VmxError::NonChild)?;
-            let removed = self.items.remove_at_silent(index).expect("index checked");
-            (index, removed)
+                .map(|index| {
+                    let removed = self.items.remove_at_silent(index).expect("index checked");
+                    (index, removed)
+                })
+        };
+        let Some((index, removed)) = removed else {
+            return transaction.finish();
         };
         if removed
             .parent_handle()
@@ -1433,6 +1436,8 @@ pub enum FilteredCursorPolicy {
     Clear,
     /// Select the first remaining visible item.
     SnapToFirst,
+    /// Retain the current item only while it remains visible.
+    PreserveIfVisible,
 }
 
 #[derive(Clone)]
@@ -1456,15 +1461,17 @@ impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
     where
         F: Fn(&T) -> bool + Send + Sync + 'static,
     {
-        Self {
+        let filtered = Self {
             source,
             predicate: Arc::new(Mutex::new(Arc::new(predicate))),
             scorer: Arc::new(Mutex::new(None)),
             current: Arc::new(Mutex::new(None)),
-            cursor_policy: Arc::new(Mutex::new(FilteredCursorPolicy::Clear)),
+            cursor_policy: Arc::new(Mutex::new(FilteredCursorPolicy::SnapToFirst)),
             disposed: Arc::new(Mutex::new(false)),
             frozen: Arc::new(Mutex::new(Vec::new())),
-        }
+        };
+        filtered.reconcile_current();
+        filtered
     }
 
     /// Returns the source composite's message hub.
@@ -1477,15 +1484,17 @@ impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
     where
         F: Fn(&T) -> Option<i32> + Send + Sync + 'static,
     {
-        Self {
+        let filtered = Self {
             source,
             predicate: Arc::new(Mutex::new(Arc::new(|_| true))),
             scorer: Arc::new(Mutex::new(Some(Arc::new(scorer)))),
             current: Arc::new(Mutex::new(None)),
-            cursor_policy: Arc::new(Mutex::new(FilteredCursorPolicy::Clear)),
+            cursor_policy: Arc::new(Mutex::new(FilteredCursorPolicy::SnapToFirst)),
             disposed: Arc::new(Mutex::new(false)),
             frozen: Arc::new(Mutex::new(Vec::new())),
-        }
+        };
+        filtered.reconcile_current();
+        filtered
     }
 
     /// Returns the current visible projection or the frozen disposed snapshot.
@@ -1607,13 +1616,12 @@ impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
         let visible = self.visible();
         let current_is_visible = self
             .current()
-            .map(|current| visible.iter().any(|item| same_node(item, &current)))
-            .unwrap_or(true);
+            .is_some_and(|current| visible.iter().any(|item| same_node(item, &current)));
         if current_is_visible {
             return;
         }
         let next = match *lock(&self.cursor_policy) {
-            FilteredCursorPolicy::Clear => None,
+            FilteredCursorPolicy::Clear | FilteredCursorPolicy::PreserveIfVisible => None,
             FilteredCursorPolicy::SnapToFirst => visible.first().cloned(),
         };
         *lock(&self.current) = next;

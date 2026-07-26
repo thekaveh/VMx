@@ -3,7 +3,7 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 use vmx::{
     Command, ComponentVm, ConstructionStatus, ForwardingComponentVm, Message, MessageHub,
-    NullDispatcher, NullMessageHub, ReadonlyComponentVm, TreeNode, VmNode,
+    NullDispatcher, NullMessageHub, ReadonlyComponentVm, TreeNode, ViewModelType, VmNode,
 };
 
 /// CVM-001 — Construct emits ConstructionStatusChangedMessage(Constructed)
@@ -67,6 +67,30 @@ fn readonly_component_exposes_model_without_setter_surface() {
     assert!(vm.is_current());
     assert_eq!(parent.current(), Some(vm.clone()));
     assert!(!select.can_execute());
+}
+
+#[test]
+fn component_variants_expose_their_view_model_type() {
+    let component = ComponentVm::new("component");
+    let readonly =
+        ReadonlyComponentVm::new("readonly", 1, MessageHub::new(), NullDispatcher::new());
+    let tagged = ComponentVm::builder()
+        .name("tagged")
+        .model(())
+        .view_model_type(ViewModelType::Aggregate)
+        .services(MessageHub::new(), NullDispatcher::new())
+        .build()
+        .unwrap();
+    let forwarding = ForwardingComponentVm::new(tagged.clone());
+
+    assert_eq!(component.view_model_type(), ViewModelType::Component);
+    assert_eq!(readonly.view_model_type(), ViewModelType::ReadOnlyComponent);
+    assert_eq!(tagged.view_model_type(), ViewModelType::Aggregate);
+    assert_eq!(
+        forwarding.view_model_type(),
+        tagged.view_model_type(),
+        "forwarding must delegate the wrapped type"
+    );
 }
 
 #[test]

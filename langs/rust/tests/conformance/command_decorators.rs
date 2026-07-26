@@ -226,6 +226,38 @@ fn confirmation_decorator_surfaces_fire_and_forget_errors() {
     assert_eq!(errors.load(Ordering::SeqCst), 1);
 }
 
+#[test]
+fn confirmation_decorator_disposal_stops_in_flight_and_late_emissions() {
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let decision = AsyncValue::pending();
+    let pending_decision = decision.clone();
+    let confirming = ConfirmationDecoratorCommand::new(
+        recording_command(log.clone(), "confirmed", true),
+        move || pending_decision.clone(),
+    );
+    let errors = confirming.errors();
+    let deliveries = Arc::new(AtomicUsize::new(0));
+    let deliveries_inner = deliveries.clone();
+    let _subscription = errors.subscribe(move |_| {
+        deliveries_inner.fetch_add(1, Ordering::SeqCst);
+    });
+
+    let execution = confirming.execute_async();
+    confirming.dispose();
+    confirming.dispose();
+    decision.resolve(true);
+    execution.join().unwrap();
+    errors.send(vmx::Message::Custom {
+        sender_id: 0,
+        sender_name: "test".to_string(),
+        name: "late".to_string(),
+    });
+    confirming.execute();
+
+    assert!(log.lock().unwrap().is_empty());
+    assert_eq!(deliveries.load(Ordering::SeqCst), 0);
+}
+
 /// CMD-008 — Confirm(delegate) is equivalent to explicit ConfirmationDecoratorCommand
 #[test]
 fn confirm_fluent_matches_explicit_confirmation_decorator() {

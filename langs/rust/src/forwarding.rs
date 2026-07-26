@@ -4,7 +4,7 @@
 
 use super::{
     Arc, ComponentVm, CompositeVm, ConstructionStatus, Dispatcher, MessageHub, NullDispatcher,
-    ParentHandle, PropertyChangedStream, RelayCommand, VmNode, VmxResult,
+    ParentHandle, PropertyChangedStream, RelayCommand, ViewModelType, VmNode, VmxResult,
 };
 
 #[derive(Clone)]
@@ -112,6 +112,14 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ForwardingComponentVm
         match &self.inner {
             ForwardingComponentInner::Component(inner) => inner.name(),
             ForwardingComponentInner::Forwarding(inner) => inner.name(),
+        }
+    }
+
+    /// Returns the wrapped component's role discriminator.
+    pub fn view_model_type(&self) -> ViewModelType {
+        match &self.inner {
+            ForwardingComponentInner::Component(inner) => inner.view_model_type(),
+            ForwardingComponentInner::Forwarding(inner) => inner.view_model_type(),
         }
     }
 

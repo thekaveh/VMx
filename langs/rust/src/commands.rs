@@ -118,6 +118,11 @@ impl RelayCommand {
             }
         };
         if should_dispose {
+            self.can_execute_changed.send(Message::Custom {
+                sender_id: 0,
+                sender_name: "RelayCommand".to_string(),
+                name: "can_execute_changed".to_string(),
+            });
             self.can_execute_changed.dispose();
         }
     }
@@ -262,6 +267,11 @@ impl<T: Clone + Send + 'static> RelayCommandOf<T> {
             }
         };
         if should_dispose {
+            self.can_execute_changed.send(Message::Custom {
+                sender_id: 0,
+                sender_name: "RelayCommandOf".to_string(),
+                name: "can_execute_changed".to_string(),
+            });
             self.can_execute_changed.dispose();
         }
     }
@@ -845,6 +855,7 @@ pub struct ConfirmationDecoratorCommand<C: Command + Clone> {
     inner: C,
     confirm: Arc<dyn Fn() -> AsyncValue<bool> + Send + Sync>,
     errors: MessageHub,
+    disposed: Arc<AtomicBool>,
 }
 
 impl<C: Command + Clone + 'static> ConfirmationDecoratorCommand<C> {
@@ -857,6 +868,7 @@ impl<C: Command + Clone + 'static> ConfirmationDecoratorCommand<C> {
             inner,
             confirm: Arc::new(confirm),
             errors: MessageHub::new(),
+            disposed: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -867,24 +879,31 @@ impl<C: Command + Clone + 'static> ConfirmationDecoratorCommand<C> {
 
     /// Waits for confirmation on a worker thread and executes when approved.
     pub fn execute_async(&self) -> std::thread::JoinHandle<()> {
-        if !self.can_execute() {
+        if self.disposed.load(Ordering::SeqCst) || !self.can_execute() {
             return std::thread::spawn(|| {});
         }
         let decision = (self.confirm)();
         let command = self.clone();
         std::thread::spawn(move || {
-            if decision.wait() {
+            if decision.wait() && !command.disposed.load(Ordering::SeqCst) {
                 command.inner.execute();
             }
         })
     }
 
+    /// Makes the decorator inert and disposes its error hub.
+    pub fn dispose(&self) {
+        if !self.disposed.swap(true, Ordering::SeqCst) {
+            self.errors.dispose();
+        }
+    }
+
     fn execute_after(&self, confirmed: bool) {
-        if !confirmed {
+        if !confirmed || self.disposed.load(Ordering::SeqCst) {
             return;
         }
         let result = catch_unwind(AssertUnwindSafe(|| self.inner.execute()));
-        if result.is_err() {
+        if result.is_err() && !self.disposed.load(Ordering::SeqCst) {
             self.errors.send(Message::Custom {
                 sender_id: 0,
                 sender_name: "ConfirmationDecoratorCommand".to_string(),
@@ -900,7 +919,7 @@ impl<C: Command + Clone + 'static> Command for ConfirmationDecoratorCommand<C> {
     }
 
     fn execute(&self) {
-        if !self.can_execute() {
+        if self.disposed.load(Ordering::SeqCst) || !self.can_execute() {
             return;
         }
         let decision = (self.confirm)();

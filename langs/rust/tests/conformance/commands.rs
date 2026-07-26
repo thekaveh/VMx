@@ -235,6 +235,30 @@ fn imperative_raise_after_disposal_is_noop() {
     drop(subscriptions);
 }
 
+#[test]
+fn relay_disposal_emits_one_final_can_execute_notification() {
+    let relay = RelayCommand::noop();
+    let parameterized = RelayCommandOf::<i32>::noop();
+    let relay_fired = Arc::new(AtomicUsize::new(0));
+    let parameterized_fired = Arc::new(AtomicUsize::new(0));
+    let relay_observed = relay_fired.clone();
+    let parameterized_observed = parameterized_fired.clone();
+    let _relay_subscription = relay.can_execute_changed().subscribe(move |_| {
+        relay_observed.fetch_add(1, Ordering::SeqCst);
+    });
+    let _parameterized_subscription = parameterized.can_execute_changed().subscribe(move |_| {
+        parameterized_observed.fetch_add(1, Ordering::SeqCst);
+    });
+
+    relay.dispose();
+    parameterized.dispose();
+    relay.dispose();
+    parameterized.dispose();
+
+    assert_eq!(relay_fired.load(Ordering::SeqCst), 1);
+    assert_eq!(parameterized_fired.load(Ordering::SeqCst), 1);
+}
+
 /// CMD-017 — parameterized imperative raise emits exactly once
 #[test]
 fn parameterized_imperative_raise_emits_once() {

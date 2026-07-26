@@ -20,6 +20,101 @@ fn number(name: &'static str, value: i32) -> NumberVm {
     NumberVm::with_model(name, value, MessageHub::new(), NullDispatcher::new())
 }
 
+fn traced_text(name: &'static str, trace: Arc<Mutex<Vec<String>>>) -> TextVm {
+    let component = text(name);
+    component.on_construct(move || {
+        trace.lock().unwrap().push(format!("construct:{name}"));
+        Ok(())
+    });
+    component
+}
+
+macro_rules! assert_slot_notifications_precede_construction {
+    ($builder:expr, $( $slot:ident => $name:literal ),+ $(,)?) => {{
+        let trace = Arc::new(Mutex::new(Vec::<String>::new()));
+        let builder = $builder;
+        $(
+            let component = traced_text($name, trace.clone());
+            let builder = builder.$slot(move || component.clone());
+        )+
+        let aggregate = builder.build().unwrap();
+        let property_trace = trace.clone();
+        let _subscription = aggregate.property_changed().subscribe(move |property_name| {
+            if property_name.starts_with("component_") {
+                property_trace
+                    .lock()
+                    .unwrap()
+                    .push(property_name.to_string());
+            }
+        });
+
+        aggregate.construct().unwrap();
+
+        assert_eq!(
+            *trace.lock().unwrap(),
+            vec![
+                $(stringify!($slot).to_string()),+,
+                $(format!("construct:{}", $name)),+
+            ]
+        );
+    }};
+}
+
+#[test]
+fn slot_notifications_precede_child_construction_for_arities_one_through_six() {
+    assert_slot_notifications_precede_construction!(
+        vmx::AggregateVm1::builder()
+            .name("aggregate-1")
+            .services(MessageHub::new(), NullDispatcher::new()),
+        component_1 => "1",
+    );
+    assert_slot_notifications_precede_construction!(
+        vmx::AggregateVm2::builder()
+            .name("aggregate-2")
+            .services(MessageHub::new(), NullDispatcher::new()),
+        component_1 => "1",
+        component_2 => "2",
+    );
+    assert_slot_notifications_precede_construction!(
+        vmx::AggregateVm3::builder()
+            .name("aggregate-3")
+            .services(MessageHub::new(), NullDispatcher::new()),
+        component_1 => "1",
+        component_2 => "2",
+        component_3 => "3",
+    );
+    assert_slot_notifications_precede_construction!(
+        vmx::AggregateVm4::builder()
+            .name("aggregate-4")
+            .services(MessageHub::new(), NullDispatcher::new()),
+        component_1 => "1",
+        component_2 => "2",
+        component_3 => "3",
+        component_4 => "4",
+    );
+    assert_slot_notifications_precede_construction!(
+        vmx::AggregateVm5::builder()
+            .name("aggregate-5")
+            .services(MessageHub::new(), NullDispatcher::new()),
+        component_1 => "1",
+        component_2 => "2",
+        component_3 => "3",
+        component_4 => "4",
+        component_5 => "5",
+    );
+    assert_slot_notifications_precede_construction!(
+        vmx::AggregateVm6::builder()
+            .name("aggregate-6")
+            .services(MessageHub::new(), NullDispatcher::new()),
+        component_1 => "1",
+        component_2 => "2",
+        component_3 => "3",
+        component_4 => "4",
+        component_5 => "5",
+        component_6 => "6",
+    );
+}
+
 #[derive(Clone)]
 struct BlockingOwnershipNode {
     inner: vmx::ComponentVm,

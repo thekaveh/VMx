@@ -756,6 +756,56 @@ fn structural_mutations_publish_tree_structure_changed() {
     assert_eq!(changes[3].index, -1);
 }
 
+#[test]
+fn explicit_reparent_of_detached_child_reports_reparented() {
+    let hub = MessageHub::new();
+    let destination = HierarchicalVm::with_children_factory(
+        "destination",
+        "destination".to_string(),
+        |_| Vec::new(),
+        false,
+        hub.clone(),
+    );
+    let detached = leaf("detached");
+
+    destination.reparent_child(&detached).unwrap();
+
+    let changes = hub
+        .history()
+        .into_iter()
+        .filter_map(|message| match message {
+            Message::TreeStructureChanged(change) => Some(change),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(changes.len(), 1);
+    assert_eq!(changes[0].change, TreeStructureChange::Reparented);
+    assert_eq!(changes[0].affected_id, detached.id());
+    assert_eq!(changes[0].index, -1);
+}
+
+#[test]
+fn removing_a_non_child_is_a_noop() {
+    let hub = MessageHub::new();
+    let root = HierarchicalVm::with_children_factory(
+        "root",
+        "root".to_string(),
+        |_| Vec::new(),
+        false,
+        hub.clone(),
+    );
+    let foreign = leaf("foreign");
+
+    root.remove_child(&foreign).unwrap();
+
+    assert!(root.children().is_empty());
+    assert!(foreign.parent().is_none());
+    assert!(!hub
+        .history()
+        .iter()
+        .any(|message| matches!(message, Message::TreeStructureChanged(_))));
+}
+
 /// HIER-012 — walk_expanded honors lazy boundaries via ExpandableState
 #[test]
 fn walk_expanded_honors_hierarchy_expansion_boundary() {

@@ -502,21 +502,24 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
 
     /// Removes `item` and clears this group as its parent.
     ///
-    /// Returns [`VmxError::NonChild`] when the item is not a member.
+    /// Removing an item that is not a member is a no-op.
     pub fn remove(&self, item: &T) -> VmxResult<()> {
         let transaction = begin_membership_transaction(
             &self.membership_transaction_active,
             &self.membership_transaction_control,
         )?;
-        let (index, removed) = {
+        let removed = {
             let _gate = lock(&self.membership_gate);
-            let index = self
-                .items()
+            self.items()
                 .iter()
                 .position(|candidate| candidate.id() == item.id())
-                .ok_or(VmxError::NonChild)?;
-            let removed = self.items.remove_at_silent(index).expect("index checked");
-            (index, removed)
+                .map(|index| {
+                    let removed = self.items.remove_at_silent(index).expect("index checked");
+                    (index, removed)
+                })
+        };
+        let Some((index, removed)) = removed else {
+            return transaction.finish();
         };
         if removed
             .parent_handle()
