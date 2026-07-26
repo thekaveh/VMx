@@ -55,6 +55,35 @@ fn send_delivers_to_current_subscribers() {
     assert_eq!(custom_name(&received.lock().unwrap()[0]), "A");
 }
 
+#[test]
+fn disposal_completes_current_and_late_message_subscriptions_once() {
+    let hub = MessageHub::new();
+    let completions = Arc::new(AtomicUsize::new(0));
+    let completed = completions.clone();
+    let _subscription = hub.subscribe_with_completion(
+        |_| {},
+        move || {
+            completed.fetch_add(1, Ordering::SeqCst);
+        },
+    );
+
+    hub.dispose();
+    hub.dispose();
+
+    assert_eq!(completions.load(Ordering::SeqCst), 1);
+
+    let late_completions = Arc::new(AtomicUsize::new(0));
+    let late_completed = late_completions.clone();
+    let _late = hub.subscribe_with_completion(
+        |_| {},
+        move || {
+            late_completed.fetch_add(1, Ordering::SeqCst);
+        },
+    );
+
+    assert_eq!(late_completions.load(Ordering::SeqCst), 1);
+}
+
 /// HUB-002 — Late subscribers do not see prior messages
 #[test]
 fn late_subscribers_do_not_see_prior_messages() {

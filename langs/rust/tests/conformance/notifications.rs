@@ -51,9 +51,27 @@ fn reposting_same_notification_reuses_pending_completion() {
 #[test]
 fn post_adds_notification_to_pending_snapshot() {
     let hub = NotificationHub::new();
+    let observed = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let values = observed.clone();
+    let _subscription = hub
+        .pending_stream()
+        .subscribe(move |pending| values.lock().unwrap().push(pending));
     let notification = hub.post(NotificationType::Notification, "info");
 
     assert!(hub.pending().contains(&notification));
+    assert_eq!(
+        *observed.lock().unwrap(),
+        vec![Vec::new(), vec![notification.clone()]]
+    );
+    let late_values = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let late_observed = late_values.clone();
+    let _late = hub
+        .pending_stream()
+        .subscribe(move |pending| late_observed.lock().unwrap().push(pending));
+    assert_eq!(
+        *late_values.lock().unwrap(),
+        vec![vec![notification.clone()]]
+    );
     assert!(hub
         .pending_snapshots()
         .last()
@@ -65,7 +83,19 @@ fn post_adds_notification_to_pending_snapshot() {
 #[test]
 fn resolve_removes_notification_from_pending_snapshot() {
     let hub = NotificationHub::new();
-    let notification = hub.post(NotificationType::Notification, "info");
+    let (notification, waiter) =
+        hub.post_with_waiter(NotificationType::Notification, "publish-before-complete");
+    let waiter_at_publish = waiter.clone();
+    let completion_state = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let observed_state = completion_state.clone();
+    let _subscription = hub.pending_stream().subscribe(move |pending| {
+        if pending.is_empty() {
+            observed_state
+                .lock()
+                .unwrap()
+                .push(waiter_at_publish.try_get());
+        }
+    });
 
     hub.resolve(notification.id, NotificationReaction::Approve);
 
@@ -75,6 +105,12 @@ fn resolve_removes_notification_from_pending_snapshot() {
         .last()
         .unwrap()
         .contains(&notification));
+    assert_eq!(
+        *completion_state.lock().unwrap(),
+        vec![None],
+        "pending must publish before its waiter is completed"
+    );
+    assert_eq!(waiter.try_get(), Some(NotificationReaction::Approve));
 }
 
 /// NOTIF-004 — NotificationType has Error / Notification / Confirmation values
@@ -154,6 +190,18 @@ fn null_notification_hub_resolves_approve() {
     let waiter = NullNotificationHub::post(notification);
 
     assert_eq!(waiter.wait(), NotificationReaction::Approve);
+
+    let values = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let observed = values.clone();
+    let completed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let completion = completed.clone();
+    let _subscription = NullNotificationHub::pending_stream().subscribe_with_completion(
+        move |pending| observed.lock().unwrap().push(pending),
+        move || completion.store(true, std::sync::atomic::Ordering::SeqCst),
+    );
+
+    assert_eq!(*values.lock().unwrap(), vec![Vec::<Notification>::new()]);
+    assert!(completed.load(std::sync::atomic::Ordering::SeqCst));
 }
 
 /// NOTIF-010 — make_confirm helper returns true iff resolved Approve
@@ -162,11 +210,19 @@ fn make_confirm_style_flow_maps_approve_to_true() {
     let hub = NotificationHub::new();
     let confirm = make_confirm(hub.clone(), "ok?");
     let decision = confirm();
+    let resolving_thread = std::thread::current().id();
+    let continuation_thread = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let observed_thread = continuation_thread.clone();
+    let completed = decision.map(move |value| {
+        *observed_thread.lock().unwrap() = Some(std::thread::current().id());
+        value
+    });
     let notification = hub.pending().into_iter().next().unwrap();
 
     hub.resolve(notification.id, NotificationReaction::Approve);
 
-    assert!(decision.wait());
+    assert!(completed.wait());
+    assert_eq!(*continuation_thread.lock().unwrap(), Some(resolving_thread));
 }
 
 /// NOTIF-011 — NotificationVM opacity decays linearly from 1.0 to 0.0 over Lifespan
@@ -262,11 +318,20 @@ fn manual_clock_expiry_is_deterministic() {
 fn hub_dispose_resolves_waiters_pending() {
     let hub = NotificationHub::new();
     let (_notification, waiter) = hub.post_with_waiter(NotificationType::Notification, "info");
+    let completed = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let observed = completed.clone();
+    let _subscription = hub.pending_stream().subscribe_with_completion(
+        |_| {},
+        move || {
+            observed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        },
+    );
 
     hub.dispose();
 
     assert_eq!(waiter.wait(), NotificationReaction::Pending);
     assert!(hub.pending().is_empty());
+    assert_eq!(completed.load(std::sync::atomic::Ordering::SeqCst), 1);
 }
 
 /// DISP-003 — concurrent disposal of a thread-safe hub performs terminal work once

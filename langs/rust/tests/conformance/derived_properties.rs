@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use serde::Deserialize;
 use serde_json::Value;
-use vmx::{DerivedProperty, Message};
+use vmx::{DerivedProperty, ValueStream};
 
 #[derive(Deserialize)]
 struct DerivedPropertyFixture {
@@ -42,7 +42,8 @@ fn apply_transform(transform: &str, sources: &[Value]) -> Value {
 /// DPROP-001 — Single-source derived value computes on construction
 #[test]
 fn single_source_value_is_available_on_construction() {
-    let property = DerivedProperty::new(4);
+    let source = ValueStream::new(2);
+    let property = DerivedProperty::from_one(source, |value| value * 2);
 
     assert_eq!(property.value(), 4);
 }
@@ -50,45 +51,52 @@ fn single_source_value_is_available_on_construction() {
 /// DPROP-002 — Source change triggers recompute
 #[test]
 fn source_change_recomputes_value() {
-    let property = DerivedProperty::new(4);
+    let source = ValueStream::new(2);
+    let property = DerivedProperty::from_one(source.clone(), |value| value * 2);
 
-    property.recompute(|value| value + 1);
+    source.send(3);
 
-    assert_eq!(property.value(), 5);
+    assert_eq!(property.value(), 6);
 }
 
 /// DPROP-003 — Two-source derived value
 #[test]
 fn two_source_value_can_be_modeled_by_transform() {
-    let property = DerivedProperty::new((2, 3));
+    let left = ValueStream::new(2);
+    let right = ValueStream::new(3);
+    let property =
+        DerivedProperty::from_two(left.clone(), right.clone(), |left, right| left + right);
 
-    property.recompute(|(a, b)| (a + b, *b));
+    right.send(5);
 
-    assert_eq!(property.value(), (5, 3));
+    assert_eq!(property.value(), 7);
 }
 
 /// DPROP-004 — Five-source derived value (spec minimum)
 #[test]
 fn five_source_value_can_be_modeled_by_transform() {
-    let property = DerivedProperty::new([1, 2, 3, 4, 5]);
+    let property = DerivedProperty::from_five(
+        ValueStream::new(1),
+        ValueStream::new(2),
+        ValueStream::new(3),
+        ValueStream::new(4),
+        ValueStream::new(5),
+        |first, second, third, fourth, fifth| first + second + third + fourth + fifth,
+    );
 
-    property.recompute(|values| [values.iter().sum(), 0, 0, 0, 0]);
-
-    assert_eq!(property.value()[0], 15);
+    assert_eq!(property.value(), 15);
 }
 
 /// DPROP-005 — Mutation of any source recomputes
 #[test]
 fn any_source_mutation_recomputes() {
-    let property = DerivedProperty::new(vec![1, 2]);
+    let sources = (1..=5).map(ValueStream::new).collect::<Vec<_>>();
+    let property =
+        DerivedProperty::from_sources(sources.clone(), |values| values.into_iter().sum::<i32>());
 
-    property.recompute(|values| {
-        let mut next = values.clone();
-        next[1] = 4;
-        next
-    });
+    sources[2].send(30);
 
-    assert_eq!(property.value(), vec![1, 4]);
+    assert_eq!(property.value(), 42);
 }
 
 /// DPROP-006 — Default-built derived property is read-only
@@ -103,10 +111,12 @@ fn default_derived_property_is_read_only() {
 /// DPROP-007 — Validator + write-back enables SetValue
 #[test]
 fn validator_and_write_back_enable_set_value() {
+    let source = ValueStream::new(1);
     let written = Arc::new(Mutex::new(None));
     let seen = written.clone();
-    let property = DerivedProperty::with_write_back(
-        1,
+    let property = DerivedProperty::from_sources_with_write_back(
+        vec![source],
+        |values| values[0],
         |value| *value > 0,
         move |value| {
             *seen.lock().unwrap() = Some(value);
@@ -121,10 +131,12 @@ fn validator_and_write_back_enable_set_value() {
 /// DPROP-008 — Write-back action receives the value
 #[test]
 fn write_back_receives_value() {
+    let source = ValueStream::new(1);
     let written = Arc::new(Mutex::new(Vec::new()));
     let seen = written.clone();
-    let property = DerivedProperty::with_write_back(
-        1,
+    let property = DerivedProperty::from_sources_with_write_back(
+        vec![source],
+        |values| values[0],
         |_| true,
         move |value| {
             seen.lock().unwrap().push(value);
@@ -139,31 +151,31 @@ fn write_back_receives_value() {
 /// DPROP-009 — ValueChanged emits on recompute
 #[test]
 fn value_changed_emits_on_recompute() {
-    let property = DerivedProperty::new(1);
-    let hits = Arc::new(Mutex::new(0));
-    let seen = hits.clone();
-    let _subscription = property.value_changed().subscribe(move |message| {
-        if matches!(message, Message::PropertyChanged(_)) {
-            *seen.lock().unwrap() += 1;
-        }
-    });
+    let source = ValueStream::new(1);
+    let property = DerivedProperty::from_one(source.clone(), |value| value);
+    let values = Arc::new(Mutex::new(Vec::new()));
+    let seen = values.clone();
+    let _subscription = property
+        .value_changes()
+        .subscribe(move |value| seen.lock().unwrap().push(value));
 
-    property.recompute(|value| value + 1);
+    source.send(2);
 
-    assert_eq!(*hits.lock().unwrap(), 1);
+    assert_eq!(*values.lock().unwrap(), vec![2]);
 }
 
 /// DPROP-010 — ValueChanged does not emit when transform output is unchanged
 #[test]
 fn value_changed_does_not_emit_when_value_is_unchanged() {
-    let property = DerivedProperty::new(1);
+    let source = ValueStream::new(1);
+    let property = DerivedProperty::from_one(source.clone(), |_| 1);
     let hits = Arc::new(Mutex::new(0));
     let seen = hits.clone();
-    let _subscription = property.value_changed().subscribe(move |_| {
+    let _subscription = property.value_changes().subscribe(move |_| {
         *seen.lock().unwrap() += 1;
     });
 
-    property.recompute(|value| *value);
+    source.send(2);
 
     assert_eq!(*hits.lock().unwrap(), 0);
 }
@@ -171,20 +183,28 @@ fn value_changed_does_not_emit_when_value_is_unchanged() {
 /// DPROP-011 — Dispose ends subscriptions and ValueChanged completes
 #[test]
 fn dispose_stops_recompute_emissions() {
-    let property = DerivedProperty::new(1);
+    let source = ValueStream::new(1);
+    let property = DerivedProperty::from_one(source.clone(), |value| value);
+    let completed = Arc::new(Mutex::new(0));
+    let observed = completed.clone();
+    let _subscription = property
+        .value_changes()
+        .subscribe_with_completion(|_| {}, move || *observed.lock().unwrap() += 1);
     property.dispose();
-    property.recompute(|value| value + 1);
+    source.send(2);
 
     assert_eq!(property.value(), 1);
+    assert_eq!(*completed.lock().unwrap(), 1);
 }
 
 /// DISP-005 — reactive helper disposal completes once and retains the last value
 #[test]
 fn repeated_derived_property_dispose_is_inert_and_retains_value() {
-    let property = DerivedProperty::new(7);
+    let source = ValueStream::new(7);
+    let property = DerivedProperty::from_one(source.clone(), |value| value);
     property.dispose();
     property.dispose();
-    property.recompute(|value| value + 1);
+    source.send(8);
 
     assert_eq!(property.value(), 7);
 }
@@ -207,8 +227,15 @@ fn all_fixture_scenarios_match_expected_values() {
             "scenario {} must cover its initial value and every mutation",
             scenario.name
         );
-        let mut sources = scenario.sources_initial;
-        let property = DerivedProperty::new(apply_transform(&scenario.transform, &sources));
+        let sources = scenario
+            .sources_initial
+            .into_iter()
+            .map(ValueStream::new)
+            .collect::<Vec<_>>();
+        let transform_name = scenario.transform.clone();
+        let property = DerivedProperty::from_sources(sources.clone(), move |values| {
+            apply_transform(&transform_name, &values)
+        });
         assert_eq!(
             property.value(),
             scenario.expected_values[0],
@@ -221,8 +248,7 @@ fn all_fixture_scenarios_match_expected_values() {
             .into_iter()
             .zip(scenario.expected_values.into_iter().skip(1))
         {
-            sources[index] = value;
-            property.recompute(|_| apply_transform(&scenario.transform, &sources));
+            sources[index].send(value);
             assert_eq!(
                 property.value(),
                 expected,

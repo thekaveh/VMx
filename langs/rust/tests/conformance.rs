@@ -2,6 +2,7 @@ mod conformance {
     mod aggregate_change_stream;
     mod aggregate_vm;
     mod async_resource_vm;
+    mod async_value;
     mod builders;
     mod capabilities;
     mod collections;
@@ -35,5 +36,6 @@ mod conformance {
     mod subscribe_value;
     mod threading;
     mod tree_utils;
+    mod value_stream;
     mod vm_collection_move;
 }

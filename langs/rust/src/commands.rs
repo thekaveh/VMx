@@ -4,8 +4,8 @@
 
 use super::{
     catch_unwind, evaluate_command_predicate, lock, Arc, AssertUnwindSafe, AsyncValue, AtomicBool,
-    AtomicU64, Message, MessageHub, Mutex, NullMessageHub, Ordering, Subscription, VmxError,
-    VmxResult,
+    AtomicU64, Context, Future, Message, MessageHub, Mutex, NullMessageHub, Ordering, Pin, Poll,
+    Subscription, VmxError, VmxResult,
 };
 
 /// A parameterless action with queryable execution eligibility.
@@ -858,6 +858,61 @@ pub struct ConfirmationDecoratorCommand<C: Command + Clone> {
     disposed: Arc<AtomicBool>,
 }
 
+#[derive(Clone)]
+enum ConfirmationExecutionOutcome {
+    Completed,
+    Panicked(Arc<String>),
+}
+
+/// Executor-neutral completion returned by
+/// [`ConfirmationDecoratorCommand::execute_async`].
+///
+/// The handle implements [`Future`] and retains the historical blocking
+/// `join()` convenience without creating a native worker thread.
+pub struct ConfirmationExecution {
+    completion: AsyncValue<ConfirmationExecutionOutcome>,
+}
+
+impl ConfirmationExecution {
+    fn completed() -> Self {
+        Self {
+            completion: AsyncValue::ready(ConfirmationExecutionOutcome::Completed),
+        }
+    }
+
+    fn pending() -> (Self, AsyncValue<ConfirmationExecutionOutcome>) {
+        let completion = AsyncValue::pending();
+        (
+            Self {
+                completion: completion.clone(),
+            },
+            completion,
+        )
+    }
+
+    /// Blocks until execution completes, reporting a confirmed inner panic.
+    pub fn join(self) -> std::thread::Result<()> {
+        match self.completion.wait() {
+            ConfirmationExecutionOutcome::Completed => Ok(()),
+            ConfirmationExecutionOutcome::Panicked(message) => Err(Box::new((*message).clone())),
+        }
+    }
+}
+
+impl Future for ConfirmationExecution {
+    type Output = ();
+
+    fn poll(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Self::Output> {
+        match Pin::new(&mut self.completion).poll(context) {
+            Poll::Ready(ConfirmationExecutionOutcome::Completed) => Poll::Ready(()),
+            Poll::Ready(ConfirmationExecutionOutcome::Panicked(message)) => {
+                panic!("{message}")
+            }
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
 impl<C: Command + Clone + 'static> ConfirmationDecoratorCommand<C> {
     /// Creates a confirmation gate around `inner`.
     pub fn new<F>(inner: C, confirm: F) -> Self
@@ -877,18 +932,37 @@ impl<C: Command + Clone + 'static> ConfirmationDecoratorCommand<C> {
         self.errors.clone()
     }
 
-    /// Waits for confirmation on a worker thread and executes when approved.
-    pub fn execute_async(&self) -> std::thread::JoinHandle<()> {
+    /// Returns an executor-neutral completion for the confirmed execution.
+    pub fn execute_async(&self) -> ConfirmationExecution {
         if self.disposed.load(Ordering::SeqCst) || !self.can_execute() {
-            return std::thread::spawn(|| {});
+            return ConfirmationExecution::completed();
         }
-        let decision = (self.confirm)();
-        let command = self.clone();
-        std::thread::spawn(move || {
-            if decision.wait() && !command.disposed.load(Ordering::SeqCst) {
-                command.inner.execute();
+        let decision = match catch_unwind(AssertUnwindSafe(|| (self.confirm)())) {
+            Ok(decision) => decision,
+            Err(payload) => {
+                let (execution, completion) = ConfirmationExecution::pending();
+                completion.resolve(ConfirmationExecutionOutcome::Panicked(Arc::new(
+                    panic_message(payload),
+                )));
+                return execution;
             }
-        })
+        };
+        let command = self.clone();
+        let (execution, completion) = ConfirmationExecution::pending();
+        let _continuation = decision.map(move |confirmed| {
+            let outcome = if confirmed && !command.disposed.load(Ordering::SeqCst) {
+                match catch_unwind(AssertUnwindSafe(|| command.inner.execute())) {
+                    Ok(()) => ConfirmationExecutionOutcome::Completed,
+                    Err(payload) => {
+                        ConfirmationExecutionOutcome::Panicked(Arc::new(panic_message(payload)))
+                    }
+                }
+            } else {
+                ConfirmationExecutionOutcome::Completed
+            };
+            completion.resolve(outcome);
+        });
+        execution
     }
 
     /// Makes the decorator inert and disposes its error hub.
@@ -904,12 +978,19 @@ impl<C: Command + Clone + 'static> ConfirmationDecoratorCommand<C> {
         }
         let result = catch_unwind(AssertUnwindSafe(|| self.inner.execute()));
         if result.is_err() && !self.disposed.load(Ordering::SeqCst) {
-            self.errors.send(Message::Custom {
-                sender_id: 0,
-                sender_name: "ConfirmationDecoratorCommand".to_string(),
-                name: "error".to_string(),
-            });
+            self.publish_error();
         }
+    }
+
+    fn publish_error(&self) {
+        if self.disposed.load(Ordering::SeqCst) {
+            return;
+        }
+        self.errors.send(Message::Custom {
+            sender_id: 0,
+            sender_name: "ConfirmationDecoratorCommand".to_string(),
+            name: "error".to_string(),
+        });
     }
 }
 
@@ -922,16 +1003,32 @@ impl<C: Command + Clone + 'static> Command for ConfirmationDecoratorCommand<C> {
         if self.disposed.load(Ordering::SeqCst) || !self.can_execute() {
             return;
         }
-        let decision = (self.confirm)();
+        let decision = match catch_unwind(AssertUnwindSafe(|| (self.confirm)())) {
+            Ok(decision) => decision,
+            Err(_) => {
+                self.publish_error();
+                return;
+            }
+        };
         if let Some(confirmed) = decision.try_get() {
             self.execute_after(confirmed);
         } else {
             let command = self.clone();
-            std::thread::spawn(move || command.execute_after(decision.wait()));
+            let _continuation = decision.map(move |confirmed| command.execute_after(confirmed));
         }
     }
 
     fn can_execute_changed(&self) -> MessageHub {
         self.inner.can_execute_changed()
+    }
+}
+
+fn panic_message(payload: Box<dyn std::any::Any + Send>) -> String {
+    if let Some(message) = payload.downcast_ref::<&str>() {
+        (*message).to_string()
+    } else if let Some(message) = payload.downcast_ref::<String>() {
+        message.clone()
+    } else {
+        "confirmation execution panicked".to_string()
     }
 }

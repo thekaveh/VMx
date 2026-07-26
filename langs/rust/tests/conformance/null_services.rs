@@ -29,6 +29,16 @@ fn null_message_hub_is_safe_noop() {
     assert!(!observed.load(Ordering::SeqCst));
     assert!(body_ran.load(Ordering::SeqCst));
     assert!(hub.history().is_empty());
+
+    let completions = std::sync::Arc::new(AtomicBool::new(false));
+    let completed = completions.clone();
+    let _subscription = hub.subscribe_with_completion(
+        |_| panic!("null hub must not emit"),
+        move || {
+            completed.store(true, Ordering::SeqCst);
+        },
+    );
+    assert!(completions.load(Ordering::SeqCst));
 }
 
 /// NULL-002 — NullDispatcher schedules synchronously on the calling thread

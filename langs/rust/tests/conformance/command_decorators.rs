@@ -142,6 +142,47 @@ fn confirmation_decorator_awaits_pending_decision() {
 }
 
 #[test]
+fn pending_confirmation_uses_a_resolver_thread_continuation() {
+    let execution_threads = Arc::new(Mutex::new(Vec::new()));
+    let observed_threads = execution_threads.clone();
+    let decision = AsyncValue::pending();
+    let pending_decision = decision.clone();
+    let command = ConfirmationDecoratorCommand::new(
+        RelayCommand::new(move || {
+            observed_threads
+                .lock()
+                .unwrap()
+                .push(std::thread::current().id());
+        }),
+        move || pending_decision.clone(),
+    );
+
+    command.execute();
+    assert_eq!(decision.pending_continuation_count(), 1);
+    let resolving_thread = std::thread::current().id();
+    decision.resolve(true);
+
+    assert_eq!(*execution_threads.lock().unwrap(), vec![resolving_thread]);
+}
+
+#[test]
+fn many_pending_confirmations_retain_one_continuation_each() {
+    let decisions = (0..128).map(|_| AsyncValue::pending()).collect::<Vec<_>>();
+    let command = ConfirmationDecoratorCommand::new(RelayCommand::noop(), {
+        let decisions = Arc::new(Mutex::new(decisions.clone()));
+        move || decisions.lock().unwrap().pop().unwrap()
+    });
+
+    for _ in 0..decisions.len() {
+        command.execute();
+    }
+
+    assert!(decisions
+        .iter()
+        .all(|decision| decision.pending_continuation_count() == 1));
+}
+
+#[test]
 fn confirmation_decorator_async_path_is_gated_before_confirming() {
     let confirms = Arc::new(AtomicUsize::new(0));
     let command = ConfirmationDecoratorCommand::new(
@@ -224,6 +265,25 @@ fn confirmation_decorator_surfaces_fire_and_forget_errors() {
     confirming.execute();
 
     assert_eq!(errors.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn confirmation_decorator_isolates_confirm_panics_by_execution_mode() {
+    let fire_and_forget =
+        ConfirmationDecoratorCommand::new(RelayCommand::noop(), || panic!("confirm boom"));
+    let errors = Arc::new(AtomicUsize::new(0));
+    let observed = errors.clone();
+    let _subscription = fire_and_forget.errors().subscribe(move |_| {
+        observed.fetch_add(1, Ordering::SeqCst);
+    });
+
+    fire_and_forget.execute();
+
+    assert_eq!(errors.load(Ordering::SeqCst), 1);
+
+    let awaited =
+        ConfirmationDecoratorCommand::new(RelayCommand::noop(), || panic!("awaited confirm boom"));
+    assert!(awaited.execute_async().join().is_err());
 }
 
 #[test]

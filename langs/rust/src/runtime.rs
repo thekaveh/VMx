@@ -471,6 +471,7 @@ impl Message {
 }
 
 type Subscriber = Arc<dyn Fn(&Message) + Send + Sync + 'static>;
+type MessageHubCompletion = Arc<dyn Fn() + Send + Sync + 'static>;
 
 #[derive(Clone, Default)]
 /// A hot synchronous message stream with FIFO, batching, and resilient delivery.
@@ -491,6 +492,7 @@ struct MessageHubShared {
 struct MessageHubInner {
     next_subscription_id: usize,
     subscribers: BTreeMap<usize, Subscriber>,
+    completion_subscribers: BTreeMap<usize, MessageHubCompletion>,
     history: Vec<Message>,
     pending: VecDeque<Message>,
     batch_owner: Option<ThreadId>,
@@ -553,6 +555,32 @@ impl MessageHub {
         inner.next_subscription_id += 1;
         let id = inner.next_subscription_id;
         inner.subscribers.insert(id, Arc::new(handler));
+        Subscription {
+            id,
+            hub: Arc::downgrade(&self.inner),
+        }
+    }
+
+    /// Subscribes to messages and receives one callback when the hub is disposed.
+    ///
+    /// Subscribing to an already-disposed hub invokes `completion` immediately
+    /// and never invokes `handler`.
+    pub fn subscribe_with_completion<F, C>(&self, handler: F, completion: C) -> Subscription
+    where
+        F: Fn(&Message) + Send + Sync + 'static,
+        C: Fn() + Send + Sync + 'static,
+    {
+        let completion: MessageHubCompletion = Arc::new(completion);
+        let mut inner = lock(&self.inner.state);
+        if inner.disposed || inner.dispose_requested {
+            drop(inner);
+            let _ = catch_unwind(AssertUnwindSafe(|| completion()));
+            return Subscription::noop();
+        }
+        inner.next_subscription_id += 1;
+        let id = inner.next_subscription_id;
+        inner.subscribers.insert(id, Arc::new(handler));
+        inner.completion_subscribers.insert(id, completion);
         Subscription {
             id,
             hub: Arc::downgrade(&self.inner),
@@ -742,9 +770,11 @@ impl MessageHub {
             }
             outermost
         };
-        if outermost && inner.dispose_requested {
-            Self::finish_dispose(&mut inner);
-        }
+        let completions = if outermost && inner.dispose_requested {
+            Self::finish_dispose(&mut inner)
+        } else {
+            Vec::new()
+        };
         let should_drain = outermost
             && !inner.disposed
             && !inner.pending.is_empty()
@@ -758,6 +788,7 @@ impl MessageHub {
             self.inner.ready.notify_all();
         }
         drop(inner);
+        Self::notify_completions(completions);
 
         let drain_result = if should_drain {
             catch_unwind(AssertUnwindSafe(|| self.drain(current)))
@@ -776,11 +807,20 @@ impl MessageHub {
         }
     }
 
-    fn finish_dispose(inner: &mut MessageHubInner) {
+    fn finish_dispose(inner: &mut MessageHubInner) -> Vec<MessageHubCompletion> {
         inner.subscribers.clear();
         inner.pending.clear();
         inner.dispose_requested = false;
         inner.disposed = true;
+        std::mem::take(&mut inner.completion_subscribers)
+            .into_values()
+            .collect()
+    }
+
+    fn notify_completions(completions: Vec<MessageHubCompletion>) {
+        for completion in completions {
+            let _ = catch_unwind(AssertUnwindSafe(|| completion()));
+        }
     }
 
     fn drain(&self, current: ThreadId) {
@@ -790,24 +830,27 @@ impl MessageHub {
         let mut message_types = HashSet::new();
 
         loop {
-            let (message, subscribers) = {
-                let mut inner = lock(&self.inner.state);
-                while inner.borrowed_batch_depth > 0 {
-                    inner = wait(&self.inner.ready, inner);
-                }
-                if inner.dispose_requested {
-                    Self::finish_dispose(&mut inner);
-                }
-                if inner.disposed || inner.pending.is_empty() {
-                    inner.draining_owner = None;
-                    self.inner.ready.notify_all();
-                    return;
-                }
-                debug_assert_eq!(inner.draining_owner, Some(current));
-                let message = inner.pending.pop_front().expect("queue checked non-empty");
-                let subscribers = inner.subscribers.values().cloned().collect::<Vec<_>>();
-                (message, subscribers)
+            let mut inner = lock(&self.inner.state);
+            while inner.borrowed_batch_depth > 0 {
+                inner = wait(&self.inner.ready, inner);
+            }
+            let completions = if inner.dispose_requested {
+                Self::finish_dispose(&mut inner)
+            } else {
+                Vec::new()
             };
+            if inner.disposed || inner.pending.is_empty() {
+                inner.draining_owner = None;
+                self.inner.ready.notify_all();
+                drop(inner);
+                Self::notify_completions(completions);
+                return;
+            }
+            debug_assert_eq!(inner.draining_owner, Some(current));
+            let message = inner.pending.pop_front().expect("queue checked non-empty");
+            let subscribers = inner.subscribers.values().cloned().collect::<Vec<_>>();
+            drop(inner);
+            Self::notify_completions(completions);
 
             #[cfg(debug_assertions)]
             message_types.insert(message.type_name());
@@ -872,8 +915,10 @@ impl MessageHub {
             }
             break;
         }
-        Self::finish_dispose(&mut inner);
+        let completions = Self::finish_dispose(&mut inner);
         self.inner.ready.notify_all();
+        drop(inner);
+        Self::notify_completions(completions);
     }
 }
 
@@ -913,7 +958,9 @@ impl Subscription {
     /// Detaches the subscriber; repeated calls are inert.
     pub fn dispose(&self) {
         if let Some(hub) = self.hub.upgrade() {
-            lock(&hub.state).subscribers.remove(&self.id);
+            let mut state = lock(&hub.state);
+            state.subscribers.remove(&self.id);
+            state.completion_subscribers.remove(&self.id);
         }
     }
 }

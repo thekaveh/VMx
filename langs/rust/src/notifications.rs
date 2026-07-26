@@ -4,7 +4,7 @@
 
 use super::{
     lock, Arc, AsyncValue, AtomicU64, BTreeMap, Context, Future, HashMap, Message, MessageHub,
-    Mutex, Ordering, Pin, Poll,
+    Mutex, Ordering, Pin, Poll, ValueStream,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,6 +63,11 @@ impl NotificationWaiter {
     pub fn wait(&self) -> NotificationReaction {
         self.completion.wait()
     }
+
+    /// Returns the terminal reaction without blocking, or `None` while pending.
+    pub fn try_get(&self) -> Option<NotificationReaction> {
+        self.completion.try_get()
+    }
 }
 
 impl Future for NotificationWaiter {
@@ -82,11 +87,22 @@ struct NotificationHubState {
     disposed: bool,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 /// Concurrent notification queue with pending snapshots and first-wins resolution.
 pub struct NotificationHub {
     state: Arc<Mutex<NotificationHubState>>,
     pending_changed: MessageHub,
+    pending_stream: ValueStream<Vec<Notification>>,
+}
+
+impl Default for NotificationHub {
+    fn default() -> Self {
+        Self {
+            state: Arc::new(Mutex::new(NotificationHubState::default())),
+            pending_changed: MessageHub::new(),
+            pending_stream: ValueStream::new(Vec::new()),
+        }
+    }
 }
 
 impl NotificationHub {
@@ -177,6 +193,11 @@ impl NotificationHub {
         self.pending_changed.clone()
     }
 
+    /// Returns the replaying typed stream of committed pending snapshots.
+    pub fn pending_stream(&self) -> ValueStream<Vec<Notification>> {
+        self.pending_stream.clone()
+    }
+
     /// Returns the history of committed pending snapshots.
     pub fn pending_snapshots(&self) -> Vec<Vec<Notification>> {
         lock(&self.state).pending_snapshots.clone()
@@ -215,12 +236,15 @@ impl NotificationHub {
         // spec §2.2 order: emit the (now empty) Pending value before resuming
         // waiters, matching resolve() and the four peers.
         self.publish_pending();
+        self.pending_stream.dispose();
+        self.pending_changed.dispose();
         for completion in completions {
             completion.resolve(NotificationReaction::Pending);
         }
     }
 
     fn publish_pending(&self) {
+        self.pending_stream.send(self.pending());
         self.pending_changed.send(Message::Custom {
             sender_id: 0,
             sender_name: "NotificationHub".to_string(),
@@ -233,6 +257,13 @@ impl NotificationHub {
 pub struct NullNotificationHub;
 
 impl NullNotificationHub {
+    /// Returns an empty replaying stream that completes immediately.
+    pub fn pending_stream() -> ValueStream<Vec<Notification>> {
+        let pending = ValueStream::new(Vec::new());
+        pending.dispose();
+        pending
+    }
+
     /// Returns an immediately approved waiter without retaining the notification.
     pub fn post(_notification: Notification) -> NotificationWaiter {
         NotificationWaiter {
@@ -264,11 +295,8 @@ pub fn make_confirm(
     let prompt = Arc::new(prompt.into());
     move || {
         let (_, waiter) = hub.post_with_waiter(NotificationType::Confirmation, (*prompt).clone());
-        let decision = AsyncValue::pending();
-        let resolved = decision.clone();
-        std::thread::spawn(move || {
-            resolved.resolve(waiter.wait() == NotificationReaction::Approve);
-        });
-        decision
+        waiter
+            .completion
+            .map(|reaction| reaction == NotificationReaction::Approve)
     }
 }

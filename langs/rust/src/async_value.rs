@@ -1,5 +1,6 @@
 use crate::{lock, wait};
 use std::future::Future;
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::pin::Pin;
 use std::sync::{Arc, Condvar, Mutex};
 use std::task::{Context, Poll, Waker};
@@ -7,6 +8,7 @@ use std::task::{Context, Poll, Waker};
 struct AsyncValueState<T> {
     value: Option<T>,
     wakers: Vec<Waker>,
+    continuations: Vec<Box<dyn FnOnce(T) + Send + 'static>>,
 }
 
 struct AsyncValueInner<T> {
@@ -32,6 +34,7 @@ impl<T: Clone + Send + 'static> AsyncValue<T> {
                 state: Mutex::new(AsyncValueState {
                     value: None,
                     wakers: Vec::new(),
+                    continuations: Vec::new(),
                 }),
                 ready: Condvar::new(),
             }),
@@ -47,17 +50,24 @@ impl<T: Clone + Send + 'static> AsyncValue<T> {
 
     /// Resolves the handle once, returning whether this call supplied the value.
     pub fn resolve(&self, value: T) -> bool {
-        let wakers = {
+        let (wakers, continuations) = {
             let mut state = lock(&self.inner.state);
             if state.value.is_some() {
                 return false;
             }
-            state.value = Some(value);
-            std::mem::take(&mut state.wakers)
+            state.value = Some(value.clone());
+            (
+                std::mem::take(&mut state.wakers),
+                std::mem::take(&mut state.continuations),
+            )
         };
         self.inner.ready.notify_all();
         for waker in wakers {
             waker.wake();
+        }
+        for continuation in continuations {
+            let value = value.clone();
+            let _ = catch_unwind(AssertUnwindSafe(|| continuation(value)));
         }
         true
     }
@@ -75,6 +85,71 @@ impl<T: Clone + Send + 'static> AsyncValue<T> {
                 return value;
             }
             state = wait(&self.inner.ready, state);
+        }
+    }
+
+    /// Maps the eventual value through an executor-neutral continuation.
+    ///
+    /// The mapping runs synchronously on the thread that resolves this handle,
+    /// or immediately when the handle is already resolved. A panicking mapper
+    /// is isolated from the resolver and leaves the returned handle pending.
+    pub fn map<U, F>(&self, mapper: F) -> AsyncValue<U>
+    where
+        U: Clone + Send + 'static,
+        F: FnOnce(T) -> U + Send + 'static,
+    {
+        let mapped = AsyncValue::pending();
+        let completion = mapped.clone();
+        self.continue_with(move |value| {
+            completion.resolve(mapper(value));
+        });
+        mapped
+    }
+
+    /// Composes the eventual value with another executor-neutral completion.
+    pub fn and_then<U, F>(&self, mapper: F) -> AsyncValue<U>
+    where
+        U: Clone + Send + 'static,
+        F: FnOnce(T) -> AsyncValue<U> + Send + 'static,
+    {
+        let composed = AsyncValue::pending();
+        let completion = composed.clone();
+        self.continue_with(move |value| {
+            let next = mapper(value);
+            next.continue_with(move |next_value| {
+                completion.resolve(next_value);
+            });
+        });
+        composed
+    }
+
+    /// Returns the number of continuations retained while this handle is pending.
+    ///
+    /// This is useful for deterministic resource-bound diagnostics. A resolved
+    /// handle always reports zero.
+    pub fn pending_continuation_count(&self) -> usize {
+        lock(&self.inner.state).continuations.len()
+    }
+
+    fn continue_with<F>(&self, continuation: F)
+    where
+        F: FnOnce(T) + Send + 'static,
+    {
+        let mut continuation = Some(continuation);
+        let ready = {
+            let mut state = lock(&self.inner.state);
+            if let Some(value) = state.value.clone() {
+                Some(value)
+            } else {
+                state.continuations.push(Box::new(
+                    continuation.take().expect("continuation available"),
+                ));
+                None
+            }
+        };
+        if let Some(value) = ready {
+            let continuation = continuation.expect("continuation not queued");
+            let _ = catch_unwind(AssertUnwindSafe(|| continuation(value)));
         }
     }
 }
