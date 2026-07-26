@@ -13,7 +13,7 @@ source tree, so check the flavor README and registry before pinning a release.
 | C#         | v3.23.0       | NuGet package not published yet     |
 | Python     | v3.23.0       | `vmx` latest published: 3.1.0       |
 | TypeScript | v3.24.0       | npm package not published yet       |
-| Swift      | v3.24.0       | SwiftPM release 3.20.0              |
+| Swift      | v3.24.0       | SwiftPM release 3.24.0              |
 | Rust       | 0.27.0        | crates.io package not published yet |
 
 === "C#"
@@ -59,7 +59,7 @@ source tree, so check the flavor README and registry before pinning a release.
 
     ```swift
     dependencies: [
-        .package(url: "https://github.com/thekaveh/VMx.git", from: "3.20.0")
+        .package(url: "https://github.com/thekaveh/VMx.git", from: "3.24.0")
     ],
     targets: [
         .target(name: "MyApp", dependencies: [
@@ -68,7 +68,7 @@ source tree, so check the flavor README and registry before pinning a release.
     ]
     ```
 
-    SwiftPM resolves `v3.20.0`. The matching `swift-v3.20.0` GitHub Release
+    SwiftPM resolves `v3.24.0`. The matching `swift-v3.24.0` GitHub Release
     contains the Swift changelog notes. Supported floors are iOS 16, macOS 13,
     tvOS 16, and watchOS 9.
 
