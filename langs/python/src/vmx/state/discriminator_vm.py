@@ -30,13 +30,24 @@ class DiscriminatorVM(Generic[TKey]):
         """Hot observable of active-key changes."""
         return self._active_changed.pipe(ops.as_observable())
 
+    @property
+    def modal_depth(self) -> int:
+        """Number of saved modal frames."""
+        return len(self._modal_stack)
+
     def is_active(self, key: TKey) -> bool:
         """Return ``True`` when ``key`` is the active key."""
         return self._active_key == key
 
     def set_active_key(self, key: TKey) -> None:
-        """Set the active key. Re-setting the same key is a no-op."""
-        if self._disposed or key == self._active_key:
+        """Set the active key and abandon any saved modal history."""
+        if self._disposed:
+            return
+        self._modal_stack.clear()
+        self._set_active_key_preserving_modals(key)
+
+    def _set_active_key_preserving_modals(self, key: TKey) -> None:
+        if key == self._active_key:
             return
         self._active_key = key
         self._active_changed.on_next(key)
@@ -46,19 +57,26 @@ class DiscriminatorVM(Generic[TKey]):
         if self._disposed:
             return
         self._modal_stack.append(self._active_key)
-        self.set_active_key(modal_key)
+        self._set_active_key_preserving_modals(modal_key)
 
     def modal_close(self) -> None:
         """Restore the active key that preceded the most recent modal."""
         if self._disposed or not self._modal_stack:
             return
         previous = self._modal_stack.pop()
-        self.set_active_key(previous)
+        self._set_active_key_preserving_modals(previous)
+
+    def clear_modals(self) -> None:
+        """Release all saved modal frames without changing the active key."""
+        if self._disposed:
+            return
+        self._modal_stack.clear()
 
     def dispose(self) -> None:
         """Complete the active-changed stream. Idempotent."""
         if self._disposed:
             return
         self._disposed = True
+        self._modal_stack.clear()
         self._active_changed.on_completed()
         self._active_changed.dispose()

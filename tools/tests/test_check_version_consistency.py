@@ -756,6 +756,21 @@ def test_parse_matrix_marks_legacy_semantic_tag_row(tmp_path: Path) -> None:
     ]
 
 
+def test_parse_matrix_marks_source_only_row(tmp_path: Path) -> None:
+    matrix = tmp_path / "compatibility-matrix.md"
+    matrix.write_text(
+        "| spec | csharp | python | typescript | swift | rust |\n"
+        "| --- | --- | --- | --- | --- | --- |\n"
+        "| 3.22.x[^source-only] | 3.22.1 | 3.22.1 | 3.23.1 | 3.23.0 | 0.26.0 |\n",
+        encoding="utf-8",
+    )
+
+    rows = cvc.parse_matrix(matrix)
+
+    assert rows[0]["source_only"] is True
+    assert rows[0]["spec_row"] == "3.22.x"
+
+
 def test_parse_matrix_dash_cell(tmp_path: Path) -> None:
     """A '—' or '-' cell means no release for that flavor/spec pair."""
     matrix = tmp_path / "compatibility-matrix.md"
@@ -936,6 +951,30 @@ def test_find_missing_tags_does_not_invent_release_tags_for_source_only_rust_row
     assert "rust-v0.2.0" in missing
     assert "spec-v3.2.0" not in missing
     assert "v3.2.0" not in missing
+
+
+def test_find_missing_tags_skips_explicit_source_only_matrix_row() -> None:
+    rows = [
+        {
+            "spec_row": "3.22.x",
+            "source_only": True,
+            "csharp": ["3.22.1"],
+            "python": ["3.22.1"],
+            "typescript": ["3.23.1"],
+            "swift": ["3.23.0"],
+            "rust": ["0.26.0"],
+        }
+    ]
+
+    missing = cvc.find_missing_tags("3.23.0", {}, rows, set())
+
+    assert "spec-v3.22.0" not in missing
+    assert "csharp-v3.22.1" not in missing
+    assert "python-v3.22.1" not in missing
+    assert "typescript-v3.23.1" not in missing
+    assert "swift-v3.23.0" not in missing
+    assert "v3.23.0" not in missing
+    assert "rust-v0.26.0" not in missing
 
 
 def test_find_missing_tags_does_not_require_generic_tag_without_swift_release() -> None:

@@ -8,7 +8,24 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
-#### Fixed
+### VMx.Notifications
+
+### VMx.Extensions.DependencyInjection
+
+## [3.23.0] — 2026-07-25
+
+### Added
+
+- `DiscriminatorVM` now exposes `ModalDepth` and `ClearModals()` for explicit
+  modal-history ownership (`DISC-007/008`, ADR-0128).
+
+### Changed
+
+- A public non-modal `SetActiveKey` releases every saved modal frame, including
+  for a same-key notification no-op, while modal close preserves nested LIFO
+  restoration (`DISC-009`, ADR-0128).
+
+### Fixed
 
 - Async-resource cancellation now invalidates the current acquisition before
   loader cancellation callbacks can complete a value, preserving rollback and
@@ -20,10 +37,6 @@ All notable changes to the C# flavor are documented here. The format is based on
   parameterized execution admission.
 - A taskless async command is now a true no-op and does not emit transient
   execution-state notifications.
-
-### VMx.Notifications
-
-### VMx.Extensions.DependencyInjection
 
 ## [3.22.1] — 2026-07-23
 

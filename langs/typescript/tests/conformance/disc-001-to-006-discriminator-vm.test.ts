@@ -61,3 +61,58 @@ describe("DISC-006", () => {
     expect(sut.activeKey).toBe("nav");
   });
 });
+
+describe("DISC-007", () => {
+  it("modalDepth tracks frames and disposal releases them", () => {
+    const sut = new DiscriminatorVM("nav");
+    expect(sut.modalDepth).toBe(0);
+    sut.modalOpen("modal-a");
+    expect(sut.modalDepth).toBe(1);
+    sut.modalOpen("modal-b");
+    expect(sut.modalDepth).toBe(2);
+    sut.modalClose();
+    expect(sut.modalDepth).toBe(1);
+    sut.dispose();
+    expect(sut.modalDepth).toBe(0);
+  });
+});
+
+describe("DISC-008", () => {
+  it("clearModals drains without changing the active key", () => {
+    const sut = new DiscriminatorVM("nav");
+    sut.modalOpen("modal-a");
+    sut.modalOpen("modal-b");
+    const seen: string[] = [];
+    sut.activeChanged.subscribe((key) => seen.push(key));
+
+    sut.clearModals();
+
+    expect(sut.modalDepth).toBe(0);
+    expect(sut.activeKey).toBe("modal-b");
+    expect(seen).toEqual([]);
+    sut.modalClose();
+    expect(sut.activeKey).toBe("modal-b");
+  });
+});
+
+describe("DISC-009", () => {
+  it("non-modal set abandons history including for the active key", () => {
+    const sut = new DiscriminatorVM("nav");
+    const seen: string[] = [];
+    sut.activeChanged.subscribe((key) => seen.push(key));
+    sut.modalOpen("modal-a");
+    sut.modalOpen("modal-b");
+
+    sut.setActiveKey("route");
+
+    expect(sut.modalDepth).toBe(0);
+    sut.modalClose();
+    expect(sut.activeKey).toBe("route");
+
+    sut.modalOpen("modal");
+    const changeCount = seen.length;
+    sut.setActiveKey("modal");
+    expect(sut.modalDepth).toBe(0);
+    expect(seen).toHaveLength(changeCount);
+  });
+});

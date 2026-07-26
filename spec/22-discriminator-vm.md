@@ -12,7 +12,8 @@ equality.
 
 The primitive also includes modal precedence helpers. Opening a modal pushes the
 current active key and activates the modal key; closing restores the prior key in
-last-in-first-out order.
+last-in-first-out order. An ordinary non-modal active-key transition abandons
+all saved modal history.
 
 ## 2. Shape
 
@@ -20,11 +21,13 @@ last-in-first-out order.
 DiscriminatorVM<TKey>:
     ActiveKey     : TKey
     ActiveChanged : observable<TKey>
+    ModalDepth    : integer
 
     IsActive(key: TKey) -> bool
     SetActiveKey(key: TKey) -> void
     ModalOpen(modalKey: TKey) -> void
     ModalClose() -> void
+    ClearModals() -> void
     Dispose() -> void
 ```
 
@@ -34,14 +37,20 @@ Per-flavor names follow ADR-0006 (`active_key` / `activeKey`,
 ## 3. Semantics
 
 - Construction sets the initial active key.
-- Setting the same key is a no-op and emits nothing.
-- Setting a different key updates `ActiveKey` and emits the new key.
+- `SetActiveKey` is a non-modal transition. It releases every saved modal frame
+  before comparing keys.
+- Setting the same key emits nothing but still releases modal history.
+- Setting a different key updates `ActiveKey`, emits the new key, and leaves
+  `ModalDepth == 0`.
 - `ModalOpen(modalKey)` remembers the previous active key and activates
-  `modalKey`.
+  `modalKey`; `ModalDepth` increases by one.
 - `ModalClose()` restores the most recently saved key. Calling it with no open
-  modal is a no-op.
+  modal is a no-op; a successful close decreases `ModalDepth` by one.
 - Nested modal opens restore in LIFO order.
-- `Dispose()` completes the change stream and makes later mutations no-ops.
+- `ClearModals()` releases every saved frame without changing `ActiveKey` or
+  emitting through `ActiveChanged`.
+- `Dispose()` releases saved frames, completes the change stream, and makes
+  later mutations no-ops.
 
 This primitive does not own child VMs or routes. Consumers can store route
 tables externally and ask `IsActive(routeKey)` when projecting behavior.
@@ -54,6 +63,9 @@ tables externally and ask `IsActive(routeKey)` when projecting behavior.
 - `DISC-004` — opening a modal activates the modal key.
 - `DISC-005` — closing a modal restores the prior key.
 - `DISC-006` — nested modal precedence restores in LIFO order.
+- `DISC-007` — modal depth tracks frames and disposal releases them.
+- `DISC-008` — explicit clear drains without changing the active key.
+- `DISC-009` — a non-modal set abandons history, including for the active key.
 
 Repeated disposal follows the framework-wide invariant in `01-concepts.md`
 §4: the change stream completes at most once and later mutations remain no-ops.

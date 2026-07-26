@@ -64,4 +64,56 @@ final class DiscriminatorVMTests: XCTestCase {
         sut.modalClose()
         XCTAssertEqual(sut.activeKey, "nav")
     }
+
+    /// DISC-007 — modalDepth tracks frames and disposal releases them.
+    func testDISC007ModalDepthTracksFramesAndDisposalReleasesThem() {
+        let sut = DiscriminatorVM(initial: "nav")
+        XCTAssertEqual(sut.modalDepth, 0)
+        sut.modalOpen("modal-a")
+        XCTAssertEqual(sut.modalDepth, 1)
+        sut.modalOpen("modal-b")
+        XCTAssertEqual(sut.modalDepth, 2)
+        sut.modalClose()
+        XCTAssertEqual(sut.modalDepth, 1)
+        sut.dispose()
+        XCTAssertEqual(sut.modalDepth, 0)
+    }
+
+    /// DISC-008 — clearModals drains without changing the active key.
+    func testDISC008ClearModalsDrainsWithoutChangingActiveKey() {
+        let sut = DiscriminatorVM(initial: "nav")
+        sut.modalOpen("modal-a")
+        sut.modalOpen("modal-b")
+        var seen: [String] = []
+        sut.activeChanged.sink { seen.append($0) }.store(in: &cancellables)
+
+        sut.clearModals()
+
+        XCTAssertEqual(sut.modalDepth, 0)
+        XCTAssertEqual(sut.activeKey, "modal-b")
+        XCTAssertTrue(seen.isEmpty)
+        sut.modalClose()
+        XCTAssertEqual(sut.activeKey, "modal-b")
+    }
+
+    /// DISC-009 — non-modal set abandons history including for the active key.
+    func testDISC009NonModalSetAbandonsHistoryIncludingSameKey() {
+        let sut = DiscriminatorVM(initial: "nav")
+        var seen: [String] = []
+        sut.activeChanged.sink { seen.append($0) }.store(in: &cancellables)
+        sut.modalOpen("modal-a")
+        sut.modalOpen("modal-b")
+
+        sut.setActiveKey("route")
+
+        XCTAssertEqual(sut.modalDepth, 0)
+        sut.modalClose()
+        XCTAssertEqual(sut.activeKey, "route")
+
+        sut.modalOpen("modal")
+        let changeCount = seen.count
+        sut.setActiveKey("modal")
+        XCTAssertEqual(sut.modalDepth, 0)
+        XCTAssertEqual(seen.count, changeCount)
+    }
 }

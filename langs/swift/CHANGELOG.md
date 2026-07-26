@@ -6,6 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.24.0] — 2026-07-25
+
+### Added
+
+- `DiscriminatorVM` now exposes `modalDepth` and `clearModals()` for explicit
+  modal-history ownership (`DISC-007/008`, ADR-0128).
+
+### Changed
+
+- A public non-modal `setActiveKey` releases every saved modal frame, including
+  for a same-key notification no-op, while modal close preserves nested LIFO
+  restoration (`DISC-009`, ADR-0128).
+
 ### Fixed
 
 - `AsyncRelayCommand` now preserves the first cancellation channel, so later

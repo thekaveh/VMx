@@ -4,7 +4,7 @@ using Xunit;
 
 namespace VMx.Conformance.Tests;
 
-public class DISC_001_to_006_DiscriminatorVM_Tests
+public class DISC_001_to_009_DiscriminatorVM_Tests
 {
     [Fact, Trait("Conformance", "DISC-001")]
     public void DISC_001_Initial_Active_Key_And_IsActive()
@@ -59,11 +59,68 @@ public class DISC_001_to_006_DiscriminatorVM_Tests
     public void DISC_006_Nested_Modal_Precedence_Restores_In_Lifo_Order()
     {
         using var sut = new DiscriminatorVM<string>("nav");
+        var seen = new List<string>();
+        using var sub = sut.ActiveChanged.Subscribe(seen.Add);
         sut.ModalOpen("modal-a");
         sut.ModalOpen("modal-b");
         sut.ModalClose();
         sut.ActiveKey.Should().Be("modal-a");
         sut.ModalClose();
         sut.ActiveKey.Should().Be("nav");
+    }
+
+    [Fact, Trait("Conformance", "DISC-007")]
+    public void DISC_007_ModalDepth_Tracks_Frames_And_Disposal_Releases_Them()
+    {
+        var sut = new DiscriminatorVM<string>("nav");
+        sut.ModalDepth.Should().Be(0);
+        sut.ModalOpen("modal-a");
+        sut.ModalDepth.Should().Be(1);
+        sut.ModalOpen("modal-b");
+        sut.ModalDepth.Should().Be(2);
+        sut.ModalClose();
+        sut.ModalDepth.Should().Be(1);
+        sut.Dispose();
+        sut.ModalDepth.Should().Be(0);
+    }
+
+    [Fact, Trait("Conformance", "DISC-008")]
+    public void DISC_008_ClearModals_Drains_Without_Changing_Active_Key()
+    {
+        using var sut = new DiscriminatorVM<string>("nav");
+        sut.ModalOpen("modal-a");
+        sut.ModalOpen("modal-b");
+        var seen = new List<string>();
+        using var sub = sut.ActiveChanged.Subscribe(seen.Add);
+
+        sut.ClearModals();
+
+        sut.ModalDepth.Should().Be(0);
+        sut.ActiveKey.Should().Be("modal-b");
+        seen.Should().BeEmpty();
+        sut.ModalClose();
+        sut.ActiveKey.Should().Be("modal-b");
+    }
+
+    [Fact, Trait("Conformance", "DISC-009")]
+    public void DISC_009_Non_Modal_Set_Abandons_History_Including_Same_Key()
+    {
+        using var sut = new DiscriminatorVM<string>("nav");
+        var seen = new List<string>();
+        using var sub = sut.ActiveChanged.Subscribe(seen.Add);
+        sut.ModalOpen("modal-a");
+        sut.ModalOpen("modal-b");
+
+        sut.SetActiveKey("route");
+
+        sut.ModalDepth.Should().Be(0);
+        sut.ModalClose();
+        sut.ActiveKey.Should().Be("route");
+
+        sut.ModalOpen("modal");
+        var changeCount = seen.Count;
+        sut.SetActiveKey("modal");
+        sut.ModalDepth.Should().Be(0);
+        seen.Should().HaveCount(changeCount);
     }
 }

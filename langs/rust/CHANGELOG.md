@@ -6,6 +6,19 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.27.0] — 2026-07-25
+
+### Added
+
+- `DiscriminatorVm` now exposes `modal_depth()` and `clear_modals()` for
+  explicit modal-history ownership (`DISC-007/008`, ADR-0128).
+
+### Changed
+
+- A public non-modal `set_active_key` releases every saved modal frame,
+  including for a same-key notification no-op, while modal close preserves
+  nested LIFO restoration (`DISC-009`, ADR-0128).
+
 ### Fixed
 
 - Async-command predicate evaluation now reserves admission, preventing a

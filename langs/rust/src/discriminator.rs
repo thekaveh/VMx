@@ -39,11 +39,16 @@ impl<K: Clone + PartialEq + Send + 'static> DiscriminatorVm<K> {
         self.set_active_key(key)
     }
 
-    /// Sets the active key and publishes one effective change.
+    /// Sets the active key, abandons modal history, and publishes one effective change.
     pub fn set_active_key(&self, key: K) {
         if *lock(&self.disposed) {
             return;
         }
+        lock(&self.modal_stack).clear();
+        self.set_active_key_preserving_modals(key);
+    }
+
+    fn set_active_key_preserving_modals(&self, key: K) {
         let changed = {
             let mut current = lock(&self.current_key);
             if *current == key {
@@ -72,6 +77,11 @@ impl<K: Clone + PartialEq + Send + 'static> DiscriminatorVm<K> {
         self.active_changed.clone()
     }
 
+    /// Returns the number of saved modal frames.
+    pub fn modal_depth(&self) -> usize {
+        lock(&self.modal_stack).len()
+    }
+
     /// Pushes the prior key and activates a modal key.
     pub fn modal_open(&self, key: K) {
         if *lock(&self.disposed) {
@@ -79,7 +89,7 @@ impl<K: Clone + PartialEq + Send + 'static> DiscriminatorVm<K> {
         }
         let previous = self.active_key();
         lock(&self.modal_stack).push(previous);
-        self.set_active_key(key)
+        self.set_active_key_preserving_modals(key)
     }
 
     /// Closes the top modal scope and restores its prior key.
@@ -89,8 +99,16 @@ impl<K: Clone + PartialEq + Send + 'static> DiscriminatorVm<K> {
         }
         let previous = lock(&self.modal_stack).pop();
         if let Some(previous) = previous {
-            self.set_active_key(previous);
+            self.set_active_key_preserving_modals(previous);
         }
+    }
+
+    /// Releases all saved modal frames without changing the active key.
+    pub fn clear_modals(&self) {
+        if *lock(&self.disposed) {
+            return;
+        }
+        lock(&self.modal_stack).clear();
     }
 
     /// Completes the change stream and makes subsequent mutations inert.

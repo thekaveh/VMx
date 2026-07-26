@@ -28,7 +28,7 @@ before any flavor releases a stable version.
 - `09-forwarding.md` — forwarding decorators.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
-- `12-conformance.md` — cross-language conformance test catalog (405 IDs).
+- `12-conformance.md` — cross-language conformance test catalog (408 IDs).
 - `13-tree-utilities.md` — `walk` / `find` / `walk_expanded` tree introspection.
 
 ### 1.2 Chapters (v2.0 additions)
@@ -601,11 +601,21 @@ to 400 library IDs plus 5 scenario IDs.
 
 See ADR-0127 and chapters 02 and 18.
 
-### 1.34 Supporting artefacts
+### 1.34 v3.22.1 → v3.23.0 changes
 
-- `VERSION` — current spec SemVer (`3.22.1`).
+v3.23.0 makes modal-history ownership explicit on `DiscriminatorVM`.
+`ModalDepth` reports retained frames, `ClearModals` releases them without
+changing the active key, and every public non-modal active-key set abandons
+history while nested modal close preserves LIFO restoration (`DISC-007..009`).
+The catalog now contains 403 library IDs plus 5 scenario IDs.
+
+See ADR-0128 and chapter 22.
+
+### 1.35 Supporting artefacts
+
+- `VERSION` — current spec SemVer (`3.23.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0127); see
+- `ADRs/` — Architecture Decision Records (0001-0128); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `schemas/` — versioned supporting machine contracts. The consumer
   conformance v1 schema is non-normative; see ADR-0102.

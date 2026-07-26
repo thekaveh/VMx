@@ -2,7 +2,7 @@
 
 ## 7.4.1. Snapshot
 
-- Current source: TypeScript 3.23.1 implementing spec 3.22.1
+- Current source: TypeScript 3.24.0 implementing spec 3.23.0
 - Install: `npm install @thekaveh/vmx rxjs`
 - Publication status: the scoped package name is the supported surface, but it
   has not been published yet; use a local workspace or source reference until a

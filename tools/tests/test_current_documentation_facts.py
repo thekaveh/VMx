@@ -163,9 +163,9 @@ def test_swift_conformance_ledgers_count_each_library_id_once() -> None:
 
     for ledger in ledgers:
         start = ledger.index("+50 leaf-area")
-        end = ledger.index("HIER-032", start)
+        end = ledger.index("DISC-009", start)
         increments = [int(value) for value in re.findall(r"\+(\d+)", ledger[start:end])]
-        assert 44 + sum(increments) == 400
+        assert 44 + sum(increments) == 403
         assert ledger[start:end].count("COMP-038..041") == 1
 
 

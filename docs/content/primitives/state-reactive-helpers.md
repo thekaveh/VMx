@@ -134,14 +134,14 @@ disposal, which last values remain readable, and which streams complete.
 
 ## 6.5.6. Cross-Language Surface
 
-| Helper                    | Key surface                                      |
-| ------------------------- | ------------------------------------------------ |
-| `SearchableState<TItem>`  | search term, filtered view, force-search         |
-| `ExpandableState`         | expanded flag, expand/collapse/toggle            |
-| `DerivedProperty<TValue>` | value, value-changed, optional write-back        |
-| `DiscriminatorVM<TKey>`   | active key, modal stack helpers                  |
-| `FormVM<TM>`              | model, snapshot, dirty/valid state, approve/deny |
-| `AsyncResourceVM<T>`      | state snapshot, load/reload/cancel commands      |
+| Helper                    | Key surface                                       |
+| ------------------------- | ------------------------------------------------- |
+| `SearchableState<TItem>`  | search term, filtered view, force-search          |
+| `ExpandableState`         | expanded flag, expand/collapse/toggle             |
+| `DerivedProperty<TValue>` | value, value-changed, optional write-back         |
+| `DiscriminatorVM<TKey>`   | active key, modal depth, clear/open/close helpers |
+| `FormVM<TM>`              | model, snapshot, dirty/valid state, approve/deny  |
+| `AsyncResourceVM<T>`      | state snapshot, load/reload/cancel commands       |
 
 ## 6.5.7. Example
 
