@@ -17,9 +17,10 @@ A hierarchical, lifecycle-aware MVVM viewmodel framework — one language-neutra
 specification with five idiomatic source flavors (C# / Python / TypeScript /
 Swift / Rust). All five source flavors cover the 403 library conformance IDs;
 the flagship example apps cover 5 additional THEME scenario IDs for **408
-total** tracked scenarios. Catalog coverage is not a claim of member-for-member
-surface parity: the remaining Rust convergence backlog is tracked in
-[`docs/maintenance/2026-07-16-rust-capability-parity.md`](docs/maintenance/2026-07-16-rust-capability-parity.md).
+total** tracked scenarios. The completed
+[`docs/maintenance/2026-07-16-rust-capability-parity.md`](docs/maintenance/2026-07-16-rust-capability-parity.md)
+records the Rust 0.27.0 capability, structural, command, reactive, and async
+convergence evidence.
 
 ## 0. Contents
 
@@ -81,9 +82,9 @@ makes no assumption about the UI layer. Every flavor exposes:
   `NullDispatcher`, `NullNotificationHub`, `NullLocalizer`,
   `NullDialogService`), and an `ILocalizer` hook for i18n.
 
-The normative conceptual shape is shared across flavors; public source surfaces
-still have the explicitly tracked Rust convergence gaps above. Naming follows
-the local idiom (PascalCase in C#, snake_case in Python and Rust, camelCase in
+The normative conceptual shape and observable behavior are shared across
+flavors, with intentional flavor idioms documented by ADR. Naming follows the
+local idiom (PascalCase in C#, snake_case in Python and Rust, camelCase in
 TypeScript and Swift — codified in ADR-0006).
 
 ## 2. Architecture
@@ -426,9 +427,9 @@ This README is the entry point; the documents below add focused detail.
   external dependency and tool-contract checks recorded during the maintenance
   run.
 - [`docs/maintenance/2026-07-16-rust-capability-parity.md`](docs/maintenance/2026-07-16-rust-capability-parity.md) —
-  tracked capability-surface and behavioural parity gaps between the source-tree
-  Rust flavor and the four other flavors, with the canonical decision and
-  proposed fix for each.
+  completed evidence ledger for Rust capability-surface and behavioural
+  convergence, including the canonical decision and verification for each
+  formerly open item.
 - [`docs/maintenance/2026-07-16-swift-notesshowcase-test-deadlock.md`](docs/maintenance/2026-07-16-swift-notesshowcase-test-deadlock.md) —
   the resolved Swift flagship command/test deadlock, including root cause,
   correction, and successful CI runtime evidence.

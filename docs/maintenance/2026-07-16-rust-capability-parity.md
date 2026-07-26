@@ -1,313 +1,259 @@
 # 12. Rust Parity Status
 
-Filed: **2026-07-16**. This record documents a set of parity breaks between the
-Rust flavor and the four other flavors (C#, Python, TypeScript, Swift) —
-capability-surface gaps (§3) and behavioural divergences (§4) — together with the
-canonical-behaviour decision and a proposed fix for each. It is a tracked backlog
-for a focused Rust follow-up, not a release note. The Rust flavor is a source-tree
-flavor and has not been published to crates.io, so these corrections are
-pre-publication and carry no released-API break.
+Filed: **2026-07-16**. Closed: **2026-07-26**.
 
-Three behavioural divergences found alongside these were straightforward and fixed
-in the maintenance run itself (not listed below): the Rust `FormVm` no longer
-publishes an extra `PropertyChanged("is_valid")` onto the main hub;
-`HierarchicalVm` no longer emits N spurious `PropertyChanged("parent")` messages on
-first `children()` materialization; and `NotificationHub::resolve`/`dispose` now
-emit the new `Pending` value before completing the awaitable (spec §2.2 order). The
-items below need a signature change, a public-API reshape, a semantic decision on a
-spec-underspecified edge, or a coordinated conformance-test strengthening, so they
-are batched here for one reviewed change.
+This record began as the evidence ledger for capability-surface and observable-
+behavior differences between Rust and the four other flavors. The Rust 0.27.0
+maintenance line has now resolved every actionable item originally recorded in
+§12.3 and §12.4. Rust remains a source-tree flavor that has not been published
+to crates.io, so the coordinated public-API corrections described here are
+pre-publication changes.
 
-Revalidated **2026-07-18**. This is an active status ledger, not a claim that all
-rows remain open. The current maintenance branch resolves §12.3.1 (baseline
-lifecycle capability ownership), the trait-implementation portion of §12.3.6,
-and the composite remove/current ordering item in §12.4.7. It also fixes Rust
-inline-dispatch selection deadlock, idempotent lifecycle capability predicates,
-atomic container-admission races, and the full forwarding-component delegation
-surface found after this ledger was filed. Sections
-12.3.2–12.3.5, the constructor/disposal portion of §12.3.6, §12.3.7,
-§12.4.1–12.4.6, and the remaining §12.4.7 bullets stay explicitly open.
+The closure was revalidated against the current Rust implementation, its
+conformance and regression tests, the canonical spec, and the four-flavor
+consensus on **2026-07-26**. All five flavors cover all 403 library IDs. The
+focused Rust tests cited below now assert the canonical member shape and edge
+behavior rather than the earlier reduced Rust surface.
+
+Three behavioral differences had already been corrected before this focused
+follow-up: `FormVm` no longer publishes an extra
+`PropertyChanged("is_valid")` onto the main hub; `HierarchicalVm` no longer
+emits spurious `PropertyChanged("parent")` messages on first `children()`
+materialization; and `NotificationHub::resolve` / `dispose` publish the pending
+snapshot before completing the corresponding waiter. The maintenance branch
+also completed baseline lifecycle capabilities and
+full forwarding-component delegation. It also completed inline-dispatch
+deadlock prevention, idempotent capability predicates, and atomic container
+admission.
 
 ## 12.1. Scope And Authority
 
 `spec/14-capabilities.md` and the per-cluster ADRs (ADR-0010, ADR-0022,
-ADR-0023, ADR-0057) are the authoritative capability contract. C#, Python,
-TypeScript, and Swift implement that contract member-for-member up to documented
-idiom; the Rust capability traits in `langs/rust/src/capabilities.rs` (and the
-`ExpandableState` / `SearchableState` helpers) diverge in the ways listed below.
-Each divergence was verified against the spec text, the four peer
-implementations, and the Rust conformance suite. None is recorded as an
-intentional divergence in ADR-0009, ADR-0059, ADR-0080, ADR-0081, ADR-0099, or
-ADR-0103.
+ADR-0023, ADR-0057) are the authoritative capability contract. The related
+behavioral authority comes from the source chapters cited by each item below,
+the accepted ADRs, and the four-flavor consensus where the spec deliberately
+leaves an edge unspecified.
 
-The Rust conformance markers for CAP-004, CAP-008, CAP-020, CAP-021, and CAP-022
-are present, but each asserts the reduced Rust shape rather than the spec
-contract, so a green Rust suite does not currently prove capability parity. Each
-fix below therefore pairs a code change with a strengthened conformance test.
+No spec change was needed for this closure. Rust converged on the existing
+contract using idiomatic snake_case methods, `VmxResult<T>` for recoverable
+failures, and VMx-owned reactive facades. No third-party reactive runtime was
+introduced.
 
 ## 12.2. Canonical-Behavior Decision
 
-The spec is canonical. Rust converges onto the spec surface that the other four
-flavours already implement. No spec amendment is proposed: the gaps are Rust
-under-implementations, not spec defects. Because the Rust traits are public and a
-few changes add required members, this is a coordinated pre-publication reshape
-best landed as one reviewed change with a Rust `CHANGELOG.md` entry and, where a
-member is added to a public trait, a short ADR noting the parity correction.
+The spec remains canonical. The completed work aligns Rust with the public
+surface and behavior already implemented by the other four flavors. The
+changes stay on the already-open Rust 0.27.0 / spec 3.23.0 source line; this
+record does not introduce a package or spec version change.
 
 ### 12.2.1. Message Sender Identity Is An Accepted Idiom
 
-Rust's `sender_id: usize` plus `sender_name: String` message fields are not an open parity gap. ADR-0120 records
-it as the ownership-safe Rust expression of the canonical sender-identity
-contract: the other four flavors retain runtime sender objects, while Rust
+Rust's `sender_id: usize` plus `sender_name: String` message fields are the one
+intentional flavor-specific shape retained by this review. ADR-0120 records
+them as the ownership-safe Rust expression of the canonical sender-identity
+contract. The other four flavors retain runtime sender objects, while Rust
 messages remain owned values that do not retain or borrow a VM. Identity
 filtering behavior remains required across all five flavors.
 
-## 12.3. Gaps And Proposed Fixes
+## 12.3. Capability And Reusable-State Closure
 
-### 12.3.1. Selection And Expansion Opt-In Inverted (CAP-020)
+### 12.3.1. Selection And Expansion Opt-In (CAP-020)
 
-**Resolved on the current maintenance branch.** Rust previously blanket-
-implemented the six opt-in selection and expansion traits on `ComponentVm`
-while omitting the baseline `Constructable` / `Destructable` /
-`Reconstructable` traits. The blanket opt-in implementations are now removed,
-the lifecycle traits apply to every `VmNode`, and CAP-020 includes positive
-lifecycle bounds plus a compile-negative `ComponentVm: Selectable` proof.
+**Resolved.** Rust no longer blanket-implements the six opt-in selection and
+expansion traits on `ComponentVm`. The baseline `Constructable`,
+`Destructable`, and `Reconstructable` traits apply to every `VmNode`, while
+selection and expansion remain explicit opt-ins.
 
-### 12.3.2. Filterable Has A Different Shape (CAP-021)
+Evidence: `capabilities.rs` contains the lifecycle blanket implementations and
+the compile-fail opt-in guards; CAP-020 asserts the positive lifecycle bounds
+and negative `ComponentVm: Selectable` surface.
 
-Rust's `Filterable<T>` exposes `filter_term() -> String`, `set_filter_term`, and
-`accepts`. `spec/14-capabilities.md` and ADR-0022 define exactly two members: a
-settable `filter: Predicate<T>?` (where clearing to `None` removes the filter)
-and `can_filter() -> bool`. The four peers implement the predicate shape. Rust's
-`Filterable` has no concrete implementor today (`FilteredCompositeVm` carries its
-own inherent methods), so the reshape is contained.
+### 12.3.2. Filterable Predicate Shape (CAP-021)
 
-Proposed fix: replace the term-based members with a predicate-based
-`filter(&self) -> Option<Arc<dyn Fn(&T) -> bool>>`, `set_filter(&mut self, Option<…>)`, and `can_filter(&self) -> bool`; rewrite the CAP-021 test to the
-spec Given/When/Then, including that `None` clears the filter.
+**Resolved.** `Filterable<T>` now stores an optional shared predicate and
+exposes `filter`, `set_filter`, and `can_filter`. Clearing with `None` removes
+the filter.
 
-### 12.3.3. Pageable Ships Three Of Eight Members (CAP-022)
+Evidence: CAP-021 exercises predicate replacement, evaluation, and clearing,
+and retains the compile-negative proof that core VMs do not opt in
+implicitly.
 
-Rust's `Pageable` exposes `page_index`, `page_count`, and `set_page_index`.
-`spec/14-capabilities.md` §2.10 requires `page_size` (mutable),
-`current_page_index` (mutable), `page_count`, `is_paging_enabled`, and the four
-navigation verbs `move_to_first_page` / `move_to_previous_page` /
-`move_to_next_page` / `move_to_last_page`, each a bounded no-op at its edge. C#'s
-`IPageable` (verified) carries all eight. Rust's `PagedComposition` already has
-`page_size` / `next_page` / `previous_page` but does not implement `Pageable`
-and lacks first/last navigation and `is_paging_enabled`.
+### 12.3.3. Pageable Complete Surface (CAP-022)
 
-Proposed fix: extend `Pageable` to the full eight-member surface, implement it on
-`PagedComposition` (the spec's canonical pageable helper), and bring the CAP-022
-test up to the spec's clamping and edge no-op assertions.
+**Resolved.** `Pageable` now exposes page size, current page index, page count,
+paging-enabled state, and bounded first/previous/next/last navigation.
+`PagedComposition` implements the trait and clamps its current page after
+source or page-size changes.
 
-### 12.3.4. Expandable Lacks is_expanded (CAP-004)
+Evidence: CAP-022 drives the trait through `PagedComposition` and covers
+clamping, pass-through mode, and navigation edge no-ops.
 
-Rust's `Expandable` has `can_expand` and `expand` but not the `is_expanded` read
-the contract requires; CAP-004 asserts `f.is_expanded == true` after `expand()`.
-All four peers expose `is_expanded`. Rust's `walk_expanded` cannot gate on the
-capability and instead reads a separate `TreeNode::is_expanded_for_walk`.
+### 12.3.4. Expandable State Read (CAP-004)
 
-Proposed fix: add `fn is_expanded(&self) -> bool` to the trait, assert it in
-CAP-004, and route `walk_expanded`'s gate through it.
+**Resolved.** `Expandable` includes `is_expanded`, and expanded tree walking
+uses the expansion capability instead of a separate reduced tree hook.
 
-### 12.3.5. Searchable Exposes The Term Read-Only (CAP-008)
+Evidence: CAP-004 asserts the state read before and after `expand`; HIER-012 and
+the focused expandable-support tests verify lazy expanded-walk boundaries.
 
-Rust's `Searchable::search_term` is read-only; the spec and all four peers make
-the term read/write and CAP-008 sets `f.search_term = "abc"`. `SearchableState`
-already has a setter, but the capability trait does not expose it.
+### 12.3.5. Searchable Term Mutation (CAP-008)
 
-Proposed fix: add a `set_search_term` member (interior-mutable, matching
-`SearchableState`), implement `Searchable` on `SearchableState`, and drive
-CAP-008 through that concrete helper.
+**Resolved.** `Searchable` exposes `set_search_term`, and `SearchableState`
+implements the complete capability.
 
-### 12.3.6. ExpandableState Is Missing Members
+Evidence: CAP-008 performs the mutation through the trait and verifies the
+filtered projection through the concrete reusable helper.
 
-Rust's `ExpandableState` now exposes `can_toggle_expansion` and implements the
-`Expandable` / `Collapsible` / `ExpansionTogglable` triple. It still lacks an
-`initially_expanded` constructor knob and `dispose`; the incomplete
-`Expandable` trait in §12.3.4 also keeps the implementation from exposing
-`is_expanded` through the capability itself. The four peers implement the
-remaining surface (for example C#
-`ExpandableState(bool initiallyExpanded = false)` with `Dispose()`).
+### 12.3.6. ExpandableState Construction And Disposal
 
-Proposed fix: add an additive `new_expanded()` / `with_initial(bool)`
-constructor (ADR-0099 §2.1 sets the additive-constructor precedent), a
-`dispose()` that disposes the owned hub, and complete the existing capability
-implementation when §12.3.4's `is_expanded` lands.
+**Resolved.** `ExpandableState` provides collapsed, explicitly initialized,
+and initially-expanded construction. It implements `Expandable`,
+`Collapsible`, and `ExpansionTogglable`; `dispose` completes the owned hub and
+makes later mutation inert.
 
-### 12.3.7. SearchableState Retains The Term After Disposal
+Evidence: the expandable-support suite covers construction variants,
+capability dispatch, completion, idempotent disposal, and post-dispose no-op
+behavior.
 
-Rust's `SearchableState::search_term` returns the retained last term after
-`dispose()`; C#, Python, TypeScript, and Swift each return the empty string, with
-explicit parity comments. The Rust setter already guards disposal; only the
-getter diverges.
+### 12.3.7. SearchableState Post-Dispose Read
 
-Proposed fix: return the empty string from `search_term()` when disposed, so the
-read converges with the four peers.
+**Resolved.** A disposed `SearchableState` reads as an empty term, keeps later
+assignments inert, releases its source subscription, and does not own the
+source.
 
-## 12.4. Behavioral Divergences
+Evidence: `disposed_searchable_state_reads_an_empty_term` and
+`dispose_cancels_source_observation_without_owning_source` cover the corrected
+contract.
 
-These are Rust-only observable-behaviour differences (not capability-shape gaps)
-where the other four flavours agree with each other and the spec. Each needs a
-signature change, a decision on a spec-underspecified edge, or a strengthened
-conformance test, so they are filed rather than fixed inline.
+## 12.4. Behavioral Closure
 
-### 12.4.1. reparent_child Of A Detached Child Reports Added Instead Of Reparented
+### 12.4.1. Explicit Reparent Of A Detached Child
 
-`langs/rust/src/hierarchical.rs` funnels `reparent_child` through `attach_child`,
-which derives the change type from the prior parent only, so reparenting a
-currently-detached child emits `Added` / `index = len`. C#/Python/TypeScript/Swift
-carry an explicit-reparent flag (`explicitReparent: true`) so an explicit reparent
-always reports `Reparented` / `index = -1`, even from detached. Spec §7/§8 and
-ADR-0105 pin `AddChild`-of-detached to `Added` but are silent on
-`reparent_child`-of-detached; the four-flavour consensus is `Reparented`.
+**Resolved.** `reparent_child` passes an explicit-reparent intent through the
+attachment path. A detached child therefore reports `Reparented` with index
+`-1`; ordinary add of a detached child remains `Added` with its inserted index.
 
-Proposed fix: give Rust `attach_child(&self, child, explicit_reparent: bool)`,
-with `reparent_child` passing `true`, so `reparented = explicit_reparent || old_parent.is_some()`. Alternatively record the unified choice in an ADR.
+Evidence: `explicit_reparent_of_detached_child_reports_reparented` verifies the
+four-flavor consensus without changing ADR-0105's ordinary-add rule.
 
-### 12.4.2. Remove Of A Non-Member Errors Instead Of No-Op
+### 12.4.2. Remove Of A Non-Member
 
-Rust returns `Err(VmxError::NonChild)` when removing a non-member; the other four
-silently no-op. This is the same divergence in three places:
-`hierarchical.rs` `remove_child`, `groups.rs` `remove` (`groups.rs:243`), and
-`composites.rs` `remove` (`composites.rs:347`) — C#/Python/TypeScript/Swift all
-no-op in every case (e.g. C# `CompositeVMBase.Remove`, `GroupVMBase`). Spec
-chapters 06/07/18 do not specify remove-of-non-member.
+**Resolved.** Hierarchy, group, and composite removal now return a successful
+no-op when the supplied child is not a member. No collection, selection,
+parent, or message state changes.
 
-Proposed fix: return `Ok(())` on a non-member across all three Rust removers
-(match the peers), or record `NonChild` as an intentional Rust idiom in an ADR (as
-was done for non-child selection). Fix all three together, not just hierarchical.
+Evidence: focused hierarchy, group, and composite tests exercise the absent
+member path, including current-selection stability.
 
-### 12.4.3. AggregateVmN::construct Interleaves Notify And Child Construct
+### 12.4.3. Aggregate Slot Notification Ordering
 
-Rust `AggregateVmN::construct` emits each `PropertyChanged("component_N")`
-immediately before that slot's child `construct()`; C#/Python/TypeScript/Swift
-emit all N slot-population messages first, then construct all children. This
-differs on happy-path hub ordering and, more materially, on the child-construct
-failure path: a failure in child 1 means Rust never emits `component_2`/`_3`,
-whereas the peers have already emitted all N. Spec §2's "order … unspecified"
-latitude covers slot order (still 1→N in Rust), not the notify-vs-construct
-interleave or the failure-path emitted set.
+**Resolved.** `AggregateVm1` through `AggregateVm6` publish every populated slot
+notification before constructing any child. The emitted notification set is
+therefore complete even when the first child construction fails.
 
-Proposed fix: hoist all `notify_property_changed("component_N")` calls above the
-child `construct()` calls in each `AggregateVmN::construct` (VM1–VM6), making the
-emitted set and ordering identical to the peers on both paths.
+Evidence: the aggregate conformance suite records the cross-slot sequence and
+the first-child failure path for all six arities.
 
-### 12.4.4. FormVm Direct approve() Gates On Strict+Dirty
+### 12.4.4. FormVm Direct Approval
 
-Rust's awaitable `approve()` gates on `can_approve()` (which includes the
-strict-mode dirty check); the spec's direct `ApproveAsync` and all four peers gate
-the direct path only on disposal + validity, keeping the strict/dirty gate solely
-on `ApproveCommand.CanExecute` (spec §9). Consequently a strict + valid + clean
-form persists via direct approve in the peers but returns `Err` in Rust.
+**Resolved.** Direct `approve()` gates only on disposal and validity. The
+strict-mode dirty requirement remains solely on approve-command eligibility,
+so a strict, valid, clean form may still be persisted explicitly.
 
-Proposed fix: gate Rust's direct `approve()` on validity only (silent `Ok(())`
-no-op when invalid, matching the peers), keeping strict/dirty on
-`approve_command`'s `can_execute`. Add a Rust conformance assertion for the
-strict-clean-valid direct-approve case.
+Evidence: the form suite separates strict-clean direct approval from command
+`can_execute` behavior and preserves invalid/disposed no-op coverage.
 
-### 12.4.5. Base ComponentVm Type Surface Is Narrower (Informational)
+### 12.4.5. Base ComponentVm Type Surface
 
-**Partially resolved on the current maintenance branch.** Rust's base
-`ComponentVm` now exposes the selection gates and all five built-in commands,
-and `ForwardingComponentVm` delegates those members plus expansion state through
-real nested decorator layers. The remaining base-surface difference is the
-absence of `type` / `view_model_type`. That is a broader Rust type-taxonomy
-question rather than a forwarding defect and remains recorded for the focused
-follow-up.
+**Resolved.** The base component surface now exposes `view_model_type`, and
+builders/options preserve the selected type through modeled, readonly, and
+forwarding variants. The earlier selection-gate, built-in-command, and full
+forwarding-component delegation work remains intact.
 
-### 12.4.6. DerivedProperty Does Not Subscribe To Sources Or Auto-Recompute
+Evidence: CVM and builder tests compare default, overridden, readonly, and
+nested forwarding type values.
 
-Rust's `DerivedProperty<T>` holds a value and exposes a manual `recompute(transform)`
-that receives the current value. `spec/15-derived-properties.md` §1/§2/§4/§8 defines
-a derived property as a value computed from one or more **source observables** with a
-transform, subscribing to those sources **once** in its constructor and
-auto-recomputing (distinct-until-changed) whenever a source emits, until `dispose()`.
-C#/Python/TypeScript/Swift all take source streams (`from_one`..`from_five` /
-`from_sources` / `fromOne`..; `CombineLatest`) and auto-recompute. The Rust DPROP
-conformance tests assert only the reduced manual shape, so a green Rust suite does
-not prove parity (the same "test asserts the reduced shape" pattern as the capability
-gaps). Not sanctioned by any ADR (ADR-0009 covers only the distinct-emit equality
-operator; ADR-0103's hot-stream facade exists, so this is an under-implementation).
+### 12.4.6. DerivedProperty Source Ownership And Recompute
 
-Proposed fix: reshape Rust `DerivedProperty` to accept N source `Stream`/hot-facade
-inputs plus a transform, subscribe internally, drive recompute off source emissions
-(distinct-until-changed), and dispose the subscriptions; rewrite DPROP-002..005/012
-to mutate real sources and assert auto-recompute.
+**Resolved.** `DerivedProperty` now provides one- through five-source
+constructors over typed replaying `ValueStream` sources, subscribes once,
+recomputes automatically when any source changes, suppresses equal outputs,
+and releases owned subscriptions on disposal.
 
-### 12.4.7. Further Residual Divergences (Collections And Commands)
+Evidence: DPROP-002 through DPROP-005 mutate real sources; DPROP-012 executes
+the shared scenarios; focused tests cover distinct emission, source
+subscription counts, value-stream completion, and post-dispose isolation.
 
-An adversarial residual sweep surfaced five more Rust-only divergences against the
-four-flavour + spec consensus; each is verified in the current tree:
+### 12.4.7. Collections And Commands
 
-- **Resolved: composite remove/current ordering.** Rust previously published
-  `CollectionChanged(Remove)` before clearing `current`, transiently violating
-  spec/06 §3. `remove` and `remove_at` now clear selection before the observable
-  removal publishes, matching the four peer flavors.
-- **`collections.rs` `ObservableList::remove_at` silently returns `None` on an
-  out-of-range index.** All four peers raise (`ArgumentOutOfRangeException` /
-  `RangeError` / `IndexError` / trap), and Rust's own
-  `ServicedObservableCollection::remove_at` returns `Err(InvalidArgument)`. Fix:
-  return `VmxResult<T>` (or panic) on OOB.
-- **`composites.rs` `FilteredCompositeVm` default cursor policy is `Clear`; the
-  four peers default to `SnapToFirst`** (and the Rust enum also lacks the peers'
-  `PreserveIfVisible` variant). Fix: default to `SnapToFirst`; add the variant.
-- **`commands.rs` `ConfirmationDecoratorCommand` has no `dispose()` and no disposed
-  guard**, so its `errors` channel never completes and post-dispose emission is
-  unguarded — spec/04 §8.3.1 requires completion on dispose and a post-dispose
-  no-op. Fix: add `dispose()` completing `errors` plus a guard on `execute_after`.
-- **`commands.rs` `RelayCommand`/`RelayCommandOf::dispose` omit the final
-  `can_execute_changed` notification the four peers emit** — spec/04 §5 makes this
-  a MAY, so it is a soft parity gap, listed for completeness.
+**Resolved.** The complete residual set now matches the canonical behavior:
 
-### 12.4.8. Hot-Stream Completion And Notification Replay Are Missing
+- composite selection clears before observable removal publication;
+- `ObservableList::remove_at` returns `VmxError::InvalidArgument` for an
+  out-of-range index;
+- `FilteredCompositeVm` defaults to `SnapToFirst` and implements
+  `PreserveIfVisible`;
+- `ConfirmationDecoratorCommand::dispose` completes `errors`, and confirmed or
+  post-dispose execution cannot emit afterward; and
+- `RelayCommand` and `RelayCommandOf` emit the optional final
+  `can_execute_changed` notification before completing their hubs.
 
-Rust's `MessageHub::subscribe` accepts only a value callback. Disposing the hub
-clears subscribers without reporting stream completion, and a late subscription
-to `NullMessageHub` cannot observe the immediate completion required by spec/03
-§6. `NotificationHub` similarly exposes a current-list snapshot plus an untyped
-change hub instead of the replaying list observable required by spec/16 §2.3;
-its null variant has no empty-list-and-complete observable surface. The existing
-`PropertyChangedStream` proves that completion callbacks fit the owned facade,
-but these public shapes need a coordinated stream abstraction rather than a
-one-off callback patch.
+Evidence: the collection, filtered-composite, confirmation-decorator, relay-
+command, and composite suites contain focused assertions for each edge.
 
-Proposed fix: extend the VMx-owned hot-stream facade with completion-aware
-subscriptions and a typed replaying value stream. Use the former for
-`MessageHub`/`NullMessageHub` and the latter for notification `Pending`, with
-tests for initial replay, late replay, update order, disposal completion, and
-immediate null-stream completion. Coordinate this with the source-observable
-work in §12.4.6 so Rust gains one coherent reactive facade.
+### 12.4.8. Hot-Stream Completion And Notification Replay
 
-### 12.4.9. Pending Async Operations Retain Native Threads
+**Resolved.** Rust now has a typed, replaying, completion-aware VMx-owned
+`ValueStream<T>`. `MessageHub::subscribe_with_completion` reports terminal
+completion, including immediately for late and null subscriptions.
+`NotificationHub::pending_stream` replays its current snapshot, publishes each
+committed update in order, and completes after the terminal empty snapshot.
+`NullNotificationHub` replays empty and completes immediately.
 
-`make_confirm` and `ConfirmationDecoratorCommand` currently spawn one native
-thread that blocks for every unresolved decision. A notification that remains
-pending therefore retains an operating-system thread indefinitely, unlike the
-executor-neutral continuation behavior of the four peer flavors.
+Evidence: the value-stream suite covers initial/late replay, completion,
+reentrancy, serialization, and panic isolation. HUB and null-service tests
+cover normal, late, and immediate completion. NOTIF tests cover replay,
+publish-before-waiter ordering, concurrent terminal delivery, and null-hub
+behavior.
 
-Proposed fix: add continuation mapping to `AsyncValue` or return a composed
-future, then remove the blocking worker threads. Validate unresolved-operation
-resource bounds and preserve first-wins completion, panic isolation, and
-post-dispose behavior.
+### 12.4.9. Executor-Neutral Pending Async Operations
+
+**Resolved.** `AsyncValue` provides executor-neutral `map` and `and_then`
+continuations. `make_confirm` and `ConfirmationDecoratorCommand` no longer
+retain one native worker thread per unresolved decision. Confirmation execution
+returns the `Future`-compatible `ConfirmationExecution` handle while preserving
+blocking `join()` and non-blocking `is_finished()` conveniences.
+
+First-wins resolution, resolver-thread continuation execution, panic isolation,
+post-dispose no-op behavior, and synchronous completion are covered. Resource-
+bound assertions use retained-continuation counts rather than timing sleeps.
+
+The pre-publication API correction is intentional: explicitly typed
+`JoinHandle<()>` callers must migrate to `ConfirmationExecution`; inferred
+`.join()` callers retain the same call shape. No published crates.io artifact
+used the earlier return type.
 
 ## 12.5. Related Spec-Wording Note (Not Rust-Specific)
 
-`spec/02-lifecycle.md` §7 lists the parent's terminal disposal work as "…command
-teardown, and stream completion," but all five flavours complete the streams
-before tearing down the commands. The order in the sentence is editorial (no
-conformance ID pins intra-parent order), so it is deferred rather than fixed in
-this run — correcting a non-exempt `spec/` chapter requires a new ADR, which would
-bump the ADR count and cascade into the count claims and generated diagrams,
-disproportionate to a one-clause wording fix. Best folded into the next spec ADR.
+`spec/02-lifecycle.md` §7 lists the parent's terminal disposal work as
+"…command teardown, and stream completion," but all five flavors complete the
+streams before tearing down the commands. The sentence remains an editorial
+ordering description: no conformance ID pins this intra-parent order.
+
+This note is intentionally deferred to a future spec-editing change. Correcting
+the non-exempt chapter requires its own ADR and associated documentation
+updates. It is not a Rust behavior difference and does not reopen this ledger.
 
 ## 12.6. Disposition
 
-Partially resolved as recorded above and retained for a focused Rust-parity
-follow-up. The other four flavours remain
-member-identical to the spec and mutually consistent on behaviour; the source-tree
-Rust flavour remains the sole documented outlier, and no correction here alters a
-published artifact. Current public docs therefore use **catalog-complete** for
-Rust: all 403 library IDs are represented, while capability-member and residual
-behavior parity remain tracked here.
+**Closed on the Rust 0.27.0 / spec 3.23.0 source line.** Every actionable
+capability, reusable-state, structural, command, reactive, and async item
+recorded in §12.3 and §12.4 is resolved and backed by focused Rust tests. Rust
+is both catalog-complete and aligned with the canonical public concepts and
+observable behavior covered by this review.
+
+The ADR-0120 sender representation in §12.2.1 remains the sole intentional
+flavor-specific shape in this ledger. The §12.5 editorial note applies to all
+five flavors and is not a parity backlog. Future differences still require
+spec/ADR review; this completed record is evidence of the 0.27.0 convergence,
+not permission to add undocumented divergence.

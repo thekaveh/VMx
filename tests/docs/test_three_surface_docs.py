@@ -1073,9 +1073,9 @@ def test_build_generates_self_contained_surfaces() -> None:
         ROOT / "generated/site/primitives/viewmodel-families/specialized/modal-vm.md"
     ).read_text(encoding="utf-8")
     modal_wiki = (ROOT / "generated/wiki/6-2-8-6-ModalVM.md").read_text(encoding="utf-8")
-    assert "#1236-expandablestate-is-missing-members" in state_site
-    assert "#1236-expandablestate-is-missing-members" in state_wiki
-    assert "#1244-formvm-direct-approve-gates-on-strictdirty" in form_site
+    assert "#1236-expandablestate-construction-and-disposal" in state_site
+    assert "#1236-expandablestate-construction-and-disposal" in state_wiki
+    assert "#1244-formvm-direct-approval" in form_site
     assert "CONTRIBUTING.md#" not in releases_site
     assert "ServicedObservableCollection[Note](hub)" in python_site
     assert "ServicedObservableCollection[Note](hub)" in python_wiki

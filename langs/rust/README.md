@@ -3,10 +3,11 @@
 Rust flavor of VMx, the language-neutral, lifecycle-aware MVVM viewmodel framework.
 
 **v0.27.0** implements `spec-v3.23.0` with complete catalog coverage: all 403
-library conformance IDs are covered by behavioral Rust tests. Remaining
-member- and edge-behavior gaps are tracked in the active
-[Rust capability parity ledger](../../docs/maintenance/2026-07-16-rust-capability-parity.md).
-The crate has not yet been published to crates.io.
+library conformance IDs are covered by behavioral Rust tests. The completed
+[Rust parity ledger](../../docs/maintenance/2026-07-16-rust-capability-parity.md)
+records the evidence for capability, structural, command, reactive, and async
+convergence on this source line. The crate has not yet been published to
+crates.io.
 
 This crate implements the VMx spec with idiomatic Rust naming and error handling:
 
@@ -23,8 +24,20 @@ This crate implements the VMx spec with idiomatic Rust naming and error handling
   invalidation without predicate polling;
 - async relay commands provide an immutable builder, cooperative cancellation,
   additive triggers, an awaitable join handle, and fire-and-forget error routing;
+- capability traits include predicate-based filtering, complete finite-page
+  navigation, readable expansion state, and mutable search terms;
+- `ExpandableState` supports explicit initial state and owned disposal, while
+  disposed `SearchableState` reads as an empty term;
+- hierarchy, group, composite, aggregate, form, collection, filtered-cursor,
+  component-type, and command-disposal edge behavior follows the canonical
+  cross-flavor contracts recorded in the completed parity ledger;
+- `ValueStream<T>` provides typed replay and completion, message subscriptions
+  can observe completion, notification pending state is replaying, and
+  `DerivedProperty` automatically recomputes from one through five owned source
+  subscriptions;
 - `AsyncValue<T>` gives dialogs, notification waiters, modal completion, and
-  confirmation gates an executor-neutral `Future` plus synchronous `wait()`;
+  confirmation gates an executor-neutral `Future` plus synchronous `wait()`,
+  `map`, and `and_then`;
 - confirmation-decorator `execute_async()` returns the thread-free
   `ConfirmationExecution` future; use `.await`, `.join()`, or
   `.is_finished()`. Rust 0.27.0 intentionally replaces the unpublished

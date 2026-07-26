@@ -59,11 +59,11 @@ disposal keeps the normal mutation contract. Upstream async work should still
 be cancelled for resource control; this guard only rejects a late form result.
 
 Strict mode gates **approve-command eligibility** on `IsValid && IsDirty`.
-The direct awaitable approve path in C#, Python, TypeScript, and Swift gates on
-validity (and disposal) only, so a strict, valid, clean form may still be
-persisted explicitly. Rust currently applies the strict/dirty command gate to
-direct `approve()` too; that convergence gap is tracked in the
-[Rust parity ledger](../../../../maintenance/2026-07-16-rust-capability-parity.md#1244-formvm-direct-approve-gates-on-strictdirty).
+The direct awaitable approve path in all five flavors gates on validity (and
+disposal) only, so a strict, valid, clean form may still be persisted
+explicitly. The completed
+[Rust parity ledger](../../../../maintenance/2026-07-16-rust-capability-parity.md#1244-formvm-direct-approval)
+records the focused Rust evidence.
 
 ### 6.2.8.2.3.1. Settled model publication
 

@@ -1011,7 +1011,7 @@ def system_architecture() -> Diagram:
                 (
                     "Five flavors implement one normative conceptual runtime with idiomatic public naming.",
                     "Reactive primitives stay native per flavor; Rust uses the VMx-owned hot-stream facade.",
-                    "C#, Python, TypeScript, and Swift are member-aligned; the Rust convergence ledger records remaining gaps.",
+                    "All five flavors align on canonical public concepts; the completed Rust ledger records focused evidence.",
                 ),
             ),
             (
@@ -1611,7 +1611,7 @@ def viewmodel_families() -> Diagram:
                 86,
                 "Flavor surface",
                 (
-                    "C# PascalCase, Python/Rust snake_case methods, TypeScript/Swift camelCase; Rust gaps remain ledgered.",
+                    "C# PascalCase, Python/Rust snake_case methods, TypeScript/Swift camelCase; flavor idioms remain documented.",
                 ),
                 "generic",
             ),

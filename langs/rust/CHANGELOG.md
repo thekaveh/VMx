@@ -12,12 +12,34 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 - `DiscriminatorVm` now exposes `modal_depth()` and `clear_modals()` for
   explicit modal-history ownership (`DISC-007/008`, ADR-0128).
+- Capability parity now includes predicate-based `Filterable<T>`, the complete
+  `Pageable` navigation surface on `PagedComposition`, `Expandable::is_expanded`,
+  mutable `Searchable`, and fully constructible/disposable `ExpandableState`.
+- The VMx-owned reactive layer now includes typed, replaying, completion-aware
+  `ValueStream<T>`; completion-aware message-hub subscriptions; and replaying
+  notification pending streams, including immediate empty completion for null
+  services.
+- `DerivedProperty` now has one- through five-source constructors that own their
+  subscriptions, automatically recompute on source changes, suppress equal
+  outputs, and stop on disposal.
+- `AsyncValue` now supports executor-neutral `map` and `and_then`
+  continuations, with deterministic retained-continuation diagnostics.
 
 ### Changed
 
 - A public non-modal `set_active_key` releases every saved modal frame,
   including for a same-key notification no-op, while modal close preserves
   nested LIFO restoration (`DISC-009`, ADR-0128).
+- Explicit hierarchy reparenting of a detached child reports `Reparented`;
+  removing a non-member from a hierarchy, group, or composite is a successful
+  no-op; and fixed aggregates publish all populated-slot notifications before
+  constructing any child.
+- Direct form approval now gates on disposal and validity only. Strict/dirty
+  gating remains on approve-command eligibility.
+- Component options and forwarding wrappers preserve the complete
+  `view_model_type` surface. `ObservableList::remove_at` is fallible for
+  out-of-range indices, and filtered composites default to `SnapToFirst` with
+  `PreserveIfVisible` available.
 - **Breaking pre-publication correction:** confirmation-decorator
   `execute_async()` now returns the executor-neutral `ConfirmationExecution`
   future instead of `std::thread::JoinHandle<()>`, eliminating one retained
@@ -28,6 +50,18 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Expanded tree walking now uses the `Expandable` capability; disposed
+  searchable state reads as an empty term; and post-dispose expansion/search
+  mutation remains inert.
+- Message, value, and notification streams now serialize value/terminal
+  delivery, preserve synchronous resolver-thread continuation semantics, and
+  isolate subscriber, continuation, mapper, and waker panics.
+- Notification pending snapshots replay in committed order and publish before
+  waiter completion. Confirmation helpers and decorators no longer retain one
+  native thread per unresolved decision.
+- Confirmation-decorator disposal now completes its error channel and guards
+  later work. Relay-command disposal emits the optional final
+  `can_execute_changed` notification before stream completion.
 - Async-command predicate evaluation now reserves admission, preventing a
   reentrant execution from completing before the outer execution is admitted.
 - Relay-command predicate disposal now invalidates both ordinary and

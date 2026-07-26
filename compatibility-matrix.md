@@ -83,9 +83,10 @@ and public-hub IDs per ADR-0090; +1 inert modeled-assignment ID per ADR-0091;
 THEME-001..005 covered by the
 `examples/swift/notes-showcase/` flagship — ADR-0067). This increment ledger is
 current through spec 3.23.0 / DISC-009. Swift has member-level
-parity with C#, Python, and TypeScript. Rust is catalog-complete but retains the
-documented source-surface convergence backlog. See `langs/swift/README.md` §5
-and `docs/maintenance/2026-07-16-rust-capability-parity.md`.
+parity with C#, Python, and TypeScript. Rust 0.27.0 completes the capability,
+structural, command, reactive, and async convergence work recorded in
+`docs/maintenance/2026-07-16-rust-capability-parity.md`. See
+`langs/swift/README.md` §5 for the flagship scenario ledger.
 
 [^current]: C# and Python are on the 3.23.0 in-development source line.
 TypeScript 3.24.0 implements spec 3.23.0. Python's latest PyPI release remains
@@ -101,10 +102,10 @@ point to the same `main` commit.
 
 [^rust]: Rust is a source-tree, catalog-complete flavor promoted by ADR-0081. It
 is at source version 0.27.0, declares `MIN_SPEC_VERSION = "3.23.0"`, and carries
-behavioral tests for all 403 library conformance IDs. Residual member and edge-
-behavior convergence is tracked in
-`docs/maintenance/2026-07-16-rust-capability-parity.md`; it has not yet been
-published to crates.io.
+behavioral tests for all 403 library conformance IDs. The completed
+`docs/maintenance/2026-07-16-rust-capability-parity.md` records its focused
+member and edge-behavior convergence evidence; it has not yet been published
+to crates.io.
 
 [^rust-source]: Rust `0.13.0`, `0.14.0`, `0.15.0`, `0.16.0`, `0.17.0`,
 `0.18.0`, and `0.19.0` record historical source-tree parity for spec 3.13.x

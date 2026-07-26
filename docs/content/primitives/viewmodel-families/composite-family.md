@@ -135,9 +135,9 @@ The composite owns both child lifecycle and selection messaging:
         .build()?;
     ```
 
-Rust ships both `CompositeVm` and `ModeledCompositeVm`; consult the active Rust
-[parity ledger](../../../maintenance/2026-07-16-rust-capability-parity.md) for
-the remaining member/edge gaps.
+Rust ships both `CompositeVm` and `ModeledCompositeVm`; the completed Rust
+[parity ledger](../../../maintenance/2026-07-16-rust-capability-parity.md)
+records its removal and filtered-cursor edge evidence.
 
 ## 6.2.5.6. Common Pitfalls
 
