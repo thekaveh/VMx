@@ -195,8 +195,9 @@ constructors over typed replaying `ValueStream` sources, owns exactly one
 subscription per supplied source, recomputes automatically when any source
 changes, suppresses equal outputs, and releases every owned subscription on
 disposal. Concurrent source emissions carry monotonically admitted snapshot
-revisions; a transform computed from an older snapshot cannot overwrite the
-newer latest-at-emission result.
+revisions through one serialized result stream; a transform computed from an
+older snapshot cannot overwrite or publish after the newer latest-at-emission
+result.
 
 Evidence: DPROP-002 through DPROP-005 mutate real sources; DPROP-012 executes
 the shared scenarios; the crate-private
@@ -204,7 +205,10 @@ the shared scenarios; the crate-private
 the owned registrations before and after disposal without adding a public
 diagnostic API. Focused conformance tests cover distinct emission, value-stream
 completion, post-dispose isolation, and a deterministically gated older
-multi-source transform that resumes only after the newer result commits.
+multi-source transform that resumes only after the newer result commits. The
+unit-level `revisioned_commit_serializes_value_and_publication` regression gates
+the old commit-before-notification window and verifies value and both
+publication order surfaces remain `1, 2`.
 
 ### 12.4.7. Collections And Commands
 

@@ -60,9 +60,10 @@ project adheres to [Semantic Versioning](https://semver.org/).
   cross-stream callbacks enqueue without waiting on a foreign drainer, avoiding
   callback cycles while ordinary foreign-thread sends and disposal remain
   synchronous.
-- Concurrent multi-source `DerivedProperty` transforms now commit by admitted
-  snapshot revision, preventing an older delayed result from overwriting the
-  newer latest-at-emission value.
+- Concurrent multi-source `DerivedProperty` transforms now commit and publish
+  through one serialized snapshot-revision stream, preventing an older delayed
+  result from overwriting or publishing after the newer latest-at-emission
+  value.
 - Notification pending snapshots replay in committed order and publish before
   waiter completion. Confirmation helpers and decorators no longer retain one
   native thread per unresolved decision.

@@ -7,6 +7,15 @@ use super::{
     ValueStream, ValueSubscription, VmxError, VmxResult,
 };
 
+#[cfg(test)]
+type RevisionedCommitHook = Arc<dyn Fn(usize) + Send + Sync>;
+
+#[derive(Clone)]
+struct RevisionedComputation<T> {
+    revision: usize,
+    value: T,
+}
+
 #[derive(Clone)]
 /// A value computed from other state with optional validated write-back.
 ///
@@ -21,6 +30,8 @@ pub struct DerivedProperty<T: Clone + PartialEq + Send + 'static> {
     write_back: Arc<dyn Fn(T) + Send + Sync>,
     disposed: Arc<Mutex<bool>>,
     source_subscriptions: Arc<Mutex<Vec<ValueSubscription>>>,
+    #[cfg(test)]
+    revisioned_commit_hook: Arc<Mutex<Option<RevisionedCommitHook>>>,
 }
 
 impl<T: Clone + PartialEq + Send + 'static> DerivedProperty<T> {
@@ -34,6 +45,8 @@ impl<T: Clone + PartialEq + Send + 'static> DerivedProperty<T> {
             write_back: Arc::new(|_| {}),
             disposed: Arc::new(Mutex::new(false)),
             source_subscriptions: Arc::new(Mutex::new(Vec::new())),
+            #[cfg(test)]
+            revisioned_commit_hook: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -58,6 +71,8 @@ impl<T: Clone + PartialEq + Send + 'static> DerivedProperty<T> {
             write_back: Arc::new(write_back),
             disposed: Arc::new(Mutex::new(false)),
             source_subscriptions: Arc::new(Mutex::new(Vec::new())),
+            #[cfg(test)]
+            revisioned_commit_hook: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -96,11 +111,12 @@ impl<T: Clone + PartialEq + Send + 'static> DerivedProperty<T> {
             transform(latest.0.clone(), latest.1.clone())
         };
         let property = Self::new(initial);
+        let computed_results = property.revisioned_results(source_revision.clone());
 
-        let target = property.clone();
         let current = latest.clone();
         let projection = transform.clone();
         let revisions = source_revision.clone();
+        let results = computed_results.clone();
         let first_subscription = first.subscribe(move |value| {
             let (values, revision) = {
                 let mut current = lock(&current);
@@ -110,10 +126,13 @@ impl<T: Clone + PartialEq + Send + 'static> DerivedProperty<T> {
                     revisions.fetch_add(1, Ordering::AcqRel).wrapping_add(1),
                 )
             };
-            target.set_computed_if_latest(projection(values.0, values.1), revision, &revisions);
+            results.send(RevisionedComputation {
+                revision,
+                value: projection(values.0, values.1),
+            });
         });
-        let target = property.clone();
         let revisions = source_revision;
+        let results = computed_results;
         let second_subscription = second.subscribe(move |value| {
             let (values, revision) = {
                 let mut latest = lock(&latest);
@@ -123,7 +142,10 @@ impl<T: Clone + PartialEq + Send + 'static> DerivedProperty<T> {
                     revisions.fetch_add(1, Ordering::AcqRel).wrapping_add(1),
                 )
             };
-            target.set_computed_if_latest(transform(values.0, values.1), revision, &revisions);
+            results.send(RevisionedComputation {
+                revision,
+                value: transform(values.0, values.1),
+            });
         });
         lock(&property.source_subscriptions).extend([first_subscription, second_subscription]);
         property
@@ -150,12 +172,13 @@ impl<T: Clone + PartialEq + Send + 'static> DerivedProperty<T> {
             transform(latest.0.clone(), latest.1.clone(), latest.2.clone())
         };
         let property = Self::new(initial);
+        let computed_results = property.revisioned_results(source_revision.clone());
 
         let mut subscriptions = Vec::new();
-        let target = property.clone();
         let current = latest.clone();
         let projection = transform.clone();
         let revisions = source_revision.clone();
+        let results = computed_results.clone();
         subscriptions.push(first.subscribe(move |value| {
             let (values, revision) = {
                 let mut current = lock(&current);
@@ -165,16 +188,15 @@ impl<T: Clone + PartialEq + Send + 'static> DerivedProperty<T> {
                     revisions.fetch_add(1, Ordering::AcqRel).wrapping_add(1),
                 )
             };
-            target.set_computed_if_latest(
-                projection(values.0, values.1, values.2),
+            results.send(RevisionedComputation {
                 revision,
-                &revisions,
-            );
+                value: projection(values.0, values.1, values.2),
+            });
         }));
-        let target = property.clone();
         let current = latest.clone();
         let projection = transform.clone();
         let revisions = source_revision.clone();
+        let results = computed_results.clone();
         subscriptions.push(second.subscribe(move |value| {
             let (values, revision) = {
                 let mut current = lock(&current);
@@ -184,14 +206,13 @@ impl<T: Clone + PartialEq + Send + 'static> DerivedProperty<T> {
                     revisions.fetch_add(1, Ordering::AcqRel).wrapping_add(1),
                 )
             };
-            target.set_computed_if_latest(
-                projection(values.0, values.1, values.2),
+            results.send(RevisionedComputation {
                 revision,
-                &revisions,
-            );
+                value: projection(values.0, values.1, values.2),
+            });
         }));
-        let target = property.clone();
         let revisions = source_revision;
+        let results = computed_results;
         subscriptions.push(third.subscribe(move |value| {
             let (values, revision) = {
                 let mut latest = lock(&latest);
@@ -201,11 +222,10 @@ impl<T: Clone + PartialEq + Send + 'static> DerivedProperty<T> {
                     revisions.fetch_add(1, Ordering::AcqRel).wrapping_add(1),
                 )
             };
-            target.set_computed_if_latest(
-                transform(values.0, values.1, values.2),
+            results.send(RevisionedComputation {
                 revision,
-                &revisions,
-            );
+                value: transform(values.0, values.1, values.2),
+            });
         }));
         lock(&property.source_subscriptions).extend(subscriptions);
         property
@@ -244,14 +264,15 @@ impl<T: Clone + PartialEq + Send + 'static> DerivedProperty<T> {
             )
         };
         let property = Self::new(initial);
+        let computed_results = property.revisioned_results(source_revision.clone());
 
         let mut subscriptions = Vec::new();
         macro_rules! subscribe_source {
             ($source:expr, $field:tt) => {{
-                let target = property.clone();
                 let current = latest.clone();
                 let projection = transform.clone();
                 let revisions = source_revision.clone();
+                let results = computed_results.clone();
                 $source.subscribe(move |value| {
                     let (values, revision) = {
                         let mut current = lock(&current);
@@ -261,11 +282,10 @@ impl<T: Clone + PartialEq + Send + 'static> DerivedProperty<T> {
                             revisions.fetch_add(1, Ordering::AcqRel).wrapping_add(1),
                         )
                     };
-                    target.set_computed_if_latest(
-                        projection(values.0, values.1, values.2, values.3),
+                    results.send(RevisionedComputation {
                         revision,
-                        &revisions,
-                    );
+                        value: projection(values.0, values.1, values.2, values.3),
+                    });
                 })
             }};
         }
@@ -314,14 +334,15 @@ impl<T: Clone + PartialEq + Send + 'static> DerivedProperty<T> {
             )
         };
         let property = Self::new(initial);
+        let computed_results = property.revisioned_results(source_revision.clone());
 
         let mut subscriptions = Vec::new();
         macro_rules! subscribe_source {
             ($source:expr, $field:tt) => {{
-                let target = property.clone();
                 let current = latest.clone();
                 let projection = transform.clone();
                 let revisions = source_revision.clone();
+                let results = computed_results.clone();
                 $source.subscribe(move |value| {
                     let (values, revision) = {
                         let mut current = lock(&current);
@@ -331,11 +352,10 @@ impl<T: Clone + PartialEq + Send + 'static> DerivedProperty<T> {
                             revisions.fetch_add(1, Ordering::AcqRel).wrapping_add(1),
                         )
                     };
-                    target.set_computed_if_latest(
-                        projection(values.0, values.1, values.2, values.3, values.4),
+                    results.send(RevisionedComputation {
                         revision,
-                        &revisions,
-                    );
+                        value: projection(values.0, values.1, values.2, values.3, values.4),
+                    });
                 })
             }};
         }
@@ -364,14 +384,15 @@ impl<T: Clone + PartialEq + Send + 'static> DerivedProperty<T> {
         let source_revision = Arc::new(AtomicUsize::new(0));
         let transform = Arc::new(transform);
         let property = Self::new(transform(lock(&latest).clone()));
+        let computed_results = property.revisioned_results(source_revision.clone());
         let subscriptions = sources
             .into_iter()
             .enumerate()
             .map(|(index, source)| {
-                let target = property.clone();
                 let current = latest.clone();
                 let projection = transform.clone();
                 let revisions = source_revision.clone();
+                let results = computed_results.clone();
                 source.subscribe(move |value| {
                     let (values, revision) = {
                         let mut current = lock(&current);
@@ -381,7 +402,10 @@ impl<T: Clone + PartialEq + Send + 'static> DerivedProperty<T> {
                             revisions.fetch_add(1, Ordering::AcqRel).wrapping_add(1),
                         )
                     };
-                    target.set_computed_if_latest(projection(values), revision, &revisions);
+                    results.send(RevisionedComputation {
+                        revision,
+                        value: projection(values),
+                    });
                 })
             })
             .collect::<Vec<_>>();
@@ -413,14 +437,15 @@ impl<T: Clone + PartialEq + Send + 'static> DerivedProperty<T> {
         let transform = Arc::new(transform);
         let property =
             Self::with_write_back(transform(lock(&latest).clone()), validator, write_back);
+        let computed_results = property.revisioned_results(source_revision.clone());
         let subscriptions = sources
             .into_iter()
             .enumerate()
             .map(|(index, source)| {
-                let target = property.clone();
                 let current = latest.clone();
                 let projection = transform.clone();
                 let revisions = source_revision.clone();
+                let results = computed_results.clone();
                 source.subscribe(move |value| {
                     let (values, revision) = {
                         let mut current = lock(&current);
@@ -430,7 +455,10 @@ impl<T: Clone + PartialEq + Send + 'static> DerivedProperty<T> {
                             revisions.fetch_add(1, Ordering::AcqRel).wrapping_add(1),
                         )
                     };
-                    target.set_computed_if_latest(projection(values), revision, &revisions);
+                    results.send(RevisionedComputation {
+                        revision,
+                        value: projection(values),
+                    });
                 })
             })
             .collect::<Vec<_>>();
@@ -482,21 +510,46 @@ impl<T: Clone + PartialEq + Send + 'static> DerivedProperty<T> {
         }
     }
 
-    fn set_computed_if_latest(&self, next: T, revision: usize, source_revision: &AtomicUsize) {
+    fn revisioned_results(
+        &self,
+        source_revision: Arc<AtomicUsize>,
+    ) -> ValueStream<RevisionedComputation<T>> {
+        let results = ValueStream::hot(RevisionedComputation {
+            revision: 0,
+            value: self.value(),
+        });
+        let target = self.clone();
+        let subscription = results.subscribe({
+            let source_revision = source_revision.clone();
+            move |computed| target.commit_revisioned(computed, &source_revision)
+        });
+        lock(&self.source_subscriptions).push(subscription);
+        results
+    }
+
+    fn commit_revisioned(&self, computed: RevisionedComputation<T>, source_revision: &AtomicUsize) {
         if *lock(&self.disposed) {
             return;
         }
         let changed = {
             let mut value = lock(&self.value);
-            if source_revision.load(Ordering::Acquire) != revision || *value == next {
+            if source_revision.load(Ordering::Acquire) != computed.revision
+                || *value == computed.value
+            {
                 false
             } else {
-                *value = next.clone();
+                *value = computed.value.clone();
                 true
             }
         };
         if changed {
-            self.value_changes.send(next);
+            #[cfg(test)]
+            let commit_hook = lock(&self.revisioned_commit_hook).clone();
+            #[cfg(test)]
+            if let Some(hook) = commit_hook {
+                hook(computed.revision);
+            }
+            self.value_changes.send(computed.value);
             self.value_changed
                 .send(Message::PropertyChanged(PropertyChangedMessage {
                     sender_id: 0,
@@ -561,6 +614,8 @@ impl<T: Clone + PartialEq + Send + 'static> DerivedProperty<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{mpsc, Barrier};
+    use std::time::Duration;
 
     #[test]
     fn owns_exactly_one_subscription_per_source_until_disposal() {
@@ -578,5 +633,60 @@ mod tests {
         assert!(sources
             .iter()
             .all(|source| source.active_subscription_count() == 0));
+    }
+
+    #[test]
+    fn revisioned_commit_serializes_value_and_publication() {
+        let left = ValueStream::new(0);
+        let right = ValueStream::new(0);
+        let (older_committed_tx, older_committed_rx) = mpsc::channel();
+        let (newer_committed_tx, newer_committed_rx) = mpsc::channel();
+        let older_release = Arc::new(Barrier::new(2));
+        let hook_release = older_release.clone();
+
+        let (newer_transform_tx, newer_transform_rx) = mpsc::channel();
+        let property = DerivedProperty::from_two(
+            left.clone(),
+            right.clone(),
+            move |left_value, right_value| {
+                if (left_value, right_value) == (1, 1) {
+                    newer_transform_tx.send(()).unwrap();
+                }
+                left_value + right_value
+            },
+        );
+        *lock(&property.revisioned_commit_hook) = Some(Arc::new(move |revision| match revision {
+            3 => {
+                older_committed_tx.send(()).unwrap();
+                hook_release.wait();
+            }
+            4 => newer_committed_tx.send(()).unwrap(),
+            _ => {}
+        }));
+        let values = Arc::new(Mutex::new(Vec::new()));
+        let observed = values.clone();
+        let _subscription = property
+            .value_changes()
+            .subscribe(move |value| lock(&observed).push(value));
+
+        let older_sender = std::thread::spawn(move || left.send(1));
+        older_committed_rx.recv().unwrap();
+        let newer_sender = std::thread::spawn(move || right.send(1));
+        newer_transform_rx.recv().unwrap();
+        let newer_committed_before_release = newer_committed_rx
+            .recv_timeout(Duration::from_millis(50))
+            .is_ok();
+
+        older_release.wait();
+        older_sender.join().unwrap();
+        newer_sender.join().unwrap();
+
+        assert!(
+            !newer_committed_before_release,
+            "a newer result committed while an older publication was paused"
+        );
+        assert_eq!(*lock(&values), vec![1, 2]);
+        assert_eq!(property.value(), 2);
+        assert_eq!(property.value_changes().value(), 2);
     }
 }
