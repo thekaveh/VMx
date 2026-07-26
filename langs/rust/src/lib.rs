@@ -35,7 +35,7 @@ pub use async_value::AsyncValue;
 /// Version of the compiled Rust package.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Minimum language-neutral VMx specification version implemented by this package.
-pub const MIN_SPEC_VERSION: &str = "3.22.1";
+pub const MIN_SPEC_VERSION: &str = "3.23.0";
 
 mod runtime;
 pub use runtime::*;

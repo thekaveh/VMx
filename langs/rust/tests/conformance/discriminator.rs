@@ -67,6 +67,58 @@ fn nested_modal_precedence_restores_lifo() {
     assert_eq!(vm.active_key(), "home");
 }
 
+/// DISC-007 — modal depth tracks frames and disposal releases them.
+#[test]
+fn modal_depth_tracks_frames_and_disposal_releases_them() {
+    let vm = DiscriminatorVm::new("home");
+    assert_eq!(vm.modal_depth(), 0);
+    vm.modal_open("a");
+    assert_eq!(vm.modal_depth(), 1);
+    vm.modal_open("b");
+    assert_eq!(vm.modal_depth(), 2);
+    vm.modal_close();
+    assert_eq!(vm.modal_depth(), 1);
+    vm.dispose();
+    assert_eq!(vm.modal_depth(), 0);
+}
+
+/// DISC-008 — clear modals drains without changing the active key.
+#[test]
+fn clear_modals_drains_without_changing_active_key() {
+    let vm = DiscriminatorVm::new("home");
+    vm.modal_open("a");
+    vm.modal_open("b");
+    let change_count = vm.active_changed().history().len();
+
+    vm.clear_modals();
+
+    assert_eq!(vm.modal_depth(), 0);
+    assert_eq!(vm.active_key(), "b");
+    assert_eq!(vm.active_changed().history().len(), change_count);
+    vm.modal_close();
+    assert_eq!(vm.active_key(), "b");
+}
+
+/// DISC-009 — non-modal set abandons history including for the active key.
+#[test]
+fn non_modal_set_abandons_history_including_same_key() {
+    let vm = DiscriminatorVm::new("home");
+    vm.modal_open("a");
+    vm.modal_open("b");
+
+    vm.set_active_key("route");
+
+    assert_eq!(vm.modal_depth(), 0);
+    vm.modal_close();
+    assert_eq!(vm.active_key(), "route");
+
+    vm.modal_open("modal");
+    let change_count = vm.active_changed().history().len();
+    vm.set_active_key("modal");
+    assert_eq!(vm.modal_depth(), 0);
+    assert_eq!(vm.active_changed().history().len(), change_count);
+}
+
 /// DISC-003 — arbitrary keys are valid and disposal makes later mutations inert.
 #[test]
 fn arbitrary_keys_are_valid_and_disposal_is_terminal() {

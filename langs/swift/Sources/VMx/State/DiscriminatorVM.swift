@@ -18,12 +18,22 @@ public final class DiscriminatorVM<Key: Equatable> {
         activeChangedSubject.eraseToAnyPublisher()
     }
 
+    public var modalDepth: Int {
+        modalStack.count
+    }
+
     public func isActive(_ key: Key) -> Bool {
         activeKey == key
     }
 
     public func setActiveKey(_ key: Key) {
-        guard !disposed, key != activeKey else { return }
+        guard !disposed else { return }
+        modalStack.removeAll()
+        setActiveKeyPreservingModals(key)
+    }
+
+    private func setActiveKeyPreservingModals(_ key: Key) {
+        guard key != activeKey else { return }
         activeKey = key
         activeChangedSubject.send(key)
     }
@@ -31,17 +41,23 @@ public final class DiscriminatorVM<Key: Equatable> {
     public func modalOpen(_ modalKey: Key) {
         guard !disposed else { return }
         modalStack.append(activeKey)
-        setActiveKey(modalKey)
+        setActiveKeyPreservingModals(modalKey)
     }
 
     public func modalClose() {
         guard !disposed, let previous = modalStack.popLast() else { return }
-        setActiveKey(previous)
+        setActiveKeyPreservingModals(previous)
+    }
+
+    public func clearModals() {
+        guard !disposed else { return }
+        modalStack.removeAll()
     }
 
     public func dispose() {
         guard !disposed else { return }
         disposed = true
+        modalStack.removeAll()
         activeChangedSubject.send(completion: .finished)
     }
 }

@@ -1,4 +1,4 @@
-"""DISC-001..006 — DiscriminatorVM."""
+"""DISC-001..009 — DiscriminatorVM."""
 
 from __future__ import annotations
 
@@ -60,3 +60,55 @@ def test_DISC_006_nested_modal_precedence_restores_in_lifo_order() -> None:
     assert sut.active_key == "modal-a"
     sut.modal_close()
     assert sut.active_key == "nav"
+
+
+@pytest.mark.conformance("DISC-007")
+def test_DISC_007_modal_depth_tracks_frames_and_disposal_releases_them() -> None:
+    sut = DiscriminatorVM("nav")
+    assert sut.modal_depth == 0
+    sut.modal_open("modal-a")
+    assert sut.modal_depth == 1
+    sut.modal_open("modal-b")
+    assert sut.modal_depth == 2
+    sut.modal_close()
+    assert sut.modal_depth == 1
+    sut.dispose()
+    assert sut.modal_depth == 0
+
+
+@pytest.mark.conformance("DISC-008")
+def test_DISC_008_clear_modals_drains_without_changing_active_key() -> None:
+    sut = DiscriminatorVM("nav")
+    sut.modal_open("modal-a")
+    sut.modal_open("modal-b")
+    seen: list[str] = []
+    sut.active_changed.subscribe(seen.append)
+
+    sut.clear_modals()
+
+    assert sut.modal_depth == 0
+    assert sut.active_key == "modal-b"
+    assert seen == []
+    sut.modal_close()
+    assert sut.active_key == "modal-b"
+
+
+@pytest.mark.conformance("DISC-009")
+def test_DISC_009_non_modal_set_abandons_history_including_same_key() -> None:
+    sut = DiscriminatorVM("nav")
+    seen: list[str] = []
+    sut.active_changed.subscribe(seen.append)
+    sut.modal_open("modal-a")
+    sut.modal_open("modal-b")
+
+    sut.set_active_key("route")
+
+    assert sut.modal_depth == 0
+    sut.modal_close()
+    assert sut.active_key == "route"
+
+    sut.modal_open("modal")
+    change_count = len(seen)
+    sut.set_active_key("modal")
+    assert sut.modal_depth == 0
+    assert len(seen) == change_count

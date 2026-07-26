@@ -1,7 +1,7 @@
 # 12 — Conformance test catalog
 
 This document enumerates every stable conformance test identifier in the form
-`XXX-NNN`. Each of the five language flavors MUST implement all 400 library IDs
+`XXX-NNN`. Each of the five language flavors MUST implement all 403 library IDs
 in `langs/<lang>/tests/conformance/` before it can be marked stable. The five
 `THEME-00x` IDs are application-level scenarios implemented by the four
 UI-backed flagship examples. CI verifies library coverage via
@@ -3518,7 +3518,7 @@ property message
 
 > Spec: `20-form-vm.md §5.2/§8`, ADR-0092.
 
-## 28. DISC — DiscriminatorVM (chapter 22) — spec v3.1
+## 28. DISC — DiscriminatorVM (chapter 22) — spec v3.1 and v3.23
 
 ### DISC-001 — Initial active key and `IsActive`
 
@@ -3564,6 +3564,36 @@ property message
 **Then** `ActiveKey == a`
 **When** `ModalClose()` is called again
 **Then** `ActiveKey == k0`
+
+### DISC-007 — Modal depth tracks retained frames
+
+**Given** a `DiscriminatorVM<TKey>` with no open modal
+**Then** `ModalDepth == 0`
+**When** two modal frames are opened
+**Then** `ModalDepth == 2`
+**When** one modal frame is closed
+**Then** `ModalDepth == 1`
+**When** the discriminator is disposed
+**Then** `ModalDepth == 0`
+
+### DISC-008 — Explicit clear releases history only
+
+**Given** a `DiscriminatorVM<TKey>` with nested modal frames and active key `b`
+**When** `ClearModals()` is called
+**Then** `ModalDepth == 0`
+**And** `ActiveKey == b`
+**And** no active-key change is emitted
+**And** a later `ModalClose()` is a no-op
+
+### DISC-009 — Non-modal set abandons modal history
+
+**Given** a `DiscriminatorVM<TKey>` with nested modal frames
+**When** `SetActiveKey(route)` is called
+**Then** `ModalDepth == 0`
+**And** a later `ModalClose()` cannot restore a prior modal frame
+**When** a new modal is opened and `SetActiveKey(ActiveKey)` is called
+**Then** `ModalDepth == 0`
+**And** no duplicate active-key change is emitted
 
 ## 29. THEME — Theme as a VM concern (spec v2.4 scenario contract)
 

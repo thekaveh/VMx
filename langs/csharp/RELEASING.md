@@ -60,7 +60,7 @@ di_tag="csharp-dependency-injection-v${di_version}"
 
 Publish core first, then Notifications, then DI after each preceding public
 artifact verifies. Both companions pack with the current core dependency floor
-(`VMx >= 3.22.1` at this source line) for net8.0 and netstandard2.0. DI
+(`VMx >= 3.23.0` at this source line) for net8.0 and netstandard2.0. DI
 uses packaging-only patch 2.1.1 because the old shared selector made immutable
 core tag `csharp-v2.1.0` collide with that companion version. The new
 package-specific namespace prevents future collisions; do not rewind the
