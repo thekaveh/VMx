@@ -4,9 +4,9 @@ This runbook documents Swift flavor releases. SwiftPM consumes VMx directly from
 git tags; there is no NuGet/PyPI/npm-style central registry publish step.
 
 The latest verified release is
-[`3.20.0`](https://github.com/thekaveh/VMx/releases/tag/swift-v3.20.0).
-Its `v3.20.0` semantic tag and `swift-v3.20.0` operational tag both point to
-`b0d023cd0b2903c056c53ef7862d53cfe1507129`; a clean public consumer resolved
+[`3.24.0`](https://github.com/thekaveh/VMx/releases/tag/swift-v3.24.0).
+Its `v3.24.0` semantic tag and `swift-v3.24.0` operational tag both point to
+`36229cabfcc02734ce8378e9a6eaa64bb258491b`; a clean public consumer resolved
 that version, loaded all four bundled fixtures, and completed a VM lifecycle
 round trip.
 
