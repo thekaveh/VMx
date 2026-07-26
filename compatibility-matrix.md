@@ -115,9 +115,10 @@ spec 3.20.x. The untagged C# `3.20.0–3.20.1`, Python `3.20.0–3.20.1`,
 TypeScript `3.20.0–3.21.1`, and Swift `3.20.1` source lines are intentionally
 not listed as releases in the matrix.
 
-[^legacy-semantic-tag-only]: Spec 3.20.0 predates the duplicate operational
-`spec-v*` tag convention. Its immutable `v3.20.0` semantic tag is the release
-tag; no `spec-v3.20.0` tag was created.
+[^legacy-semantic-tag-only]: Spec 3.20.0 predates the canonical `spec-v*`
+namespace and has no `spec-v3.20.0` tag. The existing immutable `v3.20.0` tag
+belongs to the Swift 3.20.0 package for SwiftPM; it is historical evidence, not
+a namespace future specification releases reuse.
 
 ## 3. C# companion packages
 

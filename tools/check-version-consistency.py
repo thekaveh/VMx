@@ -8,11 +8,12 @@ Rules enforced:
   1. All flavor ``minSpecVersion`` fields must equal ``spec/VERSION``.
   2. Every version a manifest *claims* as shipped must have a matching
      git tag (e.g. ``csharp-v2.6.0``, ``python-v2.6.1``).
-     ``spec/VERSION`` implies both ``spec-v<version>`` and ``v<version>``
-     (the repo-wide tag).
+     ``spec/VERSION`` implies ``spec-v<version>``. Swift versions additionally
+     imply the generic ``v<version>`` semantic tag required by SwiftPM.
   3. Every version a compatibility-matrix row *claims* must have a
-     matching flavor tag (e.g. ``csharp-v2.5.0``).  A row with a stable
-     flavor release also implies ``spec-v<X.Y.0>`` and ``v<X.Y.0>``.
+     matching flavor tag (e.g. ``csharp-v2.5.0``). A row with a stable
+     flavor release also implies ``spec-v<X.Y.0>``. Each Swift release also
+     implies its generic ``v<version>`` semantic tag.
      Source-only rows containing only a pre-1.0 Rust flavor do not imply
      repository release tags.
   4. TypeScript and Rust example lockfiles must record the current local VMx
@@ -764,11 +765,12 @@ def find_missing_tags(
 
     Sources contributing required tags:
 
-    * ``spec/VERSION`` → ``spec-v<version>`` and ``v<version>``
+    * ``spec/VERSION`` → ``spec-v<version>``
     * each flavor manifest ``version`` → ``<flavor>-v<version>``
+      (plus ``v<version>`` for SwiftPM)
     * each matrix row flavor cell → ``<flavor>-v<cell_version>``
-    * each matrix row with a stable-flavor release → ``spec-vX.Y.0`` and
-      ``vX.Y.0``
+      (plus ``v<cell_version>`` for SwiftPM)
+    * each matrix row with a stable-flavor release → ``spec-vX.Y.0``
     """
     missing: dict[str, list[str]] = {}
 
@@ -778,7 +780,6 @@ def find_missing_tags(
 
     # From spec/VERSION
     _want(f"spec-v{spec_version}", f"spec/VERSION={spec_version!r}")
-    _want(f"v{spec_version}", f"spec/VERSION={spec_version!r} (repo-wide tag)")
 
     # From each flavor manifest
     for flavor, info in sorted(manifests.items()):
@@ -786,6 +787,8 @@ def find_missing_tags(
         if ver:
             tag_prefix = info.get("tag_prefix") or flavor.split("/", 1)[0]
             _want(f"{tag_prefix}-v{ver}", f"{flavor} manifest version={ver!r}")
+            if flavor == "swift":
+                _want(f"v{ver}", f"swift manifest version={ver!r} (SwiftPM semantic tag)")
 
     # From matrix rows
     for row in matrix_rows:
@@ -810,10 +813,6 @@ def find_missing_tags(
                     f"spec-v{spec_canonical}",
                     f"compatibility-matrix.md row {spec_row!r}",
                 )
-            _want(
-                f"v{spec_canonical}",
-                f"compatibility-matrix.md row {spec_row!r} (repo-wide tag)",
-            )
 
         for flavor in FLAVORS:
             for ver in row.get(flavor, []):  # type: ignore[union-attr]
@@ -821,6 +820,12 @@ def find_missing_tags(
                     f"{flavor}-v{ver}",
                     f"compatibility-matrix.md row {spec_row!r} [{flavor}={ver!r}]",
                 )
+                if flavor == "swift":
+                    _want(
+                        f"v{ver}",
+                        f"compatibility-matrix.md row {spec_row!r} "
+                        f"[swift={ver!r}] (SwiftPM semantic tag)",
+                    )
 
     return missing
 
@@ -874,7 +879,7 @@ def current_development_tags(
     matrix_rows: list[dict[str, object]],
 ) -> set[str]:
     """Return exact tag identities belonging to the active source line."""
-    tags = {f"spec-v{spec_version}", f"v{spec_version}"}
+    tags = {f"spec-v{spec_version}"}
     spec_parts = spec_version.split(".")
     if len(spec_parts) >= 2:
         current_row = f"{spec_parts[0]}.{spec_parts[1]}.x"
@@ -884,15 +889,18 @@ def current_development_tags(
         )
         if row is not None:
             canonical = f"{spec_parts[0]}.{spec_parts[1]}.0"
-            tags.update({f"spec-v{canonical}", f"v{canonical}"})
+            tags.add(f"spec-v{canonical}")
             for flavor in FLAVORS:
                 tags.update(f"{flavor}-v{version}" for version in row.get(flavor, []))  # type: ignore[union-attr]
+            tags.update(f"v{version}" for version in row.get("swift", []))
 
     for flavor, info in manifests.items():
         version = info.get("version", "")
         if info.get("unreleased") == "true" and version:
             prefix = info.get("tag_prefix") or flavor.split("/", 1)[0]
             tags.add(f"{prefix}-v{version}")
+            if flavor == "swift":
+                tags.add(f"v{version}")
     return tags
 
 
