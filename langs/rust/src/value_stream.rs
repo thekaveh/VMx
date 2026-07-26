@@ -123,6 +123,11 @@ impl<T: Clone + Send + 'static> ValueStream<T> {
         lock(&self.inner).current.clone()
     }
 
+    #[cfg(test)]
+    pub(crate) fn active_subscription_count(&self) -> usize {
+        lock(&self.inner).subscribers.len()
+    }
+
     /// Subscribes to the current value and all later values.
     pub fn subscribe<F>(&self, handler: F) -> ValueSubscription
     where

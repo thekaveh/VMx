@@ -64,15 +64,15 @@ expansion traits on `ComponentVm`. The baseline `Constructable`,
 `Destructable`, and `Reconstructable` traits apply to every `VmNode`, while
 selection and expansion remain explicit opt-ins.
 
-Evidence: `capabilities.rs` contains the lifecycle blanket implementations and
-the compile-fail opt-in guards; CAP-020 asserts the positive lifecycle bounds
-and negative `ComponentVm: Selectable` surface.
+Evidence: `src/capabilities.rs` contains the lifecycle blanket implementations;
+the `ComponentVm: Selectable` compile-fail guard is attached to `ComponentVm`
+in `src/components.rs`. CAP-020 asserts the positive lifecycle bounds.
 
 ### 12.3.2. Filterable Predicate Shape (CAP-021)
 
-**Resolved.** `Filterable<T>` now stores an optional shared predicate and
-exposes `filter`, `set_filter`, and `can_filter`. Clearing with `None` removes
-the filter.
+**Resolved.** `Filterable<T>` now exposes the `filter`, `set_filter`, and
+`can_filter` accessors for an optional shared predicate. Implementors own the
+predicate storage; clearing with `None` removes the filter.
 
 Evidence: CAP-021 exercises predicate replacement, evaluation, and clearing,
 and retains the compile-negative proof that core VMs do not opt in
@@ -142,8 +142,11 @@ four-flavor consensus without changing ADR-0105's ordinary-add rule.
 no-op when the supplied child is not a member. No collection, selection,
 parent, or message state changes.
 
-Evidence: focused hierarchy, group, and composite tests exercise the absent
-member path, including current-selection stability.
+Evidence: `removing_a_non_child_is_a_noop` covers hierarchy state and messages.
+`membership_uses_node_identity_when_partial_eq_is_value_based` selects a real
+composite member before removing an equal-valued foreign node, then proves the
+member, `current`, and current flag remain stable; it also covers group
+membership.
 
 ### 12.4.3. Aggregate Slot Notification Ordering
 
@@ -151,8 +154,11 @@ member path, including current-selection stability.
 notification before constructing any child. The emitted notification set is
 therefore complete even when the first child construction fails.
 
-Evidence: the aggregate conformance suite records the cross-slot sequence and
-the first-child failure path for all six arities.
+Evidence:
+`all_slot_notifications_precede_first_child_failure_for_arities_one_through_six`
+records every populated-slot notification followed by only the failing first
+construction attempt for each arity. The companion success-path test records
+all slot notifications before any construction.
 
 ### 12.4.4. FormVm Direct Approval
 
@@ -170,19 +176,25 @@ builders/options preserve the selected type through modeled, readonly, and
 forwarding variants. The earlier selection-gate, built-in-command, and full
 forwarding-component delegation work remains intact.
 
-Evidence: CVM and builder tests compare default, overridden, readonly, and
-nested forwarding type values.
+Evidence: CVM and builder tests compare default, overridden, and readonly type
+values. `component_variants_expose_their_view_model_type` additionally proves
+that the configured value delegates unchanged through two and three nested
+`ForwardingComponentVm` layers.
 
 ### 12.4.6. DerivedProperty Source Ownership And Recompute
 
 **Resolved.** `DerivedProperty` now provides one- through five-source
-constructors over typed replaying `ValueStream` sources, subscribes once,
-recomputes automatically when any source changes, suppresses equal outputs,
-and releases owned subscriptions on disposal.
+constructors over typed replaying `ValueStream` sources, owns exactly one
+subscription per supplied source, recomputes automatically when any source
+changes, suppresses equal outputs, and releases every owned subscription on
+disposal.
 
 Evidence: DPROP-002 through DPROP-005 mutate real sources; DPROP-012 executes
-the shared scenarios; focused tests cover distinct emission, source
-subscription counts, value-stream completion, and post-dispose isolation.
+the shared scenarios; the crate-private
+`owns_exactly_one_subscription_per_source_until_disposal` test directly counts
+the owned registrations before and after disposal without adding a public
+diagnostic API. Focused conformance tests cover distinct emission, value-stream
+completion, and post-dispose isolation.
 
 ### 12.4.7. Collections And Commands
 
@@ -200,6 +212,9 @@ subscription counts, value-stream completion, and post-dispose isolation.
 
 Evidence: the collection, filtered-composite, confirmation-decorator, relay-
 command, and composite suites contain focused assertions for each edge.
+`confirmation_error_value_precedes_disposal_completion` and
+`relay_disposal_emits_one_final_can_execute_notification` observe terminal
+callbacks directly and assert value-before-completion ordering.
 
 ### 12.4.8. Hot-Stream Completion And Notification Replay
 

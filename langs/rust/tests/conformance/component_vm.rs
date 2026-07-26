@@ -82,6 +82,8 @@ fn component_variants_expose_their_view_model_type() {
         .build()
         .unwrap();
     let forwarding = ForwardingComponentVm::new(tagged.clone());
+    let nested_forwarding = ForwardingComponentVm::wrap(forwarding.clone());
+    let twice_nested_forwarding = ForwardingComponentVm::wrap(nested_forwarding.clone());
 
     assert_eq!(component.view_model_type(), ViewModelType::Component);
     assert_eq!(readonly.view_model_type(), ViewModelType::ReadOnlyComponent);
@@ -90,6 +92,16 @@ fn component_variants_expose_their_view_model_type() {
         forwarding.view_model_type(),
         tagged.view_model_type(),
         "forwarding must delegate the wrapped type"
+    );
+    assert_eq!(
+        nested_forwarding.view_model_type(),
+        tagged.view_model_type(),
+        "nested forwarding must delegate through two layers"
+    );
+    assert_eq!(
+        twice_nested_forwarding.view_model_type(),
+        tagged.view_model_type(),
+        "nested forwarding must delegate through three layers"
     );
 }
 

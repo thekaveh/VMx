@@ -29,6 +29,15 @@ fn traced_text(name: &'static str, trace: Arc<Mutex<Vec<String>>>) -> TextVm {
     component
 }
 
+fn failing_traced_text(name: &'static str, trace: Arc<Mutex<Vec<String>>>) -> TextVm {
+    let component = text(name);
+    component.on_construct(move || {
+        trace.lock().unwrap().push(format!("construct:{name}"));
+        Err(VmxError::Other("first child failed".to_string()))
+    });
+    component
+}
+
 macro_rules! assert_slot_notifications_precede_construction {
     ($builder:expr, $( $slot:ident => $name:literal ),+ $(,)?) => {{
         let trace = Arc::new(Mutex::new(Vec::<String>::new()));
@@ -57,6 +66,37 @@ macro_rules! assert_slot_notifications_precede_construction {
                 $(format!("construct:{}", $name)),+
             ]
         );
+    }};
+}
+
+macro_rules! assert_slot_notifications_precede_first_child_failure {
+    ($builder:expr, $first_slot:ident => $first_name:literal $(, $slot:ident => $name:literal)* $(,)?) => {{
+        let trace = Arc::new(Mutex::new(Vec::<String>::new()));
+        let first = failing_traced_text($first_name, trace.clone());
+        let builder = $builder.$first_slot(move || first.clone());
+        $(
+            let component = traced_text($name, trace.clone());
+            let builder = builder.$slot(move || component.clone());
+        )*
+        let aggregate = builder.build().unwrap();
+        let property_trace = trace.clone();
+        let _subscription = aggregate.property_changed().subscribe(move |property_name| {
+            if property_name.starts_with("component_") {
+                property_trace
+                    .lock()
+                    .unwrap()
+                    .push(property_name.to_string());
+            }
+        });
+
+        assert_eq!(
+            aggregate.construct(),
+            Err(VmxError::Other("first child failed".to_string()))
+        );
+        let mut expected = vec![stringify!($first_slot).to_string()];
+        $(expected.push(stringify!($slot).to_string());)*
+        expected.push(format!("construct:{}", $first_name));
+        assert_eq!(*trace.lock().unwrap(), expected);
     }};
 }
 
@@ -103,6 +143,61 @@ fn slot_notifications_precede_child_construction_for_arities_one_through_six() {
         component_5 => "5",
     );
     assert_slot_notifications_precede_construction!(
+        vmx::AggregateVm6::builder()
+            .name("aggregate-6")
+            .services(MessageHub::new(), NullDispatcher::new()),
+        component_1 => "1",
+        component_2 => "2",
+        component_3 => "3",
+        component_4 => "4",
+        component_5 => "5",
+        component_6 => "6",
+    );
+}
+
+#[test]
+fn all_slot_notifications_precede_first_child_failure_for_arities_one_through_six() {
+    assert_slot_notifications_precede_first_child_failure!(
+        vmx::AggregateVm1::builder()
+            .name("aggregate-1")
+            .services(MessageHub::new(), NullDispatcher::new()),
+        component_1 => "1",
+    );
+    assert_slot_notifications_precede_first_child_failure!(
+        vmx::AggregateVm2::builder()
+            .name("aggregate-2")
+            .services(MessageHub::new(), NullDispatcher::new()),
+        component_1 => "1",
+        component_2 => "2",
+    );
+    assert_slot_notifications_precede_first_child_failure!(
+        vmx::AggregateVm3::builder()
+            .name("aggregate-3")
+            .services(MessageHub::new(), NullDispatcher::new()),
+        component_1 => "1",
+        component_2 => "2",
+        component_3 => "3",
+    );
+    assert_slot_notifications_precede_first_child_failure!(
+        vmx::AggregateVm4::builder()
+            .name("aggregate-4")
+            .services(MessageHub::new(), NullDispatcher::new()),
+        component_1 => "1",
+        component_2 => "2",
+        component_3 => "3",
+        component_4 => "4",
+    );
+    assert_slot_notifications_precede_first_child_failure!(
+        vmx::AggregateVm5::builder()
+            .name("aggregate-5")
+            .services(MessageHub::new(), NullDispatcher::new()),
+        component_1 => "1",
+        component_2 => "2",
+        component_3 => "3",
+        component_4 => "4",
+        component_5 => "5",
+    );
+    assert_slot_notifications_precede_first_child_failure!(
         vmx::AggregateVm6::builder()
             .name("aggregate-6")
             .services(MessageHub::new(), NullDispatcher::new()),

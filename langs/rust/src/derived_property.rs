@@ -472,3 +472,26 @@ impl<T: Clone + PartialEq + Send + 'static> DerivedProperty<T> {
         self.value_changed.dispose();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn owns_exactly_one_subscription_per_source_until_disposal() {
+        let sources = (1..=5).map(ValueStream::new).collect::<Vec<_>>();
+        let property = DerivedProperty::from_sources(sources.clone(), |values| {
+            values.into_iter().sum::<i32>()
+        });
+
+        assert!(sources
+            .iter()
+            .all(|source| source.active_subscription_count() == 1));
+
+        property.dispose();
+
+        assert!(sources
+            .iter()
+            .all(|source| source.active_subscription_count() == 0));
+    }
+}

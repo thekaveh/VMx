@@ -320,6 +320,27 @@ fn confirmation_decorator_disposal_stops_in_flight_and_late_emissions() {
     assert_eq!(deliveries.load(Ordering::SeqCst), 0);
 }
 
+#[test]
+fn confirmation_error_value_precedes_disposal_completion() {
+    let confirming =
+        ConfirmationDecoratorCommand::new(RelayCommand::new(|| panic!("inner boom")), || {
+            AsyncValue::ready(true)
+        });
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let values = events.clone();
+    let completion = events.clone();
+    let _subscription = confirming.errors().subscribe_with_completion(
+        move |_| values.lock().unwrap().push("value"),
+        move || completion.lock().unwrap().push("completion"),
+    );
+
+    confirming.execute();
+    confirming.dispose();
+    confirming.execute();
+
+    assert_eq!(*events.lock().unwrap(), vec!["value", "completion"]);
+}
+
 /// CMD-008 — Confirm(delegate) is equivalent to explicit ConfirmationDecoratorCommand
 #[test]
 fn confirm_fluent_matches_explicit_confirmation_decorator() {

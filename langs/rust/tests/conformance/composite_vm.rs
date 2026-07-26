@@ -491,6 +491,7 @@ fn membership_uses_node_identity_when_partial_eq_is_value_based() {
     let composite = vmx::CompositeVm::new("composite");
     composite.add(child.clone()).unwrap();
     child.construct().unwrap();
+    composite.select_component(&child).unwrap();
 
     assert!(!composite.can_select_component(&foreign));
     assert_eq!(
@@ -499,6 +500,8 @@ fn membership_uses_node_identity_when_partial_eq_is_value_based() {
     );
     assert_eq!(composite.remove(&foreign), Ok(()));
     assert_eq!(composite.items()[0].id(), child.id());
+    assert_eq!(composite.current().map(|item| item.id()), Some(child.id()));
+    assert!(child.is_current());
 
     let filtered = vmx::FilteredCompositeVm::new(composite.clone(), |_| true);
     assert_eq!(filtered.set_current(Some(foreign)), Err(VmxError::NonChild));
