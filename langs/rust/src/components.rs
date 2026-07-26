@@ -900,7 +900,10 @@ impl<M: Clone + PartialEq + Send + 'static> ComponentVm<M, NullDispatcher> {
         if let Some(model) = options.model {
             builder = builder.model(model);
         }
-        builder.services(options.hub, options.dispatcher).build()
+        builder
+            .view_model_type(options.view_model_type)
+            .services(options.hub, options.dispatcher)
+            .build()
     }
 }
 
@@ -912,6 +915,8 @@ pub struct ComponentVmOptions<M: Clone + PartialEq + Send + 'static> {
     pub hint: Option<String>,
     /// Optional initial model; validation fails when omitted.
     pub model: Option<M>,
+    /// Immutable role discriminator returned by the created component.
+    pub view_model_type: ViewModelType,
     /// Message hub injected into the component.
     pub hub: MessageHub,
     /// Dispatcher used for foreground scheduling.
