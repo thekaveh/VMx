@@ -7,7 +7,7 @@ use super::{
     retain_first_error, Arc, AtomicBool, ComponentCore, ConstructionStatus, Dispatcher, HashSet,
     LifecycleOperation, MembershipDisposeDisposition, MembershipTransactionControl, MessageHub,
     Mutex, NullDispatcher, OnceLock, Ordering, OwnershipClaim, ParentHandle, ParentRegistration,
-    PropertyChangedStream, RelayCommand, VmNode, VmxError, VmxResult,
+    PropertyChangedStream, RelayCommand, ViewModelType, VmNode, VmxError, VmxResult,
 };
 use crate::components::ComponentCommands;
 
@@ -2585,6 +2585,11 @@ macro_rules! impl_fixed_aggregate_baseline {
             /// Returns the aggregate name.
             pub fn name(&self) -> String {
                 self.core.name()
+            }
+
+            /// Returns the canonical aggregate family discriminator.
+            pub fn view_model_type(&self) -> ViewModelType {
+                ViewModelType::Aggregate
             }
 
             /// Returns the aggregate hint.

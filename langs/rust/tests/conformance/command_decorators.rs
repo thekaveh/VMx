@@ -219,6 +219,24 @@ fn confirmation_decorator_async_path_propagates_inner_panic() {
     assert_eq!(errors.load(Ordering::SeqCst), 0);
 }
 
+#[derive(Debug, PartialEq)]
+struct ConfirmationPanicPayload(u32);
+
+#[test]
+fn confirmation_execution_join_preserves_the_original_panic_payload() {
+    let command = ConfirmationDecoratorCommand::new(
+        RelayCommand::new(|| std::panic::panic_any(ConfirmationPanicPayload(42))),
+        || AsyncValue::ready(true),
+    );
+
+    let payload = command.execute_async().join().unwrap_err();
+    let payload = payload
+        .downcast::<ConfirmationPanicPayload>()
+        .expect("join should retain the concrete panic payload");
+
+    assert_eq!(*payload, ConfirmationPanicPayload(42));
+}
+
 /// CMDD-008 — ConfirmationDecoratorCommand.CanExecute delegates to inner
 #[test]
 fn confirmation_decorator_can_execute_delegates_to_inner() {

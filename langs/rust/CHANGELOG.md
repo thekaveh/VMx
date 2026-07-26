@@ -36,26 +36,33 @@ project adheres to [Semantic Versioning](https://semver.org/).
   constructing any child.
 - Direct form approval now gates on disposal and validity only. Strict/dirty
   gating remains on approve-command eligibility.
-- Component options and forwarding wrappers preserve the complete
-  `view_model_type` surface. `ObservableList::remove_at` is fallible for
-  out-of-range indices, and filtered composites default to `SnapToFirst` with
-  `PreserveIfVisible` available.
+- The complete component VM family now exposes `view_model_type`, including
+  groups, composite variants/wrappers, aggregate arities one through six,
+  hierarchies, forms, and async-resource VMs. Component options and forwarding
+  wrappers preserve or delegate the canonical value.
 - **Breaking pre-publication correction:** confirmation-decorator
   `execute_async()` now returns the executor-neutral `ConfirmationExecution`
   future instead of `std::thread::JoinHandle<()>`, eliminating one retained
   operating-system thread per unresolved decision. Inferred `.join()` callers
   retain that call shape; explicitly typed callers must migrate to
   `ConfirmationExecution`, which also supports `.await` and `.is_finished()`.
-  It intentionally has no `thread()` accessor because no native worker exists.
+  It intentionally has no `thread()` accessor because no native worker exists;
+  `.join()` preserves the original boxed panic payload for downcasting.
 
 ### Fixed
 
-- Expanded tree walking now uses the `Expandable` capability; disposed
-  searchable state reads as an empty term; and post-dispose expansion/search
-  mutation remains inert.
+- Expanded tree walking now uses the `Expandable` capability. Disposed
+  searchable state reads as an empty term, and explicit search returns empty
+  without invoking the item provider or predicate.
 - Message, value, and notification streams now serialize value/terminal
   delivery, preserve synchronous resolver-thread continuation semantics, and
-  isolate subscriber, continuation, mapper, and waker panics.
+  isolate subscriber, continuation, mapper, and waker panics. Opposing
+  cross-stream callbacks enqueue without waiting on a foreign drainer, avoiding
+  callback cycles while ordinary foreign-thread sends and disposal remain
+  synchronous.
+- Concurrent multi-source `DerivedProperty` transforms now commit by admitted
+  snapshot revision, preventing an older delayed result from overwriting the
+  newer latest-at-emission value.
 - Notification pending snapshots replay in committed order and publish before
   waiter completion. Confirmation helpers and decorators no longer retain one
   native thread per unresolved decision.

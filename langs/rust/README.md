@@ -28,9 +28,9 @@ This crate implements the VMx spec with idiomatic Rust naming and error handling
   navigation, readable expansion state, and mutable search terms;
 - `ExpandableState` supports explicit initial state and owned disposal, while
   disposed `SearchableState` reads as an empty term;
-- hierarchy, group, composite, aggregate, form, collection, filtered-cursor,
-  component-type, and command-disposal edge behavior follows the canonical
-  cross-flavor contracts recorded in the completed parity ledger;
+- every canonical component VM family exposes its `ViewModelType`, including
+  group, composite wrappers, aggregate arities, hierarchy, form, and async
+  resource VMs;
 - `ValueStream<T>` provides typed replay and completion, message subscriptions
   can observe completion, notification pending state is replaying, and
   `DerivedProperty` automatically recomputes from one through five owned source
@@ -42,7 +42,8 @@ This crate implements the VMx spec with idiomatic Rust naming and error handling
   `ConfirmationExecution` future; use `.await`, `.join()`, or
   `.is_finished()`. Rust 0.27.0 intentionally replaces the unpublished
   pre-release `JoinHandle<()>` return type, so explicitly typed callers must
-  migrate and no `thread()` accessor exists;
+  migrate and no `thread()` accessor exists. Blocking `.join()` preserves the
+  original boxed panic payload for ordinary Rust downcasting;
 - `FormVm::builder().reset_on_approved(...)` derives a pristine model after a
   successful persist without exposing a mutable form to the persister;
 - `FormVm::set_model(...)` publishes one model hub message only after validation

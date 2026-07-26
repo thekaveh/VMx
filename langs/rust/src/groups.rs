@@ -8,7 +8,8 @@ use super::{
     ComponentCore, ConstructionStatus, Dispatcher, HashSet, LifecycleOperation,
     MembershipDisposeDisposition, MembershipTransactionControl, MembershipTransactionGuard,
     MessageHub, Mutex, NullDispatcher, ObservableList, Ordering, ParentHandle, ParentRegistration,
-    ParentTransfer, PropertyChangedStream, RelayCommand, VmCollection, VmNode, VmxError, VmxResult,
+    ParentTransfer, PropertyChangedStream, RelayCommand, ViewModelType, VmCollection, VmNode,
+    VmxError, VmxResult,
 };
 use crate::components::ComponentCommands;
 
@@ -186,6 +187,11 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
     /// Returns the immutable group name.
     pub fn name(&self) -> String {
         self.core.name()
+    }
+
+    /// Returns the canonical group family discriminator.
+    pub fn view_model_type(&self) -> ViewModelType {
+        ViewModelType::Group
     }
 
     /// Returns the immutable presentation hint.

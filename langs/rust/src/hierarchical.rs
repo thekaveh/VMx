@@ -161,6 +161,11 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
         self.inner.component.name()
     }
 
+    /// Returns the canonical component family discriminator.
+    pub fn view_model_type(&self) -> crate::ViewModelType {
+        self.inner.component.view_model_type()
+    }
+
     /// Returns this node's model.
     pub fn model(&self) -> M {
         self.inner.component.model()

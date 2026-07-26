@@ -861,7 +861,25 @@ pub struct ConfirmationDecoratorCommand<C: Command + Clone> {
 #[derive(Clone)]
 enum ConfirmationExecutionOutcome {
     Completed,
-    Panicked(Arc<String>),
+    Panicked(Arc<ConfirmationPanicPayload>),
+}
+
+struct ConfirmationPanicPayload {
+    value: Mutex<Option<Box<dyn std::any::Any + Send>>>,
+}
+
+impl ConfirmationPanicPayload {
+    fn new(value: Box<dyn std::any::Any + Send>) -> Self {
+        Self {
+            value: Mutex::new(Some(value)),
+        }
+    }
+
+    fn take(&self) -> Box<dyn std::any::Any + Send> {
+        lock(&self.value).take().unwrap_or_else(|| {
+            Box::new("confirmation panic payload was already consumed".to_string())
+        })
+    }
 }
 
 /// Executor-neutral completion returned by
@@ -902,11 +920,11 @@ impl ConfirmationExecution {
         )
     }
 
-    /// Blocks until execution completes, reporting a confirmed inner panic.
+    /// Blocks until execution completes, preserving the original panic payload.
     pub fn join(self) -> std::thread::Result<()> {
         match self.completion.wait() {
             ConfirmationExecutionOutcome::Completed => Ok(()),
-            ConfirmationExecutionOutcome::Panicked(message) => Err(Box::new((*message).clone())),
+            ConfirmationExecutionOutcome::Panicked(payload) => Err(payload.take()),
         }
     }
 
@@ -925,8 +943,8 @@ impl Future for ConfirmationExecution {
     fn poll(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Self::Output> {
         match Pin::new(&mut self.completion).poll(context) {
             Poll::Ready(ConfirmationExecutionOutcome::Completed) => Poll::Ready(()),
-            Poll::Ready(ConfirmationExecutionOutcome::Panicked(message)) => {
-                panic!("{message}")
+            Poll::Ready(ConfirmationExecutionOutcome::Panicked(payload)) => {
+                std::panic::resume_unwind(payload.take())
             }
             Poll::Pending => Poll::Pending,
         }
@@ -962,7 +980,7 @@ impl<C: Command + Clone + 'static> ConfirmationDecoratorCommand<C> {
             Err(payload) => {
                 let (execution, completion) = ConfirmationExecution::pending();
                 completion.resolve(ConfirmationExecutionOutcome::Panicked(Arc::new(
-                    panic_message(payload),
+                    ConfirmationPanicPayload::new(payload),
                 )));
                 return execution;
             }
@@ -973,9 +991,9 @@ impl<C: Command + Clone + 'static> ConfirmationDecoratorCommand<C> {
             let outcome = if confirmed && !command.disposed.load(Ordering::SeqCst) {
                 match catch_unwind(AssertUnwindSafe(|| command.inner.execute())) {
                     Ok(()) => ConfirmationExecutionOutcome::Completed,
-                    Err(payload) => {
-                        ConfirmationExecutionOutcome::Panicked(Arc::new(panic_message(payload)))
-                    }
+                    Err(payload) => ConfirmationExecutionOutcome::Panicked(Arc::new(
+                        ConfirmationPanicPayload::new(payload),
+                    )),
                 }
             } else {
                 ConfirmationExecutionOutcome::Completed
@@ -1040,15 +1058,5 @@ impl<C: Command + Clone + 'static> Command for ConfirmationDecoratorCommand<C> {
 
     fn can_execute_changed(&self) -> MessageHub {
         self.inner.can_execute_changed()
-    }
-}
-
-fn panic_message(payload: Box<dyn std::any::Any + Send>) -> String {
-    if let Some(message) = payload.downcast_ref::<&str>() {
-        (*message).to_string()
-    } else if let Some(message) = payload.downcast_ref::<String>() {
-        message.clone()
-    } else {
-        "confirmation execution panicked".to_string()
     }
 }

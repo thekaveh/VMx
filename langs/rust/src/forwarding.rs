@@ -486,6 +486,11 @@ impl<T: VmNode, D: Dispatcher> ForwardingCompositeVm<T, D> {
         self.inner.name()
     }
 
+    /// Returns the wrapped composite's family discriminator.
+    pub fn view_model_type(&self) -> ViewModelType {
+        self.inner.view_model_type()
+    }
+
     /// Returns the wrapped composite's hint.
     pub fn hint(&self) -> Option<String> {
         self.inner.hint()

@@ -119,11 +119,13 @@ behavior.
 
 **Resolved.** A disposed `SearchableState` reads as an empty term, keeps later
 assignments inert, releases its source subscription, and does not own the
-source.
+source. Explicit search after disposal is likewise inert: it returns an empty
+projection without invoking the item provider or predicate.
 
 Evidence: `disposed_searchable_state_reads_an_empty_term` and
-`dispose_cancels_source_observation_without_owning_source` cover the corrected
-contract.
+`dispose_cancels_source_observation_without_owning_source` cover the ownership
+contract. `search_after_disposal_is_inert_without_calling_user_code` uses side
+effects at both user-code boundaries to prove neither is invoked.
 
 ## 12.4. Behavioral Closure
 
@@ -171,15 +173,20 @@ Evidence: the form suite separates strict-clean direct approval from command
 
 ### 12.4.5. Base ComponentVm Type Surface
 
-**Resolved.** The base component surface now exposes `view_model_type`, and
-builders/options preserve the selected type through modeled, readonly, and
-forwarding variants. The earlier selection-gate, built-in-command, and full
-forwarding-component delegation work remains intact.
+**Resolved.** Every canonical component VM family exposes
+`view_model_type`: component and readonly variants, groups, composites and
+their modeled/filtered/forwarding wrappers, aggregate arities one through six,
+hierarchies, forms, and async-resource VMs. Builders/options preserve selected
+component types, and forwarding wrappers delegate the wrapped family value.
+The earlier selection-gate, built-in-command, and full forwarding-component
+delegation work remains intact.
 
 Evidence: CVM and builder tests compare default, overridden, and readonly type
 values. `component_variants_expose_their_view_model_type` additionally proves
 that the configured value delegates unchanged through two and three nested
 `ForwardingComponentVm` layers.
+`every_component_vm_family_exposes_its_canonical_view_model_type` enumerates
+the complete family surface with literal expected discriminators.
 
 ### 12.4.6. DerivedProperty Source Ownership And Recompute
 
@@ -187,14 +194,17 @@ that the configured value delegates unchanged through two and three nested
 constructors over typed replaying `ValueStream` sources, owns exactly one
 subscription per supplied source, recomputes automatically when any source
 changes, suppresses equal outputs, and releases every owned subscription on
-disposal.
+disposal. Concurrent source emissions carry monotonically admitted snapshot
+revisions; a transform computed from an older snapshot cannot overwrite the
+newer latest-at-emission result.
 
 Evidence: DPROP-002 through DPROP-005 mutate real sources; DPROP-012 executes
 the shared scenarios; the crate-private
 `owns_exactly_one_subscription_per_source_until_disposal` test directly counts
 the owned registrations before and after disposal without adding a public
 diagnostic API. Focused conformance tests cover distinct emission, value-stream
-completion, and post-dispose isolation.
+completion, post-dispose isolation, and a deterministically gated older
+multi-source transform that resumes only after the newer result commits.
 
 ### 12.4.7. Collections And Commands
 
@@ -226,10 +236,12 @@ committed update in order, and completes after the terminal empty snapshot.
 `NullNotificationHub` replays empty and completes immediately.
 
 Evidence: the value-stream suite covers initial/late replay, completion,
-reentrancy, serialization, and panic isolation. HUB and null-service tests
-cover normal, late, and immediate completion. NOTIF tests cover replay,
-publish-before-waiter ordering, concurrent terminal delivery, and null-hub
-behavior.
+reentrancy, serialization, and panic isolation. It also drives two streams from
+two drainer threads through opposing callbacks, proving cross-stream enqueue
+does not create a wait cycle while the ordinary foreign-thread send/dispose
+tests retain synchronous completion. HUB and null-service tests cover normal,
+late, and immediate completion. NOTIF tests cover replay, publish-before-waiter
+ordering, concurrent terminal delivery, and null-hub behavior.
 
 ### 12.4.9. Executor-Neutral Pending Async Operations
 
@@ -240,8 +252,10 @@ returns the `Future`-compatible `ConfirmationExecution` handle while preserving
 blocking `join()` and non-blocking `is_finished()` conveniences.
 
 First-wins resolution, resolver-thread continuation execution, panic isolation,
-post-dispose no-op behavior, and synchronous completion are covered. Resource-
-bound assertions use retained-continuation counts rather than timing sleeps.
+post-dispose no-op behavior, synchronous completion, and preservation of the
+original `Box<dyn Any + Send>` panic payload through `join()` are covered.
+Resource-bound assertions use retained-continuation counts rather than timing
+sleeps.
 
 The pre-publication API correction is intentional: explicitly typed
 `JoinHandle<()>` callers must migrate to `ConfirmationExecution`; inferred

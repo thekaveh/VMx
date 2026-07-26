@@ -1,5 +1,5 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{mpsc, Arc, Barrier, Mutex};
 use std::time::{Duration, Instant};
 
 use vmx::ValueStream;
@@ -334,4 +334,56 @@ fn foreign_dispose_returns_only_after_terminal_callbacks_finish() {
     );
     assert_eq!(completions.load(Ordering::SeqCst), 1);
     assert_eq!(returned_rx.try_recv(), Ok(()));
+}
+
+#[test]
+fn opposing_cross_stream_callbacks_do_not_deadlock_two_drainers() {
+    let left = ValueStream::hot(0);
+    let right = ValueStream::hot(0);
+    let callbacks_entered = Arc::new(Barrier::new(2));
+    let (returned_tx, returned_rx) = mpsc::channel();
+
+    let left_barrier = callbacks_entered.clone();
+    let left_to_right = right.clone();
+    let left_returned = returned_tx.clone();
+    let _left_subscription = left.subscribe(move |value| {
+        if value == 1 {
+            left_barrier.wait();
+            left_to_right.send(2);
+            left_returned.send("left").unwrap();
+        }
+    });
+
+    let right_barrier = callbacks_entered;
+    let right_to_left = left.clone();
+    let right_returned = returned_tx;
+    let _right_subscription = right.subscribe(move |value| {
+        if value == 1 {
+            right_barrier.wait();
+            right_to_left.send(2);
+            right_returned.send("right").unwrap();
+        }
+    });
+
+    let left_sender = {
+        let left = left.clone();
+        std::thread::spawn(move || left.send(1))
+    };
+    let right_sender = {
+        let right = right.clone();
+        std::thread::spawn(move || right.send(1))
+    };
+
+    let first = returned_rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("one callback should return from its cross-stream send");
+    let second = returned_rx
+        .recv_timeout(Duration::from_secs(1))
+        .expect("both callbacks should return from their cross-stream sends");
+    left_sender.join().unwrap();
+    right_sender.join().unwrap();
+
+    assert_ne!(first, second);
+    assert_eq!(left.value(), 2);
+    assert_eq!(right.value(), 2);
 }

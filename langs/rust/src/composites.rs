@@ -8,7 +8,8 @@ use super::{
     AtomicBool, ComponentCore, ConstructionStatus, Dispatcher, HashSet, LifecycleOperation,
     MembershipDisposeDisposition, MembershipTransactionControl, MembershipTransactionGuard,
     MessageHub, Mutex, NullDispatcher, ObservableList, Ordering, ParentHandle, ParentRegistration,
-    ParentTransfer, PropertyChangedStream, RelayCommand, TreeNode, VmNode, VmxError, VmxResult,
+    ParentTransfer, PropertyChangedStream, RelayCommand, TreeNode, ViewModelType, VmNode, VmxError,
+    VmxResult,
 };
 use crate::components::ComponentCommands;
 
@@ -490,6 +491,11 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
     /// Returns the immutable composite name.
     pub fn name(&self) -> String {
         self.core.name()
+    }
+
+    /// Returns the canonical composite family discriminator.
+    pub fn view_model_type(&self) -> ViewModelType {
+        ViewModelType::Composite
     }
 
     /// Returns the immutable presentation hint.
@@ -1456,6 +1462,11 @@ pub struct FilteredCompositeVm<T: VmNode, D: Dispatcher = NullDispatcher> {
 }
 
 impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
+    /// Returns the source composite's family discriminator.
+    pub fn view_model_type(&self) -> ViewModelType {
+        self.source.view_model_type()
+    }
+
     /// Creates a predicate-filtered projection.
     pub fn new<F>(source: CompositeVm<T, D>, predicate: F) -> Self
     where
@@ -1796,6 +1807,11 @@ pub struct ModeledCompositeVm<
 impl<M: Clone + PartialEq + Send + Sync + 'static, T: VmNode, D: Dispatcher>
     ModeledCompositeVm<M, T, D>
 {
+    /// Returns the modeled composite family discriminator.
+    pub fn view_model_type(&self) -> ViewModelType {
+        self.inner.view_model_type()
+    }
+
     /// Creates a modeled composite from model and mapping factories.
     pub fn new<F, G>(
         name: impl Into<String>,

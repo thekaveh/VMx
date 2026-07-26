@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex};
+use std::sync::{mpsc, Arc, Barrier, Mutex};
 
 use serde::Deserialize;
 use serde_json::Value;
@@ -97,6 +97,37 @@ fn any_source_mutation_recomputes() {
     sources[2].send(30);
 
     assert_eq!(property.value(), 42);
+}
+
+#[test]
+fn older_multi_source_transform_cannot_overwrite_a_newer_snapshot() {
+    let left = ValueStream::new(0);
+    let right = ValueStream::new(0);
+    let older_transform_release = Arc::new(Barrier::new(2));
+    let (older_transform_entered_tx, older_transform_entered_rx) = mpsc::channel();
+    let release = older_transform_release.clone();
+    let property = DerivedProperty::from_two(
+        left.clone(),
+        right.clone(),
+        move |left_value, right_value| {
+            if (left_value, right_value) == (1, 0) {
+                older_transform_entered_tx.send(()).unwrap();
+                release.wait();
+            }
+            left_value + right_value
+        },
+    );
+
+    let older_sender = std::thread::spawn(move || left.send(1));
+    older_transform_entered_rx.recv().unwrap();
+
+    right.send(1);
+    assert_eq!(property.value(), 2);
+
+    older_transform_release.wait();
+    older_sender.join().unwrap();
+
+    assert_eq!(property.value(), 2);
 }
 
 /// DPROP-006 — Default-built derived property is read-only

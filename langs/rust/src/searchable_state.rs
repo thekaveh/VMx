@@ -142,11 +142,17 @@ impl<T: Clone + Send + Sync + 'static> SearchableState<T> {
 
     /// Evaluates and returns the current filtered projection.
     pub fn search(&self) -> Vec<T> {
+        if self.disposed.load(Ordering::Acquire) {
+            return Vec::new();
+        }
         self.filtered()
     }
 
     /// Pulls the source and returns items accepted by the current term.
     pub fn filtered(&self) -> Vec<T> {
+        if self.disposed.load(Ordering::Acquire) {
+            return Vec::new();
+        }
         let term = self.search_term();
         (self.source)()
             .into_iter()
@@ -156,7 +162,7 @@ impl<T: Clone + Send + Sync + 'static> SearchableState<T> {
 
     /// Reports whether the current source contains any searchable items.
     pub fn can_search(&self) -> bool {
-        !(self.source)().is_empty()
+        !self.disposed.load(Ordering::Acquire) && !(self.source)().is_empty()
     }
 
     /// Returns the hub that announces filtered-projection changes.

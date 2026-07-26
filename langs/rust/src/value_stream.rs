@@ -4,7 +4,31 @@ use crate::{
     lock, thread, wait, Arc, AssertUnwindSafe, AtomicBool, BTreeMap, Condvar, Mutex, Ordering,
     ThreadId, VecDeque, Weak,
 };
+use std::cell::Cell;
 use std::panic::catch_unwind;
+
+thread_local! {
+    static VALUE_STREAM_DRAIN_DEPTH: Cell<usize> = const { Cell::new(0) };
+}
+
+struct ValueStreamDrainContext;
+
+impl ValueStreamDrainContext {
+    fn enter() -> Self {
+        VALUE_STREAM_DRAIN_DEPTH.with(|depth| depth.set(depth.get() + 1));
+        Self
+    }
+
+    fn is_active() -> bool {
+        VALUE_STREAM_DRAIN_DEPTH.with(|depth| depth.get() > 0)
+    }
+}
+
+impl Drop for ValueStreamDrainContext {
+    fn drop(&mut self) {
+        VALUE_STREAM_DRAIN_DEPTH.with(|depth| depth.set(depth.get() - 1));
+    }
+}
 
 type ValueSubscriber<T> = Arc<dyn Fn(T) + Send + Sync + 'static>;
 type ValueCompletion = Arc<dyn Fn() + Send + Sync + 'static>;
@@ -250,12 +274,13 @@ impl<T: Clone + Send + 'static> ValueStream<T> {
         };
         if should_drain {
             self.drain(current);
-        } else if !reentrant {
+        } else if !reentrant && !ValueStreamDrainContext::is_active() {
             completion.wait();
         }
     }
 
     fn drain(&self, current: ThreadId) {
+        let _drain_context = ValueStreamDrainContext::enter();
         loop {
             let next = {
                 let mut state = lock(&self.inner);
@@ -319,7 +344,7 @@ impl<T: Clone + Send + 'static> ValueStream<T> {
                     .expect("requested disposal has a completion");
                 let reentrant = state.draining_owner == Some(current);
                 drop(state);
-                if !reentrant {
+                if !reentrant && !ValueStreamDrainContext::is_active() {
                     completion.wait();
                 }
                 return;
@@ -341,7 +366,7 @@ impl<T: Clone + Send + 'static> ValueStream<T> {
         };
         if should_drain {
             self.drain(current);
-        } else if !reentrant {
+        } else if !reentrant && !ValueStreamDrainContext::is_active() {
             completion.wait();
         }
     }
