@@ -10,6 +10,38 @@ def _workflow(name: str) -> str:
     return (REPO_ROOT / ".github" / "workflows" / name).read_text(encoding="utf-8")
 
 
+def test_typescript_example_locks_embed_current_local_vmx_metadata() -> None:
+    manifest_path = REPO_ROOT / "langs/typescript/package.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    stored_fields = (
+        "name",
+        "version",
+        "license",
+        "dependencies",
+        "devDependencies",
+        "engines",
+        "peerDependencies",
+        "peerDependenciesMeta",
+    )
+    expected = {field: manifest[field] for field in stored_fields}
+    linked_locks: list[Path] = []
+
+    for path in sorted((REPO_ROOT / "examples/typescript").rglob("package-lock.json")):
+        lock = json.loads(path.read_text(encoding="utf-8"))
+        root = lock["packages"][""]
+        requirements = root.get("dependencies", {}) | root.get("devDependencies", {})
+        local_spec = requirements.get("@thekaveh/vmx")
+        if not isinstance(local_spec, str) or not local_spec.startswith("file:"):
+            continue
+        package_key = local_spec.removeprefix("file:")
+        if (path.parent / package_key).resolve() != manifest_path.parent:
+            continue
+        linked_locks.append(path)
+        assert lock["packages"][package_key] == expected, path.relative_to(REPO_ROOT)
+
+    assert linked_locks, "no TypeScript example lock links the local VMx package"
+
+
 def test_typescript_ci_triggers_for_package_verification_tools() -> None:
     workflow = _workflow("typescript.yml")
 
