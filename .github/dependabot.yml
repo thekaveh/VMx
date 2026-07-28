@@ -17,7 +17,9 @@ updates:
     target-branch: develop
     ignore:
       - dependency-name: typescript
-        versions: [">=6.1.0"]
+        versions: [">=6.0.0"]
+      - dependency-name: jsdom
+        versions: [">=30.0.0"]
     groups:
       npm:
         patterns: ["*"]

@@ -61,6 +61,25 @@ def test_contract_ledger_matches_current_rust_package() -> None:
     assert re.search(r"ESLint; \d+ tests", ledger) is None
 
 
+def test_contract_ledger_matches_python_reactivex_locks() -> None:
+    ledger = (ROOT / "docs/maintenance/2026-07-01-contract-ledger.md").read_text(encoding="utf-8")
+    lock_paths = (
+        ROOT / "langs/python/uv.lock",
+        ROOT / "examples/python/uv.lock",
+        ROOT / "examples/python/textual/inspector/uv.lock",
+        ROOT / "examples/python/textual/notes_showcase/uv.lock",
+    )
+    versions = set()
+    for path in lock_paths:
+        lock = path.read_text(encoding="utf-8")
+        match = re.search(r'\[\[package\]\]\nname = "reactivex"\nversion = "([^"]+)"', lock)
+        assert match, f"{path}: missing reactivex package"
+        versions.add(match.group(1))
+
+    assert versions == {"5.1.0"}
+    assert "committed locks resolve stable `5.1.0`" in ledger
+
+
 def test_contract_ledger_matches_docs_and_dom_tooling() -> None:
     requirements = (ROOT / "docs/requirements.txt").read_text(encoding="utf-8")
     ledger = (ROOT / "docs/maintenance/2026-07-01-contract-ledger.md").read_text(encoding="utf-8")
@@ -76,6 +95,11 @@ def test_contract_ledger_matches_docs_and_dom_tooling() -> None:
     assert '"jsdom": "^29.1.1"' in typescript_package
     assert '"jsdom": "^29.1.1"' in react_package
     assert "jsdom `29.1.1`" in ledger
+    assert "TypeScript `6.0.3` raises `TS5101`" in ledger
+    assert "jsdom `30.0.0` drops Node 20" in ledger
+    for engine_range in ("^22.22.2", "^24.15.0", ">=26.0.0"):
+        assert engine_range in ledger
+    assert "`webidl.util.markAsUncloneable`" in ledger
     assert (
         "Python branch CI builds, validates, and fresh-installs both the wheel and sdist." in ledger
     )

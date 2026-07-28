@@ -50,7 +50,7 @@ def test_dependabot_covers_every_committed_dependency_ecosystem() -> None:
     assert config.count("interval: weekly") == 6
 
 
-def test_dependabot_preserves_python_bounds_and_typescript_peer_compatibility() -> None:
+def test_dependabot_preserves_python_bounds_and_defers_incompatible_js_majors() -> None:
     config = (REPO_ROOT / ".github/dependabot.yml").read_text(encoding="utf-8")
 
     sections = dict(
@@ -62,8 +62,14 @@ def test_dependabot_preserves_python_bounds_and_typescript_peer_compatibility() 
     )
 
     assert "versioning-strategy: lockfile-only" in sections["uv"]
-    assert "dependency-name: typescript" in sections["npm"]
-    assert 'versions: [">=6.1.0"]' in sections["npm"]
+    assert re.search(
+        r'dependency-name: typescript\n\s+versions: \[">=6\.0\.0"\]',
+        sections["npm"],
+    )
+    assert re.search(
+        r'dependency-name: jsdom\n\s+versions: \[">=30\.0\.0"\]',
+        sections["npm"],
+    )
 
 
 def test_dependabot_changes_run_the_automation_contracts() -> None:
