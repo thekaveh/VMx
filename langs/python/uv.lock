@@ -450,14 +450,14 @@ wheels = [
 
 [[package]]
 name = "reactivex"
-version = "5.0.0"
+version = "5.1.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d0/aa/f7605d38763770443bdc3d13f686765bf36169084be60951514fdfd193f5/reactivex-5.0.0.tar.gz", hash = "sha256:3b027c16e0476a2d3a81e8ee5780389cb16164b9e6eaae6a1df6ad796aa03a22", size = 136597, upload-time = "2026-07-20T20:04:03.713Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f2/c3/eeb429d774c135a8bebe2b8ac51f9639fde1953506f062b42b9ba6e44176/reactivex-5.1.0.tar.gz", hash = "sha256:b6b40269ebcbf24c53455c1b6790d682122cc8c01c907b8c8da47e2babb3b77e", size = 137788, upload-time = "2026-07-27T19:07:49.114Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/97/45/fedda406c56dca118e29b907409570cc3e456555374989301cb4b6950cd1/reactivex-5.0.0-py3-none-any.whl", hash = "sha256:85f1c8e02b1fed9d8d4de2e42210beb3a8b4a0d7fe4ee4c1e1b236607363d26d", size = 256668, upload-time = "2026-07-20T20:04:02.475Z" },
+    { url = "https://files.pythonhosted.org/packages/e3/37/5b71117e68e5571c8c10942600eb02fb8c454c7347d08f8cddbdcde6ba6e/reactivex-5.1.0-py3-none-any.whl", hash = "sha256:8668c0a3c8ae8694f1180421b367489d35a8affa281a3605014bf54364eed3a0", size = 257317, upload-time = "2026-07-27T19:07:47.631Z" },
 ]
 
 [[package]]
