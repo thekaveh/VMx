@@ -65,6 +65,15 @@ updates:
       - /examples/csharp
     schedule: { interval: weekly, day: monday }
     target-branch: develop
+    ignore:
+      - dependency-name: coverlet.collector
+        versions: ["10.0.1"]
+      - dependency-name: coverlet.msbuild
+        versions: ["10.0.1"]
+      - dependency-name: FluentAssertions
+        versions: [">=7.0.0"]
+      - dependency-name: Microsoft.Extensions.DependencyInjection
+        versions: [">=9.0.0"]
     groups:
       nuget:
         patterns: ["*"]

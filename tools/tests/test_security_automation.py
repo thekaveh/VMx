@@ -72,6 +72,31 @@ def test_dependabot_preserves_python_bounds_and_defers_incompatible_js_majors() 
     )
 
 
+def test_dependabot_defers_incompatible_nuget_updates() -> None:
+    config = (REPO_ROOT / ".github/dependabot.yml").read_text(encoding="utf-8")
+    ledger = (REPO_ROOT / "docs/maintenance/2026-07-01-contract-ledger.md").read_text(
+        encoding="utf-8"
+    )
+    nuget = config.split("  - package-ecosystem: nuget\n", maxsplit=1)[1]
+    expected = {
+        "coverlet.collector": "10.0.1",
+        "coverlet.msbuild": "10.0.1",
+        "FluentAssertions": ">=7.0.0",
+        "Microsoft.Extensions.DependencyInjection": ">=9.0.0",
+    }
+    for dependency, version in expected.items():
+        assert re.search(
+            rf"dependency-name: {re.escape(dependency)}\n\s+versions: "
+            rf'\["{re.escape(version)}"\]',
+            nuget,
+        )
+    assert "FluentAssertions `7+` is a deliberate assertion-library migration" in ledger
+    assert re.search(r"commercial-use\s+license decision", ledger)
+    assert "88 C# test files" in ledger
+    assert "DI implementation runtime `9+` is deferred" in ledger
+    assert re.search(r"runtime-floor compatibility\s+evidence", ledger)
+
+
 def test_dependabot_changes_run_the_automation_contracts() -> None:
     workflow = (REPO_ROOT / ".github/workflows/conformance.yml").read_text(encoding="utf-8")
 
