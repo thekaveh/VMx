@@ -1,5 +1,6 @@
 """Contract tests for TypeScript package and release workflows."""
 
+import json
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -33,6 +34,19 @@ def test_contract_suite_triggers_on_typescript_and_release_workflow_changes() ->
     workflow = _workflow("conformance.yml")
 
     assert workflow.count('- ".github/workflows/**"') == 1
+
+
+def test_test_tsconfig_uses_es2022_without_raising_production_target() -> None:
+    test_config = json.loads(
+        (REPO_ROOT / "langs/typescript/tsconfig.tests.json").read_text(encoding="utf-8")
+    )
+    production_config = json.loads(
+        (REPO_ROOT / "langs/typescript/tsconfig.json").read_text(encoding="utf-8")
+    )
+
+    assert test_config["compilerOptions"]["lib"] == ["ES2022", "ESNext.Symbol", "DOM"]
+    assert "target" not in test_config["compilerOptions"]
+    assert production_config["compilerOptions"]["target"] == "ES2020"
 
 
 def _typescript_release_jobs() -> str:
