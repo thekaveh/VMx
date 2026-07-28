@@ -18,7 +18,7 @@ _CORE_PROPERTIES = re.compile(r"^package/services/metadata/core-properties/[0-9a
 _CORE_DEPENDENCIES = {
     "net8.0": [("System.Reactive", "7.0.0")],
     ".NETStandard2.0": [
-        ("Microsoft.Bcl.AsyncInterfaces", "8.0.0"),
+        ("Microsoft.Bcl.AsyncInterfaces", "10.0.10"),
         ("System.Collections.Immutable", "10.0.10"),
         ("System.Reactive", "7.0.0"),
         ("System.Text.Json", "8.0.6"),
@@ -29,7 +29,7 @@ _PACKAGE_DEPENDENCIES = {
     "VMx.Notifications": _CORE_DEPENDENCIES,
     "VMx.Extensions.DependencyInjection": {
         framework: [
-            ("Microsoft.Extensions.DependencyInjection.Abstractions", "8.0.2"),
+            ("Microsoft.Extensions.DependencyInjection.Abstractions", "10.0.10"),
             *dependencies,
         ]
         for framework, dependencies in _CORE_DEPENDENCIES.items()

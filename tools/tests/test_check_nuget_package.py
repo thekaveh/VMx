@@ -110,7 +110,7 @@ def test_validate_package_pair_accepts_exact_public_dependency_contract(tmp_path
     dependencies = {
         "net8.0": [("System.Reactive", "7.0.0")],
         ".NETStandard2.0": [
-            ("Microsoft.Bcl.AsyncInterfaces", "8.0.0"),
+            ("Microsoft.Bcl.AsyncInterfaces", "10.0.10"),
             ("System.Collections.Immutable", "10.0.10"),
             ("System.Reactive", "7.0.0"),
             ("System.Text.Json", "8.0.6"),
@@ -124,6 +124,36 @@ def test_validate_package_pair_accepts_exact_public_dependency_contract(tmp_path
     )
 
     assert checker.validate_package_pair(tmp_path, "VMx", "3.22.1", None) == []
+
+
+def test_validate_package_pair_accepts_current_di_dependency_contract(tmp_path: Path) -> None:
+    dependencies = {
+        "net8.0": [
+            ("Microsoft.Extensions.DependencyInjection.Abstractions", "10.0.10"),
+            ("System.Reactive", "7.0.0"),
+        ],
+        ".NETStandard2.0": [
+            ("Microsoft.Bcl.AsyncInterfaces", "10.0.10"),
+            ("Microsoft.Extensions.DependencyInjection.Abstractions", "10.0.10"),
+            ("System.Collections.Immutable", "10.0.10"),
+            ("System.Reactive", "7.0.0"),
+            ("System.Text.Json", "8.0.6"),
+        ],
+    }
+    _write_packages(
+        tmp_path,
+        "VMx.Extensions.DependencyInjection",
+        "2.1.1",
+        "3.23.0",
+        framework_dependencies=dependencies,
+    )
+
+    assert (
+        checker.validate_package_pair(
+            tmp_path, "VMx.Extensions.DependencyInjection", "2.1.1", "3.23.0"
+        )
+        == []
+    )
 
 
 def test_main_packages_include_legal_texts_but_symbol_packages_do_not() -> None:
