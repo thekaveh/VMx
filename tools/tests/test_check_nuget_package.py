@@ -113,7 +113,7 @@ def test_validate_package_pair_accepts_exact_public_dependency_contract(tmp_path
             ("Microsoft.Bcl.AsyncInterfaces", "10.0.10"),
             ("System.Collections.Immutable", "10.0.10"),
             ("System.Reactive", "7.0.0"),
-            ("System.Text.Json", "8.0.6"),
+            ("System.Text.Json", "10.0.10"),
         ],
     }
     _write_packages(
@@ -137,7 +137,7 @@ def test_validate_package_pair_accepts_current_di_dependency_contract(tmp_path: 
             ("Microsoft.Extensions.DependencyInjection.Abstractions", "10.0.10"),
             ("System.Collections.Immutable", "10.0.10"),
             ("System.Reactive", "7.0.0"),
-            ("System.Text.Json", "8.0.6"),
+            ("System.Text.Json", "10.0.10"),
         ],
     }
     _write_packages(

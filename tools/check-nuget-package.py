@@ -21,7 +21,7 @@ _CORE_DEPENDENCIES = {
         ("Microsoft.Bcl.AsyncInterfaces", "10.0.10"),
         ("System.Collections.Immutable", "10.0.10"),
         ("System.Reactive", "7.0.0"),
-        ("System.Text.Json", "8.0.6"),
+        ("System.Text.Json", "10.0.10"),
     ],
 }
 _PACKAGE_DEPENDENCIES = {
