@@ -15,6 +15,11 @@ updates:
       - /examples/typescript/react/notes-showcase
     schedule: { interval: weekly, day: monday }
     target-branch: develop
+    ignore:
+      - dependency-name: typescript
+        versions: [">=6.0.0"]
+      - dependency-name: jsdom
+        versions: [">=30.0.0"]
     groups:
       npm:
         patterns: ["*"]
@@ -40,6 +45,7 @@ updates:
       - /examples/python/textual/notes_showcase
     schedule: { interval: weekly, day: monday }
     target-branch: develop
+    versioning-strategy: lockfile-only
     groups:
       python:
         patterns: ["*"]
@@ -59,6 +65,15 @@ updates:
       - /examples/csharp
     schedule: { interval: weekly, day: monday }
     target-branch: develop
+    ignore:
+      - dependency-name: coverlet.collector
+        versions: ["10.0.1"]
+      - dependency-name: coverlet.msbuild
+        versions: ["10.0.1"]
+      - dependency-name: FluentAssertions
+        versions: [">=7.0.0"]
+      - dependency-name: Microsoft.Extensions.DependencyInjection
+        versions: [">=9.0.0"]
     groups:
       nuget:
         patterns: ["*"]

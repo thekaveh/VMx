@@ -7,7 +7,7 @@
                     Margin="8,0,0,0"
                     Content="Search"
                     Command="{Binding RefreshCommand}" />
-            <TextBox Watermark="Search all notes..."
+            <TextBox PlaceholderText="Search all notes..."
                      AutomationProperties.Name="Search all notes"
                      Text="{Binding SearchTerm, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
         </DockPanel>

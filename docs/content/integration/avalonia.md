@@ -1,7 +1,7 @@
 # 9.2. Avalonia Integration
 
 Cross-platform XAML for desktop (Win/macOS/Linux), mobile, and browser
-via Avalonia 11+. Wires a `ComponentVM<M>` through an
+via Avalonia 12. Wires a `ComponentVM<M>` through an
 `INotifyPropertyChanged` adapter, similar to WPF.
 
 ## 9.2.1. Reactivity primitive
