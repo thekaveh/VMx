@@ -32,7 +32,7 @@ and [`assets/notes-showcase-vmx-components.png`](assets/notes-showcase-vmx-compo
 
 ## 2. Flavors
 
-- **C# / Avalonia 11 on .NET 8** — `examples/csharp/avalonia/NotesShowcase/`
+- **C# / Avalonia 12 on .NET 8** — `examples/csharp/avalonia/NotesShowcase/`
 - **Python / Textual ≥ 0.80** — `examples/python/textual/notes_showcase/`
 - **TypeScript / React 19 + Vite** — `examples/typescript/react/notes-showcase/`
 - **Swift / SwiftUI + Combine (macOS)** — `examples/swift/notes-showcase/` (ADR-0067)

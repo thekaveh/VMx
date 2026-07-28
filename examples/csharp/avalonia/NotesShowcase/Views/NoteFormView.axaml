@@ -21,7 +21,7 @@
 
         <!-- Title (row 1) -->
         <StackPanel Grid.Row="1" Spacing="2" Margin="0,0,0,8">
-            <TextBox Watermark="Title"
+            <TextBox PlaceholderText="Title"
                      AutomationProperties.Name="Note title"
                      Text="{Binding Title, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
             <TextBlock Foreground="#fb7185"
@@ -57,7 +57,7 @@
                 </ItemsControl.ItemTemplate>
             </ItemsControl>
             <StackPanel Orientation="Horizontal" Spacing="4">
-                <TextBox Watermark="add tag"
+                <TextBox PlaceholderText="add tag"
                          AutomationProperties.Name="Tag"
                          Text="{Binding TagDraft, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                          Width="160" />
@@ -91,7 +91,7 @@
 
         <!-- Body (row 5) -->
         <TextBox Grid.Row="5"
-                 Watermark="Body"
+                 PlaceholderText="Body"
                  AutomationProperties.Name="Note body"
                  Text="{Binding Body, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                  AcceptsReturn="True"

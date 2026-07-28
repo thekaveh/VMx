@@ -1,11 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <!--
-      Test runner targets net9.0 (parity with langs/csharp/tests/VMx.Conformance.Tests):
-      the dev environment only has the .NET 9 SDK/runtime installed. The product
-      project `NotesShowcase.csproj` itself targets net8.0 — the SDK still builds
-      it as a downlevel reference under the net9 host.
+      The test runner remains on net9.0 while the product project remains on
+      net8.0. A newer SDK can compile both targets, but executing the test host
+      requires the .NET 9 runtime.
     -->
+    <OutputType>Exe</OutputType>
     <TargetFramework>net9.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -13,7 +13,7 @@
     <IsTestProject>true</IsTestProject>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
     <!--
-      Coverlet line-coverage gate per plan §3.a.12.
+      Coverlet line-coverage gate for the example's application logic.
       SeedData is data-only and excluded from the threshold count.
     -->
     <CollectCoverage>true</CollectCoverage>
@@ -26,27 +26,27 @@
       SeedData is data-only (excluded from §3.a coverage scope).
       AvaloniaDispatcher and AvaloniaDialogService rely on a live Avalonia
       runtime (Dispatcher.UIThread, IStorageProvider, Window) and are exercised
-      by the Phase 5.a headless smoke test rather than unit tests — they are
-      excluded from this gate per plan §4.a / §5.a.
+      by the headless smoke tests rather than unit tests, so they are excluded
+      from this gate.
     -->
     <ExcludeByFile>**/Models/SeedData.cs,**/Views/Adapter/AvaloniaDispatcher.cs,**/Views/Adapter/AvaloniaDialogService.cs</ExcludeByFile>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
-    <PackageReference Include="xunit" Version="2.9.3" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.8.1" />
+    <PackageReference Include="xunit.v3" Version="3.2.2" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="Microsoft.Reactive.Testing" Version="7.0.0" />
-    <PackageReference Include="coverlet.msbuild" Version="6.0.4">
+    <PackageReference Include="coverlet.msbuild" Version="10.0.0">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
-    <!-- Phase 5.a: headless smoke test driver for the Avalonia views. -->
-    <PackageReference Include="Avalonia.Headless.XUnit" Version="11.3.18" />
+    <!-- Headless smoke-test driver; Avalonia 12 hosts through xunit v3. -->
+    <PackageReference Include="Avalonia.Headless.XUnit" Version="12.1.0" />
   </ItemGroup>
 
   <ItemGroup>

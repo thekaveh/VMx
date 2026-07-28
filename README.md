@@ -279,7 +279,7 @@ The scenario is deliberately an en-US reference host; translated application
 catalogs are consumer-owned and are not a parity-matrix row.
 
 - [`examples/csharp/avalonia/NotesShowcase/`](examples/csharp/avalonia/NotesShowcase/)
-  — Notes Workspace flagship on Avalonia 11 + .NET 8 (cross-platform XAML).
+  — Notes Workspace flagship on Avalonia 12 + .NET 8 (cross-platform XAML).
   Run: `dotnet run --project examples/csharp/avalonia/NotesShowcase`.
 - [`examples/python/textual/notes_showcase/`](examples/python/textual/notes_showcase/)
   — Notes Workspace flagship on Textual ≥ 0.80 (TUI). Run:

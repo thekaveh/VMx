@@ -98,7 +98,7 @@ launches on Windows because of the WPF target.
 ## 4. Example 3 — `avalonia/NotesShowcase/` (Avalonia + MVVM, flagship)
 
 The Notes Workspace flagship app — a cross-platform XAML editor on
-Avalonia 11 + .NET 8 that exercises **19 distinct VMx features** in one
+Avalonia 12 + .NET 8 that exercises **19 distinct VMx features** in one
 cohesive scenario (notebooks tree, paged + filterable notes list, FormVM
 editor, capability-aware action bar, notifications, async lifecycle,
 dialogs, token-paged global search, edit/preview state, tag autocomplete,

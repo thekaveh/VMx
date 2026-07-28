@@ -1,7 +1,7 @@
 # NotesShowcase (C# / Avalonia)
 
 VMx flagship example — Notes Workspace, the C# / Avalonia flavor. A
-cross-platform XAML app on Avalonia 11 + .NET 8 that drives a single
+cross-platform XAML app on Avalonia 12 + .NET 8 that drives a single
 `WorkspaceVM` exercising 19 distinct VMx features (see the
 [parity matrix](../../../notes-showcase-parity.md) for the full feature
 table, and the
