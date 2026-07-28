@@ -16,7 +16,7 @@ namespace NotesShowcase.Views.Adapter;
 ///   <item>
 ///     <description>
 ///       <see cref="PickFileToOpen"/> / <see cref="PickFileToSave"/> route to
-///       <see cref="IStorageProvider"/> on the host window (Avalonia 11 surface;
+///       <see cref="IStorageProvider"/> on the host window (Avalonia 12 surface;
 ///       Avalonia 10's <c>OpenFileDialog</c>/<c>SaveFileDialog</c> were retired).
 ///     </description>
 ///   </item>
