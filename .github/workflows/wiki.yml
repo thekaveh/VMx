@@ -8,6 +8,8 @@ on:
       - "docs/content/**"
       - "docs/maintenance/**"
       - "docs/manifest.yaml"
+      - "docs/opener.yaml"
+      - "assets/vmx-poster.png"
       - "spec/**"
       - "scripts/docs/**"
       - "tools/docs/validate_diagrams.py"

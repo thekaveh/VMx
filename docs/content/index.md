@@ -1,8 +1,26 @@
 # 1. VMx
 
-VMx is a lifecycle-aware MVVM viewmodel framework: one language-neutral
-specification, five idiomatic source flavors, and a conformance catalog that
-keeps C#, Python, TypeScript, Swift, and Rust aligned.
+<img src="../../assets/vmx-poster.png" alt="VMx framework across C#, Python, TypeScript, Swift, and Rust" width="100%">
+
+<!-- vmx-opener:start -->
+
+One specification. Five idiomatic flavors. Predictable MVVM behavior across UI stacks.
+
+VMx is a UI-neutral, lifecycle-aware MVVM viewmodel framework for building
+hierarchical application state with explicit construction, destruction,
+disposal, reactive messaging, commands, collections, and composable services.
+One language-neutral specification defines observable behavior, while five
+source flavors—C#, Python, TypeScript, Swift, and Rust—preserve each ecosystem’s
+naming, type, concurrency, and package conventions. A shared conformance catalog
+keeps those implementations aligned without erasing idiomatic APIs. The source
+tree currently carries complete 403-ID library coverage in every flavor, with
+flagship hosts exercising five additional THEME scenarios. Swift is publicly
+available through SwiftPM; Python’s public package trails the source line, and
+the C#, TypeScript, and Rust registry channels are prepared but not yet
+published. VMx therefore separates source completeness from installable-release
+status and documents both explicitly.
+
+<!-- vmx-opener:end -->
 
 <div class="vmx-card-grid">
   <div class="vmx-card">

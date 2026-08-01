@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import html
+import os
 import re
 import unicodedata
 from dataclasses import dataclass
@@ -20,6 +21,7 @@ from scripts.docs.links import (
     is_forbidden,
 )
 from scripts.docs.manifest import load_manifest
+from scripts.docs.opener import load_opener
 
 PLACEHOLDER_RE = re.compile(r"\b(TODO|TBD|FIXME)\b")
 # CommonMark backslash-escapes any ASCII punctuation; mdformat forces `C#` at the
@@ -40,6 +42,8 @@ HISTORICAL_AUDIT_NOTICE = (
     "contain superseded paths, versions, findings, or conclusions. For current behavior, "
     "use the specification and current documentation."
 )
+OPENER_START = "<!-- vmx-opener:start -->"
+OPENER_END = "<!-- vmx-opener:end -->"
 
 STANDALONE_NUMBERED_DOCS = (
     Path("langs/rust/README.md"),
@@ -124,6 +128,60 @@ def _scan_repo_surface_markdown(repo_root: Path) -> list[Path]:
                 continue
             files.append(path)
     return sorted(set(files))
+
+
+def _normalized_opener_paragraphs(markdown: str) -> list[str]:
+    if OPENER_START not in markdown or OPENER_END not in markdown:
+        return []
+    opening = markdown.split(OPENER_START, 1)[1].split(OPENER_END, 1)[0]
+    return [
+        " ".join(paragraph.split())
+        for paragraph in re.split(r"\n\s*\n", opening)
+        if paragraph.strip()
+    ]
+
+
+def _has_canonical_poster(markdown: str, expected_source: str, expected_alt: str) -> bool:
+    for match in re.finditer(r"<img\b(?P<attrs>[^>]*)>", markdown, re.IGNORECASE):
+        attributes = {
+            name.lower(): html.unescape(value)
+            for name, _quote, value in re.findall(
+                r"([A-Za-z_:][-A-Za-z0-9_:.]*)\s*=\s*([\"'])(.*?)\2",
+                match.group("attrs"),
+            )
+        }
+        if attributes.get("src") == expected_source and attributes.get("alt") == expected_alt:
+            return True
+    return False
+
+
+def check_project_opening(repo_root: Path) -> list[Finding]:
+    findings: list[Finding] = []
+    try:
+        opener = load_opener(repo_root / "docs/opener.yaml", repo_root)
+    except ValueError as error:
+        return [Finding("error", str(error))]
+
+    expected_paragraphs = [opener.tagline, opener.summary]
+    for relative in (Path("README.md"), Path("docs/content/index.md")):
+        path = repo_root / relative
+        markdown = path.read_text(encoding="utf-8")
+        if _normalized_opener_paragraphs(markdown) != expected_paragraphs:
+            findings.append(
+                Finding(
+                    "error",
+                    f"{relative}: project opening differs from canonical summary",
+                )
+            )
+        expected_source = os.path.relpath(opener.poster_source, start=relative.parent or Path("."))
+        if not _has_canonical_poster(markdown, expected_source, opener.poster_alt):
+            findings.append(
+                Finding(
+                    "error",
+                    f"{relative}: canonical project poster is missing or inconsistent",
+                )
+            )
+    return findings
 
 
 def check_self_containment(repo_root: Path) -> list[Finding]:
@@ -580,6 +638,7 @@ def check_placeholders(repo_root: Path) -> list[Finding]:
 def check(repo_root: Path) -> list[Finding]:
     build_docs.build(site=True, wiki=True, check=True, repo_root=repo_root)
     findings: list[Finding] = []
+    findings.extend(check_project_opening(repo_root))
     findings.extend(check_self_containment(repo_root))
     findings.extend(check_canonical_links(repo_root))
     findings.extend(check_generated_wiki_links(repo_root))
