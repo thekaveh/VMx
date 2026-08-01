@@ -134,11 +134,13 @@ def _normalized_opener_paragraphs(markdown: str) -> list[str]:
     if OPENER_START not in markdown or OPENER_END not in markdown:
         return []
     opening = markdown.split(OPENER_START, 1)[1].split(OPENER_END, 1)[0]
-    return [
-        " ".join(paragraph.split())
-        for paragraph in re.split(r"\n\s*\n", opening)
-        if paragraph.strip()
-    ]
+    paragraphs: list[str] = []
+    for paragraph in re.split(r"\n\s*\n", opening):
+        if not paragraph.strip():
+            continue
+        visible_text = html.unescape(re.sub(r"<[^>]+>", " ", paragraph))
+        paragraphs.append(" ".join(visible_text.split()))
+    return paragraphs
 
 
 def _has_canonical_poster(markdown: str, expected_source: str, expected_alt: str) -> bool:
@@ -163,7 +165,11 @@ def check_project_opening(repo_root: Path) -> list[Finding]:
         return [Finding("error", str(error))]
 
     expected_paragraphs = [opener.tagline, opener.summary]
-    for relative in (Path("README.md"), Path("docs/content/index.md")):
+    surfaces = (
+        (Path("README.md"), "VMx"),
+        (Path("docs/content/index.md"), "1. VMx"),
+    )
+    for relative, title in surfaces:
         path = repo_root / relative
         markdown = path.read_text(encoding="utf-8")
         if _normalized_opener_paragraphs(markdown) != expected_paragraphs:
@@ -180,6 +186,18 @@ def check_project_opening(repo_root: Path) -> list[Finding]:
                     "error",
                     f"{relative}: canonical project poster is missing or inconsistent",
                 )
+            )
+        poster_tag = f'<img src="{expected_source}" alt="{opener.poster_alt}" width="100%">'
+        expected_prefix = f'<p align="center">\n  {poster_tag}\n</p>'
+        if not markdown.startswith(expected_prefix):
+            findings.append(Finding("error", f"{relative}: centered project poster must be first"))
+        if f'<h1 align="center">{title}</h1>' not in markdown:
+            findings.append(Finding("error", f"{relative}: centered project title is missing"))
+        centered_tagline = f'<p align="center"><strong>{opener.tagline}</strong></p>'
+        centered_summary = f'<p align="center">{opener.summary}</p>'
+        if centered_tagline not in markdown or centered_summary not in markdown:
+            findings.append(
+                Finding("error", f"{relative}: project tagline and summary must be centered")
             )
     return findings
 
@@ -476,11 +494,16 @@ def check_raw_html_headings(repo_root: Path) -> list[Finding]:
         text = _without_fenced_code(path.read_text(encoding="utf-8"))
         for line_number, line in enumerate(text.splitlines(), start=1):
             if HTML_HEADING_RE.search(line):
+                relative = path.relative_to(repo_root)
+                if (
+                    relative == Path("docs/content/index.md")
+                    and line == '<h1 align="center">1. VMx</h1>'
+                ):
+                    continue
                 findings.append(
                     Finding(
                         "error",
-                        f"{path.relative_to(repo_root)}:{line_number}: "
-                        "raw HTML heading bypasses hierarchy checks",
+                        f"{relative}:{line_number}: raw HTML heading bypasses hierarchy checks",
                     )
                 )
     return findings
@@ -554,13 +577,25 @@ def check_heading_numbers(repo_root: Path) -> list[Finding]:
         assert section.source is not None
         path = repo_root / section.source
         text = path.read_text(encoding="utf-8")
-        first_line = MD_ESCAPE_RE.sub(r"\1", text.splitlines()[0].strip())
-        expected = f"# {section.label}"
-        if first_line != expected:
+        expected_markdown = f"# {section.label}"
+        if section.source == Path("docs/content/index.md"):
+            first_heading = next(
+                (
+                    line.strip()
+                    for line in text.splitlines()
+                    if line.startswith("# ") or HTML_HEADING_RE.search(line)
+                ),
+                "",
+            )
+            expected_heading = f'<h1 align="center">{section.label}</h1>'
+        else:
+            first_heading = MD_ESCAPE_RE.sub(r"\1", text.splitlines()[0].strip())
+            expected_heading = expected_markdown
+        if first_heading != expected_heading:
             findings.append(
                 Finding(
                     "error",
-                    f"{section.source}: expected H1 {expected!r}, found {first_line!r}",
+                    f"{section.source}: expected H1 {expected_heading!r}, found {first_heading!r}",
                 )
             )
         findings.extend(_check_descendant_heading_numbers(text, section.number, section.source))

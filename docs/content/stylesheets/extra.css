@@ -39,6 +39,19 @@
   font-weight: 600;
 }
 
+.md-typeset h1[align="center"] {
+  margin-bottom: 0.75rem;
+  color: var(--md-default-fg-color);
+  font-size: 3rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.md-typeset p[align="center"] {
+  margin-right: auto;
+  margin-left: auto;
+}
+
 .md-header,
 .md-tabs {
   box-shadow: 0 1px 0 var(--vmx-border);

@@ -1,6 +1,7 @@
 mkdocs>=1.6,<2
 mkdocs-material>=9.5,<10
 markdown-it-py==4.2.0
+pillow>=11,<13
 pip-audit==2.10.1
 pymdown-extensions>=11,<12
 pyyaml>=6.0,<7
