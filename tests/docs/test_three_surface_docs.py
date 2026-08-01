@@ -1115,6 +1115,17 @@ def test_build_repo_root_is_fully_isolated(tmp_path: Path, monkeypatch) -> None:
             ),
             encoding="utf-8",
         )
+        (root / "assets").mkdir()
+        (root / "assets/vmx-poster.png").write_bytes(marker.encode("utf-8"))
+        summary = " ".join(["word"] * 100)
+        (root / "docs/opener.yaml").write_text(
+            f'tagline: "{marker} tagline"\n'
+            f'summary: "{summary}"\n'
+            "poster:\n"
+            '  source: "assets/vmx-poster.png"\n'
+            f'  alt: "{marker} poster"\n',
+            encoding="utf-8",
+        )
         (root / "spec").mkdir()
         (root / "spec/VERSION").write_text(f"{version}\n", encoding="utf-8")
 
@@ -1124,6 +1135,8 @@ def test_build_repo_root_is_fully_isolated(tmp_path: Path, monkeypatch) -> None:
     assert "SELECTED" in (selected / "generated/site/index.md").read_text(encoding="utf-8")
     assert "OTHER" not in (selected / "generated/site/index.md").read_text(encoding="utf-8")
     assert "9.9.9" in (selected / "generated/wiki/_Footer.md").read_text(encoding="utf-8")
+    assert (selected / "generated/site/assets/vmx-poster.png").read_bytes() == b"SELECTED"
+    assert (selected / "generated/wiki/assets/vmx-poster.png").read_bytes() == b"SELECTED"
     assert "details.md" in (selected / "generated/site/index.md").read_text(encoding="utf-8")
     assert "[[Details|2-Details]]" in (selected / "generated/wiki/Home.md").read_text(
         encoding="utf-8"

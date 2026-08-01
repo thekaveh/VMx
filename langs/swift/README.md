@@ -5,56 +5,15 @@ spec-compatible with the C# / Python / TypeScript / Rust flavors.
 
 ## 1. Status
 
-**v3.24.0 source — total parity.** Covers **all 403 of 403** library conformance IDs
-from `spec-v3.23.0` plus the 5 `THEME-00x` scenario IDs exercised by the
-`examples/swift/notes-showcase/` flagship app (ADR-0067) = **408 total**, at
-full parity with the C#, Python, and TypeScript UI-backed flavors. Rust has full
-403-ID library parity and no UI scenario suite. Library IDs accumulated
-incrementally (recounted honestly in ADR-0037; +COMP-025/COMP-026 added per
-ADR-0042; +LIFE-008 via the v3 throwing-convergence in ADR-0053; +50 leaf-area
-IDs via Phase-3 Inc-1 — ADR-0059; +30 collections IDs via Phase-3 Inc-2 —
-ADR-0060; +29 hierarchical/threading/expand-collapse IDs via Phase-3 Inc-3 —
-ADR-0061; +40 forms/commands/hub IDs via Phase-3 Inc-4 — ADR-0062; +25
-notifications/dialogs IDs via Phase-3 Inc-5 — ADR-0063; +19 composite/group
-IDs via Phase-3 Inc-6 — ADR-0064; +44 v3.1 upstream-consumer IDs via
-ADR-0068..ADR-0079; +23 IDs via ADR-0082..ADR-0085; +6 imperative-command
-requery IDs via ADR-0086; +6 FormVM reset IDs via ADR-0087; +8 hierarchical
-batch-attachment IDs via ADR-0088; +8 whole-list replacement IDs via ADR-0089;
-+7 owned-resource/public-hub IDs via ADR-0090; +1 inert modeled-assignment ID
-via ADR-0091; +1 settled FormVM model-publication ID via ADR-0092; +1 explicit
-modeled-component republish ID via ADR-0093; +4 fixed-source selected-state
-subscription IDs via ADR-0095; +8 serviced-collection parity IDs via ADR-0096;
-+9 keyed serviced-collection IDs via ADR-0097; +10 dynamic aggregate change
-stream IDs via ADR-0098; +7 searchable source-reactivity IDs via ADR-0099;
-+11 async-resource IDs via ADR-0100; +4 atomic container-ownership IDs
-(`COMP-038..041`) via ADR-0107; +1 disposal/hook coordination ID via ADR-0126; +1 aggregate
-reconstruction transaction ID via ADR-0125; +1 canonical forwarding-ownership
-ID via ADR-0124; +2 factory-hydration IDs through HIER-032 via ADR-0127; +3
-discriminator modal-history IDs through DISC-009 via ADR-0128):
-the lifecycle state machine, the modeled
-and unmodeled `ComponentVM`, `CompositeVM`, `CompositeVMOf`, `GroupVM`,
-`AggregateVM1..6`, `RelayCommand`, `RelayCommandOf<T>`, `AsyncRelayCommand`,
-`CompositeCommand`, `DecoratorCommand`, `ConfirmationDecoratorCommand`,
-`ModeledCrudCommands`, fluent command helpers, the immutable fluent builders,
-`DerivedProperty<T>`, the 22 capability micro-interfaces, null objects
-(`NullMessageHub`, `NullDispatcher`, `NullLocalizer`), localization hook
-(`Localizer` / `NullLocalizer`), tree utilities (`walk`, `find`,
-`walkExpanded`), hub property accessors, forwarding decorators
-(`ForwardingComponentVM`, `ForwardingCompositeVM`), observable collections
-(`ObservableList` with atomic `replaceAll`, `ObservableDictionary`, `ServicedObservableCollection`,
-`PagedComposition`, collection-changed events, batch updates, auto-construct),
-`ExpandableState` + expand/collapse traversal, `HierarchicalVM` (tree identity,
-lazy/eager construction, structural mutation, builder, capability composition),
-threading contracts (`ManualScheduler`, `VirtualTimeScheduler`, foreground
-dispatch, async selection), `SearchableState` (composite/group contexts plus
-optional source-change refresh),
-`AsyncResourceVM` (cancellable latest-wins async value state),
-message hub semantics, `FormVM` (snapshot/dirty/approve/deny/reset lifecycle), dialog
-service (`DialogService` / `NullDialogService`), and the notifications
-sub-package (`NotificationHub`, `NotificationVM`, `ConfirmationVM`,
-`makeConfirm` bridge). Requires Swift 5.9+, Combine, iOS 16 / macOS 13 /
-tvOS 16 / watchOS 9. The notes-showcase flagship (SwiftUI + Combine, macOS)
-is at `examples/swift/notes-showcase/`; see §5.
+**v3.24.0 source — total parity.** Swift implements `spec-v3.23.0` and covers
+all **403 of 403** library conformance IDs. The SwiftUI notes-showcase exercises
+the five additional `THEME-00x` scenarios, for **408 total**, matching the other
+UI-backed flavors; Rust covers the 403 library IDs and has no UI scenario suite.
+The detailed capability and conformance history lives in the
+[changelog](CHANGELOG.md) and the specification ADRs rather than in this opener.
+
+The package requires Swift 5.9+, Combine, iOS 16, macOS 13, tvOS 16, or watchOS
+9. The macOS SwiftUI flagship is at `examples/swift/notes-showcase/`; see §5.
 
 ## 2. Install
 
@@ -147,8 +106,8 @@ a one-page SwiftUI integration recipe.
 | ------------------- | ------------------------- | ------------------ | ------------------------ | ------------------------- | ----------------------- |
 | Unmodeled VM        | `ComponentVM`             | `ComponentVM`      | `ComponentVM`            | `ComponentVM`             | `ComponentVm<()>`       |
 | Modeled VM          | `ComponentVM<M>`          | `ComponentVMOf[M]` | `ComponentVMOf<M>`       | `ComponentVMOf<M>`        | `ComponentVm<M>`        |
-| Status property     | `Status`                  | `status`           | `status`                 | `status`                  | `status()`              |
-| Builder entrypoint  | `Builder()`               | `builder()`        | `builder()`              | `builder()`               | `builder()`             |
+| Status property     | `Status`                  | `status`           | `status`                  | `status`                  | `status()`              |
+| Builder entrypoint  | `Builder()`               | `builder()`        | `builder()`               | `builder()`               | `builder()`             |
 | Null hub singleton  | `NullMessageHub.Instance` | `NULL_MESSAGE_HUB` | `NullMessageHub.INSTANCE` | `NullMessageHub.INSTANCE` | `NullMessageHub::hub()` |
 
 ## 4. API surface

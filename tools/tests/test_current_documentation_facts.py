@@ -179,18 +179,25 @@ def test_current_rust_docs_match_cargo_package_version() -> None:
         assert "v0.25.1" not in text
 
 
-def test_swift_conformance_ledgers_count_each_library_id_once() -> None:
-    ledgers = (
-        (ROOT / "compatibility-matrix.md").read_text(encoding="utf-8"),
-        (ROOT / "langs/swift/README.md").read_text(encoding="utf-8"),
-    )
+def test_swift_conformance_ledger_counts_each_library_id_once() -> None:
+    ledger = (ROOT / "compatibility-matrix.md").read_text(encoding="utf-8")
+    start = ledger.index("+50 leaf-area")
+    end = ledger.index("DISC-009", start)
+    increments = [int(value) for value in re.findall(r"\+(\d+)", ledger[start:end])]
+    assert 44 + sum(increments) == 403
+    assert ledger[start:end].count("COMP-038..041") == 1
 
-    for ledger in ledgers:
-        start = ledger.index("+50 leaf-area")
-        end = ledger.index("DISC-009", start)
-        increments = [int(value) for value in re.findall(r"\+(\d+)", ledger[start:end])]
-        assert 44 + sum(increments) == 403
-        assert ledger[start:end].count("COMP-038..041") == 1
+
+def test_swift_readme_summarizes_current_conformance_without_history_ledger() -> None:
+    catalog = (ROOT / "spec/12-conformance.md").read_text(encoding="utf-8")
+    library_count = len(set(re.findall(r"^### (?!THEME-)[A-Z]+-[0-9]{3}\b", catalog, re.MULTILINE)))
+    theme_count = len(set(re.findall(r"^### THEME-[0-9]{3}\b", catalog, re.MULTILINE)))
+    readme = (ROOT / "langs/swift/README.md").read_text(encoding="utf-8")
+    status = readme.split("## 1. Status", maxsplit=1)[1].split("## 2. Install", maxsplit=1)[0]
+
+    assert f"all **{library_count} of {library_count}** library conformance IDs" in status
+    assert f"**{library_count + theme_count} total**" in status
+    assert "+50 leaf-area" not in status
 
 
 def test_python_release_guidance_is_stable_semver_only() -> None:
