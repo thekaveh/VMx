@@ -9,6 +9,7 @@ from pathlib import Path
 import yaml
 
 from scripts.docs.manifest import Manifest, Section, load_manifest
+from scripts.docs.opener import load_opener
 from scripts.docs.transforms import build_source_map, rewrite_for_surface
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -96,6 +97,14 @@ def copy_diagrams(target: Path, repo_root: Path = REPO_ROOT) -> None:
             shutil.copy2(source, dest / source.name)
 
 
+def copy_project_poster(target: Path, repo_root: Path = REPO_ROOT) -> None:
+    opener = load_opener(repo_root / "docs/opener.yaml", repo_root)
+    source = repo_root / opener.poster_source
+    destination = target / opener.poster_source
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, destination)
+
+
 def copy_site_static(target: Path, repo_root: Path = REPO_ROOT) -> None:
     static_root = repo_root / "docs/content"
     for dirname in ("stylesheets", "javascripts"):
@@ -123,6 +132,7 @@ def render_site(manifest: Manifest, out_dir: Path, repo_root: Path = REPO_ROOT) 
             encoding="utf-8",
         )
     copy_site_static(out_dir, repo_root)
+    copy_project_poster(out_dir, repo_root)
     copy_diagrams(out_dir, repo_root)
 
 
@@ -166,6 +176,7 @@ def render_wiki(manifest: Manifest, out_dir: Path, repo_root: Path = REPO_ROOT) 
         f"VMx · Specification {spec_version} · Apache-2.0 · thekaveh/VMx\n",
         encoding="utf-8",
     )
+    copy_project_poster(out_dir, repo_root)
     copy_diagrams(out_dir, repo_root)
 
 

@@ -5,6 +5,7 @@ on:
     branches: [main, develop]
     paths:
       - "docs/**"
+      - "docs/opener.yaml"
       - "README.md"
       - "CONTRIBUTING.md"
       - "SECURITY.md"
@@ -16,6 +17,7 @@ on:
       - "spec/**"
       - "assets/architecture.*"
       - "assets/class-diagram.*"
+      - "assets/vmx-poster.png"
       - "examples/assets/notes-showcase-vm-hierarchy.*"
       - "examples/assets/notes-showcase-vmx-components.*"
       - "examples/notes-showcase-parity.md"

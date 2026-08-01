@@ -1,26 +1,44 @@
-<img src="assets/vmx-poster.png" alt="VMx multi-language MVVM framework poster" width="100%">
-
 # VMx
 
-[![csharp](https://github.com/thekaveh/VMx/actions/workflows/csharp.yml/badge.svg)](https://github.com/thekaveh/VMx/actions/workflows/csharp.yml)
-[![python](https://github.com/thekaveh/VMx/actions/workflows/python.yml/badge.svg)](https://github.com/thekaveh/VMx/actions/workflows/python.yml)
-[![typescript](https://github.com/thekaveh/VMx/actions/workflows/typescript.yml/badge.svg)](https://github.com/thekaveh/VMx/actions/workflows/typescript.yml)
-[![swift](https://github.com/thekaveh/VMx/actions/workflows/swift.yml/badge.svg)](https://github.com/thekaveh/VMx/actions/workflows/swift.yml)
-[![rust](https://github.com/thekaveh/VMx/actions/workflows/rust.yml/badge.svg)](https://github.com/thekaveh/VMx/actions/workflows/rust.yml)
-[![conformance](https://github.com/thekaveh/VMx/actions/workflows/conformance.yml/badge.svg)](https://github.com/thekaveh/VMx/actions/workflows/conformance.yml)
-[![spec-discipline](https://github.com/thekaveh/VMx/actions/workflows/spec-discipline.yml/badge.svg)](https://github.com/thekaveh/VMx/actions/workflows/spec-discipline.yml)
-[![examples](https://github.com/thekaveh/VMx/actions/workflows/examples-contract-checks.yml/badge.svg)](https://github.com/thekaveh/VMx/actions/workflows/examples-contract-checks.yml)
-[![release](https://github.com/thekaveh/VMx/actions/workflows/release.yml/badge.svg)](https://github.com/thekaveh/VMx/actions/workflows/release.yml)
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+<img src="assets/vmx-poster.png" alt="VMx framework across C#, Python, TypeScript, Swift, and Rust" width="100%">
 
-A hierarchical, lifecycle-aware MVVM viewmodel framework — one language-neutral
-specification with five idiomatic source flavors (C# / Python / TypeScript /
-Swift / Rust). All five source flavors cover the 403 library conformance IDs;
-the flagship example apps cover 5 additional THEME scenario IDs for **408
-total** tracked scenarios. The completed
-[`docs/maintenance/2026-07-16-rust-capability-parity.md`](docs/maintenance/2026-07-16-rust-capability-parity.md)
-records the Rust 0.27.0 capability, structural, command, reactive, and async
-convergence evidence.
+<!-- vmx-opener:start -->
+
+One specification. Five idiomatic flavors. Predictable MVVM behavior across UI stacks.
+
+VMx is a UI-neutral, lifecycle-aware MVVM viewmodel framework for building
+hierarchical application state with explicit construction, destruction,
+disposal, reactive messaging, commands, collections, and composable services.
+One language-neutral specification defines observable behavior, while five
+source flavors—C#, Python, TypeScript, Swift, and Rust—preserve each ecosystem’s
+naming, type, concurrency, and package conventions. A shared conformance catalog
+keeps those implementations aligned without erasing idiomatic APIs. The source
+tree currently carries complete 403-ID library coverage in every flavor, with
+flagship hosts exercising five additional THEME scenarios. Swift is publicly
+available through SwiftPM; Python’s public package trails the source line, and
+the C#, TypeScript, and Rust registry channels are prepared but not yet
+published. VMx therefore separates source completeness from installable-release
+status and documents both explicitly.
+
+<!-- vmx-opener:end -->
+
+**Language builds:**
+[![C#](https://github.com/thekaveh/VMx/actions/workflows/csharp.yml/badge.svg?branch=develop)](https://github.com/thekaveh/VMx/actions/workflows/csharp.yml)
+[![Python](https://github.com/thekaveh/VMx/actions/workflows/python.yml/badge.svg?branch=develop)](https://github.com/thekaveh/VMx/actions/workflows/python.yml)
+[![TypeScript](https://github.com/thekaveh/VMx/actions/workflows/typescript.yml/badge.svg?branch=develop)](https://github.com/thekaveh/VMx/actions/workflows/typescript.yml)
+[![Swift](https://github.com/thekaveh/VMx/actions/workflows/swift.yml/badge.svg?branch=develop)](https://github.com/thekaveh/VMx/actions/workflows/swift.yml)
+[![Rust](https://github.com/thekaveh/VMx/actions/workflows/rust.yml/badge.svg?branch=develop)](https://github.com/thekaveh/VMx/actions/workflows/rust.yml)
+
+**Quality gates:**
+[![Conformance](https://github.com/thekaveh/VMx/actions/workflows/conformance.yml/badge.svg?branch=develop)](https://github.com/thekaveh/VMx/actions/workflows/conformance.yml)
+[![Spec discipline](https://github.com/thekaveh/VMx/actions/workflows/spec-discipline.yml/badge.svg?branch=develop)](https://github.com/thekaveh/VMx/actions/workflows/spec-discipline.yml)
+[![Examples](https://github.com/thekaveh/VMx/actions/workflows/examples-contract-checks.yml/badge.svg?branch=develop)](https://github.com/thekaveh/VMx/actions/workflows/examples-contract-checks.yml)
+[![Documentation](https://github.com/thekaveh/VMx/actions/workflows/docs.yml/badge.svg?branch=develop)](https://github.com/thekaveh/VMx/actions/workflows/docs.yml)
+[![Security audit](https://github.com/thekaveh/VMx/actions/workflows/security-audit.yml/badge.svg?branch=develop)](https://github.com/thekaveh/VMx/actions/workflows/security-audit.yml)
+
+**Delivery:**
+[![Release workflow](https://github.com/thekaveh/VMx/actions/workflows/release.yml/badge.svg)](https://github.com/thekaveh/VMx/actions/workflows/release.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
 ## 0. Contents
 
@@ -93,10 +111,10 @@ TypeScript and Swift — codified in ADR-0006).
 
 ![VMx architecture diagram](assets/architecture.svg)
 
-The rendered SVG is at [`assets/architecture.svg`](assets/architecture.svg). A
-browsable HTML version with summary cards is at
-[`assets/architecture.html`](assets/architecture.html), and a high-resolution
-PNG export is at [`assets/architecture.png`](assets/architecture.png).
+Lifecycle validation anchors every VM family while services and builders remain
+replaceable around that invariant. Optional decorators and capabilities compose
+over the same messages, commands, and collection contracts, so host integrations
+do not need to alter the core state machine.
 
 ### 2.2 Class diagram
 
@@ -104,10 +122,6 @@ A cluster-level map of the principal library families and their relationships.
 
 ![VMx class diagram](assets/class-diagram.svg)
 
-The rendered SVG is at [`assets/class-diagram.svg`](assets/class-diagram.svg). A
-browsable HTML version with summary cards is at
-[`assets/class-diagram.html`](assets/class-diagram.html), and a high-resolution
-PNG export is at [`assets/class-diagram.png`](assets/class-diagram.png).
 `ComponentVM`, the container families, and `AsyncResourceVM` participate in
 the lifecycle base contract; Rust expresses relevant relationships through
 component composition. `FormVM`, `DiscriminatorVM`, `NotificationVM`, and

@@ -90,6 +90,14 @@ def _mapped_target(
         return target
     if (not clean and suffix.startswith("#")) or "assets/diagrams/" in clean:
         return target
+    candidate = (repo_root / current_source.parent / clean).resolve()
+    try:
+        canonical = candidate.relative_to(repo_root.resolve())
+    except ValueError:
+        canonical = Path()
+    if canonical.parts[:1] == ("assets",) and candidate.is_file():
+        rel = os.path.relpath(canonical, start=current_output.parent)
+        return f"{rel.replace(os.sep, '/')}{suffix}"
     if clean.endswith("/"):
         sibling_page = f"{clean.rstrip('/')}.md"
         sibling_candidate = (repo_root / current_source.parent / sibling_page).resolve()

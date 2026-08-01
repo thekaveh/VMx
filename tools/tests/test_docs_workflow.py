@@ -4,6 +4,7 @@ from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "docs.yml"
+_WIKI_WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "wiki.yml"
 
 
 def test_docs_workflow_watches_every_current_facing_markdown_area() -> None:
@@ -26,3 +27,10 @@ def test_docs_workflow_watches_every_current_facing_markdown_area() -> None:
     )[0]
     assert "    paths:" not in pull_request
     assert 'name: "required: docs"' in workflow
+
+
+def test_opener_contract_and_poster_trigger_every_publication_workflow() -> None:
+    for workflow_path in (_WORKFLOW, _WIKI_WORKFLOW):
+        workflow = workflow_path.read_text(encoding="utf-8")
+        assert workflow.count('- "docs/opener.yaml"') == 1
+        assert workflow.count('- "assets/vmx-poster.png"') == 1
