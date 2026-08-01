@@ -1,46 +1,42 @@
-# VMx
+<p align="center">
+  <img src="assets/vmx-poster.png" alt="VMx framework across C#, Python, TypeScript, Swift, and Rust" width="100%">
+</p>
 
-<img src="assets/vmx-poster.png" alt="VMx framework across C#, Python, TypeScript, Swift, and Rust" width="100%">
+<h1 align="center">VMx</h1>
 
 <!-- vmx-opener:start -->
 
-One specification. Five idiomatic flavors. Predictable MVVM behavior across UI stacks.
+<p align="center"><strong>One specification. Five idiomatic flavors. Predictable MVVM behavior across UI stacks.</strong></p>
 
-VMx is a UI-neutral, lifecycle-aware MVVM viewmodel framework for building
-hierarchical application state with explicit construction, destruction,
-disposal, reactive messaging, commands, collections, and composable services.
-One language-neutral specification defines observable behavior, while five
-source flavors—C#, Python, TypeScript, Swift, and Rust—preserve each ecosystem’s
-naming, type, concurrency, and package conventions. A shared conformance catalog
-keeps those implementations aligned without erasing idiomatic APIs. The source
-tree currently carries complete 403-ID library coverage in every flavor, with
-flagship hosts exercising five additional THEME scenarios. Swift is publicly
-available through SwiftPM; Python’s public package trails the source line, and
-the C#, TypeScript, and Rust registry channels are prepared but not yet
-published. VMx therefore separates source completeness from installable-release
-status and documents both explicitly.
+<p align="center">VMx is a UI-neutral, lifecycle-aware MVVM viewmodel framework for building hierarchical application state with explicit construction, destruction, disposal, reactive messaging, commands, collections, and composable services. One language-neutral specification defines observable behavior, while five source flavors—C#, Python, TypeScript, Swift, and Rust—preserve each ecosystem’s naming, type, concurrency, and package conventions. A shared conformance catalog keeps those implementations aligned without erasing idiomatic APIs. The source tree currently carries complete 403-ID library coverage in every flavor, with flagship hosts exercising five additional THEME scenarios. Swift is publicly available through SwiftPM; Python’s public package trails the source line, and the C#, TypeScript, and Rust registry channels are prepared but not yet published. VMx therefore separates source completeness from installable-release status and documents both explicitly.</p>
 
 <!-- vmx-opener:end -->
 
-**Language builds:**
-[![C#](https://github.com/thekaveh/VMx/actions/workflows/csharp.yml/badge.svg?branch=develop)](https://github.com/thekaveh/VMx/actions/workflows/csharp.yml)
-[![Python](https://github.com/thekaveh/VMx/actions/workflows/python.yml/badge.svg?branch=develop)](https://github.com/thekaveh/VMx/actions/workflows/python.yml)
-[![TypeScript](https://github.com/thekaveh/VMx/actions/workflows/typescript.yml/badge.svg?branch=develop)](https://github.com/thekaveh/VMx/actions/workflows/typescript.yml)
-[![Swift](https://github.com/thekaveh/VMx/actions/workflows/swift.yml/badge.svg?branch=develop)](https://github.com/thekaveh/VMx/actions/workflows/swift.yml)
-[![Rust](https://github.com/thekaveh/VMx/actions/workflows/rust.yml/badge.svg?branch=develop)](https://github.com/thekaveh/VMx/actions/workflows/rust.yml)
+<p align="center">
+  <strong>Language builds:</strong><br>
+  <a href="https://github.com/thekaveh/VMx/actions/workflows/csharp.yml"><img src="https://github.com/thekaveh/VMx/actions/workflows/csharp.yml/badge.svg?branch=develop" alt="C#"></a>
+  <a href="https://github.com/thekaveh/VMx/actions/workflows/python.yml"><img src="https://github.com/thekaveh/VMx/actions/workflows/python.yml/badge.svg?branch=develop" alt="Python"></a>
+  <a href="https://github.com/thekaveh/VMx/actions/workflows/typescript.yml"><img src="https://github.com/thekaveh/VMx/actions/workflows/typescript.yml/badge.svg?branch=develop" alt="TypeScript"></a>
+  <a href="https://github.com/thekaveh/VMx/actions/workflows/swift.yml"><img src="https://github.com/thekaveh/VMx/actions/workflows/swift.yml/badge.svg?branch=develop" alt="Swift"></a>
+  <a href="https://github.com/thekaveh/VMx/actions/workflows/rust.yml"><img src="https://github.com/thekaveh/VMx/actions/workflows/rust.yml/badge.svg?branch=develop" alt="Rust"></a>
+</p>
 
-**Quality gates:**
-[![Conformance](https://github.com/thekaveh/VMx/actions/workflows/conformance.yml/badge.svg?branch=develop)](https://github.com/thekaveh/VMx/actions/workflows/conformance.yml)
-[![Spec discipline](https://github.com/thekaveh/VMx/actions/workflows/spec-discipline.yml/badge.svg?branch=develop)](https://github.com/thekaveh/VMx/actions/workflows/spec-discipline.yml)
-[![Examples](https://github.com/thekaveh/VMx/actions/workflows/examples-contract-checks.yml/badge.svg?branch=develop)](https://github.com/thekaveh/VMx/actions/workflows/examples-contract-checks.yml)
-[![Documentation](https://github.com/thekaveh/VMx/actions/workflows/docs.yml/badge.svg?branch=develop)](https://github.com/thekaveh/VMx/actions/workflows/docs.yml)
-[![Security audit](https://github.com/thekaveh/VMx/actions/workflows/security-audit.yml/badge.svg?branch=develop)](https://github.com/thekaveh/VMx/actions/workflows/security-audit.yml)
+<p align="center">
+  <strong>Quality gates:</strong><br>
+  <a href="https://github.com/thekaveh/VMx/actions/workflows/conformance.yml"><img src="https://github.com/thekaveh/VMx/actions/workflows/conformance.yml/badge.svg?branch=develop" alt="Conformance"></a>
+  <a href="https://github.com/thekaveh/VMx/actions/workflows/spec-discipline.yml"><img src="https://github.com/thekaveh/VMx/actions/workflows/spec-discipline.yml/badge.svg?branch=develop" alt="Spec discipline"></a>
+  <a href="https://github.com/thekaveh/VMx/actions/workflows/examples-contract-checks.yml"><img src="https://github.com/thekaveh/VMx/actions/workflows/examples-contract-checks.yml/badge.svg?branch=develop" alt="Examples"></a>
+  <a href="https://github.com/thekaveh/VMx/actions/workflows/docs.yml"><img src="https://github.com/thekaveh/VMx/actions/workflows/docs.yml/badge.svg?branch=develop" alt="Documentation"></a>
+  <a href="https://github.com/thekaveh/VMx/actions/workflows/security-audit.yml"><img src="https://github.com/thekaveh/VMx/actions/workflows/security-audit.yml/badge.svg?branch=develop" alt="Security audit"></a>
+</p>
 
-**Delivery:**
-[![Release workflow](https://github.com/thekaveh/VMx/actions/workflows/release.yml/badge.svg)](https://github.com/thekaveh/VMx/actions/workflows/release.yml)
-[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+<p align="center">
+  <strong>Delivery:</strong><br>
+  <a href="https://github.com/thekaveh/VMx/actions/workflows/release.yml"><img src="https://github.com/thekaveh/VMx/actions/workflows/release.yml/badge.svg" alt="Release workflow"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="License: Apache 2.0"></a>
+</p>
 
-## 0. Contents
+## Contents
 
 1. [Overview](#1-overview)
 1. [Architecture](#2-architecture)

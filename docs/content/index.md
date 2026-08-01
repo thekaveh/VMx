@@ -1,24 +1,14 @@
-# 1. VMx
+<p align="center">
+  <img src="../../assets/vmx-poster.png" alt="VMx framework across C#, Python, TypeScript, Swift, and Rust" width="100%">
+</p>
 
-<img src="../../assets/vmx-poster.png" alt="VMx framework across C#, Python, TypeScript, Swift, and Rust" width="100%">
+<h1 align="center">1. VMx</h1>
 
 <!-- vmx-opener:start -->
 
-One specification. Five idiomatic flavors. Predictable MVVM behavior across UI stacks.
+<p align="center"><strong>One specification. Five idiomatic flavors. Predictable MVVM behavior across UI stacks.</strong></p>
 
-VMx is a UI-neutral, lifecycle-aware MVVM viewmodel framework for building
-hierarchical application state with explicit construction, destruction,
-disposal, reactive messaging, commands, collections, and composable services.
-One language-neutral specification defines observable behavior, while five
-source flavors—C#, Python, TypeScript, Swift, and Rust—preserve each ecosystem’s
-naming, type, concurrency, and package conventions. A shared conformance catalog
-keeps those implementations aligned without erasing idiomatic APIs. The source
-tree currently carries complete 403-ID library coverage in every flavor, with
-flagship hosts exercising five additional THEME scenarios. Swift is publicly
-available through SwiftPM; Python’s public package trails the source line, and
-the C#, TypeScript, and Rust registry channels are prepared but not yet
-published. VMx therefore separates source completeness from installable-release
-status and documents both explicitly.
+<p align="center">VMx is a UI-neutral, lifecycle-aware MVVM viewmodel framework for building hierarchical application state with explicit construction, destruction, disposal, reactive messaging, commands, collections, and composable services. One language-neutral specification defines observable behavior, while five source flavors—C#, Python, TypeScript, Swift, and Rust—preserve each ecosystem’s naming, type, concurrency, and package conventions. A shared conformance catalog keeps those implementations aligned without erasing idiomatic APIs. The source tree currently carries complete 403-ID library coverage in every flavor, with flagship hosts exercising five additional THEME scenarios. Swift is publicly available through SwiftPM; Python’s public package trails the source line, and the C#, TypeScript, and Rust registry channels are prepared but not yet published. VMx therefore separates source completeness from installable-release status and documents both explicitly.</p>
 
 <!-- vmx-opener:end -->
 
