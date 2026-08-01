@@ -314,6 +314,14 @@ def test_canonical_docs_reject_raw_html_heading_elements(tmp_path: Path) -> None
     assert "raw HTML heading" in findings[0].message
 
 
+def test_canonical_landing_allows_exact_centered_h1(tmp_path: Path) -> None:
+    page = tmp_path / "docs/content/index.md"
+    page.parent.mkdir(parents=True)
+    page.write_text('<h1 align="center">1. VMx</h1>\n', encoding="utf-8")
+
+    assert check_raw_html_headings(tmp_path) == []
+
+
 def test_repo_surface_markdown_rejects_decorative_status_icons(tmp_path: Path) -> None:
     (tmp_path / "README.md").write_text("Supported: ✓\n", encoding="utf-8")
 
