@@ -189,15 +189,24 @@ def check_project_opening(repo_root: Path) -> list[Finding]:
             )
         poster_tag = f'<img src="{expected_source}" alt="{opener.poster_alt}" width="100%">'
         expected_prefix = f'<p align="center">\n  {poster_tag}\n</p>'
-        if not markdown.startswith(expected_prefix):
-            findings.append(Finding("error", f"{relative}: centered project poster must be first"))
-        if f'<h1 align="center">{title}</h1>' not in markdown:
-            findings.append(Finding("error", f"{relative}: centered project title is missing"))
         centered_tagline = f'<p align="center"><strong>{opener.tagline}</strong></p>'
         centered_summary = f'<p align="center">{opener.summary}</p>'
-        if centered_tagline not in markdown or centered_summary not in markdown:
+        expected_hero = "\n\n".join(
+            (
+                expected_prefix,
+                f'<h1 align="center">{title}</h1>',
+                OPENER_START,
+                centered_tagline,
+                centered_summary,
+                OPENER_END,
+            )
+        )
+        if not markdown.startswith(expected_hero):
             findings.append(
-                Finding("error", f"{relative}: project tagline and summary must be centered")
+                Finding(
+                    "error",
+                    f"{relative}: ordered centered hero differs from the canonical contract",
+                )
             )
     return findings
 
