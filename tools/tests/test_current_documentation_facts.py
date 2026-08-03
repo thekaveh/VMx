@@ -291,6 +291,8 @@ def test_cross_flavor_catalogue_contains_only_current_numbered_entries() -> None
     assert "legacy alias still ships in v2.0.0" not in catalogue
     assert "does **not** conform `CompositeVM` or `GroupVM` to `Sequence`" not in catalogue
     assert "model-set-after-dispose is\n  **unspecified**" not in catalogue
+    assert "no handle object is returned or needed" not in catalogue
+    assert "batchUpdate(): BatchUpdateHandle" in catalogue
 
 
 def test_rust_parity_ledger_does_not_reopen_resolved_surface_work() -> None:

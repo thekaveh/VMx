@@ -68,7 +68,7 @@ npm run build           # tsup, dual ESM + CJS
 npm test                # vitest run
 npx vitest run -t "LIFE-005"   # single conformance ID
 ```
-Published VMx supports Node ≥ 20. Repository tests require Node 20.19+, 22.13+,
+Published VMx supports Node ≥ 20.5.0. Repository tests require Node 20.19+, 22.13+,
 or 24+ (jsdom 29 development-tool floor).
 
 ### 3.4 Swift (`langs/swift`)

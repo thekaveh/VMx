@@ -89,7 +89,7 @@ then runs fixture sync, both typechecks, lint, build, tests, audit, a strict
 package-content allowlist, and a packed local consumer smoke test. The publish
 job uses Node 24 and npm 11.18.0 without an npm dependency cache.
 
-After npm accepts the package, separate Node 20, 22, 24, and 26 jobs poll for
+After npm accepts the package, separate Node 20.5.0, 22, 24, and 26 jobs poll for
 and install the exact public version in clean consumers. They test ESM imports,
 CommonJS `require`, NodeNext declarations, and the root, `notifications`, and
 `conformance` exports. They also require npm provenance metadata. Only after

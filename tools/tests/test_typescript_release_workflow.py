@@ -53,7 +53,13 @@ def test_typescript_ci_triggers_for_package_verification_tools() -> None:
 
 def test_typescript_ci_verifies_floor_lts_and_current_node_lines() -> None:
     workflow = _workflow("typescript.yml")
+    manifest = json.loads((REPO_ROOT / "langs/typescript/package.json").read_text(encoding="utf-8"))
+    lock = json.loads(
+        (REPO_ROOT / "langs/typescript/package-lock.json").read_text(encoding="utf-8")
+    )
 
+    assert manifest["engines"]["node"] == ">=20.5.0"
+    assert lock["packages"][""]["engines"]["node"] == ">=20.5.0"
     assert "name: package (node${{ matrix.node-version }})" in workflow
     assert 'node-version: ["20", "22", "24", "26"]' in workflow
     assert "python3 tools/check-typescript-package.py" in workflow
@@ -62,6 +68,14 @@ def test_typescript_ci_verifies_floor_lts_and_current_node_lines() -> None:
     assert 'require("./langs/typescript/package.json").version' in workflow
     assert '--version "$package_version"' in workflow
     assert "--version 3.21.0" not in workflow
+    assert "name: runtime floor (node20.5.0)" in workflow
+    assert 'node-version: "20.5.0"' in workflow
+    assert "node scripts/check-runtime-floor.mjs" in workflow
+    floor_probe = (REPO_ROOT / "langs/typescript/scripts/check-runtime-floor.mjs").read_text(
+        encoding="utf-8"
+    )
+    assert "BatchUpdateHandle" in floor_probe
+    assert "Symbol.dispose" in floor_probe
 
 
 def test_contract_suite_triggers_on_typescript_and_release_workflow_changes() -> None:
@@ -136,7 +150,7 @@ def test_release_polls_public_package_and_provenance_on_supported_node_lines() -
     jobs = _typescript_release_jobs()
 
     assert "typescript-verify-published:" in jobs
-    assert 'node-version: ["20", "22", "24", "26"]' in jobs
+    assert 'node-version: ["20.5.0", "22", "24", "26"]' in jobs
     assert "--poll-timeout 600" in jobs
     assert "--timeout 900" in jobs
     assert "--require-provenance" in jobs

@@ -185,8 +185,8 @@ The C# flavor multi-targets `netstandard2.0` and
 available with their first publication. The Python flavor supports Python 3.10 through 3.14,
 is `mypy --strict` clean, and exposes `vmx.notifications` as an opt-in
 subpackage. The TypeScript flavor (npm package `@thekaveh/vmx` — renamed
-in v2.4.0 because the unscoped `vmx` name was unavailable) retains a Node 20
-compatibility floor and tests Node 20, 22, 24, and 26. It emits dual ESM + CJS
+in v2.4.0 because the unscoped `vmx` name was unavailable) requires Node 20.5.0
+or newer and tests the exact floor plus Node 20, 22, 24, and 26. It emits dual ESM + CJS
 bundles and exposes notifications plus an isolated
 consumer-conformance tooling subpath. The Rust flavor lives under
 `langs/rust/` as the
