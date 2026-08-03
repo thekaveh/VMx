@@ -59,6 +59,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Validate dependency graph
+        run: npm run check:deps
+
       - name: Audit dependencies
         run: npm audit --package-lock-only --audit-level=low
 
@@ -172,6 +175,9 @@ jobs:
       - name: console example install
         run: npm ci --prefix examples/typescript/console/hello-vmx
 
+      - name: console example dependency graph
+        run: npm run check:deps --prefix examples/typescript/console/hello-vmx
+
       - name: console example type-check
         # The library was installed and built once above. Suppress only the
         # example's pretypecheck hook so CI does not reinstall/rebuild it.
@@ -187,6 +193,9 @@ jobs:
         # the actions/setup-node cache above). No `npm install` fallback: a
         # drifted lockfile must fail loudly, not silently install unpinned.
         run: npm ci --prefix examples/typescript/react/notes-showcase
+
+      - name: notes-showcase dependency graph
+        run: npm run check:deps --prefix examples/typescript/react/notes-showcase
 
       - name: notes-showcase audit
         run: npm audit --prefix examples/typescript/react/notes-showcase --package-lock-only --audit-level=moderate

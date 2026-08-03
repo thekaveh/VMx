@@ -49,6 +49,7 @@
     "build": "tsup",
     "typecheck": "tsc --noEmit",
     "typecheck:tests": "tsc -p tsconfig.tests.json --noEmit",
+    "check:deps": "npm ls --all --omit=optional",
     "lint": "eslint src tests",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -93,7 +94,9 @@
     }
   },
   "overrides": {
-    "esbuild": "0.28.1"
+    "tsup": {
+      "esbuild": "0.28.1"
+    }
   },
   "devDependencies": {
     "@types/node": "^26.1.2",

@@ -14,11 +14,9 @@ def test_typescript_example_locks_embed_current_local_vmx_metadata() -> None:
     manifest_path = REPO_ROOT / "langs/typescript/package.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     stored_fields = (
-        "name",
         "version",
         "license",
         "dependencies",
-        "devDependencies",
         "engines",
         "peerDependencies",
         "peerDependenciesMeta",
@@ -33,11 +31,15 @@ def test_typescript_example_locks_embed_current_local_vmx_metadata() -> None:
         local_spec = requirements.get("@thekaveh/vmx")
         if not isinstance(local_spec, str) or not local_spec.startswith("file:"):
             continue
-        package_key = local_spec.removeprefix("file:")
-        if (path.parent / package_key).resolve() != manifest_path.parent:
+        package_path = local_spec.removeprefix("file:")
+        if (path.parent / package_path).resolve() != manifest_path.parent:
             continue
         linked_locks.append(path)
-        assert lock["packages"][package_key] == expected, path.relative_to(REPO_ROOT)
+        package = lock["packages"]["node_modules/@thekaveh/vmx"]
+        assert package["resolved"] == local_spec, path.relative_to(REPO_ROOT)
+        assert {field: package[field] for field in stored_fields} == expected, path.relative_to(
+            REPO_ROOT
+        )
 
     assert linked_locks, "no TypeScript example lock links the local VMx package"
 

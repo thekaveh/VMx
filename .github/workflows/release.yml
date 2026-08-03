@@ -556,6 +556,9 @@ jobs:
       - name: Install dependencies
         working-directory: langs/typescript
         run: npm ci
+      - name: Validate dependency graph
+        working-directory: langs/typescript
+        run: npm run check:deps
       - name: Sync spec fixtures
         working-directory: langs/typescript
         run: npm run sync-fixtures
