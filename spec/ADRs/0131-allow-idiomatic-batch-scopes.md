@@ -35,6 +35,9 @@ describes both scope shapes; no catalog behavior or implementation changes.
 - Rust's callback API is explicitly conforming without introducing an
   ownership-hostile borrowed disposable.
 - Handle-based flavors retain their existing public APIs and behavior.
+- The standalone `ObservableList` catalogue likewise records the callback
+  scopes already exposed by TypeScript, Swift, and Rust, and scopes COL-046's
+  original-body-failure guarantee to nonthrowing notification observers.
 - Cross-flavor audits compare normal observable scope semantics rather than
   requiring one resource-management syntax in every language.
 

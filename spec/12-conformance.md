@@ -2485,6 +2485,7 @@ indexed/iterable reads, observation, mutation, move, and batching
 ### COL-046 — exceptional batch exit
 
 **Given** a batch body performs `ReplaceAll` and then fails
+**And** notification observers do not throw
 **When** the original failure propagates
 **Then** every entered batch scope has closed
 **And** the completed mutation emits the usual one Reset and optional `Count`
