@@ -76,6 +76,8 @@ def test_typescript_ci_verifies_floor_lts_and_current_node_lines() -> None:
     )
     assert "BatchUpdateHandle" in floor_probe
     assert "Symbol.dispose" in floor_probe
+    assert "createRequire" in floor_probe
+    assert 'require("../dist/index.cjs")' in floor_probe
 
 
 def test_contract_suite_triggers_on_typescript_and_release_workflow_changes() -> None:

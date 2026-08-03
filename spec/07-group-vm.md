@@ -82,12 +82,15 @@ event fires. The default is `false`.
 
 ## 5. Batch updates (spec v1.1)
 
-A group MUST expose a `BatchUpdate()` method returning an `IDisposable` /
-context manager. While at least one batch handle is live, mutations MUST NOT
-raise individual `CollectionChanged` events. When the last live handle is
-disposed, if any mutations occurred a single
+A group MUST expose an idiomatic scoped batch API: a returned disposable /
+context-manager handle, or a callback-taking method whose scope is the callback
+invocation. While at least one batch scope is active, mutations MUST NOT raise
+individual `CollectionChanged` events. When the outermost scope exits, if any
+mutations occurred a single
 `CollectionChanged(action=Reset)` MUST be raised. Nested batches are
-ref-counted.
+ref-counted. The scope MUST exit and flush correctly when its body unwinds with
+an exception or panic; the original failure then continues according to the
+flavor's normal error model.
 
 A same-index move is not a mutation and does not dirty the batch. A non-no-op
 move inside a batch contributes to the one outer `Reset`.

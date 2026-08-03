@@ -770,9 +770,10 @@ using `ObserveOn(dispatcher.Foreground)`
 
 **Given** a `CompositeVM<VM>` in `Constructed` state
 **And** a subscriber to `CollectionChanged`
-**When** `composite.BatchUpdate()` is entered as `using`/`with`
+**When** the composite's batch API is entered as `using`/`with`, or its
+callback-scoped equivalent is invoked
 **And** N (≥1) mutations are applied (Add / Insert / Remove / Clear)
-**And** the batch handle is disposed / the context exits
+**And** the batch handle is disposed, the context exits, or the callback returns
 **Then** the subscriber observes exactly ONE `CollectionChanged(action=Reset)` event
 **And** the subscriber observes NO per-mutation events from within the batch
 **And** the composite's children reflect the post-batch state
@@ -827,9 +828,10 @@ exposes no internal navigation slot
 
 **Given** a `GroupVM<VM>` in `Constructed` state
 **And** a subscriber to `CollectionChanged`
-**When** `group.BatchUpdate()` is entered as `using`/`with`
+**When** the group's batch API is entered as `using`/`with`, or its
+callback-scoped equivalent is invoked
 **And** N (≥1) mutations are applied (Add / Insert / Remove / Clear)
-**And** the batch handle is disposed
+**And** the batch handle is disposed, the context exits, or the callback returns
 **Then** the subscriber observes exactly ONE `CollectionChanged(action=Reset)` event
 **And** the subscriber observes NO per-mutation events from within the batch
 
