@@ -46,7 +46,7 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <!-- Headless smoke-test driver; Avalonia 12 hosts through xunit v3. -->
-    <PackageReference Include="Avalonia.Headless.XUnit" Version="12.1.0" />
+    <PackageReference Include="Avalonia.Headless.XUnit" Version="12.1.1" />
   </ItemGroup>
 
   <ItemGroup>
