@@ -58,6 +58,7 @@ def test_rust_threading_claim_has_paired_dispatch_and_real_thr_002() -> None:
     runtime = (ROOT / "langs/rust/src/runtime.rs").read_text(encoding="utf-8")
     component = (ROOT / "langs/rust/src/components.rs").read_text(encoding="utf-8")
     tests = (ROOT / "langs/rust/tests/conformance/threading.rs").read_text(encoding="utf-8")
+    crate_readme = (ROOT / "langs/rust/README.md").read_text(encoding="utf-8")
 
     assert "| Rust" in spec and "DefaultDispatcher" in spec
     assert "fn dispatch_background" in runtime
@@ -65,6 +66,9 @@ def test_rust_threading_claim_has_paired_dispatch_and_real_thr_002() -> None:
     assert "pub fn background" in component
     assert ".background(true)" in tests
     assert "drain_background" in tests
+    assert "DefaultDispatcher" in crate_readme
+    assert ".background(true)" in crate_readme
+    assert "background_errors()" in crate_readme
 
 
 def test_adr_metadata_links_resolve() -> None:

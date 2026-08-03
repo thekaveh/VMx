@@ -51,7 +51,8 @@ pub(crate) use runtime::{
 
 mod components;
 pub use components::{
-    ComponentVm, ComponentVmBuilder, ComponentVmOptions, ReadonlyComponentVm, ViewModelType,
+    ComponentVm, ComponentVmBuilder, ComponentVmOptions, ReadonlyComponentVm,
+    ReadonlyComponentVmBuilder, ViewModelType,
 };
 
 mod commands;

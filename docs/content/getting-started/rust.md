@@ -47,9 +47,10 @@ foreground and background work inline on the calling thread — the right choice
 for tests and synchronous programs. It is `Copy`, so it can be handed to several
 viewmodels without cloning.
 
-`DefaultDispatcher` keeps foreground work inline and sends builder-enabled
-background lifecycle hooks to a worker thread. `ManualDispatcher` provides
-separate foreground and background queues for deterministic tests.
+`DefaultDispatcher` owns dedicated serial foreground and background workers.
+`ManualDispatcher` provides separate foreground and background queues for
+deterministic tests. `NullDispatcher` and `ImmediateDispatcher` deliberately run
+both channels inline.
 
 ```rust
 use vmx::{MessageHub, NullDispatcher};
@@ -59,7 +60,10 @@ let dispatcher = NullDispatcher::new();
 ```
 
 Enable the paired-channel lifecycle path with
-`ComponentVm::builder().background(true)`.
+`ComponentVm::builder().background(true)` (or the read-only component builder).
+Terminal state and publication are committed on foreground. Subscribe to the
+hot `background_errors()` stream for hook failures after the fire-and-forget
+call returns; the stream completes on disposal.
 
 ## 3.6.3. Build a `ComponentVm<Model>`
 

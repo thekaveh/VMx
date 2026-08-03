@@ -335,6 +335,7 @@ public sealed class ReadonlyComponentVMBuilder<M>
     private readonly Func<M, string> _modeledHinter;
     private readonly Action? _onConstruct;
     private readonly Action? _onDestruct;
+    private readonly bool _background;
     private readonly IParentCompositeVM? _parent;
 
     /// <summary>Represents an empty, unconfigured builder.</summary>
@@ -358,6 +359,7 @@ public sealed class ReadonlyComponentVMBuilder<M>
         Func<M, string> modeledHinter,
         Action? onConstruct,
         Action? onDestruct,
+        bool background,
         IParentCompositeVM? parent)
     {
         _name = name;
@@ -369,6 +371,7 @@ public sealed class ReadonlyComponentVMBuilder<M>
         _modeledHinter = modeledHinter;
         _onConstruct = onConstruct;
         _onDestruct = onDestruct;
+        _background = background;
         _parent = parent;
     }
 
@@ -391,6 +394,9 @@ public sealed class ReadonlyComponentVMBuilder<M>
 
     /// <summary>Sets the optional OnDestruct lifecycle callback.</summary>
     public ReadonlyComponentVMBuilder<M> OnDestruct(Action callback) => With(onDestruct: callback);
+
+    /// <summary>Sets the optional Background flag (default: false).</summary>
+    public ReadonlyComponentVMBuilder<M> Background(bool background) => With(background: background);
 
     /// <summary>Sets the required Services (hub + dispatcher).</summary>
     public ReadonlyComponentVMBuilder<M> Services(IMessageHub hub, IDispatcher dispatcher)
@@ -429,7 +435,8 @@ public sealed class ReadonlyComponentVMBuilder<M>
             _hub,
             _dispatcher,
             _onConstruct,
-            _onDestruct);
+            _onDestruct,
+            _background);
 
         if (_parent is not null)
             vm.Parent = _parent;
@@ -448,6 +455,7 @@ public sealed class ReadonlyComponentVMBuilder<M>
         Func<M, string>? modeledHinter = null,
         Action? onConstruct = null,
         Action? onDestruct = null,
+        bool? background = null,
         IParentCompositeVM? parent = null)
         => new(
             name ?? _name,
@@ -459,5 +467,6 @@ public sealed class ReadonlyComponentVMBuilder<M>
             modeledHinter ?? _modeledHinter,
             onConstruct ?? _onConstruct,
             onDestruct ?? _onDestruct,
+            background ?? _background,
             parent ?? _parent);
 }

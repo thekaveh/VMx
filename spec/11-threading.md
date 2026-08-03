@@ -19,7 +19,7 @@ shares one across all trees).
 
 ## 2. Default dispatchers
 
-Each language flavor ships an `RxDispatcher` whose defaults are:
+Each flavor ships an idiomatic default dispatcher whose channels are:
 
 | Language   | Foreground                                                                               | Background                                  |
 | ---------- | ---------------------------------------------------------------------------------------- | ------------------------------------------- |
@@ -27,7 +27,7 @@ Each language flavor ships an `RxDispatcher` whose defaults are:
 | Python     | `AsyncIOScheduler(loop)` for the current event loop                                      | `ThreadPoolScheduler()`                     |
 | TypeScript | `queueScheduler` (synchronous trampoline)                                                | `asyncScheduler` (macrotask)                |
 | Swift      | `DefaultDispatcher` → main queue (run inline if already on main) — see note              | `DispatchQueue.global(qos: .userInitiated)` |
-| Rust       | `DefaultDispatcher` → inline closure dispatch                                            | named worker thread                         |
+| Rust       | `DefaultDispatcher` → dedicated serial `vmx-foreground` worker                           | dedicated serial `vmx-background` worker    |
 
 > **TypeScript:** `RxDispatcher.default()` uses `asyncScheduler` (a genuine
 > macrotask) for background. An earlier `asapScheduler` (Promise microtask) was
@@ -45,7 +45,11 @@ Each language flavor ships an `RxDispatcher` whose defaults are:
 > **Rust:** Rust's `Dispatcher` is likewise closure-based. `dispatch` is the
 > foreground channel and `dispatch_background` is the background channel.
 > `NullDispatcher` and `ImmediateDispatcher` run both inline;
-> `ManualDispatcher` provides independently drainable queues for tests.
+> `ManualDispatcher` provides independently drainable queues for tests. A
+> failed fire-and-forget background hook is emitted on the component's hot
+> `background_errors()` stream after foreground rollback; hook panics use a
+> `VmxError::Other` diagnostic because Rust panic payloads are not constrained
+> to the error type.
 
 UI integrations (WPF, Avalonia, MAUI, tkinter, PyQt, …) provide their own
 foreground scheduler tied to the UI thread.

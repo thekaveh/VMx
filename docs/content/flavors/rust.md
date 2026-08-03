@@ -26,7 +26,8 @@ Rust is the fifth VMx source flavor. It lives under `langs/rust/` as the
   implements the ordinary component/node contract, and keeps resource phase in
   `resource_status()` / `state().status()` independently of lifecycle status
 - Threading: `Dispatcher` has paired foreground/background closure channels;
-  component builders opt into background lifecycle work with `.background(true)`
+  component and read-only builders opt into background lifecycle work with
+  `.background(true)`, and `background_errors()` reports fire-and-forget failures
 
 ## 7.6.2. Fixed Aggregates
 

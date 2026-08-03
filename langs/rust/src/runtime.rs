@@ -7,6 +7,8 @@ use super::{
     Cell, Condvar, Deserialize, HashMap, HashSet, Mutex, MutexGuard, OnceLock, Ordering, Serialize,
     ThreadId, VecDeque, Weak,
 };
+use crate::ValueStream;
+use std::sync::mpsc;
 
 static NEXT_ID: AtomicUsize = AtomicUsize::new(1);
 pub(crate) static HIERARCHY_TOPOLOGY_GATE: Mutex<()> = Mutex::new(());
@@ -1167,32 +1169,58 @@ impl Dispatcher for ImmediateDispatcher {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default)]
-/// Default paired dispatcher: inline foreground and worker-thread background.
-pub struct DefaultDispatcher;
+type DispatchAction = Box<dyn FnOnce() + Send>;
+type DispatchQueue = Arc<Mutex<VecDeque<DispatchAction>>>;
+
+#[derive(Debug, Clone)]
+/// Default paired dispatcher with dedicated serial foreground/background workers.
+pub struct DefaultDispatcher {
+    foreground: mpsc::Sender<DispatchAction>,
+    background: mpsc::Sender<DispatchAction>,
+}
 
 impl DefaultDispatcher {
     /// Creates the default paired-channel dispatcher.
     pub fn new() -> Self {
-        Self
+        fn worker(name: &str) -> mpsc::Sender<DispatchAction> {
+            let (sender, receiver) = mpsc::channel::<DispatchAction>();
+            thread::Builder::new()
+                .name(name.to_string())
+                .spawn(move || {
+                    while let Ok(action) = receiver.recv() {
+                        let _ = catch_unwind(AssertUnwindSafe(action));
+                    }
+                })
+                .expect("VMx default dispatcher could not start its worker");
+            sender
+        }
+
+        Self {
+            foreground: worker("vmx-foreground"),
+            background: worker("vmx-background"),
+        }
+    }
+}
+
+impl Default for DefaultDispatcher {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
 impl Dispatcher for DefaultDispatcher {
     fn dispatch(&self, action: Box<dyn FnOnce() + Send>) {
-        action();
+        self.foreground
+            .send(action)
+            .expect("VMx default foreground worker unexpectedly stopped");
     }
 
     fn dispatch_background(&self, action: Box<dyn FnOnce() + Send>) {
-        thread::Builder::new()
-            .name("vmx-background".to_string())
-            .spawn(action)
-            .expect("VMx default background dispatcher could not start a worker");
+        self.background
+            .send(action)
+            .expect("VMx default background worker unexpectedly stopped");
     }
 }
-
-type DispatchAction = Box<dyn FnOnce() + Send>;
-type DispatchQueue = Arc<Mutex<VecDeque<DispatchAction>>>;
 
 #[derive(Clone, Default)]
 /// Deterministic dispatcher that queues work until explicitly drained.
@@ -1635,6 +1663,7 @@ struct ComponentCoreInner<D: Dispatcher> {
     legacy_parent_id: Option<usize>,
     hub: MessageHub,
     property_changed: PropertyChangedStream,
+    background_errors: ValueStream<VmxError>,
     foreground: D,
     background: bool,
     on_construct: Option<Hook>,
@@ -1661,6 +1690,7 @@ impl<D: Dispatcher> ComponentCore<D> {
                 legacy_parent_id: None,
                 hub,
                 property_changed: PropertyChangedStream::default(),
+                background_errors: ValueStream::hot(VmxError::Other(String::new())),
                 foreground: dispatcher,
                 background: false,
                 on_construct: None,
@@ -1698,6 +1728,10 @@ impl<D: Dispatcher> ComponentCore<D> {
 
     pub(crate) fn status(&self) -> ConstructionStatus {
         lock(&self.inner).status
+    }
+
+    pub(crate) fn background_errors(&self) -> ValueStream<VmxError> {
+        lock(&self.inner).background_errors.clone()
     }
 
     pub(crate) fn set_hook(&self, operation: LifecycleOperation, hook: Hook) {
@@ -1823,7 +1857,8 @@ impl<D: Dispatcher> ComponentCore<D> {
             let Some(result) = core.run_background_hook(hook, generation) else {
                 return;
             };
-            let settled = if result.is_ok() {
+            let error = result.err();
+            let settled = if error.is_none() {
                 target
             } else {
                 match operation {
@@ -1832,28 +1867,32 @@ impl<D: Dispatcher> ComponentCore<D> {
                     LifecycleOperation::Dispose => unreachable!(),
                 }
             };
-            {
-                let mut inner = lock(&core.inner);
-                if inner.transition_generation != generation {
-                    return;
-                }
-                inner.status = settled;
-                inner.transitioning = false;
-            }
             let publication_core = core.clone();
+            let errors = core.background_errors();
             dispatcher.dispatch(Box::new(move || {
                 hub.send_prepared(|| {
-                    let message = publication_core
-                        .publication_is_current(generation, settled)
-                        .then_some(Message::ConstructionStatusChanged(
+                    let mut inner = lock(&publication_core.inner);
+                    if inner.transition_generation != generation
+                        || inner.status == ConstructionStatus::Disposed
+                    {
+                        return ((), None);
+                    }
+                    inner.status = settled;
+                    inner.transitioning = false;
+                    (
+                        (),
+                        Some(Message::ConstructionStatusChanged(
                             ConstructionStatusChangedMessage {
                                 sender_id,
                                 sender_name,
                                 status: settled,
                             },
-                        ));
-                    ((), message)
+                        )),
+                    )
                 });
+                if let Some(error) = error {
+                    errors.send(error);
+                }
             }));
         }));
         Ok(())
@@ -1907,57 +1946,60 @@ impl<D: Dispatcher> ComponentCore<D> {
             let Some(result) = core.run_background_hook(destruct_hook, generation) else {
                 return;
             };
-            if result.is_err() {
-                {
-                    let mut inner = lock(&core.inner);
-                    if inner.transition_generation != generation {
-                        return;
-                    }
-                    inner.status = ConstructionStatus::Constructed;
-                    inner.transitioning = false;
-                }
+            if let Err(error) = result {
                 let publication_core = core.clone();
+                let errors = core.background_errors();
                 dispatcher.dispatch(Box::new(move || {
                     hub.send_prepared(|| {
-                        let message = publication_core
-                            .publication_is_current(generation, ConstructionStatus::Constructed)
-                            .then_some(Message::ConstructionStatusChanged(
+                        let mut inner = lock(&publication_core.inner);
+                        if inner.transition_generation != generation
+                            || inner.status == ConstructionStatus::Disposed
+                        {
+                            return ((), None);
+                        }
+                        inner.status = ConstructionStatus::Constructed;
+                        inner.transitioning = false;
+                        (
+                            (),
+                            Some(Message::ConstructionStatusChanged(
                                 ConstructionStatusChangedMessage {
                                     sender_id,
                                     sender_name,
                                     status: ConstructionStatus::Constructed,
                                 },
-                            ));
-                        ((), message)
+                            )),
+                        )
                     });
+                    errors.send(error);
                 }));
                 return;
             }
 
-            {
-                let mut inner = lock(&core.inner);
-                if inner.transition_generation != generation
-                    || inner.status == ConstructionStatus::Disposed
-                {
-                    return;
-                }
-                inner.status = ConstructionStatus::Destructed;
-            }
             let continuation_core = core.clone();
             let continuation_dispatcher = dispatcher.clone();
             dispatcher.dispatch(Box::new(move || {
-                if !continuation_core
-                    .publication_is_current(generation, ConstructionStatus::Destructed)
-                {
+                let advanced = hub.send_prepared(|| {
+                    let mut inner = lock(&continuation_core.inner);
+                    if inner.transition_generation != generation
+                        || inner.status == ConstructionStatus::Disposed
+                    {
+                        return (false, None);
+                    }
+                    inner.status = ConstructionStatus::Destructed;
+                    (
+                        true,
+                        Some(Message::ConstructionStatusChanged(
+                            ConstructionStatusChangedMessage {
+                                sender_id,
+                                sender_name: sender_name.clone(),
+                                status: ConstructionStatus::Destructed,
+                            },
+                        )),
+                    )
+                });
+                if !advanced {
                     return;
                 }
-                hub.send(Message::ConstructionStatusChanged(
-                    ConstructionStatusChangedMessage {
-                        sender_id,
-                        sender_name: sender_name.clone(),
-                        status: ConstructionStatus::Destructed,
-                    },
-                ));
                 let should_continue = hub.send_prepared(|| {
                     let mut inner = lock(&continuation_core.inner);
                     if inner.transition_generation != generation
@@ -1990,33 +2032,38 @@ impl<D: Dispatcher> ComponentCore<D> {
                         else {
                             return;
                         };
-                        let settled = if result.is_ok() {
+                        let error = result.err();
+                        let settled = if error.is_none() {
                             ConstructionStatus::Constructed
                         } else {
                             ConstructionStatus::Destructed
                         };
-                        {
-                            let mut inner = lock(&construct_core.inner);
-                            if inner.transition_generation != generation {
-                                return;
-                            }
-                            inner.status = settled;
-                            inner.transitioning = false;
-                        }
                         let publication_core = construct_core.clone();
+                        let errors = construct_core.background_errors();
                         continuation_dispatcher.dispatch(Box::new(move || {
                             hub.send_prepared(|| {
-                                let message = publication_core
-                                    .publication_is_current(generation, settled)
-                                    .then_some(Message::ConstructionStatusChanged(
+                                let mut inner = lock(&publication_core.inner);
+                                if inner.transition_generation != generation
+                                    || inner.status == ConstructionStatus::Disposed
+                                {
+                                    return ((), None);
+                                }
+                                inner.status = settled;
+                                inner.transitioning = false;
+                                (
+                                    (),
+                                    Some(Message::ConstructionStatusChanged(
                                         ConstructionStatusChangedMessage {
                                             sender_id,
                                             sender_name,
                                             status: settled,
                                         },
-                                    ));
-                                ((), message)
+                                    )),
+                                )
                             });
+                            if let Some(error) = error {
+                                errors.send(error);
+                            }
                         }));
                     }));
             }));
@@ -2177,6 +2224,7 @@ impl<D: Dispatcher> ComponentCore<D> {
         if operation == LifecycleOperation::Dispose {
             self.dispose_owned();
             self.property_changed_stream().dispose();
+            self.background_errors().dispose();
         }
         let superseded = {
             let inner = lock(&self.inner);
@@ -2262,13 +2310,18 @@ impl<D: Dispatcher> ComponentCore<D> {
     }
 
     fn finish_deferred_core_disposal(&self) -> VmxResult<()> {
-        let (hook, property_changed) = {
+        let (hook, property_changed, background_errors) = {
             let inner = lock(&self.inner);
-            (inner.on_dispose.clone(), inner.property_changed.clone())
+            (
+                inner.on_dispose.clone(),
+                inner.property_changed.clone(),
+                inner.background_errors.clone(),
+            )
         };
         let result = hook.map(|hook| (lock(&hook))()).unwrap_or(Ok(()));
         self.dispose_owned();
         property_changed.dispose();
+        background_errors.dispose();
         result
     }
 

@@ -165,12 +165,7 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
         let core = ComponentCore::new(name, hub, dispatcher);
         let command_core = core.clone();
         let commands = ComponentCommands::new(&core, move || {
-            if command_core
-                .transition(LifecycleOperation::Destruct)
-                .is_ok()
-            {
-                let _ = command_core.transition(LifecycleOperation::Construct);
-            }
+            let _ = command_core.reconstruct();
         });
         Self {
             core,
@@ -226,6 +221,11 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
     /// Returns the local property-change stream.
     pub fn property_changed(&self) -> PropertyChangedStream {
         self.core.property_changed_stream()
+    }
+
+    /// Returns the hot error stream for fire-and-forget background lifecycle hooks.
+    pub fn background_errors(&self) -> crate::ValueStream<VmxError> {
+        self.core.background_errors()
     }
 
     /// Returns the component's injected message hub.
@@ -559,6 +559,11 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ReadonlyComponentVm<M
     /// Returns the local property-change stream.
     pub fn property_changed(&self) -> PropertyChangedStream {
         self.inner.property_changed()
+    }
+
+    /// Returns the hot error stream for fire-and-forget background lifecycle hooks.
+    pub fn background_errors(&self) -> crate::ValueStream<VmxError> {
+        self.inner.background_errors()
     }
 
     /// Returns the component's injected message hub.
@@ -924,6 +929,90 @@ impl<M: Clone + PartialEq + Send + 'static> ComponentVm<M, NullDispatcher> {
             .background(options.background)
             .services(options.hub, options.dispatcher)
             .build()
+    }
+}
+
+#[derive(Clone)]
+/// A fluent builder for modeled [`ReadonlyComponentVm`] instances.
+pub struct ReadonlyComponentVmBuilder<
+    M: Clone + PartialEq + Send + 'static,
+    D: Dispatcher = NullDispatcher,
+> {
+    inner: ComponentVmBuilder<M, D>,
+}
+
+impl<M: Clone + PartialEq + Send + 'static> Default
+    for ReadonlyComponentVmBuilder<M, NullDispatcher>
+{
+    fn default() -> Self {
+        Self {
+            inner: ComponentVmBuilder::default().view_model_type(ViewModelType::ReadOnlyComponent),
+        }
+    }
+}
+
+impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ReadonlyComponentVmBuilder<M, D> {
+    /// Sets the required component name.
+    pub fn name(self, name: impl Into<String>) -> Self {
+        Self {
+            inner: self.inner.name(name),
+        }
+    }
+
+    /// Sets the optional static presentation hint.
+    pub fn hint(self, hint: impl Into<String>) -> Self {
+        Self {
+            inner: self.inner.hint(hint),
+        }
+    }
+
+    /// Sets the required immutable model.
+    pub fn model(self, model: M) -> Self {
+        Self {
+            inner: self.inner.model(model),
+        }
+    }
+
+    /// Enables background construct/destruct work (disabled by default).
+    pub fn background(self, background: bool) -> Self {
+        Self {
+            inner: self.inner.background(background),
+        }
+    }
+
+    /// Supplies an optional model-derived presentation hint.
+    pub fn model_hint<F>(self, hint: F) -> Self
+    where
+        F: Fn(&M) -> Option<String> + Send + Sync + 'static,
+    {
+        Self {
+            inner: self.inner.model_hint(hint),
+        }
+    }
+
+    /// Supplies the required message hub and dispatcher.
+    pub fn services<D2: Dispatcher>(
+        self,
+        hub: MessageHub,
+        dispatcher: D2,
+    ) -> ReadonlyComponentVmBuilder<M, D2> {
+        ReadonlyComponentVmBuilder {
+            inner: self.inner.services(hub, dispatcher),
+        }
+    }
+
+    /// Validates required fields and creates a read-only component.
+    pub fn build(self) -> VmxResult<ReadonlyComponentVm<M, D>> {
+        Ok(ReadonlyComponentVm {
+            inner: self.inner.build()?,
+        })
+    }
+}
+
+impl<M: Clone + PartialEq + Send + 'static> ReadonlyComponentVm<M, NullDispatcher> {
+    /// Returns a read-only modeled-component builder configured for null dispatch.
+    pub fn builder() -> ReadonlyComponentVmBuilder<M, NullDispatcher> {
+        ReadonlyComponentVmBuilder::default()
     }
 }
 

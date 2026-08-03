@@ -5,9 +5,10 @@ Rust flavor of VMx, the language-neutral, lifecycle-aware MVVM viewmodel framewo
 **v0.29.0** implements `spec-v3.23.0` with complete catalog coverage: all 403
 library conformance IDs are covered by behavioral Rust tests. The completed
 [Rust parity ledger](../../docs/maintenance/2026-07-16-rust-capability-parity.md)
-records the evidence for capability, structural, command, reactive, and async
-convergence on this source line. The crate has not yet been published to
-crates.io.
+records the 0.27.0 capability, structural, command, reactive, and async
+convergence retained by this line. [ADR-0130](../../spec/ADRs/0130-rust-paired-dispatch-and-background-lifecycle.md),
+the 0.29.0 changelog, and current threading tests record the later paired-dispatch
+work. The crate has not yet been published to crates.io.
 
 This crate implements the VMx spec with idiomatic Rust naming and error handling:
 
@@ -19,7 +20,13 @@ This crate implements the VMx spec with idiomatic Rust naming and error handling
   notification without assignment or hint work;
 - `hint()` is immutable fixed metadata while `modeled_hint()` is recomputed
   from the configured model hinter and publishes `modeled_hint` changes;
-- message and dispatcher primitives are UI-framework neutral;
+- message and dispatcher primitives are UI-framework neutral; `DefaultDispatcher`
+  supplies dedicated foreground/background workers, custom dispatchers implement
+  `dispatch_background`, and `ManualDispatcher` exposes independently drainable
+  queues;
+- component and read-only component builders opt into background lifecycle with
+  `.background(true)`; terminal state/publication returns to foreground and hook
+  failures arrive on the hot `background_errors()` stream;
 - relay commands expose `raise_can_execute_changed` for precise binding
   invalidation without predicate polling;
 - async relay commands provide an immutable builder, cooperative cancellation,
@@ -97,7 +104,36 @@ fn main() -> VmxResult<()> {
 }
 ```
 
-### 2.1. Fixed Aggregates
+### 2.1. Background Lifecycle
+
+`NullDispatcher` and `ImmediateDispatcher` intentionally run both channels
+inline. Use `DefaultDispatcher` for the built-in paired workers, or provide a
+host dispatcher whose foreground channel targets the UI event loop:
+
+```rust
+use vmx::{ComponentVm, DefaultDispatcher, MessageHub, ValueSubscription, VmxResult};
+
+fn start_in_background(
+) -> VmxResult<(ComponentVm<(), DefaultDispatcher>, ValueSubscription)> {
+    let vm = ComponentVm::builder()
+        .name("loader")
+        .model(())
+        .background(true)
+        .services(MessageHub::new(), DefaultDispatcher::new())
+        .build()?;
+
+    let errors = vm.background_errors().subscribe(|error| {
+        eprintln!("background lifecycle failed: {error}");
+    });
+    vm.construct()?; // admits Constructing; completion is fire-and-forget
+    Ok((vm, errors)) // host retains both for the active lifetime
+}
+```
+
+The read-only family exposes the same option through
+`ReadonlyComponentVm::builder().background(true)`.
+
+### 2.2. Fixed Aggregates
 
 `AggregateVm1` through `AggregateVm6` use immutable builders and populate their
 typed slots from factories at construct time. Accessors return `None` before
