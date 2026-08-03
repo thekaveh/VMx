@@ -23,9 +23,9 @@ The normative batch contract permits either:
 1. a callback-taking API whose callback invocation defines the batch scope.
 
 Both forms MUST preserve nested suppression, emit at most one reset when the
-outermost dirty scope exits, emit nothing for a clean scope, restore batch
-state during exception or panic unwinding, and then propagate the original
-failure according to the language's normal error model.
+outermost dirty scope completes normally, and emit nothing for a clean scope.
+Exception and panic cleanup semantics remain flavor-specific; in particular,
+Swift's explicit-dispose contract remains governed by ADR-0060.
 
 `COMP-013` and `GRP-006` remain the stable conformance IDs. Their wording now
 describes both scope shapes; no catalog behavior or implementation changes.
@@ -35,8 +35,8 @@ describes both scope shapes; no catalog behavior or implementation changes.
 - Rust's callback API is explicitly conforming without introducing an
   ownership-hostile borrowed disposable.
 - Handle-based flavors retain their existing public APIs and behavior.
-- Cross-flavor audits compare observable scope semantics rather than requiring
-  one resource-management syntax in every language.
+- Cross-flavor audits compare normal observable scope semantics rather than
+  requiring one resource-management syntax in every language.
 
 ## 4. Rejected alternatives
 

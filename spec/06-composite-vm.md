@@ -128,16 +128,13 @@ context-manager handle, or a callback-taking method whose scope is the callback
 invocation. While at least one batch scope is active, mutations (`Add`, `Insert`,
 `Remove`, `RemoveAt`, `Clear`, indexer set) MUST NOT raise individual
 `CollectionChanged` events. Move participates as one mutation. When the
-outermost scope exits:
+outermost scope completes normally:
 
 - If any mutations occurred during the batch, a single
   `CollectionChanged(action=Reset)` MUST be raised.
 - If no mutations occurred, no event is raised.
 
 Nested batches are ref-counted: only the outermost completion fires the `Reset`.
-The scope MUST exit and flush correctly when its body unwinds with an exception
-or panic; the original failure then continues according to the flavor's normal
-error model.
 
 ### 4.2 Atomic child ownership transfer (spec v3.21)
 

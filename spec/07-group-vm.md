@@ -85,12 +85,10 @@ event fires. The default is `false`.
 A group MUST expose an idiomatic scoped batch API: a returned disposable /
 context-manager handle, or a callback-taking method whose scope is the callback
 invocation. While at least one batch scope is active, mutations MUST NOT raise
-individual `CollectionChanged` events. When the outermost scope exits, if any
-mutations occurred a single
+individual `CollectionChanged` events. When the outermost scope completes
+normally, if any mutations occurred a single
 `CollectionChanged(action=Reset)` MUST be raised. Nested batches are
-ref-counted. The scope MUST exit and flush correctly when its body unwinds with
-an exception or panic; the original failure then continues according to the
-flavor's normal error model.
+ref-counted.
 
 A same-index move is not a mutation and does not dirty the batch. A non-no-op
 move inside a batch contributes to the one outer `Reset`.
