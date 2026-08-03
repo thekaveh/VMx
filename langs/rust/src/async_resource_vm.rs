@@ -122,8 +122,14 @@ struct Machine<T> {
     state: AsyncResourceState<T>,
     stable: StableState<T>,
     operation: Option<Operation<T>>,
+    teardown: Option<ResourceTeardown<T>>,
     identity: u64,
     disposed: bool,
+}
+
+struct ResourceTeardown<T> {
+    operation: Option<Operation<T>>,
+    accepted: Option<T>,
 }
 
 #[derive(Clone)]
@@ -135,6 +141,7 @@ struct Commands {
 
 type Loader<T> = Arc<dyn Fn(CancellationToken) -> VmxResult<T> + Send + Sync + 'static>;
 type Cleanup<T> = Arc<dyn Fn(T) + Send + Sync + 'static>;
+type DisposeHook = Arc<Mutex<dyn FnMut() -> VmxResult<()> + Send + 'static>>;
 
 struct Inner<T, D: Dispatcher> {
     component: ComponentVm<(), D>,
@@ -143,6 +150,7 @@ struct Inner<T, D: Dispatcher> {
     cleanup: Option<Cleanup<T>>,
     machine: Mutex<Machine<T>>,
     commands: Mutex<Option<Commands>>,
+    dispose_hook: Mutex<Option<DisposeHook>>,
 }
 
 #[derive(Clone)]
@@ -239,10 +247,12 @@ where
                 state: AsyncResourceState::Idle,
                 stable: StableState::Idle,
                 operation: None,
+                teardown: None,
                 identity: 0,
                 disposed: false,
             }),
             commands: Mutex::new(None),
+            dispose_hook: Mutex::new(None),
         });
 
         let load_inner = Arc::downgrade(&inner);
@@ -288,6 +298,13 @@ where
             load: load_command.clone(),
             reload: reload_command.clone(),
             cancel: cancel_command.clone(),
+        });
+
+        let dispose_inner = Arc::downgrade(&inner);
+        inner.component.on_dispose(move || {
+            dispose_inner
+                .upgrade()
+                .map_or(Ok(()), |inner| finish_resource_dispose(&inner))
         });
 
         Self {
@@ -382,7 +399,7 @@ where
     where
         F: FnMut() -> VmxResult<()> + Send + 'static,
     {
-        self.inner.component.on_dispose(hook);
+        *lock(&self.inner.dispose_hook) = Some(Arc::new(Mutex::new(hook)));
     }
 
     /// Transitions the component to constructed state without starting a load.
@@ -526,32 +543,18 @@ where
 
     /// Cancels work, cleans up the retained value, and disposes owned commands.
     pub fn dispose(&self) -> VmxResult<()> {
-        let (operation, accepted, first) = {
+        {
             let mut machine = lock(&self.inner.machine);
-            if machine.disposed {
-                (None, None, false)
-            } else {
+            if !machine.disposed {
                 machine.disposed = true;
                 machine.identity = machine.identity.wrapping_add(1);
                 let operation = machine.operation.take();
                 let stable = std::mem::replace(&mut machine.stable, StableState::Idle);
-                (operation, owned_value(stable), true)
+                machine.teardown = Some(ResourceTeardown {
+                    operation,
+                    accepted: owned_value(stable),
+                });
             }
-        };
-        if !first {
-            return Ok(());
-        }
-        if let Some(operation) = operation {
-            operation.token.cancel();
-        }
-        let commands = lock(&self.inner.commands).clone();
-        if let Some(commands) = commands {
-            commands.load.dispose();
-            commands.reload.dispose();
-            commands.cancel.dispose();
-        }
-        if let Some(value) = accepted {
-            cleanup(&self.inner, value);
         }
         self.inner.component.dispose()
     }
@@ -631,6 +634,30 @@ where
     T: Clone + Send + 'static,
     D: Dispatcher,
 {
+}
+
+fn finish_resource_dispose<T, D>(inner: &Inner<T, D>) -> VmxResult<()>
+where
+    T: Clone + Send + 'static,
+    D: Dispatcher,
+{
+    let teardown = lock(&inner.machine).teardown.take();
+    if let Some(teardown) = teardown {
+        if let Some(operation) = teardown.operation {
+            operation.token.cancel();
+        }
+        if let Some(commands) = lock(&inner.commands).clone() {
+            commands.load.dispose();
+            commands.reload.dispose();
+            commands.cancel.dispose();
+        }
+        if let Some(value) = teardown.accepted {
+            cleanup(inner, value);
+        }
+    }
+
+    let hook = lock(&inner.dispose_hook).clone();
+    hook.map_or(Ok(()), |hook| (lock(&hook))())
 }
 
 fn can_load<T, D: Dispatcher>(inner: &Inner<T, D>) -> bool {

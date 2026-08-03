@@ -20,6 +20,9 @@ project adheres to [Semantic Versioning](https://semver.org/).
 - `AsyncResourceVm` now implements `VmNode` and leaf `TreeNode`, delegates the
   complete model-free component surface, publishes through its injected hub,
   and participates in composite ownership, selection, and atomic reparenting.
+- Resource cleanup and command teardown now run only after the embedded
+  component has admitted its terminal `Disposed` transition, so reentrant
+  callbacks cannot reopen the lifecycle or observe an intermediate status.
 
 ## [0.27.0] — 2026-07-25
 
