@@ -1,7 +1,7 @@
 # 2. Installation
 
 VMx has five catalog-complete source flavors implementing spec 3.23.0. Their
-current package source versions are listed below; Rust 0.27.0
+current package source versions are listed below; Rust 0.28.0
 declares `MIN_SPEC_VERSION = "3.23.0"`. All five implement the canonical
 concepts and behavior, with intentional flavor idioms documented by ADR; the
 completed [Rust convergence ledger](../maintenance/2026-07-16-rust-capability-parity.md)
@@ -14,7 +14,7 @@ source tree, so check the flavor README and registry before pinning a release.
 | Python     | v3.23.0       | `vmx` latest published: 3.1.0       |
 | TypeScript | v3.24.0       | npm package not published yet       |
 | Swift      | v3.24.0       | SwiftPM release 3.24.0              |
-| Rust       | 0.27.0        | crates.io package not published yet |
+| Rust       | 0.28.0        | crates.io package not published yet |
 
 === "C#"
 

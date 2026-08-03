@@ -3,9 +3,11 @@
 //! Spec: `spec/23-async-resource-vm.md`; ADR-0100.
 
 use crate::{
-    lock, AsyncRelayCommand, CancellationToken, ComponentVm, MessageHub, NullDispatcher,
-    PropertyChangedStream, RelayCommand, VmxError, VmxResult,
+    lock, AsyncRelayCommand, CancellationToken, ComponentVm, ConstructionStatus, Dispatcher,
+    MessageHub, NullDispatcher, ParentHandle, PropertyChangedStream, RelayCommand, TreeNode,
+    VmNode, VmxError, VmxResult,
 };
+use std::fmt;
 use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
@@ -134,8 +136,8 @@ struct Commands {
 type Loader<T> = Arc<dyn Fn(CancellationToken) -> VmxResult<T> + Send + Sync + 'static>;
 type Cleanup<T> = Arc<dyn Fn(T) + Send + Sync + 'static>;
 
-struct Inner<T> {
-    component: ComponentVm<(), NullDispatcher>,
+struct Inner<T, D: Dispatcher> {
+    component: ComponentVm<(), D>,
     loader: Loader<T>,
     retention: AsyncResourceRetention,
     cleanup: Option<Cleanup<T>>,
@@ -145,8 +147,8 @@ struct Inner<T> {
 
 #[derive(Clone)]
 /// A cancellable, command-backed asynchronous resource state machine.
-pub struct AsyncResourceVm<T> {
-    inner: Arc<Inner<T>>,
+pub struct AsyncResourceVm<T, D: Dispatcher = NullDispatcher> {
+    inner: Arc<Inner<T, D>>,
     load_command: AsyncRelayCommand,
     reload_command: AsyncRelayCommand,
     cancel_command: RelayCommand,
@@ -158,15 +160,10 @@ enum StartIntent {
     Reload,
 }
 
-impl<T> AsyncResourceVm<T>
+impl<T> AsyncResourceVm<T, NullDispatcher>
 where
     T: Clone + Send + 'static,
 {
-    /// Returns the canonical component family discriminator.
-    pub fn view_model_type(&self) -> crate::ViewModelType {
-        self.inner.component.view_model_type()
-    }
-
     /// Creates a resource VM that discards previous values and needs no cleanup.
     pub fn new<F>(name: impl Into<String>, loader: F) -> Self
     where
@@ -185,8 +182,56 @@ where
     where
         F: Fn(CancellationToken) -> VmxResult<T> + Send + Sync + 'static,
     {
+        Self::with_services_and_options(
+            name,
+            MessageHub::new(),
+            NullDispatcher::new(),
+            loader,
+            retention,
+            cleanup,
+        )
+    }
+}
+
+impl<T, D> AsyncResourceVm<T, D>
+where
+    T: Clone + Send + 'static,
+    D: Dispatcher,
+{
+    /// Creates a resource VM with explicit component services.
+    pub fn with_services<F>(
+        name: impl Into<String>,
+        hub: MessageHub,
+        dispatcher: D,
+        loader: F,
+    ) -> Self
+    where
+        F: Fn(CancellationToken) -> VmxResult<T> + Send + Sync + 'static,
+    {
+        Self::with_services_and_options(
+            name,
+            hub,
+            dispatcher,
+            loader,
+            AsyncResourceRetention::DiscardPrevious,
+            None,
+        )
+    }
+
+    /// Creates a resource VM with explicit services, retention, and cleanup.
+    pub fn with_services_and_options<F>(
+        name: impl Into<String>,
+        hub: MessageHub,
+        dispatcher: D,
+        loader: F,
+        retention: AsyncResourceRetention,
+        cleanup: Option<Cleanup<T>>,
+    ) -> Self
+    where
+        F: Fn(CancellationToken) -> VmxResult<T> + Send + Sync + 'static,
+    {
         let inner = Arc::new(Inner {
-            component: ComponentVm::new(name),
+            component: ComponentVm::with_services(name, hub, dispatcher),
             loader: Arc::new(loader),
             retention,
             cleanup,
@@ -253,13 +298,33 @@ where
         }
     }
 
+    /// Returns the canonical component family discriminator.
+    pub fn view_model_type(&self) -> crate::ViewModelType {
+        self.inner.component.view_model_type()
+    }
+
+    /// Returns the stable component identity.
+    pub fn id(&self) -> usize {
+        self.inner.component.id()
+    }
+
+    /// Returns the immutable component name.
+    pub fn name(&self) -> String {
+        self.inner.component.name()
+    }
+
+    /// Returns the immutable static presentation hint.
+    pub fn hint(&self) -> Option<String> {
+        self.inner.component.hint()
+    }
+
     /// Returns a snapshot of the complete current acquisition state.
     pub fn state(&self) -> AsyncResourceState<T> {
         lock(&self.inner.machine).state.clone()
     }
 
     /// Returns the current acquisition phase.
-    pub fn status(&self) -> AsyncResourceStatus {
+    pub fn resource_status(&self) -> AsyncResourceStatus {
         lock(&self.inner.machine).state.status()
     }
 
@@ -281,6 +346,148 @@ where
     /// Returns the message hub used for state notifications.
     pub fn hub(&self) -> MessageHub {
         self.inner.component.hub()
+    }
+
+    /// Registers cleanup work that runs during component disposal.
+    pub fn own<F>(&self, cleanup: F)
+    where
+        F: FnOnce() + Send + 'static,
+    {
+        self.inner.component.own(cleanup);
+    }
+
+    /// Publishes a change for an application-defined property name.
+    pub fn notify_property_changed(&self, property_name: impl Into<String>) {
+        self.inner.component.notify_property_changed(property_name);
+    }
+
+    /// Replaces the hook invoked during construction.
+    pub fn on_construct<F>(&self, hook: F)
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        self.inner.component.on_construct(hook);
+    }
+
+    /// Replaces the hook invoked during destruction.
+    pub fn on_destruct<F>(&self, hook: F)
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        self.inner.component.on_destruct(hook);
+    }
+
+    /// Replaces the hook invoked during disposal.
+    pub fn on_dispose<F>(&self, hook: F)
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        self.inner.component.on_dispose(hook);
+    }
+
+    /// Transitions the component to constructed state without starting a load.
+    pub fn construct(&self) -> VmxResult<()> {
+        self.inner.component.construct()
+    }
+
+    /// Transitions the component to destructed state without cancelling a load.
+    pub fn destruct(&self) -> VmxResult<()> {
+        self.inner.component.destruct()
+    }
+
+    /// Destructs and then reconstructs the component.
+    pub fn reconstruct(&self) -> VmxResult<()> {
+        self.inner.component.reconstruct()
+    }
+
+    /// Returns the current component lifecycle status.
+    pub fn status(&self) -> ConstructionStatus {
+        self.inner.component.status()
+    }
+
+    /// Reports whether the component is constructed.
+    pub fn is_constructed(&self) -> bool {
+        self.inner.component.is_constructed()
+    }
+
+    /// Reports whether this constructed component can select itself through its parent.
+    pub fn can_select(&self) -> bool {
+        self.inner.component.can_select()
+    }
+
+    /// Selects this component through its owning selectable parent.
+    pub fn select(&self) {
+        self.inner.component.select();
+    }
+
+    /// Reports whether this component can deselect itself through its parent.
+    pub fn can_deselect(&self) -> bool {
+        self.inner.component.can_deselect()
+    }
+
+    /// Deselects this component through its owning selectable parent.
+    pub fn deselect(&self) {
+        self.inner.component.deselect();
+    }
+
+    /// Reports whether this component is current in its owning container.
+    pub fn is_current(&self) -> bool {
+        self.inner.component.is_current()
+    }
+
+    /// Compatibility alias for [`Self::is_current`].
+    pub fn is_selected(&self) -> bool {
+        self.is_current()
+    }
+
+    /// Marks this component as expanded.
+    pub fn expand(&self) {
+        self.inner.component.expand();
+    }
+
+    /// Marks this component as collapsed.
+    pub fn collapse(&self) {
+        self.inner.component.collapse();
+    }
+
+    /// Toggles this component's expansion state.
+    pub fn toggle_expansion(&self) {
+        self.inner.component.toggle_expansion();
+    }
+
+    /// Reports whether this component is expanded.
+    pub fn is_expanded(&self) -> bool {
+        self.inner.component.is_expanded()
+    }
+
+    /// Returns the current parent identity, when attached.
+    pub fn parent_id(&self) -> Option<usize> {
+        self.inner.component.parent_id()
+    }
+
+    /// Returns the stable command that selects this component through its parent.
+    pub fn select_command(&self) -> RelayCommand {
+        self.inner.component.select_command()
+    }
+
+    /// Returns the stable command that deselects this component through its parent.
+    pub fn deselect_command(&self) -> RelayCommand {
+        self.inner.component.deselect_command()
+    }
+
+    /// Returns the inert baseline next-sibling command.
+    pub fn select_next_command(&self) -> RelayCommand {
+        self.inner.component.select_next_command()
+    }
+
+    /// Returns the inert baseline previous-sibling command.
+    pub fn select_previous_command(&self) -> RelayCommand {
+        self.inner.component.select_previous_command()
+    }
+
+    /// Returns the stable component reconstruction command.
+    pub fn reconstruct_command(&self) -> RelayCommand {
+        self.inner.component.reconstruct_command()
     }
 
     /// Returns the command that starts the initial load.
@@ -350,28 +557,105 @@ where
     }
 }
 
-fn can_load<T>(inner: &Inner<T>) -> bool {
+impl<T, D: Dispatcher> PartialEq for AsyncResourceVm<T, D> {
+    fn eq(&self, other: &Self) -> bool {
+        self.inner.component.id() == other.inner.component.id()
+    }
+}
+
+impl<T, D: Dispatcher> Eq for AsyncResourceVm<T, D> {}
+
+impl<T, D: Dispatcher> fmt::Debug for AsyncResourceVm<T, D> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("AsyncResourceVm")
+            .field("id", &self.inner.component.id())
+            .field("name", &self.inner.component.name())
+            .field("status", &self.inner.component.status())
+            .finish()
+    }
+}
+
+impl<T, D> VmNode for AsyncResourceVm<T, D>
+where
+    T: Clone + Send + 'static,
+    D: Dispatcher,
+{
+    fn id(&self) -> usize {
+        AsyncResourceVm::id(self)
+    }
+
+    fn construct(&self) -> VmxResult<()> {
+        AsyncResourceVm::construct(self)
+    }
+
+    fn destruct(&self) -> VmxResult<()> {
+        AsyncResourceVm::destruct(self)
+    }
+
+    fn dispose(&self) -> VmxResult<()> {
+        AsyncResourceVm::dispose(self)
+    }
+
+    fn status(&self) -> ConstructionStatus {
+        AsyncResourceVm::status(self)
+    }
+
+    fn set_parent_id(&self, parent_id: Option<usize>) {
+        self.inner.component.core.set_parent_id(parent_id);
+    }
+
+    fn parent_id(&self) -> Option<usize> {
+        self.inner.component.core.parent_id()
+    }
+
+    fn set_parent_handle(&self, parent: Option<ParentHandle>) {
+        self.inner.component.core.set_parent_handle(parent);
+    }
+
+    fn parent_handle(&self) -> Option<ParentHandle> {
+        self.inner.component.core.parent_handle()
+    }
+
+    fn set_current_flag(&self, is_current: bool) {
+        self.inner.component.core.set_current_flag(is_current);
+    }
+
+    fn is_current(&self) -> bool {
+        self.inner.component.core.is_selected()
+    }
+}
+
+impl<T, D> TreeNode for AsyncResourceVm<T, D>
+where
+    T: Clone + Send + 'static,
+    D: Dispatcher,
+{
+}
+
+fn can_load<T, D: Dispatcher>(inner: &Inner<T, D>) -> bool {
     let machine = lock(&inner.machine);
     !machine.disposed && machine.state.status() == AsyncResourceStatus::Idle
 }
 
-fn can_reload<T>(inner: &Inner<T>) -> bool {
+fn can_reload<T, D: Dispatcher>(inner: &Inner<T, D>) -> bool {
     let machine = lock(&inner.machine);
     !machine.disposed && machine.state.status() != AsyncResourceStatus::Idle
 }
 
-fn can_cancel<T>(inner: &Inner<T>) -> bool {
+fn can_cancel<T, D: Dispatcher>(inner: &Inner<T, D>) -> bool {
     let machine = lock(&inner.machine);
     !machine.disposed && machine.state.status() == AsyncResourceStatus::Loading
 }
 
-fn run_intent<T>(
-    inner: Arc<Inner<T>>,
+fn run_intent<T, D>(
+    inner: Arc<Inner<T, D>>,
     intent: StartIntent,
     external_token: CancellationToken,
 ) -> VmxResult<()>
 where
     T: Clone + Send + 'static,
+    D: Dispatcher,
 {
     let (operation, previous, discarded) = {
         let mut machine = lock(&inner.machine);
@@ -476,9 +760,10 @@ where
     }
 }
 
-fn rollback_panicked_operation<T>(inner: &Inner<T>, operation: &Operation<T>)
+fn rollback_panicked_operation<T, D>(inner: &Inner<T, D>, operation: &Operation<T>)
 where
     T: Clone + Send + 'static,
+    D: Dispatcher,
 {
     let notify = {
         let mut machine = lock(&inner.machine);
@@ -498,9 +783,10 @@ where
     }
 }
 
-fn cancel_current<T>(inner: &Inner<T>)
+fn cancel_current<T, D>(inner: &Inner<T, D>)
 where
     T: Clone + Send + 'static,
+    D: Dispatcher,
 {
     let identity = lock(&inner.machine)
         .operation
@@ -511,9 +797,10 @@ where
     }
 }
 
-fn cancel_operation<T>(inner: &Inner<T>, identity: u64)
+fn cancel_operation<T, D>(inner: &Inner<T, D>, identity: u64)
 where
     T: Clone + Send + 'static,
+    D: Dispatcher,
 {
     let operation = {
         let mut machine = lock(&inner.machine);
@@ -535,9 +822,10 @@ where
     notify_state(inner);
 }
 
-fn complete_operation<T>(inner: &Inner<T>, operation: &Operation<T>, result: VmxResult<T>)
+fn complete_operation<T, D>(inner: &Inner<T, D>, operation: &Operation<T>, result: VmxResult<T>)
 where
     T: Clone + Send + 'static,
+    D: Dispatcher,
 {
     match result {
         Ok(value) => {
@@ -617,13 +905,13 @@ fn owned_value<T>(state: StableState<T>) -> Option<T> {
     }
 }
 
-fn cleanup<T>(inner: &Inner<T>, value: T) {
+fn cleanup<T, D: Dispatcher>(inner: &Inner<T, D>, value: T) {
     if let Some(cleanup) = &inner.cleanup {
         let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| cleanup(value)));
     }
 }
 
-fn notify_state<T>(inner: &Inner<T>) {
+fn notify_state<T, D: Dispatcher>(inner: &Inner<T, D>) {
     inner.component.notify_property_changed("state");
     let commands = lock(&inner.commands).clone();
     if let Some(commands) = commands {

@@ -2,7 +2,7 @@
 
 Rust flavor of VMx, the language-neutral, lifecycle-aware MVVM viewmodel framework.
 
-**v0.27.0** implements `spec-v3.23.0` with complete catalog coverage: all 403
+**v0.28.0** implements `spec-v3.23.0` with complete catalog coverage: all 403
 library conformance IDs are covered by behavioral Rust tests. The completed
 [Rust parity ledger](../../docs/maintenance/2026-07-16-rust-capability-parity.md)
 records the evidence for capability, structural, command, reactive, and async
@@ -61,8 +61,10 @@ This crate implements the VMx spec with idiomatic Rust naming and error handling
   streams with typed provenance and explicit coalescing;
 - `SearchableState::from_items_with_changes(...)` maps a source hub pulse to
   one current-term filtered invalidation while owning only its subscription;
-- `AsyncResourceVm<T>` owns one cancellable latest-start-wins acquisition with
-  retained/discarded presentation state and optional value cleanup;
+- `AsyncResourceVm<T, D>` is an ordinary component node with injected hub and
+  dispatcher services, container ownership and selection, plus one cancellable
+  latest-start-wins acquisition with retained/discarded presentation state and
+  optional value cleanup;
 - `VmCollection<T>` unifies groups and composites, while
   `SelectableVmCollection<T>` adds composite-only selection and `move_item`
   preserves child identity;

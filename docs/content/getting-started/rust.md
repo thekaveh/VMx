@@ -4,7 +4,7 @@ This tutorial walks you through building viewmodels with the VMx Rust crate.
 You will build a `ComponentVm<Model>`, a `RelayCommand`, and a `CompositeVm<T>`
 with child selection — all in a plain Cargo binary.
 
-> The Rust flavor is a source-tree flavor at the v0.27.0 source line: it declares
+> The Rust flavor is a source-tree flavor at the v0.28.0 source line: it declares
 > `MIN_SPEC_VERSION = "3.23.0"` and carries behavioral tests for all 403 library
 > conformance IDs. The `vmx-rs` crate is not yet published to crates.io; consume
 > it as a path or git dependency (below). See

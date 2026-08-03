@@ -6,6 +6,21 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.28.0] — 2026-08-02
+
+### Changed
+
+- **Breaking pre-publication correction:** `AsyncResourceVm<T, D>` now embeds
+  the caller's dispatcher, exposes explicit shared-service constructors, and
+  uses `status()` for ordinary component lifecycle state. Resource acquisition
+  phase is available through `resource_status()` and `state().status()`.
+
+### Fixed
+
+- `AsyncResourceVm` now implements `VmNode` and leaf `TreeNode`, delegates the
+  complete model-free component surface, publishes through its injected hub,
+  and participates in composite ownership, selection, and atomic reparenting.
+
 ## [0.27.0] — 2026-07-25
 
 ### Added

@@ -6,7 +6,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 use vmx::{
     AsyncResourceRetention, AsyncResourceState, AsyncResourceStatus, AsyncResourceVm, Command,
-    VmxError, VmxResult,
+    CompositeVm, ConstructionStatus, ManualDispatcher, Message, MessageHub, NullDispatcher,
+    TreeNode, VmNode, VmxError, VmxResult,
 };
 
 type ResultChannel = (Sender<VmxResult<i32>>, Receiver<VmxResult<i32>>);
@@ -91,13 +92,99 @@ fn async_resource_success_notifies_loading_and_ready() {
     assert!(!vm.cancel_command().can_execute());
 }
 
+#[test]
+fn async_resource_is_an_ordinary_component_with_injected_services() {
+    fn assert_component_contract<T: VmNode + TreeNode>() {}
+    assert_component_contract::<AsyncResourceVm<i32>>();
+
+    let hub = MessageHub::new();
+    let vm =
+        AsyncResourceVm::with_services("resource", hub.clone(), NullDispatcher::new(), |_| Ok(42));
+
+    assert_eq!(vm.name(), "resource");
+    assert_eq!(vm.status(), ConstructionStatus::Destructed);
+    assert_eq!(vm.resource_status(), AsyncResourceStatus::Idle);
+    vm.construct().unwrap();
+    vm.load_async().join().unwrap().unwrap();
+
+    let state_changes = hub
+        .history()
+        .into_iter()
+        .filter(|message| {
+            matches!(
+                message,
+                Message::PropertyChanged(change)
+                    if change.sender_id == vm.id() && change.property_name == "state"
+            )
+        })
+        .count();
+    assert_eq!(state_changes, 2);
+
+    let parent = CompositeVm::<AsyncResourceVm<i32>>::new("parent");
+    parent.add(vm.clone()).unwrap();
+    assert_eq!(vm.parent_id(), Some(parent.id()));
+    parent.select_component(&vm).unwrap();
+    assert!(vm.is_current());
+    assert_eq!(parent.current(), Some(vm.clone()));
+
+    let successor = CompositeVm::<AsyncResourceVm<i32>>::new("successor");
+    successor.add(vm.clone()).unwrap();
+    assert!(parent.is_empty());
+    assert_eq!(vm.parent_id(), Some(successor.id()));
+    assert_eq!(successor.current(), None);
+    assert!(!vm.is_current());
+}
+
+#[test]
+fn async_resource_honors_component_dispatch_and_lifecycle_independence() {
+    let hub = MessageHub::new();
+    let dispatcher = ManualDispatcher::new();
+    let starts = Arc::new(AtomicUsize::new(0));
+    let observed_starts = starts.clone();
+    let vm =
+        AsyncResourceVm::with_services("resource", hub.clone(), dispatcher.clone(), move |_| {
+            observed_starts.fetch_add(1, Ordering::SeqCst);
+            Ok(1)
+        });
+
+    vm.construct().unwrap();
+    assert_eq!(vm.status(), ConstructionStatus::Constructed);
+    assert_eq!(vm.resource_status(), AsyncResourceStatus::Idle);
+    assert_eq!(starts.load(Ordering::SeqCst), 0);
+    assert_eq!(dispatcher.queued_len(), 1);
+
+    dispatcher.drain();
+    vm.destruct().unwrap();
+    assert_eq!(vm.status(), ConstructionStatus::Destructed);
+    assert_eq!(vm.resource_status(), AsyncResourceStatus::Idle);
+    assert_eq!(starts.load(Ordering::SeqCst), 0);
+    dispatcher.drain();
+    let statuses = hub
+        .history()
+        .into_iter()
+        .filter_map(|message| match message {
+            Message::ConstructionStatusChanged(change) => Some(change.status),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        statuses,
+        vec![
+            ConstructionStatus::Constructing,
+            ConstructionStatus::Constructed,
+            ConstructionStatus::Destructing,
+            ConstructionStatus::Destructed,
+        ]
+    );
+}
+
 /// ARES-003 — Loader failure is error state, not command failure
 #[test]
 fn async_resource_failure_becomes_state() {
     let vm: AsyncResourceVm<i32> =
         AsyncResourceVm::new("resource", |_| Err(VmxError::Other("offline".into())));
     vm.load_async().join().unwrap().unwrap();
-    assert_eq!(vm.status(), AsyncResourceStatus::Error);
+    assert_eq!(vm.resource_status(), AsyncResourceStatus::Error);
     assert!(matches!(
         vm.state(),
         AsyncResourceState::Error { previous: None, .. }
@@ -289,7 +376,7 @@ fn async_resource_latest_start_wins() {
     older.join().unwrap().unwrap();
     send1.send(Ok(1)).unwrap();
     thread::sleep(Duration::from_millis(5));
-    assert_eq!(vm.status(), AsyncResourceStatus::Loading);
+    assert_eq!(vm.resource_status(), AsyncResourceStatus::Loading);
     send2.send(Ok(2)).unwrap();
     newer.join().unwrap().unwrap();
     assert_eq!(vm.state(), AsyncResourceState::Ready { value: 2 });

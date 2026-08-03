@@ -7,7 +7,7 @@ Rust is the fifth VMx source flavor. It lives under `langs/rust/` as the
 
 - Source tree: `langs/rust/`
 - Package: `vmx-rs`
-- Current source line: `vmx-rs` 0.27.0 implementing spec 3.23.0
+- Current source line: `vmx-rs` 0.28.0 implementing spec 3.23.0
 - Publication status: crates.io release channel not published yet
 - License packaging: the crate ships the repository's Apache-2.0 text
 - Reactive primitive: VMx-owned hot-stream facade
@@ -22,6 +22,9 @@ Rust is the fifth VMx source flavor. It lives under `langs/rust/` as the
   recomputed from the model and publishes `modeled_hint` changes
 - Async commands: `AsyncRelayCommand::builder()` owns its task, predicate,
   additive triggers, cancellation mode, and fire-and-forget error stream
+- Async resources: `AsyncResourceVm<T, D>` accepts the shared hub and dispatcher,
+  implements the ordinary component/node contract, and keeps resource phase in
+  `resource_status()` / `state().status()` independently of lifecycle status
 
 ## 7.6.2. Fixed Aggregates
 
