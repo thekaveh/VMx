@@ -1475,7 +1475,7 @@ no extra predicate)
 ### CMDD-010 — ConfirmationDecoratorCommand surfaces fire-and-forget errors on `errors`
 
 Per spec/04-commands.md §8.3.1 and ADR-0049. Full-parity in every flavor that
-ships `ConfirmationDecoratorCommand` (C#, Python, TypeScript, Swift).
+ships `ConfirmationDecoratorCommand` (C#, Python, TypeScript, Swift, Rust).
 
 **Given** a `ConfirmationDecoratorCommand` wrapping `inner`, and a subscriber to its
 `errors` observable
