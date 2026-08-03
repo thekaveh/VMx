@@ -123,6 +123,7 @@ struct Machine<T> {
     stable: StableState<T>,
     operation: Option<Operation<T>>,
     teardown: Option<ResourceTeardown<T>>,
+    dispose_hook: Option<DisposeHook>,
     identity: u64,
     disposed: bool,
 }
@@ -130,6 +131,7 @@ struct Machine<T> {
 struct ResourceTeardown<T> {
     operation: Option<Operation<T>>,
     accepted: Option<T>,
+    dispose_hook: Option<DisposeHook>,
 }
 
 #[derive(Clone)]
@@ -150,7 +152,6 @@ struct Inner<T, D: Dispatcher> {
     cleanup: Option<Cleanup<T>>,
     machine: Mutex<Machine<T>>,
     commands: Mutex<Option<Commands>>,
-    dispose_hook: Mutex<Option<DisposeHook>>,
 }
 
 #[derive(Clone)]
@@ -248,11 +249,11 @@ where
                 stable: StableState::Idle,
                 operation: None,
                 teardown: None,
+                dispose_hook: None,
                 identity: 0,
                 disposed: false,
             }),
             commands: Mutex::new(None),
-            dispose_hook: Mutex::new(None),
         });
 
         let load_inner = Arc::downgrade(&inner);
@@ -399,7 +400,7 @@ where
     where
         F: FnMut() -> VmxResult<()> + Send + 'static,
     {
-        *lock(&self.inner.dispose_hook) = Some(Arc::new(Mutex::new(hook)));
+        lock(&self.inner.machine).dispose_hook = Some(Arc::new(Mutex::new(hook)));
     }
 
     /// Transitions the component to constructed state without starting a load.
@@ -553,6 +554,7 @@ where
                 machine.teardown = Some(ResourceTeardown {
                     operation,
                     accepted: owned_value(stable),
+                    dispose_hook: machine.dispose_hook.clone(),
                 });
             }
         }
@@ -654,10 +656,9 @@ where
         if let Some(value) = teardown.accepted {
             cleanup(inner, value);
         }
+        return teardown.dispose_hook.map_or(Ok(()), |hook| (lock(&hook))());
     }
-
-    let hook = lock(&inner.dispose_hook).clone();
-    hook.map_or(Ok(()), |hook| (lock(&hook))())
+    Ok(())
 }
 
 fn can_load<T, D: Dispatcher>(inner: &Inner<T, D>) -> bool {

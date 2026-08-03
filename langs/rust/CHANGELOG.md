@@ -23,6 +23,8 @@ project adheres to [Semantic Versioning](https://semver.org/).
 - Resource cleanup and command teardown now run only after the embedded
   component has admitted its terminal `Disposed` transition, so reentrant
   callbacks cannot reopen the lifecycle or observe an intermediate status.
+  The consumer disposal hook is snapshotted at the same admission boundary,
+  preventing command-teardown callbacks from replacing terminal work.
 
 ## [0.27.0] — 2026-07-25
 

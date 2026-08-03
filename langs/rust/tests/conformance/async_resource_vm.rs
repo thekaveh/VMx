@@ -520,6 +520,36 @@ fn resource_command_teardown_cannot_reopen_component_lifecycle() {
     assert!(construct_rejected.load(Ordering::SeqCst));
 }
 
+#[test]
+fn disposal_admission_snapshots_the_consumer_hook_before_command_teardown() {
+    let vm = AsyncResourceVm::new("resource", |_| Ok::<_, VmxError>(7));
+    let original_calls = Arc::new(AtomicUsize::new(0));
+    let original_observed = Arc::clone(&original_calls);
+    vm.on_dispose(move || {
+        original_observed.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    });
+
+    let replacement_calls = Arc::new(AtomicUsize::new(0));
+    let replacement_observed = Arc::clone(&replacement_calls);
+    let callback_vm = vm.clone();
+    let _subscription = vm
+        .cancel_command()
+        .can_execute_changed()
+        .subscribe(move |_| {
+            let replacement_observed = Arc::clone(&replacement_observed);
+            callback_vm.on_dispose(move || {
+                replacement_observed.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            });
+        });
+
+    vm.dispose().unwrap();
+
+    assert_eq!(original_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(replacement_calls.load(Ordering::SeqCst), 0);
+}
+
 /// ARES-011 — Dispose cancels and late work is inert
 #[test]
 fn async_resource_dispose_cancels_and_late_completion_is_inert() {
