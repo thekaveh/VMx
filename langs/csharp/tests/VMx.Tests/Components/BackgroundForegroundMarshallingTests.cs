@@ -54,6 +54,30 @@ public class BackgroundForegroundMarshallingTests
         public IScheduler Background { get; } = background;
     }
 
+    private sealed class DeferredComponentVM(
+        IMessageHub hub,
+        IDispatcher dispatcher) : ComponentVMBase(
+            "deferred", string.Empty, hub, dispatcher, null, null)
+    {
+        public override ViewModelType Type => ViewModelType.Component;
+
+        public TaskCompletionSource<bool>? ConstructGate { get; set; }
+
+        public TaskCompletionSource<bool>? DestructGate { get; set; }
+
+        protected override void OnConstruct()
+        {
+            if (ConstructGate is not null)
+                CompleteLifecycleHookAfter(ConstructGate.Task);
+        }
+
+        protected override void OnDestruct()
+        {
+            if (DestructGate is not null)
+                CompleteLifecycleHookAfter(DestructGate.Task);
+        }
+    }
+
     [Fact]
     public void Background_Construct_Marshals_Constructed_Emission_Onto_Foreground_Scheduler()
     {
@@ -179,5 +203,90 @@ public class BackgroundForegroundMarshallingTests
         vm.Status.Should().Be(ConstructionStatus.Destructed);
         first.Should().Throw<InvalidOperationException>()
             .And.Should().NotBeOfType<StatusTransitionException>();
+    }
+
+    [Fact]
+    public async Task Rejected_Deferred_Construct_Completion_Rolls_Back_And_Faults_Waiter()
+    {
+        using var hub = new TestHub();
+        var dispatcher = new RejectionDispatcher(
+            new RejectingScheduler(),
+            ImmediateScheduler.Instance);
+        using var vm = new DeferredComponentVM(hub, dispatcher)
+        {
+            ConstructGate = new TaskCompletionSource<bool>(),
+        };
+
+        var task = vm.ConstructAsync();
+        vm.ConstructGate.SetResult(true);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(async () => await task);
+        vm.Status.Should().Be(ConstructionStatus.Destructed);
+        var retry = () => vm.Construct();
+        retry.Should().NotThrow();
+        vm.Status.Should().Be(ConstructionStatus.Constructed);
+    }
+
+    [Fact]
+    public async Task Rejected_Deferred_Completion_Preserves_Original_Child_Failure()
+    {
+        using var hub = new TestHub();
+        var dispatcher = new RejectionDispatcher(
+            new RejectingScheduler(),
+            ImmediateScheduler.Instance);
+        var original = new InvalidOperationException("child failed");
+        using var vm = new DeferredComponentVM(hub, dispatcher)
+        {
+            ConstructGate = new TaskCompletionSource<bool>(),
+        };
+
+        var task = vm.ConstructAsync();
+        vm.ConstructGate.SetException(original);
+
+        var observed = await Assert.ThrowsAsync<InvalidOperationException>(async () => await task);
+        observed.Should().BeSameAs(original);
+        vm.Status.Should().Be(ConstructionStatus.Destructed);
+    }
+
+    [Fact]
+    public async Task Rejected_Deferred_Destruct_Completion_Rolls_Back_And_Faults_Waiter()
+    {
+        using var hub = new TestHub();
+        var dispatcher = new RejectionDispatcher(
+            new RejectingScheduler(),
+            ImmediateScheduler.Instance);
+        using var vm = new DeferredComponentVM(hub, dispatcher);
+        vm.Construct();
+        vm.DestructGate = new TaskCompletionSource<bool>();
+
+        var task = vm.DestructAsync();
+        vm.DestructGate.SetResult(true);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(async () => await task);
+        vm.Status.Should().Be(ConstructionStatus.Constructed);
+        var retry = () => vm.Destruct();
+        retry.Should().NotThrow();
+        vm.Status.Should().Be(ConstructionStatus.Destructed);
+    }
+
+    [Fact]
+    public async Task Rejected_Deferred_Reconstruct_Continuation_Rolls_Back_And_Faults_Waiter()
+    {
+        using var hub = new TestHub();
+        var dispatcher = new RejectionDispatcher(
+            new RejectingScheduler(),
+            ImmediateScheduler.Instance);
+        using var vm = new DeferredComponentVM(hub, dispatcher);
+        vm.Construct();
+        vm.DestructGate = new TaskCompletionSource<bool>();
+
+        var task = vm.ReconstructAsync();
+        vm.DestructGate.SetResult(true);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(async () => await task);
+        vm.Status.Should().Be(ConstructionStatus.Constructed);
+        var retry = () => vm.Reconstruct();
+        retry.Should().NotThrow();
+        vm.Status.Should().Be(ConstructionStatus.Constructed);
     }
 }

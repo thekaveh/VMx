@@ -155,6 +155,34 @@ pub(crate) fn finish_with_first_error(first: Option<VmxError>) -> VmxResult<()> 
     first.map_or(Ok(()), Err)
 }
 
+pub(crate) enum FirstFailure {
+    Error(VmxError),
+    Panic(Box<dyn std::any::Any + Send>),
+}
+
+pub(crate) fn retain_first_failure<F>(first: &mut Option<FirstFailure>, action: F)
+where
+    F: FnOnce() -> VmxResult<()>,
+{
+    let outcome = catch_unwind(AssertUnwindSafe(action));
+    if first.is_some() {
+        return;
+    }
+    match outcome {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => *first = Some(FirstFailure::Error(error)),
+        Err(payload) => *first = Some(FirstFailure::Panic(payload)),
+    }
+}
+
+pub(crate) fn finish_with_first_failure(first: Option<FirstFailure>) -> VmxResult<()> {
+    match first {
+        None => Ok(()),
+        Some(FirstFailure::Error(error)) => Err(error),
+        Some(FirstFailure::Panic(payload)) => resume_unwind(payload),
+    }
+}
+
 pub(crate) struct MembershipTransactionGuard {
     active: Arc<AtomicBool>,
     control: Arc<MembershipTransactionControl>,
@@ -2404,25 +2432,32 @@ impl<D: Dispatcher> ComponentCore<D> {
             self.hook_ready.notify_all();
             deferred
         };
-        let mut operation_result = match execution {
-            Ok(result) => result,
-            Err(payload) => {
-                if deferred_disposal {
-                    let _ = self.finish_deferred_core_disposal();
-                }
-                resume_unwind(payload)
-            }
+        let (mut operation_result, mut panic_payload) = match execution {
+            Ok(result) => (result, None),
+            Err(payload) => (Ok(()), Some(payload)),
         };
         if deferred_disposal {
-            let disposal_result = self.finish_deferred_core_disposal();
-            if operation_result.is_ok() {
-                operation_result = disposal_result;
+            let disposal = catch_unwind(AssertUnwindSafe(|| self.finish_deferred_core_disposal()));
+            if operation_result.is_ok() && panic_payload.is_none() {
+                match disposal {
+                    Ok(result) => operation_result = result,
+                    Err(payload) => panic_payload = Some(payload),
+                }
             }
         }
         if operation == LifecycleOperation::Dispose {
             self.dispose_owned();
             self.property_changed_stream().dispose();
             self.background_errors().dispose();
+            let mut inner = lock(&self.inner);
+            if inner.transition_generation == generation {
+                inner.transitioning = false;
+            }
+            drop(inner);
+            if let Some(payload) = panic_payload {
+                resume_unwind(payload);
+            }
+            return operation_result;
         }
         let superseded = {
             let inner = lock(&self.inner);
@@ -2431,9 +2466,12 @@ impl<D: Dispatcher> ComponentCore<D> {
                     && inner.status == ConstructionStatus::Disposed)
         };
         if superseded {
+            if let Some(payload) = panic_payload {
+                resume_unwind(payload);
+            }
             return operation_result;
         }
-        if let Err(error) = operation_result {
+        if operation_result.is_err() || panic_payload.is_some() {
             let rollback = match operation {
                 LifecycleOperation::Construct => ConstructionStatus::Destructed,
                 LifecycleOperation::Destruct => ConstructionStatus::Constructed,
@@ -2450,7 +2488,10 @@ impl<D: Dispatcher> ComponentCore<D> {
                 }
             };
             if !rolled_back {
-                return Err(error);
+                if let Some(payload) = panic_payload {
+                    resume_unwind(payload);
+                }
+                return operation_result;
             }
             hub.send_prepared(|| {
                 let message = self
@@ -2464,7 +2505,10 @@ impl<D: Dispatcher> ComponentCore<D> {
                     });
                 ((), message)
             });
-            return Err(error);
+            if let Some(payload) = panic_payload {
+                resume_unwind(payload);
+            }
+            return operation_result;
         }
 
         let property_changed = {
@@ -2506,11 +2550,16 @@ impl<D: Dispatcher> ComponentCore<D> {
                 inner.background_errors.clone(),
             )
         };
-        let result = hook.map(|hook| (lock(&hook))()).unwrap_or(Ok(()));
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            hook.map(|hook| (lock(&hook))()).unwrap_or(Ok(()))
+        }));
         self.dispose_owned();
         property_changed.dispose();
         background_errors.dispose();
-        result
+        match result {
+            Ok(result) => result,
+            Err(payload) => resume_unwind(payload),
+        }
     }
 
     fn publication_is_current(&self, generation: u64, status: ConstructionStatus) -> bool {

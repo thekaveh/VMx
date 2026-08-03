@@ -1087,32 +1087,39 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         _ = task.ContinueWith(
             completed =>
             {
-                _dispatcher.Foreground.Schedule(Unit.Default, (_, _) =>
+                try
                 {
-                    if (IsDisposed())
+                    ScheduleForegroundLifecycle(() =>
                     {
-                        ClearInFlight();
-                        return Disposable.Empty;
-                    }
-
-                    if (completed.Status != TaskStatus.RanToCompletion)
-                    {
-                        SetStatus(ConstructionStatus.Constructed);
-                        FinishInFlightFrom(completed);
-                        return Disposable.Empty;
-                    }
-
-                    try
-                    {
-                        if (!ContinueReconstructWithConstructPhase())
+                        if (IsDisposed())
+                        {
                             ClearInFlight();
-                    }
-                    catch (Exception error)
-                    {
-                        FailInFlight(error);
-                    }
-                    return Disposable.Empty;
-                });
+                            return;
+                        }
+
+                        if (completed.Status != TaskStatus.RanToCompletion)
+                        {
+                            SetStatus(ConstructionStatus.Constructed);
+                            FinishInFlightFrom(completed);
+                            return;
+                        }
+
+                        try
+                        {
+                            if (!ContinueReconstructWithConstructPhase())
+                                ClearInFlight();
+                        }
+                        catch (Exception error)
+                        {
+                            FailInFlight(error);
+                        }
+                    }, ConstructionStatus.Constructed, deferredCompletion: completed);
+                }
+                catch
+                {
+                    // ScheduleForegroundLifecycle has already restored state and
+                    // completed/faulted the public lifecycle waiter.
+                }
             },
             CancellationToken.None,
             TaskContinuationOptions.ExecuteSynchronously,
@@ -1416,20 +1423,27 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         _ = task.ContinueWith(
             completed =>
             {
-                _dispatcher.Foreground.Schedule(Unit.Default, (_, _) =>
+                try
                 {
-                    try
+                    ScheduleForegroundLifecycle(() =>
                     {
-                        SetStatus(completed.Status == TaskStatus.RanToCompletion
-                            ? successStatus
-                            : rollbackStatus);
-                    }
-                    finally
-                    {
-                        FinishInFlightFrom(completed);
-                    }
-                    return Disposable.Empty;
-                });
+                        try
+                        {
+                            SetStatus(completed.Status == TaskStatus.RanToCompletion
+                                ? successStatus
+                                : rollbackStatus);
+                        }
+                        finally
+                        {
+                            FinishInFlightFrom(completed);
+                        }
+                    }, rollbackStatus, deferredCompletion: completed);
+                }
+                catch
+                {
+                    // ScheduleForegroundLifecycle has already restored state and
+                    // completed/faulted the public lifecycle waiter.
+                }
             },
             CancellationToken.None,
             TaskContinuationOptions.ExecuteSynchronously,
@@ -1510,7 +1524,8 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     private void ScheduleForegroundLifecycle(
         Action action,
         ConstructionStatus rollback,
-        Exception? primaryFailure = null)
+        Exception? primaryFailure = null,
+        Task? deferredCompletion = null)
     {
         try
         {
@@ -1522,8 +1537,14 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         }
         catch (Exception schedulingFailure)
         {
-            RestoreStatusAfterPublicationFailure(rollback);
-            FailInFlight(primaryFailure ?? schedulingFailure);
+            if (HasInFlightLifecycle())
+            {
+                RestoreStatusAfterPublicationFailure(rollback);
+                if (deferredCompletion is not null && !deferredCompletion.IsCompletedSuccessfully)
+                    FinishInFlightFrom(deferredCompletion);
+                else
+                    FailInFlight(primaryFailure ?? schedulingFailure);
+            }
             if (primaryFailure is not null)
                 throw new AggregateException(primaryFailure, schedulingFailure);
             throw;

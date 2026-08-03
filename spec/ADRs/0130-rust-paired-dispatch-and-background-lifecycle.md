@@ -40,8 +40,11 @@ The stream completes when the component is disposed.
 Rust and C# catch a custom dispatcher rejection before closure acceptance,
 restore the prior state, and clear lifecycle admission. If foreground completion
 is rejected after background work, they use the current worker only for the
-required recovery because the foreground channel is unavailable. Rust reports
-that asynchronous fallback through `background_errors()`.
+required recovery because the foreground channel is unavailable. Deferred C#
+child-cascade continuations use the same recovery path. Rust reports that
+asynchronous fallback through `background_errors()`. This is flavor-specific
+hardening for rejectable scheduler APIs rather than a new language-neutral
+requirement.
 
 ## 3. Consequences
 

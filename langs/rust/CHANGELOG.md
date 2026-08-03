@@ -31,6 +31,9 @@ project adheres to [Semantic Versioning](https://semver.org/).
 - Rejected background or foreground scheduling restores the prior state instead
   of stranding an in-flight lifecycle; default workers are created before VM
   admission for the same guarantee.
+- Synchronous lifecycle panics now roll back before unwinding. Disposal hook
+  errors or panics emit one terminal status, finish owned/stream/command cleanup,
+  and cannot abort later siblings or parent cleanup in container cascades.
 
 ## [0.28.0] — 2026-08-02
 
