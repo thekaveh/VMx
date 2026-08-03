@@ -2781,7 +2781,7 @@ outer and nested operations
 (using per-flavor recursive-constraint idiom per ADR-0028 §3 item 2)
 **When** the type is instantiated with a model and a children factory
 **Then** it compiles and constructs without generic-bound errors
-**And** per-flavor idiomatic naming applies (C#/Python/TypeScript/Swift conventions per ADR-0006)
+**And** per-flavor idiomatic naming applies (C#/Python/TypeScript/Swift/Rust conventions per ADR-0006)
 
 ### HIER-002 — `Parent` is null for root, non-null for non-root
 
@@ -3230,8 +3230,9 @@ command and whose `Execute` first awaits the dialog's `Confirm` result
 
 **Note** (v3, ADR-0048/ADR-0077; supersedes the ADR-0037 caveat): structural
 equality is evaluated by each flavor's chapter 20 §4 mechanism — `object.Equals`
-(C#), `__eq__` (Python), TypeScript's default structural deep-equal, and Swift's
-`==` for `Equatable` models (with injectable `equals` for custom semantics).
+(C#), `__eq__` (Python), TypeScript's default structural deep-equal, Swift's
+`==` for `Equatable` models (with injectable `equals` for custom semantics),
+and Rust's `PartialEq`.
 The pre-v3 TypeScript `JSON.stringify` comparison was key-order sensitive and
 crashed on `BigInt`/circular models; the v3 default deep-equal is order-insensitive
 and handles `Date`/`Map`/`Set`/`BigInt`/circular references. TypeScript binary

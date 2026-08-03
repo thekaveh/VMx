@@ -41,9 +41,9 @@ language.
 - Public naming follows ADR-0006: PascalCase in C#, snake_case in Python,
   camelCase in TypeScript and Swift, and snake_case for Rust methods with
   Rust-style type names such as `ComponentVm`.
-- The substantive naming divergence is the modeled leaf/container type:
-  `ComponentVM<M>` in C# versus `ComponentVMOf[...]` / `ComponentVMOf<...>` in
-  Python, TypeScript, and Swift.
+- The substantive naming divergence is the modeled leaf/container type: C# and
+  Rust retain `ComponentVM<M>` / `ComponentVm<M>`, while Python, TypeScript,
+  and Swift use `ComponentVMOf[...]` / `ComponentVMOf<...>`.
 
 For source-tree status and the long-form API surface, use the flavor READMEs in
 the repository:
