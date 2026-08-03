@@ -256,7 +256,8 @@ setter cannot throw — e.g. assigning a non-child to `CompositeVM.current`; see
 ADR-0009/ADR-0037.) A `BuilderValidationError` is likewise thrown when a builder
 is missing a required field at `build()` time.
 
-> See `spec/02-lifecycle.md` for the full transition table (LIFE-001..014).
+> See `spec/02-lifecycle.md` for the full lifecycle contract (`LIFE-001..015`),
+> including the transition table and admitted-hook/disposal coordination.
 
 ______________________________________________________________________
 

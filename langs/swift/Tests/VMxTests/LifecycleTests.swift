@@ -1,7 +1,7 @@
 //
 // Lifecycle conformance tests.
 //
-// Claimed IDs: LIFE-001..007, 009, 010, 011, 012, 013, 014 (LIFE-005/006 now
+// Claimed IDs: LIFE-001..015 (LIFE-005/006 now
 // assert a *catchable throw* — v3 converges Swift to the throwing contract per
 // ADR-0053, superseding ADR-0037 §2.5). LIFE-008 (concurrent re-invocation
 // raises) is claimed in `LifecycleRaceTests`. LIFE-011 asserts the

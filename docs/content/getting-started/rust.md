@@ -196,7 +196,8 @@ Selecting a non-child returns `Err(VmxError::NonChild)` rather than trapping, so
 callers can branch on the result. Builders return `Err` from `build()` when a
 required field is missing.
 
-> See `spec/02-lifecycle.md` for the full transition table (LIFE-001..014).
+> See `spec/02-lifecycle.md` for the full lifecycle contract (`LIFE-001..015`),
+> including the transition table and admitted-hook/disposal coordination.
 
 ## 3.6.7. Where to go next
 

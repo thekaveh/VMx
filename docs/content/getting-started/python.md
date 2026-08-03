@@ -323,7 +323,8 @@ hub.dispose()
 ```
 
 > See `spec/02-lifecycle.md` for the full transition table and the
-> `StatusTransitionError` rules (LIFE-001 through LIFE-014).
+> lifecycle contract (`LIFE-001..015`), including `StatusTransitionError`
+> rules and admitted-hook/disposal coordination.
 
 ______________________________________________________________________
 

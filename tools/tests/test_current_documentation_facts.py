@@ -26,6 +26,23 @@ def test_current_docs_match_adr_inventory() -> None:
     assert f"(0001-{last})" in spec_readme
 
 
+def test_current_lifecycle_docs_match_the_normative_catalog_range() -> None:
+    catalog = (ROOT / "spec/12-conformance.md").read_text(encoding="utf-8")
+    highest = max(int(value) for value in re.findall(r"^### LIFE-(\d{3})\b", catalog, re.MULTILINE))
+    expected = f"LIFE-001..{highest:03d}"
+    paths = (
+        *(ROOT / "docs/content/getting-started").glob("*.md"),
+        ROOT / "langs/swift/README.md",
+        ROOT / "langs/csharp/tests/VMx.Conformance.Tests/LifecycleConformanceTests.cs",
+        ROOT / "langs/python/tests/conformance/test_lifecycle.py",
+        ROOT / "langs/swift/Tests/VMxTests/LifecycleTests.swift",
+    )
+    for path in paths:
+        text = path.read_text(encoding="utf-8")
+        if "LIFE-001" in text:
+            assert expected in text, path
+
+
 def test_adr_metadata_links_resolve() -> None:
     adr_dir = ROOT / "spec/ADRs"
     for adr in adr_dir.glob("[0-9][0-9][0-9][0-9]-*.md"):

@@ -1,4 +1,4 @@
-"""Conformance tests: LIFE-001..012, LIFE-014.
+"""Conformance tests: LIFE-001..015.
 
 Every LIFE id in this file drives a real ``ComponentVM`` instance and asserts
 its own normative behavior directly — transition sequence, emitted

@@ -279,7 +279,8 @@ original exception (ADR-0109). If terminal disposal wins the race, the waiter
 completes at `Disposed` and the abandoned transition cannot overwrite it.
 
 > See `spec/02-lifecycle.md` for the transition table and the
-> `StatusTransitionException` rules (LIFE-001 through LIFE-014).
+> lifecycle contract (`LIFE-001..015`), including `StatusTransitionException`
+> rules and admitted-hook/disposal coordination.
 
 ______________________________________________________________________
 
