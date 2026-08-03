@@ -317,6 +317,13 @@ final class DisposalInvariantTests: XCTestCase {
         XCTAssertEqual(try property.value, 7)
         XCTAssertEqual(completions.value, 1)
         cancellable.cancel()
+
+        let expansion = ExpandableState()
+        expansion.dispose()
+        expansion.expand()
+        expansion.collapse()
+        expansion.toggleExpansion()
+        XCTAssertFalse(expansion.isExpanded)
     }
 
     /// DISP-006 — disposable collection helpers end one batch exactly once.

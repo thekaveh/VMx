@@ -1,6 +1,7 @@
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using FluentAssertions;
+using VMx.Capabilities;
 using VMx.Collections;
 using VMx.Commands;
 using VMx.Components;
@@ -127,6 +128,13 @@ public class DisposalInvariantConformanceTests
 
         property.Value.Should().Be(7);
         completions.Should().Be(1);
+
+        var expansion = new ExpandableState(initiallyExpanded: false);
+        expansion.Dispose();
+        expansion.Expand();
+        expansion.Collapse();
+        expansion.ToggleExpansion();
+        expansion.IsExpanded.Should().BeFalse();
     }
 
     [Fact, Trait("Conformance", "DISP-006")]

@@ -176,4 +176,28 @@ final class PagedCompositionTests: XCTestCase {
 
         searchable.dispose()
     }
+
+    /// Disposal detaches the convenience initializer's source subscription and
+    /// completes the binding publisher exactly once.
+    func testDisposeDetachesCompositeSourceAndCompletesOnce() throws {
+        let first = try ComponentVM.builder().name("first").withNullServices().build()
+        let composite = try CompositeVM<ComponentVM>.builder()
+            .name("source").withNullServices().children { [first] }.build()
+        let sut = PagedComposition<ComponentVM>(sourceComposite: composite, pageSize: 2)
+        var completions = 0
+        sut.propertyChanged
+            .sink(
+                receiveCompletion: { _ in completions += 1 },
+                receiveValue: { _ in }
+            )
+            .store(in: &cancellables)
+
+        sut.dispose()
+        sut.dispose()
+        let second = try ComponentVM.builder().name("second").withNullServices().build()
+        composite.add(second)
+
+        XCTAssertEqual(sut.count, 1)
+        XCTAssertEqual(completions, 1)
+    }
 }

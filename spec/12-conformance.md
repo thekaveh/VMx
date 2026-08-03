@@ -3718,6 +3718,8 @@ thread-safety guarantee to that flavor.
 **Then** its completion surface completes at most once
 **And** it emits no post-dispose value
 **And** any last-value read documented by that helper still returns the retained value
+**And** direct mutations on a disposed mutable state helper are inert and leave
+the retained value unchanged
 
 ### DISP-006 — collection and projection helper disposal performs one terminal transition
 

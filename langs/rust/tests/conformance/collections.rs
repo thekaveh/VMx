@@ -1368,7 +1368,7 @@ fn token_refresh_refetches_from_initial_token() {
     let pages = TokenPagedComposition::with_loader(None, move |token| {
         seen.lock().unwrap().push(token);
         match seen.lock().unwrap().len() {
-            1 => (vec![1], Some(9)),
+            1 => (vec![1, 2], Some(9)),
             _ => (vec![5], Some(3)),
         }
     });
@@ -1434,6 +1434,77 @@ fn token_auto_construct_constructs_before_reset_event() {
         *observed_status.lock().unwrap(),
         vec![ConstructionStatus::Constructed]
     );
+}
+
+/// DISP-006 — token paging disposal terminally disables owned commands and direct loading
+#[test]
+fn token_paging_dispose_is_idempotent_and_terminal() {
+    let pages = TokenPagedComposition::<i32, usize>::with_loader(None, |_| (vec![1], Some(1)));
+    let load_more = pages.load_more_command();
+    let refresh = pages.refresh_command();
+
+    pages.dispose();
+    pages.dispose();
+    pages.load_next();
+    pages.refresh();
+    pages.load_more(|_| (vec![2], Some(2)));
+    load_more.execute();
+    refresh.execute();
+
+    assert!(pages.items().is_empty());
+    assert!(!load_more.can_execute());
+    assert!(!refresh.can_execute());
+}
+
+#[test]
+fn token_paging_dispose_wins_against_an_in_flight_loader() {
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let release_rx = std::sync::Arc::new(std::sync::Mutex::new(release_rx));
+    let pages = TokenPagedComposition::<i32, usize>::with_loader(None, move |_| {
+        started_tx.send(()).unwrap();
+        release_rx.lock().unwrap().recv().unwrap();
+        (vec![1], Some(1))
+    });
+    let loading = pages.clone();
+    let worker = std::thread::spawn(move || loading.load_next());
+
+    started_rx.recv().unwrap();
+    pages.dispose();
+    release_tx.send(()).unwrap();
+    worker.join().unwrap();
+
+    assert!(pages.items().is_empty());
+    assert_eq!(pages.current_token(), None);
+    assert!(pages.has_more());
+}
+
+#[test]
+fn token_paging_dispose_prevents_late_auto_construction_and_commit() {
+    let child = ComponentVm::with_model("child", "model", MessageHub::new(), vmx::NullDispatcher);
+    let loaded_child = child.clone();
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let release_rx = std::sync::Arc::new(std::sync::Mutex::new(release_rx));
+    let pages = TokenPagedComposition::<ComponentVm<&str>, usize>::with_auto_construct_loader(
+        None,
+        move |_| {
+            started_tx.send(()).unwrap();
+            release_rx.lock().unwrap().recv().unwrap();
+            (vec![loaded_child.clone()], Some(1))
+        },
+    );
+    let loading = pages.clone();
+    let worker = std::thread::spawn(move || loading.load_next());
+
+    started_rx.recv().unwrap();
+    pages.dispose();
+    release_tx.send(()).unwrap();
+    worker.join().unwrap();
+
+    assert_eq!(child.status(), ConstructionStatus::Destructed);
+    assert!(pages.items().is_empty());
+    assert_eq!(pages.current_token(), None);
 }
 
 /// COL-031 — PagedComposition<TVM> observes composite collection changes

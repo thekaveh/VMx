@@ -2,7 +2,7 @@ use std::sync::{mpsc, Arc, Barrier, Mutex};
 
 use serde::Deserialize;
 use serde_json::Value;
-use vmx::{DerivedProperty, ValueStream};
+use vmx::{DerivedProperty, ExpandableState, ValueStream};
 
 #[derive(Deserialize)]
 struct DerivedPropertyFixture {
@@ -238,6 +238,13 @@ fn repeated_derived_property_dispose_is_inert_and_retains_value() {
     source.send(8);
 
     assert_eq!(property.value(), 7);
+
+    let expansion = ExpandableState::new();
+    expansion.dispose();
+    expansion.expand();
+    expansion.collapse();
+    expansion.toggle_expansion();
+    assert!(!expansion.is_expanded());
 }
 
 /// DPROP-012 — Derived-property scenarios match fixture

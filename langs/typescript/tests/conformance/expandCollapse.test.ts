@@ -153,4 +153,15 @@ describe("ExpandableState.dispose", () => {
     state.dispose();
     expect(completed).toBe(true);
   });
+
+  it("makes later mutations inert", () => {
+    const state = new ExpandableState(false);
+    state.dispose();
+
+    state.expand();
+    state.collapse();
+    state.toggleExpansion();
+
+    expect(state.isExpanded).toBe(false);
+  });
 });

@@ -6,6 +6,12 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `TokenPagedComposition::dispose()` now terminally disables its owned
+  load-more and refresh commands and prevents in-flight loaders from committing
+  pager state; loader-returned items remain caller-owned.
+
 ## [0.29.0] — 2026-08-03
 
 ### Added
