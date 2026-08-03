@@ -1540,7 +1540,8 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             if (HasInFlightLifecycle())
             {
                 RestoreStatusAfterPublicationFailure(rollback);
-                if (deferredCompletion is not null && !deferredCompletion.IsCompletedSuccessfully)
+                if (deferredCompletion is not null &&
+                    deferredCompletion.Status != TaskStatus.RanToCompletion)
                     FinishInFlightFrom(deferredCompletion);
                 else
                     FailInFlight(primaryFailure ?? schedulingFailure);
