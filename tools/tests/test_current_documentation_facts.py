@@ -95,7 +95,8 @@ def test_contract_ledger_matches_docs_and_dom_tooling() -> None:
     assert '"jsdom": "^29.1.1"' in typescript_package
     assert '"jsdom": "^29.1.1"' in react_package
     assert "jsdom `29.1.1`" in ledger
-    assert "TypeScript `6.0.3` raises `TS5101`" in ledger
+    assert "TypeScript is `6.0.3`" in ledger
+    assert "TypeScript 7 remains outside that public contract" in ledger
     assert "jsdom `30.0.0` drops Node 20" in ledger
     for engine_range in ("^22.22.2", "^24.15.0", ">=26.0.0"):
         assert engine_range in ledger

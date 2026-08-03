@@ -50,7 +50,7 @@ def test_dependabot_covers_every_committed_dependency_ecosystem() -> None:
     assert config.count("interval: weekly") == 6
 
 
-def test_dependabot_preserves_python_bounds_and_defers_incompatible_js_majors() -> None:
+def test_dependabot_preserves_python_bounds_and_defers_only_incompatible_js_majors() -> None:
     config = (REPO_ROOT / ".github/dependabot.yml").read_text(encoding="utf-8")
 
     sections = dict(
@@ -62,14 +62,27 @@ def test_dependabot_preserves_python_bounds_and_defers_incompatible_js_majors() 
     )
 
     assert "versioning-strategy: lockfile-only" in sections["uv"]
-    assert re.search(
-        r'dependency-name: typescript\n\s+versions: \[">=6\.0\.0"\]',
-        sections["npm"],
-    )
+    assert "dependency-name: typescript" not in sections["npm"]
     assert re.search(
         r'dependency-name: jsdom\n\s+versions: \[">=30\.0\.0"\]',
         sections["npm"],
     )
+
+
+def test_typescript_projects_track_the_latest_peer_supported_compiler() -> None:
+    manifests = (
+        REPO_ROOT / "langs/typescript/package.json",
+        REPO_ROOT / "examples/typescript/console/hello-vmx/package.json",
+        REPO_ROOT / "examples/typescript/react/notes-showcase/package.json",
+    )
+    for manifest in manifests:
+        assert '"typescript": "^6.0.3"' in manifest.read_text(encoding="utf-8")
+
+    vite_types = REPO_ROOT / "examples/typescript/react/notes-showcase/src/vite-env.d.ts"
+    assert vite_types.read_text(encoding="utf-8") == '/// <reference types="vite/client" />\n'
+
+    tsconfig = (REPO_ROOT / "langs/typescript/tsconfig.json").read_text(encoding="utf-8")
+    assert '"ignoreDeprecations": "6.0"' in tsconfig
 
 
 def test_dependabot_defers_incompatible_nuget_updates() -> None:
