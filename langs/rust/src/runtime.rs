@@ -15,19 +15,26 @@ pub(crate) static HIERARCHY_TOPOLOGY_GATE: Mutex<()> = Mutex::new(());
 
 thread_local! {
     static MESSAGE_HUB_DELIVERY_DEPTH: Cell<usize> = const { Cell::new(0) };
+    static MESSAGE_HUB_DELIVERY_SENDERS: std::cell::RefCell<Vec<(usize, usize)>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
 struct MessageHubDeliveryGuard;
 
 impl MessageHubDeliveryGuard {
-    fn enter() -> Self {
+    fn enter(hub_id: usize, sender_id: usize) -> Self {
         MESSAGE_HUB_DELIVERY_DEPTH.with(|depth| depth.set(depth.get() + 1));
+        MESSAGE_HUB_DELIVERY_SENDERS.with(|senders| {
+            senders.borrow_mut().push((hub_id, sender_id));
+        });
         Self
     }
 }
 
 impl Drop for MessageHubDeliveryGuard {
     fn drop(&mut self) {
+        MESSAGE_HUB_DELIVERY_SENDERS.with(|senders| {
+            senders.borrow_mut().pop();
+        });
         MESSAGE_HUB_DELIVERY_DEPTH.with(|depth| depth.set(depth.get() - 1));
     }
 }
@@ -573,6 +580,11 @@ impl MessageHub {
         Self::default()
     }
 
+    pub(crate) fn is_delivering_from(&self, sender_id: usize) -> bool {
+        let hub_id = Arc::as_ptr(&self.inner) as usize;
+        MESSAGE_HUB_DELIVERY_SENDERS.with(|senders| senders.borrow().contains(&(hub_id, sender_id)))
+    }
+
     /// Subscribes to messages published after this call.
     pub fn subscribe<F>(&self, handler: F) -> Subscription
     where
@@ -885,7 +897,10 @@ impl MessageHub {
             #[cfg(debug_assertions)]
             message_types.insert(message.type_name());
             for subscriber in subscribers {
-                let _delivery = MessageHubDeliveryGuard::enter();
+                let _delivery = MessageHubDeliveryGuard::enter(
+                    Arc::as_ptr(&self.inner) as usize,
+                    message.sender_id(),
+                );
                 let _ = catch_unwind(AssertUnwindSafe(|| subscriber(&message)));
             }
 

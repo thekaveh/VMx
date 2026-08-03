@@ -1,8 +1,8 @@
 use vmx::{
-    CollectionChangeAction, Command, ComponentVm, ConstructionStatus,
-    KeyedServicedObservableCollection, Message, MessageHub, ObservableDictionary, ObservableList,
-    ObservableMultiDictionary, PagedComposition, SearchableState, ServicedObservableCollection,
-    TokenPagedComposition, VmxError,
+    CollectionChangeAction, ComponentVm, ConstructionStatus, KeyedServicedObservableCollection,
+    Message, MessageHub, ObservableDictionary, ObservableList, ObservableMultiDictionary,
+    PagedComposition, SearchableState, ServicedObservableCollection, TokenPagedComposition,
+    VmxError,
 };
 
 fn collection_actions(hub: &MessageHub) -> Vec<CollectionChangeAction> {
@@ -1331,7 +1331,7 @@ fn token_paged_initial_state_is_empty_and_loadable() {
 fn token_load_more_appends_and_passes_next_token() {
     let seen_tokens = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let seen = seen_tokens.clone();
-    let pages = TokenPagedComposition::with_loader(None, move |token| {
+    let pages = TokenPagedComposition::with_loader(Some(999), move |token| {
         seen.lock().unwrap().push(token);
         match token {
             None => (vec![1, 2], Some(7)),
@@ -1365,7 +1365,7 @@ fn token_terminal_token_disables_load_more() {
 fn token_refresh_refetches_from_initial_token() {
     let seen_tokens = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let seen = seen_tokens.clone();
-    let pages = TokenPagedComposition::with_loader(None, move |token| {
+    let pages = TokenPagedComposition::with_loader(Some(999), move |token| {
         seen.lock().unwrap().push(token);
         match seen.lock().unwrap().len() {
             1 => (vec![1, 2], Some(9)),
@@ -1385,15 +1385,246 @@ fn token_refresh_refetches_from_initial_token() {
 #[test]
 fn token_refresh_dedup_suppresses_redundant_reset() {
     let hub = MessageHub::new();
-    let pages = TokenPagedComposition::with_loader_and_hub(None, |_| (vec![1, 2], Some(1)), hub);
+    let pages = TokenPagedComposition::with_loader_and_hub(
+        None,
+        |token| match token {
+            None => (vec![1, 2], Some(1)),
+            Some(1) => (vec![3], Some(2)),
+            _ => (Vec::new(), None),
+        },
+        hub,
+    );
 
+    pages.load_next();
     pages.load_next();
     pages.refresh();
 
+    assert_eq!(pages.items(), vec![1, 2, 3]);
     assert_eq!(
         collection_actions(&pages.hub()),
-        vec![CollectionChangeAction::Reset]
+        vec![CollectionChangeAction::Reset, CollectionChangeAction::Reset]
     );
+}
+
+#[test]
+fn token_auto_refresh_dedups_against_the_accumulator_head() {
+    let first = ComponentVm::new("first");
+    let second = ComponentVm::new("second");
+    let pages = TokenPagedComposition::with_auto_construct_loader(None, {
+        let first = first.clone();
+        let second = second.clone();
+        move |token| match token {
+            None => (vec![first.clone()], Some(1)),
+            Some(1) => (vec![second.clone()], Some(2)),
+            _ => (Vec::new(), None),
+        }
+    });
+
+    pages.load_next();
+    pages.load_next();
+    pages.refresh();
+
+    assert_eq!(pages.items(), vec![first, second]);
+    assert_eq!(
+        collection_actions(&pages.hub()),
+        vec![CollectionChangeAction::Reset, CollectionChangeAction::Reset]
+    );
+}
+
+#[test]
+fn token_commands_are_single_flight_and_publish_eligibility_changes() {
+    let (started_tx, started_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let release_rx = std::sync::Arc::new(std::sync::Mutex::new(release_rx));
+    let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let pages = TokenPagedComposition::with_loader(None, {
+        let calls = calls.clone();
+        move |_| {
+            let call = calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if call == 0 {
+                started_tx.send(()).unwrap();
+                release_rx.lock().unwrap().recv().unwrap();
+                (vec![1], None)
+            } else {
+                (vec![1], Some(1))
+            }
+        }
+    });
+    let load = pages.load_more_command();
+    let eligibility_events = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let observed_events = eligibility_events.clone();
+    let _subscription = load.can_execute_changed().subscribe(move |_| {
+        observed_events.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    });
+
+    let first = load.execute_async();
+    started_rx.recv().unwrap();
+    assert!(load.is_executing());
+    assert!(!load.can_execute());
+    release_tx.send(()).unwrap();
+    first.join().unwrap().unwrap();
+    assert!(!load.can_execute());
+    let property_names = pages
+        .hub()
+        .history()
+        .into_iter()
+        .filter_map(|message| match message {
+            Message::PropertyChanged(change) => Some(change.property_name),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(property_names, vec!["items", "current_token", "has_more"]);
+    let after_terminal = eligibility_events.load(std::sync::atomic::Ordering::SeqCst);
+    assert!(after_terminal > 0);
+
+    pages.refresh();
+
+    assert!(load.can_execute());
+    assert!(eligibility_events.load(std::sync::atomic::Ordering::SeqCst) > after_terminal);
+}
+
+#[test]
+fn token_reset_observer_disposal_stops_later_notifications() {
+    let pages = TokenPagedComposition::<i32, usize>::with_loader(None, |_| (vec![1], Some(1)));
+    let load = pages.load_more_command();
+    let eligibility_events = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let observed_events = eligibility_events.clone();
+    let _command_subscription = load.can_execute_changed().subscribe(move |_| {
+        observed_events.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    });
+    let disposing_pages = pages.clone();
+    let _hub_subscription = pages.hub().subscribe(move |message| {
+        if matches!(message, Message::CollectionChanged(_)) {
+            disposing_pages.dispose();
+        }
+    });
+
+    pages.load_next();
+
+    assert!(pages
+        .hub()
+        .history()
+        .iter()
+        .all(|message| !matches!(message, Message::PropertyChanged(_))));
+    assert_eq!(
+        eligibility_events.load(std::sync::atomic::Ordering::SeqCst),
+        1
+    );
+}
+
+#[test]
+fn token_reset_observer_can_start_refresh_without_deadlock() {
+    let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let pages = TokenPagedComposition::with_loader(None, {
+        let calls = calls.clone();
+        move |_| match calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) {
+            0 => (vec![1], Some(1)),
+            _ => (vec![2], Some(2)),
+        }
+    });
+    let callback_count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let (finished_tx, finished_rx) = std::sync::mpsc::channel();
+    let callback_pages = pages.clone();
+    let _subscription = pages.hub().subscribe({
+        let callback_count = callback_count.clone();
+        move |message| {
+            if !matches!(message, Message::CollectionChanged(_)) {
+                return;
+            }
+            if callback_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                callback_pages.refresh();
+            } else {
+                finished_tx.send(()).unwrap();
+            }
+        }
+    });
+
+    pages.load_next();
+    finished_rx
+        .recv_timeout(std::time::Duration::from_secs(1))
+        .expect("reentrant refresh completed");
+
+    assert_eq!(pages.items(), vec![2]);
+}
+
+#[test]
+fn token_cross_thread_hub_drainer_allows_reentrant_refresh_and_disposal() {
+    let hub = MessageHub::new();
+    let (drain_started_tx, drain_started_rx) = std::sync::mpsc::channel();
+    let (release_drain_tx, release_drain_rx) = std::sync::mpsc::channel();
+    let release_drain_rx = std::sync::Arc::new(std::sync::Mutex::new(release_drain_rx));
+    let _blocker = hub.subscribe(move |message| {
+        if matches!(message, Message::Custom { name, .. } if name == "block-drain") {
+            drain_started_tx.send(()).unwrap();
+            release_drain_rx.lock().unwrap().recv().unwrap();
+        }
+    });
+    let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let pages = TokenPagedComposition::with_loader_and_hub(
+        None,
+        {
+            let calls = calls.clone();
+            move |_| match calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) {
+                0 => (vec![1], Some(1)),
+                _ => (vec![2], Some(2)),
+            }
+        },
+        hub.clone(),
+    );
+    let callback_count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let (refresh_finished_tx, refresh_finished_rx) = std::sync::mpsc::channel();
+    let nested_hub = MessageHub::new();
+    let callback_pages = pages.clone();
+    let _nested_subscription = nested_hub.subscribe({
+        let callback_count = callback_count.clone();
+        move |_| {
+            if callback_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                callback_pages.refresh();
+            } else {
+                callback_pages.dispose();
+                refresh_finished_tx.send(()).unwrap();
+            }
+        }
+    });
+    let _subscription = hub.subscribe(move |message| {
+        if matches!(message, Message::CollectionChanged(_)) {
+            nested_hub.send(Message::Custom {
+                sender_id: 777,
+                sender_name: "nested-test".to_string(),
+                name: "nested-callback".to_string(),
+            });
+        }
+    });
+    let drainer = {
+        let hub = hub.clone();
+        std::thread::spawn(move || {
+            hub.send(Message::Custom {
+                sender_id: 0,
+                sender_name: "test".to_string(),
+                name: "block-drain".to_string(),
+            });
+        })
+    };
+    drain_started_rx.recv().unwrap();
+    let (load_finished_tx, load_finished_rx) = std::sync::mpsc::channel();
+    let loading_pages = pages.clone();
+    let loader = std::thread::spawn(move || {
+        loading_pages.load_next();
+        load_finished_tx.send(()).unwrap();
+    });
+    std::thread::sleep(std::time::Duration::from_millis(50));
+    release_drain_tx.send(()).unwrap();
+
+    load_finished_rx
+        .recv_timeout(std::time::Duration::from_secs(1))
+        .expect("outer load completed");
+    refresh_finished_rx
+        .recv_timeout(std::time::Duration::from_secs(1))
+        .expect("reentrant refresh completed");
+    loader.join().unwrap();
+    drainer.join().unwrap();
+    assert_eq!(pages.items(), vec![2]);
+    assert!(!pages.load_more_command().can_execute());
 }
 
 /// COL-029 — token-paged collection changes use reset semantics
@@ -1421,11 +1652,13 @@ fn token_auto_construct_constructs_before_reset_event() {
     );
     let pages_for_observer = pages.clone();
 
-    let _subscription = pages.hub().subscribe(move |_| {
-        observed
-            .lock()
-            .unwrap()
-            .push(pages_for_observer.items()[0].status());
+    let _subscription = pages.hub().subscribe(move |message| {
+        if matches!(message, Message::CollectionChanged(_)) {
+            observed
+                .lock()
+                .unwrap()
+                .push(pages_for_observer.items()[0].status());
+        }
     });
 
     pages.load_next();

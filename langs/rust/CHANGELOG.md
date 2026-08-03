@@ -12,6 +12,18 @@ project adheres to [Semantic Versioning](https://semver.org/).
   load-more and refresh commands and prevents in-flight loaders from committing
   pager state; loader-returned items remain caller-owned.
 
+### Changed
+
+- `TokenPagedComposition` now exposes single-flight `AsyncRelayCommand`s for
+  loading and refresh, publishes eligibility changes as token state changes,
+  and always starts and refreshes from the canonical terminal `None` token. The
+  legacy constructor token argument remains accepted but is ignored.
+
+### Fixed
+
+- Refresh deduplication once again compares a fresh first page with the matching
+  accumulator head, preserving already accumulated later pages.
+
 ## [0.29.0] — 2026-08-03
 
 ### Added
