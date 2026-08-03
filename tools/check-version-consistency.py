@@ -214,8 +214,12 @@ def check_typescript_example_locks(repo_root: Path, expected_version: str) -> li
         packages = lock_data.get("packages", {})
         local_entries = [
             package
-            for package in packages.values()
-            if isinstance(package, dict) and package.get("name") == "@thekaveh/vmx"
+            for package_key, package in packages.items()
+            if isinstance(package, dict)
+            and (
+                package.get("name") == "@thekaveh/vmx"
+                or package_key == "node_modules/@thekaveh/vmx"
+            )
         ]
         if not local_entries:
             issues.append(f"  {relative_path}: local @thekaveh/vmx package metadata is missing")
