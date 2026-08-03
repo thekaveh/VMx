@@ -14,7 +14,9 @@ def test_rust_ci_triggers_for_package_verification_tools() -> None:
     workflow = _workflow("rust.yml")
 
     assert '- "tools/check-rust-package.py"' in workflow
+    assert '- "tools/check-rust-doc-snippets.py"' in workflow
     assert '- "tools/smoke-rust-consumer.py"' in workflow
+    assert '- "docs/content/getting-started/rust.md"' in workflow
 
 
 def test_rust_ci_verifies_packaged_consumers_on_msrv_and_stable() -> None:
@@ -25,6 +27,7 @@ def test_rust_ci_verifies_packaged_consumers_on_msrv_and_stable() -> None:
     assert "cargo package --locked --manifest-path langs/rust/Cargo.toml" in workflow
     assert "cargo test --locked --manifest-path langs/rust/Cargo.toml" in workflow
     assert "python3 tools/check-rust-package.py" in workflow
+    assert "python3 tools/check-rust-doc-snippets.py" in workflow
     assert "python3 tools/smoke-rust-consumer.py" in workflow
     assert "--package-dir langs/rust" in workflow
 

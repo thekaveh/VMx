@@ -7,13 +7,13 @@ with child selection — all in a plain Cargo binary.
 > The Rust flavor is a source-tree flavor at the v0.29.0 source line: it declares
 > `MIN_SPEC_VERSION = "3.23.0"` and carries behavioral tests for all 403 library
 > conformance IDs. The `vmx-rs` crate is not yet published to crates.io; consume
-> it as a path or git dependency (below). See
-> [`langs/rust/README.md`](../../../langs/rust/README.md) for the current status
-> and [`docs/maintenance/2026-07-16-rust-capability-parity.md`](../../../docs/maintenance/2026-07-16-rust-capability-parity.md)
-> for the completed capability and behavioural convergence evidence.
+> it as a path or git dependency (below). See the [Rust flavor
+> page](../flavors/rust.md) for current status and convergence evidence.
 >
-> For the normative contracts behind each type, see `spec/05-component-vm.md`,
-> `spec/04-commands.md`, and `spec/06-composite-vm.md`.
+> For the contracts behind each type, see the [component
+> family](../primitives/viewmodel-families/component-family.md), [command
+> families](../primitives/command-families.md), and [composite
+> family](../primitives/viewmodel-families/composite-family.md).
 
 ______________________________________________________________________
 
@@ -55,8 +55,12 @@ both channels inline.
 ```rust
 use vmx::{MessageHub, NullDispatcher};
 
-let hub = MessageHub::new();
-let dispatcher = NullDispatcher::new();
+fn main() {
+    let hub = MessageHub::new();
+    let dispatcher = NullDispatcher::new();
+    assert!(hub.history().is_empty());
+    let _ = dispatcher;
+}
 ```
 
 Enable the paired-channel lifecycle path with
@@ -73,7 +77,7 @@ lifecycle state machine. `with_model` constructs one directly; the model type
 must be `Clone + PartialEq`.
 
 ```rust
-use vmx::{ComponentVm, MessageHub, NullDispatcher};
+use vmx::{ComponentVm, MessageHub, NullDispatcher, VmxResult};
 
 #[derive(Clone, PartialEq)]
 struct UserModel {
@@ -81,26 +85,30 @@ struct UserModel {
     email: String,
 }
 
-let hub = MessageHub::new();
-let dispatcher = NullDispatcher::new();
+fn main() -> VmxResult<()> {
+    let hub = MessageHub::new();
+    let dispatcher = NullDispatcher::new();
 
-let user = ComponentVm::with_model(
-    "user-card",
-    UserModel { name: "Alice".into(), email: "alice@example.com".into() },
-    hub.clone(),
-    dispatcher,
-)
-.with_model_hint(|model| Some(model.name.clone()));
+    let user = ComponentVm::with_model(
+        "user-card",
+        UserModel { name: "Alice".into(), email: "alice@example.com".into() },
+        hub.clone(),
+        dispatcher,
+    )
+    .with_model_hint(|model| Some(model.name.clone()));
 
-user.construct()?;
-assert!(user.is_constructed());
+    user.construct()?;
+    assert!(user.is_constructed());
 
-user.set_model(UserModel { name: "Alice Smith".into(), email: "asmith@example.com".into() });
-assert_eq!(user.model().name, "Alice Smith");
-assert_eq!(user.modeled_hint(), Some("Alice Smith".to_string()));
+    user.set_model(UserModel { name: "Alice Smith".into(), email: "asmith@example.com".into() });
+    assert_eq!(user.model().name, "Alice Smith");
+    assert_eq!(user.modeled_hint(), Some("Alice Smith".to_string()));
+    user.dispose()
+}
 ```
 
-> See `spec/05-component-vm.md` for the full component contract.
+> See the [component family](../primitives/viewmodel-families/component-family.md)
+> for the full contract.
 
 ## 3.6.4. Build a `RelayCommand`
 
@@ -113,24 +121,27 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use vmx::{Command, RelayCommand};
 
-let is_dirty = Arc::new(AtomicBool::new(false));
-let dirty_for_predicate = is_dirty.clone();
+fn main() {
+    let is_dirty = Arc::new(AtomicBool::new(false));
+    let dirty_for_predicate = is_dirty.clone();
 
-let save = RelayCommand::builder()
-    .action(|| println!("Saving..."))
-    .can_execute(move || dirty_for_predicate.load(Ordering::Acquire))
-    .build();
+    let save = RelayCommand::builder()
+        .action(|| println!("Saving..."))
+        .can_execute(move || dirty_for_predicate.load(Ordering::Acquire))
+        .build();
 
-assert!(!save.can_execute());
-is_dirty.store(true, Ordering::Release);
-assert!(save.can_execute());
-save.execute(); // prints "Saving..."
+    assert!(!save.can_execute());
+    is_dirty.store(true, Ordering::Release);
+    assert!(save.can_execute());
+    save.execute(); // prints "Saving..."
 
-save.dispose();
+    save.dispose();
+}
 ```
 
-> See `spec/04-commands.md` for the full command contract. `Command` is the
-> object-safe trait exposing `can_execute()` and `execute()`.
+> See [command families](../primitives/command-families.md) for the full
+> contract. `Command` is the object-safe trait exposing `can_execute()` and
+> `execute()`.
 
 ## 3.6.5. Build a `CompositeVm<T>` with selection
 
@@ -139,7 +150,9 @@ Children come from a factory evaluated on the first `construct()`; an optional
 `current` selector seeds the initial selection.
 
 ```rust
-use vmx::{ComponentVm, CompositeVm, MessageHub, NullDispatcher, VmxResult};
+use vmx::{
+    ComponentVm, CompositeVm, FilteredCompositeVm, MessageHub, NullDispatcher, VmxResult,
+};
 
 fn build_tabs() -> VmxResult<()> {
     let hub = MessageHub::new();
@@ -165,20 +178,20 @@ fn build_tabs() -> VmxResult<()> {
     tabs.select_component(&settings)?;
     assert_eq!(tabs.current().map(|c| c.name()), Some("settings-tab".to_string()));
 
+    let matches = FilteredCompositeVm::new(tabs.clone(), |tab| tab.model().contains("Home"));
+    assert_eq!(matches.visible_count(), 1);
+
     tabs.dispose()
+}
+
+fn main() -> VmxResult<()> {
+    build_tabs()
 }
 ```
 
-Project a live filtered view over a composite with `FilteredCompositeVm`:
-
-```rust
-use vmx::FilteredCompositeVm;
-
-let matches = FilteredCompositeVm::new(tabs.clone(), |tab| tab.model().contains("Home"));
-assert_eq!(matches.visible_count(), 1);
-```
-
-> See `spec/06-composite-vm.md` for the full `CompositeVm` contract.
+The example also projects a live filtered view with `FilteredCompositeVm`. See
+the [composite family](../primitives/viewmodel-families/composite-family.md) for
+the full contract.
 
 ## 3.6.6. Lifecycle and cleanup
 
@@ -189,37 +202,42 @@ illegal transition (for example constructing a disposed viewmodel) is a
 **catchable** `Err`, not a panic, under the v3 lifecycle convergence (ADR-0053).
 
 ```rust
-use vmx::ConstructionStatus;
+use vmx::{ComponentVm, ConstructionStatus, VmxResult};
 
-assert_eq!(user.status(), ConstructionStatus::Constructed);
+fn main() -> VmxResult<()> {
+    let user = ComponentVm::new("user");
+    user.construct()?;
+    assert_eq!(user.status(), ConstructionStatus::Constructed);
 
-user.reconstruct()?; // destruct + construct in one call; round-trips to Constructed
-assert_eq!(user.status(), ConstructionStatus::Constructed);
+    user.reconstruct()?; // destruct + construct in one call; round-trips to Constructed
+    assert_eq!(user.status(), ConstructionStatus::Constructed);
 
-user.destruct()?;
-assert_eq!(user.status(), ConstructionStatus::Destructed);
+    user.destruct()?;
+    assert_eq!(user.status(), ConstructionStatus::Destructed);
 
-user.dispose()?; // idempotent and terminal
-assert_eq!(user.status(), ConstructionStatus::Disposed);
+    user.dispose()?; // idempotent and terminal
+    assert_eq!(user.status(), ConstructionStatus::Disposed);
+    Ok(())
+}
 ```
 
 Selecting a non-child returns `Err(VmxError::NonChild)` rather than trapping, so
 callers can branch on the result. Builders return `Err` from `build()` when a
 required field is missing.
 
-> See `spec/02-lifecycle.md` for the full lifecycle contract (`LIFE-001..015`),
-> including the transition table and admitted-hook/disposal coordination.
+> See [Lifecycle & Messaging](../architecture/lifecycle-messaging.md) for the
+> lifecycle contract (`LIFE-001..015`), including transition and disposal
+> coordination.
 
 ## 3.6.7. Where to go next
 
-| Resource                      | Path                            |
-| ----------------------------- | ------------------------------- |
-| Spec overview                 | `spec/00-overview.md`           |
-| Lifecycle contract            | `spec/02-lifecycle.md`          |
-| Commands                      | `spec/04-commands.md`           |
-| ComponentVM contract          | `spec/05-component-vm.md`       |
-| CompositeVM contract          | `spec/06-composite-vm.md`       |
-| Architecture decision records | `spec/ADRs/`                    |
-| Rust flavor README            | `langs/rust/README.md`          |
-| Rust examples                 | `examples/rust/README.md`       |
-| Rust conformance suite        | `langs/rust/tests/conformance/` |
+| Resource             | Documentation page                                                       |
+| -------------------- | ------------------------------------------------------------------------ |
+| Specification status | [Specification & Conformance](../specification-conformance.md)           |
+| Lifecycle contract   | [Lifecycle & Messaging](../architecture/lifecycle-messaging.md)          |
+| Commands             | [Command Families](../primitives/command-families.md)                    |
+| Component contract   | [Component Family](../primitives/viewmodel-families/component-family.md) |
+| Composite contract   | [Composite Family](../primitives/viewmodel-families/composite-family.md) |
+| Architecture         | [Architecture Map](../architecture/index.md)                             |
+| Rust status          | [Rust Flavor](../flavors/rust.md)                                        |
+| Rust examples        | [Rust TUI Notes Showcase](../examples/rust-tui-notes-showcase.md)        |

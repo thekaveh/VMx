@@ -2116,8 +2116,29 @@ impl<D: Dispatcher> ComponentCore<D> {
             self.hook_ready.notify_all();
             deferred
         };
+        let mut result = match execution {
+            Ok(result) => result,
+            Err(_) => Err(VmxError::Other(
+                "background lifecycle hook panicked".to_string(),
+            )),
+        };
         if deferred {
-            let _ = self.finish_deferred_core_disposal();
+            let errors = self.background_errors();
+            let emission = errors.begin_emission();
+            let disposal = catch_unwind(AssertUnwindSafe(|| self.finish_deferred_core_disposal()));
+            if result.is_ok() {
+                result = match disposal {
+                    Ok(result) => result,
+                    Err(_) => Err(VmxError::Other(
+                        "deferred background disposal hook panicked".to_string(),
+                    )),
+                };
+            }
+            if let Err(error) = result {
+                errors.send(error);
+            }
+            drop(emission);
+            return None;
         }
         let inner = lock(&self.inner);
         if inner.transition_generation != generation || inner.status == ConstructionStatus::Disposed
@@ -2125,12 +2146,7 @@ impl<D: Dispatcher> ComponentCore<D> {
             return None;
         }
         drop(inner);
-        Some(match execution {
-            Ok(result) => result,
-            Err(_) => Err(VmxError::Other(
-                "background lifecycle hook panicked".to_string(),
-            )),
-        })
+        Some(result)
     }
 
     fn transition_background(&self, operation: LifecycleOperation) -> VmxResult<()> {

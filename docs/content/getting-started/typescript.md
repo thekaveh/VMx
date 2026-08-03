@@ -5,8 +5,10 @@ library. You will build a `ComponentVMOf<UserModel>`, a `RelayCommand` with a
 reactive trigger, and a `CompositeVM<TabVM>` with tab selection — all in a Node
 script or test.
 
-> For the normative contracts behind each type, see `spec/05-component-vm.md`,
-> `spec/04-commands.md`, and `spec/06-composite-vm.md`.
+> For the contracts behind each type, see the [component
+> family](../primitives/viewmodel-families/component-family.md), [command
+> families](../primitives/command-families.md), and [composite
+> family](../primitives/viewmodel-families/composite-family.md).
 
 ______________________________________________________________________
 
@@ -116,8 +118,10 @@ console.log(userVM.modeledHint); // "Alice Smith"
 console.log(userVM.isConstructed); // true
 ```
 
-> See `spec/05-component-vm.md` for the full component contract and
-> `spec/03-messages.md` for the `PropertyChangedMessage` schema.
+> See the [component family](../primitives/viewmodel-families/component-family.md)
+> for the full component contract and [Services, Messages &
+> Dispatching](../primitives/services-messages-dispatching.md) for the
+> `PropertyChangedMessage` schema.
 
 ______________________________________________________________________
 
@@ -161,7 +165,8 @@ console.log(saveCommand.canExecute()); // false again
 saveCommand.dispose();
 ```
 
-> See `spec/04-commands.md` for the full command contract.
+> See [command families](../primitives/command-families.md) for the full command
+> contract.
 
 ______________________________________________________________________
 
@@ -229,7 +234,8 @@ console.log([...tabs].map((c) => c.name)); // ["home-tab", "settings-tab"]
 console.log(tab2.isCurrent);               // false
 ```
 
-> See `spec/06-composite-vm.md` for the full `CompositeVM` contract, including
+> See the [composite family](../primitives/viewmodel-families/composite-family.md)
+> for the full `CompositeVM` contract, including
 > `CollectionChangedEvent` and `BatchUpdate` semantics.
 
 ______________________________________________________________________
@@ -267,7 +273,8 @@ tabs.dispose();
 hub.dispose();
 ```
 
-> See `spec/02-lifecycle.md` for the full lifecycle contract (`LIFE-001..015`),
+> See [Lifecycle & Messaging](../architecture/lifecycle-messaging.md) for the
+> full lifecycle contract (`LIFE-001..015`),
 > including the transition table and admitted-hook/disposal coordination.
 
 ______________________________________________________________________
@@ -294,23 +301,23 @@ hub.messages.pipe(
 ).subscribe((msg) => updateLabel(msg));
 ```
 
-> See `spec/11-threading.md` for the THR-001..THR-004 conformance rules.
+> See [Services, Messages &
+> Dispatching](../primitives/services-messages-dispatching.md) for the
+> THR-001..THR-004 conformance rules.
 
 ______________________________________________________________________
 
 ## 3.4.8. Where to go next
 
-| Resource                      | Path                                     |
-| ----------------------------- | ---------------------------------------- |
-| Spec overview                 | `spec/00-overview.md`                    |
-| Lifecycle contract            | `spec/02-lifecycle.md`                   |
-| Message schema                | `spec/03-messages.md`                    |
-| Commands                      | `spec/04-commands.md`                    |
-| ComponentVM contract          | `spec/05-component-vm.md`                |
-| CompositeVM contract          | `spec/06-composite-vm.md`                |
-| Builder spec                  | `spec/10-builders.md`                    |
-| Threading rules               | `spec/11-threading.md`                   |
-| Tree utilities (`walk/find`)  | `spec/13-tree-utilities.md`              |
-| Architecture decision records | `spec/ADRs/`                             |
-| Hello-VMx example             | `examples/typescript/console/hello-vmx/` |
-| Conformance test suite        | `langs/typescript/tests/conformance/`    |
+| Resource             | Documentation page                                                                             |
+| -------------------- | ---------------------------------------------------------------------------------------------- |
+| Specification status | [Specification & Conformance](../specification-conformance.md)                                 |
+| Lifecycle contract   | [Lifecycle & Messaging](../architecture/lifecycle-messaging.md)                                |
+| Messages & threading | [Services, Messages & Dispatching](../primitives/services-messages-dispatching.md)             |
+| Commands             | [Command Families](../primitives/command-families.md)                                          |
+| Component contract   | [Component Family](../primitives/viewmodel-families/component-family.md)                       |
+| Composite contract   | [Composite Family](../primitives/viewmodel-families/composite-family.md)                       |
+| Builders & tree      | [Builders, Collections & Tree Utilities](../primitives/builders-collections-tree-utilities.md) |
+| Architecture         | [Architecture Map](../architecture/index.md)                                                   |
+| TypeScript status    | [TypeScript Flavor](../flavors/typescript.md)                                                  |
+| Examples             | [Smaller Examples](../examples/smaller-examples.md)                                            |

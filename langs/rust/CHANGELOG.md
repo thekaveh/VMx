@@ -28,6 +28,8 @@ project adheres to [Semantic Versioning](https://semver.org/).
   even when background hooks are enabled.
 - Background rollback delivers its status, original error, and deferred stream
   completion in order under re-entrant disposal.
+- Re-entrant disposal from a background hook preserves disposal-hook errors and
+  converts disposal panics to a stable typed error before stream completion.
 - Rejected background or foreground scheduling restores the prior state instead
   of stranding an in-flight lifecycle; default workers are created before VM
   admission for the same guarantee.

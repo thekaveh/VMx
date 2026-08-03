@@ -133,7 +133,7 @@ generics syntax cannot overload an unparameterised name.
 The public API is re-exported from a single entry point:
 
 ```python
-from vmx import ...  # see vmx/__init__.py for the full list
+from vmx import ComponentVM, ConstructionStatus, MessageHub, RelayCommand, RxDispatcher
 ```
 
 | Export                                            | Description                                                                         |

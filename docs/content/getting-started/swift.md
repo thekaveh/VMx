@@ -6,12 +6,13 @@ package. You will build a `ComponentVMOf<UserModel>`, a `RelayCommand`, and a
 
 > The Swift flavor is at full parity on the v3.24.0 source line: 403/403 library
 > conformance IDs plus the 5 `THEME-00x` scenario IDs covered by the SwiftUI
-> Notes Workspace flagship. See
-> [`langs/swift/README.md` §5](../../../langs/swift/README.md) for the current
-> matrix and documented Swift-specific divergences.
+> Notes Workspace flagship. See the [Swift flavor](../flavors/swift.md) page for
+> the current matrix and documented Swift-specific divergences.
 >
-> For the normative contracts behind each type, see `spec/05-component-vm.md`,
-> `spec/04-commands.md`, and `spec/06-composite-vm.md`.
+> For the contracts behind each type, see the [component
+> family](../primitives/viewmodel-families/component-family.md), [command
+> families](../primitives/command-families.md), and [composite
+> family](../primitives/viewmodel-families/composite-family.md).
 
 ______________________________________________________________________
 
@@ -130,7 +131,8 @@ print(userVM.modeledHint)   // "Alice Smith"
 print(userVM.isConstructed) // true
 ```
 
-> See `spec/05-component-vm.md` for the full component contract.
+> See the [component family](../primitives/viewmodel-families/component-family.md)
+> for the full component contract.
 
 ______________________________________________________________________
 
@@ -171,7 +173,8 @@ print(saveCommand.canExecute()) // false again
 saveCommand.dispose()
 ```
 
-> See `spec/04-commands.md` for the full command contract.
+> See [command families](../primitives/command-families.md) for the full command
+> contract.
 
 ______________________________________________________________________
 
@@ -220,7 +223,8 @@ print(tabs.current?.model.title ?? "(none)")  // "Home"
 print((0..<tabs.count).compactMap { tabs.at($0).name })  // ["home-tab", "settings-tab"]
 ```
 
-> See `spec/06-composite-vm.md` for the full `CompositeVM` contract.
+> See the [composite family](../primitives/viewmodel-families/composite-family.md)
+> for the full `CompositeVM` contract.
 
 ______________________________________________________________________
 
@@ -256,7 +260,8 @@ setter cannot throw — e.g. assigning a non-child to `CompositeVM.current`; see
 ADR-0009/ADR-0037.) A `BuilderValidationError` is likewise thrown when a builder
 is missing a required field at `build()` time.
 
-> See `spec/02-lifecycle.md` for the full lifecycle contract (`LIFE-001..015`),
+> See [Lifecycle & Messaging](../architecture/lifecycle-messaging.md) for the
+> full lifecycle contract (`LIFE-001..015`),
 > including the transition table and admitted-hook/disposal coordination.
 
 ______________________________________________________________________
@@ -301,7 +306,9 @@ let cancellable = hub.messages
     }
 ```
 
-> See `spec/11-threading.md` for the `THR-001..THR-004` conformance rules.
+> See [Services, Messages &
+> Dispatching](../primitives/services-messages-dispatching.md) for the
+> `THR-001..THR-004` conformance rules.
 > The Swift flavor implements the dispatcher contract; the Combine /
 > async-await integration patterns above are flavor-idiomatic.
 
@@ -309,17 +316,15 @@ ______________________________________________________________________
 
 ## 3.5.8. Where to go next
 
-| Resource                      | Path                                  |
-| ----------------------------- | ------------------------------------- |
-| Spec overview                 | `spec/00-overview.md`                 |
-| Lifecycle contract            | `spec/02-lifecycle.md`                |
-| Message schema                | `spec/03-messages.md`                 |
-| Commands                      | `spec/04-commands.md`                 |
-| ComponentVM contract          | `spec/05-component-vm.md`             |
-| CompositeVM contract          | `spec/06-composite-vm.md`             |
-| Builder spec                  | `spec/10-builders.md`                 |
-| Threading rules               | `spec/11-threading.md`                |
-| Architecture decision records | `spec/ADRs/`                          |
-| SwiftUI integration recipe    | `docs/content/integration/swiftui.md` |
-| Swift flavor README           | `langs/swift/README.md`               |
-| Swift conformance suite       | `langs/swift/Tests/VMxTests/`         |
+| Resource             | Documentation page                                                                             |
+| -------------------- | ---------------------------------------------------------------------------------------------- |
+| Specification status | [Specification & Conformance](../specification-conformance.md)                                 |
+| Lifecycle contract   | [Lifecycle & Messaging](../architecture/lifecycle-messaging.md)                                |
+| Messages & threading | [Services, Messages & Dispatching](../primitives/services-messages-dispatching.md)             |
+| Commands             | [Command Families](../primitives/command-families.md)                                          |
+| Component contract   | [Component Family](../primitives/viewmodel-families/component-family.md)                       |
+| Composite contract   | [Composite Family](../primitives/viewmodel-families/composite-family.md)                       |
+| Builders & tree      | [Builders, Collections & Tree Utilities](../primitives/builders-collections-tree-utilities.md) |
+| Architecture         | [Architecture Map](../architecture/index.md)                                                   |
+| Swift status         | [Swift Flavor](../flavors/swift.md)                                                            |
+| SwiftUI integration  | [SwiftUI Integration](../integration/swiftui.md)                                               |

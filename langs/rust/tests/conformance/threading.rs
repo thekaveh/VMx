@@ -458,6 +458,99 @@ fn rollback_disposal_orders_status_then_error_then_completion() {
 }
 
 #[test]
+fn background_reentrant_disposal_error_precedes_stream_completion() {
+    let dispatcher = ManualDispatcher::new();
+    let slot: Arc<Mutex<Option<ComponentVm<(), ManualDispatcher>>>> = Arc::new(Mutex::new(None));
+    let hook_slot = Arc::clone(&slot);
+    let vm = ComponentVm::builder()
+        .name("deferred-dispose-error")
+        .model(())
+        .background(true)
+        .on_construct(move || {
+            hook_slot
+                .lock()
+                .unwrap()
+                .as_ref()
+                .expect("component installed before construct")
+                .dispose()
+        })
+        .services(MessageHub::new(), dispatcher.clone())
+        .build()
+        .unwrap();
+    *slot.lock().unwrap() = Some(vm.clone());
+    vm.on_dispose(|| Err(vmx::VmxError::Other("dispose failed".to_string())));
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let error_events = Arc::clone(&events);
+    let completion_events = Arc::clone(&events);
+    let _subscription = vm.background_errors().subscribe_with_completion(
+        move |error| error_events.lock().unwrap().push(format!("error:{error}")),
+        move || {
+            completion_events
+                .lock()
+                .unwrap()
+                .push("complete".to_string())
+        },
+    );
+
+    vm.construct().unwrap();
+    dispatcher.drain_background();
+
+    assert_eq!(vm.status(), ConstructionStatus::Disposed);
+    assert_eq!(
+        *events.lock().unwrap(),
+        vec!["error:dispose failed", "complete"]
+    );
+}
+
+#[test]
+fn background_reentrant_disposal_panic_becomes_stable_error_before_completion() {
+    let dispatcher = ManualDispatcher::new();
+    let slot: Arc<Mutex<Option<ComponentVm<(), ManualDispatcher>>>> = Arc::new(Mutex::new(None));
+    let hook_slot = Arc::clone(&slot);
+    let vm = ComponentVm::builder()
+        .name("deferred-dispose-panic")
+        .model(())
+        .background(true)
+        .on_construct(move || {
+            hook_slot
+                .lock()
+                .unwrap()
+                .as_ref()
+                .expect("component installed before construct")
+                .dispose()
+        })
+        .services(MessageHub::new(), dispatcher.clone())
+        .build()
+        .unwrap();
+    *slot.lock().unwrap() = Some(vm.clone());
+    vm.on_dispose(|| panic!("dispose panic"));
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let error_events = Arc::clone(&events);
+    let completion_events = Arc::clone(&events);
+    let _subscription = vm.background_errors().subscribe_with_completion(
+        move |error| error_events.lock().unwrap().push(format!("error:{error}")),
+        move || {
+            completion_events
+                .lock()
+                .unwrap()
+                .push("complete".to_string())
+        },
+    );
+
+    vm.construct().unwrap();
+    dispatcher.drain_background();
+
+    assert_eq!(vm.status(), ConstructionStatus::Disposed);
+    assert_eq!(
+        *events.lock().unwrap(),
+        vec![
+            "error:deferred background disposal hook panicked",
+            "complete"
+        ]
+    );
+}
+
+#[test]
 fn readonly_builder_preserves_background_lifecycle_configuration() {
     let dispatcher = ManualDispatcher::new();
     let vm = ReadonlyComponentVm::<i32>::builder()

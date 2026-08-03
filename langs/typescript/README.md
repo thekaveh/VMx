@@ -148,7 +148,13 @@ environment — regressions in this area will fail CI.
 The public API is re-exported from a single entry point:
 
 ```ts
-import { ... } from "@thekaveh/vmx";
+import {
+  ComponentVM,
+  ConstructionStatus,
+  MessageHub,
+  RelayCommand,
+  RxDispatcher,
+} from "@thekaveh/vmx";
 ```
 
 Key exports:
