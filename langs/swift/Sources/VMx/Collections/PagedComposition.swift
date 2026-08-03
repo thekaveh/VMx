@@ -38,6 +38,7 @@ public final class PagedComposition<TVM>: Pageable {
     private var _currentPageIndex: Int = 0
     private let _propertyChangedSubject = PassthroughSubject<String, Never>()
     private var _sourceCancellables: Set<AnyCancellable> = []
+    private var _disposed = false
 
     // MARK: - Init
 
@@ -168,6 +169,14 @@ public final class PagedComposition<TVM>: Pageable {
         _propertyChangedSubject.send("items")
     }
 
+    /// Detaches source observation and completes `propertyChanged`. Idempotent.
+    public func dispose() {
+        guard !_disposed else { return }
+        _disposed = true
+        _sourceCancellables.removeAll()
+        _propertyChangedSubject.send(completion: .finished)
+    }
+
     // MARK: - Private helpers
 
     /// Clamps `index` to `[0, max(0, pageCount - 1)]`.
@@ -190,8 +199,8 @@ public extension PagedComposition where TVM: ComponentVMBase {
         )
         sourceComposite.collectionChanged
             .sink { [weak self, weak sourceComposite] _ in
-                guard let sourceComposite else { return }
-                self?.setSource((0..<sourceComposite.count).map { sourceComposite.at($0) })
+                guard let self, !self._disposed, let sourceComposite else { return }
+                self.setSource((0..<sourceComposite.count).map { sourceComposite.at($0) })
             }
             .store(in: &_sourceCancellables)
     }

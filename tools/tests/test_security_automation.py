@@ -1,5 +1,6 @@
 """Repository security automation contracts."""
 
+import json
 import re
 from pathlib import Path
 
@@ -50,7 +51,7 @@ def test_dependabot_covers_every_committed_dependency_ecosystem() -> None:
     assert config.count("interval: weekly") == 6
 
 
-def test_dependabot_preserves_python_bounds_and_defers_incompatible_js_majors() -> None:
+def test_dependabot_preserves_python_bounds_and_defers_only_incompatible_js_majors() -> None:
     config = (REPO_ROOT / ".github/dependabot.yml").read_text(encoding="utf-8")
 
     sections = dict(
@@ -62,14 +63,57 @@ def test_dependabot_preserves_python_bounds_and_defers_incompatible_js_majors() 
     )
 
     assert "versioning-strategy: lockfile-only" in sections["uv"]
-    assert re.search(
-        r'dependency-name: typescript\n\s+versions: \[">=6\.0\.0"\]',
-        sections["npm"],
-    )
+    assert "dependency-name: typescript" not in sections["npm"]
     assert re.search(
         r'dependency-name: jsdom\n\s+versions: \[">=30\.0\.0"\]',
         sections["npm"],
     )
+
+
+def test_typescript_projects_track_the_latest_peer_supported_compiler() -> None:
+    manifests = (
+        REPO_ROOT / "langs/typescript/package.json",
+        REPO_ROOT / "examples/typescript/console/hello-vmx/package.json",
+        REPO_ROOT / "examples/typescript/react/notes-showcase/package.json",
+    )
+    for manifest in manifests:
+        assert '"typescript": "^6.0.3"' in manifest.read_text(encoding="utf-8")
+
+    vite_types = REPO_ROOT / "examples/typescript/react/notes-showcase/src/vite-env.d.ts"
+    assert vite_types.read_text(encoding="utf-8") == '/// <reference types="vite/client" />\n'
+
+    tsconfig = (REPO_ROOT / "langs/typescript/tsconfig.json").read_text(encoding="utf-8")
+    assert '"ignoreDeprecations": "6.0"' in tsconfig
+
+
+def test_typescript_dependency_graph_is_validated_with_scoped_security_override() -> None:
+    manifests = (
+        REPO_ROOT / "langs/typescript/package.json",
+        REPO_ROOT / "examples/typescript/console/hello-vmx/package.json",
+        REPO_ROOT / "examples/typescript/react/notes-showcase/package.json",
+    )
+    for path in manifests:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+        assert manifest["scripts"]["check:deps"] == "npm ls --all --omit=optional"
+
+    library_manifest = json.loads(manifests[0].read_text(encoding="utf-8"))
+    assert library_manifest.get("overrides") == {"tsup": {"esbuild": "0.28.1"}}
+
+    lock = json.loads(
+        (REPO_ROOT / "langs/typescript/package-lock.json").read_text(encoding="utf-8")
+    )
+    assert lock["packages"]["node_modules/tsup"]["dependencies"]["esbuild"] == "^0.27.0"
+    assert lock["packages"]["node_modules/esbuild"]["version"] == "0.28.1"
+    for path in manifests[1:]:
+        assert path.with_name(".npmrc").read_text(encoding="utf-8") == "install-links=true\n"
+
+    typescript_ci = (REPO_ROOT / ".github/workflows/typescript.yml").read_text(encoding="utf-8")
+    release_ci = (REPO_ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+    security_ci = (REPO_ROOT / ".github/workflows/security-audit.yml").read_text(encoding="utf-8")
+    assert typescript_ci.count("npm run check:deps") >= 3
+    assert "npm run check:deps" in release_ci
+    assert 'npm ci --prefix "${{ matrix.project }}" --ignore-scripts' in security_ci
+    assert 'npm run check:deps --prefix "${{ matrix.project }}"' in security_ci
 
 
 def test_dependabot_defers_incompatible_nuget_updates() -> None:

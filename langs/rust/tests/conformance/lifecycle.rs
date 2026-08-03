@@ -1,3 +1,4 @@
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Barrier, Mutex};
 use std::time::{Duration, Instant};
@@ -457,7 +458,7 @@ fn dispose_supersedes_destructing_without_resurrection() {
 }
 
 #[test]
-fn queued_terminal_publication_is_suppressed_after_disposal() {
+fn synchronous_terminal_publication_completes_before_return() {
     let hub = MessageHub::new();
     let dispatcher = ManualDispatcher::new();
     let vm = ComponentVm::with_services("vm", hub.clone(), dispatcher.clone());
@@ -466,17 +467,21 @@ fn queued_terminal_publication_is_suppressed_after_disposal() {
     vm.construct().unwrap();
     assert_eq!(
         *observed.lock().unwrap(),
-        vec![ConstructionStatus::Constructing]
+        vec![
+            ConstructionStatus::Constructing,
+            ConstructionStatus::Constructed
+        ]
     );
 
     vm.dispose().unwrap();
-    dispatcher.drain();
+    assert_eq!(dispatcher.queued_len(), 0);
 
     assert_eq!(vm.status(), ConstructionStatus::Disposed);
     assert_eq!(
         *observed.lock().unwrap(),
         vec![
             ConstructionStatus::Constructing,
+            ConstructionStatus::Constructed,
             ConstructionStatus::Disposed
         ]
     );
@@ -866,4 +871,167 @@ fn throwing_lifecycle_hook_rolls_status_back() {
             ConstructionStatus::Destructed
         ]
     );
+}
+
+#[test]
+fn panicking_lifecycle_hooks_roll_back_and_allow_retry() {
+    let construct_once = Arc::new(AtomicBool::new(true));
+    let construct_flag = Arc::clone(&construct_once);
+    let destruct_once = Arc::new(AtomicBool::new(true));
+    let destruct_flag = Arc::clone(&destruct_once);
+    let vm = ComponentVm::new("panic-retry");
+    vm.on_construct(move || {
+        if construct_flag.swap(false, Ordering::SeqCst) {
+            panic!("construct panic");
+        }
+        Ok(())
+    });
+    vm.on_destruct(move || {
+        if destruct_flag.swap(false, Ordering::SeqCst) {
+            panic!("destruct panic");
+        }
+        Ok(())
+    });
+
+    assert!(catch_unwind(AssertUnwindSafe(|| vm.construct())).is_err());
+    assert_eq!(vm.status(), ConstructionStatus::Destructed);
+    vm.construct().unwrap();
+    assert!(catch_unwind(AssertUnwindSafe(|| vm.destruct())).is_err());
+    assert_eq!(vm.status(), ConstructionStatus::Constructed);
+    vm.destruct().unwrap();
+    assert_eq!(vm.status(), ConstructionStatus::Destructed);
+}
+
+#[test]
+fn panicking_child_action_rolls_parent_back_and_allows_retry() {
+    let panic_once = Arc::new(AtomicBool::new(true));
+    let panic_flag = Arc::clone(&panic_once);
+    let child = ComponentVm::new("child");
+    child.on_construct(move || {
+        if panic_flag.swap(false, Ordering::SeqCst) {
+            panic!("child panic");
+        }
+        Ok(())
+    });
+    let parent = CompositeVm::new("parent");
+    parent.add(child.clone()).unwrap();
+
+    assert!(catch_unwind(AssertUnwindSafe(|| parent.construct())).is_err());
+    assert_eq!(child.status(), ConstructionStatus::Destructed);
+    assert_eq!(parent.status(), ConstructionStatus::Destructed);
+    parent.construct().unwrap();
+    assert_eq!(child.status(), ConstructionStatus::Constructed);
+    assert_eq!(parent.status(), ConstructionStatus::Constructed);
+}
+
+#[test]
+fn failed_dispose_emits_one_terminal_status() {
+    let hub = MessageHub::new();
+    let vm = ComponentVm::with_services("failed-dispose", hub.clone(), NullDispatcher::new());
+    let id = vm.id();
+    vm.on_dispose(|| Err(VmxError::Other("dispose failure".to_string())));
+
+    assert_eq!(
+        vm.dispose(),
+        Err(VmxError::Other("dispose failure".to_string()))
+    );
+    let disposed = hub
+        .history()
+        .into_iter()
+        .filter(|message| {
+            matches!(message, Message::ConstructionStatusChanged(change)
+                if change.sender_id == id && change.status == ConstructionStatus::Disposed)
+        })
+        .count();
+    assert_eq!(disposed, 1);
+}
+
+#[test]
+fn panicking_dispose_hook_finishes_owned_and_stream_cleanup() {
+    let cleaned = Arc::new(AtomicBool::new(false));
+    let cleaned_observer = Arc::clone(&cleaned);
+    let completed = Arc::new(AtomicBool::new(false));
+    let completion_observer = Arc::clone(&completed);
+    let vm = ComponentVm::new("panic-dispose");
+    vm.own(move || cleaned_observer.store(true, Ordering::SeqCst));
+    let _subscription = vm.background_errors().subscribe_with_completion(
+        |_| {},
+        move || completion_observer.store(true, Ordering::SeqCst),
+    );
+    vm.on_dispose(|| panic!("dispose panic"));
+
+    assert!(catch_unwind(AssertUnwindSafe(|| vm.dispose())).is_err());
+    assert_eq!(vm.status(), ConstructionStatus::Disposed);
+    assert!(cleaned.load(Ordering::SeqCst));
+    assert!(completed.load(Ordering::SeqCst));
+}
+
+#[test]
+fn deferred_panicking_dispose_hook_still_finishes_cleanup() {
+    let cleaned = Arc::new(AtomicBool::new(false));
+    let cleaned_observer = Arc::clone(&cleaned);
+    let completed = Arc::new(AtomicBool::new(false));
+    let completion_observer = Arc::clone(&completed);
+    let vm = ComponentVm::new("deferred-panic-dispose");
+    vm.own(move || cleaned_observer.store(true, Ordering::SeqCst));
+    let _subscription = vm.background_errors().subscribe_with_completion(
+        |_| {},
+        move || completion_observer.store(true, Ordering::SeqCst),
+    );
+    vm.on_dispose(|| panic!("deferred dispose panic"));
+    let disposing_vm = vm.clone();
+    vm.on_construct(move || disposing_vm.dispose());
+
+    assert!(catch_unwind(AssertUnwindSafe(|| vm.construct())).is_err());
+    assert_eq!(vm.status(), ConstructionStatus::Disposed);
+    assert!(cleaned.load(Ordering::SeqCst));
+    assert!(completed.load(Ordering::SeqCst));
+}
+
+#[test]
+fn panicking_child_disposal_does_not_abort_container_cascades() {
+    fn panicking_child(name: &'static str) -> ComponentVm {
+        let child = ComponentVm::new(name);
+        child.on_dispose(|| panic!("child dispose panic"));
+        child
+    }
+
+    fn observed_child(name: &'static str, disposed: Arc<AtomicBool>) -> ComponentVm {
+        let child = ComponentVm::new(name);
+        child.on_dispose(move || {
+            disposed.store(true, Ordering::SeqCst);
+            Ok(())
+        });
+        child
+    }
+
+    let later = Arc::new(AtomicBool::new(false));
+    let first = panicking_child("first");
+    let second = observed_child("second", Arc::clone(&later));
+    let composite = CompositeVm::new("composite");
+    composite.add(first.clone()).unwrap();
+    composite.add(second.clone()).unwrap();
+    assert!(catch_unwind(AssertUnwindSafe(|| composite.dispose())).is_err());
+    assert!(later.load(Ordering::SeqCst));
+    assert_eq!(first.status(), ConstructionStatus::Disposed);
+    assert_eq!(second.status(), ConstructionStatus::Disposed);
+    assert_eq!(composite.status(), ConstructionStatus::Disposed);
+
+    let later = Arc::new(AtomicBool::new(false));
+    let first = panicking_child("first");
+    let second = observed_child("second", Arc::clone(&later));
+    let group = GroupVm::new("group");
+    group.add(first.clone()).unwrap();
+    group.add(second.clone()).unwrap();
+    assert!(catch_unwind(AssertUnwindSafe(|| group.dispose())).is_err());
+    assert!(later.load(Ordering::SeqCst));
+    assert_eq!(group.status(), ConstructionStatus::Disposed);
+
+    let later = Arc::new(AtomicBool::new(false));
+    let first = panicking_child("first");
+    let second = observed_child("second", Arc::clone(&later));
+    let aggregate = AggregateVm2::try_new("aggregate", first, second).unwrap();
+    assert!(catch_unwind(AssertUnwindSafe(|| aggregate.dispose())).is_err());
+    assert!(later.load(Ordering::SeqCst));
+    assert_eq!(aggregate.status(), ConstructionStatus::Disposed);
 }

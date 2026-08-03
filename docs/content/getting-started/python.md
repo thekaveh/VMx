@@ -5,12 +5,19 @@ You will build a `ComponentVMOf[UserModel]`, a `RelayCommand` with a reactive
 trigger, and a `CompositeVM[TabVM]` with tab selection — all in a Python REPL,
 script, or test.
 
-> For the normative contracts behind each type, see `spec/05-component-vm.md`,
-> `spec/04-commands.md`, and `spec/06-composite-vm.md`.
+> For the contracts behind each type, see the [component
+> family](../primitives/viewmodel-families/component-family.md), [command
+> families](../primitives/command-families.md), and [composite
+> family](../primitives/viewmodel-families/composite-family.md).
 
 ______________________________________________________________________
 
 ## 3.3.1. Install
+
+PyPI currently provides VMx 3.1.0. This tutorial tracks the repository's
+v3.23.0 Python source line and its v3.23.0 minimum specification; use the
+editable checkout below for every behavior shown here until a matching public
+release is available.
 
 ```bash
 # Using uv (recommended)
@@ -152,8 +159,10 @@ print(user_vm.modeled_hint)  # "Alice Smith"  (modeled_hinter result)
 print(user_vm.status)        # ConstructionStatus.CONSTRUCTED
 ```
 
-> See `spec/05-component-vm.md` for the full `ComponentVMOfProto[M]` contract and
-> `spec/03-messages.md` for the `PropertyChangedMessage` schema.
+> See the [component family](../primitives/viewmodel-families/component-family.md)
+> for the full `ComponentVMOfProto[M]` contract and [Services, Messages &
+> Dispatching](../primitives/services-messages-dispatching.md) for the
+> `PropertyChangedMessage` schema.
 
 ______________________________________________________________________
 
@@ -206,7 +215,8 @@ print(save_command.can_execute())   # False again
 save_command.dispose()
 ```
 
-> See `spec/04-commands.md` for the full command contract, including the
+> See [command families](../primitives/command-families.md) for the full command
+> contract, including the
 > "predicate-false gates execute" rule (CMD-003).
 
 ______________________________________________________________________
@@ -284,7 +294,8 @@ print([child.name for child in tabs])  # ['home-tab', 'settings-tab']
 print(tab2.is_current)                 # False
 ```
 
-> See `spec/06-composite-vm.md` for the full `CompositeVMProto[VM]` contract,
+> See the [composite family](../primitives/viewmodel-families/composite-family.md)
+> for the full `CompositeVMProto[VM]` contract,
 > including the `MutableSequence` semantics and `CollectionChangedEvent`.
 
 ______________________________________________________________________
@@ -322,8 +333,10 @@ tabs.dispose()
 hub.dispose()
 ```
 
-> See `spec/02-lifecycle.md` for the full transition table and the
-> `StatusTransitionError` rules (LIFE-001 through LIFE-014).
+> See [Lifecycle & Messaging](../architecture/lifecycle-messaging.md) for the
+> full transition table and the
+> lifecycle contract (`LIFE-001..015`), including `StatusTransitionError`
+> rules and admitted-hook/disposal coordination.
 
 ______________________________________________________________________
 
@@ -366,25 +379,23 @@ rx.from_callable(lambda: load_from_database(), scheduler=dispatcher.background).
 When using `RxDispatcher.asyncio(loop)`, the foreground scheduler posts work
 back to the given asyncio event loop, keeping VM mutations on the loop thread.
 
-> See `spec/11-threading.md` for the `THR-001..THR-004` conformance rules.
+> See [Services, Messages &
+> Dispatching](../primitives/services-messages-dispatching.md) for the
+> `THR-001..THR-004` conformance rules.
 
 ______________________________________________________________________
 
 ## 3.3.8. Where to go next
 
-| Resource                      | Path                                 |
-| ----------------------------- | ------------------------------------ |
-| Spec overview                 | `spec/00-overview.md`                |
-| Lifecycle contract            | `spec/02-lifecycle.md`               |
-| Message schema                | `spec/03-messages.md`                |
-| Commands                      | `spec/04-commands.md`                |
-| ComponentVM contract          | `spec/05-component-vm.md`            |
-| CompositeVM contract          | `spec/06-composite-vm.md`            |
-| Builder spec                  | `spec/10-builders.md`                |
-| Threading rules               | `spec/11-threading.md`               |
-| Tree utilities (`walk/find`)  | `spec/13-tree-utilities.md`          |
-| Architecture decision records | `spec/ADRs/`                         |
-| Console example               | `examples/python/console/hello_vmx/` |
-| Tkinter todo example          | `examples/python/tk/todo_app/`       |
-| Textual TUI inspector example | `examples/python/textual/inspector/` |
-| Conformance test suite        | `langs/python/tests/conformance/`    |
+| Resource             | Documentation page                                                                             |
+| -------------------- | ---------------------------------------------------------------------------------------------- |
+| Specification status | [Specification & Conformance](../specification-conformance.md)                                 |
+| Lifecycle contract   | [Lifecycle & Messaging](../architecture/lifecycle-messaging.md)                                |
+| Messages & threading | [Services, Messages & Dispatching](../primitives/services-messages-dispatching.md)             |
+| Commands             | [Command Families](../primitives/command-families.md)                                          |
+| Component contract   | [Component Family](../primitives/viewmodel-families/component-family.md)                       |
+| Composite contract   | [Composite Family](../primitives/viewmodel-families/composite-family.md)                       |
+| Builders & tree      | [Builders, Collections & Tree Utilities](../primitives/builders-collections-tree-utilities.md) |
+| Architecture         | [Architecture Map](../architecture/index.md)                                                   |
+| Python status        | [Python Flavor](../flavors/python.md)                                                          |
+| Examples             | [Smaller Examples](../examples/smaller-examples.md)                                            |

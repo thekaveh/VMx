@@ -48,12 +48,19 @@ def render_esm(version: str) -> str:
     """Render ESM runtime probes for every public package entry."""
     _require_version(version)
     expected = json.dumps(version)
-    return f"""import {{ __version__, MessageHub }} from "@thekaveh/vmx";
+    return f"""import {{ __version__, BatchUpdateHandle, MessageHub }} from "@thekaveh/vmx";
 import {{ NotificationHub }} from "@thekaveh/vmx/notifications";
 import {{ consumerConformanceSchema }} from "@thekaveh/vmx/conformance";
 
 if (__version__ !== {expected}) throw new Error(`expected {version}, received ${{__version__}}`);
 if (typeof MessageHub !== "function") throw new Error("missing root MessageHub export");
+if (typeof Symbol.dispose !== "symbol") throw new Error("missing Symbol.dispose runtime support");
+let batchExits = 0;
+const handle = new BatchUpdateHandle({{ _exitBatch() {{ batchExits += 1; }} }});
+if (typeof handle[Symbol.dispose] !== "function") throw new Error("missing disposal protocol");
+handle[Symbol.dispose]();
+handle.dispose();
+if (batchExits !== 1) throw new Error(`expected one batch exit, received ${{batchExits}}`);
 if (typeof NotificationHub !== "function") throw new Error("missing notifications export");
 if (typeof consumerConformanceSchema !== "object") throw new Error("missing conformance export");
 console.log("VMx npm ESM smoke passed");
@@ -72,6 +79,13 @@ if (vmx.__version__ !== {expected}) {{
   throw new Error(`expected {version}, received ${{vmx.__version__}}`);
 }}
 if (typeof vmx.MessageHub !== "function") throw new Error("missing root MessageHub export");
+if (typeof Symbol.dispose !== "symbol") throw new Error("missing Symbol.dispose runtime support");
+let batchExits = 0;
+const handle = new vmx.BatchUpdateHandle({{ _exitBatch() {{ batchExits += 1; }} }});
+if (typeof handle[Symbol.dispose] !== "function") throw new Error("missing disposal protocol");
+handle[Symbol.dispose]();
+handle.dispose();
+if (batchExits !== 1) throw new Error(`expected one batch exit, received ${{batchExits}}`);
 if (typeof notifications.NotificationHub !== "function") {{
   throw new Error("missing notifications export");
 }}
@@ -84,15 +98,18 @@ console.log("VMx npm CommonJS smoke passed");
 
 def render_types() -> str:
     """Render a NodeNext declaration probe for every public package entry."""
-    return """import { __version__, type IMessageHub } from "@thekaveh/vmx";
+    return """import { BatchUpdateHandle, __version__, type IMessageHub } from "@thekaveh/vmx";
 import { type INotificationHub } from "@thekaveh/vmx/notifications";
 import { type ConsumerConformanceSuite } from "@thekaveh/vmx/conformance";
 
 declare const hub: IMessageHub;
 declare const notifications: INotificationHub;
 declare const suite: ConsumerConformanceSuite;
+declare const batch: BatchUpdateHandle;
+const disposable: Disposable = batch;
+batch[Symbol.dispose]();
 const version: string = __version__;
-void [hub, notifications, suite, version];
+void [hub, notifications, suite, disposable, version];
 """
 
 

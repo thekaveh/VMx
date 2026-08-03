@@ -6,6 +6,75 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `TokenPagedComposition::dispose()` now terminally disables its owned
+  load-more and refresh commands and prevents in-flight loaders from committing
+  pager state; loader-returned items remain caller-owned.
+
+### Changed
+
+- `TokenPagedComposition` now exposes single-flight `AsyncRelayCommand`s for
+  loading and refresh, publishes eligibility changes as token state changes,
+  and always starts and refreshes from the canonical initial/terminal `None`
+  token. The legacy constructor token argument remains accepted but is ignored.
+
+### Fixed
+
+- Refresh deduplication once again compares a fresh first page with the matching
+  accumulator head, preserving already accumulated later pages.
+
+## [0.29.0] — 2026-08-03
+
+### Added
+
+- `Dispatcher::dispatch_background`, `DefaultDispatcher`, and independently
+  drainable foreground/background `ManualDispatcher` channels.
+- `ComponentVmBuilder::background` and options parity for asynchronous
+  construct/destruct hooks with foreground terminal publication.
+- Mutable and read-only component builders preserve reusable
+  `on_construct`/`on_destruct` callbacks alongside background configuration.
+- `ReadonlyComponentVmBuilder` background parity and the event-only, hot typed
+  `background_errors()` lifecycle-failure stream.
+
+### Fixed
+
+- `THR-002` now exercises genuine background lifecycle work, including
+  disposal supersession and foreground rollback publication.
+- Synchronous construct/destruct publication completes before return, while
+  reconstruction remains a synchronous atomic destruct/construct operation
+  even when background hooks are enabled.
+- Background rollback delivers its status, original error, and deferred stream
+  completion in order under re-entrant disposal.
+- Re-entrant disposal from a background hook preserves disposal-hook errors and
+  converts disposal panics to a stable typed error before stream completion.
+- Rejected background or foreground scheduling restores the prior state instead
+  of stranding an in-flight lifecycle; default workers are created before VM
+  admission for the same guarantee.
+- Synchronous lifecycle panics now roll back before unwinding. Disposal hook
+  errors or panics emit one terminal status, finish owned/stream/command cleanup,
+  and cannot abort later siblings or parent cleanup in container cascades.
+
+## [0.28.0] — 2026-08-02
+
+### Changed
+
+- **Breaking pre-publication correction:** `AsyncResourceVm<T, D>` now embeds
+  the caller's dispatcher, exposes explicit shared-service constructors, and
+  uses `status()` for ordinary component lifecycle state. Resource acquisition
+  phase is available through `resource_status()` and `state().status()`.
+
+### Fixed
+
+- `AsyncResourceVm` now implements `VmNode` and leaf `TreeNode`, delegates the
+  complete model-free component surface, publishes through its injected hub,
+  and participates in composite ownership, selection, and atomic reparenting.
+- Resource cleanup and command teardown now run only after the embedded
+  component has admitted its terminal `Disposed` transition, so reentrant
+  callbacks cannot reopen the lifecycle or observe an intermediate status.
+  The consumer disposal hook is snapshotted at the same admission boundary,
+  preventing command-teardown callbacks from replacing terminal work.
+
 ## [0.27.0] — 2026-07-25
 
 ### Added

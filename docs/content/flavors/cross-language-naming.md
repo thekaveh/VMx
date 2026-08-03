@@ -65,9 +65,9 @@ then delivers locally before publishing to the optional external hub.
 
 ## 7.7.4. Practical Notes
 
-- The modeled-type name is the one structural divergence: C# keeps the generic
-  suffix on `ComponentVM<M>`, while Python, TypeScript, and Swift expose a
-  distinct `ComponentVMOf` name.
+- The modeled-type name is the one structural divergence: C# and Rust retain
+  `ComponentVM<M>` / `ComponentVm<M>`, while Python, TypeScript, and Swift
+  expose a distinct `ComponentVMOf` name.
 - Hub `PropertyChangedMessage` property names follow the flavor idiom:
   `"IsValid"` in C#, `"is_valid"` in Python, and `"isValid"` in TypeScript and
   Swift. Rust uses snake_case strings such as `"is_valid"`.

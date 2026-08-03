@@ -166,4 +166,17 @@ public class ExpandCollapseConformanceTests
         state.Dispose();
         completed.Should().BeTrue();
     }
+
+    [Fact]
+    public void ExpandableState_Dispose_MakesLaterMutationsInert()
+    {
+        var state = new ExpandableState(initiallyExpanded: false);
+        state.Dispose();
+
+        state.Expand();
+        state.Collapse();
+        state.ToggleExpansion();
+
+        state.IsExpanded.Should().BeFalse();
+    }
 }

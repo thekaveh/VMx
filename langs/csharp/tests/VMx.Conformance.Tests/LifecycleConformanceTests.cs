@@ -10,7 +10,7 @@ using Xunit;
 namespace VMx.Conformance.Tests;
 
 /// <summary>
-/// LIFE-001 through LIFE-014 — see spec/12-conformance.md.
+/// LIFE-001..015 — see spec/12-conformance.md.
 ///
 /// Every LIFE-* id is exercised here by a self-contained test that drives a
 /// real VM instance and asserts that id's own normative behavior (the

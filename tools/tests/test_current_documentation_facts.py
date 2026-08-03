@@ -26,6 +26,55 @@ def test_current_docs_match_adr_inventory() -> None:
     assert f"(0001-{last})" in spec_readme
 
 
+def test_current_lifecycle_docs_match_the_normative_catalog_range() -> None:
+    catalog = (ROOT / "spec/12-conformance.md").read_text(encoding="utf-8")
+    highest = max(int(value) for value in re.findall(r"^### LIFE-(\d{3})\b", catalog, re.MULTILINE))
+    expected = f"LIFE-001..{highest:03d}"
+    paths = (
+        *(ROOT / "docs/content/getting-started").glob("*.md"),
+        ROOT / "langs/swift/README.md",
+        ROOT / "langs/csharp/tests/VMx.Conformance.Tests/LifecycleConformanceTests.cs",
+        ROOT / "langs/python/tests/conformance/test_lifecycle.py",
+        ROOT / "langs/swift/Tests/VMxTests/LifecycleTests.swift",
+    )
+    for path in paths:
+        text = path.read_text(encoding="utf-8")
+        if "LIFE-001" in text:
+            assert expected in text, path
+
+
+def test_root_readme_preserves_complete_3_22_source_ranges() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    en = "\N{EN DASH}"
+
+    assert (
+        f"| 3.22.x | 3.22.0{en}3.22.1 | 3.22.0{en}3.22.1 | 3.23.0{en}3.23.1 "
+        f"| 3.22.0{en}3.23.0  | 0.25.0{en}0.26.0 |"
+    ) in readme
+
+
+def test_rust_threading_claim_has_paired_dispatch_and_real_thr_002() -> None:
+    spec = (ROOT / "spec/11-threading.md").read_text(encoding="utf-8")
+    runtime = (ROOT / "langs/rust/src/runtime.rs").read_text(encoding="utf-8")
+    component = (ROOT / "langs/rust/src/components.rs").read_text(encoding="utf-8")
+    tests = (ROOT / "langs/rust/tests/conformance/threading.rs").read_text(encoding="utf-8")
+    crate_readme = (ROOT / "langs/rust/README.md").read_text(encoding="utf-8")
+
+    assert "| Rust" in spec and "DefaultDispatcher" in spec
+    assert "fn dispatch_background" in runtime
+    assert "pub struct DefaultDispatcher" in runtime
+    assert "pub fn background" in component
+    assert ".background(true)" in tests
+    assert "drain_background" in tests
+    assert "DefaultDispatcher" in crate_readme
+    assert ".background(true)" in crate_readme
+    assert "background_errors()" in crate_readme
+    assert "reconstruct remains a synchronous atomic" in crate_readme
+    assert "rejected background or foreground scheduling" in crate_readme
+    assert "on_construct" in component and "on_destruct" in component
+    assert "any VM" not in (ROOT / "spec/10-builders.md").read_text(encoding="utf-8")
+
+
 def test_adr_metadata_links_resolve() -> None:
     adr_dir = ROOT / "spec/ADRs"
     for adr in adr_dir.glob("[0-9][0-9][0-9][0-9]-*.md"):
@@ -95,7 +144,8 @@ def test_contract_ledger_matches_docs_and_dom_tooling() -> None:
     assert '"jsdom": "^29.1.1"' in typescript_package
     assert '"jsdom": "^29.1.1"' in react_package
     assert "jsdom `29.1.1`" in ledger
-    assert "TypeScript `6.0.3` raises `TS5101`" in ledger
+    assert "TypeScript is `6.0.3`" in ledger
+    assert "TypeScript 7 remains outside that public contract" in ledger
     assert "jsdom `30.0.0` drops Node 20" in ledger
     for engine_range in ("^22.22.2", "^24.15.0", ">=26.0.0"):
         assert engine_range in ledger
@@ -241,6 +291,8 @@ def test_cross_flavor_catalogue_contains_only_current_numbered_entries() -> None
     assert "legacy alias still ships in v2.0.0" not in catalogue
     assert "does **not** conform `CompositeVM` or `GroupVM` to `Sequence`" not in catalogue
     assert "model-set-after-dispose is\n  **unspecified**" not in catalogue
+    assert "no handle object is returned or needed" not in catalogue
+    assert "batchUpdate(): BatchUpdateHandle" in catalogue
 
 
 def test_rust_parity_ledger_does_not_reopen_resolved_surface_work() -> None:

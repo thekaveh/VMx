@@ -93,6 +93,26 @@ public class ReadonlyComponentVMTests
     }
 
     [Fact]
+    public void Background_Builder_Option_Marshals_Readonly_Lifecycle_To_Foreground()
+    {
+        using var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        using var vm = ReadonlyComponentVM<string>.Builder()
+            .Name("readonly")
+            .Model("fixed")
+            .Background(true)
+            .Services(hub, dispatcher)
+            .Build();
+
+        vm.Construct();
+        vm.Status.Should().Be(ConstructionStatus.Constructing);
+        dispatcher.BackgroundScheduler.AdvanceBy(1);
+        vm.Status.Should().Be(ConstructionStatus.Constructing);
+        dispatcher.ForegroundScheduler.AdvanceBy(1);
+        vm.Status.Should().Be(ConstructionStatus.Constructed);
+    }
+
+    [Fact]
     public void Construct_Transitions_To_Constructed()
     {
         var (vm, _, _) = BuildVm();

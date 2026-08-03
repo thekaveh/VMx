@@ -3,13 +3,13 @@
 //! Spec: `spec/07-group-vm.md`.
 
 use super::{
-    begin_membership_transaction, begin_parent_transfer, finish_with_first_error, lock,
-    resume_unwind, retain_first_error, retain_parent_transfer_commit, Arc, AtomicBool,
-    ComponentCore, ConstructionStatus, Dispatcher, HashSet, LifecycleOperation,
-    MembershipDisposeDisposition, MembershipTransactionControl, MembershipTransactionGuard,
-    MessageHub, Mutex, NullDispatcher, ObservableList, Ordering, ParentHandle, ParentRegistration,
-    ParentTransfer, PropertyChangedStream, RelayCommand, ViewModelType, VmCollection, VmNode,
-    VmxError, VmxResult,
+    begin_membership_transaction, begin_parent_transfer, finish_with_first_error,
+    finish_with_first_failure, lock, resume_unwind, retain_first_error, retain_first_failure,
+    retain_parent_transfer_commit, Arc, AtomicBool, ComponentCore, ConstructionStatus, Dispatcher,
+    HashSet, LifecycleOperation, MembershipDisposeDisposition, MembershipTransactionControl,
+    MembershipTransactionGuard, MessageHub, Mutex, NullDispatcher, ObservableList, Ordering,
+    ParentHandle, ParentRegistration, ParentTransfer, PropertyChangedStream, RelayCommand,
+    ViewModelType, VmCollection, VmNode, VmxError, VmxResult,
 };
 use crate::components::ComponentCommands;
 
@@ -745,20 +745,22 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             }
         };
         let Some(snapshot) = snapshot else {
-            let result = self.core.transition(LifecycleOperation::Dispose);
+            let mut first_failure = None;
+            retain_first_failure(&mut first_failure, || {
+                self.core.transition(LifecycleOperation::Dispose)
+            });
             self.commands.dispose();
-            return result;
+            return finish_with_first_failure(first_failure);
         };
-        let mut first_error = None;
+        let mut first_failure = None;
         for item in snapshot {
-            retain_first_error(&mut first_error, item.dispose());
+            retain_first_failure(&mut first_failure, || item.dispose());
         }
-        retain_first_error(
-            &mut first_error,
-            self.core.transition(LifecycleOperation::Dispose),
-        );
+        retain_first_failure(&mut first_failure, || {
+            self.core.transition(LifecycleOperation::Dispose)
+        });
         self.commands.dispose();
-        finish_with_first_error(first_error)
+        finish_with_first_failure(first_failure)
     }
 
     fn disposal_pending(&self) -> bool {

@@ -230,7 +230,7 @@ through ADR-0099 bring the catalog to 380; Inc-28: +11 async-resource IDs per
 ADR-0100). The covered IDs are:
 
 ```
-LIFE-001..014   lifecycle state machine + fixture-driven transition table
+LIFE-001..015   lifecycle state machine, transition table, and disposal coordination
                 (LIFE-005/006/008 assert catchable throws — ADR-0053;
                 LIFE-011 fixture-backed table now covered via Bundle.module)
 CVM-001..010    ComponentVM / ComponentVMOf identity + model, explicit

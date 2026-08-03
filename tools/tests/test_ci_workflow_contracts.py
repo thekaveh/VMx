@@ -70,7 +70,10 @@ def test_protected_branch_checks_are_always_present_and_aggregate_every_job() ->
         ),
         "rust.yml": ("required: rust", "needs: [audit, build, examples, package]"),
         "swift.yml": ("required: swift", "needs: [build, platforms, examples]"),
-        "typescript.yml": ("required: typescript", "needs: [build, package, examples]"),
+        "typescript.yml": (
+            "required: typescript",
+            "needs: [build, runtime-floor, package, examples]",
+        ),
         "docs.yml": ("required: docs", "needs: [build]"),
         "examples-contract-checks.yml": ("required: examples", None),
         "security-audit.yml": (

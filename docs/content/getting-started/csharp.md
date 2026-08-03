@@ -5,8 +5,10 @@ You will build a `ComponentVM<UserModel>`, a `RelayCommand` with a reactive
 trigger, and a `CompositeVM<TabVM>` with tab selection — all in a console or
 unit-test project.
 
-> For the normative contracts behind each type, see `spec/05-component-vm.md`,
-> `spec/04-commands.md`, and `spec/06-composite-vm.md`.
+> For the contracts behind each type, see the [component
+> family](../primitives/viewmodel-families/component-family.md), [command
+> families](../primitives/command-families.md), and [composite
+> family](../primitives/viewmodel-families/composite-family.md).
 
 ______________________________________________________________________
 
@@ -128,8 +130,10 @@ userVM.Model = new UserModel("Alice Smith", "asmith@example.com");
 Console.WriteLine(userVM.ModeledHint);  // "Alice Smith"  (ModeledHinter result)
 ```
 
-> See `spec/05-component-vm.md` for the full `IComponentVM<M>` contract and
-> `spec/03-messages.md` for the message schema.
+> See the [component family](../primitives/viewmodel-families/component-family.md)
+> for the full `IComponentVM<M>` contract and [Services, Messages &
+> Dispatching](../primitives/services-messages-dispatching.md) for the message
+> schema.
 
 ______________________________________________________________________
 
@@ -176,7 +180,8 @@ Console.WriteLine(saveCommand.CanExecute(null));   // False again
 ((IDisposable)saveCommand).Dispose();
 ```
 
-> See `spec/04-commands.md` for the full command contract including
+> See [command families](../primitives/command-families.md) for the full command
+> contract including
 > the "predicate-false gates Execute" rule (CMD-003).
 
 ______________________________________________________________________
@@ -236,7 +241,8 @@ tabs.Current = tab2;  // prints "Selected tab: Settings"
 tabs.Current = tab1;  // prints "Selected tab: Home"
 ```
 
-> See `spec/06-composite-vm.md` for the full `ICompositeVM<VM>` contract,
+> See the [composite family](../primitives/viewmodel-families/composite-family.md)
+> for the full `ICompositeVM<VM>` contract,
 > including the `IList<VM>` / `INotifyCollectionChanged` semantics.
 
 ______________________________________________________________________
@@ -278,8 +284,10 @@ transactional rollback first and the returned task then faults with the
 original exception (ADR-0109). If terminal disposal wins the race, the waiter
 completes at `Disposed` and the abandoned transition cannot overwrite it.
 
-> See `spec/02-lifecycle.md` for the transition table and the
-> `StatusTransitionException` rules (LIFE-001 through LIFE-014).
+> See [Lifecycle & Messaging](../architecture/lifecycle-messaging.md) for the
+> transition table and the
+> lifecycle contract (`LIFE-001..015`), including `StatusTransitionException`
+> rules and admitted-hook/disposal coordination.
 
 ______________________________________________________________________
 
@@ -315,24 +323,23 @@ Observable
     });
 ```
 
-> See `spec/11-threading.md` for the `THR-001..THR-004` conformance rules.
+> See [Services, Messages &
+> Dispatching](../primitives/services-messages-dispatching.md) for the
+> `THR-001..THR-004` conformance rules.
 
 ______________________________________________________________________
 
 ## 3.2.8. Where to go next
 
-| Resource                      | Path                                        |
-| ----------------------------- | ------------------------------------------- |
-| Spec overview                 | `spec/00-overview.md`                       |
-| Lifecycle contract            | `spec/02-lifecycle.md`                      |
-| Message schema                | `spec/03-messages.md`                       |
-| Commands                      | `spec/04-commands.md`                       |
-| ComponentVM contract          | `spec/05-component-vm.md`                   |
-| CompositeVM contract          | `spec/06-composite-vm.md`                   |
-| Builder spec                  | `spec/10-builders.md`                       |
-| Threading rules               | `spec/11-threading.md`                      |
-| Tree utilities (`walk/find`)  | `spec/13-tree-utilities.md`                 |
-| Architecture decision records | `spec/ADRs/`                                |
-| Console example               | `examples/csharp/console/HelloVMx/`         |
-| WPF MVVM example              | `examples/csharp/wpf/TodoApp/`              |
-| Conformance test suite        | `langs/csharp/tests/VMx.Conformance.Tests/` |
+| Resource             | Documentation page                                                                             |
+| -------------------- | ---------------------------------------------------------------------------------------------- |
+| Specification status | [Specification & Conformance](../specification-conformance.md)                                 |
+| Lifecycle contract   | [Lifecycle & Messaging](../architecture/lifecycle-messaging.md)                                |
+| Messages & threading | [Services, Messages & Dispatching](../primitives/services-messages-dispatching.md)             |
+| Commands             | [Command Families](../primitives/command-families.md)                                          |
+| Component contract   | [Component Family](../primitives/viewmodel-families/component-family.md)                       |
+| Composite contract   | [Composite Family](../primitives/viewmodel-families/composite-family.md)                       |
+| Builders & tree      | [Builders, Collections & Tree Utilities](../primitives/builders-collections-tree-utilities.md) |
+| Architecture         | [Architecture Map](../architecture/index.md)                                                   |
+| C# status            | [C# Flavor](../flavors/csharp.md)                                                              |
+| Examples             | [Smaller Examples](../examples/smaller-examples.md)                                            |

@@ -64,7 +64,9 @@ Optional fields have these defaults if not set:
 - `Hint` → empty string
 - `Type` → derived from the VM class (e.g., `Composite` for `CompositeVM.Builder()`)
 - `AsyncSelection` → false (composites only)
-- `Background` → `false` (any VM; enables async `construct()`/`destruct()` on `IDispatcher.Background`)
+- `Background` → `false` (component VM builders, including modeled/read-only
+  variants; enables async `construct()`/`destruct()` on
+  `IDispatcher.Background`)
 - `OnConstruct`, `OnDestruct` → no-op callbacks
 - `ModeledHinter` → `(m) -> ""` (modeled variants only)
 - `OnModelChanged` → no-op callback (modeled variants only)

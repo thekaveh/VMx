@@ -43,8 +43,9 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        # Keep the declared Node 20 compatibility floor covered even though it
-        # is EOL, and also cover every current supported even-numbered line.
+        # Cover the latest patch on the retained Node 20 line and every current
+        # supported even-numbered line. The exact 20.5.0 floor has a separate
+        # built-artifact probe because repository dev tools require Node 20.19+.
         node-version: ["20", "22", "24", "26"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -58,6 +59,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Validate dependency graph
+        run: npm run check:deps
 
       - name: Audit dependencies
         run: npm audit --package-lock-only --audit-level=low
@@ -93,6 +97,34 @@ jobs:
           files: langs/typescript/coverage/coverage-final.json
           flags: typescript
           fail_ci_if_error: false
+
+  runtime-floor:
+    needs: build
+    timeout-minutes: 10
+    name: runtime floor (node20.5.0)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up build Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: langs/typescript/package-lock.json
+
+      - name: Build public artifacts
+        run: |
+          npm ci
+          npm run build
+
+      - name: Set up minimum Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "20.5.0"
+
+      - name: Exercise disposal protocol at the runtime floor
+        run: node scripts/check-runtime-floor.mjs
 
   package:
     timeout-minutes: 15
@@ -172,6 +204,9 @@ jobs:
       - name: console example install
         run: npm ci --prefix examples/typescript/console/hello-vmx
 
+      - name: console example dependency graph
+        run: npm run check:deps --prefix examples/typescript/console/hello-vmx
+
       - name: console example type-check
         # The library was installed and built once above. Suppress only the
         # example's pretypecheck hook so CI does not reinstall/rebuild it.
@@ -187,6 +222,9 @@ jobs:
         # the actions/setup-node cache above). No `npm install` fallback: a
         # drifted lockfile must fail loudly, not silently install unpinned.
         run: npm ci --prefix examples/typescript/react/notes-showcase
+
+      - name: notes-showcase dependency graph
+        run: npm run check:deps --prefix examples/typescript/react/notes-showcase
 
       - name: notes-showcase audit
         run: npm audit --prefix examples/typescript/react/notes-showcase --package-lock-only --audit-level=moderate
@@ -209,7 +247,7 @@ jobs:
     timeout-minutes: 5
     name: "required: typescript"
     if: always()
-    needs: [build, package, examples]
+    needs: [build, runtime-floor, package, examples]
     runs-on: ubuntu-latest
     # This aggregator job has no checkout, so override the workflow-level
     # `defaults.run.working-directory: langs/typescript` (which would not exist

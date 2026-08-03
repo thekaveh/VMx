@@ -19,7 +19,7 @@ shares one across all trees).
 
 ## 2. Default dispatchers
 
-Each language flavor ships an `RxDispatcher` whose defaults are:
+Each flavor ships an idiomatic default dispatcher whose channels are:
 
 | Language   | Foreground                                                                               | Background                                  |
 | ---------- | ---------------------------------------------------------------------------------------- | ------------------------------------------- |
@@ -27,6 +27,7 @@ Each language flavor ships an `RxDispatcher` whose defaults are:
 | Python     | `AsyncIOScheduler(loop)` for the current event loop                                      | `ThreadPoolScheduler()`                     |
 | TypeScript | `queueScheduler` (synchronous trampoline)                                                | `asyncScheduler` (macrotask)                |
 | Swift      | `DefaultDispatcher` → main queue (run inline if already on main) — see note              | `DispatchQueue.global(qos: .userInitiated)` |
+| Rust       | `DefaultDispatcher` → dedicated serial `vmx-foreground` worker                           | dedicated serial `vmx-background` worker    |
 
 > **TypeScript:** `RxDispatcher.default()` uses `asyncScheduler` (a genuine
 > macrotask) for background. An earlier `asapScheduler` (Promise microtask) was
@@ -40,6 +41,15 @@ Each language flavor ships an `RxDispatcher` whose defaults are:
 > global background queue — is the Swift equivalent of `RxDispatcher.default()`
 > (shipped since v2.4.0). ADR-0061 §4 rejected adding `Scheduler`-typed
 > foreground/background properties, making the closure shape final.
+
+> **Rust:** Rust's `Dispatcher` is likewise closure-based. `dispatch` is the
+> foreground channel and `dispatch_background` is the background channel.
+> `NullDispatcher` and `ImmediateDispatcher` run both inline;
+> `ManualDispatcher` provides independently drainable queues for tests. A
+> failed fire-and-forget background hook is emitted on the component's hot
+> `background_errors()` stream after foreground rollback; hook panics use a
+> `VmxError::Other` diagnostic because Rust panic payloads are not constrained
+> to the error type.
 
 UI integrations (WPF, Avalonia, MAUI, tkinter, PyQt, …) provide their own
 foreground scheduler tied to the UI thread.
@@ -92,6 +102,12 @@ via the hub. Subscribers that need to await completion should subscribe to
 With background disabled (the default), `construct()` and `destruct()` run on the
 calling thread and complete before returning.
 
+Direct `reconstruct()` on a component remains one synchronous, atomic
+destruct-then-construct operation regardless of that component's own `Background`
+option. The option governs the component's two standalone operations only. This
+does not turn parent orchestration into a synchronous wait for background-enabled
+descendants; containers retain their existing child-cascade and failure routes.
+
 The background form proceeds in three steps:
 
 1. The **intermediate** transition (`Constructing` / `Destructing`) is emitted
@@ -121,6 +137,14 @@ Three normative guarantees apply to the background completion:
   Fire-and-forget and non-C# surfaces follow their documented scheduler error
   route; Swift has no awaiter and its non-throwing scheduler closure cannot
   redeliver the error to the already-returned caller (ADR-0053).
+
+Rust and C# additionally harden their rejectable custom-scheduler APIs: rejection
+before closure acceptance restores the prior settled state and clears admission.
+Foreground-completion rejection uses the flavor's asynchronous error route and
+rolls back on the current worker because the requested foreground channel is
+unavailable. This is implementation robustness, not a new cross-flavor normative
+requirement; Python and TypeScript scheduler exceptions and Swift's nonthrowing
+scheduler closure remain governed by their ecosystem APIs.
 
 The await primitive for a consumer-defined background wrapper is the
 terminal-status subscription above; the hub does not replay the last status to

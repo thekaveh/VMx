@@ -8,6 +8,7 @@ import {
   CompositeVM,
   ConstructionStatus,
   ConstructionStatusChangedMessage,
+  ExpandableState,
   FormVM,
   MessageHub,
   ModalVM,
@@ -136,6 +137,13 @@ describe("DISP-005", () => {
 
     expect(property.value).toBe(7);
     expect(completions).toBe(1);
+
+    const expansion = new ExpandableState(false);
+    expansion.dispose();
+    expansion.expand();
+    expansion.collapse();
+    expansion.toggleExpansion();
+    expect(expansion.isExpanded).toBe(false);
   });
 });
 

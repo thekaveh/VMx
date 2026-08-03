@@ -102,6 +102,7 @@ fn common_options_factories_match_builder_shape() {
         hint: Some("hint".to_string()),
         model: Some("model"),
         view_model_type: ViewModelType::Aggregate,
+        background: false,
         hub: MessageHub::new(),
         dispatcher: NullDispatcher::new(),
     })

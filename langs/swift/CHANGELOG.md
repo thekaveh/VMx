@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `PagedComposition.dispose()` now deterministically detaches an observed
+  composite source and completes its property-change publisher.
+
+### Fixed
+
+- `ExpandableState` now retains its final value and rejects expand, collapse,
+  and toggle mutations after disposal, matching the other flavors.
+
 ## [3.24.0] — 2026-07-25
 
 ### Added

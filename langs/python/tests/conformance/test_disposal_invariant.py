@@ -8,6 +8,7 @@ import threading
 import pytest
 from reactivex.subject import BehaviorSubject
 
+from vmx.capabilities import ExpandableState
 from vmx.collections import BatchUpdateHandle
 from vmx.commands import AsyncRelayCommand
 from vmx.components.builders import ComponentVMBuilder
@@ -126,6 +127,13 @@ def test_disp_005_reactive_helper_completes_once_and_retains_last_value() -> Non
 
     assert property_.value == 7
     assert len(completions) == 1
+
+    expansion = ExpandableState(initially_expanded=False)
+    expansion.dispose()
+    expansion.expand()
+    expansion.collapse()
+    expansion.toggle_expansion()
+    assert expansion.is_expanded is False
 
 
 @pytest.mark.conformance("DISP-006")

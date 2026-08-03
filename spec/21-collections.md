@@ -566,8 +566,8 @@ deviation per ADR-0006 and is catalogued in ADR-0009.
 ### 3.5 Batch interaction
 
 `ObservableList<T>` owns its batch scope directly — `BatchUpdate()` (C#),
-`batch_update()` (Python), `withBatch()` (TypeScript). While a scope is
-active on the list:
+`batch_update()` (Python), `withBatch()` (TypeScript and Swift), and
+`batch_update(callback)` (Rust). While a scope is active on the list:
 
 - Granular events (`ItemAdded`, `ItemRemoved`, `ItemReplaced`) are suppressed
   during the batch.
@@ -591,10 +591,12 @@ active on the list:
 Consumers who need per-item granularity inside a batch must collect mutations
 themselves.
 
-If a batch body exits exceptionally, every entered scope MUST still close. If
-the body mutated the list, the outermost exit MUST publish the same Reset and
-optional `Count` sequence before the original failure propagates, and later
-mutations MUST behave outside that completed scope.
+If a batch body exits exceptionally, every entered scope MUST still close. With
+nonthrowing notification observers, if the body mutated the list, the outermost
+exit MUST publish the same Reset and optional `Count` sequence before the
+original failure propagates, and later mutations MUST behave outside that
+completed scope. Observer failures follow each flavor's normal event-delivery
+and exception model.
 
 ### 3.6 Whole-list replacement
 

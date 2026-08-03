@@ -109,8 +109,8 @@ casing follows the per-language idiom (see ADR-0006).
 | Null hub singleton  | `NullMessageHub.Instance` | `NULL_MESSAGE_HUB` | `NullMessageHub.INSTANCE` | `NullMessageHub.INSTANCE` | `NullMessageHub::hub()`  |
 
 C# uses PascalCase, Python and Rust use snake_case, TypeScript and Swift use
-camelCase. The single substantive divergence is that C# names the modeled
-variant with a generic-parameter suffix (`ComponentVM<M>`), while Python,
+camelCase. C# and Rust retain the same public type name for modeled and
+unmodeled components (`ComponentVM<M>` / `ComponentVm<M>`), while Python,
 TypeScript, and Swift use a separate `ComponentVMOf` type because their
 generics syntax cannot overload an unparameterised name.
 
