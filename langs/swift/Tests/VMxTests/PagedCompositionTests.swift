@@ -182,7 +182,8 @@ final class PagedCompositionTests: XCTestCase {
     func testDisposeDetachesCompositeSourceAndCompletesOnce() throws {
         let first = try ComponentVM.builder().name("first").withNullServices().build()
         let composite = try CompositeVM<ComponentVM>.builder()
-            .name("source").withNullServices().children { [first] }.build()
+            .name("source").withNullServices().children { [] }.build()
+        composite.add(first)
         let sut = PagedComposition<ComponentVM>(sourceComposite: composite, pageSize: 2)
         var completions = 0
         sut.propertyChanged
