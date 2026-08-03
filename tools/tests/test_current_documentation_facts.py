@@ -43,6 +43,16 @@ def test_current_lifecycle_docs_match_the_normative_catalog_range() -> None:
             assert expected in text, path
 
 
+def test_root_readme_preserves_complete_3_22_source_ranges() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    en = "\N{EN DASH}"
+
+    assert (
+        f"| 3.22.x | 3.22.0{en}3.22.1 | 3.22.0{en}3.22.1 | 3.23.0{en}3.23.1 "
+        f"| 3.22.0{en}3.23.0  | 0.25.0{en}0.26.0 |"
+    ) in readme
+
+
 def test_adr_metadata_links_resolve() -> None:
     adr_dir = ROOT / "spec/ADRs"
     for adr in adr_dir.glob("[0-9][0-9][0-9][0-9]-*.md"):
