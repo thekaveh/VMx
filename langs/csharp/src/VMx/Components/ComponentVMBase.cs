@@ -611,79 +611,89 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
 
         if (_background)
         {
-            _dispatcher.Background.Schedule(Unit.Default, (_, _) =>
+            try
             {
-                // Dispose() may have run between scheduling and execution.
-                // Re-check the terminal state under _gate and abort if disposed
-                // (spec/02 invariant 3): no OnConstruct(), no marshalled emission.
-                var hookLease = TryClaimLifecycleHook(ConstructionStatus.Constructing);
-                if (hookLease is null)
+                _dispatcher.Background.Schedule(Unit.Default, (_, _) =>
                 {
-                    ClearInFlight();
-                    return Disposable.Empty;
-                }
+                    // Dispose() may have run between scheduling and execution.
+                    // Re-check the terminal state under _gate and abort if disposed
+                    // (spec/02 invariant 3): no OnConstruct(), no marshalled emission.
+                    var hookLease = TryClaimLifecycleHook(ConstructionStatus.Constructing);
+                    if (hookLease is null)
+                    {
+                        ClearInFlight();
+                        return Disposable.Empty;
+                    }
 
-                try
-                {
-                    try { OnConstruct(); }
-                    finally { FinishLifecycleHook(hookLease); }
-                }
-                catch (Exception error)
-                {
-                    // VMX-007: roll _status back to Destructed (marshalled onto the
-                    // foreground per VMX-025; SetStatus re-checks Disposed under
-                    // _gate) and clear the in-flight guard so a throwing background
-                    // hook leaves the VM recoverable, then re-throw. Under the
-                    // immediate/test scheduler the rollback runs inline and the
-                    // exception surfaces to the caller. C# async lifecycle waiters
-                    // receive the same error only after the foreground rollback has
-                    // been published (ADR-0109).
-                    _dispatcher.Foreground.Schedule(Unit.Default, (_, _) =>
+                    try
+                    {
+                        try { OnConstruct(); }
+                        finally { FinishLifecycleHook(hookLease); }
+                    }
+                    catch (Exception error)
+                    {
+                        // VMX-007: roll _status back to Destructed (marshalled onto the
+                        // foreground per VMX-025; SetStatus re-checks Disposed under
+                        // _gate) and clear the in-flight guard so a throwing background
+                        // hook leaves the VM recoverable, then re-throw. Under the
+                        // immediate/test scheduler the rollback runs inline and the
+                        // exception surfaces to the caller. C# async lifecycle waiters
+                        // receive the same error only after the foreground rollback has
+                        // been published (ADR-0109).
+                        ScheduleForegroundLifecycle(() =>
+                        {
+                            try
+                            {
+                                SetStatus(ConstructionStatus.Destructed);
+                            }
+                            finally
+                            {
+                                FailInFlight(error);
+                            }
+                        }, ConstructionStatus.Destructed, error);
+                        throw;
+                    }
+
+                    var deferred = TakeDeferredLifecycleTask();
+                    if (deferred is not null)
+                    {
+                        CompleteDeferredLifecycle(
+                            deferred,
+                            ConstructionStatus.Constructed,
+                            ConstructionStatus.Destructed);
+                        return Disposable.Empty;
+                    }
+
+                    // VMX-025: marshal the terminal Constructed emission onto the
+                    // foreground scheduler so subscribers observe the status change on
+                    // the foreground (UI) thread, not the background (pool) thread.
+                    // SetStatus re-checks Disposed under _gate, so a Dispose() landing
+                    // before this marshalled emission runs still aborts the transition
+                    // — no resurrection, no post-dispose publish, no OnNext on a
+                    // disposed Subject (VMX-001/054).
+                    ScheduleForegroundLifecycle(() =>
                     {
                         try
                         {
-                            SetStatus(ConstructionStatus.Destructed);
+                            SetStatus(ConstructionStatus.Constructed);
                         }
                         finally
                         {
-                            FailInFlight(error);
+                            ClearInFlight();
                         }
-                        return Disposable.Empty;
-                    });
-                    throw;
-                }
-
-                var deferred = TakeDeferredLifecycleTask();
-                if (deferred is not null)
-                {
-                    CompleteDeferredLifecycle(
-                        deferred,
-                        ConstructionStatus.Constructed,
-                        ConstructionStatus.Destructed);
-                    return Disposable.Empty;
-                }
-
-                // VMX-025: marshal the terminal Constructed emission onto the
-                // foreground scheduler so subscribers observe the status change on
-                // the foreground (UI) thread, not the background (pool) thread.
-                // SetStatus re-checks Disposed under _gate, so a Dispose() landing
-                // before this marshalled emission runs still aborts the transition
-                // — no resurrection, no post-dispose publish, no OnNext on a
-                // disposed Subject (VMX-001/054).
-                _dispatcher.Foreground.Schedule(Unit.Default, (_, _) =>
-                {
-                    try
-                    {
-                        SetStatus(ConstructionStatus.Constructed);
-                    }
-                    finally
-                    {
-                        ClearInFlight();
-                    }
+                    }, ConstructionStatus.Destructed);
                     return Disposable.Empty;
                 });
-                return Disposable.Empty;
-            });
+            }
+            catch (Exception error)
+            {
+                if (HasInFlightLifecycle())
+                {
+                    RestoreStatusAfterPublicationFailure(ConstructionStatus.Destructed);
+                    FailInFlight(error);
+                }
+                throw;
+            }
             // Return immediately — caller does not wait for background work.
         }
         else
@@ -800,77 +810,87 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
 
         if (_background)
         {
-            _dispatcher.Background.Schedule(Unit.Default, (_, _) =>
+            try
             {
-                // Dispose() may have run between scheduling and execution.
-                // Re-check the terminal state under _gate and abort if disposed
-                // (spec/02 invariant 3): no OnDestruct(), no marshalled emission.
-                var hookLease = TryClaimLifecycleHook(ConstructionStatus.Destructing);
-                if (hookLease is null)
+                _dispatcher.Background.Schedule(Unit.Default, (_, _) =>
                 {
-                    ClearInFlight();
-                    return Disposable.Empty;
-                }
+                    // Dispose() may have run between scheduling and execution.
+                    // Re-check the terminal state under _gate and abort if disposed
+                    // (spec/02 invariant 3): no OnDestruct(), no marshalled emission.
+                    var hookLease = TryClaimLifecycleHook(ConstructionStatus.Destructing);
+                    if (hookLease is null)
+                    {
+                        ClearInFlight();
+                        return Disposable.Empty;
+                    }
 
-                try
-                {
-                    try { OnDestruct(); }
-                    finally { FinishLifecycleHook(hookLease); }
-                }
-                catch (Exception error)
-                {
-                    // VMX-007: roll _status back to Constructed (marshalled onto the
-                    // foreground per VMX-025; SetStatus re-checks Disposed under
-                    // _gate) and clear the in-flight guard so a throwing background
-                    // hook leaves the VM recoverable, then re-throw. C# async
-                    // lifecycle waiters receive the same error only after that
-                    // rollback publication (ADR-0109).
-                    _dispatcher.Foreground.Schedule(Unit.Default, (_, _) =>
+                    try
+                    {
+                        try { OnDestruct(); }
+                        finally { FinishLifecycleHook(hookLease); }
+                    }
+                    catch (Exception error)
+                    {
+                        // VMX-007: roll _status back to Constructed (marshalled onto the
+                        // foreground per VMX-025; SetStatus re-checks Disposed under
+                        // _gate) and clear the in-flight guard so a throwing background
+                        // hook leaves the VM recoverable, then re-throw. C# async
+                        // lifecycle waiters receive the same error only after that
+                        // rollback publication (ADR-0109).
+                        ScheduleForegroundLifecycle(() =>
+                        {
+                            try
+                            {
+                                SetStatus(ConstructionStatus.Constructed);
+                            }
+                            finally
+                            {
+                                FailInFlight(error);
+                            }
+                        }, ConstructionStatus.Constructed, error);
+                        throw;
+                    }
+
+                    var deferred = TakeDeferredLifecycleTask();
+                    if (deferred is not null)
+                    {
+                        CompleteDeferredLifecycle(
+                            deferred,
+                            ConstructionStatus.Destructed,
+                            ConstructionStatus.Constructed);
+                        return Disposable.Empty;
+                    }
+
+                    // VMX-025: marshal the terminal Destructed emission onto the
+                    // foreground scheduler so subscribers observe the status change on
+                    // the foreground (UI) thread, not the background (pool) thread.
+                    // SetStatus re-checks Disposed under _gate, so a Dispose() landing
+                    // before this marshalled emission runs still aborts the transition
+                    // — no resurrection, no post-dispose publish, no OnNext on a
+                    // disposed Subject (VMX-001/054).
+                    ScheduleForegroundLifecycle(() =>
                     {
                         try
                         {
-                            SetStatus(ConstructionStatus.Constructed);
+                            SetStatus(ConstructionStatus.Destructed);
                         }
                         finally
                         {
-                            FailInFlight(error);
+                            ClearInFlight();
                         }
-                        return Disposable.Empty;
-                    });
-                    throw;
-                }
-
-                var deferred = TakeDeferredLifecycleTask();
-                if (deferred is not null)
-                {
-                    CompleteDeferredLifecycle(
-                        deferred,
-                        ConstructionStatus.Destructed,
-                        ConstructionStatus.Constructed);
-                    return Disposable.Empty;
-                }
-
-                // VMX-025: marshal the terminal Destructed emission onto the
-                // foreground scheduler so subscribers observe the status change on
-                // the foreground (UI) thread, not the background (pool) thread.
-                // SetStatus re-checks Disposed under _gate, so a Dispose() landing
-                // before this marshalled emission runs still aborts the transition
-                // — no resurrection, no post-dispose publish, no OnNext on a
-                // disposed Subject (VMX-001/054).
-                _dispatcher.Foreground.Schedule(Unit.Default, (_, _) =>
-                {
-                    try
-                    {
-                        SetStatus(ConstructionStatus.Destructed);
-                    }
-                    finally
-                    {
-                        ClearInFlight();
-                    }
+                    }, ConstructionStatus.Constructed);
                     return Disposable.Empty;
                 });
-                return Disposable.Empty;
-            });
+            }
+            catch (Exception error)
+            {
+                if (HasInFlightLifecycle())
+                {
+                    RestoreStatusAfterPublicationFailure(ConstructionStatus.Constructed);
+                    FailInFlight(error);
+                }
+                throw;
+            }
         }
         else
         {
@@ -1485,6 +1505,34 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     {
         try { SetStatus(status); }
         catch { /* The original transition publication failure remains primary. */ }
+    }
+
+    private void ScheduleForegroundLifecycle(
+        Action action,
+        ConstructionStatus rollback,
+        Exception? primaryFailure = null)
+    {
+        try
+        {
+            _dispatcher.Foreground.Schedule(Unit.Default, (_, _) =>
+            {
+                action();
+                return Disposable.Empty;
+            });
+        }
+        catch (Exception schedulingFailure)
+        {
+            RestoreStatusAfterPublicationFailure(rollback);
+            FailInFlight(primaryFailure ?? schedulingFailure);
+            if (primaryFailure is not null)
+                throw new AggregateException(primaryFailure, schedulingFailure);
+            throw;
+        }
+    }
+
+    private bool HasInFlightLifecycle()
+    {
+        lock (_gate) return _inFlight;
     }
 
     private LifecycleDelivery QueueStatusDeliveryLocked(

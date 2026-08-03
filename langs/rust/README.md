@@ -26,7 +26,9 @@ This crate implements the VMx spec with idiomatic Rust naming and error handling
   queues;
 - component and read-only component builders opt into background lifecycle with
   `.background(true)`; terminal state/publication returns to foreground and hook
-  failures arrive on the hot `background_errors()` stream;
+  failures arrive on the event-only hot `background_errors()` stream;
+- reconstruct remains a synchronous atomic destruct/construct operation, and
+  rejected background or foreground scheduling restores lifecycle admission;
 - relay commands expose `raise_can_execute_changed` for precise binding
   invalidation without predicate polling;
 - async relay commands provide an immutable builder, cooperative cancellation,
@@ -131,7 +133,11 @@ fn start_in_background(
 ```
 
 The read-only family exposes the same option through
-`ReadonlyComponentVm::builder().background(true)`.
+`ReadonlyComponentVm::builder().background(true)`. Both component-family
+builders also preserve reusable `on_construct` and `on_destruct` callbacks.
+Background mode applies only to standalone construct/destruct hooks;
+`reconstruct()` and its command complete their atomic two-phase transition
+synchronously.
 
 ### 2.2. Fixed Aggregates
 

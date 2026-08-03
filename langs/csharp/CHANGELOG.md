@@ -29,6 +29,8 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 - `ReadonlyComponentVMBuilder<M>.Background(...)` now propagates the same
   foreground/background lifecycle option as mutable components.
+- Background lifecycle scheduling failures now restore the prior status and
+  clear transition admission, including foreground-completion rejection.
 - Async-resource cancellation now invalidates the current acquisition before
   loader cancellation callbacks can complete a value, preserving rollback and
   exactly-once cleanup under direct, command, and external cancellation races.

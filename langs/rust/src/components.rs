@@ -224,7 +224,7 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
     }
 
     /// Returns the hot error stream for fire-and-forget background lifecycle hooks.
-    pub fn background_errors(&self) -> crate::ValueStream<VmxError> {
+    pub fn background_errors(&self) -> crate::LifecycleErrorStream {
         self.core.background_errors()
     }
 
@@ -562,7 +562,7 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ReadonlyComponentVm<M
     }
 
     /// Returns the hot error stream for fire-and-forget background lifecycle hooks.
-    pub fn background_errors(&self) -> crate::ValueStream<VmxError> {
+    pub fn background_errors(&self) -> crate::LifecycleErrorStream {
         self.inner.background_errors()
     }
 
@@ -791,6 +791,8 @@ impl<M: Clone + Send + 'static, D: Dispatcher> fmt::Debug for ReadonlyComponentV
     }
 }
 
+type BuilderLifecycleHook = Arc<Mutex<dyn FnMut() -> VmxResult<()> + Send + 'static>>;
+
 #[derive(Clone)]
 /// A fluent builder for modeled [`ComponentVm`] instances.
 pub struct ComponentVmBuilder<M: Clone + PartialEq + Send + 'static, D: Dispatcher = NullDispatcher>
@@ -801,6 +803,8 @@ pub struct ComponentVmBuilder<M: Clone + PartialEq + Send + 'static, D: Dispatch
     hub: Option<MessageHub>,
     dispatcher: Option<D>,
     background: bool,
+    on_construct: Option<BuilderLifecycleHook>,
+    on_destruct: Option<BuilderLifecycleHook>,
     model_hint: Option<ModelHint<M>>,
     view_model_type: ViewModelType,
 }
@@ -814,6 +818,8 @@ impl<M: Clone + PartialEq + Send + 'static> Default for ComponentVmBuilder<M, Nu
             hub: None,
             dispatcher: None,
             background: false,
+            on_construct: None,
+            on_destruct: None,
             model_hint: None,
             view_model_type: ViewModelType::Component,
         }
@@ -858,6 +864,8 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVmBuilder<M,
             hub: Some(hub),
             dispatcher: Some(dispatcher),
             background: self.background,
+            on_construct: self.on_construct,
+            on_destruct: self.on_destruct,
             model_hint: self.model_hint,
             view_model_type: self.view_model_type,
         }
@@ -866,6 +874,24 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVmBuilder<M,
     /// Enables background construct/destruct work (disabled by default).
     pub fn background(mut self, background: bool) -> Self {
         self.background = background;
+        self
+    }
+
+    /// Sets the construction lifecycle callback.
+    pub fn on_construct<F>(mut self, hook: F) -> Self
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        self.on_construct = Some(Arc::new(Mutex::new(hook)));
+        self
+    }
+
+    /// Sets the destruction lifecycle callback.
+    pub fn on_destruct<F>(mut self, hook: F) -> Self
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        self.on_destruct = Some(Arc::new(Mutex::new(hook)));
         self
     }
 
@@ -894,6 +920,12 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVmBuilder<M,
             .ok_or_else(|| VmxError::BuilderValidation("dispatcher is required".to_string()))?;
         let mut vm = ComponentVm::with_model(name, model, hub, dispatcher);
         vm.core.set_background(self.background);
+        if let Some(hook) = self.on_construct {
+            vm.core.set_hook(LifecycleOperation::Construct, hook);
+        }
+        if let Some(hook) = self.on_destruct {
+            vm.core.set_hook(LifecycleOperation::Destruct, hook);
+        }
         vm.view_model_type = self.view_model_type;
         if let Some(hint) = self.hint {
             vm.core.set_hint(Some(hint));
@@ -977,6 +1009,26 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ReadonlyComponentVmBu
     pub fn background(self, background: bool) -> Self {
         Self {
             inner: self.inner.background(background),
+        }
+    }
+
+    /// Sets the construction lifecycle callback.
+    pub fn on_construct<F>(self, hook: F) -> Self
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        Self {
+            inner: self.inner.on_construct(hook),
+        }
+    }
+
+    /// Sets the destruction lifecycle callback.
+    pub fn on_destruct<F>(self, hook: F) -> Self
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        Self {
+            inner: self.inner.on_destruct(hook),
         }
     }
 

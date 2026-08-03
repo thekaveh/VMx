@@ -457,7 +457,7 @@ fn dispose_supersedes_destructing_without_resurrection() {
 }
 
 #[test]
-fn queued_terminal_publication_is_suppressed_after_disposal() {
+fn synchronous_terminal_publication_completes_before_return() {
     let hub = MessageHub::new();
     let dispatcher = ManualDispatcher::new();
     let vm = ComponentVm::with_services("vm", hub.clone(), dispatcher.clone());
@@ -466,17 +466,21 @@ fn queued_terminal_publication_is_suppressed_after_disposal() {
     vm.construct().unwrap();
     assert_eq!(
         *observed.lock().unwrap(),
-        vec![ConstructionStatus::Constructing]
+        vec![
+            ConstructionStatus::Constructing,
+            ConstructionStatus::Constructed
+        ]
     );
 
     vm.dispose().unwrap();
-    dispatcher.drain();
+    assert_eq!(dispatcher.queued_len(), 0);
 
     assert_eq!(vm.status(), ConstructionStatus::Disposed);
     assert_eq!(
         *observed.lock().unwrap(),
         vec![
             ConstructionStatus::Constructing,
+            ConstructionStatus::Constructed,
             ConstructionStatus::Disposed
         ]
     );

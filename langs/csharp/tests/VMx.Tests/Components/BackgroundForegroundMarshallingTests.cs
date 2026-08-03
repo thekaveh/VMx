@@ -1,3 +1,4 @@
+using System.Reactive.Concurrency;
 using System.Reactive.Linq;
 using FluentAssertions;
 using VMx.Components;
@@ -23,6 +24,36 @@ namespace VMx.Tests.Components;
 /// </summary>
 public class BackgroundForegroundMarshallingTests
 {
+    private sealed class RejectingScheduler : IScheduler
+    {
+        public DateTimeOffset Now => DateTimeOffset.UtcNow;
+
+        public IDisposable Schedule<TState>(
+            TState state,
+            Func<IScheduler, TState, IDisposable> action)
+            => throw new InvalidOperationException("scheduler rejected work");
+
+        public IDisposable Schedule<TState>(
+            TState state,
+            TimeSpan dueTime,
+            Func<IScheduler, TState, IDisposable> action)
+            => throw new InvalidOperationException("scheduler rejected work");
+
+        public IDisposable Schedule<TState>(
+            TState state,
+            DateTimeOffset dueTime,
+            Func<IScheduler, TState, IDisposable> action)
+            => throw new InvalidOperationException("scheduler rejected work");
+    }
+
+    private sealed class RejectionDispatcher(
+        IScheduler foreground,
+        IScheduler background) : IDispatcher
+    {
+        public IScheduler Foreground { get; } = foreground;
+        public IScheduler Background { get; } = background;
+    }
+
     [Fact]
     public void Background_Construct_Marshals_Constructed_Emission_Onto_Foreground_Scheduler()
     {
@@ -106,5 +137,47 @@ public class BackgroundForegroundMarshallingTests
         vm.Status.Should().Be(ConstructionStatus.Destructed);
         destructedSeen.Should().ContainSingle()
             .Which.Should().Be(ConstructionStatus.Destructed);
+    }
+
+    [Fact]
+    public void Rejected_Background_Admission_Rolls_Back_And_Clears_InFlight()
+    {
+        using var hub = new TestHub();
+        var dispatcher = new RejectionDispatcher(
+            ImmediateScheduler.Instance,
+            new RejectingScheduler());
+        using var vm = ComponentVM<string>.Builder()
+            .Name("vm")
+            .Model("m")
+            .Background(true)
+            .Services(hub, dispatcher)
+            .Build();
+
+        var first = () => vm.Construct();
+        first.Should().Throw<InvalidOperationException>();
+        vm.Status.Should().Be(ConstructionStatus.Destructed);
+        first.Should().Throw<InvalidOperationException>()
+            .And.Should().NotBeOfType<StatusTransitionException>();
+    }
+
+    [Fact]
+    public void Rejected_Foreground_Completion_Rolls_Back_And_Clears_InFlight()
+    {
+        using var hub = new TestHub();
+        var dispatcher = new RejectionDispatcher(
+            new RejectingScheduler(),
+            ImmediateScheduler.Instance);
+        using var vm = ComponentVM<string>.Builder()
+            .Name("vm")
+            .Model("m")
+            .Background(true)
+            .Services(hub, dispatcher)
+            .Build();
+
+        var first = () => vm.Construct();
+        first.Should().Throw<InvalidOperationException>();
+        vm.Status.Should().Be(ConstructionStatus.Destructed);
+        first.Should().Throw<InvalidOperationException>()
+            .And.Should().NotBeOfType<StatusTransitionException>();
     }
 }

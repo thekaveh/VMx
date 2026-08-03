@@ -151,7 +151,7 @@ fn async_resource_honors_component_dispatch_and_lifecycle_independence() {
     assert_eq!(vm.status(), ConstructionStatus::Constructed);
     assert_eq!(vm.resource_status(), AsyncResourceStatus::Idle);
     assert_eq!(starts.load(Ordering::SeqCst), 0);
-    assert_eq!(dispatcher.queued_len(), 1);
+    assert_eq!(dispatcher.queued_len(), 0);
 
     dispatcher.drain();
     vm.destruct().unwrap();

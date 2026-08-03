@@ -27,14 +27,21 @@ foreground and background queues for deterministic tests.
 `ComponentVmBuilder::background` and `ReadonlyComponentVmBuilder::background`
 enable asynchronous construct/destruct hooks; admission remains synchronous,
 work runs on the background channel, and terminal or rollback state plus
-publication is committed on the foreground channel. The stable reconstruct
-command delegates the same atomic two-phase path as direct `reconstruct()`.
+publication is committed on the foreground channel. Direct and command
+`reconstruct()` remain synchronous atomic two-phase operations, matching the
+other four flavors; the background option does not apply to reconstruct.
 
 `ComponentVm::background_errors()` (also delegated by the read-only wrapper) is
 a hot typed stream for failures that occur after the fire-and-forget caller has
 returned. Rollback publishes first, then the original `VmxError` is emitted.
 An unconstrained Rust panic becomes `VmxError::Other` with a stable diagnostic.
 The stream completes when the component is disposed.
+
+Rust and C# catch a custom dispatcher rejection before closure acceptance,
+restore the prior state, and clear lifecycle admission. If foreground completion
+is rejected after background work, they use the current worker only for the
+required recovery because the foreground channel is unavailable. Rust reports
+that asynchronous fallback through `background_errors()`.
 
 ## 3. Consequences
 

@@ -69,6 +69,10 @@ def test_rust_threading_claim_has_paired_dispatch_and_real_thr_002() -> None:
     assert "DefaultDispatcher" in crate_readme
     assert ".background(true)" in crate_readme
     assert "background_errors()" in crate_readme
+    assert "reconstruct remains a synchronous atomic" in crate_readme
+    assert "rejected background or foreground scheduling" in crate_readme
+    assert "on_construct" in component and "on_destruct" in component
+    assert "any VM" not in (ROOT / "spec/10-builders.md").read_text(encoding="utf-8")
 
 
 def test_adr_metadata_links_resolve() -> None:

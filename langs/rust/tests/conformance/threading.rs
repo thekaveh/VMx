@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -8,6 +8,32 @@ use vmx::{
     Command, ComponentVm, CompositeVm, ConstructionStatus, DefaultDispatcher, Dispatcher,
     ManualDispatcher, Message, MessageHub, ReadonlyComponentVm,
 };
+
+#[derive(Clone)]
+struct RejectBackgroundDispatcher;
+
+impl Dispatcher for RejectBackgroundDispatcher {
+    fn dispatch(&self, action: Box<dyn FnOnce() + Send>) {
+        action();
+    }
+
+    fn dispatch_background(&self, _action: Box<dyn FnOnce() + Send>) {
+        panic!("background rejected");
+    }
+}
+
+#[derive(Clone)]
+struct RejectForegroundDispatcher;
+
+impl Dispatcher for RejectForegroundDispatcher {
+    fn dispatch(&self, _action: Box<dyn FnOnce() + Send>) {
+        panic!("foreground rejected");
+    }
+
+    fn dispatch_background(&self, action: Box<dyn FnOnce() + Send>) {
+        action();
+    }
+}
 
 #[test]
 fn default_dispatcher_separates_foreground_and_background_execution() {
@@ -44,6 +70,54 @@ fn default_dispatcher_separates_foreground_and_background_execution() {
     assert_ne!(foreground.0, background.0);
     assert_eq!(foreground.1.as_deref(), Some("vmx-foreground"));
     assert_eq!(background.1.as_deref(), Some("vmx-background"));
+}
+
+#[test]
+fn rejected_background_admission_rolls_back_and_remains_recoverable() {
+    let hub = MessageHub::new();
+    let vm = ComponentVm::builder()
+        .name("vm")
+        .model(1)
+        .background(true)
+        .services(hub.clone(), RejectBackgroundDispatcher)
+        .build()
+        .unwrap();
+
+    assert_eq!(
+        vm.construct(),
+        Err(vmx::VmxError::Other(
+            "background dispatcher rejected lifecycle work".to_string()
+        ))
+    );
+    assert_eq!(vm.status(), ConstructionStatus::Destructed);
+    assert!(!matches!(
+        vm.construct(),
+        Err(vmx::VmxError::ConcurrentOperation)
+    ));
+}
+
+#[test]
+fn rejected_foreground_completion_rolls_back_and_reports_error() {
+    let vm = ComponentVm::builder()
+        .name("vm")
+        .model(1)
+        .background(true)
+        .services(MessageHub::new(), RejectForegroundDispatcher)
+        .build()
+        .unwrap();
+    let (error_send, error_receive) = mpsc::channel();
+    let _subscription = vm.background_errors().subscribe(move |error| {
+        error_send.send(error).unwrap();
+    });
+
+    vm.construct().unwrap();
+
+    assert_eq!(vm.status(), ConstructionStatus::Destructed);
+    assert_eq!(
+        error_receive.try_recv().unwrap(),
+        vmx::VmxError::Other("foreground dispatcher rejected lifecycle completion".to_string())
+    );
+    assert!(vm.construct().is_ok());
 }
 
 /// THR-001 — PropertyChanged observed on foreground scheduler
@@ -183,6 +257,7 @@ fn background_hook_failure_rolls_back_and_publishes_on_foreground() {
     let _error_subscription = vm.background_errors().subscribe(move |error| {
         error_send.send(error).unwrap();
     });
+    assert!(error_receive.try_recv().is_err());
     let expected_error = vmx::VmxError::Other("failed".to_string());
     let hook_error = expected_error.clone();
     vm.on_construct(move || Err(hook_error.clone()));
@@ -222,6 +297,10 @@ fn background_hook_panic_rolls_back_instead_of_wedging_lifecycle() {
         .services(MessageHub::new(), dispatcher.clone())
         .build()
         .unwrap();
+    let (error_send, error_receive) = mpsc::channel();
+    let _error_subscription = vm.background_errors().subscribe(move |error| {
+        error_send.send(error).unwrap();
+    });
     vm.on_construct(|| panic!("boom"));
 
     vm.construct().unwrap();
@@ -229,11 +308,15 @@ fn background_hook_panic_rolls_back_instead_of_wedging_lifecycle() {
     dispatcher.drain_foreground();
 
     assert_eq!(vm.status(), ConstructionStatus::Destructed);
+    assert_eq!(
+        error_receive.try_recv().unwrap(),
+        vmx::VmxError::Other("background lifecycle hook panicked".to_string())
+    );
     assert!(vm.construct().is_ok());
 }
 
 #[test]
-fn background_reconstruct_sequences_both_hooks_across_paired_channels() {
+fn background_option_keeps_reconstruct_synchronous_and_atomic() {
     let hub = MessageHub::new();
     let dispatcher = ManualDispatcher::new();
     let vm = ComponentVm::builder()
@@ -258,15 +341,8 @@ fn background_reconstruct_sequences_both_hooks_across_paired_channels() {
     dispatcher.drain();
 
     vm.reconstruct().unwrap();
-    assert_eq!(vm.status(), ConstructionStatus::Destructing);
-    dispatcher.drain_background();
-    assert_eq!(vm.status(), ConstructionStatus::Destructing);
-    dispatcher.drain_foreground();
-    assert_eq!(vm.status(), ConstructionStatus::Constructing);
-    dispatcher.drain_background();
-    assert_eq!(vm.status(), ConstructionStatus::Constructing);
-    dispatcher.drain_foreground();
     assert_eq!(vm.status(), ConstructionStatus::Constructed);
+    assert_eq!(dispatcher.queued_len(), 0);
 
     assert_eq!(
         *hooks.lock().unwrap(),
@@ -307,10 +383,78 @@ fn background_reconstruct_command_delegates_the_complete_transition() {
     dispatcher.drain();
 
     vm.reconstruct_command().execute();
-    assert_eq!(vm.status(), ConstructionStatus::Destructing);
-    dispatcher.drain();
-
     assert_eq!(vm.status(), ConstructionStatus::Constructed);
+    assert_eq!(dispatcher.queued_len(), 0);
+}
+
+#[test]
+fn background_error_stream_completes_on_component_disposal() {
+    let dispatcher = ManualDispatcher::new();
+    let vm = ComponentVm::builder()
+        .name("vm")
+        .model(1)
+        .background(true)
+        .services(MessageHub::new(), dispatcher)
+        .build()
+        .unwrap();
+    let completed = Arc::new(AtomicBool::new(false));
+    let completed_observer = Arc::clone(&completed);
+    let _subscription = vm.background_errors().subscribe_with_completion(
+        |_| {},
+        move || completed_observer.store(true, Ordering::SeqCst),
+    );
+
+    vm.dispose().unwrap();
+
+    assert!(completed.load(Ordering::SeqCst));
+}
+
+#[test]
+fn rollback_disposal_orders_status_then_error_then_completion() {
+    let hub = MessageHub::new();
+    let dispatcher = ManualDispatcher::new();
+    let vm = ComponentVm::builder()
+        .name("vm")
+        .model(1)
+        .background(true)
+        .services(hub.clone(), dispatcher.clone())
+        .build()
+        .unwrap();
+    vm.on_construct(|| Err(vmx::VmxError::Other("failed".to_string())));
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let error_events = Arc::clone(&events);
+    let completion_events = Arc::clone(&events);
+    let _error_subscription = vm.background_errors().subscribe_with_completion(
+        move |error| error_events.lock().unwrap().push(format!("error:{error}")),
+        move || {
+            completion_events
+                .lock()
+                .unwrap()
+                .push("complete".to_string())
+        },
+    );
+    let rollback_vm = vm.clone();
+    let rollback_events = Arc::clone(&events);
+    let _status_subscription = hub.subscribe(move |message| {
+        if matches!(
+            message,
+            Message::ConstructionStatusChanged(change)
+                if change.status == ConstructionStatus::Destructed
+        ) {
+            rollback_events.lock().unwrap().push("rollback".to_string());
+            rollback_vm.dispose().unwrap();
+        }
+    });
+
+    vm.construct().unwrap();
+    dispatcher.drain_background();
+    dispatcher.drain_foreground();
+
+    assert_eq!(vm.status(), ConstructionStatus::Disposed);
+    assert_eq!(
+        *events.lock().unwrap(),
+        vec!["rollback", "error:failed", "complete"]
+    );
 }
 
 #[test]
@@ -330,6 +474,41 @@ fn readonly_builder_preserves_background_lifecycle_configuration() {
     assert_eq!(vm.status(), ConstructionStatus::Constructing);
     dispatcher.drain_foreground();
     assert_eq!(vm.status(), ConstructionStatus::Constructed);
+}
+
+#[test]
+fn component_family_builders_preserve_reusable_lifecycle_callbacks() {
+    let mutable_calls = Arc::new(AtomicUsize::new(0));
+    let mutable_observer = Arc::clone(&mutable_calls);
+    let mutable_builder = ComponentVm::builder()
+        .name("component")
+        .model(1)
+        .on_construct(move || {
+            mutable_observer.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        })
+        .services(MessageHub::new(), vmx::NullDispatcher::new());
+    let first = mutable_builder.clone().build().unwrap();
+    let second = mutable_builder.build().unwrap();
+    first.construct().unwrap();
+    second.construct().unwrap();
+    assert_eq!(mutable_calls.load(Ordering::SeqCst), 2);
+
+    let readonly_calls = Arc::new(AtomicUsize::new(0));
+    let readonly_observer = Arc::clone(&readonly_calls);
+    let readonly = ReadonlyComponentVm::<i32>::builder()
+        .name("readonly")
+        .model(1)
+        .on_destruct(move || {
+            readonly_observer.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        })
+        .services(MessageHub::new(), vmx::NullDispatcher::new())
+        .build()
+        .unwrap();
+    readonly.construct().unwrap();
+    readonly.destruct().unwrap();
+    assert_eq!(readonly_calls.load(Ordering::SeqCst), 1);
 }
 
 /// THR-003 — CollectionChanged observed on foreground scheduler

@@ -14,16 +14,23 @@ project adheres to [Semantic Versioning](https://semver.org/).
   drainable foreground/background `ManualDispatcher` channels.
 - `ComponentVmBuilder::background` and options parity for asynchronous
   construct/destruct hooks with foreground terminal publication.
-- `ReadonlyComponentVmBuilder` background parity and the hot typed
+- Mutable and read-only component builders preserve reusable
+  `on_construct`/`on_destruct` callbacks alongside background configuration.
+- `ReadonlyComponentVmBuilder` background parity and the event-only, hot typed
   `background_errors()` lifecycle-failure stream.
 
 ### Fixed
 
 - `THR-002` now exercises genuine background lifecycle work, including
   disposal supersession and foreground rollback publication.
-- Terminal/rollback state commits occur on foreground, reconstruct commands use
-  the complete two-phase transition, and default workers are created before VM
-  admission so scheduling cannot strand an in-flight lifecycle.
+- Synchronous construct/destruct publication completes before return, while
+  reconstruction remains a synchronous atomic destruct/construct operation
+  even when background hooks are enabled.
+- Background rollback delivers its status, original error, and deferred stream
+  completion in order under re-entrant disposal.
+- Rejected background or foreground scheduling restores the prior state instead
+  of stranding an in-flight lifecycle; default workers are created before VM
+  admission for the same guarantee.
 
 ## [0.28.0] — 2026-08-02
 

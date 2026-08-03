@@ -102,6 +102,11 @@ via the hub. Subscribers that need to await completion should subscribe to
 With background disabled (the default), `construct()` and `destruct()` run on the
 calling thread and complete before returning.
 
+`reconstruct()` remains one synchronous, atomic destruct-then-construct operation
+regardless of the component builder's `Background` option. The option governs the
+two standalone operations only; it never changes reconstruct return timing or
+error propagation.
+
 The background form proceeds in three steps:
 
 1. The **intermediate** transition (`Constructing` / `Destructing`) is emitted
@@ -112,7 +117,7 @@ The background form proceeds in three steps:
    `IDispatcher.Foreground` (§3, VMX-025) — subscribers observe the completion on
    the foreground thread, not the pool thread.
 
-Three normative guarantees apply to the background completion:
+Four normative guarantees apply to the background completion:
 
 - **Atomicity / no resurrection.** Each transition runs under the per-VM guard of
   `02-lifecycle.md §2.4`. If `dispose()` runs while the background work is queued
@@ -131,6 +136,13 @@ Three normative guarantees apply to the background completion:
   Fire-and-forget and non-C# surfaces follow their documented scheduler error
   route; Swift has no awaiter and its non-throwing scheduler closure cannot
   redeliver the error to the already-returned caller (ADR-0053).
+- **Scheduler rejection recovery.** If a custom dispatcher rejects work before
+  accepting its closure, the VM rolls back to the prior settled state and clears
+  the in-flight guard. Initial background rejection returns/throws to the caller.
+  Foreground-completion rejection uses the existing asynchronous error route and
+  performs rollback on the current worker as a last resort because the requested
+  foreground channel is unavailable. A dispatcher MUST NOT invoke a closure and
+  then report that same closure as rejected.
 
 The await primitive for a consumer-defined background wrapper is the
 terminal-status subscription above; the hub does not replay the last status to
