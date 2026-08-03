@@ -7,25 +7,34 @@ use super::{
     Cell, Condvar, Deserialize, HashMap, HashSet, Mutex, MutexGuard, OnceLock, Ordering, Serialize,
     ThreadId, VecDeque, Weak,
 };
+use crate::{ValueStream, ValueSubscription};
+use std::sync::mpsc;
 
 static NEXT_ID: AtomicUsize = AtomicUsize::new(1);
 pub(crate) static HIERARCHY_TOPOLOGY_GATE: Mutex<()> = Mutex::new(());
 
 thread_local! {
     static MESSAGE_HUB_DELIVERY_DEPTH: Cell<usize> = const { Cell::new(0) };
+    static MESSAGE_HUB_DELIVERY_SENDERS: std::cell::RefCell<Vec<(usize, usize)>> = const { std::cell::RefCell::new(Vec::new()) };
 }
 
 struct MessageHubDeliveryGuard;
 
 impl MessageHubDeliveryGuard {
-    fn enter() -> Self {
+    fn enter(hub_id: usize, sender_id: usize) -> Self {
         MESSAGE_HUB_DELIVERY_DEPTH.with(|depth| depth.set(depth.get() + 1));
+        MESSAGE_HUB_DELIVERY_SENDERS.with(|senders| {
+            senders.borrow_mut().push((hub_id, sender_id));
+        });
         Self
     }
 }
 
 impl Drop for MessageHubDeliveryGuard {
     fn drop(&mut self) {
+        MESSAGE_HUB_DELIVERY_SENDERS.with(|senders| {
+            senders.borrow_mut().pop();
+        });
         MESSAGE_HUB_DELIVERY_DEPTH.with(|depth| depth.set(depth.get() - 1));
     }
 }
@@ -151,6 +160,34 @@ pub(crate) fn retain_first_error(first: &mut Option<VmxError>, result: VmxResult
 
 pub(crate) fn finish_with_first_error(first: Option<VmxError>) -> VmxResult<()> {
     first.map_or(Ok(()), Err)
+}
+
+pub(crate) enum FirstFailure {
+    Error(VmxError),
+    Panic(Box<dyn std::any::Any + Send>),
+}
+
+pub(crate) fn retain_first_failure<F>(first: &mut Option<FirstFailure>, action: F)
+where
+    F: FnOnce() -> VmxResult<()>,
+{
+    let outcome = catch_unwind(AssertUnwindSafe(action));
+    if first.is_some() {
+        return;
+    }
+    match outcome {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => *first = Some(FirstFailure::Error(error)),
+        Err(payload) => *first = Some(FirstFailure::Panic(payload)),
+    }
+}
+
+pub(crate) fn finish_with_first_failure(first: Option<FirstFailure>) -> VmxResult<()> {
+    match first {
+        None => Ok(()),
+        Some(FirstFailure::Error(error)) => Err(error),
+        Some(FirstFailure::Panic(payload)) => resume_unwind(payload),
+    }
 }
 
 pub(crate) struct MembershipTransactionGuard {
@@ -543,6 +580,11 @@ impl MessageHub {
         Self::default()
     }
 
+    pub(crate) fn is_delivering_from(&self, sender_id: usize) -> bool {
+        let hub_id = Arc::as_ptr(&self.inner) as usize;
+        MESSAGE_HUB_DELIVERY_SENDERS.with(|senders| senders.borrow().contains(&(hub_id, sender_id)))
+    }
+
     /// Subscribes to messages published after this call.
     pub fn subscribe<F>(&self, handler: F) -> Subscription
     where
@@ -855,7 +897,10 @@ impl MessageHub {
             #[cfg(debug_assertions)]
             message_types.insert(message.type_name());
             for subscriber in subscribers {
-                let _delivery = MessageHubDeliveryGuard::enter();
+                let _delivery = MessageHubDeliveryGuard::enter(
+                    Arc::as_ptr(&self.inner) as usize,
+                    message.sender_id(),
+                );
                 let _ = catch_unwind(AssertUnwindSafe(|| subscriber(&message)));
             }
 
@@ -1124,8 +1169,134 @@ impl Drop for PropertyChangedSubscription {
 
 /// Schedules VMx foreground work.
 pub trait Dispatcher: Clone + Send + Sync + 'static {
-    /// Schedules `action` according to the dispatcher policy.
+    /// Schedules foreground `action` according to the dispatcher policy.
     fn dispatch(&self, action: Box<dyn FnOnce() + Send>);
+
+    /// Schedules background lifecycle work.
+    fn dispatch_background(&self, action: Box<dyn FnOnce() + Send>) {
+        self.dispatch(action);
+    }
+}
+
+#[derive(Clone)]
+/// A hot typed stream of fire-and-forget background lifecycle failures.
+///
+/// The stream does not replay earlier failures. It completes when its component
+/// is disposed.
+pub struct LifecycleErrorStream {
+    state: Arc<Mutex<LifecycleErrorStreamState>>,
+}
+
+struct LifecycleErrorStreamState {
+    stream: ValueStream<Option<VmxError>>,
+    active_emissions: usize,
+    dispose_requested: bool,
+    disposed: bool,
+}
+
+struct LifecycleErrorEmission {
+    state: Arc<Mutex<LifecycleErrorStreamState>>,
+}
+
+impl Drop for LifecycleErrorEmission {
+    fn drop(&mut self) {
+        let stream = {
+            let mut state = lock(&self.state);
+            state.active_emissions -= 1;
+            if state.active_emissions == 0 && state.dispose_requested && !state.disposed {
+                state.disposed = true;
+                Some(state.stream.clone())
+            } else {
+                None
+            }
+        };
+        if let Some(stream) = stream {
+            stream.dispose();
+        }
+    }
+}
+
+impl LifecycleErrorStream {
+    fn new() -> Self {
+        Self {
+            state: Arc::new(Mutex::new(LifecycleErrorStreamState {
+                stream: ValueStream::hot(None),
+                active_emissions: 0,
+                dispose_requested: false,
+                disposed: false,
+            })),
+        }
+    }
+
+    /// Subscribes to failures published after this call.
+    pub fn subscribe<F>(&self, handler: F) -> ValueSubscription
+    where
+        F: Fn(VmxError) + Send + Sync + 'static,
+    {
+        let stream = lock(&self.state).stream.clone();
+        stream.subscribe(move |error| {
+            if let Some(error) = error {
+                handler(error);
+            }
+        })
+    }
+
+    /// Subscribes to failures and receives one callback on component disposal.
+    pub fn subscribe_with_completion<F, C>(&self, handler: F, completion: C) -> ValueSubscription
+    where
+        F: Fn(VmxError) + Send + Sync + 'static,
+        C: Fn() + Send + Sync + 'static,
+    {
+        let stream = lock(&self.state).stream.clone();
+        stream.subscribe_with_completion(
+            move |error| {
+                if let Some(error) = error {
+                    handler(error);
+                }
+            },
+            completion,
+        )
+    }
+
+    fn send(&self, error: VmxError) {
+        let stream = {
+            let state = lock(&self.state);
+            (!state.disposed).then(|| state.stream.clone())
+        };
+        if let Some(stream) = stream {
+            stream.send(Some(error));
+        }
+    }
+
+    fn begin_emission(&self) -> Option<LifecycleErrorEmission> {
+        let mut state = lock(&self.state);
+        if state.disposed {
+            return None;
+        }
+        state.active_emissions += 1;
+        Some(LifecycleErrorEmission {
+            state: Arc::clone(&self.state),
+        })
+    }
+
+    fn dispose(&self) {
+        let stream = {
+            let mut state = lock(&self.state);
+            if state.disposed || state.dispose_requested {
+                return;
+            }
+            state.dispose_requested = true;
+            if state.active_emissions == 0 {
+                state.disposed = true;
+                Some(state.stream.clone())
+            } else {
+                None
+            }
+        };
+        if let Some(stream) = stream {
+            stream.dispose();
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -1165,10 +1336,61 @@ impl Dispatcher for ImmediateDispatcher {
 type DispatchAction = Box<dyn FnOnce() + Send>;
 type DispatchQueue = Arc<Mutex<VecDeque<DispatchAction>>>;
 
+#[derive(Debug, Clone)]
+/// Default paired dispatcher with dedicated serial foreground/background workers.
+pub struct DefaultDispatcher {
+    foreground: mpsc::Sender<DispatchAction>,
+    background: mpsc::Sender<DispatchAction>,
+}
+
+impl DefaultDispatcher {
+    /// Creates the default paired-channel dispatcher.
+    pub fn new() -> Self {
+        fn worker(name: &str) -> mpsc::Sender<DispatchAction> {
+            let (sender, receiver) = mpsc::channel::<DispatchAction>();
+            thread::Builder::new()
+                .name(name.to_string())
+                .spawn(move || {
+                    while let Ok(action) = receiver.recv() {
+                        let _ = catch_unwind(AssertUnwindSafe(action));
+                    }
+                })
+                .expect("VMx default dispatcher could not start its worker");
+            sender
+        }
+
+        Self {
+            foreground: worker("vmx-foreground"),
+            background: worker("vmx-background"),
+        }
+    }
+}
+
+impl Default for DefaultDispatcher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Dispatcher for DefaultDispatcher {
+    fn dispatch(&self, action: Box<dyn FnOnce() + Send>) {
+        self.foreground
+            .send(action)
+            .expect("VMx default foreground worker unexpectedly stopped");
+    }
+
+    fn dispatch_background(&self, action: Box<dyn FnOnce() + Send>) {
+        self.background
+            .send(action)
+            .expect("VMx default background worker unexpectedly stopped");
+    }
+}
+
 #[derive(Clone, Default)]
 /// Deterministic dispatcher that queues work until explicitly drained.
 pub struct ManualDispatcher {
-    queue: DispatchQueue,
+    foreground: DispatchQueue,
+    background: DispatchQueue,
 }
 
 impl ManualDispatcher {
@@ -1180,23 +1402,59 @@ impl ManualDispatcher {
     /// Runs queued actions in FIFO order until the queue is empty.
     pub fn drain(&self) {
         loop {
-            let action = lock(&self.queue).pop_front();
-            match action {
-                Some(action) => action(),
-                None => break,
+            let background = lock(&self.background).pop_front();
+            let foreground = lock(&self.foreground).pop_front();
+            match (background, foreground) {
+                (None, None) => break,
+                (background, foreground) => {
+                    if let Some(action) = background {
+                        action();
+                    }
+                    if let Some(action) = foreground {
+                        action();
+                    }
+                }
             }
+        }
+    }
+
+    /// Runs queued foreground actions in FIFO order.
+    pub fn drain_foreground(&self) {
+        while let Some(action) = lock(&self.foreground).pop_front() {
+            action();
+        }
+    }
+
+    /// Runs queued background actions in FIFO order.
+    pub fn drain_background(&self) {
+        while let Some(action) = lock(&self.background).pop_front() {
+            action();
         }
     }
 
     /// Returns the number of actions currently queued.
     pub fn queued_len(&self) -> usize {
-        lock(&self.queue).len()
+        lock(&self.foreground).len() + lock(&self.background).len()
+    }
+
+    /// Returns the queued foreground action count.
+    pub fn foreground_queued_len(&self) -> usize {
+        lock(&self.foreground).len()
+    }
+
+    /// Returns the queued background action count.
+    pub fn background_queued_len(&self) -> usize {
+        lock(&self.background).len()
     }
 }
 
 impl Dispatcher for ManualDispatcher {
     fn dispatch(&self, action: Box<dyn FnOnce() + Send>) {
-        lock(&self.queue).push_back(action);
+        lock(&self.foreground).push_back(action);
+    }
+
+    fn dispatch_background(&self, action: Box<dyn FnOnce() + Send>) {
+        lock(&self.background).push_back(action);
     }
 }
 
@@ -1569,7 +1827,9 @@ struct ComponentCoreInner<D: Dispatcher> {
     legacy_parent_id: Option<usize>,
     hub: MessageHub,
     property_changed: PropertyChangedStream,
+    background_errors: LifecycleErrorStream,
     foreground: D,
+    background: bool,
     on_construct: Option<Hook>,
     on_destruct: Option<Hook>,
     on_dispose: Option<Hook>,
@@ -1594,7 +1854,9 @@ impl<D: Dispatcher> ComponentCore<D> {
                 legacy_parent_id: None,
                 hub,
                 property_changed: PropertyChangedStream::default(),
+                background_errors: LifecycleErrorStream::new(),
                 foreground: dispatcher,
+                background: false,
                 on_construct: None,
                 on_destruct: None,
                 on_dispose: None,
@@ -1624,8 +1886,16 @@ impl<D: Dispatcher> ComponentCore<D> {
         lock(&self.inner).hint = hint;
     }
 
+    pub(crate) fn set_background(&self, background: bool) {
+        lock(&self.inner).background = background;
+    }
+
     pub(crate) fn status(&self) -> ConstructionStatus {
         lock(&self.inner).status
+    }
+
+    pub(crate) fn background_errors(&self) -> LifecycleErrorStream {
+        lock(&self.inner).background_errors.clone()
     }
 
     pub(crate) fn set_hook(&self, operation: LifecycleOperation, hook: Hook) {
@@ -1638,7 +1908,442 @@ impl<D: Dispatcher> ComponentCore<D> {
     }
 
     pub(crate) fn transition(&self, operation: LifecycleOperation) -> VmxResult<()> {
+        if operation != LifecycleOperation::Dispose && lock(&self.inner).background {
+            return self.transition_background(operation);
+        }
         self.transition_with(operation, || Ok(()))
+    }
+
+    pub(crate) fn reconstruct(&self) -> VmxResult<()> {
+        self.reconstruct_sync()
+    }
+
+    fn run_sync_hook(&self, hook: Option<Hook>) -> thread::Result<VmxResult<()>> {
+        let execution = catch_unwind(AssertUnwindSafe(|| {
+            hook.map(|hook| (lock(&hook))()).unwrap_or(Ok(()))
+        }));
+        let deferred = {
+            let mut inner = lock(&self.inner);
+            if inner.active_hook_owner == Some(thread::current().id()) {
+                inner.active_hook_owner = None;
+            }
+            let deferred = inner.deferred_core_disposal;
+            inner.deferred_core_disposal = false;
+            self.hook_ready.notify_all();
+            deferred
+        };
+        if !deferred {
+            return execution;
+        }
+        let disposal = self.finish_deferred_core_disposal();
+        match execution {
+            Ok(Ok(())) => Ok(disposal),
+            other => other,
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn publish_reconstruct_status(
+        &self,
+        hub: &MessageHub,
+        sender_id: usize,
+        sender_name: &str,
+        generation: u64,
+        status: ConstructionStatus,
+        transitioning: bool,
+        claim_hook: bool,
+    ) -> bool {
+        hub.send_prepared(|| {
+            let mut inner = lock(&self.inner);
+            if inner.transition_generation != generation
+                || inner.status == ConstructionStatus::Disposed
+            {
+                return (false, None);
+            }
+            inner.status = status;
+            inner.transitioning = transitioning;
+            if claim_hook {
+                inner.active_hook_owner = Some(thread::current().id());
+            }
+            (
+                true,
+                Some(Message::ConstructionStatusChanged(
+                    ConstructionStatusChangedMessage {
+                        sender_id,
+                        sender_name: sender_name.to_string(),
+                        status,
+                    },
+                )),
+            )
+        })
+    }
+
+    fn reconstruct_sync(&self) -> VmxResult<()> {
+        let hub = lock(&self.inner).hub.clone();
+        let (sender_id, sender_name, destruct_hook, construct_hook, generation) = hub
+            .send_prepared(|| {
+                let mut inner = lock(&self.inner);
+                if inner.status == ConstructionStatus::Disposed {
+                    return (Err(VmxError::Disposed), None);
+                }
+                if inner.transitioning {
+                    return (Err(VmxError::ConcurrentOperation), None);
+                }
+                if inner.status != ConstructionStatus::Constructed {
+                    return (
+                        Err(VmxError::InvalidLifecycleTransition {
+                            from: inner.status,
+                            operation: "reconstruct",
+                        }),
+                        None,
+                    );
+                }
+                inner.transition_generation = inner.transition_generation.wrapping_add(1);
+                let generation = inner.transition_generation;
+                inner.transitioning = true;
+                inner.status = ConstructionStatus::Destructing;
+                inner.active_hook_owner = Some(thread::current().id());
+                (
+                    Ok((
+                        inner.id,
+                        inner.name.clone(),
+                        inner.on_destruct.clone(),
+                        inner.on_construct.clone(),
+                        generation,
+                    )),
+                    Some(Message::ConstructionStatusChanged(
+                        ConstructionStatusChangedMessage {
+                            sender_id: inner.id,
+                            sender_name: inner.name.clone(),
+                            status: ConstructionStatus::Destructing,
+                        },
+                    )),
+                )
+            })?;
+
+        match self.run_sync_hook(destruct_hook) {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => {
+                self.publish_reconstruct_status(
+                    &hub,
+                    sender_id,
+                    &sender_name,
+                    generation,
+                    ConstructionStatus::Constructed,
+                    false,
+                    false,
+                );
+                return Err(error);
+            }
+            Err(payload) => {
+                self.publish_reconstruct_status(
+                    &hub,
+                    sender_id,
+                    &sender_name,
+                    generation,
+                    ConstructionStatus::Constructed,
+                    false,
+                    false,
+                );
+                resume_unwind(payload);
+            }
+        }
+        if !self.publish_reconstruct_status(
+            &hub,
+            sender_id,
+            &sender_name,
+            generation,
+            ConstructionStatus::Destructed,
+            true,
+            false,
+        ) || !self.publish_reconstruct_status(
+            &hub,
+            sender_id,
+            &sender_name,
+            generation,
+            ConstructionStatus::Constructing,
+            true,
+            true,
+        ) {
+            return Ok(());
+        }
+
+        match self.run_sync_hook(construct_hook) {
+            Ok(Ok(())) => {
+                self.publish_reconstruct_status(
+                    &hub,
+                    sender_id,
+                    &sender_name,
+                    generation,
+                    ConstructionStatus::Constructed,
+                    false,
+                    false,
+                );
+                Ok(())
+            }
+            Ok(Err(error)) => {
+                self.publish_reconstruct_status(
+                    &hub,
+                    sender_id,
+                    &sender_name,
+                    generation,
+                    ConstructionStatus::Destructed,
+                    false,
+                    false,
+                );
+                Err(error)
+            }
+            Err(payload) => {
+                self.publish_reconstruct_status(
+                    &hub,
+                    sender_id,
+                    &sender_name,
+                    generation,
+                    ConstructionStatus::Destructed,
+                    false,
+                    false,
+                );
+                resume_unwind(payload);
+            }
+        }
+    }
+
+    fn run_background_hook(&self, hook: Option<Hook>, generation: u64) -> Option<VmxResult<()>> {
+        {
+            let mut inner = lock(&self.inner);
+            if inner.transition_generation != generation
+                || inner.status == ConstructionStatus::Disposed
+            {
+                return None;
+            }
+            inner.active_hook_owner = Some(thread::current().id());
+        }
+        let execution = catch_unwind(AssertUnwindSafe(|| {
+            hook.map(|hook| (lock(&hook))()).unwrap_or(Ok(()))
+        }));
+        let deferred = {
+            let mut inner = lock(&self.inner);
+            if inner.active_hook_owner == Some(thread::current().id()) {
+                inner.active_hook_owner = None;
+            }
+            let deferred = inner.deferred_core_disposal;
+            inner.deferred_core_disposal = false;
+            self.hook_ready.notify_all();
+            deferred
+        };
+        let mut result = match execution {
+            Ok(result) => result,
+            Err(_) => Err(VmxError::Other(
+                "background lifecycle hook panicked".to_string(),
+            )),
+        };
+        if deferred {
+            let errors = self.background_errors();
+            let emission = errors.begin_emission();
+            let disposal = catch_unwind(AssertUnwindSafe(|| self.finish_deferred_core_disposal()));
+            if result.is_ok() {
+                result = match disposal {
+                    Ok(result) => result,
+                    Err(_) => Err(VmxError::Other(
+                        "deferred background disposal hook panicked".to_string(),
+                    )),
+                };
+            }
+            if let Err(error) = result {
+                errors.send(error);
+            }
+            drop(emission);
+            return None;
+        }
+        let inner = lock(&self.inner);
+        if inner.transition_generation != generation || inner.status == ConstructionStatus::Disposed
+        {
+            return None;
+        }
+        drop(inner);
+        Some(result)
+    }
+
+    fn transition_background(&self, operation: LifecycleOperation) -> VmxResult<()> {
+        let hub = lock(&self.inner).hub.clone();
+        let started = hub.send_prepared(|| {
+            let mut inner = lock(&self.inner);
+            match (inner.status, operation) {
+                (ConstructionStatus::Disposed, _) => return (Err(VmxError::Disposed), None),
+                (ConstructionStatus::Constructed, LifecycleOperation::Construct)
+                | (ConstructionStatus::Destructed, LifecycleOperation::Destruct) => {
+                    return (Ok(None), None)
+                }
+                _ => {}
+            }
+            if inner.transitioning {
+                return (Err(VmxError::ConcurrentOperation), None);
+            }
+            let transition_status = match operation {
+                LifecycleOperation::Construct => ConstructionStatus::Constructing,
+                LifecycleOperation::Destruct => ConstructionStatus::Destructing,
+                LifecycleOperation::Dispose => unreachable!(),
+            };
+            let target = match operation {
+                LifecycleOperation::Construct => ConstructionStatus::Constructed,
+                LifecycleOperation::Destruct => ConstructionStatus::Destructed,
+                LifecycleOperation::Dispose => unreachable!(),
+            };
+            inner.transition_generation = inner.transition_generation.wrapping_add(1);
+            let generation = inner.transition_generation;
+            inner.transitioning = true;
+            inner.status = transition_status;
+            let hook = match operation {
+                LifecycleOperation::Construct => inner.on_construct.clone(),
+                LifecycleOperation::Destruct => inner.on_destruct.clone(),
+                LifecycleOperation::Dispose => unreachable!(),
+            };
+            let message = Message::ConstructionStatusChanged(ConstructionStatusChangedMessage {
+                sender_id: inner.id,
+                sender_name: inner.name.clone(),
+                status: transition_status,
+            });
+            (
+                Ok(Some((
+                    inner.id,
+                    inner.name.clone(),
+                    inner.foreground.clone(),
+                    hook,
+                    target,
+                    generation,
+                ))),
+                Some(message),
+            )
+        })?;
+        let Some((sender_id, sender_name, dispatcher, hook, target, generation)) = started else {
+            return Ok(());
+        };
+        let rollback = match operation {
+            LifecycleOperation::Construct => ConstructionStatus::Destructed,
+            LifecycleOperation::Destruct => ConstructionStatus::Constructed,
+            LifecycleOperation::Dispose => unreachable!(),
+        };
+        let core = self.clone();
+        let scheduling_core = core.clone();
+        let scheduling_hub = hub.clone();
+        let scheduling_name = sender_name.clone();
+        let action_dispatcher = dispatcher.clone();
+        let background_action = Box::new(move || {
+            let Some(result) = core.run_background_hook(hook, generation) else {
+                return;
+            };
+            let error = result.err();
+            let settled = if error.is_none() { target } else { rollback };
+            let publication_core = core.clone();
+            let errors = core.background_errors();
+            let fallback_error = error.clone().unwrap_or_else(|| {
+                VmxError::Other("foreground dispatcher rejected lifecycle completion".to_string())
+            });
+            let fallback_core = publication_core.clone();
+            let fallback_hub = hub.clone();
+            let fallback_name = sender_name.clone();
+            let foreground_action = Box::new(move || {
+                let emission = error.as_ref().and_then(|_| errors.begin_emission());
+                hub.send_prepared(|| {
+                    let mut inner = lock(&publication_core.inner);
+                    if inner.transition_generation != generation
+                        || inner.status == ConstructionStatus::Disposed
+                    {
+                        return ((), None);
+                    }
+                    inner.status = settled;
+                    inner.transitioning = false;
+                    (
+                        (),
+                        Some(Message::ConstructionStatusChanged(
+                            ConstructionStatusChangedMessage {
+                                sender_id,
+                                sender_name,
+                                status: settled,
+                            },
+                        )),
+                    )
+                });
+                if let Some(error) = error {
+                    errors.send(error);
+                }
+                drop(emission);
+            });
+            if catch_unwind(AssertUnwindSafe(|| {
+                action_dispatcher.dispatch(foreground_action)
+            }))
+            .is_err()
+            {
+                fallback_core.recover_background_schedule_failure(
+                    &fallback_hub,
+                    sender_id,
+                    &fallback_name,
+                    generation,
+                    rollback,
+                    Some(fallback_error),
+                );
+            }
+        });
+        if catch_unwind(AssertUnwindSafe(|| {
+            dispatcher.clone().dispatch_background(background_action)
+        }))
+        .is_err()
+            && scheduling_core.recover_background_schedule_failure(
+                &scheduling_hub,
+                sender_id,
+                &scheduling_name,
+                generation,
+                rollback,
+                None,
+            )
+        {
+            return Err(VmxError::Other(
+                "background dispatcher rejected lifecycle work".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn recover_background_schedule_failure(
+        &self,
+        hub: &MessageHub,
+        sender_id: usize,
+        sender_name: &str,
+        generation: u64,
+        rollback: ConstructionStatus,
+        error: Option<VmxError>,
+    ) -> bool {
+        let errors = self.background_errors();
+        let emission = error.as_ref().and_then(|_| errors.begin_emission());
+        let recovered = hub.send_prepared(|| {
+            let mut inner = lock(&self.inner);
+            if inner.transition_generation != generation
+                || inner.status == ConstructionStatus::Disposed
+                || !inner.transitioning
+            {
+                return (false, None);
+            }
+            inner.status = rollback;
+            inner.transitioning = false;
+            (
+                true,
+                Some(Message::ConstructionStatusChanged(
+                    ConstructionStatusChangedMessage {
+                        sender_id,
+                        sender_name: sender_name.to_string(),
+                        status: rollback,
+                    },
+                )),
+            )
+        });
+        if recovered {
+            if let Some(error) = error {
+                errors.send(error);
+            }
+        }
+        drop(emission);
+        recovered
     }
 
     pub(crate) fn transition_with<F>(
@@ -1650,90 +2355,72 @@ impl<D: Dispatcher> ComponentCore<D> {
         F: FnOnce() -> VmxResult<()>,
     {
         let hub = lock(&self.inner).hub.clone();
-        let started =
-            hub.send_prepared(|| {
-                let (
-                    sender_id,
-                    sender_name,
-                    foreground,
+        let started = hub.send_prepared(|| {
+            let (sender_id, sender_name, hook, transition_status, target, generation) = {
+                let mut inner = lock(&self.inner);
+                match (inner.status, operation) {
+                    (ConstructionStatus::Disposed, LifecycleOperation::Construct)
+                    | (ConstructionStatus::Disposed, LifecycleOperation::Destruct) => {
+                        return (Err(VmxError::Disposed), None)
+                    }
+                    (ConstructionStatus::Constructed, LifecycleOperation::Construct)
+                    | (ConstructionStatus::Destructed, LifecycleOperation::Destruct) => {
+                        return (Ok(None), None)
+                    }
+                    (_, LifecycleOperation::Dispose)
+                        if inner.status == ConstructionStatus::Disposed =>
+                    {
+                        return (Ok(None), None)
+                    }
+                    _ => {}
+                }
+                if inner.transitioning && operation != LifecycleOperation::Dispose {
+                    return (Err(VmxError::ConcurrentOperation), None);
+                }
+
+                let transition_status = match operation {
+                    LifecycleOperation::Construct => ConstructionStatus::Constructing,
+                    LifecycleOperation::Destruct => ConstructionStatus::Destructing,
+                    LifecycleOperation::Dispose => ConstructionStatus::Disposed,
+                };
+                let target = match operation {
+                    LifecycleOperation::Construct => ConstructionStatus::Constructed,
+                    LifecycleOperation::Destruct => ConstructionStatus::Destructed,
+                    LifecycleOperation::Dispose => ConstructionStatus::Disposed,
+                };
+                inner.transition_generation = inner.transition_generation.wrapping_add(1);
+                let generation = inner.transition_generation;
+                inner.transitioning = true;
+                inner.status = transition_status;
+                if operation != LifecycleOperation::Dispose {
+                    inner.active_hook_owner = Some(thread::current().id());
+                }
+                let hook = match operation {
+                    LifecycleOperation::Construct => inner.on_construct.clone(),
+                    LifecycleOperation::Destruct => inner.on_destruct.clone(),
+                    LifecycleOperation::Dispose => inner.on_dispose.clone(),
+                };
+                (
+                    inner.id,
+                    inner.name.clone(),
                     hook,
                     transition_status,
                     target,
                     generation,
-                ) = {
-                    let mut inner = lock(&self.inner);
-                    match (inner.status, operation) {
-                        (ConstructionStatus::Disposed, LifecycleOperation::Construct)
-                        | (ConstructionStatus::Disposed, LifecycleOperation::Destruct) => {
-                            return (Err(VmxError::Disposed), None)
-                        }
-                        (ConstructionStatus::Constructed, LifecycleOperation::Construct)
-                        | (ConstructionStatus::Destructed, LifecycleOperation::Destruct) => {
-                            return (Ok(None), None)
-                        }
-                        (_, LifecycleOperation::Dispose)
-                            if inner.status == ConstructionStatus::Disposed =>
-                        {
-                            return (Ok(None), None)
-                        }
-                        _ => {}
-                    }
-                    if inner.transitioning && operation != LifecycleOperation::Dispose {
-                        return (Err(VmxError::ConcurrentOperation), None);
-                    }
-
-                    let transition_status = match operation {
-                        LifecycleOperation::Construct => ConstructionStatus::Constructing,
-                        LifecycleOperation::Destruct => ConstructionStatus::Destructing,
-                        LifecycleOperation::Dispose => ConstructionStatus::Disposed,
-                    };
-                    let target = match operation {
-                        LifecycleOperation::Construct => ConstructionStatus::Constructed,
-                        LifecycleOperation::Destruct => ConstructionStatus::Destructed,
-                        LifecycleOperation::Dispose => ConstructionStatus::Disposed,
-                    };
-                    inner.transition_generation = inner.transition_generation.wrapping_add(1);
-                    let generation = inner.transition_generation;
-                    inner.transitioning = true;
-                    inner.status = transition_status;
-                    if operation != LifecycleOperation::Dispose {
-                        inner.active_hook_owner = Some(thread::current().id());
-                    }
-                    let hook = match operation {
-                        LifecycleOperation::Construct => inner.on_construct.clone(),
-                        LifecycleOperation::Destruct => inner.on_destruct.clone(),
-                        LifecycleOperation::Dispose => inner.on_dispose.clone(),
-                    };
-                    (
-                        inner.id,
-                        inner.name.clone(),
-                        inner.foreground.clone(),
-                        hook,
-                        transition_status,
-                        target,
-                        generation,
-                    )
-                };
-
-                let message =
-                    Message::ConstructionStatusChanged(ConstructionStatusChangedMessage {
-                        sender_id,
-                        sender_name: sender_name.clone(),
-                        status: transition_status,
-                    });
-                (
-                    Ok(Some((
-                        sender_id,
-                        sender_name,
-                        foreground,
-                        hook,
-                        target,
-                        generation,
-                    ))),
-                    Some(message),
                 )
-            })?;
-        let Some((sender_id, sender_name, foreground, hook, target, generation)) = started else {
+            };
+
+            let message = Message::ConstructionStatusChanged(ConstructionStatusChangedMessage {
+                sender_id,
+                sender_name: sender_name.clone(),
+                status: transition_status,
+            });
+            (
+                Ok(Some((sender_id, sender_name, hook, target, generation))),
+                Some(message),
+            )
+        })?;
+        let Some((sender_id, sender_name, hook, target, generation)) = started else {
             return Ok(());
         };
 
@@ -1776,24 +2463,32 @@ impl<D: Dispatcher> ComponentCore<D> {
             self.hook_ready.notify_all();
             deferred
         };
-        let mut operation_result = match execution {
-            Ok(result) => result,
-            Err(payload) => {
-                if deferred_disposal {
-                    let _ = self.finish_deferred_core_disposal();
-                }
-                resume_unwind(payload)
-            }
+        let (mut operation_result, mut panic_payload) = match execution {
+            Ok(result) => (result, None),
+            Err(payload) => (Ok(()), Some(payload)),
         };
         if deferred_disposal {
-            let disposal_result = self.finish_deferred_core_disposal();
-            if operation_result.is_ok() {
-                operation_result = disposal_result;
+            let disposal = catch_unwind(AssertUnwindSafe(|| self.finish_deferred_core_disposal()));
+            if operation_result.is_ok() && panic_payload.is_none() {
+                match disposal {
+                    Ok(result) => operation_result = result,
+                    Err(payload) => panic_payload = Some(payload),
+                }
             }
         }
         if operation == LifecycleOperation::Dispose {
             self.dispose_owned();
             self.property_changed_stream().dispose();
+            self.background_errors().dispose();
+            let mut inner = lock(&self.inner);
+            if inner.transition_generation == generation {
+                inner.transitioning = false;
+            }
+            drop(inner);
+            if let Some(payload) = panic_payload {
+                resume_unwind(payload);
+            }
+            return operation_result;
         }
         let superseded = {
             let inner = lock(&self.inner);
@@ -1802,9 +2497,12 @@ impl<D: Dispatcher> ComponentCore<D> {
                     && inner.status == ConstructionStatus::Disposed)
         };
         if superseded {
+            if let Some(payload) = panic_payload {
+                resume_unwind(payload);
+            }
             return operation_result;
         }
-        if let Err(error) = operation_result {
+        if operation_result.is_err() || panic_payload.is_some() {
             let rollback = match operation {
                 LifecycleOperation::Construct => ConstructionStatus::Destructed,
                 LifecycleOperation::Destruct => ConstructionStatus::Constructed,
@@ -1821,25 +2519,27 @@ impl<D: Dispatcher> ComponentCore<D> {
                 }
             };
             if !rolled_back {
-                return Err(error);
+                if let Some(payload) = panic_payload {
+                    resume_unwind(payload);
+                }
+                return operation_result;
             }
-            let publication_core = self.clone();
-            let publication_hub = hub.clone();
-            foreground.dispatch(Box::new(move || {
-                publication_hub.send_prepared(|| {
-                    let message = publication_core
-                        .publication_is_current(generation, rollback)
-                        .then_some({
-                            Message::ConstructionStatusChanged(ConstructionStatusChangedMessage {
-                                sender_id,
-                                sender_name: sender_name.clone(),
-                                status: rollback,
-                            })
-                        });
-                    ((), message)
-                });
-            }));
-            return Err(error);
+            hub.send_prepared(|| {
+                let message = self
+                    .publication_is_current(generation, rollback)
+                    .then_some({
+                        Message::ConstructionStatusChanged(ConstructionStatusChangedMessage {
+                            sender_id,
+                            sender_name: sender_name.clone(),
+                            status: rollback,
+                        })
+                    });
+                ((), message)
+            });
+            if let Some(payload) = panic_payload {
+                resume_unwind(payload);
+            }
+            return operation_result;
         }
 
         let property_changed = {
@@ -1858,35 +2558,39 @@ impl<D: Dispatcher> ComponentCore<D> {
         // above is already the terminal Disposed transition. Publishing the
         // same state again would make one dispose observably execute twice.
         if operation != LifecycleOperation::Dispose {
-            let publication_core = self.clone();
-            let publication_hub = hub.clone();
-            foreground.dispatch(Box::new(move || {
-                publication_hub.send_prepared(|| {
-                    let message = publication_core
-                        .publication_is_current(generation, target)
-                        .then_some({
-                            Message::ConstructionStatusChanged(ConstructionStatusChangedMessage {
-                                sender_id,
-                                sender_name: sender_name.clone(),
-                                status: target,
-                            })
-                        });
-                    ((), message)
+            hub.send_prepared(|| {
+                let message = self.publication_is_current(generation, target).then_some({
+                    Message::ConstructionStatusChanged(ConstructionStatusChangedMessage {
+                        sender_id,
+                        sender_name: sender_name.clone(),
+                        status: target,
+                    })
                 });
-            }));
+                ((), message)
+            });
         }
         Ok(())
     }
 
     fn finish_deferred_core_disposal(&self) -> VmxResult<()> {
-        let (hook, property_changed) = {
+        let (hook, property_changed, background_errors) = {
             let inner = lock(&self.inner);
-            (inner.on_dispose.clone(), inner.property_changed.clone())
+            (
+                inner.on_dispose.clone(),
+                inner.property_changed.clone(),
+                inner.background_errors.clone(),
+            )
         };
-        let result = hook.map(|hook| (lock(&hook))()).unwrap_or(Ok(()));
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            hook.map(|hook| (lock(&hook))()).unwrap_or(Ok(()))
+        }));
         self.dispose_owned();
         property_changed.dispose();
-        result
+        background_errors.dispose();
+        match result {
+            Ok(result) => result,
+            Err(payload) => resume_unwind(payload),
+        }
     }
 
     fn publication_is_current(&self, generation: u64, status: ConstructionStatus) -> bool {

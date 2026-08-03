@@ -87,6 +87,8 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
+      - run: npm ci --prefix "${{ matrix.project }}" --ignore-scripts
+      - run: npm run check:deps --prefix "${{ matrix.project }}"
       - run: npm audit --prefix "${{ matrix.project }}" --package-lock-only --audit-level=low
 
   cargo:

@@ -283,9 +283,10 @@ See ADR-0023.
    `IPageable`'s `move_to_*` methods (§2.10) clamp at the page bounds by
    contract, so every call is legal. (Scoped in v2.5.0 via ADR-0038.)
 1. **Per-language idiom.** Capability interfaces follow the per-language
-   identifier convention from ADR-0006 (PascalCase in C#, snake_case in
-   Python, camelCase in TypeScript and Swift). The conceptual surface is
-   identical.
+   identifier convention from ADR-0006 (PascalCase members in C#, snake_case
+   members in Python and Rust, and camelCase members in TypeScript and Swift;
+   Rust capability types use UpperCamelCase without an `I` prefix). The
+   conceptual surface is identical.
 1. **Capabilities do not subscribe to the hub on their own.** Capability
    interfaces define member contracts only. Any change-notification side
    effects (e.g., `PropertyChangedMessage` when `SearchTerm` mutates) come

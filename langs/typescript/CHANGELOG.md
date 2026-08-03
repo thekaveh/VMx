@@ -51,6 +51,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   (HIER-031/032, ADR-0127).
 - Re-entrant disposal now defers terminal cleanup until the admitted lifecycle
   hook returns, preserving the hook's causal failure (LIFE-015, ADR-0126).
+- The published runtime floor is now Node 20.5.0, the first Node 20 release
+  with the `Symbol.dispose` protocol used by `BatchUpdateHandle`; CI exercises
+  the built artifact on that exact version.
 - Lazy aggregate reconstruction now reserves every proposed child from
   validation through disposal, assignment, and parent commit, preventing two
   concurrent aggregates or a re-entrant disposal hook from retaining the same
@@ -61,15 +64,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Async-resource replacement cleanup can synchronously start a newer reload
   without the superseded completion publishing another state notification.
 - Repository DOM tests now use jsdom 29 without the deprecated
-  `whatwg-encoding` transitive dependency; the published Node ≥20 runtime floor
-  is unchanged.
+  `whatwg-encoding` transitive dependency.
 - Composite and group disposal now closes child admission before taking the
   cascade snapshot. Membership transactions now isolate hooks, population,
   replacement rollback, and selection; re-entrant structure changes reject,
   post-construction commits recheck destination disposal, and lifecycle
   compensation failures are surfaced with the initiating error.
-- CI and published-consumer verification retain the Node 20 compatibility floor
-  while adding Node 24 LTS and Node 26 Current coverage.
+- CI and published-consumer verification retain the Node 20 line while adding
+  Node 24 LTS and Node 26 Current coverage.
 - Packed npm artifacts now include the repository's byte-identical Apache-2.0
   `LICENSE` and `NOTICE` files.
 - Token pagination now treats reentrant disposal during page comparison,

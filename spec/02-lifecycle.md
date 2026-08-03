@@ -280,8 +280,8 @@ ensures no orphaned `IDisposable` resources are left behind.
 
 Once disposal begins, a failure cannot abort the remaining terminal work.
 Every child is attempted in deterministic order before the parent completes
-its subclass hook, owned-resource cleanup, command teardown, and stream
-completion. Flavors whose disposal surface can report failures preserve the
+its subclass hook, owned-resource cleanup, stream completion, and command
+teardown. Flavors whose disposal surface can report failures preserve the
 first failure in execution order, finish all mandatory teardown, and then
 propagate that original failure. Later failures do not replace it. Repeated or
 re-entrant disposal remains a no-op rather than a retry for skipped cleanup.

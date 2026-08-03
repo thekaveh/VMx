@@ -27,3 +27,14 @@ def test_expandable_state_dispose_completes_change_observable() -> None:
     state.is_expanded_changed.subscribe(on_completed=on_completed)
     state.dispose()
     assert completed is True
+
+
+def test_expandable_state_dispose_makes_later_mutations_inert() -> None:
+    state = ExpandableState(initially_expanded=False)
+    state.dispose()
+
+    state.expand()
+    state.collapse()
+    state.toggle_expansion()
+
+    assert state.is_expanded is False

@@ -8,6 +8,7 @@
   has not been published yet; use a local workspace or source reference until a
   `typescript-v*` release publishes it.
 - Reactive primitive: `rxjs`
+- Runtime floor: Node 20.5.0 (the first Node 20 release with `Symbol.dispose`)
 - Naming idiom: camelCase
 
 ## 7.4.2. What To Reach For

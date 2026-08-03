@@ -273,9 +273,9 @@ used the earlier return type.
 streams before tearing down the commands. The sentence remains an editorial
 ordering description: no conformance ID pins this intra-parent order.
 
-This note is intentionally deferred to a future spec-editing change. Correcting
-the non-exempt chapter requires its own ADR and associated documentation
-updates. It is not a Rust behavior difference and does not reopen this ledger.
+ADR-0129 corrects the lifecycle wording to match the established five-flavor
+order. The correction adds no behavior or conformance ID. It is not a Rust
+behavior difference and does not reopen this ledger.
 
 ## 12.6. Disposition
 

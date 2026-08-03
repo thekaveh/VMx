@@ -770,9 +770,10 @@ using `ObserveOn(dispatcher.Foreground)`
 
 **Given** a `CompositeVM<VM>` in `Constructed` state
 **And** a subscriber to `CollectionChanged`
-**When** `composite.BatchUpdate()` is entered as `using`/`with`
+**When** the composite's batch API is entered as `using`/`with`, or its
+callback-scoped equivalent is invoked
 **And** N (≥1) mutations are applied (Add / Insert / Remove / Clear)
-**And** the batch handle is disposed / the context exits
+**And** the batch handle is disposed, the context exits, or the callback returns
 **Then** the subscriber observes exactly ONE `CollectionChanged(action=Reset)` event
 **And** the subscriber observes NO per-mutation events from within the batch
 **And** the composite's children reflect the post-batch state
@@ -827,9 +828,10 @@ exposes no internal navigation slot
 
 **Given** a `GroupVM<VM>` in `Constructed` state
 **And** a subscriber to `CollectionChanged`
-**When** `group.BatchUpdate()` is entered as `using`/`with`
+**When** the group's batch API is entered as `using`/`with`, or its
+callback-scoped equivalent is invoked
 **And** N (≥1) mutations are applied (Add / Insert / Remove / Clear)
-**And** the batch handle is disposed
+**And** the batch handle is disposed, the context exits, or the callback returns
 **Then** the subscriber observes exactly ONE `CollectionChanged(action=Reset)` event
 **And** the subscriber observes NO per-mutation events from within the batch
 
@@ -1473,7 +1475,7 @@ no extra predicate)
 ### CMDD-010 — ConfirmationDecoratorCommand surfaces fire-and-forget errors on `errors`
 
 Per spec/04-commands.md §8.3.1 and ADR-0049. Full-parity in every flavor that
-ships `ConfirmationDecoratorCommand` (C#, Python, TypeScript, Swift).
+ships `ConfirmationDecoratorCommand` (C#, Python, TypeScript, Swift, Rust).
 
 **Given** a `ConfirmationDecoratorCommand` wrapping `inner`, and a subscriber to its
 `errors` observable
@@ -2483,6 +2485,7 @@ indexed/iterable reads, observation, mutation, move, and batching
 ### COL-046 — exceptional batch exit
 
 **Given** a batch body performs `ReplaceAll` and then fails
+**And** notification observers do not throw
 **When** the original failure propagates
 **Then** every entered batch scope has closed
 **And** the completed mutation emits the usual one Reset and optional `Count`
@@ -2778,7 +2781,7 @@ outer and nested operations
 (using per-flavor recursive-constraint idiom per ADR-0028 §3 item 2)
 **When** the type is instantiated with a model and a children factory
 **Then** it compiles and constructs without generic-bound errors
-**And** per-flavor idiomatic naming applies (C#/Python/TypeScript/Swift conventions per ADR-0006)
+**And** per-flavor idiomatic naming applies (C#/Python/TypeScript/Swift/Rust conventions per ADR-0006)
 
 ### HIER-002 — `Parent` is null for root, non-null for non-root
 
@@ -3227,8 +3230,9 @@ command and whose `Execute` first awaits the dialog's `Confirm` result
 
 **Note** (v3, ADR-0048/ADR-0077; supersedes the ADR-0037 caveat): structural
 equality is evaluated by each flavor's chapter 20 §4 mechanism — `object.Equals`
-(C#), `__eq__` (Python), TypeScript's default structural deep-equal, and Swift's
-`==` for `Equatable` models (with injectable `equals` for custom semantics).
+(C#), `__eq__` (Python), TypeScript's default structural deep-equal, Swift's
+`==` for `Equatable` models (with injectable `equals` for custom semantics),
+and Rust's `PartialEq`.
 The pre-v3 TypeScript `JSON.stringify` comparison was key-order sensitive and
 crashed on `BigInt`/circular models; the v3 default deep-equal is order-insensitive
 and handles `Date`/`Map`/`Set`/`BigInt`/circular references. TypeScript binary
@@ -3714,6 +3718,8 @@ thread-safety guarantee to that flavor.
 **Then** its completion surface completes at most once
 **And** it emits no post-dispose value
 **And** any last-value read documented by that helper still returns the retained value
+**And** direct mutations on a disposed mutable state helper are inert and leave
+the retained value unchanged
 
 ### DISP-006 — collection and projection helper disposal performs one terminal transition
 

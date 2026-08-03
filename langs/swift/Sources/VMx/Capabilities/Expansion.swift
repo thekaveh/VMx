@@ -74,14 +74,14 @@ public final class ExpandableState: Expandable, Collapsible, ExpansionTogglable 
     public func canExpand() -> Bool { !expandedSubject.value }
 
     public func expand() {
-        guard !expandedSubject.value else { return }
+        guard !disposed, !expandedSubject.value else { return }
         expandedSubject.send(true)
     }
 
     public func canCollapse() -> Bool { expandedSubject.value }
 
     public func collapse() {
-        guard expandedSubject.value else { return }
+        guard !disposed, expandedSubject.value else { return }
         expandedSubject.send(false)
     }
 
@@ -95,7 +95,7 @@ public final class ExpandableState: Expandable, Collapsible, ExpansionTogglable 
         }
     }
 
-    /// Complete `isExpandedChanged` and halt further notifications. `isExpanded`
+    /// Complete `isExpandedChanged` and make later mutations inert. `isExpanded`
     /// retains its last reading. Idempotent.
     public func dispose() {
         guard !disposed else { return }

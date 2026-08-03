@@ -558,6 +558,27 @@ def test_check_typescript_example_locks_match_package_version(tmp_path: Path) ->
     assert cvc.check_typescript_example_locks(tmp_path, "3.21.0") == []
 
 
+def test_check_typescript_packed_example_locks_match_package_version(tmp_path: Path) -> None:
+    for relative in cvc.TYPESCRIPT_EXAMPLE_LOCKS:
+        lock_path = tmp_path / relative
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path.write_text(
+            json.dumps(
+                {
+                    "packages": {
+                        "node_modules/@thekaveh/vmx": {
+                            "version": "3.21.0",
+                            "resolved": "file:../../../../langs/typescript",
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    assert cvc.check_typescript_example_locks(tmp_path, "3.21.0") == []
+
+
 def test_check_typescript_example_locks_reports_stale_metadata(tmp_path: Path) -> None:
     lock_path = tmp_path / cvc.TYPESCRIPT_EXAMPLE_LOCKS[0]
     lock_path.parent.mkdir(parents=True)

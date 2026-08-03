@@ -6,7 +6,7 @@ JavaScript, spec-compatible with the C#, Python, Swift, and Rust flavors.
 ## 1. Status
 
 **v3.24.0** — implements `spec-v3.23.0` end-to-end. 403/403 library
-conformance IDs pass. Published runtime requires Node ≥ 20 and rxjs ≥ 7.8;
+conformance IDs pass. Published runtime requires Node ≥ 20.5.0 and rxjs ≥ 7.8;
 repository tests require Node 20.19+, 22.13+, or 24+ for jsdom 29. Dual ESM + CJS
 bundles; TypeScript declarations are bundled — no `@types/vmx` needed.
 Opt-in subpaths provide `@thekaveh/vmx/notifications` and the
@@ -109,8 +109,8 @@ casing follows the per-language idiom (see ADR-0006).
 | Null hub singleton  | `NullMessageHub.Instance` | `NULL_MESSAGE_HUB` | `NullMessageHub.INSTANCE` | `NullMessageHub.INSTANCE` | `NullMessageHub::hub()` |
 
 C# uses PascalCase, Python and Rust use snake_case, TypeScript and Swift use
-camelCase. The single substantive divergence is that C# names the modeled
-variant with a generic-parameter suffix (`ComponentVM<M>`), while Python,
+camelCase. C# and Rust retain the same public type name for modeled and
+unmodeled components (`ComponentVM<M>` / `ComponentVm<M>`), while Python,
 TypeScript, and Swift use a separate `ComponentVMOf` type because their
 generics syntax cannot overload an unparameterised name.
 
@@ -148,7 +148,13 @@ environment — regressions in this area will fail CI.
 The public API is re-exported from a single entry point:
 
 ```ts
-import { ... } from "@thekaveh/vmx";
+import {
+  ComponentVM,
+  ConstructionStatus,
+  MessageHub,
+  RelayCommand,
+  RxDispatcher,
+} from "@thekaveh/vmx";
 ```
 
 Key exports:

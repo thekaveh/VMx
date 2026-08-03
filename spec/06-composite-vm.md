@@ -123,11 +123,12 @@ parent, lifecycle, subscriptions, and `Current`.
 
 ### 4.1 Batch updates (spec v1.1)
 
-A composite MUST expose a `BatchUpdate()` method returning an `IDisposable` /
-context manager. While at least one batch handle is live, mutations (`Add`,
-`Insert`, `Remove`, `RemoveAt`, `Clear`, indexer set) MUST NOT raise individual
-`CollectionChanged` events. Move participates as one mutation. When the last
-live handle is disposed:
+A composite MUST expose an idiomatic scoped batch API: a returned disposable /
+context-manager handle, or a callback-taking method whose scope is the callback
+invocation. While at least one batch scope is active, mutations (`Add`, `Insert`,
+`Remove`, `RemoveAt`, `Clear`, indexer set) MUST NOT raise individual
+`CollectionChanged` events. Move participates as one mutation. When the
+outermost scope completes normally:
 
 - If any mutations occurred during the batch, a single
   `CollectionChanged(action=Reset)` MUST be raised.

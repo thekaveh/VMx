@@ -31,8 +31,9 @@ public sealed class ReadonlyComponentVM<M> : ComponentVMBase, IReadonlyComponent
         IMessageHub hub,
         IDispatcher dispatcher,
         Action? onConstruct,
-        Action? onDestruct)
-        : base(name, hint, hub, dispatcher, onConstruct, onDestruct)
+        Action? onDestruct,
+        bool background)
+        : base(name, hint, hub, dispatcher, onConstruct, onDestruct, background)
     {
         Model = model;
         ModeledHint = modeledHinter(model);
@@ -51,6 +52,7 @@ public sealed class ReadonlyComponentVM<M> : ComponentVMBase, IReadonlyComponent
         IMessageHub hub,
         IDispatcher dispatcher,
         Action? onConstruct,
-        Action? onDestruct)
-        => new(name, hint, model, modeledHinter, hub, dispatcher, onConstruct, onDestruct);
+        Action? onDestruct,
+        bool background)
+        => new(name, hint, model, modeledHinter, hub, dispatcher, onConstruct, onDestruct, background);
 }

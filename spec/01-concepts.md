@@ -26,9 +26,8 @@ canonical decision documented in ADR-0018:
 ### 1.0 Cross-language naming
 
 The five active flavors share the same conceptual contracts and complete
-conformance catalog; accepted language adaptations and Rust's tracked
-source-surface convergence backlog mean that catalog completeness is not a
-claim of member-for-member API identity. Identifier casing follows the
+conformance catalog; accepted language adaptations mean that catalog
+completeness is not a claim of member-for-member API identity. Identifier casing follows the
 per-language idiom defined by ADR-0006. The same logical type appears under the
 following names:
 
@@ -41,13 +40,13 @@ following names:
 | Null hub singleton | `NullMessageHub.Instance` | `NULL_MESSAGE_HUB` | `NullMessageHub.INSTANCE` | `NullMessageHub.INSTANCE` | `NullMessageHub::hub()` |
 
 C# uses PascalCase, Python and Rust methods use snake_case, TypeScript and Swift use
-camelCase. The single substantive divergence is that C# names the modeled
-variant with a generic-parameter suffix on the same identifier
-(`ComponentVM<M>`), while Python, TypeScript, and Swift expose a separate
+camelCase. C# and Rust retain the same public type name for modeled and
+unmodeled components (`ComponentVM<M>` / `ComponentVm<M>`), while Python,
+TypeScript, and Swift expose a separate
 `ComponentVMOf` type because their generics syntax cannot overload an
 unparameterised name. Throughout this spec, statements about
-`ComponentVM<M>` apply equally to `ComponentVMOf[M]` and
-`ComponentVMOf<M>` unless explicitly called out. The Swift flavor reached
+`ComponentVM<M>` apply equally to `ComponentVMOf[M]`, `ComponentVMOf<M>`, and
+`ComponentVm<M>` unless explicitly called out. The Swift flavor reached
 full library parity in v3.1.0; see
 [`langs/swift/README.md` §5](../langs/swift/README.md) for the current
 conformance matrix and documented Swift-specific divergences.

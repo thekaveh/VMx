@@ -6,7 +6,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 use vmx::{
     AsyncResourceRetention, AsyncResourceState, AsyncResourceStatus, AsyncResourceVm, Command,
-    VmxError, VmxResult,
+    CompositeVm, ConstructionStatus, ManualDispatcher, Message, MessageHub, NullDispatcher,
+    TreeNode, VmNode, VmxError, VmxResult,
 };
 
 type ResultChannel = (Sender<VmxResult<i32>>, Receiver<VmxResult<i32>>);
@@ -91,13 +92,99 @@ fn async_resource_success_notifies_loading_and_ready() {
     assert!(!vm.cancel_command().can_execute());
 }
 
+#[test]
+fn async_resource_is_an_ordinary_component_with_injected_services() {
+    fn assert_component_contract<T: VmNode + TreeNode>() {}
+    assert_component_contract::<AsyncResourceVm<i32>>();
+
+    let hub = MessageHub::new();
+    let vm =
+        AsyncResourceVm::with_services("resource", hub.clone(), NullDispatcher::new(), |_| Ok(42));
+
+    assert_eq!(vm.name(), "resource");
+    assert_eq!(vm.status(), ConstructionStatus::Destructed);
+    assert_eq!(vm.resource_status(), AsyncResourceStatus::Idle);
+    vm.construct().unwrap();
+    vm.load_async().join().unwrap().unwrap();
+
+    let state_changes = hub
+        .history()
+        .into_iter()
+        .filter(|message| {
+            matches!(
+                message,
+                Message::PropertyChanged(change)
+                    if change.sender_id == vm.id() && change.property_name == "state"
+            )
+        })
+        .count();
+    assert_eq!(state_changes, 2);
+
+    let parent = CompositeVm::<AsyncResourceVm<i32>>::new("parent");
+    parent.add(vm.clone()).unwrap();
+    assert_eq!(vm.parent_id(), Some(parent.id()));
+    parent.select_component(&vm).unwrap();
+    assert!(vm.is_current());
+    assert_eq!(parent.current(), Some(vm.clone()));
+
+    let successor = CompositeVm::<AsyncResourceVm<i32>>::new("successor");
+    successor.add(vm.clone()).unwrap();
+    assert!(parent.is_empty());
+    assert_eq!(vm.parent_id(), Some(successor.id()));
+    assert_eq!(successor.current(), None);
+    assert!(!vm.is_current());
+}
+
+#[test]
+fn async_resource_honors_component_dispatch_and_lifecycle_independence() {
+    let hub = MessageHub::new();
+    let dispatcher = ManualDispatcher::new();
+    let starts = Arc::new(AtomicUsize::new(0));
+    let observed_starts = starts.clone();
+    let vm =
+        AsyncResourceVm::with_services("resource", hub.clone(), dispatcher.clone(), move |_| {
+            observed_starts.fetch_add(1, Ordering::SeqCst);
+            Ok(1)
+        });
+
+    vm.construct().unwrap();
+    assert_eq!(vm.status(), ConstructionStatus::Constructed);
+    assert_eq!(vm.resource_status(), AsyncResourceStatus::Idle);
+    assert_eq!(starts.load(Ordering::SeqCst), 0);
+    assert_eq!(dispatcher.queued_len(), 0);
+
+    dispatcher.drain();
+    vm.destruct().unwrap();
+    assert_eq!(vm.status(), ConstructionStatus::Destructed);
+    assert_eq!(vm.resource_status(), AsyncResourceStatus::Idle);
+    assert_eq!(starts.load(Ordering::SeqCst), 0);
+    dispatcher.drain();
+    let statuses = hub
+        .history()
+        .into_iter()
+        .filter_map(|message| match message {
+            Message::ConstructionStatusChanged(change) => Some(change.status),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        statuses,
+        vec![
+            ConstructionStatus::Constructing,
+            ConstructionStatus::Constructed,
+            ConstructionStatus::Destructing,
+            ConstructionStatus::Destructed,
+        ]
+    );
+}
+
 /// ARES-003 — Loader failure is error state, not command failure
 #[test]
 fn async_resource_failure_becomes_state() {
     let vm: AsyncResourceVm<i32> =
         AsyncResourceVm::new("resource", |_| Err(VmxError::Other("offline".into())));
     vm.load_async().join().unwrap().unwrap();
-    assert_eq!(vm.status(), AsyncResourceStatus::Error);
+    assert_eq!(vm.resource_status(), AsyncResourceStatus::Error);
     assert!(matches!(
         vm.state(),
         AsyncResourceState::Error { previous: None, .. }
@@ -289,7 +376,7 @@ fn async_resource_latest_start_wins() {
     older.join().unwrap().unwrap();
     send1.send(Ok(1)).unwrap();
     thread::sleep(Duration::from_millis(5));
-    assert_eq!(vm.status(), AsyncResourceStatus::Loading);
+    assert_eq!(vm.resource_status(), AsyncResourceStatus::Loading);
     send2.send(Ok(2)).unwrap();
     newer.join().unwrap().unwrap();
     assert_eq!(vm.state(), AsyncResourceState::Ready { value: 2 });
@@ -346,6 +433,121 @@ fn async_resource_replacement_and_dispose_cleanup_once() {
     vm.dispose().unwrap();
     vm.dispose().unwrap();
     assert_eq!(*cleaned.lock().unwrap(), vec![1, 2]);
+}
+
+#[test]
+fn async_resource_cleanup_observes_the_terminal_component_boundary() {
+    let holder = Arc::new(Mutex::new(None::<AsyncResourceVm<i32>>));
+    let observed_status = Arc::new(Mutex::new(None));
+    let construct_rejected = Arc::new(AtomicBool::new(false));
+    let cleanup_holder = holder.clone();
+    let cleanup_status = observed_status.clone();
+    let cleanup_rejected = construct_rejected.clone();
+    let vm = AsyncResourceVm::with_options(
+        "resource",
+        |_| Ok(7),
+        AsyncResourceRetention::DiscardPrevious,
+        Some(Arc::new(move |_| {
+            let vm = cleanup_holder.lock().unwrap().clone().unwrap();
+            *cleanup_status.lock().unwrap() = Some(vm.status());
+            cleanup_rejected.store(vm.construct().is_err(), Ordering::SeqCst);
+        })),
+    );
+    *holder.lock().unwrap() = Some(vm.clone());
+    vm.load_async().join().unwrap().unwrap();
+
+    vm.dispose().unwrap();
+
+    assert_eq!(vm.status(), ConstructionStatus::Disposed);
+    assert_eq!(
+        *observed_status.lock().unwrap(),
+        Some(ConstructionStatus::Disposed)
+    );
+    assert!(construct_rejected.load(Ordering::SeqCst));
+    assert!(!vm.hub().history().into_iter().any(|message| matches!(
+        message,
+        Message::ConstructionStatusChanged(change)
+            if change.status == ConstructionStatus::Constructing
+    )));
+}
+
+#[test]
+fn repeated_async_resource_dispose_returns_after_terminal_admission() {
+    let (entered_send, entered_receive) = mpsc::channel();
+    let (release_send, release_receive) = mpsc::channel();
+    let release_receive = Arc::new(Mutex::new(release_receive));
+    let cleanup_release = release_receive.clone();
+    let vm = AsyncResourceVm::with_options(
+        "resource",
+        |_| Ok(7),
+        AsyncResourceRetention::DiscardPrevious,
+        Some(Arc::new(move |_| {
+            entered_send.send(()).unwrap();
+            cleanup_release.lock().unwrap().recv().unwrap();
+        })),
+    );
+    vm.load_async().join().unwrap().unwrap();
+
+    let first_vm = vm.clone();
+    let first = thread::spawn(move || first_vm.dispose());
+    entered_receive
+        .recv_timeout(Duration::from_secs(1))
+        .expect("the first disposer must reach resource cleanup");
+
+    vm.dispose().unwrap();
+    assert_eq!(vm.status(), ConstructionStatus::Disposed);
+
+    release_send.send(()).unwrap();
+    first.join().unwrap().unwrap();
+}
+
+#[test]
+fn resource_command_teardown_cannot_reopen_component_lifecycle() {
+    let vm = AsyncResourceVm::new("resource", |_| Ok::<_, VmxError>(7));
+    let callback_vm = vm.clone();
+    let construct_rejected = Arc::new(AtomicBool::new(false));
+    let callback_rejected = construct_rejected.clone();
+    let _subscription = vm
+        .cancel_command()
+        .can_execute_changed()
+        .subscribe(move |_| {
+            callback_rejected.store(callback_vm.construct().is_err(), Ordering::SeqCst);
+        });
+
+    vm.dispose().unwrap();
+
+    assert_eq!(vm.status(), ConstructionStatus::Disposed);
+    assert!(construct_rejected.load(Ordering::SeqCst));
+}
+
+#[test]
+fn disposal_admission_snapshots_the_consumer_hook_before_command_teardown() {
+    let vm = AsyncResourceVm::new("resource", |_| Ok::<_, VmxError>(7));
+    let original_calls = Arc::new(AtomicUsize::new(0));
+    let original_observed = Arc::clone(&original_calls);
+    vm.on_dispose(move || {
+        original_observed.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    });
+
+    let replacement_calls = Arc::new(AtomicUsize::new(0));
+    let replacement_observed = Arc::clone(&replacement_calls);
+    let callback_vm = vm.clone();
+    let _subscription = vm
+        .cancel_command()
+        .can_execute_changed()
+        .subscribe(move |_| {
+            let replacement_observed = Arc::clone(&replacement_observed);
+            callback_vm.on_dispose(move || {
+                replacement_observed.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            });
+        });
+
+    vm.dispose().unwrap();
+
+    assert_eq!(original_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(replacement_calls.load(Ordering::SeqCst), 0);
 }
 
 /// ARES-011 — Dispose cancels and late work is inert

@@ -3,9 +3,10 @@
 //! Spec: `spec/05-component-vm.md`.
 
 use super::{
-    fmt, lock, Arc, ComponentCore, ConstructionStatus, Dispatcher, LifecycleOperation, Message,
-    MessageHub, ModelHint, Mutex, NullDispatcher, ParentHandle, PropertyChangedStream,
-    RelayCommand, Subscription, TreeNode, VmNode, VmxError, VmxResult,
+    catch_unwind, fmt, lock, resume_unwind, Arc, AssertUnwindSafe, ComponentCore,
+    ConstructionStatus, Dispatcher, LifecycleOperation, Message, MessageHub, ModelHint, Mutex,
+    NullDispatcher, ParentHandle, PropertyChangedStream, RelayCommand, Subscription, TreeNode,
+    VmNode, VmxError, VmxResult,
 };
 
 /// Identifies the role a view model plays in the VM hierarchy.
@@ -165,12 +166,7 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
         let core = ComponentCore::new(name, hub, dispatcher);
         let command_core = core.clone();
         let commands = ComponentCommands::new(&core, move || {
-            if command_core
-                .transition(LifecycleOperation::Destruct)
-                .is_ok()
-            {
-                let _ = command_core.transition(LifecycleOperation::Construct);
-            }
+            let _ = command_core.reconstruct();
         });
         Self {
             core,
@@ -226,6 +222,11 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
     /// Returns the local property-change stream.
     pub fn property_changed(&self) -> PropertyChangedStream {
         self.core.property_changed_stream()
+    }
+
+    /// Returns the hot error stream for fire-and-forget background lifecycle hooks.
+    pub fn background_errors(&self) -> crate::LifecycleErrorStream {
+        self.core.background_errors()
     }
 
     /// Returns the component's injected message hub.
@@ -323,15 +324,19 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
                 operation: "reconstruct",
             });
         }
-        self.destruct()?;
-        self.construct()
+        self.core.reconstruct()
     }
 
     /// Transitions the component to its terminal disposed state.
     pub fn dispose(&self) -> VmxResult<()> {
-        let result = self.core.transition(LifecycleOperation::Dispose);
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            self.core.transition(LifecycleOperation::Dispose)
+        }));
         self.commands.dispose();
-        result
+        match result {
+            Ok(result) => result,
+            Err(payload) => resume_unwind(payload),
+        }
     }
 
     /// Returns the current lifecycle status.
@@ -562,6 +567,11 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ReadonlyComponentVm<M
         self.inner.property_changed()
     }
 
+    /// Returns the hot error stream for fire-and-forget background lifecycle hooks.
+    pub fn background_errors(&self) -> crate::LifecycleErrorStream {
+        self.inner.background_errors()
+    }
+
     /// Returns the component's injected message hub.
     pub fn hub(&self) -> MessageHub {
         self.inner.hub()
@@ -787,6 +797,8 @@ impl<M: Clone + Send + 'static, D: Dispatcher> fmt::Debug for ReadonlyComponentV
     }
 }
 
+type BuilderLifecycleHook = Arc<Mutex<dyn FnMut() -> VmxResult<()> + Send + 'static>>;
+
 #[derive(Clone)]
 /// A fluent builder for modeled [`ComponentVm`] instances.
 pub struct ComponentVmBuilder<M: Clone + PartialEq + Send + 'static, D: Dispatcher = NullDispatcher>
@@ -796,6 +808,9 @@ pub struct ComponentVmBuilder<M: Clone + PartialEq + Send + 'static, D: Dispatch
     model: Option<M>,
     hub: Option<MessageHub>,
     dispatcher: Option<D>,
+    background: bool,
+    on_construct: Option<BuilderLifecycleHook>,
+    on_destruct: Option<BuilderLifecycleHook>,
     model_hint: Option<ModelHint<M>>,
     view_model_type: ViewModelType,
 }
@@ -808,6 +823,9 @@ impl<M: Clone + PartialEq + Send + 'static> Default for ComponentVmBuilder<M, Nu
             model: None,
             hub: None,
             dispatcher: None,
+            background: false,
+            on_construct: None,
+            on_destruct: None,
             model_hint: None,
             view_model_type: ViewModelType::Component,
         }
@@ -840,9 +858,46 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVmBuilder<M,
     }
 
     /// Supplies the required message hub and dispatcher.
-    pub fn services(mut self, hub: MessageHub, dispatcher: D) -> Self {
-        self.hub = Some(hub);
-        self.dispatcher = Some(dispatcher);
+    pub fn services<D2: Dispatcher>(
+        self,
+        hub: MessageHub,
+        dispatcher: D2,
+    ) -> ComponentVmBuilder<M, D2> {
+        ComponentVmBuilder {
+            name: self.name,
+            hint: self.hint,
+            model: self.model,
+            hub: Some(hub),
+            dispatcher: Some(dispatcher),
+            background: self.background,
+            on_construct: self.on_construct,
+            on_destruct: self.on_destruct,
+            model_hint: self.model_hint,
+            view_model_type: self.view_model_type,
+        }
+    }
+
+    /// Enables background construct/destruct work (disabled by default).
+    pub fn background(mut self, background: bool) -> Self {
+        self.background = background;
+        self
+    }
+
+    /// Sets the construction lifecycle callback.
+    pub fn on_construct<F>(mut self, hook: F) -> Self
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        self.on_construct = Some(Arc::new(Mutex::new(hook)));
+        self
+    }
+
+    /// Sets the destruction lifecycle callback.
+    pub fn on_destruct<F>(mut self, hook: F) -> Self
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        self.on_destruct = Some(Arc::new(Mutex::new(hook)));
         self
     }
 
@@ -870,6 +925,13 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVmBuilder<M,
             .dispatcher
             .ok_or_else(|| VmxError::BuilderValidation("dispatcher is required".to_string()))?;
         let mut vm = ComponentVm::with_model(name, model, hub, dispatcher);
+        vm.core.set_background(self.background);
+        if let Some(hook) = self.on_construct {
+            vm.core.set_hook(LifecycleOperation::Construct, hook);
+        }
+        if let Some(hook) = self.on_destruct {
+            vm.core.set_hook(LifecycleOperation::Destruct, hook);
+        }
         vm.view_model_type = self.view_model_type;
         if let Some(hint) = self.hint {
             vm.core.set_hint(Some(hint));
@@ -902,8 +964,113 @@ impl<M: Clone + PartialEq + Send + 'static> ComponentVm<M, NullDispatcher> {
         }
         builder
             .view_model_type(options.view_model_type)
+            .background(options.background)
             .services(options.hub, options.dispatcher)
             .build()
+    }
+}
+
+#[derive(Clone)]
+/// A fluent builder for modeled [`ReadonlyComponentVm`] instances.
+pub struct ReadonlyComponentVmBuilder<
+    M: Clone + PartialEq + Send + 'static,
+    D: Dispatcher = NullDispatcher,
+> {
+    inner: ComponentVmBuilder<M, D>,
+}
+
+impl<M: Clone + PartialEq + Send + 'static> Default
+    for ReadonlyComponentVmBuilder<M, NullDispatcher>
+{
+    fn default() -> Self {
+        Self {
+            inner: ComponentVmBuilder::default().view_model_type(ViewModelType::ReadOnlyComponent),
+        }
+    }
+}
+
+impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ReadonlyComponentVmBuilder<M, D> {
+    /// Sets the required component name.
+    pub fn name(self, name: impl Into<String>) -> Self {
+        Self {
+            inner: self.inner.name(name),
+        }
+    }
+
+    /// Sets the optional static presentation hint.
+    pub fn hint(self, hint: impl Into<String>) -> Self {
+        Self {
+            inner: self.inner.hint(hint),
+        }
+    }
+
+    /// Sets the required immutable model.
+    pub fn model(self, model: M) -> Self {
+        Self {
+            inner: self.inner.model(model),
+        }
+    }
+
+    /// Enables background construct/destruct work (disabled by default).
+    pub fn background(self, background: bool) -> Self {
+        Self {
+            inner: self.inner.background(background),
+        }
+    }
+
+    /// Sets the construction lifecycle callback.
+    pub fn on_construct<F>(self, hook: F) -> Self
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        Self {
+            inner: self.inner.on_construct(hook),
+        }
+    }
+
+    /// Sets the destruction lifecycle callback.
+    pub fn on_destruct<F>(self, hook: F) -> Self
+    where
+        F: FnMut() -> VmxResult<()> + Send + 'static,
+    {
+        Self {
+            inner: self.inner.on_destruct(hook),
+        }
+    }
+
+    /// Supplies an optional model-derived presentation hint.
+    pub fn model_hint<F>(self, hint: F) -> Self
+    where
+        F: Fn(&M) -> Option<String> + Send + Sync + 'static,
+    {
+        Self {
+            inner: self.inner.model_hint(hint),
+        }
+    }
+
+    /// Supplies the required message hub and dispatcher.
+    pub fn services<D2: Dispatcher>(
+        self,
+        hub: MessageHub,
+        dispatcher: D2,
+    ) -> ReadonlyComponentVmBuilder<M, D2> {
+        ReadonlyComponentVmBuilder {
+            inner: self.inner.services(hub, dispatcher),
+        }
+    }
+
+    /// Validates required fields and creates a read-only component.
+    pub fn build(self) -> VmxResult<ReadonlyComponentVm<M, D>> {
+        Ok(ReadonlyComponentVm {
+            inner: self.inner.build()?,
+        })
+    }
+}
+
+impl<M: Clone + PartialEq + Send + 'static> ReadonlyComponentVm<M, NullDispatcher> {
+    /// Returns a read-only modeled-component builder configured for null dispatch.
+    pub fn builder() -> ReadonlyComponentVmBuilder<M, NullDispatcher> {
+        ReadonlyComponentVmBuilder::default()
     }
 }
 
@@ -917,6 +1084,8 @@ pub struct ComponentVmOptions<M: Clone + PartialEq + Send + 'static> {
     pub model: Option<M>,
     /// Immutable role discriminator returned by the created component.
     pub view_model_type: ViewModelType,
+    /// Whether construct/destruct hooks run through the background dispatcher.
+    pub background: bool,
     /// Message hub injected into the component.
     pub hub: MessageHub,
     /// Dispatcher used for foreground scheduling.

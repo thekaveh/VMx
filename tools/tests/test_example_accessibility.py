@@ -76,3 +76,14 @@ def test_react_composite_widgets_have_semantic_keyboard_regressions_in_ci() -> N
     assert "axe.run" in test
     assert "React semantic and keyboard accessibility" in workflow
     assert "npm test --prefix examples/typescript/react/notes-showcase" in workflow
+
+
+def test_examples_contract_builds_local_vmx_before_installing_react_showcase() -> None:
+    workflow = (REPO_ROOT / ".github/workflows/examples-contract-checks.yml").read_text(
+        encoding="utf-8"
+    )
+
+    build = workflow.index("npm run build --prefix langs/typescript")
+    install = workflow.index("npm ci --prefix examples/typescript/react/notes-showcase")
+
+    assert build < install

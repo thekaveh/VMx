@@ -3,11 +3,12 @@
 //! Spec: `spec/08-aggregate-vm.md`; ADR-0013 and ADR-0094.
 
 use super::{
-    begin_membership_transaction, begin_ownership_claim, finish_with_first_error, lock,
-    retain_first_error, Arc, AtomicBool, ComponentCore, ConstructionStatus, Dispatcher, HashSet,
-    LifecycleOperation, MembershipDisposeDisposition, MembershipTransactionControl, MessageHub,
-    Mutex, NullDispatcher, OnceLock, Ordering, OwnershipClaim, ParentHandle, ParentRegistration,
-    PropertyChangedStream, RelayCommand, ViewModelType, VmNode, VmxError, VmxResult,
+    begin_membership_transaction, begin_ownership_claim, finish_with_first_error,
+    finish_with_first_failure, lock, retain_first_error, retain_first_failure, Arc, AtomicBool,
+    ComponentCore, ConstructionStatus, Dispatcher, FirstFailure, HashSet, LifecycleOperation,
+    MembershipDisposeDisposition, MembershipTransactionControl, MessageHub, Mutex, NullDispatcher,
+    OnceLock, Ordering, OwnershipClaim, ParentHandle, ParentRegistration, PropertyChangedStream,
+    RelayCommand, ViewModelType, VmNode, VmxError, VmxResult,
 };
 use crate::components::ComponentCommands;
 
@@ -48,11 +49,11 @@ impl<T: VmNode> AggregateVm<T> {
 
     /// Disposes every aggregate component while preserving the first failure.
     pub fn dispose(&self) -> VmxResult<()> {
-        let mut first_error = None;
+        let mut first_failure = None;
         for member in &self.members {
-            retain_first_error(&mut first_error, member.dispose());
+            retain_first_failure(&mut first_failure, || member.dispose());
         }
-        finish_with_first_error(first_error)
+        finish_with_first_failure(first_failure)
     }
 }
 
@@ -231,8 +232,8 @@ fn attach_fixed_aggregate_child<T: VmNode>(child: &T, parent: &ParentHandle) {
     child.set_parent_handle(Some(parent.clone()));
 }
 
-fn dispose_fixed_aggregate_child<T: VmNode>(child: &T, first_error: &mut Option<VmxError>) {
-    retain_first_error(first_error, child.dispose());
+fn dispose_fixed_aggregate_child<T: VmNode>(child: &T, first: &mut Option<FirstFailure>) {
+    retain_first_failure(first, || child.dispose());
     child.set_parent_handle(None);
 }
 
@@ -432,19 +433,18 @@ impl<T1: VmNode, D: Dispatcher> AggregateVm1<T1, D> {
         if !self.ownership.begin_dispose(move || deferred.dispose()) {
             return Ok(());
         }
-        let mut first_error = None;
+        let mut first_failure = None;
         if let Some(component1) = self.component_1() {
-            dispose_fixed_aggregate_child(&component1, &mut first_error);
+            dispose_fixed_aggregate_child(&component1, &mut first_failure);
         }
         self.ownership.replace_ids(HashSet::new());
-        retain_first_error(
-            &mut first_error,
-            self.core.transition(LifecycleOperation::Dispose),
-        );
+        retain_first_failure(&mut first_failure, || {
+            self.core.transition(LifecycleOperation::Dispose)
+        });
         if let Some(commands) = self.commands.get() {
             commands.dispose();
         }
-        finish_with_first_error(first_error)
+        finish_with_first_failure(first_failure)
     }
 
     /// Returns the aggregate lifecycle status.
@@ -799,22 +799,21 @@ impl<T1: VmNode, T2: VmNode, D: Dispatcher> AggregateVm2<T1, T2, D> {
         if !self.ownership.begin_dispose(move || deferred.dispose()) {
             return Ok(());
         }
-        let mut first_error = None;
+        let mut first_failure = None;
         if let Some(component1) = self.component_1() {
-            dispose_fixed_aggregate_child(&component1, &mut first_error);
+            dispose_fixed_aggregate_child(&component1, &mut first_failure);
         }
         if let Some(component2) = self.component_2() {
-            dispose_fixed_aggregate_child(&component2, &mut first_error);
+            dispose_fixed_aggregate_child(&component2, &mut first_failure);
         }
         self.ownership.replace_ids(HashSet::new());
-        retain_first_error(
-            &mut first_error,
-            self.core.transition(LifecycleOperation::Dispose),
-        );
+        retain_first_failure(&mut first_failure, || {
+            self.core.transition(LifecycleOperation::Dispose)
+        });
         if let Some(commands) = self.commands.get() {
             commands.dispose();
         }
-        finish_with_first_error(first_error)
+        finish_with_first_failure(first_failure)
     }
 
     /// Returns the aggregate lifecycle status.
@@ -1147,25 +1146,24 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, D: Dispatcher> AggregateVm3<T1, T2, T3,
         if !self.ownership.begin_dispose(move || deferred.dispose()) {
             return Ok(());
         }
-        let mut first_error = None;
+        let mut first_failure = None;
         if let Some(component1) = self.component_1() {
-            dispose_fixed_aggregate_child(&component1, &mut first_error);
+            dispose_fixed_aggregate_child(&component1, &mut first_failure);
         }
         if let Some(component2) = self.component_2() {
-            dispose_fixed_aggregate_child(&component2, &mut first_error);
+            dispose_fixed_aggregate_child(&component2, &mut first_failure);
         }
         if let Some(component3) = self.component_3() {
-            dispose_fixed_aggregate_child(&component3, &mut first_error);
+            dispose_fixed_aggregate_child(&component3, &mut first_failure);
         }
         self.ownership.replace_ids(HashSet::new());
-        retain_first_error(
-            &mut first_error,
-            self.core.transition(LifecycleOperation::Dispose),
-        );
+        retain_first_failure(&mut first_failure, || {
+            self.core.transition(LifecycleOperation::Dispose)
+        });
         if let Some(commands) = self.commands.get() {
             commands.dispose();
         }
-        finish_with_first_error(first_error)
+        finish_with_first_failure(first_failure)
     }
 
     /// Returns the aggregate lifecycle status.
@@ -1500,28 +1498,27 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, D: Dispatcher>
         if !self.ownership.begin_dispose(move || deferred.dispose()) {
             return Ok(());
         }
-        let mut first_error = None;
+        let mut first_failure = None;
         if let Some(component1) = self.component_1() {
-            dispose_fixed_aggregate_child(&component1, &mut first_error);
+            dispose_fixed_aggregate_child(&component1, &mut first_failure);
         }
         if let Some(component2) = self.component_2() {
-            dispose_fixed_aggregate_child(&component2, &mut first_error);
+            dispose_fixed_aggregate_child(&component2, &mut first_failure);
         }
         if let Some(component3) = self.component_3() {
-            dispose_fixed_aggregate_child(&component3, &mut first_error);
+            dispose_fixed_aggregate_child(&component3, &mut first_failure);
         }
         if let Some(component4) = self.component_4() {
-            dispose_fixed_aggregate_child(&component4, &mut first_error);
+            dispose_fixed_aggregate_child(&component4, &mut first_failure);
         }
         self.ownership.replace_ids(HashSet::new());
-        retain_first_error(
-            &mut first_error,
-            self.core.transition(LifecycleOperation::Dispose),
-        );
+        retain_first_failure(&mut first_failure, || {
+            self.core.transition(LifecycleOperation::Dispose)
+        });
         if let Some(commands) = self.commands.get() {
             commands.dispose();
         }
-        finish_with_first_error(first_error)
+        finish_with_first_failure(first_failure)
     }
 
     /// Returns the aggregate lifecycle status.
@@ -1900,31 +1897,30 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, D: Dispatcher>
         if !self.ownership.begin_dispose(move || deferred.dispose()) {
             return Ok(());
         }
-        let mut first_error = None;
+        let mut first_failure = None;
         if let Some(component1) = self.component_1() {
-            dispose_fixed_aggregate_child(&component1, &mut first_error);
+            dispose_fixed_aggregate_child(&component1, &mut first_failure);
         }
         if let Some(component2) = self.component_2() {
-            dispose_fixed_aggregate_child(&component2, &mut first_error);
+            dispose_fixed_aggregate_child(&component2, &mut first_failure);
         }
         if let Some(component3) = self.component_3() {
-            dispose_fixed_aggregate_child(&component3, &mut first_error);
+            dispose_fixed_aggregate_child(&component3, &mut first_failure);
         }
         if let Some(component4) = self.component_4() {
-            dispose_fixed_aggregate_child(&component4, &mut first_error);
+            dispose_fixed_aggregate_child(&component4, &mut first_failure);
         }
         if let Some(component5) = self.component_5() {
-            dispose_fixed_aggregate_child(&component5, &mut first_error);
+            dispose_fixed_aggregate_child(&component5, &mut first_failure);
         }
         self.ownership.replace_ids(HashSet::new());
-        retain_first_error(
-            &mut first_error,
-            self.core.transition(LifecycleOperation::Dispose),
-        );
+        retain_first_failure(&mut first_failure, || {
+            self.core.transition(LifecycleOperation::Dispose)
+        });
         if let Some(commands) = self.commands.get() {
             commands.dispose();
         }
-        finish_with_first_error(first_error)
+        finish_with_first_failure(first_failure)
     }
 
     /// Returns the aggregate lifecycle status.
@@ -2346,34 +2342,33 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, T6: VmNode, D: 
         if !self.ownership.begin_dispose(move || deferred.dispose()) {
             return Ok(());
         }
-        let mut first_error = None;
+        let mut first_failure = None;
         if let Some(component1) = self.component_1() {
-            dispose_fixed_aggregate_child(&component1, &mut first_error);
+            dispose_fixed_aggregate_child(&component1, &mut first_failure);
         }
         if let Some(component2) = self.component_2() {
-            dispose_fixed_aggregate_child(&component2, &mut first_error);
+            dispose_fixed_aggregate_child(&component2, &mut first_failure);
         }
         if let Some(component3) = self.component_3() {
-            dispose_fixed_aggregate_child(&component3, &mut first_error);
+            dispose_fixed_aggregate_child(&component3, &mut first_failure);
         }
         if let Some(component4) = self.component_4() {
-            dispose_fixed_aggregate_child(&component4, &mut first_error);
+            dispose_fixed_aggregate_child(&component4, &mut first_failure);
         }
         if let Some(component5) = self.component_5() {
-            dispose_fixed_aggregate_child(&component5, &mut first_error);
+            dispose_fixed_aggregate_child(&component5, &mut first_failure);
         }
         if let Some(component6) = self.component_6() {
-            dispose_fixed_aggregate_child(&component6, &mut first_error);
+            dispose_fixed_aggregate_child(&component6, &mut first_failure);
         }
         self.ownership.replace_ids(HashSet::new());
-        retain_first_error(
-            &mut first_error,
-            self.core.transition(LifecycleOperation::Dispose),
-        );
+        retain_first_failure(&mut first_failure, || {
+            self.core.transition(LifecycleOperation::Dispose)
+        });
         if let Some(commands) = self.commands.get() {
             commands.dispose();
         }
-        finish_with_first_error(first_error)
+        finish_with_first_failure(first_failure)
     }
 
     /// Returns the aggregate lifecycle status.

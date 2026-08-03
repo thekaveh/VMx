@@ -9,7 +9,8 @@
     "prestart": "npm run build:vmx",
     "start": "tsx index.ts",
     "pretypecheck": "npm run build:vmx",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "check:deps": "npm ls --all --omit=optional"
   },
   "dependencies": {
     "@thekaveh/vmx": "file:../../../../langs/typescript",
@@ -17,7 +18,7 @@
   },
   "devDependencies": {
     "tsx": "^4.20.6",
-    "typescript": "^5.9.3"
+    "typescript": "^6.0.3"
   },
   "engines": {
     "node": "^20.19.0 || ^22.13.0 || >=24.0.0"

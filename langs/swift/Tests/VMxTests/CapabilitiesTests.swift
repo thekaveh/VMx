@@ -193,6 +193,30 @@ final class CapabilitiesTests: XCTestCase {
         state.dispose()
     }
 
+    /// Disposed expansion state retains its final value and rejects every
+    /// later mutation, matching the other four flavor helpers.
+    func testExpandableStateIsInertAfterDispose() {
+        let state = ExpandableState()
+        var emissions: [Bool] = []
+        var completions = 0
+        var cancellables: Set<AnyCancellable> = []
+        state.isExpandedChanged
+            .sink(
+                receiveCompletion: { _ in completions += 1 },
+                receiveValue: { emissions.append($0) }
+            )
+            .store(in: &cancellables)
+
+        state.dispose()
+        state.expand()
+        state.collapse()
+        state.toggleExpansion()
+
+        XCTAssertFalse(state.isExpanded)
+        XCTAssertEqual(emissions, [])
+        XCTAssertEqual(completions, 1)
+    }
+
     // ── Search / filter / paging — CAP-008, CAP-021, CAP-022 ─────────────────
 
     /// CAP-008 — Searchable contract: `searchTerm` is settable, guard reports
