@@ -1124,8 +1124,13 @@ impl Drop for PropertyChangedSubscription {
 
 /// Schedules VMx foreground work.
 pub trait Dispatcher: Clone + Send + Sync + 'static {
-    /// Schedules `action` according to the dispatcher policy.
+    /// Schedules foreground `action` according to the dispatcher policy.
     fn dispatch(&self, action: Box<dyn FnOnce() + Send>);
+
+    /// Schedules background lifecycle work.
+    fn dispatch_background(&self, action: Box<dyn FnOnce() + Send>) {
+        self.dispatch(action);
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -1162,13 +1167,38 @@ impl Dispatcher for ImmediateDispatcher {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+/// Default paired dispatcher: inline foreground and worker-thread background.
+pub struct DefaultDispatcher;
+
+impl DefaultDispatcher {
+    /// Creates the default paired-channel dispatcher.
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Dispatcher for DefaultDispatcher {
+    fn dispatch(&self, action: Box<dyn FnOnce() + Send>) {
+        action();
+    }
+
+    fn dispatch_background(&self, action: Box<dyn FnOnce() + Send>) {
+        thread::Builder::new()
+            .name("vmx-background".to_string())
+            .spawn(action)
+            .expect("VMx default background dispatcher could not start a worker");
+    }
+}
+
 type DispatchAction = Box<dyn FnOnce() + Send>;
 type DispatchQueue = Arc<Mutex<VecDeque<DispatchAction>>>;
 
 #[derive(Clone, Default)]
 /// Deterministic dispatcher that queues work until explicitly drained.
 pub struct ManualDispatcher {
-    queue: DispatchQueue,
+    foreground: DispatchQueue,
+    background: DispatchQueue,
 }
 
 impl ManualDispatcher {
@@ -1180,23 +1210,59 @@ impl ManualDispatcher {
     /// Runs queued actions in FIFO order until the queue is empty.
     pub fn drain(&self) {
         loop {
-            let action = lock(&self.queue).pop_front();
-            match action {
-                Some(action) => action(),
-                None => break,
+            let background = lock(&self.background).pop_front();
+            let foreground = lock(&self.foreground).pop_front();
+            match (background, foreground) {
+                (None, None) => break,
+                (background, foreground) => {
+                    if let Some(action) = background {
+                        action();
+                    }
+                    if let Some(action) = foreground {
+                        action();
+                    }
+                }
             }
+        }
+    }
+
+    /// Runs queued foreground actions in FIFO order.
+    pub fn drain_foreground(&self) {
+        while let Some(action) = lock(&self.foreground).pop_front() {
+            action();
+        }
+    }
+
+    /// Runs queued background actions in FIFO order.
+    pub fn drain_background(&self) {
+        while let Some(action) = lock(&self.background).pop_front() {
+            action();
         }
     }
 
     /// Returns the number of actions currently queued.
     pub fn queued_len(&self) -> usize {
-        lock(&self.queue).len()
+        lock(&self.foreground).len() + lock(&self.background).len()
+    }
+
+    /// Returns the queued foreground action count.
+    pub fn foreground_queued_len(&self) -> usize {
+        lock(&self.foreground).len()
+    }
+
+    /// Returns the queued background action count.
+    pub fn background_queued_len(&self) -> usize {
+        lock(&self.background).len()
     }
 }
 
 impl Dispatcher for ManualDispatcher {
     fn dispatch(&self, action: Box<dyn FnOnce() + Send>) {
-        lock(&self.queue).push_back(action);
+        lock(&self.foreground).push_back(action);
+    }
+
+    fn dispatch_background(&self, action: Box<dyn FnOnce() + Send>) {
+        lock(&self.background).push_back(action);
     }
 }
 
@@ -1570,6 +1636,7 @@ struct ComponentCoreInner<D: Dispatcher> {
     hub: MessageHub,
     property_changed: PropertyChangedStream,
     foreground: D,
+    background: bool,
     on_construct: Option<Hook>,
     on_destruct: Option<Hook>,
     on_dispose: Option<Hook>,
@@ -1595,6 +1662,7 @@ impl<D: Dispatcher> ComponentCore<D> {
                 hub,
                 property_changed: PropertyChangedStream::default(),
                 foreground: dispatcher,
+                background: false,
                 on_construct: None,
                 on_destruct: None,
                 on_dispose: None,
@@ -1624,6 +1692,10 @@ impl<D: Dispatcher> ComponentCore<D> {
         lock(&self.inner).hint = hint;
     }
 
+    pub(crate) fn set_background(&self, background: bool) {
+        lock(&self.inner).background = background;
+    }
+
     pub(crate) fn status(&self) -> ConstructionStatus {
         lock(&self.inner).status
     }
@@ -1638,7 +1710,318 @@ impl<D: Dispatcher> ComponentCore<D> {
     }
 
     pub(crate) fn transition(&self, operation: LifecycleOperation) -> VmxResult<()> {
+        if operation != LifecycleOperation::Dispose && lock(&self.inner).background {
+            return self.transition_background(operation);
+        }
         self.transition_with(operation, || Ok(()))
+    }
+
+    pub(crate) fn reconstruct(&self) -> VmxResult<()> {
+        if lock(&self.inner).background {
+            return self.reconstruct_background();
+        }
+        self.transition(LifecycleOperation::Destruct)?;
+        self.transition(LifecycleOperation::Construct)
+    }
+
+    fn run_background_hook(&self, hook: Option<Hook>, generation: u64) -> Option<VmxResult<()>> {
+        {
+            let mut inner = lock(&self.inner);
+            if inner.transition_generation != generation
+                || inner.status == ConstructionStatus::Disposed
+            {
+                return None;
+            }
+            inner.active_hook_owner = Some(thread::current().id());
+        }
+        let execution = catch_unwind(AssertUnwindSafe(|| {
+            hook.map(|hook| (lock(&hook))()).unwrap_or(Ok(()))
+        }));
+        let deferred = {
+            let mut inner = lock(&self.inner);
+            if inner.active_hook_owner == Some(thread::current().id()) {
+                inner.active_hook_owner = None;
+            }
+            let deferred = inner.deferred_core_disposal;
+            inner.deferred_core_disposal = false;
+            self.hook_ready.notify_all();
+            deferred
+        };
+        if deferred {
+            let _ = self.finish_deferred_core_disposal();
+        }
+        let inner = lock(&self.inner);
+        if inner.transition_generation != generation || inner.status == ConstructionStatus::Disposed
+        {
+            return None;
+        }
+        drop(inner);
+        Some(match execution {
+            Ok(result) => result,
+            Err(_) => Err(VmxError::Other(
+                "background lifecycle hook panicked".to_string(),
+            )),
+        })
+    }
+
+    fn transition_background(&self, operation: LifecycleOperation) -> VmxResult<()> {
+        let hub = lock(&self.inner).hub.clone();
+        let started = hub.send_prepared(|| {
+            let mut inner = lock(&self.inner);
+            match (inner.status, operation) {
+                (ConstructionStatus::Disposed, _) => return (Err(VmxError::Disposed), None),
+                (ConstructionStatus::Constructed, LifecycleOperation::Construct)
+                | (ConstructionStatus::Destructed, LifecycleOperation::Destruct) => {
+                    return (Ok(None), None)
+                }
+                _ => {}
+            }
+            if inner.transitioning {
+                return (Err(VmxError::ConcurrentOperation), None);
+            }
+            let transition_status = match operation {
+                LifecycleOperation::Construct => ConstructionStatus::Constructing,
+                LifecycleOperation::Destruct => ConstructionStatus::Destructing,
+                LifecycleOperation::Dispose => unreachable!(),
+            };
+            let target = match operation {
+                LifecycleOperation::Construct => ConstructionStatus::Constructed,
+                LifecycleOperation::Destruct => ConstructionStatus::Destructed,
+                LifecycleOperation::Dispose => unreachable!(),
+            };
+            inner.transition_generation = inner.transition_generation.wrapping_add(1);
+            let generation = inner.transition_generation;
+            inner.transitioning = true;
+            inner.status = transition_status;
+            let hook = match operation {
+                LifecycleOperation::Construct => inner.on_construct.clone(),
+                LifecycleOperation::Destruct => inner.on_destruct.clone(),
+                LifecycleOperation::Dispose => unreachable!(),
+            };
+            let message = Message::ConstructionStatusChanged(ConstructionStatusChangedMessage {
+                sender_id: inner.id,
+                sender_name: inner.name.clone(),
+                status: transition_status,
+            });
+            (
+                Ok(Some((
+                    inner.id,
+                    inner.name.clone(),
+                    inner.foreground.clone(),
+                    hook,
+                    target,
+                    generation,
+                ))),
+                Some(message),
+            )
+        })?;
+        let Some((sender_id, sender_name, dispatcher, hook, target, generation)) = started else {
+            return Ok(());
+        };
+        let core = self.clone();
+        dispatcher.clone().dispatch_background(Box::new(move || {
+            let Some(result) = core.run_background_hook(hook, generation) else {
+                return;
+            };
+            let settled = if result.is_ok() {
+                target
+            } else {
+                match operation {
+                    LifecycleOperation::Construct => ConstructionStatus::Destructed,
+                    LifecycleOperation::Destruct => ConstructionStatus::Constructed,
+                    LifecycleOperation::Dispose => unreachable!(),
+                }
+            };
+            {
+                let mut inner = lock(&core.inner);
+                if inner.transition_generation != generation {
+                    return;
+                }
+                inner.status = settled;
+                inner.transitioning = false;
+            }
+            let publication_core = core.clone();
+            dispatcher.dispatch(Box::new(move || {
+                hub.send_prepared(|| {
+                    let message = publication_core
+                        .publication_is_current(generation, settled)
+                        .then_some(Message::ConstructionStatusChanged(
+                            ConstructionStatusChangedMessage {
+                                sender_id,
+                                sender_name,
+                                status: settled,
+                            },
+                        ));
+                    ((), message)
+                });
+            }));
+        }));
+        Ok(())
+    }
+
+    fn reconstruct_background(&self) -> VmxResult<()> {
+        let hub = lock(&self.inner).hub.clone();
+        let (sender_id, sender_name, dispatcher, destruct_hook, construct_hook, generation) =
+            hub.send_prepared(|| {
+                let mut inner = lock(&self.inner);
+                if inner.status == ConstructionStatus::Disposed {
+                    return (Err(VmxError::Disposed), None);
+                }
+                if inner.transitioning {
+                    return (Err(VmxError::ConcurrentOperation), None);
+                }
+                if inner.status != ConstructionStatus::Constructed {
+                    return (
+                        Err(VmxError::InvalidLifecycleTransition {
+                            from: inner.status,
+                            operation: "reconstruct",
+                        }),
+                        None,
+                    );
+                }
+                inner.transition_generation = inner.transition_generation.wrapping_add(1);
+                let generation = inner.transition_generation;
+                inner.transitioning = true;
+                inner.status = ConstructionStatus::Destructing;
+                let message =
+                    Message::ConstructionStatusChanged(ConstructionStatusChangedMessage {
+                        sender_id: inner.id,
+                        sender_name: inner.name.clone(),
+                        status: ConstructionStatus::Destructing,
+                    });
+                (
+                    Ok((
+                        inner.id,
+                        inner.name.clone(),
+                        inner.foreground.clone(),
+                        inner.on_destruct.clone(),
+                        inner.on_construct.clone(),
+                        generation,
+                    )),
+                    Some(message),
+                )
+            })?;
+
+        let core = self.clone();
+        dispatcher.clone().dispatch_background(Box::new(move || {
+            let Some(result) = core.run_background_hook(destruct_hook, generation) else {
+                return;
+            };
+            if result.is_err() {
+                {
+                    let mut inner = lock(&core.inner);
+                    if inner.transition_generation != generation {
+                        return;
+                    }
+                    inner.status = ConstructionStatus::Constructed;
+                    inner.transitioning = false;
+                }
+                let publication_core = core.clone();
+                dispatcher.dispatch(Box::new(move || {
+                    hub.send_prepared(|| {
+                        let message = publication_core
+                            .publication_is_current(generation, ConstructionStatus::Constructed)
+                            .then_some(Message::ConstructionStatusChanged(
+                                ConstructionStatusChangedMessage {
+                                    sender_id,
+                                    sender_name,
+                                    status: ConstructionStatus::Constructed,
+                                },
+                            ));
+                        ((), message)
+                    });
+                }));
+                return;
+            }
+
+            {
+                let mut inner = lock(&core.inner);
+                if inner.transition_generation != generation
+                    || inner.status == ConstructionStatus::Disposed
+                {
+                    return;
+                }
+                inner.status = ConstructionStatus::Destructed;
+            }
+            let continuation_core = core.clone();
+            let continuation_dispatcher = dispatcher.clone();
+            dispatcher.dispatch(Box::new(move || {
+                if !continuation_core
+                    .publication_is_current(generation, ConstructionStatus::Destructed)
+                {
+                    return;
+                }
+                hub.send(Message::ConstructionStatusChanged(
+                    ConstructionStatusChangedMessage {
+                        sender_id,
+                        sender_name: sender_name.clone(),
+                        status: ConstructionStatus::Destructed,
+                    },
+                ));
+                let should_continue = hub.send_prepared(|| {
+                    let mut inner = lock(&continuation_core.inner);
+                    if inner.transition_generation != generation
+                        || inner.status != ConstructionStatus::Destructed
+                    {
+                        return (false, None);
+                    }
+                    inner.status = ConstructionStatus::Constructing;
+                    (
+                        true,
+                        Some(Message::ConstructionStatusChanged(
+                            ConstructionStatusChangedMessage {
+                                sender_id,
+                                sender_name: sender_name.clone(),
+                                status: ConstructionStatus::Constructing,
+                            },
+                        )),
+                    )
+                });
+                if !should_continue {
+                    return;
+                }
+
+                let construct_core = continuation_core.clone();
+                continuation_dispatcher
+                    .clone()
+                    .dispatch_background(Box::new(move || {
+                        let Some(result) =
+                            construct_core.run_background_hook(construct_hook, generation)
+                        else {
+                            return;
+                        };
+                        let settled = if result.is_ok() {
+                            ConstructionStatus::Constructed
+                        } else {
+                            ConstructionStatus::Destructed
+                        };
+                        {
+                            let mut inner = lock(&construct_core.inner);
+                            if inner.transition_generation != generation {
+                                return;
+                            }
+                            inner.status = settled;
+                            inner.transitioning = false;
+                        }
+                        let publication_core = construct_core.clone();
+                        continuation_dispatcher.dispatch(Box::new(move || {
+                            hub.send_prepared(|| {
+                                let message = publication_core
+                                    .publication_is_current(generation, settled)
+                                    .then_some(Message::ConstructionStatusChanged(
+                                        ConstructionStatusChangedMessage {
+                                            sender_id,
+                                            sender_name,
+                                            status: settled,
+                                        },
+                                    ));
+                                ((), message)
+                            });
+                        }));
+                    }));
+            }));
+        }));
+        Ok(())
     }
 
     pub(crate) fn transition_with<F>(

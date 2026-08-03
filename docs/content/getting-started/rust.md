@@ -4,7 +4,7 @@ This tutorial walks you through building viewmodels with the VMx Rust crate.
 You will build a `ComponentVm<Model>`, a `RelayCommand`, and a `CompositeVm<T>`
 with child selection — all in a plain Cargo binary.
 
-> The Rust flavor is a source-tree flavor at the v0.28.0 source line: it declares
+> The Rust flavor is a source-tree flavor at the v0.29.0 source line: it declares
 > `MIN_SPEC_VERSION = "3.23.0"` and carries behavioral tests for all 403 library
 > conformance IDs. The `vmx-rs` crate is not yet published to crates.io; consume
 > it as a path or git dependency (below). See
@@ -47,12 +47,19 @@ foreground and background work inline on the calling thread — the right choice
 for tests and synchronous programs. It is `Copy`, so it can be handed to several
 viewmodels without cloning.
 
+`DefaultDispatcher` keeps foreground work inline and sends builder-enabled
+background lifecycle hooks to a worker thread. `ManualDispatcher` provides
+separate foreground and background queues for deterministic tests.
+
 ```rust
 use vmx::{MessageHub, NullDispatcher};
 
 let hub = MessageHub::new();
 let dispatcher = NullDispatcher::new();
 ```
+
+Enable the paired-channel lifecycle path with
+`ComponentVm::builder().background(true)`.
 
 ## 3.6.3. Build a `ComponentVm<Model>`
 

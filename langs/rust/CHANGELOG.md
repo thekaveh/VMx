@@ -6,6 +6,20 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.29.0] — 2026-08-03
+
+### Added
+
+- `Dispatcher::dispatch_background`, `DefaultDispatcher`, and independently
+  drainable foreground/background `ManualDispatcher` channels.
+- `ComponentVmBuilder::background` and options parity for asynchronous
+  construct/destruct hooks with foreground terminal publication.
+
+### Fixed
+
+- `THR-002` now exercises genuine background lifecycle work, including
+  disposal supersession and foreground rollback publication.
+
 ## [0.28.0] — 2026-08-02
 
 ### Changed

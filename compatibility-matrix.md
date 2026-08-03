@@ -6,7 +6,7 @@ Updated alongside spec and flavor releases.
 
 | spec  | python          | csharp          | typescript      | swift           | rust          |
 | ----- | --------------- | --------------- | --------------- | --------------- | ------------- |
-| 3.23.x | 3.23.0[^current] <!-- x-release-please-version --> | 3.23.0[^current] | 3.24.0[^current] | 3.24.0[^swift] | 0.28.0[^rust] |
+| 3.23.x | 3.23.0[^current] <!-- x-release-please-version --> | 3.23.0[^current] | 3.24.0[^current] | 3.24.0[^swift] | 0.29.0[^rust] |
 | 3.22.x[^source-only] | 3.22.0–3.22.1 | 3.22.0–3.22.1 | 3.23.0–3.23.1 | 3.22.0–3.23.0 | 0.25.0–0.26.0 |
 | 3.21.x | —               | —               | —               | —               | —             |
 | 3.20.x[^legacy-semantic-tag-only] | —               | —               | —               | 3.20.0         | 0.20.0–0.22.0[^rust-source] |
@@ -83,10 +83,11 @@ and public-hub IDs per ADR-0090; +1 inert modeled-assignment ID per ADR-0091;
 THEME-001..005 covered by the
 `examples/swift/notes-showcase/` flagship — ADR-0067). This increment ledger is
 current through spec 3.23.0 / DISC-009. Swift has member-level
-parity with C#, Python, and TypeScript. Rust 0.28.0 preserves the capability,
+parity with C#, Python, and TypeScript. Rust 0.29.0 preserves the capability,
 structural, command, reactive, and async convergence work recorded for 0.27.0
 in `docs/maintenance/2026-07-16-rust-capability-parity.md` and corrects the
-async-resource family to expose the complete ordinary component contract. See
+async-resource family to expose the complete ordinary component contract, and
+adds paired dispatcher channels plus background lifecycle parity. See
 `langs/swift/README.md` §5 for the flagship scenario ledger.
 
 [^current]: C# and Python are on the 3.23.0 in-development source line.
@@ -101,7 +102,7 @@ tag and [GitHub Release](https://github.com/thekaveh/VMx/releases/tag/swift-v3.2
 point to the same verified `main` commit.
 
 [^rust]: Rust is a source-tree, catalog-complete flavor promoted by ADR-0081. It
-is at source version 0.28.0, declares `MIN_SPEC_VERSION = "3.23.0"`, and carries
+is at source version 0.29.0, declares `MIN_SPEC_VERSION = "3.23.0"`, and carries
 behavioral tests for all 403 library conformance IDs. The completed
 `docs/maintenance/2026-07-16-rust-capability-parity.md` records its focused
 member and edge-behavior convergence evidence; it has not yet been published

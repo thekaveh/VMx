@@ -27,6 +27,7 @@ Each language flavor ships an `RxDispatcher` whose defaults are:
 | Python     | `AsyncIOScheduler(loop)` for the current event loop                                      | `ThreadPoolScheduler()`                     |
 | TypeScript | `queueScheduler` (synchronous trampoline)                                                | `asyncScheduler` (macrotask)                |
 | Swift      | `DefaultDispatcher` → main queue (run inline if already on main) — see note              | `DispatchQueue.global(qos: .userInitiated)` |
+| Rust       | `DefaultDispatcher` → inline closure dispatch                                            | named worker thread                         |
 
 > **TypeScript:** `RxDispatcher.default()` uses `asyncScheduler` (a genuine
 > macrotask) for background. An earlier `asapScheduler` (Promise microtask) was
@@ -40,6 +41,11 @@ Each language flavor ships an `RxDispatcher` whose defaults are:
 > global background queue — is the Swift equivalent of `RxDispatcher.default()`
 > (shipped since v2.4.0). ADR-0061 §4 rejected adding `Scheduler`-typed
 > foreground/background properties, making the closure shape final.
+
+> **Rust:** Rust's `Dispatcher` is likewise closure-based. `dispatch` is the
+> foreground channel and `dispatch_background` is the background channel.
+> `NullDispatcher` and `ImmediateDispatcher` run both inline;
+> `ManualDispatcher` provides independently drainable queues for tests.
 
 UI integrations (WPF, Avalonia, MAUI, tkinter, PyQt, …) provide their own
 foreground scheduler tied to the UI thread.

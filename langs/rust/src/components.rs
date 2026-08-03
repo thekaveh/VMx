@@ -323,8 +323,7 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
                 operation: "reconstruct",
             });
         }
-        self.destruct()?;
-        self.construct()
+        self.core.reconstruct()
     }
 
     /// Transitions the component to its terminal disposed state.
@@ -796,6 +795,7 @@ pub struct ComponentVmBuilder<M: Clone + PartialEq + Send + 'static, D: Dispatch
     model: Option<M>,
     hub: Option<MessageHub>,
     dispatcher: Option<D>,
+    background: bool,
     model_hint: Option<ModelHint<M>>,
     view_model_type: ViewModelType,
 }
@@ -808,6 +808,7 @@ impl<M: Clone + PartialEq + Send + 'static> Default for ComponentVmBuilder<M, Nu
             model: None,
             hub: None,
             dispatcher: None,
+            background: false,
             model_hint: None,
             view_model_type: ViewModelType::Component,
         }
@@ -840,9 +841,26 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVmBuilder<M,
     }
 
     /// Supplies the required message hub and dispatcher.
-    pub fn services(mut self, hub: MessageHub, dispatcher: D) -> Self {
-        self.hub = Some(hub);
-        self.dispatcher = Some(dispatcher);
+    pub fn services<D2: Dispatcher>(
+        self,
+        hub: MessageHub,
+        dispatcher: D2,
+    ) -> ComponentVmBuilder<M, D2> {
+        ComponentVmBuilder {
+            name: self.name,
+            hint: self.hint,
+            model: self.model,
+            hub: Some(hub),
+            dispatcher: Some(dispatcher),
+            background: self.background,
+            model_hint: self.model_hint,
+            view_model_type: self.view_model_type,
+        }
+    }
+
+    /// Enables background construct/destruct work (disabled by default).
+    pub fn background(mut self, background: bool) -> Self {
+        self.background = background;
         self
     }
 
@@ -870,6 +888,7 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVmBuilder<M,
             .dispatcher
             .ok_or_else(|| VmxError::BuilderValidation("dispatcher is required".to_string()))?;
         let mut vm = ComponentVm::with_model(name, model, hub, dispatcher);
+        vm.core.set_background(self.background);
         vm.view_model_type = self.view_model_type;
         if let Some(hint) = self.hint {
             vm.core.set_hint(Some(hint));
@@ -902,6 +921,7 @@ impl<M: Clone + PartialEq + Send + 'static> ComponentVm<M, NullDispatcher> {
         }
         builder
             .view_model_type(options.view_model_type)
+            .background(options.background)
             .services(options.hub, options.dispatcher)
             .build()
     }
@@ -917,6 +937,8 @@ pub struct ComponentVmOptions<M: Clone + PartialEq + Send + 'static> {
     pub model: Option<M>,
     /// Immutable role discriminator returned by the created component.
     pub view_model_type: ViewModelType,
+    /// Whether construct/destruct hooks run through the background dispatcher.
+    pub background: bool,
     /// Message hub injected into the component.
     pub hub: MessageHub,
     /// Dispatcher used for foreground scheduling.

@@ -53,6 +53,20 @@ def test_root_readme_preserves_complete_3_22_source_ranges() -> None:
     ) in readme
 
 
+def test_rust_threading_claim_has_paired_dispatch_and_real_thr_002() -> None:
+    spec = (ROOT / "spec/11-threading.md").read_text(encoding="utf-8")
+    runtime = (ROOT / "langs/rust/src/runtime.rs").read_text(encoding="utf-8")
+    component = (ROOT / "langs/rust/src/components.rs").read_text(encoding="utf-8")
+    tests = (ROOT / "langs/rust/tests/conformance/threading.rs").read_text(encoding="utf-8")
+
+    assert "| Rust" in spec and "DefaultDispatcher" in spec
+    assert "fn dispatch_background" in runtime
+    assert "pub struct DefaultDispatcher" in runtime
+    assert "pub fn background" in component
+    assert ".background(true)" in tests
+    assert "drain_background" in tests
+
+
 def test_adr_metadata_links_resolve() -> None:
     adr_dir = ROOT / "spec/ADRs"
     for adr in adr_dir.glob("[0-9][0-9][0-9][0-9]-*.md"):
