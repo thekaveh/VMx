@@ -16,8 +16,8 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 - `TokenPagedComposition` now exposes single-flight `AsyncRelayCommand`s for
   loading and refresh, publishes eligibility changes as token state changes,
-  and always starts and refreshes from the canonical terminal `None` token. The
-  legacy constructor token argument remains accepted but is ignored.
+  and always starts and refreshes from the canonical initial/terminal `None`
+  token. The legacy constructor token argument remains accepted but is ignored.
 
 ### Fixed
 
