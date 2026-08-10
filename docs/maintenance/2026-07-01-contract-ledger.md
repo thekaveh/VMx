@@ -81,11 +81,12 @@ follow-up work rather than claims made by the current automated gates:
 
 ### 3.2 Immutable workflow action inventory
 
-All remote actions are pinned to full commits. The upstream tag shown here was
-resolved against the action repository on 2026-07-22; `dtolnay/rust-toolchain`
-uses its maintained `stable` branch because that action does not publish
-releases. `tools/check-workflow-pins.py` fails CI if a mutable reference appears
-or any workflow action is absent from this inventory.
+All remote actions are pinned to full commits. Unless noted here, the upstream
+tag shown was resolved against the action repository on 2026-07-22. The CodeQL
+v4.37.6 and PyPI publisher v1.14.2 tags were re-resolved on 2026-08-10;
+`dtolnay/rust-toolchain` uses its maintained `stable` branch because that action
+does not publish releases. `tools/check-workflow-pins.py` fails CI if a mutable
+reference appears or any workflow action is absent from this inventory.
 
 | Action and immutable commit                                                 | Verified upstream ref |
 | --------------------------------------------------------------------------- | --------------------- |
@@ -103,10 +104,10 @@ or any workflow action is absent from this inventory.
 | `codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f`           | `v7.0.0`              |
 | `dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4`           | `stable` (2026-07-16) |
 | `googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7` | `v5.0.0`              |
-| `github/codeql-action/analyze@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81`     | `v4.37.3`             |
-| `github/codeql-action/init@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81`        | `v4.37.3`             |
+| `github/codeql-action/analyze@5595ccaf912efad79be6eef63a5619ff05969be3`     | `v4.37.6`             |
+| `github/codeql-action/init@5595ccaf912efad79be6eef63a5619ff05969be3`        | `v4.37.6`             |
 | `gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e`         | `v3.0.0`              |
-| `pypa/gh-action-pypi-publish@ba38be9e461d3875417946c167d0b5f3d385a247`      | `v1.14.1`             |
+| `pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33`      | `v1.14.2`             |
 | `rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18`  | `v1.0.5`              |
 
 The diagram jobs use `ubuntu-24.04` and install
