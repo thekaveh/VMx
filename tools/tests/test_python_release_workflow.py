@@ -41,6 +41,7 @@ def test_python_release_smokes_local_wheel_before_publish() -> None:
     publish_index = publish_job.index("pypa/gh-action-pypi-publish@")
 
     assert build_index < install_index < smoke_index < publish_index
+    assert "pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33" in publish_job
 
 
 def test_python_ci_and_release_test_the_extracted_sdist() -> None:
