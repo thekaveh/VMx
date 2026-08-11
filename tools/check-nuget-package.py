@@ -14,7 +14,9 @@ from zipfile import BadZipFile, ZipFile
 
 REPO_URL = "https://github.com/thekaveh/VMx"
 FRAMEWORKS = {"net8.0", ".NETStandard2.0"}
-_CORE_PROPERTIES = re.compile(r"^package/services/metadata/core-properties/[0-9a-f]+\.psmdcp$")
+_CORE_PROPERTIES = re.compile(
+    r"^package/services/metadata/core-properties/(?:[0-9a-f]+|nuget)\.psmdcp$"
+)
 _CORE_DEPENDENCIES = {
     "net8.0": [("System.Reactive", "7.0.0")],
     ".NETStandard2.0": [
