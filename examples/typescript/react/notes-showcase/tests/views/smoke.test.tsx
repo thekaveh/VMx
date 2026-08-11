@@ -93,4 +93,18 @@ describe("App smoke", () => {
     expect(workspace.noteForm.isDirty).toBe(true);
     expect((saveButton as HTMLButtonElement).disabled).toBe(false);
   });
+
+  it("renders global-search results through the packaged VM hooks", async () => {
+    const { workspace, dialog } = buildWorkspace();
+    await workspace.constructAsync();
+    render(<App workspace={workspace} dialog={dialog} />);
+
+    const search = await screen.findByRole("searchbox", {
+      name: "Search all notes",
+    });
+    fireEvent.change(search, { target: { value: "standup" } });
+
+    const results = screen.getByRole("list", { name: "Global search results" });
+    expect(await within(results).findByText("Standup notes")).toBeDefined();
+  });
 });

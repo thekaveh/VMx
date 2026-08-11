@@ -51,6 +51,7 @@ jobs:
           cache: npm
           cache-dependency-path: |
             langs/typescript/package-lock.json
+            packages/react/package-lock.json
             examples/typescript/react/notes-showcase/package-lock.json
 
       - name: axaml code-behind check
@@ -75,6 +76,11 @@ jobs:
         run: |
           npm ci --prefix langs/typescript
           npm run build --prefix langs/typescript
+
+      - name: build official React bindings
+        run: |
+          npm ci --prefix packages/react
+          npm run build --prefix packages/react
 
       - name: install React showcase dependencies
         run: npm ci --prefix examples/typescript/react/notes-showcase

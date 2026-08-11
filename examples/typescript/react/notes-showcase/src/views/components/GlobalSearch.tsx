@@ -1,7 +1,6 @@
 import type React from "react";
 
-import { useCommand } from "../adapter/useCommand.js";
-import { useVm } from "../adapter/useVm.js";
+import { useCommand, useVm } from "@thekaveh/vmx-react";
 import type { WorkspaceVM } from "../../viewmodels/workspaceVM.js";
 
 export interface GlobalSearchProps {

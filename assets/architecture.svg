@@ -84,7 +84,7 @@
 <rect x="540" y="410" width="220" height="145" rx="12" fill="rgba(8, 51, 68, 0.42)" stroke="#22d3ee" stroke-width="2"/>
 <text x="650" y="442" fill="white" font-size="18" font-weight="700" text-anchor="middle">TypeScript Flavor</text>
 <text x="650" y="468" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">rxjs</text>
-<text x="650" y="492" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">React / DOM adapters</text>
+<text x="650" y="492" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">@thekaveh/vmx-react</text>
 <text x="650" y="516" fill="#cbd5e1" font-size="14" font-weight="400" text-anchor="middle">Full 403+5 parity</text>
 <rect x="790" y="410" width="220" height="145" rx="12" fill="#0f172a"/>
 <rect x="790" y="410" width="220" height="145" rx="12" fill="rgba(8, 51, 68, 0.42)" stroke="#22d3ee" stroke-width="2"/>

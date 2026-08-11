@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build:vmx": "npm --prefix ../../../../langs/typescript ci && npm --prefix ../../../../langs/typescript run build",
+    "build:vmx": "npm --prefix ../../../../langs/typescript ci && npm --prefix ../../../../langs/typescript run build && npm --prefix ../../../../packages/react ci && npm --prefix ../../../../packages/react run build",
     "predev": "npm run build:vmx",
     "dev": "vite",
     "prebuild": "npm run build:vmx",
@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@thekaveh/vmx": "file:../../../../langs/typescript",
+    "@thekaveh/vmx-react": "file:../../../../packages/react",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "rxjs": "^7.8.1"

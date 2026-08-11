@@ -11,7 +11,7 @@
  */
 import type React from "react";
 
-import { useDerivedProperty } from "../adapter/useDerivedProperty.js";
+import { useDerivedProperty } from "@thekaveh/vmx-react";
 import type { WorkspaceVM } from "../../viewmodels/workspaceVM.js";
 
 export interface StatusBarProps {

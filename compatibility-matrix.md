@@ -128,6 +128,16 @@ namespace and has no `spec-v3.20.0` tag. The existing immutable `v3.20.0` tag
 belongs to the Swift 3.20.0 package for SwiftPM; it is historical evidence, not
 a namespace future specification releases reuse.
 
+## 2.1. React adapter compatibility
+
+| Adapter source | VMx TypeScript | React | RxJS | Registry status |
+| --- | --- | --- | --- | --- |
+| 0.1.0 | ^3.24.0 | ^18.3.1 or ^19.0.0 | ^7.8.0 | source complete; npm waits for #57 |
+
+`@thekaveh/vmx-react` uses independent SemVer and `react-v*` release tags. A
+core release requires an adapter release only when the supported API or peer
+range changes.
+
 ## 3. C# companion packages
 
 The C# core package `VMx` ships with two opt-in companion assemblies. Each
