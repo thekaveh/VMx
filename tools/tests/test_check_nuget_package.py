@@ -64,6 +64,7 @@ def _write_packages(
     unexpected: str | None = None,
     extra_dependency: str = "",
     symlink_path: str | None = None,
+    core_properties_name: str = "a.psmdcp",
     framework_dependencies: dict[str, list[tuple[str, str]]] | None = None,
 ) -> None:
     if framework_dependencies is None:
@@ -76,7 +77,7 @@ def _write_packages(
         with ZipFile(archive, "w", ZIP_DEFLATED) as package:
             for path in paths:
                 if path == "<core-properties>":
-                    path = "package/services/metadata/core-properties/a.psmdcp"
+                    path = f"package/services/metadata/core-properties/{core_properties_name}"
                 if path.endswith(".nuspec"):
                     package.writestr(
                         path,
@@ -104,6 +105,17 @@ def test_validate_package_pair_accepts_exact_assets_and_dependency_floor(tmp_pat
     _write_packages(tmp_path, "VMx.Notifications", "1.2.0", "3.20.0")
 
     assert checker.validate_package_pair(tmp_path, "VMx.Notifications", "1.2.0", "3.20.0") == []
+
+
+def test_validate_package_pair_accepts_nuget_named_core_properties(tmp_path: Path) -> None:
+    _write_packages(
+        tmp_path,
+        "VMx",
+        "3.20.0",
+        core_properties_name="nuget.psmdcp",
+    )
+
+    assert checker.validate_package_pair(tmp_path, "VMx", "3.20.0", None) == []
 
 
 def test_validate_package_pair_accepts_exact_public_dependency_contract(tmp_path: Path) -> None:
