@@ -17,6 +17,17 @@ def test_typescript_ci_covers_both_supported_react_majors() -> None:
     assert "needs: [build, runtime-floor, react, package, examples]" in workflow
 
 
+def test_showcase_job_builds_adapter_before_suppressing_lifecycle_scripts() -> None:
+    workflow = (ROOT / ".github/workflows/typescript.yml").read_text()
+    examples = workflow.split("  examples:\n", 1)[1].split("  required:\n", 1)[0]
+    build = examples.index("- name: Install React adapter deps + build dist")
+    install = examples.index("- name: notes-showcase install")
+    test = examples.index(
+        "npm test --prefix examples/typescript/react/notes-showcase --ignore-scripts"
+    )
+    assert build < install < test
+
+
 def test_release_is_tag_driven_and_core_gated() -> None:
     workflow = (ROOT / ".github/workflows/release.yml").read_text()
     assert '- "react-v*"' in workflow

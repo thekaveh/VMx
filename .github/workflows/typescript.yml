@@ -244,6 +244,7 @@ jobs:
           node-version: "24"
           cache: npm
           cache-dependency-path: |
+            packages/react/package-lock.json
             examples/typescript/console/hello-vmx/package-lock.json
             examples/typescript/react/notes-showcase/package-lock.json
 
@@ -256,6 +257,15 @@ jobs:
         # Without this step, vitest fails with `Failed to resolve entry for
         # package "vmx"` because dist/ is absent in the packed snapshot.
         working-directory: langs/typescript
+        run: |
+          npm ci
+          npm run build
+
+      - name: Install React adapter deps + build dist
+        # The showcase installs the adapter from `file:../../../../packages/react`
+        # and later suppresses lifecycle scripts to avoid repeated nested builds.
+        # Prepare its exported dist entry before the file dependency is packed.
+        working-directory: packages/react
         run: |
           npm ci
           npm run build
