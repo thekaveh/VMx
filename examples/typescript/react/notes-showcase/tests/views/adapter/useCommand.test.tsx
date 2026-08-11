@@ -7,7 +7,7 @@ import { Subject } from "rxjs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { RelayCommand } from "@thekaveh/vmx";
 
-import { useCommand } from "../../../src/views/adapter/useCommand.js";
+import { useCommand } from "@thekaveh/vmx-react";
 
 function Probe(props: { cmd: RelayCommand; onClick: () => void }): JSX.Element {
   const { canExecute, execute } = useCommand(props.cmd);

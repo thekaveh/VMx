@@ -11,6 +11,7 @@ on:
       - "csharp-dependency-injection-v*"
       - "python-v*"
       - "typescript-v*"
+      - "react-v*"
       - "rust-v*"
       - "swift-v*"
   # No workflow_dispatch: every job gates on `startsWith(github.ref,
@@ -655,6 +656,124 @@ jobs:
             --title "TypeScript v${version} (npm)" \
             --notes-file /tmp/typescript-release-notes.md \
             --target "$GITHUB_SHA"
+
+  react:
+    timeout-minutes: 30
+    needs: release-metadata
+    if: startsWith(github.ref, 'refs/tags/react-v')
+    runs-on: ubuntu-latest
+    environment:
+      name: npm-react
+      url: https://www.npmjs.com/package/@thekaveh/vmx-react
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Verify tag commit is on main
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || {
+            echo "::error::Release tags must point at commits reachable from origin/main." >&2
+            exit 1
+          }
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+      - name: Install trusted-publishing npm CLI
+        run: npm install --global npm@11.18.0
+      - name: Select publication authentication
+        id: npm-auth
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -n "$NPM_TOKEN" ]; then echo "bootstrap=true" >> "$GITHUB_OUTPUT"; else echo "bootstrap=false" >> "$GITHUB_OUTPUT"; fi
+      - name: Verify tag and public core prerequisite
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF#refs/tags/react-v}"
+          package_version=$(node -p 'require("./packages/react/package.json").version')
+          [ "$version" = "$package_version" ] || { echo "::error::Tag/package version mismatch." >&2; exit 1; }
+          core_version=$(node -p 'require("./langs/typescript/package.json").version')
+          npm view "@thekaveh/vmx@${core_version}" version --json
+      - name: Build core and install adapter
+        run: |
+          npm ci --prefix langs/typescript
+          npm run build --prefix langs/typescript
+          npm ci --prefix packages/react
+      - name: Verify adapter
+        run: |
+          npm run check:deps --prefix packages/react
+          npm audit --prefix packages/react --package-lock-only --audit-level=low
+          npm run typecheck --prefix packages/react
+          npm run lint --prefix packages/react
+          npm test --prefix packages/react
+          npm run build --prefix packages/react
+          python3 tools/check-react-package.py
+          python3 tools/smoke-react-consumer.py --react 18.3.1
+          python3 tools/smoke-react-consumer.py --react 19.2.8
+      - name: Publish initial package with bootstrap token
+        if: steps.npm-auth.outputs.bootstrap == 'true'
+        working-directory: packages/react
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public --provenance
+      - name: Publish with npm trusted publishing
+        if: steps.npm-auth.outputs.bootstrap != 'true'
+        working-directory: packages/react
+        run: npm publish --access public
+
+  react-verify-published:
+    timeout-minutes: 20
+    needs: react
+    if: startsWith(github.ref, 'refs/tags/react-v')
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        react: ["18.3.1", "19.2.8"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+      - name: Verify exact public package and provenance
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF#refs/tags/react-v}"
+          for attempt in $(seq 1 30); do
+            if [ "$(npm view "@thekaveh/vmx-react@${version}" version 2>/dev/null)" = "$version" ]; then break; fi
+            [ "$attempt" -lt 30 ] || exit 1
+            sleep 20
+          done
+          npm view "@thekaveh/vmx-react@${version}" dist.attestations --json | grep -q 'provenance'
+          mkdir /tmp/react-consumer
+          cd /tmp/react-consumer
+          npm init -y
+          npm install --ignore-scripts --no-audit --no-fund "@thekaveh/vmx-react@${version}" "react@${{ matrix.react }}" "react-dom@${{ matrix.react }}"
+          node -e "if(typeof require('@thekaveh/vmx-react').createVmxStore!=='function')process.exit(1)"
+
+  react-release-notes:
+    timeout-minutes: 10
+    needs: react-verify-published
+    if: startsWith(github.ref, 'refs/tags/react-v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Extract adapter release notes and create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF#refs/tags/react-v}"
+          awk -v v="$version" '$0 ~ "^## \\[" v "\\]" { capture=1; next } capture && /^## \\[/ { exit } capture { print }' packages/react/CHANGELOG.md > /tmp/react-release-notes.md
+          [ -s /tmp/react-release-notes.md ] || { echo "::error::No adapter release notes." >&2; exit 1; }
+          gh release create "$GITHUB_REF_NAME" --title "React adapter v${version} (npm)" --notes-file /tmp/react-release-notes.md --target "$GITHUB_SHA"
 
   rust-test:
     name: rust — release gates (${{ matrix.toolchain }})

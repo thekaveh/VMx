@@ -19,7 +19,9 @@ contract lives at
 this README documents how the React implementation maps onto it.
 
 The app is strictly partitioned into `src/models/`, `src/viewmodels/`,
-`src/views/`. View components never call `useState` / `useReducer` —
+`src/views/`. Its reusable React bindings come from the official
+`@thekaveh/vmx-react` package; the remaining local adapters are host services
+and theme/dialog integration. View components never call `useState` / `useReducer` —
 ESLint's `no-restricted-imports` rule enforces that under
 `src/views/components/**`.
 
@@ -67,12 +69,10 @@ examples/typescript/react/notes-showcase/
 │   │   └── dialogService.ts         ← VM-side port
 │   └── views/
 │       ├── App.tsx, theme.css
-│       ├── adapter/                 ← VMx → React bridge
-│       │   ├── useVm.ts, useCommand.ts, useVmCollection.ts,
-│       │   │   useDerivedProperty.ts, useDialogOverlay.ts
+│       ├── adapter/                 ← application-specific React host services
+│       │   ├── useDialogOverlay.ts
 │       │   ├── ReactDispatcher.ts, ReactDialogService.tsx
 │       │   ├── themeAdapter.ts      ← ThemeVM → CSS variables
-│       │   └── _hubAccessor.ts
 │       ├── components/
 │       │   ├── Layout.tsx, NotebooksTree.tsx, NotesList.tsx,
 │       │   │   NoteForm.tsx, StatusBar.tsx, Notifications.tsx,

@@ -8,10 +8,13 @@ on:
     branches: [main, develop]
     paths:
       - "langs/typescript/**"
+      - "packages/react/**"
       - "examples/typescript/**"
       - "spec/**"
       - "tools/check-typescript-package.py"
       - "tools/smoke-npm-consumer.py"
+      - "tools/check-react-package.py"
+      - "tools/smoke-react-consumer.py"
       - ".github/workflows/typescript.yml"
   pull_request:
     branches: [main, develop]
@@ -126,6 +129,62 @@ jobs:
       - name: Exercise disposal protocol at the runtime floor
         run: node scripts/check-runtime-floor.mjs
 
+  react:
+    needs: build
+    timeout-minutes: 25
+    name: react adapter (React ${{ matrix.react }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - react: "18.3.1"
+            react-types: "18.3.28"
+            react-dom-types: "18.3.7"
+          - react: "19.2.8"
+            react-types: "19.2.17"
+            react-dom-types: "19.2.3"
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: |
+            langs/typescript/package-lock.json
+            packages/react/package-lock.json
+      - name: Build VMx core
+        run: |
+          npm ci --prefix langs/typescript
+          npm run build --prefix langs/typescript
+      - name: Install adapter dependencies
+        run: npm ci --prefix packages/react
+      - name: Select React matrix version
+        run: >-
+          npm install --prefix packages/react --no-save --package-lock=false
+          "react@${{ matrix.react }}" "react-dom@${{ matrix.react }}"
+          "@types/react@${{ matrix.react-types }}"
+          "@types/react-dom@${{ matrix.react-dom-types }}"
+      - name: Validate dependency graph
+        run: npm run check:deps --prefix packages/react
+      - name: Audit dependencies
+        run: npm audit --prefix packages/react --package-lock-only --audit-level=low
+      - name: Type-check
+        run: npm run typecheck --prefix packages/react
+      - name: Lint
+        run: npm run lint --prefix packages/react
+      - name: Build
+        run: npm run build --prefix packages/react
+      - name: Test
+        run: npm test --prefix packages/react
+      - name: Verify package and fresh consumer
+        run: |
+          python3 tools/check-react-package.py
+          python3 tools/smoke-react-consumer.py --react "${{ matrix.react }}"
+
   package:
     timeout-minutes: 15
     name: package (node${{ matrix.node-version }})
@@ -185,6 +244,7 @@ jobs:
           node-version: "24"
           cache: npm
           cache-dependency-path: |
+            packages/react/package-lock.json
             examples/typescript/console/hello-vmx/package-lock.json
             examples/typescript/react/notes-showcase/package-lock.json
 
@@ -197,6 +257,15 @@ jobs:
         # Without this step, vitest fails with `Failed to resolve entry for
         # package "vmx"` because dist/ is absent in the packed snapshot.
         working-directory: langs/typescript
+        run: |
+          npm ci
+          npm run build
+
+      - name: Install React adapter deps + build dist
+        # The showcase installs the adapter from `file:../../../../packages/react`
+        # and later suppresses lifecycle scripts to avoid repeated nested builds.
+        # Prepare its exported dist entry before the file dependency is packed.
+        working-directory: packages/react
         run: |
           npm ci
           npm run build
@@ -247,7 +316,7 @@ jobs:
     timeout-minutes: 5
     name: "required: typescript"
     if: always()
-    needs: [build, runtime-floor, package, examples]
+    needs: [build, runtime-floor, react, package, examples]
     runs-on: ubuntu-latest
     # This aggregator job has no checkout, so override the workflow-level
     # `defaults.run.working-directory: langs/typescript` (which would not exist

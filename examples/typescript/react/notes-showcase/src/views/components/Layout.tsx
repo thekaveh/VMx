@@ -12,7 +12,7 @@
  */
 import type React from "react";
 
-import { useCommand } from "../adapter/useCommand.js";
+import { useCommand } from "@thekaveh/vmx-react";
 import type { ReactDialogService } from "../adapter/ReactDialogService.js";
 import type { WorkspaceVM } from "../../viewmodels/workspaceVM.js";
 import { useHotkeys } from "../hooks/useHotkeys.js";

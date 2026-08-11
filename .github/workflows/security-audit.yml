@@ -80,6 +80,7 @@ jobs:
       matrix:
         project:
           - langs/typescript
+          - packages/react
           - examples/typescript/console/hello-vmx
           - examples/typescript/react/notes-showcase
     steps:

@@ -514,7 +514,7 @@ def release_flavor(tag: str) -> str:
     """Map one supported immutable release tag to its flavor directory."""
     if tag.startswith("csharp-"):
         return "csharp"
-    for flavor in ("python", "typescript", "rust", "swift"):
+    for flavor in ("python", "typescript", "react", "rust", "swift"):
         if tag.startswith(f"{flavor}-v"):
             return flavor
     return ""
@@ -1083,9 +1083,12 @@ def main(argv: Iterable[str] | None = None) -> int:
             msv_issues.append(f"  unsupported release tag: {args.release_tag!r}")
         else:
             package = csharp_release_package(args.release_tag) if flavor == "csharp" else ""
-            msv_issues.extend(
-                check_release_unreleased(repo_root / "langs" / flavor / "CHANGELOG.md", package)
+            changelog = (
+                repo_root / "packages" / "react" / "CHANGELOG.md"
+                if flavor == "react"
+                else repo_root / "langs" / flavor / "CHANGELOG.md"
             )
+            msv_issues.extend(check_release_unreleased(changelog, package))
     typescript_version = manifests.get("typescript", {}).get("version", "")
     if typescript_version:
         msv_issues.extend(check_typescript_example_locks(repo_root, typescript_version))

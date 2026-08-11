@@ -163,6 +163,7 @@ Each flavor implements the same conceptual stack:
 | C#         | v3.23.0 in source | NuGet package not published yet                                                        | System.Reactive             |
 | Python     | v3.23.0 in source | [`vmx`](https://pypi.org/project/vmx/) latest published: 3.1.0                         | reactivex                   |
 | TypeScript | v3.24.0 in source | npm package not published yet                                                          | rxjs                        |
+| React      | adapter v0.1.0 in source | `@thekaveh/vmx-react`; publication waits for core npm #57                         | React 18/19 + rxjs          |
 | Swift      | v3.24.0           | [`VMx` 3.24.0](https://github.com/thekaveh/VMx/releases/tag/swift-v3.24.0) via SwiftPM | Combine                     |
 | Rust       | v0.29.0 in source | crates.io package not published yet                                                    | VMx-owned hot-stream facade |
 
@@ -243,8 +244,14 @@ uv add vmx
 
 # TypeScript (after the npm package is published)
 npm install @thekaveh/vmx rxjs
-# Source checkout today (after building langs/typescript)
-npm install ../VMx/langs/typescript rxjs
+# Source checkout today: pack first so consumers exercise published-package shape
+npm --prefix ../VMx/langs/typescript ci
+npm --prefix ../VMx/packages/react ci
+mkdir -p /tmp/vmx-packs
+npm pack ../VMx/langs/typescript --pack-destination /tmp/vmx-packs
+npm pack ../VMx/packages/react --pack-destination /tmp/vmx-packs
+npm install /tmp/vmx-packs/thekaveh-vmx-3.24.0.tgz \
+  /tmp/vmx-packs/thekaveh-vmx-react-0.1.0.tgz react rxjs use-sync-external-store
 
 # Rust (source-tree path dependency today)
 cargo add vmx-rs --path langs/rust
@@ -295,7 +302,8 @@ catalogs are consumer-owned and are not a parity-matrix row.
   — Notes Workspace flagship on Textual ≥ 0.80 (TUI). Run:
   `uv run --project examples/python/textual/notes_showcase python -m notes_showcase`.
 - [`examples/typescript/react/notes-showcase/`](examples/typescript/react/notes-showcase/)
-  — Notes Workspace flagship on React 19 + Vite. Run: `npm ci && npm run dev`
+  — Notes Workspace flagship on React 19 + Vite using the official
+  `@thekaveh/vmx-react` source package. Run: `npm ci && npm run dev`
   from the example dir; production bundle via `npm run build`.
 - [`examples/swift/notes-showcase/`](examples/swift/notes-showcase/)
   — Notes Workspace flagship on SwiftUI + Combine (macOS). Build and test via

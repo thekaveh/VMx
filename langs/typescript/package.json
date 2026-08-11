@@ -94,9 +94,7 @@
     }
   },
   "overrides": {
-    "tsup": {
-      "esbuild": "0.28.1"
-    }
+    "esbuild": "0.28.2"
   },
   "devDependencies": {
     "@types/node": "^26.1.2",

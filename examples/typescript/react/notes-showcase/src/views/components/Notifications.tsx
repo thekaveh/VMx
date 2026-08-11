@@ -9,7 +9,7 @@
  */
 import type React from "react";
 
-import { useVm } from "../adapter/useVm.js";
+import { useVm } from "@thekaveh/vmx-react";
 import type { WorkspaceVM } from "../../viewmodels/workspaceVM.js";
 
 // Stable per-instance keys: the visible list splices from the front as toasts

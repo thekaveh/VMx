@@ -11,7 +11,7 @@ import { BehaviorSubject, NEVER } from "rxjs";
 import { afterEach, describe, expect, it } from "vitest";
 import { DerivedProperty } from "@thekaveh/vmx";
 
-import { useDerivedProperty } from "../../../src/views/adapter/useDerivedProperty.js";
+import { useDerivedProperty } from "@thekaveh/vmx-react";
 
 afterEach(() => {
   cleanup();

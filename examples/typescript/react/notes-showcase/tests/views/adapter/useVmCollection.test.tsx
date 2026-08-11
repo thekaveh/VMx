@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { ComponentVM, CompositeVM, GroupVM, MessageHub, RxDispatcher } from "@thekaveh/vmx";
 import type { IVmCollection } from "@thekaveh/vmx";
 
-import { useVmCollection } from "../../../src/views/adapter/useVmCollection.js";
+import { useVmCollection } from "@thekaveh/vmx-react";
 
 function makeComposite(initial: number): {
   hub: MessageHub;

@@ -10,8 +10,7 @@
  */
 import type React from "react";
 
-import { useCommand } from "../adapter/useCommand.js";
-import { useDerivedProperty } from "../adapter/useDerivedProperty.js";
+import { useCommand, useDerivedProperty } from "@thekaveh/vmx-react";
 import type { ActionVM } from "../../viewmodels/actionVM.js";
 import type { WorkspaceVM } from "../../viewmodels/workspaceVM.js";
 

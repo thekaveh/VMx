@@ -14,7 +14,7 @@
  */
 import type React from "react";
 
-import { useVm } from "../adapter/useVm.js";
+import { useVm } from "@thekaveh/vmx-react";
 import type { NotebookVM } from "../../viewmodels/notebookVM.js";
 import type { NotebooksRootVM } from "../../viewmodels/notebooksRootVM.js";
 import type { WorkspaceVM } from "../../viewmodels/workspaceVM.js";
