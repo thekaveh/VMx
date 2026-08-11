@@ -4,5 +4,6 @@ spec/**             @thekaveh
 langs/csharp/**     @thekaveh
 langs/python/**     @thekaveh
 langs/typescript/** @thekaveh
+packages/react/**   @thekaveh
 langs/swift/**      @thekaveh
 .github/**          @thekaveh

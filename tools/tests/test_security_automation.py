@@ -21,6 +21,7 @@ def test_dependabot_covers_every_committed_dependency_ecosystem() -> None:
         "github-actions": {"/"},
         "npm": {
             "/langs/typescript",
+            "/packages/react",
             "/examples/typescript/console/hello-vmx",
             "/examples/typescript/react/notes-showcase",
         },
@@ -73,6 +74,7 @@ def test_dependabot_preserves_python_bounds_and_defers_only_incompatible_js_majo
 def test_typescript_projects_track_the_latest_peer_supported_compiler() -> None:
     manifests = (
         REPO_ROOT / "langs/typescript/package.json",
+        REPO_ROOT / "packages/react/package.json",
         REPO_ROOT / "examples/typescript/console/hello-vmx/package.json",
         REPO_ROOT / "examples/typescript/react/notes-showcase/package.json",
     )
@@ -89,6 +91,7 @@ def test_typescript_projects_track_the_latest_peer_supported_compiler() -> None:
 def test_typescript_dependency_graph_is_validated_with_scoped_security_override() -> None:
     manifests = (
         REPO_ROOT / "langs/typescript/package.json",
+        REPO_ROOT / "packages/react/package.json",
         REPO_ROOT / "examples/typescript/console/hello-vmx/package.json",
         REPO_ROOT / "examples/typescript/react/notes-showcase/package.json",
     )
@@ -97,13 +100,15 @@ def test_typescript_dependency_graph_is_validated_with_scoped_security_override(
         assert manifest["scripts"]["check:deps"] == "npm ls --all --omit=optional"
 
     library_manifest = json.loads(manifests[0].read_text(encoding="utf-8"))
-    assert library_manifest.get("overrides") == {"tsup": {"esbuild": "0.28.1"}}
+    assert library_manifest.get("overrides") == {"esbuild": "0.28.2"}
+    react_manifest = json.loads(manifests[1].read_text(encoding="utf-8"))
+    assert react_manifest.get("overrides") == {"esbuild": "0.28.2"}
 
     lock = json.loads(
         (REPO_ROOT / "langs/typescript/package-lock.json").read_text(encoding="utf-8")
     )
     assert lock["packages"]["node_modules/tsup"]["dependencies"]["esbuild"] == "^0.27.0"
-    assert lock["packages"]["node_modules/esbuild"]["version"] == "0.28.1"
+    assert lock["packages"]["node_modules/esbuild"]["version"] == "0.28.2"
     for path in manifests[1:]:
         assert path.with_name(".npmrc").read_text(encoding="utf-8") == "install-links=true\n"
 

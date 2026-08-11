@@ -14,7 +14,7 @@
  */
 import type React from "react";
 
-import { useVm } from "./adapter/useVm.js";
+import { useVm } from "@thekaveh/vmx-react";
 import { useThemeAdapter } from "./adapter/themeAdapter.js";
 import type { ReactDialogService } from "./adapter/ReactDialogService.js";
 import { Layout } from "./components/Layout.js";

@@ -362,7 +362,7 @@ def architecture(output_root: Path) -> None:
             "TypeScript Flavor",
             (
                 "rxjs",
-                "React / DOM adapters",
+                "@thekaveh/vmx-react",
                 f"Full {LIBRARY_COUNT}+{THEME_COUNT} parity",
             ),
             "frontend",

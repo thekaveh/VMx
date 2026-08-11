@@ -11,6 +11,7 @@ updates:
   - package-ecosystem: npm
     directories:
       - /langs/typescript
+      - /packages/react
       - /examples/typescript/console/hello-vmx
       - /examples/typescript/react/notes-showcase
     schedule: { interval: weekly, day: monday }

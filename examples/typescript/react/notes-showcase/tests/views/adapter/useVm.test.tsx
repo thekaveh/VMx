@@ -12,7 +12,7 @@ import { MessageHub, RxDispatcher } from "@thekaveh/vmx";
 
 import { NoteVM } from "../../../src/viewmodels/noteVM.js";
 import type { NoteModel } from "../../../src/models/noteModel.js";
-import { useVm } from "../../../src/views/adapter/useVm.js";
+import { useVm } from "@thekaveh/vmx-react";
 
 function model(over: Partial<NoteModel> = {}): NoteModel {
   return {
