@@ -34,8 +34,10 @@ def _valid_paths() -> set[str]:
         "dist/chunk-BBBB2222.cjs.map",
         "dist/relayCommand-Ab12Cd34.d.ts",
         "dist/relayCommand-Ab12Cd34.d.cts",
+        "dist/formVm-Ab12Cd34.d.ts",
+        "dist/formVm-Ef56Gh78.d.cts",
     }
-    for entry in ("index", "notifications", "conformance"):
+    for entry in ("index", "notifications", "conformance", "testing"):
         paths.update(
             {
                 f"dist/{entry}.js",
@@ -51,6 +53,15 @@ def _valid_paths() -> set[str]:
 
 def test_validate_paths_accepts_expected_entries_fixtures_and_chunks() -> None:
     assert ctsp.validate_paths(_valid_paths()) == []
+
+
+def test_testing_entry_is_a_required_package_contract() -> None:
+    assert "testing" in ctsp.ENTRIES
+
+    paths = _valid_paths()
+    paths.remove("dist/testing.d.cts")
+
+    assert ctsp.validate_paths(paths) == ["missing required package file: dist/testing.d.cts"]
 
 
 def test_validate_name_requires_the_canonical_publish_target() -> None:
@@ -78,6 +89,12 @@ def test_validate_paths_reports_missing_entry_declaration() -> None:
     errors = ctsp.validate_paths(paths)
 
     assert errors == ["missing required package file: dist/conformance.d.cts"]
+
+
+def test_validate_paths_requires_form_harness_declaration_chunks() -> None:
+    paths = {path for path in _valid_paths() if not path.startswith("dist/formVm-")}
+
+    assert ctsp.validate_paths(paths) == ["missing generated declaration chunk pair"]
 
 
 def test_validate_paths_rejects_unexpected_source_or_secret() -> None:

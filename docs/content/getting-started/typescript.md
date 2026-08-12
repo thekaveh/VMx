@@ -307,7 +307,40 @@ hub.messages.pipe(
 
 ______________________________________________________________________
 
-## 3.4.8. Where to go next
+## 3.4.8. Test viewmodels without runner-specific fixtures
+
+The `@thekaveh/vmx/testing` subpath supplies hermetic services and semantic
+recorders without importing Vitest or Jest:
+
+```ts
+import { createTestServices, recordPropertyChanges } from "@thekaveh/vmx/testing";
+
+const services = createTestServices();
+const changes = recordPropertyChanges(services.hub, {
+  sender: userVM,
+  propertyName: "model",
+});
+
+userVM.model = { name: "Updated", email: "updated@example.com" };
+
+expect(changes.records).toHaveLength(1);
+changes.dispose();
+services.dispose();
+```
+
+Use `ManualDispatcher` when foreground and background work must remain queued
+until the test explicitly flushes it. `CommandDouble`, `CommandDoubleOf<T>`,
+and `AsyncCommandDouble` expose execution records and controlled admission,
+fault, completion, and cancellation. `createFormHarness()` exercises a real
+FormVM through set/approve/deny and validation or persistence failures.
+
+These are supported TypeScript-package APIs, isolated from the root runtime
+entry and governed by its SemVer. The source-ready subpath becomes installable
+from npm only after the first TypeScript publication in issue #57.
+
+______________________________________________________________________
+
+## 3.4.9. Where to go next
 
 | Resource             | Documentation page                                                                             |
 | -------------------- | ---------------------------------------------------------------------------------------------- |
