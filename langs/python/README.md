@@ -17,8 +17,8 @@ parity; see `../swift/README.md` §5 for the current conformance matrix.
 
 ## 2. Install
 
-The source tree currently implements v3.23.0. The latest public PyPI package may
-lag this source tree; pin a version when reproducing released behavior.
+VMx 3.23.0 is publicly available on PyPI and implements spec 3.23.0. Pin the
+version when reproducing released behavior.
 
 ```bash
 pip install vmx

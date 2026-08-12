@@ -14,10 +14,9 @@ ______________________________________________________________________
 
 ## 3.3.1. Install
 
-PyPI currently provides VMx 3.1.0. This tutorial tracks the repository's
-v3.23.0 Python source line and its v3.23.0 minimum specification; use the
-editable checkout below for every behavior shown here until a matching public
-release is available.
+PyPI provides VMx 3.23.0, matching this tutorial's Python source line and
+minimum specification. Pin `vmx==3.23.0` when reproducing this released
+behavior.
 
 ```bash
 # Using uv (recommended)

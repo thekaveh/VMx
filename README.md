@@ -8,7 +8,7 @@
 
 <p align="center"><strong>One specification. Five idiomatic flavors. Predictable MVVM behavior across UI stacks.</strong></p>
 
-<p align="center">VMx is a UI-neutral, lifecycle-aware MVVM viewmodel framework for building hierarchical application state with explicit construction, destruction, disposal, reactive messaging, commands, collections, and composable services. One language-neutral specification defines observable behavior, while five source flavors—C#, Python, TypeScript, Swift, and Rust—preserve each ecosystem’s naming, type, concurrency, and package conventions. A shared conformance catalog keeps those implementations aligned without erasing idiomatic APIs. The source tree currently carries complete 403-ID library coverage in every flavor, with flagship hosts exercising five additional THEME scenarios. Swift is publicly available through SwiftPM; Python’s public package trails the source line, and the C#, TypeScript, and Rust registry channels are prepared but not yet published. VMx therefore separates source completeness from installable-release status and documents both explicitly.</p>
+<p align="center">VMx is a UI-neutral, lifecycle-aware MVVM viewmodel framework for building hierarchical application state with explicit construction, destruction, disposal, reactive messaging, commands, collections, and composable services. One language-neutral specification defines observable behavior, while five source flavors—C#, Python, TypeScript, Swift, and Rust—preserve each ecosystem’s naming, type, concurrency, and package conventions. A shared conformance catalog keeps those implementations aligned without erasing idiomatic APIs. The source tree currently carries complete 403-ID library coverage in every flavor, with flagship hosts exercising five additional THEME scenarios. Python and Swift are publicly available through PyPI and SwiftPM; the C#, TypeScript, and Rust registry channels are prepared but not yet published. VMx therefore separates source completeness from installable-release status and documents both explicitly.</p>
 
 <!-- vmx-opener:end -->
 
@@ -161,7 +161,7 @@ Each flavor implements the same conceptual stack:
 | Flavor     | Source status     | Public package status                                                                  | Reactive primitive          |
 | ---------- | ----------------- | -------------------------------------------------------------------------------------- | --------------------------- |
 | C#         | v3.23.0 in source | NuGet package not published yet                                                        | System.Reactive             |
-| Python     | v3.23.0 in source | [`vmx`](https://pypi.org/project/vmx/) latest published: 3.1.0                         | reactivex                   |
+| Python     | v3.23.0 in source | [`vmx` 3.23.0](https://pypi.org/project/vmx/3.23.0/) on PyPI                          | reactivex                   |
 | TypeScript | v3.24.0 in source | npm package not published yet                                                          | rxjs                        |
 | React      | adapter v0.1.0 in source | `@thekaveh/vmx-react`; publication waits for core npm #57                         | React 18/19 + rxjs          |
 | Swift      | v3.24.0           | [`VMx` 3.24.0](https://github.com/thekaveh/VMx/releases/tag/swift-v3.24.0) via SwiftPM | Combine                     |
@@ -242,7 +242,7 @@ dotnet add package VMx
 # Source checkout today
 dotnet add MyApp.csproj reference ../VMx/langs/csharp/src/VMx/VMx.csproj
 
-# Python (latest public package may lag this source tree)
+# Python
 pip install vmx
 # or
 uv add vmx
