@@ -11,7 +11,7 @@ source tree, so check the flavor README and registry before pinning a release.
 | Flavor     | Source tree   | Public package status               |
 | ---------- | ------------- | ----------------------------------- |
 | C#         | v3.23.0       | NuGet package not published yet     |
-| Python     | v3.23.0       | `vmx` latest published: 3.1.0       |
+| Python     | v3.23.0       | PyPI release 3.23.0                  |
 | TypeScript | v3.24.0       | npm package not published yet       |
 | React adapter | v0.1.0 in source | publication waits for core npm #57 |
 | Swift      | v3.24.0       | SwiftPM release 3.24.0              |
