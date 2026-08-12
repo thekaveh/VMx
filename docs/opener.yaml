@@ -9,10 +9,10 @@ summary: >-
   conformance catalog keeps those implementations aligned without erasing
   idiomatic APIs. The source tree currently carries complete 403-ID library
   coverage in every flavor, with flagship hosts exercising five additional
-  THEME scenarios. Swift is publicly available through SwiftPM; Python’s public
-  package trails the source line, and the C#, TypeScript, and Rust registry
-  channels are prepared but not yet published. VMx therefore separates source
-  completeness from installable-release status and documents both explicitly.
+  THEME scenarios. Python and Swift are publicly available through PyPI and
+  SwiftPM; the C#, TypeScript, and Rust registry channels are prepared but not
+  yet published. VMx therefore separates source completeness from
+  installable-release status and documents both explicitly.
 poster:
   source: assets/vmx-poster.png
   alt: VMx framework across C#, Python, TypeScript, Swift, and Rust

@@ -10,7 +10,7 @@ language.
 | Flavor     | Package status                                                          | Reactive primitive | Naming idiom |
 | ---------- | ----------------------------------------------------------------------- | ------------------ | ------------ |
 | C#         | `VMx` package name reserved in docs; source-tree/local reference today  | `System.Reactive`  | PascalCase   |
-| Python     | `vmx` published on PyPI; source tree may be ahead of latest release     | `reactivex`        | snake_case   |
+| Python     | `vmx` 3.23.0 published on PyPI                                          | `reactivex`        | snake_case   |
 | TypeScript | `@thekaveh/vmx` package name defined; source-tree/local workspace today | `rxjs`             | camelCase    |
 | Swift      | VMx 3.24.0 released through repository-root SwiftPM tags                | `Combine`          | camelCase    |
 | Rust       | `vmx-rs` crate in source tree; crates.io release not published          | VMx-owned facade   | snake_case   |

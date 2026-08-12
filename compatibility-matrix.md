@@ -90,11 +90,10 @@ async-resource family to expose the complete ordinary component contract, and
 adds paired dispatcher channels plus background lifecycle parity. See
 `langs/swift/README.md` §5 for the flagship scenario ledger.
 
-[^current]: C# and Python are on the 3.23.0 in-development source line.
-TypeScript 3.24.0 implements spec 3.23.0. Python's latest PyPI release remains
-3.1.0; C# and TypeScript public
-packages remain pending. Their release jobs refuse to green-skip a publish
-without configured credentials.
+[^current]: C# and Python are on the 3.23.0 source line, and Python 3.23.0 is
+publicly installable from PyPI. TypeScript 3.24.0 implements spec 3.23.0. C#
+and TypeScript public packages remain pending. Their release jobs refuse to
+green-skip a publish without configured credentials.
 
 [^swift]: Swift 3.24.0 is publicly installable from the repository root through
 the immutable `v3.24.0` semantic tag. The matching `swift-v3.24.0` operational
