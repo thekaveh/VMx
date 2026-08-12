@@ -28,6 +28,7 @@ const distNotifications = resolve(pkgRoot, "dist", "notifications.js");
 const require = createRequire(import.meta.url);
 const rootSubpath = "@thekaveh/vmx";
 const conformanceSubpath = "@thekaveh/vmx/conformance";
+const testingSubpath = "@thekaveh/vmx/testing";
 
 type MainModule = typeof import("../../src/index.js");
 type NotificationsModule = typeof import("../../src/notifications/index.js");
@@ -89,5 +90,33 @@ describe("built consumer conformance entry point", () => {
     expect(root["runConsumerConformance"]).toBeUndefined();
     expect(rootEsm).not.toContain("Ajv2020");
     expect(rootCjs).not.toContain("Ajv2020");
+  });
+});
+
+describe("built testing entry point", () => {
+  it("loads the same runner-neutral API from ESM and CommonJS", async () => {
+    const esm = (await import(testingSubpath)) as Record<string, unknown>;
+    const commonjs = require(testingSubpath) as Record<string, unknown>;
+
+    for (const module of [esm, commonjs]) {
+      expect(module["RecordingMessageHub"]).toBeTypeOf("function");
+      expect(module["ManualDispatcher"]).toBeTypeOf("function");
+      expect(module["recordPropertyChanges"]).toBeTypeOf("function");
+      expect(module["recordObservableList"]).toBeTypeOf("function");
+      expect(module["CommandDouble"]).toBeTypeOf("function");
+      expect(module["AsyncCommandDouble"]).toBeTypeOf("function");
+      expect(module["createFormHarness"]).toBeTypeOf("function");
+    }
+  });
+
+  it("keeps testing-only helpers out of the root entry", async () => {
+    const root = (await import(rootSubpath)) as Record<string, unknown>;
+    const rootEsm = readFileSync(resolve(pkgRoot, "dist", "index.js"), "utf8");
+    const rootCjs = readFileSync(resolve(pkgRoot, "dist", "index.cjs"), "utf8");
+
+    expect(root["RecordingMessageHub"]).toBeUndefined();
+    expect(root["createFormHarness"]).toBeUndefined();
+    expect(rootEsm).not.toContain("RecordingMessageHub");
+    expect(rootCjs).not.toContain("RecordingMessageHub");
   });
 });

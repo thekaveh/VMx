@@ -48,9 +48,12 @@ def render_esm(version: str) -> str:
     """Render ESM runtime probes for every public package entry."""
     _require_version(version)
     expected = json.dumps(version)
-    return f"""import {{ __version__, BatchUpdateHandle, MessageHub }} from "@thekaveh/vmx";
+    return f"""import * as vmx from "@thekaveh/vmx";
 import {{ NotificationHub }} from "@thekaveh/vmx/notifications";
 import {{ consumerConformanceSchema }} from "@thekaveh/vmx/conformance";
+import {{ RecordingMessageHub }} from "@thekaveh/vmx/testing";
+
+const {{ __version__, BatchUpdateHandle, MessageHub }} = vmx;
 
 if (__version__ !== {expected}) throw new Error(`expected {version}, received ${{__version__}}`);
 if (typeof MessageHub !== "function") throw new Error("missing root MessageHub export");
@@ -63,6 +66,11 @@ handle.dispose();
 if (batchExits !== 1) throw new Error(`expected one batch exit, received ${{batchExits}}`);
 if (typeof NotificationHub !== "function") throw new Error("missing notifications export");
 if (typeof consumerConformanceSchema !== "object") throw new Error("missing conformance export");
+if ("RecordingMessageHub" in vmx) throw new Error("testing helper leaked into root export");
+const testingHub = new RecordingMessageHub();
+testingHub.send({{ sender: testingHub, senderName: "smoke" }});
+if (testingHub.records.length !== 1) throw new Error("testing hub did not record delivery");
+testingHub.dispose();
 console.log("VMx npm ESM smoke passed");
 """
 
@@ -74,6 +82,7 @@ def render_commonjs(version: str) -> str:
     return f"""const vmx = require("@thekaveh/vmx");
 const notifications = require("@thekaveh/vmx/notifications");
 const conformance = require("@thekaveh/vmx/conformance");
+const testing = require("@thekaveh/vmx/testing");
 
 if (vmx.__version__ !== {expected}) {{
   throw new Error(`expected {version}, received ${{vmx.__version__}}`);
@@ -92,6 +101,11 @@ if (typeof notifications.NotificationHub !== "function") {{
 if (typeof conformance.consumerConformanceSchema !== "object") {{
   throw new Error("missing conformance export");
 }}
+if ("RecordingMessageHub" in vmx) throw new Error("testing helper leaked into root export");
+const testingHub = new testing.RecordingMessageHub();
+testingHub.send({{ sender: testingHub, senderName: "smoke" }});
+if (testingHub.records.length !== 1) throw new Error("testing hub did not record delivery");
+testingHub.dispose();
 console.log("VMx npm CommonJS smoke passed");
 """
 
@@ -101,15 +115,17 @@ def render_types() -> str:
     return """import { BatchUpdateHandle, __version__, type IMessageHub } from "@thekaveh/vmx";
 import { type INotificationHub } from "@thekaveh/vmx/notifications";
 import { type ConsumerConformanceSuite } from "@thekaveh/vmx/conformance";
+import { type FormHarnessOptions } from "@thekaveh/vmx/testing";
 
 declare const hub: IMessageHub;
 declare const notifications: INotificationHub;
 declare const suite: ConsumerConformanceSuite;
 declare const batch: BatchUpdateHandle;
+declare const formOptions: FormHarnessOptions<{ readonly name: string }>;
 const disposable: Disposable = batch;
 batch[Symbol.dispose]();
 const version: string = __version__;
-void [hub, notifications, suite, disposable, version];
+void [hub, notifications, suite, disposable, formOptions, version];
 """
 
 

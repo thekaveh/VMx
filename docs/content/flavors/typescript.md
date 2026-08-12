@@ -126,7 +126,38 @@ a test framework. It is isolated from the root runtime entry. Full schema,
 factory, teardown, diagnostics, and non-goal guidance lives in
 [Specification & Conformance](../specification-conformance.md).
 
-## 7.4.7. Pointers
+## 7.4.7. Runner-neutral testing support
+
+The source-ready `@thekaveh/vmx/testing` subpath is isolated from the root
+runtime entry and adds:
+
+- `RecordingMessageHub`, `createTestServices()`, and `ManualDispatcher`;
+- semantic property, serviced-collection, and `ObservableList` recorders;
+- configurable parameterless, parameterized, and async command doubles; and
+- `createFormHarness()` around the real FormVM lifecycle.
+
+The helpers return ordinary readonly records and import no Vitest or Jest API.
+Every owned subscription and controllable resource has idempotent disposal.
+The subpath follows TypeScript-package SemVer: incompatible removal is reserved
+for a major release, and replacements are deprecated in declarations,
+documentation, and the changelog first.
+
+```typescript
+import { createTestServices, recordPropertyChanges } from "@thekaveh/vmx/testing";
+
+const services = createTestServices();
+const changes = recordPropertyChanges(services.hub, { sender: viewModel });
+viewModel.refresh();
+expect(changes.propertyNames).toContain("model");
+changes.dispose();
+services.dispose();
+```
+
+The source tree and packed-package checks include this surface. The npm import
+becomes installable only after issue #57 completes the first public TypeScript
+release; current users must consume a local workspace or packed source artifact.
+
+## 7.4.8. Pointers
 
 - Flavor README:
   [langs/typescript/README.md](../../../langs/typescript/README.md)
@@ -139,7 +170,7 @@ factory, teardown, diagnostics, and non-goal guidance lives in
 - React recipe:
   [React Integration](../integration/react.md)
 
-## 7.4.8. Current Example Coverage
+## 7.4.9. Current Example Coverage
 
 - Console: `examples/typescript/console/hello-vmx/`
 - React flagship: `examples/typescript/react/notes-showcase/`

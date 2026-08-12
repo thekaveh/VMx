@@ -10,7 +10,10 @@ conformance IDs pass. Published runtime requires Node ≥ 20.5.0 and rxjs ≥ 7.
 repository tests require Node 20.19+, 22.13+, or 24+ for jsdom 29. Dual ESM + CJS
 bundles; TypeScript declarations are bundled — no `@types/vmx` needed.
 Opt-in subpaths provide `@thekaveh/vmx/notifications` and the
-test-framework-neutral `@thekaveh/vmx/conformance` adapter runner.
+test-framework-neutral `@thekaveh/vmx/conformance` adapter runner. The
+source-ready `@thekaveh/vmx/testing` subpath adds runner-neutral fixtures,
+recorders, command doubles, and a FormVM harness; registry installation remains
+blocked on the first npm publication.
 
 > **Package rename in v2.4.0:** the npm package is now
 > **`@thekaveh/vmx`** (scoped). The previous unscoped name `vmx` could
@@ -386,6 +389,54 @@ the root runtime entry and imports no Vitest/Jest API. Consumer YAML, domain
 types, snapshot encoding, and operation dispatch remain consumer-owned; VMx
 does not parse YAML or generate Swift/code from this contract. See
 `spec/schemas/consumer-conformance-v1.schema.json` and ADR-0102.
+
+### 4.5 Testing utilities
+
+Import test-only support from `@thekaveh/vmx/testing`. Nothing from this
+subpath is re-exported by `@thekaveh/vmx`, and the package remains
+`sideEffects: false`:
+
+```typescript
+import {
+  CommandDoubleOf,
+  createTestServices,
+  recordPropertyChanges,
+} from "@thekaveh/vmx/testing";
+
+const services = createTestServices();
+const changes = recordPropertyChanges(services.hub, {
+  sender: userVM,
+  propertyName: "model",
+});
+const save = new CommandDoubleOf<UserModel>();
+
+userVM.model = revised;
+save.execute(revised);
+
+expect(changes.records).toHaveLength(1);
+expect(save.executions).toEqual([revised]);
+
+changes.dispose();
+save.dispose();
+services.dispose();
+```
+
+The entry contains no Vitest or Jest imports. Tests assert on ordinary readonly
+records, so the same helpers work with any runner. `RecordingMessageHub`
+retains real delivery order; `ManualDispatcher` separates explicitly flushed
+foreground/background queues; property, serviced-collection, and
+`ObservableList` recorders own their subscriptions; command doubles control
+admission, faults, completion, and cancellation; and `createFormHarness()`
+drives the real FormVM state machine through set, approve, deny, validation,
+and persistence failures.
+
+All disposable helpers expose idempotent `dispose()` and history-clearing
+operations. The testing subpath is supported public TypeScript API and follows
+the package's SemVer: incompatible removal waits for a major release, with any
+replacement deprecated in declarations, documentation, and the changelog
+before removal. The source and packed artifact contain this entry now;
+installation from npm becomes valid only after #57 completes the first
+`typescript-v3.24.0` publication.
 
 ## 5. Conformance
 

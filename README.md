@@ -188,8 +188,10 @@ is `mypy --strict` clean, and exposes `vmx.notifications` as an opt-in
 subpackage. The TypeScript flavor (npm package `@thekaveh/vmx` — renamed
 in v2.4.0 because the unscoped `vmx` name was unavailable) requires Node 20.5.0
 or newer and tests the exact floor plus Node 20, 22, 24, and 26. It emits dual ESM + CJS
-bundles and exposes notifications plus an isolated
-consumer-conformance tooling subpath. The Rust flavor lives under
+bundles and exposes notifications plus isolated consumer-conformance and
+runner-neutral testing-tooling subpaths. The testing surface is present in
+source and packed-package verification but awaits the first npm publication.
+The Rust flavor lives under
 `langs/rust/` as the
 `vmx-rs` crate with the `vmx` import namespace; it has full library conformance
 coverage in source and is awaiting a crates.io release channel.
