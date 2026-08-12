@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   hubs, immediate/manual dispatchers, semantic property and collection
   recorders, configurable sync/async command doubles, and a real-FormVM harness
   without a Vitest/Jest dependency (#84).
+- A tree-shakeable `@thekaveh/vmx/devtools` subpath now provides a
+  transport-neutral hub observer and optional Redux DevTools adapter with
+  explicit snapshots, privacy controls, sampling/throttling, bounded
+  sanitization, deterministic disposal, and no replay promise (#96).
 - `DiscriminatorVM` now exposes `modalDepth` and `clearModals()` for explicit
   modal-history ownership (`DISC-007/008`, ADR-0128).
 

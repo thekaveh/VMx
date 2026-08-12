@@ -6,6 +6,7 @@ export default defineConfig({
     notifications: "src/notifications/index.ts",
     conformance: "src/conformance/index.ts",
     testing: "src/testing/index.ts",
+    devtools: "src/devtools/index.ts",
   },
   format: ["esm", "cjs"],
   dts: true,
