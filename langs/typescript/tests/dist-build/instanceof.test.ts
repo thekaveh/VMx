@@ -29,6 +29,7 @@ const require = createRequire(import.meta.url);
 const rootSubpath = "@thekaveh/vmx";
 const conformanceSubpath = "@thekaveh/vmx/conformance";
 const testingSubpath = "@thekaveh/vmx/testing";
+const devtoolsSubpath = "@thekaveh/vmx/devtools";
 
 type MainModule = typeof import("../../src/index.js");
 type NotificationsModule = typeof import("../../src/notifications/index.js");
@@ -118,5 +119,71 @@ describe("built testing entry point", () => {
     expect(root["createFormHarness"]).toBeUndefined();
     expect(rootEsm).not.toContain("RecordingMessageHub");
     expect(rootCjs).not.toContain("RecordingMessageHub");
+  });
+});
+
+describe("built devtools entry point", () => {
+  it("loads the same transport-neutral API from ESM and CommonJS", async () => {
+    const esm = (await import(devtoolsSubpath)) as Record<string, unknown>;
+    const commonjs = require(devtoolsSubpath) as Record<string, unknown>;
+
+    for (const module of [esm, commonjs]) {
+      expect(module["observeHub"]).toBeTypeOf("function");
+      expect(module["connectReduxDevtools"]).toBeTypeOf("function");
+      expect(module["sanitizeDevtoolsValue"]).toBeTypeOf("function");
+    }
+  });
+
+  it("keeps canonical built-in action names in packed ESM and CommonJS behavior", async () => {
+    interface BuiltHub {
+      send(message: unknown): void;
+      dispose(): void;
+    }
+    interface BuiltRoot {
+      MessageHub: new () => BuiltHub;
+      PropertyChangedMessage: { create(sender: unknown, name: string, property: string): unknown };
+    }
+    interface BuiltDevtools {
+      observeHub(
+        hub: BuiltHub,
+        sink: (event: { action: Record<string, unknown> }) => void,
+      ): { dispose(): void };
+    }
+    const variants = [
+      {
+        root: (await import(rootSubpath)) as unknown as BuiltRoot,
+        devtools: (await import(devtoolsSubpath)) as unknown as BuiltDevtools,
+      },
+      {
+        root: require(rootSubpath) as BuiltRoot,
+        devtools: require(devtoolsSubpath) as BuiltDevtools,
+      },
+    ];
+
+    for (const { root, devtools } of variants) {
+      const hub = new root.MessageHub();
+      const actions: Array<Record<string, unknown>> = [];
+      const connection = devtools.observeHub(
+        hub,
+        (event: { action: Record<string, unknown> }) => actions.push(event.action),
+      );
+      hub.send(root.PropertyChangedMessage.create({}, "VM", "route"));
+
+      expect(actions[0]?.["type"]).toBe("PropertyChangedMessage/VM/route");
+      expect(actions[0]?.["messageType"]).toBe("PropertyChangedMessage");
+      connection.dispose();
+      hub.dispose();
+    }
+  });
+
+  it("keeps optional observability code out of the root entry", async () => {
+    const root = (await import(rootSubpath)) as Record<string, unknown>;
+    const rootEsm = readFileSync(resolve(pkgRoot, "dist", "index.js"), "utf8");
+    const rootCjs = readFileSync(resolve(pkgRoot, "dist", "index.cjs"), "utf8");
+
+    expect(root["observeHub"]).toBeUndefined();
+    expect(root["connectReduxDevtools"]).toBeUndefined();
+    expect(rootEsm).not.toContain("connectReduxDevtools");
+    expect(rootCjs).not.toContain("connectReduxDevtools");
   });
 });
