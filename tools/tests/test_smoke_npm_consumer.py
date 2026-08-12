@@ -22,7 +22,10 @@ def test_render_esm_checks_all_entries_and_exact_version() -> None:
     assert 'from "@thekaveh/vmx/notifications"' in source
     assert 'from "@thekaveh/vmx/conformance"' in source
     assert 'from "@thekaveh/vmx/testing"' in source
+    assert 'from "@thekaveh/vmx/devtools"' in source
     assert "new RecordingMessageHub()" in source
+    assert "connectReduxDevtools" in source
+    assert '"connectReduxDevtools" in vmx' in source
     assert '"RecordingMessageHub" in vmx' in source
     assert '__version__ !== "3.21.0"' in source
     assert "BatchUpdateHandle" in source
@@ -36,7 +39,10 @@ def test_render_commonjs_checks_all_entries_and_exact_version() -> None:
     assert 'require("@thekaveh/vmx/notifications")' in source
     assert 'require("@thekaveh/vmx/conformance")' in source
     assert 'require("@thekaveh/vmx/testing")' in source
+    assert 'require("@thekaveh/vmx/devtools")' in source
     assert "new testing.RecordingMessageHub()" in source
+    assert "devtools.connectReduxDevtools" in source
+    assert '"connectReduxDevtools" in vmx' in source
     assert '"RecordingMessageHub" in vmx' in source
     assert 'vmx.__version__ !== "3.21.0"' in source
     assert "vmx.BatchUpdateHandle" in source
@@ -54,6 +60,8 @@ def test_render_types_imports_declarations_from_all_entries() -> None:
     assert "type ConsumerConformanceSuite" in source
     assert "type FormHarnessOptions" in source
     assert 'from "@thekaveh/vmx/testing"' in source
+    assert "type ConnectReduxDevtoolsOptions" in source
+    assert 'from "@thekaveh/vmx/devtools"' in source
 
 
 def test_typescript_command_uses_package_public_library_floor() -> None:

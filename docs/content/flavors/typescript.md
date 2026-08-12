@@ -157,7 +157,31 @@ The source tree and packed-package checks include this surface. The npm import
 becomes installable only after issue #57 completes the first public TypeScript
 release; current users must consume a local workspace or packed source artifact.
 
-## 7.4.8. Pointers
+## 7.4.8. DevTools observability
+
+The source-ready `@thekaveh/vmx/devtools` subpath keeps optional observability
+out of the root bundle. `observeHub()` emits transport-neutral events;
+`connectReduxDevtools()` adapts them to a structurally typed Redux DevTools
+extension without adding an extension dependency.
+
+Default actions expose only stable message type, sender name, sequence, and
+bounded scalar metadata. This is graph-safe, not necessarily non-sensitive:
+consumer-controlled names and scalars may still need action redaction.
+Consumer state is opt-in through named snapshot selectors and serializers.
+Built-in names are canonical across package formats; custom messages can use
+`mapAction` to choose an application-owned stable name.
+Allow/deny filters, sampling, throttled batches,
+redaction, bounded JSON sanitization, and phase-specific error reporting keep
+high-volume and private state under consumer control. A missing or explicitly
+disabled extension returns a no-op before any hub subscription or snapshot.
+
+The bridge ignores incoming DevTools dispatches. Hub messages do not encode
+complete or inverse mutations, so replay, time travel, and state reconstruction
+are explicitly out of scope. See the
+[TypeScript getting-started guide](../getting-started/typescript.md#349-observe-a-hub-safely)
+for a complete example. npm installation remains gated on issue #57.
+
+## 7.4.9. Pointers
 
 - Flavor README:
   [langs/typescript/README.md](../../../langs/typescript/README.md)
@@ -170,7 +194,7 @@ release; current users must consume a local workspace or packed source artifact.
 - React recipe:
   [React Integration](../integration/react.md)
 
-## 7.4.9. Current Example Coverage
+## 7.4.10. Current Example Coverage
 
 - Console: `examples/typescript/console/hello-vmx/`
 - React flagship: `examples/typescript/react/notes-showcase/`

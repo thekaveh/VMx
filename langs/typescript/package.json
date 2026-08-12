@@ -47,6 +47,16 @@
         "types": "./dist/testing.d.cts",
         "default": "./dist/testing.cjs"
       }
+    },
+    "./devtools": {
+      "import": {
+        "types": "./dist/devtools.d.ts",
+        "default": "./dist/devtools.js"
+      },
+      "require": {
+        "types": "./dist/devtools.d.cts",
+        "default": "./dist/devtools.cjs"
+      }
     }
   },
   "files": [

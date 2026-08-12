@@ -340,7 +340,44 @@ from npm only after the first TypeScript publication in issue #57.
 
 ______________________________________________________________________
 
-## 3.4.9. Where to go next
+## 3.4.9. Observe a hub safely
+
+Use the optional DevTools subpath when development diagnostics need a message
+log or an explicit state snapshot:
+
+```ts
+import { connectReduxDevtools } from "@thekaveh/vmx/devtools";
+
+const devtools = connectReduxDevtools(hub, {
+  name: "user-editor",
+  snapshots: [
+    {
+      name: "user",
+      select: () => ({ name: userVM.model.name }),
+    },
+  ],
+  throttleMs: 16,
+  onError: (error, context) => console.warn(context.phase, error),
+});
+
+// The owning adapter controls this lifetime.
+devtools.dispose();
+```
+
+VMx does not serialize the message sender or model graph by default. Add only
+the named snapshots needed for diagnosis, and use `redact` or a snapshot
+`serialize` function before values cross the transport. Sender names and scalar
+metadata can still contain identifiers, so redact actions too when required.
+`allow`, `deny`,
+`sampleEvery`, and `throttleMs` bound high-volume streams. Without an extension,
+`connectReduxDevtools()` returns a no-op without subscribing to the hub.
+
+This is an observability API only. Incoming Redux DevTools commands are ignored,
+and VMx does not promise replay, time travel, or state reconstruction.
+
+______________________________________________________________________
+
+## 3.4.10. Where to go next
 
 | Resource             | Documentation page                                                                             |
 | -------------------- | ---------------------------------------------------------------------------------------------- |

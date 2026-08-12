@@ -52,6 +52,7 @@ def render_esm(version: str) -> str:
 import {{ NotificationHub }} from "@thekaveh/vmx/notifications";
 import {{ consumerConformanceSchema }} from "@thekaveh/vmx/conformance";
 import {{ RecordingMessageHub }} from "@thekaveh/vmx/testing";
+import {{ connectReduxDevtools }} from "@thekaveh/vmx/devtools";
 
 const {{ __version__, BatchUpdateHandle, MessageHub }} = vmx;
 
@@ -67,6 +68,9 @@ if (batchExits !== 1) throw new Error(`expected one batch exit, received ${{batc
 if (typeof NotificationHub !== "function") throw new Error("missing notifications export");
 if (typeof consumerConformanceSchema !== "object") throw new Error("missing conformance export");
 if ("RecordingMessageHub" in vmx) throw new Error("testing helper leaked into root export");
+if ("connectReduxDevtools" in vmx) throw new Error("devtools helper leaked into root export");
+const disconnected = connectReduxDevtools(new MessageHub(), {{ extension: null }});
+disconnected.dispose();
 const testingHub = new RecordingMessageHub();
 testingHub.send({{ sender: testingHub, senderName: "smoke" }});
 if (testingHub.records.length !== 1) throw new Error("testing hub did not record delivery");
@@ -83,6 +87,7 @@ def render_commonjs(version: str) -> str:
 const notifications = require("@thekaveh/vmx/notifications");
 const conformance = require("@thekaveh/vmx/conformance");
 const testing = require("@thekaveh/vmx/testing");
+const devtools = require("@thekaveh/vmx/devtools");
 
 if (vmx.__version__ !== {expected}) {{
   throw new Error(`expected {version}, received ${{vmx.__version__}}`);
@@ -102,6 +107,9 @@ if (typeof conformance.consumerConformanceSchema !== "object") {{
   throw new Error("missing conformance export");
 }}
 if ("RecordingMessageHub" in vmx) throw new Error("testing helper leaked into root export");
+if ("connectReduxDevtools" in vmx) throw new Error("devtools helper leaked into root export");
+const disconnected = devtools.connectReduxDevtools(new vmx.MessageHub(), {{ extension: null }});
+disconnected.dispose();
 const testingHub = new testing.RecordingMessageHub();
 testingHub.send({{ sender: testingHub, senderName: "smoke" }});
 if (testingHub.records.length !== 1) throw new Error("testing hub did not record delivery");
@@ -116,16 +124,18 @@ def render_types() -> str:
 import { type INotificationHub } from "@thekaveh/vmx/notifications";
 import { type ConsumerConformanceSuite } from "@thekaveh/vmx/conformance";
 import { type FormHarnessOptions } from "@thekaveh/vmx/testing";
+import { type ConnectReduxDevtoolsOptions } from "@thekaveh/vmx/devtools";
 
 declare const hub: IMessageHub;
 declare const notifications: INotificationHub;
 declare const suite: ConsumerConformanceSuite;
 declare const batch: BatchUpdateHandle;
 declare const formOptions: FormHarnessOptions<{ readonly name: string }>;
+declare const devtoolsOptions: ConnectReduxDevtoolsOptions;
 const disposable: Disposable = batch;
 batch[Symbol.dispose]();
 const version: string = __version__;
-void [hub, notifications, suite, disposable, formOptions, version];
+void [hub, notifications, suite, disposable, formOptions, devtoolsOptions, version];
 """
 
 

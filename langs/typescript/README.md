@@ -438,6 +438,64 @@ before removal. The source and packed artifact contain this entry now;
 installation from npm becomes valid only after #57 completes the first
 `typescript-v3.24.0` publication.
 
+### 4.6 DevTools observability
+
+Import the optional bridge from `@thekaveh/vmx/devtools`; it is not included in
+the root runtime entry:
+
+```typescript
+import { connectReduxDevtools } from "@thekaveh/vmx/devtools";
+
+const devtools = connectReduxDevtools(hub, {
+  name: "notes",
+  snapshots: [
+    {
+      name: "workspace",
+      select: () => ({ route: appVM.model.route, noteCount: notes.length }),
+    },
+  ],
+  deny: message => message.senderName === "TelemetryVM",
+  redact: (value, context) => context.kind === "action"
+    ? { ...(value as object), senderName: "[redacted]" }
+    : removePrivateFields(value),
+  throttleMs: 16,
+  onError: (error, context) => reportDiagnostic(error, context.phase),
+});
+
+// Dispose before the owning hub.
+devtools.dispose();
+```
+
+`observeHub()` provides the same transport-neutral event stream for a custom
+sink. Default actions contain only the message type, `senderName`, sequence,
+and bounded scalar message metadata; VMx never traverses `sender`, models, or
+collection items by default. These fields are graph-safe, not inherently
+non-sensitive: consumer-controlled names and scalar values can still contain
+identifiers, so redact actions as well as snapshots when required. State
+exists only when the consumer supplies a
+named selector, and an optional per-source serializer can reduce domain values
+before bounded JSON sanitization. Circular references, throwing getters,
+functions, symbols, large strings, arrays, and objects are represented safely.
+VMx built-in message names are canonicalized across ESM and CommonJS builds;
+applications that define custom message classes should use `mapAction` when
+they need a name stable across their own minifier or bundler.
+
+Allow/deny filters run before `sampleEvery`; `throttleMs` coalesces accepted
+messages into an action batch, bounds its emitted details through the same
+serialization limits, and captures snapshots once at flush.
+Selector, serializer, redactor, clock, scheduler, sink, and Redux transport
+failures are isolated and reported through `onError`. Disposal is idempotent,
+pending batches are canceled when a hub completes, and reconnecting creates a
+fresh sequence. Passing `{ extension: null }`, or running without the Redux
+DevTools extension, returns a frozen no-op before a hub subscription, snapshot,
+or timer is created.
+
+Incoming Redux DevTools dispatches are deliberately ignored. VMx messages are
+observations, not reversible mutations, so this API makes no replay,
+time-travel, inverse-mutation, or state-reconstruction guarantee. The source
+and packed artifact contain the subpath now; npm installation remains gated on
+#57's first `typescript-v3.24.0` publication.
+
 ## 5. Conformance
 
 All 403 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5).
