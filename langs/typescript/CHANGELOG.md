@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- A tree-shakeable `@thekaveh/vmx/testing` subpath now provides recordable
+  hubs, immediate/manual dispatchers, semantic property and collection
+  recorders, configurable sync/async command doubles, and a real-FormVM harness
+  without a Vitest/Jest dependency (#84).
 - `DiscriminatorVM` now exposes `modalDepth` and `clearModals()` for explicit
   modal-history ownership (`DISC-007/008`, ADR-0128).
 

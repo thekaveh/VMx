@@ -10,7 +10,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-ENTRIES = ("index", "notifications", "conformance")
+ENTRIES = ("index", "notifications", "conformance", "testing")
 EXPECTED_PACKAGE_NAME = "@thekaveh/vmx"
 FIXTURES = (
     "command-truthtable.json",
@@ -34,7 +34,7 @@ REQUIRED_PATHS = {
 
 _ESM_CHUNK = re.compile(r"^dist/chunk-[A-Za-z0-9_-]+\.js(?:\.map)?$")
 _CJS_CHUNK = re.compile(r"^dist/chunk-[A-Za-z0-9_-]+\.cjs(?:\.map)?$")
-_DTS_CHUNK = re.compile(r"^dist/relayCommand-[A-Za-z0-9_-]+\.d\.(?:ts|cts)$")
+_DTS_CHUNK = re.compile(r"^dist/(?:relayCommand|formVm)-[A-Za-z0-9_-]+\.d\.(?:ts|cts)$")
 
 
 def _has_pair(paths: set[str], suffix: str, mate_suffix: str) -> bool:
@@ -61,7 +61,15 @@ def validate_paths(paths: set[str]) -> list[str]:
         errors.append("missing generated ESM chunk and source map")
     if not _has_pair(cjs, ".cjs", ".cjs.map"):
         errors.append("missing generated CommonJS chunk and source map")
-    if not _has_pair(dts, ".d.ts", ".d.cts"):
+    # tsup may choose different content hashes for the ESM and CJS declaration
+    # graphs. Require both formats for every allowlisted stem, rather than
+    # accepting arbitrary declarations.
+    stems = ("relayCommand-", "formVm-")
+    if not all(
+        any(path.startswith(f"dist/{stem}") and path.endswith(".d.ts") for path in dts)
+        and any(path.startswith(f"dist/{stem}") and path.endswith(".d.cts") for path in dts)
+        for stem in stems
+    ):
         errors.append("missing generated declaration chunk pair")
     return errors
 
