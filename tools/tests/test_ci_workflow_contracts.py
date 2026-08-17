@@ -164,12 +164,21 @@ def test_release_please_explicitly_targets_main_when_develop_is_default() -> Non
     assert "          target-branch: main" in workflow
 
 
-def test_release_please_restores_unreleased_on_generated_pr_branch() -> None:
+def test_release_please_restores_unreleased_on_existing_internal_pr_branch() -> None:
     workflow = (WORKFLOWS / "release-please.yml").read_text(encoding="utf-8")
 
     assert "      - name: Maintain Python release PR\n        id: release\n" in workflow
-    assert "if: steps.release.outputs.prs_created == 'true'" in workflow
-    assert "ref: ${{ fromJSON(steps.release.outputs.pr).headBranchName }}" in workflow
+    assert "      - name: Locate the open Python release PR\n        id: release-pr\n" in workflow
+    assert "gh api --method GET" in workflow
+    assert '"repos/$GITHUB_REPOSITORY/pulls"' in workflow
+    assert '-f "head=$GITHUB_REPOSITORY_OWNER:$RELEASE_PR_HEAD"' in workflow
+    assert "-f state=open" in workflow
+    assert "-f base=main" in workflow
+    assert 'echo "found=false" >> "$GITHUB_OUTPUT"' in workflow
+    assert "expected at most one" in workflow
+    assert "fromJSON(steps.release.outputs.pr)" not in workflow
+    assert "if: steps.release-pr.outputs.found == 'true'" in workflow
+    assert "ref: ${{ steps.release-pr.outputs.head }}" in workflow
     assert "token: ${{ secrets.RELEASE_PLEASE_TOKEN }}" in workflow
     assert "path: release-pr" in workflow
     assert (
