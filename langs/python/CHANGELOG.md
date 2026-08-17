@@ -6,6 +6,13 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ## [Unreleased]
 
+## [3.23.1](https://github.com/thekaveh/VMx/compare/python-v3.23.0...python-v3.23.1) (2026-08-17)
+
+
+### Documentation
+
+* **python:** reconcile public 3.23.0 release ([#217](https://github.com/thekaveh/VMx/issues/217)) ([#295](https://github.com/thekaveh/VMx/issues/295)) ([b97e424](https://github.com/thekaveh/VMx/commit/b97e424e7c57b345bbc50c9e446360f90236fe0c))
+
 ## [3.23.0] — 2026-07-25
 
 ### Added
