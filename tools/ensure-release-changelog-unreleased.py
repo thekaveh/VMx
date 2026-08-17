@@ -49,9 +49,6 @@ def ensure_unreleased(path: Path) -> bool:
     if unreleased:
         if unreleased[0].group(0) != CANONICAL_UNRELEASED:
             raise ValueError("[Unreleased] heading is not canonical")
-        if headings[0] == unreleased[0]:
-            return False
-
         unreleased_index = headings.index(unreleased[0])
         section_end = (
             headings[unreleased_index + 1].start()
@@ -59,7 +56,17 @@ def ensure_unreleased(path: Path) -> bool:
             else len(content)
         )
         if content[unreleased[0].end() : section_end].strip():
-            raise ValueError("a misplaced [Unreleased] section must be empty")
+            raise ValueError("[Unreleased] section must be empty")
+
+        numbered_headings = [heading for heading in headings if heading != unreleased[0]]
+        if (
+            not numbered_headings
+            or NUMBERED_RELEASE.fullmatch(numbered_headings[0].group(1)) is None
+        ):
+            raise ValueError("changelog must have a first numbered release section")
+        if headings[0] == unreleased[0]:
+            return False
+
         without_unreleased = content[: unreleased[0].start()] + content[section_end:]
         insertion = f"{CANONICAL_UNRELEASED}\n\n"
         repaired = (

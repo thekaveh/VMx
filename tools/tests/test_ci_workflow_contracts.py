@@ -171,9 +171,11 @@ def test_release_please_restores_unreleased_on_generated_pr_branch() -> None:
     assert "if: steps.release.outputs.prs_created == 'true'" in workflow
     assert "ref: ${{ fromJSON(steps.release.outputs.pr).headBranchName }}" in workflow
     assert "token: ${{ secrets.RELEASE_PLEASE_TOKEN }}" in workflow
+    assert "path: release-pr" in workflow
     assert (
-        "python3 tools/ensure-release-changelog-unreleased.py langs/python/CHANGELOG.md" in workflow
+        "python3 tools/ensure-release-changelog-unreleased.py \\\n"
+        "            release-pr/langs/python/CHANGELOG.md" in workflow
     )
-    assert "git diff --quiet -- langs/python/CHANGELOG.md" in workflow
-    assert 'git commit -m "chore: restore unreleased changelog section"' in workflow
-    assert 'git push origin "HEAD:${RELEASE_PR_HEAD}"' in workflow
+    assert "git -C release-pr diff --quiet -- langs/python/CHANGELOG.md" in workflow
+    assert 'git -C release-pr commit -m "chore: restore unreleased changelog section"' in workflow
+    assert 'git -C release-pr push origin "HEAD:${RELEASE_PR_HEAD}"' in workflow

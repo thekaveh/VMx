@@ -3,8 +3,8 @@
 ## Problem
 
 Release Please correctly creates the Python version bump and release notes, but it
-replaces the leading `## [Unreleased]` section with the new numbered release. VMx
-requires every current changelog to retain one canonical, empty
+inserts the new linked release heading above the existing empty
+`## [Unreleased]` section. VMx requires every current changelog to retain one canonical, empty
 `## [Unreleased]` section as its first bracketed level-two heading. The generated
 Python release PR therefore fails `tools/check-version-consistency.py`.
 
@@ -30,15 +30,19 @@ Ambiguous input—duplicates, a misplaced Unreleased section containing notes, o
 no numbered release heading—fails without rewriting the file.
 
 Give the Release Please action step an ID. When its documented `prs_created`
-output is true, check out the generated PR head with `RELEASE_PLEASE_TOKEN`, run
-the tool, and commit and push only if the changelog changed. The PAT-authored push
-triggers the normal protected-PR checks. A release-created run has no updated PR,
-so the repair steps are skipped.
+output is true, retain the trusted `main` checkout at the workspace root and
+check out the mutable generated PR head into `release-pr/` with
+`RELEASE_PLEASE_TOKEN`. Execute only the trusted root normalizer against the
+nested changelog, then run scoped `git -C release-pr` commands to commit and push
+only if it changed. The PAT-authored push triggers the normal protected-PR
+checks. A release-created run has no updated PR, so the repair steps are skipped.
 
 ## Safety and verification
 
 - Keep the repair limited to `langs/python/CHANGELOG.md`.
-- Never print or persist the PAT beyond GitHub Actions' secret handling.
+- Never execute mutable release-branch code with the PAT present; its persisted
+  checkout credential remains confined to the nested checkout used for the
+  authenticated push.
 - Test missing, already-correct, duplicate, empty-misplaced, nonempty-misplaced,
   linked Release Please, and malformed inputs.
 - Add workflow-contract assertions for the action output gate, PR-head checkout,

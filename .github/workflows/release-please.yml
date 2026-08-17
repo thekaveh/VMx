@@ -66,6 +66,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ fromJSON(steps.release.outputs.pr).headBranchName }}
+          path: release-pr
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
       - name: Restore the canonical Unreleased changelog section
         if: steps.release.outputs.prs_created == 'true'
@@ -73,13 +74,15 @@ jobs:
           RELEASE_PR_HEAD: ${{ fromJSON(steps.release.outputs.pr).headBranchName }}
         run: |
           set -euo pipefail
-          python3 tools/ensure-release-changelog-unreleased.py langs/python/CHANGELOG.md
-          if git diff --quiet -- langs/python/CHANGELOG.md; then
+          python3 tools/ensure-release-changelog-unreleased.py \
+            release-pr/langs/python/CHANGELOG.md
+          if git -C release-pr diff --quiet -- langs/python/CHANGELOG.md; then
             echo "The Python changelog already has its canonical Unreleased section."
             exit 0
           fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add langs/python/CHANGELOG.md
-          git commit -m "chore: restore unreleased changelog section"
-          git push origin "HEAD:${RELEASE_PR_HEAD}"
+          git -C release-pr config user.name "github-actions[bot]"
+          git -C release-pr config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C release-pr add langs/python/CHANGELOG.md
+          git -C release-pr commit -m "chore: restore unreleased changelog section"
+          git -C release-pr push origin "HEAD:${RELEASE_PR_HEAD}"

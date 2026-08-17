@@ -4,7 +4,7 @@
 
 **Goal:** Keep the canonical empty Python `[Unreleased]` changelog section on every Release Please PR so required CI passes without manual edits.
 
-**Architecture:** An idempotent Python normalizer owns the repository-specific changelog transformation. The Release Please workflow invokes it only after a PR is created or updated, checks out the reported PR branch using the fine-grained PAT, and pushes a repair commit only when necessary.
+**Architecture:** An idempotent Python normalizer owns the repository-specific changelog transformation. The Release Please workflow keeps the trusted `main` checkout at the root, checks out the reported mutable PR branch under `release-pr/` using the fine-grained PAT, executes only the trusted root normalizer, and pushes a scoped repair commit only when necessary.
 
 **Tech Stack:** Python 3 standard library, pytest, GitHub Actions YAML, Release Please v5 outputs, git.
 
@@ -12,7 +12,8 @@
 
 - The release PR must continue to modify only the four metadata files allowed by `spec-discipline.yml` relative to `main`.
 - `RELEASE_PLEASE_TOKEN` must remain masked and restricted to repository Contents and Pull requests permissions.
-- The tool must fail closed on ambiguous changelog structure and be idempotent on canonical input.
+- The tool must require an empty canonical Unreleased section and a numbered first release, fail closed on ambiguous changelog structure, and be idempotent on canonical input.
+- Mutable release-branch code must never execute in the PAT-bearing workflow job.
 - Normal pushes continue through `develop` and then `main`; the generated release PR remains the documented direct-to-main exception.
 
 ______________________________________________________________________

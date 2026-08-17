@@ -59,6 +59,28 @@ def test_rejects_misplaced_unreleased_with_notes(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     "body, message",
     [
+        ("## [Unreleased]\n", "numbered release"),
+        ("## [Unreleased]\n\n- Pending.\n\n## [3.23.1]\n", "must be empty"),
+        ("## [Draft]\n\n## [Unreleased]\n\n## [3.23.1]\n", "first numbered release"),
+    ],
+)
+def test_rejects_invalid_structure_when_unreleased_exists(
+    tmp_path: Path,
+    body: str,
+    message: str,
+) -> None:
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text(body, encoding="utf-8")
+
+    with pytest.raises(ValueError, match=message):
+        repair.ensure_unreleased(changelog)
+
+    assert changelog.read_text(encoding="utf-8") == body
+
+
+@pytest.mark.parametrize(
+    "body, message",
+    [
         (
             "## [Unreleased]\n\n## [3.23.1]\n\n## [Unreleased]\n",
             "exactly one",
