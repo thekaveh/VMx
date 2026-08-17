@@ -30,7 +30,7 @@ ______________________________________________________________________
 
 - Produces: `ensure_unreleased(path: Path) -> bool`, returning whether it rewrote the file; CLI exit 0 for canonical/repaired input and nonzero for ambiguity.
 
-- [ ] **Step 1: Write failing tests** for insertion before the first numbered heading, idempotence, duplicate rejection, misplaced rejection, and missing-release rejection.
+- [ ] **Step 1: Write failing tests** for insertion before the first numbered heading, idempotence, safe movement of an empty section below a linked Release Please heading, rejection of a misplaced section with notes, duplicate rejection, and missing-release rejection.
 
 - [ ] **Step 2: Verify RED** with `uv --project langs/python run --locked --extra tools pytest tools/tests/test_ensure_release_changelog_unreleased.py -q`; expect import/collection failure because the tool does not exist.
 

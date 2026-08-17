@@ -10,7 +10,10 @@ import sys
 import tempfile
 from pathlib import Path
 
-BRACKETED_HEADING = re.compile(r"^## \[([^]\n]+)\](?:[ \t].*)?$", re.MULTILINE)
+BRACKETED_HEADING = re.compile(
+    r"^## \[([^]\n]+)\](?:\([^\n)]+\))?(?:[ \t].*)?$",
+    re.MULTILINE,
+)
 NUMBERED_RELEASE = re.compile(r"\d+\.\d+\.\d+")
 CANONICAL_UNRELEASED = "## [Unreleased]"
 
@@ -44,11 +47,28 @@ def ensure_unreleased(path: Path) -> bool:
         raise ValueError("changelog must contain exactly one [Unreleased] section")
 
     if unreleased:
-        if headings[0] != unreleased[0]:
-            raise ValueError("[Unreleased] must be the first bracketed section")
         if unreleased[0].group(0) != CANONICAL_UNRELEASED:
             raise ValueError("[Unreleased] heading is not canonical")
-        return False
+        if headings[0] == unreleased[0]:
+            return False
+
+        unreleased_index = headings.index(unreleased[0])
+        section_end = (
+            headings[unreleased_index + 1].start()
+            if unreleased_index + 1 < len(headings)
+            else len(content)
+        )
+        if content[unreleased[0].end() : section_end].strip():
+            raise ValueError("a misplaced [Unreleased] section must be empty")
+        without_unreleased = content[: unreleased[0].start()] + content[section_end:]
+        insertion = f"{CANONICAL_UNRELEASED}\n\n"
+        repaired = (
+            without_unreleased[: headings[0].start()]
+            + insertion
+            + without_unreleased[headings[0].start() :]
+        )
+        _replace_atomically(path, repaired)
+        return True
 
     if not headings or NUMBERED_RELEASE.fullmatch(headings[0].group(1)) is None:
         raise ValueError("changelog must contain a first numbered release section")

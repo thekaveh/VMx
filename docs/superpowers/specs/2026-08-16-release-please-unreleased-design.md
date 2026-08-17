@@ -22,10 +22,12 @@ Python release PR therefore fails `tools/check-version-consistency.py`.
 
 Add an idempotent Python tool that accepts a changelog path. If the changelog has
 exactly one canonical `## [Unreleased]` heading in the required position, the
-tool makes no change. If Release Please removed that heading, the tool inserts an
-empty canonical section immediately before the first bracketed release heading.
-Ambiguous input—duplicates, a misplaced Unreleased section, or no numbered
-release heading—fails without rewriting the file.
+tool makes no change. If Release Please inserted its linked release heading above
+an existing empty Unreleased section, the tool moves the empty section back to
+the first bracketed position. If the heading is absent, it inserts an empty
+canonical section immediately before the first bracketed release heading.
+Ambiguous input—duplicates, a misplaced Unreleased section containing notes, or
+no numbered release heading—fails without rewriting the file.
 
 Give the Release Please action step an ID. When its documented `prs_created`
 output is true, check out the generated PR head with `RELEASE_PLEASE_TOKEN`, run
@@ -37,7 +39,8 @@ so the repair steps are skipped.
 
 - Keep the repair limited to `langs/python/CHANGELOG.md`.
 - Never print or persist the PAT beyond GitHub Actions' secret handling.
-- Test missing, already-correct, duplicate, misplaced, and malformed inputs.
+- Test missing, already-correct, duplicate, empty-misplaced, nonempty-misplaced,
+  linked Release Please, and malformed inputs.
 - Add workflow-contract assertions for the action output gate, PR-head checkout,
   PAT use, normalizer invocation, and conditional commit/push.
 - Run focused tool tests, the full tools suite, version consistency, workflow pin
