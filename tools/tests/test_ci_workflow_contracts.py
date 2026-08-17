@@ -162,3 +162,18 @@ def test_release_please_explicitly_targets_main_when_develop_is_default() -> Non
 
     assert "    branches: [main]" in workflow
     assert "          target-branch: main" in workflow
+
+
+def test_release_please_restores_unreleased_on_generated_pr_branch() -> None:
+    workflow = (WORKFLOWS / "release-please.yml").read_text(encoding="utf-8")
+
+    assert "      - name: Maintain Python release PR\n        id: release\n" in workflow
+    assert "if: steps.release.outputs.prs_created == 'true'" in workflow
+    assert "ref: ${{ fromJSON(steps.release.outputs.pr).headBranchName }}" in workflow
+    assert "token: ${{ secrets.RELEASE_PLEASE_TOKEN }}" in workflow
+    assert (
+        "python3 tools/ensure-release-changelog-unreleased.py langs/python/CHANGELOG.md" in workflow
+    )
+    assert "git diff --quiet -- langs/python/CHANGELOG.md" in workflow
+    assert 'git commit -m "chore: restore unreleased changelog section"' in workflow
+    assert 'git push origin "HEAD:${RELEASE_PR_HEAD}"' in workflow
