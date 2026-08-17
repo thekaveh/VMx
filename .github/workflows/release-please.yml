@@ -51,6 +51,7 @@ jobs:
             exit 1
           }
       - name: Maintain Python release PR
+        id: release
         if: steps.release-state.outputs.ready == 'true'
         uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         with:
@@ -60,3 +61,51 @@ jobs:
           target-branch: main
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+      - name: Locate the open Python release PR
+        id: release-pr
+        if: steps.release-state.outputs.ready == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+          RELEASE_PR_HEAD: release-please--branches--main--components--python
+        run: |
+          set -euo pipefail
+          count="$(gh api --method GET \
+            "repos/$GITHUB_REPOSITORY/pulls" \
+            -f state=open \
+            -f base=main \
+            -f "head=$GITHUB_REPOSITORY_OWNER:$RELEASE_PR_HEAD" \
+            --jq 'length')"
+          if [ "$count" -eq 0 ]; then
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          elif [ "$count" -eq 1 ]; then
+            echo "found=true" >> "$GITHUB_OUTPUT"
+            echo "head=$RELEASE_PR_HEAD" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::Found $count open Python release PRs; expected at most one."
+            exit 1
+          fi
+      - name: Check out updated Python release PR
+        if: steps.release-pr.outputs.found == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.release-pr.outputs.head }}
+          path: release-pr
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
+      - name: Restore the canonical Unreleased changelog section
+        if: steps.release-pr.outputs.found == 'true'
+        env:
+          RELEASE_PR_HEAD: ${{ steps.release-pr.outputs.head }}
+        run: |
+          set -euo pipefail
+          python3 tools/ensure-release-changelog-unreleased.py \
+            release-pr/langs/python/CHANGELOG.md
+          if git -C release-pr diff --quiet -- langs/python/CHANGELOG.md; then
+            echo "The Python changelog already has its canonical Unreleased section."
+            exit 0
+          fi
+          git -C release-pr config user.name "github-actions[bot]"
+          git -C release-pr config user.email \
+            "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C release-pr add langs/python/CHANGELOG.md
+          git -C release-pr commit -m "chore: restore unreleased changelog section"
+          git -C release-pr push origin "HEAD:${RELEASE_PR_HEAD}"
