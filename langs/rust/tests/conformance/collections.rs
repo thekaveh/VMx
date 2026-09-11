@@ -366,7 +366,7 @@ fn serviced_collection_delivery_orders_every_mutation_after_state_change() {
 
     let observations = observations.lock().unwrap();
     assert_eq!(observations.len(), 14);
-    for pair in observations.chunks_exact(2) {
+    for pair in observations.as_chunks::<2>().0 {
         assert_eq!(pair[0].0, "local");
         assert_eq!(pair[1].0, "external");
         assert_eq!(pair[0].1, pair[1].1);

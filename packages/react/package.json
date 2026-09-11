@@ -78,7 +78,7 @@
     "@types/use-sync-external-store": "^1.5.0",
     "@typescript-eslint/eslint-plugin": "^8.65.0",
     "@typescript-eslint/parser": "^8.65.0",
-    "@vitest/coverage-v8": "^4.1.8",
+    "@vitest/coverage-v8": "^5.0.0",
     "ajv": "^8.20.0",
     "eslint": "^10.8.0",
     "globals": "^17.8.0",
@@ -89,6 +89,6 @@
     "tsup": "^8.5.1",
     "typescript": "^6.0.3",
     "use-sync-external-store": "^1.6.0",
-    "vitest": "^4.1.8"
+    "vitest": "^5.0.0"
   }
 }
