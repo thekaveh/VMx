@@ -9,7 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 C_SHARP = ROOT / "langs" / "csharp"
 EXPECTED_CENTRAL_VERSIONS = {
-    "Microsoft.SourceLink.GitHub": "10.0.301",
+    "Microsoft.SourceLink.GitHub": "10.0.303",
     "Microsoft.Bcl.AsyncInterfaces": "10.0.10",
     "Microsoft.Extensions.DependencyInjection.Abstractions": "10.0.10",
     "Microsoft.Extensions.DependencyInjection": "8.0.1",
@@ -26,7 +26,7 @@ LOCK_TARGETS = {
     "tests/VMx.Conformance.Tests/packages.lock.json": {"net8.0", "net9.0", "net10.0"},
 }
 LEDGER_CONTRACT = (
-    "`Microsoft.SourceLink.GitHub` is `10.0.301`; "
+    "`Microsoft.SourceLink.GitHub` is `10.0.303`; "
     "`Microsoft.Extensions.DependencyInjection.Abstractions` and "
     "`Microsoft.Bcl.AsyncInterfaces` are `10.0.10`; "
     "`Microsoft.Extensions.DependencyInjection` remains `8.0.1`; "
@@ -57,7 +57,7 @@ def test_csharp_runtime_pins_and_lockfiles_cover_every_project_target() -> None:
         dependencies = json.loads(lockfile.read_text(encoding="utf-8"))["dependencies"]
         assert set(dependencies) == expected_targets, lockfile
         for target, packages in dependencies.items():
-            assert packages["Microsoft.SourceLink.GitHub"]["resolved"] == "10.0.301", (
+            assert packages["Microsoft.SourceLink.GitHub"]["resolved"] == "10.0.303", (
                 lockfile,
                 target,
             )
