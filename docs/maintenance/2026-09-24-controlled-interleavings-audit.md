@@ -185,9 +185,10 @@ shipping defect without a reproduction at the named boundary.
    [`langs/swift/Tests/VMxTests/AsyncRelayCommandTests.swift`](../../langs/swift/Tests/VMxTests/AsyncRelayCommandTests.swift) `CancellationRaceGate.waitUntilObserved`
    (line 77) and the external-first/command-first tests (lines 441--469) have
    real cancellation ordering but need bounded, independently releasable
-   cleanup. `testCmd012ParentTaskCancellationPropagatesToBody` (line 402) uses
-   a 200-ms inverted error expectation before wrapper error routing is known;
-   acknowledge the fire-and-forget wrapper's error decision, then count errors.
+   cleanup. `testCmd012ExecuteDoesNotRouteCancellationToErrorsWhenThrowOnCancelIsSet`
+   (line 496) uses a 200-ms inverted error expectation (lines 499 and 517)
+   before wrapper error routing is known; acknowledge the fire-and-forget
+   wrapper's error decision, then count errors.
 1. **Follow-up robustness:**
    [`langs/swift/Tests/VMxTests/NotificationHubConcurrencyTests.swift`](../../langs/swift/Tests/VMxTests/NotificationHubConcurrencyTests.swift)
    `testPostThenResolvePublishesInMutationOrder` (line 148) and
