@@ -13,20 +13,45 @@
 //
 import XCTest
 import Combine
+import Foundation
 @testable import VMx
 
 private actor CancellationObservation {
     private(set) var bodyWasCancelled = false
-    private(set) var missedCancellations = 0
 
     func recordBodyCancellation() {
         bodyWasCancelled = Task.isCancelled
     }
+}
 
-    func recordAdmissionCancellation() {
-        if !Task.isCancelled {
-            missedCancellations += 1
+private final class AdmissionBodyReleaseGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var released = false
+    private var continuation: CheckedContinuation<Void, Never>?
+
+    func wait() async {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            let resumeImmediately = released
+            if !resumeImmediately {
+                self.continuation = continuation
+            }
+            lock.unlock()
+
+            if resumeImmediately {
+                continuation.resume()
+            }
         }
+    }
+
+    func release() {
+        lock.lock()
+        released = true
+        let pending = continuation
+        continuation = nil
+        lock.unlock()
+
+        pending?.resume()
     }
 }
 
@@ -237,32 +262,98 @@ final class AsyncRelayCommandTests: XCTestCase {
         cmd.dispose()
     }
 
-    /// CMD-012 — a cancellation request made immediately after admission must
-    /// reach the body even if its Task cancellation handle is still being installed.
+    /// CMD-012 — cancellation during the synchronous admission notification
+    /// reaches the body even before its cancellation handle is installed.
     func testCmd012ImmediateCancelDuringAdmissionIsNeverLost() async {
-        let observation = CancellationObservation()
+        let admissionCancelled = expectation(
+            description: "CMD-012 admission callback requested cancellation"
+        )
+        let bodyObservedCancellation = expectation(
+            description: "CMD-012 body observed admission cancellation"
+        )
+        let runFinished = expectation(
+            description: "CMD-012 admission execution finished"
+        )
+        let bodyGate = AdmissionBodyReleaseGate()
+        let timeout: TimeInterval = 5.0
 
-        for _ in 0..<2_000 {
-            let cmd = AsyncRelayCommand.builder()
-                .task {
-                    let deadline = ContinuousClock.now + .milliseconds(10)
-                    while !Task.isCancelled && ContinuousClock.now < deadline {
-                        await Task.yield()
-                    }
-                    await observation.recordAdmissionCancellation()
+        let cmd = AsyncRelayCommand.builder()
+            .task {
+                try await withTaskCancellationHandler {
+                    await bodyGate.wait()
+                    try Task.checkCancellation()
+                } onCancel: {
+                    bodyObservedCancellation.fulfill()
                 }
-                .build()
-            let run = Task<Void, Error> { try await cmd.executeAsync() }
-            while !cmd.isExecuting {
-                await Task.yield()
             }
+            .build()
+
+        // The start notification is synchronous, before bodyTask exists or
+        // cancelHandle is installed. The finish notification has isExecuting
+        // false and therefore cannot request a second cancellation.
+        let subscription = cmd.canExecuteChanged.sink {
+            guard cmd.isExecuting else { return }
             cmd.cancel()
-            _ = try? await run.value
+            admissionCancelled.fulfill()
+        }
+
+        let run = Task<Result<Void, Error>, Never> {
+            defer { runFinished.fulfill() }
+            do {
+                try await cmd.executeAsync()
+                return .success(())
+            } catch {
+                return .failure(error)
+            }
+        }
+        defer {
+            // Cleanup must never depend on cancellation reaching the body.
+            bodyGate.release()
+            subscription.cancel()
+            run.cancel()
             cmd.dispose()
         }
 
-        let missedCancellations = await observation.missedCancellations
-        XCTAssertEqual(missedCancellations, 0)
+        let admissionResult = await XCTWaiter.fulfillment(
+            of: [admissionCancelled], timeout: timeout
+        )
+        XCTAssertEqual(
+            admissionResult, .completed,
+            "CMD-012 admission setup failed: synchronous cancellation callback did not run"
+        )
+
+        if admissionResult == .completed {
+            let cancellationResult = await XCTWaiter.fulfillment(
+                of: [bodyObservedCancellation], timeout: timeout
+            )
+            XCTAssertEqual(
+                cancellationResult, .completed,
+                "CMD-012 admission regression: pending command cancellation did not reach the body"
+            )
+        }
+
+        // This executes after a failed cancellation expectation as well as a
+        // successful one, allowing the mutant's uncancelled body to finish.
+        bodyGate.release()
+        let completionResult = await XCTWaiter.fulfillment(
+            of: [runFinished], timeout: timeout
+        )
+        XCTAssertEqual(
+            completionResult, .completed,
+            "CMD-012 admission cleanup failed: execution did not finish after body release"
+        )
+
+        // The completion acknowledgment is emitted in the task's final defer,
+        // after executeAsync has produced its Result; no further async work is
+        // performed in that task before this join completes.
+        switch await run.value {
+        case .success:
+            break
+        case .failure(let error):
+            XCTFail("CMD-012 admission execution unexpectedly failed: \(error)")
+        }
+        XCTAssertFalse(cmd.isExecuting)
+        XCTAssertTrue(cmd.canExecute())
     }
 
     /// CMD-012 — `throwOnCancel()` mode: `cancel()` surfaces `CancellationError`
