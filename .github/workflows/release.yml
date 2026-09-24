@@ -14,22 +14,21 @@ on:
       - "react-v*"
       - "rust-v*"
       - "swift-v*"
-  # No workflow_dispatch: every job gates on `startsWith(github.ref,
-  # 'refs/tags/…')`, so a manual dispatch from a branch silently did nothing.
-  # Releases are tag-driven only; re-add dispatch only together with
-  # ref-resolution logic in the jobs.
+  # Validation only: dispatch runs python-test and cannot publish, even on tag refs.
+  workflow_dispatch:
 
 # Serialise per-tag publish runs. `cancel-in-progress: false` because once
 # a PyPI upload is in flight the artifact is permanent (yank-not-delete);
 # we'd rather let the in-flight run finish than abort it mid-step. The
-# group is keyed on the tag ref, so independent flavors' tags
+# group is keyed on the event and tag ref, so independent flavors' tags
 # (e.g. python-v2.6.0 vs typescript-v2.6.0) run concurrently as intended.
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
   release-metadata:
+    if: github.event_name == 'push'
     timeout-minutes: 5
     name: release — metadata preflight
     runs-on: ubuntu-latest
@@ -43,19 +42,23 @@ jobs:
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           version: "0.11.28"
+          python-version: "3.12"
       - name: Set up Python
         run: uv python install 3.12
       - name: Sync release metadata dependencies
         run: uv --project langs/python sync --locked --extra tools
+      - name: Assert tools Python identity
+        id: interpreter
+        run: uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv --capture-output
       - name: Validate versions, tags, and substantive release notes
         run: >-
-          uv --project langs/python run --locked --extra tools python
-          tools/check-version-consistency.py
+          uv --project langs/python run --locked --extra tools
+          python tools/check-python-interpreter.py --venv langs/python/.venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- tools/check-version-consistency.py
           --release-tag "$GITHUB_REF_NAME"
 
   csharp-build:
     timeout-minutes: 40
-    if: startsWith(github.ref, 'refs/tags/csharp-')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/csharp-')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -142,7 +145,7 @@ jobs:
   csharp-publish:
     timeout-minutes: 20
     needs: [csharp-build, release-metadata]
-    if: startsWith(github.ref, 'refs/tags/csharp-')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/csharp-')
     runs-on: ubuntu-latest
     environment:
       name: nuget-csharp
@@ -194,7 +197,7 @@ jobs:
   csharp-verify-published:
     timeout-minutes: 25
     needs: csharp-publish
-    if: startsWith(github.ref, 'refs/tags/csharp-')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/csharp-')
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -236,7 +239,7 @@ jobs:
   csharp-release-notes:
     timeout-minutes: 10
     needs: csharp-verify-published
-    if: startsWith(github.ref, 'refs/tags/csharp-')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/csharp-')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -284,7 +287,7 @@ jobs:
     # Python (`py3-none-any` wheel) and the PR gate already exercises
     # macOS + Windows on every push to main.
     name: python — test before release
-    if: startsWith(github.ref, 'refs/tags/python-v')
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/python-v'))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -296,6 +299,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Verify tag commit is on main
+        if: github.event_name == 'push'
         run: |
           set -euo pipefail
           git fetch --no-tags origin main:refs/remotes/origin/main
@@ -303,36 +307,58 @@ jobs:
             echo "::error::Release tags must point at commits reachable from origin/main." >&2
             exit 1
           fi
-      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      - id: setup-uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           version: "0.11.28"
+          python-version: ${{ matrix.python-version }}
           enable-cache: true
           cache-dependency-glob: |
             langs/python/pyproject.toml
             langs/python/uv.lock
       - name: Set up Python ${{ matrix.python-version }}
         run: uv python install ${{ matrix.python-version }}
+      - name: Report uv package cache restoration
+        env:
+          CACHE_HIT: ${{ steps.setup-uv.outputs.cache-hit }}
+        run: echo "setup-uv cache-hit=$CACHE_HIT"
+        shell: bash
+
+      - name: Seed a deliberately mismatched environment
+        if: matrix.python-version == '3.10'
+        working-directory: langs/python
+        run: |
+          uv python install 3.14
+          uv python list --only-installed --managed-python
+          uv venv --python 3.14 .venv
+          .venv/bin/python ../../tools/check-python-interpreter.py --expected-version 3.14 --venv .venv
+
       - name: Sync dependencies
         working-directory: langs/python
         run: uv sync --locked --all-extras
+
+      - name: Assert selected Python identity
+        id: interpreter
+        working-directory: langs/python
+        run: uv run python ../../tools/check-python-interpreter.py --venv .venv --capture-output
       - name: Audit runtime dependencies
         if: matrix.python-version == '3.14'
         working-directory: langs/python
         run: |
           uv export --locked --no-dev --no-emit-project --output-file /tmp/vmx-runtime.txt
-          uvx --from pip-audit==2.10.1 pip-audit --requirement /tmp/vmx-runtime.txt
+          uvx --from pip-audit==2.10.1 python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --tool-context -- -m pip_audit --requirement /tmp/vmx-runtime.txt
       - name: Ruff lint
         working-directory: langs/python
-        run: uv run ruff check src tests
+        run: uv run python ../../tools/check-python-interpreter.py --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m ruff check src tests
       - name: Ruff format check
         working-directory: langs/python
-        run: uv run ruff format --check src tests
+        run: uv run python ../../tools/check-python-interpreter.py --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m ruff format --check src tests
       - name: mypy --strict
         working-directory: langs/python
-        run: uv run mypy --strict src/vmx
+        run: uv run python ../../tools/check-python-interpreter.py --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m mypy --strict src/vmx
       - name: pytest
         working-directory: langs/python
-        run: uv run pytest
+        run: uv run python ../../tools/check-python-interpreter.py --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m pytest
 
   python-build-and-publish:
     # OIDC-based PyPI trusted publishing — no API token in repo secrets.
@@ -343,7 +369,7 @@ jobs:
     # upload.
     name: python — build & publish
     needs: [python-test, release-metadata]
-    if: startsWith(github.ref, 'refs/tags/python-v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/python-v')
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment:
@@ -357,6 +383,7 @@ jobs:
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           version: "0.11.28"
+          python-version: "3.12"
           enable-cache: true
           cache-dependency-glob: |
             langs/python/pyproject.toml
@@ -364,6 +391,11 @@ jobs:
       - name: Set up Python
         run: uv python install 3.12
 
+      - name: Sync source package environment
+        run: uv sync --project langs/python --locked --all-extras
+      - name: Assert source package Python identity
+        id: interpreter
+        run: uv run --project langs/python python tools/check-python-interpreter.py --venv langs/python/.venv --capture-output
       - name: Verify tag matches package version
         # PyPI uploads are permanent (yank-not-delete), so a typo'd tag
         # (python-v2.6.1 against a 2.6.0 __about__.py) MUST abort before
@@ -372,7 +404,7 @@ jobs:
         run: |
           set -euo pipefail
           tag_version="${GITHUB_REF#refs/tags/python-v}"
-          pkg_version=$(uv run --project langs/python python -c \
+          pkg_version=$(uv run --project langs/python python tools/check-python-interpreter.py --venv langs/python/.venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -c \
             "from vmx.__about__ import __version__; print(__version__)")
           if [ "$tag_version" != "$pkg_version" ]; then
             echo "::error::Tag version ($tag_version) does not match package version ($pkg_version). Bump langs/python/src/vmx/__about__.py before tagging." >&2
@@ -384,14 +416,14 @@ jobs:
         run: uv build --project langs/python --out-dir dist
 
       - name: Verify exact wheel and sdist contents
-        run: uv run --project langs/python python tools/check-python-package.py --dist dist
+        run: uv run --project langs/python python tools/check-python-interpreter.py --venv langs/python/.venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- tools/check-python-package.py --dist dist
 
       - name: Twine check
         # Catches common metadata issues (missing long_description, invalid
         # RST/MD, malformed classifiers) before uploading. Cheap pre-flight.
         run: |
           set -euo pipefail
-          uv tool run --from "twine==6.2.0" twine check dist/*
+          uv tool run --from "twine==6.2.0" python tools/check-python-interpreter.py --tool-context -- -m twine check dist/*
 
       - name: Test extracted sdist
         run: |
@@ -401,7 +433,7 @@ jobs:
           sdist_root="$(find "$extract_dir" -mindepth 1 -maxdepth 1 -type d -print -quit)"
           test -n "$sdist_root"
           uv sync --project "$sdist_root" --locked --all-extras
-          uv run --project "$sdist_root" pytest "$sdist_root/tests/conformance" -q
+          uv run --project "$sdist_root" python tools/check-python-interpreter.py --venv "$sdist_root/.venv" -- -m pytest "$sdist_root/tests/conformance" -q
 
       - name: Verify exact local wheel in a fresh environment
         run: |
@@ -410,7 +442,7 @@ jobs:
           rm -rf .package-venv
           uv venv --python 3.12 .package-venv
           uv pip install --python .package-venv/bin/python dist/*.whl
-          .package-venv/bin/python langs/python/scripts/smoke_test.py "$tag_version"
+          .package-venv/bin/python tools/check-python-interpreter.py --expected-version 3.12 --venv .package-venv -- langs/python/scripts/smoke_test.py "$tag_version"
 
       - name: Publish to PyPI
         # Sigstore attestations (`attestations: true`, PEP 740) ship signed
@@ -429,7 +461,7 @@ jobs:
     # PyPI propagation lag honestly.
     name: python — verify published
     needs: python-build-and-publish
-    if: startsWith(github.ref, 'refs/tags/python-v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/python-v')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -461,7 +493,7 @@ jobs:
         run: |
           set -e
           version="${GITHUB_REF#refs/tags/python-v}"
-          .verify-venv/bin/python langs/python/scripts/smoke_test.py "$version"
+          .verify-venv/bin/python tools/check-python-interpreter.py --expected-version 3.12 --venv .verify-venv -- langs/python/scripts/smoke_test.py "$version"
 
   python-release-notes:
     timeout-minutes: 10
@@ -470,7 +502,7 @@ jobs:
     # exists iff the package is genuinely live and importable on PyPI.
     name: python — GitHub Release
     needs: python-verify-published
-    if: startsWith(github.ref, 'refs/tags/python-v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/python-v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -509,7 +541,7 @@ jobs:
   typescript:
     timeout-minutes: 30
     needs: release-metadata
-    if: startsWith(github.ref, 'refs/tags/typescript-v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/typescript-v')
     runs-on: ubuntu-latest
     environment:
       name: npm-typescript
@@ -602,7 +634,7 @@ jobs:
   typescript-verify-published:
     timeout-minutes: 20
     needs: typescript
-    if: startsWith(github.ref, 'refs/tags/typescript-v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/typescript-v')
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -627,7 +659,7 @@ jobs:
   typescript-release-notes:
     timeout-minutes: 10
     needs: typescript-verify-published
-    if: startsWith(github.ref, 'refs/tags/typescript-v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/typescript-v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -660,7 +692,7 @@ jobs:
   react:
     timeout-minutes: 30
     needs: release-metadata
-    if: startsWith(github.ref, 'refs/tags/react-v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/react-v')
     runs-on: ubuntu-latest
     environment:
       name: npm-react
@@ -728,7 +760,7 @@ jobs:
   react-verify-published:
     timeout-minutes: 20
     needs: react
-    if: startsWith(github.ref, 'refs/tags/react-v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/react-v')
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -759,7 +791,7 @@ jobs:
   react-release-notes:
     timeout-minutes: 10
     needs: react-verify-published
-    if: startsWith(github.ref, 'refs/tags/react-v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/react-v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -777,7 +809,7 @@ jobs:
 
   rust-test:
     name: rust — release gates (${{ matrix.toolchain }})
-    if: startsWith(github.ref, 'refs/tags/rust-v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/rust-v')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -831,7 +863,7 @@ jobs:
 
   rust-conformance:
     name: rust — five-flavor conformance gate
-    if: startsWith(github.ref, 'refs/tags/rust-v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/rust-v')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -844,18 +876,22 @@ jobs:
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           version: "0.11.28"
+          python-version: "3.12"
       - name: Set up Python
         run: uv python install 3.12
       - name: Sync tool dependencies
         run: uv --project langs/python sync --locked --all-extras
+      - name: Assert tools Python identity
+        id: interpreter
+        run: uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv --capture-output
       - name: Check five-flavor conformance coverage
-        run: uv --project langs/python run python tools/check-conformance-coverage.py --require csharp --require python --require typescript --require swift --require rust
+        run: uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- tools/check-conformance-coverage.py --require csharp --require python --require typescript --require swift --require rust
       - name: Check Rust fixture sync
-        run: uv --project langs/python run python tools/check-rust-fixture-sync.py
+        run: uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- tools/check-rust-fixture-sync.py
 
   rust-audit:
     name: rust — dependency advisory audit
-    if: startsWith(github.ref, 'refs/tags/rust-v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/rust-v')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -874,7 +910,7 @@ jobs:
   rust-publish:
     name: rust — publish vmx-rs
     needs: [rust-test, rust-conformance, rust-audit, release-metadata]
-    if: startsWith(github.ref, 'refs/tags/rust-v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/rust-v')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment:
@@ -941,7 +977,7 @@ jobs:
   rust-verify-published:
     name: rust — verify public (${{ matrix.toolchain }})
     needs: rust-publish
-    if: startsWith(github.ref, 'refs/tags/rust-v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/rust-v')
     runs-on: ubuntu-latest
     timeout-minutes: 45
     permissions:
@@ -967,7 +1003,7 @@ jobs:
     timeout-minutes: 10
     name: rust — GitHub Release
     needs: rust-verify-published
-    if: startsWith(github.ref, 'refs/tags/rust-v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/rust-v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -1005,7 +1041,7 @@ jobs:
     # stable artifact reference. `swift.yml` only triggers on path-push /
     # pull_request, NOT on tag-push, so this job must run its own test gate
     # before creating the release (VMX-038).
-    if: startsWith(github.ref, 'refs/tags/swift-v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/swift-v')
     runs-on: macos-latest
     permissions:
       contents: read
@@ -1056,7 +1092,7 @@ jobs:
     timeout-minutes: 15
     name: swift — GitHub Release
     needs: [swift-verify, release-metadata]
-    if: startsWith(github.ref, 'refs/tags/swift-v')
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/swift-v')
     runs-on: macos-latest
     permissions:
       contents: write

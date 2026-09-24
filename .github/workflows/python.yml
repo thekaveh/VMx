@@ -11,6 +11,9 @@ on:
       - "examples/python/**"
       - "spec/**"
       - ".github/workflows/python.yml"
+      - "tools/check-python-interpreter.py"
+      - "tools/tests/test_check_python_interpreter.py"
+      - "tools/tests/test_python_release_workflow.py"
   pull_request:
     branches: [main, develop]
   workflow_dispatch:
@@ -33,9 +36,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install uv
+        id: setup-uv
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           version: "0.11.28"
+          python-version: ${{ matrix.python-version }}
           enable-cache: true
           cache-dependency-glob: |
             langs/python/pyproject.toml
@@ -44,26 +49,44 @@ jobs:
       - name: Set up Python
         run: uv python install ${{ matrix.python-version }}
 
+      - name: Report uv package cache restoration
+        env:
+          CACHE_HIT: ${{ steps.setup-uv.outputs.cache-hit }}
+        run: echo "setup-uv cache-hit=$CACHE_HIT"
+        shell: bash
+
+      - name: Seed a deliberately mismatched environment
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.10'
+        run: |
+          uv python install 3.14
+          uv python list --only-installed --managed-python
+          uv venv --python 3.14 .venv
+          .venv/bin/python ../../tools/check-python-interpreter.py --expected-version 3.14 --venv .venv
+
       - name: Sync dependencies
         run: uv sync --locked --all-extras
+
+      - name: Assert selected Python identity
+        id: interpreter
+        run: uv run python ../../tools/check-python-interpreter.py --venv .venv --capture-output
 
       - name: Audit runtime dependencies
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.14'
         run: |
           uv export --locked --no-dev --no-emit-project --output-file /tmp/vmx-runtime.txt
-          uvx --from pip-audit==2.10.1 pip-audit --requirement /tmp/vmx-runtime.txt
+          uvx --from pip-audit==2.10.1 python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --tool-context -- -m pip_audit --requirement /tmp/vmx-runtime.txt
 
       - name: Ruff lint
-        run: uv run ruff check src tests
+        run: uv run python ../../tools/check-python-interpreter.py --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m ruff check src tests
 
       - name: Ruff format check
-        run: uv run ruff format --check src tests
+        run: uv run python ../../tools/check-python-interpreter.py --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m ruff format --check src tests
 
       - name: Mypy
-        run: uv run mypy --strict src/vmx
+        run: uv run python ../../tools/check-python-interpreter.py --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m mypy --strict src/vmx
 
       - name: Pytest
-        run: uv run pytest --cov=vmx --cov-report=xml -v
+        run: uv run python ../../tools/check-python-interpreter.py --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m pytest --cov=vmx --cov-report=xml -v
 
       - name: Upload coverage to Codecov
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
@@ -95,6 +118,7 @@ jobs:
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           version: "0.11.28"
+          python-version: "3.12"
           enable-cache: true
           cache-dependency-glob: |
             examples/python/textual/notes_showcase/pyproject.toml
@@ -110,17 +134,21 @@ jobs:
         # flag is needed for pytest to be present.
         run: uv sync --locked --directory examples/python/textual/notes_showcase
 
+      - name: Assert example Python identity
+        id: interpreter
+        run: uv run --directory examples/python/textual/notes_showcase python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv --capture-output
+
       - name: notes-showcase ruff lint
-        run: uv run --directory examples/python/textual/notes_showcase ruff check
+        run: uv run --directory examples/python/textual/notes_showcase python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m ruff check
 
       - name: notes-showcase ruff format check
-        run: uv run --directory examples/python/textual/notes_showcase ruff format --check
+        run: uv run --directory examples/python/textual/notes_showcase python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m ruff format --check
 
       - name: notes-showcase mypy strict
-        run: uv run --directory examples/python/textual/notes_showcase mypy --strict src
+        run: uv run --directory examples/python/textual/notes_showcase python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m mypy --strict src
 
       - name: notes-showcase tests
-        run: uv run --directory examples/python/textual/notes_showcase pytest
+        run: uv run --directory examples/python/textual/notes_showcase python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m pytest
 
   small-examples:
     timeout-minutes: 20
@@ -136,6 +164,7 @@ jobs:
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           version: "0.11.28"
+          python-version: "3.12"
           enable-cache: true
           cache-dependency-glob: |
             examples/python/pyproject.toml
@@ -147,20 +176,24 @@ jobs:
       - name: Sync examples
         run: uv sync --locked --directory examples/python
 
+      - name: Assert example Python identity
+        id: interpreter
+        run: uv run --directory examples/python python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv --capture-output
+
       - name: Ruff lint
-        run: uv run --directory examples/python ruff check console tk
+        run: uv run --directory examples/python python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m ruff check console tk
 
       - name: Ruff format check
-        run: uv run --directory examples/python ruff format --check console tk
+        run: uv run --directory examples/python python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m ruff format --check console tk
 
       - name: Mypy strict
-        run: uv run --directory examples/python mypy --strict console tk
+        run: uv run --directory examples/python python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m mypy --strict console tk
 
       - name: Run console example
-        run: uv run --directory examples/python python -m hello_vmx
+        run: uv run --directory examples/python python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m hello_vmx
 
       - name: Compile Tk example
-        run: uv run --directory examples/python python -m compileall tk/todo_app
+        run: uv run --directory examples/python python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m compileall tk/todo_app
 
   inspector:
     timeout-minutes: 30
@@ -181,6 +214,7 @@ jobs:
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           version: "0.11.28"
+          python-version: "3.12"
           enable-cache: true
           cache-dependency-glob: |
             examples/python/textual/inspector/pyproject.toml
@@ -192,17 +226,21 @@ jobs:
       - name: inspector sync
         run: uv sync --locked --directory examples/python/textual/inspector
 
+      - name: Assert example Python identity
+        id: interpreter
+        run: uv run --directory examples/python/textual/inspector python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv --capture-output
+
       - name: inspector ruff lint
-        run: uv run --directory examples/python/textual/inspector ruff check
+        run: uv run --directory examples/python/textual/inspector python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m ruff check
 
       - name: inspector ruff format check
-        run: uv run --directory examples/python/textual/inspector ruff format --check
+        run: uv run --directory examples/python/textual/inspector python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m ruff format --check
 
       - name: inspector mypy strict
-        run: uv run --directory examples/python/textual/inspector mypy --strict src
+        run: uv run --directory examples/python/textual/inspector python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m mypy --strict src
 
       - name: inspector tests
-        run: uv run --directory examples/python/textual/inspector pytest
+        run: uv run --directory examples/python/textual/inspector python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m pytest
 
   package:
     timeout-minutes: 15
@@ -216,20 +254,26 @@ jobs:
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           version: "0.11.28"
+          python-version: "3.12"
       - name: Set up Python
         run: uv python install 3.12
+      - name: Sync source package environment
+        run: uv sync --project langs/python --locked --all-extras
+      - name: Assert source package Python identity
+        id: interpreter
+        run: uv run --project langs/python python tools/check-python-interpreter.py --venv langs/python/.venv --capture-output
       - name: Build wheel and sdist
         run: uv build --project langs/python --out-dir dist
       - name: Verify exact wheel and sdist contents
-        run: uv run --project langs/python python tools/check-python-package.py --dist dist
+        run: uv run --project langs/python python tools/check-python-interpreter.py --venv langs/python/.venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- tools/check-python-package.py --dist dist
       - name: Verify exact local wheel in a fresh environment
         run: |
           set -euo pipefail
-          version=$(uv run --project langs/python python -c \
+          version=$(uv run --project langs/python python tools/check-python-interpreter.py --venv langs/python/.venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -c \
             "from vmx.__about__ import __version__; print(__version__)")
           uv venv --python 3.12 .package-venv
           uv pip install --python .package-venv/bin/python dist/*.whl
-          .package-venv/bin/python langs/python/scripts/smoke_test.py "$version"
+          .package-venv/bin/python tools/check-python-interpreter.py --expected-version 3.12 --venv .package-venv -- langs/python/scripts/smoke_test.py "$version"
       - name: Test extracted sdist
         run: |
           set -euo pipefail
@@ -238,7 +282,7 @@ jobs:
           sdist_root="$(find "$extract_dir" -mindepth 1 -maxdepth 1 -type d -print -quit)"
           test -n "$sdist_root"
           uv sync --project "$sdist_root" --locked --all-extras
-          uv run --project "$sdist_root" pytest "$sdist_root/tests/conformance" -q
+          uv run --project "$sdist_root" python tools/check-python-interpreter.py --venv "$sdist_root/.venv" -- -m pytest "$sdist_root/tests/conformance" -q
 
   required:
     timeout-minutes: 5

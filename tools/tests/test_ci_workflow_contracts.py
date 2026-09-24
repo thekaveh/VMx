@@ -57,7 +57,7 @@ def test_every_workflow_change_triggers_the_pin_inventory() -> None:
     conformance = (WORKFLOWS / "conformance.yml").read_text(encoding="utf-8")
 
     assert conformance.count('- ".github/workflows/**"') == 1
-    assert "python tools/check-workflow-pins.py" in conformance
+    assert "-- tools/check-workflow-pins.py" in conformance
 
 
 def test_protected_branch_checks_are_always_present_and_aggregate_every_job() -> None:

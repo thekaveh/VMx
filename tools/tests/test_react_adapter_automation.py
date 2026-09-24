@@ -31,7 +31,9 @@ def test_showcase_job_builds_adapter_before_suppressing_lifecycle_scripts() -> N
 def test_release_is_tag_driven_and_core_gated() -> None:
     workflow = (ROOT / ".github/workflows/release.yml").read_text()
     assert '- "react-v*"' in workflow
-    assert "if: startsWith(github.ref, 'refs/tags/react-v')" in workflow
+    assert (
+        "if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/react-v')" in workflow
+    )
     assert 'npm view "@thekaveh/vmx@${core_version}" version --json' in workflow
     assert "environment:\n      name: npm-react" in workflow
     assert "react-verify-published:" in workflow
