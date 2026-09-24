@@ -623,20 +623,30 @@ public class ComponentVMLifecycleRaceTests
         using var entered = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
         var disposedSeen = 0;
+        var callbackFailures = new ConcurrentQueue<Exception>();
         using var subscription = hub.Messages
             .OfType<IConstructionStatusChangedMessage>()
             .Where(message => ReferenceEquals(message.SenderObject, vm))
             .Subscribe(message =>
             {
-                if (message.Status == ConstructionStatus.Constructing)
+                try
                 {
-                    entered.Set();
-                    release.Wait(TimeSpan.FromSeconds(10)).Should().BeTrue(
-                        "the coordinator must release ordinary publication");
+                    if (message.Status == ConstructionStatus.Constructing)
+                    {
+                        entered.Set();
+                        release.Wait(TimeSpan.FromSeconds(10)).Should().BeTrue(
+                            "the coordinator must release ordinary publication");
+                    }
+                    else if (message.Status == ConstructionStatus.Disposed)
+                    {
+                        Interlocked.Exchange(ref disposedSeen, 1);
+                    }
                 }
-                else if (message.Status == ConstructionStatus.Disposed)
+                catch (Exception error)
                 {
-                    Interlocked.Exchange(ref disposedSeen, 1);
+                    // MessageHub isolates observer failures, so the test must
+                    // retain them explicitly and surface them after cleanup.
+                    callbackFailures.Enqueue(error);
                 }
             });
 
@@ -713,6 +723,7 @@ public class ComponentVMLifecycleRaceTests
                 try { await worker; }
                 catch (Exception error) { failures.Add(error); }
             }
+            failures.AddRange(callbackFailures);
         }
         if (failures.Count != 0) throw new AggregateException(failures);
         Volatile.Read(ref disposedSeen).Should().Be(1);
