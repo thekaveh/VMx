@@ -98,9 +98,12 @@ same actionable procedure:
 1. Verify the exact version on the public registry and install it into a second
    fresh consumer. Confirm the GitHub release points to the tagged commit and
    contains the expected artifacts and notes.
-1. If publication fails after tag creation, keep the tag immutable. Correct the
-   source or workflow on `main`, bump the affected package to a new patch
-   version, and publish through a new tag.
+1. If the published package is defective after tag creation, keep the tag
+   immutable. Correct the source or workflow on `main`, bump the affected
+   package to a new patch version, and publish through a new tag. If only
+   GitHub Release metadata is missing after registry, provenance, and
+   fresh-consumer gates succeed, use the adapter's
+   [metadata-only recovery runbook](../../packages/react/RELEASING.md#3-recover-missing-github-release-metadata).
 
 ### 11.5.2. Validate Python Release Tests
 
