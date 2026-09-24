@@ -32,12 +32,30 @@ dotnet format VMx.sln --verify-no-changes
 
 ```bash
 cd langs/python
-uv sync --all-extras
+export UV_PYTHON=3.12
+uv python install "$UV_PYTHON"
+uv sync --locked --all-extras
+uv run python ../../tools/check-python-interpreter.py --venv .venv
 uv run pytest
 uv run ruff check
 uv run ruff format --check
 uv run mypy --strict src/vmx
 ```
+
+Choose any supported Python 3.10–3.14 version with `UV_PYTHON`; in PowerShell,
+use `$env:UV_PYTHON = "3.12"`. Installing an interpreter alone does not select
+it for a compatible existing uv environment. Keep the selector set for sync,
+run, build, and tool commands.
+
+CI selects each matrix version through setup-uv's `python-version` input.
+Before checks, it prints the requested and actual major/minor, `sys.executable`,
+and `sys.prefix`, then captures the executable for subsequent lint, typing,
+and test assertions. Wheel consumers, extracted sdists, and ephemeral tools
+have deliberately separate environments; identity is checked within each
+context, with the same requested Python version. The Ubuntu 3.10 cell also
+seeds a 3.14 environment and proves selected sync repairs it. Cache evidence
+reports setup-uv's actual `cache-hit` output: a package-cache hit does not mean
+a virtualenv or Python installation was restored.
 
 ### 2.3 TypeScript
 
@@ -166,6 +184,27 @@ consumer. Never create or move release tags from `develop`.
 `main` may contain an in-development source version before publication. The
 compatibility matrix must distinguish source status from public package status,
 and release automation must verify exact tag/package agreement before upload.
+
+### 4.4 Validate Python release tests without publishing
+
+After the workflow change reaches the default branch, `develop`, run:
+
+```bash
+gh workflow run release.yml --ref develop
+```
+
+This no-input dispatch runs only the five-version Ubuntu `python-test` matrix.
+Every other release job requires a tag push, even when a dispatch targets an
+existing release tag. Validation cannot publish packages or create releases,
+and it does not exercise the protected Python build/publish job. Normal Python
+CI separately checks the wheel and extracted sdist. Real tag pushes retain
+their `origin/main` ancestry check and all publication protections.
+
+To verify warm-cache behavior, rerun the successful workflow at the same
+revision and inspect the 3.10 cell for `cache-hit=true`, both managed Python
+versions, the seeded 3.14 identity, and the repaired 3.10 identity. A cache miss
+does not establish warm-cache coverage. Record the run URL and exact revision;
+these checks make no claim about interpreter choices in historical runs.
 
 ## 5. Code of conduct
 
