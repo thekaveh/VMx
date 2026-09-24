@@ -88,6 +88,11 @@ impl<T: Clone + Send + 'static> AsyncValue<T> {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn observe_wait(&self) -> crate::runtime::wait_observation::Observation<'_> {
+        crate::runtime::wait_observation::observe(&self.inner.ready)
+    }
+
     /// Maps the eventual value through an executor-neutral continuation.
     ///
     /// The mapping runs synchronously on the thread that resolves this handle,

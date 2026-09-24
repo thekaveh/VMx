@@ -15,25 +15,6 @@ fn post_waiter_yields_resolved_reaction() {
 }
 
 #[test]
-fn post_waiter_remains_pending_until_resolve() {
-    let hub = NotificationHub::new();
-    let (notification, waiter) = hub.post_with_waiter(NotificationType::Notification, "info");
-    let completed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let completed_by_waiter = completed.clone();
-    let waiting = std::thread::spawn(move || {
-        let reaction = waiter.wait();
-        completed_by_waiter.store(true, std::sync::atomic::Ordering::SeqCst);
-        reaction
-    });
-
-    std::thread::sleep(std::time::Duration::from_millis(5));
-    assert!(!completed.load(std::sync::atomic::Ordering::SeqCst));
-    hub.resolve(notification.id, NotificationReaction::Reject);
-
-    assert_eq!(waiting.join().unwrap(), NotificationReaction::Reject);
-}
-
-#[test]
 fn panicking_waiter_waker_does_not_escape_resolution() {
     use std::future::Future;
     use std::pin::Pin;

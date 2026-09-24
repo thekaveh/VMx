@@ -394,3 +394,40 @@ pub fn make_confirm(
             .map(|reaction| reaction == NotificationReaction::Approve)
     }
 }
+
+#[cfg(test)]
+mod blocking_wait_tests {
+    use super::*;
+
+    #[test]
+    fn post_waiter_remains_pending_until_resolve() {
+        let hub = NotificationHub::new();
+        let (notification, waiter) = hub.post_with_waiter(NotificationType::Notification, "info");
+        let observation = waiter.completion.observe_wait();
+        let waiting_copy = waiter.clone();
+        let waiting = thread::spawn(move || waiting_copy.wait());
+        let checks = catch_unwind(AssertUnwindSafe(|| {
+            observation
+                .entered
+                .recv_timeout(std::time::Duration::from_secs(2))
+                .expect("blocking waiter entered the completion's native wait");
+            assert_eq!(waiter.try_get(), None);
+            assert!(!waiting.is_finished(), "waiter returned before resolution");
+        }));
+        // Cleanup also runs after a failed observation/assertion. A broken
+        // production lock cycle still requires the external process watchdog.
+        hub.resolve(notification.id, NotificationReaction::Reject);
+        let result = waiting.join();
+        if let Err(error) = checks {
+            match &result {
+                Ok(reaction) => eprintln!("waiter cleanup returned {reaction:?}"),
+                Err(_) => eprintln!("waiter also panicked during cleanup"),
+            }
+            std::panic::resume_unwind(error);
+        }
+        assert_eq!(
+            result.expect("waiter worker panicked"),
+            NotificationReaction::Reject
+        );
+    }
+}
