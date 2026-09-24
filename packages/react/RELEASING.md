@@ -74,11 +74,12 @@ test -s "$notes" && grep -q '[^[:space:]]' "$notes"
 cat "$notes"
 ```
 
-Also resolve `refs/tags/${tag}` directly on the remote and confirm it names
-the same commit as `tag_sha`; do not treat a failed fetch or remote query as a
-confirmed tag. Inspect the rendered notes before continuing. Check whether a
-GitHub Release already exists, and distinguish confirmed absence from an
-authentication or network failure. If absent, create only release metadata:
+The fetch and `ls-remote` equality confirm the remote tag ref, and
+`^{commit}` peels an annotated tag to its original commit. Any failed fetch or
+remote query stops this script; do not infer a confirmed tag from a failure.
+Inspect the rendered notes before continuing. Check whether a GitHub Release
+already exists, and distinguish confirmed absence from an authentication or
+network failure. If absent, create only release metadata:
 
 ```bash
 gh release create "$tag" --verify-tag --target "$tag_sha" \

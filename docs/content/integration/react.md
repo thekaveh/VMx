@@ -115,7 +115,7 @@ headings remain part of the body. The workflow prints the extracted notes for
 review before creating the GitHub Release. After npm publication, provenance,
 and both fresh React-consumer gates succeed, a missing GitHub Release is
 metadata-only recovery; a broken package needs a new patch and tag. Follow the
-[React release runbook](../../../packages/react/RELEASING.md#3-recover-missing-github-release-metadata).
+[React release runbook](https://github.com/thekaveh/VMx/blob/develop/packages/react/RELEASING.md#3-recover-missing-github-release-metadata).
 
 ## 9.8.7. Serialize Portal Dialog Requests
 
