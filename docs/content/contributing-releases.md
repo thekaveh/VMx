@@ -42,6 +42,15 @@ Use the canonical command list in
 [CONTRIBUTING.md](../../CONTRIBUTING.md)
 instead of copying commands from this page into long-lived process docs.
 
+For reproducible Python checks, set `UV_PYTHON` to the intended supported
+version (3.10–3.14) before locked sync and subsequent uv commands. Installing
+Python alone does not select it for an existing compatible environment. CI
+selects the matrix version and logs the requested version, actual major/minor,
+executable, and virtualenv prefix before checks. Later checks compare against
+the captured executable. Isolated wheel, sdist, and tool environments keep
+their own identities and must use the same requested version. The Ubuntu 3.10
+cell deliberately seeds a 3.14 environment and verifies sync repairs it.
+
 ## 11.4. Spec Discipline
 
 Two repo rules matter most:
@@ -92,3 +101,20 @@ same actionable procedure:
 1. If publication fails after tag creation, keep the tag immutable. Correct the
    source or workflow on `main`, bump the affected package to a new patch
    version, and publish through a new tag.
+
+### 11.5.2. Validate Python Release Tests
+
+Once the dispatch-capable workflow is on the default branch, `develop`, run
+`gh workflow run release.yml --ref develop` to validate only the five-version
+Ubuntu Python test matrix. Dispatch has no publication inputs, and all other
+release jobs require a tag push, including when dispatch targets an existing
+release tag. This does not exercise the protected build/publish job; normal
+Python CI separately checks wheel and extracted-sdist packaging. Real tag
+pushes retain their main-ancestry and publication gates.
+
+Rerun a successful revision to collect warm-cache evidence. The 3.10 cell must
+report `cache-hit=true`, list both managed versions, and log the seeded 3.14
+and selected 3.10 identities. A setup-uv package-cache hit is neither a restored
+virtualenv nor necessarily a cached Python installation. Record the run URL
+and revision; no historical interpreter selection is inferred. See
+[CONTRIBUTING.md](../../CONTRIBUTING.md) for the full local procedure.

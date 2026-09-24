@@ -123,9 +123,10 @@ jobs:
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           version: "0.11.28"
+          python-version: "3.12"
       - run: uv export --project . --locked --no-dev --no-emit-project --no-emit-local --output-file /tmp/runtime.txt
         working-directory: ${{ matrix.project }}
-      - run: uvx --from pip-audit==2.10.1 pip-audit --requirement /tmp/runtime.txt
+      - run: uvx --from pip-audit==2.10.1 python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --tool-context -- -m pip_audit --requirement /tmp/runtime.txt
         working-directory: ${{ matrix.project }}
 
   docs:

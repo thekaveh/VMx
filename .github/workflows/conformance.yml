@@ -43,12 +43,16 @@ jobs:
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
           version: "0.11.28"
+          python-version: "3.12"
 
       - name: Set up Python
         run: uv python install 3.12
 
       - name: Sync Python dependencies (for pytest)
         run: uv --project langs/python sync --locked --all-extras
+      - name: Assert tools Python identity
+        id: interpreter
+        run: uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv --capture-output
 
       - name: Ruff lint tools/
         # The conformance-coverage tool lives at the repo root (outside the
@@ -57,40 +61,40 @@ jobs:
         # `--config` is required because ruff auto-discovery starts at the
         # invocation CWD (repo root), never finds langs/python/pyproject.toml,
         # and silently falls back to defaults instead of our chosen rules.
-        run: uv --project langs/python run ruff check --config langs/python/pyproject.toml tools/
+        run: uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m ruff check --config langs/python/pyproject.toml tools/
         # Also enforce formatting so style regressions in this script can't
         # slip past CI silently.
       - name: Ruff format check tools/
         # Parity with the lint step above — format-check tools/ with the same
         # langs/python config (otherwise ruff falls back to defaults which use
         # a different line-length and disagree with the format committed here).
-        run: uv --project langs/python run ruff format --check --config langs/python/pyproject.toml tools/
+        run: uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m ruff format --check --config langs/python/pyproject.toml tools/
 
       - name: Run tool's own unit tests
-        run: uv --project langs/python run pytest tools/tests/ -v
+        run: uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m pytest tools/tests/ -v
 
       - name: Check version consistency
         # Verifies that spec/VERSION, all flavor manifests, and compatibility-matrix.md
         # are mutually consistent, and that every matrix-row version has a matching
         # git tag (pre-v2.0 rows are informational-only; the tool exits 0).
         run: >-
-          uv --project langs/python run --locked --extra tools python
-          tools/check-version-consistency.py
+          uv --project langs/python run --locked --extra tools
+          python tools/check-python-interpreter.py --venv langs/python/.venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- tools/check-version-consistency.py
 
       - name: Validate canonical fixture contracts
-        run: uv --project langs/python run python tools/check-fixture-contracts.py
+        run: uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- tools/check-fixture-contracts.py
 
       - name: Check workflow pin inventory
-        run: uv --project langs/python run python tools/check-workflow-pins.py
+        run: uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- tools/check-workflow-pins.py
 
       - name: Check Python fixture sync
-        run: uv --project langs/python run python tools/check-python-fixture-sync.py
+        run: uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- tools/check-python-fixture-sync.py
 
       - name: Check Rust fixture sync
-        run: uv --project langs/python run python tools/check-rust-fixture-sync.py
+        run: uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- tools/check-rust-fixture-sync.py
 
       - name: Check TypeScript schema sync
-        run: uv --project langs/python run python tools/check-typescript-schema-sync.py
+        run: uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- tools/check-typescript-schema-sync.py
 
       - name: mdformat check (spec/ + docs/)
         # CI backstop for the pre-commit mdformat hook — contributors without
@@ -106,7 +110,7 @@ jobs:
             | grep -Ev '^(docs/content/installation\.md|docs/content/getting-started/index\.md|docs/content/examples/rust-tui-notes-showcase\.md|docs/content/flavors/rust\.md|docs/content/primitives/(command-families|services-messages-dispatching)\.md|docs/content/primitives/viewmodel-families/(composite-family|forwarding-wrapper-family|hierarchical-family)\.md|docs/content/primitives/viewmodel-families/specialized/(confirmation-vm|discriminator-vm|form-vm|modal-vm|notification-vm)\.md)$' \
             | xargs uv --project langs/python run \
                 --with "mdformat==0.7.22" --with "mdformat-gfm==1.0.0" --with "mdformat-tables==1.0.0" \
-                mdformat --check
+                python tools/check-python-interpreter.py --tool-context -- -m mdformat --check
 
       - name: Enforce conformance coverage (csharp + python + typescript + swift + rust)
         # All five flavors ship at the current spec version and are enforced at
@@ -114,7 +118,7 @@ jobs:
         # doc-comment markers attached to real test functions, so this coverage
         # check does not need either toolchain. The tool exits non-zero if any
         # required language falls below full catalog coverage.
-        run: uv --project langs/python run python tools/check-conformance-coverage.py --require csharp --require python --require typescript --require swift --require rust
+        run: uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- tools/check-conformance-coverage.py --require csharp --require python --require typescript --require swift --require rust
 
       - name: Check Swift fixture sync
-        run: uv --project langs/python run python tools/check-swift-fixture-sync.py
+        run: uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- tools/check-swift-fixture-sync.py
