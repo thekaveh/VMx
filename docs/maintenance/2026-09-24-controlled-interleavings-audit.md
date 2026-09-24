@@ -53,7 +53,7 @@ shipping defect without a reproduction at the named boundary.
    unconditional before strengthening their outcome assertions.
 1. **Stress, not a forced schedule:** the same file's
    `Background_Construct_Racing_Dispose_Never_Resurrects_Or_Publishes_PostDispose`
-   (line 494) and the 16-contender lifecycle stress case (lines 652--678) are
+   (line 494) and the `Concurrent_Dispose_Invokes_OnDispose_At_Most_Once` case are
    useful invariant sampling, but a start gate does not select a buggy
    interleaving. Keep them as stress coverage; add a boundary observer only if
    a particular wait/order contract is being claimed.
@@ -88,8 +88,10 @@ shipping defect without a reproduction at the named boundary.
    still treats an unobserved race as acceptable. Its retained limit is that a
    thread-start signal does not prove ownership-lock admission; add that exact
    boundary observer before treating it as a regression.
-1. **Follow-up robustness:** the same module's opposing lifecycle
-   observer/hook cases (lines 306--414), plus its 8,000-iteration stress loop,
+1. **Follow-up robustness:** the same module's
+   `test_opposing_lifecycle_observers_do_not_deadlock` and
+   `test_opposing_active_lifecycle_hooks_cross_dispose_without_deadlock` cases,
+   plus its 8,000-iteration stress loop,
    establish callback overlap or invariants but leave raw worker errors and
    failure-path joins incomplete. Keep the stress case as supplementary
    coverage; make barrier results, release, and joins owned by cleanup.
@@ -151,9 +153,9 @@ shipping defect without a reproduction at the named boundary.
    (line 1050) are stress tests. `token_paging_dispose_wins_against_an_in_flight_loader`
    (line 1613) has a real loader boundary but still needs a release/join guard.
 1. **Weak oracle:**
-   [`langs/rust/tests/conformance/token_paging.rs`](../../langs/rust/tests/conformance/token_paging.rs)
+   [`langs/rust/src/token_paging.rs`](../../langs/rust/src/token_paging.rs)
    `nested_commits_keep_foreign_disposers_waiting_for_the_outer_guard`
-   (lines 625--665) needs acknowledgments for both `request_dispose` waits and
+   needs acknowledgments for both `request_dispose` waits and
    outer-guard cleanup. In `commands.rs`,
    `async_relay_command_cancel_cancels_in_flight_task` (line 425) and
    `repeated_async_command_dispose_cancels_one_in_flight_execution` (line 656)
