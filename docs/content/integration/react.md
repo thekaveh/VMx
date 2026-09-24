@@ -109,6 +109,14 @@ The adapter follows independent SemVer under `react-v*` tags. Core releases do
 not force adapter releases unless its public API or compatibility range changes.
 See [`packages/react/RELEASING.md`](../../../packages/react/RELEASING.md).
 
+Release notes are the body between the exact bracketed version heading and the
+next level-two heading; a version is compared literally, while level-three
+headings remain part of the body. The workflow prints the extracted notes for
+review before creating the GitHub Release. After npm publication, provenance,
+and both fresh React-consumer gates succeed, a missing GitHub Release is
+metadata-only recovery; a broken package needs a new patch and tag. Follow the
+[React release runbook](../contributing-releases.md#1153-recover-react-release-metadata).
+
 ## 9.8.7. Serialize Portal Dialog Requests
 
 Keep portal overlay state in an external observable store just like VM state,

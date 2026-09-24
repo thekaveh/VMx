@@ -803,8 +803,9 @@ jobs:
         run: |
           set -euo pipefail
           version="${GITHUB_REF#refs/tags/react-v}"
-          awk -v v="$version" '$0 ~ "^## \\[" v "\\]" { capture=1; next } capture && /^## \\[/ { exit } capture { print }' packages/react/CHANGELOG.md > /tmp/react-release-notes.md
-          [ -s /tmp/react-release-notes.md ] || { echo "::error::No adapter release notes." >&2; exit 1; }
+          awk -v v="$version" -f tools/extract-react-release-notes.awk packages/react/CHANGELOG.md > /tmp/react-release-notes.md
+          [ -s /tmp/react-release-notes.md ] && grep -q '[^[:space:]]' /tmp/react-release-notes.md || { echo "::error::No adapter release notes." >&2; exit 1; }
+          cat /tmp/react-release-notes.md
           gh release create "$GITHUB_REF_NAME" --title "React adapter v${version} (npm)" --notes-file /tmp/react-release-notes.md --target "$GITHUB_SHA"
 
   rust-test:

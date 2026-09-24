@@ -32,3 +32,18 @@ are both verified.
 If npm accepts a broken version, fix forward with a patch; never move or reuse
 the tag/version. Publication remains a separate release operation from issue
 #80's source integration.
+
+## 3. Recover missing GitHub Release metadata
+
+Use this procedure only when the exact npm version, provenance, and both fresh
+React consumers have passed. A broken published package requires a new patch;
+a missing GitHub Release alone is metadata-only recovery. Preserve the
+immutable tag and published version; do not republish, move or recreate the
+tag, reuse the version, or rerun the historical workflow. First verify the
+immutable tag, public package, provenance, and fresh React 18/19 consumers.
+Then extract and inspect the tagged changelog with the current helper. Confirm
+whether a GitHub Release is absent rather than blocked by authentication or the
+network; create or edit only its metadata, then verify its notes and tag and
+remove the temporary notes file. The canonical [React metadata recovery
+procedure](../../docs/content/contributing-releases.md#1153-recover-react-release-metadata)
+contains the complete commands.
