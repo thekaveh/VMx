@@ -132,15 +132,19 @@ jobs:
                   re.MULTILINE,
               )
               summaries = re.findall(
-                  r"^\s*Executed 1 test, with (\d+) failures? \(0 unexpected\)",
+                  r"^\s*Executed (\d+) tests?, with (\d+) failures? \((\d+) unexpected\)",
                   output,
                   re.MULTILINE,
               )
-              if len(started) != 1 or len(terminal) != 1 or len(summaries) != 1:
+              if len(started) != 1 or len(terminal) != 1 or not summaries:
                   raise RuntimeError(f"{label}: selected-test XCTest evidence was not unique")
 
               if expected == "passed":
-                  if process.returncode != 0 or terminal != ["passed"] or summaries != ["0"]:
+                  if (
+                      process.returncode != 0
+                      or terminal != ["passed"]
+                      or any(summary != ("1", "0", "0") for summary in summaries)
+                  ):
                       raise RuntimeError(f"{label}: expected one passing selected test")
                   return
 
@@ -159,7 +163,7 @@ jobs:
               if (
                   process.returncode != 1
                   or terminal != ["failed"]
-                  or summaries != ["1"]
+                  or any(summary != ("1", "1", "0") for summary in summaries)
                   or len(error_lines) != 1
                   or len(matching_errors) != 1
               ):
