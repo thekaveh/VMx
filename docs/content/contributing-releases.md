@@ -159,7 +159,10 @@ git merge-base --is-ancestor "$tag_sha" origin/main
 notes="$(mktemp)"
 git show "${tag_sha}:packages/react/CHANGELOG.md" |
   awk -v v="$version" -f tools/extract-react-release-notes.awk > "$notes"
-test -s "$notes" && grep -q '[^[:space:]]' "$notes"
+test -s "$notes" && grep -q '[^[:space:]]' "$notes" || {
+  echo "No adapter release notes." >&2
+  exit 1
+}
 cat "$notes"
 ```
 

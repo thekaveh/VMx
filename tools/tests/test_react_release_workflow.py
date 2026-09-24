@@ -7,6 +7,8 @@ import subprocess
 import textwrap
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -32,6 +34,7 @@ def _run_notes(tmp_path: Path, changelog: str, version: str = "0.2.0"):
         'printf "%s\\n" "$@" > "$VMX_TEST_GH_ARGS"\n'
         'printf "%s\\n" "VMX_TEST_RELEASE_CREATED"\n'
     )
+
     executable.chmod(0o755)
     arguments = tmp_path / "gh-arguments.txt"
     notes = tmp_path / "react-release-notes.md"
@@ -58,6 +61,34 @@ def _run_notes(tmp_path: Path, changelog: str, version: str = "0.2.0"):
         result,
         notes.read_text() if notes.exists() else "",
         (arguments.read_text().splitlines() if arguments.exists() else []),
+    )
+
+
+def _run_documented_notes_guard(tmp_path: Path, changelog: str):
+    source = tmp_path / "packages/react/CHANGELOG.md"
+    source.parent.mkdir(parents=True)
+    source.write_text(changelog)
+    extractor = tmp_path / "tools/extract-react-release-notes.awk"
+    extractor.parent.mkdir()
+    extractor.write_bytes((ROOT / "tools/extract-react-release-notes.awk").read_bytes())
+    contributor = (ROOT / "docs/content/contributing-releases.md").read_text()
+    section = contributor.split("### 11.5.3. Recover React Release Metadata", 1)[1]
+    script = re.findall(r"```bash\n(.*?)\n```", section, flags=re.DOTALL)[0]
+    script = (
+        'version="0.2.0"\nnotes="$RUNNER_TEMP/react-recovery-notes.md"'
+        + script.split('notes="$(mktemp)"', 1)[1]
+    )
+    script = script.replace(
+        'git show "${tag_sha}:packages/react/CHANGELOG.md"',
+        "cat packages/react/CHANGELOG.md",
+    )
+    return subprocess.run(
+        ["bash", "-euo", "pipefail", "-c", script],
+        cwd=tmp_path,
+        env={"PATH": os.defpath, "RUNNER_TEMP": str(tmp_path)},
+        text=True,
+        capture_output=True,
+        timeout=15,
     )
 
 
@@ -138,6 +169,24 @@ def test_release_notes_empty_level_two_heading_ends_section(tmp_path: Path) -> N
     result, notes, _ = _run_notes(tmp_path, "## [0.2.0]\n- Selected.\n##\n- Must not bleed.\n")
     assert result.returncode == 0, result.stderr
     assert notes == "- Selected.\n"
+
+
+@pytest.mark.parametrize(
+    ("changelog", "expected_returncode", "expected_stdout"),
+    [
+        ("## [0.1.0]\n- Other.\n", 1, ""),
+        ("## [0.2.0]\n## [0.1.0]\n- Old.\n", 1, ""),
+        ("## [0.2.0]\n\n \t\n", 1, ""),
+        ("## [0.2.0]\n\n- Selected.\n", 0, "\n- Selected.\n"),
+    ],
+    ids=("missing", "empty", "whitespace-only", "valid"),
+)
+def test_documented_recovery_notes_guard(
+    tmp_path: Path, changelog: str, expected_returncode: int, expected_stdout: str
+) -> None:
+    result = _run_documented_notes_guard(tmp_path, changelog)
+    assert result.returncode == expected_returncode, result.stderr
+    assert result.stdout == expected_stdout
 
 
 def test_release_notes_are_printed_before_release_creation(tmp_path: Path) -> None:
