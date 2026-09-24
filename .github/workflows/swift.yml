@@ -70,6 +70,123 @@ jobs:
         working-directory: langs/swift
         run: swift test --parallel
 
+      - name: Verify CMD-012 admission cancellation control
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          import signal
+          import subprocess
+          from pathlib import Path
+
+          source = Path("langs/swift/Sources/VMx/Commands/AsyncRelayCommand.swift")
+          original = source.read_bytes()
+          needle = (
+              b"        if cancelDuringAdmission {\n"
+              b"            bodyTask.cancel()\n"
+              b"        }\n"
+          )
+          mutant = (
+              b"        if cancelDuringAdmission {\n"
+              b"            _ = bodyTask // Negative control: omit forwarding.\n"
+              b"        }\n"
+          )
+          method = "testCmd012ImmediateCancelDuringAdmissionIsNeverLost"
+          diagnostic = (
+              "CMD-012 admission regression: pending command cancellation "
+              "did not reach the body"
+          )
+          base_command = [
+              "swift", "test", "--package-path", "langs/swift", "--filter",
+              f"AsyncRelayCommandTests.{method}",
+          ]
+
+          def run_case(label: str, expected: str, *, skip_build: bool) -> None:
+              command = [*base_command]
+              if skip_build:
+                  command.append("--skip-build")
+              print(f"VMx Swift control: {label}", flush=True)
+              process = subprocess.Popen(
+                  command,
+                  stdout=subprocess.PIPE,
+                  stderr=subprocess.STDOUT,
+                  text=True,
+                  start_new_session=True,
+              )
+              try:
+                  output, _ = process.communicate(timeout=120)
+              except subprocess.TimeoutExpired:
+                  os.killpg(process.pid, signal.SIGKILL)
+                  output, _ = process.communicate()
+                  print(output)
+                  raise RuntimeError(f"{label}: timed out")
+              print(output)
+
+              started = re.findall(
+                  rf"^Test Case .*{re.escape(method)}.* started\.$", output, re.MULTILINE
+              )
+              terminal = re.findall(
+                  rf"^Test Case .*{re.escape(method)}.* (passed|failed) ",
+                  output,
+                  re.MULTILINE,
+              )
+              summaries = re.findall(
+                  r"^\s*Executed 1 test, with (\d+) failures? \(0 unexpected\)",
+                  output,
+                  re.MULTILINE,
+              )
+              if len(started) != 1 or len(terminal) != 1 or len(summaries) != 1:
+                  raise RuntimeError(f"{label}: selected-test XCTest evidence was not unique")
+
+              if expected == "passed":
+                  if process.returncode != 0 or terminal != ["passed"] or summaries != ["0"]:
+                      raise RuntimeError(f"{label}: expected one passing selected test")
+                  return
+
+              error_lines = [
+                  line
+                  for line in output.splitlines()
+                  if ": error:" in line
+              ]
+              matching_errors = [
+                  line
+                  for line in error_lines
+                  if method in line
+                  and "XCTAssertEqual failed" in line
+                  and diagnostic in line
+              ]
+              if (
+                  process.returncode != 1
+                  or terminal != ["failed"]
+                  or summaries != ["1"]
+                  or len(error_lines) != 1
+                  or len(matching_errors) != 1
+              ):
+                  raise RuntimeError(
+                      f"{label}: expected only the selected cancellation assertion failure"
+                  )
+
+          try:
+              for run in range(1, 6):
+                  run_case(f"normal run={run}", "passed", skip_build=True)
+              if original.count(needle) != 1:
+                  raise RuntimeError("admission-cancellation mutation site was not unique")
+              source.write_bytes(original.replace(needle, mutant))
+              for run in range(1, 6):
+                  run_case(
+                      f"removed-admission-cancel run={run}",
+                      "failed",
+                      skip_build=run != 1,
+                  )
+          finally:
+              source.write_bytes(original)
+
+          if source.read_bytes() != original:
+              raise RuntimeError("AsyncRelayCommand.swift was not restored byte-for-byte")
+          run_case("restored", "passed", skip_build=False)
+          PY
+
   platforms:
     name: build (${{ matrix.label }})
     runs-on: macos-15

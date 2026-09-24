@@ -62,10 +62,29 @@ jobs:
         run: cargo fmt --manifest-path langs/rust/Cargo.toml -- --check
 
       - name: Clippy
-        run: cargo clippy --locked --manifest-path langs/rust/Cargo.toml --all-targets -- -D warnings
+        run: cargo clippy --locked --all-features --manifest-path langs/rust/Cargo.toml --all-targets -- -D warnings
 
       - name: Test
-        run: cargo test --locked --manifest-path langs/rust/Cargo.toml
+        run: cargo test --locked --all-features --manifest-path langs/rust/Cargo.toml
+
+      - name: Repeat controlled concurrency interleavings
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          vmx_cpu="$(python3 -c 'import os; print(min(os.sched_getaffinity(0)))')"
+          for vmx_mode in normal single-cpu; do
+            vmx_prefix=()
+            if [[ "$vmx_mode" == single-cpu ]]; then
+              vmx_prefix=(taskset -c "$vmx_cpu")
+            fi
+            for vmx_run in 1 2 3; do
+              echo "VMx controlled interleaving: mode=$vmx_mode run=$vmx_run cpu=$vmx_cpu"
+              timeout --kill-after=5s 120s "${vmx_prefix[@]}" \
+                cargo test --locked --all-features \
+                --manifest-path langs/rust/Cargo.toml
+            done
+          done
 
       - name: Documentation
         env:
@@ -111,6 +130,10 @@ jobs:
         uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable 2026-07-16
         with:
           toolchain: ${{ matrix.toolchain }}
+
+      - name: Compile and run test-only helpers at MSRV
+        if: matrix.toolchain == '1.88.0'
+        run: cargo test --locked --all-features --lib --manifest-path langs/rust/Cargo.toml
 
       - name: Package crate
         run: cargo package --locked --manifest-path langs/rust/Cargo.toml
