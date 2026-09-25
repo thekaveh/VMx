@@ -70,6 +70,15 @@ npm run build
 npm test
 ```
 
+Vitest global setup builds the package before test workers start, including
+when invoking `npx vitest` directly or running coverage. Watch reruns wait for
+the preceding run, rebuild through the same npm lifecycle, and invalidate the
+generated modules before starting workers. Generated `dist`, fixture, and
+schema writes are excluded from watch triggers to prevent rebuild loops.
+Automatic test selection still follows Vitest's existing import graph; use a
+manual rerun after editing canonical spec inputs outside that graph. Do not
+start a separate package build while tests are running.
+
 ### 2.4 Swift
 
 ```bash

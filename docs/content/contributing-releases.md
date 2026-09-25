@@ -76,6 +76,14 @@ CPU 0: hosted runners may exclude it. The Swift mutation experiment belongs in
 the macOS workflow because it requires supported Xcode XCTest; local machines
 without an accepted Xcode license cannot supply that evidence.
 
+TypeScript's Vitest global setup completes `npm run build`, including fixture
+and schema synchronization, before starting test workers. Each watch rerun
+waits for the preceding run, rebuilds, and invalidates generated modules;
+generated writes cannot themselves trigger reruns. This also supports direct
+`npx vitest` and coverage runs. Automatic test selection remains import-based;
+manually rerun after changing canonical spec inputs outside that graph. Avoid
+running a separate build against the same package while tests are active.
+
 See [Controlled Concurrency Interleavings](specification-conformance.md#108-controlled-concurrency-interleavings)
 for the evidence rules and the
 [Concurrency Test Audit](../maintenance/2026-09-24-controlled-interleavings-audit.md)

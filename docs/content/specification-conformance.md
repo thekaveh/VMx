@@ -237,6 +237,14 @@ with one CPU from the runner's allowed affinity set. The Swift lane records five
 normal selected passes, five failures from removing admission-cancellation
 forwarding, and a rebuilt restored pass.
 
+Order test infrastructure as carefully as runtime participants. A package
+build that rewrites imported fixtures or schemas must finish before workers
+read them. TypeScript uses global setup and an awaited rerun hook for this
+boundary; generated outputs are excluded from watch triggers and explicitly
+invalidated after rebuilding. A filesystem error alone does not identify the
+process holding a lock: trace the actual writer and reader before assigning a
+cause.
+
 These techniques answer different questions:
 
 - controlled thread interleavings force and acknowledge a particular runtime
