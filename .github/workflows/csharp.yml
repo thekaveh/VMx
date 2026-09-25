@@ -69,6 +69,26 @@ jobs:
       - name: Test
         run: dotnet test VMx.sln -c Release --no-build --collect:"XPlat Code Coverage" --results-directory ./TestResults --logger "trx"
 
+      - name: Repeat controlled lifecycle interleaving
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          vmx_cpu="$(python3 -c 'import os; print(min(os.sched_getaffinity(0)))')"
+          for vmx_mode in normal single-cpu; do
+            vmx_prefix=()
+            if [[ "$vmx_mode" == single-cpu ]]; then
+              vmx_prefix=(taskset -c "$vmx_cpu")
+            fi
+            for vmx_run in 1 2 3; do
+              echo "VMx controlled interleaving: mode=$vmx_mode run=$vmx_run cpu=$vmx_cpu"
+              timeout --kill-after=5s 120s "${vmx_prefix[@]}" \
+                dotnet test tests/VMx.Tests/VMx.Tests.csproj -c Release \
+                --no-build --no-restore \
+                --filter 'FullyQualifiedName~Foreign_Dispose_Waits'
+            done
+          done
+
       - name: Enforce library coverage floors
         if: matrix.os == 'ubuntu-latest'
         working-directory: .

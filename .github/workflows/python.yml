@@ -88,6 +88,23 @@ jobs:
       - name: Pytest
         run: uv run python ../../tools/check-python-interpreter.py --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m pytest --cov=vmx --cov-report=xml -v
 
+      - name: Repeat controlled lifecycle interleaving
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: |
+          set -euo pipefail
+          vmx_cpu="$(python3 -c 'import os; print(min(os.sched_getaffinity(0)))')"
+          for vmx_mode in normal single-cpu; do
+            vmx_prefix=()
+            if [[ "$vmx_mode" == single-cpu ]]; then
+              vmx_prefix=(taskset -c "$vmx_cpu")
+            fi
+            for vmx_run in 1 2 3; do
+              echo "VMx controlled interleaving: mode=$vmx_mode run=$vmx_run cpu=$vmx_cpu"
+              timeout --kill-after=5s 120s "${vmx_prefix[@]}" uv run python ../../tools/check-python-interpreter.py --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m pytest tests/unit/components/test_lifecycle_race.py -k foreign_dispose_waits
+            done
+          done
+
       - name: Upload coverage to Codecov
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0

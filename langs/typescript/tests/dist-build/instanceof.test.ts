@@ -10,16 +10,15 @@
  *
  * This guarantee can only be proven against the BUILT dist — the source tree
  * shares a single module, so the bug is invisible to source-level tests. The
- * test builds the package (idempotent) and dynamically imports both built entry
- * points.
+ * Vitest global setup builds the package before workers start, and this test
+ * dynamically imports both built entry points.
  */
 import { createRequire } from "node:module";
-import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { queueScheduler } from "rxjs";
-import { beforeAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const pkgRoot = resolve(here, "..", "..");
@@ -33,12 +32,6 @@ const devtoolsSubpath = "@thekaveh/vmx/devtools";
 
 type MainModule = typeof import("../../src/index.js");
 type NotificationsModule = typeof import("../../src/notifications/index.js");
-
-beforeAll(() => {
-  // Build once for every assertion in this file. Multiple dist test files must
-  // not run concurrent `tsup --clean` builds against the same output directory.
-  execSync("npm run build", { cwd: pkgRoot, stdio: "ignore" });
-}, 180_000);
 
 describe("VMX-024: shared class identity across published entry points", () => {
   it("a ./notifications command is instanceof RelayCommand from the main entry", async () => {

@@ -83,6 +83,8 @@ pub(crate) fn lock<T: ?Sized>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 pub(crate) fn wait<'a, T>(condition: &Condvar, guard: MutexGuard<'a, T>) -> MutexGuard<'a, T> {
+    #[cfg(test)]
+    wait_observation::entered(condition);
     condition
         .wait(guard)
         .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -2790,5 +2792,80 @@ impl<D: Dispatcher> ComponentCore<D> {
         if changed {
             self.notify_property_changed("is_expanded");
         }
+    }
+}
+
+#[cfg(test)]
+impl MessageHub {
+    pub(crate) fn observe_owner_wait(&self) -> wait_observation::Observation<'_> {
+        wait_observation::observe(&self.inner.ready)
+    }
+
+    pub(crate) fn test_draining_owner(&self) -> Option<ThreadId> {
+        lock(&self.inner.state).draining_owner
+    }
+}
+
+// Unit-test instrumentation only: observing the native wait must never gate it.
+#[cfg(test)]
+pub(crate) mod wait_observation {
+    use super::{lock, Condvar, HashMap, Mutex, OnceLock, ThreadId};
+    use std::sync::mpsc::{self, Receiver, Sender};
+
+    static OBSERVERS: OnceLock<Mutex<HashMap<usize, Sender<ThreadId>>>> = OnceLock::new();
+
+    pub(crate) struct Observation<'a> {
+        condition: &'a Condvar,
+        pub(crate) entered: Receiver<ThreadId>,
+    }
+
+    pub(crate) fn observe(condition: &Condvar) -> Observation<'_> {
+        let (sender, entered) = mpsc::channel();
+        let mut observers = lock(OBSERVERS.get_or_init(Mutex::default));
+        let key = condition as *const Condvar as usize;
+        assert!(!observers.contains_key(&key), "condition already observed");
+        observers.insert(key, sender);
+        Observation { condition, entered }
+    }
+
+    pub(super) fn entered(condition: &Condvar) {
+        let sender = OBSERVERS.get().and_then(|observers| {
+            lock(observers)
+                .get(&(condition as *const Condvar as usize))
+                .cloned()
+        });
+        if let Some(sender) = sender {
+            let _ = sender.send(std::thread::current().id());
+        }
+    }
+
+    impl Drop for Observation<'_> {
+        fn drop(&mut self) {
+            lock(OBSERVERS.get().expect("registered observer"))
+                .remove(&(self.condition as *const Condvar as usize));
+        }
+    }
+
+    #[test]
+    fn wait_observers_are_instance_scoped_and_removed_on_unwind() {
+        let first = Condvar::new();
+        let second = Condvar::new();
+        let observed = observe(&first);
+        entered(&second);
+        assert!(observed.entered.try_recv().is_err());
+        entered(&first);
+        assert_eq!(
+            observed.entered.try_recv().unwrap(),
+            std::thread::current().id()
+        );
+        drop(observed);
+        let failure = std::panic::catch_unwind(|| {
+            let _observed = observe(&first);
+            panic!("exercise registration cleanup");
+        });
+        assert!(failure.is_err());
+        let observed = observe(&first);
+        entered(&first);
+        assert!(observed.entered.try_recv().is_ok());
     }
 }

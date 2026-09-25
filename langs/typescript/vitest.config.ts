@@ -1,9 +1,11 @@
 import { defineConfig } from "vitest/config";
+import { isGeneratedBuildPath } from "./tests/globalSetup.js";
 
 export default defineConfig({
   test: {
     globals: true,
     environment: "node",
+    globalSetup: ["./tests/globalSetup.ts"],
     setupFiles: ["./tests/setup.ts"],
     coverage: {
       provider: "v8",
@@ -15,6 +17,11 @@ export default defineConfig({
         functions: 85,
         lines: 88,
       },
+    },
+  },
+  server: {
+    watch: {
+      ignored: [isGeneratedBuildPath],
     },
   },
   resolve: {
