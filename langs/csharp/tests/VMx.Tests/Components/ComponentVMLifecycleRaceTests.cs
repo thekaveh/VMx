@@ -1,7 +1,9 @@
+using System.Collections;
 using System.Collections.Concurrent;
 using System.Reactive.Concurrency;
 using System.Reactive.Disposables;
 using System.Reactive.Linq;
+using System.Reflection;
 using FluentAssertions;
 using FluentAssertions.Execution;
 using VMx.Components;
@@ -621,30 +623,109 @@ public class ComponentVMLifecycleRaceTests
         using var entered = new ManualResetEventSlim();
         using var release = new ManualResetEventSlim();
         var disposedSeen = 0;
+        var callbackFailures = new ConcurrentQueue<Exception>();
         using var subscription = hub.Messages
             .OfType<IConstructionStatusChangedMessage>()
             .Where(message => ReferenceEquals(message.SenderObject, vm))
             .Subscribe(message =>
             {
-                if (message.Status == ConstructionStatus.Constructing)
+                try
                 {
-                    entered.Set();
-                    release.Wait(TimeSpan.FromSeconds(5));
+                    if (message.Status == ConstructionStatus.Constructing)
+                    {
+                        entered.Set();
+                        release.Wait(TimeSpan.FromSeconds(10)).Should().BeTrue(
+                            "the coordinator must release ordinary publication");
+                    }
+                    else if (message.Status == ConstructionStatus.Disposed)
+                    {
+                        Interlocked.Exchange(ref disposedSeen, 1);
+                    }
                 }
-                else if (message.Status == ConstructionStatus.Disposed)
+                catch (Exception error)
                 {
-                    Interlocked.Exchange(ref disposedSeen, 1);
+                    // MessageHub isolates observer failures, so the test must
+                    // retain them explicitly and surface them after cleanup.
+                    callbackFailures.Enqueue(error);
                 }
             });
 
-        var constructor = Task.Run(vm.Construct);
-        entered.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue();
-        var disposer = Task.Run(vm.Dispose);
-        await Task.Delay(100);
-        disposer.IsCompleted.Should().BeFalse();
+        // Private runtime observation is deliberate: a signal before Dispose
+        // cannot establish that its actual publication wait was reached.
+        var waiters = typeof(ManualResetEventSlim).GetProperty("Waiters",
+            BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException(
+                $"Runtime {Environment.Version} lacks ManualResetEventSlim.Waiters; " +
+                "this regression requires native waiter-registration observation.");
+        var gateField = typeof(ComponentVMBase).GetField("_gate",
+            BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("ComponentVMBase._gate was not found.");
+        var queueField = typeof(ComponentVMBase).GetField("_lifecycleDeliveries",
+            BindingFlags.Instance | BindingFlags.NonPublic)
+            ?? throw new InvalidOperationException("ComponentVMBase._lifecycleDeliveries was not found.");
+        var gate = gateField.GetValue(vm)!;
 
-        release.Set();
-        await Task.WhenAll(constructor, disposer).WaitAsync(TimeSpan.FromSeconds(5));
+        ManualResetEventSlim? QueuedTerminalCompletion()
+        {
+            lock (gate)
+            {
+                var queue = (IEnumerable)queueField.GetValue(vm)!;
+                // Constructing's delivery is held outside the queue; Dispose's
+                // terminal delivery is now first and cannot drain until release.
+                var delivery = queue.Cast<object>().FirstOrDefault();
+                if (delivery is null) return null;
+                var completed = delivery.GetType().GetProperty("Completed",
+                    BindingFlags.Instance | BindingFlags.NonPublic)
+                    ?? throw new InvalidOperationException("LifecycleDelivery.Completed was not found.");
+                return (ManualResetEventSlim)completed.GetValue(delivery)!;
+            }
+        }
+
+        var failures = new List<Exception>();
+        var workers = new List<Task>();
+        try
+        {
+            // Dedicated threads also work when the thread pool is constrained.
+            workers.Add(Task.Factory.StartNew(vm.Construct, CancellationToken.None,
+                TaskCreationOptions.LongRunning, TaskScheduler.Default));
+            entered.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue("ordinary publication must enter");
+            var disposer = Task.Factory.StartNew(() =>
+            {
+                vm.Dispose();
+                Volatile.Read(ref disposedSeen).Should().Be(1,
+                    "Dispose cannot return before terminal publication");
+            }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+            workers.Add(disposer);
+
+            var admitted = false;
+            SpinWait.SpinUntil(() =>
+            {
+                var completion = QueuedTerminalCompletion();
+                // Read Waiters without holding the VM or wait-graph locks.
+                admitted = completion is not null && (int)waiters.GetValue(completion)! > 0;
+                return admitted || disposer.IsCompleted;
+            }, TimeSpan.FromSeconds(5)).Should().BeTrue("Dispose must reach its publication wait");
+            admitted.Should().BeTrue("Dispose must register inside LifecycleDelivery.Completed.Wait");
+            Volatile.Read(ref disposedSeen).Should().Be(0);
+            disposer.IsCompleted.Should().BeFalse();
+        }
+        catch (Exception error)
+        {
+            failures.Add(error);
+        }
+        finally
+        {
+            release.Set();
+            // Observe all workers even after an assertion failure. External
+            // process watchdogs contain mutants that deadlock despite release.
+            foreach (var worker in workers)
+            {
+                try { await worker; }
+                catch (Exception error) { failures.Add(error); }
+            }
+            failures.AddRange(callbackFailures);
+        }
+        if (failures.Count != 0) throw new AggregateException(failures);
         Volatile.Read(ref disposedSeen).Should().Be(1);
     }
 

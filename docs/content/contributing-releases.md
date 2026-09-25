@@ -51,6 +51,36 @@ the captured executable. Isolated wheel, sdist, and tool environments keep
 their own identities and must use the same requested version. The Ubuntu 3.10
 cell deliberately seeds a 3.14 environment and verifies sync repairs it.
 
+### 11.3.1. Reproduce Controlled Interleavings
+
+Run the selected regressions from the repository root with the same locked
+inputs used by CI:
+
+```bash
+dotnet test langs/csharp/tests/VMx.Tests/VMx.Tests.csproj -c Release \
+  --filter 'FullyQualifiedName~Foreign_Dispose_Waits'
+UV_PYTHON=3.12 uv --directory langs/python run python \
+  ../../tools/check-python-interpreter.py --venv .venv -- \
+  -m pytest tests/unit/components/test_lifecycle_race.py \
+  -k foreign_dispose_waits
+cargo test --locked --all-features --manifest-path langs/rust/Cargo.toml
+swift test --package-path langs/swift \
+  --filter AsyncRelayCommandTests.testCmd012ImmediateCancelDuringAdmissionIsNeverLost
+```
+
+The Python command assumes the locked environment has already been synchronized
+with `UV_PYTHON=3.12 uv --directory langs/python sync --locked --all-extras`.
+CI additionally repeats the Linux commands three times normally and three times
+under `taskset` on a CPU returned by `os.sched_getaffinity(0)`. Do not substitute
+CPU 0: hosted runners may exclude it. The Swift mutation experiment belongs in
+the macOS workflow because it requires supported Xcode XCTest; local machines
+without an accepted Xcode license cannot supply that evidence.
+
+See [Controlled Concurrency Interleavings](specification-conformance.md#108-controlled-concurrency-interleavings)
+for the evidence rules and the
+[Concurrency Test Audit](../maintenance/2026-09-24-controlled-interleavings-audit.md)
+for exact test locations and limitations.
+
 ## 11.4. Spec Discipline
 
 Two repo rules matter most:

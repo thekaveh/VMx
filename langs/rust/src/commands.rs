@@ -352,6 +352,8 @@ pub struct AsyncRelayCommand {
     errors: MessageHub,
     throw_on_cancel: bool,
     trigger_subscriptions: Arc<Mutex<Vec<Subscription>>>,
+    #[cfg(test)]
+    test_executions: Arc<Mutex<Option<Arc<test_execution::Collector>>>>,
 }
 
 struct AsyncExecutionGuard {
@@ -410,6 +412,8 @@ impl AsyncRelayCommand {
             errors: MessageHub::new(),
             throw_on_cancel,
             trigger_subscriptions: Arc::new(Mutex::new(Vec::new())),
+            #[cfg(test)]
+            test_executions: Arc::new(Mutex::new(None)),
         };
         let subscriptions = triggers
             .into_iter()
@@ -447,7 +451,13 @@ impl AsyncRelayCommand {
 
     /// Starts fire-and-forget execution and routes failures to the error hub.
     pub fn execute(&self) {
-        let _ = self.start_execution(true);
+        let handle = self.start_execution(true);
+        #[cfg(test)]
+        if let Some(collector) = lock(&self.test_executions).clone() {
+            collector.register(handle);
+            return;
+        }
+        drop(handle);
     }
 
     /// Starts execution and returns a handle for its result.
@@ -504,9 +514,15 @@ impl AsyncRelayCommand {
             can_execute_changed: self.can_execute_changed.clone(),
             disposed: self.disposed.clone(),
         };
+        #[cfg(test)]
+        let collector = lock(&self.test_executions).clone();
         std::thread::spawn(move || {
             let _guard = guard;
             let result = action.map(|action| action(token.clone())).unwrap_or(Ok(()));
+            #[cfg(test)]
+            if let Some(collector) = collector {
+                collector.record(result.clone());
+            }
             let result = match (token.is_cancelled(), result) {
                 (true, Ok(())) | (true, Err(VmxError::Cancelled)) => {
                     if throw_on_cancel {
@@ -1058,5 +1074,125 @@ impl<C: Command + Clone + 'static> Command for ConfirmationDecoratorCommand<C> {
 
     fn can_execute_changed(&self) -> MessageHub {
         self.inner.can_execute_changed()
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod test_execution {
+    use super::{lock, Arc, AsyncRelayCommand, Mutex, VmxResult};
+    use std::{sync::mpsc, thread::JoinHandle};
+
+    #[derive(Default)]
+    pub(crate) struct Collector {
+        handles: Mutex<Vec<JoinHandle<VmxResult<()>>>>,
+        results: Mutex<Vec<VmxResult<()>>>,
+        registered: Mutex<Option<mpsc::Sender<()>>>,
+    }
+
+    impl Collector {
+        pub(super) fn register(&self, handle: JoinHandle<VmxResult<()>>) {
+            lock(&self.handles).push(handle);
+            if let Some(sender) = lock(&self.registered).as_ref() {
+                let _ = sender.send(());
+            }
+        }
+
+        pub(super) fn record(&self, result: VmxResult<()>) {
+            lock(&self.results).push(result);
+        }
+    }
+
+    pub(crate) struct Registration {
+        command: AsyncRelayCommand,
+        collector: Arc<Collector>,
+        pub(crate) registered: mpsc::Receiver<()>,
+    }
+
+    impl Registration {
+        pub(crate) fn new(command: AsyncRelayCommand) -> Self {
+            let (sender, registered) = mpsc::channel();
+            let collector = Arc::new(Collector::default());
+            *lock(&collector.registered) = Some(sender);
+            {
+                let mut slot = lock(&command.test_executions);
+                assert!(slot.is_none(), "command already observed");
+                *slot = Some(collector.clone());
+            }
+            Self {
+                command,
+                collector,
+                registered,
+            }
+        }
+
+        // Call after all execute callers exit. Join outside both locks, and do
+        // not stop collecting failures when an earlier worker failed.
+        pub(crate) fn join_all(&self) -> (usize, Vec<VmxResult<()>>, Vec<String>) {
+            let handles = std::mem::take(&mut *lock(&self.collector.handles));
+            let count = handles.len();
+            let mut failures = Vec::new();
+            for handle in handles {
+                match handle.join() {
+                    Ok(Ok(())) => {}
+                    Ok(Err(error)) => failures.push(format!("worker error: {error:?}")),
+                    Err(_) => failures.push("worker panicked".to_string()),
+                }
+            }
+            (
+                count,
+                std::mem::take(&mut *lock(&self.collector.results)),
+                failures,
+            )
+        }
+    }
+
+    #[test]
+    fn collected_executions_retain_raw_errors_and_panics_and_are_scoped() {
+        let cancelled = AsyncRelayCommand::new(|token| {
+            token.cancel();
+            Err(super::VmxError::Cancelled)
+        });
+        let registration = Registration::new(cancelled.clone());
+        let unrelated = AsyncRelayCommand::new(|_| Ok(()));
+        unrelated.execute_async().join().unwrap().unwrap();
+        assert!(registration.registered.try_recv().is_err());
+        cancelled.clone().execute();
+        registration
+            .registered
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap();
+        let (count, raw, failures) = registration.join_all();
+        assert_eq!(count, 1);
+        assert_eq!(raw, vec![Err(super::VmxError::Cancelled)]);
+        assert!(
+            failures.is_empty(),
+            "normalized fire-and-forget result is Ok"
+        );
+        drop(registration);
+        // Dropping registration removes the command-scoped observer.
+        let replacement = Registration::new(cancelled);
+        assert_eq!(replacement.join_all().0, 0);
+
+        let panicking = AsyncRelayCommand::new(|_| panic!("action panic for collector test"));
+        let registration = Registration::new(panicking.clone());
+        panicking.execute();
+        registration
+            .registered
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap();
+        let (count, raw, failures) = registration.join_all();
+        assert_eq!(count, 1);
+        assert!(raw.is_empty(), "a panicking action never produced a Result");
+        assert_eq!(failures, vec!["worker panicked"]);
+    }
+
+    impl Drop for Registration {
+        fn drop(&mut self) {
+            *lock(&self.command.test_executions) = None;
+            let (_, results, failures) = self.join_all();
+            if !failures.is_empty() || results.iter().any(Result::is_err) {
+                eprintln!("test command cleanup failures: {failures:?}; raw results: {results:?}");
+            }
+        }
     }
 }

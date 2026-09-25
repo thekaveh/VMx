@@ -207,3 +207,48 @@ listed under `MISSING` and fails the coverage command.
    examples.
 1. Use the parity matrix and conformance catalog when you need proof rather than
    overview.
+
+## 10.8. Controlled Concurrency Interleavings
+
+Concurrency regressions must acknowledge the boundary that creates the tested
+ordering. A worker-start signal only proves that a worker began; elapsed time
+only proves that a deadline passed. Neither proves that VMx entered a specific
+wait. The selected lifecycle and notification regressions instead acknowledge
+the exact per-instance wait, then inspect the protected state while that wait
+is active. The Swift command regression uses the synchronous executing
+notification to cancel inside the admission window, before the body task's
+cancellation handle is installed.
+
+The test owns every participant and error channel. It releases gates in cleanup,
+joins workers, awaits task results, and reports callback failures to the
+coordinator. The forbidden outcomes are premature completion before the
+acknowledged boundary is released, missing terminal delivery, a swallowed
+worker or subscriber error, and cleanup that leaves work running. Diagnostic
+timeouts fail a test; they never count as evidence that an operation was
+correctly blocked.
+
+Negative controls mutate the actual production boundary exercised by the test,
+run in a subprocess group with a watchdog, and restore the original source
+bytes in `finally`. A valid control either reaches the selected assertion or is
+terminated as a demonstrated deadlock mutant. Compilation failure, zero matched
+tests, an unrelated assertion, crash, or watchdog expiry cannot be reported as
+the selected assertion proof. CI repeats the restored Linux checks normally and
+with one CPU from the runner's allowed affinity set. The Swift lane records five
+normal selected passes, five failures from removing admission-cancellation
+forwarding, and a rebuilt restored pass.
+
+These techniques answer different questions:
+
+- controlled thread interleavings force and acknowledge a particular runtime
+  boundary;
+- stress tests sample many schedules and remain useful supplementary evidence;
+- event-loop drains allow already-queued continuations to run but do not prove
+  that a foreign thread reached a boundary;
+- virtual schedulers deterministically advance modeled time and do not establish
+  native-thread scheduling behavior.
+
+The controls establish the named paths, not exhaustive freedom from races.
+Linux CPU affinity does not represent macOS scheduling, and an external
+watchdog contains a stuck process without proving in-process cleanup. The
+maintained scope and follow-up dispositions are recorded in the
+[Concurrency Test Audit](../maintenance/2026-09-24-controlled-interleavings-audit.md).

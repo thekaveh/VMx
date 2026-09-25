@@ -700,3 +700,201 @@ mod lifecycle_tests {
         assert!(pages.has_more());
     }
 }
+
+#[cfg(test)]
+mod controlled_interleaving_tests {
+    use super::*;
+    use crate::commands::test_execution::Registration;
+    use std::{
+        panic::{catch_unwind, AssertUnwindSafe},
+        sync::mpsc,
+        time::Duration,
+    };
+
+    #[test]
+    fn token_cross_thread_hub_drainer_allows_reentrant_refresh_and_disposal() {
+        let hub = MessageHub::new();
+        let observation = hub.observe_owner_wait();
+        let trace = Arc::new(Mutex::new(Vec::new()));
+        let callback_failures = Arc::new(Mutex::new(Vec::new()));
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let release_rx = Mutex::new(release_rx);
+        let _blocker = hub.subscribe({
+            let trace = trace.clone();
+            let failures = callback_failures.clone();
+            move |message| {
+                if matches!(message, Message::Custom { name, .. } if name == "block-drain") {
+                    let result = catch_unwind(AssertUnwindSafe(|| {
+                        lock(&trace).push("blocker entered");
+                        entered_tx
+                            .send(thread::current().id())
+                            .expect("blocker acknowledgment");
+                        lock(&release_rx).recv().expect("release blocker");
+                    }));
+                    if result.is_err() {
+                        lock(&failures).push("blocker panicked");
+                    }
+                }
+            }
+        });
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let pages = TokenPagedComposition::with_loader_and_hub(
+            None,
+            {
+                let calls = calls.clone();
+                move |_| match calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) {
+                    0 => (vec![1], Some(1)),
+                    _ => (vec![2], Some(2)),
+                }
+            },
+            hub.clone(),
+        );
+        let refresh_workers = Registration::new(pages.refresh_command());
+        let callback_count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let (disposed_tx, disposed_rx) = mpsc::channel();
+        let nested_hub = MessageHub::new();
+        let _nested_subscription = nested_hub.subscribe({
+            let pages = pages.clone();
+            let count = callback_count.clone();
+            let trace = trace.clone();
+            let failures = callback_failures.clone();
+            move |_| {
+                let result = catch_unwind(AssertUnwindSafe(|| {
+                    if count.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                        lock(&trace).push("nested refresh");
+                        pages.refresh();
+                    } else {
+                        lock(&trace).push("nested disposal");
+                        pages.dispose();
+                        lock(&trace).push("disposed");
+                        disposed_tx.send(()).expect("disposal acknowledgment");
+                    }
+                }));
+                if result.is_err() {
+                    lock(&failures).push("nested callback panicked");
+                }
+            }
+        });
+        let _subscription = hub.subscribe({
+            let trace = trace.clone();
+            let failures = callback_failures.clone();
+            move |message| {
+                if matches!(message, Message::CollectionChanged(_)) {
+                    let result = catch_unwind(AssertUnwindSafe(|| {
+                        lock(&trace).push("collection callback");
+                        nested_hub.send(Message::Custom {
+                            sender_id: 777,
+                            sender_name: "nested-test".into(),
+                            name: "nested-callback".into(),
+                        });
+                    }));
+                    if result.is_err() {
+                        lock(&failures).push("collection callback panicked");
+                    }
+                }
+            }
+        });
+        let drainer = thread::spawn({
+            let hub = hub.clone();
+            move || {
+                hub.send(Message::Custom {
+                    sender_id: 0,
+                    sender_name: "test".into(),
+                    name: "block-drain".into(),
+                })
+            }
+        });
+        let mut loader = None;
+        let checks = catch_unwind(AssertUnwindSafe(|| {
+            let drainer_id = entered_rx
+                .recv_timeout(Duration::from_secs(2))
+                .expect("blocker entered");
+            loader = Some(thread::spawn({
+                let pages = pages.clone();
+                move || {
+                    pages
+                        .load_more_command()
+                        .execute_async()
+                        .join()
+                        .expect("load action panicked")
+                }
+            }));
+            let loading_id = observation
+                .entered
+                .recv_timeout(Duration::from_secs(2))
+                .expect("foreign collection sender entered this hub's owner wait before enqueue");
+            lock(&trace).push("foreign owner wait");
+            assert_eq!(lock(&pages.lifecycle.state).active_owner, Some(loading_id));
+            assert_eq!(hub.test_draining_owner(), Some(drainer_id));
+            assert_ne!(loading_id, drainer_id);
+            assert_eq!(callback_count.load(std::sync::atomic::Ordering::SeqCst), 0);
+            assert!(!hub
+                .history()
+                .iter()
+                .any(|message| matches!(message, Message::CollectionChanged(_))));
+            // The foreign drainer exits before this sender enqueues. Its later
+            // callbacks exercise current-commit-owner reentrancy, not foreign
+            // callback delivery merely because the earlier drainer was foreign.
+            lock(&trace).push("blocker released");
+            release_tx.send(()).expect("release blocked drainer");
+            disposed_rx
+                .recv_timeout(Duration::from_secs(2))
+                .expect("nested disposal completed");
+            refresh_workers
+                .registered
+                .recv_timeout(Duration::from_secs(2))
+                .expect("real fire-and-forget refresh handle registered");
+        }));
+        // Release before joining, including on failed assertions. Production
+        // deadlock mutants need a process watchdog: JoinHandle has no timeout.
+        let _ = release_tx.send(());
+        let mut failures = Vec::new();
+        if let Some(loader) = loader {
+            match loader.join() {
+                Ok(Ok(())) => {}
+                Ok(Err(error)) => failures.push(format!("load error: {error:?}")),
+                Err(_) => failures.push("load worker panicked".into()),
+            }
+        }
+        if drainer.join().is_err() {
+            failures.push("drainer panicked".into());
+        }
+        let (refresh_count, raw_results, refresh_failures) = refresh_workers.join_all();
+        failures.extend(refresh_failures);
+        failures.extend(
+            lock(&callback_failures)
+                .iter()
+                .map(|message| (*message).to_string()),
+        );
+        if let Err(error) = checks {
+            eprintln!(
+                "cleanup worker/subscriber failures: {failures:?}; raw results: {raw_results:?}"
+            );
+            std::panic::resume_unwind(error);
+        }
+        assert!(
+            failures.is_empty(),
+            "worker/subscriber failures: {failures:?}"
+        );
+        assert_eq!(raw_results, vec![Ok(())], "raw refresh action result");
+        assert_eq!(refresh_count, 1);
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+        assert_eq!(callback_count.load(std::sync::atomic::Ordering::SeqCst), 2);
+        assert_eq!(
+            *lock(&trace),
+            vec![
+                "blocker entered",
+                "foreign owner wait",
+                "blocker released",
+                "collection callback",
+                "nested refresh",
+                "collection callback",
+                "nested disposal",
+                "disposed",
+            ]
+        );
+        assert_eq!(pages.items(), vec![2]);
+        assert!(!pages.load_more_command().can_execute());
+    }
+}

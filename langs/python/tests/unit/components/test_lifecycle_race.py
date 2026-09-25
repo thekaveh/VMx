@@ -24,14 +24,16 @@ from __future__ import annotations
 import datetime
 import sys
 import threading
-import time
+import traceback
 import types
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any
 
+import pytest
 import reactivex.disposable as rx_disposable
 from reactivex.scheduler import ImmediateScheduler
 
+from vmx.components import base as component_base
 from vmx.components.builders import ComponentVMOfBuilder
 from vmx.lifecycle.status import ConstructionStatus
 from vmx.messages.construction_status_changed import ConstructionStatusChangedMessage
@@ -259,45 +261,103 @@ def test_construct_does_not_run_hook_after_dispose_wins_before_constructing() ->
     assert vm.status is ConstructionStatus.DISPOSED
 
 
-def test_foreign_dispose_waits_for_ordinary_lifecycle_publication() -> None:
-    """A foreign caller stays synchronous unless its wait closes a real cycle."""
+def test_foreign_dispose_waits_for_ordinary_lifecycle_publication(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Dispose cannot return before the held ordinary publication drains."""
     hub: MessageHub[object] = MessageHub()
     entered = threading.Event()
     release = threading.Event()
+    wait_entered = threading.Event()
     disposed_seen = threading.Event()
-    dispose_done = threading.Event()
     vm = (
         ComponentVMOfBuilder().name("vm").services(hub, RxDispatcher.immediate()).model("m").build()
     )
+
+    class ObservedCompletion:
+        def __init__(self, event: threading.Event) -> None:
+            self.event = event
+
+        def wait(self, timeout: float | None = None) -> bool:
+            # This is the actual VMx publication wait, not a pre-Dispose gate.
+            # The native event alone blocks the caller; removing VMx's wait
+            # bypasses this acknowledgment entirely.
+            wait_entered.set()
+            return self.event.wait(timeout)
+
+        def set(self) -> None:
+            self.event.set()
+
+        def is_set(self) -> bool:
+            return self.event.is_set()
+
+    class ObservedPublication(component_base._LifecyclePublication):
+        def __init__(
+            self,
+            status: ConstructionStatus | None = None,
+            action: Callable[[], None] | None = None,
+        ) -> None:
+            super().__init__(status, action)
+            if status is ConstructionStatus.DISPOSED:
+                self.completed = ObservedCompletion(self.completed)  # type: ignore[assignment]
+
+    monkeypatch.setattr(component_base, "_LifecyclePublication", ObservedPublication)
+    observer_failures: list[BaseException] = []
 
     def observe(message: object) -> None:
         if not isinstance(message, ConstructionStatusChangedMessage) or message.sender is not vm:
             return
         if message.status is ConstructionStatus.CONSTRUCTING:
             entered.set()
-            assert release.wait(timeout=2)
+            if not release.wait(timeout=10):
+                # MessageHub isolates subscriber exceptions, so retain this
+                # failure explicitly and report it after joining the workers.
+                observer_failures.append(
+                    AssertionError("coordinator never released ordinary publication")
+                )
         elif message.status is ConstructionStatus.DISPOSED:
             disposed_seen.set()
 
+    def dispose() -> None:
+        vm.dispose()
+        assert disposed_seen.is_set(), "Dispose returned before terminal publication"
+
     subscription = hub.messages.subscribe(observe)
-    constructor = threading.Thread(target=vm.construct)
-    constructor.start()
-    assert entered.wait(timeout=2)
+    failures: list[BaseException] = []
+    workers: list[Future[None]] = []
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        try:
+            workers.append(executor.submit(vm.construct))
+            assert entered.wait(timeout=5), "ordinary publication was not entered"
+            disposer = executor.submit(dispose)
+            workers.append(disposer)
+            assert wait_entered.wait(timeout=5), "Dispose never entered publication.completed.wait"
+            assert not disposed_seen.is_set()
+            assert not disposer.done()
+        except BaseException as error:
+            failures.append(error)
+        finally:
+            release.set()
+            # Join every submitted worker and retrieve every failure, including
+            # when the coordinator assertion fails. External process watchdogs
+            # contain implementation mutants that deadlock despite release.
+            for worker in workers:
+                try:
+                    worker.result()
+                except BaseException as error:
+                    failures.append(error)
+            subscription.dispose()
+            hub.dispose()
 
-    disposer = threading.Thread(target=lambda: (vm.dispose(), dispose_done.set()))
-    disposer.start()
-    time.sleep(0.05)
-    assert not dispose_done.is_set()
-
-    release.set()
-    constructor.join(timeout=2)
-    disposer.join(timeout=2)
-    subscription.dispose()
-
-    assert not constructor.is_alive()
-    assert not disposer.is_alive()
+    failures.extend(observer_failures)
+    if failures:
+        # ExceptionGroup requires Python 3.11; retain every traceback on 3.10.
+        details = "\n".join(
+            "".join(traceback.format_exception(type(error), error, error.__traceback__))
+            for error in failures
+        )
+        raise AssertionError(f"Lifecycle race failures:\n{details}") from failures[0]
     assert disposed_seen.is_set()
-    assert dispose_done.is_set()
 
 
 def test_opposing_lifecycle_observers_do_not_deadlock() -> None:
