@@ -9,8 +9,10 @@ import asyncio
 import dataclasses
 from collections.abc import Awaitable, Callable
 from enum import Enum
+from threading import RLock
 from typing import Generic, Literal, TypeAlias, TypeVar
 
+from vmx._asyncio_runner import post_to_loop
 from vmx.commands.async_relay_command import AsyncRelayCommand
 from vmx.commands.relay_command import RelayCommand, _run_disposal_steps
 from vmx.components.base import _ComponentVMBase
@@ -116,7 +118,10 @@ class _Operation(Generic[T]):
     task: asyncio.Task[T]
     cancelled: asyncio.Future[None]
     baseline: StableAsyncResourceState[T]
+    loop: asyncio.AbstractEventLoop
     late_cleanup_registered: bool = False
+    cancellation_signalled: bool = False
+    result_claimed: bool = False
 
 
 def _value_of(state: StableAsyncResourceState[T]) -> _PresentValue[T] | _AbsentValue:
@@ -153,6 +158,7 @@ class AsyncResourceVM(Generic[T], _ComponentVMBase):
         self._operation_identity = 0
         self._operation: _Operation[T] | None = None
         self._resource_disposed = False
+        self._resource_gate = RLock()
 
         self._load_command = (
             AsyncRelayCommand.builder().task(self.load).predicate(self._can_load).build()
@@ -195,85 +201,96 @@ class AsyncResourceVM(Generic[T], _ComponentVMBase):
         await self._start()
 
     def cancel(self) -> None:
-        operation = self._operation
-        if not self._can_cancel() or operation is None:
-            return
-        self._operation_identity += 1
-        self._operation = None
+        with self._resource_gate:
+            operation = self._operation
+            if not self._can_cancel() or operation is None:
+                return
+            self._operation_identity += 1
+            identity = self._operation_identity
+            self._operation = None
+            self._state = operation.baseline
         self._cancel_operation(operation)
-        try:
-            self._set_state(operation.baseline)
-        except BaseException:
-            # Cancellation is nonthrowing; state rollback remains authoritative.
-            pass
+        # Cancel the old wrappers before rollback observers can admit new work.
         for command in (self._load_command, self._reload_command):
             try:
                 command.cancel()
             except BaseException:
                 pass
+        try:
+            self._publish_state(identity, operation.baseline)
+        except BaseException:
+            # Cancellation is nonthrowing; state rollback remains authoritative.
+            pass
 
     def _can_load(self) -> bool:
-        return not self._resource_disposed and self._state.status is AsyncResourceStatus.IDLE
+        with self._resource_gate:
+            return not self._resource_disposed and self._state.status is AsyncResourceStatus.IDLE
 
     def _can_reload(self) -> bool:
-        return not self._resource_disposed and self._state.status is not AsyncResourceStatus.IDLE
+        with self._resource_gate:
+            return (
+                not self._resource_disposed and self._state.status is not AsyncResourceStatus.IDLE
+            )
 
     def _can_cancel(self) -> bool:
-        return not self._resource_disposed and self._state.status is AsyncResourceStatus.LOADING
+        with self._resource_gate:
+            return not self._resource_disposed and self._state.status is AsyncResourceStatus.LOADING
 
     async def _start(self) -> None:
-        previous_operation = self._operation
-        self._operation_identity += 1
-        identity = self._operation_identity
+        with self._resource_gate:
+            if self._resource_disposed:
+                return
+            previous_operation = self._operation
+            self._operation = None
+            self._operation_identity += 1
+            identity = self._operation_identity
+            previous: _PresentValue[T] | _AbsentValue = _ABSENT_VALUE
+            if self._retention is AsyncResourceRetention.DISCARD_PREVIOUS:
+                previous = _value_of(self._stable_state)
+                if isinstance(previous, _PresentValue):
+                    self._stable_state = AsyncResourceIdle()
+        if previous_operation is not None:
+            self._cancel_operation(previous_operation)
+        if isinstance(previous, _PresentValue):
+            self._cleanup(previous.value)
 
-        if self._retention is AsyncResourceRetention.DISCARD_PREVIOUS:
-            previous = _value_of(self._stable_state)
-            if isinstance(previous, _PresentValue):
-                self._stable_state = AsyncResourceIdle()
-                self._cleanup(previous.value)
-
-        # Cleanup is user code and may dispose the VM or start a newer intent.
-        # Do not create (and therefore invoke) a loader after either terminal
-        # transition has superseded this start.
-        if self._resource_disposed or self._operation_identity != identity:
-            return
-
-        baseline = self._stable_state
-        retained = (
-            _value_of(baseline)
-            if self._retention is AsyncResourceRetention.RETAIN_PREVIOUS
-            else _ABSENT_VALUE
-        )
-        loading: AsyncResourceState[T]
-        if isinstance(retained, _PresentValue):
-            loading = AsyncResourceLoadingWithValue(retained.value)
-        else:
-            loading = AsyncResourceLoading()
+        with self._resource_gate:
+            if self._resource_disposed or self._operation_identity != identity:
+                return
+            baseline = self._stable_state
+            retained = (
+                _value_of(baseline)
+                if self._retention is AsyncResourceRetention.RETAIN_PREVIOUS
+                else _ABSENT_VALUE
+            )
+            loading: AsyncResourceState[T]
+            if isinstance(retained, _PresentValue):
+                loading = AsyncResourceLoadingWithValue(retained.value)
+            else:
+                loading = AsyncResourceLoading()
 
         async def invoke_loader() -> T:
             return await self._loader()
 
-        task = asyncio.create_task(invoke_loader())
-        cancelled: asyncio.Future[None] = asyncio.get_running_loop().create_future()
-        operation = _Operation(identity, task, cancelled, baseline)
-        self._operation = operation
-        if previous_operation is not None:
-            self._cancel_operation(previous_operation)
-        try:
-            self._set_state(loading)
-        except BaseException:
-            rollback = self._is_operation_current(operation)
-            if rollback:
-                self._operation_identity += 1
-                self._operation = None
-                self._state = baseline
+        # Task factories are executable user hooks: creation must be outside the
+        # metadata gate, followed by another admission check.
+        loop = asyncio.get_running_loop()
+        task = loop.create_task(invoke_loader())
+        cancelled: asyncio.Future[None] = loop.create_future()
+        operation = _Operation(identity, task, cancelled, baseline, loop)
+        with self._resource_gate:
+            admitted = not self._resource_disposed and self._operation_identity == identity
+            if admitted:
+                self._operation = operation
+                self._state = loading
+        if not admitted:
             self._cancel_operation(operation)
-            self._register_late_cleanup(operation)
-            if rollback:
-                try:
-                    self._notify_state_changed()
-                except BaseException:
-                    pass
+            return
+        try:
+            self._publish_state(identity, loading)
+        except BaseException:
+            self._rollback(operation)
+            self._cancel_operation(operation)
             raise
 
         try:
@@ -281,96 +298,136 @@ class AsyncResourceVM(Generic[T], _ComponentVMBase):
                 (task, cancelled), return_when=asyncio.FIRST_COMPLETED
             )
         except asyncio.CancelledError:
-            if self._is_operation_current(operation):
-                self._operation_identity += 1
-                self._operation = None
-                self._cancel_operation(operation)
-                try:
-                    self._set_state(baseline)
-                except BaseException:
-                    # Cancellation is the primary control-flow outcome. A
-                    # rollback observer cannot replace it or prevent ownership
-                    # cleanup for a cancellation-resistant loader.
-                    pass
-            self._register_late_cleanup(operation)
+            self._rollback(operation)
+            self._cancel_operation(operation)
             raise
 
         if cancelled in done:
             self._register_late_cleanup(operation)
             return
+        self._consume_result(operation, accept=True)
 
-        try:
-            value = task.result()
-        except asyncio.CancelledError:
-            return
-        except BaseException as error:
+    def _rollback(self, operation: _Operation[T]) -> None:
+        with self._resource_gate:
             if not self._is_operation_current(operation):
                 return
+            self._operation_identity += 1
+            identity = self._operation_identity
             self._operation = None
-            if self._retention is AsyncResourceRetention.RETAIN_PREVIOUS:
-                previous = _value_of(self._stable_state)
-            else:
-                previous = _ABSENT_VALUE
-            failed: StableAsyncResourceState[T]
-            if isinstance(previous, _PresentValue):
-                failed = AsyncResourceErrorWithValue(previous.value, error)
-            else:
-                failed = AsyncResourceError(error)
-            self._stable_state = failed
-            self._set_state(failed)
-            return
-
-        if not self._is_operation_current(operation):
-            self._cleanup(value)
-            return
-
-        self._operation = None
-        previous = _value_of(self._stable_state)
-        ready: StableAsyncResourceState[T] = AsyncResourceReady(value)
-        self._stable_state = ready
-        if isinstance(previous, _PresentValue):
-            self._cleanup(previous.value)
-        self._set_state(ready)
+            self._state = operation.baseline
+        try:
+            self._publish_state(identity, operation.baseline)
+        except BaseException:
+            # Preserve the primary exception/cancellation after authoritative rollback.
+            pass
 
     def _is_operation_current(self, operation: _Operation[T]) -> bool:
+        # Call only while holding _resource_gate.
         return (
             not self._resource_disposed
             and self._operation_identity == operation.identity
             and self._operation is operation
         )
 
-    @staticmethod
-    def _cancel_operation(operation: _Operation[T]) -> None:
-        if not operation.cancelled.done():
-            operation.cancelled.set_result(None)
-        if not operation.task.done():
-            operation.task.cancel()
-
-    def _cleanup_late_task(self, task: asyncio.Task[T]) -> None:
+    def _consume_result(self, operation: _Operation[T], *, accept: bool = False) -> None:
         try:
-            value = task.result()
-        except BaseException:
+            value = operation.task.result()
+        except asyncio.CancelledError:
             return
-        self._cleanup(value)
+        except BaseException as error:
+            with self._resource_gate:
+                if operation.result_claimed:
+                    return
+                operation.result_claimed = True
+                if not accept or not self._is_operation_current(operation):
+                    return
+                self._operation = None
+                previous = (
+                    _value_of(self._stable_state)
+                    if self._retention is AsyncResourceRetention.RETAIN_PREVIOUS
+                    else _ABSENT_VALUE
+                )
+                failed: StableAsyncResourceState[T]
+                if isinstance(previous, _PresentValue):
+                    failed = AsyncResourceErrorWithValue(previous.value, error)
+                else:
+                    failed = AsyncResourceError(error)
+                self._stable_state = failed
+                self._state = failed
+            self._publish_state(operation.identity, failed)
+            return
 
-    def _register_late_cleanup(self, operation: _Operation[T]) -> None:
+        with self._resource_gate:
+            if operation.result_claimed:
+                return
+            operation.result_claimed = True
+            admitted = accept and self._is_operation_current(operation)
+            previous = _ABSENT_VALUE
+            ready: StableAsyncResourceState[T] = AsyncResourceReady(value)
+            if admitted:
+                self._operation = None
+                previous = _value_of(self._stable_state)
+                self._stable_state = ready
+                self._state = ready
+        if not admitted:
+            self._cleanup(value)
+            return
+        if isinstance(previous, _PresentValue):
+            self._cleanup(previous.value)
+        self._publish_state(operation.identity, ready)
+
+    def _on_operation_loop(self, operation: _Operation[T], action: Callable[[], None]) -> None:
+        try:
+            running = asyncio.get_running_loop()
+        except RuntimeError:
+            running = None
+        if running is operation.loop:
+            action()
+        elif not post_to_loop(operation.loop, action) and operation.task.done():
+            # Closed terminal tasks can be inspected, but never mutated or
+            # registered with a dead loop. Pending work cannot be drained here.
+            self._consume_result(operation)
+
+    def _cancel_operation(self, operation: _Operation[T]) -> None:
+        def cancel_on_owner() -> None:
+            self._register_on_owner(operation)
+            if operation.cancellation_signalled:
+                return
+            operation.cancellation_signalled = True
+            if not operation.cancelled.done():
+                operation.cancelled.set_result(None)
+            if not operation.task.done():
+                operation.task.cancel()
+
+        self._on_operation_loop(operation, cancel_on_owner)
+
+    def _register_on_owner(self, operation: _Operation[T]) -> None:
         if operation.late_cleanup_registered:
             return
+        operation.task.add_done_callback(lambda _task: self._consume_result(operation))
         operation.late_cleanup_registered = True
-        operation.task.add_done_callback(self._cleanup_late_task)
 
-    def _set_state(self, state: AsyncResourceState[T]) -> None:
-        if self._resource_disposed or self._state is state:
-            return
-        self._state = state
-        self._notify_state_changed()
+    def _register_late_cleanup(self, operation: _Operation[T]) -> None:
+        self._on_operation_loop(operation, lambda: self._register_on_owner(operation))
 
-    def _notify_state_changed(self) -> None:
+    def _publish_state(self, identity: int, state: AsyncResourceState[T]) -> None:
+        def publish(action: Callable[[], None]) -> None:
+            with self._resource_gate:
+                if (
+                    self._resource_disposed
+                    or self._operation_identity != identity
+                    or self._state is not state
+                ):
+                    return
+                # This individual publication is admitted here. Ordinary base
+                # notification delivery may finish after concurrent invalidation.
+            action()
+
         _run_disposal_steps(
-            lambda: self._notify_property_changed("state"),
-            self._load_command.raise_can_execute_changed,
-            self._reload_command.raise_can_execute_changed,
-            self._cancel_command.raise_can_execute_changed,
+            lambda: publish(lambda: self._notify_property_changed("state")),
+            lambda: publish(self._load_command.raise_can_execute_changed),
+            lambda: publish(self._reload_command.raise_can_execute_changed),
+            lambda: publish(self._cancel_command.raise_can_execute_changed),
         )
 
     def _cleanup(self, value: T) -> None:
@@ -382,22 +439,18 @@ class AsyncResourceVM(Generic[T], _ComponentVMBase):
             pass
 
     def _on_dispose(self) -> None:
-        if self._resource_disposed:
-            return
-        self._resource_disposed = True
-        self._operation_identity += 1
-        operation = self._operation
-        self._operation = None
-        accepted = _value_of(self._stable_state)
-        self._stable_state = AsyncResourceIdle()
+        with self._resource_gate:
+            if self._resource_disposed:
+                return
+            self._resource_disposed = True
+            self._operation_identity += 1
+            operation = self._operation
+            self._operation = None
+            accepted = _value_of(self._stable_state)
+            self._stable_state = AsyncResourceIdle()
         steps: list[Callable[[], None]] = []
         if operation is not None:
-            steps.extend(
-                (
-                    lambda: self._cancel_operation(operation),
-                    lambda: self._register_late_cleanup(operation),
-                )
-            )
+            steps.append(lambda: self._cancel_operation(operation))
         steps.extend(
             (
                 self._load_command.cancel,

@@ -447,3 +447,23 @@ def test_reentrant_dispose_defers_terminal_until_active_delivery_finishes(
     assert command._can_execute_changed_subject.is_disposed is True
     assert command._errors.is_disposed is True
     command.dispose()
+
+
+@pytest.mark.asyncio
+async def test_same_loop_cancel_remains_deferred_until_next_loop_turn() -> None:
+    started = asyncio.Event()
+
+    async def task() -> None:
+        started.set()
+        await asyncio.Future()
+
+    command = AsyncRelayCommand.builder().task(task).build()
+    waiter = asyncio.create_task(command.execute_async())
+    await asyncio.wait_for(started.wait(), timeout=1)
+    inner = command._current_task
+    assert inner is not None
+    command.cancel()
+    assert inner.cancelling() == 0
+    await asyncio.wait_for(waiter, timeout=1)
+    assert inner.cancelled()
+    command.dispose()
