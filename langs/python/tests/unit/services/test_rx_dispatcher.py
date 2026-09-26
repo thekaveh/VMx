@@ -13,7 +13,7 @@ import asyncio
 
 from reactivex.abc import SchedulerBase
 from reactivex.scheduler import ImmediateScheduler, ThreadPoolScheduler
-from reactivex.scheduler.eventloop import AsyncIOScheduler
+from reactivex.scheduler.eventloop import AsyncIOThreadSafeScheduler
 from reactivex.testing import TestScheduler
 
 from vmx.services.dispatcher import Dispatcher, RxDispatcher
@@ -39,13 +39,13 @@ def test_immediate_factory_returns_rx_dispatcher() -> None:
 
 
 def test_asyncio_factory_with_explicit_loop() -> None:
-    """asyncio(loop) wires the supplied loop into the AsyncIOScheduler."""
+    """asyncio(loop) wires the supplied loop into the thread-safe scheduler."""
     loop = asyncio.new_event_loop()
     try:
         d = RxDispatcher.asyncio(loop)
 
         assert isinstance(d, RxDispatcher)
-        assert isinstance(d.foreground, AsyncIOScheduler)
+        assert isinstance(d.foreground, AsyncIOThreadSafeScheduler)
         assert d.foreground._loop is loop
         assert isinstance(d.background, ThreadPoolScheduler)
     finally:
@@ -57,13 +57,41 @@ def test_asyncio_factory_creates_loop_when_none() -> None:
     d = RxDispatcher.asyncio()
     try:
         assert isinstance(d, RxDispatcher)
-        assert isinstance(d.foreground, AsyncIOScheduler)
+        assert isinstance(d.foreground, AsyncIOThreadSafeScheduler)
         assert isinstance(d.background, ThreadPoolScheduler)
     finally:
         # The factory created this loop internally; close it so it is not
         # finalised by the garbage collector at interpreter teardown
         # (which raises "Invalid file descriptor" on the selector loop).
         d.foreground._loop.close()
+
+
+def test_asyncio_factory_preserves_each_explicit_loop() -> None:
+    loops = [asyncio.new_event_loop(), asyncio.new_event_loop()]
+    dispatchers = [RxDispatcher.asyncio(loop) for loop in loops]
+    try:
+        assert [dispatcher.loop for dispatcher in dispatchers] == loops
+        assert [dispatcher.foreground._loop for dispatcher in dispatchers] == loops
+    finally:
+        for dispatcher in dispatchers:
+            assert isinstance(dispatcher.background, ThreadPoolScheduler)
+            dispatcher.background.executor.shutdown(wait=True)
+        for loop in loops:
+            loop.close()
+
+
+def test_asyncio_factory_without_loop_creates_fresh_caller_owned_loops() -> None:
+    dispatchers = [RxDispatcher.asyncio(), RxDispatcher.asyncio()]
+    try:
+        loops = [dispatcher.loop for dispatcher in dispatchers]
+        assert all(loop is not None for loop in loops)
+        assert loops[0] is not loops[1]
+    finally:
+        for dispatcher in dispatchers:
+            assert isinstance(dispatcher.background, ThreadPoolScheduler)
+            dispatcher.background.executor.shutdown(wait=True)
+            assert dispatcher.loop is not None
+            dispatcher.loop.close()
 
 
 def test_rx_dispatcher_satisfies_dispatcher_protocol() -> None:

@@ -131,7 +131,7 @@ linked spec chapters and ADRs.
 
 Each flavor implements the same conceptual stack:
 
-- **Spec** — `spec/` is the source of truth: 24 markdown chapters, 131 ADRs,
+- **Spec** — `spec/` is the source of truth: 24 markdown chapters, 132 ADRs,
   4 JSON fixtures, 408 conformance IDs, version pinned in `spec/VERSION`.
 - **Application code** — your host app instantiates VMs through builders.
 - **Forwarding decorators** *(optional)* — `ForwardingComponentVM` and
@@ -161,7 +161,7 @@ Each flavor implements the same conceptual stack:
 | Flavor     | Source status     | Public package status                                                                  | Reactive primitive          |
 | ---------- | ----------------- | -------------------------------------------------------------------------------------- | --------------------------- |
 | C#         | v3.23.0 in source | NuGet package not published yet                                                        | System.Reactive             |
-| Python     | v3.23.0 in source | [`vmx` 3.23.0](https://pypi.org/project/vmx/3.23.0/) on PyPI                          | reactivex                   |
+| Python     | v3.23.2 in source | [`vmx` 3.23.0](https://pypi.org/project/vmx/3.23.0/) on PyPI                          | reactivex                   |
 | TypeScript | v3.24.0 in source | npm package not published yet                                                          | rxjs                        |
 | React      | adapter v0.1.0 in source | `@thekaveh/vmx-react`; publication waits for core npm #57                         | React 18/19 + rxjs          |
 | Swift      | v3.24.0           | [`VMx` 3.24.0](https://github.com/thekaveh/VMx/releases/tag/swift-v3.24.0) via SwiftPM | Combine                     |
@@ -207,7 +207,7 @@ ledger linked above for release status and the current in-development line.
 
 | spec   | csharp        | python        | typescript    | swift          | rust          |
 | ------ | ------------- | ------------- | ------------- | -------------- | ------------- |
-| 3.23.x | 3.23.0        | 3.23.0        | 3.24.0        | 3.24.0         | 0.29.0        |
+| 3.23.x | 3.23.0        | 3.23.2        | 3.24.0        | 3.24.0         | 0.29.0        |
 | 3.22.x | 3.22.0–3.22.1 | 3.22.0–3.22.1 | 3.23.0–3.23.1 | 3.22.0–3.23.0  | 0.25.0–0.26.0 |
 | 3.20.x | 3.20.0–3.20.1 | 3.20.0–3.20.1 | 3.20.0–3.21.1 | 3.20.0–3.20.1  | 0.20.0–0.22.0 |
 | 3.19.x | 3.19.0        | 3.19.0        | 3.19.0        | 3.19.0         | 0.19.0        |
@@ -343,7 +343,7 @@ Smaller per-flavor demos:
 .
 ├── spec/                  language-neutral specification (source of truth)
 │   ├── 00-overview.md ... 23-async-resource-vm.md  (24 chapters)
-│   ├── ADRs/              architecture decision records (0001..0131)
+│   ├── ADRs/              architecture decision records (0001..0132)
 │   ├── fixtures/          JSON test inputs shared across flavors
 │   ├── schemas/           versioned supporting machine contracts
 │   ├── proposals/         mostly historical; scenario contracts may be normative
@@ -388,7 +388,7 @@ This README is the entry point; the documents below add focused detail.
   community guidelines.
 - [`compatibility-matrix.md`](compatibility-matrix.md) — spec ↔ flavor
   version pairing.
-- [`spec/README.md`](spec/README.md) — index of the 24 chapters, 131 ADRs,
+- [`spec/README.md`](spec/README.md) — index of the 24 chapters, 132 ADRs,
   4 fixtures, and the 408-ID conformance catalog.
 - [`spec/ADRs/README.md`](spec/ADRs/README.md) — ADR catalogue index.
 - [`docs/audit/README.md`](docs/audit/README.md) — index of historical

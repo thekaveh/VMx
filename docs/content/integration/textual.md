@@ -12,14 +12,30 @@ reactive attributes.
 
 ## 9.5.2. Mapping
 
-| Textual                | VMx                                              |
-| ---------------------- | ------------------------------------------------ |
-| `reactive("value")`    | `PropertyChangedMessage[T]` on `MessageHub`      |
-| `Button.action_press`  | `RelayCommand.execute()`                         |
-| `ListView` items       | `ObservableList[T]` + `CollectionChangedMessage` |
-| `App.call_from_thread` | `RxDispatcher.asyncio(loop).foreground`          |
+| Textual               | VMx                                                        |
+| --------------------- | ---------------------------------------------------------- |
+| `reactive("value")`   | `PropertyChangedMessage[T]` on `MessageHub`                |
+| `Button.action_press` | `RelayCommand.execute()`                                   |
+| `ListView` items      | `ObservableList[T]` + `CollectionChangedMessage`           |
+| background worker     | `AsyncIOThreadSafeScheduler(App loop)` foreground delivery |
 
 ## 9.5.3. Adapter skeleton
+
+`TextualDispatcher` captures the running App loop and uses
+`AsyncIOThreadSafeScheduler(loop)` for worker-to-loop delivery. Textual's
+`post_message` remains the host bridge for foreign producers; do not call
+`App.call_from_thread` from the App thread. The host owns the App loop and must
+stop admissions, await admitted hooks while that loop remains responsive,
+dispose resources, then explicitly release any `ThreadPoolScheduler` it
+created; use the shared
+[Python asyncio dispatcher ownership](../primitives/services-messages-dispatching.md#669-python-asyncio-dispatcher-ownership)
+teardown sequence.
+
+The direct subscription below requires every matching `PropertyChangedMessage`
+to arrive on the App thread. Background lifecycle terminal messages have that
+foreground delivery, but arbitrary foreign property producers do not. Route
+those through `post_message` or observe them on the foreground scheduler before
+touching a widget.
 
 ```python
 from textual.widget import Widget
