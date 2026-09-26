@@ -15,7 +15,7 @@ ______________________________________________________________________
 ## 3.3.1. Install
 
 PyPI provides VMx 3.23.0, which implements this tutorial's minimum
-specification. The current 3.23.2 Python source patch is not published yet;
+specification. The current 3.23.3 Python source patch is not published yet;
 pin `vmx==3.23.0` when reproducing released behavior.
 
 ```bash
@@ -386,6 +386,69 @@ When using `RxDispatcher.asyncio(loop)`, the foreground scheduler is
 to the given event loop. The host still owns the loop and the independent
 background pool; see [Python asyncio dispatcher ownership](../primitives/services-messages-dispatching.md#669-python-asyncio-dispatcher-ownership)
 for teardown guidance.
+
+### 3.3.7.1. Start And Cancel An Async Resource From Synchronous Code
+
+`load_command.execute()` may be called when no asyncio loop is running on the
+caller. VMx starts the resource operation on its shared daemon loop. A later
+`cancel()` invalidates the resource state synchronously and posts native
+task/future work to that operation loop, so command settlement may follow the
+state change:
+
+This recipe requires the unreleased Python 3.23.3 source installed from a
+checkout. The current PyPI 3.23.0 package does not contain this operation-loop
+repair.
+
+```python
+import asyncio
+import threading
+
+from vmx import (
+    NULL_DISPATCHER,
+    AsyncResourceStatus,
+    AsyncResourceVM,
+    MessageHub,
+)
+
+started = threading.Event()
+cancelled = threading.Event()
+
+
+async def load_report() -> str:
+    started.set()
+    try:
+        await asyncio.Future()
+    except asyncio.CancelledError:
+        cancelled.set()
+        raise
+
+
+hub = MessageHub()
+report = AsyncResourceVM(
+    name="report",
+    loader=load_report,
+    hub=hub,
+    dispatcher=NULL_DISPATCHER,
+)
+
+report.load_command.execute()
+assert started.wait(3)
+report.cancel()
+assert report.state.status is AsyncResourceStatus.IDLE
+assert cancelled.wait(3)
+
+report.dispose()
+hub.dispose()
+```
+
+The corresponding
+[`langs/python/tests/unit/state/test_async_resource_threading.py`](https://github.com/thekaveh/VMx/blob/main/langs/python/tests/unit/state/test_async_resource_threading.py)
+also records the loop used for task cancellation, future completion, and late
+callback registration. State and cleanup notifications are not automatically
+UI-dispatched. For caller-owned loops, stop admissions, cancel, and drain while
+the loop can still run before closing it; closed-loop pending work cannot be
+completed by VMx. Do not close VMx's shared daemon loop. See the
+[central asyncio ownership guidance](../primitives/services-messages-dispatching.md#669-python-asyncio-dispatcher-ownership).
 
 > See [Services, Messages &
 > Dispatching](../primitives/services-messages-dispatching.md) for the
