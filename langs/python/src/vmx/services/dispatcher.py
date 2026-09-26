@@ -99,9 +99,10 @@ class RxDispatcher:
             it (``loop.run_forever()``) and to close it (``loop.close()``) when
             done. Failing to close a factory-created loop leaks its selector file
             descriptor (VMX-076). The background scheduler owns an independent
-            thread pool: after disposing VMs/subscriptions and settling pending
-            work while the loop is responsive, shut down that executor from a
-            non-pool thread. In an async host, use
+            thread pool: stop new submissions, then await admitted hooks and
+            pending work while the loop remains responsive before disposing
+            owned VMs/subscriptions. Shut down that executor from a non-pool
+            thread. In an async host, use
             ``await asyncio.to_thread(pool.executor.shutdown, wait=True)``.
             Closing the loop does not shut down the pool.
         """
