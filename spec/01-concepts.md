@@ -170,8 +170,8 @@ VMx is **thread-aware but not thread-bound**:
 
 The default `IDispatcher` in each language uses the language's standard "main
 loop" scheduler for foreground (`SynchronizationContextScheduler` in .NET,
-`AsyncIOScheduler(loop)` in Python) and a thread/task pool scheduler for
-background.
+`AsyncIOThreadSafeScheduler(loop)` in Python) and a thread/task pool scheduler
+for background.
 
 See `11-threading.md` for the full contract.
 

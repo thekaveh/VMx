@@ -6,7 +6,7 @@ VMx's :class:`vmx.services.dispatcher.Dispatcher` is a structural Protocol
 exposing two ``SchedulerBase`` properties: ``foreground`` (UI thread) and
 ``background``. Textual is asyncio-native, so:
 
-* ``foreground`` → :class:`reactivex.scheduler.eventloop.AsyncIOScheduler`
+* ``foreground`` → :class:`reactivex.scheduler.eventloop.AsyncIOThreadSafeScheduler`
   bound to the Textual app's event loop. Posting through Rx schedules onto
   the same loop the UI runs on, matching the spec ch. 11 contract that
   foreground work is executed on the UI thread.
@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from reactivex.abc import SchedulerBase
 from reactivex.scheduler import ThreadPoolScheduler
-from reactivex.scheduler.eventloop import AsyncIOScheduler
+from reactivex.scheduler.eventloop import AsyncIOThreadSafeScheduler
 from textual.app import App
 
 
@@ -50,7 +50,7 @@ class TextualDispatcher:
                 "TextualDispatcher requires a running App event loop; "
                 "construct it from within App.on_mount or later."
             )
-        self._foreground: SchedulerBase = AsyncIOScheduler(loop)
+        self._foreground: SchedulerBase = AsyncIOThreadSafeScheduler(loop)
         self._background: SchedulerBase = ThreadPoolScheduler()
 
     @property

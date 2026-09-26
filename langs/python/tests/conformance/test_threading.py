@@ -1,22 +1,26 @@
 """Conformance tests: THR-001..004.
 
-Threading and scheduler dispatch — all four tests use TestDispatcher /
-TestScheduler for deterministic virtual-time control.
+Threading and scheduler dispatch — virtual-time coverage uses TestDispatcher /
+TestScheduler, while THR-002 also exercises the real asyncio factory.
 
 See spec/11-threading.md and spec/12-conformance.md §Threading.
 """
 
 from __future__ import annotations
 
+import threading
+
 import pytest
 import reactivex.operators as ops
 from reactivex.testing import TestScheduler
 
+from tests.unit.helpers.real_asyncio_dispatcher import RunningAsyncioDispatcher
 from tests.unit.helpers.test_dispatcher import TestDispatcher
 from vmx.collections import CollectionChangedEvent
 from vmx.components.component_vm import ComponentVM, ComponentVMOf
 from vmx.composites.composite_vm import CompositeVM
 from vmx.lifecycle.status import ConstructionStatus
+from vmx.messages.construction_status_changed import ConstructionStatusChangedMessage
 from vmx.messages.property_changed import PropertyChangedMessage
 from vmx.services.message_hub import MessageHub
 
@@ -75,8 +79,8 @@ def test_THR_001_property_changed_observed_on_foreground_scheduler() -> None:
 def test_THR_002_background_construct_dispatches_on_background_scheduler() -> None:
     """THR-002: with Background(True), construct() schedules the OnConstruct
     work on dispatcher.Background and returns immediately in the Constructing
-    state.  Advancing the background scheduler completes the transition to
-    Constructed.
+    state. Advancing the background scheduler runs the hook; advancing the
+    foreground scheduler then publishes completion.
 
     Python status: FULLY IMPLEMENTED.  _ComponentVMBase.construct() wires
     Background(True) dispatch (see src/vmx/components/base.py lines 268-280):
@@ -121,6 +125,48 @@ def test_THR_002_background_construct_dispatches_on_background_scheduler() -> No
     )
 
     vm.dispose()
+
+
+@pytest.mark.conformance("THR-002")
+def test_THR_002_real_asyncio_factory_runs_hook_off_loop_and_completion_on_loop() -> None:
+    """The default asyncio factory admits pool-to-loop lifecycle completion."""
+    with RunningAsyncioDispatcher() as harness:
+        hub: MessageHub[object] = MessageHub()
+        hook_threads: list[int] = []
+        terminal_threads: list[int] = []
+        terminal = threading.Event()
+
+        def on_construct() -> None:
+            harness.record_worker()
+            hook_threads.append(threading.get_ident())
+
+        vm: ComponentVMOf[str] = (
+            ComponentVMOf[str]
+            .builder()
+            .name("real-thr-002")
+            .services(hub, harness.dispatcher)
+            .model("initial")
+            .background(True)
+            .on_construct(on_construct)
+            .build()
+        )
+        subscription = hub.messages.subscribe(
+            lambda message: (
+                (terminal_threads.append(threading.get_ident()), terminal.set())
+                if isinstance(message, ConstructionStatusChangedMessage)
+                and message.sender is vm
+                and message.status is ConstructionStatus.CONSTRUCTED
+                else None
+            )
+        )
+        try:
+            vm.construct()
+            harness.assert_event(terminal, "THR-002 completion")
+            assert hook_threads and hook_threads[0] != harness.thread.ident
+            assert terminal_threads == [harness.thread.ident]
+        finally:
+            subscription.dispose()
+            vm.dispose()
 
 
 # ---------------------------------------------------------------------------

@@ -3,8 +3,8 @@
 ## 7.3.1. Snapshot
 
 - Install: `pip install vmx` or `uv add vmx`
-- Publication status: `vmx` 3.23.0 is published on PyPI and matches the current
-  Python source line.
+- Publication status: `vmx` 3.23.0 is published on PyPI; the current Python
+  source line is the unreleased 3.23.2 patch.
 - Reactive primitive: `reactivex`
 - Naming idiom: snake_case
 - Hub concurrency: ordinary producers retain synchronous calling-thread

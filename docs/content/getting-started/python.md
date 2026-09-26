@@ -14,9 +14,9 @@ ______________________________________________________________________
 
 ## 3.3.1. Install
 
-PyPI provides VMx 3.23.0, matching this tutorial's Python source line and
-minimum specification. Pin `vmx==3.23.0` when reproducing this released
-behavior.
+PyPI provides VMx 3.23.0, which implements this tutorial's minimum
+specification. The current 3.23.2 Python source patch is not published yet;
+pin `vmx==3.23.0` when reproducing released behavior.
 
 ```bash
 # Using uv (recommended)
@@ -62,7 +62,7 @@ async def main() -> None:
     loop = asyncio.get_running_loop()
     hub = MessageHub()
     dispatcher = RxDispatcher.asyncio(loop)
-    # foreground → AsyncIOScheduler(loop)
+    # Source 3.23.2: foreground → AsyncIOThreadSafeScheduler(loop)
     # background → ThreadPoolScheduler
     ...
 
@@ -76,13 +76,19 @@ running.
 You can also inject the two schedulers directly if you need a custom pairing:
 
 ```python
-from reactivex.scheduler import ImmediateScheduler, ThreadPoolScheduler
+import asyncio
+
+from reactivex.scheduler import ThreadPoolScheduler
+from reactivex.scheduler.eventloop import AsyncIOThreadSafeScheduler
 from vmx.services import RxDispatcher
 
-dispatcher = RxDispatcher(
-    foreground=ImmediateScheduler(),
-    background=ThreadPoolScheduler(),
-)
+async def main() -> None:
+    loop = asyncio.get_running_loop()
+    # Verified workaround for published vmx 3.23.0 with RxPY 4.0.4.
+    dispatcher = RxDispatcher(
+        foreground=AsyncIOThreadSafeScheduler(loop),
+        background=ThreadPoolScheduler(),
+    )
 ```
 
 ______________________________________________________________________
@@ -375,8 +381,11 @@ rx.from_callable(lambda: load_from_database(), scheduler=dispatcher.background).
 ).subscribe(apply_remote_data)
 ```
 
-When using `RxDispatcher.asyncio(loop)`, the foreground scheduler posts work
-back to the given asyncio event loop, keeping VM mutations on the loop thread.
+When using `RxDispatcher.asyncio(loop)`, the foreground scheduler is
+`AsyncIOThreadSafeScheduler(loop)`, which safely posts worker completions back
+to the given event loop. The host still owns the loop and the independent
+background pool; see [Python asyncio dispatcher ownership](../primitives/services-messages-dispatching.md#669-python-asyncio-dispatcher-ownership)
+for teardown guidance.
 
 > See [Services, Messages &
 > Dispatching](../primitives/services-messages-dispatching.md) for the

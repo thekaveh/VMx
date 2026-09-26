@@ -6,6 +6,16 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ## [Unreleased]
 
+## [3.23.2] — unreleased source version
+
+### Fixed
+
+- `RxDispatcher.asyncio()` and the Textual adapter use RxPY's
+  `AsyncIOThreadSafeScheduler` for foreground delivery from background
+  lifecycle workers. The caller stops admissions and awaits admitted work while
+  the loop remains responsive, then disposes its VMs and subscriptions and
+  explicitly shuts down the independent background pool (ADR-0132).
+
 ## [3.23.1](https://github.com/thekaveh/VMx/compare/python-v3.23.0...python-v3.23.1) (2026-08-17)
 
 
