@@ -10,7 +10,7 @@ from typing import Protocol, runtime_checkable
 
 from reactivex.abc import SchedulerBase
 from reactivex.scheduler import ImmediateScheduler, ThreadPoolScheduler
-from reactivex.scheduler.eventloop import AsyncIOScheduler
+from reactivex.scheduler.eventloop import AsyncIOThreadSafeScheduler
 
 
 @runtime_checkable
@@ -34,8 +34,9 @@ class RxDispatcher:
     Convenience factories:
     - ``immediate()`` — both schedulers are ``ImmediateScheduler``; useful in
       console apps and synchronous tests.
-    - ``asyncio(loop)`` — foreground is ``AsyncIOScheduler``, background is
-      ``ThreadPoolScheduler``; suitable for asyncio-based UI frameworks.
+    - ``asyncio(loop)`` — foreground is ``AsyncIOThreadSafeScheduler``,
+      background is ``ThreadPoolScheduler``; suitable for asyncio-based UI
+      frameworks.
     """
 
     def __init__(
@@ -84,12 +85,11 @@ class RxDispatcher:
 
     @classmethod
     def asyncio(cls, loop: asyncio.AbstractEventLoop | None = None) -> RxDispatcher:
-        """Return a dispatcher with ``AsyncIOScheduler`` fg + ``ThreadPoolScheduler`` bg.
+        """Return an asyncio-thread-safe foreground and worker-pool background.
 
         Args:
-            loop: Optional asyncio event loop to pass to ``AsyncIOScheduler``.
-                  When *None*, a fresh loop is created via
-                  ``asyncio.new_event_loop()``.
+            loop: Optional event loop for ``AsyncIOThreadSafeScheduler``. When
+                *None*, a fresh loop is created via ``asyncio.new_event_loop()``.
 
         Note:
             The dispatcher does **not** run the loop — foreground work is only
@@ -98,12 +98,17 @@ class RxDispatcher:
             own its lifecycle: retrieve it via the :attr:`loop` property to drive
             it (``loop.run_forever()``) and to close it (``loop.close()``) when
             done. Failing to close a factory-created loop leaks its selector file
-            descriptor (VMX-076).
+            descriptor (VMX-076). The background scheduler owns an independent
+            thread pool: after disposing VMs/subscriptions and settling pending
+            work while the loop is responsive, shut down that executor from a
+            non-pool thread. In an async host, use
+            ``await asyncio.to_thread(pool.executor.shutdown, wait=True)``.
+            Closing the loop does not shut down the pool.
         """
         resolved_loop: asyncio.AbstractEventLoop = (
             loop if loop is not None else asyncio.new_event_loop()
         )
-        fg = AsyncIOScheduler(resolved_loop)
+        fg = AsyncIOThreadSafeScheduler(resolved_loop)
         dispatcher = cls(foreground=fg, background=ThreadPoolScheduler())
         dispatcher._loop = resolved_loop
         return dispatcher
