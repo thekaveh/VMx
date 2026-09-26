@@ -358,6 +358,42 @@ their own UI queue, such as Tkinter, need a host-owned foreground bridge for
 background producers; an asyncio loop on another thread is not the Tk UI
 thread.
 
+### 6.6.9.1. Async Resource Operation Loops
+
+A synchronous caller may launch Python `AsyncResourceVM` through
+`load_command.execute()` without owning a running loop on that thread. VMx then
+starts the operation on its existing shared daemon loop. Each resource
+operation records the loop that created its loader task and cancellation
+future. Direct `cancel()` or `dispose()` invalidates the resource generation and
+state immediately; cancellation-future completion, loader-task cancellation,
+and late callback registration execute on the recorded operation loop. The
+linked async command can settle after that synchronous invalidation.
+
+Operation-loop ownership does not dispatch state notifications, cleanup
+callbacks, or arbitrary VM calls to a UI thread. Those retain the normal
+dispatcher and calling-context contracts. An open stopped operation loop queues
+native work until it restarts. If an application owns the loop, it must stop
+new admissions, cancel resource work, and drain it while that loop can still
+run before closing the loop. Once a loop is closed, VMx cannot finish pending
+tasks, deliver callbacks discarded by closure, or force coroutine `finally`
+blocks. The shared daemon loop used by the no-loop command fallback is VMx
+infrastructure; applications do not close it.
+
+The tracked
+[`langs/python/tests/unit/state/test_async_resource_threading.py`](https://github.com/thekaveh/VMx/blob/main/langs/python/tests/unit/state/test_async_resource_threading.py)
+executes the synchronous launch plus caller-thread cancellation and disposal:
+
+```bash
+cd langs/python
+PYTHONASYNCIODEBUG=1 uv run pytest \
+  tests/unit/state/test_async_resource_threading.py::test_no_loop_command_caller_cancels_on_operation_loop \
+  -q
+```
+
+See [State & Reactive Helpers](state-reactive-helpers.md#653-async-resource-state)
+for acquisition ownership and the [Disposal Contract](disposal-contract.md) for
+terminal cleanup.
+
 ## 6.6.10. Common Pitfalls
 
 - Treating the hub like a replaying event store. It is hot and current-subscriber

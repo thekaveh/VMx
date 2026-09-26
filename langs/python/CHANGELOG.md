@@ -6,6 +6,21 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ## [Unreleased]
 
+## [3.23.3] — unreleased source version
+
+### Fixed
+
+- `AsyncResourceVM` now performs loader-task cancellation, cancellation-future
+  completion, and late-result registration on the operation's asyncio loop while
+  preserving synchronous state invalidation. Completion admission, stable-state
+  assignment, and each successful result's cleanup ownership are claimed
+  atomically, so stale direct and deferred paths cannot publish or clean the same
+  acquisition twice, including reference-identical returns (ADR-0133).
+- Caller-owned event loops must stop admissions, cancel, and drain resource work
+  while the operation loop can still run before closing it. A closed loop cannot
+  finish pending work or force its `finally` blocks; terminal results can only be
+  reclaimed through the documented best-effort path.
+
 ## [3.23.2] — unreleased source version
 
 ### Fixed

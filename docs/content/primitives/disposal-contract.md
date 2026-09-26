@@ -84,7 +84,11 @@ guarantee repeated and re-entrant disposal on their supported execution model.
   they represent.
 - `AsyncResourceVM` cancels active acquisition and releases its last accepted
   value on disposal. A loader that completes late cannot publish or become
-  current; its acquired value is cleaned exactly once.
+  current; its acquired value is cleaned exactly once. Python invalidates the
+  resource synchronously and schedules native cancellation and late-result
+  registration on the operation loop. A caller-owned loop must stay runnable
+  until admitted work is cancelled and drained; see
+  [Python asyncio dispatcher ownership](services-messages-dispatching.md#669-python-asyncio-dispatcher-ownership).
 
 ## 6.8.4. C# Inventory
 
@@ -129,6 +133,7 @@ guarantee repeated and re-entrant disposal on their supported execution model.
 | `ObservableList`, `ObservableDictionary`                                               | No-op                            | Every VMx-owned collection subject completes once | Collection subjects                                           | Stored contents remain readable; mutations emit nothing                        |
 | `BatchUpdateHandle`                                                                    | No-op                            | At most one reset at outer batch exit             | One batch depth claim                                         | Handle has no other behavior                                                   |
 | `DiscriminatorVM`                                                                      | No-op                            | Active-change stream completes once               | Stream subject                                                | Reads remain; later mutations are inert                                        |
+| `AsyncResourceVM`                                                                      | No-op under its resource gate    | Active operation invalidates synchronously        | Operation-loop cancellation; accepted or late value cleanup   | State remains terminal; late work cannot publish                               |
 
 ## 6.8.6. TypeScript Inventory
 
