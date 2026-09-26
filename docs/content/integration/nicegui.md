@@ -13,14 +13,36 @@ the element. There is no built-in observable model.
 
 ## 9.6.2. Mapping
 
-| NiceGUI                             | VMx                                            |
-| ----------------------------------- | ---------------------------------------------- |
-| `ui.label('x').bind_text_from(...)` | subscribe + assign in handler                  |
-| `ui.button(on_click=fn)`            | `command.execute(None)` inside `on_click`      |
-| `ui.refreshable`-decorated builder  | re-build when `CollectionChangedMessage` fires |
-| `app.add_timer` / `asyncio` loop    | `RxDispatcher.asyncio(loop)`                   |
+| NiceGUI                             | VMx                                                               |
+| ----------------------------------- | ----------------------------------------------------------------- |
+| `ui.label('x').bind_text_from(...)` | subscribe + assign in handler                                     |
+| `ui.button(on_click=fn)`            | `command.execute(None)` inside `on_click`                         |
+| `ui.refreshable`-decorated builder  | re-build when `CollectionChangedMessage` fires                    |
+| `app.add_timer` / `asyncio` loop    | `RxDispatcher.asyncio(loop)` → `AsyncIOThreadSafeScheduler(loop)` |
 
 ## 9.6.3. Adapter skeleton
+
+Capture the loop inside NiceGUI's running async host callback; do not create an
+unrelated loop during module import or close the host's loop. The foreground
+channel is `AsyncIOThreadSafeScheduler(loop)`, while rendering context remains
+host-owned:
+
+```python
+import asyncio
+
+from nicegui import app
+from vmx.services import RxDispatcher
+
+
+@app.on_startup
+async def configure_vmx() -> None:
+    dispatcher = RxDispatcher.asyncio(asyncio.get_running_loop())
+    # Retain dispatcher with the host; dispose and clean up on shutdown.
+```
+
+On shutdown, stop submissions, dispose host-owned VMs and subscriptions, and
+explicitly clean up the independent pool as shown in [Python asyncio dispatcher
+ownership](../primitives/services-messages-dispatching.md#669-python-asyncio-dispatcher-ownership).
 
 ```python
 from collections.abc import Callable
@@ -43,7 +65,7 @@ def bind_label(label: ui.label, vm: ComponentVMOf[Note],
     ).subscribe(_on_msg)
     return sub.dispose  # call on page teardown
 
-# Page builder:
+# Page builder (runs in NiceGUI's host-owned rendering context):
 def render(vm: ComponentVMOf[Note], hub: MessageHubProto[Message],
            save_command: RelayCommand) -> None:
     label = ui.label()

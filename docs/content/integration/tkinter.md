@@ -13,14 +13,21 @@ observable; lists need to be re-applied to a `Listbox`.
 
 ## 9.7.2. Mapping
 
-| Tkinter                   | VMx                                               |
-| ------------------------- | ------------------------------------------------- |
-| `StringVar.set(x)`        | `PropertyChangedMessage[str]` handler             |
-| `tk.Button(command=fn)`   | `command.execute(None)` inside `fn`               |
-| `Listbox.insert / delete` | `CollectionChangedMessage` handler                |
-| `widget.after(...)`       | `RxDispatcher.asyncio(loop)` (or run-loop bridge) |
+| Tkinter                   | VMx                                              |
+| ------------------------- | ------------------------------------------------ |
+| `StringVar.set(x)`        | `PropertyChangedMessage[str]` handler            |
+| `tk.Button(command=fn)`   | `command.execute(None)` inside `fn`              |
+| `Listbox.insert / delete` | `CollectionChangedMessage` handler               |
+| `widget.after(...)`       | host-owned Tk queue or validated run-loop bridge |
 
 ## 9.7.3. Adapter skeleton
+
+The shipped Tk example uses its foreground-only immediate dispatcher; it does
+not use `RxDispatcher.asyncio()`. `AsyncIOThreadSafeScheduler(loop)` targets
+only its asyncio loop, so an asyncio loop on a worker thread is not a bridge to
+`root.mainloop()`. For background producers, use a host-owned queue that the
+Tk thread drains, or a validated integrated-loop bridge. Keep all widget work
+on the Tk thread:
 
 ```python
 from collections.abc import Callable
@@ -54,6 +61,10 @@ dispose = bind_string(title_var, vm, hub)
 root.protocol("WM_DELETE_WINDOW", lambda: (dispose(), root.destroy()))
 root.mainloop()
 ```
+
+If this host also owns an asyncio loop, capture it while running before creating
+`RxDispatcher.asyncio(loop)` and explicitly clean up its background pool as
+shown in [Python asyncio dispatcher ownership](../primitives/services-messages-dispatching.md#669-python-asyncio-dispatcher-ownership).
 
 ## 9.7.4. Fuller example
 

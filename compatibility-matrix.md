@@ -6,7 +6,7 @@ Updated alongside spec and flavor releases.
 
 | spec  | python          | csharp          | typescript      | swift           | rust          |
 | ----- | --------------- | --------------- | --------------- | --------------- | ------------- |
-| 3.23.x | 3.23.1[^current] <!-- x-release-please-version --> | 3.23.0[^current] | 3.24.0[^current] | 3.24.0[^swift] | 0.29.0[^rust] |
+| 3.23.x | 3.23.2[^current] <!-- x-release-please-version --> | 3.23.0[^current] | 3.24.0[^current] | 3.24.0[^swift] | 0.29.0[^rust] |
 | 3.22.x[^source-only] | 3.22.0–3.22.1 | 3.22.0–3.22.1 | 3.23.0–3.23.1 | 3.22.0–3.23.0 | 0.25.0–0.26.0 |
 | 3.21.x | —               | —               | —               | —               | —             |
 | 3.20.x[^legacy-semantic-tag-only] | —               | —               | —               | 3.20.0         | 0.20.0–0.22.0[^rust-source] |
@@ -90,10 +90,11 @@ async-resource family to expose the complete ordinary component contract, and
 adds paired dispatcher channels plus background lifecycle parity. See
 `langs/swift/README.md` §5 for the flagship scenario ledger.
 
-[^current]: C# and Python are on the 3.23.0 source line, and Python 3.23.0 is
-publicly installable from PyPI. TypeScript 3.24.0 implements spec 3.23.0. C#
-and TypeScript public packages remain pending. Their release jobs refuse to
-green-skip a publish without configured credentials.
+[^current]: C# is on the 3.23.0 source line and Python is on the unreleased
+3.23.2 source line; Python 3.23.0 is publicly installable from PyPI.
+TypeScript 3.24.0 implements spec 3.23.0. C# and TypeScript public packages
+remain pending. Their release jobs refuse to green-skip a publish without
+configured credentials.
 
 [^swift]: Swift 3.24.0 is publicly installable from the repository root through
 the immutable `v3.24.0` semantic tag. The matching `swift-v3.24.0` operational

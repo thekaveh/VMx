@@ -312,7 +312,53 @@ The Quickstart flow shows the minimal service pair every VM needs:
 From there, higher-level examples add `INotificationHub` and `IDialogService`
 only where the workflow requires them.
 
-## 6.6.9. Common Pitfalls
+## 6.6.9. Python asyncio dispatcher ownership
+
+`RxDispatcher.asyncio(loop)` uses RxPY's
+`AsyncIOThreadSafeScheduler(loop)` as its foreground scheduler, so background
+lifecycle completion can safely wake and run on the supplied asyncio loop. The
+host must capture that loop while it is running; VMx neither runs nor closes a
+caller-provided loop. This scheduler gives terminal emissions host-loop
+affinity, not general thread-safe VM mutation.
+
+The `ThreadPoolScheduler` background executor is independent of asyncio's
+default executor. The composition root must stop new submissions and await
+admitted background hooks while the loop is still responsive before it
+synchronously disposes VMs or subscriptions; disposal can wait for an active
+foreign hook. It then shuts down the pool from outside that pool. An async host
+can encode that order with its own admission tracker:
+
+```python
+import asyncio
+
+from reactivex.scheduler import ThreadPoolScheduler
+
+
+async def close_vmx(
+    dispatcher, vms, subscriptions, stop_submissions, wait_for_background
+) -> None:
+    # Keep the loop responsive until all previously admitted hooks settle.
+    stop_submissions()
+    await wait_for_background()
+
+    pool = dispatcher.background
+    try:
+        # It is now safe to synchronously release host-owned VMx resources.
+        for subscription in subscriptions:
+            subscription.dispose()
+        for vm in vms:
+            vm.dispose()
+    finally:
+        if isinstance(pool, ThreadPoolScheduler):
+            await asyncio.to_thread(pool.executor.shutdown, wait=True)
+```
+
+Only close an event loop that the host created and owns. Desktop toolkits with
+their own UI queue, such as Tkinter, need a host-owned foreground bridge for
+background producers; an asyncio loop on another thread is not the Tk UI
+thread.
+
+## 6.6.10. Common Pitfalls
 
 - Treating the hub like a replaying event store. It is hot and current-subscriber
   only.
@@ -326,7 +372,7 @@ only where the workflow requires them.
 - Using dialogs for fire-and-forget notifications or using notification hubs for
   blocking user decisions.
 
-## 6.6.10. Related Primitives
+## 6.6.11. Related Primitives
 
 - [NotificationVM](viewmodel-families/specialized/notification-vm.md)
 - [ModalVM](viewmodel-families/specialized/modal-vm.md)

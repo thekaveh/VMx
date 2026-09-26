@@ -24,7 +24,7 @@ Each flavor ships an idiomatic default dispatcher whose channels are:
 | Language   | Foreground                                                                               | Background                                  |
 | ---------- | ---------------------------------------------------------------------------------------- | ------------------------------------------- |
 | C#         | `SynchronizationContextScheduler` bound to the current thread's `SynchronizationContext` | `TaskPoolScheduler.Default`                 |
-| Python     | `AsyncIOScheduler(loop)` for the current event loop                                      | `ThreadPoolScheduler()`                     |
+| Python     | `AsyncIOThreadSafeScheduler(loop)` for a supplied or factory-created event loop          | `ThreadPoolScheduler()`                     |
 | TypeScript | `queueScheduler` (synchronous trampoline)                                                | `asyncScheduler` (macrotask)                |
 | Swift      | `DefaultDispatcher` → main queue (run inline if already on main) — see note              | `DispatchQueue.global(qos: .userInitiated)` |
 | Rust       | `DefaultDispatcher` → dedicated serial `vmx-foreground` worker                           | dedicated serial `vmx-background` worker    |
