@@ -172,6 +172,13 @@ Transitions execute on the host async continuation context. This primitive does
 not add a scheduler policy or automatically dispatch loader work. UI adapters
 retain their normal host-thread responsibilities.
 
+Python captures the asyncio operation loop for native task cancellation, cancellation
+future completion, and late callback registration (ADR-0133). Calls already on
+that loop signal directly; foreign calls enqueue to it while resource generation
+invalidation remains synchronous. Stopped open loops require restart to make
+progress; hosts cancel and drain before closing a loop. This implementation
+mapping adds no general VM/observer thread-safety or UI scheduling guarantee.
+
 ## 11. Conformance
 
 - `ARES-001` — initial state and command eligibility.

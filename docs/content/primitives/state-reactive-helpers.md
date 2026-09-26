@@ -54,6 +54,20 @@ loading and restores it on cancellation. An optional cleanup callback makes
 ownership acquisition-based: discarded, replaced, stale, late-after-dispose,
 and terminal accepted values are each cleaned exactly once.
 
+Each successful loader return is a separate ownership unit, even when two
+returns are reference-identical. Accepted ownership transfers into stable
+resource state; a stale or late successful return retains only its own cleanup
+obligation and cannot publish. See the [disposal contract](disposal-contract.md)
+for the complete release rules.
+
+In Python, every operation records the asyncio loop that created its task and
+cancellation future. Cancellation and disposal invalidate resource state
+synchronously, then perform native signals and late-result registration on that
+operation loop. This is an asyncio ownership rule, not a UI-dispatch or general
+VM thread-safety promise. See
+[Python asyncio dispatcher ownership](services-messages-dispatching.md#669-python-asyncio-dispatcher-ownership)
+for the supported synchronous-command sequence and shutdown order.
+
 ```typescript
 const profile = new AsyncResourceVM({
   name: "profile",

@@ -4,7 +4,7 @@
 
 - Install: `pip install vmx` or `uv add vmx`
 - Publication status: `vmx` 3.23.0 is published on PyPI; the current Python
-  source line is the unreleased 3.23.2 patch.
+  source line is the unreleased 3.23.3 patch.
 - Reactive primitive: `reactivex`
 - Naming idiom: snake_case
 - Hub concurrency: ordinary producers retain synchronous calling-thread
@@ -95,7 +95,24 @@ initial value for both. The host adapter owns the handle, and the selector
 reevaluates after every property message from this fixed VM rather than on
 every engine frame.
 
-## 7.3.5. Pointers
+## 7.3.5. Async Resource Operation Loops
+
+`AsyncResourceVM.load_command.execute()` supports a synchronous caller with no
+running event loop. VMx starts that operation on its shared daemon loop, records
+the actual operation loop, and returns immediately. Later `cancel()` or
+`dispose()` invalidates resource state synchronously, while the operation's
+native asyncio signalling and callback registration run on that recorded loop.
+Command settlement may follow the state change.
+
+This loop-affinity bridge does not move state or cleanup notifications to a UI
+scheduler. Application-owned loops must remain runnable until admitted resource
+work is cancelled and drained; VMx cannot finish pending tasks or force their
+`finally` blocks after the loop is closed. Applications do not own or close the
+VMx shared daemon loop. See the
+[central scheduling and shutdown guidance](../primitives/services-messages-dispatching.md#669-python-asyncio-dispatcher-ownership)
+and the [disposal contract](../primitives/disposal-contract.md).
+
+## 7.3.6. Pointers
 
 - Flavor README:
   [langs/python/README.md](../../../langs/python/README.md)
@@ -108,7 +125,7 @@ every engine frame.
 - Textual recipe:
   [Textual Integration](../integration/textual.md)
 
-## 7.3.6. Current Example Coverage
+## 7.3.7. Current Example Coverage
 
 - Console: `examples/python/console/hello_vmx/`
 - tkinter Todo app: `examples/python/tk/todo_app/`
@@ -117,3 +134,8 @@ every engine frame.
 
 The flagship and inspector are the fastest way to see the hub, lifecycle, and
 tree helpers under a real host.
+
+None of these sample applications currently calls Python `AsyncResourceVM`.
+The tracked
+[`langs/python/tests/unit/state/test_async_resource_threading.py`](https://github.com/thekaveh/VMx/blob/main/langs/python/tests/unit/state/test_async_resource_threading.py)
+is the runnable coverage for caller-thread cancellation and disposal.

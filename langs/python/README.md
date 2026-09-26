@@ -9,7 +9,7 @@ spec-compatible with the C#, TypeScript, Swift, and Rust flavors.
 
 ## 1. Status
 
-**v3.23.2 source** — implements `spec-v3.23.0` end-to-end. 403/403 library conformance IDs
+**v3.23.3 source** — implements `spec-v3.23.0` end-to-end. 403/403 library conformance IDs
 pass. Supports Python 3.10–3.14.
 `mypy --strict` clean. Opt-in `vmx.notifications` subpackage ships an
 `INotificationHub` for async confirmations. The Swift flavor is at total
@@ -18,7 +18,7 @@ parity; see `../swift/README.md` §5 for the current conformance matrix.
 ## 2. Install
 
 VMx 3.23.0 is publicly available on PyPI and implements spec 3.23.0. The
-3.23.2 source patch is not published yet; pin 3.23.0 when reproducing released
+3.23.3 source patch is not published yet; pin 3.23.0 when reproducing released
 behavior.
 
 ```bash
@@ -256,6 +256,25 @@ initial value for both. The selector runs after every property message from
 this fixed VM, and `==` suppresses unchanged selections. Pass `equality=` for
 custom equality. The host owns the returned `DisposableBase`; VMx does not
 attach it to the observed VM's lifetime.
+
+### 4.3 Async resource operation loops
+
+A synchronous caller may start `AsyncResourceVM` with
+`load_command.execute()`. When that caller has no running asyncio loop, VMx uses
+its shared daemon loop for the operation. `cancel()` and `dispose()` invalidate
+the resource state immediately; VMx then performs native task/future signals
+and late-result registration on that operation loop. Command settlement may
+therefore follow the synchronous state change.
+
+State and cleanup notifications retain their ordinary calling-context rules;
+operation-loop ownership does not dispatch them to a UI scheduler. For a loop
+owned by the application, stop admissions, cancel, and drain while the loop can
+still run, then close it. VMx cannot complete pending work or force `finally`
+blocks after the loop is closed. The VMx shared daemon loop is infrastructure,
+not an application-owned loop to close. See the
+[focused executable regression](tests/unit/state/test_async_resource_threading.py)
+and the central
+[asyncio ownership guidance](../../docs/content/primitives/services-messages-dispatching.md#669-python-asyncio-dispatcher-ownership).
 
 The opt-in `vmx.notifications` subpackage (spec v2.0+) adds:
 

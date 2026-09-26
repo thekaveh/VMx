@@ -34,7 +34,7 @@ import reactivex as rx
 from reactivex import operators as ops
 from reactivex.subject import Subject
 
-from vmx._asyncio_runner import submit_background
+from vmx._asyncio_runner import post_to_loop, submit_background
 from vmx.commands.relay_command import _run_disposal_steps
 
 TEmission = TypeVar("TEmission")
@@ -228,11 +228,14 @@ class AsyncRelayCommand:
                 self._cancellation_origin = "command"
             task = self._current_task
             loop = self._current_loop
-        if task is not None and not task.done():
-            if loop is not None and loop.is_running():
-                loop.call_soon_threadsafe(task.cancel)
-            else:
-                task.cancel()
+        if task is not None and loop is not None:
+            # Stopping a loop does not transfer ownership of its tasks. Keep
+            # command cancellation deferred even when called on the owner loop.
+            def cancel_on_owner() -> None:
+                if not task.done():
+                    task.cancel()
+
+            post_to_loop(loop, cancel_on_owner)
 
     def _mark_external_cancellation(self) -> None:
         with self._gate:

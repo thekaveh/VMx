@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Coroutine
+from collections.abc import Callable, Coroutine
 from concurrent.futures import Future
 from threading import Event, Lock, Thread
 from typing import Any, TypeVar
@@ -52,3 +52,14 @@ _BACKGROUND_EVENT_LOOP = _BackgroundEventLoop()
 def submit_background(coroutine: Coroutine[Any, Any, T]) -> Future[T]:
     """Schedule *coroutine* on the shared daemon loop and return immediately."""
     return _BACKGROUND_EVENT_LOOP.submit(coroutine)
+
+
+def post_to_loop(loop: asyncio.AbstractEventLoop, callback: Callable[[], None]) -> bool:
+    """Enqueue even on a stopped owner; only confirmed closure rejects delivery."""
+    try:
+        loop.call_soon_threadsafe(callback)
+    except RuntimeError:
+        if not loop.is_closed():
+            raise
+        return False
+    return True
