@@ -34,6 +34,24 @@ Catalog completeness is an executable ID-coverage statement. The completed
 [Rust parity ledger](../maintenance/2026-07-16-rust-capability-parity.md)
 supplements it with focused member and edge-behavior evidence for Rust 0.27.0.
 
+### 10.3.1. Ownership Assertions And Catalog Coverage
+
+A conformance marker proves that a test is assigned to a catalog entry; its
+assertions must still detect a violation of that entry's behavior. Rust's
+`COL-055` and `COL-062` check caller-owned item lifecycle after every exercised
+mutation, including failed keyed preflight and empty operations. A retained
+caller `Arc` always has at least one strong reference, so `strong_count >= 1`
+cannot prove that a collection released its item handles.
+
+The Rust tests count known membership, snapshot, lookup and returned-value
+handles separately from VM lifecycle hooks. They assert no collection-driven
+construct, destruct or dispose hook, then exactly one explicit caller disposal
+and one final native release per item. Retained Rust change histories contain
+metadata rather than item payloads. A temporary mutation that leaks the items
+inside both `clear` implementations fails both tests while the unmodified
+implementations pass. This strengthens existing IDs; the catalog remains 403
+library IDs. See [Rust ownership-test conventions](flavors/rust.md#7631-ownership-test-conventions).
+
 ## 10.4. How The Repo Enforces It
 
 - Each language flavor carries a conformance suite under its own tree.

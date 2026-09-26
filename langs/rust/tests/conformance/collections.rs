@@ -567,37 +567,178 @@ fn serviced_collection_delivery_recovers_after_debug_hub_unwind() {
     assert_eq!(last_change.new_index, Some(1));
 }
 
+#[derive(Default)]
+struct OwnershipCounts {
+    constructs: std::sync::atomic::AtomicUsize,
+    destructs: std::sync::atomic::AtomicUsize,
+    disposals: std::sync::atomic::AtomicUsize,
+    releases: std::sync::atomic::AtomicUsize,
+}
+
+struct OwnershipState {
+    key: &'static str,
+    vm: ComponentVm,
+    counts: std::sync::Arc<OwnershipCounts>,
+}
+
+impl Drop for OwnershipState {
+    fn drop(&mut self) {
+        self.counts
+            .releases
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+#[derive(Clone)]
+struct OwnershipProbe(std::sync::Arc<OwnershipState>);
+
+impl std::fmt::Debug for OwnershipProbe {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("OwnershipProbe").field(&self.0.key).finish()
+    }
+}
+
+impl PartialEq for OwnershipProbe {
+    fn eq(&self, other: &Self) -> bool {
+        std::sync::Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+impl Eq for OwnershipProbe {}
+
+impl OwnershipProbe {
+    fn new(key: &'static str) -> Self {
+        use std::sync::{atomic::Ordering, Arc};
+
+        let counts = Arc::new(OwnershipCounts::default());
+        let vm = ComponentVm::new(key);
+        let construct = Arc::clone(&counts);
+        vm.on_construct(move || {
+            construct.constructs.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        });
+        let destruct = Arc::clone(&counts);
+        vm.on_destruct(move || {
+            destruct.destructs.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        });
+        let dispose = Arc::clone(&counts);
+        vm.on_dispose(move || {
+            dispose.disposals.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        });
+        Self(Arc::new(OwnershipState { key, vm, counts }))
+    }
+
+    fn assert_owned(&self, holders: usize, operation: &str) {
+        use std::sync::atomic::Ordering;
+
+        assert_eq!(
+            std::sync::Arc::strong_count(&self.0),
+            holders,
+            "{operation}: {} holders",
+            self.0.key
+        );
+        let counts = &self.0.counts;
+        assert_eq!(counts.constructs.load(Ordering::SeqCst), 0);
+        assert_eq!(counts.destructs.load(Ordering::SeqCst), 0);
+        assert_eq!(counts.disposals.load(Ordering::SeqCst), 0);
+        assert_eq!(counts.releases.load(Ordering::SeqCst), 0);
+        assert_eq!(
+            self.0.vm.status(),
+            ConstructionStatus::Destructed,
+            "{operation}"
+        );
+        assert_eq!(self.0.vm.parent_id(), None, "{operation}");
+    }
+
+    fn dispose_by_owner(self) {
+        use std::sync::{atomic::Ordering, Arc};
+
+        self.assert_owned(1, "before caller cleanup");
+        let weak = Arc::downgrade(&self.0);
+        let counts = Arc::clone(&self.0.counts);
+        self.0.vm.dispose().unwrap();
+        assert_eq!(self.0.vm.status(), ConstructionStatus::Disposed);
+        assert_eq!(counts.constructs.load(Ordering::SeqCst), 0);
+        assert_eq!(counts.destructs.load(Ordering::SeqCst), 0);
+        assert_eq!(counts.disposals.load(Ordering::SeqCst), 1);
+        assert_eq!(counts.releases.load(Ordering::SeqCst), 0);
+        drop(self);
+        assert!(weak.upgrade().is_none());
+        assert_eq!(counts.releases.load(Ordering::SeqCst), 1);
+        assert_eq!(counts.disposals.load(Ordering::SeqCst), 1);
+    }
+}
+
 /// COL-055 — serviced clear and all mutations preserve caller ownership
 #[test]
 fn serviced_collection_clear_and_mutations_preserve_caller_ownership() {
-    #[derive(Clone, Debug, PartialEq, Eq)]
-    struct Probe(std::sync::Arc<()>);
-
-    let first = Probe(std::sync::Arc::new(()));
-    let second = Probe(std::sync::Arc::new(()));
+    let first = OwnershipProbe::new("first");
+    let second = OwnershipProbe::new("second");
+    let check = |a, b, operation| {
+        first.assert_owned(a, operation);
+        second.assert_owned(b, operation);
+    };
     let hub = MessageHub::new();
     let list = ServicedObservableCollection::with_hub(16, hub.clone());
     list.clear();
+    check(1, 1, "empty clear"); // Caller handles only.
     assert!(list.collection_changed().history().is_empty());
     assert!(hub.history().is_empty());
-
+    list.replace_all(std::iter::empty());
+    check(1, 1, "empty replacement");
+    assert!(!list.remove(&first));
+    check(1, 1, "absent remove");
+    assert!(list.remove_at(0).is_err());
+    check(1, 1, "empty remove_at");
     list.push(first.clone());
+    check(2, 1, "push first"); // Caller plus membership for first.
     list.push(second.clone());
+    check(2, 2, "push second"); // Caller plus membership each.
+    let collection_clone = list.clone();
+    check(2, 2, "collection clone"); // Shared storage, no new item handle.
+    let snapshot = list.to_vec();
+    check(3, 3, "snapshot"); // Caller, membership, snapshot each.
+    drop(snapshot);
+    check(2, 2, "snapshot released");
     assert!(list.remove(&first));
+    check(1, 2, "remove");
     let removed = list.remove_at(0).unwrap();
+    check(1, 2, "remove_at"); // Second: caller plus returned value.
     list.push(removed.clone());
+    check(1, 3, "push removed"); // Second: caller, returned value, membership.
     let replaced = list.replace(0, first.clone()).unwrap();
+    check(2, 3, "replace"); // First: caller+membership; second: caller+two returns.
     list.replace_all([replaced.clone(), first.clone()]);
+    check(2, 4, "replace_all"); // Second now also has a membership.
     list.move_item(0, 1).unwrap();
+    check(2, 4, "move_item");
+    let messages = list.collection_changed().history().len();
+    list.move_item(1, 1).unwrap();
+    check(2, 4, "same-index move");
+    assert_eq!(list.collection_changed().history().len(), messages);
     list.clear();
-
+    check(1, 3, "clear"); // Caller each and two second-item return handles.
     assert!(list.is_empty());
-    assert!(std::sync::Arc::strong_count(&first.0) >= 1);
-    assert!(std::sync::Arc::strong_count(&second.0) >= 1);
+    assert!(collection_clone.is_empty());
     assert_eq!(
         collection_actions(&list.collection_changed()).last(),
         Some(&CollectionChangeAction::Reset)
     );
+    list.clear();
+    check(1, 3, "empty clear after clear");
+    drop(removed);
+    check(1, 2, "remove_at return released");
+    drop(replaced);
+    check(1, 1, "replace return released");
+    let local_history = list.collection_changed().history();
+    let hub_history = hub.history();
+    check(1, 1, "histories retained"); // Rust messages have no item payload.
+    first.dispose_by_owner();
+    second.dispose_by_owner();
+    assert!(!local_history.is_empty());
+    assert!(!hub_history.is_empty()); // Histories remain live through final release.
 
     #[derive(Clone)]
     struct NonEquatable(std::sync::Arc<()>);
@@ -872,26 +1013,134 @@ fn keyed_serviced_replace_all_preflights_and_accepts_self_input() {
 /// COL-062 — keyed move, clear, and convenience mutations preserve invariants and ownership
 #[test]
 fn keyed_serviced_move_clear_and_conveniences_preserve_keys_and_ownership() {
-    #[derive(Clone, Debug, PartialEq, Eq)]
-    struct OwnedItem(&'static str, std::sync::Arc<()>);
-
-    let a = OwnedItem("a", std::sync::Arc::new(()));
-    let b = OwnedItem("b", std::sync::Arc::new(()));
-    let c = OwnedItem("c", std::sync::Arc::new(()));
-    let list = KeyedServicedObservableCollection::new(29, |item: &OwnedItem| Ok(item.0));
+    let a = OwnershipProbe::new("a");
+    let b = OwnershipProbe::new("b");
+    let c = OwnershipProbe::new("c");
+    let duplicate = OwnershipProbe::new("a");
+    let bad = OwnershipProbe::new("fail");
+    let probes = [&a, &b, &c, &duplicate, &bad];
+    let check = |counts: [usize; 5], operation: &str| {
+        for (probe, count) in probes.iter().zip(counts) {
+            probe.assert_owned(count, operation);
+        }
+    };
+    let hub = MessageHub::new();
+    let list =
+        KeyedServicedObservableCollection::with_hub(29, hub.clone(), |item: &OwnershipProbe| {
+            if item.0.key == "fail" {
+                Err(VmxError::Other("projection failed".to_string()))
+            } else {
+                Ok(item.0.key)
+            }
+        });
+    list.clear();
+    check([1, 1, 1, 1, 1], "empty clear");
+    assert!(list.collection_changed().history().is_empty());
+    list.replace_all(std::iter::empty()).unwrap();
+    check([1, 1, 1, 1, 1], "empty replace_all");
     list.replace_all([a.clone(), b.clone(), c.clone()]).unwrap();
+    check([2, 2, 2, 1, 1], "replace_all"); // Caller+membership for a/b/c.
+    let collection_clone = list.clone();
+    check([2, 2, 2, 1, 1], "collection clone");
+    let snapshot = list.to_vec();
+    check([3, 3, 3, 1, 1], "snapshot");
+    drop(snapshot);
+    check([2, 2, 2, 1, 1], "snapshot released");
     list.move_item(0, 2).unwrap();
+    check([2, 2, 2, 1, 1], "move_item");
     assert_eq!(list.to_vec(), vec![b.clone(), c.clone(), a.clone()]);
-    assert_eq!(list.get_by_key(&"a"), Some(a.clone()));
+    let lookup = list.get_by_key(&"a");
+    assert_eq!(lookup, Some(a.clone()));
+    check([3, 2, 2, 1, 1], "lookup"); // a also has the lookup result.
+    drop(lookup);
+    check([2, 2, 2, 1, 1], "lookup released");
     let messages = list.collection_changed().history().len();
     list.move_item(1, 1).unwrap();
+    check([2, 2, 2, 1, 1], "same-index move");
     assert_eq!(list.collection_changed().history().len(), messages);
+    assert!(list.remove(&b));
+    check([2, 1, 2, 1, 1], "remove");
+    let removed = list.remove_at(0).unwrap();
+    assert_eq!(removed, c);
+    check([2, 1, 2, 1, 1], "remove_at"); // c: caller+return.
+    let replaced = list.replace(0, b.clone()).unwrap();
+    assert_eq!(replaced, a);
+    check([2, 2, 2, 1, 1], "replace"); // a/c: caller+return; b: caller+membership.
+    list.replace_all([a.clone(), b.clone(), c.clone()]).unwrap();
+    check([3, 2, 3, 1, 1], "replace_all retaining returns");
+    let before_failure = list.collection_changed().history().len();
+    assert!(matches!(
+        list.push(duplicate.clone()),
+        Err(VmxError::InvalidArgument(_))
+    ));
+    check([3, 2, 3, 1, 1], "duplicate push");
+    assert!(matches!(
+        list.replace(1, duplicate.clone()),
+        Err(VmxError::InvalidArgument(_))
+    ));
+    check([3, 2, 3, 1, 1], "duplicate replace");
+    assert!(matches!(
+        list.replace_all([a.clone(), duplicate.clone()]),
+        Err(VmxError::InvalidArgument(_))
+    ));
+    check([3, 2, 3, 1, 1], "duplicate replace_all");
+    assert_eq!(
+        list.push(bad.clone()),
+        Err(VmxError::Other("projection failed".to_string()))
+    );
+    check([3, 2, 3, 1, 1], "projector push failure");
+    assert_eq!(
+        list.replace(1, bad.clone()),
+        Err(VmxError::Other("projection failed".to_string()))
+    );
+    check([3, 2, 3, 1, 1], "projector replace failure");
+    assert_eq!(
+        list.replace_all([bad.clone()]),
+        Err(VmxError::Other("projection failed".to_string()))
+    );
+    check([3, 2, 3, 1, 1], "projector replace_all failure");
+    assert_eq!(list.to_vec(), vec![a.clone(), b.clone(), c.clone()]);
+    assert_eq!(list.collection_changed().history().len(), before_failure);
+    assert_eq!(list.get_by_key(&"a"), Some(a.clone()));
+    let removed_key = list.remove_key(&"b").unwrap();
+    check([3, 2, 3, 1, 1], "remove_key"); // b: caller+return.
+    drop(removed_key);
+    check([3, 1, 3, 1, 1], "remove_key return released");
+    assert!(list.upsert(b.clone()).unwrap());
+    check([3, 2, 3, 1, 1], "upsert new membership");
+    assert!(!list.upsert(duplicate.clone()).unwrap());
+    check([2, 2, 3, 2, 1], "upsert replacement"); // a keeps return; duplicate gains membership.
+    assert!(!list.upsert(a.clone()).unwrap());
+    check([3, 2, 3, 1, 1], "upsert original");
     list.clear();
+    check([2, 1, 2, 1, 1], "clear"); // Only caller handles and a/c returns remain.
     assert!(list.is_empty());
+    assert!(collection_clone.is_empty());
     assert!(!list.contains_key(&"a"));
-    assert!(std::sync::Arc::strong_count(&a.1) >= 1);
-    assert!(std::sync::Arc::strong_count(&b.1) >= 1);
-    assert!(std::sync::Arc::strong_count(&c.1) >= 1);
+    drop(removed);
+    check([2, 1, 1, 1, 1], "remove_at return released");
+    drop(replaced);
+    check([1, 1, 1, 1, 1], "replace return released");
+    let messages = list.collection_changed().history().len();
+    list.clear();
+    check([1, 1, 1, 1, 1], "empty clear after clear");
+    assert!(!list.remove(&a));
+    check([1, 1, 1, 1, 1], "absent remove");
+    assert!(list.remove_key(&"a").is_none());
+    check([1, 1, 1, 1, 1], "absent remove_key");
+    assert!(list.remove_at(0).is_err());
+    check([1, 1, 1, 1, 1], "empty remove_at");
+    assert_eq!(list.collection_changed().history().len(), messages);
+    let local_history = list.collection_changed().history();
+    let hub_history = hub.history();
+    check([1, 1, 1, 1, 1], "histories retained");
+    a.dispose_by_owner();
+    b.dispose_by_owner();
+    c.dispose_by_owner();
+    duplicate.dispose_by_owner();
+    bad.dispose_by_owner();
+    assert!(!local_history.is_empty());
+    assert!(!hub_history.is_empty());
 }
 
 /// COL-063 — keyed delivery is local-before-hub and respects an existing hub transaction
