@@ -450,7 +450,9 @@ def test_reentrant_dispose_defers_terminal_until_active_delivery_finishes(
 
 
 @pytest.mark.asyncio
-async def test_same_loop_cancel_remains_deferred_until_next_loop_turn() -> None:
+async def test_same_loop_cancel_remains_deferred_until_next_loop_turn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     started = asyncio.Event()
 
     async def task() -> None:
@@ -462,8 +464,18 @@ async def test_same_loop_cancel_remains_deferred_until_next_loop_turn() -> None:
     await asyncio.wait_for(started.wait(), timeout=1)
     inner = command._current_task
     assert inner is not None
+    owner = asyncio.get_running_loop()
+    cancellation_loops: list[asyncio.AbstractEventLoop] = []
+    native_cancel = inner.cancel
+
+    def record_cancel(msg: object | None = None) -> bool:
+        cancellation_loops.append(asyncio.get_running_loop())
+        return native_cancel(msg)
+
+    monkeypatch.setattr(inner, "cancel", record_cancel)
     command.cancel()
-    assert inner.cancelling() == 0
+    assert cancellation_loops == []
     await asyncio.wait_for(waiter, timeout=1)
+    assert cancellation_loops == [owner]
     assert inner.cancelled()
     command.dispose()

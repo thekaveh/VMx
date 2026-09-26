@@ -308,11 +308,14 @@ def test_stopped_open_loop_queues_resource_and_linked_command(action):
         recorder.assert_owned(operation.task, operation.cancelled, inner)
         assert cleaned == [3]
     finally:
+        # Snapshot fixture work before wait_for creates its own wrapper task
+        # (Python 3.10). Teardown must not cancel the task bounding teardown.
+        pending = [task for task in asyncio.all_tasks(loop) if not task.done()]
 
         async def finish():
             vm.dispose()
-            for task in asyncio.all_tasks():
-                if task is not asyncio.current_task() and not task.done():
+            for task in pending:
+                if not task.done():
                     task.cancel()
             await turns()
 
