@@ -107,6 +107,33 @@ hub publication; a hub transaction defers only external delivery. The keyed
 type has no batch or VM lifecycle interface and never owns stored-item
 lifecycle.
 
+### 7.6.3.1. Ownership-Test Conventions
+
+The caller controls each stored VM's construct, destruct and dispose operations.
+A serviced collection retains an item as an ordinary Rust value while it is a
+member; that retention does not transfer semantic lifecycle ownership. A
+returned old value, lookup result or snapshot can keep a shared item alive after
+removal. Cloning the collection shares its backing store without cloning every
+item, and Rust's collection-change history has no item payload to retain.
+
+`COL-055` and `COL-062` use test-private shared wrappers around real
+`ComponentVm` instances. After each operation they count every known wrapper
+handle and check lifecycle hooks and parent state. Once returned and snapshot
+handles are released, the caller disposes each VM exactly once, releases its
+last wrapper, and checks both weak-reference expiration and a separate native
+release counter. Rust `Drop` is not treated as VM disposal. These exact counts
+are deterministic because the tests control every holder and run mutations
+synchronously; they do not count the VM's internal implementation references.
+
+The eight C#, Python, TypeScript and Swift counterpart tests already use direct
+lifecycle observables rather than the Rust reference-count tautology. Their
+probe coverage varies: C# observes disposal, Swift omits some lifecycle
+categories, Python's keyed test does not retain failed-operation candidates,
+and TypeScript's keyed test instruments only one item. They do not assert
+exactly-once caller cleanup. These are limits of the test evidence, not proof
+of a collection implementation defect. The existing ownership contract and
+403-ID catalog are unchanged.
+
 ## 7.6.4. Imperative Engine Bridge
 
 Rust expresses the fixed source as `hub + sender_id`. `subscribe_value` returns
