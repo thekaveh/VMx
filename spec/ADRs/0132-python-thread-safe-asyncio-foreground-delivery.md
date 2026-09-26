@@ -24,8 +24,8 @@ signature, supplied-loop identity, no-argument fresh caller-managed loop,
 immediate dispatcher, and custom scheduler injection.
 
 The host owns the supplied loop and RxPY's independent `ThreadPoolScheduler`
-executor. A composition root stops new work, disposes its VMs and
-subscriptions, lets pending work settle while the loop is alive, then explicitly
+executor. A composition root stops new work, awaits admitted hooks while the
+loop remains responsive, then disposes its VMs and subscriptions and explicitly
 shuts down a host-owned pool from outside that pool. It closes only loops it
 created. Async hosts may await `asyncio.to_thread(pool.executor.shutdown, wait=True)`; loop closure alone does not join this executor.
 

@@ -40,9 +40,16 @@ async def configure_vmx() -> None:
     # Retain dispatcher with the host; dispose and clean up on shutdown.
 ```
 
-On shutdown, stop submissions, dispose host-owned VMs and subscriptions, and
-explicitly clean up the independent pool as shown in [Python asyncio dispatcher
+On shutdown, stop submissions, await admitted hooks while the host loop remains
+responsive, dispose host-owned VMs and subscriptions, then explicitly clean up
+the independent pool as shown in [Python asyncio dispatcher
 ownership](../primitives/services-messages-dispatching.md#669-python-asyncio-dispatcher-ownership).
+
+The direct subscription below requires every matching `PropertyChangedMessage`
+to arrive on NiceGUI's UI loop and within the current client's rendering
+context. Background lifecycle terminal messages have that foreground delivery;
+foreign producers must use a host bridge or foreground observation before they
+touch an element.
 
 ```python
 from collections.abc import Callable

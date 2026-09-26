@@ -25,9 +25,17 @@ reactive attributes.
 `AsyncIOThreadSafeScheduler(loop)` for worker-to-loop delivery. Textual's
 `post_message` remains the host bridge for foreign producers; do not call
 `App.call_from_thread` from the App thread. The host owns the App loop and must
-explicitly release any `ThreadPoolScheduler` it created; use the shared
+stop admissions, await admitted hooks while that loop remains responsive,
+dispose resources, then explicitly release any `ThreadPoolScheduler` it
+created; use the shared
 [Python asyncio dispatcher ownership](../primitives/services-messages-dispatching.md#669-python-asyncio-dispatcher-ownership)
-teardown sequence after disposing VMs and subscriptions.
+teardown sequence.
+
+The direct subscription below requires every matching `PropertyChangedMessage`
+to arrive on the App thread. Background lifecycle terminal messages have that
+foreground delivery, but arbitrary foreign property producers do not. Route
+those through `post_message` or observe them on the foreground scheduler before
+touching a widget.
 
 ```python
 from textual.widget import Widget
