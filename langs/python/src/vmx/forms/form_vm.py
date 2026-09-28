@@ -17,7 +17,7 @@ from reactivex import operators as ops
 from reactivex.subject import Subject
 
 from vmx._asyncio_runner import submit_background
-from vmx.commands.relay_command import RelayCommand
+from vmx.commands.relay_command import RelayCommand, _run_disposal_steps
 from vmx.forms.builders import FormVMBuilder
 from vmx.messages.form_reverted import FormRevertedMessage
 from vmx.messages.property_changed import PropertyChangedMessage
@@ -382,16 +382,26 @@ class FormVM(Generic[TM]):
             self._tear_down()
 
     def _tear_down(self) -> None:
-        self._on_approved.on_completed()
-        self._on_approved.dispose()
-        self._approve_errors.on_completed()
-        self._approve_errors.dispose()
-        self._errors_changed.on_completed()
-        self._errors_changed.dispose()
-        self._can_execute_trigger.on_completed()
-        self._can_execute_trigger.dispose()
-        self._deny_command.dispose()
-        self._approve_command.dispose()
+        """Attempt every owned teardown step exactly once, even if one raises.
+
+        Uses the shared ``_run_disposal_steps`` convention (see
+        ``relay_command.py``): every step runs, and the first ``BaseException``
+        is re-raised after all steps have been attempted.  This prevents an
+        observer raising in one ``on_completed`` from permanently leaking the
+        remaining subjects and commands.
+        """
+        _run_disposal_steps(
+            self._on_approved.on_completed,
+            self._on_approved.dispose,
+            self._approve_errors.on_completed,
+            self._approve_errors.dispose,
+            self._errors_changed.on_completed,
+            self._errors_changed.dispose,
+            self._can_execute_trigger.on_completed,
+            self._can_execute_trigger.dispose,
+            self._deny_command.dispose,
+            self._approve_command.dispose,
+        )
 
     # ── Internal ──────────────────────────────────────────────────────────────
 

@@ -369,3 +369,181 @@ async def test_form_015_approve_command_surfaces_persister_error() -> None:
 
     err_sub.dispose()
     appr_sub.dispose()
+
+
+# ---------------------------------------------------------------------------
+# Issue #336 — complete teardown even when a completion observer raises
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.conformance("DISP-020")
+async def test_DISP_020_teardown_first_observer_raise_still_runs_rest() -> None:
+    """A raising on_approved subscriber must not prevent the remaining
+    subjects and commands from completing and being disposed (spec/20 §10)."""
+    persisted: list[_Model] = []
+    boom = RuntimeError("observer boom")
+
+    async def persister(m: _Model) -> None:
+        persisted.append(m)
+
+    sut: FormVM[_Model] = FormVM(_Model("Alice", 1), persister)
+    disposed_steps: list[str] = []
+
+    # Patch the subject dispose/on_completed to record what ran
+    raising_on_completed_called = False
+
+    def raising_on_completed() -> None:
+        nonlocal raising_on_completed_called
+        raising_on_completed_called = True
+        raise boom
+
+    sut._on_approved.on_completed = raising_on_completed
+
+    # Spy on remaining subject on_completed and dispose
+    for name in ("_approve_errors", "_errors_changed", "_can_execute_trigger"):
+        subject = getattr(sut, name)
+        original_oc = subject.on_completed
+        original_disp = subject.dispose
+
+        def make_on_completed(n: str, orig: Any) -> Any:
+            def wrapped() -> None:
+                disposed_steps.append(f"{n}.on_completed")
+                orig()
+
+            return wrapped
+
+        def make_dispose(n: str, orig: Any) -> Any:
+            def wrapped() -> None:
+                disposed_steps.append(f"{n}.dispose")
+                orig()
+
+            return wrapped
+
+        subject.on_completed = make_on_completed(name, original_oc)
+        subject.dispose = make_dispose(name, original_disp)
+
+    for name in ("_deny_command", "_approve_command"):
+        cmd = getattr(sut, name)
+        original = cmd.dispose
+
+        def make_dispose(n: str, orig: Any) -> Any:
+            def wrapped() -> None:
+                disposed_steps.append(f"{n}.dispose")
+                orig()
+
+            return wrapped
+
+        cmd.dispose = make_dispose(name, original)
+
+    with pytest.raises(RuntimeError, match="observer boom"):
+        sut.dispose()
+
+    assert raising_on_completed_called, "the raising observer ran"
+    for step in (
+        "_approve_errors.on_completed",
+        "_approve_errors.dispose",
+        "_errors_changed.on_completed",
+        "_errors_changed.dispose",
+        "_can_execute_trigger.on_completed",
+        "_can_execute_trigger.dispose",
+        "_deny_command.dispose",
+        "_approve_command.dispose",
+    ):
+        assert step in disposed_steps, f"missing step after first raise: {step}"
+
+
+@pytest.mark.conformance("DISP-020")
+async def test_DISP_020_teardown_first_error_preserved_not_replaced() -> None:
+    """When two teardown steps fail, the first exception is the one re-raised."""
+    first_error = RuntimeError("first failure")
+    second_error = RuntimeError("second failure")
+
+    async def persister(m: _Model) -> None:
+        pass
+
+    sut: FormVM[_Model] = FormVM(_Model("Alice", 1), persister)
+
+    sut._on_approved.on_completed = lambda: (_ for _ in ()).throw(first_error)
+    sut._approve_errors.on_completed = lambda: (_ for _ in ()).throw(second_error)
+
+    with pytest.raises(RuntimeError, match="first failure"):
+        sut.dispose()
+
+
+@pytest.mark.conformance("DISP-020")
+async def test_DISP_020_reentrant_dispose_from_on_approved_runs_each_step_once() -> None:
+    """A dispose() call from inside an on_approved subscriber is a no-op —
+    every teardown step still runs exactly once."""
+    call_count = 0
+    teardown_call_count = 0
+
+    async def persister(m: _Model) -> None:
+        pass
+
+    sut: FormVM[_Model] = FormVM(_Model("Alice", 1), persister)
+
+    sub = sut.on_approved.subscribe(lambda _: sut.dispose() if call_count == 0 else None)
+    call_count += 1
+
+    original_teardown = sut._tear_down
+
+    def counting_teardown() -> None:
+        nonlocal teardown_call_count
+        teardown_call_count += 1
+        original_teardown()
+
+    sut._tear_down = counting_teardown
+
+    sut.dispose()
+
+    assert teardown_call_count == 1, f"teardown ran {teardown_call_count} times, expected 1"
+    sub.dispose()
+
+
+@pytest.mark.conformance("DISP-020")
+async def test_DISP_020_post_dispose_inert() -> None:
+    """After disposal, late approval/deny/model changes/error emissions are inert."""
+    persisted: list[_Model] = []
+    denied: list[_Model] = []
+    errors_changed: list[dict[str, str]] = []
+
+    async def persister(m: _Model) -> None:
+        persisted.append(m)
+
+    sut: FormVM[_Model] = FormVM(_Model("Alice", 1), persister)
+    appr_sub = sut.on_approved.subscribe(lambda m: denied.append(m))
+    err_sub = sut.approve_errors.subscribe(lambda e: None)
+    changed_sub = sut.errors_changed.subscribe(errors_changed.append)
+
+    sut.dispose()
+
+    # Post-dispose mutations/approvals must not raise or emit
+    sut.set_model(_Model("Bob", 2))
+    sut.approve_command.execute()
+    sut.deny_command.execute()
+
+    assert persisted == [], "persister must not run after dispose"
+    assert denied == [], "on_approved must not fire after dispose"
+    assert errors_changed == [], "errors_changed must not fire after dispose"
+    appr_sub.dispose()
+    err_sub.dispose()
+    changed_sub.dispose()
+
+
+@pytest.mark.conformance("DISP-020")
+async def test_DISP_020_caller_owned_hub_not_disposed() -> None:
+    """A caller-owned MessageHub survives form disposal."""
+    hub = MessageHub()
+    messages: list[Any] = []
+    sub = hub.messages.subscribe(messages.append)
+
+    async def persister(m: _Model) -> None:
+        pass
+
+    sut: FormVM[_Model] = FormVM(_Model("Alice", 1), persister, hub=hub)
+    sut.dispose()
+
+    # Hub still accepts sends after form disposal
+    hub.send("test-message")
+    assert messages == ["test-message"], "caller-owned hub must not be disposed by form disposal"
+    sub.dispose()
