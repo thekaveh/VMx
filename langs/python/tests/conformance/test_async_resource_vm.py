@@ -779,3 +779,70 @@ async def test_ares_011_discard_cleanup_cannot_start_loader_after_disposal() -> 
 
     assert calls == 1
     assert vm.status is ConstructionStatus.DISPOSED
+
+
+# ---------------------------------------------------------------------------
+# Issue #334 — settle state when the current loader cancels itself
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.conformance("ARES-012")
+@pytest.mark.parametrize("scenario", ["raise_cancelled", "self_cancel_task"])
+async def test_ARES_012_loader_cancelled_error_settles_state(scenario: str) -> None:
+    """When the loader task ends with CancelledError, the operation must be
+    rolled back so the VM returns to its baseline and commands re-admit."""
+    if scenario == "raise_cancelled":
+
+        async def loader() -> int:
+            raise asyncio.CancelledError()
+    else:
+
+        async def loader() -> int:
+            current_task = asyncio.current_task()
+            assert current_task is not None
+            current_task.cancel()
+            raise asyncio.CancelledError()
+
+    vm = _vm(loader)
+    assert vm.state.status == AsyncResourceStatus.IDLE
+    assert vm.load_command.can_execute()
+
+    vm.load_command.execute()
+    await asyncio.sleep(0.05)
+
+    assert vm.state.status != AsyncResourceStatus.LOADING, (
+        f"scenario={scenario}: should not be Loading, got {vm.state.status}"
+    )
+    assert vm.state.status == AsyncResourceStatus.IDLE, (
+        f"scenario={scenario}: state should be Idle, got {vm.state.status}"
+    )
+    assert vm.load_command.can_execute(), f"scenario={scenario}: load_command should re-admit"
+
+
+@pytest.mark.conformance("ARES-012")
+async def test_ARES_012_obsolete_loader_cancelled_does_not_rollback_newer() -> None:
+    """When a superseded loader's task is cancelled, the newer operation is preserved."""
+    gate = asyncio.Event()
+    call_count = 0
+
+    async def loader() -> int:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            await gate.wait()
+            return 100
+        return 200
+
+    vm = _vm(loader)
+    vm.load_command.execute()
+    await asyncio.sleep(0.01)
+    vm.reload_command.execute()
+    await asyncio.sleep(0.01)
+
+    gate.set()
+    await asyncio.sleep(0.05)
+
+    assert vm.state.status == AsyncResourceStatus.READY, f"got {vm.state.status}"
+    assert vm.state.value == 200, f"got {vm.state.value}"
+    assert not vm.load_command.can_execute()  # _can_load requires Idle
+    assert vm.reload_command.can_execute()  # _can_reload requires not Idle
