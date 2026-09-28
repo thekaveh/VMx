@@ -333,6 +333,7 @@ class AsyncResourceVM(Generic[T], _ComponentVMBase):
         try:
             value = operation.task.result()
         except asyncio.CancelledError:
+            self._rollback(operation)
             return
         except BaseException as error:
             with self._resource_gate:
