@@ -168,3 +168,100 @@ describe("COL-023", () => {
     expect(events).toEqual(["reset"]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Issue #335 — reject non-integral mutation indices before changing state
+// ---------------------------------------------------------------------------
+
+const NON_INTEGRAL_INDICES = [NaN, 0.5, -0.5, Infinity, -Infinity, 1.5] as const;
+
+describe("COL-005..009 — non-integral index rejection", () => {
+  it.each([...NON_INTEGRAL_INDICES])(
+    "insert(%s) throws RangeError without mutation or emission",
+    (index) => {
+      const sut = new ObservableList<string>();
+      sut.push("a");
+      sut.push("b");
+      const added: Array<{ item: string; index: number }> = [];
+      sut.itemAdded.subscribe((e) => added.push(e));
+
+      expect(() => sut.insert(index, "x")).toThrow(RangeError);
+      expect(sut.toArray()).toEqual(["a", "b"]);
+      expect(added).toHaveLength(0);
+    },
+  );
+
+  it.each([...NON_INTEGRAL_INDICES])(
+    "removeAt(%s) throws RangeError without mutation or emission",
+    (index) => {
+      const sut = new ObservableList<string>();
+      sut.push("a");
+      sut.push("b");
+      const removed: Array<{ item: string; index: number }> = [];
+      sut.itemRemoved.subscribe((e) => removed.push(e));
+
+      expect(() => sut.removeAt(index)).toThrow(RangeError);
+      expect(sut.toArray()).toEqual(["a", "b"]);
+      expect(removed).toHaveLength(0);
+    },
+  );
+
+  it.each([...NON_INTEGRAL_INDICES])(
+    "replace(%s) throws RangeError without mutation or emission",
+    (index) => {
+      const sut = new ObservableList<string>();
+      sut.push("a");
+      sut.push("b");
+      const replaced: Array<{ newItem: string; oldItem: string; index: number }> = [];
+      sut.itemReplaced.subscribe((e) => replaced.push(e));
+
+      expect(() => sut.replace(index, "x")).toThrow(RangeError);
+      expect(sut.toArray()).toEqual(["a", "b"]);
+      expect(replaced).toHaveLength(0);
+    },
+  );
+
+  it("preserves valid boundaries and rejects negative integers after passing integer check", () => {
+    const sut = new ObservableList<string>();
+      sut.push("a");
+      sut.push("b");
+    sut.insert(2, "c");
+    expect(sut.toArray()).toEqual(["a", "b", "c"]);
+    sut.insert(0, "z");
+    expect(sut.toArray()).toEqual(["z", "a", "b", "c"]);
+    sut.removeAt(3);
+    expect(sut.toArray()).toEqual(["z", "a", "b"]);
+    sut.replace(0, "w");
+    expect(sut.toArray()).toEqual(["w", "a", "b"]);
+    expect(() => sut.insert(-1, "x")).toThrow(RangeError);
+    expect(() => sut.removeAt(-1)).toThrow(RangeError);
+    expect(() => sut.replace(-1, "x")).toThrow(RangeError);
+    expect(sut.toArray()).toEqual(["w", "a", "b"]);
+  });
+
+  it("rejects valid-shape indices on an empty list", () => {
+    const empty = new ObservableList<string>();
+    expect(() => empty.removeAt(0)).toThrow(RangeError);
+    expect(() => empty.replace(0, "x")).toThrow(RangeError);
+    expect(empty.toArray()).toEqual([]);
+    // insert(0) on empty list is valid — equivalent to push
+    empty.insert(0, "first");
+    expect(empty.toArray()).toEqual(["first"]);
+    empty.removeAt(0);
+    expect(empty.toArray()).toEqual([]);
+  });
+
+  it("handles undefined element at a valid index correctly", () => {
+    const sut = new ObservableList<string | undefined>();
+    sut.push("a");
+    sut.push(undefined);
+    sut.push("c");
+    expect(sut.at(1)).toBeUndefined();
+    sut.replace(1, "b");
+    expect(sut.toArray()).toEqual(["a", "b", "c"]);
+    sut.replace(1, undefined);
+    expect(sut.at(1)).toBeUndefined();
+    sut.removeAt(1);
+    expect(sut.toArray()).toEqual(["a", "c"]);
+  });
+});
