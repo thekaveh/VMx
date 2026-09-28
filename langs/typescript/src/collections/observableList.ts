@@ -116,6 +116,7 @@ export class ObservableList<T> {
    * silently normalize/clamp while the emitted payload carried the raw index.
    */
   insert(index: number, item: T): void {
+    this.#assertIntegralIndex(index);
     if (index < 0 || index > this.#items.length) {
       throw new RangeError(`Index ${String(index)} out of bounds`);
     }
@@ -138,6 +139,7 @@ export class ObservableList<T> {
    * Throws RangeError if index is out of bounds.
    */
   removeAt(index: number): void {
+    this.#assertIntegralIndex(index);
     if (index < 0 || index >= this.#items.length) {
       throw new RangeError(`Index ${String(index)} out of bounds`);
     }
@@ -163,6 +165,7 @@ export class ObservableList<T> {
    * Throws RangeError if index is out of bounds.
    */
   replace(index: number, newItem: T): void {
+    this.#assertIntegralIndex(index);
     if (index < 0 || index >= this.#items.length) {
       throw new RangeError(`Index ${String(index)} out of bounds`);
     }
@@ -232,6 +235,12 @@ export class ObservableList<T> {
   }
 
   // ── Internal ─────────────────────────────────────────────────────────────────
+
+  #assertIntegralIndex(index: number): void {
+    if (!Number.isInteger(index)) {
+      throw new RangeError(`Index must be an integer, got ${String(index)}`);
+    }
+  }
 
   /**
    * VMX-090: single localized element accessor. Callers already validate the
