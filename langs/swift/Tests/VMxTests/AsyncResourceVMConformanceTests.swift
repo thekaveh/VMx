@@ -4,15 +4,22 @@ import XCTest
 
 private enum AsyncResourceTestError: Error { case failed }
 
+/// Hang guard for signal waits. Tests resume as soon as the awaited event is
+/// observed; this bound only turns a missing event into a failure.
+private let signalTimeout: TimeInterval = 30
+
 private final class DeferredValue<Value>: @unchecked Sendable {
     private let lock = NSLock()
     private var continuation: CheckedContinuation<Value, Never>?
     private var resolved: Value?
 
-    var isWaiting: Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return continuation != nil
+    /// Fulfilled once a loader parks in `get()`. The loader runs in an
+    /// unstructured task, so tests await this signal instead of polling.
+    let parked: XCTestExpectation
+
+    init() {
+        parked = XCTestExpectation(description: "loader parked in DeferredValue.get()")
+        parked.assertForOverFulfill = false
     }
 
     func get() async -> Value {
@@ -25,6 +32,7 @@ private final class DeferredValue<Value>: @unchecked Sendable {
             }
             self.continuation = continuation
             lock.unlock()
+            parked.fulfill()
         }
     }
 
@@ -59,9 +67,30 @@ private final class LoaderQueue<Value>: @unchecked Sendable {
 private final class LockedValues<Value>: @unchecked Sendable {
     private let lock = NSLock()
     private var storage: [Value] = []
+    private var countExpectations: [(count: Int, expectation: XCTestExpectation)] = []
 
     func append(_ value: Value) {
-        lock.withLock { storage.append(value) }
+        let reached: [XCTestExpectation] = lock.withLock {
+            storage.append(value)
+            let count = storage.count
+            let met = countExpectations.filter { $0.count <= count }.map { $0.expectation }
+            countExpectations.removeAll { $0.count <= count }
+            return met
+        }
+        reached.forEach { $0.fulfill() }
+    }
+
+    /// Returns an expectation fulfilled once `count` values have been
+    /// appended, including values appended before this call.
+    func expectation(forCount count: Int, _ description: String) -> XCTestExpectation {
+        let expectation = XCTestExpectation(description: description)
+        let alreadyReached: Bool = lock.withLock {
+            guard storage.count < count else { return true }
+            countExpectations.append((count: count, expectation: expectation))
+            return false
+        }
+        if alreadyReached { expectation.fulfill() }
+        return expectation
     }
 
     var values: [Value] {
@@ -99,18 +128,6 @@ private func makeAsyncResourceVM<Value>(
         retention: retention,
         cleanupValue: cleanup
     )
-}
-
-private func eventually(
-    _ predicate: @escaping () -> Bool,
-    file: StaticString = #filePath,
-    line: UInt = #line
-) async {
-    for _ in 0..<1_000 {
-        if predicate() { return }
-        await Task.yield()
-    }
-    XCTFail("condition was not reached", file: file, line: line)
 }
 
 final class AsyncResourceVMConformanceTests: XCTestCase {
@@ -171,7 +188,8 @@ final class AsyncResourceVMConformanceTests: XCTestCase {
         let deferred = DeferredValue<Int>()
         let vm = makeAsyncResourceVM(loader: deferred.get)
         let intent = Task { await vm.load() }
-        await eventually { vm.state.status == .loading }
+        await fulfillment(of: [deferred.parked], timeout: signalTimeout)
+        XCTAssertEqual(vm.state.status, .loading)
 
         vm.cancel()
         await intent.value
@@ -191,7 +209,8 @@ final class AsyncResourceVMConformanceTests: XCTestCase {
         let vm = makeAsyncResourceVM(loader: queue.load, retention: .retainPrevious)
         await vm.load()
         let intent = Task { await vm.reload() }
-        await eventually { vm.state.status == .loading }
+        await fulfillment(of: [deferred.parked], timeout: signalTimeout)
+        XCTAssertEqual(vm.state.status, .loading)
 
         XCTAssertEqual(vm.state.value, 3)
         vm.cancel()
@@ -212,7 +231,8 @@ final class AsyncResourceVMConformanceTests: XCTestCase {
         let vm = makeAsyncResourceVM(loader: queue.load) { cleaned.append($0) }
         await vm.load()
         let intent = Task { await vm.reload() }
-        await eventually { vm.state.status == .loading }
+        await fulfillment(of: [deferred.parked], timeout: signalTimeout)
+        XCTAssertEqual(vm.state.status, .loading)
 
         XCTAssertNil(vm.state.value)
         XCTAssertEqual(cleaned.values, [3])
@@ -231,8 +251,8 @@ final class AsyncResourceVMConformanceTests: XCTestCase {
         ])
         let vm = makeAsyncResourceVM(loader: queue.load)
         let older = Task { await vm.load() }
-        await eventually { vm.state.status == .loading }
-        await eventually { first.isWaiting }
+        await fulfillment(of: [first.parked], timeout: signalTimeout)
+        XCTAssertEqual(vm.state.status, .loading)
         let newer = Task { await vm.reload() }
         second.resolve(2)
         await newer.value
@@ -256,15 +276,16 @@ final class AsyncResourceVMConformanceTests: XCTestCase {
         let vm = makeAsyncResourceVM(loader: queue.load) { cleaned.append($0) }
         let cancellable = vm.propertyChanged.sink { _ in notifications.increment() }
         let older = Task { await vm.load() }
-        await eventually { vm.state.status == .loading }
-        await eventually { first.isWaiting }
+        await fulfillment(of: [first.parked], timeout: signalTimeout)
+        XCTAssertEqual(vm.state.status, .loading)
         let newer = Task { await vm.reload() }
         second.resolve(2)
         await newer.value
         let acceptedNotifications = notifications.value
+        let staleCleaned = cleaned.expectation(forCount: 1, "stale success cleaned")
         first.resolve(1)
         await older.value
-        await eventually { cleaned.values == [1] }
+        await fulfillment(of: [staleCleaned], timeout: signalTimeout)
 
         XCTAssertEqual(cleaned.values, [1])
         XCTAssertEqual(notifications.value, acceptedNotifications)
@@ -327,12 +348,14 @@ final class AsyncResourceVMConformanceTests: XCTestCase {
         let cleaned = LockedValues<Int>()
         let vm = makeAsyncResourceVM(loader: deferred.get) { cleaned.append($0) }
         let intent = Task { await vm.load() }
-        await eventually { vm.state.status == .loading }
+        await fulfillment(of: [deferred.parked], timeout: signalTimeout)
+        XCTAssertEqual(vm.state.status, .loading)
 
         vm.dispose()
         await intent.value
+        let lateCleaned = cleaned.expectation(forCount: 1, "late success cleaned after disposal")
         deferred.resolve(8)
-        await eventually { cleaned.values == [8] }
+        await fulfillment(of: [lateCleaned], timeout: signalTimeout)
 
         XCTAssertEqual(vm.status, .disposed)
         XCTAssertEqual(cleaned.values, [8])
