@@ -14,6 +14,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   model's lifecycle to its owner. Both guides embed files that the new
   `examples/typescript/integration-recipes` fixture type-checks and tests in CI
   against pinned Vue and Solid versions (#342).
+- The Svelte store recipe re-reads the view model on every connection, so a
+  change made before the first subscriber or between reconnections is not
+  served stale. It shares one hub subscription across subscribers, and a
+  failed setup releases its listener and surfaces the error. A new Svelte 5
+  runes component returns its `$effect` cleanup and follows changed `vm` and
+  `hub` inputs. Both run in the integration-recipes fixture against pinned
+  `svelte` 5.57.1 (#343).
 
 ## [3.24.0] — 2026-07-25
 
