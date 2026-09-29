@@ -6,6 +6,7 @@ See spec/20-form-vm.md and ADR-0030.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import copy
 from collections.abc import Awaitable, Callable, Mapping
 from concurrent.futures import Future
@@ -205,6 +206,7 @@ class FormVM(Generic[TM]):
         """
         caller = get_ident()
         admitted = False
+        in_flight: BaseException | None = None
         try:
             with self._state_changed:
                 while (
@@ -243,9 +245,12 @@ class FormVM(Generic[TM]):
                     property_name="model",
                 )
             )
+        except BaseException as error:
+            in_flight = error
+            raise
         finally:
             if admitted:
-                self._end_mutation()
+                self._end_mutation(in_flight)
 
     # ── Async core ────────────────────────────────────────────────────────────
 
@@ -371,14 +376,26 @@ class FormVM(Generic[TM]):
         if tear_down:
             self._tear_down()
 
-    def _end_mutation(self) -> None:
+    def _end_mutation(self, in_flight: BaseException | None = None) -> None:
+        """Release one mutation and run any teardown deferred during it.
+
+        ``in_flight`` is the error the mutation is already unwinding with, if
+        any. It is the first failure and wins: a deferred-teardown failure
+        must not replace it (the ``_run_disposal_steps`` first-error policy).
+        Every teardown step still runs either way.
+        """
         tear_down = False
         with self._state_changed:
             self._active_mutations -= 1
             if self._active_mutations == 0 and self._mutation_teardown_pending:
                 self._mutation_teardown_pending = False
                 tear_down = True
-        if tear_down:
+        if not tear_down:
+            return
+        if in_flight is None:
+            self._tear_down()
+            return
+        with contextlib.suppress(BaseException):
             self._tear_down()
 
     def _tear_down(self) -> None:
@@ -408,6 +425,7 @@ class FormVM(Generic[TM]):
     def _deny(self) -> None:
         caller = get_ident()
         admitted = False
+        in_flight: BaseException | None = None
         try:
             with self._state_changed:
                 while (
@@ -447,9 +465,12 @@ class FormVM(Generic[TM]):
             if can_execute_changed:
                 with self._state_changed:
                     self._can_execute_trigger.on_next(None)
+        except BaseException as error:
+            in_flight = error
+            raise
         finally:
             if admitted:
-                self._end_mutation()
+                self._end_mutation(in_flight)
 
     def _validate(self, model: TM) -> dict[str, str]:
         errors: dict[str, str] = {}

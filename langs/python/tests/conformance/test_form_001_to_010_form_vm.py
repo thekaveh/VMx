@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+from collections.abc import Callable, Mapping
 from typing import Any
 
 import pytest
@@ -372,170 +373,277 @@ async def test_form_015_approve_command_surfaces_persister_error() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Issue #336 — complete teardown even when a completion observer raises
+# Exceptional teardown (#336): every owned step runs once and the first error
+# wins. Flavor-local repair of spec/20 §10; no new conformance ID.
 # ---------------------------------------------------------------------------
 
+_TEARDOWN_STEPS: tuple[tuple[str, str], ...] = (
+    ("_on_approved", "on_completed"),
+    ("_on_approved", "dispose"),
+    ("_approve_errors", "on_completed"),
+    ("_approve_errors", "dispose"),
+    ("_errors_changed", "on_completed"),
+    ("_errors_changed", "dispose"),
+    ("_can_execute_trigger", "on_completed"),
+    ("_can_execute_trigger", "dispose"),
+    ("_deny_command", "dispose"),
+    ("_approve_command", "dispose"),
+)
+_TEARDOWN_LABELS = [f"{owner}.{method}" for owner, method in _TEARDOWN_STEPS]
+_OWNED_SUBJECTS = ("_on_approved", "_approve_errors", "_errors_changed", "_can_execute_trigger")
 
-@pytest.mark.conformance("DISP-020")
-async def test_DISP_020_teardown_first_observer_raise_still_runs_rest() -> None:
-    """A raising on_approved subscriber must not prevent the remaining
-    subjects and commands from completing and being disposed (spec/20 §10)."""
-    persisted: list[_Model] = []
-    boom = RuntimeError("observer boom")
 
+def _recording_step(
+    ran: list[str],
+    label: str,
+    original: Callable[[], None],
+    failure: BaseException | None,
+) -> Callable[[], None]:
+    def step() -> None:
+        ran.append(label)
+        original()
+        if failure is not None:
+            raise failure
+
+    return step
+
+
+def _spy_teardown(
+    sut: FormVM[_Model], failures: Mapping[int, BaseException] | None = None
+) -> list[str]:
+    """Record every owned teardown step; a step listed in ``failures`` runs and then raises."""
+    ran: list[str] = []
+    for index, (owner_name, method_name) in enumerate(_TEARDOWN_STEPS):
+        owner = getattr(sut, owner_name)
+        failure = (failures or {}).get(index)
+        step = _recording_step(ran, _TEARDOWN_LABELS[index], getattr(owner, method_name), failure)
+        setattr(owner, method_name, step)
+    return ran
+
+
+def _required_name_form() -> FormVM[_Model]:
     async def persister(m: _Model) -> None:
-        persisted.append(m)
+        pass
 
-    sut: FormVM[_Model] = FormVM(_Model("Alice", 1), persister)
-    disposed_steps: list[str] = []
+    return FormVM(
+        _Model("Alice", 1),
+        persister,
+        validators={"name": lambda m: "required" if not m.name else None},
+    )
 
-    # Patch the subject dispose/on_completed to record what ran
-    raising_on_completed_called = False
 
-    def raising_on_completed() -> None:
-        nonlocal raising_on_completed_called
-        raising_on_completed_called = True
+@pytest.mark.parametrize("failing_index", range(len(_TEARDOWN_STEPS)), ids=_TEARDOWN_LABELS)
+def test_form_teardown_failure_at_any_step_still_runs_every_step(failing_index: int) -> None:
+    sut = _make_form_vm(_Model("Alice", 1))
+    boom = RuntimeError(f"teardown step {failing_index} failed")
+    ran = _spy_teardown(sut, {failing_index: boom})
+
+    with pytest.raises(RuntimeError) as raised:
+        sut.dispose()
+
+    assert raised.value is boom
+    assert ran == _TEARDOWN_LABELS
+    assert all(getattr(sut, name).is_disposed for name in _OWNED_SUBJECTS)
+    sut.dispose()  # idempotent after a partial failure: nothing re-runs or raises
+    assert ran == _TEARDOWN_LABELS
+
+
+def test_form_raising_completion_observer_does_not_leak_later_steps() -> None:
+    sut = _make_form_vm(_Model("Alice", 1))
+    boom = RuntimeError("observer boom")
+    later_completed: list[str] = []
+
+    def raise_boom() -> None:
         raise boom
 
-    sut._on_approved.on_completed = raising_on_completed
+    sut.on_approved.subscribe(on_completed=raise_boom)
+    sut.errors_changed.subscribe(on_completed=lambda: later_completed.append("errors_changed"))
 
-    # Spy on remaining subject on_completed and dispose
-    for name in ("_approve_errors", "_errors_changed", "_can_execute_trigger"):
-        subject = getattr(sut, name)
-        original_oc = subject.on_completed
-        original_disp = subject.dispose
-
-        def make_on_completed(n: str, orig: Any) -> Any:
-            def wrapped() -> None:
-                disposed_steps.append(f"{n}.on_completed")
-                orig()
-
-            return wrapped
-
-        def make_dispose(n: str, orig: Any) -> Any:
-            def wrapped() -> None:
-                disposed_steps.append(f"{n}.dispose")
-                orig()
-
-            return wrapped
-
-        subject.on_completed = make_on_completed(name, original_oc)
-        subject.dispose = make_dispose(name, original_disp)
-
-    for name in ("_deny_command", "_approve_command"):
-        cmd = getattr(sut, name)
-        original = cmd.dispose
-
-        def make_dispose(n: str, orig: Any) -> Any:
-            def wrapped() -> None:
-                disposed_steps.append(f"{n}.dispose")
-                orig()
-
-            return wrapped
-
-        cmd.dispose = make_dispose(name, original)
-
-    with pytest.raises(RuntimeError, match="observer boom"):
+    with pytest.raises(RuntimeError) as raised:
         sut.dispose()
 
-    assert raising_on_completed_called, "the raising observer ran"
-    for step in (
-        "_approve_errors.on_completed",
-        "_approve_errors.dispose",
-        "_errors_changed.on_completed",
-        "_errors_changed.dispose",
-        "_can_execute_trigger.on_completed",
-        "_can_execute_trigger.dispose",
-        "_deny_command.dispose",
-        "_approve_command.dispose",
-    ):
-        assert step in disposed_steps, f"missing step after first raise: {step}"
+    assert raised.value is boom
+    assert later_completed == ["errors_changed"]
+    assert all(getattr(sut, name).is_disposed for name in _OWNED_SUBJECTS)
+    assert not sut.approve_command.can_execute()
+    assert not sut.deny_command.can_execute()
 
 
-@pytest.mark.conformance("DISP-020")
-async def test_DISP_020_teardown_first_error_preserved_not_replaced() -> None:
-    """When two teardown steps fail, the first exception is the one re-raised."""
-    first_error = RuntimeError("first failure")
-    second_error = RuntimeError("second failure")
+def test_form_teardown_reraises_first_failure_not_a_later_one() -> None:
+    sut = _make_form_vm(_Model("Alice", 1))
+    first = RuntimeError("first failure")
+    second = RuntimeError("second failure")
+    ran = _spy_teardown(sut, {0: first, 5: second})
 
-    async def persister(m: _Model) -> None:
-        pass
-
-    sut: FormVM[_Model] = FormVM(_Model("Alice", 1), persister)
-
-    sut._on_approved.on_completed = lambda: (_ for _ in ()).throw(first_error)
-    sut._approve_errors.on_completed = lambda: (_ for _ in ()).throw(second_error)
-
-    with pytest.raises(RuntimeError, match="first failure"):
+    with pytest.raises(RuntimeError) as raised:
         sut.dispose()
 
+    assert raised.value is first
+    assert ran == _TEARDOWN_LABELS
 
-@pytest.mark.conformance("DISP-020")
-async def test_DISP_020_reentrant_dispose_from_on_approved_runs_each_step_once() -> None:
-    """A dispose() call from inside an on_approved subscriber is a no-op —
-    every teardown step still runs exactly once."""
-    call_count = 0
-    teardown_call_count = 0
 
-    async def persister(m: _Model) -> None:
-        pass
+def test_form_dispose_from_completion_handler_runs_teardown_once() -> None:
+    sut = _make_form_vm(_Model("Alice", 1))
+    ran = _spy_teardown(sut)
+    reentered: list[str] = []
 
-    sut: FormVM[_Model] = FormVM(_Model("Alice", 1), persister)
+    def dispose_again() -> None:
+        reentered.append("on_completed")
+        sut.dispose()
 
-    sub = sut.on_approved.subscribe(lambda _: sut.dispose() if call_count == 0 else None)
-    call_count += 1
-
-    original_teardown = sut._tear_down
-
-    def counting_teardown() -> None:
-        nonlocal teardown_call_count
-        teardown_call_count += 1
-        original_teardown()
-
-    sut._tear_down = counting_teardown
-
+    sut.on_approved.subscribe(on_completed=dispose_again)
     sut.dispose()
 
-    assert teardown_call_count == 1, f"teardown ran {teardown_call_count} times, expected 1"
-    sub.dispose()
+    assert reentered == ["on_completed"]
+    assert ran == _TEARDOWN_LABELS
 
 
-@pytest.mark.conformance("DISP-020")
-async def test_DISP_020_post_dispose_inert() -> None:
-    """After disposal, late approval/deny/model changes/error emissions are inert."""
+def test_form_dispose_from_mutation_observer_defers_teardown_to_mutation_end() -> None:
+    sut = _required_name_form()
+    ran = _spy_teardown(sut)
+    ran_during_observer: list[list[str]] = []
+
+    def dispose_mid_mutation(_errors: dict[str, str]) -> None:
+        sut.dispose()
+        ran_during_observer.append(list(ran))
+
+    sut.errors_changed.subscribe(dispose_mid_mutation)
+    sut.set_model(_Model("", 1))
+
+    assert ran_during_observer == [[]], "teardown must wait for the mutation to finish"
+    assert ran == _TEARDOWN_LABELS
+    assert sut.model == _Model("", 1)
+
+
+def test_form_deferred_teardown_failure_does_not_replace_in_flight_error() -> None:
+    sut = _required_name_form()
+    observer_error = KeyError("observer failed after disposing")
+    ran = _spy_teardown(sut, {2: RuntimeError("teardown failure")})
+
+    def dispose_then_fail(_errors: dict[str, str]) -> None:
+        sut.dispose()
+        raise observer_error
+
+    sut.errors_changed.subscribe(dispose_then_fail)
+
+    with pytest.raises(KeyError) as raised:
+        sut.set_model(_Model("", 1))
+
+    assert raised.value is observer_error
+    assert ran == _TEARDOWN_LABELS
+
+
+def test_form_deferred_teardown_failure_on_deny_does_not_replace_in_flight_error() -> None:
+    sut = _required_name_form()
+    sut.set_model(_Model("", 1))
+    observer_error = KeyError("deny observer failed after disposing")
+    ran = _spy_teardown(sut, {0: RuntimeError("teardown failure")})
+
+    def dispose_then_fail(_errors: dict[str, str]) -> None:
+        sut.dispose()
+        raise observer_error
+
+    sut.errors_changed.subscribe(dispose_then_fail)
+
+    with pytest.raises(KeyError) as raised:
+        sut.deny_command.execute()
+
+    assert raised.value is observer_error
+    assert ran == _TEARDOWN_LABELS
+
+
+def test_form_deferred_teardown_failure_surfaces_when_mutation_succeeded() -> None:
+    sut = _required_name_form()
+    teardown_error = RuntimeError("teardown failure")
+    ran = _spy_teardown(sut, {4: teardown_error})
+    sut.errors_changed.subscribe(lambda _errors: sut.dispose())
+
+    with pytest.raises(RuntimeError) as raised:
+        sut.set_model(_Model("", 1))
+
+    assert raised.value is teardown_error
+    assert ran == _TEARDOWN_LABELS
+
+
+async def test_form_dispose_from_approval_observer_runs_teardown_once() -> None:
+    sut = _make_form_vm(_Model("Alice", 1))
+    ran = _spy_teardown(sut)
+    approved: list[_Model] = []
+
+    def dispose_on_approved(model: _Model) -> None:
+        approved.append(model)
+        sut.dispose()
+
+    sut.on_approved.subscribe(dispose_on_approved)
+    sut.set_model(_Model("Bob", 2))
+    await sut.approve_async()
+
+    assert approved == [_Model("Bob", 2)]
+    assert ran == _TEARDOWN_LABELS
+    sut.set_model(_Model("Carol", 3))  # inert after disposal
+    assert sut.model == _Model("Bob", 2)
+
+
+async def test_form_late_persister_error_after_dispose_is_inert() -> None:
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def persister(m: _Model) -> None:
+        entered.set()
+        await release.wait()
+        raise RuntimeError("late persister failure")
+
+    sut: FormVM[_Model] = FormVM(_Model("Alice", 1), persister)
+    surfaced: list[BaseException] = []
+    sut.approve_errors.subscribe(surfaced.append)
+    loop = asyncio.get_running_loop()
+    callback_errors: list[dict[str, Any]] = []
+    loop.set_exception_handler(lambda _loop, context: callback_errors.append(context))
+    try:
+        sut.approve_command.execute()
+        await entered.wait()
+        sut.dispose()
+        release.set()
+        approvals = asyncio.all_tasks() - {asyncio.current_task()}
+        assert len(approvals) == 1
+        # The done-callback routing persister failures was registered first, so
+        # it has run by the time this await resumes.
+        await asyncio.gather(*approvals, return_exceptions=True)
+    finally:
+        loop.set_exception_handler(None)
+
+    assert surfaced == []
+    assert callback_errors == []
+
+
+async def test_form_post_dispose_calls_are_inert() -> None:
     persisted: list[_Model] = []
-    denied: list[_Model] = []
-    errors_changed: list[dict[str, str]] = []
+    approved: list[_Model] = []
+    changed: list[dict[str, str]] = []
 
     async def persister(m: _Model) -> None:
         persisted.append(m)
 
     sut: FormVM[_Model] = FormVM(_Model("Alice", 1), persister)
-    appr_sub = sut.on_approved.subscribe(lambda m: denied.append(m))
-    err_sub = sut.approve_errors.subscribe(lambda e: None)
-    changed_sub = sut.errors_changed.subscribe(errors_changed.append)
-
+    sut.on_approved.subscribe(approved.append)
+    sut.errors_changed.subscribe(changed.append)
     sut.dispose()
 
-    # Post-dispose mutations/approvals must not raise or emit
     sut.set_model(_Model("Bob", 2))
     sut.approve_command.execute()
     sut.deny_command.execute()
+    await sut.approve_async()
 
-    assert persisted == [], "persister must not run after dispose"
-    assert denied == [], "on_approved must not fire after dispose"
-    assert errors_changed == [], "errors_changed must not fire after dispose"
-    appr_sub.dispose()
-    err_sub.dispose()
-    changed_sub.dispose()
+    assert persisted == []
+    assert approved == []
+    assert changed == []
+    assert sut.model == _Model("Alice", 1)
 
 
-@pytest.mark.conformance("DISP-020")
-async def test_DISP_020_caller_owned_hub_not_disposed() -> None:
-    """A caller-owned MessageHub survives form disposal."""
+def test_form_disposal_leaves_caller_owned_hub_usable() -> None:
     hub = MessageHub()
-    messages: list[Any] = []
-    sub = hub.messages.subscribe(messages.append)
+    received: list[Any] = []
+    hub.messages.subscribe(received.append)
 
     async def persister(m: _Model) -> None:
         pass
@@ -543,7 +651,5 @@ async def test_DISP_020_caller_owned_hub_not_disposed() -> None:
     sut: FormVM[_Model] = FormVM(_Model("Alice", 1), persister, hub=hub)
     sut.dispose()
 
-    # Hub still accepts sends after form disposal
-    hub.send("test-message")
-    assert messages == ["test-message"], "caller-owned hub must not be disposed by form disposal"
-    sub.dispose()
+    hub.send("after-form-dispose")
+    assert received[-1] == "after-form-dispose"
