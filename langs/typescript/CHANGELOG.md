@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Documentation
+
+- The Vue and Solid integration recipes now republish a view model whose
+  `PropertyChangedMessage` reports the current value, run save through the
+  supplied command instead of selecting the view model, and leave the view
+  model's lifecycle to its owner. Both guides embed files that the new
+  `examples/typescript/integration-recipes` fixture type-checks and tests in CI
+  against pinned Vue and Solid versions (#342).
+
 ## [3.24.0] — 2026-07-25
 
 ### Added
