@@ -35,6 +35,17 @@ final class FormVMValidationTests: XCTestCase {
             modelValidator: { _ in ["value": "negative"] }
         )
         XCTAssertEqual(sut.errors["value"], "negative")
+
+        // A nil value removes a field validator's error.
+        let clearing = FormVM(
+            initial: ValidationModel(name: "", value: -1),
+            persister: { _ in },
+            validators: ["name": { _ in "required" }],
+            modelValidator: { _ in ["name": String?.none, "value": "negative"] }
+        )
+        XCTAssertNil(clearing.fieldError("name"))
+        XCTAssertNil(clearing.errors["name"])
+        XCTAssertEqual(clearing.errors["value"], "negative")
     }
 
     /// FORM-018 — isValid reflects errors.
