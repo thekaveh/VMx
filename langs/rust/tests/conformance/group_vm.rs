@@ -164,3 +164,156 @@ fn group_child_remains_non_current_peer() {
     assert_eq!(item.parent_id(), Some(group.id()));
     assert!(!item.is_current());
 }
+
+// Membership edits beyond `add` (#362 coverage review). These assert observable
+// outcomes: order, collection events, returned values, errors, and which
+// children the group's disposal reaches.
+
+fn names(group: &vmx::GroupVm<Child>) -> Vec<&'static str> {
+    group.items().iter().map(|item| item.model()).collect()
+}
+
+#[test]
+fn insert_places_the_child_and_emits_add() {
+    let hub = MessageHub::new();
+    let group = vmx::GroupVm::with_services("group", hub.clone(), NullDispatcher::new());
+    group.add(child("a")).unwrap();
+    group.add(child("c")).unwrap();
+
+    group.insert(1, child("b")).unwrap();
+
+    assert_eq!(names(&group), vec!["a", "b", "c"]);
+    assert_eq!(
+        collection_actions(&hub),
+        vec![CollectionChangeAction::Add; 3]
+    );
+}
+
+#[test]
+fn insert_out_of_range_changes_nothing() {
+    let hub = MessageHub::new();
+    let group = vmx::GroupVm::with_services("group", hub.clone(), NullDispatcher::new());
+    group.add(child("a")).unwrap();
+
+    let error = group.insert(5, child("late")).unwrap_err();
+
+    assert!(matches!(error, vmx::VmxError::InvalidArgument(_)));
+    assert_eq!(names(&group), vec!["a"]);
+    assert_eq!(collection_actions(&hub), vec![CollectionChangeAction::Add]);
+}
+
+#[test]
+fn insert_into_a_constructed_group_constructs_the_child_when_auto_construct_is_on() {
+    let group = vmx::GroupVm::<Child>::new("group");
+    group.set_auto_construct_on_add(true);
+    group.construct().unwrap();
+    let late = child("late");
+
+    group.insert(0, late.clone()).unwrap();
+
+    assert_eq!(late.status(), ConstructionStatus::Constructed);
+}
+
+#[test]
+fn insert_into_a_disposed_group_is_rejected_and_leaves_the_child_free() {
+    let group = vmx::GroupVm::<Child>::new("group");
+    group.dispose().unwrap();
+    let orphan = child("orphan");
+
+    assert!(matches!(
+        group.insert(0, orphan.clone()),
+        Err(vmx::VmxError::Disposed)
+    ));
+
+    let other = vmx::GroupVm::<Child>::new("other");
+    other.add(orphan.clone()).unwrap();
+    other.dispose().unwrap();
+    assert_eq!(orphan.status(), ConstructionStatus::Disposed);
+}
+
+#[test]
+fn remove_detaches_the_member_and_emits_remove() {
+    let hub = MessageHub::new();
+    let group = vmx::GroupVm::with_services("group", hub.clone(), NullDispatcher::new());
+    let (a, b) = (child("a"), child("b"));
+    group.add(a.clone()).unwrap();
+    group.add(b.clone()).unwrap();
+    group.construct().unwrap();
+
+    group.remove(&a).unwrap();
+    group.dispose().unwrap();
+
+    assert_eq!(
+        collection_actions(&hub),
+        vec![
+            CollectionChangeAction::Add,
+            CollectionChangeAction::Add,
+            CollectionChangeAction::Remove
+        ]
+    );
+    // The removed child is no longer the group's to dispose; the member is.
+    assert_eq!(a.status(), ConstructionStatus::Constructed);
+    assert_eq!(b.status(), ConstructionStatus::Disposed);
+}
+
+#[test]
+fn removing_a_non_member_is_a_silent_no_op() {
+    let hub = MessageHub::new();
+    let group = vmx::GroupVm::with_services("group", hub.clone(), NullDispatcher::new());
+    group.add(child("a")).unwrap();
+
+    group.remove(&child("stranger")).unwrap();
+
+    assert_eq!(names(&group), vec!["a"]);
+    assert_eq!(collection_actions(&hub), vec![CollectionChangeAction::Add]);
+}
+
+#[test]
+fn remove_at_returns_the_child_and_rejects_a_bad_index() {
+    let hub = MessageHub::new();
+    let group = vmx::GroupVm::with_services("group", hub.clone(), NullDispatcher::new());
+    group.add(child("a")).unwrap();
+    group.add(child("b")).unwrap();
+
+    let removed = group.remove_at(0).unwrap();
+    let error = group.remove_at(4).unwrap_err();
+
+    assert_eq!(removed.model(), "a");
+    assert!(matches!(error, vmx::VmxError::InvalidArgument(_)));
+    assert_eq!(names(&group), vec!["b"]);
+    assert_eq!(
+        collection_actions(&hub),
+        vec![
+            CollectionChangeAction::Add,
+            CollectionChangeAction::Add,
+            CollectionChangeAction::Remove
+        ]
+    );
+    group.dispose().unwrap();
+    assert_ne!(removed.status(), ConstructionStatus::Disposed);
+}
+
+#[test]
+fn clear_releases_every_child_and_emits_one_reset() {
+    let hub = MessageHub::new();
+    let group = vmx::GroupVm::with_services("group", hub.clone(), NullDispatcher::new());
+    let (a, b) = (child("a"), child("b"));
+    group.add(a.clone()).unwrap();
+    group.add(b.clone()).unwrap();
+
+    group.clear();
+    group.clear(); // already empty: no second reset
+    group.dispose().unwrap();
+
+    assert!(group.is_empty());
+    assert_eq!(
+        collection_actions(&hub),
+        vec![
+            CollectionChangeAction::Add,
+            CollectionChangeAction::Add,
+            CollectionChangeAction::Reset
+        ]
+    );
+    assert_ne!(a.status(), ConstructionStatus::Disposed);
+    assert_ne!(b.status(), ConstructionStatus::Disposed);
+}
