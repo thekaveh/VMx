@@ -58,6 +58,13 @@ Repeated disposal completes the owned channels and commands at most once while
 preserving the form's inert post-dispose behavior. See the
 [Disposal Contract](../../disposal-contract.md).
 
+Teardown is exception-resilient: a raising completion observer or owned
+disposable does not stop the remaining channels and commands from completing and
+disposing. Throwing flavors rethrow the first failure after every step has run;
+rxjs reports observer errors asynchronously, and Combine observers cannot throw.
+In Python, a teardown deferred until an in-progress set-model or deny finishes
+never replaces an error that mutation is already raising.
+
 `SetModel` / `set_model` that begins after disposal is also a complete no-op.
 It returns before null or equality work, leaves the live model and snapshot
 unchanged, does not re-run validators, and cannot change errors, dirty/valid
