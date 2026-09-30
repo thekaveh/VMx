@@ -89,6 +89,25 @@ for the evidence rules and the
 [Concurrency Test Audit](../maintenance/2026-09-24-controlled-interleavings-audit.md)
 for exact test locations and limitations.
 
+### 11.3.2. Coverage Floors
+
+Every flavor gates CI on a coverage floor over its library sources:
+
+| Flavor     | Gate                                                              | Metrics                                |
+| ---------- | ----------------------------------------------------------------- | -------------------------------------- |
+| C#         | `tools/check-cobertura-threshold.py` in `csharp.yml`              | line, branch                           |
+| Python     | `fail_under` in `langs/python/pyproject.toml`                     | combined line and branch               |
+| TypeScript | `coverage.thresholds` in `langs/typescript/vitest.config.ts`      | statements, branches, functions, lines |
+| Rust       | `tools/check-coverage-floor.py` with `tools/coverage-floors.json` | lines, regions, functions              |
+| Swift      | `tools/check-coverage-floor.py` with `tools/coverage-floors.json` | lines, regions, functions              |
+
+Each Rust and Swift floor is the measured baseline minus at most 0.6 points of
+tolerance for scheduling-dependent paths. The file records the commit and
+toolchain of each baseline. Raise a floor when coverage improves. Never lower
+one to make a change pass: if deleting code legitimately lowers coverage,
+explain it in the pull request and record the new baseline. Percentages are not
+comparable across flavors, because each tool counts differently.
+
 ## 11.4. Spec Discipline
 
 Two repo rules matter most:

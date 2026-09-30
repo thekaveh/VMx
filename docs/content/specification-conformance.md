@@ -59,6 +59,12 @@ library IDs. See [Rust ownership-test conventions](flavors/rust.md#7631-ownershi
   C#, Python, TypeScript, Swift, and Rust.
 - The examples workflows enforce the separate flagship scenario contract.
 
+Coverage floors, catalog markers, and assertion strength are separate evidence.
+A marker assigns a test to a catalog ID. An assertion shows that the test would
+catch a violation. A coverage floor shows how much library code the suites run.
+No one of them implies the others. See
+[Coverage Floors](contributing-releases.md#1132-coverage-floors).
+
 ## 10.5. Consumer Adapter Suites
 
 VMx TypeScript 3.21.0 introduced the optional

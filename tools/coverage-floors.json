@@ -1,0 +1,32 @@
+{
+  "rust": {
+    "include": "/langs/rust/src/",
+    "exclude": "/tests/|/target/",
+    "lines": 82.7,
+    "regions": 81.3,
+    "functions": 77.1,
+    "baseline": {
+      "measured": "2026-09-30",
+      "commit": "a37d567477b560edc9ddc900d016a38ccd4cdd34",
+      "toolchain": "rustc 1.94.1, cargo-llvm-cov 0.9.1",
+      "lines": 83.21,
+      "regions": 81.89,
+      "functions": 77.67
+    }
+  },
+  "swift": {
+    "include": "/langs/swift/Sources/VMx/",
+    "exclude": "/Tests/|/\\.build/",
+    "lines": 1.0,
+    "regions": 1.0,
+    "functions": 1.0,
+    "baseline": {
+      "measured": "pending first CI measurement",
+      "commit": null,
+      "toolchain": null,
+      "lines": null,
+      "regions": null,
+      "functions": null
+    }
+  }
+}

@@ -120,3 +120,28 @@ every render frame.
 The Swift flavor is at full library parity. Its current example surface is
 narrower than the other languages, but the flagship README points to the same
 cross-flavor scenario contract and parity matrix.
+
+## 7.5.7. Coverage
+
+The `coverage floor` job in `.github/workflows/swift.yml` runs the library tests
+once with code coverage on `macos-15` and the default Xcode. It fails when line,
+region, or function coverage falls below the Swift floors in
+`tools/coverage-floors.json`:
+
+```bash
+swift test --package-path langs/swift --enable-code-coverage
+python3 tools/check-coverage-floor.py --flavor swift \
+  --report "$(swift test --package-path langs/swift --show-codecov-path)"
+```
+
+The denominator is `langs/swift/Sources/VMx/` only. Test files, the bundled
+JSON resources, and build output are not counted, so a change that touches only
+generated or resource files cannot fail the gate. Removing a test that exercised
+library code lowers the figure and can. A failure lists the source files with
+the most uncovered lines. The job uploads the llvm-cov export and a provenance
+file that names the commit, toolchain, and measured figures. Instrumentation
+stays in that job's debug build; the release builds, platform builds, and
+packages never see it.
+
+Coverage says which lines ran, not whether a test would catch a wrong result.
+It does not replace the conformance assertions.
