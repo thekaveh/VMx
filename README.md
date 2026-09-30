@@ -162,7 +162,7 @@ Each flavor implements the same conceptual stack:
 | ---------- | ----------------- | -------------------------------------------------------------------------------------- | --------------------------- |
 | C#         | v3.23.0 in source | NuGet package not published yet                                                        | System.Reactive             |
 | Python     | v3.23.3 in source | [`vmx` 3.23.0](https://pypi.org/project/vmx/3.23.0/) on PyPI                          | reactivex                   |
-| TypeScript | v3.24.0 in source | npm package not published yet                                                          | rxjs                        |
+| TypeScript | v3.24.1 in source | npm package not published yet                                                          | rxjs                        |
 | React      | adapter v0.1.0 in source | `@thekaveh/vmx-react`; publication waits for core npm #57                         | React 18/19 + rxjs          |
 | Swift      | v3.24.0           | [`VMx` 3.24.0](https://github.com/thekaveh/VMx/releases/tag/swift-v3.24.0) via SwiftPM | Combine                     |
 | Rust       | v0.29.0 in source | crates.io package not published yet                                                    | VMx-owned hot-stream facade |
@@ -207,7 +207,7 @@ ledger linked above for release status and the current in-development line.
 
 | spec   | csharp        | python        | typescript    | swift          | rust          |
 | ------ | ------------- | ------------- | ------------- | -------------- | ------------- |
-| 3.23.x | 3.23.0        | 3.23.3        | 3.24.0        | 3.24.0         | 0.29.0        |
+| 3.23.x | 3.23.0        | 3.23.3        | 3.24.1        | 3.24.0         | 0.29.0        |
 | 3.22.x | 3.22.0–3.22.1 | 3.22.0–3.22.1 | 3.23.0–3.23.1 | 3.22.0–3.23.0  | 0.25.0–0.26.0 |
 | 3.20.x | 3.20.0–3.20.1 | 3.20.0–3.20.1 | 3.20.0–3.21.1 | 3.20.0–3.20.1  | 0.20.0–0.22.0 |
 | 3.19.x | 3.19.0        | 3.19.0        | 3.19.0        | 3.19.0         | 0.19.0        |
@@ -255,8 +255,8 @@ npm --prefix ../VMx/packages/react ci
 mkdir -p /tmp/vmx-packs
 npm pack ../VMx/langs/typescript --pack-destination /tmp/vmx-packs
 npm pack ../VMx/packages/react --pack-destination /tmp/vmx-packs
-npm install /tmp/vmx-packs/thekaveh-vmx-3.24.0.tgz \
-  /tmp/vmx-packs/thekaveh-vmx-react-0.1.0.tgz react rxjs use-sync-external-store
+npm install /tmp/vmx-packs/thekaveh-vmx-3.24.1.tgz \
+  /tmp/vmx-packs/thekaveh-vmx-react-0.1.1.tgz react rxjs use-sync-external-store
 
 # Rust (source-tree path dependency today)
 cargo add vmx-rs --path langs/rust
