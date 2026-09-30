@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.25.0] — unreleased source version
+
 ### Added
 
 - `PagedComposition.dispose()` now deterministically detaches an observed
@@ -13,8 +15,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Disposed `CompositeCommand`, `DecoratorCommand`, and
+  `ConfirmationDecoratorCommand` are now inert: `canExecute()` is false and
+  `execute()` runs no inner command, predicate, pre/post action, or confirmation.
+  Disposal observed during execution stops further inner work while an admitted
+  pre/post pair stays balanced, and a confirmation that resolves after disposal
+  runs nothing and emits nothing (`CMDD-011..013`, ADR-0134).
 - `ExpandableState` now retains its final value and rejects expand, collapse,
   and toggle mutations after disposal, matching the other flavors.
+
+### Documentation
+
+- The SwiftUI integration recipe no longer disposes its view model on
+  `.onDisappear`, which broke any view that reappeared. Its adapter now states an
+  ownership policy: an owned view model is constructed once and disposed exactly
+  once when SwiftUI releases the adapter, and a borrowed one is never
+  constructed or disposed by the view. Construction failures are published
+  instead of discarded, and Save runs a supplied command rather than
+  `selectCommand`. `SwiftUIRecipeTests` compiles and runs the exact snippet
+  (#340).
 
 ## [3.24.0] — 2026-07-25
 

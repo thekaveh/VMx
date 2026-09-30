@@ -8,10 +8,6 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
-- The NuGet package ships a dedicated README with absolute image and
-  documentation links instead of the repository README, whose relative
-  `assets/` images and repository links cannot resolve from a `.nupkg` (#351).
-
 ### VMx.Notifications
 
 - The NuGet package ships its own README describing the notification hub and
@@ -21,6 +17,29 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 - The NuGet package ships its own README describing `AddVMx()` registration
   and its dependency on `VMx` (#351).
+
+## [3.24.0] — unreleased source version
+
+### Fixed
+
+- Disposed `CompositeCommand`, `DecoratorCommand`, and
+  `ConfirmationDecoratorCommand` are now inert: `CanExecute` is false and
+  `Execute` runs no inner command, predicate, pre/post action, or confirmation.
+  Disposal observed during execution stops further inner work while an admitted
+  pre/post pair stays balanced, and a confirmation that resolves after disposal
+  runs nothing and emits nothing (`CMDD-011..013`, ADR-0134).
+- The NuGet package ships a dedicated README with absolute image and
+  documentation links instead of the repository README, whose relative
+  `assets/` images and repository links cannot resolve from a `.nupkg` (#351).
+
+### Documentation
+
+- The WPF and MAUI recipes now state that `ComponentVMBase` implements
+  `INotifyPropertyChanged`, forward that single notification path (so `Status`
+  updates on construct, destruct, and dispose, and `Model` is not notified
+  twice), and re-raise each notification on a UI-thread scheduler. The embedded
+  adapter is executed by `VMx.Tests` and, in CI, against real WPF bindings on a
+  Dispatcher thread (#341).
 
 ## [3.23.0] — 2026-07-25
 

@@ -48,7 +48,7 @@ public sealed class ConfirmationDecoratorCommand : ICommand, IDisposable
     public IObservable<Exception> Errors => _errors.AsObservable();
 
     /// <inheritdoc/>
-    public bool CanExecute(object? parameter) => _inner.CanExecute(parameter);
+    public bool CanExecute(object? parameter) => !_disposed && _inner.CanExecute(parameter);
 
     /// <inheritdoc/>
     /// <remarks>
@@ -70,9 +70,11 @@ public sealed class ConfirmationDecoratorCommand : ICommand, IDisposable
     /// <summary>Awaits the confirm delegate, then invokes inner.Execute if accepted.</summary>
     public async Task ExecuteAsync(object? parameter)
     {
-        if (!CanExecute(parameter)) return;
+        // The inner predicate may dispose the decorator.
+        if (!CanExecute(parameter) || _disposed) return;
         var confirmed = await _confirm().ConfigureAwait(false);
-        if (confirmed) _inner.Execute(parameter);
+        // A confirmation that resolves after disposal runs nothing (spec §8.4, ADR-0134).
+        if (confirmed && !_disposed) _inner.Execute(parameter);
     }
 
     private void EmitError(Exception error)
@@ -85,8 +87,11 @@ public sealed class ConfirmationDecoratorCommand : ICommand, IDisposable
     }
 
     /// <summary>
-    /// Unsubscribes from the inner command's <c>CanExecuteChanged</c> and completes
-    /// the <see cref="Errors"/> channel. Idempotent.
+    /// Makes the decorator inert, unsubscribes from the inner command's
+    /// <c>CanExecuteChanged</c>, and completes the <see cref="Errors"/> channel
+    /// (spec §8.4, ADR-0134). Idempotent. A pending confirmation that resolves later
+    /// runs no inner command and emits nothing; the inner command stays owned by its
+    /// creator.
     /// </summary>
     public void Dispose()
     {

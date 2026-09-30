@@ -32,6 +32,14 @@ The shipped command surface breaks down into a few layers:
 Commands own their predicates, tasks, trigger subscriptions, and disposal
 inertness. They do not own VM lifecycle.
 
+`AsyncRelayCommand` is also a base command in every flavor (`IAsyncCommand :
+ICommand`), so it can be stored wherever a command is expected and wrapped by the
+composite and decorator commands. Through that base surface, `Execute` starts
+fire-and-forget execution without waiting for the async body; failures surface on
+the command's error channel. In Rust this is `impl Command for AsyncRelayCommand`,
+usable as `Arc<dyn Command>` or as the inner command of `DecoratorCommand` and
+`ConfirmationDecoratorCommand`.
+
 ## 6.3.3. Lifecycle And Messaging
 
 Commands become interesting when triggers are involved:
@@ -41,13 +49,22 @@ Commands become interesting when triggers are involved:
 - trigger emissions force re-evaluation and raise `CanExecuteChanged`
 - imperative raise methods notify bindings when a predicate depends on
   non-observable host state
-- disposed commands become inert and report `CanExecute == false`
+- disposed commands, including composite, decorator, and confirmation wrappers,
+  become inert and report `CanExecute == false`
 - fire-and-forget confirmation flows surface asynchronous failures on an error
   observable instead of swallowing them
 
 Repeated command disposal, including during an in-flight async operation,
 follows the [Disposal Contract](disposal-contract.md): cancellation and terminal
 completion occur at most once.
+
+A disposed wrapper also admits no inner work that has not started yet. A
+composite runs no later child after one of its children disposes it. A
+decorator disposed by its predicate or pre-action skips the inner command, but
+once the pre-action has run, its post-action still runs exactly once. A
+confirmation that resolves after disposal, whether it confirms, declines, or
+fails, runs nothing and emits nothing on `errors`. Wrappers never dispose their
+inner commands, which stay owned by their creator (ADR-0134).
 
 ## 6.3.4. Cross-Language Surface
 
