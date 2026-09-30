@@ -66,6 +66,7 @@ def _write_packages(
     symlink_path: str | None = None,
     core_properties_name: str = "a.psmdcp",
     framework_dependencies: dict[str, list[tuple[str, str]]] | None = None,
+    readme: str | None = None,
 ) -> None:
     if framework_dependencies is None:
         framework_dependencies = checker._PACKAGE_DEPENDENCIES.get(package_id, {})
@@ -95,6 +96,8 @@ def _write_packages(
                     info.create_system = 3
                     info.external_attr = stat.S_IFLNK << 16
                     package.writestr(info, "../../outside")
+                elif path == "README.md":
+                    package.writestr(path, readme or f"# {package_id}\n\nPackage.\n")
                 else:
                     package.writestr(path, b"content")
             if unexpected and archive == main:
@@ -287,3 +290,100 @@ def test_main_rejects_project_root_without_packable_projects(
 
     assert result == 1
     assert "no packable projects discovered" in capsys.readouterr().err
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+@pytest.mark.parametrize(
+    "package_id", ["VMx", "VMx.Notifications", "VMx.Extensions.DependencyInjection"]
+)
+def test_shipped_package_readmes_render_outside_the_repository(package_id: str) -> None:
+    readme = REPO_ROOT / "langs/csharp/packaging" / package_id / "README.md"
+
+    assert checker.validate_readme(readme.read_text(encoding="utf-8"), package_id) == []
+
+
+@pytest.mark.parametrize("package_id", ["VMx.Notifications", "VMx.Extensions.DependencyInjection"])
+def test_companion_readmes_state_their_vmx_dependency(package_id: str) -> None:
+    readme = (REPO_ROOT / "langs/csharp/packaging" / package_id / "README.md").read_text(
+        encoding="utf-8"
+    )
+
+    assert "depends on `VMx`" in readme
+    assert "https://www.nuget.org/packages/VMx)" in readme
+
+
+def test_repository_root_readme_would_be_rejected_as_a_package_readme() -> None:
+    errors = checker.validate_readme((REPO_ROOT / "README.md").read_text(encoding="utf-8"), "VMx")
+
+    assert "README image must be an absolute https URL: assets/vmx-poster.png" in errors
+    assert any("docs/content/getting-started/csharp.md" in error for error in errors)
+
+
+def test_every_packable_project_packs_its_own_readme() -> None:
+    props = (REPO_ROOT / "langs/csharp/Directory.Build.props").read_text(encoding="utf-8")
+
+    assert "packaging\\$(MSBuildProjectName)\\README.md" in props
+    assert "..\\..\\README.md" not in props
+    for project in sorted((REPO_ROOT / "langs/csharp/src").glob("*/*.csproj")):
+        assert (REPO_ROOT / "langs/csharp/packaging" / project.stem / "README.md").is_file()
+
+
+@pytest.mark.parametrize(
+    ("readme", "error"),
+    [
+        (
+            '# VMx\n\n<img src="assets/vmx-poster.png">\n',
+            "README image must be an absolute https URL: assets/vmx-poster.png",
+        ),
+        (
+            "# VMx\n\n![diagram](assets/architecture.svg)\n",
+            "README image must be an absolute https URL: assets/architecture.svg",
+        ),
+        (
+            "# VMx\n\n[guide](docs/content/getting-started/csharp.md)\n",
+            "README link must be an absolute https URL: docs/content/getting-started/csharp.md",
+        ),
+        (
+            "# VMx\n\n[guide][ref]\n\n[ref]: ../langs/rust/README.md\n",
+            "README link must be an absolute https URL: ../langs/rust/README.md",
+        ),
+        (
+            "# VMx\n\n[site](http://thekaveh.github.io/VMx/)\n",
+            "README link must be an absolute https URL: http://thekaveh.github.io/VMx/",
+        ),
+        (
+            "# VMx\n\n![badge](https://example.com/badge.png)\n",
+            "README image host is not allowed: https://example.com/badge.png",
+        ),
+        (
+            "# VMx\n\n![diagram](https://raw.githubusercontent.com/thekaveh/VMx/main/a.svg)\n",
+            "README image must be PNG, JPEG, or GIF: "
+            "https://raw.githubusercontent.com/thekaveh/VMx/main/a.svg",
+        ),
+        ("# Something else\n", "README must open with the heading '# VMx'"),
+    ],
+)
+def test_validate_readme_rejects_unresolvable_content(readme: str, error: str) -> None:
+    assert error in checker.validate_readme(readme, "VMx")
+
+
+def test_validate_readme_ignores_code_and_accepts_absolute_targets() -> None:
+    readme = (
+        "# VMx\n\n"
+        "![poster](https://raw.githubusercontent.com/thekaveh/VMx/main/assets/vmx-poster.png)\n"
+        "[docs](https://thekaveh.github.io/VMx/) and [top](#vmx).\n\n"
+        "```csharp\nvar x = items[0](value); // [not](a/link)\n```\n"
+        "Inline `[code](relative.md)` is ignored.\n"
+    )
+
+    assert checker.validate_readme(readme, "VMx") == []
+
+
+def test_validate_package_pair_rejects_a_repository_relative_readme(tmp_path: Path) -> None:
+    _write_packages(tmp_path, "VMx", "3.20.0", readme="# VMx\n\n![poster](assets/vmx-poster.png)\n")
+
+    assert checker.validate_package_pair(tmp_path, "VMx", "3.20.0", None) == [
+        "VMx.3.20.0.nupkg: README image must be an absolute https URL: assets/vmx-poster.png"
+    ]

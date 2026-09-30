@@ -100,6 +100,15 @@ project pack, exact `.nupkg` and `.snupkg` allowlists, metadata, repository SHA,
 framework assets, dependency floors, and clean local net8.0 and netstandard2.0
 consumers. Only the tag-selected main/symbol pairs enter the publish artifact.
 
+Each main package ships its own README from `langs/csharp/packaging/<package>/`,
+not the repository README, because a `.nupkg` carries none of the repository
+files that README refers to. `tools/check-nuget-package.py` rejects a packaged
+README that does not open with the package's heading, any link or image that
+is not an absolute `https` URL, and any image that is not a PNG, JPEG, or GIF
+on `raw.githubusercontent.com`. Update the package READMEs when a package's
+purpose or documentation links change. The checker cannot show how nuget.org
+renders a README; inspect the upload preview before the first publication.
+
 The protected job downloads that immutable artifact, validates `NUGET_USER`,
 exchanges OIDC, and pushes without `--skip-duplicate`. An existing version is
 an error, not something to hide.
