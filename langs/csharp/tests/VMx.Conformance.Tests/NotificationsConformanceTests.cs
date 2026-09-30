@@ -230,28 +230,41 @@ public class NotificationsConformanceTests
         var second = new NotificationHub();
         var firstNotification = new Notification(NotificationType.Notification, "first");
         var secondNotification = new Notification(NotificationType.Notification, "second");
+        // Each post blocks its thread in the barrier by design, so the posts run
+        // on dedicated threads: progress must not depend on thread-pool injection
+        // under the parallel runner. Timeouts are hang guards only; a deadlock
+        // never completes and still fails the test.
+        var hangGuard = TimeSpan.FromSeconds(30);
         using var callbacksReady = new Barrier(2);
         using var firstSubscription = first.Pending.Subscribe(snapshot =>
         {
             if (!snapshot.Contains(firstNotification)) return;
-            callbacksReady.SignalAndWait(TimeSpan.FromSeconds(1)).Should().BeTrue();
+            callbacksReady.SignalAndWait(hangGuard).Should().BeTrue();
             second.Resolve(secondNotification, NotificationReaction.Approve);
         });
         using var secondSubscription = second.Pending.Subscribe(snapshot =>
         {
             if (!snapshot.Contains(secondNotification)) return;
-            callbacksReady.SignalAndWait(TimeSpan.FromSeconds(1)).Should().BeTrue();
+            callbacksReady.SignalAndWait(hangGuard).Should().BeTrue();
             first.Resolve(firstNotification, NotificationReaction.Approve);
         });
 
         var posts = new[]
         {
-            Task.Run(() => first.Post(firstNotification)),
-            Task.Run(() => second.Post(secondNotification)),
+            Task.Factory.StartNew(
+                () => first.Post(firstNotification),
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default).Unwrap(),
+            Task.Factory.StartNew(
+                () => second.Post(secondNotification),
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default).Unwrap(),
         };
         var allPosts = Task.WhenAll(posts);
 
-        var completed = await Task.WhenAny(allPosts, Task.Delay(TimeSpan.FromSeconds(1)));
+        var completed = await Task.WhenAny(allPosts, Task.Delay(hangGuard));
 
         completed.Should().BeSameAs(allPosts, "opposing callbacks must make progress");
         await allPosts;
