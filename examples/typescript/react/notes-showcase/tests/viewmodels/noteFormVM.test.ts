@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MessageHub, RxDispatcher } from "@thekaveh/vmx";
+import { FormVM, MessageHub, RxDispatcher } from "@thekaveh/vmx";
 import {
   NotificationHub,
   NotificationReaction,
@@ -281,5 +281,25 @@ describe("NoteFormVM", () => {
     observed.length = 0;
     vm.removeTagCommand.execute("alpha");
     expect(observed).toContain("tagsText");
+  });
+});
+
+describe("FormVM field names through the package build", () => {
+  it("keeps a prototype-named field as data and leaks no inherited lookup", () => {
+    const validators: Record<string, (note: NoteModel) => string | null> = {};
+    Object.defineProperty(validators, "__proto__", {
+      value: (note: NoteModel) => (note.title === "" ? "required" : null),
+      enumerable: true,
+    });
+    const form = new FormVM<NoteModel>({
+      initial: aNote({ title: "" }),
+      persister: async () => {},
+      validators,
+    });
+
+    expect(form.isValid).toBe(false);
+    expect(form.fieldError("__proto__")).toBe("required");
+    expect(form.fieldError("toString")).toBeUndefined();
+    expect(form.approveCommand.canExecute()).toBe(false);
   });
 });
