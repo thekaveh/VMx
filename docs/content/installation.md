@@ -1,8 +1,8 @@
 # 2. Installation
 
-VMx has five catalog-complete source flavors implementing spec 3.23.0. Their
-current package source versions are listed below; Rust 0.29.0
-declares `MIN_SPEC_VERSION = "3.23.0"`. All five implement the canonical
+VMx has five catalog-complete source flavors implementing spec 3.24.0. Their
+current package source versions are listed below; Rust 0.30.0
+declares `MIN_SPEC_VERSION = "3.24.0"`. All five implement the canonical
 concepts and behavior, with intentional flavor idioms documented by ADR; the
 completed [Rust convergence ledger](../maintenance/2026-07-16-rust-capability-parity.md)
 records the focused 0.27.0 evidence. Public package availability can lag the
@@ -10,12 +10,12 @@ source tree, so check the flavor README and registry before pinning a release.
 
 | Flavor     | Source tree   | Public package status               |
 | ---------- | ------------- | ----------------------------------- |
-| C#         | v3.23.0       | NuGet package not published yet     |
-| Python     | v3.23.0       | PyPI release 3.23.0                  |
-| TypeScript | v3.24.1       | npm package not published yet       |
+| C#         | v3.24.0       | NuGet package not published yet     |
+| Python     | v3.24.0       | PyPI release 3.23.0                  |
+| TypeScript | v3.25.0       | npm package not published yet       |
 | React adapter | v0.1.1 in source | publication waits for core npm #57 |
-| Swift      | v3.24.0       | SwiftPM release 3.24.0              |
-| Rust       | 0.29.0        | crates.io package not published yet |
+| Swift      | v3.25.0       | SwiftPM release 3.24.0              |
+| Rust       | 0.30.0        | crates.io package not published yet |
 
 === "C#"
 
@@ -63,7 +63,7 @@ source tree, so check the flavor README and registry before pinning a release.
     mkdir -p /tmp/vmx-packs
     npm pack ../VMx/langs/typescript --pack-destination /tmp/vmx-packs
     npm pack ../VMx/packages/react --pack-destination /tmp/vmx-packs
-    npm install /tmp/vmx-packs/thekaveh-vmx-3.24.1.tgz \
+    npm install /tmp/vmx-packs/thekaveh-vmx-3.25.0.tgz \
       /tmp/vmx-packs/thekaveh-vmx-react-0.1.1.tgz \
       react rxjs use-sync-external-store
     ```

@@ -6,6 +6,17 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ## [Unreleased]
 
+## [3.24.0] — unreleased source version
+
+### Fixed
+
+- Disposed `CompositeCommand`, `DecoratorCommand`, and
+  `ConfirmationDecoratorCommand` are now inert: `can_execute()` is false and
+  `execute()` runs no inner command, predicate, pre/post action, or confirmation.
+  Disposal observed during execution stops further inner work while an admitted
+  pre/post pair stays balanced, and a confirmation that resolves after disposal
+  runs nothing and emits nothing (`CMDD-011..013`, ADR-0134).
+
 ### Documentation
 
 - The Textual recipe seeds its title and status on mount, follows lifecycle

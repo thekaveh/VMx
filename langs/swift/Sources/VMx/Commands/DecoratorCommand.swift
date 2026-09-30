@@ -12,7 +12,8 @@
 // - execute() is a complete no-op (pre/inner/post all skipped) when
 //   canExecute() is false.
 // - canExecuteChanged delegates to the inner command's publisher.
-// - dispose() is a no-op: DecoratorCommand does not own the inner command.
+// - dispose() makes the decorator inert and is idempotent (spec §8.4,
+//   ADR-0134); the inner command stays owned by its creator.
 //
 import Foundation
 import Combine
@@ -22,6 +23,15 @@ public final class DecoratorCommand: Command {
     private let preExecute: (() -> Void)?
     private let postExecute: (() -> Void)?
     private let extraPredicate: (() -> Bool)?
+    private let disposalLock = NSLock()
+    private var disposed = false
+
+    /// Re-reads disposal after a call-out that may have disposed this wrapper.
+    private var isDisposed: Bool {
+        disposalLock.lock()
+        defer { disposalLock.unlock() }
+        return disposed
+    }
 
     public init(
         _ inner: Command,
@@ -36,14 +46,19 @@ public final class DecoratorCommand: Command {
     }
 
     public func canExecute() -> Bool {
-        guard inner.canExecute() else { return false }
-        return extraPredicate?() ?? true
+        guard !isDisposed, inner.canExecute() else { return false }
+        // The extra predicate may dispose the decorator.
+        let allowed = extraPredicate?() ?? true
+        return allowed && !isDisposed
     }
 
     public func execute() {
         guard canExecute() else { return }
         preExecute?()
         defer { postExecute?() }
+        // The pre-action may dispose the decorator: skip the inner command but
+        // keep the admitted pre/post pair balanced (spec §8.4, ADR-0134).
+        guard !isDisposed else { return }
         inner.execute()
     }
 
@@ -51,7 +66,12 @@ public final class DecoratorCommand: Command {
         inner.canExecuteChanged
     }
 
-    /// No-op: DecoratorCommand does not own the inner command and holds no
-    /// subscriptions of its own. Provided for teardown symmetry with C#.
-    public func dispose() {}
+    /// Makes the decorator inert (spec §8.4, ADR-0134). Idempotent. The inner
+    /// command stays owned by its creator, and `canExecuteChanged` delegates to
+    /// its publisher, so nothing else is released here.
+    public func dispose() {
+        disposalLock.lock()
+        disposed = true
+        disposalLock.unlock()
+    }
 }

@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.25.0] — unreleased source version
+
+### Fixed
+
+- Disposed `CompositeCommand`, `DecoratorCommand`, and
+  `ConfirmationDecoratorCommand` are now inert: `canExecute()` is false and
+  `execute()` runs no inner command, predicate, pre/post action, or confirmation.
+  Disposal observed during execution stops further inner work while an admitted
+  pre/post pair stays balanced, and a confirmation that resolves after disposal
+  runs nothing and emits nothing (`CMDD-011..013`, ADR-0134).
+
 ## [3.24.1] — unreleased source version
 
 ### Fixed

@@ -35,14 +35,16 @@ class DecoratorCommand:
         return self._inner.can_execute_changed
 
     def can_execute(self, parameter: Any = None) -> bool:
-        if not self._inner.can_execute(parameter):
+        if self._disposed or not self._inner.can_execute(parameter):
             return False
         if self._extra is None:
-            return True
+            return not self._disposed
         try:
-            return self._extra()
+            allowed = self._extra()
         except Exception:
             return False
+        # The extra predicate may dispose the decorator.
+        return allowed and not self._disposed
 
     def execute(self, parameter: Any = None) -> None:
         if not self.can_execute(parameter):
@@ -50,7 +52,10 @@ class DecoratorCommand:
         if self._pre is not None:
             self._pre()
         try:
-            self._inner.execute(parameter)
+            # The pre-action may dispose the decorator: skip the inner command
+            # but keep the admitted pre/post pair balanced (spec §8.4).
+            if not self._disposed:
+                self._inner.execute(parameter)
         finally:
             # post runs whether or not the inner raised, so that a "busy"
             # flag set in pre_execute always gets cleared.
@@ -58,10 +63,10 @@ class DecoratorCommand:
                 self._post()
 
     def dispose(self) -> None:
-        """Mark the decorator as disposed. Idempotent.
+        """Make the decorator inert (spec §8.4, ADR-0134). Idempotent.
 
-        ``can_execute_changed`` delegates lazily to the inner command, so the
-        decorator owns no subscriptions to release. Provided for API symmetry
-        with the C# IDisposable surface (see ``CompositeCommand.dispose``).
+        The inner command stays owned by its creator. ``can_execute_changed``
+        delegates lazily to the inner command, so the decorator owns no
+        subscriptions to release.
         """
         self._disposed = True
