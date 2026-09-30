@@ -24,6 +24,7 @@ def test_dependabot_covers_every_committed_dependency_ecosystem() -> None:
             "/packages/react",
             "/examples/typescript/console/hello-vmx",
             "/examples/typescript/react/notes-showcase",
+            "/examples/typescript/integration-recipes",
         },
         "cargo": {
             "/langs/rust",
