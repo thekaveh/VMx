@@ -20,6 +20,102 @@ pub trait Command: Send + Sync {
     }
 }
 
+/// Shared commands are commands: an `Arc<T>` delegates to `T`.
+///
+/// This lets a command that is not `Clone`, or a `dyn Command` trait object,
+/// use [`CommandExt`] through an `Arc` without implementing `Clone` itself.
+impl<T: Command + ?Sized> Command for Arc<T> {
+    fn can_execute(&self) -> bool {
+        (**self).can_execute()
+    }
+
+    fn execute(&self) {
+        (**self).execute();
+    }
+
+    fn can_execute_changed(&self) -> MessageHub {
+        (**self).can_execute_changed()
+    }
+}
+
+/// An absent `wrap_with` pre- or post-action, usable where `None` would need a
+/// type annotation.
+pub const NO_HOOK: Option<fn()> = None;
+
+/// An absent `wrap_with` predicate, usable where `None` would need a type
+/// annotation.
+pub const NO_PREDICATE: Option<fn() -> bool> = None;
+
+/// Fluent composition helpers for every cloneable command (spec §9, ADR-0027).
+///
+/// The trait is implemented for every `Command + Clone + 'static`, so the
+/// command a helper returns chains further. Each helper moves the receiver
+/// into the returned wrapper; clones of VMx commands share their state, so
+/// keep a clone to keep using the receiver directly. Wrap a command that is
+/// not `Clone` in an [`Arc`] to use the helpers. Import the trait with
+/// `use vmx::CommandExt;`; `RelayCommand` also keeps the same methods as
+/// inherent methods, so existing calls need no import.
+///
+/// ```
+/// use std::sync::{Arc, Mutex};
+/// use vmx::{AsyncValue, Command, CommandExt, RelayCommand, NO_HOOK};
+///
+/// let log = Arc::new(Mutex::new(Vec::new()));
+/// let save = RelayCommand::new({
+///     let log = log.clone();
+///     move || log.lock().unwrap().push("save")
+/// });
+/// let audit = RelayCommand::new({
+///     let log = log.clone();
+///     move || log.lock().unwrap().push("audit")
+/// });
+/// let command = save
+///     .confirm(|| AsyncValue::ready(true))
+///     .wrap_with(Some(|| true), NO_HOOK, NO_HOOK)
+///     .succeed_with(audit);
+///
+/// command.execute();
+/// assert_eq!(*log.lock().unwrap(), vec!["save", "audit"]);
+/// ```
+pub trait CommandExt: Command + Clone + Sized + 'static {
+    /// Wraps the command with an asynchronous confirmation gate.
+    fn confirm<F>(self, confirm: F) -> ConfirmationDecoratorCommand<Self>
+    where
+        F: Fn() -> AsyncValue<bool> + Send + Sync + 'static,
+    {
+        ConfirmationDecoratorCommand::new(self, confirm)
+    }
+
+    /// Returns a composite that runs `other` before this command.
+    fn precede_with<C: Command + Clone + 'static>(self, other: C) -> CompositeCommand {
+        CompositeCommand::new(vec![Arc::new(other), Arc::new(self)])
+    }
+
+    /// Returns a composite that runs `other` after this command.
+    fn succeed_with<C: Command + Clone + 'static>(self, other: C) -> CompositeCommand {
+        CompositeCommand::new(vec![Arc::new(self), Arc::new(other)])
+    }
+
+    /// Wraps this command with optional predicate, pre-, and post-actions.
+    ///
+    /// Pass [`NO_PREDICATE`] or [`NO_HOOK`] for an absent argument.
+    fn wrap_with<FPre, FPost, FPred>(
+        self,
+        predicate: Option<FPred>,
+        pre: Option<FPre>,
+        post: Option<FPost>,
+    ) -> DecoratorCommand<Self>
+    where
+        FPre: Fn() + Send + Sync + 'static,
+        FPost: Fn() + Send + Sync + 'static,
+        FPred: Fn() -> bool + Send + Sync + 'static,
+    {
+        DecoratorCommand::new(self, predicate, pre, post)
+    }
+}
+
+impl<C: Command + Clone + 'static> CommandExt for C {}
+
 /// A parameterized action with parameter-sensitive execution eligibility.
 pub trait CommandOf<T>: Send + Sync {
     /// Reports whether execution is permitted for `parameter`.
@@ -128,24 +224,32 @@ impl RelayCommand {
     }
 
     /// Wraps the command with an asynchronous confirmation gate.
+    ///
+    /// Delegates to [`CommandExt::confirm`].
     pub fn confirm<F>(self, confirm: F) -> ConfirmationDecoratorCommand<Self>
     where
         F: Fn() -> AsyncValue<bool> + Send + Sync + 'static,
     {
-        ConfirmationDecoratorCommand::new(self, confirm)
+        CommandExt::confirm(self, confirm)
     }
 
     /// Returns a composite that runs `other` before this command.
+    ///
+    /// Delegates to [`CommandExt::precede_with`].
     pub fn precede_with<C: Command + Clone + 'static>(self, other: C) -> CompositeCommand {
-        CompositeCommand::new(vec![Arc::new(other), Arc::new(self)])
+        CommandExt::precede_with(self, other)
     }
 
     /// Returns a composite that runs `other` after this command.
+    ///
+    /// Delegates to [`CommandExt::succeed_with`].
     pub fn succeed_with<C: Command + Clone + 'static>(self, other: C) -> CompositeCommand {
-        CompositeCommand::new(vec![Arc::new(self), Arc::new(other)])
+        CommandExt::succeed_with(self, other)
     }
 
     /// Wraps this command with optional predicate, pre-, and post-actions.
+    ///
+    /// Delegates to [`CommandExt::wrap_with`].
     pub fn wrap_with<FPre, FPost, FPred>(
         self,
         predicate: Option<FPred>,
@@ -157,7 +261,7 @@ impl RelayCommand {
         FPost: Fn() + Send + Sync + 'static,
         FPred: Fn() -> bool + Send + Sync + 'static,
     {
-        DecoratorCommand::new(self, predicate, pre, post)
+        CommandExt::wrap_with(self, predicate, pre, post)
     }
 }
 
