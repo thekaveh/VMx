@@ -179,6 +179,13 @@ its owner. That matters especially for `DerivedProperty`, `SearchableState`, and
 initialization-token patterns: subscribe once, multicast value changes, and tear
 down cleanly on disposal.
 
+In C#, Python, Swift, and TypeScript, a `DerivedProperty` stores its first value
+without a value-changed emission (DPROP-009). A binding that subscribes before
+that value arrives must therefore also observe initialization, or it shows the
+unseeded state until a later, different value. The TypeScript React adapter's
+`useDerivedProperty` does this through an internal core seam. Rust constructs
+derived properties with their initial value, so it has no unseeded state.
+
 The [Disposal Contract](disposal-contract.md) inventories which helpers expose
 disposal, which last values remain readable, and which streams complete.
 

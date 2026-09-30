@@ -6,7 +6,7 @@ Updated alongside spec and flavor releases.
 
 | spec  | python          | csharp          | typescript      | swift           | rust          |
 | ----- | --------------- | --------------- | --------------- | --------------- | ------------- |
-| 3.23.x | 3.23.3[^current] <!-- x-release-please-version --> | 3.23.0[^current] | 3.24.0[^current] | 3.24.0[^swift] | 0.29.0[^rust] |
+| 3.23.x | 3.23.3[^current] <!-- x-release-please-version --> | 3.23.0[^current] | 3.24.1[^current] | 3.24.0[^swift] | 0.29.0[^rust] |
 | 3.22.x[^source-only] | 3.22.0–3.22.1 | 3.22.0–3.22.1 | 3.23.0–3.23.1 | 3.22.0–3.23.0 | 0.25.0–0.26.0 |
 | 3.21.x | —               | —               | —               | —               | —             |
 | 3.20.x[^legacy-semantic-tag-only] | —               | —               | —               | 3.20.0         | 0.20.0–0.22.0[^rust-source] |
@@ -93,7 +93,7 @@ adds paired dispatcher channels plus background lifecycle parity. See
 
 [^current]: C# is on the 3.23.0 source line and Python is on the unreleased
 3.23.3 source line; Python 3.23.0 is publicly installable from PyPI.
-TypeScript 3.24.0 implements spec 3.23.0. C# and TypeScript public packages
+TypeScript 3.24.1 implements spec 3.23.0. C# and TypeScript public packages
 remain pending. Their release jobs refuse to green-skip a publish without
 configured credentials.
 
@@ -133,7 +133,7 @@ a namespace future specification releases reuse.
 
 | Adapter source | VMx TypeScript | React | RxJS | Registry status |
 | --- | --- | --- | --- | --- |
-| 0.1.0 | ^3.24.0 | ^18.3.1 or ^19.0.0 | ^7.8.0 | source complete; npm waits for #57 |
+| 0.1.1 | ^3.24.1 | ^18.3.1 or ^19.0.0 | ^7.8.0 | source complete; npm waits for #57 |
 
 `@thekaveh/vmx-react` uses independent SemVer and `react-v*` release tags. A
 core release requires an adapter release only when the supported API or peer

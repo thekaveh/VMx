@@ -6,6 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.25.0] — unreleased source version
+
+### Fixed
+
+- Disposed `CompositeCommand`, `DecoratorCommand`, and
+  `ConfirmationDecoratorCommand` are now inert: `canExecute()` is false and
+  `execute()` runs no inner command, predicate, pre/post action, or confirmation.
+  Disposal observed during execution stops further inner work while an admitted
+  pre/post pair stays balanced, and a confirmation that resolves after disposal
+  runs nothing and emits nothing (`CMDD-011..013`, ADR-0134).
+
+## [3.24.1] — unreleased source version
+
 ### Fixed
 
 - `FormVM` treats every validation field name as data. Validator and error maps
@@ -18,12 +31,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `ObservableList.insert()`, `removeAt()`, and `replace()` reject `NaN`,
   ±`Infinity`, and fractional indices with `RangeError` before any mutation,
   lookup, or notification (#335).
-- Disposed `CompositeCommand`, `DecoratorCommand`, and
-  `ConfirmationDecoratorCommand` are now inert: `canExecute()` is false and
-  `execute()` runs no inner command, predicate, pre/post action, or confirmation.
-  Disposal observed during execution stops further inner work while an admitted
-  pre/post pair stays balanced, and a confirmation that resolves after disposal
-  runs nothing and emits nothing (`CMDD-011..013`, ADR-0134).
+- `DerivedProperty` now signals its silent first value, and every later change,
+  through an internal, non-enumerable seam that `@thekaveh/vmx-react` observes,
+  so a binding mounted before the first value renders it as soon as it arrives.
+  The seam is not part of the public type or the specified surface;
+  `valueChanged` and its DPROP-009 trace are unchanged (#415).
 
 ### Documentation
 
