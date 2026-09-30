@@ -214,7 +214,12 @@ export function deepEquals(
   }
 
   if (a instanceof Date || b instanceof Date) {
-    return a instanceof Date && b instanceof Date && a.getTime() === b.getTime();
+    if (!(a instanceof Date) || !(b instanceof Date)) return false;
+    // Compare by instant; an invalid Date (NaN time) equals another invalid
+    // Date, as structuredClone preserves it.
+    const aTime = a.getTime();
+    const bTime = b.getTime();
+    return aTime === bTime || (aTime !== aTime && bTime !== bTime);
   }
 
   if (a instanceof RegExp || b instanceof RegExp) {
