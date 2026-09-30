@@ -117,7 +117,8 @@ jobs:
         # 100% coverage of the full library catalog. Swift and Rust use
         # doc-comment markers attached to real test functions, so this coverage
         # check does not need either toolchain. The tool exits non-zero if any
-        # required language falls below full catalog coverage.
+        # required language falls below full catalog coverage or carries a
+        # marker for an ID the catalog does not define (ORPHAN).
         run: uv --project langs/python run python tools/check-python-interpreter.py --venv langs/python/.venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- tools/check-conformance-coverage.py --require csharp --require python --require typescript --require swift --require rust
 
       - name: Check Swift fixture sync
