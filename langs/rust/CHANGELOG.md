@@ -15,6 +15,12 @@ project adheres to [Semantic Versioning](https://semver.org/).
   omitted field keeps its entry. The string-map `with_model_validator` /
   `model_validator` remain as the compatibility path and wrap every entry in
   `Some` (#333).
+- `AsyncRelayCommand` implements `Command`, so it can be stored as
+  `Arc<dyn Command>` and wrapped by `CompositeCommand`, `DecoratorCommand`, and
+  `ConfirmationDecoratorCommand`. The trait methods delegate to the inherent
+  ones: `execute` starts fire-and-forget execution without waiting for the body,
+  failures are reported once on `errors()`, and eligibility and
+  `can_execute_changed` are shared with the inherent surface (#344).
 - `TokenPagedComposition::dispose()` now terminally disables its owned
   load-more and refresh commands and prevents in-flight loaders from committing
   pager state; loader-returned items remain caller-owned.

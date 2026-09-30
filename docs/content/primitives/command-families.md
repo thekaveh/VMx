@@ -32,6 +32,14 @@ The shipped command surface breaks down into a few layers:
 Commands own their predicates, tasks, trigger subscriptions, and disposal
 inertness. They do not own VM lifecycle.
 
+`AsyncRelayCommand` is also a base command in every flavor (`IAsyncCommand :
+ICommand`), so it can be stored wherever a command is expected and wrapped by the
+composite and decorator commands. Through that base surface, `Execute` starts
+fire-and-forget execution without waiting for the async body; failures surface on
+the command's error channel. In Rust this is `impl Command for AsyncRelayCommand`,
+usable as `Arc<dyn Command>` or as the inner command of `DecoratorCommand` and
+`ConfirmationDecoratorCommand`.
+
 ## 6.3.3. Lifecycle And Messaging
 
 Commands become interesting when triggers are involved:
