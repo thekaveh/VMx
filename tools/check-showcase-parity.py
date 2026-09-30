@@ -28,11 +28,23 @@ Per-flavor naming conventions:
 
 The matcher is name-only: it searches each flavor's test root recursively for
 a file whose basename matches the slug under any of the accepted conventions.
+These are **structural** diagnostics: they prove that tests exist, not what
+they assert.
+
+The **behavioral** check covers the shared scenario
+``examples/notes-showcase-scenario.json``: one bounded workspace lifecycle whose
+expected semantic outcome every full showcase asserts through its own adapter
+(``SharedScenarioTests.cs``, ``test_shared_scenario.py``,
+``sharedScenario.test.ts``, ``SharedScenarioTests.swift``). This tool validates
+the scenario definition and requires each adapter to load it; the adapters'
+own test runs compare the outcome and fail with the flavor, step, and differing
+value.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 from pathlib import Path
@@ -59,6 +71,23 @@ ROOTS = {
 }
 
 THEME_IDS = [f"THEME-{i:03d}" for i in range(1, 6)]
+SCENARIO = Path("examples/notes-showcase-scenario.json")
+SCENARIO_ADAPTERS = {
+    "csharp": "SharedScenarioTests.cs",
+    "python": "test_shared_scenario.py",
+    "typescript": "sharedScenario.test.ts",
+    "swift": "SharedScenarioTests.swift",
+}
+SCENARIO_ACTIONS = (
+    "construct",
+    "create_note",
+    "select_note",
+    "edit_title",
+    "save",
+    "delete_selected_declined",
+    "set_theme",
+    "dispose",
+)
 RUST_SCOPE_DOC = Path("docs/content/examples/rust-tui-notes-showcase.md")
 RUST_SCOPE_TERMS = (
     "reduced companion",
@@ -195,7 +224,10 @@ def check(roots: dict[str, Path]) -> int:
     if failed:
         print("\n[FAIL] parity violations — see above", file=sys.stderr)
         return 1
-    print(f"[OK] cross-flavor parity: {len(EXPECTED)} slugs x 4 flavors")
+    print(
+        f"[OK] structural parity: {len(EXPECTED)} test-file slugs and "
+        f"{THEME_IDS[0]}..{THEME_IDS[-1][-3:]} markers x 4 flavors (names and markers only)"
+    )
     return 0
 
 
@@ -216,6 +248,66 @@ def check_rust_scope(repo_root: Path) -> int:
     return 0
 
 
+def _scenario_problems(scenario: object) -> list[str]:
+    """What keeps the shared scenario from covering the required behavior."""
+    if not isinstance(scenario, dict) or not scenario.get("id"):
+        return ["the scenario has no id"]
+    steps = scenario.get("steps")
+    if not isinstance(steps, list) or not steps:
+        return ["the scenario has no steps"]
+    problems = []
+    if not scenario.get("normalization"):
+        problems.append("the scenario lists no normalization rules")
+    for number, step in enumerate(steps, start=1):
+        if not isinstance(step, dict) or "action" not in step or not isinstance(
+            step.get("expect"), dict
+        ):
+            problems.append(f"step {number} needs an action and an expect object")
+    if problems:
+        return problems
+    actions = [step["action"] for step in steps]
+    missing = [action for action in SCENARIO_ACTIONS if action not in actions]
+    if missing:
+        problems.append(f"no step exercises {missing}")
+    if not any(step["expect"].get("error") == "invalid" for step in steps):
+        problems.append("no step expects a rejected operation (error path)")
+    if len({step.get("index") for step in steps if step["action"] == "select_note"}) < 2:
+        problems.append("the selection never changes between two notes")
+    live = [step for step in steps if step["action"] != "dispose"]
+    if not all(isinstance(step["expect"].get("notes"), list) for step in live):
+        problems.append("a step before dispose does not assert the notes order")
+    last = steps[-1]
+    if last["action"] != "dispose" or last["expect"].get("disposed") is not True:
+        problems.append("the scenario does not end with an asserted teardown")
+    return problems
+
+
+def check_shared_scenario(repo_root: Path, roots: dict[str, Path]) -> int:
+    path = repo_root / SCENARIO
+    try:
+        scenario = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        print(f"shared scenario: cannot read {SCENARIO}: {error}", file=sys.stderr)
+        return 1
+    problems = [f"shared scenario: {problem}" for problem in _scenario_problems(scenario)]
+    for flavor, root in roots.items():
+        adapter = SCENARIO_ADAPTERS[flavor]
+        found = [candidate for candidate in root.rglob(adapter) if candidate.is_file()]
+        if not found:
+            problems.append(f"{flavor}: no shared-scenario adapter '{adapter}' under {root}")
+        elif not any(SCENARIO.name in candidate.read_text(encoding="utf-8") for candidate in found):
+            problems.append(f"{flavor}: '{adapter}' does not load {SCENARIO.name}")
+    if problems:
+        for problem in problems:
+            print(problem, file=sys.stderr)
+        return 1
+    print(
+        f"[OK] behavioral parity: shared scenario '{scenario['id']}' "
+        f"({len(scenario['steps'])} steps) runs through an adapter in 4 flavors"
+    )
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--root", default=".", help="Repo root (default: current dir)")
@@ -225,8 +317,9 @@ def main() -> int:
     repo_root = Path(args.root).resolve()
     roots = {f: repo_root / r for f, r in ROOTS.items()}
     parity_result = check(roots)
+    scenario_result = check_shared_scenario(repo_root, roots)
     rust_scope_result = check_rust_scope(repo_root)
-    return 1 if parity_result or rust_scope_result else 0
+    return 1 if parity_result or scenario_result or rust_scope_result else 0
 
 
 if __name__ == "__main__":
