@@ -159,6 +159,53 @@ final class CommandWrapperDisposalTests: XCTestCase {
         }
     }
 
+    /// CMDD-012 — a confirmation resolving on another thread while the decorator is being disposed runs the inner command at most once and completes `errors` exactly once.
+    func testCmdd012ConfirmationRacingDisposeOnAnotherThreadStaysConsistent() async throws {
+        for iteration in 0..<50 {
+            let recorder = Recorder()
+            let inner = makeCommand(label: "inner", into: recorder)
+            let pending = PendingConfirmation(expectation(description: "confirm parked (\(iteration))"))
+            let command = ConfirmationDecoratorCommand(inner) { try await pending.wait() }
+            let completions = Recorder()
+            let subscription = command.errors.sink(
+                receiveCompletion: { _ in completions.entries.append("completed") },
+                receiveValue: { completions.entries.append("error: \($0)") }
+            )
+
+            let awaited = Task { try await command.executeAsync() }
+            await fulfillment(of: [pending.parked], timeout: signalTimeout)
+            let resolver = Task.detached { pending.resolve(.success(true)) }
+            command.dispose()
+            await resolver.value
+            _ = await awaited.result
+
+            XCTAssertLessThanOrEqual(recorder.entries.count, 1, "iteration \(iteration)")
+            XCTAssertEqual(completions.entries, ["completed"], "iteration \(iteration)")
+            XCTAssertFalse(command.canExecute())
+            subscription.cancel()
+        }
+    }
+
+    /// CMDD-011 — disposing a wrapper leaves the inner command's `canExecuteChanged` publisher to its owner.
+    func testCmdd011DisposalLeavesInnerChangePublisherToItsOwner() {
+        let inner = RelayCommand.builder().task {}.build()
+        var notifications = 0
+        var completed = false
+        let subscription = inner.canExecuteChanged.sink(
+            receiveCompletion: { _ in completed = true },
+            receiveValue: { notifications += 1 }
+        )
+
+        CompositeCommand(inner).dispose()
+        DecoratorCommand(inner).dispose()
+        ConfirmationDecoratorCommand(inner) { true }.dispose()
+        inner.raiseCanExecuteChanged()
+
+        XCTAssertEqual(notifications, 1)
+        XCTAssertFalse(completed)
+        subscription.cancel()
+    }
+
     // MARK: - CMDD-013
 
     /// CMDD-013 — a composite runs no later child after an earlier child disposes it.

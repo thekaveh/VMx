@@ -44,7 +44,8 @@ Each policy below extends an existing disposal decision.
 1. **Thread safety (ADR-0084 item 5).** Where a wrapper can be executed and
    disposed on different threads, disposal and the admission checks are atomic:
    once `dispose()` returns, no check admits new inner work. Work admitted
-   earlier may finish. No application code runs under a lock.
+   earlier may finish. No inner command, predicate, action, or `confirm`
+   delegate runs under a lock.
 1. **Change streams (ADR-0068, ADR-0086).** A wrapper never completes or disposes
    an inner command's stream. Wrappers that hold their own subscriptions (C#
    wrappers and Rust's `CompositeCommand`) release them at disposal. Wrappers

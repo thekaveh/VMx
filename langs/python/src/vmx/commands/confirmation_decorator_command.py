@@ -12,6 +12,7 @@ from typing import Any
 
 from reactivex import Observable
 from reactivex import operators as ops
+from reactivex.internal.exceptions import DisposedException
 from reactivex.subject import Subject
 
 from vmx._asyncio_runner import submit_background
@@ -90,7 +91,15 @@ class ConfirmationDecoratorCommand:
         # after dispose must not raise reactivex DisposedException.
         if self._disposed:
             return
-        self._errors.on_next(exc)
+        # Off the event loop the confirmation completes on the background
+        # runner's thread, so dispose() on another thread can dispose the
+        # subject between the check above and on_next. That failure arrives
+        # after disposal and is dropped (spec §8.4, ADR-0134), as
+        # SearchableState drops its late debounce result.
+        try:
+            self._errors.on_next(exc)
+        except DisposedException:
+            pass
 
     def dispose(self) -> None:
         """Make the decorator inert and complete the :attr:`errors` channel.

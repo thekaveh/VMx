@@ -311,6 +311,82 @@ public class CommandDecoratorsConformanceTests
         log.Should().Equal("inner");
     }
 
+    /// <summary>CMDD-012: a confirmation that resolves on another thread while the
+    /// decorator is being disposed runs the inner command at most once, emits at most
+    /// one error before <c>Errors</c> completes, and completes <c>Errors</c> exactly
+    /// once. Each iteration races the resolution against <c>Dispose()</c>.</summary>
+    [Theory, Trait("Conformance", "CMDD-012")]
+    [InlineData("true")]
+    [InlineData("faulted")]
+    public async Task CMDD_012_Confirmation_Racing_Dispose_On_Another_Thread_Stays_Consistent(string outcome)
+    {
+        for (var iteration = 0; iteration < 200; iteration++)
+        {
+            var runs = 0;
+            var inner = RelayCommand.Builder().Task(() => Interlocked.Increment(ref runs)).Build();
+            var decision = new TaskCompletionSource<bool>();
+            var decorator = new ConfirmationDecoratorCommand(inner, () => decision.Task);
+            var events = new List<string>();
+            using var subscription = decorator.Errors.Subscribe(
+                _ => { lock (events) events.Add("error"); },
+                () => { lock (events) events.Add("completed"); });
+            decorator.Execute(null);
+
+            using var start = new Barrier(2);
+            var resolver = Task.Factory.StartNew(
+                () =>
+                {
+                    start.SignalAndWait();
+                    if (outcome == "faulted")
+                        decision.SetException(new InvalidOperationException("confirm failed"));
+                    else
+                        decision.SetResult(true);
+                },
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default);
+            start.SignalAndWait();
+            decorator.Dispose();
+            await resolver.WaitAsync(TimeSpan.FromSeconds(30));
+
+            Volatile.Read(ref runs).Should().BeLessThanOrEqualTo(outcome == "true" ? 1 : 0);
+            lock (events)
+            {
+                events.Count(e => e == "completed").Should().Be(1);
+                events.Last().Should().Be("completed");
+                events.Count(e => e == "error").Should().BeLessThanOrEqualTo(outcome == "faulted" ? 1 : 0);
+            }
+        }
+    }
+
+    /// <summary>CMDD-011: disposing a wrapper releases the subscriptions it holds on
+    /// its inner command's <c>CanExecuteChanged</c> and leaves that event to the inner
+    /// command's own subscribers.</summary>
+    [Fact, Trait("Conformance", "CMDD-011")]
+    public void CMDD_011_Disposal_Releases_Wrapper_Subscriptions_And_Leaves_Inner_Events()
+    {
+        var inner = RelayCommand.Builder().Task(() => { }).Build();
+        var direct = 0;
+        inner.CanExecuteChanged += (_, _) => direct++;
+        var composite = new CompositeCommand(inner);
+        var decorator = new DecoratorCommand(inner);
+        var confirmation = new ConfirmationDecoratorCommand(inner, () => Task.FromResult(true));
+        var relayed = 0;
+        composite.CanExecuteChanged += (_, _) => relayed++;
+        decorator.CanExecuteChanged += (_, _) => relayed++;
+        confirmation.CanExecuteChanged += (_, _) => relayed++;
+
+        inner.RaiseCanExecuteChanged();
+        relayed.Should().Be(3);
+        composite.Dispose();
+        decorator.Dispose();
+        confirmation.Dispose();
+        inner.RaiseCanExecuteChanged();
+
+        relayed.Should().Be(3, "disposed wrappers no longer relay the inner event");
+        direct.Should().Be(2, "the inner command's own subscribers are unaffected");
+    }
+
     // ── CMDD-013 ────────────────────────────────────────────────────────────
 
     /// <summary>CMDD-013: a composite runs no later child after an earlier child

@@ -6,6 +6,8 @@ Per spec/04-commands.md §Decorators and ADR-0012.
 from __future__ import annotations
 
 import asyncio
+import threading
+from typing import Any
 
 import pytest
 from reactivex import Subject
@@ -374,6 +376,74 @@ async def test_CMDD_012_confirmation_resolving_after_disposal_runs_nothing(outco
     assert completions == [None]
     inner.execute()
     assert log == ["inner"]
+
+
+@pytest.mark.conformance("CMDD-012")
+async def test_CMDD_012_error_racing_disposal_on_another_thread_is_dropped() -> None:
+    # Force the interleaving a background completion can hit: another thread
+    # disposes the decorator after the fire-and-forget error path has checked
+    # for disposal but before it publishes. The late error must be dropped,
+    # not raised out of the task callback.
+    log: list[str] = []
+    inner = _recording_command(log, "inner", True)
+
+    async def _confirm() -> bool:
+        raise RuntimeError("confirm failed")
+
+    decorator = ConfirmationDecoratorCommand(inner, _confirm)
+    errors: list[BaseException] = []
+    completions: list[None] = []
+    decorator.errors.subscribe(errors.append, on_completed=lambda: completions.append(None))
+    subject: Any = decorator._errors
+    publish = subject.on_next
+
+    def _dispose_then_publish(value: BaseException) -> None:
+        disposer = threading.Thread(target=decorator.dispose)
+        disposer.start()
+        disposer.join()
+        publish(value)
+
+    subject.on_next = _dispose_then_publish
+    loop = asyncio.get_running_loop()
+    escaped: list[dict[str, Any]] = []
+    previous_handler = loop.get_exception_handler()
+    loop.set_exception_handler(lambda _loop, context: escaped.append(context))
+    try:
+        decorator.execute()
+        await _drain_other_tasks()
+        await asyncio.sleep(0)
+    finally:
+        loop.set_exception_handler(previous_handler)
+
+    assert escaped == []
+    assert errors == []
+    assert completions == [None]
+    assert log == []
+
+
+@pytest.mark.conformance("CMDD-011")
+def test_CMDD_011_disposal_leaves_inner_change_streams_to_their_owner() -> None:
+    log: list[str] = []
+    inner = _recording_command(log, "inner", True)
+    notifications: list[None] = []
+    completions: list[None] = []
+    inner.can_execute_changed.subscribe(
+        lambda _: notifications.append(None), on_completed=lambda: completions.append(None)
+    )
+
+    async def _confirm() -> bool:
+        return True
+
+    for wrapper in (
+        CompositeCommand(inner),
+        DecoratorCommand(inner),
+        ConfirmationDecoratorCommand(inner, _confirm),
+    ):
+        wrapper.dispose()
+    inner.raise_can_execute_changed()
+
+    assert notifications == [None]
+    assert completions == []
 
 
 @pytest.mark.conformance("CMDD-013")

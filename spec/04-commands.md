@@ -296,7 +296,8 @@ observed:
 Where a wrapper can be executed and disposed from different threads, disposal and
 the admission checks above are atomic: once `dispose()` has returned, no check
 admits new inner work. Inner work admitted before disposal may still finish.
-Wrappers call no application code while holding a lock.
+Wrappers invoke no inner command, predicate, pre- or post-execution action, or
+`confirm` delegate while holding a lock.
 
 A wrapper never completes or disposes an inner command's change stream. A
 wrapper that holds its own subscriptions to inner change streams releases them

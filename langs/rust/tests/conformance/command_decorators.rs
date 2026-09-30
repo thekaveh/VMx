@@ -541,6 +541,64 @@ fn disposed_confirmation_decorator_is_inert_including_pending_confirmations() {
     }
 }
 
+/// CMDD-012 — A confirmation resolving on another thread while the decorator is
+/// being disposed runs the inner command at most once
+#[test]
+fn confirmation_resolving_while_disposing_runs_the_inner_command_at_most_once() {
+    for _ in 0..200 {
+        let runs = Arc::new(AtomicUsize::new(0));
+        let runs_inner = runs.clone();
+        let inner = RelayCommand::new(move || {
+            runs_inner.fetch_add(1, Ordering::SeqCst);
+        });
+        let decision = AsyncValue::pending();
+        let pending = decision.clone();
+        let confirming = ConfirmationDecoratorCommand::new(inner, move || pending.clone());
+        confirming.execute();
+
+        let start = Arc::new(std::sync::Barrier::new(2));
+        let resolver = {
+            let start = start.clone();
+            std::thread::spawn(move || {
+                start.wait();
+                decision.resolve(true);
+            })
+        };
+        start.wait();
+        confirming.dispose();
+        resolver.join().unwrap();
+
+        assert!(runs.load(Ordering::SeqCst) <= 1);
+        assert!(!confirming.can_execute());
+    }
+}
+
+/// CMDD-011 — Disposing a decorator or confirmation decorator leaves the inner
+/// command's change hub, which they delegate to, open
+#[test]
+fn decorator_disposal_leaves_the_delegated_inner_change_hub_open() {
+    let inner = RelayCommand::noop();
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let (values, completions) = (events.clone(), events.clone());
+    let _subscription = inner.can_execute_changed().subscribe_with_completion(
+        move |_| values.lock().unwrap().push("value"),
+        move || completions.lock().unwrap().push("completion"),
+    );
+    let decorator = DecoratorCommand::new(
+        inner.clone(),
+        None::<fn() -> bool>,
+        None::<fn()>,
+        None::<fn()>,
+    );
+    let confirming = ConfirmationDecoratorCommand::new(inner.clone(), || AsyncValue::ready(true));
+
+    decorator.dispose();
+    confirming.dispose();
+    inner.raise_can_execute_changed();
+
+    assert_eq!(*events.lock().unwrap(), vec!["value"]);
+}
+
 /// CMDD-013 — Disposal during execution admits no later inner work
 #[test]
 fn disposal_during_execution_admits_no_later_inner_work() {

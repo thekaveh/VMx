@@ -240,6 +240,30 @@ describe("CMDD-011", () => {
     inner.execute();
     expect(log).toEqual(["a", "inner"]);
   });
+
+  it("wrapper disposal leaves the inner canExecuteChanged stream to its owner", () => {
+    const inner = RelayCommand.builder().task(() => {}).build();
+    let notifications = 0;
+    let completed = false;
+    inner.canExecuteChanged.subscribe({
+      next: () => notifications++,
+      complete: () => {
+        completed = true;
+      },
+    });
+
+    for (const wrapper of [
+      new CompositeCommand(inner),
+      new DecoratorCommand(inner),
+      new ConfirmationDecoratorCommand(inner, () => Promise.resolve(true)),
+    ]) {
+      wrapper.dispose();
+    }
+    inner.raiseCanExecuteChanged();
+
+    expect(notifications).toBe(1);
+    expect(completed).toBe(false);
+  });
 });
 
 describe("CMDD-012", () => {
