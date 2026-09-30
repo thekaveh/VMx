@@ -6,6 +6,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `FormVM`'s default equality treats two invalid `Date` values as equal, so a
+  model holding an invalid `Date` no longer starts dirty against its
+  `structuredClone` snapshot and stays clean through strict approval, deny, and
+  reset. The FormVM guide lists the supported equality domain (#353).
+
 ## [3.24.0] — 2026-07-25
 
 ### Added

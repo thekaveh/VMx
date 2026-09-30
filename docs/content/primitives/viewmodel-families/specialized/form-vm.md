@@ -254,6 +254,18 @@ Separately allocated equal bytes therefore remain clean, while changed bytes or
 a different binary interpretation make the form dirty. Inject `equals` when a
 domain needs reference identity or a different binary policy.
 
+A model and its default snapshot compare clean for every value the default
+comparator supports: primitives (`NaN` equals `NaN`, `-0` equals `0`), `BigInt`,
+`Date` by instant (an invalid `Date` equals another invalid `Date`), `RegExp`
+by source and flags, the binary values above, arrays, plain objects by own
+enumerable keys including `undefined`-valued keys, and cycles. `Map` keys and
+`Set` members keep SameValueZero membership, so object keys, which
+`structuredClone` copies, make a fresh form dirty; inject `equals` to compare
+them structurally. `Error` values are compared by their own enumerable keys
+only, so two errors with different messages currently compare equal; hold
+error text in a plain field, or inject `equals`, until a rule for `Error`
+models is settled (#353).
+
 Field localization inspects data-property descriptors, performs no writes, and
 does not invoke getters a second time. User-defined accessors or proxy traps can
 have side effects during the original `structuredClone` call or descriptor
