@@ -6,6 +6,7 @@ See spec/20-form-vm.md and ADR-0030.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import copy
 from collections.abc import Awaitable, Callable, Mapping
 from concurrent.futures import Future
@@ -17,7 +18,7 @@ from reactivex import operators as ops
 from reactivex.subject import Subject
 
 from vmx._asyncio_runner import submit_background
-from vmx.commands.relay_command import RelayCommand
+from vmx.commands.relay_command import RelayCommand, _run_disposal_steps
 from vmx.forms.builders import FormVMBuilder
 from vmx.messages.form_reverted import FormRevertedMessage
 from vmx.messages.property_changed import PropertyChangedMessage
@@ -205,6 +206,7 @@ class FormVM(Generic[TM]):
         """
         caller = get_ident()
         admitted = False
+        in_flight: BaseException | None = None
         try:
             with self._state_changed:
                 while (
@@ -243,9 +245,12 @@ class FormVM(Generic[TM]):
                     property_name="model",
                 )
             )
+        except BaseException as error:
+            in_flight = error
+            raise
         finally:
             if admitted:
-                self._end_mutation()
+                self._end_mutation(in_flight)
 
     # ── Async core ────────────────────────────────────────────────────────────
 
@@ -371,33 +376,56 @@ class FormVM(Generic[TM]):
         if tear_down:
             self._tear_down()
 
-    def _end_mutation(self) -> None:
+    def _end_mutation(self, in_flight: BaseException | None = None) -> None:
+        """Release one mutation and run any teardown deferred during it.
+
+        ``in_flight`` is the error the mutation is already unwinding with, if
+        any. It is the first failure and wins: a deferred-teardown failure
+        must not replace it (the ``_run_disposal_steps`` first-error policy).
+        Every teardown step still runs either way.
+        """
         tear_down = False
         with self._state_changed:
             self._active_mutations -= 1
             if self._active_mutations == 0 and self._mutation_teardown_pending:
                 self._mutation_teardown_pending = False
                 tear_down = True
-        if tear_down:
+        if not tear_down:
+            return
+        if in_flight is None:
+            self._tear_down()
+            return
+        with contextlib.suppress(BaseException):
             self._tear_down()
 
     def _tear_down(self) -> None:
-        self._on_approved.on_completed()
-        self._on_approved.dispose()
-        self._approve_errors.on_completed()
-        self._approve_errors.dispose()
-        self._errors_changed.on_completed()
-        self._errors_changed.dispose()
-        self._can_execute_trigger.on_completed()
-        self._can_execute_trigger.dispose()
-        self._deny_command.dispose()
-        self._approve_command.dispose()
+        """Attempt every owned teardown step exactly once, even if one raises.
+
+        Uses the shared ``_run_disposal_steps`` convention (see
+        ``relay_command.py``): every step runs, and the first ``BaseException``
+        is re-raised after all steps have been attempted.  This prevents an
+        observer raising in one ``on_completed`` from permanently leaking the
+        remaining subjects and commands.
+        """
+        _run_disposal_steps(
+            self._on_approved.on_completed,
+            self._on_approved.dispose,
+            self._approve_errors.on_completed,
+            self._approve_errors.dispose,
+            self._errors_changed.on_completed,
+            self._errors_changed.dispose,
+            self._can_execute_trigger.on_completed,
+            self._can_execute_trigger.dispose,
+            self._deny_command.dispose,
+            self._approve_command.dispose,
+        )
 
     # ── Internal ──────────────────────────────────────────────────────────────
 
     def _deny(self) -> None:
         caller = get_ident()
         admitted = False
+        in_flight: BaseException | None = None
         try:
             with self._state_changed:
                 while (
@@ -437,9 +465,12 @@ class FormVM(Generic[TM]):
             if can_execute_changed:
                 with self._state_changed:
                     self._can_execute_trigger.on_next(None)
+        except BaseException as error:
+            in_flight = error
+            raise
         finally:
             if admitted:
-                self._end_mutation()
+                self._end_mutation(in_flight)
 
     def _validate(self, model: TM) -> dict[str, str]:
         errors: dict[str, str] = {}
