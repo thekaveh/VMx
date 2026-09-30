@@ -34,7 +34,7 @@ private final class ScenarioAdapter {
         hub.messages
             .compactMap { $0 as? ThemeChangedMessage }
             .sink { [unowned self] message in
-                events.append("theme:\(message.previous.name)->\(message.current.name)")
+                self.events.append("theme:\(message.previous.name)->\(message.current.name)")
             }
             .store(in: &subscriptions)
     }
@@ -47,8 +47,8 @@ private final class ScenarioAdapter {
             try await workspace.constructAsync()
             workspace.noteForm.onSaved
                 .sink(
-                    receiveCompletion: { [unowned self] _ in savedCompleted = true },
-                    receiveValue: { [unowned self] model in events.append("saved:\(model.title)") }
+                    receiveCompletion: { [unowned self] _ in self.savedCompleted = true },
+                    receiveValue: { [unowned self] model in self.events.append("saved:\(model.title)") }
                 )
                 .store(in: &subscriptions)
         case "create_note":
