@@ -782,67 +782,214 @@ async def test_ares_011_discard_cleanup_cannot_start_loader_after_disposal() -> 
 
 
 # ---------------------------------------------------------------------------
-# Issue #334 — settle state when the current loader cancels itself
+# Loader-originated cancellation (#334). Flavor-local repair of the existing
+# spec/23 terminal-state rule (current cancellation restores the saved stable
+# state); no new conformance ID. Tests await explicit events, never timers.
 # ---------------------------------------------------------------------------
 
+_HANG_GUARD = 10.0
+_CANCEL_SOURCES = ("raises_cancelled_error", "cancels_own_task", "awaited_operation_cancelled")
 
-@pytest.mark.conformance("ARES-012")
-@pytest.mark.parametrize("scenario", ["raise_cancelled", "self_cancel_task"])
-async def test_ARES_012_loader_cancelled_error_settles_state(scenario: str) -> None:
-    """When the loader task ends with CancelledError, the operation must be
-    rolled back so the VM returns to its baseline and commands re-admit."""
-    if scenario == "raise_cancelled":
 
-        async def loader() -> int:
+class _CancellingLoader:
+    """Loader queue whose steps either return a value or cancel in a chosen way."""
+
+    def __init__(self, steps: list[int | str]) -> None:
+        self._steps = list(steps)
+        self.entered = asyncio.Event()
+        self.inner: asyncio.Future[int] | None = None
+
+    async def __call__(self) -> int:
+        step = self._steps.pop(0)
+        if isinstance(step, int):
+            return step
+        loop = asyncio.get_running_loop()
+        if step == "raises_cancelled_error":
+            self.entered.set()
             raise asyncio.CancelledError()
-    else:
+        if step == "cancels_own_task":
+            task = asyncio.current_task()
+            assert task is not None
+            task.cancel()
+            self.entered.set()
+            return await loop.create_future()  # cancellation is delivered here
+        assert step == "awaited_operation_cancelled"
+        self.inner = loop.create_future()
+        self.entered.set()
+        return await self.inner
 
-        async def loader() -> int:
-            current_task = asyncio.current_task()
-            assert current_task is not None
-            current_task.cancel()
-            raise asyncio.CancelledError()
+    def trigger(self) -> None:
+        """Cancel the separately awaited operation for that source."""
+        if self.inner is not None and not self.inner.done():
+            self.inner.cancel()
 
+
+def _assert_commands(vm: AsyncResourceVM[int], *, load: bool, reload: bool) -> None:
+    assert vm.load_command.can_execute() is load
+    assert vm.reload_command.can_execute() is reload
+    assert not vm.cancel_command.can_execute()
+
+
+async def _run_intent(vm: AsyncResourceVM[int], loader: _CancellingLoader, intent: str) -> None:
+    runners: dict[str, Callable[[], Awaitable[None]]] = {
+        "load": vm.load,
+        "reload": vm.reload,
+        "load_command": vm.load_command.execute_async,
+    }
+    pending = asyncio.ensure_future(runners[intent]())
+    await asyncio.wait_for(loader.entered.wait(), _HANG_GUARD)
+    loader.trigger()
+    await asyncio.wait_for(pending, _HANG_GUARD)
+
+
+@pytest.mark.parametrize("source", _CANCEL_SOURCES)
+@pytest.mark.parametrize("intent", ["load", "load_command"])
+async def test_loader_cancellation_settles_initial_load(source: str, intent: str) -> None:
+    loader = _CancellingLoader([source])
     vm = _vm(loader)
-    assert vm.state.status == AsyncResourceStatus.IDLE
-    assert vm.load_command.can_execute()
+    changes: list[str] = []
+    vm.property_changed.subscribe(changes.append)
+    command_errors: list[BaseException] = []
+    vm.load_command.errors.subscribe(command_errors.append)
+    vm.reload_command.errors.subscribe(command_errors.append)
 
-    vm.load_command.execute()
-    await asyncio.sleep(0.05)
+    await _run_intent(vm, loader, intent)
 
-    assert vm.state.status != AsyncResourceStatus.LOADING, (
-        f"scenario={scenario}: should not be Loading, got {vm.state.status}"
-    )
-    assert vm.state.status == AsyncResourceStatus.IDLE, (
-        f"scenario={scenario}: state should be Idle, got {vm.state.status}"
-    )
-    assert vm.load_command.can_execute(), f"scenario={scenario}: load_command should re-admit"
+    assert vm.state.status is AsyncResourceStatus.IDLE
+    assert changes == ["state", "state"]  # Loading, then the rollback
+    assert command_errors == []  # cancellation never enters an error channel
+    assert not vm.load_command.is_executing
+    _assert_commands(vm, load=True, reload=False)
 
 
-@pytest.mark.conformance("ARES-012")
-async def test_ARES_012_obsolete_loader_cancelled_does_not_rollback_newer() -> None:
-    """When a superseded loader's task is cancelled, the newer operation is preserved."""
-    gate = asyncio.Event()
-    call_count = 0
+@pytest.mark.parametrize("source", _CANCEL_SOURCES)
+async def test_loader_cancellation_on_discard_reload_settles_idle(source: str) -> None:
+    loader = _CancellingLoader([1, source])
+    cleaned: list[int] = []
+    vm = _vm(loader, cleanup=cleaned.append)
+    await vm.load()
+
+    await _run_intent(vm, loader, "reload")
+
+    assert vm.state.status is AsyncResourceStatus.IDLE
+    assert cleaned == [1]  # released when the discarding reload started, once
+    _assert_commands(vm, load=True, reload=False)
+
+
+@pytest.mark.parametrize("source", _CANCEL_SOURCES)
+async def test_loader_cancellation_on_retained_reload_restores_prior_value(source: str) -> None:
+    loader = _CancellingLoader([1, source])
+    cleaned: list[int] = []
+    vm = _vm(loader, retention=AsyncResourceRetention.RETAIN_PREVIOUS, cleanup=cleaned.append)
+    await vm.load()
+
+    await _run_intent(vm, loader, "reload")
+
+    assert vm.state.status is AsyncResourceStatus.READY
+    assert vm.state.value == 1
+    assert cleaned == []  # the retained value is still owned by the VM
+    _assert_commands(vm, load=False, reload=True)
+    vm.dispose()
+    assert cleaned == [1]
+
+
+async def test_superseded_loader_cancellation_does_not_roll_back_newer_operation() -> None:
+    entered = asyncio.Event()
+
+    async def first() -> int:
+        entered.set()
+        return await asyncio.get_running_loop().create_future()  # cancelled on supersede
+
+    steps: list[Callable[[], Awaitable[int]]] = [first]
 
     async def loader() -> int:
-        nonlocal call_count
-        call_count += 1
-        if call_count == 1:
-            await gate.wait()
-            return 100
-        return 200
+        if steps:
+            return await steps.pop(0)()
+        return 2
 
     vm = _vm(loader)
-    vm.load_command.execute()
-    await asyncio.sleep(0.01)
-    vm.reload_command.execute()
-    await asyncio.sleep(0.01)
+    changes: list[str] = []
+    vm.property_changed.subscribe(changes.append)
+    older = asyncio.ensure_future(vm.load())
+    await asyncio.wait_for(entered.wait(), _HANG_GUARD)
+    await vm.reload()
+    await asyncio.wait_for(older, _HANG_GUARD)
 
-    gate.set()
-    await asyncio.sleep(0.05)
+    assert vm.state.status is AsyncResourceStatus.READY
+    assert vm.state.value == 2
+    assert changes == ["state", "state", "state"]  # Loading, Loading, Ready
+    _assert_commands(vm, load=False, reload=True)
 
-    assert vm.state.status == AsyncResourceStatus.READY, f"got {vm.state.status}"
-    assert vm.state.value == 200, f"got {vm.state.value}"
-    assert not vm.load_command.can_execute()  # _can_load requires Idle
-    assert vm.reload_command.can_execute()  # _can_reload requires not Idle
+
+async def test_self_cancellation_racing_explicit_cancel_publishes_one_rollback() -> None:
+    loader = _CancellingLoader(["cancels_own_task"])
+    vm = _vm(loader)
+    changes: list[str] = []
+    vm.property_changed.subscribe(changes.append)
+    pending = asyncio.ensure_future(vm.load())
+    await asyncio.wait_for(loader.entered.wait(), _HANG_GUARD)
+
+    vm.cancel()  # the loader task has requested its own cancellation but not finished
+    await asyncio.wait_for(pending, _HANG_GUARD)
+
+    assert vm.state.status is AsyncResourceStatus.IDLE
+    assert changes == ["state", "state"]
+    _assert_commands(vm, load=True, reload=False)
+
+
+async def test_self_cancellation_racing_dispose_does_not_revive() -> None:
+    loader = _CancellingLoader(["cancels_own_task"])
+    vm = _vm(loader)
+    changes: list[str] = []
+    vm.property_changed.subscribe(changes.append)
+    pending = asyncio.ensure_future(vm.load())
+    await asyncio.wait_for(loader.entered.wait(), _HANG_GUARD)
+
+    vm.dispose()
+    changes_at_dispose = len(changes)
+    await asyncio.wait_for(pending, _HANG_GUARD)
+
+    assert vm.status is ConstructionStatus.DISPOSED
+    assert changes[changes_at_dispose:] == []
+    assert not vm.load_command.can_execute()
+    assert not vm.reload_command.can_execute()
+
+
+async def test_self_cancellation_racing_stale_success_cleans_it_once() -> None:
+    entered = asyncio.Event()
+    cleaned_event = asyncio.Event()
+    cleaned: list[int] = []
+
+    async def ignores_supersede() -> int:
+        entered.set()
+        try:
+            await asyncio.get_running_loop().create_future()
+        except asyncio.CancelledError:
+            return 1  # completes successfully after being superseded
+        raise AssertionError("unreachable")
+
+    async def cancels_itself() -> int:
+        task = asyncio.current_task()
+        assert task is not None
+        task.cancel()
+        return await asyncio.get_running_loop().create_future()
+
+    steps: list[Callable[[], Awaitable[int]]] = [ignores_supersede, cancels_itself]
+
+    def cleanup(value: int) -> None:
+        cleaned.append(value)
+        cleaned_event.set()
+
+    vm = _vm(lambda: steps.pop(0)(), cleanup=cleanup)
+    changes: list[str] = []
+    vm.property_changed.subscribe(changes.append)
+    older = asyncio.ensure_future(vm.load())
+    await asyncio.wait_for(entered.wait(), _HANG_GUARD)
+    await vm.reload()
+    await asyncio.wait_for(older, _HANG_GUARD)
+    await asyncio.wait_for(cleaned_event.wait(), _HANG_GUARD)
+
+    assert cleaned == [1]  # the stale success is cleaned exactly once, never published
+    assert vm.state.status is AsyncResourceStatus.IDLE
+    assert changes == ["state", "state", "state"]  # Loading, Loading, rollback
+    _assert_commands(vm, load=True, reload=False)
