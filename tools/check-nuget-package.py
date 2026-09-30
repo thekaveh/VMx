@@ -10,6 +10,7 @@ import sys
 import xml.etree.ElementTree as ET
 from collections import Counter
 from pathlib import Path
+from urllib.parse import urlsplit
 from zipfile import BadZipFile, ZipFile
 
 REPO_URL = "https://github.com/thekaveh/VMx"
@@ -37,6 +38,45 @@ _PACKAGE_DEPENDENCIES = {
         for framework, dependencies in _CORE_DEPENDENCIES.items()
     },
 }
+
+
+# A .nupkg carries none of the repository's files, so every README link and
+# image must be absolute. NuGet renders images only from trusted hosts and
+# formats; VMx keeps its package READMEs to one host and raster formats.
+README_IMAGE_HOSTS = {"raw.githubusercontent.com"}
+README_IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".gif")
+_FENCED_CODE = re.compile(r"^(```|~~~).*?^\1[^\n]*$", re.MULTILINE | re.DOTALL)
+_INLINE_CODE = re.compile(r"`[^`\n]*`")
+_MARKDOWN_TARGET = re.compile(r"(!?)\[[^\]]*\]\(\s*<?([^)\s>]+)>?(?:\s+\"[^\"]*\")?\s*\)")
+_HTML_TARGET = re.compile(
+    r"""<(img|a|source)\b[^>]*?\b(?:src|href|srcset)\s*=\s*["']([^"']+)["']""", re.IGNORECASE
+)
+_REFERENCE_TARGET = re.compile(r"^ {0,3}\[[^\]]+\]:\s*<?(\S+?)>?(?:\s|$)", re.MULTILINE)
+
+
+def validate_readme(text: str, package_id: str) -> list[str]:
+    """Return errors for a packaged README that would not render outside the repository."""
+    errors: list[str] = []
+    first_line = next((line.strip() for line in text.splitlines() if line.strip()), "")
+    if first_line != f"# {package_id}":
+        errors.append(f"README must open with the heading '# {package_id}'")
+    prose = _INLINE_CODE.sub("", _FENCED_CODE.sub("", text))
+    targets = [(bang == "!", url) for bang, url in _MARKDOWN_TARGET.findall(prose)]
+    targets += [(tag.lower() != "a", url) for tag, url in _HTML_TARGET.findall(prose)]
+    targets += [(False, url) for url in _REFERENCE_TARGET.findall(prose)]
+    for is_image, url in targets:
+        kind = "image" if is_image else "link"
+        if url.startswith("#") and not is_image:
+            continue
+        parts = urlsplit(url)
+        if parts.scheme != "https" or not parts.netloc:
+            errors.append(f"README {kind} must be an absolute https URL: {url}")
+            continue
+        if is_image and parts.netloc not in README_IMAGE_HOSTS:
+            errors.append(f"README image host is not allowed: {url}")
+        elif is_image and not parts.path.lower().endswith(README_IMAGE_SUFFIXES):
+            errors.append(f"README image must be PNG, JPEG, or GIF: {url}")
+    return errors
 
 
 def expected_paths(package_id: str, *, symbols: bool) -> set[str]:
@@ -162,6 +202,14 @@ def validate_package_pair(
                     errors.append(f"{archive.name}: missing package file: {path}")
                 for path in sorted(normalized - expected):
                     errors.append(f"{archive.name}: unexpected package file: {path}")
+                if not symbols and "README.md" in paths:
+                    try:
+                        readme = package.read("README.md").decode("utf-8")
+                    except UnicodeDecodeError:
+                        errors.append(f"{archive.name}: README.md is not UTF-8")
+                    else:
+                        for error in validate_readme(readme, package_id):
+                            errors.append(f"{archive.name}: {error}")
                 nuspec = f"{package_id}.nuspec"
                 if nuspec in paths:
                     for error in _validate_nuspec(
