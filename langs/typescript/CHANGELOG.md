@@ -6,6 +6,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `PagedComposition` materializes a direct one-shot iterator source, such as a
+  generator object, once at construction, as Python does, so `items`, `count`,
+  and `pageCount` stay coherent in any read order. Arrays, `ObservableList`,
+  other repeatable iterables, and factories stay live; a throwing one-shot
+  source fails construction without leaving subscriptions behind (#352).
+
 ## [3.24.0] — 2026-07-25
 
 ### Added

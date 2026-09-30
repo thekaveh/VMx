@@ -265,3 +265,158 @@ describe("PagedComposition – replace reactivity", () => {
     sut.dispose();
   });
 });
+
+// ── Source shapes (#352) ─────────────────────────────────────────────────────
+
+function* numbers(...values: number[]): Generator<number> {
+  yield* values;
+}
+
+describe("PagedComposition – source shapes", () => {
+  it("reads a finite direct generator coherently in any order", () => {
+    const sut = new PagedComposition(numbers(1, 2, 3), 2);
+
+    expect(sut.pageCount).toBe(2);
+    expect(sut.items).toEqual([1, 2]);
+    expect(sut.pageCount).toBe(2);
+    expect(sut.count).toBe(2);
+    sut.moveToNextPage();
+    expect(sut.items).toEqual([3]);
+    expect(sut.items).toEqual([3]);
+    sut.pageSize = 0;
+    expect(sut.items).toEqual([1, 2, 3]);
+    expect(sut.pageCount).toBe(1);
+    sut.pageSize = 1;
+    sut.moveToLastPage();
+    expect(sut.currentPageIndex).toBe(2);
+    expect(sut.items).toEqual([3]);
+    sut.dispose();
+  });
+
+  it("materializes a direct generator once, before the first read", () => {
+    let pulls = 0;
+    function* counted(): Generator<number> {
+      for (const value of [1, 2, 3]) {
+        pulls += 1;
+        yield value;
+      }
+    }
+    const sut = new PagedComposition(counted(), 2);
+
+    expect(pulls).toBe(3);
+    void sut.items;
+    void sut.pageCount;
+    expect(pulls).toBe(3);
+    sut.dispose();
+  });
+
+  it("treats an empty generator as an empty source", () => {
+    const sut = new PagedComposition(numbers(), 3);
+
+    expect(sut.pageCount).toBe(0);
+    expect(sut.items).toEqual([]);
+    expect(sut.count).toBe(0);
+    sut.moveToNextPage();
+    expect(sut.currentPageIndex).toBe(0);
+    sut.dispose();
+  });
+
+  it("keeps a repeatable array live", () => {
+    const source = [1, 2, 3];
+    const sut = new PagedComposition(source, 2);
+    expect(sut.pageCount).toBe(2);
+
+    source.push(4, 5);
+
+    expect(sut.pageCount).toBe(3);
+    sut.moveToLastPage();
+    expect(sut.items).toEqual([5]);
+    sut.dispose();
+  });
+
+  it("keeps a live ObservableList and reflects its mutations", () => {
+    const source = new ObservableList<number>();
+    source.push(1);
+    source.push(2);
+    const sut = new PagedComposition(source, 2);
+    const changes: string[] = [];
+    sut.propertyChanged.subscribe((name) => changes.push(name));
+
+    source.push(3);
+
+    expect(sut.pageCount).toBe(2);
+    expect(changes).toContain("items");
+    sut.moveToNextPage();
+    expect(sut.items).toEqual([3]);
+    sut.dispose();
+  });
+
+  it("re-evaluates a factory returning a fresh generator on every read", () => {
+    let length = 3;
+    const sut = new PagedComposition(() => numbers(...Array.from({ length }, (_, i) => i + 1)), 2);
+    expect(sut.pageCount).toBe(2);
+    expect(sut.items).toEqual([1, 2]);
+
+    length = 5;
+
+    expect(sut.pageCount).toBe(3);
+    sut.moveToLastPage();
+    expect(sut.items).toEqual([5]);
+    sut.dispose();
+  });
+
+  it("fails construction when a direct generator throws, leaving nothing behind", () => {
+    function* failing(): Generator<number> {
+      yield 1;
+      throw new Error("source failed");
+    }
+
+    expect(() => new PagedComposition(failing(), 2)).toThrow("source failed");
+  });
+
+  it("propagates a throwing factory read without changing pager state", () => {
+    let fail = false;
+    const sut = new PagedComposition(() => {
+      if (fail) throw new Error("factory failed");
+      return numbers(1, 2, 3);
+    }, 1);
+    sut.moveToLastPage();
+    expect(sut.currentPageIndex).toBe(2);
+
+    fail = true;
+    expect(() => sut.items).toThrow("factory failed");
+    expect(() => sut.pageCount).toThrow("factory failed");
+    expect(sut.currentPageIndex).toBe(2);
+
+    fail = false;
+    expect(sut.items).toEqual([3]);
+    sut.dispose();
+  });
+
+  it("snapshots item references without owning or disposing them", () => {
+    const disposals: string[] = [];
+    const item = (name: string) => ({ name, dispose: () => disposals.push(name) });
+    function* items(): Generator<{ name: string; dispose: () => number }> {
+      yield item("a");
+      yield item("b");
+    }
+    const sut = new PagedComposition(items(), 1);
+
+    expect(sut.items.map((entry) => entry.name)).toEqual(["a"]);
+    sut.dispose();
+
+    expect(disposals).toEqual([]);
+  });
+
+  it("keeps a repeatable custom iterable live instead of snapshotting it", () => {
+    const values = [1, 2];
+    const iterable: Iterable<number> = { [Symbol.iterator]: () => values[Symbol.iterator]() };
+    const sut = new PagedComposition(iterable, 1);
+    expect(sut.pageCount).toBe(2);
+
+    values.push(3);
+
+    expect(sut.pageCount).toBe(3);
+    sut.dispose();
+  });
+});

@@ -351,6 +351,32 @@ observed one Reset instead of the former Reset plus 13 add events: 14
 adapter-visible collection notifications became one. The pilot was validation
 only and was not pushed to NNx Studio.
 
+### 6.7.7.5. Paging a one-shot source
+
+`PagedComposition` decorates a live source: arrays, `ObservableList`, other
+repeatable iterables, and factories are enumerated again on every read, so
+their changes stay visible. A source that can be enumerated only once is
+materialized when the pager is constructed. In TypeScript that is a direct
+iterator such as a generator object; in Python it is any `Iterator`. C#, Swift,
+and Rust take a repeatable collection, so the case does not arise there.
+
+```ts
+function* notes() {
+  yield* loadNotes();
+}
+
+// One-shot: materialized once; later reads page the same snapshot.
+const snapshot = new PagedComposition(notes(), 20);
+
+// Live: the factory returns a fresh generator for every read.
+const live = new PagedComposition(() => notes(), 20);
+```
+
+If enumerating a one-shot source throws, construction throws and no pager
+exists. A factory that throws fails only that read; the page index is
+unchanged. Snapshots hold item references only; the pager never disposes the
+items it pages.
+
 ## 6.7.8. Common Pitfalls
 
 - Mutating a builder and expecting in-place changes. Builder setters return new
