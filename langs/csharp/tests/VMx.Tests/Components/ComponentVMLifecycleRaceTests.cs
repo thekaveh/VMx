@@ -47,7 +47,7 @@ public class ComponentVMLifecycleRaceTests
             .Model("first")
             .OnConstruct(() =>
             {
-                barrier.SignalAndWait(TimeSpan.FromSeconds(2));
+                barrier.SignalAndWait(TimeSpan.FromSeconds(30));
                 second!.Dispose();
             })
             .Build();
@@ -57,13 +57,26 @@ public class ComponentVMLifecycleRaceTests
             .Model("second")
             .OnConstruct(() =>
             {
-                barrier.SignalAndWait(TimeSpan.FromSeconds(2));
+                barrier.SignalAndWait(TimeSpan.FromSeconds(30));
                 first.Dispose();
             })
             .Build();
 
-        var transitions = Task.WhenAll(Task.Run(first.Construct), Task.Run(second.Construct));
-        (await Task.WhenAny(transitions, Task.Delay(TimeSpan.FromSeconds(3))))
+        // The constructions block in each other's hooks by design, so they run on
+        // dedicated threads: progress must not depend on thread-pool injection
+        // under the parallel runner. Timeouts are hang guards only.
+        var transitions = Task.WhenAll(
+            Task.Factory.StartNew(
+                first.Construct,
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default),
+            Task.Factory.StartNew(
+                second.Construct,
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default));
+        (await Task.WhenAny(transitions, Task.Delay(TimeSpan.FromSeconds(30))))
             .Should().BeSameAs(transitions, "cross-disposal from admitted hooks must not deadlock");
         await transitions;
         first.Status.Should().Be(ConstructionStatus.Disposed);
@@ -602,11 +615,23 @@ public class ComponentVMLifecycleRaceTests
                 first.Dispose();
             });
 
+        // The observers block in each other's callbacks by design, so the
+        // constructions run on dedicated threads: progress must not depend on
+        // thread-pool injection under the parallel runner. The wait is a hang
+        // guard only.
         var transitions = Task.WhenAll(
-            Task.Run(first.Construct),
-            Task.Run(second.Construct));
+            Task.Factory.StartNew(
+                first.Construct,
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default),
+            Task.Factory.StartNew(
+                second.Construct,
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default));
 
-        await transitions.WaitAsync(TimeSpan.FromSeconds(5));
+        await transitions.WaitAsync(TimeSpan.FromSeconds(30));
         first.Status.Should().Be(ConstructionStatus.Disposed);
         second.Status.Should().Be(ConstructionStatus.Disposed);
     }
