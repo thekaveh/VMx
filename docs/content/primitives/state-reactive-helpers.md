@@ -80,6 +80,30 @@ operation's signal is not aborted) as an ordinary loader fault, and Rust loaders
 report outcomes through `VmxResult`, so every flavor leaves Loading with a
 visible terminal state.
 
+```python
+async def load_profile() -> str:
+    # Another owner may cancel the shared request. The CancelledError that
+    # reaches this loader settles the VM like Cancel; it never stays Loading.
+    return await profiles.shared_request()
+
+profile = AsyncResourceVM(
+    name="profile",
+    loader=load_profile,
+    hub=hub,
+    dispatcher=dispatcher,
+    retention=AsyncResourceRetention.RETAIN_PREVIOUS,
+)
+await profile.load()  # Ready("ada")
+await profile.reload()  # the shared request is cancelled mid-flight
+
+assert profile.state.status is AsyncResourceStatus.READY
+assert profile.state.value == "ada"  # the retained value is restored
+assert profile.reload_command.can_execute()  # the next reload is admitted
+```
+
+This recipe runs as
+`langs/python/tests/unit/state/test_async_resource_cancellation_recipe.py`.
+
 ```typescript
 const profile = new AsyncResourceVM({
   name: "profile",
