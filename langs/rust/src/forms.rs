@@ -8,8 +8,15 @@ type FormPersister<M> = Arc<dyn Fn(&M) -> VmxResult<()> + Send + Sync>;
 type FormSnapshotter<M> = Arc<dyn Fn(&M) -> M + Send + Sync>;
 type FormResetOnApproved<M> = Arc<dyn Fn(&M) -> VmxResult<M> + Send + Sync>;
 type FieldValidator<M> = Arc<dyn Fn(&M) -> Option<String> + Send + Sync>;
-type ModelValidator<M> = Arc<dyn Fn(&M) -> BTreeMap<String, String> + Send + Sync>;
+type ModelValidator<M> = Arc<dyn Fn(&M) -> BTreeMap<String, Option<String>> + Send + Sync>;
 type ApprovedCallback<M> = Arc<dyn Fn(M) + Send + Sync>;
+
+fn error_updates(errors: BTreeMap<String, String>) -> BTreeMap<String, Option<String>> {
+    errors
+        .into_iter()
+        .map(|(field, error)| (field, Some(error)))
+        .collect()
+}
 
 struct ApprovalPublication<M> {
     pre_publishing: bool,
@@ -122,7 +129,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             validator(model)
                 .into_iter()
                 .enumerate()
-                .map(|(index, error)| (index.to_string(), error))
+                .map(|(index, error)| (index.to_string(), Some(error)))
                 .collect()
         }));
         self.validate();
@@ -142,9 +149,26 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     }
 
     /// Adds a validator that returns a field-keyed error map.
+    ///
+    /// This string-map form can only add or replace errors. It is the
+    /// compatibility path for [`FormVm::with_clearing_model_validator`]: every
+    /// returned entry becomes `Some(error)`.
     pub fn with_model_validator<F>(&self, validator: F)
     where
         F: Fn(&M) -> BTreeMap<String, String> + Send + Sync + 'static,
+    {
+        self.with_clearing_model_validator(move |model| error_updates(validator(model)));
+    }
+
+    /// Adds a model validator that can add, replace, or clear field errors.
+    ///
+    /// Model validators run after every field validator, in registration order.
+    /// `Some(error)` sets the field's error (an empty string is still an error),
+    /// `None` removes an error set by a field validator or an earlier model
+    /// validator, and an omitted field keeps its current entry.
+    pub fn with_clearing_model_validator<F>(&self, validator: F)
+    where
+        F: Fn(&M) -> BTreeMap<String, Option<String>> + Send + Sync + 'static,
     {
         let could_approve = self.can_approve();
         lock(&self.model_validators).push(Arc::new(validator));
@@ -403,7 +427,16 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         }
         let model_validators = lock(&self.model_validators).clone();
         for validator in model_validators {
-            next.extend(validator(model));
+            for (field, update) in validator(model) {
+                match update {
+                    Some(error) => {
+                        next.insert(field, error);
+                    }
+                    None => {
+                        next.remove(&field);
+                    }
+                }
+            }
         }
         next
     }
@@ -541,9 +574,23 @@ impl<M: Clone + PartialEq + Send + 'static> FormVmBuilder<M> {
     }
 
     /// Adds a whole-model validator returning field-keyed errors.
-    pub fn model_validator<F>(mut self, validator: F) -> Self
+    ///
+    /// This string-map form can only add or replace errors. It is the
+    /// compatibility path for [`FormVmBuilder::clearing_model_validator`]:
+    /// every returned entry becomes `Some(error)`.
+    pub fn model_validator<F>(self, validator: F) -> Self
     where
         F: Fn(&M) -> BTreeMap<String, String> + Send + Sync + 'static,
+    {
+        self.clearing_model_validator(move |model| error_updates(validator(model)))
+    }
+
+    /// Adds a whole-model validator that can add, replace, or clear field
+    /// errors, with the same semantics as
+    /// [`FormVm::with_clearing_model_validator`].
+    pub fn clearing_model_validator<F>(mut self, validator: F) -> Self
+    where
+        F: Fn(&M) -> BTreeMap<String, Option<String>> + Send + Sync + 'static,
     {
         self.model_validators.push(Arc::new(validator));
         self

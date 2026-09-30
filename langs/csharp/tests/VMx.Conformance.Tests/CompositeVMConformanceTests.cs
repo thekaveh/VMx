@@ -629,9 +629,20 @@ public class CompositeVMConformanceTests
         compositeA.Construct();
         compositeB.Construct();
 
-        var taskA = Task.Run(() => compositeA.SelectComponent(childA));
-        var taskB = Task.Run(() => compositeB.SelectComponent(childB));
-        await Task.WhenAll(taskA, taskB).WaitAsync(TimeSpan.FromSeconds(2));
+        // The selections block in each other's callbacks by design, so they run
+        // on dedicated threads: progress must not depend on thread-pool injection
+        // under the parallel runner. The wait is a hang guard only.
+        var taskA = Task.Factory.StartNew(
+            () => compositeA.SelectComponent(childA),
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
+        var taskB = Task.Factory.StartNew(
+            () => compositeB.SelectComponent(childB),
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
+        await Task.WhenAll(taskA, taskB).WaitAsync(TimeSpan.FromSeconds(30));
 
         compositeA.Current.Should().BeSameAs(childA);
         compositeB.Current.Should().BeSameAs(childB);

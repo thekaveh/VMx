@@ -113,8 +113,10 @@ yarn-error.log*
 # examples/typescript/react/notes-showcase) ARE tracked. Any future ad-hoc
 # example projects placed directly under examples/typescript/<dir>/ are
 # excluded by the glob below (single-* doesn't recurse, so the two committed
-# examples one level deeper are unaffected).
+# examples one level deeper are unaffected). The integration-recipes fixture
+# runs `npm ci` in CI, so its lockfile is re-included explicitly.
 examples/typescript/*/package-lock.json
+!/examples/typescript/integration-recipes/package-lock.json
 
 # ─── Build / coverage artifacts ───────────────────────────────────────
 coverage/

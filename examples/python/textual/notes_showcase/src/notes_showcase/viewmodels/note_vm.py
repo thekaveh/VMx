@@ -212,9 +212,11 @@ class NoteVM(
     def _on_dispose(self) -> None:
         self._close_command.dispose()
         self._save_command.dispose()
-        # ConfirmationDecoratorCommand owns nothing to dispose in VMx-Py; dispose
-        # the raw inner RelayCommand explicitly so its can_execute subscriptions
-        # don't leak when the delete command is decorated (matches the TS flavor).
+        # The confirmation wrapper does not own its inner command (ADR-0134), so
+        # dispose both: the wrapper makes a pending confirmation inert and
+        # completes its errors channel; the inner releases its subscriptions.
+        if isinstance(self._delete_command, ConfirmationDecoratorCommand):
+            self._delete_command.dispose()
         self._inner_delete_command.dispose()
         super()._on_dispose()
 

@@ -5,6 +5,15 @@ uses independent [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.1] - unreleased source version
+
+### Fixed
+
+- `useDerivedProperty` renders a delayed first value as soon as it arrives
+  instead of `undefined` until a second, different value. It observes the core's
+  internal first-value seam, so the `@thekaveh/vmx` peer minimum rises to
+  3.24.1 (#415).
+
 ## [0.1.0] - 2026-08-10
 
 ### Added
