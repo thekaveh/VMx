@@ -4,6 +4,7 @@ import argparse
 import html
 import os
 import re
+import textwrap
 import unicodedata
 from dataclasses import dataclass
 from html.parser import HTMLParser
@@ -679,6 +680,87 @@ def check_placeholders(repo_root: Path) -> list[Finding]:
     return findings
 
 
+CHECKED_SNIPPET_RE = re.compile(
+    r"^<!-- checked-snippet: (?P<path>[^#\s]+)(?:#(?P<region>[\w-]+))? -->$"
+)
+FENCE_OPEN_RE = re.compile(r"^(?P<fence>`{3,}|~{3,})")
+
+
+def _snippet_source(repo_root: Path, rel: str, region: str | None) -> tuple[str | None, str]:
+    """Return (text, problem) for a checked-snippet source or one named region of it."""
+    path = repo_root / rel
+    if not path.is_file():
+        return None, f"source {rel} does not exist"
+    text = path.read_text(encoding="utf-8")
+    if region is None:
+        return text, ""
+    lines = text.splitlines()
+    starts = [i for i, line in enumerate(lines) if f"docs-snippet:start {region}" in line]
+    ends = [i for i, line in enumerate(lines) if f"docs-snippet:end {region}" in line]
+    if len(starts) != 1 or len(ends) != 1 or ends[0] <= starts[0]:
+        return None, f"source {rel} needs exactly one docs-snippet:start/end pair for {region!r}"
+    body = "\n".join(lines[starts[0] + 1 : ends[0]])
+    return textwrap.dedent(body).rstrip("\n") + "\n", ""
+
+
+def _checked_fences(markdown: str) -> list[tuple[int, str, str | None, str | None]]:
+    """(line, path, region, fence body or None when no fence follows the marker)."""
+    lines = markdown.splitlines()
+    found = []
+    for index, line in enumerate(lines):
+        marker = CHECKED_SNIPPET_RE.match(line.strip())
+        if marker is None:
+            continue
+        body = None
+        opener = index + 1
+        while opener < len(lines) and not lines[opener].strip():
+            opener += 1
+        fence = FENCE_OPEN_RE.match(lines[opener]) if opener < len(lines) else None
+        if fence is not None:
+            closing = next(
+                (
+                    end
+                    for end in range(opener + 1, len(lines))
+                    if lines[end].strip() == fence.group("fence")
+                ),
+                None,
+            )
+            if closing is not None:
+                body = "\n".join(lines[opener + 1 : closing]) + "\n"
+        found.append((index + 1, marker.group("path"), marker.group("region"), body))
+    return found
+
+
+def check_checked_snippets(repo_root: Path) -> list[Finding]:
+    """Every `<!-- checked-snippet: path[#region] -->` fence equals its checked source.
+
+    The source is a file that a test suite or build compiles and runs, so the page
+    cannot show a stale copy. Generated site and wiki pages carry the same fence and
+    are checked the same way.
+    """
+    findings: list[Finding] = []
+    for root in (
+        repo_root / "docs/content",
+        repo_root / "generated/site",
+        repo_root / "generated/wiki",
+    ):
+        for page in _scan_markdown(root):
+            for line, rel, region, body in _checked_fences(page.read_text(encoding="utf-8")):
+                where = f"{page}:{line}"
+                if body is None:
+                    findings.append(Finding("error", f"{where}: checked snippet has no fence"))
+                    continue
+                source, problem = _snippet_source(repo_root, rel, region)
+                if source is None:
+                    findings.append(Finding("error", f"{where}: {problem}"))
+                elif body != source:
+                    label = f"{rel}#{region}" if region else rel
+                    findings.append(
+                        Finding("error", f"{where}: fence differs from checked source {label}")
+                    )
+    return findings
+
+
 def check(repo_root: Path) -> list[Finding]:
     build_docs.build(site=True, wiki=True, check=True, repo_root=repo_root)
     findings: list[Finding] = []
@@ -693,6 +775,7 @@ def check(repo_root: Path) -> list[Finding]:
     findings.extend(check_completeness(repo_root))
     findings.extend(check_heading_numbers(repo_root))
     findings.extend(check_placeholders(repo_root))
+    findings.extend(check_checked_snippets(repo_root))
     return findings
 
 
