@@ -10,6 +10,7 @@ on:
       - "langs/typescript/**"
       - "packages/react/**"
       - "examples/typescript/**"
+      - "examples/notes-showcase-scenario.json"
       - "spec/**"
       - "tools/check-typescript-package.py"
       - "tools/smoke-npm-consumer.py"

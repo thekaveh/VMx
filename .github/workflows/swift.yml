@@ -10,6 +10,7 @@ on:
       - "Package.swift"
       - "langs/swift/**"
       - "examples/swift/**"
+      - "examples/notes-showcase-scenario.json"
       - "spec/**"
       - "tools/check-swift-package-sync.py"
       - ".github/workflows/swift.yml"

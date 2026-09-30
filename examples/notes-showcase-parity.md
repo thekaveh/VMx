@@ -2,9 +2,23 @@
 
 The Notes Workspace is the VMx flagship UI example portfolio: one scenario
 (`spec/proposals/2026-05-29-notes-showcase-scenario.md`), implemented by the
-UI-backed flavors through one language-neutral VM API. This document is the
-single-page proof that every spec feature in scope is exercised by every
-UI-backed flavor.
+UI-backed flavors through one language-neutral VM API. This matrix records
+where every in-scope spec feature is exercised in each UI-backed flavor. Two
+separate checks back it:
+
+- **Structural:** `tools/check-showcase-parity.py` requires every flavor to ship
+  the same per-VM test files and the five `THEME-00x` scenario markers. It
+  checks names and markers only, not what the tests assert.
+- **Behavioral:** the shared scenario
+  [`notes-showcase-scenario.json`](notes-showcase-scenario.json) (`notes-lifecycle-v1`)
+  runs one bounded workspace lifecycle in every flagship: construct, create,
+  select, edit, an invalid title, save, a declined delete, a theme change, a
+  rejected theme, and teardown. Each flavor's suite compares every step's
+  semantic snapshot (notes order, selection, form state, theme, domain events,
+  error kind, disposal) with the same expectation. A mismatch fails that suite
+  with the flavor, step, and differing value. The file lists the only
+  normalized differences, all idiomatic per ADR-0006; event order is never
+  normalized.
 
 Published walkthroughs:
 [Notes Workspace](../docs/content/examples/notes-workspace.md),

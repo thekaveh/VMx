@@ -9,6 +9,7 @@ on:
     paths:
       - "langs/csharp/**"
       - "examples/csharp/**"
+      - "examples/notes-showcase-scenario.json"
       - "spec/**"
       - "tools/check-nuget-package.py"
       - "tools/check-cobertura-threshold.py"

@@ -1,8 +1,11 @@
 """Unit tests for tools/check-showcase-parity.py."""
 
+import json
 from pathlib import Path
 
 import check_showcase_parity as csp
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _build_valid_tree(root: Path) -> None:
@@ -40,6 +43,13 @@ def _build_valid_tree(root: Path) -> None:
     scope_doc = root / csp.RUST_SCOPE_DOC
     scope_doc.parent.mkdir(parents=True, exist_ok=True)
     scope_doc.write_text("\n".join(csp.RUST_SCOPE_TERMS), encoding="utf-8")
+    (root / csp.SCENARIO).write_text(
+        (REPO_ROOT / csp.SCENARIO).read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    for flavor, directory in (("csharp", cs), ("python", py), ("typescript", ts), ("swift", sw)):
+        (directory / csp.SCENARIO_ADAPTERS[flavor]).write_text(
+            f"// loads {csp.SCENARIO.name}\n", encoding="utf-8"
+        )
 
 
 def test_expected_keys_pascal_case_for_csharp() -> None:
@@ -142,3 +152,65 @@ def test_main_returns_one_when_rust_reduced_scope_is_ambiguous(
     monkeypatch.setattr("sys.argv", ["check-showcase-parity.py", "--root", str(tmp_path)])
     assert csp.main() == 1
     assert "reduced-companion scope" in capsys.readouterr().err
+
+
+def test_output_labels_structural_and_behavioral_checks(tmp_path, monkeypatch, capsys) -> None:
+    _build_valid_tree(tmp_path)
+    monkeypatch.setattr("sys.argv", ["check-showcase-parity.py", "--root", str(tmp_path)])
+
+    assert csp.main() == 0
+    out = capsys.readouterr().out
+    assert "[OK] structural parity:" in out and "names and markers only" in out
+    assert "[OK] behavioral parity: shared scenario 'notes-lifecycle-v1'" in out
+
+
+def test_main_returns_one_when_a_flavor_lacks_the_scenario_adapter(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    _build_valid_tree(tmp_path)
+    (tmp_path / "examples/swift/notes-showcase/Tests" / csp.SCENARIO_ADAPTERS["swift"]).unlink()
+
+    monkeypatch.setattr("sys.argv", ["check-showcase-parity.py", "--root", str(tmp_path)])
+    assert csp.main() == 1
+    assert "swift: no shared-scenario adapter" in capsys.readouterr().err
+
+
+def test_main_returns_one_when_an_adapter_does_not_load_the_scenario(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    _build_valid_tree(tmp_path)
+    adapter = (
+        tmp_path / "examples/csharp/avalonia/NotesShowcase.Tests" / csp.SCENARIO_ADAPTERS["csharp"]
+    )
+    adapter.write_text("// a stub that asserts nothing\n", encoding="utf-8")
+
+    monkeypatch.setattr("sys.argv", ["check-showcase-parity.py", "--root", str(tmp_path)])
+    assert csp.main() == 1
+    assert "does not load notes-showcase-scenario.json" in capsys.readouterr().err
+
+
+def test_main_returns_one_when_the_scenario_drops_a_required_path(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    _build_valid_tree(tmp_path)
+    path = tmp_path / csp.SCENARIO
+    scenario = json.loads(path.read_text(encoding="utf-8"))
+    scenario["steps"] = [
+        step
+        for step in scenario["steps"]
+        if step["action"] != "delete_selected_declined" and step["expect"].get("error") is None
+    ]
+    path.write_text(json.dumps(scenario), encoding="utf-8")
+
+    monkeypatch.setattr("sys.argv", ["check-showcase-parity.py", "--root", str(tmp_path)])
+    assert csp.main() == 1
+    err = capsys.readouterr().err
+    assert "['delete_selected_declined']" in err
+    assert "no step expects a rejected operation" in err
+
+
+def test_scenario_must_end_with_an_asserted_teardown() -> None:
+    scenario = json.loads((REPO_ROOT / csp.SCENARIO).read_text(encoding="utf-8"))
+    scenario["steps"] = scenario["steps"][:-1]
+
+    assert "the scenario does not end with an asserted teardown" in csp._scenario_problems(scenario)

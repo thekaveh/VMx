@@ -9,6 +9,7 @@ on:
     paths:
       - "langs/python/**"
       - "examples/python/**"
+      - "examples/notes-showcase-scenario.json"
       - "spec/**"
       - ".github/workflows/python.yml"
       - "tools/check-python-interpreter.py"

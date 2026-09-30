@@ -259,8 +259,10 @@ def _scenario_problems(scenario: object) -> list[str]:
     if not scenario.get("normalization"):
         problems.append("the scenario lists no normalization rules")
     for number, step in enumerate(steps, start=1):
-        if not isinstance(step, dict) or "action" not in step or not isinstance(
-            step.get("expect"), dict
+        if (
+            not isinstance(step, dict)
+            or "action" not in step
+            or not isinstance(step.get("expect"), dict)
         ):
             problems.append(f"step {number} needs an action and an expect object")
     if problems:
