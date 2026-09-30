@@ -614,11 +614,12 @@ See ADR-0128 and chapter 22.
 ### 1.35 v3.23.0 → v3.24.0 changes
 
 v3.24.0 makes disposed command wrappers inert. A disposed `CompositeCommand`,
-`DecoratorCommand`, or `ConfirmationDecoratorCommand` reports `CanExecute ==
-false` and runs no inner work; disposal observed during execution stops further
-inner work while a decorator's admitted pre/post pair stays balanced; and a
-confirmation that resolves after disposal runs nothing (`CMDD-011..013`). The
-catalog now contains 406 library IDs plus 5 scenario IDs.
+`DecoratorCommand`, or `ConfirmationDecoratorCommand` reports
+`CanExecute == false` and runs no inner work; disposal observed during
+execution stops further inner work while a decorator's admitted pre/post pair
+stays balanced; and a confirmation that resolves after disposal runs nothing
+(`CMDD-011..013`). The catalog now contains 406 library IDs plus 5 scenario
+IDs.
 
 See ADR-0134 and chapter 04.
 
