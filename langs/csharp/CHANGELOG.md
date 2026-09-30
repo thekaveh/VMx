@@ -8,9 +8,19 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
+- The NuGet package ships a dedicated README with absolute image and
+  documentation links instead of the repository README, whose relative
+  `assets/` images and repository links cannot resolve from a `.nupkg` (#351).
+
 ### VMx.Notifications
 
+- The NuGet package ships its own README describing the notification hub and
+  its dependency on `VMx` (#351).
+
 ### VMx.Extensions.DependencyInjection
+
+- The NuGet package ships its own README describing `AddVMx()` registration
+  and its dependency on `VMx` (#351).
 
 ## [3.23.0] — 2026-07-25
 
