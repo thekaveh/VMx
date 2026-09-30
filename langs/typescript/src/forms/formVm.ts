@@ -395,7 +395,7 @@ export class FormVM<TM> {
     this.#usesDefaultSnapshotter = snapshotter === undefined;
     this.#snapshotter = snapshotter ?? ((m: TM) => structuredClone(m));
     this.#equals = equals ?? ((a: TM, b: TM) => deepEquals(a, b));
-    this.#validators = { ...(validators ?? {}) };
+    this.#validators = fieldRecord(validators);
     this.#modelValidator = modelValidator ?? null;
     this.#resetOnApproved = resetOnApproved ?? null;
 
@@ -487,7 +487,7 @@ export class FormVM<TM> {
 
   /** Return the current validation error for a field, if any. */
   fieldError(field: string): string | undefined {
-    return this.#errors[field];
+    return ownValue(this.#errors, field);
   }
 
   // ── Mutation ───────────────────────────────────────────────────────────────
@@ -663,7 +663,7 @@ export class FormVM<TM> {
   }
 
   #validate(model: TM): Record<string, string> {
-    const errors: Record<string, string> = {};
+    const errors = fieldRecord<string>();
     for (const [field, validator] of Object.entries(this.#validators)) {
       const error = validator(model);
       if (error !== null && error !== undefined) errors[field] = error;
@@ -702,9 +702,27 @@ function sameErrors(a: Record<string, string>, b: Record<string, string>): boole
   const bKeys = Object.keys(b);
   if (aKeys.length !== bKeys.length) return false;
   for (const key of aKeys) {
-    if (a[key] !== b[key]) return false;
+    if (ownValue(b, key) !== a[key]) return false;
   }
   return true;
+}
+
+/**
+ * Field names are data. Validator and error maps are null-prototype records, so
+ * names such as `__proto__`, `constructor`, or `toString` are ordinary own keys
+ * and no inherited member leaks into a lookup. Public snapshots are spread into
+ * plain objects, which keeps every key as an own, enumerable property.
+ */
+function fieldRecord<V>(source?: Readonly<Record<string, V>>): Record<string, V> {
+  const record = Object.create(null) as Record<string, V>;
+  if (source !== undefined) {
+    for (const key of Object.keys(source)) record[key] = source[key] as V;
+  }
+  return record;
+}
+
+function ownValue<V>(record: Readonly<Record<string, V>>, key: string): V | undefined {
+  return Object.prototype.hasOwnProperty.call(record, key) ? record[key] : undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -731,7 +749,7 @@ export class FormVMBuilder<TM> {
   #strict = false;
   #snapshotter: Snapshotter<TM> | null = null;
   #equals: ModelEquals<TM> | null = null;
-  #validators: Record<string, FieldValidator<TM>> = {};
+  #validators: Record<string, FieldValidator<TM>> = fieldRecord();
   #modelValidator: ModelValidator<TM> | null = null;
   #resetOnApproved: ResetOnApproved<TM> | null = null;
 
@@ -744,7 +762,7 @@ export class FormVMBuilder<TM> {
       this.#strict = from.#strict;
       this.#snapshotter = from.#snapshotter;
       this.#equals = from.#equals;
-      this.#validators = { ...from.#validators };
+      this.#validators = fieldRecord(from.#validators);
       this.#modelValidator = from.#modelValidator;
       this.#resetOnApproved = from.#resetOnApproved;
     }
