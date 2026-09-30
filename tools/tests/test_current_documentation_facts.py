@@ -230,11 +230,13 @@ def test_current_rust_docs_match_cargo_package_version() -> None:
 
 
 def test_swift_conformance_ledger_counts_each_library_id_once() -> None:
+    catalog = (ROOT / "spec/12-conformance.md").read_text(encoding="utf-8")
+    library_count = len(set(re.findall(r"^### (?!THEME-)[A-Z]+-[0-9]{3}\b", catalog, re.MULTILINE)))
     ledger = (ROOT / "compatibility-matrix.md").read_text(encoding="utf-8")
     start = ledger.index("+50 leaf-area")
-    end = ledger.index("DISC-009", start)
+    end = ledger.index("THEME-001..005 covered by the", start)
     increments = [int(value) for value in re.findall(r"\+(\d+)", ledger[start:end])]
-    assert 44 + sum(increments) == 403
+    assert 44 + sum(increments) == library_count
     assert ledger[start:end].count("COMP-038..041") == 1
 
 

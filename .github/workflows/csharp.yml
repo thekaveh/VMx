@@ -243,6 +243,11 @@ jobs:
         # code-behind; the non-Windows fallback intentionally excludes them.
         run: dotnet build examples/csharp/wpf/TodoApp/WpfTodoApp.csproj -c Release
 
+      - name: Run the XAML adapter recipe on a WPF Dispatcher
+        # Worker-thread lifecycle and model changes must reach real WPF
+        # bindings on the Dispatcher thread (docs/content/integration/wpf.md).
+        run: dotnet run --project examples/csharp/wpf/RecipeHostCheck/RecipeHostCheck.csproj -c Release
+
   required:
     timeout-minutes: 5
     name: "required: csharp"

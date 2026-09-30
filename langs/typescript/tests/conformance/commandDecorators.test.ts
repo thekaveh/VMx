@@ -1,4 +1,4 @@
-// Conformance tests: CMDD-001..009 — command decorators.
+// Conformance tests: CMDD-001..013 — command decorators.
 // See spec/04-commands.md §Decorators and ADR-0012.
 
 import { Subject } from "rxjs";
@@ -186,6 +186,204 @@ describe("CMDD-010", () => {
     confirming.execute();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(innerErrors).toEqual([innerBoom]);
+  });
+});
+
+// Deferred confirmation for CMDD-012: resolves or rejects on demand.
+function deferred(): {
+  promise: Promise<boolean>;
+  resolve: (value: boolean) => void;
+  reject: (error: unknown) => void;
+} {
+  let resolve!: (value: boolean) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<boolean>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+describe("CMDD-011", () => {
+  it("disposed composite and decorator commands are inert and leave inner commands usable", () => {
+    const log: string[] = [];
+    const a = buildRecording(log, "a", true);
+    const b = buildRecording(log, "b", true);
+    const composite = new CompositeCommand(a, b);
+    composite.dispose();
+    composite.dispose();
+
+    expect(composite.canExecute()).toBe(false);
+    composite.execute();
+    expect(log).toEqual([]);
+
+    const inner = buildRecording(log, "inner", true);
+    const decorator = new DecoratorCommand(inner, {
+      extraPredicate: () => {
+        log.push("predicate");
+        return true;
+      },
+      preExecute: () => log.push("pre"),
+      postExecute: () => log.push("post"),
+    });
+    decorator.dispose();
+    decorator.dispose();
+
+    expect(decorator.canExecute()).toBe(false);
+    decorator.execute();
+    expect(log).toEqual([]);
+
+    // The inner commands were not disposed.
+    a.execute();
+    inner.execute();
+    expect(log).toEqual(["a", "inner"]);
+  });
+
+  it("wrapper disposal leaves the inner canExecuteChanged stream to its owner", () => {
+    const inner = RelayCommand.builder().task(() => {}).build();
+    let notifications = 0;
+    let completed = false;
+    inner.canExecuteChanged.subscribe({
+      next: () => notifications++,
+      complete: () => {
+        completed = true;
+      },
+    });
+
+    for (const wrapper of [
+      new CompositeCommand(inner),
+      new DecoratorCommand(inner),
+      new ConfirmationDecoratorCommand(inner, () => Promise.resolve(true)),
+    ]) {
+      wrapper.dispose();
+    }
+    inner.raiseCanExecuteChanged();
+
+    expect(notifications).toBe(1);
+    expect(completed).toBe(false);
+  });
+});
+
+describe("CMDD-012", () => {
+  it("a disposed confirmation decorator never consults confirm", async () => {
+    const log: string[] = [];
+    let confirms = 0;
+    const decorator = new ConfirmationDecoratorCommand(buildRecording(log, "inner", true), () => {
+      confirms += 1;
+      return Promise.resolve(true);
+    });
+    decorator.dispose();
+    decorator.dispose();
+
+    expect(decorator.canExecute()).toBe(false);
+    decorator.execute();
+    await decorator.executeAsync();
+    await settle();
+
+    expect(confirms).toBe(0);
+    expect(log).toEqual([]);
+  });
+
+  it.each([
+    ["true", (d: ReturnType<typeof deferred>) => d.resolve(true)],
+    ["false", (d: ReturnType<typeof deferred>) => d.resolve(false)],
+    ["faulted", (d: ReturnType<typeof deferred>) => d.reject(new Error("confirm failed"))],
+  ])(
+    "a confirmation resolving %s after disposal runs nothing and emits nothing",
+    async (_, settleWith) => {
+      const log: string[] = [];
+      const inner = buildRecording(log, "inner", true);
+      const pending = deferred();
+      const decorator = new ConfirmationDecoratorCommand(inner, () => pending.promise);
+      const errors: unknown[] = [];
+      let completed = false;
+      decorator.errors.subscribe({
+        next: (e) => errors.push(e),
+        complete: () => (completed = true),
+      });
+
+      decorator.execute();
+      decorator.dispose();
+      settleWith(pending);
+      await settle();
+
+      expect(log).toEqual([]);
+      expect(errors).toEqual([]);
+      expect(completed).toBe(true);
+      inner.execute();
+      expect(log).toEqual(["inner"]);
+    },
+  );
+});
+
+describe("CMDD-013", () => {
+  it("a composite runs no later child after an earlier child disposes it", () => {
+    const log: string[] = [];
+    let composite: CompositeCommand | null = null;
+    const disposer = RelayCommand.builder()
+      .task(() => {
+        log.push("first");
+        composite?.dispose();
+      })
+      .build();
+    composite = new CompositeCommand(disposer, buildRecording(log, "second", true));
+
+    composite.execute();
+
+    expect(log).toEqual(["first"]);
+  });
+
+  it("a decorator disposed by its extra predicate runs neither hook nor inner", () => {
+    const log: string[] = [];
+    let decorator: DecoratorCommand | null = null;
+    decorator = new DecoratorCommand(buildRecording(log, "inner", true), {
+      extraPredicate: () => {
+        decorator?.dispose();
+        return true;
+      },
+      preExecute: () => log.push("pre"),
+      postExecute: () => log.push("post"),
+    });
+
+    decorator.execute();
+
+    expect(log).toEqual([]);
+  });
+
+  it("a decorator disposed by its pre-action skips the inner but still runs post once", () => {
+    const log: string[] = [];
+    let decorator: DecoratorCommand | null = null;
+    decorator = new DecoratorCommand(buildRecording(log, "inner", true), {
+      preExecute: () => {
+        log.push("pre");
+        decorator?.dispose();
+      },
+      postExecute: () => log.push("post"),
+    });
+
+    decorator.execute();
+    decorator.execute();
+
+    expect(log).toEqual(["pre", "post"]);
+  });
+
+  it("an admitted pair whose inner throws still runs post once and rethrows", () => {
+    const log: string[] = [];
+    const boom = new Error("inner boom");
+    const throwing = RelayCommand.builder()
+      .task(() => {
+        throw boom;
+      })
+      .build();
+    const decorator = new DecoratorCommand(throwing, {
+      preExecute: () => log.push("pre"),
+      postExecute: () => log.push("post"),
+    });
+
+    expect(() => decorator.execute()).toThrow(boom);
+    expect(log).toEqual(["pre", "post"]);
   });
 });
 

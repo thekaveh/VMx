@@ -220,6 +220,31 @@ public sealed class NoteVMTests
         Assert.Same(vm, deleted);
     }
 
+    [Fact]
+    public async Task Disposing_the_VM_while_a_delete_confirmation_is_pending_deletes_nothing()
+    {
+        var hub = new MessageHub();
+        var dispatcher = new RxDispatcher(ImmediateScheduler.Instance, ImmediateScheduler.Instance);
+        NoteVM? deleted = null;
+        var decision = new TaskCompletionSource<bool>();
+        var model = new NoteModel("n", "nb", "T", Array.Empty<string>(), "", false,
+            DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        var vm = NoteVM.Builder()
+            .Name("note").Services(hub, dispatcher).Model(model)
+            .OnDelete(n => deleted = n)
+            .ConfirmDelete(_ => decision.Task)            // dialog still open
+            .Build();
+        vm.Construct();
+        var pending = ((ConfirmationDecoratorCommand)vm.DeleteCommand).ExecuteAsync(null);
+
+        vm.Dispose();
+        decision.SetResult(true);                         // user clicks "Yes" too late
+        await pending;
+
+        Assert.Null(deleted);
+        Assert.False(vm.DeleteCommand.CanExecute(null));
+    }
+
     // ── notification coverage: NoteVM publishes "Note deleted" notification ──
 
     [Fact]

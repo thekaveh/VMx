@@ -93,6 +93,11 @@ dotnet run
 `dotnet restore` and `dotnet build` succeed cross-platform; the app only
 launches on Windows because of the WPF target.
 
+`wpf/RecipeHostCheck/` is not an app. It runs the XAML adapter from the
+[WPF integration guide](../../docs/content/integration/wpf.md) against real WPF
+bindings on a Dispatcher thread, and the Windows CI job runs it with
+`dotnet run --project wpf/RecipeHostCheck/RecipeHostCheck.csproj`.
+
 ---
 
 ## 4. Example 3 — `avalonia/NotesShowcase/` (Avalonia + MVVM, flagship)
@@ -142,8 +147,10 @@ examples/csharp/
 │   └── HelloVMx/
 │       └── HelloVMx.csproj
 ├── wpf/
-│   └── TodoApp/
-│       └── WpfTodoApp.csproj
+│   ├── TodoApp/
+│   │   └── WpfTodoApp.csproj
+│   └── RecipeHostCheck/   # CI host check for the XAML adapter recipe
+│       └── RecipeHostCheck.csproj
 └── avalonia/
     ├── NotesShowcase/
     │   └── NotesShowcase.csproj
