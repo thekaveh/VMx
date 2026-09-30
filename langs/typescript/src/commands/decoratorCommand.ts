@@ -31,10 +31,11 @@ export class DecoratorCommand implements ICommand {
   }
 
   canExecute(): boolean {
-    if (!this.#inner.canExecute()) return false;
-    if (this.#extra === null) return true;
+    if (this.#disposed || !this.#inner.canExecute()) return false;
+    if (this.#extra === null) return !this.#isDisposed();
     try {
-      return this.#extra();
+      // The extra predicate may dispose the decorator.
+      return this.#extra() && !this.#isDisposed();
     } catch {
       return false;
     }
@@ -44,7 +45,9 @@ export class DecoratorCommand implements ICommand {
     if (!this.canExecute()) return;
     if (this.#pre) this.#pre();
     try {
-      this.#inner.execute();
+      // The pre-action may dispose the decorator: skip the inner command, but
+      // keep the admitted pre/post pair balanced (spec §8.4, ADR-0134).
+      if (!this.#isDisposed()) this.#inner.execute();
     } finally {
       // post runs whether or not the inner threw, so that a "busy" flag set
       // in preExecute always gets cleared.
@@ -53,11 +56,16 @@ export class DecoratorCommand implements ICommand {
   }
 
   /**
-   * Mark the decorator as disposed. Idempotent. `canExecuteChanged`
-   * delegates lazily to the inner command, so nothing is owned or released
-   * here — provided for teardown symmetry with the C# IDisposable surface.
+   * Make the decorator inert (spec §8.4, ADR-0134). Idempotent. The inner
+   * command stays owned by its creator. `canExecuteChanged` delegates lazily
+   * to the inner command, so nothing else is owned or released here.
    */
   dispose(): void {
     this.#disposed = true;
+  }
+
+  /** Re-reads disposal after a call-out that may have disposed this wrapper. */
+  #isDisposed(): boolean {
+    return this.#disposed;
   }
 }

@@ -220,7 +220,7 @@
       "vmx.notifications": {
         "type": "Project",
         "dependencies": {
-          "VMx": "[3.23.0, )"
+          "VMx": "[3.24.0, )"
         }
       }
     }

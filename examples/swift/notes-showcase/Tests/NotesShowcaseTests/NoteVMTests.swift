@@ -60,6 +60,39 @@ private enum PersistenceFailure: Error {
 
 // MARK: - NoteVMTests
 
+/// A delete confirmation that stays open until the test answers it.
+private final class PendingDecision: @unchecked Sendable {
+    let parked: XCTestExpectation
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Bool, Never>?
+    private var answer: Bool?
+
+    init(_ parked: XCTestExpectation) { self.parked = parked }
+
+    func wait() async -> Bool {
+        await withCheckedContinuation { continuation in
+            lock.lock()
+            if let answer {
+                lock.unlock()
+                continuation.resume(returning: answer)
+                return
+            }
+            self.continuation = continuation
+            lock.unlock()
+            parked.fulfill()
+        }
+    }
+
+    func answer(_ value: Bool) {
+        lock.lock()
+        let continuation = self.continuation
+        self.continuation = nil
+        if continuation == nil { answer = value }
+        lock.unlock()
+        continuation?.resume(returning: value)
+    }
+}
+
 final class NoteVMTests: XCTestCase {
 
     // MARK: - Helpers
@@ -261,6 +294,33 @@ final class NoteVMTests: XCTestCase {
 
         XCTAssertEqual(1, recorder.deletedItems.count)
         XCTAssertTrue(recorder.deletedItems.first === vm)
+    }
+
+    // MARK: - ConfirmationDecoratorCommand (disposed while the dialog is open)
+
+    func testDisposingTheVMWhileADeleteConfirmationIsPending_deletesNothing() async throws {
+        let recorder = NoteVMCallbackRecorder()
+        let decision = PendingDecision(expectation(description: "delete confirmation open"))
+        let vm = try NoteVM.builder()
+            .name("note")
+            .services(hub: MessageHub(), dispatcher: ImmediateDispatcher.INSTANCE)
+            .model(makeModel())
+            .onDelete({ [weak recorder] item in recorder?.deletedItems.append(item) })
+            .confirmDelete({ await decision.wait() })
+            .build()
+        try vm.construct()
+        let dc = try XCTUnwrap(vm.deleteCommand as? ConfirmationDecoratorCommand,
+                               "Expected ConfirmationDecoratorCommand")
+
+        let pending = Task { try await dc.executeAsync() }
+        await fulfillment(of: [decision.parked], timeout: 30)
+        vm.dispose()
+        decision.answer(true)   // user clicks "Yes" after the VM is gone
+        try await pending.value
+
+        XCTAssertTrue(recorder.deletedItems.isEmpty,
+                      "A confirmation answered after disposal must not delete")
+        XCTAssertFalse(vm.deleteCommand.canExecute())
     }
 
     // MARK: - Notification hub

@@ -38,7 +38,7 @@ export class ConfirmationDecoratorCommand implements ICommand {
   }
 
   canExecute(): boolean {
-    return this.#inner.canExecute();
+    return !this.#disposed && this.#inner.canExecute();
   }
 
   /**
@@ -59,18 +59,24 @@ export class ConfirmationDecoratorCommand implements ICommand {
   async executeAsync(): Promise<void> {
     if (!this.canExecute()) return;
     const ok = await this.#confirm();
-    if (ok) this.#inner.execute();
+    // A confirmation that resolves after disposal runs nothing (spec §8.4).
+    if (ok && !this.#isDisposed()) this.#inner.execute();
   }
 
   /**
-   * Mark the decorator as disposed and complete the {@link errors} channel.
-   * Idempotent. `canExecuteChanged` delegates lazily to the inner command, so
-   * nothing else is owned or released here — provided for teardown symmetry
-   * with the C# IDisposable surface.
+   * Make the decorator inert and complete the {@link errors} channel (spec
+   * §8.4, ADR-0134). Idempotent. A pending confirmation that resolves later
+   * runs no inner command and emits nothing. The inner command stays owned by
+   * its creator, and `canExecuteChanged` delegates lazily to it.
    */
   dispose(): void {
     if (this.#disposed) return;
     this.#disposed = true;
     this.#errors.complete();
+  }
+
+  /** Re-reads disposal after a call-out that may have disposed this wrapper. */
+  #isDisposed(): boolean {
+    return this.#disposed;
   }
 }

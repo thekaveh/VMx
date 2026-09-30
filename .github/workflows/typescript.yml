@@ -247,6 +247,7 @@ jobs:
             packages/react/package-lock.json
             examples/typescript/console/hello-vmx/package-lock.json
             examples/typescript/react/notes-showcase/package-lock.json
+            examples/typescript/integration-recipes/package-lock.json
 
       - name: Install vmx lib deps + build dist
         # The notes-showcase imports `vmx` via `file:../../../../langs/typescript`
@@ -311,6 +312,23 @@ jobs:
 
       - name: notes-showcase production build
         run: npm run build --prefix examples/typescript/react/notes-showcase --ignore-scripts
+
+      - name: integration recipes install
+        # Executes the Vue, Solid and Svelte guide snippets (docs/content/integration)
+        # against the host versions pinned in this fixture's package.json.
+        run: npm ci --prefix examples/typescript/integration-recipes
+
+      - name: integration recipes dependency graph
+        run: npm run check:deps --prefix examples/typescript/integration-recipes
+
+      - name: integration recipes audit
+        run: npm audit --prefix examples/typescript/integration-recipes --package-lock-only --audit-level=moderate
+
+      - name: integration recipes test
+        run: npm test --prefix examples/typescript/integration-recipes --ignore-scripts
+
+      - name: integration recipes type-check
+        run: npm run typecheck --prefix examples/typescript/integration-recipes --ignore-scripts
 
   required:
     timeout-minutes: 5

@@ -276,11 +276,22 @@ public class MessageHubTests
             }
         });
 
+        // The sends block in each other's callbacks by design, so they run on
+        // dedicated threads: progress must not depend on thread-pool injection
+        // under the parallel runner. Timeouts are hang guards only.
         var sends = Task.WhenAll(
-            Task.Run(() => left.Send(new Stub("outer"))),
-            Task.Run(() => right.Send(new Stub("outer"))));
+            Task.Factory.StartNew(
+                () => left.Send(new Stub("outer")),
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default),
+            Task.Factory.StartNew(
+                () => right.Send(new Stub("outer")),
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default));
 
-        var completed = await Task.WhenAny(sends, Task.Delay(TimeSpan.FromSeconds(2)));
+        var completed = await Task.WhenAny(sends, Task.Delay(TimeSpan.FromSeconds(30)));
         completed.Should().BeSameAs(sends, "nested cross-hub sends must not form a wait cycle");
         await sends;
         innerDeliveries.Should().Be(2);
@@ -309,11 +320,22 @@ public class MessageHubTests
             },
             () => Interlocked.Increment(ref rightCompletions));
 
+        // The sends block in each other's callbacks by design, so they run on
+        // dedicated threads: progress must not depend on thread-pool injection
+        // under the parallel runner. Timeouts are hang guards only.
         var sends = Task.WhenAll(
-            Task.Run(() => left.Send(new Stub("outer"))),
-            Task.Run(() => right.Send(new Stub("outer"))));
+            Task.Factory.StartNew(
+                () => left.Send(new Stub("outer")),
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default),
+            Task.Factory.StartNew(
+                () => right.Send(new Stub("outer")),
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default));
 
-        var completed = await Task.WhenAny(sends, Task.Delay(TimeSpan.FromSeconds(2)));
+        var completed = await Task.WhenAny(sends, Task.Delay(TimeSpan.FromSeconds(30)));
         completed.Should().BeSameAs(sends, "terminal deferral must not form a cross-hub wait cycle");
         await sends;
         leftCompletions.Should().Be(1);
@@ -369,11 +391,22 @@ public class MessageHubTests
             }
         });
 
+        // The sends block in each other's callbacks by design, so they run on
+        // dedicated threads: progress must not depend on thread-pool injection
+        // under the parallel runner. Timeouts are hang guards only.
         var sends = Task.WhenAll(
-            Task.Run(() => left.Send(new Stub("outer"))),
-            Task.Run(() => right.Send(new Stub("outer"))));
+            Task.Factory.StartNew(
+                () => left.Send(new Stub("outer")),
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default),
+            Task.Factory.StartNew(
+                () => right.Send(new Stub("outer")),
+                CancellationToken.None,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default));
 
-        await sends.WaitAsync(TimeSpan.FromSeconds(5));
+        await sends.WaitAsync(TimeSpan.FromSeconds(30));
         innerDeliveries.Should().Be(2);
         deliveryInsideBorrowedScope.Should().Be(0,
             "the target owner cannot drain until the borrowed batch body exits");
