@@ -21,6 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   and `pageCount` stay coherent in any read order. Arrays, `ObservableList`,
   other repeatable iterables, and factories stay live; a throwing one-shot
   source fails construction without leaving subscriptions behind (#352).
+- `FormVM`'s default equality treats two invalid `Date` values as equal, so a
+  model holding an invalid `Date` no longer starts dirty against its
+  `structuredClone` snapshot and stays clean through strict approval, deny, and
+  reset. The FormVM guide lists the supported equality domain (#353).
 
 ## [3.24.1] — unreleased source version
 
