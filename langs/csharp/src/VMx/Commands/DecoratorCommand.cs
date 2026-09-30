@@ -14,7 +14,7 @@ public sealed class DecoratorCommand : ICommand, IDisposable
     private readonly Action? _postExecute;
     private readonly Func<bool>? _extraPredicate;
     private readonly EventHandler _innerHandler;
-    private bool _disposed;
+    private int _disposed;
 
     /// <summary>Creates a new <see cref="DecoratorCommand"/>.</summary>
     public DecoratorCommand(
@@ -34,13 +34,18 @@ public sealed class DecoratorCommand : ICommand, IDisposable
     /// <inheritdoc/>
     public event EventHandler? CanExecuteChanged;
 
+    private bool IsDisposed => Volatile.Read(ref _disposed) != 0;
+
     /// <inheritdoc/>
     public bool CanExecute(object? parameter)
     {
-        if (!_inner.CanExecute(parameter)) return false;
-        if (_extraPredicate is null) return true;
-        try { return _extraPredicate(); }
+        if (IsDisposed || !_inner.CanExecute(parameter)) return false;
+        if (_extraPredicate is null) return !IsDisposed;
+        bool allowed;
+        try { allowed = _extraPredicate(); }
         catch { return false; }
+        // The extra predicate may dispose the decorator.
+        return allowed && !IsDisposed;
     }
 
     /// <inheritdoc/>
@@ -50,7 +55,9 @@ public sealed class DecoratorCommand : ICommand, IDisposable
         _preExecute?.Invoke();
         try
         {
-            _inner.Execute(parameter);
+            // The pre-action may dispose the decorator: skip the inner command but
+            // keep the admitted pre/post pair balanced (spec §8.4, ADR-0134).
+            if (!IsDisposed) _inner.Execute(parameter);
         }
         finally
         {
@@ -60,11 +67,14 @@ public sealed class DecoratorCommand : ICommand, IDisposable
         }
     }
 
-    /// <summary>Unsubscribes from the inner command's <c>CanExecuteChanged</c>.</summary>
+    /// <summary>
+    /// Makes the decorator inert and unsubscribes from the inner command's
+    /// <c>CanExecuteChanged</c> (spec §8.4, ADR-0134). Idempotent. The inner command
+    /// stays owned by its creator.
+    /// </summary>
     public void Dispose()
     {
-        if (_disposed) return;
-        _disposed = true;
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
         _inner.CanExecuteChanged -= _innerHandler;
     }
 }

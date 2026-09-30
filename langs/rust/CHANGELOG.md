@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.30.0] — unreleased source version
+
 ### Added
 
 - `FormVm::with_clearing_model_validator` and
@@ -21,6 +23,9 @@ project adheres to [Semantic Versioning](https://semver.org/).
   ones: `execute` starts fire-and-forget execution without waiting for the body,
   failures are reported once on `errors()`, and eligibility and
   `can_execute_changed` are shared with the inherent surface (#344).
+- `CompositeCommand::dispose()` and `DecoratorCommand::dispose()` make the
+  wrappers inert; clones share disposal state, as `ConfirmationDecoratorCommand`
+  clones already do (ADR-0134).
 - `TokenPagedComposition::dispose()` now terminally disables its owned
   load-more and refresh commands and prevents in-flight loaders from committing
   pager state; loader-returned items remain caller-owned.
@@ -34,6 +39,10 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A disposed `ConfirmationDecoratorCommand` now reports `can_execute() == false`,
+  and disposed composite and decorator wrappers run no inner work, keep an
+  admitted pre/post pair balanced, and ignore a confirmation that resolves after
+  disposal (`CMDD-011..013`, ADR-0134).
 - Refresh deduplication once again compares a fresh first page with the matching
   accumulator head, preserving already accumulated later pages.
 
