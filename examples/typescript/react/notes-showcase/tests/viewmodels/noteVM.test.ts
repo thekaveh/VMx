@@ -161,6 +161,27 @@ describe("NoteVM", () => {
     expect(onDelete).not.toHaveBeenCalled();
   });
 
+  it("disposing the VM while a delete confirmation is pending deletes nothing", async () => {
+    const onDelete = vi.fn();
+    let confirm!: (value: boolean) => void;
+    const vm = NoteVM.builder()
+      .name("note")
+      .model(model())
+      .services(new MessageHub(), RxDispatcher.immediate())
+      .onDelete(onDelete)
+      .confirmDelete(() => new Promise<boolean>((resolve) => (confirm = resolve)))
+      .build();
+    vm.construct();
+    const pending = (vm.deleteCommand as ConfirmationDecoratorCommand).executeAsync();
+
+    vm.dispose();
+    confirm(true);
+    await pending;
+
+    expect(onDelete).not.toHaveBeenCalled();
+    expect(vm.deleteCommand.canExecute()).toBe(false);
+  });
+
   it("deleteCommand with confirm returning true invokes onDelete", async () => {
     const onDelete = vi.fn();
     const vm = NoteVM.builder()
