@@ -129,6 +129,7 @@ async def test_shared_notes_scenario_matches_the_semantic_expectation() -> None:
     failures = []
     for number, step in enumerate(scenario["steps"], start=1):
         actual = adapter.snapshot(await adapter.run(step))
+        where = f"{scenario['id']} [{FLAVOR}] step {number} {step['action']}"
         for difference in _differences(step["expect"], actual):
-            failures.append(f"{scenario['id']} [{FLAVOR}] step {number} {step['action']}: {difference}")
+            failures.append(f"{where}: {difference}")
     assert not failures, "\n".join(failures)
