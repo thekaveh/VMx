@@ -35,6 +35,16 @@ def test_FORM_017_model_validator_populates_errors() -> None:
     sut = FormVM(Model("x", -1), persist, model_validator=lambda m: {"value": "negative"})
     assert sut.errors == {"value": "negative"}
 
+    # A None value removes a field validator's error.
+    clearing = FormVM(
+        Model("", -1),
+        persist,
+        validators={"name": lambda m: "required"},
+        model_validator=lambda m: {"name": None, "value": "negative"},
+    )
+    assert clearing.errors == {"value": "negative"}
+    assert clearing.field_error("name") is None
+
 
 @pytest.mark.conformance("FORM-018")
 def test_FORM_018_is_valid_reflects_errors() -> None:
