@@ -12,8 +12,8 @@ source tree, so check the flavor README and registry before pinning a release.
 | ---------- | ------------- | ----------------------------------- |
 | C#         | v3.23.0       | NuGet package not published yet     |
 | Python     | v3.23.0       | PyPI release 3.23.0                  |
-| TypeScript | v3.24.0       | npm package not published yet       |
-| React adapter | v0.1.0 in source | publication waits for core npm #57 |
+| TypeScript | v3.24.1       | npm package not published yet       |
+| React adapter | v0.1.1 in source | publication waits for core npm #57 |
 | Swift      | v3.24.0       | SwiftPM release 3.24.0              |
 | Rust       | 0.29.0        | crates.io package not published yet |
 
@@ -63,8 +63,8 @@ source tree, so check the flavor README and registry before pinning a release.
     mkdir -p /tmp/vmx-packs
     npm pack ../VMx/langs/typescript --pack-destination /tmp/vmx-packs
     npm pack ../VMx/packages/react --pack-destination /tmp/vmx-packs
-    npm install /tmp/vmx-packs/thekaveh-vmx-3.24.0.tgz \
-      /tmp/vmx-packs/thekaveh-vmx-react-0.1.0.tgz \
+    npm install /tmp/vmx-packs/thekaveh-vmx-3.24.1.tgz \
+      /tmp/vmx-packs/thekaveh-vmx-react-0.1.1.tgz \
       react rxjs use-sync-external-store
     ```
 

@@ -5,7 +5,7 @@ JavaScript, spec-compatible with the C#, Python, Swift, and Rust flavors.
 
 ## 1. Status
 
-**v3.24.0** — implements `spec-v3.23.0` end-to-end. 403/403 library
+**v3.24.1** — implements `spec-v3.23.0` end-to-end. 403/403 library
 conformance IDs pass. Published runtime requires Node ≥ 20.5.0 and rxjs ≥ 7.8;
 repository tests require Node 20.19+, 22.13+, or 24+ for jsdom 29. Dual ESM + CJS
 bundles; TypeScript declarations are bundled — no `@types/vmx` needed.
@@ -23,7 +23,7 @@ blocked on the first npm publication.
 
 ## 2. Install
 
-The source tree currently implements v3.24.0. The scoped npm package has not
+The source tree currently implements v3.24.1. The scoped npm package has not
 been published yet; use a local workspace/package reference until a
 `typescript-v*` release tag publishes it.
 
@@ -436,7 +436,7 @@ the package's SemVer: incompatible removal waits for a major release, with any
 replacement deprecated in declarations, documentation, and the changelog
 before removal. The source and packed artifact contain this entry now;
 installation from npm becomes valid only after #57 completes the first
-`typescript-v3.24.0` publication.
+`typescript-v*` publication.
 
 ### 4.6 DevTools observability
 
@@ -494,7 +494,7 @@ Incoming Redux DevTools dispatches are deliberately ignored. VMx messages are
 observations, not reversible mutations, so this API makes no replay,
 time-travel, inverse-mutation, or state-reconstruction guarantee. The source
 and packed artifact contain the subpath now; npm installation remains gated on
-#57's first `typescript-v3.24.0` publication.
+#57's first `typescript-v*` publication.
 
 ## 5. Conformance
 

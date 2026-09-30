@@ -3,9 +3,9 @@
  *
  * See plan §5.c (live-updating derived gap fix, parity with Phase 5.b
  * Textual which adopted `bind_derived_property`). Each slot binds through
- * `useDerivedProperty`, which subscribes to the `DerivedProperty.valueChanged`
- * observable directly — `DerivedProperty` does *not* publish on the hub, so
- * `useVm` cannot observe it.
+ * `useDerivedProperty`, which observes the `DerivedProperty` directly (its first
+ * value and every later change) — `DerivedProperty` does *not* publish on the
+ * hub, so `useVm` cannot observe it.
  *
  * Pure-VM contract (§6.1): no React state.
  */
