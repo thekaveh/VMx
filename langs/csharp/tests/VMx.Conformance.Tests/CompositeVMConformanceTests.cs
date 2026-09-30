@@ -1107,6 +1107,11 @@ public class CompositeVMConformanceTests
     [Fact, Trait("Conformance", "COMP-040")]
     public async Task COMP_040_Concurrent_Old_Parent_Disposal_Waits_For_Transfer_Commit()
     {
+        // The transfer hook and the disposal block their threads by design, so
+        // they run on dedicated threads: the test thread's progress must not
+        // depend on thread-pool injection under the parallel runner. Timeouts
+        // below are hang guards only; each wait resumes on its event.
+        var hangGuard = TimeSpan.FromSeconds(30);
         using var hookEntered = new ManualResetEventSlim();
         using var releaseHook = new ManualResetEventSlim();
         using var disposalStarted = new ManualResetEventSlim();
@@ -1124,25 +1129,33 @@ public class CompositeVMConformanceTests
             .OnConstruct(() =>
             {
                 hookEntered.Set();
-                releaseHook.Wait(TimeSpan.FromSeconds(2)).Should().BeTrue();
+                releaseHook.Wait(hangGuard).Should().BeTrue();
             })
             .Build();
         oldParent.Add(child);
         destination.Construct();
 
-        var transfer = Task.Run(() => destination.Add(child));
-        hookEntered.Wait(TimeSpan.FromSeconds(2)).Should().BeTrue();
-        var disposal = Task.Run(() =>
-        {
-            disposalStarted.Set();
-            oldParent.Dispose();
-        });
-        disposalStarted.Wait(TimeSpan.FromSeconds(2)).Should().BeTrue();
+        var transfer = Task.Factory.StartNew(
+            () => destination.Add(child),
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
+        hookEntered.Wait(hangGuard).Should().BeTrue();
+        var disposal = Task.Factory.StartNew(
+            () =>
+            {
+                disposalStarted.Set();
+                oldParent.Dispose();
+            },
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
+        disposalStarted.Wait(hangGuard).Should().BeTrue();
         var earlyCompletion = await Task.WhenAny(disposal, Task.Delay(TimeSpan.FromMilliseconds(50)));
         earlyCompletion.Should().NotBe(disposal);
 
         releaseHook.Set();
-        await Task.WhenAll(transfer, disposal).WaitAsync(TimeSpan.FromSeconds(2));
+        await Task.WhenAll(transfer, disposal).WaitAsync(hangGuard);
         oldParent.Status.Should().Be(ConstructionStatus.Disposed);
         oldParent.Should().BeEmpty();
         destination.Should().ContainSingle(item => ReferenceEquals(item, child));
