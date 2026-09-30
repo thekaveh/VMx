@@ -678,3 +678,20 @@ fn aggregate_disposal_ownership_and_normal_adapters_are_bounded() {
     drop(retried_item);
     assert!(lifetime.upgrade().is_none());
 }
+
+/// A panic while the stream sets up (#362 coverage review) propagates, and the
+/// half-built stream keeps no membership subscription behind: later source
+/// changes never reach it.
+#[test]
+fn a_panic_during_setup_propagates_and_leaves_no_live_subscription() {
+    let source = TestSource::new(vec![TestNode::new(31, "initial")]);
+    source.on_next_snapshot(|| panic!("snapshot failed during setup"));
+
+    let outcome = catch_unwind(AssertUnwindSafe(|| aggregate(source.clone())));
+
+    assert!(outcome.is_err());
+    let snapshots = *locked(&source.snapshot_count);
+    source.add(TestNode::new(32, "later"));
+    source.pulse();
+    assert_eq!(*locked(&source.snapshot_count), snapshots);
+}
