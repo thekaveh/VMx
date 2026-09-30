@@ -90,7 +90,9 @@ public final class PagedComposition<TVM>: Pageable {
         if _pageSize == 0 { return 1 }
         let n = _source.count
         if n == 0 { return 0 }
-        return (n + _pageSize - 1) / _pageSize
+        // Equal to ceil(n / pageSize) for n >= 1 without the `n + pageSize - 1`
+        // intermediate, which overflows for large page sizes such as Int.max.
+        return 1 + (n - 1) / _pageSize
     }
 
     /// `true` when `pageSize > 0`.
@@ -141,8 +143,11 @@ public final class PagedComposition<TVM>: Pageable {
     public var items: [TVM] {
         if _pageSize == 0 { return _source }
         if _source.isEmpty { return [] }
+        // currentPageIndex is clamped to [0, pageCount - 1], so start <= count - 1
+        // and the product cannot overflow. Adding the remaining length instead
+        // of pageSize keeps `end` in range for any page size.
         let start = _currentPageIndex * _pageSize
-        let end = min(start + _pageSize, _source.count)
+        let end = start + min(_pageSize, _source.count - start)
         return Array(_source[start..<end])
     }
 

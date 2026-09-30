@@ -1,4 +1,4 @@
-"""Conformance tests: CMDD-001..009 — command decorators.
+"""Conformance tests: CMDD-001..013 — command decorators.
 
 Per spec/04-commands.md §Decorators and ADR-0012.
 """
@@ -6,6 +6,8 @@ Per spec/04-commands.md §Decorators and ADR-0012.
 from __future__ import annotations
 
 import asyncio
+import threading
+from typing import Any
 
 import pytest
 from reactivex import Subject
@@ -269,3 +271,261 @@ async def test_CMDD_010_confirmation_surfaces_errors_on_error_channel() -> None:
         if inner_errors:
             break
     assert inner_errors == [inner_boom]
+
+
+# ---------------------------------------------------------------------------
+# CMDD-011..013 — disposed wrappers are inert (spec §8.4, ADR-0134)
+# ---------------------------------------------------------------------------
+
+
+async def _drain_other_tasks() -> None:
+    """Await every task this test started, including fire-and-forget ones."""
+    current = asyncio.current_task()
+    others = [task for task in asyncio.all_tasks() if task is not current]
+    await asyncio.gather(*others, return_exceptions=True)
+
+
+@pytest.mark.conformance("CMDD-011")
+def test_CMDD_011_disposed_composite_and_decorator_are_inert() -> None:
+    log: list[str] = []
+    a = _recording_command(log, "a", True)
+    b = _recording_command(log, "b", True)
+    composite = CompositeCommand(a, b)
+    composite.dispose()
+    composite.dispose()
+
+    assert composite.can_execute() is False
+    composite.execute()
+    assert log == []
+
+    inner = _recording_command(log, "inner", True)
+
+    def _predicate() -> bool:
+        log.append("predicate")
+        return True
+
+    decorator = DecoratorCommand(
+        inner,
+        pre_execute=lambda: log.append("pre"),
+        post_execute=lambda: log.append("post"),
+        extra_predicate=_predicate,
+    )
+    decorator.dispose()
+    decorator.dispose()
+
+    assert decorator.can_execute() is False
+    decorator.execute()
+    assert log == []
+
+    # The inner commands were not disposed.
+    a.execute()
+    inner.execute()
+    assert log == ["a", "inner"]
+
+
+@pytest.mark.conformance("CMDD-012")
+async def test_CMDD_012_disposed_confirmation_never_consults_confirm() -> None:
+    log: list[str] = []
+    confirms: list[None] = []
+
+    async def _confirm() -> bool:
+        confirms.append(None)
+        return True
+
+    decorator = ConfirmationDecoratorCommand(_recording_command(log, "inner", True), _confirm)
+    decorator.dispose()
+    decorator.dispose()
+
+    assert decorator.can_execute() is False
+    decorator.execute()
+    await decorator.execute_async()
+    await _drain_other_tasks()
+
+    assert confirms == []
+    assert log == []
+
+
+@pytest.mark.conformance("CMDD-012")
+@pytest.mark.parametrize("outcome", ["true", "false", "faulted"])
+async def test_CMDD_012_confirmation_resolving_after_disposal_runs_nothing(outcome: str) -> None:
+    log: list[str] = []
+    inner = _recording_command(log, "inner", True)
+    decision: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
+    started = asyncio.Event()
+
+    async def _confirm() -> bool:
+        started.set()
+        return await decision
+
+    decorator = ConfirmationDecoratorCommand(inner, _confirm)
+    errors: list[BaseException] = []
+    completions: list[None] = []
+    decorator.errors.subscribe(errors.append, on_completed=lambda: completions.append(None))
+
+    decorator.execute()
+    await started.wait()
+    decorator.dispose()
+    if outcome == "faulted":
+        decision.set_exception(RuntimeError("confirm failed"))
+    else:
+        decision.set_result(outcome == "true")
+    await _drain_other_tasks()
+
+    assert log == []
+    assert errors == []
+    assert completions == [None]
+    inner.execute()
+    assert log == ["inner"]
+
+
+@pytest.mark.conformance("CMDD-012")
+async def test_CMDD_012_error_racing_disposal_on_another_thread_is_dropped() -> None:
+    # Force the interleaving a background completion can hit: another thread
+    # disposes the decorator after the fire-and-forget error path has checked
+    # for disposal but before it publishes. The late error must be dropped,
+    # not raised out of the task callback.
+    log: list[str] = []
+    inner = _recording_command(log, "inner", True)
+
+    async def _confirm() -> bool:
+        raise RuntimeError("confirm failed")
+
+    decorator = ConfirmationDecoratorCommand(inner, _confirm)
+    errors: list[BaseException] = []
+    completions: list[None] = []
+    decorator.errors.subscribe(errors.append, on_completed=lambda: completions.append(None))
+    subject: Any = decorator._errors
+    publish = subject.on_next
+
+    def _dispose_then_publish(value: BaseException) -> None:
+        disposer = threading.Thread(target=decorator.dispose)
+        disposer.start()
+        disposer.join()
+        publish(value)
+
+    subject.on_next = _dispose_then_publish
+    loop = asyncio.get_running_loop()
+    escaped: list[dict[str, Any]] = []
+    previous_handler = loop.get_exception_handler()
+    loop.set_exception_handler(lambda _loop, context: escaped.append(context))
+    try:
+        decorator.execute()
+        await _drain_other_tasks()
+        await asyncio.sleep(0)
+    finally:
+        loop.set_exception_handler(previous_handler)
+
+    assert escaped == []
+    assert errors == []
+    assert completions == [None]
+    assert log == []
+
+
+@pytest.mark.conformance("CMDD-011")
+def test_CMDD_011_disposal_leaves_inner_change_streams_to_their_owner() -> None:
+    log: list[str] = []
+    inner = _recording_command(log, "inner", True)
+    notifications: list[None] = []
+    completions: list[None] = []
+    inner.can_execute_changed.subscribe(
+        lambda _: notifications.append(None), on_completed=lambda: completions.append(None)
+    )
+
+    async def _confirm() -> bool:
+        return True
+
+    for wrapper in (
+        CompositeCommand(inner),
+        DecoratorCommand(inner),
+        ConfirmationDecoratorCommand(inner, _confirm),
+    ):
+        wrapper.dispose()
+    inner.raise_can_execute_changed()
+
+    assert notifications == [None]
+    assert completions == []
+
+
+@pytest.mark.conformance("CMDD-013")
+def test_CMDD_013_composite_runs_no_child_after_disposal_by_an_earlier_child() -> None:
+    log: list[str] = []
+    holder: list[CompositeCommand] = []
+
+    def _first() -> None:
+        log.append("first")
+        holder[0].dispose()
+
+    composite = CompositeCommand(
+        RelayCommand.builder().task(_first).build(),
+        _recording_command(log, "second", True),
+    )
+    holder.append(composite)
+
+    composite.execute()
+
+    assert log == ["first"]
+
+
+@pytest.mark.conformance("CMDD-013")
+def test_CMDD_013_decorator_disposed_by_its_predicate_runs_nothing() -> None:
+    log: list[str] = []
+    holder: list[DecoratorCommand] = []
+
+    def _predicate() -> bool:
+        holder[0].dispose()
+        return True
+
+    decorator = DecoratorCommand(
+        _recording_command(log, "inner", True),
+        pre_execute=lambda: log.append("pre"),
+        post_execute=lambda: log.append("post"),
+        extra_predicate=_predicate,
+    )
+    holder.append(decorator)
+
+    decorator.execute()
+
+    assert log == []
+
+
+@pytest.mark.conformance("CMDD-013")
+def test_CMDD_013_decorator_disposed_by_its_pre_action_still_runs_post_once() -> None:
+    log: list[str] = []
+    holder: list[DecoratorCommand] = []
+
+    def _pre() -> None:
+        log.append("pre")
+        holder[0].dispose()
+
+    decorator = DecoratorCommand(
+        _recording_command(log, "inner", True),
+        pre_execute=_pre,
+        post_execute=lambda: log.append("post"),
+    )
+    holder.append(decorator)
+
+    decorator.execute()
+    decorator.execute()
+
+    assert log == ["pre", "post"]
+
+
+@pytest.mark.conformance("CMDD-013")
+def test_CMDD_013_admitted_pair_with_throwing_inner_runs_post_and_reraises() -> None:
+    log: list[str] = []
+    boom = RuntimeError("inner boom")
+
+    def _raise() -> None:
+        raise boom
+
+    decorator = DecoratorCommand(
+        RelayCommand.builder().task(_raise).build(),
+        pre_execute=lambda: log.append("pre"),
+        post_execute=lambda: log.append("post"),
+    )
+
+    with pytest.raises(RuntimeError) as raised:
+        decorator.execute()
+
+    assert raised.value is boom
+    assert log == ["pre", "post"]

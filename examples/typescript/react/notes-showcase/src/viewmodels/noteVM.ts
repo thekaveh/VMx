@@ -212,9 +212,12 @@ export class NoteVM extends ComponentVMBase {
   protected override _onDispose(): void {
     this.#closeCommand.dispose();
     this.#saveCommand.dispose();
-    // ConfirmationDecoratorCommand is not Disposable in VMx-TS; dispose the
-    // raw inner AsyncRelayCommand explicitly to avoid leaking its CanExecute
-    // subscriptions.
+    // The confirmation wrapper does not own its inner command (ADR-0134), so
+    // dispose both: the wrapper makes a pending confirmation inert and
+    // completes its errors channel; the inner releases its subscriptions.
+    if (this.#deleteCommand instanceof ConfirmationDecoratorCommand) {
+      this.#deleteCommand.dispose();
+    }
     this.#innerDeleteCommand.dispose();
     super._onDispose();
   }
