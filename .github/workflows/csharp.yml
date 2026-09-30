@@ -69,6 +69,31 @@ jobs:
       - name: Test
         run: dotnet test VMx.sln -c Release --no-build --collect:"XPlat Code Coverage" --results-directory ./TestResults --logger "trx"
 
+      - name: Check executed conformance evidence
+        if: runner.os != 'Windows'
+        # Every library ID needs a passing executed case in the TRX results of
+        # every target framework, not just a marker in the sources.
+        working-directory: .
+        shell: bash
+        run: |
+          set -euo pipefail
+          reports=()
+          for trx in langs/csharp/TestResults/*.trx; do reports+=(--report "$trx"); done
+          python3 tools/check-conformance-execution.py --flavor csharp "${reports[@]}" \
+            --evidence conformance-evidence.json --commit "${{ github.sha }}" \
+            --toolchain "dotnet $(dotnet --version)" \
+            --configuration "${{ matrix.os }} Release net8.0;net9.0;net10.0"
+
+      - name: Publish conformance evidence
+        if: ${{ runner.os != 'Windows' && !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: conformance-evidence-csharp-${{ matrix.os }}
+          path: |
+            langs/csharp/TestResults/*.trx
+            conformance-evidence.json
+          if-no-files-found: warn
+
       - name: Repeat controlled lifecycle interleaving
         if: matrix.os == 'ubuntu-latest'
         shell: bash

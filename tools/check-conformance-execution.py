@@ -302,7 +302,9 @@ _CS_METHOD = re.compile(
     r"(?:public|internal|private|protected)\s+(?:static\s+)?(?:async\s+)?"
     r"(?:void|Task|ValueTask)\s+(\w+)\s*\("
 )
-_CS_TYPE = re.compile(r"\b(?:class|record|struct)\s+(\w+)")
+# xUnit test classes are public; private helper types nested in a test class
+# must not capture its markers.
+_CS_TEST_TYPE = re.compile(r"\bpublic\s+(?:(?:sealed|static|partial|abstract)\s+)*class\s+(\w+)")
 _SWIFT_FUNC = re.compile(
     r"^\s*(?:@\w+\s+)*(?:(?:public|internal|private|override|final)\s+)*func\s+(test\w*)"
 )
@@ -322,7 +324,7 @@ def map_csharp(directory: Path) -> dict[tuple[str, str], set[str]]:
             if "//" in cleaned[line_start : match.start()]:
                 continue
             method = _CS_METHOD.search(cleaned, match.end())
-            types = list(_CS_TYPE.finditer(cleaned, 0, match.start()))
+            types = list(_CS_TEST_TYPE.finditer(cleaned, 0, match.start()))
             if method is None or not types:
                 raise ReportError(f"{path}: marker {match.group(1)} attaches to no test method")
             key = (types[-1].group(1), method.group(1))
@@ -379,18 +381,19 @@ def map_rust(directory: Path) -> dict[tuple[str, str], set[str]]:
 
 
 def _source_ids(case: Case, mapping: dict[tuple[str, str], set[str]], flavor: str) -> set[str]:
-    """IDs for a reported case: exact (container, function) first, then a
-    function name that only one container defines."""
-    container = case.container
-    if flavor in ("swift", "csharp"):
-        container = container.split(".")[-1].split("+")[-1]
-    elif flavor == "rust":
-        container = container.split("::")[-1]
-    exact = mapping.get((container, case.name))
-    if exact is not None:
-        return exact
-    matches = [ids for (_, name), ids in mapping.items() if name == case.name]
-    return matches[0] if len(matches) == 1 else set()
+    """IDs for a reported case, matched exactly on (container, function).
+
+    There is deliberately no name-only fallback: a same-named test in another
+    class or project must never be credited to an ID. A mismatch shows up as a
+    missing ID, which fails loudly.
+    """
+    if flavor == "rust":
+        # libtest paths are crate::file_module[::nested]::function.
+        return set().union(
+            *(mapping.get((segment, case.name), set()) for segment in case.container.split("::"))
+        )
+    container = case.container.split(".")[-1].split("+")[-1]
+    return mapping.get((container, case.name), set())
 
 
 # ─── Aggregation ─────────────────────────────────────────────────────────────

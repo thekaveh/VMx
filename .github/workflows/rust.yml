@@ -65,7 +65,31 @@ jobs:
         run: cargo clippy --locked --manifest-path langs/rust/Cargo.toml --all-features --all-targets -- -D warnings
 
       - name: Test
-        run: cargo test --locked --manifest-path langs/rust/Cargo.toml --all-features
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo test --locked --manifest-path langs/rust/Cargo.toml --all-features 2>&1 | tee cargo-test.log
+
+      - name: Check executed conformance evidence
+        if: runner.os != 'Windows'
+        # Every library ID needs a passing executed case in libtest's own output,
+        # not just a marker in the sources (tools/check-conformance-coverage.py).
+        shell: bash
+        run: >-
+          python3 tools/check-conformance-execution.py --flavor rust
+          --report cargo-test.log --evidence conformance-evidence.json
+          --commit "${{ github.sha }}" --toolchain "$(rustc --version)"
+          --configuration "${{ matrix.os }} --all-features"
+
+      - name: Publish conformance evidence
+        if: ${{ runner.os != 'Windows' && !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: conformance-evidence-rust-${{ matrix.os }}
+          path: |
+            cargo-test.log
+            conformance-evidence.json
+          if-no-files-found: warn
 
       - name: Repeat controlled concurrency interleavings
         if: matrix.os == 'ubuntu-latest'

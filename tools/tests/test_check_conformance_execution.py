@@ -286,10 +286,16 @@ public sealed class LifecycleConformanceTests
 TRX_NS = "http://microsoft.com/schemas/VisualStudio/TeamTest/2010"
 
 
-def _trx(results: list[tuple[str, str, str]], *, total: int | None = None, error: int = 0) -> str:
+def _trx(
+    results: list[tuple[str, str, str]],
+    *,
+    total: int | None = None,
+    error: int = 0,
+    class_name: str = "VMx.Conformance.Tests.LifecycleConformanceTests",
+) -> str:
     definitions = "".join(
         f'<UnitTest id="id{n}" name="{name}"><TestMethod className="'
-        f'VMx.Conformance.Tests.LifecycleConformanceTests, VMx.Conformance.Tests" name="{method}"/>'
+        f'{class_name}, VMx.Conformance.Tests" name="{method}"/>'
         "</UnitTest>"
         for n, (name, method, _) in enumerate(results)
     )
@@ -329,6 +335,35 @@ def test_trx_cases_map_through_csharp_source_markers(tmp_path: Path) -> None:
         "LIFE-003": "failed",
         "LIFE-004": "failed",
     }
+
+
+def test_same_named_test_in_another_class_is_never_credited(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    _write(repo / "langs/csharp/tests/VMx.Conformance.Tests/LifecycleTests.cs", CS_SOURCE)
+    conformance = _write(
+        tmp_path / "conformance.trx",
+        _trx(
+            [
+                ("LIFE_001_Constructs", "LIFE_001_Constructs", "Passed"),
+                ("LIFE_002_Destructs(value: 1)", "LIFE_002_Destructs(value: 1)", "Passed"),
+                ("Shared_Test", "Shared_Test", "Passed"),
+            ]
+        ),
+    )
+    unit = _write(
+        tmp_path / "unit.trx",
+        _trx(
+            [("LIFE_001_Constructs", "LIFE_001_Constructs", "Failed")],
+            class_name="VMx.Tests.OtherTests",
+        ),
+    )
+
+    rc, data = _run(repo, "csharp", conformance, unit)
+
+    assert rc == 0
+    assert data["ids"]["LIFE-001"]["cases"] == [
+        {"case": "LIFE_001_Constructs", "outcome": "passed"}
+    ]
 
 
 def test_trx_host_error_and_count_mismatch_are_rejected(tmp_path: Path) -> None:
@@ -478,3 +513,21 @@ def test_marker_without_a_test_function_is_rejected(tmp_path: Path) -> None:
     report = _write(tmp_path / "results.trx", _trx([("A", "A", "Passed")]))
 
     assert _run(repo, "csharp", report)[0] == 2
+
+
+# ─── The real catalog ───────────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("skipped", [False, True], ids=["all-pass", "one-skipped"])
+def test_real_catalog_requires_every_library_id(tmp_path: Path, skipped: bool) -> None:
+    required = sorted(cce.ccc.parse_catalog_ids(cce.REPO_ROOT / cce.CATALOG_REL))
+    assert len(required) > 400
+    cases = [
+        _pytest_case(f"test_{n}", ident, "<skipped/>" if skipped and n == 0 else "")
+        for n, ident in enumerate(required)
+    ]
+    report = _pytest_report(tmp_path, *cases)
+
+    rc = cce.check("python", [report], evidence_path=tmp_path / "evidence.json")
+
+    assert rc == (1 if skipped else 0)
