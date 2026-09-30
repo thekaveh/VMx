@@ -8,6 +8,12 @@
  * demand.  If the source is an ObservableList or composite-style collection,
  * mutations are observed automatically so pageCount and items stay in sync.
  *
+ * Arrays, other repeatable iterables, and factories stay live: every read
+ * enumerates them again.  A source that is itself a one-shot iterator (a
+ * generator object, for example) is materialized once at construction, as in
+ * Python; pass a factory returning a fresh generator to keep it live.  Every
+ * source must be finite, because pageCount needs its total length.
+ *
  * pageSize = 0 disables paging: all source items appear on a single page
  * (pageCount = 1, isPagingEnabled = false).
  *
@@ -26,6 +32,18 @@ export type PagedCompositionSource<T> =
   | T[]
   | Iterable<T>
   | (() => Iterable<T>);
+
+/**
+ * True for a direct iterator such as a generator object: it has `next()` and
+ * its `[Symbol.iterator]()` returns itself, so it can be enumerated only once.
+ * `[Symbol.iterator]` is called only on objects that already expose `next()`.
+ */
+function isOneShotIterator<T>(source: Iterable<T>): boolean {
+  const candidate = source as Partial<Iterator<T>> & Iterable<T>;
+  if (typeof candidate.next !== "function") return false;
+  const iterator: unknown = candidate[Symbol.iterator]();
+  return iterator === source;
+}
 
 function requireFiniteInteger(value: number, name: string): number {
   if (!Number.isFinite(value) || !Number.isInteger(value)) {
@@ -57,9 +75,15 @@ export class PagedComposition<TVM> implements IPageable {
     this.#rawSource = source;
     this.#pageSize = Math.max(0, requireFiniteInteger(pageSize, "pageSize"));
 
-    // Normalise source into a zero-arg factory for uniform access.
+    // Normalise source into a zero-arg factory for uniform access. A one-shot
+    // iterator is materialized first, so a throwing enumeration fails the
+    // constructor before any state or subscription exists. The snapshot holds
+    // references only; items are never constructed or disposed here.
     if (typeof source === "function") {
       this.#factory = source as () => Iterable<TVM>;
+    } else if (isOneShotIterator(source)) {
+      const snapshot: readonly TVM[] = [...source];
+      this.#factory = () => snapshot;
     } else {
       this.#factory = () => source as Iterable<TVM>;
     }
@@ -160,7 +184,10 @@ export class PagedComposition<TVM> implements IPageable {
 
   // ── PagedComposition-specific surface ─────────────────────────────────────
 
-  /** The raw source passed to the constructor (never mutated). */
+  /**
+   * The raw source passed to the constructor (never mutated). For a one-shot
+   * iterator this is the exhausted iterator; `items` reads its snapshot.
+   */
   get source(): PagedCompositionSource<TVM> {
     return this.#rawSource;
   }

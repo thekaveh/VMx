@@ -752,3 +752,112 @@ describe("FormVM isDirty – structural deep equality (VMX-003)", () => {
     form.dispose();
   });
 });
+
+// ---------------------------------------------------------------------------
+// Default equality mirrors the default snapshotter (#353)
+// ---------------------------------------------------------------------------
+
+describe("FormVM default equality – supported snapshot domain", () => {
+  type AnyModel = Record<string, unknown>;
+
+  function makeAny(initial: AnyModel, extra: Partial<{ strict: boolean }> = {}) {
+    return new FormVM<AnyModel>({ initial, persister: noop, ...extra });
+  }
+
+  const cyclic: AnyModel = { name: "cycle" };
+  cyclic.self = cyclic;
+
+  const supported: Array<[string, unknown]> = [
+    ["string", "text"],
+    ["number", 42],
+    ["NaN", Number.NaN],
+    ["negative zero", -0],
+    ["bigint", 10n],
+    ["boolean", true],
+    ["null", null],
+    ["undefined-valued key", undefined],
+    ["valid Date", new Date("2020-01-01T00:00:00.000Z")],
+    ["invalid Date", new Date(Number.NaN)],
+    ["RegExp", /ab+c/gi],
+    ["ArrayBuffer", new Uint8Array([1, 2, 3]).buffer],
+    ["typed array", new Float64Array([1.5, Number.NaN])],
+    ["DataView", new DataView(new Uint8Array([4, 5]).buffer)],
+    ["array", [1, [2, 3], { deep: true }]],
+    ["primitive-key Map", new Map<unknown, unknown>([["k", { v: 1 }], [2, [3]]])],
+    ["primitive Set", new Set([1, "two", null])],
+    ["nested object", { a: { b: { c: [new Date(0)] } } }],
+    ["cycle", cyclic],
+  ];
+
+  it.each(supported)("a model holding %s starts clean against its snapshot", (_, value) => {
+    const sut = makeAny({ value });
+    expect(sut.isDirty).toBe(false);
+    sut.dispose();
+  });
+
+  it("keeps an invalid Date clean through setModel, strict approval, deny, and reset", async () => {
+    const approved: AnyModel[] = [];
+    const sut = new FormVM<AnyModel>({
+      initial: { when: new Date(Number.NaN) },
+      persister: noop,
+      strict: true,
+      resetOnApproved: (current) => ({ ...current, when: new Date(Number.NaN) }),
+    });
+    sut.onApproved.subscribe((model) => approved.push(model));
+    expect(sut.isDirty).toBe(false);
+    expect(sut.approveCommand.canExecute()).toBe(false);
+
+    sut.setModel({ when: new Date(Number.NaN) });
+    expect(sut.isDirty).toBe(false);
+    expect(sut.approveCommand.canExecute()).toBe(false);
+
+    sut.setModel({ when: new Date(0) });
+    expect(sut.isDirty).toBe(true);
+    expect(sut.approveCommand.canExecute()).toBe(true);
+    sut.denyCommand.execute();
+    expect(sut.isDirty).toBe(false);
+
+    sut.setModel({ when: new Date(0) });
+    await sut.approveAsync();
+    expect(approved).toHaveLength(1);
+    expect(sut.isDirty).toBe(false);
+    expect(Number.isNaN((sut.model.when as Date).getTime())).toBe(true);
+    sut.dispose();
+  });
+
+  it("still distinguishes an invalid Date from a valid one", () => {
+    const sut = makeAny({ when: new Date(Number.NaN) });
+    sut.setModel({ when: new Date(0) });
+    expect(sut.isDirty).toBe(true);
+    sut.setModel({ when: new Date(Number.NaN) });
+    expect(sut.isDirty).toBe(false);
+    sut.dispose();
+  });
+
+  it("keeps SameValueZero reference membership for object-keyed Map and Set by default", () => {
+    const key = { id: 1 };
+    const sut = makeAny({ index: new Map([[key, "x"]]), picked: new Set([key]) });
+
+    // structuredClone copies the key objects, so the snapshot's keys are new
+    // references and the default comparison reports the form as dirty.
+    expect(sut.isDirty).toBe(true);
+    sut.dispose();
+  });
+
+  it("lets a custom equals compare object-keyed Map and Set structurally", () => {
+    type Keyed = { picked: Set<{ id: number }> };
+    const ids = (model: Keyed) => [...model.picked].map((entry) => entry.id).sort();
+    const sut = new FormVM<Keyed>({
+      initial: { picked: new Set([{ id: 1 }, { id: 2 }]) },
+      persister: noop,
+      equals: (x, y) => JSON.stringify(ids(x)) === JSON.stringify(ids(y)),
+    });
+    expect(sut.isDirty).toBe(false);
+
+    sut.setModel({ picked: new Set([{ id: 2 }, { id: 1 }]) });
+    expect(sut.isDirty).toBe(false);
+    sut.setModel({ picked: new Set([{ id: 3 }]) });
+    expect(sut.isDirty).toBe(true);
+    sut.dispose();
+  });
+});
