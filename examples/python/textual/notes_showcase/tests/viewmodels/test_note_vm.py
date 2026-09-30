@@ -208,6 +208,40 @@ async def test_delete_command_with_confirm_false_does_not_invoke_on_delete() -> 
     assert captured == []  # delete rejected by the confirm gate
 
 
+async def test_disposing_the_vm_while_a_delete_confirmation_is_pending_deletes_nothing() -> None:
+    """Disposal lands while the confirm dialog is open, then the user clicks 'Yes'."""
+    from vmx.commands import ConfirmationDecoratorCommand
+
+    captured: list[NoteVM] = []
+    decision: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
+
+    async def _confirm(_vm: NoteVM) -> bool:
+        return await decision
+
+    hub = MessageHub[Message]()
+    dispatcher = RxDispatcher(foreground=ImmediateScheduler(), background=ImmediateScheduler())
+    vm = (
+        NoteVM.builder()
+        .name("note")
+        .services(hub, dispatcher)
+        .model(_model())
+        .on_delete(lambda v: captured.append(v))
+        .confirm_delete(_confirm)
+        .build()
+    )
+    vm.construct()
+    assert isinstance(vm.delete_command, ConfirmationDecoratorCommand)
+    pending = asyncio.ensure_future(vm.delete_command.execute_async())
+    await asyncio.sleep(0)
+
+    vm.dispose()
+    decision.set_result(True)
+    await pending
+
+    assert captured == []
+    assert vm.delete_command.can_execute() is False
+
+
 async def test_delete_command_with_confirm_true_invokes_on_delete() -> None:
     """User clicks 'Yes' in the confirm dialog → on_delete fires with self."""
     from vmx.commands import ConfirmationDecoratorCommand

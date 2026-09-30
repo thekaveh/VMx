@@ -5,10 +5,20 @@
  */
 import { combineLatest, map, Observable, Subject, Subscription } from "rxjs";
 
+/**
+ * Registry key of the internal state seam that VMx's own adapters (for
+ * example `@thekaveh/vmx-react`) use to observe the silent first value. It is
+ * not part of the specified DerivedProperty surface and may change in any
+ * release.
+ */
+const OBSERVE_STATE: symbol = Symbol.for("@thekaveh/vmx:DerivedProperty.observeState");
+
 export class DerivedProperty<TValue> {
   #value: TValue | undefined;
   #hasValue = false;
   readonly #changes = new Subject<TValue>();
+  /** Signals the first value and every later change; carries no value. */
+  readonly #states = new Subject<void>();
   readonly #subscription: Subscription;
   #disposed = false;
   readonly #canSet: ((v: TValue) => boolean) | null;
@@ -25,11 +35,27 @@ export class DerivedProperty<TValue> {
       if (!this.#hasValue) {
         this.#value = v;
         this.#hasValue = true;
+        // The first value is not a ValueChanged emission (DPROP-009).
+        this.#states.next();
         return;
       }
       if (Object.is(v, this.#value)) return;
       this.#value = v;
       this.#changes.next(v);
+      this.#states.next();
+    });
+  }
+
+  static {
+    // Internal adapter seam, defined here so it can read #states but stays
+    // out of the declarations: calls `listener` when the first value is
+    // stored and after every `valueChanged` emission, without subscribing
+    // upstream again. Returns an idempotent unsubscribe function.
+    Object.defineProperty(DerivedProperty.prototype, OBSERVE_STATE, {
+      value(this: DerivedProperty<unknown>, listener: () => void): () => void {
+        const subscription = this.#states.subscribe({ next: listener });
+        return () => subscription.unsubscribe();
+      },
     });
   }
 
@@ -62,6 +88,7 @@ export class DerivedProperty<TValue> {
     this.#disposed = true;
     this.#subscription.unsubscribe();
     this.#changes.complete();
+    this.#states.complete();
   }
 }
 

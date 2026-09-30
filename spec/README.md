@@ -28,7 +28,7 @@ before any flavor releases a stable version.
 - `09-forwarding.md` — forwarding decorators.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
-- `12-conformance.md` — cross-language conformance test catalog (408 IDs).
+- `12-conformance.md` — cross-language conformance test catalog (411 IDs).
 - `13-tree-utilities.md` — `walk` / `find` / `walk_expanded` tree introspection.
 
 ### 1.2 Chapters (v2.0 additions)
@@ -611,11 +611,23 @@ The catalog now contains 403 library IDs plus 5 scenario IDs.
 
 See ADR-0128 and chapter 22.
 
-### 1.35 Supporting artefacts
+### 1.35 v3.23.0 → v3.24.0 changes
 
-- `VERSION` — current spec SemVer (`3.23.0`).
+v3.24.0 makes disposed command wrappers inert. A disposed `CompositeCommand`,
+`DecoratorCommand`, or `ConfirmationDecoratorCommand` reports
+`CanExecute == false` and runs no inner work; disposal observed during
+execution stops further inner work while a decorator's admitted pre/post pair
+stays balanced; and a confirmation that resolves after disposal runs nothing
+(`CMDD-011..013`). The catalog now contains 406 library IDs plus 5 scenario
+IDs.
+
+See ADR-0134 and chapter 04.
+
+### 1.36 Supporting artefacts
+
+- `VERSION` — current spec SemVer (`3.24.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0133); see
+- `ADRs/` — Architecture Decision Records (0001-0134); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `schemas/` — versioned supporting machine contracts. The consumer
   conformance v1 schema is non-normative; see ADR-0102.

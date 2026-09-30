@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Runs the WPF/MAUI adapter recipe (docs/content/integration/wpf.md) on a
+       real WPF Dispatcher. Windows-only; CI runs it in the wpf-example job. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The exact adapter the docs embed and VMx.Tests executes. -->
+    <Compile Include="../../../../langs/csharp/tests/VMx.Tests/Integration/BindableVm.cs" Link="BindableVm.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../../langs/csharp/src/VMx/VMx.csproj" />
+  </ItemGroup>
+</Project>
