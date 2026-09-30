@@ -6,6 +6,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.24.1] — unreleased source version
+
+### Fixed
+
+- `DerivedProperty` now signals its silent first value, and every later change,
+  through an internal, non-enumerable seam that `@thekaveh/vmx-react` observes,
+  so a binding mounted before the first value renders it as soon as it arrives.
+  The seam is not part of the public type or the specified surface;
+  `valueChanged` and its DPROP-009 trace are unchanged (#415).
+
 ## [3.24.0] — 2026-07-25
 
 ### Added
