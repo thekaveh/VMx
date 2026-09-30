@@ -137,9 +137,10 @@ python3 tools/check-coverage-floor.py --flavor swift \
 The denominator is `langs/swift/Sources/VMx/` only. Test files, the bundled
 JSON resources, and build output are not counted, so a change that touches only
 generated or resource files cannot fail the gate. Removing a test that exercised
-library code lowers the figure and can. A failure lists the source files with
-the most uncovered lines. The job uploads the llvm-cov export and a provenance
-file that names the commit, toolchain, and measured figures. Instrumentation
+library code lowers the figure and can. A failure names each source file that
+gained uncovered lines since the recorded baseline. The job uploads the llvm-cov
+export and a provenance file that names the commit, toolchain, and measured
+figures. Instrumentation
 stays in that job's debug build; the release builds, platform builds, and
 packages never see it.
 

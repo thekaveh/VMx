@@ -101,9 +101,11 @@ Every flavor gates CI on a coverage floor over its library sources:
 | Rust       | `tools/check-coverage-floor.py` with `tools/coverage-floors.json` | lines, regions, functions              |
 | Swift      | `tools/check-coverage-floor.py` with `tools/coverage-floors.json` | lines, regions, functions              |
 
-Each Rust and Swift floor is the measured baseline minus at most 0.6 points of
-tolerance for scheduling-dependent paths. The file records the commit and
-toolchain of each baseline. Raise a floor when coverage improves. Never lower
+Each Rust and Swift floor is the lowest figure measured across repeated runs of
+the baseline commit, truncated to two decimals, so only run-to-run variation in
+scheduling-dependent paths is tolerated. The file records the commit, toolchain,
+every measured run, and each source file's uncovered lines, so a failure names
+the files that lost coverage. Raise a floor when coverage improves. Never lower
 one to make a change pass: if deleting code legitimately lowers coverage,
 explain it in the pull request and record the new baseline. Percentages are not
 comparable across flavors, because each tool counts differently.

@@ -34,7 +34,7 @@ def _report(tmp_path: Path, files: list[dict[str, object]]) -> Path:
     return path
 
 
-def _floors(tmp_path: Path, **values: float) -> Path:
+def _floors(tmp_path: Path, **values: object) -> Path:
     path = tmp_path / "floors.json"
     entry = {
         "include": "/src/",
@@ -75,7 +75,22 @@ def test_a_coverage_decrease_fails_and_names_the_least_covered_files(
     assert rc == 1
     err = capsys.readouterr().err
     assert "lines, regions coverage fell below its floor" in err
-    assert "b.rs: 50 uncovered lines" in err.splitlines()[1]
+    assert err.splitlines()[1] == "Files with the most uncovered lines:"
+    assert "b.rs: 50 uncovered lines" in err.splitlines()[2]
+
+
+def test_a_decrease_names_the_files_that_lost_coverage_since_the_baseline(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    decreased = [BASELINE[0], _file("/repo/src/b.rs", (100, 50), (100, 50), (10, 8)), BASELINE[2]]
+    floors = _floors(tmp_path, lines=85.0, baseline={"uncovered_lines": {"a.rs": 10, "b.rs": 20}})
+
+    rc = floor.check("demo", _report(tmp_path, decreased), floors)
+
+    assert rc == 1
+    err = capsys.readouterr().err.splitlines()
+    assert err[1] == "Files that lost coverage since the baseline:"
+    assert err[2:] == ["  b.rs: 50 uncovered lines, 30 more than the baseline's 20"]
 
 
 def test_generated_or_test_only_changes_do_not_move_the_measured_figure(tmp_path: Path) -> None:

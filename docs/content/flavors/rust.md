@@ -217,10 +217,11 @@ python3 tools/check-coverage-floor.py --flavor rust --report rust-coverage.json
 The denominator is `langs/rust/src/` only. Test, example, and build files are
 not counted, so a change that touches only generated or resource files cannot
 fail the gate. Removing a test that exercised library code lowers the figure and
-can. A failure lists the source files with the most uncovered lines. The job uploads
-the llvm-cov export and a provenance file that names the commit, toolchain, and
-measured figures. `cargo-llvm-cov` builds into its own target directory, so
-instrumented code never reaches the package job or a published crate.
+can. A failure names each source file that gained uncovered lines since the
+recorded baseline. The job uploads the llvm-cov export and a provenance file
+that names the commit, toolchain, and measured figures. `cargo-llvm-cov` builds
+into its own target directory, so instrumented code never reaches the package
+job or a published crate.
 
 Coverage says which lines ran, not whether a test would catch a wrong result.
 It does not replace the conformance assertions.

@@ -2,16 +2,56 @@
   "rust": {
     "include": "/langs/rust/src/",
     "exclude": "/tests/|/target/",
-    "lines": 82.7,
-    "regions": 81.3,
-    "functions": 77.1,
+    "lines": 83.18,
+    "regions": 81.86,
+    "functions": 77.66,
     "baseline": {
       "measured": "2026-09-30",
       "commit": "a37d567477b560edc9ddc900d016a38ccd4cdd34",
       "toolchain": "rustc 1.94.1, cargo-llvm-cov 0.9.1",
-      "lines": 83.21,
-      "regions": 81.89,
-      "functions": 77.67
+      "runs": 3,
+      "lines": [
+        83.19,
+        83.21,
+        83.21
+      ],
+      "regions": [
+        81.87,
+        81.89,
+        81.89
+      ],
+      "functions": [
+        77.67,
+        77.67,
+        77.67
+      ],
+      "uncovered_lines": {
+        "aggregate_change_stream.rs": 50,
+        "aggregates.rs": 475,
+        "async_resource_vm.rs": 124,
+        "async_value.rs": 1,
+        "capabilities.rs": 34,
+        "collections.rs": 49,
+        "commands.rs": 37,
+        "components.rs": 144,
+        "composites.rs": 354,
+        "derived_property.rs": 147,
+        "dialogs.rs": 0,
+        "discriminator.rs": 4,
+        "forms.rs": 35,
+        "forwarding.rs": 123,
+        "groups.rs": 361,
+        "hierarchical.rs": 114,
+        "lib.rs": 2,
+        "modeled_crud.rs": 17,
+        "notifications.rs": 20,
+        "paged_composition.rs": 1,
+        "runtime.rs": 179,
+        "searchable_state.rs": 10,
+        "specialized_vms.rs": 27,
+        "token_paging.rs": 80,
+        "value_stream.rs": 32
+      }
     }
   },
   "swift": {

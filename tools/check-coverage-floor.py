@@ -6,11 +6,13 @@ Rust (`cargo llvm-cov --json --summary-only`) and Swift
 write the llvm-cov JSON export format. This tool recomputes line, region, and
 function totals over the flavor's library sources only, compares them with the
 floors in `tools/coverage-floors.json`, and fails when any metric drops below
-its floor. A failure names the source files with the most uncovered lines.
+its floor. A failure names the files that gained uncovered lines since the
+recorded per-file baseline, or, without one, the files with the most uncovered
+lines.
 
-The floors are measured baselines minus a small tolerance for coverage that
-depends on thread scheduling; raise them as coverage improves, never lower them
-to make a change pass.
+Each floor is the lowest figure measured across repeated runs of the baseline
+commit, so only run-to-run variation in scheduling-dependent paths is tolerated.
+Raise floors as coverage improves; never lower one to make a change pass.
 
 Exit codes:
     0  Every metric meets its floor.
@@ -84,11 +86,41 @@ def totals(files: list[dict[str, object]]) -> dict[str, dict[str, float]]:
     return result
 
 
+def source_key(entry: dict[str, object], include: str) -> str:
+    """The file's path below the include prefix, e.g. ``token_paging.rs``."""
+    name = str(entry.get("filename", "")).replace("\\", "/")
+    match = re.search(include, name)
+    return name[match.end() :] if match else name
+
+
+def uncovered_lines(entry: dict[str, object]) -> int:
+    lines = entry["summary"]["lines"]  # type: ignore[index]
+    return int(lines["count"]) - int(lines["covered"])
+
+
+def regressions(
+    files: list[dict[str, object]], include: str, baseline: dict[str, int]
+) -> list[str]:
+    """Files with more uncovered lines than the recorded baseline, worst first."""
+    rows = []
+    for entry in files:
+        key = source_key(entry, include)
+        missed = uncovered_lines(entry)
+        before = baseline.get(key, 0)
+        if missed > before:
+            rows.append((missed - before, key, missed, before))
+    rows.sort(key=lambda row: (-row[0], row[1]))
+    return [
+        f"  {key}: {missed} uncovered lines, {delta} more than the baseline's {before}"
+        for delta, key, missed, before in rows
+    ]
+
+
 def least_covered(files: list[dict[str, object]], limit: int = 10) -> list[str]:
     rows = []
     for entry in files:
         lines = entry["summary"]["lines"]  # type: ignore[index]
-        missed = int(lines["count"]) - int(lines["covered"])
+        missed = uncovered_lines(entry)
         if missed:
             rows.append((missed, float(lines["percent"]), str(entry["filename"])))
     rows.sort(key=lambda row: (-row[0], row[2]))
@@ -150,11 +182,18 @@ def check(
 
     if failures:
         print(
-            f"FAIL: {flavor} {', '.join(failures)} coverage fell below its floor. "
-            "Files with the most uncovered lines:",
+            f"FAIL: {flavor} {', '.join(failures)} coverage fell below its floor.",
             file=sys.stderr,
         )
-        for row in least_covered(files):
+        baseline = floor.get("baseline", {}).get("uncovered_lines")
+        grown = regressions(files, floor["include"], baseline) if baseline else []
+        if grown:
+            print("Files that lost coverage since the baseline:", file=sys.stderr)
+            rows = grown
+        else:
+            print("Files with the most uncovered lines:", file=sys.stderr)
+            rows = least_covered(files)
+        for row in rows:
             print(row, file=sys.stderr)
         return 1
     return 0
