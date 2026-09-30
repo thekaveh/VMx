@@ -314,7 +314,7 @@ jobs:
         run: npm run build --prefix examples/typescript/react/notes-showcase --ignore-scripts
 
       - name: integration recipes install
-        # Executes the Vue and Solid guide snippets (docs/content/integration)
+        # Executes the Vue, Solid and Svelte guide snippets (docs/content/integration)
         # against the host versions pinned in this fixture's package.json.
         run: npm ci --prefix examples/typescript/integration-recipes
 

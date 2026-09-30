@@ -2,7 +2,7 @@
   "name": "vmx-integration-recipes",
   "private": true,
   "version": "0.0.0",
-  "description": "Executes the Vue and Solid integration recipes from docs/content/integration against pinned host versions.",
+  "description": "Executes the Vue, Solid and Svelte integration recipes from docs/content/integration against pinned host versions.",
   "type": "module",
   "scripts": {
     "test": "vitest run",
@@ -13,9 +13,11 @@
     "@thekaveh/vmx": "file:../../../langs/typescript",
     "rxjs": "^7.8.1",
     "solid-js": "1.9.15",
+    "svelte": "5.57.1",
     "vue": "3.5.43"
   },
   "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^7.3.1",
     "@vitejs/plugin-vue": "^6.0.0",
     "jsdom": "^29.1.1",
     "typescript": "^6.0.3",
