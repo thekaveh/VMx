@@ -9,6 +9,7 @@ import textwrap
 from pathlib import Path
 
 import check_conformance_coverage as ccc
+import pytest
 
 
 def test_parse_catalog_extracts_ids(tmp_path: Path) -> None:
@@ -508,23 +509,35 @@ def test_swift_header_summary_does_not_count_as_marker(tmp_path: Path) -> None:
     assert rc == 1
 
 
-def test_swift_orphan_id_is_informational(tmp_path: Path) -> None:
-    """A Swift marker not in the catalog is an informational ORPHAN, NOT a hard
-    failure — matching the full-parity flavors (compute_gaps only flags
-    ``catalog - found``). Full catalog coverage + an extra marker still passes."""
-    test_with_orphan = (
-        "/// LIFE-001 — construct transitions\n"
-        "func testLife001() {}\n"
-        "/// LIFE-002 — destruct transitions\n"
-        "func testLife002() {}\n"
-        "/// FUTURE-999 — an id not yet in this catalog\n"
-        "func testFuture999() {}\n"
-    )
-    _make_swift_fixture(tmp_path, _SWIFT_CATALOG_TEXT, test_with_orphan)
+_SWIFT_TESTS_WITH_ORPHAN = (
+    "/// LIFE-001 — construct transitions\n"
+    "func testLife001() {}\n"
+    "/// LIFE-002 — destruct transitions\n"
+    "func testLife002() {}\n"
+    "/// LIFE-999 — an id this catalog does not define\n"
+    "func testLife999() {}\n"
+)
+
+
+def test_required_orphan_id_fails_even_with_full_coverage(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A marker for an ID the catalog lacks claims coverage of nothing, so a
+    required flavor with one fails even when every catalog ID is covered."""
+    _make_swift_fixture(tmp_path, _SWIFT_CATALOG_TEXT, _SWIFT_TESTS_WITH_ORPHAN)
 
     rc = ccc.main(["--repo-root", str(tmp_path), "--require", "swift"])
 
-    assert rc == 0, "orphan markers are informational for full-parity flavors"
+    assert rc == 1
+    captured = capsys.readouterr()
+    assert "ORPHAN (1): LIFE-999" in captured.out
+    assert "FAIL: swift tests reference IDs absent from the catalog: LIFE-999" in captured.err
+
+
+def test_orphan_id_stays_informational_in_report_only_mode(tmp_path: Path) -> None:
+    _make_swift_fixture(tmp_path, _SWIFT_CATALOG_TEXT, _SWIFT_TESTS_WITH_ORPHAN)
+
+    assert ccc.main(["--repo-root", str(tmp_path)]) == 0
 
 
 # ─── Rust conformance scraper ────────────────────────────────────────────────
