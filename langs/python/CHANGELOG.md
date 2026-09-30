@@ -10,6 +10,11 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ### Fixed
 
+- `FormVM` teardown now attempts every owned step — the approval, error, and
+  validation channels and both commands — even when a completion observer or
+  owned disposable raises, then re-raises the first failure. A teardown deferred
+  until an in-progress `set_model` or deny finishes no longer replaces the error
+  that mutation is already raising (#336).
 - `AsyncResourceVM` now performs loader-task cancellation, cancellation-future
   completion, and late-result registration on the operation's asyncio loop while
   preserving synchronous state invalidation. Completion admission, stable-state
