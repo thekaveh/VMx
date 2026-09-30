@@ -734,6 +734,25 @@ impl RelayCommandBuilder {
     }
 }
 
+impl Command for AsyncRelayCommand {
+    /// Same admission check as the inherent [`AsyncRelayCommand::can_execute`].
+    fn can_execute(&self) -> bool {
+        AsyncRelayCommand::can_execute(self)
+    }
+
+    /// Starts fire-and-forget execution and returns without waiting for the
+    /// async body; failures are routed to [`AsyncRelayCommand::errors`], as
+    /// with the inherent [`AsyncRelayCommand::execute`].
+    fn execute(&self) {
+        AsyncRelayCommand::execute(self);
+    }
+
+    /// Returns the same eligibility hub as the inherent method.
+    fn can_execute_changed(&self) -> MessageHub {
+        AsyncRelayCommand::can_execute_changed(self)
+    }
+}
+
 #[derive(Clone)]
 /// A command that coordinates an ordered set of child commands.
 ///
