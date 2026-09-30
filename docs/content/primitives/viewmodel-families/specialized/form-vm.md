@@ -35,6 +35,12 @@ Important members:
 - optional builder `resetOnApproved` / `ResetOnApproved` /
   `reset_on_approved`
 
+Validation keys are unrestricted field names: every string, including the empty
+string and JavaScript prototype names such as `__proto__`, `constructor`, or
+`toString`, is an ordinary key. A field without an error reads as absent
+(`undefined`, `null`, `None`, or `nil`), and `Errors` returns a fresh snapshot
+whose keys are all own entries.
+
 ## 6.2.8.2.3. Lifecycle And Messaging
 
 Construction captures the initial snapshot. After that:
