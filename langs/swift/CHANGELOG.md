@@ -23,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   runs nothing and emits nothing (`CMDD-011..013`, ADR-0134).
 - `ExpandableState` now retains its final value and rejects expand, collapse,
   and toggle mutations after disposal, matching the other flavors.
+- `PagedComposition.pageCount` and `items` no longer overflow and trap for very
+  large page sizes such as `Int.max`; the page count is computed as
+  `1 + (count - 1) / pageSize` and the slice end from the remaining length
+  (#354).
 
 ### Documentation
 
