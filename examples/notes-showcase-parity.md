@@ -9,18 +9,27 @@ separate checks back it:
 - **Structural:** `tools/check-showcase-parity.py` requires every flavor to ship
   the same per-VM test files and the five `THEME-00x` scenario markers. It
   checks names and markers only, not what the tests assert.
-- **Behavioral:** the shared scenario
-  [`notes-showcase-scenario.json`](notes-showcase-scenario.json) (`notes-lifecycle-v1`)
-  runs one bounded workspace lifecycle in every flagship: construct, create,
-  select, edit, an invalid title, save, a declined delete, a theme change, a
-  rejected theme, and teardown. Each flavor's suite compares every step's
-  semantic snapshot (notes order, selection, form state, theme, domain events,
-  error kind, disposal) with the same expectation. A mismatch fails that suite
-  with the flavor, step, and differing value. The file lists the only
-  normalized differences, all idiomatic per ADR-0006; event order is never
-  normalized. The reduced Rust companion does not run it, because its scope
-  omits the theme VM and the delete confirmation dialog that the lifecycle
-  exercises.
+- **Behavioral:** two shared scenarios run in every flagship, and each
+  flavor's suite compares every step's semantic snapshot with the same
+  expectation. A mismatch fails that suite with the scenario, flavor, step, and
+  differing value.
+  - [`notes-showcase-scenario.json`](notes-showcase-scenario.json)
+    (`notes-lifecycle-v1`) runs one bounded workspace lifecycle: construct,
+    create, select, edit, an invalid title, save, a declined delete, a theme
+    change, a rejected theme, and teardown. Its snapshot covers notes order,
+    selection, form state, theme, domain events, error kind, and disposal.
+  - [`notes-showcase-theme-scenario.json`](notes-showcase-theme-scenario.json)
+    (`theme-v1`) runs `THEME-001`..`THEME-005` in order against one theme VM:
+    a preset change, a rejected preset, a high-contrast round trip that keeps
+    the accent, font-scale clamping at both bounds (plus a repeated value that
+    publishes nothing), and following the host theme. Its snapshot covers the
+    theme fields, every `ThemeChangedMessage` with both halves, error kind, and
+    disposal.
+
+  Each file lists the only normalized differences, all idiomatic per ADR-0006
+  or preset palette values; event order is never normalized. The reduced Rust
+  companion runs neither, because its scope omits the theme VM and the delete
+  confirmation dialog that they exercise.
 
 Published walkthroughs:
 [Notes Workspace](../docs/content/examples/notes-workspace.md),

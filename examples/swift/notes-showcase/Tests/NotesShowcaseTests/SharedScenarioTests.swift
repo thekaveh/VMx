@@ -1,9 +1,11 @@
 //
-// SharedScenarioTests — shared Notes scenario `notes-lifecycle-v1` (#346).
+// SharedScenarioTests — shared showcase scenarios `notes-lifecycle-v1` and
+// `theme-v1` (#346).
 //
-// Runs examples/notes-showcase-scenario.json through this showcase's view
+// Runs examples/notes-showcase-scenario.json and
+// examples/notes-showcase-theme-scenario.json through this showcase's view
 // models and compares every step's semantic snapshot with the shared
-// expectation. The C#, Python, and TypeScript showcases run the same file
+// expectation. The C#, Python, and TypeScript showcases run the same files
 // through their own adapters.
 //
 import XCTest
@@ -108,6 +110,98 @@ private final class ScenarioAdapter {
     }
 }
 
+private func themeSnapshot(_ model: ThemeModel) -> [String: Any] {
+    let presetAccent = ThemeModel.presets[model.name]?.accentColor
+    return [
+        "name": model.name,
+        "high_contrast": model.highContrast,
+        "accent": model.accentColor == presetAccent ? "preset" : model.accentColor,
+        "font_scale": model.fontScaleFactor,
+        "follows_system": model.followsSystem,
+    ]
+}
+
+private final class ThemeScenarioAdapter {
+    let theme: ThemeVM
+    private var events: [[String: Any]] = []
+    private var subscriptions = Set<AnyCancellable>()
+
+    init() throws {
+        let hub = MessageHub()
+        theme = try ThemeVM.builder()
+            .name("theme")
+            .services(hub: hub, dispatcher: ImmediateDispatcher.INSTANCE)
+            .initialModel(ThemeModel.LIGHT_PRESET)
+            .systemThemeProvider { "light" }
+            .build()
+        hub.messages
+            .compactMap { $0 as? ThemeChangedMessage }
+            .sink { [unowned self] message in
+                self.events.append([
+                    "previous": themeSnapshot(message.previous),
+                    "current": themeSnapshot(message.current),
+                ])
+            }
+            .store(in: &subscriptions)
+    }
+
+    /// Runs one step; returns "invalid" when the step's operation was rejected.
+    func run(_ step: [String: Any]) throws -> String? {
+        let action = step["action"] as? String ?? ""
+        switch action {
+        case "construct":
+            try theme.construct()
+        case "set_theme":
+            // `applyPreset` is Swift's throwing theme-selection surface
+            // (declared in the scenario's normalization).
+            do {
+                try theme.applyPreset(step["theme"] as? String ?? "")
+            } catch {
+                return "invalid"
+            }
+        case "set_accent":
+            theme.setAccentColor.execute(step["accent"] as? String ?? "")
+        case "toggle_high_contrast":
+            theme.toggleHighContrast.execute()
+        case "set_font_scale":
+            let scale = try XCTUnwrap(step["scale"] as? Double)
+            theme.setFontScale.execute(scale)
+        case "follow_system":
+            theme.followSystemCommand.execute()
+        case "dispose":
+            theme.dispose()
+        default:
+            XCTFail("unknown scenario action \(action)")
+        }
+        return nil
+    }
+
+    func snapshot(error: String?) throws -> [String: Any] {
+        defer { events.removeAll() }
+        if theme.status == .disposed {
+            return ["events": events, "error": error ?? NSNull(), "disposed": true]
+        }
+        let current = try theme.currentTheme.value
+        return [
+            "theme": themeSnapshot(current),
+            "events": events,
+            "error": error ?? NSNull(),
+            "disposed": false,
+        ]
+    }
+}
+
+private func loadScenario(_ fileName: String) throws -> [String: Any] {
+    let examples = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()  // NotesShowcaseTests
+        .deletingLastPathComponent()  // Tests
+        .deletingLastPathComponent()  // notes-showcase
+        .deletingLastPathComponent()  // swift
+        .deletingLastPathComponent()  // examples
+    let data = try Data(contentsOf: examples.appendingPathComponent(fileName))
+    return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+}
+
 private func canonical(_ value: Any) -> String {
     guard let data = try? JSONSerialization.data(
         withJSONObject: value, options: [.sortedKeys, .fragmentsAllowed]
@@ -126,14 +220,7 @@ private func differences(_ expected: [String: Any], _ actual: [String: Any]) -> 
 
 final class SharedScenarioTests: XCTestCase {
     func testSharedNotesScenarioMatchesTheSemanticExpectation() async throws {
-        let examples = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent()  // NotesShowcaseTests
-            .deletingLastPathComponent()  // Tests
-            .deletingLastPathComponent()  // notes-showcase
-            .deletingLastPathComponent()  // swift
-            .deletingLastPathComponent()  // examples
-        let data = try Data(contentsOf: examples.appendingPathComponent("notes-showcase-scenario.json"))
-        let scenario = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let scenario = try loadScenario("notes-showcase-scenario.json")
         let id = scenario["id"] as? String ?? "?"
         let steps = try XCTUnwrap(scenario["steps"] as? [[String: Any]])
 
@@ -141,6 +228,24 @@ final class SharedScenarioTests: XCTestCase {
         var failures: [String] = []
         for (offset, step) in steps.enumerated() {
             let error = try await adapter.run(step)
+            let expected = try XCTUnwrap(step["expect"] as? [String: Any])
+            let action = step["action"] as? String ?? "?"
+            for difference in differences(expected, try adapter.snapshot(error: error)) {
+                failures.append("\(id) [\(flavor)] step \(offset + 1) \(action): \(difference)")
+            }
+        }
+        XCTAssertTrue(failures.isEmpty, failures.joined(separator: "\n"))
+    }
+
+    func testSharedThemeScenarioMatchesTheSemanticExpectation() throws {
+        let scenario = try loadScenario("notes-showcase-theme-scenario.json")
+        let id = scenario["id"] as? String ?? "?"
+        let steps = try XCTUnwrap(scenario["steps"] as? [[String: Any]])
+
+        let adapter = try ThemeScenarioAdapter()
+        var failures: [String] = []
+        for (offset, step) in steps.enumerated() {
+            let error = try adapter.run(step)
             let expected = try XCTUnwrap(step["expect"] as? [String: Any])
             let action = step["action"] as? String ?? "?"
             for difference in differences(expected, try adapter.snapshot(error: error)) {

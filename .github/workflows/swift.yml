@@ -11,6 +11,7 @@ on:
       - "langs/swift/**"
       - "examples/swift/**"
       - "examples/notes-showcase-scenario.json"
+      - "examples/notes-showcase-theme-scenario.json"
       - "spec/**"
       - "tools/check-swift-package-sync.py"
       - ".github/workflows/swift.yml"

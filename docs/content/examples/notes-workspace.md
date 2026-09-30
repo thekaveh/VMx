@@ -17,8 +17,11 @@ idiomatic hosts, and one shared VM contract.
 
 - Cross-flavor parity matrix:
   [examples/notes-showcase-parity.md](../../../examples/notes-showcase-parity.md)
-- Shared behavioral scenario, asserted by all four flagship suites:
+- Shared behavioral scenarios, asserted by all four flagship suites:
   [examples/notes-showcase-scenario.json](../../../examples/notes-showcase-scenario.json)
+  (workspace lifecycle) and
+  [examples/notes-showcase-theme-scenario.json](../../../examples/notes-showcase-theme-scenario.json)
+  (`THEME-001`..`THEME-005`)
 - VM hierarchy diagram source:
   [examples/assets/notes-showcase-vm-hierarchy.svg](../../../examples/assets/notes-showcase-vm-hierarchy.svg)
 - Scenario proposal:

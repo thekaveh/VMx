@@ -10,6 +10,7 @@ on:
       - "langs/python/**"
       - "examples/python/**"
       - "examples/notes-showcase-scenario.json"
+      - "examples/notes-showcase-theme-scenario.json"
       - "spec/**"
       - ".github/workflows/python.yml"
       - "tools/check-python-interpreter.py"

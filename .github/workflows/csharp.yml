@@ -10,6 +10,7 @@ on:
       - "langs/csharp/**"
       - "examples/csharp/**"
       - "examples/notes-showcase-scenario.json"
+      - "examples/notes-showcase-theme-scenario.json"
       - "spec/**"
       - "tools/check-nuget-package.py"
       - "tools/check-cobertura-threshold.py"

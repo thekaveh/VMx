@@ -31,14 +31,18 @@ a file whose basename matches the slug under any of the accepted conventions.
 These are **structural** diagnostics: they prove that tests exist, not what
 they assert.
 
-The **behavioral** check covers the shared scenario
-``examples/notes-showcase-scenario.json``: one bounded workspace lifecycle whose
-expected semantic outcome every full showcase asserts through its own adapter
+The **behavioral** check covers two shared scenarios whose expected semantic
+outcome every full showcase asserts through its own adapter
 (``SharedScenarioTests.cs``, ``test_shared_scenario.py``,
-``sharedScenario.test.ts``, ``SharedScenarioTests.swift``). This tool validates
-the scenario definition and requires each adapter to load it; the adapters'
-own test runs compare the outcome and fail with the flavor, step, and differing
-value.
+``sharedScenario.test.ts``, ``SharedScenarioTests.swift``):
+
+* ``examples/notes-showcase-scenario.json`` -- one bounded workspace lifecycle;
+* ``examples/notes-showcase-theme-scenario.json`` -- the five THEME scenarios
+  run in order against one ThemeVM.
+
+This tool validates both definitions and requires each adapter to load both
+files; the adapters' own test runs compare the outcome and fail with the
+scenario, flavor, step, and differing value.
 """
 
 from __future__ import annotations
@@ -48,6 +52,7 @@ import json
 import re
 import sys
 from pathlib import Path
+from typing import Any
 
 EXPECTED = [
     "workspace_vm",
@@ -72,6 +77,7 @@ ROOTS = {
 
 THEME_IDS = [f"THEME-{i:03d}" for i in range(1, 6)]
 SCENARIO = Path("examples/notes-showcase-scenario.json")
+THEME_SCENARIO = Path("examples/notes-showcase-theme-scenario.json")
 SCENARIO_ADAPTERS = {
     "csharp": "SharedScenarioTests.cs",
     "python": "test_shared_scenario.py",
@@ -86,6 +92,15 @@ SCENARIO_ACTIONS = (
     "save",
     "delete_selected_declined",
     "set_theme",
+    "dispose",
+)
+THEME_SCENARIO_ACTIONS = (
+    "construct",
+    "set_theme",
+    "set_accent",
+    "toggle_high_contrast",
+    "set_font_scale",
+    "follow_system",
     "dispose",
 )
 RUST_SCOPE_DOC = Path("docs/content/examples/rust-tui-notes-showcase.md")
@@ -248,65 +263,109 @@ def check_rust_scope(repo_root: Path) -> int:
     return 0
 
 
-def _scenario_problems(scenario: object) -> list[str]:
-    """What keeps the shared scenario from covering the required behavior."""
+def _structure_problems(scenario: object) -> list[str]:
+    """What keeps a scenario's steps from being read at all."""
     if not isinstance(scenario, dict) or not scenario.get("id"):
         return ["the scenario has no id"]
     steps = scenario.get("steps")
     if not isinstance(steps, list) or not steps:
         return ["the scenario has no steps"]
+    return [
+        f"step {number} needs an action and an expect object"
+        for number, step in enumerate(steps, start=1)
+        if not isinstance(step, dict)
+        or "action" not in step
+        or not isinstance(step.get("expect"), dict)
+    ]
+
+
+def _common_problems(scenario: dict[str, Any], actions: tuple[str, ...]) -> list[str]:
+    """Coverage every shared scenario needs: its actions, an error path, a teardown."""
+    steps = scenario["steps"]
     problems = []
     if not scenario.get("normalization"):
         problems.append("the scenario lists no normalization rules")
-    for number, step in enumerate(steps, start=1):
-        if (
-            not isinstance(step, dict)
-            or "action" not in step
-            or not isinstance(step.get("expect"), dict)
-        ):
-            problems.append(f"step {number} needs an action and an expect object")
-    if problems:
-        return problems
-    actions = [step["action"] for step in steps]
-    missing = [action for action in SCENARIO_ACTIONS if action not in actions]
+    exercised = [step["action"] for step in steps]
+    missing = [action for action in actions if action not in exercised]
     if missing:
         problems.append(f"no step exercises {missing}")
     if not any(step["expect"].get("error") == "invalid" for step in steps):
         problems.append("no step expects a rejected operation (error path)")
-    if len({step.get("index") for step in steps if step["action"] == "select_note"}) < 2:
-        problems.append("the selection never changes between two notes")
-    live = [step for step in steps if step["action"] != "dispose"]
-    if not all(isinstance(step["expect"].get("notes"), list) for step in live):
-        problems.append("a step before dispose does not assert the notes order")
     last = steps[-1]
     if last["action"] != "dispose" or last["expect"].get("disposed") is not True:
         problems.append("the scenario does not end with an asserted teardown")
     return problems
 
 
+def _scenario_problems(scenario: object) -> list[str]:
+    """What keeps the lifecycle scenario from covering the required behavior."""
+    problems = _structure_problems(scenario)
+    if problems or not isinstance(scenario, dict):
+        return problems
+    problems = _common_problems(scenario, SCENARIO_ACTIONS)
+    steps = scenario["steps"]
+    if len({step.get("index") for step in steps if step["action"] == "select_note"}) < 2:
+        problems.append("the selection never changes between two notes")
+    live = [step for step in steps if step["action"] != "dispose"]
+    if not all(isinstance(step["expect"].get("notes"), list) for step in live):
+        problems.append("a step before dispose does not assert the notes order")
+    return problems
+
+
+def _theme_scenario_problems(scenario: object) -> list[str]:
+    """What keeps the THEME scenario from covering THEME-001..005."""
+    problems = _structure_problems(scenario)
+    if problems or not isinstance(scenario, dict):
+        return problems
+    problems = _common_problems(scenario, THEME_SCENARIO_ACTIONS)
+    steps = scenario["steps"]
+    covered = {step.get("covers") for step in steps}
+    uncovered = [theme_id for theme_id in THEME_IDS if theme_id not in covered]
+    if uncovered:
+        problems.append(f"no step covers {uncovered}")
+    live = [step for step in steps if step["action"] != "dispose"]
+    if not all(isinstance(step["expect"].get("theme"), dict) for step in live):
+        problems.append("a step before dispose does not assert the theme")
+    if not all(isinstance(step["expect"].get("events"), list) for step in steps):
+        problems.append("a step does not assert its ordered events")
+    return problems
+
+
 def check_shared_scenario(repo_root: Path, roots: dict[str, Path]) -> int:
-    path = repo_root / SCENARIO
-    try:
-        scenario = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
-        print(f"shared scenario: cannot read {SCENARIO}: {error}", file=sys.stderr)
-        return 1
-    problems = [f"shared scenario: {problem}" for problem in _scenario_problems(scenario)]
+    problems: list[str] = []
+    passed: list[str] = []
+    for relative, validate, detail in (
+        (SCENARIO, _scenario_problems, ""),
+        (THEME_SCENARIO, _theme_scenario_problems, f", {THEME_IDS[0]}..{THEME_IDS[-1][-3:]}"),
+    ):
+        try:
+            scenario = json.loads((repo_root / relative).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            problems.append(f"shared scenario: cannot read {relative}: {error}")
+            continue
+        found = validate(scenario)
+        problems.extend(f"shared scenario {relative.name}: {problem}" for problem in found)
+        if not found:
+            passed.append(
+                f"[OK] behavioral parity: shared scenario '{scenario['id']}' "
+                f"({len(scenario['steps'])} steps{detail}) runs through an adapter in 4 flavors"
+            )
     for flavor, root in roots.items():
         adapter = SCENARIO_ADAPTERS[flavor]
-        found = [candidate for candidate in root.rglob(adapter) if candidate.is_file()]
-        if not found:
+        candidates = [candidate for candidate in root.rglob(adapter) if candidate.is_file()]
+        if not candidates:
             problems.append(f"{flavor}: no shared-scenario adapter '{adapter}' under {root}")
-        elif not any(SCENARIO.name in candidate.read_text(encoding="utf-8") for candidate in found):
-            problems.append(f"{flavor}: '{adapter}' does not load {SCENARIO.name}")
+            continue
+        text = "\n".join(candidate.read_text(encoding="utf-8") for candidate in candidates)
+        for relative in (SCENARIO, THEME_SCENARIO):
+            if relative.name not in text:
+                problems.append(f"{flavor}: '{adapter}' does not load {relative.name}")
     if problems:
         for problem in problems:
             print(problem, file=sys.stderr)
         return 1
-    print(
-        f"[OK] behavioral parity: shared scenario '{scenario['id']}' "
-        f"({len(scenario['steps'])} steps) runs through an adapter in 4 flavors"
-    )
+    for line in passed:
+        print(line)
     return 0
 
 

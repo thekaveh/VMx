@@ -58,10 +58,11 @@ library IDs. See [Rust ownership-test conventions](flavors/rust.md#7631-ownershi
 - `tools/check-conformance-coverage.py` enforces full library coverage across
   C#, Python, TypeScript, Swift, and Rust.
 - The examples workflows enforce the separate flagship scenario contract. The
-  `THEME-00x` scenario IDs and the shared Notes scenario
-  (`examples/notes-showcase-scenario.json`) run in all four flagship suites; the
-  shared scenario compares semantic outcomes, not just test names, and adds no
-  catalog IDs.
+  `THEME-00x` scenario IDs and two shared scenarios run in all four flagship
+  suites: a Notes workspace lifecycle
+  (`examples/notes-showcase-scenario.json`) and the five THEME scenarios in
+  order (`examples/notes-showcase-theme-scenario.json`). The shared scenarios
+  compare semantic outcomes, not just test names, and add no catalog IDs.
 
 ## 10.5. Consumer Adapter Suites
 
