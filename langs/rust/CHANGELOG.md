@@ -8,6 +8,13 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `FormVm::with_clearing_model_validator` and
+  `FormVmBuilder::clearing_model_validator` accept model validators returning
+  `BTreeMap<String, Option<String>>`: `Some(error)` sets a field error, `None`
+  clears an error from a field validator or an earlier model validator, and an
+  omitted field keeps its entry. The string-map `with_model_validator` /
+  `model_validator` remain as the compatibility path and wrap every entry in
+  `Some` (#333).
 - `TokenPagedComposition::dispose()` now terminally disables its owned
   load-more and refresh commands and prevents in-flight loaders from committing
   pager state; loader-returned items remain caller-owned.

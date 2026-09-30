@@ -27,6 +27,16 @@ public class FORM_016_to_023_ValidationTests
             _ => Task.CompletedTask,
             modelValidator: _ => new Dictionary<string, string?> { ["Value"] = "negative" });
         sut.Errors.Should().ContainKey("Value").WhoseValue.Should().Be("negative");
+
+        // A null value removes a field validator's error.
+        using var clearing = new FormVM<Model>(
+            new Model("", -1),
+            _ => Task.CompletedTask,
+            validators: new Dictionary<string, Func<Model, string?>> { ["Name"] = _ => "required" },
+            modelValidator: _ => new Dictionary<string, string?> { ["Name"] = null, ["Value"] = "negative" });
+        clearing.Errors.Should().NotContainKey("Name");
+        clearing.FieldError("Name").Should().BeNull();
+        clearing.Errors.Should().ContainKey("Value").WhoseValue.Should().Be("negative");
     }
 
     [Fact, Trait("Conformance", "FORM-018")]
