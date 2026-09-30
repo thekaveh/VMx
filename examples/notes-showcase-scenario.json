@@ -4,6 +4,7 @@
   "normalization": [
     "Member names follow each flavor's idiom (ADR-0006). Adapters map them to the snapshot fields below; the values are compared exactly.",
     "A rejected operation is recorded as the error kind 'invalid'. The exception type and message are idiomatic per flavor and are not compared.",
+    "'set_theme' uses each flavor's throwing theme-selection member: the set-theme command in C#, Python, and TypeScript, and ThemeVM.applyPreset in Swift, whose commands cannot throw and whose setThemeCommand discards a rejected preset (the Swift THEME-002 test uses applyPreset for the same reason).",
     "Note ids and timestamps are generated per run and are never recorded.",
     "Only domain-visible events are recorded: 'theme:<previous>-><current>' for each ThemeChangedMessage and 'saved:<title>' for each note-form save. Property-change notifications are not recorded because their names are idiomatic; the recorded events are compared in order and are never reordered or deduplicated."
   ],
