@@ -358,7 +358,8 @@ repeatable iterables, and factories are enumerated again on every read, so
 their changes stay visible. A source that can be enumerated only once is
 materialized when the pager is constructed. In TypeScript that is a direct
 iterator such as a generator object; in Python it is any `Iterator`. C#, Swift,
-and Rust take a repeatable collection, so the case does not arise there.
+and Rust take a repeatable collection, so the case does not arise there. Every
+source must be finite, because `pageCount` needs its total length.
 
 ```ts
 function* notes() {

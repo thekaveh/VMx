@@ -11,7 +11,8 @@
  * Arrays, other repeatable iterables, and factories stay live: every read
  * enumerates them again.  A source that is itself a one-shot iterator (a
  * generator object, for example) is materialized once at construction, as in
- * Python; pass a factory returning a fresh generator to keep it live.
+ * Python; pass a factory returning a fresh generator to keep it live.  Every
+ * source must be finite, because pageCount needs its total length.
  *
  * pageSize = 0 disables paging: all source items appear on a single page
  * (pageCount = 1, isPagingEnabled = false).

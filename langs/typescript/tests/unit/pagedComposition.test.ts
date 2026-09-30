@@ -408,6 +408,40 @@ describe("PagedComposition – source shapes", () => {
     expect(disposals).toEqual([]);
   });
 
+  it("materializes a built-in one-shot iterator such as Map.prototype.values()", () => {
+    const map = new Map([
+      ["a", 1],
+      ["b", 2],
+      ["c", 3],
+    ]);
+    const sut = new PagedComposition(map.values(), 2);
+
+    expect(sut.pageCount).toBe(2);
+    expect(sut.items).toEqual([1, 2]);
+    map.set("d", 4);
+    expect(sut.pageCount).toBe(2);
+    sut.moveToNextPage();
+    expect(sut.items).toEqual([3]);
+    sut.dispose();
+  });
+
+  it("keeps an iterable that exposes next() but returns a fresh iterator live", () => {
+    const values = [1, 2];
+    const iterable = {
+      next: (): IteratorResult<number> => ({ done: true, value: undefined }),
+      [Symbol.iterator]: () => values[Symbol.iterator](),
+    };
+    const sut = new PagedComposition<number>(iterable, 1);
+    expect(sut.pageCount).toBe(2);
+
+    values.push(3);
+
+    expect(sut.pageCount).toBe(3);
+    sut.moveToLastPage();
+    expect(sut.items).toEqual([3]);
+    sut.dispose();
+  });
+
   it("keeps a repeatable custom iterable live instead of snapshotting it", () => {
     const values = [1, 2];
     const iterable: Iterable<number> = { [Symbol.iterator]: () => values[Symbol.iterator]() };
