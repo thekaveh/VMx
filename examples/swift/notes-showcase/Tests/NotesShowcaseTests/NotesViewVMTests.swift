@@ -40,9 +40,12 @@ private func buildVM(
         .services(hub: hub, dispatcher: dispatcher)
         .repository(repo)
         .pageSize(pageSize)
-        // Zero debounce + .main scheduler so debounced path resolves quickly;
-        // tests drive immediate flush via `vm.search()`.
-        .searchDebounce(.milliseconds(0))
+        // Tests drive search through the immediate `vm.search()` path. Keep the
+        // debounced path idle for the test's lifetime: the search scheduler
+        // defaults to `DispatchQueue.main`, and Combine re-emits the initial
+        // term after the debounce, which would run `recomputeFiltered()` on
+        // the main thread while the async test body mutates the VM off-main.
+        .searchDebounce(.seconds(3600))
         .build()
 }
 

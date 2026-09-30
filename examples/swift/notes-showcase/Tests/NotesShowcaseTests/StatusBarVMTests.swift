@@ -42,7 +42,12 @@ final class StatusBarVMTests: XCTestCase {
         let notes = try NotesViewVM.builder()
             .name("notes").services(hub: hub, dispatcher: dispatcher)
             .repository(repo).pageSize(5)
-            .searchDebounce(.milliseconds(0))
+            // Keep the debounced search path idle for the test's lifetime. The
+            // search scheduler defaults to `DispatchQueue.main`, and Combine
+            // re-emits the initial term after the debounce, which would run
+            // `recomputeFiltered()` on the main thread while the async test body
+            // mutates the same VM off-main. No test here uses debounced search.
+            .searchDebounce(.seconds(3600))
             .build()
         let notebooks = try NotebooksRootVM.builder()
             .name("nbs").services(hub: hub, dispatcher: dispatcher)
