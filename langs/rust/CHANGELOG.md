@@ -8,9 +8,19 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `CompositeCommand::dispose()` and `DecoratorCommand::dispose()` make the
+  wrappers inert; clones share disposal state, as `ConfirmationDecoratorCommand`
+  clones already do (ADR-0134).
 - `TokenPagedComposition::dispose()` now terminally disables its owned
   load-more and refresh commands and prevents in-flight loaders from committing
   pager state; loader-returned items remain caller-owned.
+
+### Fixed
+
+- A disposed `ConfirmationDecoratorCommand` now reports `can_execute() == false`,
+  and disposed composite and decorator wrappers run no inner work, keep an
+  admitted pre/post pair balanced, and ignore a confirmation that resolves after
+  disposal (`CMDD-011..013`, ADR-0134).
 
 ### Changed
 

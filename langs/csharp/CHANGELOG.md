@@ -8,6 +8,15 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
+#### Fixed
+
+- Disposed `CompositeCommand`, `DecoratorCommand`, and
+  `ConfirmationDecoratorCommand` are now inert: `CanExecute` is false and
+  `Execute` runs no inner command, predicate, pre/post action, or confirmation.
+  Disposal observed during execution stops further inner work while an admitted
+  pre/post pair stays balanced, and a confirmation that resolves after disposal
+  runs nothing and emits nothing (`CMDD-011..013`, ADR-0134).
+
 ### VMx.Notifications
 
 ### VMx.Extensions.DependencyInjection
