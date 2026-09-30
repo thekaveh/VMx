@@ -1,0 +1,29 @@
+{
+  "name": "vmx-integration-recipes",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Executes the Vue and Solid integration recipes from docs/content/integration against pinned host versions.",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "check:deps": "npm ls --all --omit=optional"
+  },
+  "dependencies": {
+    "@thekaveh/vmx": "file:../../../langs/typescript",
+    "rxjs": "^7.8.1",
+    "solid-js": "1.9.15",
+    "vue": "3.5.43"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^6.0.0",
+    "jsdom": "^29.1.1",
+    "typescript": "^6.0.3",
+    "vite": "^8.2.1",
+    "vite-plugin-solid": "^2.11.0",
+    "vitest": "^5.0.0"
+  },
+  "engines": {
+    "node": "^20.19.0 || ^22.13.0 || >=24.0.0"
+  }
+}
