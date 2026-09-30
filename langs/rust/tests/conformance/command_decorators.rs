@@ -422,3 +422,196 @@ fn wrap_with_runs_pre_inner_post_with_predicate() {
 
     assert_eq!(*order.lock().unwrap(), vec!["pre", "inner", "post"]);
 }
+
+/// CMDD-011 — Disposed composite and decorator commands are inert
+#[test]
+fn disposed_composite_and_decorator_commands_are_inert() {
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let a = recording_command(log.clone(), "a", true);
+    let composite =
+        CompositeCommand::from_commands(vec![a.clone(), recording_command(log.clone(), "b", true)]);
+    let composite_clone = composite.clone();
+    composite.dispose();
+    composite.dispose();
+
+    assert!(
+        !composite_clone.can_execute(),
+        "clones share disposal state"
+    );
+    composite_clone.execute();
+
+    let inner = recording_command(log.clone(), "inner", true);
+    let (pre_log, post_log, predicate_log) = (log.clone(), log.clone(), log.clone());
+    let decorator = DecoratorCommand::new(
+        inner.clone(),
+        Some(move || {
+            predicate_log.lock().unwrap().push("predicate");
+            true
+        }),
+        Some(move || pre_log.lock().unwrap().push("pre")),
+        Some(move || post_log.lock().unwrap().push("post")),
+    );
+    let decorator_clone = decorator.clone();
+    decorator.dispose();
+    decorator.dispose();
+
+    assert!(!decorator_clone.can_execute());
+    decorator_clone.execute();
+    assert!(log.lock().unwrap().is_empty());
+
+    a.execute();
+    inner.execute();
+    assert_eq!(*log.lock().unwrap(), vec!["a", "inner"]);
+}
+
+/// Disposing a composite releases its child subscriptions and completes its
+/// own change hub after one notification; the children's hubs stay open.
+#[test]
+fn composite_disposal_completes_only_its_own_change_hub() {
+    let child = RelayCommand::noop();
+    let composite = CompositeCommand::from_commands(vec![child.clone()]);
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let (values, completions) = (events.clone(), events.clone());
+    let _subscription = composite.can_execute_changed().subscribe_with_completion(
+        move |_| values.lock().unwrap().push("value"),
+        move || completions.lock().unwrap().push("completion"),
+    );
+    let child_events = Arc::new(AtomicUsize::new(0));
+    let child_events_inner = child_events.clone();
+    let _child_subscription = child.can_execute_changed().subscribe(move |_| {
+        child_events_inner.fetch_add(1, Ordering::SeqCst);
+    });
+
+    composite.dispose();
+    child.raise_can_execute_changed();
+
+    assert_eq!(*events.lock().unwrap(), vec!["value", "completion"]);
+    assert_eq!(child_events.load(Ordering::SeqCst), 1);
+}
+
+/// CMDD-012 — Disposed confirmation decorators are inert, including a pending confirmation
+#[test]
+fn disposed_confirmation_decorator_is_inert_including_pending_confirmations() {
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let confirms = Arc::new(AtomicUsize::new(0));
+    let confirms_inner = confirms.clone();
+    let disposed_first = ConfirmationDecoratorCommand::new(
+        recording_command(log.clone(), "never", true),
+        move || {
+            confirms_inner.fetch_add(1, Ordering::SeqCst);
+            AsyncValue::ready(true)
+        },
+    );
+    disposed_first.dispose();
+    assert!(!disposed_first.can_execute());
+    disposed_first.execute();
+    disposed_first.execute_async().join().unwrap();
+    assert_eq!(confirms.load(Ordering::SeqCst), 0);
+
+    // Rust confirmations are `AsyncValue<bool>`, which has no faulted state;
+    // a panicking delegate is covered by CMDD-010.
+    for confirmed in [true, false] {
+        let inner = recording_command(log.clone(), "inner", true);
+        let decision = AsyncValue::pending();
+        let pending = decision.clone();
+        let confirming = ConfirmationDecoratorCommand::new(inner.clone(), move || pending.clone());
+        let deliveries = Arc::new(AtomicUsize::new(0));
+        let deliveries_inner = deliveries.clone();
+        let _subscription = confirming.errors().subscribe(move |_| {
+            deliveries_inner.fetch_add(1, Ordering::SeqCst);
+        });
+
+        confirming.execute();
+        confirming.clone().dispose();
+        // Resolve on another thread after dispose() has returned.
+        std::thread::spawn(move || {
+            decision.resolve(confirmed);
+        })
+        .join()
+        .unwrap();
+
+        assert!(log.lock().unwrap().is_empty(), "confirmed = {confirmed}");
+        assert_eq!(deliveries.load(Ordering::SeqCst), 0);
+        inner.execute();
+        assert_eq!(
+            log.lock().unwrap().drain(..).collect::<Vec<_>>(),
+            vec!["inner"]
+        );
+    }
+}
+
+/// CMDD-013 — Disposal during execution admits no later inner work
+#[test]
+fn disposal_during_execution_admits_no_later_inner_work() {
+    // A composite whose first child disposes it runs no later child.
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let holder: Arc<Mutex<Option<CompositeCommand>>> = Arc::new(Mutex::new(None));
+    let first = RelayCommand::new({
+        let (log, holder) = (log.clone(), holder.clone());
+        move || {
+            log.lock().unwrap().push("first");
+            if let Some(composite) = holder.lock().unwrap().as_ref() {
+                composite.dispose();
+            }
+        }
+    });
+    let composite = CompositeCommand::from_commands(vec![
+        first,
+        recording_command(log.clone(), "second", true),
+    ]);
+    *holder.lock().unwrap() = Some(composite.clone());
+    composite.execute();
+    assert_eq!(*log.lock().unwrap(), vec!["first"]);
+
+    // A decorator disposed by its extra predicate runs neither hook nor inner.
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let slot: Arc<Mutex<Option<DecoratorCommand<RelayCommand>>>> = Arc::new(Mutex::new(None));
+    let decorator = DecoratorCommand::new(
+        recording_command(log.clone(), "inner", true),
+        Some({
+            let slot = slot.clone();
+            move || {
+                if let Some(decorator) = slot.lock().unwrap().as_ref() {
+                    decorator.dispose();
+                }
+                true
+            }
+        }),
+        Some({
+            let log = log.clone();
+            move || log.lock().unwrap().push("pre")
+        }),
+        Some({
+            let log = log.clone();
+            move || log.lock().unwrap().push("post")
+        }),
+    );
+    *slot.lock().unwrap() = Some(decorator.clone());
+    decorator.execute();
+    assert!(log.lock().unwrap().is_empty());
+
+    // A decorator disposed by its pre-action skips the inner but runs post once.
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let slot: Arc<Mutex<Option<DecoratorCommand<RelayCommand>>>> = Arc::new(Mutex::new(None));
+    let decorator = DecoratorCommand::new(
+        recording_command(log.clone(), "inner", true),
+        None::<fn() -> bool>,
+        Some({
+            let (log, slot) = (log.clone(), slot.clone());
+            move || {
+                log.lock().unwrap().push("pre");
+                if let Some(decorator) = slot.lock().unwrap().as_ref() {
+                    decorator.dispose();
+                }
+            }
+        }),
+        Some({
+            let log = log.clone();
+            move || log.lock().unwrap().push("post")
+        }),
+    );
+    *slot.lock().unwrap() = Some(decorator.clone());
+    decorator.execute();
+    decorator.execute();
+    assert_eq!(*log.lock().unwrap(), vec!["pre", "post"]);
+}

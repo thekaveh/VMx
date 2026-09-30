@@ -1401,7 +1401,8 @@ ______________________________________________________________________
 ## 18. Command decorators (`CMDD-NNN`) — spec v2.0
 
 Each CMDD-NNN test verifies behaviour of the three decorators added in
-spec/04-commands.md §Decorators (CMDD-010 added in spec v3, ADR-0049).
+spec/04-commands.md §Decorators (CMDD-010 added in spec v3, ADR-0049;
+CMDD-011..CMDD-013 added in spec v3.24, ADR-0134).
 
 ### CMDD-001 — CompositeCommand.CanExecute is OR over inner commands
 
@@ -1484,6 +1485,46 @@ rejects/raises
 **Then** the subscriber observes that exception on `errors` (it is NOT swallowed)
 **And** when instead `confirm` resolves `true` and `inner.Execute()` throws, the
 subscriber observes the inner exception on `errors`
+
+### CMDD-011 — Disposed composite and decorator commands are inert
+
+Per spec/04-commands.md §8.4 and ADR-0134.
+
+**Given** a `CompositeCommand` over recording inner commands and a
+`DecoratorCommand` with a recording extra predicate, pre-action, post-action, and
+inner command
+**When** each wrapper is disposed twice and then queried and executed
+**Then** `CanExecute()` returns `false`
+**And** `Execute()` records no predicate, pre-action, post-action, or inner
+invocation
+**And** the inner commands are not disposed and still execute directly
+
+### CMDD-012 — Disposed confirmation decorators are inert, including a pending confirmation
+
+Per spec/04-commands.md §8.4 and ADR-0134.
+
+**Given** a `ConfirmationDecoratorCommand` wrapping a recording inner command, and
+a subscriber to its `errors`
+**When** it is disposed, then queried and executed
+**Then** `CanExecute()` returns `false` and the `confirm` delegate is not invoked
+**And** when instead disposal lands while a confirmation is pending, and that
+confirmation then resolves `true`, `false`, or faulted, the inner command
+records no invocation and `errors` emits nothing
+**And** the inner command is not disposed
+
+### CMDD-013 — Disposal during execution admits no later inner work
+
+Per spec/04-commands.md §8.4 and ADR-0134.
+
+**Given** a `CompositeCommand` whose first child disposes the composite, and a
+`DecoratorCommand` whose extra predicate (in a second case, whose pre-action)
+disposes the decorator
+**When** each wrapper is executed
+**Then** the composite invokes no later child
+**And** the decorator does not invoke its inner command
+**And** the decorator whose pre-action ran invokes its post-action exactly once
+**And** a decorator whose inner command throws still invokes its post-action once
+and the exception propagates
 
 ______________________________________________________________________
 

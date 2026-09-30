@@ -264,6 +264,47 @@ dedicated error observable rather than discarding it.
 > awaitable and its VMx-owned hot-stream facade for errors. The decorator's `errors` channel is exercised by
 > `CMDD-010`.
 
+### 8.4 Wrapper disposal (spec v3.24, ADR-0134)
+
+Disposing a `CompositeCommand`, `DecoratorCommand`, or
+`ConfirmationDecoratorCommand` makes it inert, as §5 makes a disposed relay
+command inert. After disposal:
+
+- `CanExecute` returns `false`.
+- `Execute` returns without invoking an inner command, the extra predicate, a
+  pre- or post-execution action, or the `confirm` delegate.
+- Disposal is idempotent. It does not dispose the inner commands, which stay
+  owned by their creator (ADR-0084).
+
+Disposal can also land while the wrapper is executing: from an inner command's
+predicate, the extra predicate, a pre-execution action, an earlier composite
+child, a pending confirmation, or another thread. A wrapper checks for disposal
+after each of those call-outs, and no inner work starts once disposal is
+observed:
+
+- A composite invokes no further child after disposal.
+- A decorator does not invoke `inner.Execute()` after disposal. Once its
+  pre-execution action has run, its post-execution action still runs exactly
+  once on every exit path, including when disposal skips the inner command, so
+  an admitted pre/post pair stays balanced (ADR-0062 §2.5). Exceptions from an
+  admitted pair propagate unchanged.
+- A confirmation that resolves after disposal, whether `true`, `false`, or
+  faulted, invokes no inner command and emits nothing on `errors`, which
+  completed at disposal (§8.3.1). An awaited `ExecuteAsync()` still propagates a
+  faulted confirmation to its caller.
+
+Where a wrapper can be executed and disposed from different threads, disposal and
+the admission checks above are atomic: once `dispose()` has returned, no check
+admits new inner work. Inner work admitted before disposal may still finish.
+Wrappers call no application code while holding a lock.
+
+A wrapper never completes or disposes an inner command's change stream. A
+wrapper that holds its own subscriptions to inner change streams releases them
+at disposal; a wrapper that exposes a merged or delegated inner stream leaves
+that stream to the inner commands. As for relay commands, a flavor MAY notify
+`CanExecuteChanged` once during disposal. In Rust, clones of a wrapper share
+its disposal state.
+
 ## 9. Fluent composition (spec v2.1)
 
 Four fluent helper methods provide ergonomic shortcuts over the decorator
@@ -417,7 +458,7 @@ cancellable body and Combine for the `canExecuteChanged` / `errors` channels
 
 ## 11. Conformance
 
-`CMD-001` through `CMD-019` and `CMDD-001` through `CMDD-010` in
+`CMD-001` through `CMD-019` and `CMDD-001` through `CMDD-013` in
 `12-conformance.md` cover:
 
 - `Execute` invokes the configured task
@@ -440,6 +481,10 @@ cancellable body and Combine for the `canExecuteChanged` / `errors` channels
 - `CMDD-010` — `ConfirmationDecoratorCommand` surfaces a rejecting `confirm`
   delegate or a throwing inner command on its `errors` channel instead of
   swallowing it (§8.3.1, ADR-0049)
+- `CMDD-011..CMDD-013` — disposed composite, decorator, and confirmation
+  wrappers are inert; disposal during execution or a pending confirmation admits
+  no later inner work while an admitted pre/post pair stays balanced (§8.4,
+  ADR-0134)
 
 `DISP-002` additionally disposes an in-flight async command twice and pins one
 cancellation, one terminal teardown, and inert later execution (ADR-0084).
