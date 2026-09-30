@@ -492,6 +492,12 @@ fn model_validator_populates_errors() {
     });
 
     assert_eq!(form.field_error("amount"), Some("nonzero".to_string()));
+
+    // Spec chapter 20: a none value removes a field error.
+    form.with_field_validator("limit", |_| Some("too high".to_string()));
+    form.with_clearing_model_validator(|_| BTreeMap::from([("limit".to_string(), None)]));
+    assert_eq!(form.field_error("limit"), None);
+    assert!(!form.error_map().contains_key("limit"));
 }
 
 /// FORM-018 — IsValid reflects errors
@@ -911,4 +917,193 @@ fn dropping_form_releases_cached_command_captures() {
         released.upgrade().is_none(),
         "cached commands must not strongly retain their form"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Clear-capable model validators (#333): flavor-local repair of the existing
+// spec/20 rule that a none value removes a field error; no new conformance ID.
+// ---------------------------------------------------------------------------
+
+fn amount_below_ten(model: &i32) -> Option<String> {
+    (*model < 10).then(|| "below ten".to_string())
+}
+
+fn updates(entries: &[(&str, Option<&str>)]) -> BTreeMap<String, Option<String>> {
+    entries
+        .iter()
+        .map(|(field, error)| (field.to_string(), error.map(str::to_string)))
+        .collect()
+}
+
+fn approval_changes(form: &FormVm<i32>) -> usize {
+    form.approve_command().can_execute_changed().history().len()
+}
+
+fn assert_surfaces(form: &FormVm<i32>, expected: &[(&str, &str)]) {
+    let expected_map: BTreeMap<String, String> = expected
+        .iter()
+        .map(|(field, error)| (field.to_string(), error.to_string()))
+        .collect();
+    assert_eq!(form.error_map(), expected_map);
+    for (field, error) in expected {
+        assert_eq!(form.field_error(field), Some(error.to_string()));
+    }
+    assert_eq!(
+        form.field_error("amount").is_some(),
+        expected_map.contains_key("amount")
+    );
+    assert_eq!(form.is_valid(), expected.is_empty());
+    assert_eq!(form.can_approve(), expected.is_empty());
+    assert_eq!(form.approve_command().can_execute(), expected.is_empty());
+}
+
+#[test]
+fn model_clear_removes_field_error_and_updates_admission_once() {
+    let form = FormVm::new("form", 0);
+    form.with_field_validator("amount", amount_below_ten);
+    form.with_clearing_model_validator(|model| {
+        if *model == 5 {
+            updates(&[("amount", None)])
+        } else {
+            BTreeMap::new()
+        }
+    });
+    assert_surfaces(&form, &[("amount", "below ten")]);
+    let admission = approval_changes(&form);
+    let events = form.errors_changed().history().len();
+
+    form.set_model(5);
+
+    assert_surfaces(&form, &[]);
+    assert_eq!(approval_changes(&form), admission + 1);
+    assert_eq!(form.errors_changed().history().len(), events + 1);
+}
+
+#[test]
+fn model_replacement_overrides_field_error() {
+    let form = FormVm::new("form", 0);
+    form.with_field_validator("amount", amount_below_ten);
+    form.with_clearing_model_validator(|_| updates(&[("amount", Some("replaced"))]));
+
+    assert_surfaces(&form, &[("amount", "replaced")]);
+}
+
+#[test]
+fn omitted_model_entry_preserves_field_error() {
+    let form = FormVm::new("form", 0);
+    form.with_field_validator("amount", amount_below_ten);
+    form.with_clearing_model_validator(|_| updates(&[("other", None)]));
+
+    assert_surfaces(&form, &[("amount", "below ten")]);
+}
+
+#[test]
+fn later_model_clear_is_not_collapsed_into_omission() {
+    let form = FormVm::new("form", 0);
+    form.with_clearing_model_validator(|_| updates(&[("amount", Some("first"))]));
+    form.with_clearing_model_validator(|_| updates(&[("amount", None)]));
+    assert_surfaces(&form, &[]);
+
+    let reversed = FormVm::new("form", 0);
+    reversed.with_clearing_model_validator(|_| updates(&[("amount", None)]));
+    reversed.with_clearing_model_validator(|_| updates(&[("amount", Some("second"))]));
+    assert_surfaces(&reversed, &[("amount", "second")]);
+}
+
+#[test]
+fn empty_string_model_error_is_an_error() {
+    let form = FormVm::new("form", 0);
+    form.with_clearing_model_validator(|_| updates(&[("amount", Some(""))]));
+
+    assert_surfaces(&form, &[("amount", "")]);
+}
+
+#[test]
+fn clearing_an_unknown_field_is_a_noop() {
+    let form = FormVm::new("form", 0);
+    let events = form.errors_changed().history().len();
+    form.with_clearing_model_validator(|_| updates(&[("missing", None)]));
+
+    assert_surfaces(&form, &[]);
+    assert_eq!(form.errors_changed().history().len(), events);
+}
+
+#[test]
+fn repeated_identical_effective_errors_emit_once() {
+    let form = FormVm::new("form", 20);
+    form.with_field_validator("amount", amount_below_ten);
+    form.with_clearing_model_validator(|model| {
+        if *model == 5 {
+            updates(&[("amount", None)])
+        } else {
+            BTreeMap::new()
+        }
+    });
+    let events = form.errors_changed().history().len();
+
+    form.set_model(1);
+    form.set_model(2);
+    form.set_model(3);
+
+    assert_eq!(form.errors_changed().history().len(), events + 1);
+    assert_surfaces(&form, &[("amount", "below ten")]);
+}
+
+#[test]
+fn clears_hold_after_construction_deny_and_reset_on_approved() {
+    let form = FormVm::builder()
+        .initial(5)
+        .persister(|_| Ok(()))
+        .reset_on_approved(|_| Ok(5))
+        .validator("amount", amount_below_ten)
+        .clearing_model_validator(|model| {
+            if *model == 5 {
+                updates(&[("amount", None)])
+            } else {
+                BTreeMap::new()
+            }
+        })
+        .build()
+        .unwrap();
+    assert_surfaces(&form, &[]);
+
+    form.set_model(3);
+    assert_surfaces(&form, &[("amount", "below ten")]);
+
+    form.deny_command().execute();
+    assert_surfaces(&form, &[]);
+
+    form.set_model(12);
+    assert_surfaces(&form, &[]);
+    assert_eq!(form.approve(), Ok(()));
+    assert_eq!(form.model(), 5);
+    assert_surfaces(&form, &[]);
+}
+
+#[test]
+fn builder_and_direct_configuration_express_the_same_clear() {
+    let clear_at_five = |model: &i32| {
+        if *model == 5 {
+            updates(&[("amount", None)])
+        } else {
+            BTreeMap::new()
+        }
+    };
+    let built = FormVm::builder()
+        .initial(5)
+        .persister(|_| Ok(()))
+        .validator("amount", amount_below_ten)
+        .clearing_model_validator(clear_at_five)
+        .build()
+        .unwrap();
+    let direct = FormVm::new("form", 5);
+    direct.with_field_validator("amount", amount_below_ten);
+    direct.with_clearing_model_validator(clear_at_five);
+
+    for model in [5, 3] {
+        built.set_model(model);
+        direct.set_model(model);
+        assert_eq!(built.error_map(), direct.error_map());
+        assert_eq!(built.is_valid(), direct.is_valid());
+    }
 }
