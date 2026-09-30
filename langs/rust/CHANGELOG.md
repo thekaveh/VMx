@@ -6,14 +6,26 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.30.0] — unreleased source version
+
 ### Added
 
+- `FormVm::with_clearing_model_validator` and
+  `FormVmBuilder::clearing_model_validator` accept model validators returning
+  `BTreeMap<String, Option<String>>`: `Some(error)` sets a field error, `None`
+  clears an error from a field validator or an earlier model validator, and an
+  omitted field keeps its entry. The string-map `with_model_validator` /
+  `model_validator` remain as the compatibility path and wrap every entry in
+  `Some` (#333).
 - `AsyncRelayCommand` implements `Command`, so it can be stored as
   `Arc<dyn Command>` and wrapped by `CompositeCommand`, `DecoratorCommand`, and
   `ConfirmationDecoratorCommand`. The trait methods delegate to the inherent
   ones: `execute` starts fire-and-forget execution without waiting for the body,
   failures are reported once on `errors()`, and eligibility and
   `can_execute_changed` are shared with the inherent surface (#344).
+- `CompositeCommand::dispose()` and `DecoratorCommand::dispose()` make the
+  wrappers inert; clones share disposal state, as `ConfirmationDecoratorCommand`
+  clones already do (ADR-0134).
 - A `CommandExt` trait provides `confirm`, `precede_with`, `succeed_with`, and
   `wrap_with` on every `Command + Clone + 'static`, so the wrapper a fluent
   helper returns chains further. `Arc<T: Command + ?Sized>` implements
@@ -34,6 +46,10 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A disposed `ConfirmationDecoratorCommand` now reports `can_execute() == false`,
+  and disposed composite and decorator wrappers run no inner work, keep an
+  admitted pre/post pair balanced, and ignore a confirmation that resolves after
+  disposal (`CMDD-011..013`, ADR-0134).
 - Refresh deduplication once again compares a fresh first page with the matching
   accumulator head, preserving already accumulated later pages.
 

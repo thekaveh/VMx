@@ -14,7 +14,9 @@
 // - errors: AnyPublisher<Error, Never> backed by a PassthroughSubject that is
 //   completed on dispose() (Combine; mirrors rxjs Subject in TS flavour).
 // - canExecuteChanged delegates to inner.
-// - dispose() completes the errors subject; idempotent.
+// - dispose() makes the decorator inert and completes the errors subject;
+//   idempotent. A confirmation resolving after dispose runs nothing and
+//   emits nothing (spec §8.4, ADR-0134).
 //
 // Note: Command.execute() is non-throwing in the Swift protocol surface, so a
 // "throwing inner" in the TS sense maps here to the confirm closure throwing.
@@ -28,7 +30,15 @@ public final class ConfirmationDecoratorCommand: Command {
     private let inner: Command
     private let confirm: () async throws -> Bool
     private let errorsSubject = PassthroughSubject<Error, Never>()
+    private let disposalLock = NSLock()
     private var disposed = false
+
+    /// Re-reads disposal after a call-out that may have disposed this wrapper.
+    private var isDisposed: Bool {
+        disposalLock.lock()
+        defer { disposalLock.unlock() }
+        return disposed
+    }
 
     public init(_ inner: Command, confirm: @escaping () async throws -> Bool) {
         self.inner = inner
@@ -38,7 +48,7 @@ public final class ConfirmationDecoratorCommand: Command {
     // MARK: - Command
 
     public func canExecute() -> Bool {
-        inner.canExecute()
+        !isDisposed && inner.canExecute()
     }
 
     /// Fire-and-forget. Errors from the confirm gate are routed to `errors`
@@ -49,7 +59,7 @@ public final class ConfirmationDecoratorCommand: Command {
             do {
                 try await command.value.executeAsync()
             } catch {
-                command.value.errorsSubject.send(error)
+                command.value.publishError(error)
             }
         }
     }
@@ -64,9 +74,11 @@ public final class ConfirmationDecoratorCommand: Command {
     /// observable when the awaiter resumes. Swift's non-awaited `execute()`
     /// would defer the whole body to a detached Task, losing that ordering.
     public func executeAsync() async throws {
-        guard canExecute() else { return }
+        // The inner predicate may dispose the decorator.
+        guard canExecute(), !isDisposed else { return }
         let ok = try await confirm()
-        guard ok else { return }
+        // A confirmation that resolves after disposal runs nothing (spec §8.4).
+        guard ok, !isDisposed else { return }
         if let asyncInner = inner as? AsyncCommand {
             try await asyncInner.executeAsync()
         } else {
@@ -88,10 +100,20 @@ public final class ConfirmationDecoratorCommand: Command {
 
     // MARK: - Lifecycle
 
-    /// Idempotent. Completes the errors subject.
+    /// Makes the decorator inert and completes the errors subject (spec §8.4,
+    /// ADR-0134). Idempotent. The inner command stays owned by its creator.
     public func dispose() {
-        guard !disposed else { return }
+        disposalLock.lock()
+        let first = !disposed
         disposed = true
+        disposalLock.unlock()
+        guard first else { return }
         errorsSubject.send(completion: .finished)
+    }
+
+    /// `errors` completed at disposal, so a failure that arrives later is dropped.
+    private func publishError(_ error: Error) {
+        guard !isDisposed else { return }
+        errorsSubject.send(error)
     }
 }

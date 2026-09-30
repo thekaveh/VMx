@@ -6,6 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.25.0] — unreleased source version
+
+### Fixed
+
+- Disposed `CompositeCommand`, `DecoratorCommand`, and
+  `ConfirmationDecoratorCommand` are now inert: `canExecute()` is false and
+  `execute()` runs no inner command, predicate, pre/post action, or confirmation.
+  Disposal observed during execution stops further inner work while an admitted
+  pre/post pair stays balanced, and a confirmation that resolves after disposal
+  runs nothing and emits nothing (`CMDD-011..013`, ADR-0134).
+
+## [3.24.1] — unreleased source version
+
 ### Fixed
 
 - `FormVM` treats every validation field name as data. Validator and error maps
@@ -18,6 +31,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `ObservableList.insert()`, `removeAt()`, and `replace()` reject `NaN`,
   ±`Infinity`, and fractional indices with `RangeError` before any mutation,
   lookup, or notification (#335).
+- `DerivedProperty` now signals its silent first value, and every later change,
+  through an internal, non-enumerable seam that `@thekaveh/vmx-react` observes,
+  so a binding mounted before the first value renders it as soon as it arrives.
+  The seam is not part of the public type or the specified surface;
+  `valueChanged` and its DPROP-009 trace are unchanged (#415).
+
+### Documentation
+
+- The Vue and Solid integration recipes now republish a view model whose
+  `PropertyChangedMessage` reports the current value, run save through the
+  supplied command instead of selecting the view model, and leave the view
+  model's lifecycle to its owner. Both guides embed files that the new
+  `examples/typescript/integration-recipes` fixture type-checks and tests in CI
+  against pinned Vue and Solid versions (#342).
+- The Svelte store recipe re-reads the view model on every connection, so a
+  change made before the first subscriber or between reconnections is not
+  served stale. It shares one hub subscription across subscribers, and a
+  failed setup releases its listener and surfaces the error. A new Svelte 5
+  runes component returns its `$effect` cleanup and follows changed `vm` and
+  `hub` inputs. Both run in the integration-recipes fixture against pinned
+  `svelte` 5.57.1 (#343).
 
 ## [3.24.0] — 2026-07-25
 

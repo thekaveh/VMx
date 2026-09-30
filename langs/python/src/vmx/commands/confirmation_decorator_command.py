@@ -12,6 +12,7 @@ from typing import Any
 
 from reactivex import Observable
 from reactivex import operators as ops
+from reactivex.internal.exceptions import DisposedException
 from reactivex.subject import Subject
 
 from vmx._asyncio_runner import submit_background
@@ -51,7 +52,7 @@ class ConfirmationDecoratorCommand:
         return self._errors.pipe(ops.as_observable())
 
     def can_execute(self, parameter: Any = None) -> bool:
-        return self._inner.can_execute(parameter)
+        return not self._disposed and self._inner.can_execute(parameter)
 
     def execute(self, parameter: Any = None) -> None:
         """Fire-and-forget. Schedules ``execute_async`` on the current event loop.
@@ -74,7 +75,8 @@ class ConfirmationDecoratorCommand:
     async def execute_async(self, parameter: Any = None) -> None:
         if not self.can_execute(parameter):
             return
-        if await self._confirm():
+        # A confirmation that resolves after disposal runs nothing (spec §8.4).
+        if await self._confirm() and not self._disposed:
             self._inner.execute(parameter)
 
     def _on_done(self, task: asyncio.Future[None] | Future[None]) -> None:
@@ -89,15 +91,22 @@ class ConfirmationDecoratorCommand:
         # after dispose must not raise reactivex DisposedException.
         if self._disposed:
             return
-        self._errors.on_next(exc)
+        # Off the event loop the confirmation completes on the background
+        # runner's thread, so dispose() on another thread can dispose the
+        # subject between the check above and on_next. That failure arrives
+        # after disposal and is dropped (spec §8.4, ADR-0134), as
+        # SearchableState drops its late debounce result.
+        try:
+            self._errors.on_next(exc)
+        except DisposedException:
+            pass
 
     def dispose(self) -> None:
-        """Mark the decorator as disposed and complete the :attr:`errors` channel.
+        """Make the decorator inert and complete the :attr:`errors` channel.
 
-        Idempotent. ``can_execute_changed`` delegates lazily to the inner
-        command, so the decorator owns no other subscriptions to release.
-        Provided for API symmetry with the C# IDisposable surface (see
-        ``CompositeCommand.dispose``).
+        Idempotent (spec §8.4, ADR-0134). A pending confirmation that resolves
+        later runs no inner command and emits nothing. The inner command stays
+        owned by its creator; ``can_execute_changed`` delegates lazily to it.
         """
         if self._disposed:
             return
