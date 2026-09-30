@@ -10,7 +10,13 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx.Notifications
 
+- The NuGet package ships its own README describing the notification hub and
+  its dependency on `VMx` (#351).
+
 ### VMx.Extensions.DependencyInjection
+
+- The NuGet package ships its own README describing `AddVMx()` registration
+  and its dependency on `VMx` (#351).
 
 ## [3.24.0] — unreleased source version
 
@@ -22,6 +28,9 @@ All notable changes to the C# flavor are documented here. The format is based on
   Disposal observed during execution stops further inner work while an admitted
   pre/post pair stays balanced, and a confirmation that resolves after disposal
   runs nothing and emits nothing (`CMDD-011..013`, ADR-0134).
+- The NuGet package ships a dedicated README with absolute image and
+  documentation links instead of the repository README, whose relative
+  `assets/` images and repository links cannot resolve from a `.nupkg` (#351).
 
 ### Documentation
 
