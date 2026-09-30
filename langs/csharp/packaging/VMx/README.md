@@ -41,9 +41,9 @@ note.Construct();
 
 ## Documentation
 
-- [Getting started with C#](https://thekaveh.github.io/VMx/getting-started/csharp/)
-- [Installation](https://thekaveh.github.io/VMx/installation/)
-- [Documentation site](https://thekaveh.github.io/VMx/)
+- [Getting started with C#](https://github.com/thekaveh/VMx/blob/main/docs/content/getting-started/csharp.md)
+- [Installation](https://github.com/thekaveh/VMx/blob/main/docs/content/installation.md)
+- [Documentation](https://github.com/thekaveh/VMx/tree/main/docs/content)
 - [Changelog](https://github.com/thekaveh/VMx/blob/main/langs/csharp/CHANGELOG.md)
 - [Source and issues](https://github.com/thekaveh/VMx)
 

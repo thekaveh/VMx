@@ -16,9 +16,9 @@ It is opt-in: an application that needs only viewmodels and commands uses the
 
 ## Documentation
 
-- [Notification viewmodels](https://thekaveh.github.io/VMx/primitives/viewmodel-families/specialized/notification-vm/)
-- [Confirmation viewmodels](https://thekaveh.github.io/VMx/primitives/viewmodel-families/specialized/confirmation-vm/)
-- [Getting started with C#](https://thekaveh.github.io/VMx/getting-started/csharp/)
+- [Notification viewmodels](https://github.com/thekaveh/VMx/blob/main/docs/content/primitives/viewmodel-families/specialized/notification-vm.md)
+- [Confirmation viewmodels](https://github.com/thekaveh/VMx/blob/main/docs/content/primitives/viewmodel-families/specialized/confirmation-vm.md)
+- [Getting started with C#](https://github.com/thekaveh/VMx/blob/main/docs/content/getting-started/csharp.md)
 - [Changelog](https://github.com/thekaveh/VMx/blob/main/langs/csharp/CHANGELOG.md)
 - [Source and issues](https://github.com/thekaveh/VMx)
 

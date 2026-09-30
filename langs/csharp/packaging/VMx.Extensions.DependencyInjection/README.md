@@ -12,17 +12,19 @@ using VMx.Extensions.DependencyInjection;
 var services = new ServiceCollection();
 
 // IMessageHub: a singleton MessageHub.
-// IDispatcher: a singleton RxDispatcher bound to SynchronizationContext.Current.
+// IDispatcher: a singleton RxDispatcher on the SynchronizationContext that is
+// current when AddVMx runs, typically the UI thread's.
 services.AddVMx();
 ```
 
-An overload accepts options, for example to supply your own dispatcher factory.
-Applications that construct their hub and dispatcher directly do not need this
-package.
+`AddVMx` takes an optional `configure` action; `options.UseDispatcher(...)`
+supplies your own dispatcher factory. Registrations use `TryAdd`, so services
+registered before `AddVMx` win and a second call adds nothing. Applications
+that construct their hub and dispatcher directly do not need this package.
 
 ## Documentation
 
-- [Getting started with C#, including dependency injection](https://thekaveh.github.io/VMx/getting-started/csharp/)
+- [Getting started with C#, including dependency injection](https://github.com/thekaveh/VMx/blob/main/docs/content/getting-started/csharp.md)
 - [Changelog](https://github.com/thekaveh/VMx/blob/main/langs/csharp/CHANGELOG.md)
 - [Source and issues](https://github.com/thekaveh/VMx)
 
