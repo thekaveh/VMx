@@ -41,7 +41,13 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <None Include="$(MSBuildThisFileDirectory)..\..\README.md" Pack="true" PackagePath="\" />
+    <!-- Each package ships its own README (packaging/<project>/README.md), with
+         absolute links and images, because a .nupkg carries none of the
+         repository files the root README refers to. -->
+    <None Include="$(MSBuildThisFileDirectory)packaging\$(MSBuildProjectName)\README.md"
+          Pack="true"
+          PackagePath="\"
+          Condition="Exists('$(MSBuildThisFileDirectory)packaging\$(MSBuildProjectName)\README.md')" />
     <None Include="$(MSBuildThisFileDirectory)..\..\LICENSE" Pack="true" PackagePath="\" />
     <None Include="$(MSBuildThisFileDirectory)..\..\NOTICE" Pack="true" PackagePath="\" />
   </ItemGroup>

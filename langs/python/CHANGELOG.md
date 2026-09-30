@@ -6,6 +6,25 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ## [Unreleased]
 
+## [3.24.0] — unreleased source version
+
+### Fixed
+
+- Disposed `CompositeCommand`, `DecoratorCommand`, and
+  `ConfirmationDecoratorCommand` are now inert: `can_execute()` is false and
+  `execute()` runs no inner command, predicate, pre/post action, or confirmation.
+  Disposal observed during execution stops further inner work while an admitted
+  pre/post pair stays balanced, and a confirmation that resolves after disposal
+  runs nothing and emits nothing (`CMDD-011..013`, ADR-0134).
+
+### Documentation
+
+- The Textual recipe seeds its title and status on mount, follows lifecycle
+  changes through the VM-local `property_changed` stream instead of hub
+  `PropertyChangedMessage`s (which never carry `status`), and hands changes from
+  any thread to the App thread with `post_message`. The embedded widget runs in
+  the Textual Notes-Showcase tests on a live App (#341).
+
 ## [3.23.3] — unreleased source version
 
 ### Fixed

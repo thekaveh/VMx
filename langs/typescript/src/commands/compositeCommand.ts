@@ -20,21 +20,32 @@ export class CompositeCommand implements ICommand {
   }
 
   canExecute(): boolean {
-    for (const c of this.#inner) if (c.canExecute()) return true;
+    if (this.#disposed) return false;
+    for (const c of this.#inner) if (c.canExecute()) return !this.#isDisposed();
     return false;
   }
 
   execute(): void {
-    for (const c of this.#inner) if (c.canExecute()) c.execute();
+    // A child's predicate or action may dispose the composite; no further
+    // child runs once disposal is observed (spec §8.4, ADR-0134).
+    for (const c of this.#inner) {
+      if (this.#isDisposed()) return;
+      if (!c.canExecute() || this.#isDisposed()) continue;
+      c.execute();
+    }
   }
 
   /**
-   * Mark the composite as disposed. Idempotent. `canExecuteChanged` is a
-   * lazy merge of the inner streams — subscribers' own teardown closes the
-   * chain, so nothing is owned or released here. Provided for teardown
-   * symmetry with the C# IDisposable surface.
+   * Make the composite inert (spec §8.4, ADR-0134). Idempotent. The inner
+   * commands stay owned by their creator. `canExecuteChanged` is a lazy merge
+   * of the inner streams, so nothing else is owned or released here.
    */
   dispose(): void {
     this.#disposed = true;
+  }
+
+  /** Re-reads disposal after a call-out that may have disposed this wrapper. */
+  #isDisposed(): boolean {
+    return this.#disposed;
   }
 }

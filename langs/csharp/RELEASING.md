@@ -60,7 +60,7 @@ di_tag="csharp-dependency-injection-v${di_version}"
 
 Publish core first, then Notifications, then DI after each preceding public
 artifact verifies. Both companions pack with the current core dependency floor
-(`VMx >= 3.23.0` at this source line) for net8.0 and netstandard2.0. DI
+(`VMx >= 3.24.0` at this source line) for net8.0 and netstandard2.0. DI
 uses packaging-only patch 2.1.1 because the old shared selector made immutable
 core tag `csharp-v2.1.0` collide with that companion version. The new
 package-specific namespace prevents future collisions; do not rewind the
@@ -99,6 +99,15 @@ tag/project selection, locked restore, Release format/build/tests, every public
 project pack, exact `.nupkg` and `.snupkg` allowlists, metadata, repository SHA,
 framework assets, dependency floors, and clean local net8.0 and netstandard2.0
 consumers. Only the tag-selected main/symbol pairs enter the publish artifact.
+
+Each main package ships its own README from `langs/csharp/packaging/<package>/`,
+not the repository README, because a `.nupkg` carries none of the repository
+files that README refers to. `tools/check-nuget-package.py` rejects a packaged
+README that does not open with the package's heading, any link or image that
+is not an absolute `https` URL, and any image that is not a PNG, JPEG, or GIF
+on `raw.githubusercontent.com`. Update the package READMEs when a package's
+purpose or documentation links change. The checker cannot show how nuget.org
+renders a README; inspect the upload preview before the first publication.
 
 The protected job downloads that immutable artifact, validates `NUGET_USER`,
 exchanges OIDC, and pushes without `--skip-duplicate`. An existing version is
