@@ -18,7 +18,9 @@ separate checks back it:
   error kind, disposal) with the same expectation. A mismatch fails that suite
   with the flavor, step, and differing value. The file lists the only
   normalized differences, all idiomatic per ADR-0006; event order is never
-  normalized.
+  normalized. The reduced Rust companion does not run it, because its scope
+  omits the theme VM and the delete confirmation dialog that the lifecycle
+  exercises.
 
 Published walkthroughs:
 [Notes Workspace](../docs/content/examples/notes-workspace.md),
