@@ -1,8 +1,9 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex};
+use std::time::Duration;
 use vmx::{
-    AsyncValue, Command, CompositeCommand, ConfirmationDecoratorCommand, DecoratorCommand,
-    RelayCommand,
+    AsyncRelayCommand, AsyncValue, Command, CompositeCommand, ConfirmationDecoratorCommand,
+    DecoratorCommand, Message, RelayCommand, VmxError,
 };
 
 fn recording_command(
@@ -614,4 +615,212 @@ fn disposal_during_execution_admits_no_later_inner_work() {
     decorator.execute();
     decorator.execute();
     assert_eq!(*log.lock().unwrap(), vec!["pre", "post"]);
+}
+
+// ---------------------------------------------------------------------------
+// AsyncRelayCommand participates in the base Command contract (#344): spec
+// chapter 4 declares IAsyncCommand : ICommand; no new conformance ID. Waits use
+// channels; the timeout is only a hang guard.
+// ---------------------------------------------------------------------------
+
+const SIGNAL_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// An async command whose body reports start, waits for release, then reports done.
+struct GatedAsync {
+    command: AsyncRelayCommand,
+    started: mpsc::Receiver<()>,
+    release: mpsc::Sender<()>,
+    done: mpsc::Receiver<()>,
+}
+
+fn gated_async(result: fn() -> vmx::VmxResult<()>) -> GatedAsync {
+    let (started_tx, started) = mpsc::channel();
+    let (release, release_rx) = mpsc::channel::<()>();
+    let (done_tx, done) = mpsc::channel();
+    let started_tx = Mutex::new(started_tx);
+    let release_rx = Mutex::new(release_rx);
+    let done_tx = Mutex::new(done_tx);
+    let command = AsyncRelayCommand::new(move |_token| {
+        started_tx.lock().unwrap().send(()).unwrap();
+        release_rx
+            .lock()
+            .unwrap()
+            .recv_timeout(SIGNAL_TIMEOUT)
+            .unwrap();
+        done_tx.lock().unwrap().send(()).unwrap();
+        result()
+    });
+    GatedAsync {
+        command,
+        started,
+        release,
+        done,
+    }
+}
+
+/// Signals every eligibility change; execution end is announced after the
+/// admission epoch resets, so it is a deterministic "finished" marker.
+fn eligibility_signal(command: &AsyncRelayCommand) -> (mpsc::Receiver<()>, vmx::Subscription) {
+    let (tx, rx) = mpsc::channel();
+    let tx = Mutex::new(tx);
+    let subscription = command
+        .can_execute_changed()
+        .subscribe(move |_| tx.lock().unwrap().send(()).unwrap());
+    (rx, subscription)
+}
+
+fn run_to_completion(command: &AsyncRelayCommand, dispatch: impl FnOnce()) {
+    let (changed, _subscription) = eligibility_signal(command);
+    dispatch();
+    changed.recv_timeout(SIGNAL_TIMEOUT).unwrap(); // admission
+    changed.recv_timeout(SIGNAL_TIMEOUT).unwrap(); // completion
+}
+
+#[test]
+fn async_relay_command_is_usable_as_dyn_command_and_in_wrappers() {
+    let runs = Arc::new(AtomicUsize::new(0));
+    let counted = {
+        let runs = runs.clone();
+        move || {
+            let runs = runs.clone();
+            AsyncRelayCommand::new(move |_token| {
+                runs.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            })
+        }
+    };
+
+    let as_dyn: Arc<dyn Command> = Arc::new(counted());
+    assert!(as_dyn.can_execute());
+
+    let inner = counted();
+    let composite = CompositeCommand::new(vec![Arc::new(inner.clone()) as Arc<dyn Command>]);
+    run_to_completion(&inner, || composite.execute());
+
+    let inner = counted();
+    let pre_post = Arc::new(Mutex::new(Vec::new()));
+    let (pre_log, post_log) = (pre_post.clone(), pre_post.clone());
+    let decorated = DecoratorCommand::new(
+        inner.clone(),
+        Some(|| true),
+        Some(move || pre_log.lock().unwrap().push("pre")),
+        Some(move || post_log.lock().unwrap().push("post")),
+    );
+    run_to_completion(&inner, || decorated.execute());
+    assert_eq!(*pre_post.lock().unwrap(), vec!["pre", "post"]);
+
+    let inner = counted();
+    let confirmed = ConfirmationDecoratorCommand::new(inner.clone(), || AsyncValue::ready(true));
+    run_to_completion(&inner, || confirmed.execute());
+
+    assert_eq!(runs.load(Ordering::SeqCst), 3);
+}
+
+#[test]
+fn trait_execute_returns_while_async_body_is_pending() {
+    let gated = gated_async(|| Ok(()));
+    let (changed, _subscription) = eligibility_signal(&gated.command);
+
+    Command::execute(&gated.command);
+
+    gated.started.recv_timeout(SIGNAL_TIMEOUT).unwrap();
+    assert!(
+        gated.command.is_executing(),
+        "execute returned while the body is pending"
+    );
+    gated.release.send(()).unwrap();
+    gated.done.recv_timeout(SIGNAL_TIMEOUT).unwrap();
+    changed.recv_timeout(SIGNAL_TIMEOUT).unwrap();
+    changed.recv_timeout(SIGNAL_TIMEOUT).unwrap();
+    assert!(!gated.command.is_executing());
+}
+
+#[test]
+fn trait_eligibility_matches_inherent_before_during_and_after_execution() {
+    let gated = gated_async(|| Ok(()));
+    let command = &gated.command;
+    let as_trait: &dyn Command = command;
+    let (changed, _subscription) = eligibility_signal(command);
+
+    assert_eq!(
+        as_trait.can_execute(),
+        AsyncRelayCommand::can_execute(command)
+    );
+    assert!(as_trait.can_execute());
+    // Same hub identity: a message sent on the inherent hub reaches a
+    // subscriber of the trait hub.
+    let (probe_tx, probe) = mpsc::channel();
+    let probe_tx = Mutex::new(probe_tx);
+    let _probe = as_trait.can_execute_changed().subscribe(move |message| {
+        if let Message::Custom { name, .. } = message {
+            if name == "identity-probe" {
+                probe_tx.lock().unwrap().send(()).unwrap();
+            }
+        }
+    });
+    AsyncRelayCommand::can_execute_changed(command).send(Message::Custom {
+        sender_id: 0,
+        sender_name: "test".to_string(),
+        name: "identity-probe".to_string(),
+    });
+    probe.recv_timeout(SIGNAL_TIMEOUT).unwrap();
+    changed.recv_timeout(SIGNAL_TIMEOUT).unwrap(); // the probe itself
+
+    as_trait.execute();
+    gated.started.recv_timeout(SIGNAL_TIMEOUT).unwrap();
+    assert_eq!(
+        as_trait.can_execute(),
+        AsyncRelayCommand::can_execute(command)
+    );
+    assert!(!as_trait.can_execute());
+
+    gated.release.send(()).unwrap();
+    changed.recv_timeout(SIGNAL_TIMEOUT).unwrap();
+    changed.recv_timeout(SIGNAL_TIMEOUT).unwrap();
+    assert_eq!(
+        as_trait.can_execute(),
+        AsyncRelayCommand::can_execute(command)
+    );
+    assert!(as_trait.can_execute());
+}
+
+#[test]
+fn trait_execute_reports_a_fault_once_on_the_errors_hub() {
+    let gated = gated_async(|| Err(VmxError::Other("boom".to_string())));
+    let faults = Arc::new(AtomicUsize::new(0));
+    let counted = faults.clone();
+    let _faults = gated.command.errors().subscribe(move |_| {
+        counted.fetch_add(1, Ordering::SeqCst);
+    });
+    let (changed, _subscription) = eligibility_signal(&gated.command);
+
+    Command::execute(&gated.command);
+    gated.started.recv_timeout(SIGNAL_TIMEOUT).unwrap();
+    gated.release.send(()).unwrap();
+    changed.recv_timeout(SIGNAL_TIMEOUT).unwrap();
+    changed.recv_timeout(SIGNAL_TIMEOUT).unwrap();
+
+    assert_eq!(faults.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn trait_calls_on_a_clone_share_in_flight_state() {
+    let gated = gated_async(|| Ok(()));
+    let clone: Arc<dyn Command> = Arc::new(gated.command.clone());
+    let (changed, _subscription) = eligibility_signal(&gated.command);
+
+    clone.execute();
+    gated.started.recv_timeout(SIGNAL_TIMEOUT).unwrap();
+    assert!(gated.command.is_executing());
+    assert!(!clone.can_execute());
+    clone.execute(); // rejected: the shared execution is still admitted
+
+    gated.release.send(()).unwrap();
+    changed.recv_timeout(SIGNAL_TIMEOUT).unwrap();
+    changed.recv_timeout(SIGNAL_TIMEOUT).unwrap();
+    assert!(
+        gated.started.try_recv().is_err(),
+        "the second execute was not admitted"
+    );
+    assert!(clone.can_execute());
 }

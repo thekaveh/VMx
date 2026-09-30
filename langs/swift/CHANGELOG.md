@@ -22,6 +22,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `ExpandableState` now retains its final value and rejects expand, collapse,
   and toggle mutations after disposal, matching the other flavors.
 
+### Documentation
+
+- The SwiftUI integration recipe no longer disposes its view model on
+  `.onDisappear`, which broke any view that reappeared. Its adapter now states an
+  ownership policy: an owned view model is constructed once and disposed exactly
+  once when SwiftUI releases the adapter, and a borrowed one is never
+  constructed or disposed by the view. Construction failures are published
+  instead of discarded, and Save runs a supplied command rather than
+  `selectCommand`. `SwiftUIRecipeTests` compiles and runs the exact snippet
+  (#340).
+
 ## [3.24.0] — 2026-07-25
 
 ### Added
