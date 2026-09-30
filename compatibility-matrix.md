@@ -54,7 +54,7 @@ semantics, `FormVM` (snapshot/dirty/approve/deny lifecycle), dialog
 service (`DialogService` / `NullDialogService`), and the notifications
 sub-package (`NotificationHub`, `NotificationVM`, `ConfirmationVM`,
 `makeConfirm` bridge) —
-**403 of 403 library conformance IDs + 5 `THEME-00x` scenario IDs = 408 total
+**406 of 406 library conformance IDs + 5 `THEME-00x` scenario IDs = 411 total
 (Swift UI-backed total parity) as of ADR-0066/ADR-0067 and ADR-0068..ADR-0100** (library IDs: base 44 per
 ADR-0037/ADR-0053; +50 leaf-area IDs per ADR-0059; +30 collections IDs per
 ADR-0060; +29 hierarchical/threading/expand-collapse IDs per ADR-0061;
@@ -80,9 +80,10 @@ and public-hub IDs per ADR-0090; +1 inert modeled-assignment ID per ADR-0091;
 +1 aggregate reconstruction transaction ID (`AGG-007`) per ADR-0125;
 +2 hierarchy factory-hydration IDs (`HIER-031..032`) per ADR-0127;
 +3 discriminator modal-history IDs (`DISC-007..009`) per ADR-0128;
++3 disposed command-wrapper IDs (`CMDD-011..013`) per ADR-0134;
 THEME-001..005 covered by the
 `examples/swift/notes-showcase/` flagship — ADR-0067). This increment ledger is
-current through spec 3.23.0 / DISC-009. Swift has member-level
+current through spec 3.24.0 / CMDD-013. Swift has member-level
 parity with C#, Python, and TypeScript. Rust 0.29.0 preserves the capability,
 structural, command, reactive, and async convergence work recorded for 0.27.0
 in `docs/maintenance/2026-07-16-rust-capability-parity.md` and corrects the
@@ -103,7 +104,7 @@ point to the same verified `main` commit.
 
 [^rust]: Rust is a source-tree, catalog-complete flavor promoted by ADR-0081. It
 is at source version 0.29.0, declares `MIN_SPEC_VERSION = "3.23.0"`, and carries
-behavioral tests for all 403 library conformance IDs. The completed
+behavioral tests for all 406 library conformance IDs. The completed
 `docs/maintenance/2026-07-16-rust-capability-parity.md` records its focused
 member and edge-behavior convergence evidence; it has not yet been published
 to crates.io.

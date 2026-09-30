@@ -8,7 +8,7 @@
 
 <p align="center"><strong>One specification. Five idiomatic flavors. Predictable MVVM behavior across UI stacks.</strong></p>
 
-<p align="center">VMx is a UI-neutral, lifecycle-aware MVVM viewmodel framework for building hierarchical application state with explicit construction, destruction, disposal, reactive messaging, commands, collections, and composable services. One language-neutral specification defines observable behavior, while five source flavors—C#, Python, TypeScript, Swift, and Rust—preserve each ecosystem’s naming, type, concurrency, and package conventions. A shared conformance catalog keeps those implementations aligned without erasing idiomatic APIs. The source tree currently carries complete 403-ID library coverage in every flavor, with flagship hosts exercising five additional THEME scenarios. Python and Swift are publicly available through PyPI and SwiftPM; the C#, TypeScript, and Rust registry channels are prepared but not yet published. VMx therefore separates source completeness from installable-release status and documents both explicitly.</p>
+<p align="center">VMx is a UI-neutral, lifecycle-aware MVVM viewmodel framework for building hierarchical application state with explicit construction, destruction, disposal, reactive messaging, commands, collections, and composable services. One language-neutral specification defines observable behavior, while five source flavors—C#, Python, TypeScript, Swift, and Rust—preserve each ecosystem’s naming, type, concurrency, and package conventions. A shared conformance catalog keeps those implementations aligned without erasing idiomatic APIs. The source tree currently carries complete 406-ID library coverage in every flavor, with flagship hosts exercising five additional THEME scenarios. Python and Swift are publicly available through PyPI and SwiftPM; the C#, TypeScript, and Rust registry channels are prepared but not yet published. VMx therefore separates source completeness from installable-release status and documents both explicitly.</p>
 
 <!-- vmx-opener:end -->
 
@@ -131,8 +131,8 @@ linked spec chapters and ADRs.
 
 Each flavor implements the same conceptual stack:
 
-- **Spec** — `spec/` is the source of truth: 24 markdown chapters, 133 ADRs,
-  4 JSON fixtures, 408 conformance IDs, version pinned in `spec/VERSION`.
+- **Spec** — `spec/` is the source of truth: 24 markdown chapters, 134 ADRs,
+  4 JSON fixtures, 411 conformance IDs, version pinned in `spec/VERSION`.
 - **Application code** — your host app instantiates VMs through builders.
 - **Forwarding decorators** *(optional)* — `ForwardingComponentVM` and
   `ForwardingCompositeVM` wrap an inner VM for instrumentation, selective
@@ -174,8 +174,8 @@ history, including lines that were never published. The
 released compatibility plus the current in-development line; use each registry
 for installable package availability.
 
-All five source flavors implement the 403 library conformance IDs. The flagship
-example apps cover 5 additional THEME scenario IDs, for **408 total** tracked
+All five source flavors implement the 406 library conformance IDs. The flagship
+example apps cover 5 additional THEME scenario IDs, for **411 total** tracked
 scenarios. Swift covers those UI scenarios through
 `examples/swift/notes-showcase/` (ADR-0067). See
 [`langs/swift/README.md`](langs/swift/README.md) §5 for the Swift ID matrix.
@@ -343,7 +343,7 @@ Smaller per-flavor demos:
 .
 ├── spec/                  language-neutral specification (source of truth)
 │   ├── 00-overview.md ... 23-async-resource-vm.md  (24 chapters)
-│   ├── ADRs/              architecture decision records (0001..0133)
+│   ├── ADRs/              architecture decision records (0001..0134)
 │   ├── fixtures/          JSON test inputs shared across flavors
 │   ├── schemas/           versioned supporting machine contracts
 │   ├── proposals/         mostly historical; scenario contracts may be normative
@@ -352,7 +352,7 @@ Smaller per-flavor demos:
 │   ├── csharp/            VMx (NuGet) + VMx.Extensions.DependencyInjection + VMx.Notifications
 │   ├── python/            vmx (PyPI)
 │   ├── typescript/        @thekaveh/vmx (npm)
-│   ├── swift/             VMx Swift Package (v3.24.0 source, total parity — 403 library + 5 THEME)
+│   ├── swift/             VMx Swift Package (v3.24.0 source, total parity — 406 library + 5 THEME)
 │   └── rust/              vmx-rs crate (source-tree only; crates.io pending)
 ├── examples/              runnable example apps per flavor
 ├── docs/content/getting-started/  per-flavor quickstart tutorials
@@ -388,8 +388,8 @@ This README is the entry point; the documents below add focused detail.
   community guidelines.
 - [`compatibility-matrix.md`](compatibility-matrix.md) — spec ↔ flavor
   version pairing.
-- [`spec/README.md`](spec/README.md) — index of the 24 chapters, 133 ADRs,
-  4 fixtures, and the 408-ID conformance catalog.
+- [`spec/README.md`](spec/README.md) — index of the 24 chapters, 134 ADRs,
+  4 fixtures, and the 411-ID conformance catalog.
 - [`spec/ADRs/README.md`](spec/ADRs/README.md) — ADR catalogue index.
 - [`docs/audit/README.md`](docs/audit/README.md) — index of historical
   documentation audit reports.
@@ -401,7 +401,7 @@ This README is the entry point; the documents below add focused detail.
   [`langs/csharp/README.md`](langs/csharp/README.md),
   [`langs/python/README.md`](langs/python/README.md),
   [`langs/typescript/README.md`](langs/typescript/README.md),
-  [`langs/swift/README.md`](langs/swift/README.md) (v3.24.0 source, total parity — 403 library + 5 THEME),
+  [`langs/swift/README.md`](langs/swift/README.md) (v3.24.0 source, total parity — 406 library + 5 THEME),
   [`langs/rust/README.md`](langs/rust/README.md).
 - Per-flavor CHANGELOGs (release history):
   [`langs/csharp/CHANGELOG.md`](langs/csharp/CHANGELOG.md),
@@ -474,19 +474,19 @@ bump.
 
 ### 6.2 Conformance catalog
 
-`spec/12-conformance.md` enumerates 408 normative test scenarios keyed by ID
+`spec/12-conformance.md` enumerates 411 normative test scenarios keyed by ID
 (`LIFE-001`, `HUB-007`, `COMP-013`, `UTIL-002`, `CAP-020`, `DPROP-012`,
 `NOTIF-010`, `DIA-001`, `FORM-001`, `COL-001`, `HIER-001`, `AGG-006`,
-`AGCH-001`, `ARES-001`, `THEME-001`, …) — 403 library IDs plus 5 `THEME` scenario IDs. All five
-flavors (C# / Python / TypeScript / Swift / Rust) implement the 403 library IDs under
+`AGCH-001`, `ARES-001`, `THEME-001`, …) — 406 library IDs plus 5 `THEME` scenario IDs. All five
+flavors (C# / Python / TypeScript / Swift / Rust) implement the 406 library IDs under
 their registered conformance suites (`langs/csharp/tests/VMx.Conformance.Tests`,
 `langs/python/tests/conformance`, `langs/typescript/tests/conformance`, and
 `langs/swift/Tests/VMxTests`, and `langs/rust/tests/conformance`), and
 `tools/check-conformance-coverage.py` enforces 100% coverage in CI. The four
 UI-backed flavors also cover the 5 `THEME-00x` scenario IDs via their flagship
 example apps — Swift via `examples/swift/notes-showcase/` (ADR-0067). Those
-four flavors are at **total parity: 403 library + 5 THEME = 408**; Rust has
-full 403-ID library parity and intentionally has no UI scenario suite yet.
+four flavors are at **total parity: 406 library + 5 THEME = 411**; Rust has
+full 406-ID library parity and intentionally has no UI scenario suite yet.
 
 ```bash
 # Verify all catalog-complete flavors are at full catalog coverage

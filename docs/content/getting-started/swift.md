@@ -4,7 +4,7 @@ This tutorial walks you through building viewmodels with the VMx Swift
 package. You will build a `ComponentVMOf<UserModel>`, a `RelayCommand`, and a
 `CompositeVM<TabVM>` with tab selection — all in a Swift Package or playground.
 
-> The Swift flavor is at full parity on the v3.24.0 source line: 403/403 library
+> The Swift flavor is at full parity on the v3.24.0 source line: 406/406 library
 > conformance IDs plus the 5 `THEME-00x` scenario IDs covered by the SwiftUI
 > Notes Workspace flagship. See the [Swift flavor](../flavors/swift.md) page for
 > the current matrix and documented Swift-specific divergences.
