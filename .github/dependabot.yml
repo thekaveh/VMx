@@ -14,6 +14,7 @@ updates:
       - /packages/react
       - /examples/typescript/console/hello-vmx
       - /examples/typescript/react/notes-showcase
+      - /examples/typescript/integration-recipes
     schedule: { interval: weekly, day: monday }
     target-branch: develop
     ignore:
