@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   Disposal observed during execution stops further inner work while an admitted
   pre/post pair stays balanced, and a confirmation that resolves after disposal
   runs nothing and emits nothing (`CMDD-011..013`, ADR-0134).
+- `PagedComposition` materializes a direct one-shot iterator source, such as a
+  generator object, once at construction, as Python does, so `items`, `count`,
+  and `pageCount` stay coherent in any read order. Arrays, `ObservableList`,
+  other repeatable iterables, and factories stay live; a throwing one-shot
+  source fails construction without leaving subscriptions behind (#352).
 
 ## [3.24.1] — unreleased source version
 
