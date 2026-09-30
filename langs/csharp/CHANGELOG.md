@@ -8,7 +8,13 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
-#### Fixed
+### VMx.Notifications
+
+### VMx.Extensions.DependencyInjection
+
+## [3.24.0] — unreleased source version
+
+### Fixed
 
 - Disposed `CompositeCommand`, `DecoratorCommand`, and
   `ConfirmationDecoratorCommand` are now inert: `CanExecute` is false and
@@ -17,18 +23,14 @@ All notable changes to the C# flavor are documented here. The format is based on
   pre/post pair stays balanced, and a confirmation that resolves after disposal
   runs nothing and emits nothing (`CMDD-011..013`, ADR-0134).
 
-#### Documentation
+### Documentation
 
-- The WPF and MAUI recipes now state that `ComponentVMBase`
-  implements `INotifyPropertyChanged`, forward that single notification path
-  (so `Status` updates on construct, destruct, and dispose, and `Model` is not
-  notified twice), and re-raise each notification on a UI-thread scheduler. The
-  embedded adapter is executed by `VMx.Tests` and, in CI, against real WPF
-  bindings on a Dispatcher thread (#341).
-
-### VMx.Notifications
-
-### VMx.Extensions.DependencyInjection
+- The WPF and MAUI recipes now state that `ComponentVMBase` implements
+  `INotifyPropertyChanged`, forward that single notification path (so `Status`
+  updates on construct, destruct, and dispose, and `Model` is not notified
+  twice), and re-raise each notification on a UI-thread scheduler. The embedded
+  adapter is executed by `VMx.Tests` and, in CI, against real WPF bindings on a
+  Dispatcher thread (#341).
 
 ## [3.23.0] — 2026-07-25
 

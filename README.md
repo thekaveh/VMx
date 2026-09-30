@@ -160,12 +160,12 @@ Each flavor implements the same conceptual stack:
 
 | Flavor     | Source status     | Public package status                                                                  | Reactive primitive          |
 | ---------- | ----------------- | -------------------------------------------------------------------------------------- | --------------------------- |
-| C#         | v3.23.0 in source | NuGet package not published yet                                                        | System.Reactive             |
-| Python     | v3.23.3 in source | [`vmx` 3.23.0](https://pypi.org/project/vmx/3.23.0/) on PyPI                          | reactivex                   |
-| TypeScript | v3.24.1 in source | npm package not published yet                                                          | rxjs                        |
-| React      | adapter v0.1.0 in source | `@thekaveh/vmx-react`; publication waits for core npm #57                         | React 18/19 + rxjs          |
-| Swift      | v3.24.0           | [`VMx` 3.24.0](https://github.com/thekaveh/VMx/releases/tag/swift-v3.24.0) via SwiftPM | Combine                     |
-| Rust       | v0.29.0 in source | crates.io package not published yet                                                    | VMx-owned hot-stream facade |
+| C#         | v3.24.0 in source | NuGet package not published yet                                                        | System.Reactive             |
+| Python     | v3.24.0 in source | [`vmx` 3.23.0](https://pypi.org/project/vmx/3.23.0/) on PyPI                          | reactivex                   |
+| TypeScript | v3.25.0 in source | npm package not published yet                                                          | rxjs                        |
+| React      | adapter v0.1.1 in source | `@thekaveh/vmx-react`; publication waits for core npm #57                         | React 18/19 + rxjs          |
+| Swift      | v3.25.0 in source | [`VMx` 3.24.0](https://github.com/thekaveh/VMx/releases/tag/swift-v3.24.0) via SwiftPM | Combine                     |
+| Rust       | v0.30.0 in source | crates.io package not published yet                                                    | VMx-owned hot-stream facade |
 
 `main` may contain an in-development source version before that version is
 published to package registries. The §3.2 summary preserves source-line parity
@@ -207,7 +207,8 @@ ledger linked above for release status and the current in-development line.
 
 | spec   | csharp        | python        | typescript    | swift          | rust          |
 | ------ | ------------- | ------------- | ------------- | -------------- | ------------- |
-| 3.23.x | 3.23.0        | 3.23.3        | 3.24.1        | 3.24.0         | 0.29.0        |
+| 3.24.x | 3.24.0        | 3.24.0        | 3.25.0        | 3.25.0         | 0.30.0        |
+| 3.23.x | 3.23.0        | 3.23.0–3.23.3 | 3.24.0–3.24.1 | 3.24.0         | 0.29.0        |
 | 3.22.x | 3.22.0–3.22.1 | 3.22.0–3.22.1 | 3.23.0–3.23.1 | 3.22.0–3.23.0  | 0.25.0–0.26.0 |
 | 3.20.x | 3.20.0–3.20.1 | 3.20.0–3.20.1 | 3.20.0–3.21.1 | 3.20.0–3.20.1  | 0.20.0–0.22.0 |
 | 3.19.x | 3.19.0        | 3.19.0        | 3.19.0        | 3.19.0         | 0.19.0        |
@@ -255,7 +256,7 @@ npm --prefix ../VMx/packages/react ci
 mkdir -p /tmp/vmx-packs
 npm pack ../VMx/langs/typescript --pack-destination /tmp/vmx-packs
 npm pack ../VMx/packages/react --pack-destination /tmp/vmx-packs
-npm install /tmp/vmx-packs/thekaveh-vmx-3.24.1.tgz \
+npm install /tmp/vmx-packs/thekaveh-vmx-3.25.0.tgz \
   /tmp/vmx-packs/thekaveh-vmx-react-0.1.1.tgz react rxjs use-sync-external-store
 
 # Rust (source-tree path dependency today)
@@ -273,7 +274,7 @@ cargo add vmx-rs --path langs/rust
   camelCase API, ESM imports, rxjs-backed observables.
 - [`docs/content/getting-started/swift.md`](docs/content/getting-started/swift.md) —
   camelCase API, Combine-backed publishers, SwiftPM install (Swift flavor is
-  at total parity on the v3.24.0 source line; see `langs/swift/README.md` §5).
+  at total parity on the v3.25.0 source line; see `langs/swift/README.md` §5).
 - [`docs/content/getting-started/rust.md`](docs/content/getting-started/rust.md) —
   Rust source-tree tutorial (ComponentVm, RelayCommand, CompositeVm with
   selection), with [`langs/rust/README.md`](langs/rust/README.md) for crate
@@ -352,7 +353,7 @@ Smaller per-flavor demos:
 │   ├── csharp/            VMx (NuGet) + VMx.Extensions.DependencyInjection + VMx.Notifications
 │   ├── python/            vmx (PyPI)
 │   ├── typescript/        @thekaveh/vmx (npm)
-│   ├── swift/             VMx Swift Package (v3.24.0 source, total parity — 406 library + 5 THEME)
+│   ├── swift/             VMx Swift Package (v3.25.0 source, total parity — 406 library + 5 THEME)
 │   └── rust/              vmx-rs crate (source-tree only; crates.io pending)
 ├── examples/              runnable example apps per flavor
 ├── docs/content/getting-started/  per-flavor quickstart tutorials
@@ -401,7 +402,7 @@ This README is the entry point; the documents below add focused detail.
   [`langs/csharp/README.md`](langs/csharp/README.md),
   [`langs/python/README.md`](langs/python/README.md),
   [`langs/typescript/README.md`](langs/typescript/README.md),
-  [`langs/swift/README.md`](langs/swift/README.md) (v3.24.0 source, total parity — 406 library + 5 THEME),
+  [`langs/swift/README.md`](langs/swift/README.md) (v3.25.0 source, total parity — 406 library + 5 THEME),
   [`langs/rust/README.md`](langs/rust/README.md).
 - Per-flavor CHANGELOGs (release history):
   [`langs/csharp/CHANGELOG.md`](langs/csharp/CHANGELOG.md),

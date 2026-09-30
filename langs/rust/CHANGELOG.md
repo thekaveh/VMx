@@ -6,6 +6,8 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.30.0] — unreleased source version
+
 ### Added
 
 - `FormVm::with_clearing_model_validator` and
@@ -28,13 +30,6 @@ project adheres to [Semantic Versioning](https://semver.org/).
   load-more and refresh commands and prevents in-flight loaders from committing
   pager state; loader-returned items remain caller-owned.
 
-### Fixed
-
-- A disposed `ConfirmationDecoratorCommand` now reports `can_execute() == false`,
-  and disposed composite and decorator wrappers run no inner work, keep an
-  admitted pre/post pair balanced, and ignore a confirmation that resolves after
-  disposal (`CMDD-011..013`, ADR-0134).
-
 ### Changed
 
 - `TokenPagedComposition` now exposes single-flight `AsyncRelayCommand`s for
@@ -44,6 +39,10 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A disposed `ConfirmationDecoratorCommand` now reports `can_execute() == false`,
+  and disposed composite and decorator wrappers run no inner work, keep an
+  admitted pre/post pair balanced, and ignore a confirmation that resolves after
+  disposal (`CMDD-011..013`, ADR-0134).
 - Refresh deduplication once again compares a fresh first page with the matching
   accumulator head, preserving already accumulated later pages.
 

@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.25.0] — unreleased source version
+
 ### Added
 
 - `PagedComposition.dispose()` now deterministically detaches an observed

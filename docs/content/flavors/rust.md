@@ -7,7 +7,7 @@ Rust is the fifth VMx source flavor. It lives under `langs/rust/` as the
 
 - Source tree: `langs/rust/`
 - Package: `vmx-rs`
-- Current source line: `vmx-rs` 0.29.0 implementing spec 3.23.0
+- Current source line: `vmx-rs` 0.30.0 implementing spec 3.24.0
 - Publication status: crates.io release channel not published yet
 - License packaging: the crate ships the repository's Apache-2.0 text
 - Reactive primitive: VMx-owned hot-stream facade

@@ -6,7 +6,8 @@ Updated alongside spec and flavor releases.
 
 | spec  | python          | csharp          | typescript      | swift           | rust          |
 | ----- | --------------- | --------------- | --------------- | --------------- | ------------- |
-| 3.23.x | 3.23.3[^current] <!-- x-release-please-version --> | 3.23.0[^current] | 3.24.1[^current] | 3.24.0[^swift] | 0.29.0[^rust] |
+| 3.24.x | 3.24.0[^current] <!-- x-release-please-version --> | 3.24.0[^current] | 3.25.0[^current] | 3.25.0[^current] | 0.30.0[^rust] |
+| 3.23.x | 3.23.0–3.23.1 | —[^source-3-23] | —[^source-3-23] | 3.24.0[^swift] | 0.29.0[^source-3-23] |
 | 3.22.x[^source-only] | 3.22.0–3.22.1 | 3.22.0–3.22.1 | 3.23.0–3.23.1 | 3.22.0–3.23.0 | 0.25.0–0.26.0 |
 | 3.21.x | —               | —               | —               | —               | —             |
 | 3.20.x[^legacy-semantic-tag-only] | —               | —               | —               | 3.20.0         | 0.20.0–0.22.0[^rust-source] |
@@ -91,11 +92,11 @@ async-resource family to expose the complete ordinary component contract, and
 adds paired dispatcher channels plus background lifecycle parity. See
 `langs/swift/README.md` §5 for the flagship scenario ledger.
 
-[^current]: C# is on the 3.23.0 source line and Python is on the unreleased
-3.23.3 source line; Python 3.23.0 is publicly installable from PyPI.
-TypeScript 3.24.1 implements spec 3.23.0. C# and TypeScript public packages
-remain pending. Their release jobs refuse to green-skip a publish without
-configured credentials.
+[^current]: C# 3.24.0, Python 3.24.0, TypeScript 3.25.0, and Swift 3.25.0 are
+the unreleased source lines implementing spec 3.24.0. Python 3.23.0 is publicly
+installable from PyPI, and Swift 3.24.0 through SwiftPM. C# and TypeScript
+public packages remain pending. Their release jobs refuse to green-skip a
+publish without configured credentials.
 
 [^swift]: Swift 3.24.0 is publicly installable from the repository root through
 the immutable `v3.24.0` semantic tag. The matching `swift-v3.24.0` operational
@@ -103,7 +104,7 @@ tag and [GitHub Release](https://github.com/thekaveh/VMx/releases/tag/swift-v3.2
 point to the same verified `main` commit.
 
 [^rust]: Rust is a source-tree, catalog-complete flavor promoted by ADR-0081. It
-is at source version 0.29.0, declares `MIN_SPEC_VERSION = "3.23.0"`, and carries
+is at source version 0.30.0, declares `MIN_SPEC_VERSION = "3.24.0"`, and carries
 behavioral tests for all 406 library conformance IDs. The completed
 `docs/maintenance/2026-07-16-rust-capability-parity.md` records its focused
 member and edge-behavior convergence evidence; it has not yet been published
@@ -123,6 +124,12 @@ not listed as releases in the matrix.
 [^source-only]: Spec 3.22.x and its listed flavor versions were validated source
 lines but were never tagged or published. They remain compatibility history,
 not release claims.
+
+[^source-3-23]: C# 3.23.0, Python 3.23.2–3.23.3, TypeScript 3.24.0–3.24.1, and
+Rust 0.29.0 implemented spec 3.23.x as validated source lines but were never
+tagged or published, so the row lists only the tagged Python and Swift
+releases. The Rust version is recorded as source history, as for earlier Rust
+rows.
 
 [^legacy-semantic-tag-only]: Spec 3.20.0 predates the canonical `spec-v*`
 namespace and has no `spec-v3.20.0` tag. The existing immutable `v3.20.0` tag
@@ -155,8 +162,8 @@ version it implements.
 > independently from `VMx` core, starting from 1.0.0 (per ADR-0013). The `1.2.0` shown above is not
 > a divergence from the spec — it is the companion package's own version counter. The **Spec**
 > column is the spec revision each companion's own feature surface implements; it is not the core
-> dependency floor. As built at HEAD both companions reference the `VMx` 3.23.0 core project and
-> pack with a `VMx >= 3.23.0` NuGet dependency. The DI companion uses packaging-only patch 2.1.1
+> dependency floor. As built at HEAD both companions reference the `VMx` 3.24.0 core project and
+> pack with a `VMx >= 3.24.0` NuGet dependency. The DI companion uses packaging-only patch 2.1.1
 > because the historical core tag `csharp-v2.1.0` is immutable. Future companion releases use
 > package-specific `csharp-notifications-v*` and `csharp-dependency-injection-v*` tags, preventing
 > that legacy cross-package collision; the already-advanced DI version is not rewound. These source

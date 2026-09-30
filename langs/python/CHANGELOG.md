@@ -6,6 +6,8 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ## [Unreleased]
 
+## [3.24.0] — unreleased source version
+
 ### Fixed
 
 - Disposed `CompositeCommand`, `DecoratorCommand`, and

@@ -23,7 +23,7 @@ blocked on the first npm publication.
 
 ## 2. Install
 
-The source tree currently implements v3.24.1. The scoped npm package has not
+The source tree currently implements v3.25.0. The scoped npm package has not
 been published yet; use a local workspace/package reference until a
 `typescript-v*` release tag publishes it.
 

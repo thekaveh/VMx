@@ -9,7 +9,7 @@ spec-compatible with the C#, TypeScript, Swift, and Rust flavors.
 
 ## 1. Status
 
-**v3.23.3 source** — implements `spec-v3.23.0` end-to-end. 406/406 library conformance IDs
+**v3.24.0 source** — implements `spec-v3.24.0` end-to-end. 406/406 library conformance IDs
 pass. Supports Python 3.10–3.14.
 `mypy --strict` clean. Opt-in `vmx.notifications` subpackage ships an
 `INotificationHub` for async confirmations. The Swift flavor is at total
@@ -18,7 +18,7 @@ parity; see `../swift/README.md` §5 for the current conformance matrix.
 ## 2. Install
 
 VMx 3.23.0 is publicly available on PyPI and implements spec 3.23.0. The
-3.23.3 source patch is not published yet; pin 3.23.0 when reproducing released
+3.24.0 source line is not published yet; pin 3.23.0 when reproducing released
 behavior.
 
 ```bash
