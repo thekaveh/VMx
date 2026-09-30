@@ -217,6 +217,11 @@ unattached markers, and markers in block-commented tests are ignored. Duplicate
 markers are one set-based coverage claim. In required mode, a missing Rust ID is
 listed under `MISSING` and fails the coverage command.
 
+In required mode, a marker for an ID the catalog does not define is listed under
+`ORPHAN` and fails the coverage command for that flavor. It claims coverage of
+nothing, and usually means a renamed or retired ID whose real test lost its
+marker. Without `--require`, the report still lists it for information.
+
 ## 10.7. Practical Reading Path
 
 1. Read `spec/README.md` for chapter ownership and release history.
