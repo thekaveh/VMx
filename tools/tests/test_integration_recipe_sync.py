@@ -14,6 +14,14 @@ RECIPES = [
     ("vue.md", "## 9.9.3. Adapter skeleton", "ts", "src/vue/composables/useVm.ts"),
     ("vue.md", "## 9.9.3. Adapter skeleton", "vue", "src/vue/NoteView.vue"),
     ("solid.md", "## 9.11.3. Adapter skeleton", "tsx", "src/solid/NoteView.tsx"),
+    ("svelte.md", "## 9.10.3. Adapter skeleton — store", "ts", "src/svelte/vmStore.ts"),
+    ("svelte.md", "## 9.10.3. Adapter skeleton — store", "svelte", "src/svelte/NoteView.svelte"),
+    (
+        "svelte.md",
+        "## 9.10.4. Adapter skeleton — Svelte 5",
+        "svelte",
+        "src/svelte/NoteViewRunes.svelte",
+    ),
 ]
 
 
@@ -34,7 +42,7 @@ def test_recipe_snippet_matches_the_executed_fixture(
 
 def test_fixture_pins_the_host_versions_the_guides_name() -> None:
     manifest = (FIXTURE / "package.json").read_text(encoding="utf-8")
-    for guide, package in (("vue.md", "vue"), ("solid.md", "solid-js")):
+    for guide, package in (("vue.md", "vue"), ("solid.md", "solid-js"), ("svelte.md", "svelte")):
         version = re.search(rf'"{re.escape(package)}": "(\d+\.\d+\.\d+)"', manifest)
         assert version is not None, f"{package} must be pinned to an exact version"
         text = (INTEGRATION / guide).read_text(encoding="utf-8")
