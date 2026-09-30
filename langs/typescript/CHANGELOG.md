@@ -6,6 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `FormVM` treats every validation field name as data. Validator and error maps
+  are null-prototype records, so `__proto__`, `constructor`, `toString`,
+  `hasOwnProperty`, and the empty string register, report, clear, deduplicate,
+  and gate approval like any other field; `fieldError()` never returns an
+  inherited member, and `errors` snapshots keep every key as an own property.
+  The builder's `validator("__proto__", …)` now registers a validator instead of
+  replacing the internal map's prototype (#331).
+- `ObservableList.insert()`, `removeAt()`, and `replace()` reject `NaN`,
+  ±`Infinity`, and fractional indices with `RangeError` before any mutation,
+  lookup, or notification (#335).
+
 ## [3.24.0] — 2026-07-25
 
 ### Added
