@@ -68,6 +68,42 @@ VM thread-safety promise. See
 [Python asyncio dispatcher ownership](services-messages-dispatching.md#669-python-asyncio-dispatcher-ownership)
 for the supported synchronous-command sequence and shutdown order.
 
+A loader can also end the current operation by cancelling itself. In Python, a
+loader task that finishes with `asyncio.CancelledError` (raised directly, from
+cancelling its own task, or from a cancelled operation it awaited) restores the
+saved stable state exactly like `Cancel`, as Swift does for a loader's
+`CancellationError`: awaiters and commands complete, nothing enters Error or a
+command error channel, and a superseded loader's cancellation never rolls back
+newer work. C# and TypeScript treat cancellation they did not request (an
+`OperationCanceledException` from another token, a rejection while the
+operation's signal is not aborted) as an ordinary loader fault, and Rust loaders
+report outcomes through `VmxResult`, so every flavor leaves Loading with a
+visible terminal state.
+
+```python
+async def load_profile() -> str:
+    # Another owner may cancel the shared request. The CancelledError that
+    # reaches this loader settles the VM like Cancel; it never stays Loading.
+    return await profiles.shared_request()
+
+profile = AsyncResourceVM(
+    name="profile",
+    loader=load_profile,
+    hub=hub,
+    dispatcher=dispatcher,
+    retention=AsyncResourceRetention.RETAIN_PREVIOUS,
+)
+await profile.load()  # Ready("ada")
+await profile.reload()  # the shared request is cancelled mid-flight
+
+assert profile.state.status is AsyncResourceStatus.READY
+assert profile.state.value == "ada"  # the retained value is restored
+assert profile.reload_command.can_execute()  # the next reload is admitted
+```
+
+This recipe runs as
+`langs/python/tests/unit/state/test_async_resource_cancellation_recipe.py`.
+
 ```typescript
 const profile = new AsyncResourceVM({
   name: "profile",

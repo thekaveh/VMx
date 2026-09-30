@@ -4,12 +4,14 @@
 Parses spec/12-conformance.md for every `XXX-NNN` conformance ID, then walks each
 active language's conformance test directory (registered in `_SCRAPERS`) and verifies
 every ID has a matching test. Reports gaps to stdout and returns a non-zero exit code
-if any language passed via --require has gaps, or if a required language has no
+if any language passed via --require has gaps or markers for IDs absent from the
+catalog (ORPHAN, or BOGUS for a declared subset), or if a required language has no
 conformance directory at all.
 
 Exit codes:
-    0  All required languages at full coverage (or no --require given).
-    1  At least one required language has conformance gaps.
+    0  All required languages at full coverage with no stray markers (or no --require
+       given).
+    1  At least one required language has conformance gaps or stray markers.
     2  Catalog file not found, required language has no conformance directory,
        or invalid --require argument.
 
@@ -522,7 +524,8 @@ def main(argv: Iterable[str] | None = None) -> int:
         default=[],
         choices=list(_SCRAPERS.keys()),
         help=(
-            "Language(s) that MUST have full conformance coverage; tool exits 1 on any gap. "
+            "Language(s) that MUST have full conformance coverage and no markers for IDs "
+            "absent from the catalog; tool exits 1 on any gap or stray marker. "
             "Omitting --require makes the tool report-only (always exits 0). "
             "May be passed multiple times."
         ),
@@ -564,14 +567,24 @@ def main(argv: Iterable[str] | None = None) -> int:
     print(render_report(catalog, coverage, gaps, subsets))
 
     required_gaps = {lang: missing for lang, missing in gaps.items() if lang in args.require}
+    # A marker for an ID the catalog does not define claims coverage of nothing:
+    # it is usually a renamed or retired ID whose real test lost its marker.
+    required_strays = {lang: stray for lang in args.require if (stray := coverage[lang] - catalog)}
     if required_gaps:
         print(file=sys.stderr)
         print(
             f"FAIL: required languages have conformance gaps: {sorted(required_gaps)}",
             file=sys.stderr,
         )
-        return 1
-    return 0
+    if required_strays:
+        print(file=sys.stderr)
+        for lang, stray in sorted(required_strays.items()):
+            print(
+                f"FAIL: {lang} tests reference IDs absent from the catalog: "
+                + ", ".join(sorted(stray)),
+                file=sys.stderr,
+            )
+    return 1 if required_gaps or required_strays else 0
 
 
 if __name__ == "__main__":
