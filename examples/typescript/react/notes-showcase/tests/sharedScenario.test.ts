@@ -1,4 +1,3 @@
-// @vitest-environment node
 /**
  * Shared Notes scenario `notes-lifecycle-v1` (#346).
  *
@@ -7,8 +6,6 @@
  * expectation. The C#, Python, and Swift showcases run the same file through
  * their own adapters.
  */
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { MessageHub, type IAsyncCommand } from "@thekaveh/vmx";
 
@@ -17,6 +14,7 @@ import { InMemoryNoteRepository } from "../src/models/inMemoryRepository.js";
 import { buildSeed } from "../src/models/seed.js";
 import { NullDialogService } from "../src/viewmodels/dialogService.js";
 import { WorkspaceVM } from "../src/viewmodels/workspaceVM.js";
+import rawScenario from "../../../../notes-showcase-scenario.json";
 
 const FLAVOR = "typescript";
 
@@ -33,9 +31,7 @@ interface Scenario {
   readonly steps: readonly Step[];
 }
 
-const scenario = JSON.parse(
-  readFileSync(fileURLToPath(new URL("../../../../notes-showcase-scenario.json", import.meta.url)), "utf8"),
-) as Scenario;
+const scenario = rawScenario as unknown as Scenario;
 
 class Adapter {
   readonly hub = new MessageHub();
