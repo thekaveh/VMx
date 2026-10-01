@@ -138,11 +138,11 @@ The denominator is `langs/swift/Sources/VMx/` only. Test files, the bundled
 JSON resources, and build output are not counted, so a change that touches only
 generated or resource files cannot fail the gate. Removing a test that exercised
 library code lowers the figure and can. A failure names each source file that
-gained uncovered lines since the recorded baseline. The job uploads the llvm-cov
-export and a provenance file that names the commit, toolchain, and measured
-figures. Instrumentation
-stays in that job's debug build; the release builds, platform builds, and
-packages never see it.
+gained uncovered lines since the recorded baseline, with that file's unexecuted
+line ranges as `llvm-cov show` marks them. The job uploads the llvm-cov export
+and a provenance file that names the commit, toolchain, and measured figures.
+Instrumentation stays in that job's debug build; the release builds, platform
+builds, and packages never see it.
 
 Coverage says which lines ran, not whether a test would catch a wrong result.
 It does not replace the conformance assertions.

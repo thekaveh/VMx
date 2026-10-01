@@ -193,10 +193,12 @@ jobs:
 
       - name: Measure library coverage
         # cargo-llvm-cov builds into its own target directory, so instrumented
-        # artifacts never reach the package job.
+        # artifacts never reach the package job. The full export (not
+        # --summary-only) keeps line segments, so a failure can list the
+        # unexecuted line ranges of each file it names.
         run: >-
           cargo llvm-cov --locked --all-features --manifest-path langs/rust/Cargo.toml
-          --json --summary-only --output-path rust-coverage.json
+          --json --output-path rust-coverage.json
 
       - name: Enforce the recorded coverage floor
         run: >-

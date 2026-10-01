@@ -1,14 +1,20 @@
 #!/usr/bin/env python3
 """Check an llvm-cov coverage export against a flavor's recorded floor.
 
-Rust (`cargo llvm-cov --json --summary-only`) and Swift
-(`swift test --enable-code-coverage`, `swift test --show-codecov-path`) both
-write the llvm-cov JSON export format. This tool recomputes line, region, and
-function totals over the flavor's library sources only, compares them with the
-floors in `tools/coverage-floors.json`, and fails when any metric drops below
-its floor. A failure names the files that gained uncovered lines since the
-recorded per-file baseline, or, without one, the files with the most uncovered
-lines.
+Rust (`cargo llvm-cov --json`) and Swift (`swift test --enable-code-coverage`,
+`swift test --show-codecov-path`) both write the llvm-cov JSON export format.
+This tool recomputes line, region, and function totals over the flavor's
+library sources only, compares them with the floors in
+`tools/coverage-floors.json`, and fails when any metric drops below its floor.
+A failure names the files that gained uncovered lines since the recorded
+per-file baseline, or, without one, the files with the most uncovered lines.
+When the export carries line segments (any export made without
+`--summary-only`), each named file also lists its uncovered line ranges.
+
+Counts come from llvm-cov's own summaries, which count a line once for each
+function that spans it, so a line inside a closure counts twice. The ranges are
+the file view that `llvm-cov show` marks, so a file's ranges can hold fewer
+lines than its count.
 
 Each floor is the lowest figure measured across repeated runs of the baseline
 commit, so only run-to-run variation in scheduling-dependent paths is tolerated.
@@ -32,6 +38,7 @@ import json
 import re
 import sys
 from pathlib import Path
+from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 FLOORS_PATH = REPO_ROOT / "tools" / "coverage-floors.json"
@@ -119,6 +126,65 @@ def uncovered_lines(entry: dict[str, object]) -> int:
     return int(lines["count"]) - int(lines["covered"])
 
 
+def _starts_region(segment: list[Any]) -> bool:
+    # A segment is [line, column, count, has_count, is_region_entry, is_gap_region].
+    is_gap = len(segment) > 5 and bool(segment[5])
+    return not is_gap and bool(segment[3]) and bool(segment[4])
+
+
+def uncovered_ranges(entry: dict[str, object]) -> list[tuple[int, int]] | None:
+    """The file's unexecuted line ranges, as ``llvm-cov show`` marks them.
+
+    This follows llvm-cov's line iterator: a line is counted when a region
+    starts on it or a counted region wraps into it, and it is uncovered when the
+    highest such count is zero. Returns None when the export has no segments,
+    as with ``--summary-only``.
+    """
+    segments = entry.get("segments")
+    if not isinstance(segments, list):
+        return None
+    missed: list[int] = []
+    wrapped: list[Any] | None = None
+    on_line: list[list[Any]] = []
+    index = 0
+    line = int(segments[0][0]) if segments else 0
+    while index < len(segments):
+        if on_line:
+            wrapped = on_line[-1]
+        on_line = []
+        while index < len(segments) and int(segments[index][0]) == line:
+            on_line.append(segments[index])
+            index += 1
+        starts = [segment for segment in on_line if _starts_region(segment)]
+        skipped = bool(on_line) and not on_line[0][3] and bool(on_line[0][4])
+        mapped = not skipped and (bool(wrapped and wrapped[3]) or bool(starts))
+        if mapped:
+            count = int(wrapped[2]) if wrapped is not None else 0
+            for segment in starts:
+                count = max(count, int(segment[2]))
+            if count == 0:
+                missed.append(line)
+        line += 1
+    ranges: list[tuple[int, int]] = []
+    for number in missed:
+        if ranges and number == ranges[-1][1] + 1:
+            ranges[-1] = (ranges[-1][0], number)
+        else:
+            ranges.append((number, number))
+    return ranges
+
+
+def format_ranges(ranges: list[tuple[int, int]]) -> str:
+    return ", ".join(f"{start}" if start == end else f"{start}-{end}" for start, end in ranges)
+
+
+def _with_ranges(row: str, entry: dict[str, object]) -> list[str]:
+    ranges = uncovered_ranges(entry)
+    if not ranges:
+        return [row]
+    return [row, f"    unexecuted lines: {format_ranges(ranges)}"]
+
+
 def regressions(
     files: list[dict[str, object]], include: str, baseline: dict[str, int]
 ) -> list[str]:
@@ -129,11 +195,15 @@ def regressions(
         missed = uncovered_lines(entry)
         before = baseline.get(key, 0)
         if missed > before:
-            rows.append((missed - before, key, missed, before))
+            rows.append((missed - before, key, missed, before, entry))
     rows.sort(key=lambda row: (-row[0], row[1]))
     return [
-        f"  {key}: {missed} uncovered lines, {delta} more than the baseline's {before}"
-        for delta, key, missed, before in rows
+        line
+        for delta, key, missed, before, entry in rows
+        for line in _with_ranges(
+            f"  {key}: {missed} uncovered lines, {delta} more than the baseline's {before}",
+            entry,
+        )
     ]
 
 
@@ -143,11 +213,14 @@ def least_covered(files: list[dict[str, object]], limit: int = 10) -> list[str]:
         lines = entry["summary"]["lines"]  # type: ignore[index]
         missed = uncovered_lines(entry)
         if missed:
-            rows.append((missed, float(lines["percent"]), str(entry["filename"])))
+            rows.append((missed, float(lines["percent"]), str(entry["filename"]), entry))
     rows.sort(key=lambda row: (-row[0], row[2]))
     return [
-        f"  {Path(name).name}: {missed} uncovered lines ({percent:.2f}% covered)"
-        for missed, percent, name in rows[:limit]
+        line
+        for missed, percent, name, entry in rows[:limit]
+        for line in _with_ranges(
+            f"  {Path(name).name}: {missed} uncovered lines ({percent:.2f}% covered)", entry
+        )
     ]
 
 
