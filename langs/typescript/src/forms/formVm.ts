@@ -140,6 +140,41 @@ function defaultSnapshotError(
   );
 }
 
+// The error kinds structured cloning keeps. It rebuilds an error from its
+// `name`, and any other name (a custom subclass, `AggregateError`) comes back
+// as a plain `Error`.
+const CLONEABLE_ERROR_NAMES: ReadonlySet<string> = new Set([
+  "Error",
+  "EvalError",
+  "RangeError",
+  "ReferenceError",
+  "SyntaxError",
+  "TypeError",
+  "URIError",
+]);
+
+function errorKind(error: Error): string {
+  // Cloning reads `name` as it is, so a non-string name is not a kept kind.
+  const name: unknown = error.name;
+  return typeof name === "string" && CLONEABLE_ERROR_NAMES.has(name) ? name : "Error";
+}
+
+/**
+ * An own data property of an error, as structured cloning reads it. Inherited
+ * values and accessors are not cloned, so they compare as absent.
+ */
+function ownErrorValue(error: Error, key: "message" | "cause"): { value: unknown } | undefined {
+  const descriptor = Object.getOwnPropertyDescriptor(error, key);
+  return descriptor !== undefined && "value" in descriptor
+    ? { value: descriptor.value }
+    : undefined;
+}
+
+function errorMessage(error: Error): string | undefined {
+  const message = ownErrorValue(error, "message");
+  return message === undefined ? undefined : String(message.value);
+}
+
 function isBuffer(value: object): value is ArrayBuffer | SharedArrayBuffer {
   return value instanceof ArrayBuffer
     || (typeof SharedArrayBuffer !== "undefined" && value instanceof SharedArrayBuffer);
@@ -175,6 +210,11 @@ function equalBytes(
  * - compares `Date` by instant, `Map`/`Set` by contents, `RegExp` by
  *   source/flags, binary buffers/views by constructor and bytes, and arrays and
  *   plain objects by value;
+ * - compares `Error` values by what `structuredClone` keeps: the error kind
+ *   (the standard error named by `name`, otherwise `Error`), the own
+ *   `message`, and the own `cause`, compared recursively. The stack, custom
+ *   properties, and subclass identity are not kept by the clone, so they are
+ *   not compared;
  * - distinguishes an `undefined`-valued key from a missing key (as
  *   `structuredClone` preserves it);
  * - treats `NaN` as equal to `NaN` (and `+0`/`-0` as equal) for dirty-tracking.
@@ -229,6 +269,15 @@ export function deepEquals(
       a.source === b.source &&
       a.flags === b.flags
     );
+  }
+
+  if (a instanceof Error || b instanceof Error) {
+    if (!(a instanceof Error) || !(b instanceof Error)) return false;
+    if (errorKind(a) !== errorKind(b) || errorMessage(a) !== errorMessage(b)) return false;
+    const aCause = ownErrorValue(a, "cause");
+    const bCause = ownErrorValue(b, "cause");
+    if (aCause === undefined || bCause === undefined) return aCause === bCause;
+    return deepEquals(aCause.value, bCause.value, visited);
   }
 
   const aIsBuffer = isBuffer(a);
