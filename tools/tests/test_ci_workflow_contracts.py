@@ -188,3 +188,17 @@ def test_release_please_restores_unreleased_on_existing_internal_pr_branch() -> 
     assert "git -C release-pr diff --quiet -- langs/python/CHANGELOG.md" in workflow
     assert 'git -C release-pr commit -m "chore: restore unreleased changelog section"' in workflow
     assert 'git -C release-pr push origin "HEAD:${RELEASE_PR_HEAD}"' in workflow
+
+
+def test_swift_coverage_counts_concurrently_executed_regions_exactly() -> None:
+    # A region after a guard counts as entry minus early returns. Plain
+    # counter updates lose increments when tests call the same function from
+    # many threads, so the region can read as unexecuted (#513).
+    swift = (WORKFLOWS / "swift.yml").read_text(encoding="utf-8")
+    coverage = swift.split("\n  coverage:\n", maxsplit=1)[1].split("\n  required:\n")[0]
+    coverage = " ".join(coverage.split())  # read folded `run: >-` commands as one line
+
+    assert (
+        "swift test --package-path langs/swift --enable-code-coverage"
+        " -Xswiftc -Xllvm -Xswiftc -instrprof-atomic-counter-update-all"
+    ) in coverage
