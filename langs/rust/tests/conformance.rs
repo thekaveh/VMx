@@ -7,6 +7,7 @@ mod conformance {
     mod capabilities;
     mod collections;
     mod command_decorators;
+    mod command_ext;
     mod commands;
     mod component_vm;
     mod composite_vm;
