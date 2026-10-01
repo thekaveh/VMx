@@ -281,7 +281,7 @@ jobs:
           python3 tools/check-coverage-floor.py --flavor swift
           --report "$(swift test --package-path langs/swift --show-codecov-path)"
           --provenance swift-coverage-provenance.json --commit "${{ github.sha }}"
-          --toolchain "$(swift --version 2>&1 | head -n 1)"
+          --toolchain "$(swift --version 2>&1 | head -n 1)" --list-files
       - name: Collect coverage evidence
         if: always()
         run: cp "$(swift test --package-path langs/swift --show-codecov-path)" swift-coverage.json

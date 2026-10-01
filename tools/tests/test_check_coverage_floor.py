@@ -181,3 +181,15 @@ def test_without_a_per_file_baseline_a_passing_run_lists_the_thinnest_files(
     out = capsys.readouterr().out
     assert "no per-file baseline recorded" in out
     assert out.index("b.rs: 20 uncovered lines") < out.index("a.rs: 10 uncovered lines")
+
+
+def test_list_files_prints_every_library_file_as_json(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    result = floor.check("demo", _report(tmp_path, BASELINE), _floors(tmp_path), list_files=True)
+
+    assert result == 0
+    line = next(
+        row for row in capsys.readouterr().out.splitlines() if row.startswith("uncovered lines")
+    )
+    assert json.loads(line.split(": ", 1)[1]) == {"a.rs": 10, "b.rs": 20}

@@ -158,6 +158,7 @@ def check(
     provenance: Path | None = None,
     commit: str | None = None,
     toolchain: str | None = None,
+    list_files: bool = False,
 ) -> int:
     try:
         floors_file = json.loads(floors_path.read_text(encoding="utf-8"))
@@ -209,6 +210,15 @@ def check(
             encoding="utf-8",
         )
 
+    if list_files:
+        # Every library file's uncovered lines, as JSON, so a CI log alone can
+        # supply the per-file baseline recorded in tools/coverage-floors.json.
+        per_file = {
+            source_key(entry, floor["include"]): uncovered_lines(entry)
+            for entry in sorted(files, key=lambda entry: str(entry.get("filename")))
+        }
+        print("uncovered lines per file: " + json.dumps(per_file, sort_keys=True))
+
     baseline = floor.get("baseline", {}).get("uncovered_lines")
     if not baseline and not failures:
         # No per-file baseline yet: show where coverage is thinnest, so the first
@@ -243,9 +253,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--provenance", type=Path)
     parser.add_argument("--commit")
     parser.add_argument("--toolchain")
+    parser.add_argument(
+        "--list-files",
+        action="store_true",
+        help="print every library file's uncovered lines as one JSON object",
+    )
     args = parser.parse_args(argv)
     return check(
-        args.flavor, args.report, args.floors, args.provenance, args.commit, args.toolchain
+        args.flavor,
+        args.report,
+        args.floors,
+        args.provenance,
+        args.commit,
+        args.toolchain,
+        args.list_files,
     )
 
 
