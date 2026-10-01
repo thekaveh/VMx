@@ -285,7 +285,7 @@ them structurally.
 
 `Error` values compare by what `structuredClone` keeps (ADR-0135). Two errors
 are equal when they have the same kind, the same own `message`, and equal own
-`cause` values, compared recursively, including self-referencing causes. The
+`cause` values, compared recursively; a cycle through `cause` terminates. The
 kind is the standard error named by `name` (`Error`, `EvalError`, `RangeError`,
 `ReferenceError`, `SyntaxError`, `TypeError`, or `URIError`); any other name,
 such as a custom subclass or `AggregateError`, clones and compares as a plain
@@ -293,7 +293,9 @@ such as a custom subclass or `AggregateError`, clones and compares as a plain
 `errors`, and subclass identity are not kept by the clone, so they are not
 compared: a model holding a custom error starts clean, and changing only its
 `code` does not make the form dirty. Inject a matching `snapshotter` and
-`equals` when a domain needs those details.
+`equals` when a domain needs those details. Node 20's `structuredClone` throws
+for an error whose `cause` chain leads back to itself, so on Node 20 a model
+holding one needs an injected `snapshotter`; Node 22 and later clone it.
 
 Field localization inspects data-property descriptors, performs no writes, and
 does not invoke getters a second time. User-defined accessors or proxy traps can

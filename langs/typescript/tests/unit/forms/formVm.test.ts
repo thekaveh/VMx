@@ -775,8 +775,6 @@ describe("FormVM default equality – supported snapshot domain", () => {
       this.name = "ValidationError";
     }
   }
-  const selfCaused = new Error("loop");
-  (selfCaused as { cause?: unknown }).cause = selfCaused;
 
   const supported: Array<[string, unknown]> = [
     ["string", "text"],
@@ -805,7 +803,6 @@ describe("FormVM default equality – supported snapshot domain", () => {
     ["Error with a non-string message", Object.assign(new Error("x"), { message: 5 })],
     ["Error with a nested cause", new Error("outer", { cause: new RangeError("inner", { cause: 7 }) })],
     ["Error with an undefined cause", new Error("outer", { cause: undefined })],
-    ["Error whose cause is itself", selfCaused],
     ["custom Error subclass", new ValidationError("too short")],
     ["AggregateError", new AggregateError([new Error("first")], "several")],
   ];

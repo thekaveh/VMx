@@ -24,8 +24,9 @@ HTML structured serialization keeps exactly these parts of an error:
   any other name, such as a custom subclass or `AggregateError`, comes back as a
   plain `Error`;
 - the own `message`, as a string, when it is a data property;
-- the own `cause`, cloned, when it is a data property. Engines that implement
-  `cause` keep cycles through it.
+- the own `cause`, cloned, when it is a data property. Node 22 and later keep
+  a cycle that runs through `cause`; Node 20 cannot deserialize one and throws
+  "Unable to deserialize cloned data".
 
 The stack is copied as an implementation detail, and custom properties, the
 `errors` of an `AggregateError`, and subclass identity are dropped.
@@ -57,8 +58,11 @@ TypeScript change ships in the unreleased 3.25.0 source line.
 
 - An edit that changes an error's kind, message, or cause replaces the live
   form model and makes it dirty. Equal errors stay clean and suppressed.
-- A model holding any cloneable error, including a custom subclass, an
-  `AggregateError`, or a self-caused error, starts clean against its snapshot.
+- A model holding any cloneable error, including a custom subclass or an
+  `AggregateError`, starts clean against its snapshot. On Node 20 the default
+  snapshotter throws for an error whose `cause` chain leads back to itself, so
+  such a model needs an injected `snapshotter` there; the comparator itself
+  terminates on those cycles in every runtime.
 - C#, Python, Swift, and Rust are unchanged: their dirty tracking uses the
   model's own equality (chapter 20 §4).
 
