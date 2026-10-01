@@ -764,6 +764,31 @@ When the source changes (items added or removed), `PageCount` is recomputed and
 now out of range. The `max(0, …)` term covers the empty-source case
 (`PageCount == 0`), where the index clamps to `0` rather than to `-1` (§5.4).
 
+A source that can be enumerated only once is the one exception to "computes a
+slice on demand". The flavors that admit such a source materialize it once at
+construction, and later reads page that snapshot: a direct iterator such as a
+generator object in TypeScript, and any `Iterator` in Python. C#, Swift, and
+Rust take a repeatable collection, so the case does not arise there. Repeatable
+sources and factories stay live, because each read enumerates them again:
+
+```ts
+function* notes() {
+  yield* loadNotes();
+}
+
+// One-shot: materialized once; later reads page the same snapshot.
+const snapshot = new PagedComposition(notes(), 20);
+
+// Live: the factory returns a fresh generator for every read.
+const live = new PagedComposition(() => notes(), 20);
+```
+
+In Python, `PagedComposition(notes(), 20)` pages a snapshot and
+`PagedComposition(notes, 20)` re-reads the factory. Every source must be finite,
+because `PageCount` needs its total length. A one-shot source whose enumeration
+throws fails construction, and the snapshot holds item references only: the
+pager never disposes the items it pages.
+
 ### 5.3 `PageSize = 0` semantics
 
 When `PageSize == 0`:
