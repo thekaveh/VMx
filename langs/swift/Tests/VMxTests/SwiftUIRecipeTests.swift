@@ -1,18 +1,20 @@
 //
 // SwiftUIRecipeTests — compiles and exercises the SwiftUI integration recipe.
 //
-// The region between the BEGIN/END markers is the exact code shown in
-// docs/content/integration/swiftui.md; tools/tests/test_swiftui_recipe_sync.py
-// keeps the two identical. No conformance-ID markers (integration recipe).
+// The swiftui-recipe region is the exact code shown in
+// docs/content/integration/swiftui.md, imports included, and `make docs-check`
+// keeps the two identical. The file imports VMx without @testable, so the recipe
+// and these tests compile against the public API only. No conformance-ID
+// markers (integration recipe).
 //
-import Combine
 import XCTest
-@testable import VMx
 
 #if canImport(SwiftUI)
+// docs-snippet:start swiftui-recipe
+import Combine
 import SwiftUI
+import VMx
 
-// BEGIN swiftui-recipe
 struct Note: Equatable {
     var title: String
 }
@@ -86,7 +88,7 @@ struct NoteView: View {
         .onAppear { adapter.appeared() }
     }
 }
-// END swiftui-recipe
+// docs-snippet:end swiftui-recipe
 
 final class SwiftUIRecipeTests: XCTestCase {
     private func makeNote(
@@ -169,6 +171,22 @@ final class SwiftUIRecipeTests: XCTestCase {
 
         XCTAssertEqual(saves, 1)
         XCTAssertTrue(parent.current === first, "Save must not select a sibling")
+    }
+
+    func testAnIllegalConstructIsCaughtAndLeavesTheVmSettled() throws {
+        let vm = try makeNote()
+        vm.dispose()   // constructing a disposed VM is an illegal transition
+
+        // docs-snippet:start swiftui-throwing-lifecycle
+        do {
+            try vm.construct()
+        } catch let error as StatusTransitionError {
+            // Recover — the VM is left in its prior settled state, not crashed.
+            print("illegal lifecycle transition: \(error)")
+        }
+        // docs-snippet:end swiftui-throwing-lifecycle
+
+        XCTAssertEqual(vm.status, .disposed)
     }
 
     func testConstructionFailureReachesTheHostAndDisposalDoesNotMaskIt() throws {

@@ -29,6 +29,8 @@ The adapter below is the exact file that `VMx.Tests` executes
 (`Integration/XamlRecipeTests.cs`) and that CI runs against real WPF bindings
 on a Dispatcher thread (`examples/csharp/wpf/RecipeHostCheck`).
 
+<!-- checked-snippet: langs/csharp/tests/VMx.Tests/Integration/BindableVm.cs#xaml-adapter -->
+
 ```csharp
 using System.ComponentModel;
 using System.Reactive.Concurrency;
@@ -89,6 +91,8 @@ public sealed class BindableVm<M> : INotifyPropertyChanged, IDisposable
 
 Create the adapter on the UI thread, where WPF installs its
 `DispatcherSynchronizationContext`:
+
+<!-- checked-snippet: examples/csharp/wpf/RecipeHostCheck/Program.cs#wpf-create-adapter -->
 
 ```csharp
 var adapter = new BindableVm<Note>(

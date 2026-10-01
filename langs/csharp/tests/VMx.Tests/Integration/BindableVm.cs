@@ -1,11 +1,14 @@
+// docs-snippet:start xaml-adapter
 using System.ComponentModel;
 using System.Reactive.Concurrency;
 using System.Reactive.Linq;
 using VMx.Components;
 using VMx.Lifecycle;
 
+// docs-snippet:end xaml-adapter
 namespace VMx.Tests.Integration;
 
+// docs-snippet:start xaml-adapter
 /// <summary>
 /// Binds a borrowed <see cref="ComponentVM{M}"/> to XAML. The VM's creator
 /// constructs and disposes it; this adapter only observes it.
@@ -55,3 +58,4 @@ public sealed class BindableVm<M> : INotifyPropertyChanged, IDisposable
     /// <summary>Stops observing the VM without changing its lifecycle.</summary>
     public void Dispose() => _subscription.Dispose();
 }
+// docs-snippet:end xaml-adapter

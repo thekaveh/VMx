@@ -33,6 +33,8 @@ This is the exact file run by `examples/typescript/integration-recipes` against
 `republishModel()`, replacement and scalar updates, unrelated messages, and
 cleanup.
 
+<!-- checked-snippet: examples/typescript/integration-recipes/src/solid/NoteView.tsx -->
+
 ```tsx
 import { createSignal, onCleanup, type Accessor } from "solid-js";
 import { filter } from "rxjs";

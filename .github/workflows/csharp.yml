@@ -116,6 +116,15 @@ jobs:
             done
           done
 
+      - name: "Integration recipe: XAML adapter executed on test schedulers (MAUI page is a stand-in; no MAUI host)"
+        # docs/content/integration/wpf.md and maui.md show this adapter through
+        # checked-snippet markers. The WPF Dispatcher run is the separate
+        # Windows job below; CI has no MAUI workload, so maui.md's page
+        # statement runs against a stand-in page and nothing is rendered.
+        run: >-
+          dotnet test tests/VMx.Tests/VMx.Tests.csproj -c Release --no-build --no-restore
+          --filter 'FullyQualifiedName~VMx.Tests.Integration.XamlRecipeTests'
+
       - name: Enforce library coverage floors
         if: matrix.os == 'ubuntu-latest'
         working-directory: .
@@ -224,7 +233,7 @@ jobs:
 
   wpf-example:
     timeout-minutes: 15
-    name: example (WPF / Windows)
+    name: example + recipe host (WPF / Windows, executed)
     runs-on: windows-latest
     defaults:
       run:

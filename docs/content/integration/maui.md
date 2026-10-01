@@ -28,6 +28,8 @@ executes (`Integration/XamlRecipeTests.cs`). CI has no MAUI host, so the
 adapter runs there against a scheduler-driven host thread and, for WPF, a real
 Dispatcher.
 
+<!-- checked-snippet: langs/csharp/tests/VMx.Tests/Integration/BindableVm.cs#xaml-adapter -->
+
 ```csharp
 using System.ComponentModel;
 using System.Reactive.Concurrency;
@@ -88,6 +90,8 @@ public sealed class BindableVm<M> : INotifyPropertyChanged, IDisposable
 
 Create the adapter on the main thread, for example in the page constructor,
 and set it as the page's `BindingContext`:
+
+<!-- checked-snippet: langs/csharp/tests/VMx.Tests/Integration/XamlRecipeTests.cs#maui-binding-context -->
 
 ```csharp
 BindingContext = new BindableVm<Note>(
