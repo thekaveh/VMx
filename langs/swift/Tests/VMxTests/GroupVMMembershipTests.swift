@@ -1,9 +1,12 @@
 //
-// GroupVMMembershipTests.swift — GroupVM insert, replace, remove, clear, and
-// repeated dispose: member order, change events, ownership, and rollback.
+// GroupVMMembershipTests.swift — GroupVM insert, replace, remove, clear,
+// population from another group, re-entrant admission, and repeated dispose:
+// member order, change events, ownership, and rollback.
 //
 // Behavior tests without catalog IDs. They cover GroupVM paths the conformance
-// suite did not exercise when the Swift coverage floor was measured (#362).
+// suite did not exercise when the Swift coverage floor was measured (#362), and
+// membership-transaction paths that only the ownership race tests reached, on
+// whichever side of the race won (#520).
 //
 import Combine
 import XCTest
@@ -229,6 +232,65 @@ final class GroupVMMembershipTests: XCTestCase {
         XCTAssertNil(owner(of: a))
         XCTAssertNil(owner(of: c))
         XCTAssertEqual(events(), ["remove b new:-1 old:1", "reset  new:-1 old:-1"])
+    }
+
+    // MARK: — population and re-entrant admission
+
+    func testPopulationMovesSeveralChildrenOutOfOneGroupInOneTransaction() throws {
+        let first = try leaf("first"), second = try leaf("second"), later = try leaf("later")
+        let source = try group("source")
+        try source.addResult(first).get()
+        try source.addResult(second).get()
+        let sourceEvents = record(source)
+        let destination = try GroupVM<ComponentVM>.builder()
+            .name("destination")
+            .withNullServices()
+            .children { [first, second] }
+            .build()
+        let destinationEvents = record(destination)
+
+        try destination.construct()
+
+        XCTAssertEqual(destination.snapshot().map(\.name), ["first", "second"])
+        XCTAssertEqual(source.count, 0)
+        XCTAssertTrue(owner(of: first) === destination)
+        XCTAssertTrue(owner(of: second) === destination)
+        XCTAssertEqual(
+            sourceEvents(),
+            ["remove first new:-1 old:0", "remove second new:-1 old:0"]
+        )
+        XCTAssertEqual(
+            destinationEvents(),
+            ["add first new:0 old:-1", "add second new:1 old:-1"]
+        )
+        // The source joined the destination's transaction once per child and
+        // must be closed again, so it admits a new member.
+        try source.addResult(later).get()
+        XCTAssertEqual(source.snapshot().map(\.name), ["later"])
+    }
+
+    func testAnAddFromInsideAnotherAddsNotificationIsRejected() throws {
+        let a = try leaf("a"), late = try leaf("late")
+        let g = try group("g")
+        var reentrant: Result<Void, ContainerOwnershipError>?
+        g.collectionChanged
+            .sink { _ in
+                if reentrant == nil { reentrant = g.addResult(late) }
+            }
+            .store(in: &cancellables)
+
+        try g.addResult(a).get()
+
+        guard case let .failure(.attachmentFailed(error))? = reentrant else {
+            return XCTFail("expected a rejection, got \(String(describing: reentrant))")
+        }
+        XCTAssertTrue("\(error)".contains("MembershipTransaction"), "got \(error)")
+        XCTAssertEqual(g.snapshot().map(\.name), ["a"])
+        XCTAssertNil(owner(of: late))
+
+        // Once the outer add has finished, the same child is admitted.
+        try g.addResult(late).get()
+        XCTAssertEqual(g.snapshot().map(\.name), ["a", "late"])
     }
 
     // MARK: — dispose
