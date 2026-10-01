@@ -78,7 +78,7 @@ import type { Note } from "./note";
 const props = defineProps<{
   vm: ComponentVMOf<Note>;
   hub: IMessageHub;
-  saveCommand: ICommand;
+  saveComand: ICommand;
 }>();
 const model = useVm(props.vm, props.hub, "model");
 </script>
