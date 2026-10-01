@@ -20,6 +20,102 @@ pub trait Command: Send + Sync {
     }
 }
 
+/// Shared commands are commands: an `Arc<T>` delegates to `T`.
+///
+/// This lets a command that is not `Clone`, or a `dyn Command` trait object,
+/// use [`CommandExt`] through an `Arc` without implementing `Clone` itself.
+impl<T: Command + ?Sized> Command for Arc<T> {
+    fn can_execute(&self) -> bool {
+        (**self).can_execute()
+    }
+
+    fn execute(&self) {
+        (**self).execute();
+    }
+
+    fn can_execute_changed(&self) -> MessageHub {
+        (**self).can_execute_changed()
+    }
+}
+
+/// An absent `wrap_with` pre- or post-action, usable where `None` would need a
+/// type annotation.
+pub const NO_HOOK: Option<fn()> = None;
+
+/// An absent `wrap_with` predicate, usable where `None` would need a type
+/// annotation.
+pub const NO_PREDICATE: Option<fn() -> bool> = None;
+
+/// Fluent composition helpers for every cloneable command (spec §9, ADR-0027).
+///
+/// The trait is implemented for every `Command + Clone + 'static`, so the
+/// command a helper returns chains further. Each helper moves the receiver
+/// into the returned wrapper; clones of VMx commands share their state, so
+/// keep a clone to keep using the receiver directly. Wrap a command that is
+/// not `Clone` in an [`Arc`] to use the helpers. Import the trait with
+/// `use vmx::CommandExt;`; `RelayCommand` also keeps the same methods as
+/// inherent methods, so existing calls need no import.
+///
+/// ```
+/// use std::sync::{Arc, Mutex};
+/// use vmx::{AsyncValue, Command, CommandExt, RelayCommand, NO_HOOK};
+///
+/// let log = Arc::new(Mutex::new(Vec::new()));
+/// let save = RelayCommand::new({
+///     let log = log.clone();
+///     move || log.lock().unwrap().push("save")
+/// });
+/// let audit = RelayCommand::new({
+///     let log = log.clone();
+///     move || log.lock().unwrap().push("audit")
+/// });
+/// let command = save
+///     .confirm(|| AsyncValue::ready(true))
+///     .wrap_with(Some(|| true), NO_HOOK, NO_HOOK)
+///     .succeed_with(audit);
+///
+/// command.execute();
+/// assert_eq!(*log.lock().unwrap(), vec!["save", "audit"]);
+/// ```
+pub trait CommandExt: Command + Clone + Sized + 'static {
+    /// Wraps the command with an asynchronous confirmation gate.
+    fn confirm<F>(self, confirm: F) -> ConfirmationDecoratorCommand<Self>
+    where
+        F: Fn() -> AsyncValue<bool> + Send + Sync + 'static,
+    {
+        ConfirmationDecoratorCommand::new(self, confirm)
+    }
+
+    /// Returns a composite that runs `other` before this command.
+    fn precede_with<C: Command + Clone + 'static>(self, other: C) -> CompositeCommand {
+        CompositeCommand::new(vec![Arc::new(other), Arc::new(self)])
+    }
+
+    /// Returns a composite that runs `other` after this command.
+    fn succeed_with<C: Command + Clone + 'static>(self, other: C) -> CompositeCommand {
+        CompositeCommand::new(vec![Arc::new(self), Arc::new(other)])
+    }
+
+    /// Wraps this command with optional predicate, pre-, and post-actions.
+    ///
+    /// Pass [`NO_PREDICATE`] or [`NO_HOOK`] for an absent argument.
+    fn wrap_with<FPre, FPost, FPred>(
+        self,
+        predicate: Option<FPred>,
+        pre: Option<FPre>,
+        post: Option<FPost>,
+    ) -> DecoratorCommand<Self>
+    where
+        FPre: Fn() + Send + Sync + 'static,
+        FPost: Fn() + Send + Sync + 'static,
+        FPred: Fn() -> bool + Send + Sync + 'static,
+    {
+        DecoratorCommand::new(self, predicate, pre, post)
+    }
+}
+
+impl<C: Command + Clone + 'static> CommandExt for C {}
+
 /// A parameterized action with parameter-sensitive execution eligibility.
 pub trait CommandOf<T>: Send + Sync {
     /// Reports whether execution is permitted for `parameter`.
@@ -128,24 +224,32 @@ impl RelayCommand {
     }
 
     /// Wraps the command with an asynchronous confirmation gate.
+    ///
+    /// Delegates to [`CommandExt::confirm`].
     pub fn confirm<F>(self, confirm: F) -> ConfirmationDecoratorCommand<Self>
     where
         F: Fn() -> AsyncValue<bool> + Send + Sync + 'static,
     {
-        ConfirmationDecoratorCommand::new(self, confirm)
+        CommandExt::confirm(self, confirm)
     }
 
     /// Returns a composite that runs `other` before this command.
+    ///
+    /// Delegates to [`CommandExt::precede_with`].
     pub fn precede_with<C: Command + Clone + 'static>(self, other: C) -> CompositeCommand {
-        CompositeCommand::new(vec![Arc::new(other), Arc::new(self)])
+        CommandExt::precede_with(self, other)
     }
 
     /// Returns a composite that runs `other` after this command.
+    ///
+    /// Delegates to [`CommandExt::succeed_with`].
     pub fn succeed_with<C: Command + Clone + 'static>(self, other: C) -> CompositeCommand {
-        CompositeCommand::new(vec![Arc::new(self), Arc::new(other)])
+        CommandExt::succeed_with(self, other)
     }
 
     /// Wraps this command with optional predicate, pre-, and post-actions.
+    ///
+    /// Delegates to [`CommandExt::wrap_with`].
     pub fn wrap_with<FPre, FPost, FPred>(
         self,
         predicate: Option<FPred>,
@@ -157,7 +261,7 @@ impl RelayCommand {
         FPost: Fn() + Send + Sync + 'static,
         FPred: Fn() -> bool + Send + Sync + 'static,
     {
-        DecoratorCommand::new(self, predicate, pre, post)
+        CommandExt::wrap_with(self, predicate, pre, post)
     }
 }
 
@@ -734,6 +838,25 @@ impl RelayCommandBuilder {
     }
 }
 
+impl Command for AsyncRelayCommand {
+    /// Same admission check as the inherent [`AsyncRelayCommand::can_execute`].
+    fn can_execute(&self) -> bool {
+        AsyncRelayCommand::can_execute(self)
+    }
+
+    /// Starts fire-and-forget execution and returns without waiting for the
+    /// async body; failures are routed to [`AsyncRelayCommand::errors`], as
+    /// with the inherent [`AsyncRelayCommand::execute`].
+    fn execute(&self) {
+        AsyncRelayCommand::execute(self);
+    }
+
+    /// Returns the same eligibility hub as the inherent method.
+    fn can_execute_changed(&self) -> MessageHub {
+        AsyncRelayCommand::can_execute_changed(self)
+    }
+}
+
 #[derive(Clone)]
 /// A command that coordinates an ordered set of child commands.
 ///
@@ -742,7 +865,8 @@ impl RelayCommandBuilder {
 pub struct CompositeCommand {
     commands: Vec<Arc<dyn Command>>,
     can_execute_changed: MessageHub,
-    _subscriptions: Arc<Vec<Subscription>>,
+    subscriptions: Arc<Mutex<Vec<Subscription>>>,
+    disposed: Arc<AtomicBool>,
 }
 
 impl CompositeCommand {
@@ -765,7 +889,8 @@ impl CompositeCommand {
         Self {
             commands,
             can_execute_changed,
-            _subscriptions: Arc::new(subscriptions),
+            subscriptions: Arc::new(Mutex::new(subscriptions)),
+            disposed: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -781,18 +906,49 @@ impl CompositeCommand {
                 .collect(),
         )
     }
+
+    /// Makes the composite inert (spec §8.4, ADR-0134).
+    ///
+    /// Idempotent and shared by clones. The child commands stay owned by their
+    /// creator; the composite releases its subscriptions to their change hubs,
+    /// announces the change once, and completes its own hub.
+    pub fn dispose(&self) {
+        if self.disposed.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let subscriptions = std::mem::take(&mut *lock(&self.subscriptions));
+        drop(subscriptions);
+        self.can_execute_changed.send(Message::Custom {
+            sender_id: 0,
+            sender_name: "CompositeCommand".to_string(),
+            name: "can_execute_changed".to_string(),
+        });
+        self.can_execute_changed.dispose();
+    }
+
+    fn is_disposed(&self) -> bool {
+        self.disposed.load(Ordering::SeqCst)
+    }
 }
 
 impl Command for CompositeCommand {
     fn can_execute(&self) -> bool {
-        self.commands
-            .iter()
-            .any(|command| evaluate_command_predicate(|| command.can_execute()))
+        !self.is_disposed()
+            && self
+                .commands
+                .iter()
+                .any(|command| evaluate_command_predicate(|| command.can_execute()))
+            && !self.is_disposed()
     }
 
     fn execute(&self) {
+        // A child may dispose the composite; no later child runs once disposal
+        // is observed (spec §8.4, ADR-0134).
         for command in &self.commands {
-            if evaluate_command_predicate(|| command.can_execute()) {
+            if self.is_disposed() {
+                return;
+            }
+            if evaluate_command_predicate(|| command.can_execute()) && !self.is_disposed() {
                 command.execute();
             }
         }
@@ -810,6 +966,7 @@ pub struct DecoratorCommand<C: Command + Clone> {
     predicate: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
     pre: Option<Arc<dyn Fn() + Send + Sync>>,
     post: Option<Arc<dyn Fn() + Send + Sync>>,
+    disposed: Arc<AtomicBool>,
 }
 
 impl<C: Command + Clone> DecoratorCommand<C> {
@@ -830,18 +987,34 @@ impl<C: Command + Clone> DecoratorCommand<C> {
             predicate: predicate.map(|p| Arc::new(p) as Arc<dyn Fn() -> bool + Send + Sync>),
             pre: pre.map(|p| Arc::new(p) as Arc<dyn Fn() + Send + Sync>),
             post: post.map(|p| Arc::new(p) as Arc<dyn Fn() + Send + Sync>),
+            disposed: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    /// Makes the decorator inert (spec §8.4, ADR-0134).
+    ///
+    /// Idempotent and shared by clones. The inner command stays owned by its
+    /// creator, and the decorator's change hub remains the inner command's.
+    pub fn dispose(&self) {
+        self.disposed.store(true, Ordering::SeqCst);
+    }
+
+    fn is_disposed(&self) -> bool {
+        self.disposed.load(Ordering::SeqCst)
     }
 }
 
 impl<C: Command + Clone> Command for DecoratorCommand<C> {
     fn can_execute(&self) -> bool {
-        evaluate_command_predicate(|| self.inner.can_execute())
+        // The inner and extra predicates may dispose the decorator.
+        !self.is_disposed()
+            && evaluate_command_predicate(|| self.inner.can_execute())
             && self
                 .predicate
                 .as_ref()
                 .map(|predicate| evaluate_command_predicate(|| predicate()))
                 .unwrap_or(true)
+            && !self.is_disposed()
     }
 
     fn execute(&self) {
@@ -851,7 +1024,11 @@ impl<C: Command + Clone> Command for DecoratorCommand<C> {
         if let Some(pre) = &self.pre {
             pre();
         }
-        self.inner.execute();
+        // The pre-action may dispose the decorator: skip the inner command but
+        // keep the admitted pre/post pair balanced (spec §8.4, ADR-0134).
+        if !self.is_disposed() {
+            self.inner.execute();
+        }
         if let Some(post) = &self.post {
             post();
         }
@@ -1050,7 +1227,9 @@ impl<C: Command + Clone + 'static> ConfirmationDecoratorCommand<C> {
 
 impl<C: Command + Clone + 'static> Command for ConfirmationDecoratorCommand<C> {
     fn can_execute(&self) -> bool {
-        evaluate_command_predicate(|| self.inner.can_execute())
+        !self.disposed.load(Ordering::SeqCst)
+            && evaluate_command_predicate(|| self.inner.can_execute())
+            && !self.disposed.load(Ordering::SeqCst)
     }
 
     fn execute(&self) {

@@ -24,6 +24,16 @@ describe("FORM-017", () => {
       modelValidator: () => ({ value: "negative" }),
     });
     expect(sut.errors).toEqual({ value: "negative" });
+
+    // A null value removes a field validator's error.
+    const clearing = new FormVM<Model>({
+      initial: model("", -1),
+      persister: async () => {},
+      validators: { name: () => "required" },
+      modelValidator: () => ({ name: null, value: "negative" }),
+    });
+    expect(clearing.errors).toEqual({ value: "negative" });
+    expect(clearing.fieldError("name")).toBeUndefined();
   });
 });
 

@@ -201,4 +201,89 @@ final class PagedCompositionTests: XCTestCase {
         XCTAssertEqual(sut.count, 1)
         XCTAssertEqual(completions, 1)
     }
+
+    // ── Page-size domain (#354) ──────────────────────────────────────────────
+
+    /// Every accepted page size, including Int.max, yields the spec page count
+    /// and slices for empty, one-item, and two-item sources without trapping.
+    func testPageCountAndItemsForEveryAcceptedPageSize() {
+        struct Case {
+            let source: [Int]
+            let pageSize: Int
+            let pageCount: Int
+            let pages: [[Int]]
+        }
+        let cases = [
+            Case(source: [], pageSize: 0, pageCount: 1, pages: [[]]),
+            Case(source: [], pageSize: 1, pageCount: 0, pages: [[]]),
+            Case(source: [], pageSize: 5, pageCount: 0, pages: [[]]),
+            Case(source: [], pageSize: .max, pageCount: 0, pages: [[]]),
+            Case(source: [7], pageSize: 0, pageCount: 1, pages: [[7]]),
+            Case(source: [7], pageSize: 1, pageCount: 1, pages: [[7]]),
+            Case(source: [7], pageSize: 5, pageCount: 1, pages: [[7]]),
+            Case(source: [7], pageSize: .max, pageCount: 1, pages: [[7]]),
+            Case(source: [7, 8], pageSize: 0, pageCount: 1, pages: [[7, 8]]),
+            Case(source: [7, 8], pageSize: 1, pageCount: 2, pages: [[7], [8]]),
+            Case(source: [7, 8], pageSize: 5, pageCount: 1, pages: [[7, 8]]),
+            Case(source: [7, 8], pageSize: .max, pageCount: 1, pages: [[7, 8]]),
+        ]
+        for c in cases {
+            let sut = PagedComposition<Int>(source: c.source, pageSize: c.pageSize)
+            let label = "source \(c.source), pageSize \(c.pageSize)"
+            XCTAssertEqual(sut.pageCount, c.pageCount, label)
+            for (index, page) in c.pages.enumerated() {
+                sut.currentPageIndex = index
+                XCTAssertEqual(sut.currentPageIndex, index, label)
+                XCTAssertEqual(sut.items, page, label)
+                XCTAssertEqual(sut.count, page.count, label)
+            }
+        }
+    }
+
+    /// Page-size changes and the navigation verbs clamp at the bounds with an
+    /// Int.max page size, including an oversized index assignment.
+    func testNavigationAndPageSizeChangesClampWithIntMaxPageSize() {
+        let sut = PagedComposition<Int>(source: [1, 2, 3], pageSize: 1)
+        sut.moveToLastPage()
+        XCTAssertEqual(sut.currentPageIndex, 2)
+
+        sut.pageSize = .max
+        XCTAssertEqual(sut.pageCount, 1)
+        XCTAssertEqual(sut.currentPageIndex, 0, "re-clamped when the page count shrinks")
+        XCTAssertEqual(sut.items, [1, 2, 3])
+
+        sut.currentPageIndex = .max
+        XCTAssertEqual(sut.currentPageIndex, 0)
+        sut.moveToNextPage()
+        XCTAssertEqual(sut.currentPageIndex, 0)
+        sut.moveToLastPage()
+        XCTAssertEqual(sut.currentPageIndex, 0)
+        sut.moveToPreviousPage()
+        XCTAssertEqual(sut.currentPageIndex, 0)
+        sut.moveToFirstPage()
+        XCTAssertEqual(sut.currentPageIndex, 0)
+
+        sut.setSource([])
+        XCTAssertEqual(sut.pageCount, 0)
+        XCTAssertEqual(sut.items, [])
+        sut.setSource([4, 5])
+        XCTAssertEqual(sut.items, [4, 5])
+
+        sut.pageSize = 1
+        sut.currentPageIndex = .max
+        XCTAssertEqual(sut.currentPageIndex, 1, "clamped to pageCount - 1")
+        XCTAssertEqual(sut.items, [5])
+    }
+
+    /// Paging a large page size neither constructs nor disposes items.
+    func testLargePageSizeLeavesItemsUntouched() throws {
+        let item = try ComponentVM.builder().name("item").withNullServices().build()
+        let status = item.status
+        let sut = PagedComposition<ComponentVM>(source: [item], pageSize: .max)
+
+        XCTAssertTrue(sut.items.first === item)
+        sut.dispose()
+        XCTAssertEqual(item.status, status)
+        XCTAssertNotEqual(item.status, .disposed)
+    }
 }

@@ -37,7 +37,7 @@ pub use value_stream::{ValueStream, ValueSubscription};
 /// Version of the compiled Rust package.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Minimum language-neutral VMx specification version implemented by this package.
-pub const MIN_SPEC_VERSION: &str = "3.23.0";
+pub const MIN_SPEC_VERSION: &str = "3.24.0";
 
 mod runtime;
 pub use runtime::*;
@@ -57,9 +57,9 @@ pub use components::{
 
 mod commands;
 pub use commands::{
-    AsyncRelayCommand, AsyncRelayCommandBuilder, CancellationToken, Command, CommandOf,
+    AsyncRelayCommand, AsyncRelayCommandBuilder, CancellationToken, Command, CommandExt, CommandOf,
     CompositeCommand, ConfirmationDecoratorCommand, ConfirmationExecution, DecoratorCommand,
-    RelayCommand, RelayCommandBuilder, RelayCommandOf,
+    RelayCommand, RelayCommandBuilder, RelayCommandOf, NO_HOOK, NO_PREDICATE,
 };
 
 mod collections;

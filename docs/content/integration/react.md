@@ -23,7 +23,7 @@ default or an explicit equality function such as `shallowEqual`.
 | `useVm`                                 | sender-filtered component or form VM updates      |
 | `useCommand`                            | `ICommand.canExecuteChanged` and stable execution |
 | `useObservableList` / `useVmCollection` | identity-preserving collection snapshots          |
-| `useDerivedProperty`                    | pushed derived values, including unseeded state   |
+| `useDerivedProperty`                    | first and later derived values; unseeded state    |
 | `useAsyncResource`                      | discriminated async-resource state                |
 
 ## 9.8.3. Install and create the shared store
@@ -70,6 +70,28 @@ const resource = useAsyncResource(screen.data);
 `useCommand` accepts an `ICommand` separately from its owning VM. Invoke the
 stable callback returned by the binding; the equivalent direct VMx intent is
 `saveCommand.execute()`.
+
+`useDerivedProperty` returns `undefined` until the property holds a value and
+renders the first value as soon as a delayed source emits it. A
+`DerivedProperty` stores its first value without a `valueChanged` emission
+(DPROP-009), so the hook observes an internal `@thekaveh/vmx` seam that signals
+the first value and every later change; it requires `@thekaveh/vmx` 3.24.1 or
+later. The hook never subscribes to the property's sources, and unmounting
+releases only its own listener; the property's owner disposes it.
+
+```tsx
+const total$ = new Subject<number>();
+const total = new DerivedProperty(total$);
+
+function Total() {
+  const value = useDerivedProperty(total);
+  return <span>{value === undefined ? "Loading…" : value}</span>;
+}
+// Renders "Loading…" until total$.next(42), then "42".
+```
+
+A source that emits `undefined` as its value renders the same as an unseeded
+property.
 
 Never call a hook conditionally or pass `null`. Mount a child which owns one
 unconditional binding when a VM is optional:

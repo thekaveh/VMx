@@ -2,10 +2,10 @@ use crate::models::{InMemoryNoteRepository, NoteDraft, NoteModel, NotebookModel}
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard};
 use vmx::{
-    AggregateVm6, Command, ComponentVm, CompositeVm, DiscriminatorVm, FilteredCompositeVm, FormVm,
-    MessageHub, NotificationHub, NotificationReaction, NotificationType, NotificationVm,
-    NullDispatcher, PagedComposition, ParentHandle, RelayCommand, SearchableState,
-    TokenPagedComposition, VmNode, VmxError, VmxResult,
+    AggregateVm6, Command, ComponentVm, CompositeVm, DecoratorCommand, DiscriminatorVm,
+    FilteredCompositeVm, FormVm, MessageHub, NotificationHub, NotificationReaction,
+    NotificationType, NotificationVm, NullDispatcher, PagedComposition, ParentHandle, RelayCommand,
+    SearchableState, TokenPagedComposition, VmNode, VmxError, VmxResult, NO_HOOK,
 };
 
 const PAGE_SIZE: usize = 2;
@@ -594,7 +594,7 @@ pub struct WorkspaceVm {
     notifications: NotificationsVm,
     editor: EditorModeVm,
     pending_delete: Arc<Mutex<Option<(String, String, u64)>>>,
-    delete_command: RelayCommand,
+    delete_command: DecoratorCommand<RelayCommand>,
 }
 
 impl WorkspaceVm {
@@ -640,7 +640,17 @@ impl WorkspaceVm {
                     *lock(&pending_delete) = Some((note.id, note.title, notification_id));
                 }
             }
-        });
+        })
+        // Fluent helper (`CommandExt`): only a selected note can be deleted.
+        // `NO_HOOK` stands in for the absent pre- and post-actions.
+        .wrap_with(
+            Some({
+                let notes = notes.clone();
+                move || notes.current_note().is_some()
+            }),
+            NO_HOOK,
+            NO_HOOK,
+        );
         Ok(Self {
             repository,
             aggregate,

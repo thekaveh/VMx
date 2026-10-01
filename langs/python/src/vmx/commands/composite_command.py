@@ -36,20 +36,25 @@ class CompositeCommand:
         return self._can_execute_changed
 
     def can_execute(self, parameter: Any = None) -> bool:
-        return any(c.can_execute(parameter) for c in self._inner)
+        if self._disposed:
+            return False
+        return any(c.can_execute(parameter) for c in self._inner) and not self._disposed
 
     def execute(self, parameter: Any = None) -> None:
+        # A child may dispose the composite; no later child runs once disposal
+        # is observed (spec §8.4, ADR-0134).
         for c in self._inner:
-            if c.can_execute(parameter):
+            if self._disposed:
+                return
+            if c.can_execute(parameter) and not self._disposed:
                 c.execute(parameter)
 
     def dispose(self) -> None:
-        """Mark the composite as disposed. Idempotent.
+        """Make the composite inert (spec §8.4, ADR-0134). Idempotent.
 
-        No internal subscriptions are held: ``can_execute_changed`` is a
-        lazy ``rx.merge`` of the inner streams. Subscribers' own
-        disposables tear down the merged subscription chain when they
-        unsubscribe; the composite itself owns nothing to release.
-        Provided for API symmetry with the C# IDisposable surface.
+        The inner commands stay owned by their creator. No internal
+        subscriptions are held: ``can_execute_changed`` is a lazy
+        ``rx.merge`` of the inner streams, which subscribers tear down when
+        they unsubscribe.
         """
         self._disposed = True
