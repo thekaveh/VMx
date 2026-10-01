@@ -252,6 +252,9 @@ def check(
 
     failures = []
     print(f"{flavor} coverage over {len(files)} library source files:")
+    if commit or toolchain:
+        # Echo the provenance, so a CI log alone says what was measured.
+        print(f"  measured: commit {commit or 'unknown'}; toolchain {toolchain or 'unknown'}")
     print(
         f"  not counted: {left_out['excluded']} test, generated, or build files "
         f"(exclude {floor.get('exclude')!r}); {left_out['outside']} files outside "
@@ -261,7 +264,8 @@ def check(
         value = measured[metric]["percent"]
         minimum = float(floor[metric])
         status = "ok" if value >= minimum else "BELOW FLOOR"
-        print(f"  {metric:<9} {value:6.2f}%  floor {minimum:6.2f}%  {status}")
+        counts = f"({measured[metric]['covered']:.0f}/{measured[metric]['count']:.0f})"
+        print(f"  {metric:<9} {value:6.2f}% {counts:>15}  floor {minimum:6.2f}%  {status}")
         if value < minimum:
             failures.append(metric)
 

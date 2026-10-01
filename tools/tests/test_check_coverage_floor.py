@@ -162,7 +162,9 @@ def test_an_unknown_flavor_is_an_error(tmp_path: Path) -> None:
     assert floor.check("missing", _report(tmp_path, BASELINE), _floors(tmp_path)) == 2
 
 
-def test_provenance_records_commit_toolchain_and_figures(tmp_path: Path) -> None:
+def test_provenance_records_commit_toolchain_and_figures(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     provenance = tmp_path / "provenance.json"
 
     floor.check(
@@ -174,6 +176,7 @@ def test_provenance_records_commit_toolchain_and_figures(tmp_path: Path) -> None
         toolchain="rustc 1.94.0",
     )
 
+    assert f"measured: commit {'a' * 40}; toolchain rustc 1.94.0" in capsys.readouterr().out
     recorded = json.loads(provenance.read_text(encoding="utf-8"))
     assert recorded["commit"] == "a" * 40
     assert recorded["toolchain"] == "rustc 1.94.0"
