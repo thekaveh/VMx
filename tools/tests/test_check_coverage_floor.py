@@ -170,3 +170,14 @@ def test_files_left_out_of_the_denominator_are_reported_separately(
         "excluded": 1,
         "outside": 1,
     }
+
+
+def test_without_a_per_file_baseline_a_passing_run_lists_the_thinnest_files(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    result = floor.check("demo", _report(tmp_path, BASELINE), _floors(tmp_path))
+
+    assert result == 0
+    out = capsys.readouterr().out
+    assert "no per-file baseline recorded" in out
+    assert out.index("b.rs: 20 uncovered lines") < out.index("a.rs: 10 uncovered lines")

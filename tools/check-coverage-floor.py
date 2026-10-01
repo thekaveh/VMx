@@ -209,12 +209,19 @@ def check(
             encoding="utf-8",
         )
 
+    baseline = floor.get("baseline", {}).get("uncovered_lines")
+    if not baseline and not failures:
+        # No per-file baseline yet: show where coverage is thinnest, so the first
+        # measurement can be reviewed before its figures become the floor.
+        print("Files with the most uncovered lines (no per-file baseline recorded):")
+        for row in least_covered(files):
+            print(row)
+
     if failures:
         print(
             f"FAIL: {flavor} {', '.join(failures)} coverage fell below its floor.",
             file=sys.stderr,
         )
-        baseline = floor.get("baseline", {}).get("uncovered_lines")
         grown = regressions(files, floor["include"], baseline) if baseline else []
         if grown:
             print("Files that lost coverage since the baseline:", file=sys.stderr)
