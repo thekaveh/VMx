@@ -88,7 +88,26 @@ jobs:
         run: uv run python ../../tools/check-python-interpreter.py --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m mypy --strict src/vmx
 
       - name: Pytest
-        run: uv run python ../../tools/check-python-interpreter.py --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m pytest --cov=vmx --cov-report=xml -v
+        run: uv run python ../../tools/check-python-interpreter.py --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m pytest --cov=vmx --cov-report=xml -v --junitxml=conformance-results.xml -o junit_family=xunit1
+
+      - name: Check executed conformance evidence
+        # Every library ID needs a passing executed case in pytest's own report,
+        # not just a marker in the sources (tools/check-conformance-coverage.py).
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(uv run python ../../tools/check-python-interpreter.py --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -c 'import platform; print(platform.python_implementation(), platform.python_version())')"
+          uv run python ../../tools/check-python-interpreter.py --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- ../../tools/check-conformance-execution.py --flavor python --report conformance-results.xml --evidence conformance-evidence.json --commit "${{ github.sha }}" --toolchain "$version" --configuration "${{ matrix.os }} py${{ matrix.python-version }}"
+
+      - name: Publish conformance evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: conformance-evidence-python-${{ matrix.os }}-py${{ matrix.python-version }}
+          path: |
+            langs/python/conformance-results.xml
+            langs/python/conformance-evidence.json
+          if-no-files-found: warn
 
       - name: Repeat controlled lifecycle interleaving
         if: matrix.os == 'ubuntu-latest'
