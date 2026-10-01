@@ -119,6 +119,13 @@ uv run --project langs/python python tools/check-conformance-coverage.py \
     --require csharp --require python --require typescript --require swift \
     --require rust
 
+# Executed conformance evidence for one flavor, from its runner's own report.
+# Each flavor workflow runs this after its tests; for example, Python:
+(cd langs/python && uv run pytest --junitxml=conformance-results.xml \
+    -o junit_family=xunit1)
+python3 tools/check-conformance-execution.py --flavor python \
+    --report langs/python/conformance-results.xml
+
 # Pure-VM contract + flagship example-app parity
 # (Avalonia / Textual / React / SwiftUI).
 # Mirrors .github/workflows/examples-contract-checks.yml.

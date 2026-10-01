@@ -68,7 +68,26 @@ jobs:
         run: swift build -c release
       - name: Test nested package
         working-directory: langs/swift
-        run: swift test --parallel
+        run: swift test --parallel --xunit-output conformance-results.xml
+
+      - name: Check executed conformance evidence
+        # Every library ID needs a passing executed case in SwiftPM's own xUnit
+        # report, not just a marker in the sources.
+        run: >-
+          python3 tools/check-conformance-execution.py --flavor swift
+          --report langs/swift/conformance-results.xml --evidence conformance-evidence.json
+          --commit "${{ github.sha }}" --toolchain "$(swift --version 2>&1 | head -n 1)"
+          --configuration "macos-15 ${{ matrix.label }}"
+
+      - name: Publish conformance evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: conformance-evidence-swift-${{ matrix.label }}
+          path: |
+            langs/swift/conformance-results.xml
+            conformance-evidence.json
+          if-no-files-found: warn
 
       - name: Verify CMD-012 admission cancellation control
         shell: bash
