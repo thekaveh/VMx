@@ -9,6 +9,7 @@ import {
   MessageHub,
   PropertyChangedMessage,
 } from "../../../src/index.js";
+import { deepEquals } from "../../../src/forms/formVm.js";
 
 interface IModel {
   name: string;
@@ -767,6 +768,14 @@ describe("FormVM default equality – supported snapshot domain", () => {
   const cyclic: AnyModel = { name: "cycle" };
   cyclic.self = cyclic;
 
+  class ValidationError extends Error {
+    readonly code = 42;
+    constructor(message: string) {
+      super(message);
+      this.name = "ValidationError";
+    }
+  }
+
   const supported: Array<[string, unknown]> = [
     ["string", "text"],
     ["number", 42],
@@ -787,6 +796,15 @@ describe("FormVM default equality – supported snapshot domain", () => {
     ["primitive Set", new Set([1, "two", null])],
     ["nested object", { a: { b: { c: [new Date(0)] } } }],
     ["cycle", cyclic],
+    ["Error", new Error("boom")],
+    ["TypeError", new TypeError("bad input")],
+    ["Error without a message", new Error()],
+    ["Error with an empty message", new Error("")],
+    ["Error with a non-string message", Object.assign(new Error("x"), { message: 5 })],
+    ["Error with a nested cause", new Error("outer", { cause: new RangeError("inner", { cause: 7 }) })],
+    ["Error with an undefined cause", new Error("outer", { cause: undefined })],
+    ["custom Error subclass", new ValidationError("too short")],
+    ["AggregateError", new AggregateError([new Error("first")], "several")],
   ];
 
   it.each(supported)("a model holding %s starts clean against its snapshot", (_, value) => {
@@ -830,6 +848,111 @@ describe("FormVM default equality – supported snapshot domain", () => {
     sut.setModel({ when: new Date(0) });
     expect(sut.isDirty).toBe(true);
     sut.setModel({ when: new Date(Number.NaN) });
+    expect(sut.isDirty).toBe(false);
+    sut.dispose();
+  });
+
+  it("compares Error values by kind, message, and cause", () => {
+    const equalsCase = (x: unknown, y: unknown) => deepEquals({ value: x }, { value: y });
+
+    // Separately constructed errors with the same kind and message are equal;
+    // their stacks differ and are not compared.
+    expect(equalsCase(new Error("boom"), new Error("boom"))).toBe(true);
+    expect(equalsCase(new Error("boom"), new Error("bang"))).toBe(false);
+    expect(equalsCase(new Error("boom"), new TypeError("boom"))).toBe(false);
+    expect(equalsCase(new Error(""), new Error())).toBe(false);
+
+    // Causes compare recursively, and an own undefined cause is kept.
+    const nested = (inner: string) =>
+      new Error("outer", { cause: new RangeError("middle", { cause: new Error(inner) }) });
+    expect(equalsCase(nested("deep"), nested("deep"))).toBe(true);
+    expect(equalsCase(nested("deep"), nested("deeper"))).toBe(false);
+    expect(equalsCase(new Error("x", { cause: 1 }), new Error("x"))).toBe(false);
+    expect(equalsCase(new Error("x", { cause: undefined }), new Error("x"))).toBe(false);
+
+    // An error never equals a non-error, even one with the same enumerable keys.
+    expect(equalsCase(new Error("boom"), {})).toBe(false);
+    expect(equalsCase({}, new Error("boom"))).toBe(false);
+  });
+
+  it("compares self-referencing and mutually referencing causes without looping", () => {
+    const loop = (message: string) => {
+      const error = new Error(message);
+      (error as { cause?: unknown }).cause = error;
+      return error;
+    };
+    const pair = (inner: string) => {
+      const outer = new Error("outer");
+      const innerError = new Error(inner, { cause: outer });
+      (outer as { cause?: unknown }).cause = innerError;
+      return outer;
+    };
+    expect(deepEquals(loop("same"), loop("same"))).toBe(true);
+    expect(deepEquals(loop("same"), loop("other"))).toBe(false);
+    expect(deepEquals(pair("same"), pair("same"))).toBe(true);
+    expect(deepEquals(pair("same"), pair("other"))).toBe(false);
+  });
+
+  it("ignores what structuredClone drops: subclass identity, custom properties, and stacks", () => {
+    class ValidationError extends Error {
+      constructor(
+        message: string,
+        readonly code: number,
+      ) {
+        super(message);
+        this.name = "ValidationError";
+      }
+    }
+    // The clone of a custom subclass is a plain Error with the same message.
+    const original = new ValidationError("too short", 42);
+    const clone = structuredClone(original);
+    expect(Object.getPrototypeOf(clone)).toBe(Error.prototype);
+    expect(deepEquals(original, clone)).toBe(true);
+    expect(deepEquals(new ValidationError("x", 1), new ValidationError("x", 2))).toBe(true);
+
+    // The kind follows `name`, as the clone does: a renamed Error is a TypeError.
+    const renamed = Object.assign(new Error("bad"), { name: "TypeError" });
+    expect(Object.getPrototypeOf(structuredClone(renamed))).toBe(TypeError.prototype);
+    expect(deepEquals(renamed, new TypeError("bad"))).toBe(true);
+  });
+
+  it("never throws on an Error whose message cannot be cloned", () => {
+    const symbolic = new Error("x");
+    (symbolic as { message: unknown }).message = Symbol("opaque");
+    expect(() => deepEquals(symbolic, new Error("x"))).not.toThrow();
+    expect(deepEquals(symbolic, new Error("x"))).toBe(false);
+  });
+
+  it("tracks a changed Error through setModel, strict approval, deny, and reset", async () => {
+    const approved: AnyModel[] = [];
+    const sut = new FormVM<AnyModel>({
+      initial: { failure: new Error("timeout", { cause: new TypeError("socket") }) },
+      persister: noop,
+      strict: true,
+      resetOnApproved: (current) => ({ ...current, failure: new Error("cleared") }),
+    });
+    sut.onApproved.subscribe((model) => approved.push(model));
+    expect(sut.isDirty).toBe(false);
+    expect(sut.approveCommand.canExecute()).toBe(false);
+
+    // Same kind, message, and cause: equality suppresses the assignment.
+    sut.setModel({ failure: new Error("timeout", { cause: new TypeError("socket") }) });
+    expect(sut.isDirty).toBe(false);
+    expect(sut.approveCommand.canExecute()).toBe(false);
+
+    // A different cause is a change.
+    sut.setModel({ failure: new Error("timeout", { cause: new TypeError("dns") }) });
+    expect(sut.isDirty).toBe(true);
+    expect(sut.approveCommand.canExecute()).toBe(true);
+    sut.denyCommand.execute();
+    expect(sut.isDirty).toBe(false);
+    expect(((sut.model.failure as Error).cause as Error).message).toBe("socket");
+
+    sut.setModel({ failure: new Error("refused") });
+    await sut.approveAsync();
+    expect(approved).toHaveLength(1);
+    expect((approved[0]?.failure as Error).message).toBe("refused");
+    expect((sut.model.failure as Error).message).toBe("cleared");
     expect(sut.isDirty).toBe(false);
     sut.dispose();
   });
