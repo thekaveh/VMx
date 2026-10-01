@@ -83,7 +83,9 @@ follow-up work rather than claims made by the current automated gates:
 
 All remote actions are pinned to full commits. Unless noted here, the upstream
 tag shown was resolved against the action repository on 2026-07-22. The CodeQL
-v4.37.6 and PyPI publisher v1.14.2 tags were re-resolved on 2026-08-10;
+v4.37.6 and PyPI publisher v1.14.2 tags were re-resolved on 2026-08-10. The
+CodeQL v4.38.2, `deploy-pages` v5.0.1, `setup-uv` v10.2.0, and `codecov-action`
+v7.1.1 pins are the commits Dependabot resolved for those tags on 2026-10-01;
 `dtolnay/rust-toolchain` uses its maintained `stable` branch because that action
 does not publish releases. `tools/check-workflow-pins.py` fails CI if a mutable
 reference appears or any workflow action is absent from this inventory.
@@ -93,19 +95,19 @@ reference appears or any workflow action is absent from this inventory.
 | `NuGet/login@8d196754b4036150537f80ac539e15c2f1028841`                      | `v1.2.0`              |
 | `actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1`                 | `v7.0.1`              |
 | `actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d`          | `v6.0.0`              |
-| `actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128`             | `v5.0.0`              |
+| `actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346`             | `v5.0.1`              |
 | `actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c`        | `v8.0.1`              |
 | `actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68`             | `v6.0.0`              |
 | `actions/setup-node@820762786026740c76f36085b0efc47a31fe5020`               | `v7.0.0`              |
 | `actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97`             | `v7.0.0`              |
 | `actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`          | `v7.0.1`              |
 | `actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9`    | `v5.0.0`              |
-| `astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9`               | `v9.0.0`              |
-| `codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f`           | `v7.0.0`              |
+| `astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7`               | `v10.2.0`             |
+| `codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5`           | `v7.1.1`              |
 | `dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4`           | `stable` (2026-07-16) |
 | `googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7` | `v5.0.0`              |
-| `github/codeql-action/analyze@5595ccaf912efad79be6eef63a5619ff05969be3`     | `v4.37.6`             |
-| `github/codeql-action/init@5595ccaf912efad79be6eef63a5619ff05969be3`        | `v4.37.6`             |
+| `github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2`     | `v4.38.2`             |
+| `github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2`        | `v4.38.2`             |
 | `gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e`         | `v3.0.0`              |
 | `pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33`      | `v1.14.2`             |
 | `rust-lang/crates-io-auth-action@c6f97d42243bad5fab37ca0427f495c86d5b1a18`  | `v1.0.5`              |
