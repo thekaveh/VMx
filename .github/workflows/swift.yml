@@ -306,34 +306,6 @@ jobs:
             swift-coverage-provenance.json
           if-no-files-found: error
 
-  coverage-variance:
-    # TEMPORARY (#520): repeated coverage runs that locate scheduling-dependent
-    # lines. Not a required check; removed before the pull request merges.
-    name: coverage variance (temporary, #520)
-    runs-on: macos-15
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Run the library tests with coverage 30 times and compare the runs
-        run: |
-          set -euo pipefail
-          mkdir -p variance
-          for i in $(seq -w 1 30); do
-            find langs/swift/.build \( -name '*.profraw' -o -name '*.profdata' \) -delete 2>/dev/null || true
-            mode=serial
-            flags=""
-            if [ $((10#$i % 2)) -eq 0 ]; then mode=parallel; flags="--parallel"; fi
-            if ! swift test --package-path langs/swift --enable-code-coverage $flags \
-                -Xswiftc -Xllvm -Xswiftc -instrprof-atomic-counter-update-all \
-                > "variance/log-$i.txt" 2>&1; then
-              tail -n 80 "variance/log-$i.txt"
-              exit 1
-            fi
-            cp "$(swift test --package-path langs/swift --show-codecov-path)" "variance/run-$i-$mode.json"
-            echo "run $i ($mode) recorded"
-          done
-          python3 tools/compare-coverage-runs.py --flavor swift variance/run-*.json
-
   required:
     timeout-minutes: 5
     name: "required: swift"
