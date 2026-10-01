@@ -233,6 +233,16 @@ jobs:
       - name: Compile Tk example
         run: uv run --directory examples/python python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m compileall tk/todo_app
 
+      - name: Install Xvfb for the Tkinter recipe
+        run: |
+          if ! command -v xvfb-run >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install --yes --no-install-recommends xvfb
+          fi
+
+      - name: "Integration recipe: Tkinter binding executed on a real Tk root (Xvfb)"
+        run: xvfb-run --auto-servernum uv run --directory examples/python python "$GITHUB_WORKSPACE/tools/check-python-interpreter.py" --venv .venv --expected-executable "${{ steps.interpreter.outputs.executable }}" -- -m note_recipe
+
   inspector:
     timeout-minutes: 30
     # vmx_inspector (Textual TUI) is a separate standalone uv project; gate it

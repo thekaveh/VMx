@@ -22,6 +22,11 @@ the element. There is no built-in observable model.
 
 ## 9.6.3. Adapter skeleton
 
+**Illustrative, not checked.** NiceGUI is not a dependency of this repository,
+so CI does not compile or run the fences on this page, unlike the recipes listed
+in [How The Recipes Are Checked](index.md#916-how-the-recipes-are-checked).
+Check them against the NiceGUI version your application pins.
+
 Capture the loop inside NiceGUI's running async host callback; do not create an
 unrelated loop during module import or close the host's loop. The foreground
 channel is `AsyncIOThreadSafeScheduler(loop)`, while rendering context remains
