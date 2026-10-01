@@ -187,6 +187,12 @@ the `JSON.stringify` comparison used before v3 it:
   these (`JSON.stringify` renders every `Map`/`Set` as `{}` and stringifies
   `Date`, so distinct values compared equal); binary comparison closes the
   empty-enumerable `ArrayBuffer`/`DataView` gap clarified by ADR-0113;
+- compares `Error` values by what `structuredClone` keeps (ADR-0135): the
+  error kind (the standard error named by `name`, otherwise `Error`), the own
+  `message`, and the own `cause`, compared recursively. The stack, custom
+  properties, and subclass identity are not kept by the clone and are not
+  compared; a domain that needs them injects a matching `snapshotter` and
+  `equals`. An error never equals a non-error;
 - preserves an `undefined`-valued key as distinct from a missing key (matching what
   `structuredClone` preserves), and treats `NaN` as equal to `NaN` and `+0`/`-0` as
   equal, for stable dirty-tracking;

@@ -280,8 +280,13 @@ jobs:
         run: swift --version
       - name: Test the library with coverage
         # A separate debug build under .build; the release builds and package
-        # checks in the other jobs never see instrumentation.
-        run: swift test --package-path langs/swift --enable-code-coverage
+        # checks in the other jobs never see instrumentation. Counter updates
+        # are atomic so tests that call one function from many threads (such
+        # as DISP-003) cannot undercount the regions coverage derives by
+        # subtraction (#513).
+        run: >-
+          swift test --package-path langs/swift --enable-code-coverage
+          -Xswiftc -Xllvm -Xswiftc -instrprof-atomic-counter-update-all
       - name: Enforce the recorded coverage floor
         run: >-
           python3 tools/check-coverage-floor.py --flavor swift
