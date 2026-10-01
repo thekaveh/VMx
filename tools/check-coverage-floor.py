@@ -71,6 +71,27 @@ def select_sources(
     return selected
 
 
+def excluded_counts(
+    files: list[dict[str, object]], include: str, exclude: str | None
+) -> dict[str, int]:
+    """How many reported files the denominator leaves out, by reason.
+
+    Test helpers, generated and build output (matched by ``exclude``) and files
+    outside the library (not matched by ``include``) are reported separately, so
+    an exclusion is visible instead of silently improving the figure.
+    """
+    included = re.compile(include)
+    excluded = re.compile(exclude) if exclude else None
+    counts = {"excluded": 0, "outside": 0}
+    for entry in files:
+        name = str(entry.get("filename", "")).replace("\\", "/")
+        if excluded and excluded.search(name):
+            counts["excluded"] += 1
+        elif not included.search(name):
+            counts["outside"] += 1
+    return counts
+
+
 def totals(files: list[dict[str, object]]) -> dict[str, dict[str, float]]:
     result: dict[str, dict[str, float]] = {}
     for metric in METRICS:
@@ -145,16 +166,23 @@ def check(
         print(f"ERROR: no coverage floor for {flavor!r} in {floors_path}: {error}", file=sys.stderr)
         return 2
     try:
-        files = select_sources(load_files(report_path), floor["include"], floor.get("exclude"))
+        reported = load_files(report_path)
+        files = select_sources(reported, floor["include"], floor.get("exclude"))
         if not files:
             raise ReportError(f"no files in {report_path} match {floor['include']!r}")
         measured = totals(files)
     except ReportError as error:
         print(f"ERROR: {error}", file=sys.stderr)
         return 2
+    left_out = excluded_counts(reported, floor["include"], floor.get("exclude"))
 
     failures = []
     print(f"{flavor} coverage over {len(files)} library source files:")
+    print(
+        f"  not counted: {left_out['excluded']} test, generated, or build files "
+        f"(exclude {floor.get('exclude')!r}); {left_out['outside']} files outside "
+        f"{floor['include']!r}"
+    )
     for metric in METRICS:
         value = measured[metric]["percent"]
         minimum = float(floor[metric])
@@ -171,6 +199,7 @@ def check(
                     "commit": commit,
                     "toolchain": toolchain,
                     "source_files": len(files),
+                    "not_counted": left_out,
                     "metrics": measured,
                     "floors": {metric: float(floor[metric]) for metric in METRICS},
                 },

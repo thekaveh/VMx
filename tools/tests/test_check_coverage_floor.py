@@ -152,3 +152,21 @@ def test_recorded_floors_cover_rust_and_swift_library_sources() -> None:
     for entry in floors.values():
         assert all(0 < float(entry[metric]) <= 100 for metric in floor.METRICS)
         assert entry["include"] and entry["exclude"]
+
+
+def test_files_left_out_of_the_denominator_are_reported_separately(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    files = [*BASELINE, _file("/registry/dep/lib.rs", (10, 0), (10, 0), (1, 0))]
+    provenance = tmp_path / "provenance.json"
+
+    result = floor.check("demo", _report(tmp_path, files), _floors(tmp_path), provenance=provenance)
+
+    assert result == 0
+    out = capsys.readouterr().out
+    assert "not counted: 1 test, generated, or build files" in out
+    assert "1 files outside '/src/'" in out
+    assert json.loads(provenance.read_text(encoding="utf-8"))["not_counted"] == {
+        "excluded": 1,
+        "outside": 1,
+    }
