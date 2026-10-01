@@ -125,10 +125,10 @@ def test_validate_package_pair_accepts_exact_public_dependency_contract(tmp_path
     dependencies = {
         "net8.0": [("System.Reactive", "7.0.0")],
         ".NETStandard2.0": [
-            ("Microsoft.Bcl.AsyncInterfaces", "10.0.10"),
-            ("System.Collections.Immutable", "10.0.10"),
+            ("Microsoft.Bcl.AsyncInterfaces", "10.0.12"),
+            ("System.Collections.Immutable", "10.0.12"),
             ("System.Reactive", "7.0.0"),
-            ("System.Text.Json", "10.0.10"),
+            ("System.Text.Json", "10.0.12"),
         ],
     }
     _write_packages(
@@ -144,15 +144,15 @@ def test_validate_package_pair_accepts_exact_public_dependency_contract(tmp_path
 def test_validate_package_pair_accepts_current_di_dependency_contract(tmp_path: Path) -> None:
     dependencies = {
         "net8.0": [
-            ("Microsoft.Extensions.DependencyInjection.Abstractions", "10.0.10"),
+            ("Microsoft.Extensions.DependencyInjection.Abstractions", "10.0.12"),
             ("System.Reactive", "7.0.0"),
         ],
         ".NETStandard2.0": [
-            ("Microsoft.Bcl.AsyncInterfaces", "10.0.10"),
-            ("Microsoft.Extensions.DependencyInjection.Abstractions", "10.0.10"),
-            ("System.Collections.Immutable", "10.0.10"),
+            ("Microsoft.Bcl.AsyncInterfaces", "10.0.12"),
+            ("Microsoft.Extensions.DependencyInjection.Abstractions", "10.0.12"),
+            ("System.Collections.Immutable", "10.0.12"),
             ("System.Reactive", "7.0.0"),
-            ("System.Text.Json", "10.0.10"),
+            ("System.Text.Json", "10.0.12"),
         ],
     }
     _write_packages(
