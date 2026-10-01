@@ -129,7 +129,8 @@ region, or function coverage falls below the Swift floors in
 `tools/coverage-floors.json`:
 
 ```bash
-swift test --package-path langs/swift --enable-code-coverage
+swift test --package-path langs/swift --enable-code-coverage \
+  -Xswiftc -Xllvm -Xswiftc -instrprof-atomic-counter-update-all
 python3 tools/check-coverage-floor.py --flavor swift \
   --report "$(swift test --package-path langs/swift --show-codecov-path)"
 ```
@@ -143,6 +144,13 @@ line ranges as `llvm-cov show` marks them. The job uploads the llvm-cov export
 and a provenance file that names the commit, toolchain, and measured figures.
 Instrumentation stays in that job's debug build; the release builds, platform
 builds, and packages never see it.
+
+The coverage build updates its counters atomically. Coverage counts the code
+after a `guard` as the function's entries minus its early returns, and plain
+counter updates can lose entries when a test calls one function from many
+threads at once, as DISP-003 does with `NotificationHub.dispose()`. A lost entry
+can make a region that ran read as unexecuted and fail the floor without a code
+change (#513).
 
 Coverage says which lines ran, not whether a test would catch a wrong result.
 It does not replace the conformance assertions.
