@@ -14,18 +14,18 @@ APP_LOCK = EXAMPLE / "NotesShowcase" / "packages.lock.json"
 TEST_LOCK = EXAMPLE / "NotesShowcase.Tests" / "packages.lock.json"
 
 APP_PACKAGES = {
-    "Avalonia": "12.1.1",
-    "Avalonia.Desktop": "12.1.1",
-    "Avalonia.Themes.Fluent": "12.1.1",
-    "Avalonia.Fonts.Inter": "12.1.1",
+    "Avalonia": "12.1.3",
+    "Avalonia.Desktop": "12.1.3",
+    "Avalonia.Themes.Fluent": "12.1.3",
+    "Avalonia.Fonts.Inter": "12.1.3",
 }
 TEST_PACKAGES = {
-    "Microsoft.NET.Test.Sdk": "18.8.1",
+    "Microsoft.NET.Test.Sdk": "18.10.1",
     "xunit.v3": "3.2.2",
-    "xunit.runner.visualstudio": "3.1.5",
+    "xunit.runner.visualstudio": "4.0.0",
     "Microsoft.Reactive.Testing": "7.0.0",
     "coverlet.msbuild": "10.0.0",
-    "Avalonia.Headless.XUnit": "12.1.1",
+    "Avalonia.Headless.XUnit": "12.1.3",
 }
 
 
