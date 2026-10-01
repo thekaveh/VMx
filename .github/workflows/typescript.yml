@@ -10,6 +10,8 @@ on:
       - "langs/typescript/**"
       - "packages/react/**"
       - "examples/typescript/**"
+      - "examples/notes-showcase-scenario.json"
+      - "examples/notes-showcase-theme-scenario.json"
       - "spec/**"
       - "tools/check-typescript-package.py"
       - "tools/smoke-npm-consumer.py"
@@ -91,7 +93,28 @@ jobs:
         # On the matrix combination that uploads coverage, run with --coverage
         # so coverage-final.json is generated for codecov. Coverage runs on
         # Node 26 (the highest pinned node in the matrix).
-        run: ${{ (matrix.os == 'ubuntu-latest' && matrix.node-version == '26') && 'npm run coverage' || 'npm test' }}
+        run: ${{ (matrix.os == 'ubuntu-latest' && matrix.node-version == '26') && 'npm run coverage' || 'npm test' }} -- --reporter=default --reporter=junit --outputFile.junit=conformance-results.xml
+
+      - name: Check executed conformance evidence
+        if: runner.os != 'Windows'
+        # Every library ID needs a passing executed case in Vitest's own report,
+        # not just a marker in the sources (tools/check-conformance-coverage.py).
+        shell: bash
+        run: >-
+          python3 ../../tools/check-conformance-execution.py --flavor typescript
+          --report conformance-results.xml --evidence conformance-evidence.json
+          --commit "${{ github.sha }}" --toolchain "node $(node --version)"
+          --configuration "${{ matrix.os }} node${{ matrix.node-version }}"
+
+      - name: Publish conformance evidence
+        if: ${{ runner.os != 'Windows' && !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: conformance-evidence-typescript-${{ matrix.os }}-node${{ matrix.node-version }}
+          path: |
+            langs/typescript/conformance-results.xml
+            langs/typescript/conformance-evidence.json
+          if-no-files-found: warn
 
       - name: Upload coverage to Codecov
         if: matrix.os == 'ubuntu-latest' && matrix.node-version == '26'

@@ -30,9 +30,11 @@ The current catalog contains:
 The source overview is here:
 [spec/12-conformance.md](../../spec/12-conformance.md).
 
-Catalog completeness is an executable ID-coverage statement. The completed
+Catalog completeness is a source statement: every library ID has a marked
+test in every flavor. Executed evidence, below, shows that each marked test ran
+and passed. The completed
 [Rust parity ledger](../maintenance/2026-07-16-rust-capability-parity.md)
-supplements it with focused member and edge-behavior evidence for Rust 0.27.0.
+supplements both with focused member and edge-behavior evidence for Rust 0.27.0.
 
 ### 10.3.1. Ownership Assertions And Catalog Coverage
 
@@ -52,12 +54,69 @@ inside both `clear` implementations fails both tests while the unmodified
 implementations pass. This strengthens existing IDs; the catalog remains 403
 library IDs. See [Rust ownership-test conventions](flavors/rust.md#7631-ownership-test-conventions).
 
+### 10.3.2. Catalog, Execution, And Behavioral Evidence
+
+Three separate statements describe a flavor's conformance:
+
+1. **Catalog completeness.** Every library ID has a marker on a test in the
+   flavor's sources. `tools/check-conformance-coverage.py` checks this without
+   running anything.
+1. **Executed evidence.** A runner discovered, executed, and passed at least one
+   test for every library ID. `tools/check-conformance-execution.py` reads the
+   runner's own report and checks this.
+1. **Behavioral strength.** A test's assertions would catch a violation of the
+   behavior its ID names. Reviewers judge this; no tool proves it.
+
+Neither of the first two implies the third, and none of them is member-level
+parity between flavors.
+
+The execution check maps each executed case to its IDs. Python records each
+`conformance` marker as a JUnit property, and TypeScript uses a `describe`
+title that is exactly the ID. C#, Swift, and Rust match the reported class and
+function to the test that carries the source marker, with no name-only
+fallback, so a same-named test elsewhere is never credited. For each ID:
+
+- the ID **fails** if any executed case for it failed;
+- the ID **passes** if none failed and at least one passed;
+- the ID is **skipped** if every case for it was skipped;
+- the ID is **missing** if no executed case carries it.
+
+Only a passing ID qualifies. Parameterized variants and duplicate reports each
+count, so a failing variant fails the ID and a skipped variant is ignored. A
+report that cannot be parsed, is truncated, disagrees with its own totals, or
+records a collection or build failure is rejected rather than read as success.
+
+Each flavor workflow uploads a `conformance-evidence-<flavor>-<configuration>`
+artifact with the runner report and a JSON file that maps every library ID to
+its executed cases and outcomes, stamped with the commit, toolchain, and
+configuration:
+
+| Flavor     | Report                                              | Evidenced cells                  |
+| ---------- | --------------------------------------------------- | -------------------------------- |
+| C#         | TRX from `dotnet test --logger trx`, all frameworks | Linux and macOS                  |
+| Python     | JUnit XML from `pytest --junitxml`                  | every OS and Python version      |
+| TypeScript | JUnit XML from Vitest's `junit` reporter            | Linux and macOS, every Node line |
+| Swift      | xUnit XML from `swift test --xunit-output`          | both Xcode cells                 |
+| Rust       | libtest output from `cargo test`                    | Linux and macOS                  |
+
+Windows cells run the same tests, but the C#, TypeScript, and Rust jobs have no
+reliable `python3` there, so they publish no separate evidence. SwiftPM's xUnit
+report does not mark XCTest skips. The Swift conformance suite uses no
+`XCTSkip`, so a skipped Swift case cannot pass for executed.
+
 ## 10.4. How The Repo Enforces It
 
 - Each language flavor carries a conformance suite under its own tree.
 - `tools/check-conformance-coverage.py` enforces full library coverage across
   C#, Python, TypeScript, Swift, and Rust.
-- The examples workflows enforce the separate flagship scenario contract.
+- `tools/check-conformance-execution.py` requires a passing executed case for
+  every library ID in each flavor workflow.
+- The examples workflows enforce the separate flagship scenario contract. The
+  `THEME-00x` scenario IDs and two shared scenarios run in all four flagship
+  suites: a Notes workspace lifecycle
+  (`examples/notes-showcase-scenario.json`) and the five THEME scenarios in
+  order (`examples/notes-showcase-theme-scenario.json`). The shared scenarios
+  compare semantic outcomes, not just test names, and add no catalog IDs.
 
 Coverage floors, catalog markers, and assertion strength are separate evidence.
 A marker assigns a test to a catalog ID. An assertion shows that the test would
