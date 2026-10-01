@@ -55,6 +55,7 @@ tests/conformance/builders.rs
 tests/conformance/capabilities.rs
 tests/conformance/collections.rs
 tests/conformance/command_decorators.rs
+tests/conformance/command_ext.rs
 tests/conformance/commands.rs
 tests/conformance/component_vm.rs
 tests/conformance/composite_vm.rs
