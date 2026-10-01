@@ -1,4 +1,4 @@
-import { createEffect, createRoot } from "solid-js";
+import { createEffect, createRoot, createSignal, Show } from "solid-js";
 import { render } from "solid-js/web";
 import { describe, expect, it } from "vitest";
 import { PropertyChangedMessage, type ComponentVMOf, type IMessageHub } from "@thekaveh/vmx";
@@ -73,6 +73,36 @@ describe("Solid recipe (solid-js 1.9.15)", () => {
     hub.send(PropertyChangedMessage.create(vm, "note", "modeledHint"));
 
     expect(observed.renders()).toBe(0);
+  });
+
+  it("rebinds to another VM when a keyed Show remounts it and releases the first subscription", () => {
+    const hub = countingHub();
+    const first = constructedVm<Note>(hub, { title: "first" }, "first");
+    const second = constructedVm<Note>(hub, { title: "second" }, "second");
+    const save = countingCommand();
+    const [current, setCurrent] = createSignal(first);
+    const el = document.createElement("div");
+    const dispose = render(
+      () => (
+        <Show when={current()} keyed>
+          {(vm) => <NoteView vm={vm} hub={hub} saveCommand={save.command} />}
+        </Show>
+      ),
+      el,
+    );
+    const title = () => el.querySelector("h1")?.textContent;
+    expect(title()).toBe("first");
+
+    setCurrent(second);
+    expect(title()).toBe("second");
+    expect([hub.subscriptions, hub.teardowns]).toEqual([2, 1]);
+
+    first.model = { title: "stale" };
+    second.model = { title: "fresh" };
+    expect(title()).toBe("fresh");
+
+    dispose();
+    expect(hub.teardowns).toBe(2);
   });
 
   it("stops rendering and releases its subscription on cleanup", () => {

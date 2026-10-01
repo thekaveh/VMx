@@ -13,7 +13,6 @@ uses independent [Semantic Versioning](https://semver.org/).
   `live.title`, which a `ComponentVMOf` does not have. Its store and
   conditional-VM examples are now checked against the executed React recipe
   by `make docs-check` (#347).
-
 - `useDerivedProperty` renders a delayed first value as soon as it arrives
   instead of `undefined` until a second, different value. It observes the core's
   internal first-value seam, so the `@thekaveh/vmx` peer minimum rises to
