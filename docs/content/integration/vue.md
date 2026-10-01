@@ -32,6 +32,8 @@ The composable and component below are the exact files run by
 in-place mutation announced with `republishModel()`, replacement and scalar
 updates, unrelated messages, and unmount cleanup.
 
+<!-- checked-snippet: examples/typescript/integration-recipes/src/vue/composables/useVm.ts -->
+
 ```ts
 // composables/useVm.ts
 import { onUnmounted, shallowRef, triggerRef, type ShallowRef } from "vue";
@@ -64,6 +66,8 @@ export function useVm<M, K extends keyof ComponentVMOf<M>>(
   return value;
 }
 ```
+
+<!-- checked-snippet: examples/typescript/integration-recipes/src/vue/NoteView.vue -->
 
 ```vue
 <script setup lang="ts">

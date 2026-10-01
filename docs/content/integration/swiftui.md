@@ -41,6 +41,8 @@ This is the exact code compiled and exercised by
 appear again; owned versus borrowed cleanup; Save; and a surfaced construction
 failure.
 
+<!-- checked-snippet: langs/swift/Tests/VMxTests/SwiftUIRecipeTests.swift#swiftui-recipe -->
+
 ```swift
 import Combine
 import SwiftUI
@@ -138,6 +140,8 @@ An **illegal transition** (e.g. `construct()` on a disposed VM) or a concurrent
 re-invocation while a transition is in flight throws a catchable
 `StatusTransitionError`; the legal idempotent no-ops (`construct` from
 `Constructed`, `destruct` from `Destructed`) still return without throwing.
+
+<!-- checked-snippet: langs/swift/Tests/VMxTests/SwiftUIRecipeTests.swift#swiftui-throwing-lifecycle -->
 
 ```swift
 do {

@@ -37,6 +37,8 @@ Until publication, follow the
 do not link a live adapter checkout into a React 18 application. Create one
 store at the application composition root:
 
+<!-- checked-snippet: examples/typescript/react/notes-showcase/tests/recipes/reactRecipe.test.tsx#react-store -->
+
 ```tsx
 import { createVmxStore, shallowEqual, useVmx } from "@thekaveh/vmx-react";
 
@@ -59,6 +61,8 @@ destroyed. React mount cleanup is managed by the hooks.
 
 Use the narrowest binding that represents what the component renders:
 
+<!-- checked-snippet: examples/typescript/react/notes-showcase/tests/recipes/reactRecipe.test.tsx#react-focused-bindings -->
+
 ```tsx
 const title = useVm(noteVm, vm => vm.model.title);
 const save = useCommand(noteVm.saveCommand);
@@ -79,6 +83,8 @@ the first value and every later change; it requires `@thekaveh/vmx` 3.24.1 or
 later. The hook never subscribes to the property's sources, and unmounting
 releases only its own listener; the property's owner disposes it.
 
+<!-- checked-snippet: examples/typescript/react/notes-showcase/tests/recipes/reactRecipe.test.tsx#react-derived-property -->
+
 ```tsx
 const total$ = new Subject<number>();
 const total = new DerivedProperty(total$);
@@ -95,6 +101,8 @@ property.
 
 Never call a hook conditionally or pass `null`. Mount a child which owns one
 unconditional binding when a VM is optional:
+
+<!-- checked-snippet: examples/typescript/react/notes-showcase/tests/recipes/reactRecipe.test.tsx#react-optional-vm -->
 
 ```tsx
 function MaybeEditor({ vm }: { vm: EditorVM | null }) {

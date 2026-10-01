@@ -42,6 +42,8 @@ Imperative engines do not need a render loop to poll VM state. Subscribe to the
 selected value once, update the engine only when it changes, and let the host
 adapter own the returned handle:
 
+<!-- checked-snippet: langs/typescript/tests/unit/imperativeBridgeRecipe.test.ts#imperative-bridge -->
+
 ```typescript
 const exposureSubscription = subscribeValue(
   cameraVm,
@@ -52,6 +54,8 @@ const exposureSubscription = subscribeValue(
 ```
 
 Dispose the bridge with the adapter that owns `material`:
+
+<!-- checked-snippet: langs/typescript/tests/unit/imperativeBridgeRecipe.test.ts#imperative-bridge-dispose -->
 
 ```typescript
 exposureSubscription.unsubscribe();

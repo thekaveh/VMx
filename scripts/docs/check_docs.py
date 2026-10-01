@@ -687,20 +687,39 @@ FENCE_OPEN_RE = re.compile(r"^(?P<fence>`{3,}|~{3,})")
 
 
 def _snippet_source(repo_root: Path, rel: str, region: str | None) -> tuple[str | None, str]:
-    """Return (text, problem) for a checked-snippet source or one named region of it."""
+    """Return (text, problem) for a checked-snippet source or one named region of it.
+
+    A region is every line strictly between ``docs-snippet:start <name>`` and
+    ``docs-snippet:end <name>``. A source may split one region into several
+    start/end pairs, for example around a namespace line the page leaves out;
+    the parts are joined in order. The result is dedented as a whole.
+    """
     path = repo_root / rel
     if not path.is_file():
         return None, f"source {rel} does not exist"
     text = path.read_text(encoding="utf-8")
     if region is None:
         return text, ""
-    lines = text.splitlines()
-    starts = [i for i, line in enumerate(lines) if f"docs-snippet:start {region}" in line]
-    ends = [i for i, line in enumerate(lines) if f"docs-snippet:end {region}" in line]
-    if len(starts) != 1 or len(ends) != 1 or ends[0] <= starts[0]:
-        return None, f"source {rel} needs exactly one docs-snippet:start/end pair for {region!r}"
-    body = "\n".join(lines[starts[0] + 1 : ends[0]])
-    return textwrap.dedent(body).rstrip("\n") + "\n", ""
+    start = re.compile(rf"docs-snippet:start {re.escape(region)}(?![\w-])")
+    end = re.compile(rf"docs-snippet:end {re.escape(region)}(?![\w-])")
+    parts: list[str] = []
+    inside: int | None = None
+    for number, line in enumerate(text.splitlines()):
+        if start.search(line):
+            if inside is not None:
+                return None, f"source {rel} opens {region!r} again before closing it"
+            inside = number
+        elif end.search(line):
+            if inside is None:
+                return None, f"source {rel} closes {region!r} before opening it"
+            inside = None
+        elif inside is not None:
+            parts.append(line)
+    if inside is not None:
+        return None, f"source {rel} never closes {region!r}"
+    if not start.search(text):
+        return None, f"source {rel} has no docs-snippet:start/end pair for {region!r}"
+    return textwrap.dedent("\n".join(parts)).rstrip("\n") + "\n", ""
 
 
 def _checked_fences(markdown: str) -> list[tuple[int, str, str | None, str | None]]:
@@ -736,28 +755,34 @@ def check_checked_snippets(repo_root: Path) -> list[Finding]:
 
     The source is a file that a test suite or build compiles and runs, so the page
     cannot show a stale copy. Generated site and wiki pages carry the same fence and
-    are checked the same way.
+    are checked the same way, as are the package READMEs the registries publish.
     """
     findings: list[Finding] = []
-    for root in (
-        repo_root / "docs/content",
-        repo_root / "generated/site",
-        repo_root / "generated/wiki",
-    ):
-        for page in _scan_markdown(root):
-            for line, rel, region, body in _checked_fences(page.read_text(encoding="utf-8")):
-                where = f"{page}:{line}"
-                if body is None:
-                    findings.append(Finding("error", f"{where}: checked snippet has no fence"))
-                    continue
-                source, problem = _snippet_source(repo_root, rel, region)
-                if source is None:
-                    findings.append(Finding("error", f"{where}: {problem}"))
-                elif body != source:
-                    label = f"{rel}#{region}" if region else rel
-                    findings.append(
-                        Finding("error", f"{where}: fence differs from checked source {label}")
-                    )
+    pages = [
+        page
+        for root in (
+            repo_root / "docs/content",
+            repo_root / "generated/site",
+            repo_root / "generated/wiki",
+        )
+        for page in _scan_markdown(root)
+    ]
+    # Package READMEs are published to the registries and copy the same recipes.
+    pages.extend(sorted(repo_root.glob("packages/*/README.md")))
+    for page in pages:
+        for line, rel, region, body in _checked_fences(page.read_text(encoding="utf-8")):
+            where = f"{page}:{line}"
+            if body is None:
+                findings.append(Finding("error", f"{where}: checked snippet has no fence"))
+                continue
+            source, problem = _snippet_source(repo_root, rel, region)
+            if source is None:
+                findings.append(Finding("error", f"{where}: {problem}"))
+            elif body != source:
+                label = f"{rel}#{region}" if region else rel
+                findings.append(
+                    Finding("error", f"{where}: fence differs from checked source {label}")
+                )
     return findings
 
 
