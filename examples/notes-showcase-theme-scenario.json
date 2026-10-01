@@ -1,0 +1,200 @@
+{
+  "id": "theme-v1",
+  "description": "The five THEME scenarios (spec/12-conformance.md, THEME-001..005) run in order against one ThemeVM that every full showcase builds through its own adapter and compares on semantic outcome.",
+  "setup": "A ThemeVM named 'theme' on its own hub with an immediate dispatcher, the initial model the 'light' preset, and a host theme provider that reports 'light'.",
+  "normalization": [
+    "Member names follow each flavor's idiom (ADR-0006). Adapters map them to the snapshot fields below; the values are compared exactly.",
+    "A rejected operation is recorded as the error kind 'invalid'. The exception type and message are idiomatic per flavor and are not compared.",
+    "'set_theme' uses each flavor's throwing theme-selection member: the set-theme command in C#, Python, and TypeScript, and ThemeVM.applyPreset in Swift, whose commands cannot throw and whose setThemeCommand discards a rejected preset (the Swift THEME-002 test uses applyPreset for the same reason).",
+    "The host theme provider's type is idiomatic: a preset name in C#, TypeScript, and Swift, and a preset model in Python. Every adapter injects the 'light' host theme.",
+    "Preset palettes are per-flavor design values, and THEME-001 compares an accent with the configured preset's accent. An accent equal to the current preset's own accent is therefore recorded as 'preset'; any other accent is recorded literally.",
+    "Each ThemeChangedMessage is recorded as {previous, current} in the theme snapshot form. The recorded events are compared in order and are never reordered or deduplicated; property-change notifications are not recorded because their names are idiomatic."
+  ],
+  "snapshot": {
+    "theme": "{name, high_contrast, accent, font_scale, follows_system} of the current theme; absent after dispose",
+    "events": "ThemeChangedMessages the step produced, in order, each as {previous, current}",
+    "error": "null, or 'invalid' when the step's operation was rejected",
+    "disposed": "whether the ThemeVM reports the disposed construction status"
+  },
+  "steps": [
+    {
+      "action": "construct",
+      "expect": {
+        "theme": {"name": "light", "high_contrast": false, "accent": "preset", "font_scale": 1.0, "follows_system": false},
+        "events": [],
+        "error": null,
+        "disposed": false
+      }
+    },
+    {
+      "action": "set_theme",
+      "theme": "dark",
+      "covers": "THEME-001",
+      "expect": {
+        "theme": {"name": "dark", "high_contrast": false, "accent": "preset", "font_scale": 1.0, "follows_system": false},
+        "events": [
+          {
+            "previous": {"name": "light", "high_contrast": false, "accent": "preset", "font_scale": 1.0, "follows_system": false},
+            "current": {"name": "dark", "high_contrast": false, "accent": "preset", "font_scale": 1.0, "follows_system": false}
+          }
+        ],
+        "error": null,
+        "disposed": false
+      }
+    },
+    {
+      "action": "set_theme",
+      "theme": "unknown-preset",
+      "covers": "THEME-002",
+      "expect": {
+        "theme": {"name": "dark", "high_contrast": false, "accent": "preset", "font_scale": 1.0, "follows_system": false},
+        "events": [],
+        "error": "invalid",
+        "disposed": false
+      }
+    },
+    {
+      "action": "set_accent",
+      "accent": "#1F6FEB",
+      "expect": {
+        "theme": {"name": "dark", "high_contrast": false, "accent": "#1F6FEB", "font_scale": 1.0, "follows_system": false},
+        "events": [
+          {
+            "previous": {"name": "dark", "high_contrast": false, "accent": "preset", "font_scale": 1.0, "follows_system": false},
+            "current": {"name": "dark", "high_contrast": false, "accent": "#1F6FEB", "font_scale": 1.0, "follows_system": false}
+          }
+        ],
+        "error": null,
+        "disposed": false
+      }
+    },
+    {
+      "action": "toggle_high_contrast",
+      "covers": "THEME-003",
+      "expect": {
+        "theme": {"name": "dark", "high_contrast": true, "accent": "#1F6FEB", "font_scale": 1.0, "follows_system": false},
+        "events": [
+          {
+            "previous": {"name": "dark", "high_contrast": false, "accent": "#1F6FEB", "font_scale": 1.0, "follows_system": false},
+            "current": {"name": "dark", "high_contrast": true, "accent": "#1F6FEB", "font_scale": 1.0, "follows_system": false}
+          }
+        ],
+        "error": null,
+        "disposed": false
+      }
+    },
+    {
+      "action": "toggle_high_contrast",
+      "covers": "THEME-003",
+      "expect": {
+        "theme": {"name": "dark", "high_contrast": false, "accent": "#1F6FEB", "font_scale": 1.0, "follows_system": false},
+        "events": [
+          {
+            "previous": {"name": "dark", "high_contrast": true, "accent": "#1F6FEB", "font_scale": 1.0, "follows_system": false},
+            "current": {"name": "dark", "high_contrast": false, "accent": "#1F6FEB", "font_scale": 1.0, "follows_system": false}
+          }
+        ],
+        "error": null,
+        "disposed": false
+      }
+    },
+    {
+      "action": "set_font_scale",
+      "scale": 0.5,
+      "covers": "THEME-004",
+      "expect": {
+        "theme": {"name": "dark", "high_contrast": false, "accent": "#1F6FEB", "font_scale": 0.75, "follows_system": false},
+        "events": [
+          {
+            "previous": {"name": "dark", "high_contrast": false, "accent": "#1F6FEB", "font_scale": 1.0, "follows_system": false},
+            "current": {"name": "dark", "high_contrast": false, "accent": "#1F6FEB", "font_scale": 0.75, "follows_system": false}
+          }
+        ],
+        "error": null,
+        "disposed": false
+      }
+    },
+    {
+      "action": "set_font_scale",
+      "scale": 3.0,
+      "covers": "THEME-004",
+      "expect": {
+        "theme": {"name": "dark", "high_contrast": false, "accent": "#1F6FEB", "font_scale": 1.75, "follows_system": false},
+        "events": [
+          {
+            "previous": {"name": "dark", "high_contrast": false, "accent": "#1F6FEB", "font_scale": 0.75, "follows_system": false},
+            "current": {"name": "dark", "high_contrast": false, "accent": "#1F6FEB", "font_scale": 1.75, "follows_system": false}
+          }
+        ],
+        "error": null,
+        "disposed": false
+      }
+    },
+    {
+      "action": "set_font_scale",
+      "scale": 1.25,
+      "covers": "THEME-004",
+      "expect": {
+        "theme": {"name": "dark", "high_contrast": false, "accent": "#1F6FEB", "font_scale": 1.25, "follows_system": false},
+        "events": [
+          {
+            "previous": {"name": "dark", "high_contrast": false, "accent": "#1F6FEB", "font_scale": 1.75, "follows_system": false},
+            "current": {"name": "dark", "high_contrast": false, "accent": "#1F6FEB", "font_scale": 1.25, "follows_system": false}
+          }
+        ],
+        "error": null,
+        "disposed": false
+      }
+    },
+    {
+      "action": "set_font_scale",
+      "scale": 1.25,
+      "covers": "THEME-004",
+      "expect": {
+        "theme": {"name": "dark", "high_contrast": false, "accent": "#1F6FEB", "font_scale": 1.25, "follows_system": false},
+        "events": [],
+        "error": null,
+        "disposed": false
+      }
+    },
+    {
+      "action": "follow_system",
+      "covers": "THEME-005",
+      "expect": {
+        "theme": {"name": "light", "high_contrast": false, "accent": "preset", "font_scale": 1.0, "follows_system": true},
+        "events": [
+          {
+            "previous": {"name": "dark", "high_contrast": false, "accent": "#1F6FEB", "font_scale": 1.25, "follows_system": false},
+            "current": {"name": "light", "high_contrast": false, "accent": "preset", "font_scale": 1.0, "follows_system": true}
+          }
+        ],
+        "error": null,
+        "disposed": false
+      }
+    },
+    {
+      "action": "set_theme",
+      "theme": "dark",
+      "covers": "THEME-005",
+      "expect": {
+        "theme": {"name": "dark", "high_contrast": false, "accent": "preset", "font_scale": 1.0, "follows_system": false},
+        "events": [
+          {
+            "previous": {"name": "light", "high_contrast": false, "accent": "preset", "font_scale": 1.0, "follows_system": true},
+            "current": {"name": "dark", "high_contrast": false, "accent": "preset", "font_scale": 1.0, "follows_system": false}
+          }
+        ],
+        "error": null,
+        "disposed": false
+      }
+    },
+    {
+      "action": "dispose",
+      "expect": {
+        "events": [],
+        "error": null,
+        "disposed": true
+      }
+    }
+  ]
+}
