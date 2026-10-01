@@ -25,6 +25,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   model holding an invalid `Date` no longer starts dirty against its
   `structuredClone` snapshot and stays clean through strict approval, deny, and
   reset. The FormVM guide lists the supported equality domain (#353).
+- `FormVM`'s default equality compares `Error` values by what
+  `structuredClone` keeps: the error kind named by `name`, the own `message`,
+  and the own `cause`, recursively. Errors with different messages or causes
+  now make the form dirty, and a model holding a custom error subclass or an
+  `AggregateError` starts clean against its snapshot. Stacks, custom
+  properties, and subclass identity are not compared (ADR-0135, #353).
 
 ## [3.24.1] — unreleased source version
 

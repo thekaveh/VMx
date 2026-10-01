@@ -24,7 +24,7 @@ vmx = { path = "../../langs/python", editable = true }
 allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
-packages = ["console/hello_vmx", "tk/todo_app"]
+packages = ["console/hello_vmx", "tk/todo_app", "tk/note_recipe"]
 
 [tool.ruff]
 line-length = 100

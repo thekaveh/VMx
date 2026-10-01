@@ -224,7 +224,7 @@ jobs:
       - name: Build NotesShowcase
         run: dotnet build examples/csharp/avalonia/NotesShowcase/NotesShowcase.csproj --no-restore
 
-      - name: Test NotesShowcase
+      - name: Test NotesShowcase (includes the executed Avalonia recipe)
         run: dotnet test examples/csharp/avalonia/NotesShowcase.Tests/NotesShowcase.Tests.csproj --no-restore --logger "console;verbosity=normal"
 
       - name: Run console example

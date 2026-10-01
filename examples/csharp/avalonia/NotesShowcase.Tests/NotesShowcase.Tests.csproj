@@ -50,6 +50,15 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!--
+      The shared XAML adapter recipe (docs/content/integration/avalonia.md,
+      wpf.md, maui.md). Linked, not copied, so AvaloniaRecipeTests execute the
+      exact file the docs embed, on Avalonia's UI thread.
+    -->
+    <Compile Include="../../../../langs/csharp/tests/VMx.Tests/Integration/BindableVm.cs" Link="Recipes/BindableVm.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="../NotesShowcase/NotesShowcase.csproj" />
     <ProjectReference Include="../../../../langs/csharp/src/VMx/VMx.csproj" />
     <ProjectReference Include="../../../../langs/csharp/src/VMx.Notifications/VMx.Notifications.csproj" />
