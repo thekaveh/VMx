@@ -25,7 +25,9 @@ on:
       - "tests/docs/**"
       - "tools/generate-doc-diagrams.py"
       # Sources of checked-snippet fences: a change here can make a fence stale.
+      - "examples/csharp/avalonia/NotesShowcase.Tests/Views/AvaloniaRecipeTests.cs"
       - "examples/csharp/wpf/RecipeHostCheck/**"
+      - "examples/python/tk/note_recipe/**"
       - "examples/python/textual/notes_showcase/tests/views/textual_recipe.py"
       - "examples/typescript/integration-recipes/**"
       - "examples/typescript/react/notes-showcase/tests/recipes/**"
@@ -94,7 +96,7 @@ jobs:
       id-token: write
     steps:
       - id: deployment
-        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
 
   required:
     timeout-minutes: 5
