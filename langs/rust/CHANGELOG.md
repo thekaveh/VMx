@@ -26,6 +26,13 @@ project adheres to [Semantic Versioning](https://semver.org/).
 - `CompositeCommand::dispose()` and `DecoratorCommand::dispose()` make the
   wrappers inert; clones share disposal state, as `ConfirmationDecoratorCommand`
   clones already do (ADR-0134).
+- A `CommandExt` trait provides `confirm`, `precede_with`, `succeed_with`, and
+  `wrap_with` on every `Command + Clone + 'static`, so the wrapper a fluent
+  helper returns chains further. `Arc<T: Command + ?Sized>` implements
+  `Command`, which lets non-`Clone` commands and `Arc<dyn Command>` use the
+  helpers, and `NO_HOOK` / `NO_PREDICATE` make absent `wrap_with` arguments
+  usable without type annotations. `RelayCommand`'s inherent helpers remain and
+  delegate to the trait (#358).
 - `TokenPagedComposition::dispose()` now terminally disables its owned
   load-more and refresh commands and prevents in-flight loaders from committing
   pager state; loader-returned items remain caller-owned.

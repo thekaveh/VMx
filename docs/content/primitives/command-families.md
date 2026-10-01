@@ -32,6 +32,25 @@ The shipped command surface breaks down into a few layers:
 Commands own their predicates, tasks, trigger subscriptions, and disposal
 inertness. They do not own VM lifecycle.
 
+The fluent helpers apply to any command, so each one's result chains further.
+In Rust they come from the `CommandExt` trait (`use vmx::CommandExt;`), which
+every `Command + Clone + 'static` implements; `RelayCommand` keeps the same
+methods inherently, so its existing calls need no import. A command that is not
+`Clone`, or an `Arc<dyn Command>`, uses the helpers through an `Arc`. Pass
+`NO_PREDICATE` or `NO_HOOK` for an absent `wrap_with` argument:
+
+```rust
+use vmx::{AsyncValue, CommandExt, NO_HOOK, NO_PREDICATE};
+
+let command = save
+    .confirm(|| AsyncValue::ready(true))
+    .wrap_with(NO_PREDICATE, Some(begin_busy), Some(end_busy))
+    .succeed_with(refresh);
+```
+
+Each helper moves its receiver into the wrapper it returns; VMx command clones
+share state, so keep a clone to keep using the receiver directly.
+
 `AsyncRelayCommand` is also a base command in every flavor (`IAsyncCommand :
 ICommand`), so it can be stored wherever a command is expected and wrapped by the
 composite and decorator commands. Through that base surface, `Execute` starts
