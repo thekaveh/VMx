@@ -271,6 +271,11 @@ final class AsyncRelayCommandTests: XCTestCase {
         let bodyObservedCancellation = expectation(
             description: "CMD-012 body observed admission cancellation"
         )
+        // CMD-012 requires that cancellation reaches the body at least once.
+        // When cancellation races the handler's installation, the Swift 6.0
+        // runtime (Xcode 16.0) can run the handler twice, which is not a VMx
+        // defect (#505). Without forwarding, it still never runs.
+        bodyObservedCancellation.assertForOverFulfill = false
         let runFinished = expectation(
             description: "CMD-012 admission execution finished"
         )
