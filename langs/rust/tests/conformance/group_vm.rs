@@ -317,3 +317,146 @@ fn clear_releases_every_child_and_emits_one_reset() {
     assert_ne!(a.status(), ConstructionStatus::Disposed);
     assert_ne!(b.status(), ConstructionStatus::Disposed);
 }
+
+fn disposed_announcements(hub: &MessageHub, sender_id: usize) -> usize {
+    hub.history()
+        .into_iter()
+        .filter(|message| match message {
+            Message::ConstructionStatusChanged(change) => {
+                change.sender_id == sender_id && change.status == ConstructionStatus::Disposed
+            }
+            _ => false,
+        })
+        .count()
+}
+
+fn failing_hook() -> vmx::VmxResult<()> {
+    Err(vmx::VmxError::InvalidArgument("hook failed".into()))
+}
+
+#[test]
+fn replace_moves_the_new_child_in_and_frees_the_old_one() {
+    let hub = MessageHub::new();
+    let group = vmx::GroupVm::with_services("group", hub.clone(), NullDispatcher::new());
+    let other_hub = MessageHub::new();
+    let other = vmx::GroupVm::with_services("other", other_hub.clone(), NullDispatcher::new());
+    let (a, b, c) = (child("a"), child("b"), child("c"));
+    group.add(a.clone()).unwrap();
+    group.add(b.clone()).unwrap();
+    other.add(c.clone()).unwrap();
+
+    let old = group.replace(1, c.clone()).unwrap();
+
+    assert_eq!(old.model(), "b");
+    assert_eq!(names(&group), vec!["a", "c"]);
+    assert!(other.is_empty());
+    assert_eq!(c.parent_id(), Some(group.id()));
+    assert_eq!(b.parent_id(), None);
+    assert_eq!(
+        collection_actions(&hub),
+        vec![
+            CollectionChangeAction::Add,
+            CollectionChangeAction::Add,
+            CollectionChangeAction::Replace
+        ]
+    );
+    assert_eq!(
+        collection_actions(&other_hub),
+        vec![CollectionChangeAction::Add, CollectionChangeAction::Remove]
+    );
+}
+
+#[test]
+fn a_failed_admission_rolls_the_insert_back_to_the_previous_owner() {
+    let hub = MessageHub::new();
+    let group = vmx::GroupVm::with_services("group", hub.clone(), NullDispatcher::new());
+    group.set_auto_construct_on_add(true);
+    group.construct().unwrap();
+    let other = vmx::GroupVm::<Child>::new("other");
+    other.add(child("first")).unwrap();
+    let refusing = child("refusing");
+    refusing.on_construct(failing_hook);
+    other.add(refusing.clone()).unwrap();
+
+    let error = group.insert(0, refusing.clone()).unwrap_err();
+
+    assert!(matches!(error, vmx::VmxError::InvalidArgument(_)));
+    assert!(group.is_empty());
+    assert!(collection_actions(&hub).is_empty());
+    assert_eq!(names(&other), vec!["first", "refusing"]);
+    assert_eq!(refusing.parent_id(), Some(other.id()));
+    assert_ne!(refusing.status(), ConstructionStatus::Constructed);
+}
+
+#[test]
+fn a_second_dispose_disposes_nothing_again() {
+    let hub = MessageHub::new();
+    let group = vmx::GroupVm::with_services("group", hub.clone(), NullDispatcher::new());
+    let member = child("member");
+    let disposals = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counter = disposals.clone();
+    member.on_dispose(move || {
+        counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(())
+    });
+    group.add(member.clone()).unwrap();
+
+    group.dispose().unwrap();
+    group.dispose().unwrap();
+
+    assert_eq!(disposals.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert_eq!(disposed_announcements(&hub, group.id()), 1);
+    assert_eq!(member.status(), ConstructionStatus::Disposed);
+}
+
+#[test]
+fn reconstruct_reports_a_failing_destruct_hook_and_stays_constructed() {
+    let group = vmx::GroupVm::<Child>::new("group");
+    group.construct().unwrap();
+    group.on_destruct(failing_hook);
+
+    let error = group.reconstruct().unwrap_err();
+
+    assert!(matches!(error, vmx::VmxError::InvalidArgument(_)));
+    assert_eq!(group.status(), ConstructionStatus::Constructed);
+}
+
+#[test]
+fn reconstruct_reports_a_failing_construct_hook_and_ends_destructed() {
+    let group = vmx::GroupVm::<Child>::new("group");
+    group.construct().unwrap();
+    group.on_construct(failing_hook);
+
+    let error = group.reconstruct().unwrap_err();
+
+    assert!(matches!(error, vmx::VmxError::InvalidArgument(_)));
+    assert_eq!(group.status(), ConstructionStatus::Destructed);
+}
+
+#[test]
+fn reconstruct_requires_a_constructed_group() {
+    let group = vmx::GroupVm::<Child>::new("group");
+
+    assert!(matches!(
+        group.reconstruct(),
+        Err(vmx::VmxError::InvalidLifecycleTransition { .. })
+    ));
+    assert_eq!(group.status(), ConstructionStatus::Destructed);
+}
+
+#[test]
+fn a_composite_parent_constructs_and_disposes_a_nested_group_and_its_members() {
+    let leaf = child("leaf");
+    let group = vmx::GroupVm::<Child>::new("group");
+    group.add(leaf.clone()).unwrap();
+    let outer = vmx::CompositeVm::<vmx::GroupVm<Child>>::new("outer");
+    outer.add(group.clone()).unwrap();
+
+    outer.construct().unwrap();
+    assert_eq!(group.status(), ConstructionStatus::Constructed);
+    assert_eq!(leaf.status(), ConstructionStatus::Constructed);
+
+    outer.dispose().unwrap();
+    assert_eq!(group.status(), ConstructionStatus::Disposed);
+    assert_eq!(leaf.status(), ConstructionStatus::Disposed);
+}
