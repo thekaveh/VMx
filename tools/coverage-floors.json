@@ -2,28 +2,28 @@
   "rust": {
     "include": "/langs/rust/src/",
     "exclude": "/tests/|/target/",
-    "lines": 84.13,
-    "regions": 82.9,
-    "functions": 78.47,
+    "lines": 84.67,
+    "regions": 83.43,
+    "functions": 78.91,
     "baseline": {
       "measured": "2026-10-01",
-      "commit": "d54ec9aaa7bec1e77be7e59910e9741dfdfc2f71",
+      "commit": "9b49145a4cb02e71bc912c20d8b645b74224b2a7",
       "toolchain": "rustc 1.94.1, cargo-llvm-cov 0.9.1",
       "runs": 3,
       "lines": [
-        84.13,
-        84.15,
-        84.15
+        84.67,
+        84.67,
+        84.7
       ],
       "regions": [
-        82.9,
-        82.92,
-        82.92
+        83.43,
+        83.43,
+        83.45
       ],
       "functions": [
-        78.47,
-        78.47,
-        78.47
+        78.91,
+        78.91,
+        78.91
       ],
       "uncovered_lines": {
         "aggregate_change_stream.rs": 37,
@@ -34,12 +34,12 @@
         "collections.rs": 49,
         "commands.rs": 28,
         "components.rs": 144,
-        "composites.rs": 354,
+        "composites.rs": 346,
         "derived_property.rs": 147,
         "discriminator.rs": 4,
         "forms.rs": 35,
         "forwarding.rs": 123,
-        "groups.rs": 263,
+        "groups.rs": 192,
         "hierarchical.rs": 114,
         "lib.rs": 2,
         "modeled_crud.rs": 17,
