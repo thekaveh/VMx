@@ -1435,3 +1435,85 @@ fn add_and_remove_manage_child_parent() {
     item.select();
     assert_eq!(composite.current(), None);
 }
+
+// Losing the current child (#362 coverage review): removing or replacing the
+// current child clears `current` and announces it once.
+
+fn current_announcements(hub: &MessageHub, composite_id: usize) -> usize {
+    hub.history()
+        .into_iter()
+        .filter(|message| {
+            matches!(
+                message,
+                Message::PropertyChanged(change)
+                    if change.sender_id == composite_id && change.property_name == "current"
+            )
+        })
+        .count()
+}
+
+fn composite_with_current(hub: &MessageHub) -> (vmx::CompositeVm<Child>, Child, Child) {
+    let composite =
+        vmx::CompositeVm::with_services("composite", hub.clone(), NullDispatcher::new());
+    let (a, b) = (child("a"), child("b"));
+    composite.add(a.clone()).unwrap();
+    composite.add(b.clone()).unwrap();
+    composite.construct().unwrap();
+    composite.set_current(Some(a.clone())).unwrap();
+    (composite, a, b)
+}
+
+#[test]
+fn removing_the_current_child_clears_current() {
+    let hub = MessageHub::new();
+    let (composite, a, _b) = composite_with_current(&hub);
+    let before = current_announcements(&hub, composite.id());
+
+    composite.remove(&a).unwrap();
+
+    assert!(composite.current().is_none());
+    assert!(!a.is_current());
+    assert_eq!(current_announcements(&hub, composite.id()), before + 1);
+}
+
+#[test]
+fn removing_the_current_child_by_index_clears_current() {
+    let hub = MessageHub::new();
+    let (composite, a, _b) = composite_with_current(&hub);
+    let before = current_announcements(&hub, composite.id());
+
+    let removed = composite.remove_at(0).unwrap();
+
+    assert_eq!(vmx::VmNode::id(&removed), vmx::VmNode::id(&a));
+    assert!(composite.current().is_none());
+    assert_eq!(current_announcements(&hub, composite.id()), before + 1);
+}
+
+#[test]
+fn replacing_the_current_child_clears_current_and_keeps_the_rest() {
+    let hub = MessageHub::new();
+    let (composite, a, b) = composite_with_current(&hub);
+    let before = current_announcements(&hub, composite.id());
+
+    composite.replace(0, child("c")).unwrap();
+
+    assert!(composite.current().is_none());
+    assert_eq!(a.parent_id(), None);
+    assert_eq!(b.parent_id(), Some(composite.id()));
+    assert_eq!(current_announcements(&hub, composite.id()), before + 1);
+}
+
+#[test]
+fn removing_a_sibling_keeps_current() {
+    let hub = MessageHub::new();
+    let (composite, a, b) = composite_with_current(&hub);
+    let before = current_announcements(&hub, composite.id());
+
+    composite.remove(&b).unwrap();
+
+    assert!(composite
+        .current()
+        .is_some_and(|current| current.model() == "a"));
+    assert!(a.is_current());
+    assert_eq!(current_announcements(&hub, composite.id()), before);
+}

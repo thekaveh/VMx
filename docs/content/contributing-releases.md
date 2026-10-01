@@ -107,6 +107,28 @@ line the page leaves out; the parts are joined in order. `make docs-check`
 fails when a fence differs from its source, including in the generated site
 and wiki pages.
 
+### 11.3.3. Coverage Floors
+
+Every flavor gates CI on a coverage floor over its library sources:
+
+| Flavor     | Gate                                                              | Metrics                                |
+| ---------- | ----------------------------------------------------------------- | -------------------------------------- |
+| C#         | `tools/check-cobertura-threshold.py` in `csharp.yml`              | line, branch                           |
+| Python     | `fail_under` in `langs/python/pyproject.toml`                     | combined line and branch               |
+| TypeScript | `coverage.thresholds` in `langs/typescript/vitest.config.ts`      | statements, branches, functions, lines |
+| Rust       | `tools/check-coverage-floor.py` with `tools/coverage-floors.json` | lines, regions, functions              |
+| Swift      | `tools/check-coverage-floor.py` with `tools/coverage-floors.json` | lines, regions, functions              |
+
+Each Rust and Swift floor is the lowest figure measured across repeated runs of
+the baseline commit, truncated to two decimals, so only run-to-run variation in
+scheduling-dependent paths is tolerated. The file records the commit, toolchain,
+every measured run, and each source file's uncovered lines, so a failure names
+the files that lost coverage and lists their unexecuted line ranges. Raise a
+floor when coverage improves. Never lower one to make a change pass: if deleting
+code legitimately lowers coverage, explain it in the pull request and record
+the new baseline. Percentages are not comparable across flavors, because each
+tool counts differently.
+
 ## 11.4. Spec Discipline
 
 Two repo rules matter most:

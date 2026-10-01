@@ -218,3 +218,71 @@ fn disposal_clears_parked_items() -> VmxResult<()> {
     assert_eq!(root.parked_attach_count(), 0);
     Ok(())
 }
+
+// Selector failures on individual items (#362 coverage review). A failing
+// selector rejects only that item; a parked item stays parked for a later batch.
+
+#[test]
+fn parent_selector_failure_rejects_only_that_item() {
+    let root = node("root", None);
+    let good = node("good", None);
+    let bad = node("bad", None);
+
+    let result = root.attach_many(
+        vec![good.clone(), bad.clone()],
+        |item| Ok(item.model().key),
+        |item| {
+            if item.model().key == "bad" {
+                Err(VmxError::Other("no parent key".to_string()))
+            } else {
+                Ok(item.model().parent_key)
+            }
+        },
+        MissingParentPolicy::Park,
+    );
+
+    assert!(result.added == vec![good.clone()]);
+    assert_eq!(result.rejections.len(), 1);
+    assert!(result.rejections[0].item == bad);
+    assert_eq!(
+        result.rejections[0].reason,
+        BatchAttachRejectionReason::SelectorFailed
+    );
+    assert!(root.children() == vec![good]);
+    assert!(bad.parent().is_none());
+}
+
+#[test]
+fn a_parked_item_whose_selector_fails_stays_parked_for_the_next_batch() {
+    let root = node("root", None);
+    let orphan = node("orphan", Some("parent"));
+    let parked = attach(&root, vec![orphan.clone()], MissingParentPolicy::Park);
+    assert!(parked.added.is_empty());
+
+    // The key selector fails for the parked item on this batch only.
+    let failed = root.attach_many(
+        Vec::new(),
+        |item| {
+            if item.model().key == "orphan" {
+                Err(VmxError::Other("key unavailable".to_string()))
+            } else {
+                Ok(item.model().key)
+            }
+        },
+        |item| Ok(item.model().parent_key),
+        MissingParentPolicy::Park,
+    );
+    assert!(failed
+        .rejections
+        .iter()
+        .any(|rejection| rejection.item == orphan
+            && rejection.reason == BatchAttachRejectionReason::SelectorFailed));
+    assert!(orphan.parent().is_none());
+
+    // The item was re-parked, so a batch that brings its parent attaches it.
+    let parent = node("parent", None);
+    let resolved = attach(&root, vec![parent.clone()], MissingParentPolicy::Park);
+    assert!(resolved.added.contains(&orphan));
+    assert!(orphan.parent() == Some(parent.clone()));
+    assert!(parent.children() == vec![orphan]);
+}
