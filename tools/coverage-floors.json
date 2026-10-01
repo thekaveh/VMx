@@ -2,45 +2,44 @@
   "rust": {
     "include": "/langs/rust/src/",
     "exclude": "/tests/|/target/",
-    "lines": 83.18,
-    "regions": 81.86,
-    "functions": 77.66,
+    "lines": 84.13,
+    "regions": 82.9,
+    "functions": 78.47,
     "baseline": {
-      "measured": "2026-09-30",
-      "commit": "a37d567477b560edc9ddc900d016a38ccd4cdd34",
+      "measured": "2026-10-01",
+      "commit": "d54ec9aaa7bec1e77be7e59910e9741dfdfc2f71",
       "toolchain": "rustc 1.94.1, cargo-llvm-cov 0.9.1",
       "runs": 3,
       "lines": [
-        83.19,
-        83.21,
-        83.21
+        84.13,
+        84.15,
+        84.15
       ],
       "regions": [
-        81.87,
-        81.89,
-        81.89
+        82.9,
+        82.92,
+        82.92
       ],
       "functions": [
-        77.67,
-        77.67,
-        77.67
+        78.47,
+        78.47,
+        78.47
       ],
       "uncovered_lines": {
-        "aggregate_change_stream.rs": 50,
+        "aggregate_change_stream.rs": 37,
         "aggregates.rs": 475,
         "async_resource_vm.rs": 124,
         "async_value.rs": 1,
         "capabilities.rs": 34,
         "collections.rs": 49,
-        "commands.rs": 37,
+        "commands.rs": 28,
         "components.rs": 144,
         "composites.rs": 354,
         "derived_property.rs": 147,
-        "dialogs.rs": 0,
         "discriminator.rs": 4,
         "forms.rs": 35,
         "forwarding.rs": 123,
-        "groups.rs": 361,
+        "groups.rs": 263,
         "hierarchical.rs": 114,
         "lib.rs": 2,
         "modeled_crud.rs": 17,
