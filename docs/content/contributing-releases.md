@@ -123,8 +123,11 @@ Each Rust and Swift floor is the lowest figure measured across repeated runs of
 the baseline commit, truncated to two decimals, so only run-to-run variation in
 scheduling-dependent paths is tolerated. The file records the commit, toolchain,
 every measured run, and each source file's uncovered lines, so a failure names
-the files that lost coverage and lists their unexecuted line ranges. Raise a
-floor when coverage improves. Never lower one to make a change pass: if deleting
+the files that lost coverage and lists their unexecuted line ranges.
+`tools/compare-coverage-runs.py` compares the llvm-cov exports of repeated runs
+and names every line that some runs execute and others do not. Cover such a
+line with a deterministic test rather than lowering a floor. Raise a floor when
+coverage improves. Never lower one to make a change pass: if deleting
 code legitimately lowers coverage, explain it in the pull request and record
 the new baseline. Percentages are not comparable across flavors, because each
 tool counts differently.
