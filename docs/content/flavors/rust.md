@@ -200,6 +200,35 @@ cargo test --locked --manifest-path examples/rust/tui/notes-showcase/Cargo.toml
 cargo run --locked --manifest-path examples/rust/tui/notes-showcase/Cargo.toml -- --smoke
 ```
 
+### 7.6.6.1. Coverage
+
+The `coverage floor` job in `.github/workflows/rust.yml` measures library
+coverage with `cargo-llvm-cov` on a pinned toolchain. It fails when line,
+region, or function coverage falls below the Rust floors in
+`tools/coverage-floors.json`:
+
+```bash
+cargo install cargo-llvm-cov --version 0.9.1 --locked
+cargo llvm-cov --locked --all-features --manifest-path langs/rust/Cargo.toml \
+  --json --output-path rust-coverage.json
+python3 tools/check-coverage-floor.py --flavor rust --report rust-coverage.json
+```
+
+The denominator is `langs/rust/src/` only. Test, example, and build files are
+not counted, so a change that touches only generated or resource files cannot
+fail the gate. Removing a test that exercised library code lowers the figure and
+can. A failure names each source file that gained uncovered lines since the
+recorded baseline, with that file's unexecuted line ranges as `llvm-cov show`
+marks them. The counts come from llvm-cov's summaries, which count a line once
+for each function that spans it, so a closure's lines count twice and a file's
+ranges can hold fewer lines than its count. The job uploads the llvm-cov export
+and a provenance file that names the commit, toolchain, and measured figures.
+`cargo-llvm-cov` builds into its own target directory, so instrumented code
+never reaches the package job or a published crate.
+
+Coverage says which lines ran, not whether a test would catch a wrong result.
+It does not replace the conformance assertions.
+
 ## 7.6.7. Showcase
 
 Rust now ships a Ratatui Notes Showcase at

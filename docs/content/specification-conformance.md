@@ -118,6 +118,12 @@ report does not mark XCTest skips. The Swift conformance suite uses no
   order (`examples/notes-showcase-theme-scenario.json`). The shared scenarios
   compare semantic outcomes, not just test names, and add no catalog IDs.
 
+Coverage floors, catalog markers, and assertion strength are separate evidence.
+A marker assigns a test to a catalog ID. An assertion shows that the test would
+catch a violation. A coverage floor shows how much library code the suites run.
+No one of them implies the others. See
+[Coverage Floors](contributing-releases.md#1133-coverage-floors).
+
 ## 10.5. Consumer Adapter Suites
 
 VMx TypeScript 3.21.0 introduced the optional

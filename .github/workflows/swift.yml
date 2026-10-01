@@ -270,11 +270,42 @@ jobs:
         # future stuck async scenario immediately attributable in CI logs.
         run: swift test --parallel
 
+  coverage:
+    name: coverage floor
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Show Swift version
+        run: swift --version
+      - name: Test the library with coverage
+        # A separate debug build under .build; the release builds and package
+        # checks in the other jobs never see instrumentation.
+        run: swift test --package-path langs/swift --enable-code-coverage
+      - name: Enforce the recorded coverage floor
+        run: >-
+          python3 tools/check-coverage-floor.py --flavor swift
+          --report "$(swift test --package-path langs/swift --show-codecov-path)"
+          --provenance swift-coverage-provenance.json --commit "${{ github.sha }}"
+          --toolchain "$(swift --version 2>&1 | head -n 1)" --list-files
+      - name: Collect coverage evidence
+        if: always()
+        run: cp "$(swift test --package-path langs/swift --show-codecov-path)" swift-coverage.json
+      - name: Publish coverage evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: swift-coverage
+          path: |
+            swift-coverage.json
+            swift-coverage-provenance.json
+          if-no-files-found: error
+
   required:
     timeout-minutes: 5
     name: "required: swift"
     if: always()
-    needs: [build, platforms, examples]
+    needs: [build, platforms, examples, coverage]
     runs-on: ubuntu-latest
     steps:
       - name: Require every Swift job
