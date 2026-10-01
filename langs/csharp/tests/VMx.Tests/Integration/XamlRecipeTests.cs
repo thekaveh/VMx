@@ -12,8 +12,9 @@ namespace VMx.Tests.Integration;
 
 /// <summary>
 /// Executes the WPF and MAUI adapter recipe. docs/content/integration/wpf.md and
-/// maui.md embed <see cref="BindableVm{M}"/>, and tools/tests/test_host_recipe_sync.py
-/// keeps them identical. No conformance-ID markers (integration recipe).
+/// maui.md embed <see cref="BindableVm{M}"/> through checked-snippet markers, and
+/// <c>make docs-check</c> keeps each fence identical to its source region. No
+/// conformance-ID markers (integration recipe).
 /// </summary>
 public class XamlRecipeTests
 {
@@ -31,6 +32,30 @@ public class XamlRecipeTests
         if (construct)
             vm.Construct();
         return vm;
+    }
+
+    /// <summary>Posts continuations to one event-loop thread, as a UI thread's context does.</summary>
+    private sealed class LoopSynchronizationContext(IScheduler loop) : SynchronizationContext
+    {
+        public override void Post(SendOrPostCallback d, object? state) => loop.Schedule(() => d(state));
+    }
+
+    /// <summary>
+    /// Stands in for a MAUI page. CI has no MAUI host, so the maui.md page-constructor
+    /// statement runs here against the real adapter on an event-loop thread; nothing
+    /// is rendered.
+    /// </summary>
+    private sealed class NotePage
+    {
+        public NotePage(ComponentVM<Note> vm)
+        {
+            // docs-snippet:start maui-binding-context
+            BindingContext = new BindableVm<Note>(
+                vm, new SynchronizationContextScheduler(SynchronizationContext.Current!));
+            // docs-snippet:end maui-binding-context
+        }
+
+        public object BindingContext { get; }
     }
 
     private static List<string> RecordNames(BindableVm<Note> source)
@@ -171,6 +196,44 @@ public class XamlRecipeTests
         delivered.Wait(HangGuard).Should().BeTrue();
         deliveredOn.Should().Be("vmx-host");
         adapter.Model.Title.Should().Be("from worker");
+    }
+
+    [Fact]
+    public void A_Page_Constructor_Binding_Delivers_Worker_Changes_On_The_Main_Thread()
+    {
+        using var hub = new MessageHub();
+        var vm = CreateVm(hub);
+        using var main = new EventLoopScheduler(start => new Thread(start) { Name = "vmx-main", IsBackground = true });
+        using var delivered = new ManualResetEventSlim();
+        BindableVm<Note>? adapter = null;
+        string? deliveredOn = null;
+        using (var built = new ManualResetEventSlim())
+        {
+            main.Schedule(() =>
+            {
+                SynchronizationContext.SetSynchronizationContext(new LoopSynchronizationContext(main));
+                adapter = (BindableVm<Note>)new NotePage(vm).BindingContext;
+                adapter.PropertyChanged += (_, e) =>
+                {
+                    if (e.PropertyName != nameof(BindableVm<Note>.Model))
+                        return;
+                    deliveredOn = Thread.CurrentThread.Name;
+                    delivered.Set();
+                };
+                built.Set();
+            });
+            built.Wait(HangGuard).Should().BeTrue();
+        }
+
+        var worker = new Thread(() => vm.Model = new Note("from worker")) { Name = "vmx-worker" };
+        worker.Start();
+        worker.Join();
+
+        delivered.Wait(HangGuard).Should().BeTrue();
+        deliveredOn.Should().Be("vmx-main");
+        adapter!.Model.Title.Should().Be("from worker");
+        adapter.Dispose();
+        vm.Status.Should().Be(ConstructionStatus.Constructed);
     }
 
     [Fact]

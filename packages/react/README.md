@@ -34,6 +34,8 @@ release when it changes the adapter's supported API or compatibility range.
 Create one store for the hub at the application composition root, pass it
 through your own context, and select only what each component renders:
 
+<!-- checked-snippet: examples/typescript/react/notes-showcase/tests/recipes/reactRecipe.test.tsx#react-store -->
+
 ```tsx
 import { createVmxStore, shallowEqual, useVmx } from "@thekaveh/vmx-react";
 
@@ -45,7 +47,7 @@ function Summary() {
     () => ({ title: app.model.title, busy: app.busy }),
     shallowEqual,
   );
-  return <p>{summary.title} {summary.busy ? "…" : ""}</p>;
+  return <p>{summary.title}{summary.busy ? "…" : ""}</p>;
 }
 ```
 
@@ -82,14 +84,15 @@ it arrives, including from a source that first emits after mount.
 Do not call `useVm` conditionally or pass `null`. Mount a child component that
 owns one unconditional hook call:
 
+<!-- checked-snippet: examples/typescript/react/notes-showcase/tests/recipes/reactRecipe.test.tsx#react-optional-vm -->
+
 ```tsx
 function MaybeEditor({ vm }: { vm: EditorVM | null }) {
   return vm === null ? <EmptyEditor /> : <BoundEditor vm={vm} />;
 }
-
 function BoundEditor({ vm }: { vm: EditorVM }) {
   const live = useVm(vm);
-  return <Editor title={live.title} />;
+  return <Editor title={live.model.title} />;
 }
 ```
 

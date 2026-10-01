@@ -1,4 +1,4 @@
-import { createApp, defineComponent, h, nextTick, type Component } from "vue";
+import { createApp, defineComponent, h, nextTick, shallowRef, type Component } from "vue";
 import { describe, expect, it } from "vitest";
 import { PropertyChangedMessage, type ComponentVMOf, type IMessageHub } from "@thekaveh/vmx";
 import NoteView from "../src/vue/NoteView.vue";
@@ -99,6 +99,35 @@ describe("Vue recipe (vue 3.5.43)", () => {
     expect(hub.teardowns).toBe(1);
     expect(view.updates()).toBe(0);
     expect(view.el.innerHTML).toBe("");
+  });
+
+  it("rebinds to another VM when its key changes and releases the first subscription", async () => {
+    const hub = countingHub();
+    const first = constructedVm<Note>(hub, { title: "first" }, "first");
+    const second = constructedVm<Note>(hub, { title: "second" }, "second");
+    const save = countingCommand();
+    const current = shallowRef(first);
+    const el = document.createElement("div");
+    const app = createApp({
+      render: () =>
+        h(NoteView, { key: current.value.name, vm: current.value, hub, saveCommand: save.command }),
+    });
+    app.mount(el);
+    const title = () => el.querySelector("h1")?.textContent;
+    expect(title()).toBe("first");
+
+    current.value = second;
+    await nextTick();
+    expect(title()).toBe("second");
+    expect([hub.subscriptions, hub.teardowns]).toEqual([2, 1]);
+
+    first.model = { title: "stale" };
+    second.model = { title: "fresh" };
+    await nextTick();
+    expect(title()).toBe("fresh");
+
+    app.unmount();
+    expect(hub.teardowns).toBe(2);
   });
 
   it("runs the supplied save command", () => {

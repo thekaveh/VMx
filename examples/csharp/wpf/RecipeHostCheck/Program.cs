@@ -29,7 +29,10 @@ var ui = new Thread(() =>
         .Services(hub, RxDispatcher.Immediate())
         .Model(new Note("draft"))
         .Build();
-    var adapter = new BindableVm<Note>(vm, new SynchronizationContextScheduler(SynchronizationContext.Current!));
+    // docs-snippet:start wpf-create-adapter
+    var adapter = new BindableVm<Note>(
+        vm, new SynchronizationContextScheduler(SynchronizationContext.Current!));
+    // docs-snippet:end wpf-create-adapter
     var offThread = 0;
     adapter.PropertyChanged += (_, _) =>
     {

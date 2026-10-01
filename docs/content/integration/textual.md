@@ -27,6 +27,8 @@ The widget below is the exact module that the Textual Notes-Showcase tests run
 on a live App (`examples/python/textual/notes_showcase/tests/views/`), including
 a change made on a worker thread.
 
+<!-- checked-snippet: examples/python/textual/notes_showcase/tests/views/textual_recipe.py -->
+
 ```python
 from __future__ import annotations
 

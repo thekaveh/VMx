@@ -89,6 +89,24 @@ for the evidence rules and the
 [Concurrency Test Audit](../maintenance/2026-09-24-controlled-interleavings-audit.md)
 for exact test locations and limitations.
 
+### 11.3.2. Checked Documentation Snippets
+
+A fence in `docs/content` or a package README can be tied to code that CI runs.
+Put the code in a test or example, mark it, and put a marker comment directly
+above the fence:
+
+```text
+<!-- checked-snippet: path/to/source.ts -->              whole file
+<!-- checked-snippet: path/to/source.ts#region-name -->  one region
+```
+
+A region is every line between `docs-snippet:start region-name` and
+`docs-snippet:end region-name` comments in the source, dedented. A source may
+split one region into several start/end pairs, for example around a namespace
+line the page leaves out; the parts are joined in order. `make docs-check`
+fails when a fence differs from its source, including in the generated site
+and wiki pages.
+
 ## 11.4. Spec Discipline
 
 Two repo rules matter most:
