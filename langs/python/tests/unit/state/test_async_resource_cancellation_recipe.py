@@ -1,7 +1,7 @@
 """Executable form of the loader-cancellation recipe (#334).
 
-The block between the recipe markers is shown verbatim, dedented, in
-docs/content/primitives/state-reactive-helpers.md; tools/tests keeps them equal.
+The block between the docs-snippet markers is shown verbatim, dedented, in
+docs/content/primitives/state-reactive-helpers.md; `make docs-check` keeps them equal.
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ async def test_loader_cancelled_by_another_owner_keeps_the_previous_profile() ->
     hub: MessageHub[Message] = MessageHub()
     dispatcher = NULL_DISPATCHER
 
-    # docs-recipe:start
+    # docs-snippet:start loader-cancellation
     async def load_profile() -> str:
         # Another owner may cancel the shared request. The CancelledError that
         # reaches this loader settles the VM like Cancel; it never stays Loading.
@@ -57,6 +57,6 @@ async def test_loader_cancelled_by_another_owner_keeps_the_previous_profile() ->
     assert profile.state.status is AsyncResourceStatus.READY
     assert profile.state.value == "ada"  # the retained value is restored
     assert profile.reload_command.can_execute()  # the next reload is admitted
-    # docs-recipe:end
+    # docs-snippet:end loader-cancellation
 
     profile.dispose()

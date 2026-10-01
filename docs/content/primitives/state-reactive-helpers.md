@@ -80,6 +80,8 @@ operation's signal is not aborted) as an ordinary loader fault, and Rust loaders
 report outcomes through `VmxResult`, so every flavor leaves Loading with a
 visible terminal state.
 
+<!-- checked-snippet: langs/python/tests/unit/state/test_async_resource_cancellation_recipe.py#loader-cancellation -->
+
 ```python
 async def load_profile() -> str:
     # Another owner may cancel the shared request. The CancelledError that

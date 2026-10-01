@@ -1,4 +1,9 @@
-"""Keep TypeScript host recipes identical to the files the recipe fixture runs."""
+"""Keep TypeScript host recipes tied to the files the recipe fixture runs.
+
+Each guide fence carries a ``checked-snippet`` marker naming its fixture file;
+``make docs-check`` (scripts/docs/check_docs.py) fails when a fence differs from
+that file. These tests keep the markers in place and the fixture executed.
+"""
 
 import re
 from pathlib import Path
@@ -32,12 +37,16 @@ def _section(guide: str, heading: str) -> str:
 
 
 @pytest.mark.parametrize(("guide", "heading", "language", "fixture"), RECIPES)
-def test_recipe_snippet_matches_the_executed_fixture(
+def test_recipe_fence_is_checked_against_the_executed_fixture(
     guide: str, heading: str, language: str, fixture: str
 ) -> None:
-    blocks = re.findall(rf"```{language}\n(.*?)```", _section(guide, heading), re.S)
-    assert len(blocks) == 1, f"{guide} should show exactly one {language} block"
-    assert blocks[0] == (FIXTURE / fixture).read_text(encoding="utf-8")
+    section = _section(guide, heading)
+    assert len(re.findall(rf"```{language}\n", section)) == 1, (
+        f"{guide} should show exactly one {language} block"
+    )
+    source = (FIXTURE / fixture).relative_to(REPO_ROOT).as_posix()
+    marker = rf"<!-- checked-snippet: {re.escape(source)} -->\n\n```{language}\n"
+    assert re.search(marker, section), f"{guide} lost the checked-snippet marker for {fixture}"
 
 
 def test_fixture_pins_the_host_versions_the_guides_name() -> None:

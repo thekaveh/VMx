@@ -212,6 +212,12 @@ jobs:
           run_case("restored", "passed", skip_build=False)
           PY
 
+      - name: "Integration recipe: SwiftUI adapter executed (view compile-only, never rendered)"
+        # docs/content/integration/swiftui.md shows regions of this suite through
+        # checked-snippet markers. XCTest drives the adapter's lifecycle and the
+        # Save action; no SwiftUI view is laid out or rendered on the runner.
+        run: swift test --filter SwiftUIRecipeTests
+
   platforms:
     name: build (${{ matrix.label }})
     runs-on: macos-15

@@ -322,7 +322,7 @@ jobs:
       - name: notes-showcase audit
         run: npm audit --prefix examples/typescript/react/notes-showcase --package-lock-only --audit-level=moderate
 
-      - name: notes-showcase test
+      - name: notes-showcase test (includes the executed React recipe)
         run: npm test --prefix examples/typescript/react/notes-showcase --ignore-scripts
 
       - name: notes-showcase type-check
@@ -347,10 +347,10 @@ jobs:
       - name: integration recipes audit
         run: npm audit --prefix examples/typescript/integration-recipes --package-lock-only --audit-level=moderate
 
-      - name: integration recipes test
+      - name: integration recipes test (executed on jsdom - Vue, Solid, Svelte)
         run: npm test --prefix examples/typescript/integration-recipes --ignore-scripts
 
-      - name: integration recipes type-check
+      - name: integration recipes type-check (compile-only; .vue and .svelte through shims)
         run: npm run typecheck --prefix examples/typescript/integration-recipes --ignore-scripts
 
   required:

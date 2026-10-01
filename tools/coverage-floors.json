@@ -56,24 +56,31 @@
   "swift": {
     "include": "/langs/swift/Sources/VMx/",
     "exclude": "/Tests/|/\\.build/",
-    "lines": 88.14,
-    "regions": 81.46,
+    "lines": 88.15,
+    "regions": 81.47,
     "functions": 83.84,
     "baseline": {
       "measured": "2026-10-01",
       "commit": "8e68312a03246b98a02cdd9d1e09c201897108b1",
-      "toolchain": "macos-15 default Xcode; the exact swift --version is in each run's swift-coverage-provenance.json and log",
-      "runs": 2,
-      "note": "Figures are as the CI log printed them, rounded to two decimals; each floor is 0.01 lower so it cannot exceed the true truncated figure.",
+      "toolchain": "Apple Swift version 6.1.2 (swiftlang-6.1.2.1.2 clang-1700.0.13.5), swift-driver 1.120.5; macos-15 default Xcode",
+      "runs": 3,
+      "counts": {
+        "lines": "8819/10004",
+        "regions": "3487/4280",
+        "functions": "1604/1913"
+      },
       "lines": [
+        88.15,
         88.15,
         88.15
       ],
       "regions": [
         81.47,
+        81.47,
         81.47
       ],
       "functions": [
+        83.85,
         83.85,
         83.85
       ],

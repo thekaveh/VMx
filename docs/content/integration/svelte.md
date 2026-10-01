@@ -40,6 +40,8 @@ The store and component below are the exact files run by
 `examples/typescript/integration-recipes` against `svelte` 5.57.1. The store
 uses only the `svelte/store` contract that Svelte 4 shares.
 
+<!-- checked-snippet: examples/typescript/integration-recipes/src/svelte/vmStore.ts -->
+
 ```ts
 // vmStore.ts
 import { readable, type Readable } from "svelte/store";
@@ -78,6 +80,8 @@ export function vmStore<M, K extends keyof ComponentVMOf<M>>(
 }
 ```
 
+<!-- checked-snippet: examples/typescript/integration-recipes/src/svelte/NoteView.svelte -->
+
 ```svelte
 <script lang="ts">
   import type { ComponentVMOf, ICommand, IMessageHub } from "@thekaveh/vmx";
@@ -106,6 +110,8 @@ subscribed, the next subscriber gets a fresh read instead of that stale value.
 ## 9.10.4. Adapter skeleton — Svelte 5 runes
 
 The same fixture mounts this component with changing inputs:
+
+<!-- checked-snippet: examples/typescript/integration-recipes/src/svelte/NoteViewRunes.svelte -->
 
 ```svelte
 <script lang="ts">

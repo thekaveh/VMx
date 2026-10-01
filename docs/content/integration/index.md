@@ -42,6 +42,8 @@ Imperative engines do not need a render loop to poll VM state. Subscribe to the
 selected value once, update the engine only when it changes, and let the host
 adapter own the returned handle:
 
+<!-- checked-snippet: langs/typescript/tests/unit/imperativeBridgeRecipe.test.ts#imperative-bridge -->
+
 ```typescript
 const exposureSubscription = subscribeValue(
   cameraVm,
@@ -52,6 +54,8 @@ const exposureSubscription = subscribeValue(
 ```
 
 Dispose the bridge with the adapter that owns `material`:
+
+<!-- checked-snippet: langs/typescript/tests/unit/imperativeBridgeRecipe.test.ts#imperative-bridge-dispose -->
 
 ```typescript
 exposureSubscription.unsubscribe();
@@ -115,3 +119,24 @@ ordinary VMx seams above rather than creating a second reactive architecture.
   [examples/swift/notes-showcase/README.md](../../../examples/swift/notes-showcase/README.md)
 - Rust Notes Workspace (Ratatui TUI):
   [examples/rust/README.md](../../../examples/rust/README.md)
+
+## 9.1.6. How The Recipes Are Checked
+
+A recipe fence preceded by a `<!-- checked-snippet: path -->` or
+`<!-- checked-snippet: path#region -->` comment is a copy of code that CI
+compiles and runs. `make docs-check` fails when the fence differs from that
+file, or from the lines between `docs-snippet:start <region>` and
+`docs-snippet:end <region>` in it. Names a fence does not define, such as `vm`
+or `app`, stand for the application's own objects; the checked source defines
+them before the region.
+
+| Recipe                        | Checked source                                                                                             | CI job                                                                   | What runs                                                                                 |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
+| Vue, Solid, Svelte            | `examples/typescript/integration-recipes/`                                                                 | typescript `examples (notes-showcase)`, Linux                            | Executed on jsdom: initial value, mutation, command, reconnect, cleanup                   |
+| React                         | `examples/typescript/react/notes-showcase/tests/recipes/reactRecipe.test.tsx`                              | typescript `examples (notes-showcase)`, Linux                            | Executed on jsdom; the install command is not checked                                     |
+| Imperative bridge (this page) | `langs/typescript/tests/unit/imperativeBridgeRecipe.test.ts`                                               | typescript `build & test`                                                | Executed                                                                                  |
+| WPF                           | `langs/csharp/tests/VMx.Tests/Integration/BindableVm.cs`, `examples/csharp/wpf/RecipeHostCheck/Program.cs` | csharp `build & test`; `example + recipe host (WPF / Windows, executed)` | Executed on test schedulers and on a real WPF Dispatcher                                  |
+| MAUI                          | `BindableVm.cs`, `XamlRecipeTests.cs`                                                                      | csharp `build & test`                                                    | Adapter executed; CI has no MAUI host, so the page statement runs against a stand-in page |
+| Textual                       | `examples/python/textual/notes_showcase/tests/views/textual_recipe.py`                                     | python `examples (notes-showcase)`                                       | Executed in a headless Textual app                                                        |
+| SwiftUI                       | `langs/swift/Tests/VMxTests/SwiftUIRecipeTests.swift`                                                      | swift `build & test`, macOS                                              | Adapter executed; the view is compile-only and never rendered                             |
+| Avalonia, NiceGUI, Tkinter    | none yet                                                                                                   | none                                                                     | Not checked                                                                               |

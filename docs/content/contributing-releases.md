@@ -89,7 +89,25 @@ for the evidence rules and the
 [Concurrency Test Audit](../maintenance/2026-09-24-controlled-interleavings-audit.md)
 for exact test locations and limitations.
 
-### 11.3.2. Coverage Floors
+### 11.3.2. Checked Documentation Snippets
+
+A fence in `docs/content` or a package README can be tied to code that CI runs.
+Put the code in a test or example, mark it, and put a marker comment directly
+above the fence:
+
+```text
+<!-- checked-snippet: path/to/source.ts -->              whole file
+<!-- checked-snippet: path/to/source.ts#region-name -->  one region
+```
+
+A region is every line between `docs-snippet:start region-name` and
+`docs-snippet:end region-name` comments in the source, dedented. A source may
+split one region into several start/end pairs, for example around a namespace
+line the page leaves out; the parts are joined in order. `make docs-check`
+fails when a fence differs from its source, including in the generated site
+and wiki pages.
+
+### 11.3.3. Coverage Floors
 
 Every flavor gates CI on a coverage floor over its library sources:
 
@@ -105,10 +123,11 @@ Each Rust and Swift floor is the lowest figure measured across repeated runs of
 the baseline commit, truncated to two decimals, so only run-to-run variation in
 scheduling-dependent paths is tolerated. The file records the commit, toolchain,
 every measured run, and each source file's uncovered lines, so a failure names
-the files that lost coverage and lists their unexecuted line ranges. Raise a floor when coverage improves. Never lower
-one to make a change pass: if deleting code legitimately lowers coverage,
-explain it in the pull request and record the new baseline. Percentages are not
-comparable across flavors, because each tool counts differently.
+the files that lost coverage and lists their unexecuted line ranges. Raise a
+floor when coverage improves. Never lower one to make a change pass: if deleting
+code legitimately lowers coverage, explain it in the pull request and record
+the new baseline. Percentages are not comparable across flavors, because each
+tool counts differently.
 
 ## 11.4. Spec Discipline
 
