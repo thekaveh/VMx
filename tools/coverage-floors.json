@@ -56,30 +56,34 @@
   "swift": {
     "include": "/langs/swift/Sources/VMx/",
     "exclude": "/Tests/|/\\.build/",
-    "lines": 88.15,
-    "regions": 81.47,
+    "lines": 88.13,
+    "regions": 81.44,
     "functions": 83.84,
     "baseline": {
       "measured": "2026-10-01",
       "commit": "8e68312a03246b98a02cdd9d1e09c201897108b1",
       "toolchain": "Apple Swift version 6.1.2 (swiftlang-6.1.2.1.2 clang-1700.0.13.5), swift-driver 1.120.5; macos-15 default Xcode",
-      "runs": 3,
+      "runs": 4,
+      "note": "Run 4 (#515, sources unchanged, atomic counters) took the other side of the GroupVM/CompositeVM ownership races (#516); counts are the lowest run.",
       "counts": {
-        "lines": "8819/10004",
-        "regions": "3487/4280",
+        "lines": "8817/10004",
+        "regions": "3486/4280",
         "functions": "1604/1913"
       },
       "lines": [
         88.15,
         88.15,
-        88.15
+        88.15,
+        88.13
       ],
       "regions": [
         81.47,
         81.47,
-        81.47
+        81.47,
+        81.44
       ],
       "functions": [
+        83.85,
         83.85,
         83.85,
         83.85
