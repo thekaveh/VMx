@@ -13,28 +13,29 @@ TEST_LOCKFILES = (
     C_SHARP / "tests" / "VMx.Conformance.Tests" / "packages.lock.json",
 )
 EXPECTED_TEST_VERSIONS = {
-    "Microsoft.NET.Test.Sdk": "18.8.1",
+    "Microsoft.NET.Test.Sdk": "18.10.1",
     "xunit": "2.9.3",
-    "xunit.runner.visualstudio": "3.1.5",
+    "xunit.runner.visualstudio": "4.0.0",
     "FluentAssertions": "6.12.2",
     "coverlet.collector": "10.0.0",
 }
 EXPECTED_TARGETS = {"net8.0", "net9.0", "net10.0"}
 EXPECTED_TEST_SDK_TRANSITIVES = {
-    "Microsoft.CodeCoverage": "18.8.1",
-    "Microsoft.TestPlatform.ObjectModel": "18.8.1",
-    "Microsoft.TestPlatform.TestHost": "18.8.1",
+    "Microsoft.CodeCoverage": "18.10.1",
+    "Microsoft.TestPlatform.ObjectModel": "18.10.1",
+    "Microsoft.TestPlatform.TestHost": "18.10.1",
 }
 LEDGER_CONTRACT = (
-    "`Microsoft.NET.Test.Sdk` is `18.8.1`, "
-    "`xunit.runner.visualstudio` is `3.1.5`, and "
+    "`Microsoft.NET.Test.Sdk` is `18.10.1`, "
+    "`xunit.runner.visualstudio` is `4.0.0`, and "
     "`coverlet.collector` is `10.0.0`; "
     "`xunit` remains `2.9.3` and `FluentAssertions` remains `6.12.2`"
 )
 DEFERRED_COLLECTOR_CONTRACT = (
-    "`coverlet.collector` `10.0.1` is deferred because its active net10 "
-    "instrumentation produces invalid IL in `MessageHub.DrainQueue`; 10.0.0 is the "
-    "highest stable version verified against that focused coverage reproduction"
+    "`coverlet.collector` `10.0.1` and `10.1.0` are deferred because their active "
+    "instrumentation produces invalid IL in `MessageHub.DrainQueue` (`10.0.1` on net10, "
+    "`10.1.0` on net8 as well); 10.0.0 is the highest stable version verified against "
+    "that focused coverage reproduction"
 )
 
 
@@ -71,8 +72,8 @@ def test_csharp_test_lockfiles_resolve_the_reviewed_stack_for_every_target() -> 
 
             test_sdk = packages["Microsoft.NET.Test.Sdk"]
             assert test_sdk["dependencies"] == {
-                "Microsoft.CodeCoverage": "18.8.1",
-                "Microsoft.TestPlatform.TestHost": "18.8.1",
+                "Microsoft.CodeCoverage": "18.10.1",
+                "Microsoft.TestPlatform.TestHost": "18.10.1",
             }, (lockfile, target)
 
             transitive_metadata = {
@@ -87,7 +88,7 @@ def test_csharp_test_lockfiles_resolve_the_reviewed_stack_for_every_target() -> 
                 for package, version in EXPECTED_TEST_SDK_TRANSITIVES.items()
             }, (lockfile, target)
             assert packages["Microsoft.TestPlatform.TestHost"]["dependencies"] == {
-                "Microsoft.TestPlatform.ObjectModel": "18.8.1"
+                "Microsoft.TestPlatform.ObjectModel": "18.10.1"
             }, (lockfile, target)
             assert "Newtonsoft.Json" not in packages, (lockfile, target)
 

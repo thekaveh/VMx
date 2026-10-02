@@ -129,10 +129,11 @@ def test_dependabot_defers_incompatible_nuget_updates() -> None:
     )
     nuget = config.split("  - package-ecosystem: nuget\n", maxsplit=1)[1]
     expected = {
-        "coverlet.collector": "10.0.1",
-        "coverlet.msbuild": "10.0.1",
+        "coverlet.collector": '10.0.1", "10.1.0',
+        "coverlet.msbuild": '10.0.1", "10.1.0',
         "FluentAssertions": ">=7.0.0",
         "Microsoft.Extensions.DependencyInjection": ">=9.0.0",
+        "xunit.v3": ">=4.0.0",
     }
     for dependency, version in expected.items():
         assert re.search(
@@ -145,6 +146,7 @@ def test_dependabot_defers_incompatible_nuget_updates() -> None:
     assert "88 C# test files" in ledger
     assert "DI implementation runtime `9+` is deferred" in ledger
     assert re.search(r"runtime-floor compatibility\s+evidence", ledger)
+    assert "`xunit.v3` `4+` is deferred" in ledger
 
 
 def test_dependabot_changes_run_the_automation_contracts() -> None:

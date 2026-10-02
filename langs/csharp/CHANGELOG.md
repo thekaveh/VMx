@@ -8,6 +8,10 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
+- The `netstandard2.0` dependency floors of all three packages move to the
+  10.0.12 servicing releases of `System.Text.Json`,
+  `System.Collections.Immutable`, and `Microsoft.Bcl.AsyncInterfaces` (#519).
+
 ### VMx.Notifications
 
 - The NuGet package ships its own README describing the notification hub and
@@ -15,6 +19,8 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx.Extensions.DependencyInjection
 
+- `Microsoft.Extensions.DependencyInjection.Abstractions` moves to 10.0.12
+  (#519).
 - The NuGet package ships its own README describing `AddVMx()` registration
   and its dependency on `VMx` (#351).
 

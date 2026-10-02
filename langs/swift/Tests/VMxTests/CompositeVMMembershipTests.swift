@@ -1,11 +1,13 @@
 //
 // CompositeVMMembershipTests.swift — CompositeVM insert, removeAt, replace,
-// and clear: member order, change events, ownership, rollback, and what
-// happens to `current` when its child leaves.
+// clear, population from another composite, and selection of a non-member:
+// member order, change events, ownership, rollback, and what happens to
+// `current` when its child leaves.
 //
 // Behavior tests without catalog IDs. They cover CompositeVM paths the
 // conformance suite did not exercise when the Swift coverage floor was
-// measured (#362).
+// measured (#362), and membership-transaction paths that only the ownership
+// race tests reached, on whichever side of the race won (#520).
 //
 import Combine
 import XCTest
@@ -185,5 +187,53 @@ final class CompositeVMMembershipTests: XCTestCase {
         XCTAssertNil(owner(of: b))
         XCTAssertEqual(currentChanges, ["nil"])
         XCTAssertEqual(events(), ["reset  new:-1 old:-1"])
+    }
+
+    // MARK: — population and selection
+
+    func testPopulationMovesSeveralChildrenOutOfOneCompositeInOneTransaction() throws {
+        let first = try leaf("first"), second = try leaf("second"), later = try leaf("later")
+        let source = try composite([first, second])
+        let sourceEvents = record(source)
+        let destination = try CompositeVM<ComponentVM>.builder()
+            .name("destination")
+            .withNullServices()
+            .children { [first, second] }
+            .build()
+        let destinationEvents = record(destination)
+
+        try destination.construct()
+
+        XCTAssertEqual(destination.snapshot().map(\.name), ["first", "second"])
+        XCTAssertEqual(source.count, 0)
+        XCTAssertTrue(owner(of: first) === destination)
+        XCTAssertTrue(owner(of: second) === destination)
+        XCTAssertEqual(
+            sourceEvents(),
+            ["remove first new:-1 old:0", "remove second new:-1 old:0"]
+        )
+        XCTAssertEqual(
+            destinationEvents(),
+            ["add first new:0 old:-1", "add second new:1 old:-1"]
+        )
+        // The source joined the destination's transaction once per child and
+        // must be closed again, so it admits a new member.
+        try source.addResult(later).get()
+        XCTAssertEqual(source.snapshot().map(\.name), ["later"])
+    }
+
+    func testSelectingAConstructedNonMemberKeepsCurrent() throws {
+        let a = try leaf("a"), stranger = try leaf("stranger")
+        let sut = try composite([a])
+        sut.current = a
+        currentChanges.removeAll()
+        try stranger.construct()
+
+        sut.selectChild(stranger)
+
+        XCTAssertTrue(sut.current === a)
+        XCTAssertFalse(stranger.isCurrent)
+        XCTAssertNil(owner(of: stranger))
+        XCTAssertEqual(currentChanges, [])
     }
 }
