@@ -6,6 +6,16 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ## [Unreleased]
 
+### Fixed
+
+- `SearchableState`, `TokenPagedComposition`, `FilteredCompositeVM`,
+  `NotificationVM`, `ConfirmationVM`, and `DerivedProperty` now run every
+  teardown step when one raises, such as a completion observer that raises,
+  and then re-raise the first failure, as `FormVM` and the component base
+  already did. Previously the first failure stopped the rest, and because the
+  disposed flag was already set, the remaining subjects, subscriptions, and
+  commands leaked for good (#449).
+
 ## [3.24.0] — unreleased source version
 
 ### Fixed
