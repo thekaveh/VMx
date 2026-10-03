@@ -15,9 +15,16 @@ All notable changes to the C# flavor are documented here. The format is based on
   mutation then throws, a failing deferred teardown no longer replaces the
   mutation's exception. Every teardown step still runs, and a teardown failure
   still surfaces when the mutation succeeds (#448).
+- Fixed: `DerivedProperty` and `SearchableState` now run every teardown step
+  when a completion observer throws, then rethrow the first failure. Before,
+  the remaining subjects were never completed or disposed (#538).
 
 ### VMx.Notifications
 
+- Fixed: `NotificationVM` disposes every subscription and its dismiss command
+  when one disposal throws, and `ConfirmationVM` disposes its approve and reject
+  commands even when the base teardown throws. The first failure is rethrown
+  after every step (#538).
 - The NuGet package ships its own README describing the notification hub and
   its dependency on `VMx` (#351).
 

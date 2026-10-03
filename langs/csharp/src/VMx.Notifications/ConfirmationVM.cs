@@ -1,4 +1,5 @@
 using System.Reactive.Concurrency;
+using System.Runtime.ExceptionServices;
 using System.Windows.Input;
 using VMx.Commands;
 
@@ -62,12 +63,16 @@ public sealed class ConfirmationVM : NotificationVM
     /// <inheritdoc/>
     protected override void Dispose(bool disposing)
     {
-        base.Dispose(disposing);
+        // The commands are disposed even when the base teardown throws; the
+        // first failure is rethrown after every step.
+        ExceptionDispatchInfo? firstError = null;
+        CaptureDisposalFailure(ref firstError, () => base.Dispose(disposing));
 
         if (disposing)
         {
-            if (ApproveCommand is IDisposable a) a.Dispose();
-            if (RejectCommand is IDisposable r) r.Dispose();
+            if (ApproveCommand is IDisposable a) CaptureDisposalFailure(ref firstError, a.Dispose);
+            if (RejectCommand is IDisposable r) CaptureDisposalFailure(ref firstError, r.Dispose);
         }
+        firstError?.Throw();
     }
 }

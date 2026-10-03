@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Reactive.Linq;
 using System.Reactive.Subjects;
+using System.Runtime.ExceptionServices;
 
 namespace VMx.Properties;
 
@@ -79,9 +80,19 @@ public sealed class DerivedProperty<TValue> : IDisposable
     {
         if (_disposed) return;
         _disposed = true;
-        _subscription.Dispose();
-        _changes.OnCompleted();
-        _changes.Dispose();
+        // Best-effort teardown: a throwing completion observer must not skip
+        // disposing the subject. Run every step, then rethrow the first failure.
+        ExceptionDispatchInfo? firstError = null;
+        CaptureDisposalFailure(ref firstError, _subscription.Dispose);
+        CaptureDisposalFailure(ref firstError, _changes.OnCompleted);
+        CaptureDisposalFailure(ref firstError, _changes.Dispose);
+        firstError?.Throw();
+    }
+
+    private static void CaptureDisposalFailure(ref ExceptionDispatchInfo? firstError, Action action)
+    {
+        try { action(); }
+        catch (Exception error) { firstError ??= ExceptionDispatchInfo.Capture(error); }
     }
 }
 
