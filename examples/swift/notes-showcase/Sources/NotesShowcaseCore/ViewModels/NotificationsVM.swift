@@ -9,6 +9,10 @@
 // (`visible`, capped at `cap`, default 5). Deduplicates by Notification
 // identity and removes resolved notifications when the hub no longer lists them.
 //
+// A dispatcher that runs foreground work inline (such as `ImmediateDispatcher`)
+// can deliver a pending snapshot on another thread while this VM is cleared, so
+// the collections change only under a lock and are closed on destruct/dispose.
+//
 // Cross-module subclassing enabled by ADR-0066: `hub`, `dispatcher`, and
 // `_notifyPropertyChanged` are `public` on `ComponentVMBase`.
 //
@@ -33,9 +37,14 @@ public final class NotificationsVM: ComponentVMBase {
     private let _lifespan: TimeInterval?
     private let _cap: Int
 
+    /// Guards `_visible`, `_map`, and `_closed`. Never held while a
+    /// `NotificationVM` is disposed or a change is published.
+    private let _stateLock = NSLock()
     private var _visible: [NotificationVM] = []
     /// Keyed by `ObjectIdentifier(notification)` for O(1) dedup.
     private var _map: [ObjectIdentifier: NotificationVM] = [:]
+    /// Set on destruct/dispose so a delivery that arrives late changes nothing.
+    private var _closed = false
     private var _pendingCancellable: AnyCancellable?
 
     // ── Public surface ─────────────────────────────────────────────────────
@@ -44,7 +53,7 @@ public final class NotificationsVM: ComponentVMBase {
     ///
     /// Updated synchronously on the foreground thread; observers may re-read
     /// this after receiving a `"visible"` `PropertyChangedMessage` on the hub.
-    public var visible: [NotificationVM] { _visible }
+    public var visible: [NotificationVM] { _stateLock.withLock { _visible } }
 
     /// Maximum number of concurrently rendered notifications.
     public var cap: Int { _cap }
@@ -81,6 +90,7 @@ public final class NotificationsVM: ComponentVMBase {
     /// Marshal every sync to the foreground dispatcher to keep collection
     /// mutations on the UI thread.
     public override func _onConstruct() throws {
+        _stateLock.withLock { _closed = false }
         _pendingCancellable = _notificationHub.pending
             .sink { [weak self] pending in
                 guard let self else { return }
@@ -110,48 +120,64 @@ public final class NotificationsVM: ComponentVMBase {
     /// Mirrors C# `SyncFromPending`: add VMs for new notifications, drop
     /// oldest when over cap, remove VMs whose notifications resolved.
     private func syncFromPending(_ pending: [VMx.Notification]) {
-        // Add VMs for new pending notifications, respecting cap.
-        for n in pending {
-            let key = ObjectIdentifier(n)
-            if _map[key] != nil { continue }
+        // Building a `NotificationVM` only subscribes to the hub, so it stays in
+        // this one ordered pass under the lock. Disposal and the change
+        // notification reach observers, so they run after it (ADR-0117).
+        var released: [NotificationVM] = []
+        let changed = _stateLock.withLock { () -> Bool in
+            guard !_closed else { return false }
 
-            let lifespan = _lifespan ?? 60.0
-            let vm = NotificationVM(
-                notification: n,
-                hub: _notificationHub,
-                scheduler: _scheduler,
-                lifespan: lifespan
-            )
-            _map[key] = vm
-            _visible.append(vm)
+            // Add VMs for new pending notifications, respecting cap.
+            for n in pending {
+                let key = ObjectIdentifier(n)
+                if _map[key] != nil { continue }
 
-            // Drop oldest while over cap.
-            while _visible.count > _cap {
-                let oldest = _visible.removeFirst()
-                if let oldKey = _map.first(where: { $0.value === oldest })?.key {
-                    _map.removeValue(forKey: oldKey)
+                let lifespan = _lifespan ?? 60.0
+                let vm = NotificationVM(
+                    notification: n,
+                    hub: _notificationHub,
+                    scheduler: _scheduler,
+                    lifespan: lifespan
+                )
+                _map[key] = vm
+                _visible.append(vm)
+
+                // Drop oldest while over cap.
+                while _visible.count > _cap {
+                    let oldest = _visible.removeFirst()
+                    if let oldKey = _map.first(where: { $0.value === oldest })?.key {
+                        _map.removeValue(forKey: oldKey)
+                    }
+                    released.append(oldest)
                 }
-                oldest.dispose()
             }
+
+            // Remove VMs whose notifications are no longer pending.
+            let stillPendingKeys = Set(pending.map { ObjectIdentifier($0) })
+            let keysToRemove = _map.keys.filter { !stillPendingKeys.contains($0) }
+            for key in keysToRemove {
+                if let vm = _map.removeValue(forKey: key) {
+                    _visible.removeAll { $0 === vm }
+                    released.append(vm)
+                }
+            }
+            return true
         }
 
-        // Remove VMs whose notifications are no longer pending.
-        let stillPendingKeys = Set(pending.map { ObjectIdentifier($0) })
-        let keysToRemove = _map.keys.filter { !stillPendingKeys.contains($0) }
-        for key in keysToRemove {
-            if let vm = _map.removeValue(forKey: key) {
-                _visible.removeAll { $0 === vm }
-                vm.dispose()
-            }
-        }
-
-        _notifyPropertyChanged("visible")
+        for vm in released { vm.dispose() }
+        if changed { _notifyPropertyChanged("visible") }
     }
 
     private func clearVisible() {
-        for vm in _visible { vm.dispose() }
-        _visible.removeAll()
-        _map.removeAll()
+        let released = _stateLock.withLock { () -> [NotificationVM] in
+            _closed = true
+            defer {
+                _visible.removeAll()
+                _map.removeAll()
+            }
+            return _visible
+        }
+        for vm in released { vm.dispose() }
     }
 
     // ── Builder ────────────────────────────────────────────────────────────
