@@ -270,6 +270,51 @@ jobs:
         # future stuck async scenario immediately attributable in CI logs.
         run: swift test --parallel
 
+  hang-probe:
+    # Temporary (#533): finds the intermittent NotesShowcase test hang. It is
+    # not required and is removed before the fix merges.
+    name: notes-showcase hang probe (temporary, #533)
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build NotesShowcase tests
+        working-directory: examples/swift/notes-showcase
+        run: swift build --build-tests
+      - name: Repeat the parallel suite and sample any hang
+        working-directory: examples/swift/notes-showcase
+        run: |
+          set -u
+          runs=300 hangs=0 failures=0
+          for i in $(seq 1 "$runs"); do
+            swift test --skip-build --parallel > run.log 2>&1 &
+            pid=$!
+            for _ in $(seq 1 90); do
+              kill -0 "$pid" 2>/dev/null || break
+              sleep 1
+            done
+            if kill -0 "$pid" 2>/dev/null; then
+              hangs=$((hangs + 1))
+              echo "::group::HANG in run $i"
+              grep 'Testing ' run.log | tail -4
+              ps -axo pid,etime,args | grep '[x]ctest'
+              for x in $(pgrep -x xctest); do
+                sample "$x" 3 -mayDie -file "sample-$i-$x.txt" > /dev/null 2>&1
+                cat "sample-$i-$x.txt"
+              done
+              echo "::endgroup::"
+              pkill -x xctest || true
+              kill "$pid" 2>/dev/null || true
+              wait "$pid" 2>/dev/null || true
+            elif ! wait "$pid"; then
+              failures=$((failures + 1))
+              echo "::group::FAILURE in run $i"
+              tail -40 run.log
+              echo "::endgroup::"
+            fi
+          done
+          echo "runs=$runs hangs=$hangs failures=$failures"
+
   coverage:
     name: coverage floor
     runs-on: macos-15
