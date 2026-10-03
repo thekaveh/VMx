@@ -2,6 +2,7 @@ using System.Reactive.Subjects;
 using FluentAssertions;
 using VMx.Commands;
 using Xunit;
+using static VMx.Tests.Helpers.Liveness;
 
 namespace VMx.Conformance.Tests;
 
@@ -184,7 +185,7 @@ public class CommandDecoratorsConformanceTests
 
         rejecting.Execute(null); // fire-and-forget across the async confirm gate
 
-        var done1 = await Task.WhenAny(observedReject.Task, Task.Delay(TimeSpan.FromSeconds(5)));
+        var done1 = await Task.WhenAny(observedReject.Task, Task.Delay(HangGuard));
         done1.Should().BeSameAs(observedReject.Task, "a rejecting confirm must surface on Errors, not be swallowed");
         (await observedReject.Task).Should().BeSameAs(confirmBoom);
 
@@ -198,7 +199,7 @@ public class CommandDecoratorsConformanceTests
 
         confirming.Execute(null);
 
-        var done2 = await Task.WhenAny(observedInner.Task, Task.Delay(TimeSpan.FromSeconds(5)));
+        var done2 = await Task.WhenAny(observedInner.Task, Task.Delay(HangGuard));
         done2.Should().BeSameAs(observedInner.Task, "a throwing inner command must surface on Errors");
         (await observedInner.Task).Should().BeSameAs(innerBoom);
     }
@@ -347,7 +348,7 @@ public class CommandDecoratorsConformanceTests
                 TaskScheduler.Default);
             start.SignalAndWait();
             decorator.Dispose();
-            await resolver.WaitAsync(TimeSpan.FromSeconds(30));
+            await resolver.WaitAsync(HangGuard);
 
             Volatile.Read(ref runs).Should().BeLessThanOrEqualTo(outcome == "true" ? 1 : 0);
             lock (events)

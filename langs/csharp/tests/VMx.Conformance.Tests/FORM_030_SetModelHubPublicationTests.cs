@@ -4,6 +4,7 @@ using VMx.Forms;
 using VMx.Messages;
 using VMx.Services;
 using Xunit;
+using static VMx.Tests.Helpers.Liveness;
 
 namespace VMx.Conformance.Tests;
 
@@ -142,7 +143,7 @@ public sealed class FORM_030_SetModelHubPublicationTests
                 if (model.Value == "accepted")
                 {
                     validationEntered.SetResult();
-                    releaseValidation.Wait(TimeSpan.FromSeconds(1)).Should().BeTrue();
+                    releaseValidation.Wait(HangGuard).Should().BeTrue();
                 }
 
                 return null;
@@ -155,7 +156,7 @@ public sealed class FORM_030_SetModelHubPublicationTests
             validators: validators);
 
         var setter = Task.Run(() => form.SetModel(new Model("accepted")));
-        await validationEntered.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        await validationEntered.Task.WaitAsync(HangGuard);
 
         var disposer = Task.Run(() =>
         {
@@ -167,7 +168,7 @@ public sealed class FORM_030_SetModelHubPublicationTests
             Task.Delay(TimeSpan.FromMilliseconds(100))) == disposeFinished.Task;
         releaseValidation.Set();
 
-        await Task.WhenAll(setter, disposer).WaitAsync(TimeSpan.FromSeconds(1));
+        await Task.WhenAll(setter, disposer).WaitAsync(HangGuard);
         disposedDuringValidation.Should().BeFalse();
         form.Model.Should().Be(new Model("accepted"));
     }
@@ -264,7 +265,7 @@ public sealed class FORM_030_SetModelHubPublicationTests
         armed = true;
 
         var blocker = Task.Run(() => innerHub.Send(new FormRevertedMessage(blockerSender, "blocker")));
-        await blockerEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await blockerEntered.Task.WaitAsync(HangGuard);
         var mutator = Task.Run(() =>
         {
             if (deny)
@@ -272,7 +273,7 @@ public sealed class FORM_030_SetModelHubPublicationTests
             else
                 form.SetModel(new Model("outer"));
         });
-        await formSendStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await formSendStarted.Task.WaitAsync(HangGuard);
         releaseBlocker.Set();
 
         // Await the deterministic reentry signal directly instead of racing it
@@ -282,7 +283,7 @@ public sealed class FORM_030_SetModelHubPublicationTests
         bool reenteredWithoutDeadlock;
         try
         {
-            await reentryFinished.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await reentryFinished.Task.WaitAsync(HangGuard);
             reenteredWithoutDeadlock = true;
         }
         catch (TimeoutException)
@@ -290,7 +291,7 @@ public sealed class FORM_030_SetModelHubPublicationTests
             reenteredWithoutDeadlock = false;
         }
         if (!reenteredWithoutDeadlock) innerHub.Dispose();
-        await Task.WhenAll(mutator, blocker).WaitAsync(TimeSpan.FromSeconds(5));
+        await Task.WhenAll(mutator, blocker).WaitAsync(HangGuard);
         if (reenteredWithoutDeadlock) innerHub.Dispose();
 
         reenteredWithoutDeadlock.Should().BeTrue();
