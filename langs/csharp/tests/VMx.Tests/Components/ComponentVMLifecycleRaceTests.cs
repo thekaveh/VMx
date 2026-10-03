@@ -14,6 +14,7 @@ using VMx.Messages;
 using VMx.Services;
 using VMx.Tests.Helpers;
 using Xunit;
+using static VMx.Tests.Helpers.Liveness;
 
 namespace VMx.Tests.Components;
 
@@ -23,12 +24,6 @@ namespace VMx.Tests.Components;
 /// </summary>
 public class ComponentVMLifecycleRaceTests
 {
-    // Liveness bound for waits on dedicated or pool threads (#537). A cold,
-    // oversubscribed Windows runner collecting coverage can delay a thread by
-    // seconds, so short deadlines failed without any wrong behavior. A passing
-    // wait returns as soon as its condition holds, so the bound costs nothing.
-    private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(30);
-
     private static (ComponentVM<string> vm, TestHub hub, TestDispatcher dispatcher) BuildBackgroundVm()
     {
         var hub = new TestHub();
@@ -54,7 +49,7 @@ public class ComponentVMLifecycleRaceTests
             .Model("first")
             .OnConstruct(() =>
             {
-                barrier.SignalAndWait(TimeSpan.FromSeconds(30));
+                barrier.SignalAndWait(HangGuard);
                 second!.Dispose();
             })
             .Build();
@@ -64,7 +59,7 @@ public class ComponentVMLifecycleRaceTests
             .Model("second")
             .OnConstruct(() =>
             {
-                barrier.SignalAndWait(TimeSpan.FromSeconds(30));
+                barrier.SignalAndWait(HangGuard);
                 first.Dispose();
             })
             .Build();
@@ -83,7 +78,7 @@ public class ComponentVMLifecycleRaceTests
                 CancellationToken.None,
                 TaskCreationOptions.LongRunning,
                 TaskScheduler.Default));
-        (await Task.WhenAny(transitions, Task.Delay(TimeSpan.FromSeconds(30))))
+        (await Task.WhenAny(transitions, Task.Delay(HangGuard)))
             .Should().BeSameAs(transitions, "cross-disposal from admitted hooks must not deadlock");
         await transitions;
         first.Status.Should().Be(ConstructionStatus.Disposed);
@@ -99,12 +94,12 @@ public class ComponentVMLifecycleRaceTests
         FailingHookDisposeVM? second = null;
         first = new FailingHookDisposeVM("first", cleanupOrder, () =>
         {
-            barrier.SignalAndWait(TimeSpan.FromSeconds(2));
+            barrier.SignalAndWait(HangGuard);
             second!.Dispose();
         });
         second = new FailingHookDisposeVM("second", cleanupOrder, () =>
         {
-            barrier.SignalAndWait(TimeSpan.FromSeconds(2));
+            barrier.SignalAndWait(HangGuard);
             first.Dispose();
         });
         var failures = new ConcurrentQueue<Exception>();
@@ -112,7 +107,7 @@ public class ComponentVMLifecycleRaceTests
         var transitions = Task.WhenAll(
             Task.Run(() => RecordFailure(first.Construct, failures)),
             Task.Run(() => RecordFailure(second.Construct, failures)));
-        (await Task.WhenAny(transitions, Task.Delay(TimeSpan.FromSeconds(3))))
+        (await Task.WhenAny(transitions, Task.Delay(HangGuard)))
             .Should().BeSameAs(transitions);
         await transitions;
 
@@ -233,7 +228,7 @@ public class ComponentVMLifecycleRaceTests
 
         var task = vm.ConstructAsync();
 
-        var completed = await Task.WhenAny(task, Task.Delay(TimeSpan.FromSeconds(1)));
+        var completed = await Task.WhenAny(task, Task.Delay(HangGuard));
         completed.Should().BeSameAs(task,
             "lifecycle completion must not depend on a message hub publishing status messages");
         await task;
@@ -253,7 +248,7 @@ public class ComponentVMLifecycleRaceTests
 
         var task = vm.DestructAsync();
 
-        var completed = await Task.WhenAny(task, Task.Delay(TimeSpan.FromSeconds(1)));
+        var completed = await Task.WhenAny(task, Task.Delay(HangGuard));
         completed.Should().BeSameAs(task,
             "lifecycle completion must not depend on a message hub publishing status messages");
         await task;
@@ -289,7 +284,7 @@ public class ComponentVMLifecycleRaceTests
         vm.Dispose();
         dispatcher.BackgroundScheduler.AdvanceBy(1);
 
-        var completed = await Task.WhenAny(task, Task.Delay(TimeSpan.FromSeconds(5)));
+        var completed = await Task.WhenAny(task, Task.Delay(HangGuard));
         completed.Should().BeSameAs(task,
             "the awaiter must observe the Disposed transition instead of hanging");
         vm.Status.Should().Be(ConstructionStatus.Disposed);
@@ -367,7 +362,7 @@ public class ComponentVMLifecycleRaceTests
                 // parent wires its continuation, so the fault surfaces
                 // synchronously from ConstructAsync — an equally-legal ADR-0109
                 // path, but the source of this test's prior CI-only flake.
-                release.Wait(TimeSpan.FromSeconds(15));
+                release.Wait(HangGuard);
                 throw failure;
             })
             .Build();
@@ -381,7 +376,7 @@ public class ComponentVMLifecycleRaceTests
         release.Set();
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(
-            async () => await task.WaitAsync(TimeSpan.FromSeconds(15)));
+            async () => await task.WaitAsync(HangGuard));
         error.Should().BeSameAs(failure);
         child.Status.Should().Be(ConstructionStatus.Destructed);
         parent.Status.Should().Be(ConstructionStatus.Destructed);
@@ -408,7 +403,7 @@ public class ComponentVMLifecycleRaceTests
             .Build();
 
         var first = Task.Run(vm.Construct);
-        started.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue("the first construct entered its hook");
+        started.Wait(HangGuard).Should().BeTrue("the first construct entered its hook");
 
         Action second = vm.Construct;
         second.Should().Throw<StatusTransitionException>(
@@ -459,7 +454,7 @@ public class ComponentVMLifecycleRaceTests
         vm.Construct();
 
         var first = Task.Run(vm.Destruct);
-        started.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue("the first destruct entered its hook");
+        started.Wait(HangGuard).Should().BeTrue("the first destruct entered its hook");
 
         Action second = vm.Destruct;
         second.Should().Throw<StatusTransitionException>(
@@ -638,7 +633,7 @@ public class ComponentVMLifecycleRaceTests
                 TaskCreationOptions.LongRunning,
                 TaskScheduler.Default));
 
-        await transitions.WaitAsync(TimeSpan.FromSeconds(30));
+        await transitions.WaitAsync(HangGuard);
         first.Status.Should().Be(ConstructionStatus.Disposed);
         second.Status.Should().Be(ConstructionStatus.Disposed);
     }

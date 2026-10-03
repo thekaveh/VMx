@@ -8,6 +8,7 @@ using VMx.Services;
 using VMx.State;
 using VMx.Tests.Helpers;
 using Xunit;
+using static VMx.Tests.Helpers.Liveness;
 
 namespace VMx.Conformance.Tests;
 
@@ -122,7 +123,7 @@ public sealed class AsyncResourceVMConformanceTests
         using var subscription = vm.LoadCommand.Errors.Subscribe(observed.SetResult);
 
         vm.LoadCommand.Execute(null);
-        var error = await observed.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        var error = await observed.Task.WaitAsync(HangGuard);
 
         error.Should().BeOfType<InvalidOperationException>()
             .Which.Message.Should().Be("start observer");
@@ -179,7 +180,7 @@ public sealed class AsyncResourceVMConformanceTests
         if (fireAndForget)
         {
             vm.LoadCommand.Execute(null);
-            var error = await observed.Task.WaitAsync(TimeSpan.FromSeconds(2));
+            var error = await observed.Task.WaitAsync(HangGuard);
             error.Should().BeOfType<InvalidOperationException>()
                 .Which.Message.Should().Be("completion observer");
         }

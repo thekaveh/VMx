@@ -3,6 +3,7 @@ using Microsoft.Reactive.Testing;
 using System.Reactive.Concurrency;
 using VMx.Notifications;
 using Xunit;
+using static VMx.Tests.Helpers.Liveness;
 
 namespace VMx.Conformance.Tests;
 
@@ -12,12 +13,6 @@ namespace VMx.Conformance.Tests;
 /// </summary>
 public class NOTIF_011_to_016_RenderingVMs_Tests
 {
-    // Liveness bound for waits on dedicated or pool threads (#537). A cold,
-    // oversubscribed Windows runner collecting coverage can delay a thread by
-    // seconds, so short deadlines failed without any wrong behavior. A passing
-    // wait returns as soon as its condition holds, so the bound costs nothing.
-    private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(30);
-
     // ── NOTIF-011 ─────────────────────────────────────────────────────────────
 
     /// <summary>NOTIF-011: NotificationVM opacity decays linearly from 1.0 to 0.0 over Lifespan.</summary>

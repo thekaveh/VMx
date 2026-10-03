@@ -7,6 +7,7 @@ using VMx.Lifecycle;
 using VMx.Messages;
 using VMx.Tests.Helpers;
 using Xunit;
+using static VMx.Tests.Helpers.Liveness;
 
 namespace VMx.Tests.Aggregates;
 
@@ -29,7 +30,7 @@ public class AggregateVMTests
         protected override void OnDispose()
         {
             entered.Set();
-            if (!release.Wait(TimeSpan.FromSeconds(2)))
+            if (!release.Wait(HangGuard))
                 throw new TimeoutException("test did not release blocked slot disposal");
         }
     }
@@ -504,7 +505,7 @@ public class AggregateVMTests
                     if (Interlocked.Increment(ref calls) == 1)
                         return new BlockingDisposeVM(
                             $"{name}-old", hub, dispatcher, disposalEntered, releaseDisposal);
-                    if (!factoriesReady.SignalAndWait(TimeSpan.FromSeconds(2)))
+                    if (!factoriesReady.SignalAndWait(HangGuard))
                         throw new TimeoutException("candidate factories did not rendezvous");
                     return candidate;
                 })
@@ -520,7 +521,7 @@ public class AggregateVMTests
             Task.Run(() => Record.Exception(first.Reconstruct)),
             Task.Run(() => Record.Exception(second.Reconstruct)),
         };
-        disposalEntered.Wait(TimeSpan.FromSeconds(2)).Should().BeTrue();
+        disposalEntered.Wait(HangGuard).Should().BeTrue();
         releaseDisposal.Set();
         var errors = await Task.WhenAll(attempts);
 
@@ -637,7 +638,7 @@ public class AggregateVMTests
         aggregate.Construct();
 
         var reconstruction = Task.Run(aggregate.Reconstruct);
-        disposalEntered.Wait(TimeSpan.FromSeconds(2)).Should().BeTrue();
+        disposalEntered.Wait(HangGuard).Should().BeTrue();
         var disposal = Task.Run(aggregate.Dispose);
         await Task.Delay(50);
         disposal.IsCompleted.Should().BeFalse();

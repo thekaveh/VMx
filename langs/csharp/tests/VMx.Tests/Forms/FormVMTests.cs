@@ -3,6 +3,7 @@ using VMx.Forms;
 using VMx.Messages;
 using VMx.Services;
 using Xunit;
+using static VMx.Tests.Helpers.Liveness;
 
 namespace VMx.Tests.Forms;
 
@@ -433,7 +434,7 @@ public class FormVMTests
 
         // The post-await path must observe _disposed and skip the emissions
         // instead of throwing ObjectDisposedException in an unobserved task.
-        var completed = await Task.WhenAny(approve, Task.Delay(TimeSpan.FromSeconds(5)));
+        var completed = await Task.WhenAny(approve, Task.Delay(HangGuard));
         completed.Should().BeSameAs(approve);
         await approve;
     }
@@ -479,7 +480,7 @@ public class FormVMTests
         pauseSnapshot = true;
 
         var denier = Task.Run(() => sut.DenyCommand.Execute(null));
-        await snapshotStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await snapshotStarted.Task.WaitAsync(HangGuard);
 
         var disposer = Task.Run(() =>
         {
@@ -491,7 +492,7 @@ public class FormVMTests
             Task.Delay(TimeSpan.FromMilliseconds(100))) == disposeFinished.Task;
         releaseSnapshot.Set();
 
-        await Task.WhenAll(denier, disposer).WaitAsync(TimeSpan.FromSeconds(5));
+        await Task.WhenAll(denier, disposer).WaitAsync(HangGuard);
         disposedDuringSnapshot.Should().BeFalse();
         sut.Model.Should().Be(new Model("A", 1));
     }
@@ -528,7 +529,7 @@ public class FormVMTests
 
         sut.ApproveCommand.Execute(null); // fire-and-forget
 
-        var completed = await Task.WhenAny(observed.Task, Task.Delay(TimeSpan.FromSeconds(5)));
+        var completed = await Task.WhenAny(observed.Task, Task.Delay(HangGuard));
         completed.Should().BeSameAs(observed.Task, "the persister failure must be observed on ApproveErrors");
         (await observed.Task).Should().BeSameAs(boom, "the original persister exception is surfaced");
         sut.IsDirty.Should().BeTrue("a failed persist must not advance the snapshot");
@@ -562,13 +563,13 @@ public class FormVMTests
         });
 
         var execute = Task.Run(() => sut.ApproveCommand.Execute(null));
-        observerEntered.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue();
+        observerEntered.Wait(HangGuard).Should().BeTrue();
         var dispose = Task.Run(() =>
         {
             disposeStarted.Set();
             sut.Dispose();
         });
-        disposeStarted.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue();
+        disposeStarted.Wait(HangGuard).Should().BeTrue();
 
         try
         {

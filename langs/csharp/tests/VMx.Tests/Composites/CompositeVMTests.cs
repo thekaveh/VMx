@@ -8,6 +8,7 @@ using VMx.Messages;
 using VMx.Tests.Components;
 using VMx.Tests.Helpers;
 using Xunit;
+using static VMx.Tests.Helpers.Liveness;
 
 namespace VMx.Tests.Composites;
 
@@ -17,12 +18,6 @@ namespace VMx.Tests.Composites;
 /// </summary>
 public class CompositeVMTests
 {
-    // Liveness bound for waits on dedicated or pool threads (#537). A cold,
-    // oversubscribed Windows runner collecting coverage can delay a thread by
-    // seconds, so short deadlines failed without any wrong behavior. A passing
-    // wait returns as soon as its condition holds, so the bound costs nothing.
-    private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(30);
-
     private sealed class BlockingTransferParent : IParentCompositeVM
     {
         internal ManualResetEventSlim Entered { get; } = new(false);
@@ -38,7 +33,7 @@ public class CompositeVMTests
         public ParentTransferToken DetachForTransfer(IComponentVM vm)
         {
             Entered.Set();
-            if (!Release.Wait(TimeSpan.FromSeconds(2)))
+            if (!Release.Wait(HangGuard))
                 throw new TimeoutException("transfer was not released");
             return new ParentTransferToken(() => { }, () => { });
         }
@@ -141,16 +136,16 @@ public class CompositeVMTests
             if (args.PropertyName == nameof(first.IsCurrent) && !first.IsCurrent)
             {
                 entered.Set();
-                release.Wait(TimeSpan.FromSeconds(5));
+                release.Wait(HangGuard);
             }
         };
 
         var selectFirst = Task.Run(() => composite.Current = second);
-        entered.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue();
+        entered.Wait(HangGuard).Should().BeTrue();
         var selectSecond = Task.Run(() => composite.Current = third);
-        await selectSecond.WaitAsync(TimeSpan.FromSeconds(5));
+        await selectSecond.WaitAsync(HangGuard);
         release.Set();
-        await selectFirst.WaitAsync(TimeSpan.FromSeconds(5));
+        await selectFirst.WaitAsync(HangGuard);
 
         composite.Current.Should().BeSameAs(third);
         first.IsCurrent.Should().BeFalse();
@@ -709,7 +704,7 @@ public class CompositeVMTests
             .Build();
 
         composite.Construct();
-        started.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue();
+        started.Wait(HangGuard).Should().BeTrue();
         var parentStatusWhileChildRuns = composite.Status;
         release.Set();
         await Task.WhenAll(dispatcher.PendingWork);
@@ -781,7 +776,7 @@ public class CompositeVMTests
         await composite.ConstructAsync();
 
         composite.Destruct();
-        started.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue();
+        started.Wait(HangGuard).Should().BeTrue();
         var parentStatusWhileChildRuns = composite.Status;
         release.Set();
         await Task.WhenAll(dispatcher.PendingWork);
@@ -834,15 +829,15 @@ public class CompositeVMTests
         try
         {
             reconstruct = composite.ReconstructAsync();
-            destructStarted.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue();
+            destructStarted.Wait(HangGuard).Should().BeTrue();
             composite.Status.Should().Be(ConstructionStatus.Destructing);
 
             destructRelease.Set();
-            reconstructStarted.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue();
+            reconstructStarted.Wait(HangGuard).Should().BeTrue();
             composite.Status.Should().Be(ConstructionStatus.Constructing);
 
             reconstructRelease.Set();
-            var completed = await Task.WhenAny(reconstruct, Task.Delay(TimeSpan.FromSeconds(5)));
+            var completed = await Task.WhenAny(reconstruct, Task.Delay(HangGuard));
             completed.Should().BeSameAs(reconstruct);
             await reconstruct;
         }

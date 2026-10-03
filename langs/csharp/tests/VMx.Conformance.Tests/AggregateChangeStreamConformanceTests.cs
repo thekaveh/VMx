@@ -6,6 +6,7 @@ using VMx.Composites;
 using VMx.Groups;
 using VMx.Tests.Helpers;
 using Xunit;
+using static VMx.Tests.Helpers.Liveness;
 
 namespace VMx.Conformance.Tests;
 
@@ -116,7 +117,7 @@ public sealed class AggregateChangeStreamConformanceTests
         };
 
         using var setupStructuralAggregate = CreateAggregate(setupStructuralSource);
-        Assert.True(setupStructuralThread!.Join(TimeSpan.FromSeconds(5)));
+        Assert.True(setupStructuralThread!.Join(HangGuard));
         Assert.Equal(1, setupStructuralRaced.Changes.SubscribeCount);
         Assert.Empty(setupStructuralObserved);
         setupStructuralSubscription!.Dispose();
@@ -134,7 +135,7 @@ public sealed class AggregateChangeStreamConformanceTests
         setupItem.Changes.EmitFromBackgroundOnSubscribe = true;
 
         using var setupItemAggregate = CreateAggregate(setupItemSource);
-        Assert.True(setupItem.Changes.BackgroundEmitThread!.Join(TimeSpan.FromSeconds(5)));
+        Assert.True(setupItem.Changes.BackgroundEmitThread!.Join(HangGuard));
         Assert.Empty(setupItemObserved);
         setupItemSubscription!.Dispose();
     }

@@ -1,6 +1,7 @@
 using FluentAssertions;
 using VMx.Notifications;
 using Xunit;
+using static VMx.Tests.Helpers.Liveness;
 
 namespace VMx.Conformance.Tests;
 
@@ -234,18 +235,17 @@ public class NotificationsConformanceTests
         // on dedicated threads: progress must not depend on thread-pool injection
         // under the parallel runner. Timeouts are hang guards only; a deadlock
         // never completes and still fails the test.
-        var hangGuard = TimeSpan.FromSeconds(30);
         using var callbacksReady = new Barrier(2);
         using var firstSubscription = first.Pending.Subscribe(snapshot =>
         {
             if (!snapshot.Contains(firstNotification)) return;
-            callbacksReady.SignalAndWait(hangGuard).Should().BeTrue();
+            callbacksReady.SignalAndWait(HangGuard).Should().BeTrue();
             second.Resolve(secondNotification, NotificationReaction.Approve);
         });
         using var secondSubscription = second.Pending.Subscribe(snapshot =>
         {
             if (!snapshot.Contains(secondNotification)) return;
-            callbacksReady.SignalAndWait(hangGuard).Should().BeTrue();
+            callbacksReady.SignalAndWait(HangGuard).Should().BeTrue();
             first.Resolve(firstNotification, NotificationReaction.Approve);
         });
 
@@ -264,7 +264,7 @@ public class NotificationsConformanceTests
         };
         var allPosts = Task.WhenAll(posts);
 
-        var completed = await Task.WhenAny(allPosts, Task.Delay(hangGuard));
+        var completed = await Task.WhenAny(allPosts, Task.Delay(HangGuard));
 
         completed.Should().BeSameAs(allPosts, "opposing callbacks must make progress");
         await allPosts;
