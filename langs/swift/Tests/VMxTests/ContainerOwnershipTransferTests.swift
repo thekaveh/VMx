@@ -864,6 +864,60 @@ final class ContainerOwnershipTransferTests: XCTestCase {
         XCTAssertTrue(group.at(0) === groupChild)
     }
 
+    func testPopulationWaitsForAnotherThreadsOpenTransactionOnTheOldParent() throws {
+        // The old parent has attached `child` and released its reservation,
+        // but its membership transaction stays open while `child` constructs.
+        // A population on another thread must wait for that transaction to
+        // end, as C# does, instead of failing to detach `child` (#551).
+        let hookEntered = DispatchSemaphore(value: 0)
+        let releaseHook = DispatchSemaphore(value: 0)
+        let child = try ComponentVM.builder()
+            .name("child")
+            .withNullServices()
+            .onConstruct {
+                hookEntered.signal()
+                _ = releaseHook.wait(timeout: .now() + 10)
+            }
+            .build()
+        let oldParent = GroupVM<ComponentVM>(
+            name: "old-parent",
+            hub: NullMessageHub.INSTANCE,
+            dispatcher: NullDispatcher.INSTANCE,
+            childrenFactory: { [child] }
+        )
+        let destination = CompositeVM<ComponentVM>(
+            name: "destination",
+            hub: NullMessageHub.INSTANCE,
+            dispatcher: NullDispatcher.INSTANCE,
+            childrenFactory: { [child] }
+        )
+        let errors = OwnershipErrorStore()
+        let oldParentDone = DispatchSemaphore(value: 0)
+        let destinationDone = DispatchSemaphore(value: 0)
+
+        DispatchQueue.global().async {
+            do { try oldParent.construct() } catch { errors.append(error) }
+            oldParentDone.signal()
+        }
+        XCTAssertEqual(hookEntered.wait(timeout: .now() + 10), .success)
+        DispatchQueue.global().async {
+            do { try destination.construct() } catch { errors.append(error) }
+            destinationDone.signal()
+        }
+
+        XCTAssertEqual(
+            destinationDone.wait(timeout: .now() + 0.2), .timedOut,
+            "the destination must wait for the open transaction: \(errors.errors)"
+        )
+        releaseHook.signal()
+        XCTAssertEqual(oldParentDone.wait(timeout: .now() + 10), .success)
+        XCTAssertEqual(destinationDone.wait(timeout: .now() + 10), .success)
+        XCTAssertTrue(errors.errors.isEmpty, "\(errors.errors)")
+        XCTAssertEqual(oldParent.count, 0)
+        XCTAssertEqual(destination.count, 1)
+        XCTAssertTrue(destination.at(0) === child)
+    }
+
     func testReversedConcurrentPopulationCompletesWithoutSplitOwnership() throws {
         let first = try leaf("first")
         let second = try leaf("second")
@@ -904,7 +958,7 @@ final class ContainerOwnershipTransferTests: XCTestCase {
         }
 
         XCTAssertEqual(done.wait(timeout: .now() + 5), .success)
-        XCTAssertTrue(errors.errors.isEmpty)
+        XCTAssertTrue(errors.errors.isEmpty, "\(errors.errors)")
         XCTAssertEqual([destinationA.count, destinationB.count].sorted(), [0, 2])
         XCTAssertEqual(
             destinationA.snapshot().filter { $0 === first || $0 === second }.count
