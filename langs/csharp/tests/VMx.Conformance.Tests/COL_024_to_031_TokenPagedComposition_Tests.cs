@@ -4,6 +4,7 @@ using VMx.Components;
 using VMx.Composites;
 using VMx.Services;
 using Xunit;
+using static VMx.Tests.Helpers.Liveness;
 
 namespace VMx.Conformance.Tests;
 
@@ -259,7 +260,7 @@ public class COL_024_to_031_TokenPagedCompositionTests
             pagesEqual: (left, right) =>
             {
                 var read = Task.Run(() => sut!.Items.Count);
-                comparerReadCompleted = read.Wait(TimeSpan.FromSeconds(2));
+                comparerReadCompleted = read.Wait(HangGuard);
                 return comparerReadCompleted && left.SequenceEqual(right);
             });
 

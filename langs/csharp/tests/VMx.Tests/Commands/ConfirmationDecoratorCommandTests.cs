@@ -4,6 +4,7 @@ using System.Reflection;
 using FluentAssertions;
 using VMx.Commands;
 using Xunit;
+using static VMx.Tests.Helpers.Liveness;
 
 namespace VMx.Tests.Commands;
 
@@ -47,13 +48,13 @@ public class ConfirmationDecoratorCommandTests
         });
 
         var execute = Task.Run(() => command.Execute(null));
-        observerEntered.Wait(TimeSpan.FromSeconds(15)).Should().BeTrue();
+        observerEntered.Wait(HangGuard).Should().BeTrue();
         var dispose = Task.Run(() =>
         {
             disposeStarted.Set();
             command.Dispose();
         });
-        disposeStarted.Wait(TimeSpan.FromSeconds(15)).Should().BeTrue();
+        disposeStarted.Wait(HangGuard).Should().BeTrue();
 
         try
         {

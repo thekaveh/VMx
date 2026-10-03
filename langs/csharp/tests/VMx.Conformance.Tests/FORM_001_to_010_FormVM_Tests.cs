@@ -5,6 +5,7 @@ using VMx.Forms;
 using VMx.Messages;
 using VMx.Services;
 using Xunit;
+using static VMx.Tests.Helpers.Liveness;
 
 namespace VMx.Conformance.Tests;
 
@@ -295,7 +296,7 @@ public class FORM_001_to_010_FormVM_Tests
         // Fire-and-forget command path (ICommand.Execute is void).
         sut.ApproveCommand.Execute(null);
 
-        var completed = await Task.WhenAny(observed.Task, Task.Delay(TimeSpan.FromSeconds(5)));
+        var completed = await Task.WhenAny(observed.Task, Task.Delay(HangGuard));
         completed.Should().BeSameAs(observed.Task, "the persister failure must surface on ApproveErrors");
         (await observed.Task).Should().BeSameAs(boom, "the original persister exception is surfaced");
 
