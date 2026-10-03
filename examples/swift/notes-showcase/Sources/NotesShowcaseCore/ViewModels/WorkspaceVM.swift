@@ -522,6 +522,27 @@ public final class WorkspaceVM {
         }
     }
 
+    /// The message posted when ``constructReportingFailure()`` sees `constructAsync()` fail.
+    public static let constructionFailureMessage = "Notes Showcase failed to initialize."
+
+    /// Runs `constructAsync()` for the app's fire-and-forget startup and
+    /// reports a failure as an error notification on the workspace's hub, as
+    /// the C# showcase does. A cancelled construct (for example, the window
+    /// closing during startup) is abandoned work, not a failure, so it posts
+    /// nothing.
+    public func constructReportingFailure() async {
+        do {
+            try await constructAsync()
+        } catch is CancellationError {
+            return
+        } catch {
+            publishNotification(
+                VMx.Notification(type: .error, message: Self.constructionFailureMessage),
+                to: _notificationHub
+            )
+        }
+    }
+
     /// Sets the currently-focused VM for capability-action projection.
     public func setFocus(_ focused: AnyObject) {
         trackFocus(focused)
