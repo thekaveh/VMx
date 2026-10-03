@@ -35,6 +35,25 @@ private final class SaveDialogService: DialogService {
     func notify(_ message: String, title: String?, severity: NotificationSeverity) async {}
 }
 
+/// Repository whose every call throws `failure`, to drive construction failure.
+private struct FailingRepository: NoteRepository {
+    let failure: any Error
+
+    func loadAll() async throws -> (notebooks: [NotebookModel], notes: [NoteModel]) { throw failure }
+    func loadNotes(notebookId: String) async throws -> [NoteModel] { throw failure }
+    func searchNotes(
+        term: String,
+        token: String?,
+        pageSize: Int
+    ) async throws -> (items: [NoteModel], nextToken: String?) { throw failure }
+    func saveNote(_ note: NoteModel) async throws { throw failure }
+    func deleteNote(id: String) async throws { throw failure }
+    func addNotebook(_ notebook: NotebookModel) async throws { throw failure }
+    func export(notebooks: [NotebookModel], notes: [NoteModel], path: String) async throws { throw failure }
+}
+
+private struct RepositoryUnavailable: Error {}
+
 // MARK: - WorkspaceVMTests
 
 final class WorkspaceVMTests: XCTestCase {
@@ -427,6 +446,57 @@ final class WorkspaceVMTests: XCTestCase {
             FileManager.default.fileExists(atPath: path),
             "export must write through the picked path"
         )
+    }
+
+    // MARK: - Startup failure reporting (#467)
+
+    /// Builds a workspace over `repository` and records its hub's pending list.
+    private func startWorkspace(
+        over repository: any NoteRepository
+    ) throws -> (WorkspaceVM, () -> [VMx.Notification], AnyCancellable) {
+        let hub = NotificationHub()
+        let ws = try WorkspaceVM.builder().repository(repository).notificationHub(hub).build()
+        var pending: [VMx.Notification] = []
+        let sub = hub.pending.sink { pending = $0 }
+        return (ws, { pending }, sub)
+    }
+
+    func testConstructReportingFailure_postsAnErrorNotificationWhenConstructionFails() async throws {
+        let (ws, pending, sub) = try startWorkspace(over: FailingRepository(failure: RepositoryUnavailable()))
+        defer { sub.cancel(); ws.dispose() }
+
+        await ws.constructReportingFailure()
+        await waitUntil { !pending().isEmpty }
+
+        XCTAssertEqual(pending().map(\.type), [.error])
+        XCTAssertEqual(pending().first?.message, WorkspaceVM.constructionFailureMessage)
+    }
+
+    func testConstructReportingFailure_postsNothingWhenConstructionIsCancelled() async throws {
+        let (ws, pending, sub) = try startWorkspace(over: FailingRepository(failure: CancellationError()))
+        defer { sub.cancel(); ws.dispose() }
+
+        await ws.constructReportingFailure()
+        await waitUntil({ !pending().isEmpty }, attempts: 20)
+
+        XCTAssertTrue(pending().isEmpty, "a cancelled construct is not reported as an error")
+    }
+
+    func testConstructReportingFailure_postsNothingWhenConstructionSucceeds() async throws {
+        let repo = InMemoryNoteRepository(
+            seed: SeedData.build(),
+            loadAllDelay: 0,
+            loadNotesDelay: 0,
+            saveNoteDelay: 0
+        )
+        let (ws, pending, sub) = try startWorkspace(over: repo)
+        defer { sub.cancel(); ws.dispose() }
+
+        await ws.constructReportingFailure()
+        await waitUntil({ !pending().isEmpty }, attempts: 20)
+
+        XCTAssertTrue(pending().isEmpty)
+        XCTAssertFalse(ws.notesView.filteredItems.isEmpty, "construction still completes")
     }
 
     // MARK: - Builder

@@ -47,10 +47,11 @@ final class AppState: ObservableObject {
 
         // Fire-and-forget async construct: populates notebooks, selects first
         // root, binds notes view. The UI binds to live properties as each step
-        // completes — startup latency mirrors the C# async construct path.
+        // completes — startup latency mirrors the C# async construct path. A
+        // failure surfaces as an error notification, as in the C# showcase.
         let transferableWorkspace = AppTransferBox(workspace)
         Task { [transferableWorkspace] in
-            try? await transferableWorkspace.value.constructAsync()
+            await transferableWorkspace.value.constructReportingFailure()
         }
     }
 }

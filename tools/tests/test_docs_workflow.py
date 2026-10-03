@@ -3,6 +3,7 @@
 import fnmatch
 import re
 from pathlib import Path
+from types import SimpleNamespace
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "docs.yml"
@@ -62,3 +63,38 @@ def test_docs_workflow_watches_every_checked_snippet_source() -> None:
         if not any(fnmatch.fnmatch(source, pattern) for pattern in patterns)
     )
     assert unwatched == [], f"docs.yml push paths miss checked sources: {unwatched}"
+
+
+def _docs_concurrency_group(event_name: str, ref: str) -> str:
+    """Evaluate docs.yml's workflow-level concurrency group for one run."""
+    workflow = _WORKFLOW.read_text(encoding="utf-8")
+    block = re.search(r"^concurrency:\n((?:  .*\n)+)", workflow, re.M)
+    assert block, "docs.yml must declare workflow-level concurrency"
+    assert re.search(r"^  cancel-in-progress: false$", block.group(1), re.M)
+    group = re.search(r"^  group: (.+)$", block.group(1), re.M)
+    assert group, "docs.yml concurrency must name a group"
+    value = group.group(1).strip()
+    expression = re.fullmatch(r"\$\{\{(.+)\}\}", value)
+    if expression is None:
+        return value
+    python = expression.group(1).replace("&&", " and ").replace("||", " or ")
+    context = {
+        "github": SimpleNamespace(event_name=event_name, ref=ref),
+        "format": lambda template, *args: template.format(*args),
+    }
+    return str(eval(python, {"__builtins__": {}}, context))
+
+
+def test_only_the_main_publication_shares_the_pages_concurrency_group() -> None:
+    # A group holds one running and one pending run, and a newly queued run
+    # cancels the pending one. Unrelated pull requests and develop pushes must
+    # never displace each other or a pending main publication (#534).
+    first_pr = _docs_concurrency_group("pull_request", "refs/pull/1/merge")
+    second_pr = _docs_concurrency_group("pull_request", "refs/pull/2/merge")
+    develop = _docs_concurrency_group("push", "refs/heads/develop")
+    main = _docs_concurrency_group("push", "refs/heads/main")
+
+    assert main == "pages"
+    assert _docs_concurrency_group("workflow_dispatch", "refs/heads/main") == "pages"
+    assert len({first_pr, second_pr, develop, main}) == 4
+    assert _docs_concurrency_group("pull_request", "refs/pull/1/merge") == first_pr

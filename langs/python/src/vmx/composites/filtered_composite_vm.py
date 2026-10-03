@@ -10,6 +10,7 @@ import reactivex as rx
 from reactivex import operators as ops
 from reactivex.subject import Subject
 
+from vmx.commands.relay_command import _run_disposal_steps
 from vmx.components.base import _ComponentVMBase
 from vmx.composites.composite_vm import CompositeVM
 
@@ -123,6 +124,8 @@ class FilteredCompositeVM(Generic[VM]):
         if self._disposed:
             return
         self._disposed = True
-        self._subscription.dispose()
-        self._changed.on_completed()
-        self._changed.dispose()
+        _run_disposal_steps(
+            self._subscription.dispose,
+            self._changed.on_completed,
+            self._changed.dispose,
+        )
