@@ -924,6 +924,22 @@ final class ContainerOwnershipTransferTests: XCTestCase {
         XCTAssertTrue(destination.at(0) === child)
     }
 
+    func testMembershipWaitGraphRefusesTheEdgeThatClosesACycle() {
+        // Opposing populations would each wait for the other's transaction,
+        // so the coordinator refuses the closing edge (#551).
+        let coordinator = MembershipTransactionWaitCoordinator()
+        let first = NSObject(), second = NSObject(), third = NSObject()
+        let a = ObjectIdentifier(first), b = ObjectIdentifier(second), c = ObjectIdentifier(third)
+
+        XCTAssertTrue(coordinator.beginWait(caller: a, owner: b))
+        XCTAssertTrue(coordinator.beginWait(caller: b, owner: c))
+        XCTAssertFalse(coordinator.beginWait(caller: c, owner: a), "c -> a closes a -> b -> c")
+        XCTAssertFalse(coordinator.beginWait(caller: b, owner: a), "b -> a closes a -> b")
+
+        coordinator.endWait(caller: a)
+        XCTAssertTrue(coordinator.beginWait(caller: c, owner: a), "a no longer waits")
+    }
+
     func testReversedConcurrentPopulationCompletesWithoutSplitOwnership() throws {
         let first = try leaf("first")
         let second = try leaf("second")

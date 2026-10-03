@@ -14,6 +14,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `MessageHub` while another thread drained it could deadlock with a
   subscriber that read the form. Mutations and disposal on other threads still
   wait until the publication ends (#533).
+- `CompositeVM` and `GroupVM` wait for another thread's open membership
+  transaction, as C# does, instead of throwing `attachmentFailed`. Before, a
+  population that moved a child out of a container whose own population was
+  still finishing could fail. A second transaction on the same thread is still
+  rejected, and so is a wait that would close a cycle, so opposing populations
+  fail instead of deadlocking (#551).
 
 ## [3.25.0] — unreleased source version
 
