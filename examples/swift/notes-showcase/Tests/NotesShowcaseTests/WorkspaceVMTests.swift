@@ -191,7 +191,10 @@ final class WorkspaceVMTests: XCTestCase {
 
         // Delete the selected note (AlwaysAccept confirms the prompt).
         note?.deleteCommand.execute()
-        await waitUntil { ws.notesView.current == nil }
+        // `current` clears before its change message reaches the workspace,
+        // which unbinds the form. While another thread drains the hub, that
+        // delivery lags, so wait for the unbind itself (#533).
+        await waitUntil { ws.notesView.current == nil && !ws.noteForm.hasBoundNote }
 
         XCTAssertNil(ws.notesView.current)
         XCTAssertFalse(ws.noteForm.hasBoundNote)

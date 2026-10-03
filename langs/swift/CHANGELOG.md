@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `FormVM` publishes an approval (`errorsChanged`, the approve command's
+  can-execute change, and `onApproved`) without holding its state lock, as the
+  C# and Python flavors do. Before, an `onApproved` observer that sent on a
+  `MessageHub` while another thread drained it could deadlock with a
+  subscriber that read the form. Mutations and disposal on other threads still
+  wait until the publication ends (#533).
+
 ## [3.25.0] — unreleased source version
 
 ### Added

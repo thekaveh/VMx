@@ -8,6 +8,7 @@ using VMx.Messages;
 using VMx.Tests.Components;
 using VMx.Tests.Helpers;
 using Xunit;
+using static VMx.Tests.Helpers.Liveness;
 
 namespace VMx.Tests.Composites;
 
@@ -32,7 +33,7 @@ public class CompositeVMTests
         public ParentTransferToken DetachForTransfer(IComponentVM vm)
         {
             Entered.Set();
-            if (!Release.Wait(TimeSpan.FromSeconds(2)))
+            if (!Release.Wait(HangGuard))
                 throw new TimeoutException("transfer was not released");
             return new ParentTransferToken(() => { }, () => { });
         }
@@ -135,16 +136,16 @@ public class CompositeVMTests
             if (args.PropertyName == nameof(first.IsCurrent) && !first.IsCurrent)
             {
                 entered.Set();
-                release.Wait(TimeSpan.FromSeconds(5));
+                release.Wait(HangGuard);
             }
         };
 
         var selectFirst = Task.Run(() => composite.Current = second);
-        entered.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue();
+        entered.Wait(HangGuard).Should().BeTrue();
         var selectSecond = Task.Run(() => composite.Current = third);
-        await selectSecond.WaitAsync(TimeSpan.FromSeconds(5));
+        await selectSecond.WaitAsync(HangGuard);
         release.Set();
-        await selectFirst.WaitAsync(TimeSpan.FromSeconds(5));
+        await selectFirst.WaitAsync(HangGuard);
 
         composite.Current.Should().BeSameAs(third);
         first.IsCurrent.Should().BeFalse();
@@ -250,7 +251,7 @@ public class CompositeVMTests
             try { composite.Add(late); }
             catch (Exception error) { failure = error; }
         });
-        (await Task.Run(() => blocker.Entered.Wait(TimeSpan.FromSeconds(2))))
+        (await Task.Run(() => blocker.Entered.Wait(HangGuard)))
             .Should().BeTrue();
 
         using var disposalStarted = new ManualResetEventSlim();
@@ -259,12 +260,12 @@ public class CompositeVMTests
             disposalStarted.Set();
             composite.Dispose();
         });
-        (await Task.Run(() => disposalStarted.Wait(TimeSpan.FromSeconds(2))))
+        (await Task.Run(() => disposalStarted.Wait(HangGuard)))
             .Should().BeTrue();
         (await Task.WhenAny(disposal, Task.Delay(TimeSpan.FromMilliseconds(50))))
             .Should().NotBe(disposal);
         blocker.Release.Set();
-        await Task.WhenAll(admission, disposal).WaitAsync(TimeSpan.FromSeconds(2));
+        await Task.WhenAll(admission, disposal).WaitAsync(HangGuard);
 
         failure.Should().BeNull();
         composite.Should().ContainSingle(item => ReferenceEquals(item, late));
@@ -703,7 +704,7 @@ public class CompositeVMTests
             .Build();
 
         composite.Construct();
-        started.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue();
+        started.Wait(HangGuard).Should().BeTrue();
         var parentStatusWhileChildRuns = composite.Status;
         release.Set();
         await Task.WhenAll(dispatcher.PendingWork);
@@ -775,7 +776,7 @@ public class CompositeVMTests
         await composite.ConstructAsync();
 
         composite.Destruct();
-        started.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue();
+        started.Wait(HangGuard).Should().BeTrue();
         var parentStatusWhileChildRuns = composite.Status;
         release.Set();
         await Task.WhenAll(dispatcher.PendingWork);
@@ -828,15 +829,15 @@ public class CompositeVMTests
         try
         {
             reconstruct = composite.ReconstructAsync();
-            destructStarted.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue();
+            destructStarted.Wait(HangGuard).Should().BeTrue();
             composite.Status.Should().Be(ConstructionStatus.Destructing);
 
             destructRelease.Set();
-            reconstructStarted.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue();
+            reconstructStarted.Wait(HangGuard).Should().BeTrue();
             composite.Status.Should().Be(ConstructionStatus.Constructing);
 
             reconstructRelease.Set();
-            var completed = await Task.WhenAny(reconstruct, Task.Delay(TimeSpan.FromSeconds(5)));
+            var completed = await Task.WhenAny(reconstruct, Task.Delay(HangGuard));
             completed.Should().BeSameAs(reconstruct);
             await reconstruct;
         }

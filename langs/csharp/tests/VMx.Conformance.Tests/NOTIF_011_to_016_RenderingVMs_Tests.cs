@@ -3,6 +3,7 @@ using Microsoft.Reactive.Testing;
 using System.Reactive.Concurrency;
 using VMx.Notifications;
 using Xunit;
+using static VMx.Tests.Helpers.Liveness;
 
 namespace VMx.Conformance.Tests;
 
@@ -284,17 +285,22 @@ public class NOTIF_011_to_016_RenderingVMs_Tests
         var propertyChanges = 0;
         sut.PropertyChanged += (_, _) => Interlocked.Increment(ref propertyChanges);
 
-        var expiry = Task.Run(sut.ExpireNow);
+        // A dedicated thread: a starved thread pool must not delay expiry.
+        var expiry = Task.Factory.StartNew(
+            sut.ExpireNow,
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
         try
         {
-            entered.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue();
+            entered.Wait(HangGuard).Should().BeTrue();
             sut.Dispose();
         }
         finally
         {
             release.Set();
         }
-        await expiry.WaitAsync(TimeSpan.FromSeconds(5));
+        await expiry.WaitAsync(HangGuard);
 
         sut.IsResolved.Should().BeFalse();
         completion.IsCompleted.Should().BeFalse(

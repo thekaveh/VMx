@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Reactive.Concurrency;
 using System.Reactive.Disposables;
 using System.Reactive.Linq;
@@ -13,6 +14,7 @@ using VMx.Messages;
 using VMx.Services;
 using VMx.Tests.Helpers;
 using Xunit;
+using static VMx.Tests.Helpers.Liveness;
 
 namespace VMx.Tests.Components;
 
@@ -47,7 +49,7 @@ public class ComponentVMLifecycleRaceTests
             .Model("first")
             .OnConstruct(() =>
             {
-                barrier.SignalAndWait(TimeSpan.FromSeconds(30));
+                barrier.SignalAndWait(HangGuard);
                 second!.Dispose();
             })
             .Build();
@@ -57,7 +59,7 @@ public class ComponentVMLifecycleRaceTests
             .Model("second")
             .OnConstruct(() =>
             {
-                barrier.SignalAndWait(TimeSpan.FromSeconds(30));
+                barrier.SignalAndWait(HangGuard);
                 first.Dispose();
             })
             .Build();
@@ -76,7 +78,7 @@ public class ComponentVMLifecycleRaceTests
                 CancellationToken.None,
                 TaskCreationOptions.LongRunning,
                 TaskScheduler.Default));
-        (await Task.WhenAny(transitions, Task.Delay(TimeSpan.FromSeconds(30))))
+        (await Task.WhenAny(transitions, Task.Delay(HangGuard)))
             .Should().BeSameAs(transitions, "cross-disposal from admitted hooks must not deadlock");
         await transitions;
         first.Status.Should().Be(ConstructionStatus.Disposed);
@@ -92,12 +94,12 @@ public class ComponentVMLifecycleRaceTests
         FailingHookDisposeVM? second = null;
         first = new FailingHookDisposeVM("first", cleanupOrder, () =>
         {
-            barrier.SignalAndWait(TimeSpan.FromSeconds(2));
+            barrier.SignalAndWait(HangGuard);
             second!.Dispose();
         });
         second = new FailingHookDisposeVM("second", cleanupOrder, () =>
         {
-            barrier.SignalAndWait(TimeSpan.FromSeconds(2));
+            barrier.SignalAndWait(HangGuard);
             first.Dispose();
         });
         var failures = new ConcurrentQueue<Exception>();
@@ -105,7 +107,7 @@ public class ComponentVMLifecycleRaceTests
         var transitions = Task.WhenAll(
             Task.Run(() => RecordFailure(first.Construct, failures)),
             Task.Run(() => RecordFailure(second.Construct, failures)));
-        (await Task.WhenAny(transitions, Task.Delay(TimeSpan.FromSeconds(3))))
+        (await Task.WhenAny(transitions, Task.Delay(HangGuard)))
             .Should().BeSameAs(transitions);
         await transitions;
 
@@ -226,7 +228,7 @@ public class ComponentVMLifecycleRaceTests
 
         var task = vm.ConstructAsync();
 
-        var completed = await Task.WhenAny(task, Task.Delay(TimeSpan.FromSeconds(1)));
+        var completed = await Task.WhenAny(task, Task.Delay(HangGuard));
         completed.Should().BeSameAs(task,
             "lifecycle completion must not depend on a message hub publishing status messages");
         await task;
@@ -246,7 +248,7 @@ public class ComponentVMLifecycleRaceTests
 
         var task = vm.DestructAsync();
 
-        var completed = await Task.WhenAny(task, Task.Delay(TimeSpan.FromSeconds(1)));
+        var completed = await Task.WhenAny(task, Task.Delay(HangGuard));
         completed.Should().BeSameAs(task,
             "lifecycle completion must not depend on a message hub publishing status messages");
         await task;
@@ -282,7 +284,7 @@ public class ComponentVMLifecycleRaceTests
         vm.Dispose();
         dispatcher.BackgroundScheduler.AdvanceBy(1);
 
-        var completed = await Task.WhenAny(task, Task.Delay(TimeSpan.FromSeconds(5)));
+        var completed = await Task.WhenAny(task, Task.Delay(HangGuard));
         completed.Should().BeSameAs(task,
             "the awaiter must observe the Disposed transition instead of hanging");
         vm.Status.Should().Be(ConstructionStatus.Disposed);
@@ -360,7 +362,7 @@ public class ComponentVMLifecycleRaceTests
                 // parent wires its continuation, so the fault surfaces
                 // synchronously from ConstructAsync — an equally-legal ADR-0109
                 // path, but the source of this test's prior CI-only flake.
-                release.Wait(TimeSpan.FromSeconds(15));
+                release.Wait(HangGuard);
                 throw failure;
             })
             .Build();
@@ -374,7 +376,7 @@ public class ComponentVMLifecycleRaceTests
         release.Set();
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(
-            async () => await task.WaitAsync(TimeSpan.FromSeconds(15)));
+            async () => await task.WaitAsync(HangGuard));
         error.Should().BeSameAs(failure);
         child.Status.Should().Be(ConstructionStatus.Destructed);
         parent.Status.Should().Be(ConstructionStatus.Destructed);
@@ -401,7 +403,7 @@ public class ComponentVMLifecycleRaceTests
             .Build();
 
         var first = Task.Run(vm.Construct);
-        started.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue("the first construct entered its hook");
+        started.Wait(HangGuard).Should().BeTrue("the first construct entered its hook");
 
         Action second = vm.Construct;
         second.Should().Throw<StatusTransitionException>(
@@ -452,7 +454,7 @@ public class ComponentVMLifecycleRaceTests
         vm.Construct();
 
         var first = Task.Run(vm.Destruct);
-        started.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue("the first destruct entered its hook");
+        started.Wait(HangGuard).Should().BeTrue("the first destruct entered its hook");
 
         Action second = vm.Destruct;
         second.Should().Throw<StatusTransitionException>(
@@ -631,7 +633,7 @@ public class ComponentVMLifecycleRaceTests
                 TaskCreationOptions.LongRunning,
                 TaskScheduler.Default));
 
-        await transitions.WaitAsync(TimeSpan.FromSeconds(30));
+        await transitions.WaitAsync(HangGuard);
         first.Status.Should().Be(ConstructionStatus.Disposed);
         second.Status.Should().Be(ConstructionStatus.Disposed);
     }
@@ -659,7 +661,7 @@ public class ComponentVMLifecycleRaceTests
                     if (message.Status == ConstructionStatus.Constructing)
                     {
                         entered.Set();
-                        release.Wait(TimeSpan.FromSeconds(10)).Should().BeTrue(
+                        release.Wait(HangGuard + HangGuard).Should().BeTrue(
                             "the coordinator must release ordinary publication");
                     }
                     else if (message.Status == ConstructionStatus.Disposed)
@@ -713,7 +715,7 @@ public class ComponentVMLifecycleRaceTests
             // Dedicated threads also work when the thread pool is constrained.
             workers.Add(Task.Factory.StartNew(vm.Construct, CancellationToken.None,
                 TaskCreationOptions.LongRunning, TaskScheduler.Default));
-            entered.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue("ordinary publication must enter");
+            entered.Wait(HangGuard).Should().BeTrue("ordinary publication must enter");
             var disposer = Task.Factory.StartNew(() =>
             {
                 vm.Dispose();
@@ -722,14 +724,45 @@ public class ComponentVMLifecycleRaceTests
             }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
             workers.Add(disposer);
 
+            // On a timeout, report where the lifecycle stands so the failure is
+            // diagnosable without a debugger (#537).
+            string LifecycleState()
+            {
+                const BindingFlags Private = BindingFlags.Instance | BindingFlags.NonPublic;
+                string local;
+                lock (gate)
+                {
+                    var queue = ((IEnumerable)queueField.GetValue(vm)!).Cast<object>().ToList();
+                    var first = QueuedTerminalCompletion();
+                    local = $"status={typeof(ComponentVMBase).GetField("_status", Private)!.GetValue(vm)}, " +
+                        $"queued={queue.Count}, " +
+                        $"firstSet={first?.IsSet}, firstWaiters={(first is null ? null : waiters.GetValue(first))}, " +
+                        $"draining={typeof(ComponentVMBase).GetField("_lifecycleDeliveryDraining", Private)!.GetValue(vm)}, " +
+                        $"drainer={typeof(ComponentVMBase).GetField("_lifecycleDeliveryDrainerThreadId", Private)!.GetValue(vm)}";
+                }
+                const BindingFlags Static = BindingFlags.Static | BindingFlags.NonPublic;
+                var graphGate = typeof(ComponentVMBase).GetField("s_lifecycleWaitGraphGate", Static)!.GetValue(null)!;
+                var graph = (IDictionary)typeof(ComponentVMBase).GetField("s_lifecycleWaitGraph", Static)!.GetValue(null)!;
+                string edges;
+                lock (graphGate)
+                    edges = string.Join(",", graph.Keys.Cast<int>().Select(caller => $"{caller}->{graph[caller]}"));
+                return $"{local}, disposer={disposer.Status}, waitGraph=[{edges}]";
+            }
+
+            // Poll gently: a spinning probe that takes the VM gate on every
+            // iteration competes with the disposer for that gate and the CPU.
             var admitted = false;
-            SpinWait.SpinUntil(() =>
+            var polling = Stopwatch.StartNew();
+            while (polling.Elapsed < HangGuard)
             {
                 var completion = QueuedTerminalCompletion();
                 // Read Waiters without holding the VM or wait-graph locks.
                 admitted = completion is not null && (int)waiters.GetValue(completion)! > 0;
-                return admitted || disposer.IsCompleted;
-            }, TimeSpan.FromSeconds(5)).Should().BeTrue("Dispose must reach its publication wait");
+                if (admitted || disposer.IsCompleted) break;
+                Thread.Sleep(1);
+            }
+            (admitted || disposer.IsCompleted).Should().BeTrue(
+                "Dispose must reach its publication wait ({0})", LifecycleState());
             admitted.Should().BeTrue("Dispose must register inside LifecycleDelivery.Completed.Wait");
             Volatile.Read(ref disposedSeen).Should().Be(0);
             disposer.IsCompleted.Should().BeFalse();

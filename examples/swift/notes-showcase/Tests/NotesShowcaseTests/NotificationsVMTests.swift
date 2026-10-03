@@ -15,6 +15,38 @@ import Combine
 import VMx
 @testable import NotesShowcaseCore
 
+// MARK: - Test dispatcher
+
+/// Runs foreground work inline like `ImmediateDispatcher`, but can hold one
+/// hand-off until released, so a test can overlap a delivery with disposal.
+private final class GatedDispatcher: Dispatcher, @unchecked Sendable {
+    let held = DispatchSemaphore(value: 0)
+    let release = DispatchSemaphore(value: 0)
+    let finished = DispatchSemaphore(value: 0)
+    private let lock = NSLock()
+    private var holdNext = false
+
+    func holdNextForeground() {
+        lock.withLock { holdNext = true }
+    }
+
+    func scheduleForeground(_ work: @escaping () -> Void) {
+        let hold = lock.withLock { () -> Bool in
+            defer { holdNext = false }
+            return holdNext
+        }
+        guard hold else { return work() }
+        held.signal()
+        _ = release.wait(timeout: .now() + 10)
+        work()
+        finished.signal()
+    }
+
+    func scheduleBackground(_ work: @escaping () -> Void) {
+        work()
+    }
+}
+
 // MARK: - NotificationsVMTests
 
 final class NotificationsVMTests: XCTestCase {
@@ -67,6 +99,42 @@ final class NotificationsVMTests: XCTestCase {
 
         XCTAssertEqual(1, f.vm.visible.count)
         XCTAssertEqual("Saved", f.vm.visible[0].notification.message)
+    }
+
+    // MARK: - Delivery racing disposal
+
+    func testDeliveryHeldAcrossDisposeLeavesVisibleEmpty() throws {
+        // `publishNotification` posts from a Task, so with an inline dispatcher
+        // a pending snapshot can reach the VM on another thread while it is
+        // disposed (#547). That late delivery must change nothing.
+        let dispatcher = GatedDispatcher()
+        let notifHub = NotificationHub()
+        defer { notifHub.dispose() }
+        let vm = try NotificationsVM.builder()
+            .name("notifications")
+            .services(hub: MessageHub(), dispatcher: dispatcher)
+            .notificationHub(notifHub)
+            .scheduler(VirtualTimeScheduler())
+            .lifespan(5)
+            .build()
+        try vm.construct()
+
+        dispatcher.holdNextForeground()
+        let posting = FlagshipTransferBox((notifHub, n("Saved")))
+        Task { _ = await posting.value.0.post(posting.value.1) }
+        XCTAssertEqual(
+            dispatcher.held.wait(timeout: .now() + 10), .success,
+            "the pending snapshot must reach the dispatcher"
+        )
+
+        vm.dispose()
+        dispatcher.release.signal()
+        XCTAssertEqual(dispatcher.finished.wait(timeout: .now() + 10), .success)
+
+        XCTAssertTrue(
+            vm.visible.isEmpty,
+            "a delivery that loses to disposal must not repopulate visible"
+        )
     }
 
     // MARK: - Cap drops oldest
@@ -139,17 +207,26 @@ final class NotificationsVMTests: XCTestCase {
         let f = try build()
         defer { f.notifHub.dispose() }
 
+        var pending: [VMx.Notification] = []
+        let pendingSubscription = f.notifHub.pending.sink { pending = $0 }
+        defer { pendingSubscription.cancel() }
+
         let n1 = n("x")
         Task { _ = await f.notifHub.post(n1) }
-        try? await Task.sleep(nanoseconds: 1_000_000)
+        // Poll instead of sleeping a fixed millisecond: the posting Task may
+        // start late on a loaded runner (#533).
+        await waitUntil { f.vm.visible.count == 1 }
         XCTAssertEqual(1, f.vm.visible.count)
 
         f.vm.dispose()
         XCTAssertTrue(f.vm.visible.isEmpty, "Expected empty visible after dispose")
 
-        // After dispose, new posts must not produce updates.
-        Task { _ = await f.notifHub.post(self.n("y")) }
-        try? await Task.sleep(nanoseconds: 1_000_000)
+        // After dispose, new posts must not produce updates. Wait until the
+        // hub holds the new post, so the check is not vacuous.
+        let n2 = n("y")
+        Task { _ = await f.notifHub.post(n2) }
+        await waitUntil { pending.contains { $0 === n2 } }
+        XCTAssertTrue(pending.contains { $0 === n2 }, "the post reached the hub")
         XCTAssertTrue(f.vm.visible.isEmpty,
                       "Expected visible to stay empty for new post after dispose")
     }

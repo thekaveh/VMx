@@ -6,6 +6,7 @@ using VMx.Lifecycle;
 using VMx.Tests.Components;
 using VMx.Tests.Helpers;
 using Xunit;
+using static VMx.Tests.Helpers.Liveness;
 
 namespace VMx.Tests.Groups;
 
@@ -30,7 +31,7 @@ public class GroupVMTests
         public ParentTransferToken DetachForTransfer(IComponentVM vm)
         {
             Entered.Set();
-            if (!Release.Wait(TimeSpan.FromSeconds(2)))
+            if (!Release.Wait(HangGuard))
                 throw new TimeoutException("transfer was not released");
             return new ParentTransferToken(() => { }, () => { });
         }
@@ -151,7 +152,7 @@ public class GroupVMTests
             try { group.Add(late); }
             catch (Exception error) { failure = error; }
         });
-        (await Task.Run(() => blocker.Entered.Wait(TimeSpan.FromSeconds(2))))
+        (await Task.Run(() => blocker.Entered.Wait(HangGuard)))
             .Should().BeTrue();
 
         using var disposalStarted = new ManualResetEventSlim();
@@ -160,12 +161,12 @@ public class GroupVMTests
             disposalStarted.Set();
             group.Dispose();
         });
-        (await Task.Run(() => disposalStarted.Wait(TimeSpan.FromSeconds(2))))
+        (await Task.Run(() => disposalStarted.Wait(HangGuard)))
             .Should().BeTrue();
         (await Task.WhenAny(disposal, Task.Delay(TimeSpan.FromMilliseconds(50))))
             .Should().NotBe(disposal);
         blocker.Release.Set();
-        await Task.WhenAll(admission, disposal).WaitAsync(TimeSpan.FromSeconds(2));
+        await Task.WhenAll(admission, disposal).WaitAsync(HangGuard);
 
         failure.Should().BeNull();
         group.Should().ContainSingle(item => ReferenceEquals(item, late));

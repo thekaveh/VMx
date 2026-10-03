@@ -14,6 +14,7 @@ on:
       - "examples/notes-showcase-theme-scenario.json"
       - "spec/**"
       - "tools/check-swift-package-sync.py"
+      - "tools/swift-test-watchdog.py"
       - ".github/workflows/swift.yml"
   pull_request:
     branches: [main, develop]
@@ -266,9 +267,12 @@ jobs:
           -Xswiftc -warnings-as-errors
       - name: Test NotesShowcase flagship
         working-directory: examples/swift/notes-showcase
-        # Parallel XCTest emits each case name before execution, making any
-        # future stuck async scenario immediately attributable in CI logs.
-        run: swift test --parallel
+        # Parallel XCTest runs each case in its own process, whose arguments
+        # name it. The watchdog samples and kills a case that runs longer than
+        # two minutes and fails with its name, long before the job timeout (#533).
+        run: >-
+          python3 ../../../tools/swift-test-watchdog.py --per-test-timeout 120
+          -- swift test --parallel
 
   coverage:
     name: coverage floor

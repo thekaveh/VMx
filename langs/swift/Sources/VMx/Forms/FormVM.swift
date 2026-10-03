@@ -32,6 +32,13 @@ public final class FormVM<Model> {
     private var approvalPrePublishing = false
     private var deferredApprovalModels: [Model] = []
     private let stateGate = NSRecursiveLock()
+    // Approval publication runs outside `stateGate`, so observers on other
+    // threads can read the form while it is delivered (#533). Meanwhile,
+    // mutations and disposal on other threads wait, as in C# and Python.
+    private var approvalPublishing = false
+    private var approvalPublisher: UInt64 = 0
+    private var approvalGeneration = 0
+    private let approvalFinished = NSCondition()
 
     private let persister: (Model) async throws -> Void
     private let hub: MessageHubProtocol
@@ -175,6 +182,7 @@ public final class FormVM<Model> {
     /// A call begun after disposal returns before inspecting the candidate.
     public func setModel(_ newModel: Model) {
         stateGate.lock()
+        awaitForeignApprovalLocked()
         guard !_disposed else {
             stateGate.unlock()
             return
@@ -237,11 +245,10 @@ public final class FormVM<Model> {
         // Throw path — no state mutation if this throws.
         try await persister(current)
 
-        try withStateGate {
-            guard !_disposed else { return }
-            try completeApproval(current)
-        }
-        drainDeferredApprovalModels()
+        // Commit under the gate, then publish outside it: an observer may hand
+        // work to another thread that reads this form (#533).
+        guard let publication = try commitApproval(current) else { return }
+        publishApproval(publication)
     }
 
     // ── Dispose ───────────────────────────────────────────────────────────────
@@ -249,6 +256,7 @@ public final class FormVM<Model> {
     /// Complete both reactive channels and dispose the commands. Idempotent.
     public func dispose() {
         stateGate.lock()
+        awaitForeignApprovalLocked()
         guard !_disposed else {
             stateGate.unlock()
             return
@@ -295,6 +303,7 @@ public final class FormVM<Model> {
 
     private func performDeny() {
         stateGate.lock()
+        awaitForeignApprovalLocked()
         guard !_disposed else {
             stateGate.unlock()
             return
@@ -332,8 +341,78 @@ public final class FormVM<Model> {
         }
     }
 
-    private func completeApproval(_ captured: Model) throws {
-        guard !_disposed else { return }
+    /// Values an approval publishes once its state is committed.
+    private struct ApprovalPublication {
+        let approved: Model
+        let errors: [String: String]?
+        let canExecuteChanged: Bool
+    }
+
+    /// Commits a successful approval under `stateGate` and marks this thread as
+    /// the approval publisher. Returns `nil` when there is nothing to publish.
+    private func commitApproval(_ captured: Model) throws -> ApprovalPublication? {
+        stateGate.lock()
+        defer { stateGate.unlock() }
+        awaitForeignApprovalLocked()
+        guard let publication = try completeApproval(captured) else { return nil }
+        approvalPublishing = true
+        approvalPublisher = Self.currentThread
+        approvalPrePublishing = true
+        return publication
+    }
+
+    /// Delivers a committed approval without holding `stateGate`, then admits
+    /// waiting threads and replays models deferred during pre-publication.
+    private func publishApproval(_ publication: ApprovalPublication) {
+        defer { finishApprovalPublication() }
+        if let errors = publication.errors {
+            _errorsChanged.send(errors)
+            guard !isDisposed else { return }
+        }
+        if publication.canExecuteChanged {
+            _approveCanExecSubject.send(())
+            guard !isDisposed else { return }
+        }
+        withStateGate { approvalPrePublishing = false }
+        _onApproved.send(publication.approved)
+    }
+
+    private func finishApprovalPublication() {
+        withStateGate {
+            approvalPrePublishing = false
+            approvalPublishing = false
+            approvalPublisher = 0
+        }
+        approvalFinished.lock()
+        approvalGeneration &+= 1
+        approvalFinished.broadcast()
+        approvalFinished.unlock()
+        drainDeferredApprovalModels()
+    }
+
+    /// Waits, releasing `stateGate`, while another thread publishes an approval.
+    /// The caller holds `stateGate` exactly once: the publisher sets the flag
+    /// only while it holds the gate itself, so no other thread can be inside.
+    private func awaitForeignApprovalLocked() {
+        let caller = Self.currentThread
+        while approvalPublishing && approvalPublisher != caller && !_disposed {
+            approvalFinished.lock()
+            let generation = approvalGeneration
+            stateGate.unlock()
+            while approvalGeneration == generation { approvalFinished.wait() }
+            approvalFinished.unlock()
+            stateGate.lock()
+        }
+    }
+
+    private var isDisposed: Bool { withStateGate { _disposed } }
+
+    private static var currentThread: UInt64 {
+        UInt64(pthread_mach_thread_np(pthread_self()))
+    }
+
+    private func completeApproval(_ captured: Model) throws -> ApprovalPublication? {
+        guard !_disposed else { return nil }
         let current = _model
         let snapshot = _snapshot
         let currentErrors = _errors
@@ -343,32 +422,32 @@ public final class FormVM<Model> {
         let nextErrors: [String: String]?
         if let resetOnApproved {
             let reset = try resetOnApproved(captured)
-            guard !_disposed else { return }
+            guard !_disposed else { return nil }
             let preparedModel = snapshotter(reset)
-            guard !_disposed else { return }
+            guard !_disposed else { return nil }
             nextModel = preparedModel
             nextSnapshot = snapshotter(reset)
-            guard !_disposed else { return }
+            guard !_disposed else { return nil }
             nextErrors = Self.validate(
                 preparedModel,
                 validators: validators,
                 modelValidator: modelValidator
             )
-            guard !_disposed else { return }
+            guard !_disposed else { return nil }
         } else {
             nextModel = nil
             nextSnapshot = snapshotter(captured)
-            guard !_disposed else { return }
+            guard !_disposed else { return nil }
             nextErrors = nil
         }
 
         let committedModel = nextModel ?? current
         let committedErrors = nextErrors ?? currentErrors
         let wasDirty = !equals(current, snapshot)
-        guard !_disposed else { return }
+        guard !_disposed else { return nil }
         let wasValid = currentErrors.isEmpty
         let nextDirty = !equals(committedModel, nextSnapshot)
-        guard !_disposed else { return }
+        guard !_disposed else { return nil }
         let nextValid = committedErrors.isEmpty
         let errorsChanged = committedErrors != currentErrors
         let canExecuteChanged =
@@ -377,18 +456,11 @@ public final class FormVM<Model> {
         if let nextModel { _model = nextModel }
         _snapshot = nextSnapshot
         if nextErrors != nil { _errors = committedErrors }
-        approvalPrePublishing = true
-        defer { approvalPrePublishing = false }
-        if errorsChanged {
-            _errorsChanged.send(committedErrors)
-            guard !_disposed else { return }
-        }
-        if canExecuteChanged {
-            _approveCanExecSubject.send(())
-            guard !_disposed else { return }
-        }
-        approvalPrePublishing = false
-        _onApproved.send(captured)
+        return ApprovalPublication(
+            approved: captured,
+            errors: errorsChanged ? committedErrors : nil,
+            canExecuteChanged: canExecuteChanged
+        )
     }
 
     private func drainDeferredApprovalModels() {

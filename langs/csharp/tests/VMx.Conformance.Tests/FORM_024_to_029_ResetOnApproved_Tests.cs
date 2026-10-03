@@ -2,6 +2,7 @@ using System.Reactive.Linq;
 using FluentAssertions;
 using VMx.Forms;
 using Xunit;
+using static VMx.Tests.Helpers.Liveness;
 
 namespace VMx.Conformance.Tests;
 
@@ -97,7 +98,7 @@ public class FORM_024_to_029_ResetOnApproved_Tests
         var observed = new TaskCompletionSource<Exception>(TaskCreationOptions.RunContinuationsAsynchronously);
         using var commandSub = command.ApproveErrors.Subscribe(error => observed.TrySetResult(error));
         command.ApproveCommand.Execute(null);
-        var completed = await Task.WhenAny(observed.Task, Task.Delay(TimeSpan.FromSeconds(5)));
+        var completed = await Task.WhenAny(observed.Task, Task.Delay(HangGuard));
         completed.Should().BeSameAs(observed.Task);
         (await observed.Task).Should().BeSameAs(boom);
     }
