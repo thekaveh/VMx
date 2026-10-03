@@ -285,40 +285,43 @@ jobs:
       - name: Build NotesShowcase tests
         working-directory: examples/swift/notes-showcase
         run: swift build --build-tests
-      - name: Repeat the parallel suite and sample any hang
+      - name: Repeat the suite, parallel and serial, and sample any hang
         working-directory: examples/swift/notes-showcase
         run: |
           set -u
-          runs=300 hangs=0 failures=0
-          for i in $(seq 1 "$runs"); do
-            swift test --skip-build --parallel > run.log 2>&1 &
-            pid=$!
-            for _ in $(seq 1 90); do
-              kill -0 "$pid" 2>/dev/null || break
-              sleep 1
-            done
-            if kill -0 "$pid" 2>/dev/null; then
-              hangs=$((hangs + 1))
-              echo "::group::HANG in run $i"
-              grep 'Testing ' run.log | tail -4
-              ps -axo pid,etime,args | grep '[x]ctest'
-              for x in $(pgrep -x xctest); do
-                sample "$x" 3 -mayDie -file "sample-$i-$x.txt" > /dev/null 2>&1
-                cat "sample-$i-$x.txt"
+          hangs=0 failures=0 last_report=
+          probe() {
+            label=$1 runs=$2
+            shift 2
+            for i in $(seq 1 "$runs"); do
+              "$@" > run.log 2>&1 &
+              pid=$!
+              for _ in $(seq 1 90); do
+                kill -0 "$pid" 2>/dev/null || break
+                sleep 1
               done
-              echo "::endgroup::"
-              pkill -x xctest || true
-              kill "$pid" 2>/dev/null || true
-              wait "$pid" 2>/dev/null || true
-            elif ! wait "$pid"; then
-              failures=$((failures + 1))
-              echo "::group::FAILURE in run $i"
-              tail -40 run.log
-              report=$(ls -t "$HOME"/Library/Logs/DiagnosticReports/xctest* 2>/dev/null | head -1 || true)
-              if [ -n "$report" ] && [ "$report" != "${last_report:-}" ]; then
-                last_report=$report
-                echo "crash report: $report"
-                python3 - "$report" <<'PY' || true
+              if kill -0 "$pid" 2>/dev/null; then
+                hangs=$((hangs + 1))
+                echo "::group::HANG in $label run $i"
+                grep 'Testing \|started\.' run.log | tail -4
+                ps -axo pid,etime,args | grep '[x]ctest'
+                for x in $(pgrep -x xctest); do
+                  sample "$x" 3 -mayDie -file "sample-$i-$x.txt" > /dev/null 2>&1
+                  cat "sample-$i-$x.txt"
+                done
+                echo "::endgroup::"
+                pkill -x xctest || true
+                kill "$pid" 2>/dev/null || true
+                wait "$pid" 2>/dev/null || true
+              elif ! wait "$pid"; then
+                failures=$((failures + 1))
+                echo "::group::FAILURE in $label run $i"
+                tail -40 run.log
+                report=$(ls -t "$HOME"/Library/Logs/DiagnosticReports/xctest* 2>/dev/null | head -1 || true)
+                if [ -n "$report" ] && [ "$report" != "$last_report" ]; then
+                  last_report=$report
+                  echo "crash report: $report"
+                  python3 - "$report" <<'PY' || true
           import json, sys
           header, body = open(sys.argv[1], encoding="utf-8").read().split("\n", 1)
           crash = json.loads(body)
@@ -336,11 +339,14 @@ jobs:
                       f" {frame.get('sourceFile', '')}:{frame.get('sourceLine', '')}"
                   )
           PY
+                fi
+                echo "::endgroup::"
               fi
-              echo "::endgroup::"
-            fi
-          done
-          echo "runs=$runs hangs=$hangs failures=$failures"
+            done
+            echo "$label: runs=$runs hangs=$hangs failures=$failures (cumulative)"
+          }
+          probe parallel 300 swift test --skip-build --parallel
+          probe serial-workspace 200 swift test --skip-build --filter WorkspaceVMTests
 
   coverage:
     name: coverage floor
