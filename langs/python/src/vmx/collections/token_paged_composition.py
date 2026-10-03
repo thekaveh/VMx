@@ -11,6 +11,7 @@ from reactivex.subject import Subject
 
 from vmx.collections.collection_changed import CollectionChangedEvent
 from vmx.commands.async_relay_command import AsyncRelayCommand
+from vmx.commands.relay_command import _run_disposal_steps
 from vmx.components.base import _ComponentVMBase
 
 TVM = TypeVar("TVM")
@@ -150,11 +151,13 @@ class TokenPagedComposition(Generic[TVM, TToken]):
         if self._disposed:
             return
         self._disposed = True
-        self._load_more_command.dispose()
-        self._refresh_command.dispose()
-        self._collection_changed.on_completed()
-        self._collection_changed.dispose()
-        self._property_changed.on_completed()
-        self._property_changed.dispose()
-        self._command_changed.on_completed()
-        self._command_changed.dispose()
+        _run_disposal_steps(
+            self._load_more_command.dispose,
+            self._refresh_command.dispose,
+            self._collection_changed.on_completed,
+            self._collection_changed.dispose,
+            self._property_changed.on_completed,
+            self._property_changed.dispose,
+            self._command_changed.on_completed,
+            self._command_changed.dispose,
+        )
