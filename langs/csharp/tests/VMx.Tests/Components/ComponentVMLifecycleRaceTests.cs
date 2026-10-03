@@ -722,6 +722,31 @@ public class ComponentVMLifecycleRaceTests
             }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
             workers.Add(disposer);
 
+            // On a timeout, report where the lifecycle stands so the failure is
+            // diagnosable without a debugger (#537).
+            string LifecycleState()
+            {
+                const BindingFlags Private = BindingFlags.Instance | BindingFlags.NonPublic;
+                string local;
+                lock (gate)
+                {
+                    var queue = ((IEnumerable)queueField.GetValue(vm)!).Cast<object>().ToList();
+                    var first = QueuedTerminalCompletion();
+                    local = $"status={typeof(ComponentVMBase).GetField("_status", Private)!.GetValue(vm)}, " +
+                        $"queued={queue.Count}, " +
+                        $"firstSet={first?.IsSet}, firstWaiters={(first is null ? null : waiters.GetValue(first))}, " +
+                        $"draining={typeof(ComponentVMBase).GetField("_lifecycleDeliveryDraining", Private)!.GetValue(vm)}, " +
+                        $"drainer={typeof(ComponentVMBase).GetField("_lifecycleDeliveryDrainerThreadId", Private)!.GetValue(vm)}";
+                }
+                const BindingFlags Static = BindingFlags.Static | BindingFlags.NonPublic;
+                var graphGate = typeof(ComponentVMBase).GetField("s_lifecycleWaitGraphGate", Static)!.GetValue(null)!;
+                var graph = (IDictionary)typeof(ComponentVMBase).GetField("s_lifecycleWaitGraph", Static)!.GetValue(null)!;
+                string edges;
+                lock (graphGate)
+                    edges = string.Join(",", graph.Keys.Cast<int>().Select(caller => $"{caller}->{graph[caller]}"));
+                return $"{local}, disposer={disposer.Status}, waitGraph=[{edges}]";
+            }
+
             var admitted = false;
             SpinWait.SpinUntil(() =>
             {
@@ -729,7 +754,8 @@ public class ComponentVMLifecycleRaceTests
                 // Read Waiters without holding the VM or wait-graph locks.
                 admitted = completion is not null && (int)waiters.GetValue(completion)! > 0;
                 return admitted || disposer.IsCompleted;
-            }, TimeSpan.FromSeconds(5)).Should().BeTrue("Dispose must reach its publication wait");
+            }, TimeSpan.FromSeconds(5)).Should().BeTrue(
+                "Dispose must reach its publication wait ({0})", LifecycleState());
             admitted.Should().BeTrue("Dispose must register inside LifecycleDelivery.Completed.Wait");
             Volatile.Read(ref disposedSeen).Should().Be(0);
             disposer.IsCompleted.Should().BeFalse();
