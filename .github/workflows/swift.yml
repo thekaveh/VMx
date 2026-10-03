@@ -4,320 +4,101 @@ permissions:
   contents: read
 
 on:
-  push:
-    branches: [main, develop]
-    paths:
-      - "Package.swift"
-      - "langs/swift/**"
-      - "examples/swift/**"
-      - "examples/notes-showcase-scenario.json"
-      - "examples/notes-showcase-theme-scenario.json"
-      - "spec/**"
-      - "tools/check-swift-package-sync.py"
-      - "tools/swift-test-watchdog.py"
-      - ".github/workflows/swift.yml"
-  pull_request:
-    branches: [main, develop]
   workflow_dispatch:
 
 jobs:
-  build:
-    name: build & test (${{ matrix.label }})
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        # Swift Combine is currently macOS / iOS / tvOS / watchOS only;
-        # Linux Swift drops Combine, so the Swift VMx flavor is macOS-only
-        # for now. A Combine-shim layer (or migration to swift-async-algorithms)
-        # would re-enable ubuntu-latest in a follow-up PR.
-        include:
-          - os: macos-15
-            label: default-xcode
-            xcode: default
-          - os: macos-15
-            label: oldest-hosted-xcode
-            xcode: /Applications/Xcode_16.0.app
+  hang-probe:
+    # Temporary (#550): repeats the NotesShowcase suite on the tag-suggestion
+    # fix from a throwaway branch. Never merged.
+    name: notes-showcase repeat probe (temporary, #550)
+    runs-on: macos-15
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Select oldest hosted Xcode
-        if: matrix.xcode != 'default'
-        run: sudo xcode-select --switch "${{ matrix.xcode }}/Contents/Developer"
-      - name: Show Swift version
-        run: swift --version
-      - name: Verify oldest hosted compiler
-        if: matrix.xcode != 'default'
-        # `swift --version` prints `Apple Swift version 6.0 (swiftlang-…)`, so the
-        # minor must be allowed to end at a space (build metadata) as well as a
-        # patch dot or end-of-line; the space case regressed when the oldest
-        # hosted Xcode began reporting a bare `6.0`.
-        run: swift --version | grep -E '^(Apple )?Swift version 6\.0(\.| |$)'
-      - name: Check root and nested manifest parity
-        run: python3 tools/check-swift-package-sync.py
-      - name: Build root package
-        run: swift build -c release
-      - name: Enforce strict concurrency boundaries
-        if: matrix.xcode == 'default'
-        run: >-
-          swift build -c release
-          -Xswiftc -strict-concurrency=complete
-          -Xswiftc -warn-concurrency
-          -Xswiftc -warnings-as-errors
-      - name: Test root package
-        run: swift test --parallel
-      - name: Build nested package
-        working-directory: langs/swift
-        run: swift build -c release
-      - name: Test nested package
-        working-directory: langs/swift
-        run: swift test --parallel --xunit-output conformance-results.xml
-
-      - name: Check executed conformance evidence
-        # Every library ID needs a passing executed case in SwiftPM's own xUnit
-        # report, not just a marker in the sources.
-        run: >-
-          python3 tools/check-conformance-execution.py --flavor swift
-          --report langs/swift/conformance-results.xml --evidence conformance-evidence.json
-          --commit "${{ github.sha }}" --toolchain "$(swift --version 2>&1 | head -n 1)"
-          --configuration "macos-15 ${{ matrix.label }}"
-
-      - name: Publish conformance evidence
-        if: ${{ !cancelled() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: conformance-evidence-swift-${{ matrix.label }}
-          path: |
-            langs/swift/conformance-results.xml
-            conformance-evidence.json
-          if-no-files-found: warn
-
-      - name: Verify CMD-012 admission cancellation control
-        shell: bash
+      - name: Build NotesShowcase tests
+        working-directory: examples/swift/notes-showcase
+        run: swift build --build-tests
+      - name: Repeat the suite, parallel and serial, and sample any hang
+        working-directory: examples/swift/notes-showcase
         run: |
-          python3 - <<'PY'
-          import os
-          import re
-          import signal
-          import subprocess
-          from pathlib import Path
-
-          source = Path("langs/swift/Sources/VMx/Commands/AsyncRelayCommand.swift")
-          original = source.read_bytes()
-          needle = (
-              b"        if cancelDuringAdmission {\n"
-              b"            bodyTask.cancel()\n"
-              b"        }\n"
-          )
-          mutant = (
-              b"        if cancelDuringAdmission {\n"
-              b"            _ = bodyTask // Negative control: omit forwarding.\n"
-              b"        }\n"
-          )
-          method = "testCmd012ImmediateCancelDuringAdmissionIsNeverLost"
-          diagnostic = (
-              "CMD-012 admission regression: pending command cancellation "
-              "did not reach the body"
-          )
-          base_command = [
-              "swift", "test", "--package-path", "langs/swift", "--filter",
-              f"AsyncRelayCommandTests.{method}",
-          ]
-
-          def run_case(label: str, expected: str, *, skip_build: bool) -> None:
-              command = [*base_command]
-              if skip_build:
-                  command.append("--skip-build")
-              print(f"VMx Swift control: {label}", flush=True)
-              process = subprocess.Popen(
-                  command,
-                  stdout=subprocess.PIPE,
-                  stderr=subprocess.STDOUT,
-                  text=True,
-                  start_new_session=True,
-              )
-              try:
-                  output, _ = process.communicate(timeout=120)
-              except subprocess.TimeoutExpired:
-                  os.killpg(process.pid, signal.SIGKILL)
-                  output, _ = process.communicate()
-                  print(output)
-                  raise RuntimeError(f"{label}: timed out")
-              print(output)
-
-              started = re.findall(
-                  rf"^Test Case .*{re.escape(method)}.* started\.$", output, re.MULTILINE
-              )
-              terminal = re.findall(
-                  rf"^Test Case .*{re.escape(method)}.* (passed|failed) ",
-                  output,
-                  re.MULTILINE,
-              )
-              summaries = re.findall(
-                  r"^\s*Executed (\d+) tests?, with (\d+) failures? \((\d+) unexpected\)",
-                  output,
-                  re.MULTILINE,
-              )
-              if len(started) != 1 or len(terminal) != 1 or not summaries:
-                  raise RuntimeError(f"{label}: selected-test XCTest evidence was not unique")
-
-              if expected == "passed":
-                  if (
-                      process.returncode != 0
-                      or terminal != ["passed"]
-                      or any(summary != ("1", "0", "0") for summary in summaries)
-                  ):
-                      raise RuntimeError(f"{label}: expected one passing selected test")
-                  return
-
-              error_lines = [
-                  line
-                  for line in output.splitlines()
-                  if ": error:" in line
-              ]
-              matching_errors = [
-                  line
-                  for line in error_lines
-                  if method in line
-                  and "XCTAssertEqual failed" in line
-                  and diagnostic in line
-              ]
-              if (
-                  process.returncode != 1
-                  or terminal != ["failed"]
-                  or any(summary != ("1", "1", "0") for summary in summaries)
-                  or len(error_lines) != 1
-                  or len(matching_errors) != 1
-              ):
-                  raise RuntimeError(
-                      f"{label}: expected only the selected cancellation assertion failure"
+          set -u
+          hangs=0 failures=0 last_report=
+          probe() {
+            label=$1 runs=$2
+            shift 2
+            for i in $(seq 1 "$runs"); do
+              "$@" > run.log 2>&1 &
+              pid=$!
+              for _ in $(seq 1 90); do
+                kill -0 "$pid" 2>/dev/null || break
+                sleep 1
+              done
+              if kill -0 "$pid" 2>/dev/null; then
+                hangs=$((hangs + 1))
+                echo "::group::HANG in $label run $i"
+                grep 'Testing \|started\.' run.log | tail -4
+                ps -axo pid,etime,args | grep '[x]ctest'
+                for x in $(pgrep -x xctest); do
+                  sample "$x" 3 -mayDie -file "sample-$i-$x.txt" > /dev/null 2>&1
+                  cat "sample-$i-$x.txt"
+                done
+                echo "::endgroup::"
+                pkill -x xctest || true
+                kill "$pid" 2>/dev/null || true
+                wait "$pid" 2>/dev/null || true
+              elif ! wait "$pid"; then
+                failures=$((failures + 1))
+                echo "::group::FAILURE in $label run $i"
+                tail -40 run.log
+                report=$(ls -t "$HOME"/Library/Logs/DiagnosticReports/xctest* 2>/dev/null | head -1 || true)
+                if [ -n "$report" ] && [ "$report" != "$last_report" ]; then
+                  last_report=$report
+                  echo "crash report: $report"
+                  python3 - "$report" <<'PY' || true
+          import json, sys
+          header, body = open(sys.argv[1], encoding="utf-8").read().split("\n", 1)
+          crash = json.loads(body)
+          images = crash.get("usedImages", [])
+          print("exception:", crash.get("exception"))
+          print("termination:", crash.get("termination"))
+          print("asi:", crash.get("asi"))
+          for index, thread in enumerate(crash.get("threads", [])):
+              faulting = " (faulting)" if index == crash.get("faultingThread") else ""
+              print(f"--- thread {index}{faulting} {thread.get('name', '')} {thread.get('queue', '')}")
+              for frame in thread.get("frames", [])[:60]:
+                  image = images[frame["imageIndex"]] if 0 <= frame.get("imageIndex", -1) < len(images) else {}
+                  print(
+                      f"  {image.get('name', '?')} {frame.get('symbol', '?')}"
+                      f" {frame.get('sourceFile', '')}:{frame.get('sourceLine', '')}"
                   )
-
-          try:
-              for run in range(1, 6):
-                  run_case(f"normal run={run}", "passed", skip_build=True)
-              if original.count(needle) != 1:
-                  raise RuntimeError("admission-cancellation mutation site was not unique")
-              source.write_bytes(original.replace(needle, mutant))
-              for run in range(1, 6):
-                  run_case(
-                      f"removed-admission-cancel run={run}",
-                      "failed",
-                      skip_build=run != 1,
-                  )
-          finally:
-              source.write_bytes(original)
-
-          if source.read_bytes() != original:
-              raise RuntimeError("AsyncRelayCommand.swift was not restored byte-for-byte")
-          run_case("restored", "passed", skip_build=False)
           PY
+                fi
+                echo "::endgroup::"
+              fi
+            done
+            echo "$label: runs=$runs hangs=$hangs failures=$failures (cumulative)"
+          }
+          probe parallel 300 swift test --skip-build --parallel
 
-      - name: "Integration recipe: SwiftUI adapter executed (view compile-only, never rendered)"
-        # docs/content/integration/swiftui.md shows regions of this suite through
-        # checked-snippet markers. XCTest drives the adapter's lifecycle and the
-        # Save action; no SwiftUI view is laid out or rendered on the runner.
-        run: swift test --filter SwiftUIRecipeTests
-
-  platforms:
-    name: build (${{ matrix.label }})
+  ownership-probe:
+    # Temporary (#551): repeats ContainerOwnershipTransferTests under coverage
+    # instrumentation from a throwaway branch. Never merged.
+    name: ownership repeat probe (temporary, #551)
     runs-on: macos-15
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - label: iOS 16
-            destination: "generic/platform=iOS"
-          - label: tvOS 16
-            destination: "generic/platform=tvOS"
-          - label: watchOS 9
-            destination: "generic/platform=watchOS"
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Show Xcode version
-        run: xcodebuild -version
-      - name: Build root package for ${{ matrix.label }}
-        run: >-
-          xcodebuild -scheme VMx
-          -destination "${{ matrix.destination }}"
-          -configuration Release
-          CODE_SIGNING_ALLOWED=NO build
-
-  examples:
-    name: examples (notes-showcase)
-    runs-on: macos-15
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Show Swift version
-        run: swift --version
-      # The flagship example is a separate SwiftPM package depending on the
-      # in-repo VMx library via `.package(path:)`. SwiftUI/Combine require macOS,
-      # so the example (build + the conformance/scenario XCTests) runs here only.
-      - name: Build NotesShowcase flagship
-        working-directory: examples/swift/notes-showcase
-        run: swift build
-      - name: Enforce NotesShowcase strict concurrency
-        working-directory: examples/swift/notes-showcase
-        run: >-
-          swift build -c release
-          -Xswiftc -strict-concurrency=complete
-          -Xswiftc -warn-concurrency
-          -Xswiftc -warnings-as-errors
-      - name: Test NotesShowcase flagship
-        working-directory: examples/swift/notes-showcase
-        # Parallel XCTest runs each case in its own process, whose arguments
-        # name it. The watchdog samples and kills a case that runs longer than
-        # two minutes and fails with its name, long before the job timeout (#533).
-        run: >-
-          python3 ../../../tools/swift-test-watchdog.py --per-test-timeout 120
-          -- swift test --parallel
-
-  coverage:
-    name: coverage floor
-    runs-on: macos-15
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Show Swift version
-        run: swift --version
-      - name: Test the library with coverage
-        # A separate debug build under .build; the release builds and package
-        # checks in the other jobs never see instrumentation. Counter updates
-        # are atomic so tests that call one function from many threads (such
-        # as DISP-003) cannot undercount the regions coverage derives by
-        # subtraction (#513).
-        run: >-
-          swift test --package-path langs/swift --enable-code-coverage
-          -Xswiftc -Xllvm -Xswiftc -instrprof-atomic-counter-update-all
-      - name: Enforce the recorded coverage floor
-        run: >-
-          python3 tools/check-coverage-floor.py --flavor swift
-          --report "$(swift test --package-path langs/swift --show-codecov-path)"
-          --provenance swift-coverage-provenance.json --commit "${{ github.sha }}"
-          --toolchain "$(swift --version 2>&1 | head -n 1)" --list-files
-      - name: Collect coverage evidence
-        if: always()
-        run: cp "$(swift test --package-path langs/swift --show-codecov-path)" swift-coverage.json
-      - name: Publish coverage evidence
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: swift-coverage
-          path: |
-            swift-coverage.json
-            swift-coverage-provenance.json
-          if-no-files-found: error
-
-  required:
-    timeout-minutes: 5
-    name: "required: swift"
-    if: always()
-    needs: [build, platforms, examples, coverage]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Require every Swift job
-        env:
-          RESULTS: ${{ toJSON(needs) }}
-        run: jq -e 'to_entries | all(.value.result == "success")' <<<"$RESULTS"
+      - name: Repeat ContainerOwnershipTransferTests under coverage
+        run: |
+          set -u
+          runs=300 failures=0
+          for i in $(seq 1 "$runs"); do
+            if ! swift test --package-path langs/swift --enable-code-coverage -Xswiftc -Xllvm -Xswiftc -instrprof-atomic-counter-update-all --filter ContainerOwnershipTransferTests > run.log 2>&1; then
+              failures=$((failures + 1))
+              echo "::group::FAILURE in run $i"
+              grep -E ": error:|failed \(" run.log | head -20
+              tail -5 run.log
+              echo "::endgroup::"
+            fi
+          done
+          echo "ownership: runs=$runs failures=$failures"
