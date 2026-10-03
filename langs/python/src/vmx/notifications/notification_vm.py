@@ -5,6 +5,7 @@ See spec/16-notifications.md §NotificationVM and ADR-0031.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import timedelta
 
 import reactivex as rx
@@ -12,7 +13,7 @@ from reactivex import operators as ops
 from reactivex.abc import DisposableBase, SchedulerBase
 from reactivex.subject import Subject
 
-from vmx.commands.relay_command import RelayCommand
+from vmx.commands.relay_command import RelayCommand, _run_disposal_steps
 from vmx.notifications.notification import Notification
 from vmx.notifications.notification_hub import INotificationHub
 from vmx.notifications.notification_reaction import NotificationReaction
@@ -183,17 +184,26 @@ class NotificationVM:
         self._notify_external_resolve()
 
     def dispose(self) -> None:
-        """Cancel the timer, pending subscription, and command (idempotent)."""
+        """Cancel the timer, pending subscription, and command (idempotent).
+
+        Every teardown step runs even when one raises; the first failure is
+        re-raised afterwards (the shared ``_run_disposal_steps`` convention).
+        """
         if self._disposed:
             return
         self._disposed = True
-        self._cancel_timers()
-        if self._pending_sub is not None:
-            self._pending_sub.dispose()
-            self._pending_sub = None
-        self._dismiss_command.dispose()
-        self._property_changed_subject.on_completed()
-        self._property_changed_subject.dispose()
+        _run_disposal_steps(*self._teardown_steps())
+
+    def _teardown_steps(self) -> list[Callable[[], None]]:
+        """Detach the owned subscriptions and list every teardown step in order."""
+        detached = (self._timer_sub, self._tick_sub, self._pending_sub)
+        self._timer_sub = self._tick_sub = self._pending_sub = None
+        return [
+            *(subscription.dispose for subscription in detached if subscription is not None),
+            self._dismiss_command.dispose,
+            self._property_changed_subject.on_completed,
+            self._property_changed_subject.dispose,
+        ]
 
     # ── Internal ──────────────────────────────────────────────────────────────
 
