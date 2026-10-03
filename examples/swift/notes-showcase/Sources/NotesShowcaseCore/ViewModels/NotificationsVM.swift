@@ -38,7 +38,7 @@ public final class NotificationsVM: ComponentVMBase {
     private let _cap: Int
 
     /// Guards `_visible`, `_map`, and `_closed`. Never held while a
-    /// `NotificationVM` is built or disposed, or while a change is published.
+    /// `NotificationVM` is disposed or a change is published.
     private let _stateLock = NSLock()
     private var _visible: [NotificationVM] = []
     /// Keyed by `ObjectIdentifier(notification)` for O(1) dedup.
@@ -120,37 +120,25 @@ public final class NotificationsVM: ComponentVMBase {
     /// Mirrors C# `SyncFromPending`: add VMs for new notifications, drop
     /// oldest when over cap, remove VMs whose notifications resolved.
     private func syncFromPending(_ pending: [VMx.Notification]) {
-        let fresh = _stateLock.withLock { () -> [VMx.Notification]? in
-            guard !_closed else { return nil }
-            return pending.filter { _map[ObjectIdentifier($0)] == nil }
-        }
-        guard let fresh else { return }
-
-        // Build outside the lock. A VM that loses to another delivery or to
-        // closing is disposed unused; disposal never resolves its notification.
-        let lifespan = _lifespan ?? 60.0
-        let built = fresh.map {
-            NotificationVM(
-                notification: $0,
-                hub: _notificationHub,
-                scheduler: _scheduler,
-                lifespan: lifespan
-            )
-        }
-
+        // Building a `NotificationVM` only subscribes to the hub, so it stays in
+        // this one ordered pass under the lock. Disposal and the change
+        // notification reach observers, so they run after it (ADR-0117).
         var released: [NotificationVM] = []
         let changed = _stateLock.withLock { () -> Bool in
-            guard !_closed else {
-                released = built
-                return false
-            }
+            guard !_closed else { return false }
+
             // Add VMs for new pending notifications, respecting cap.
-            for vm in built {
-                let key = ObjectIdentifier(vm.notification)
-                if _map[key] != nil {
-                    released.append(vm)
-                    continue
-                }
+            for n in pending {
+                let key = ObjectIdentifier(n)
+                if _map[key] != nil { continue }
+
+                let lifespan = _lifespan ?? 60.0
+                let vm = NotificationVM(
+                    notification: n,
+                    hub: _notificationHub,
+                    scheduler: _scheduler,
+                    lifespan: lifespan
+                )
                 _map[key] = vm
                 _visible.append(vm)
 
