@@ -5,6 +5,7 @@ See spec/16-notifications.md §ConfirmationVM and ADR-0031.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import timedelta
 
 from reactivex.abc import SchedulerBase
@@ -90,8 +91,10 @@ class ConfirmationVM(NotificationVM):
         """
         # Intentional no-op.
 
-    def dispose(self) -> None:
-        """Cancel commands and delegate to parent dispose."""
-        self._approve_command.dispose()
-        self._reject_command.dispose()
-        super().dispose()
+    def _teardown_steps(self) -> list[Callable[[], None]]:
+        """Dispose both commands first, then run the parent's teardown steps."""
+        return [
+            self._approve_command.dispose,
+            self._reject_command.dispose,
+            *super()._teardown_steps(),
+        ]
