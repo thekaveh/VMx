@@ -288,7 +288,10 @@ jobs:
           $timeouts = 0
           $otherFailures = 0
           for ($i = 1; $i -le $runs; $i++) {
-            $out = dotnet test VMx.sln -c Release --no-build 2>&1 | Out-String
+            # Match the build job's test step: coverage instrumentation slows
+            # the code under test and changes its timing.
+            Remove-Item -Recurse -Force ./TestResults -ErrorAction SilentlyContinue
+            $out = dotnet test VMx.sln -c Release --no-build --collect:"XPlat Code Coverage" --results-directory ./TestResults 2>&1 | Out-String
             if ($out -match 'Foreign_Dispose_Waits_For_Ordinary_Lifecycle_Publication \[FAIL\]') {
               $timeouts++
               Write-Output "::group::race test timed out in run $i"
