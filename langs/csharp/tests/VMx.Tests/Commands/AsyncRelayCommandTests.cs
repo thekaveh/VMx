@@ -4,6 +4,7 @@ using System.Reflection;
 using FluentAssertions;
 using VMx.Commands;
 using Xunit;
+using static VMx.Tests.Helpers.Liveness;
 
 namespace VMx.Tests.Commands;
 
@@ -39,14 +40,14 @@ public class AsyncRelayCommandTests
                     disposeFinished.Set();
                 });
                 disposer.Start();
-                disposeFinishedInsidePredicate = disposeFinished.Wait(TimeSpan.FromSeconds(1));
+                disposeFinishedInsidePredicate = disposeFinished.Wait(HangGuard);
                 return true;
             })
             .Task(_ => Task.CompletedTask)
             .Build();
 
         await command.ExecuteAsync();
-        disposer!.Join(TimeSpan.FromSeconds(1)).Should().BeTrue();
+        disposer!.Join(HangGuard).Should().BeTrue();
 
         disposeFinishedInsidePredicate.Should().BeTrue();
         command.IsExecuting.Should().BeFalse();
@@ -234,7 +235,7 @@ public class AsyncRelayCommandTests
         using var subscription = command.Errors.Subscribe(observed.SetResult);
 
         command.Execute(null);
-        var error = await observed.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        var error = await observed.Task.WaitAsync(HangGuard);
 
         error.Should().BeOfType<ArgumentException>()
             .Which.Message.Should().Be("body failure");

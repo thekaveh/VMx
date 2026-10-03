@@ -8,6 +8,7 @@ using VMx.Lifecycle;
 using VMx.Messages;
 using VMx.Tests.Helpers;
 using Xunit;
+using static VMx.Tests.Helpers.Liveness;
 
 namespace VMx.Conformance.Tests;
 
@@ -642,7 +643,7 @@ public class CompositeVMConformanceTests
             CancellationToken.None,
             TaskCreationOptions.LongRunning,
             TaskScheduler.Default);
-        await Task.WhenAll(taskA, taskB).WaitAsync(TimeSpan.FromSeconds(30));
+        await Task.WhenAll(taskA, taskB).WaitAsync(HangGuard);
 
         compositeA.Current.Should().BeSameAs(childA);
         compositeB.Current.Should().BeSameAs(childB);
@@ -665,7 +666,7 @@ public class CompositeVMConformanceTests
             .OnCurrentChanged(_ =>
             {
                 aCallbackEntered.Set();
-                bTransactionEntered.Wait(TimeSpan.FromSeconds(1)).Should().BeTrue();
+                bTransactionEntered.Wait(HangGuard).Should().BeTrue();
                 b.Dispose();
             }).Build();
         a.Construct();
@@ -679,10 +680,10 @@ public class CompositeVMConformanceTests
         };
 
         var taskA = Task.Run(() => a.SelectComponent(aItem));
-        aCallbackEntered.Wait(TimeSpan.FromSeconds(1)).Should().BeTrue();
+        aCallbackEntered.Wait(HangGuard).Should().BeTrue();
         var taskB = Task.Run(() => Record.Exception(() => b.Add(bItem)));
 
-        await Task.WhenAll(taskA, taskB).WaitAsync(TimeSpan.FromSeconds(2));
+        await Task.WhenAll(taskA, taskB).WaitAsync(HangGuard);
         (await taskB).Should().BeNull();
         b.Status.Should().Be(ConstructionStatus.Disposed);
         bItem.Status.Should().Be(ConstructionStatus.Disposed);
@@ -1122,7 +1123,6 @@ public class CompositeVMConformanceTests
         // they run on dedicated threads: the test thread's progress must not
         // depend on thread-pool injection under the parallel runner. Timeouts
         // below are hang guards only; each wait resumes on its event.
-        var hangGuard = TimeSpan.FromSeconds(30);
         using var hookEntered = new ManualResetEventSlim();
         using var releaseHook = new ManualResetEventSlim();
         using var disposalStarted = new ManualResetEventSlim();
@@ -1140,7 +1140,7 @@ public class CompositeVMConformanceTests
             .OnConstruct(() =>
             {
                 hookEntered.Set();
-                releaseHook.Wait(hangGuard).Should().BeTrue();
+                releaseHook.Wait(HangGuard).Should().BeTrue();
             })
             .Build();
         oldParent.Add(child);
@@ -1151,7 +1151,7 @@ public class CompositeVMConformanceTests
             CancellationToken.None,
             TaskCreationOptions.LongRunning,
             TaskScheduler.Default);
-        hookEntered.Wait(hangGuard).Should().BeTrue();
+        hookEntered.Wait(HangGuard).Should().BeTrue();
         var disposal = Task.Factory.StartNew(
             () =>
             {
@@ -1161,12 +1161,12 @@ public class CompositeVMConformanceTests
             CancellationToken.None,
             TaskCreationOptions.LongRunning,
             TaskScheduler.Default);
-        disposalStarted.Wait(hangGuard).Should().BeTrue();
+        disposalStarted.Wait(HangGuard).Should().BeTrue();
         var earlyCompletion = await Task.WhenAny(disposal, Task.Delay(TimeSpan.FromMilliseconds(50)));
         earlyCompletion.Should().NotBe(disposal);
 
         releaseHook.Set();
-        await Task.WhenAll(transfer, disposal).WaitAsync(hangGuard);
+        await Task.WhenAll(transfer, disposal).WaitAsync(HangGuard);
         oldParent.Status.Should().Be(ConstructionStatus.Disposed);
         oldParent.Should().BeEmpty();
         destination.Should().ContainSingle(item => ReferenceEquals(item, child));
@@ -1366,13 +1366,13 @@ public class CompositeVMConformanceTests
                 workerDone.Set();
             });
             worker.Start();
-            callbackObservedProgress = workerDone.Wait(TimeSpan.FromMilliseconds(500));
+            callbackObservedProgress = workerDone.Wait(HangGuard);
         };
 
         destination.Construct();
 
         worker.Should().NotBeNull();
-        worker!.Join(TimeSpan.FromSeconds(2)).Should().BeTrue();
+        worker!.Join(HangGuard).Should().BeTrue();
         callbackObservedProgress.Should().BeTrue();
         unrelatedOld.Should().BeEmpty();
         unrelatedDestination.Should().ContainSingle().Which.Should().BeSameAs(unrelated);
@@ -1413,10 +1413,10 @@ public class CompositeVMConformanceTests
             if (args.Action != NotifyCollectionChangedAction.Remove || bulkWorker is not null) return;
             bulkWorker = new Thread(bulkDestination.Construct);
             bulkWorker.Start();
-            bulkFactoryEntered.Wait(TimeSpan.FromSeconds(2)).Should().BeTrue();
+            bulkFactoryEntered.Wait(HangGuard).Should().BeTrue();
             SpinWait.SpinUntil(
                 () => (bulkWorker.ThreadState & ThreadState.WaitSleepJoin) != 0,
-                TimeSpan.FromSeconds(2)).Should().BeTrue();
+                HangGuard).Should().BeTrue();
 
             var unrelatedWorker = new Thread(() =>
             {
@@ -1424,14 +1424,14 @@ public class CompositeVMConformanceTests
                 unrelatedDone.Set();
             });
             unrelatedWorker.Start();
-            callbackObservedProgress = unrelatedDone.Wait(TimeSpan.FromMilliseconds(500));
-            unrelatedWorker.Join(TimeSpan.FromSeconds(2));
+            callbackObservedProgress = unrelatedDone.Wait(HangGuard);
+            unrelatedWorker.Join(HangGuard);
         };
 
         firstDestination.Add(child);
 
         bulkWorker.Should().NotBeNull();
-        bulkWorker!.Join(TimeSpan.FromSeconds(2)).Should().BeTrue();
+        bulkWorker!.Join(HangGuard).Should().BeTrue();
         callbackObservedProgress.Should().BeTrue();
         bulkDestination.Should().ContainSingle().Which.Should().BeSameAs(child);
         unrelatedOld.Should().BeEmpty();

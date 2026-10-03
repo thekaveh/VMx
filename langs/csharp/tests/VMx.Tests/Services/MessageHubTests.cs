@@ -4,6 +4,7 @@ using VMx.Messages;
 using VMx.Services;
 using VMx.Tests.Helpers;
 using Xunit;
+using static VMx.Tests.Helpers.Liveness;
 
 namespace VMx.Tests.Services;
 
@@ -190,13 +191,13 @@ public class MessageHubTests
             });
 
         var send = Task.Run(() => hub.Send(new Stub("blocking")));
-        deliveryEntered.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue();
+        deliveryEntered.Wait(HangGuard).Should().BeTrue();
         var dispose = Task.Run(() =>
         {
             disposeStarted.Set();
             hub.Dispose();
         });
-        disposeStarted.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue();
+        disposeStarted.Wait(HangGuard).Should().BeTrue();
 
         var disposeReturnedBeforeRelease = false;
         try
@@ -209,7 +210,7 @@ public class MessageHubTests
         {
             releaseDelivery.Set();
         }
-        await Task.WhenAll(send, dispose).WaitAsync(TimeSpan.FromSeconds(5));
+        await Task.WhenAll(send, dispose).WaitAsync(HangGuard);
 
         disposeReturnedBeforeRelease.Should().BeFalse(
             "terminal delivery must serialize behind the active OnNext callback");
@@ -291,7 +292,7 @@ public class MessageHubTests
                 TaskCreationOptions.LongRunning,
                 TaskScheduler.Default));
 
-        var completed = await Task.WhenAny(sends, Task.Delay(TimeSpan.FromSeconds(30)));
+        var completed = await Task.WhenAny(sends, Task.Delay(HangGuard));
         completed.Should().BeSameAs(sends, "nested cross-hub sends must not form a wait cycle");
         await sends;
         innerDeliveries.Should().Be(2);
@@ -335,7 +336,7 @@ public class MessageHubTests
                 TaskCreationOptions.LongRunning,
                 TaskScheduler.Default));
 
-        var completed = await Task.WhenAny(sends, Task.Delay(TimeSpan.FromSeconds(30)));
+        var completed = await Task.WhenAny(sends, Task.Delay(HangGuard));
         completed.Should().BeSameAs(sends, "terminal deferral must not form a cross-hub wait cycle");
         await sends;
         leftCompletions.Should().Be(1);
@@ -406,7 +407,7 @@ public class MessageHubTests
                 TaskCreationOptions.LongRunning,
                 TaskScheduler.Default));
 
-        await sends.WaitAsync(TimeSpan.FromSeconds(30));
+        await sends.WaitAsync(HangGuard);
         innerDeliveries.Should().Be(2);
         deliveryInsideBorrowedScope.Should().Be(0,
             "the target owner cannot drain until the borrowed batch body exits");
@@ -434,7 +435,7 @@ public class MessageHubTests
             batchEntered.Set();
             releaseBatch.Wait();
         }));
-        batchEntered.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue();
+        batchEntered.Wait(HangGuard).Should().BeTrue();
 
         using var sourceSubscription = source.Messages.Subscribe(_ =>
         {
@@ -462,7 +463,7 @@ public class MessageHubTests
         finally
         {
             releaseBatch.Set();
-            await Task.WhenAll(targetBatch, sourceSend).WaitAsync(TimeSpan.FromSeconds(5));
+            await Task.WhenAll(targetBatch, sourceSend).WaitAsync(HangGuard);
         }
 
         wasBlocked.Should().BeTrue(
