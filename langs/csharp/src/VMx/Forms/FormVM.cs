@@ -238,6 +238,7 @@ public sealed class FormVM<TM> : IDisposable
         // ObjectDisposedException (parity with the TS/Swift no-op).
         var caller = Environment.CurrentManagedThreadId;
         var admitted = false;
+        var mutationFailed = false;
         try
         {
             lock (_stateGate)
@@ -273,9 +274,14 @@ public sealed class FormVM<TM> : IDisposable
                 nameof(FormVM<TM>),
                 nameof(Model)));
         }
+        catch
+        {
+            mutationFailed = true;
+            throw;
+        }
         finally
         {
-            if (admitted) EndMutation();
+            if (admitted) EndMutation(mutationFailed);
         }
     }
 
@@ -300,7 +306,10 @@ public sealed class FormVM<TM> : IDisposable
         if (tearDown) TearDown();
     }
 
-    private void EndMutation()
+    // A teardown deferred by Dispose runs when the last admitted mutation ends.
+    // If that mutation is already throwing, its exception wins: the teardown
+    // still runs every step, but its own failure is not rethrown over it.
+    private void EndMutation(bool mutationFailed)
     {
         var tearDown = false;
         lock (_stateGate)
@@ -312,10 +321,10 @@ public sealed class FormVM<TM> : IDisposable
                 tearDown = true;
             }
         }
-        if (tearDown) TearDown();
+        if (tearDown) TearDown(rethrowFailure: !mutationFailed);
     }
 
-    private void TearDown()
+    private void TearDown(bool rethrowFailure = true)
     {
         // Best-effort terminal teardown (mirrors ComponentVMBase.Dispose): a
         // throwing OnCompleted observer must not abort the rest and leak the
@@ -337,7 +346,7 @@ public sealed class FormVM<TM> : IDisposable
             CaptureTeardownFailure(ref firstError, d1.Dispose);
         if (ApproveCommand is IDisposable d2)
             CaptureTeardownFailure(ref firstError, d2.Dispose);
-        firstError?.Throw();
+        if (rethrowFailure) firstError?.Throw();
     }
 
     private static void CaptureTeardownFailure(ref ExceptionDispatchInfo? firstError, Action action)
@@ -361,6 +370,7 @@ public sealed class FormVM<TM> : IDisposable
     {
         var caller = Environment.CurrentManagedThreadId;
         var admitted = false;
+        var mutationFailed = false;
         try
         {
             bool canExecuteChanged;
@@ -394,9 +404,14 @@ public sealed class FormVM<TM> : IDisposable
                     _canExecuteChangedTrigger.OnNext(Unit.Default);
             }
         }
+        catch
+        {
+            mutationFailed = true;
+            throw;
+        }
         finally
         {
-            if (admitted) EndMutation();
+            if (admitted) EndMutation(mutationFailed);
         }
     }
 

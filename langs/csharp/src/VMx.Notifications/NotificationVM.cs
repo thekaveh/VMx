@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Reactive.Concurrency;
 using System.Reactive.Linq;
+using System.Runtime.ExceptionServices;
 using System.Windows.Input;
 using VMx.Commands;
 
@@ -184,10 +185,21 @@ public class NotificationVM : IDisposable, INotifyPropertyChanged
             _tickSub = null;
         }
 
-        timerSub?.Dispose();
-        pendingSub?.Dispose();
-        tickSub?.Dispose();
-        if (DismissCommand is IDisposable d) d.Dispose();
+        // Best-effort teardown: a throwing subscription disposal must not skip the
+        // rest. Run every step, then rethrow the first failure.
+        ExceptionDispatchInfo? firstError = null;
+        if (timerSub is not null) CaptureDisposalFailure(ref firstError, timerSub.Dispose);
+        if (pendingSub is not null) CaptureDisposalFailure(ref firstError, pendingSub.Dispose);
+        if (tickSub is not null) CaptureDisposalFailure(ref firstError, tickSub.Dispose);
+        if (DismissCommand is IDisposable d) CaptureDisposalFailure(ref firstError, d.Dispose);
+        firstError?.Throw();
+    }
+
+    /// <summary>Runs one teardown step, keeping the first failure for a later rethrow.</summary>
+    private protected static void CaptureDisposalFailure(ref ExceptionDispatchInfo? firstError, Action action)
+    {
+        try { action(); }
+        catch (Exception error) { firstError ??= ExceptionDispatchInfo.Capture(error); }
     }
 
     /// <summary>
