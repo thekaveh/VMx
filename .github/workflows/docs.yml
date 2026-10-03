@@ -48,8 +48,13 @@ on:
 permissions:
   contents: read
 
+# A group holds one running and one pending run; a newly queued run cancels
+# the pending one. Only the main publication shares `pages`, which keeps Pages
+# deployments serialized and in order. Every other run queues behind runs of
+# its own ref, so unrelated pull requests and develop pushes never cancel each
+# other or a pending publication.
 concurrency:
-  group: pages
+  group: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && 'pages' || format('docs-{0}', github.ref) }}
   cancel-in-progress: false
 
 jobs:
