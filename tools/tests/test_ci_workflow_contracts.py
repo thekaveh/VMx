@@ -202,3 +202,17 @@ def test_swift_coverage_counts_concurrently_executed_regions_exactly() -> None:
         "swift test --package-path langs/swift --enable-code-coverage"
         " -Xswiftc -Xllvm -Xswiftc -instrprof-atomic-counter-update-all"
     ) in coverage
+
+
+def test_swift_example_tests_fail_fast_and_name_a_hung_case() -> None:
+    # A hung NotesShowcase case once held the job until its 30-minute timeout
+    # with no name in the log (#533). The watchdog kills and names it instead.
+    swift = (WORKFLOWS / "swift.yml").read_text(encoding="utf-8")
+    examples = swift.split("\n  examples:\n", maxsplit=1)[1].split("\n  coverage:\n")[0]
+    examples = " ".join(examples.split())  # read folded `run: >-` commands as one line
+
+    assert (
+        "python3 ../../../tools/swift-test-watchdog.py --per-test-timeout 120"
+        " -- swift test --parallel"
+    ) in examples
+    assert '"tools/swift-test-watchdog.py"' in swift.split("\njobs:\n", maxsplit=1)[0]
