@@ -139,17 +139,26 @@ final class NotificationsVMTests: XCTestCase {
         let f = try build()
         defer { f.notifHub.dispose() }
 
+        var pending: [VMx.Notification] = []
+        let pendingSubscription = f.notifHub.pending.sink { pending = $0 }
+        defer { pendingSubscription.cancel() }
+
         let n1 = n("x")
         Task { _ = await f.notifHub.post(n1) }
-        try? await Task.sleep(nanoseconds: 1_000_000)
+        // Poll instead of sleeping a fixed millisecond: the posting Task may
+        // start late on a loaded runner (#533).
+        await waitUntil { f.vm.visible.count == 1 }
         XCTAssertEqual(1, f.vm.visible.count)
 
         f.vm.dispose()
         XCTAssertTrue(f.vm.visible.isEmpty, "Expected empty visible after dispose")
 
-        // After dispose, new posts must not produce updates.
-        Task { _ = await f.notifHub.post(self.n("y")) }
-        try? await Task.sleep(nanoseconds: 1_000_000)
+        // After dispose, new posts must not produce updates. Wait until the
+        // hub holds the new post, so the check is not vacuous.
+        let n2 = n("y")
+        Task { _ = await f.notifHub.post(n2) }
+        await waitUntil { pending.contains { $0 === n2 } }
+        XCTAssertTrue(pending.contains { $0 === n2 }, "the post reached the hub")
         XCTAssertTrue(f.vm.visible.isEmpty,
                       "Expected visible to stay empty for new post after dispose")
     }
