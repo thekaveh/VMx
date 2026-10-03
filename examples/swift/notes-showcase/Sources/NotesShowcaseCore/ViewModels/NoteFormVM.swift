@@ -198,10 +198,7 @@ public final class NoteFormVM: ComponentVMBase {
             debounce: .seconds(0)
         )
         _tagSearchCancellable = _tagSearch?.filtered
-            .sink { [weak self] suggestions in
-                self?._tagSuggestions = suggestions
-                self?.emitTagSuggestionChanges()
-            }
+            .sink { [weak self] suggestions in self?.receiveTagSearchResult(suggestions) }
 
         // Phase 2: rewire with real self-capturing closures.
         //
@@ -398,6 +395,12 @@ public final class NoteFormVM: ComponentVMBase {
                 self?._tagSearch?.search()
             }
         }
+    }
+
+    /// Applies one emission of the tag search.
+    func receiveTagSearchResult(_ suggestions: [String]) {
+        _tagSuggestions = suggestions
+        emitTagSuggestionChanges()
     }
 
     private func tagMatches(_ tag: String, _ term: String) -> Bool {

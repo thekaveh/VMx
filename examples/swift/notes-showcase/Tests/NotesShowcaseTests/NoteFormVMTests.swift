@@ -95,6 +95,29 @@ final class NoteFormVMTests: XCTestCase {
         XCTAssertEqual(form.tagSuggestions, ["security"])
     }
 
+    func testALateSearchEmissionCannotReplaceSuggestionsForTheCurrentTerm() async throws {
+        // The tag search's debounced emission arrives on the main queue, so one
+        // computed for an earlier term can land after the current term's
+        // search has applied its result (#550).
+        let (form, repo) = try build()
+        try await repo.saveNote(NoteModel(
+            id: "tagged", notebookId: "nb-work", title: "Tags",
+            tags: ["security"], body: "", starred: false,
+            createdAt: Date(), updatedAt: Date()
+        ))
+        form.bindTo(sampleNote())
+        await form.refreshTagSuggestions()
+        form.tagDraft = "sec"
+        XCTAssertEqual(form.tagSuggestions, ["security"])
+
+        form.receiveTagSearchResult([])  // computed for the initial empty term
+
+        XCTAssertEqual(
+            form.tagSuggestions, ["security"],
+            "suggestions must follow the current tag draft"
+        )
+    }
+
     // MARK: - Approve
 
     func testApprove_persistsClearsDirtyAndResnapshots() async throws {
