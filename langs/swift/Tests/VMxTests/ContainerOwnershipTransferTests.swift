@@ -865,26 +865,32 @@ final class ContainerOwnershipTransferTests: XCTestCase {
     }
 
     func testPopulationWaitsForAnotherThreadsOpenTransactionOnTheOldParent() throws {
-        // The old parent has attached `child` and released its reservation,
-        // but its membership transaction stays open while `child` constructs.
-        // A population on another thread must wait for that transaction to
-        // end, as C# does, instead of failing to detach `child` (#551).
-        let hookEntered = DispatchSemaphore(value: 0)
-        let releaseHook = DispatchSemaphore(value: 0)
-        let child = try ComponentVM.builder()
-            .name("child")
-            .withNullServices()
-            .onConstruct {
-                hookEntered.signal()
-                _ = releaseHook.wait(timeout: .now() + 10)
-            }
-            .build()
+        // The old parent commits its child's transfer, releasing the child's
+        // reservation, then publishes `added` while its membership transaction
+        // is still open. A population on another thread that moves the child
+        // must wait for that transaction to end, as C# does, instead of failing
+        // to detach it (#551).
+        let addedEntered = DispatchSemaphore(value: 0)
+        let releaseAdded = DispatchSemaphore(value: 0)
+        let child = try leaf("child")
         let oldParent = GroupVM<ComponentVM>(
             name: "old-parent",
             hub: NullMessageHub.INSTANCE,
             dispatcher: NullDispatcher.INSTANCE,
             childrenFactory: { [child] }
         )
+        let blockedOnce = NSLock()
+        var blocked = false
+        let subscription = oldParent.collectionChanged.sink { _ in
+            let first = blockedOnce.withLock { () -> Bool in
+                defer { blocked = true }
+                return !blocked
+            }
+            guard first else { return }
+            addedEntered.signal()
+            _ = releaseAdded.wait(timeout: .now() + 10)
+        }
+        defer { subscription.cancel() }
         let destination = CompositeVM<ComponentVM>(
             name: "destination",
             hub: NullMessageHub.INSTANCE,
@@ -899,7 +905,7 @@ final class ContainerOwnershipTransferTests: XCTestCase {
             do { try oldParent.construct() } catch { errors.append(error) }
             oldParentDone.signal()
         }
-        XCTAssertEqual(hookEntered.wait(timeout: .now() + 10), .success)
+        XCTAssertEqual(addedEntered.wait(timeout: .now() + 10), .success)
         DispatchQueue.global().async {
             do { try destination.construct() } catch { errors.append(error) }
             destinationDone.signal()
@@ -909,7 +915,7 @@ final class ContainerOwnershipTransferTests: XCTestCase {
             destinationDone.wait(timeout: .now() + 0.2), .timedOut,
             "the destination must wait for the open transaction: \(errors.errors)"
         )
-        releaseHook.signal()
+        releaseAdded.signal()
         XCTAssertEqual(oldParentDone.wait(timeout: .now() + 10), .success)
         XCTAssertEqual(destinationDone.wait(timeout: .now() + 10), .success)
         XCTAssertTrue(errors.errors.isEmpty, "\(errors.errors)")
