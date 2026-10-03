@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Reactive.Concurrency;
 using System.Reactive.Disposables;
 using System.Reactive.Linq;
@@ -22,6 +23,12 @@ namespace VMx.Tests.Components;
 /// </summary>
 public class ComponentVMLifecycleRaceTests
 {
+    // Liveness bound for waits on dedicated or pool threads (#537). A cold,
+    // oversubscribed Windows runner collecting coverage can delay a thread by
+    // seconds, so short deadlines failed without any wrong behavior. A passing
+    // wait returns as soon as its condition holds, so the bound costs nothing.
+    private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(30);
+
     private static (ComponentVM<string> vm, TestHub hub, TestDispatcher dispatcher) BuildBackgroundVm()
     {
         var hub = new TestHub();
@@ -659,7 +666,7 @@ public class ComponentVMLifecycleRaceTests
                     if (message.Status == ConstructionStatus.Constructing)
                     {
                         entered.Set();
-                        release.Wait(TimeSpan.FromSeconds(10)).Should().BeTrue(
+                        release.Wait(HangGuard + HangGuard).Should().BeTrue(
                             "the coordinator must release ordinary publication");
                     }
                     else if (message.Status == ConstructionStatus.Disposed)
@@ -713,7 +720,7 @@ public class ComponentVMLifecycleRaceTests
             // Dedicated threads also work when the thread pool is constrained.
             workers.Add(Task.Factory.StartNew(vm.Construct, CancellationToken.None,
                 TaskCreationOptions.LongRunning, TaskScheduler.Default));
-            entered.Wait(TimeSpan.FromSeconds(5)).Should().BeTrue("ordinary publication must enter");
+            entered.Wait(HangGuard).Should().BeTrue("ordinary publication must enter");
             var disposer = Task.Factory.StartNew(() =>
             {
                 vm.Dispose();
@@ -747,14 +754,19 @@ public class ComponentVMLifecycleRaceTests
                 return $"{local}, disposer={disposer.Status}, waitGraph=[{edges}]";
             }
 
+            // Poll gently: a spinning probe that takes the VM gate on every
+            // iteration competes with the disposer for that gate and the CPU.
             var admitted = false;
-            SpinWait.SpinUntil(() =>
+            var polling = Stopwatch.StartNew();
+            while (polling.Elapsed < HangGuard)
             {
                 var completion = QueuedTerminalCompletion();
                 // Read Waiters without holding the VM or wait-graph locks.
                 admitted = completion is not null && (int)waiters.GetValue(completion)! > 0;
-                return admitted || disposer.IsCompleted;
-            }, TimeSpan.FromSeconds(5)).Should().BeTrue(
+                if (admitted || disposer.IsCompleted) break;
+                Thread.Sleep(1);
+            }
+            (admitted || disposer.IsCompleted).Should().BeTrue(
                 "Dispose must reach its publication wait ({0})", LifecycleState());
             admitted.Should().BeTrue("Dispose must register inside LifecycleDelivery.Completed.Wait");
             Volatile.Read(ref disposedSeen).Should().Be(0);

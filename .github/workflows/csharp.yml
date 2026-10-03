@@ -259,53 +259,6 @@ jobs:
         # bindings on the Dispatcher thread (docs/content/integration/wpf.md).
         run: dotnet run --project examples/csharp/wpf/RecipeHostCheck/RecipeHostCheck.csproj -c Release
 
-  race-probe:
-    # Temporary (#537): measures how often the lifecycle race test times out on
-    # Windows under the full multi-target test load. It is not required and is
-    # removed before the fix merges.
-    timeout-minutes: 60
-    name: lifecycle race probe (temporary, #537)
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Setup .NET 8 + .NET 9 + .NET 10
-        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
-        with:
-          dotnet-version: |
-            8.0.x
-            9.0.x
-            10.0.x
-          cache: true
-          cache-dependency-path: langs/csharp/**/packages.lock.json
-      - name: Build
-        run: |
-          dotnet restore VMx.sln --locked-mode
-          dotnet build VMx.sln -c Release --no-restore
-      - name: Repeat the full test run and report race-test timeouts
-        shell: pwsh
-        run: |
-          $runs = 30
-          $timeouts = 0
-          $otherFailures = 0
-          for ($i = 1; $i -le $runs; $i++) {
-            # Match the build job's test step: coverage instrumentation slows
-            # the code under test and changes its timing.
-            Remove-Item -Recurse -Force ./TestResults -ErrorAction SilentlyContinue
-            $out = dotnet test VMx.sln -c Release --no-build --collect:"XPlat Code Coverage" --results-directory ./TestResults 2>&1 | Out-String
-            if ($out -match 'Foreign_Dispose_Waits_For_Ordinary_Lifecycle_Publication \[FAIL\]') {
-              $timeouts++
-              Write-Output "::group::race test timed out in run $i"
-              $out -split "`n" | Select-String -Pattern 'Error Message|publication wait|Failed!' -Context 0,1
-              Write-Output "::endgroup::"
-            } elseif ($LASTEXITCODE -ne 0) {
-              $otherFailures++
-              Write-Output "::group::other failure in run $i"
-              $out -split "`n" | Select-String -Pattern '\[FAIL\]|Failed!' -Context 0,2
-              Write-Output "::endgroup::"
-            }
-          }
-          Write-Output "runs=$runs raceTimeouts=$timeouts otherFailures=$otherFailures"
-
   required:
     timeout-minutes: 5
     name: "required: csharp"
