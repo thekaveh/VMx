@@ -17,6 +17,12 @@ namespace VMx.Tests.Composites;
 /// </summary>
 public class CompositeVMTests
 {
+    // Liveness bound for waits on dedicated or pool threads (#537). A cold,
+    // oversubscribed Windows runner collecting coverage can delay a thread by
+    // seconds, so short deadlines failed without any wrong behavior. A passing
+    // wait returns as soon as its condition holds, so the bound costs nothing.
+    private static readonly TimeSpan HangGuard = TimeSpan.FromSeconds(30);
+
     private sealed class BlockingTransferParent : IParentCompositeVM
     {
         internal ManualResetEventSlim Entered { get; } = new(false);
@@ -250,7 +256,7 @@ public class CompositeVMTests
             try { composite.Add(late); }
             catch (Exception error) { failure = error; }
         });
-        (await Task.Run(() => blocker.Entered.Wait(TimeSpan.FromSeconds(2))))
+        (await Task.Run(() => blocker.Entered.Wait(HangGuard)))
             .Should().BeTrue();
 
         using var disposalStarted = new ManualResetEventSlim();
@@ -259,12 +265,12 @@ public class CompositeVMTests
             disposalStarted.Set();
             composite.Dispose();
         });
-        (await Task.Run(() => disposalStarted.Wait(TimeSpan.FromSeconds(2))))
+        (await Task.Run(() => disposalStarted.Wait(HangGuard)))
             .Should().BeTrue();
         (await Task.WhenAny(disposal, Task.Delay(TimeSpan.FromMilliseconds(50))))
             .Should().NotBe(disposal);
         blocker.Release.Set();
-        await Task.WhenAll(admission, disposal).WaitAsync(TimeSpan.FromSeconds(2));
+        await Task.WhenAll(admission, disposal).WaitAsync(HangGuard);
 
         failure.Should().BeNull();
         composite.Should().ContainSingle(item => ReferenceEquals(item, late));
