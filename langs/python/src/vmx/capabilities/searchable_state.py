@@ -17,6 +17,7 @@ from reactivex.scheduler import TimeoutScheduler
 from reactivex.subject import BehaviorSubject, Subject
 
 from vmx.capabilities.search import ISearchable
+from vmx.commands.relay_command import _run_disposal_steps
 
 T = TypeVar("T")
 
@@ -140,10 +141,12 @@ class SearchableState(ISearchable, Generic[T]):
         if self._disposed:
             return
         self._disposed = True
-        self._subscription.dispose()
-        self._term_subject.on_completed()
-        self._term_subject.dispose()
-        self._filtered_subject.on_completed()
-        self._filtered_subject.dispose()
-        self._force_search.on_completed()
-        self._force_search.dispose()
+        _run_disposal_steps(
+            self._subscription.dispose,
+            self._term_subject.on_completed,
+            self._term_subject.dispose,
+            self._filtered_subject.on_completed,
+            self._filtered_subject.dispose,
+            self._force_search.on_completed,
+            self._force_search.dispose,
+        )
