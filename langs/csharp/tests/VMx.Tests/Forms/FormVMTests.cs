@@ -327,6 +327,97 @@ public class FormVMTests
             ReferenceEquals(message.Sender, sut) && message.PropertyName == "Model");
     }
 
+    // ── Deferred teardown failure precedence (#448) ───────────────────────────
+
+    private static readonly IReadOnlyDictionary<string, Func<Model, string?>> NameRequired =
+        new Dictionary<string, Func<Model, string?>>
+        {
+            ["Name"] = m => m.Name.Length == 0 ? "required" : null,
+        };
+
+    // An ErrorsChanged observer runs inside the admitted mutation, so disposing
+    // the form there defers teardown to the mutation's end. The OnApproved
+    // completion observer then makes that deferred teardown fail.
+    private static (FormVM<Model> Form, Func<bool> ErrorsCompleted) FormWhoseTeardownFails(
+        Exception teardownError, Exception? mutationError)
+    {
+        var form = new FormVM<Model>(new Model("A", 1), _ => Task.CompletedTask, validators: NameRequired);
+        var errorsCompleted = false;
+        form.OnApproved.Subscribe(_ => { }, () => throw teardownError);
+        // Rx detaches an observer whose OnNext throws, so a separate observer
+        // shows that the steps after the failing one still ran.
+        form.ErrorsChanged.Subscribe(_ => { }, () => errorsCompleted = true);
+        form.ErrorsChanged.Subscribe(_ =>
+        {
+            form.Dispose();
+            if (mutationError is not null) throw mutationError;
+        });
+        return (form, () => errorsCompleted);
+    }
+
+    [Fact]
+    public void SetModel_InFlight_Error_Survives_A_Failing_Deferred_Teardown()
+    {
+        var teardownError = new InvalidOperationException("teardown");
+        var mutationError = new InvalidOperationException("mutation");
+        var (sut, errorsCompleted) = FormWhoseTeardownFails(teardownError, mutationError);
+
+        var act = () => sut.SetModel(new Model("", 1));
+
+        act.Should().Throw<InvalidOperationException>().Which.Should().BeSameAs(mutationError);
+        errorsCompleted().Should().BeTrue("every teardown step still runs after the failing one");
+    }
+
+    [Fact]
+    public void SetModel_Success_Surfaces_A_Failing_Deferred_Teardown()
+    {
+        var teardownError = new InvalidOperationException("teardown");
+        var (sut, errorsCompleted) = FormWhoseTeardownFails(teardownError, mutationError: null);
+
+        var act = () => sut.SetModel(new Model("", 1));
+
+        act.Should().Throw<InvalidOperationException>().Which.Should().BeSameAs(teardownError);
+        errorsCompleted().Should().BeTrue();
+    }
+
+    [Fact]
+    public void Deny_InFlight_Error_Survives_A_Failing_Deferred_Teardown()
+    {
+        var teardownError = new InvalidOperationException("teardown");
+        var mutationError = new InvalidOperationException("mutation");
+        var sut = new FormVM<Model>(new Model("A", 1), _ => Task.CompletedTask, validators: NameRequired);
+        sut.SetModel(new Model("", 1));
+        var errorsCompleted = false;
+        sut.OnApproved.Subscribe(_ => { }, () => throw teardownError);
+        sut.ErrorsChanged.Subscribe(_ => { }, () => errorsCompleted = true);
+        sut.ErrorsChanged.Subscribe(_ =>
+        {
+            sut.Dispose();
+            throw mutationError;
+        });
+
+        var act = () => sut.DenyCommand.Execute(null);
+
+        act.Should().Throw<InvalidOperationException>().Which.Should().BeSameAs(mutationError);
+        errorsCompleted.Should().BeTrue("every teardown step still runs after the failing one");
+    }
+
+    [Fact]
+    public void Deny_Success_Surfaces_A_Failing_Deferred_Teardown()
+    {
+        var teardownError = new InvalidOperationException("teardown");
+        var sut = new FormVM<Model>(new Model("A", 1), _ => Task.CompletedTask, validators: NameRequired);
+        sut.SetModel(new Model("", 1));
+        var errorsCompleted = false;
+        sut.OnApproved.Subscribe(_ => { }, () => throw teardownError);
+        sut.ErrorsChanged.Subscribe(_ => sut.Dispose(), () => errorsCompleted = true);
+
+        var act = () => sut.DenyCommand.Execute(null);
+
+        act.Should().Throw<InvalidOperationException>().Which.Should().BeSameAs(teardownError);
+        errorsCompleted.Should().BeTrue();
+    }
+
     // ── Dispose races ─────────────────────────────────────────────────────────
 
     [Fact]
