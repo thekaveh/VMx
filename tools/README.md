@@ -64,6 +64,13 @@ Cross-cutting scripts that operate across `spec/` and `langs/`.
 - `check-swift-fixture-sync.py` — verifies Swift's four bundled JSON resources
   are byte-identical to `spec/fixtures/*.json`.
 
+- `swift-test-watchdog.py` — runs a SwiftPM test command and watches the
+  `xctest` process that `swift test --parallel` starts for each case. A case
+  that outlives `--per-test-timeout` is sampled, killed, and reported by name,
+  so a hang fails within minutes instead of at the job timeout. `--timeout`
+  bounds the whole command. The Swift `examples` job runs the NotesShowcase
+  tests through it.
+
 - `select-csharp-release.py` — maps the three collision-free stable C# tag
   namespaces to exactly one package ID, verifies that package's project version,
   and writes the single-entry artifact manifest consumed by `release.yml`.

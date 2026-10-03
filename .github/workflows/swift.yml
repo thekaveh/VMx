@@ -14,6 +14,7 @@ on:
       - "examples/notes-showcase-theme-scenario.json"
       - "spec/**"
       - "tools/check-swift-package-sync.py"
+      - "tools/swift-test-watchdog.py"
       - ".github/workflows/swift.yml"
   pull_request:
     branches: [main, develop]
@@ -266,9 +267,12 @@ jobs:
           -Xswiftc -warnings-as-errors
       - name: Test NotesShowcase flagship
         working-directory: examples/swift/notes-showcase
-        # Parallel XCTest emits each case name before execution, making any
-        # future stuck async scenario immediately attributable in CI logs.
-        run: swift test --parallel
+        # Parallel XCTest runs each case in its own process, whose arguments
+        # name it. The watchdog samples and kills a case that runs longer than
+        # two minutes and fails with its name, long before the job timeout (#533).
+        run: >-
+          python3 ../../../tools/swift-test-watchdog.py --per-test-timeout 120
+          -- swift test --parallel
 
   hang-probe:
     # Temporary (#533): finds the intermittent NotesShowcase test hang. It is
@@ -310,6 +314,29 @@ jobs:
               failures=$((failures + 1))
               echo "::group::FAILURE in run $i"
               tail -40 run.log
+              report=$(ls -t "$HOME"/Library/Logs/DiagnosticReports/xctest* 2>/dev/null | head -1 || true)
+              if [ -n "$report" ] && [ "$report" != "${last_report:-}" ]; then
+                last_report=$report
+                echo "crash report: $report"
+                python3 - "$report" <<'PY' || true
+          import json, sys
+          header, body = open(sys.argv[1], encoding="utf-8").read().split("\n", 1)
+          crash = json.loads(body)
+          images = crash.get("usedImages", [])
+          print("exception:", crash.get("exception"))
+          print("termination:", crash.get("termination"))
+          print("asi:", crash.get("asi"))
+          for index, thread in enumerate(crash.get("threads", [])):
+              faulting = " (faulting)" if index == crash.get("faultingThread") else ""
+              print(f"--- thread {index}{faulting} {thread.get('name', '')} {thread.get('queue', '')}")
+              for frame in thread.get("frames", [])[:60]:
+                  image = images[frame["imageIndex"]] if 0 <= frame.get("imageIndex", -1) < len(images) else {}
+                  print(
+                      f"  {image.get('name', '?')} {frame.get('symbol', '?')}"
+                      f" {frame.get('sourceFile', '')}:{frame.get('sourceLine', '')}"
+                  )
+          PY
+              fi
               echo "::endgroup::"
             fi
           done
