@@ -22,6 +22,10 @@ Rust is the fifth VMx source flavor. It lives under `langs/rust/` as the
   recomputed from the model and publishes `modeled_hint` changes
 - Async commands: `AsyncRelayCommand::builder()` owns its task, predicate,
   additive triggers, cancellation mode, and fire-and-forget error stream
+- Completion handles: `AsyncValue<T>` is an executor-neutral `Future` with a
+  blocking `wait()`. When a `map` or `and_then` callback panics, the handle it
+  returns settles as panicked: `wait()` and `.await` re-raise the panic and
+  `wait_result()` returns an `AsyncValuePanic`, so no waiter hangs (ADR-0138)
 - Async resources: `AsyncResourceVm<T, D>` accepts the shared hub and dispatcher,
   implements the ordinary component/node contract, and keeps resource phase in
   `resource_status()` / `state().status()` independently of lifecycle status

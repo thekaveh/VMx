@@ -31,7 +31,7 @@ pub use aggregate_change_stream::{
 pub use async_resource_vm::{
     AsyncResourceRetention, AsyncResourceState, AsyncResourceStatus, AsyncResourceVm,
 };
-pub use async_value::AsyncValue;
+pub use async_value::{AsyncValue, AsyncValuePanic};
 pub use value_stream::{ValueStream, ValueSubscription};
 
 /// Version of the compiled Rust package.

@@ -10,6 +10,9 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `AsyncValuePanic`, with `AsyncValue::wait_result()` and
+  `AsyncValue::try_result()`, reports the panic of the `map` or `and_then`
+  callback that produced a handle (ADR-0138, #339).
 - `CommandErrorStream`, returned by `AsyncRelayCommand::error_stream()` and
   `ConfirmationDecoratorCommand::error_stream()`, delivers each fire-and-forget
   failure once as the original `VmxError`. It is hot, isolates subscriber
@@ -18,6 +21,16 @@ project adheres to [Semantic Versioning](https://semver.org/).
   caught by the confirmation decorator arrives as `VmxError::Other` carrying the
   panic message; `execute_async().join()` still returns the payload itself
   (ADR-0137, #330).
+
+### Changed
+
+- A panicking `AsyncValue::map` or `and_then` callback now settles the returned
+  handle as panicked instead of leaving it pending forever. The panic propagates
+  through compositions, every waker and other continuation still runs, `wait()`
+  and `.await` re-raise it, and `try_get()` returns `None`.
+  `ConfirmationDecoratorCommand::execute_async().join()` returns a panicked
+  confirmation's payload instead of blocking, and fire-and-forget `execute`
+  publishes it on `error_stream()` (ADR-0138, #339).
 
 ### Deprecated
 
