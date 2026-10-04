@@ -17,6 +17,7 @@ mod conformance {
     mod expandable;
     mod expandable_support;
     mod filtered_composite;
+    mod form_approval_subscription;
     mod form_model_hub_publication;
     mod forms;
     mod forwarding;

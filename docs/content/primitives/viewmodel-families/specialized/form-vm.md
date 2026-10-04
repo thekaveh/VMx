@@ -132,6 +132,14 @@ persistence and should be handled as such.
 | Mutator           | `SetModel(...)`     | `set_model(...)`      | `setModel(...)`        | `setModel(...)`     | `set_model(...)`      |
 | Awaitable/direct approve | `ApproveAsync()` | `approve_async()` | `approveAsync()`       | `approveAsync()`    | `approve()`           |
 | Reset builder     | `ResetOnApproved`   | `reset_on_approved`   | `resetOnApproved`      | `resetOnApproved`   | `reset_on_approved`   |
+| Approval subscription | `OnApproved.Subscribe(...)` | `on_approved.subscribe(...)` | `onApproved.subscribe(...)` | `onApproved.sink { ... }` | `subscribe_approved(...)` |
+
+Each approval subscription detaches on its own: dispose the C# `IDisposable`,
+Python disposable, or TypeScript `Subscription`, cancel the Swift
+`AnyCancellable`, or dispose or drop the Rust `ApprovalSubscription`. Form
+disposal releases every remaining subscriber, and a registration made after
+disposal keeps nothing. Rust's older `on_approved` registration lasts until the
+form is disposed and is deprecated (ADR-0139).
 
 Builder examples use the idiomatic name but the same captured-model contract:
 
