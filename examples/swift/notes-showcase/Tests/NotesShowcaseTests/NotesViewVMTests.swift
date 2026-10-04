@@ -436,4 +436,31 @@ final class NotesViewVMTests: XCTestCase {
         vm.dispose()
         XCTAssertTrue((replacedResults + finalResults).allSatisfy { $0.status == .disposed })
     }
+
+    func testGlobalSearchVM_keepsLoadedResults_acrossAnUnchangedTermRefresh() async throws {
+        let repo = makeRepo(loadNotesDelay: 0)
+        let vm = try GlobalSearchVM.builder()
+            .name("global-search")
+            .services(hub: MessageHub(), dispatcher: ImmediateDispatcher.INSTANCE)
+            .repository(repo)
+            .pageSize(1)
+            .searchDebounce(.milliseconds(0))
+            .build()
+
+        vm.searchTerm = "review"
+        try await vm.refreshCommand.executeAsync()
+        try await vm.loadMoreCommand.executeAsync()
+        let loaded = vm.results.map { $0.model.id }
+        XCTAssertEqual(2, loaded.count)
+
+        try await vm.refreshCommand.executeAsync()
+        XCTAssertEqual(loaded, vm.results.map { $0.model.id })
+
+        try await vm.loadMoreCommand.executeAsync()
+        let ids = vm.results.map { $0.model.id }
+        XCTAssertEqual(loaded, Array(ids.prefix(2)))
+        XCTAssertEqual(3, ids.count)
+        XCTAssertEqual(ids.count, Set(ids).count)
+        vm.dispose()
+    }
 }

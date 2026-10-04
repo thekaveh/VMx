@@ -9,7 +9,7 @@ spec-compatible with the C#, TypeScript, Swift, and Rust flavors.
 
 ## 1. Status
 
-**v3.24.0 source** — implements `spec-v3.24.0` end-to-end. 406/406 library conformance IDs
+**v3.25.0 source** — implements `spec-v3.25.0` end-to-end. 407/407 library conformance IDs
 pass. Supports Python 3.10–3.14.
 `mypy --strict` clean. Opt-in `vmx.notifications` subpackage ships an
 `INotificationHub` for async confirmations. The Swift flavor is at total
@@ -18,7 +18,7 @@ parity; see `../swift/README.md` §5 for the current conformance matrix.
 ## 2. Install
 
 VMx 3.23.0 is publicly available on PyPI and implements spec 3.23.0. The
-3.24.0 source line is not published yet; pin 3.23.0 when reproducing released
+3.25.0 source line is not published yet; pin 3.23.0 when reproducing released
 behavior.
 
 ```bash
@@ -288,7 +288,7 @@ The opt-in `vmx.notifications` subpackage (spec v2.0+) adds:
 
 ## 5. Conformance
 
-All 406 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5). Test-layout conventions for the conformance tree are documented in [`tests/conformance/README.md`](tests/conformance/README.md).
+All 407 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5). Test-layout conventions for the conformance tree are documented in [`tests/conformance/README.md`](tests/conformance/README.md).
 
 ```
 v1.x   LIFE-001..013  HUB-001..007  PROP-001..004  CMD-001..007

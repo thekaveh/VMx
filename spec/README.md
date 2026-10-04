@@ -28,7 +28,7 @@ before any flavor releases a stable version.
 - `09-forwarding.md` — forwarding decorators.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
-- `12-conformance.md` — cross-language conformance test catalog (411 IDs).
+- `12-conformance.md` — cross-language conformance test catalog (412 IDs).
 - `13-tree-utilities.md` — `walk` / `find` / `walk_expanded` tree introspection.
 
 ### 1.2 Chapters (v2.0 additions)
@@ -623,11 +623,24 @@ IDs.
 
 See ADR-0134 and chapter 04.
 
-### 1.36 Supporting artefacts
+### 1.36 v3.24.0 → v3.25.0 changes
 
-- `VERSION` — current spec SemVer (`3.24.0`).
+v3.25.0 keeps the token-paging refresh cursor aligned with the retained
+accumulator. A refreshed first page that matches a longer accumulator keeps the
+prior continuation, so the next load never refetches or duplicates a retained
+page; a matching page as long as the accumulator adopts the refreshed token; and
+an empty or terminal page shorter than the accumulator replaces it. Stale loads
+and refreshes commit nothing, and chapter 21 now states the notification order
+for each branch (`COL-065`). The catalog now contains 407 library IDs plus 5
+scenario IDs.
+
+See ADR-0136 and chapter 21.
+
+### 1.37 Supporting artefacts
+
+- `VERSION` — current spec SemVer (`3.25.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0135); see
+- `ADRs/` — Architecture Decision Records (0001-0136); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `schemas/` — versioned supporting machine contracts. The consumer
   conformance v1 schema is non-normative; see ADR-0102.

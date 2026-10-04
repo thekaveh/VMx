@@ -35,6 +35,17 @@ All notable changes to the C# flavor are documented here. The format is based on
 - The NuGet package ships its own README describing `AddVMx()` registration
   and its dependency on `VMx` (#351).
 
+## [3.25.0] — unreleased source version
+
+### Fixed
+
+- `TokenPagedComposition` refresh keeps `Items` and `CurrentToken` describing
+  one loaded prefix. A refreshed first page that matches a longer accumulator
+  keeps the prior continuation, so the next `LoadMoreCommand` no longer
+  refetches and duplicates page two. A matching page as long as the accumulator
+  adopts the refreshed token, and an empty or terminal first page shorter than
+  the accumulator replaces it (`COL-065`, ADR-0136, spec 3.25.0) (#326).
+
 ## [3.24.0] — unreleased source version
 
 ### Fixed

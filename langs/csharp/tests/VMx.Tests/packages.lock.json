@@ -178,7 +178,7 @@
         "type": "Project",
         "dependencies": {
           "Microsoft.Extensions.DependencyInjection.Abstractions": "[10.0.12, )",
-          "VMx": "[3.24.0, )"
+          "VMx": "[3.25.0, )"
         }
       },
       "Microsoft.Extensions.DependencyInjection.Abstractions": {
@@ -372,7 +372,7 @@
         "type": "Project",
         "dependencies": {
           "Microsoft.Extensions.DependencyInjection.Abstractions": "[10.0.12, )",
-          "VMx": "[3.24.0, )"
+          "VMx": "[3.25.0, )"
         }
       },
       "Microsoft.Extensions.DependencyInjection.Abstractions": {
@@ -572,7 +572,7 @@
         "type": "Project",
         "dependencies": {
           "Microsoft.Extensions.DependencyInjection.Abstractions": "[10.0.12, )",
-          "VMx": "[3.24.0, )"
+          "VMx": "[3.25.0, )"
         }
       },
       "Microsoft.Extensions.DependencyInjection.Abstractions": {

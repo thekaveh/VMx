@@ -111,16 +111,24 @@ class TokenPagedComposition(Generic[TVM, TToken]):
         if self._disposed or generation != self._operation_generation:
             return
         fresh = list(page)
-        pages_match = self._pages_equal(fresh, self._items[: len(fresh)])
-        if not pages_match:
+        head = self._items[: len(fresh)]
+        head_matches = self._pages_equal(fresh, head) and len(head) == len(fresh)
+        # items and current_token must describe one loaded prefix (spec 21 §6.2,
+        # ADR-0136). A matching page as long as the accumulator refreshes its
+        # continuation; a shorter matching non-terminal page keeps the prior one,
+        # because its token addresses items the accumulator already holds.
+        same_length = len(fresh) == len(self._items)
+        retain = head_matches and (same_length or (len(fresh) > 0 and next_token is not None))
+        if not retain:
             self._construct_if_needed(fresh)
         if self._disposed or generation != self._operation_generation:
             return
-        if not pages_match:
+        if not retain:
             self._items = fresh
-        self._current_token = next_token
+        if not retain or same_length:
+            self._current_token = next_token
         self._loaded_once = True
-        if pages_match:
+        if retain:
             self._notify_properties()
         else:
             self._notify_reset()

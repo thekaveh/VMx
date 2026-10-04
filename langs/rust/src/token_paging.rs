@@ -7,7 +7,10 @@ use super::{
     Message, MessageHub, Mutex, PropertyChangedMessage, VmNode,
 };
 use std::{
-    sync::Condvar,
+    sync::{
+        atomic::{AtomicUsize, Ordering},
+        Condvar,
+    },
     thread::{self, ThreadId},
 };
 
@@ -176,6 +179,63 @@ fn publish_command_change(command_trigger: &MessageHub, id: usize) {
     });
 }
 
+/// How a refreshed first page is committed. `items` and the cursor must
+/// describe one loaded prefix (spec 21 §6.2, ADR-0136): a matching page as
+/// long as the accumulator refreshes its continuation; a shorter matching
+/// non-terminal page keeps the prior one, because its token addresses items
+/// the accumulator already holds; anything else replaces the accumulator.
+struct RefreshPlan {
+    replace_items: bool,
+    adopt_token: bool,
+}
+
+impl RefreshPlan {
+    fn new<T: PartialEq>(items: &[T], page: &[T], has_next: bool) -> Self {
+        let head_matches = items.len() >= page.len() && items[..page.len()] == *page;
+        let same_length = items.len() == page.len();
+        let retain = head_matches && (same_length || (!page.is_empty() && has_next));
+        Self {
+            replace_items: !retain,
+            adopt_token: !retain || same_length,
+        }
+    }
+
+    /// Commits the plan and returns the displaced items and token, which
+    /// callers drop only after releasing the commit.
+    fn apply<T, Token>(
+        &self,
+        items: &Mutex<Vec<T>>,
+        token: &Mutex<Option<Token>>,
+        has_more: &Mutex<bool>,
+        page: Vec<T>,
+        next: Option<Token>,
+    ) -> (Vec<T>, Option<Token>) {
+        let displaced_items = if self.replace_items {
+            std::mem::replace(&mut *lock(items), page)
+        } else {
+            page
+        };
+        let displaced_token = if self.adopt_token {
+            let more = next.is_some();
+            let previous = std::mem::replace(&mut *lock(token), next);
+            *lock(has_more) = more;
+            previous
+        } else {
+            next
+        };
+        (displaced_items, displaced_token)
+    }
+}
+
+/// Starts a load or refresh; a later start makes every earlier one stale.
+fn begin_operation(generation: &AtomicUsize) -> usize {
+    generation.fetch_add(1, Ordering::SeqCst) + 1
+}
+
+fn is_current_operation(generation: &AtomicUsize, operation: usize) -> bool {
+    generation.load(Ordering::SeqCst) == operation
+}
+
 impl TokenPagerCommit {
     fn is_allowed(&self) -> bool {
         self.lifecycle.commit_allowed()
@@ -203,6 +263,7 @@ pub struct TokenPagedComposition<
     load_more_command: AsyncRelayCommand,
     refresh_command: AsyncRelayCommand,
     lifecycle: Arc<TokenPagerLifecycle>,
+    operation_generation: Arc<AtomicUsize>,
 }
 
 impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + 'static>
@@ -247,6 +308,7 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + 'static>
         let loader = Arc::new(loader);
         let lifecycle = Arc::new(TokenPagerLifecycle::new(id, hub.clone()));
         let command_change_trigger = MessageHub::new();
+        let operation_generation = Arc::new(AtomicUsize::new(0));
 
         let load_more_items = items.clone();
         let load_more_token = next_token.clone();
@@ -255,11 +317,13 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + 'static>
         let load_more_hub = hub.clone();
         let load_more_lifecycle = lifecycle.clone();
         let load_more_trigger = command_change_trigger.clone();
+        let load_more_generation = operation_generation.clone();
         let load_more_command = AsyncRelayCommand::builder()
             .task(move |_cancellation| {
                 if load_more_lifecycle.is_terminal() {
                     return Ok(());
                 }
+                let operation = begin_operation(&load_more_generation);
                 let token = lock(&load_more_token).clone();
                 if load_more_lifecycle.is_terminal() {
                     return Ok(());
@@ -268,7 +332,7 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + 'static>
                 let Some(commit) = load_more_lifecycle.begin_commit() else {
                     return Ok(());
                 };
-                if !commit.is_allowed() {
+                if !commit.is_allowed() || !is_current_operation(&load_more_generation, operation) {
                     return Ok(());
                 }
                 let mut changed = false;
@@ -302,38 +366,38 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + 'static>
         let refresh_hub = hub.clone();
         let refresh_lifecycle = lifecycle.clone();
         let refresh_trigger = command_change_trigger.clone();
+        let refresh_generation = operation_generation.clone();
         let refresh_command = AsyncRelayCommand::builder()
             .task(move |_cancellation| {
                 if refresh_lifecycle.is_terminal() {
                     return Ok(());
                 }
+                let operation = begin_operation(&refresh_generation);
                 let (page, next) = refresh_loader(None);
                 let Some(commit) = refresh_lifecycle.begin_commit() else {
                     return Ok(());
                 };
+                if !commit.is_allowed() || !is_current_operation(&refresh_generation, operation) {
+                    return Ok(());
+                }
+                let plan = RefreshPlan::new(&lock(&refresh_items), &page, next.is_some());
                 if !commit.is_allowed() {
                     return Ok(());
                 }
-                let should_replace = !lock(&refresh_items).iter().take(page.len()).eq(page.iter());
-                if !commit.is_allowed() {
-                    return Ok(());
-                }
-                let previous_items = if should_replace {
-                    Some(std::mem::replace(&mut *lock(&refresh_items), page))
-                } else {
-                    None
-                };
-                let has_more = next.is_some();
-                let previous_token = std::mem::replace(&mut *lock(&refresh_next_token), next);
-                *lock(&refresh_has_more) = has_more;
-                publish_pager_changes(&refresh_hub, id, should_replace, &commit);
+                let displaced = plan.apply(
+                    &refresh_items,
+                    &refresh_next_token,
+                    &refresh_has_more,
+                    page,
+                    next,
+                );
+                publish_pager_changes(&refresh_hub, id, plan.replace_items, &commit);
                 let publish_command = commit.is_allowed();
                 drop(commit);
                 if publish_command {
                     publish_command_change(&refresh_trigger, id);
                 }
-                drop(previous_token);
-                drop(previous_items);
+                drop(displaced);
                 Ok(())
             })
             .trigger(command_change_trigger.clone())
@@ -349,6 +413,7 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + 'static>
             load_more_command,
             refresh_command,
             lifecycle,
+            operation_generation,
         }
     }
 
@@ -412,6 +477,7 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + 'static>
         if self.lifecycle.is_terminal() {
             return;
         }
+        let operation = begin_operation(&self.operation_generation);
         let token = lock(&self.next_token).clone();
         if self.lifecycle.is_terminal() {
             return;
@@ -420,7 +486,7 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + 'static>
         let Some(commit) = self.lifecycle.begin_commit() else {
             return;
         };
-        if !commit.is_allowed() {
+        if !commit.is_allowed() || !is_current_operation(&self.operation_generation, operation) {
             return;
         }
         let changed = !items.is_empty();
@@ -476,6 +542,7 @@ impl<T: VmNode, Token: Clone + Send + 'static> TokenPagedComposition<T, Token> {
         let loader = Arc::new(loader);
         let lifecycle = Arc::new(TokenPagerLifecycle::new(id, hub.clone()));
         let command_change_trigger = MessageHub::new();
+        let operation_generation = Arc::new(AtomicUsize::new(0));
 
         let load_items = items.clone();
         let load_token = next_token.clone();
@@ -484,11 +551,13 @@ impl<T: VmNode, Token: Clone + Send + 'static> TokenPagedComposition<T, Token> {
         let load_hub = hub.clone();
         let load_lifecycle = lifecycle.clone();
         let load_trigger = command_change_trigger.clone();
+        let load_generation = operation_generation.clone();
         let load_more_command = AsyncRelayCommand::builder()
             .task(move |_cancellation| {
                 if load_lifecycle.is_terminal() {
                     return Ok(());
                 }
+                let operation = begin_operation(&load_generation);
                 let token = lock(&load_token).clone();
                 if load_lifecycle.is_terminal() {
                     return Ok(());
@@ -497,6 +566,9 @@ impl<T: VmNode, Token: Clone + Send + 'static> TokenPagedComposition<T, Token> {
                 let Some(commit) = load_lifecycle.begin_commit() else {
                     return Ok(());
                 };
+                if !is_current_operation(&load_generation, operation) {
+                    return Ok(());
+                }
                 for item in &page {
                     let _ = item.construct();
                 }
@@ -533,20 +605,25 @@ impl<T: VmNode, Token: Clone + Send + 'static> TokenPagedComposition<T, Token> {
         let refresh_hub = hub.clone();
         let refresh_lifecycle = lifecycle.clone();
         let refresh_trigger = command_change_trigger.clone();
+        let refresh_generation = operation_generation.clone();
         let refresh_command = AsyncRelayCommand::builder()
             .task(move |_cancellation| {
                 if refresh_lifecycle.is_terminal() {
                     return Ok(());
                 }
+                let operation = begin_operation(&refresh_generation);
                 let (page, next) = refresh_loader(None);
                 let Some(commit) = refresh_lifecycle.begin_commit() else {
                     return Ok(());
                 };
-                let should_replace = !lock(&refresh_items).iter().take(page.len()).eq(page.iter());
+                if !is_current_operation(&refresh_generation, operation) {
+                    return Ok(());
+                }
+                let plan = RefreshPlan::new(&lock(&refresh_items), &page, next.is_some());
                 if !commit.is_allowed() {
                     return Ok(());
                 }
-                if should_replace {
+                if plan.replace_items {
                     for item in &page {
                         let _ = item.construct();
                     }
@@ -554,22 +631,20 @@ impl<T: VmNode, Token: Clone + Send + 'static> TokenPagedComposition<T, Token> {
                 if !commit.is_allowed() {
                     return Ok(());
                 }
-                let previous_items = if should_replace {
-                    Some(std::mem::replace(&mut *lock(&refresh_items), page))
-                } else {
-                    None
-                };
-                let has_more = next.is_some();
-                let previous_token = std::mem::replace(&mut *lock(&refresh_next_token), next);
-                *lock(&refresh_has_more) = has_more;
-                publish_pager_changes(&refresh_hub, id, should_replace, &commit);
+                let displaced = plan.apply(
+                    &refresh_items,
+                    &refresh_next_token,
+                    &refresh_has_more,
+                    page,
+                    next,
+                );
+                publish_pager_changes(&refresh_hub, id, plan.replace_items, &commit);
                 let publish_command = commit.is_allowed();
                 drop(commit);
                 if publish_command {
                     publish_command_change(&refresh_trigger, id);
                 }
-                drop(previous_token);
-                drop(previous_items);
+                drop(displaced);
                 Ok(())
             })
             .trigger(command_change_trigger.clone())
@@ -585,6 +660,7 @@ impl<T: VmNode, Token: Clone + Send + 'static> TokenPagedComposition<T, Token> {
             load_more_command,
             refresh_command,
             lifecycle,
+            operation_generation,
         }
     }
 }

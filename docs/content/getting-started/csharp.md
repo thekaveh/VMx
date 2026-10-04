@@ -14,7 +14,7 @@ ______________________________________________________________________
 
 ## 3.2.1. Install
 
-The source tree currently implements v3.24.0. The NuGet package is not published
+The source tree currently implements v3.25.0. The NuGet package is not published
 yet; use the package command after a `csharp-v*` release publishes it.
 
 ```bash

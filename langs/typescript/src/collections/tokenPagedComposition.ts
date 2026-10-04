@@ -101,13 +101,19 @@ export class TokenPagedComposition<TVM, TToken> {
     const page = await this.#fetchNext(null);
     if (!this.#isOperationCurrent(generation)) return;
     const head = this.#items.slice(0, page.items.length);
-    const pagesMatch = this.#pagesEqual(page.items, head);
-    if (!pagesMatch) this.#constructIfNeeded(page.items);
+    const headMatches = this.#pagesEqual(page.items, head) && head.length === page.items.length;
+    // Items and currentToken must describe one loaded prefix (spec 21 §6.2,
+    // ADR-0136). A matching page as long as the accumulator refreshes its
+    // continuation; a shorter matching non-terminal page keeps the prior one,
+    // because its token addresses items the accumulator already holds.
+    const sameLength = page.items.length === this.#items.length;
+    const retain = headMatches && (sameLength || (page.items.length > 0 && page.nextToken !== null));
+    if (!retain) this.#constructIfNeeded(page.items);
     if (!this.#isOperationCurrent(generation)) return;
-    if (!pagesMatch) this.#items = [...page.items];
-    this.#currentToken = page.nextToken;
+    if (!retain) this.#items = [...page.items];
+    if (!retain || sameLength) this.#currentToken = page.nextToken;
     this.#loadedOnce = true;
-    if (pagesMatch) this.#notifyProperties();
+    if (retain) this.#notifyProperties();
     else this.#notifyReset();
   }
 
