@@ -8,7 +8,7 @@
 
 <p align="center"><strong>One specification. Five idiomatic flavors. Predictable MVVM behavior across UI stacks.</strong></p>
 
-<p align="center">VMx is a UI-neutral, lifecycle-aware MVVM viewmodel framework for building hierarchical application state with explicit construction, destruction, disposal, reactive messaging, commands, collections, and composable services. One language-neutral specification defines observable behavior, while five source flavors—C#, Python, TypeScript, Swift, and Rust—preserve each ecosystem’s naming, type, concurrency, and package conventions. A shared conformance catalog keeps those implementations aligned without erasing idiomatic APIs. The source tree currently carries complete 406-ID library coverage in every flavor, with flagship hosts exercising five additional THEME scenarios. Python and Swift are publicly available through PyPI and SwiftPM; the C#, TypeScript, and Rust registry channels are prepared but not yet published. VMx therefore separates source completeness from installable-release status and documents both explicitly.</p>
+<p align="center">VMx is a UI-neutral, lifecycle-aware MVVM viewmodel framework for building hierarchical application state with explicit construction, destruction, disposal, reactive messaging, commands, collections, and composable services. One language-neutral specification defines observable behavior, while five source flavors—C#, Python, TypeScript, Swift, and Rust—preserve each ecosystem’s naming, type, concurrency, and package conventions. A shared conformance catalog keeps those implementations aligned without erasing idiomatic APIs. The source tree currently carries complete 407-ID library coverage in every flavor, with flagship hosts exercising five additional THEME scenarios. Python and Swift are publicly available through PyPI and SwiftPM; the C#, TypeScript, and Rust registry channels are prepared but not yet published. VMx therefore separates source completeness from installable-release status and documents both explicitly.</p>
 
 <!-- vmx-opener:end -->
 
@@ -31,7 +31,7 @@
 
 - `spec/` is the source of truth for behavior, lifecycle, and conformance.
 - Every flavor implements the shared normative concepts while following native naming conventions.
-- The conformance catalog keeps 406 library IDs aligned across all five
+- The conformance catalog keeps 407 library IDs aligned across all five
   catalog-complete source flavors, plus 5 scenario IDs for flagship examples.
 - The completed
   [Rust convergence ledger](../maintenance/2026-07-16-rust-capability-parity.md)

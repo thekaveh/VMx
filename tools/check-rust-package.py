@@ -84,6 +84,7 @@ tests/conformance/property_change.rs
 tests/conformance/search_filter.rs
 tests/conformance/subscribe_value.rs
 tests/conformance/threading.rs
+tests/conformance/token_refresh_cursor.rs
 tests/conformance/tree_utils.rs
 tests/conformance/value_stream.rs
 tests/conformance/vm_collection_move.rs""".splitlines()

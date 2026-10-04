@@ -401,3 +401,35 @@ async def test_global_search_vm_refreshes_resets_terms_and_loads_more() -> None:
         result.status is ConstructionStatus.DISPOSED
         for result in [*replaced_results, *final_results]
     )
+
+
+async def test_global_search_vm_keeps_loaded_results_across_unchanged_term_refresh() -> None:
+    from notes_showcase.viewmodels.global_search_vm import GlobalSearchVM
+
+    repo = InMemoryNoteRepository(build_seed(), load_notes_delay=0.0)
+    dispatcher = RxDispatcher(foreground=ImmediateScheduler(), background=ImmediateScheduler())
+    vm = (
+        GlobalSearchVM.builder()
+        .name("global-search")
+        .services(MessageHub[Message](), dispatcher)
+        .repository(repo)
+        .page_size(1)
+        .search_debounce_seconds(0.0)
+        .build()
+    )
+
+    vm.search_term = "review"
+    await vm.refresh_command.execute_async()
+    await vm.load_more_command.execute_async()
+    loaded = [note.model.id for note in vm.results]
+    assert len(loaded) == 2
+
+    await vm.refresh_command.execute_async()
+    assert [note.model.id for note in vm.results] == loaded
+
+    await vm.load_more_command.execute_async()
+    ids = [note.model.id for note in vm.results]
+    assert ids[:2] == loaded
+    assert len(ids) == 3
+    assert len(set(ids)) == len(ids)
+    vm.dispose()

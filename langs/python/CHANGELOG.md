@@ -6,8 +6,16 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ## [Unreleased]
 
+## [3.25.0] — unreleased source version
+
 ### Fixed
 
+- `TokenPagedComposition` refresh keeps `items` and `current_token` describing
+  one loaded prefix. A refreshed first page that matches a longer accumulator
+  keeps the prior continuation, so the next `load_more_command` no longer
+  refetches and duplicates page two. A matching page as long as the accumulator
+  adopts the refreshed token, and an empty or terminal first page shorter than
+  the accumulator replaces it (`COL-065`, ADR-0136, spec 3.25.0) (#326).
 - `SearchableState`, `TokenPagedComposition`, `FilteredCompositeVM`,
   `NotificationVM`, `ConfirmationVM`, and `DerivedProperty` now run every
   teardown step when one raises, such as a completion observer that raises,

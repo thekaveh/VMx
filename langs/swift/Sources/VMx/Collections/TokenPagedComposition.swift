@@ -95,26 +95,34 @@ public final class TokenPagedComposition<TVM, TToken> {
         }
         guard let generation else { return }
         let page = try await fetchNext(nil)
-        let head = stateQueue.sync { () -> [TVM]? in
+        let snapshot = stateQueue.sync { () -> (head: [TVM], count: Int)? in
             guard !disposed, generation == operationGeneration else { return nil }
-            return Array(_items.prefix(page.0.count))
+            return (Array(_items.prefix(page.0.count)), _items.count)
         }
-        guard let head else { return }
-        let pagesMatch = pagesEqual(page.0, head)
-        if !pagesMatch {
+        guard let snapshot else { return }
+        // items and currentToken must describe one loaded prefix (spec 21 §6.2,
+        // ADR-0136). A matching page as long as the accumulator refreshes its
+        // continuation; a shorter matching non-terminal page keeps the prior one,
+        // because its token addresses items the accumulator already holds.
+        let headMatches = pagesEqual(page.0, snapshot.head) && snapshot.head.count == page.0.count
+        let sameLength = page.0.count == snapshot.count
+        let retain = headMatches && (sameLength || (!page.0.isEmpty && page.1 != nil))
+        if !retain {
             try constructIfNeeded(page.0)
         }
         let committed = stateQueue.sync { () -> Bool in
             guard !disposed, generation == operationGeneration else { return false }
-            if !pagesMatch {
+            if !retain {
                 _items = page.0
             }
-            _currentToken = page.1
+            if !retain || sameLength {
+                _currentToken = page.1
+            }
             loadedOnce = true
             return true
         }
         guard committed else { return }
-        if pagesMatch {
+        if retain {
             notifyPropertiesIfLive()
         } else {
             notifyResetIfLive()

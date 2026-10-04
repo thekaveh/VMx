@@ -92,6 +92,23 @@ fn global_search_uses_token_paging_and_can_load_more_results() {
 }
 
 #[test]
+fn global_search_refresh_after_the_last_page_keeps_results_without_duplicates() {
+    let workspace = WorkspaceVm::seeded().expect("workspace builds");
+    let search = workspace.global_search();
+    let all = vec!["Rust flavor parity", "VMx inspector notes", "Theme polish"];
+
+    search.set_query("vmx");
+    search.refresh();
+    search.load_more();
+    search.refresh();
+
+    assert_eq!(search.result_titles(), all);
+    assert!(!search.can_load_more());
+    search.load_more();
+    assert_eq!(search.result_titles(), all);
+}
+
+#[test]
 fn editor_mode_and_delete_confirmation_are_vm_commands() {
     let repository = InMemoryNoteRepository::seeded();
     let workspace = WorkspaceVm::new(repository.clone()).expect("workspace builds");

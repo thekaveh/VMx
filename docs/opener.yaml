@@ -7,7 +7,7 @@ summary: >-
   source flavors—C#, Python, TypeScript, Swift, and Rust—preserve each
   ecosystem’s naming, type, concurrency, and package conventions. A shared
   conformance catalog keeps those implementations aligned without erasing
-  idiomatic APIs. The source tree currently carries complete 406-ID library
+  idiomatic APIs. The source tree currently carries complete 407-ID library
   coverage in every flavor, with flagship hosts exercising five additional
   THEME scenarios. Python and Swift are publicly available through PyPI and
   SwiftPM; the C#, TypeScript, and Rust registry channels are prepared but not

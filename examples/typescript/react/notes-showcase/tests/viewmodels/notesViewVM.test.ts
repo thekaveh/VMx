@@ -374,6 +374,34 @@ describe("Global search token paging", () => {
     expect(unsafe.items).toEqual(first.items);
   });
 
+  it("GlobalSearchVM keeps loaded results and their cursor across an unchanged-term refresh", async () => {
+    const { GlobalSearchVM } = await import("../../src/viewmodels/globalSearchVM.js");
+    const repo = new InMemoryNoteRepository(buildSeed(), { loadNotesDelayMs: 0 });
+    const vm = GlobalSearchVM.builder()
+      .name("global-search")
+      .services(new MessageHub(), RxDispatcher.immediate())
+      .repository(repo)
+      .pageSize(1)
+      .searchDebounceMs(0)
+      .build();
+
+    vm.searchTerm = "review";
+    await vm.refreshCommand.executeAsync();
+    await vm.loadMoreCommand.executeAsync();
+    const loaded = vm.results.map((note) => note.model.id);
+    expect(loaded).toHaveLength(2);
+
+    await vm.refreshCommand.executeAsync();
+    expect(vm.results.map((note) => note.model.id)).toEqual(loaded);
+
+    await vm.loadMoreCommand.executeAsync();
+    const ids = vm.results.map((note) => note.model.id);
+    expect(ids.slice(0, 2)).toEqual(loaded);
+    expect(ids).toHaveLength(3);
+    expect(new Set(ids).size).toBe(ids.length);
+    vm.dispose();
+  });
+
   it("GlobalSearchVM refreshes, resets for a new term, and appends load-more results", async () => {
     const { GlobalSearchVM } = await import("../../src/viewmodels/globalSearchVM.js");
     const hub = new MessageHub();

@@ -95,7 +95,7 @@ public sealed class TokenPagedComposition<TVM, TToken> :
     /// <summary>Loads the next page and appends it to <see cref="Items"/>.</summary>
     public AsyncRelayCommand LoadMoreCommand { get; }
 
-    /// <summary>Clears/replaces the accumulator by fetching from the initial token.</summary>
+    /// <summary>Refetches the first page, then replaces the accumulator or keeps it with a matching continuation (spec 21 §6.2).</summary>
     public AsyncRelayCommand RefreshCommand { get; }
 
     /// <inheritdoc/>
@@ -142,29 +142,38 @@ public sealed class TokenPagedComposition<TVM, TToken> :
         var page = await _fetchNext(default).ConfigureAwait(false);
         var fresh = page.Items.ToArray();
         TVM[] head;
+        int retainedCount;
         lock (_gate)
         {
             if (_disposed || generation != _operationGeneration) return;
             head = _items.Take(fresh.Length).ToArray();
+            retainedCount = _items.Count;
         }
 
-        var pagesMatch = _pagesEqual(fresh, head);
-        if (!pagesMatch)
+        // Items and CurrentToken must describe one loaded prefix (spec 21 §6.2,
+        // ADR-0136). A matching page as long as the accumulator refreshes its
+        // continuation; a shorter matching non-terminal page keeps the prior one,
+        // because its token addresses items the accumulator already holds.
+        var headMatches = _pagesEqual(fresh, head) && head.Length == fresh.Length;
+        var sameLength = fresh.Length == retainedCount;
+        var retain = headMatches && (sameLength || (fresh.Length > 0 && page.NextToken is not null));
+        if (!retain)
             ConstructIfNeeded(fresh);
 
         lock (_gate)
         {
             if (_disposed || generation != _operationGeneration) return;
-            if (!pagesMatch)
+            if (!retain)
             {
                 _items.Clear();
                 _items.AddRange(fresh);
             }
-            _currentToken = page.NextToken;
+            if (!retain || sameLength)
+                _currentToken = page.NextToken;
             _loadedOnce = true;
         }
 
-        if (pagesMatch)
+        if (retain)
             NotifyPropertiesIfLive();
         else
             NotifyResetIfLive();

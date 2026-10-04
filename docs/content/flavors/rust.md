@@ -7,13 +7,13 @@ Rust is the fifth VMx source flavor. It lives under `langs/rust/` as the
 
 - Source tree: `langs/rust/`
 - Package: `vmx-rs`
-- Current source line: `vmx-rs` 0.30.0 implementing spec 3.24.0
+- Current source line: `vmx-rs` 0.31.0 implementing spec 3.25.0
 - Publication status: crates.io release channel not published yet
 - License packaging: the crate ships the repository's Apache-2.0 text
 - Reactive primitive: VMx-owned hot-stream facade
 - Naming: Rust type names such as `ComponentVm`, snake_case methods such as
   `construct()` and `dispose()`
-- Conformance: all 406 library IDs are covered by behavioral Rust tests
+- Conformance: all 407 library IDs are covered by behavioral Rust tests
 - Hub concurrency: ordinary producers retain synchronous calling-thread
   delivery while nested cross-hub callbacks enqueue without a wait cycle
 - Property notifications: `notify_property_changed` publishes to the hub and

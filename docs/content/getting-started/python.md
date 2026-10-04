@@ -15,7 +15,7 @@ ______________________________________________________________________
 ## 3.3.1. Install
 
 PyPI provides VMx 3.23.0, which implements this tutorial's minimum
-specification. The current 3.24.0 Python source line is not published yet;
+specification. The current 3.25.0 Python source line is not published yet;
 pin `vmx==3.23.0` when reproducing released behavior.
 
 ```bash
@@ -395,7 +395,7 @@ caller. VMx starts the resource operation on its shared daemon loop. A later
 task/future work to that operation loop, so command settlement may follow the
 state change:
 
-This recipe requires the unreleased Python 3.24.0 source installed from a
+This recipe requires the unreleased Python 3.25.0 source installed from a
 checkout. The current PyPI 3.23.0 package does not contain this operation-loop
 repair.
 

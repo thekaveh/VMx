@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.26.0] — unreleased source version
+
+### Fixed
+
+- `TokenPagedComposition` refresh keeps `items` and `currentToken` describing
+  one loaded prefix. A refreshed first page that matches a longer accumulator
+  keeps the prior continuation, so the next `loadMoreCommand` no longer
+  refetches and duplicates page two. A matching page as long as the accumulator
+  adopts the refreshed token, and an empty or terminal first page shorter than
+  the accumulator replaces it (`COL-065`, ADR-0136, spec 3.25.0) (#326).
+
 ## [3.25.0] — unreleased source version
 
 ### Fixed
