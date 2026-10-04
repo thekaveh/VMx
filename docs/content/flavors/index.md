@@ -35,7 +35,7 @@ language.
 ## 7.1.4. Common Rules
 
 - All five catalog-complete source flavors target the same VM family model and
-  406-ID library conformance catalog. The completed
+  407-ID library conformance catalog. The completed
   [Rust convergence ledger](../../maintenance/2026-07-16-rust-capability-parity.md)
   records its focused 0.27.0 public-surface and behavior evidence.
 - Public naming follows ADR-0006: PascalCase in C#, snake_case in Python,

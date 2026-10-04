@@ -3,7 +3,7 @@
 ## 7.5.1. Snapshot
 
 - Install: `.package(url: "https://github.com/thekaveh/VMx.git", from: "3.24.0")`
-- Current source: Swift 3.25.0 implementing spec 3.24.0
+- Current source: Swift 3.26.0 implementing spec 3.25.0
 - Publication status: 3.24.0 is public through the immutable `v3.24.0`
   SwiftPM tag and matching `swift-v3.24.0` GitHub Release.
 - Reactive primitive: `Combine`

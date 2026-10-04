@@ -9,6 +9,9 @@ Global all-notes search is the scenario path that demonstrates
 - search results that are independent of the currently focused notebook
 - source-change refresh with an unchanged search term before token paging reads
   the new filtered projection
+- a refresh whose first page is unchanged keeps every loaded result and its
+  continuation, so Load More continues after the last visible result instead
+  of fetching page two again (spec 21 §6.2, ADR-0136)
 - explicit ownership of every lifecycle-bearing result VM created by a search,
   including results later replaced, equality-suppressed, or returned by stale
   asynchronous work

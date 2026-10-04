@@ -325,4 +325,34 @@ public sealed class NotesViewVMTests
         Assert.All(replacedResults.Concat(finalResults), result =>
             Assert.Equal(ConstructionStatus.Disposed, result.Status));
     }
+
+    [Fact]
+    public async Task GlobalSearchVM_keeps_loaded_results_across_an_unchanged_term_refresh()
+    {
+        var dispatcher = new RxDispatcher(ImmediateScheduler.Instance, ImmediateScheduler.Instance);
+        var repo = new InMemoryNoteRepository(SeedData.Build(), loadNotesDelay: TimeSpan.Zero);
+        var vm = GlobalSearchVM.Builder()
+            .Name("global-search")
+            .Services(new MessageHub(), dispatcher)
+            .Repository(repo)
+            .PageSize(1)
+            .SearchDebounce(TimeSpan.Zero)
+            .Build();
+
+        vm.SearchTerm = "review";
+        await vm.RefreshCommand.ExecuteAsync();
+        await vm.LoadMoreCommand.ExecuteAsync();
+        var loaded = vm.Results.Select(n => n.Model.Id).ToArray();
+        Assert.Equal(2, loaded.Length);
+
+        await vm.RefreshCommand.ExecuteAsync();
+        Assert.Equal(loaded, vm.Results.Select(n => n.Model.Id));
+
+        await vm.LoadMoreCommand.ExecuteAsync();
+        var ids = vm.Results.Select(n => n.Model.Id).ToArray();
+        Assert.Equal(loaded, ids.Take(2));
+        Assert.Equal(3, ids.Length);
+        Assert.Equal(ids.Length, ids.Distinct().Count());
+        vm.Dispose();
+    }
 }

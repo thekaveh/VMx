@@ -6,8 +6,17 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ## [Unreleased]
 
+## [3.25.0] — unreleased source version
+
 ### VMx
 
+- Fixed: `TokenPagedComposition` refresh keeps `Items` and `CurrentToken`
+  describing one loaded prefix. A refreshed first page that matches a longer
+  accumulator keeps the prior continuation, so the next `LoadMoreCommand` no
+  longer refetches and duplicates page two. A matching page as long as the
+  accumulator adopts the refreshed token, and an empty or terminal first page
+  shorter than the accumulator replaces it (`COL-065`, ADR-0136, spec 3.25.0)
+  (#326).
 - The `netstandard2.0` dependency floors of all three packages move to the
   10.0.12 servicing releases of `System.Text.Json`,
   `System.Collections.Immutable`, and `Microsoft.Bcl.AsyncInterfaces` (#519).

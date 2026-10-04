@@ -824,7 +824,7 @@ them. Observable-list split streams (`ItemAdded` / `ItemRemoved` /
 
 ## 6. Token paging: `TokenPagedComposition<TVM, TToken>`
 
-Per ADR-0069 and ADR-0078.
+Per ADR-0069, ADR-0078, and ADR-0136.
 
 ### 6.1 Shape
 
@@ -837,7 +837,7 @@ TokenPagedComposition<TVM, TToken>:
     HasMore      : bool                     # true before first fetch, then CurrentToken != null/nil/None
 
     LoadMoreCommand : AsyncRelayCommand     # fetches CurrentToken, appends returned items
-    RefreshCommand  : AsyncRelayCommand     # fetches from initial token and replaces/dedups accumulator
+    RefreshCommand  : AsyncRelayCommand     # fetches from initial token; replaces or retains accumulator (§6.2)
 
     CollectionChanged                       # reset event after effective accumulator mutations
     PropertyChanged                         # Items / CurrentToken / HasMore changes
@@ -854,11 +854,50 @@ collection event. When the returned token is terminal, `HasMore` becomes false
 and `LoadMoreCommand.CanExecute` returns false.
 
 `RefreshCommand` calls `fetch_next(null)` and treats the result as a new first
-page. If the new first page matches the current accumulator head according to
-the flavor's equality/comparer hook, the accumulator is not mutated and no
-collection event is emitted; token and property state are still refreshed. If it
-differs, the accumulator is replaced with the first page and a coarse `Reset`
-event is emitted.
+page. `Items` and `CurrentToken` always describe one contiguous prefix loaded
+from the initial token: after any commit, `CurrentToken` is the continuation
+that follows the last accumulated item. Let *A* be the accumulator, *P* the
+refreshed page's items, and *T* its next token. *P* matches the head of *A* when
+*P* is no longer than *A* and the flavor's equality/comparer hook accepts *P*
+against the first `len(P)` items of *A*.
+
+1. **Unchanged loaded prefix.** When *P* matches and is as long as *A*, the
+   accumulator is not mutated, no collection event is emitted, and
+   `CurrentToken` becomes *T*. *T* is the refreshed continuation for exactly the
+   retained items, so a changed opaque token or a newly terminal token is
+   adopted.
+1. **Retained longer prefix.** When *P* matches, is shorter than *A*, is
+   non-empty, and *T* is not terminal, the accumulator is not mutated, no
+   collection event is emitted, and `CurrentToken` keeps its prior value,
+   including a prior terminal value. *T* addresses items the accumulator
+   already holds; adopting it would make the next `LoadMoreCommand` append them
+   again.
+1. **Replacement.** Otherwise — a differing head, a page longer than *A*, or an
+   empty or terminal page shorter than *A* — the accumulator is replaced with
+   *P*, `CurrentToken` becomes *T*, and a coarse `Reset` event is emitted. An
+   empty or terminal first page shorter than the accumulator shows that the
+   retained later items are no longer part of the result set.
+
+Head equality establishes only that the first page is unchanged. It says
+nothing about later pages, which VMx neither refetches nor reconciles, and VMx
+never compares or interprets token values, so it cannot detect a backend that
+invalidates a retained continuation. A consumer that needs every refresh to
+resynchronize from the first page supplies an equality hook that rejects every
+match (Rust uses the item type's `PartialEq` as its hook), which makes each
+refresh take the replacement branch.
+
+Refresh and load notifications follow one order. A refresh that does not mutate
+the accumulator publishes no `CollectionChanged`, then `Items`, `CurrentToken`,
+and `HasMore` property notifications in that order, then re-signals both
+commands' `CanExecuteChanged`. A refresh that replaces the accumulator, and a
+load that appends items, publishes one `Reset` before that same sequence. A
+fetch or equality hook that fails leaves `Items`, `CurrentToken`, and `HasMore`
+unchanged, publishes nothing, and surfaces the failure through the command.
+
+Each load or refresh supersedes every operation started before it. An
+operation that completes after a later load or refresh started is stale: it
+MUST return without mutating state or publishing notifications, and it skips
+auto-construction when it detects that it is stale before constructing.
 
 When `auto_construct_on_add` / `autoConstructOnAdd` / `AutoConstructOnAdd` is
 enabled and returned items are VMx component VMs, they are constructed before
@@ -871,7 +910,7 @@ collection/property notifications.
 
 ### 6.3 Conformance
 
-`COL-024` through `COL-030` in `12-conformance.md`.
+`COL-024` through `COL-030` and `COL-065` in `12-conformance.md`.
 
 ## 7. Composition with other helpers
 

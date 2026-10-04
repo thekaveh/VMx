@@ -296,14 +296,14 @@ describe("COL-065", () => {
     const equalHead = [vm("a"), vm("b")];
     const changedHead = [vm("x"), vm("y")];
     let refreshPage = equalHead;
+    let firstLoad = true;
     const sut = new TokenPagedComposition<ComponentVM, string>(
-      (token) => Promise.resolve(
-        token === null
-          ? (sut.items.length === 0
-            ? { items: loaded.slice(0, 2), nextToken: "t2" }
-            : { items: refreshPage, nextToken: "t2" })
-          : { items: loaded.slice(2), nextToken: "t3" },
-      ),
+      (token): Promise<Page<ComponentVM>> => {
+        if (token !== null) return Promise.resolve({ items: loaded.slice(2), nextToken: "t3" });
+        if (!firstLoad) return Promise.resolve({ items: refreshPage, nextToken: "t2" });
+        firstLoad = false;
+        return Promise.resolve({ items: loaded.slice(0, 2), nextToken: "t2" });
+      },
       {
         autoConstructOnAdd: true,
         pagesEqual: (left, right) =>

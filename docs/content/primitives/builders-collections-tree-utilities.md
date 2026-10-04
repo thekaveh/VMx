@@ -36,6 +36,11 @@ The main operational rules:
   messages
 - `KeyedServicedObservableCollection` adds a captured-key index without
   changing the ordered serviced message contract
+- `TokenPagedComposition` keeps its loaded items and continuation token
+  describing one prefix: a refresh whose first page matches a longer
+  accumulator keeps the prior token, so the next load continues after the last
+  loaded item; an empty or terminal first page that is shorter replaces the
+  accumulator; and a load or refresh superseded by a later one commits nothing
 - tree utilities are pure reads; they do not trigger lifecycle transitions
 
 Batch handles, paging helpers, disposable collections, and frozen projections

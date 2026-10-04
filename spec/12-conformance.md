@@ -1,7 +1,7 @@
 # 12 — Conformance test catalog
 
 This document enumerates every stable conformance test identifier in the form
-`XXX-NNN`. Each of the five language flavors MUST implement all 406 library IDs
+`XXX-NNN`. Each of the five language flavors MUST implement all 407 library IDs
 in `langs/<lang>/tests/conformance/` before it can be marked stable. The five
 `THEME-00x` IDs are application-level scenarios implemented by the four
 UI-backed flagship examples. CI verifies library coverage via
@@ -2387,7 +2387,8 @@ count-preserving mutations (e.g., only replace operations)
 **When** `RefreshCommand` is executed
 **Then** `fetch_next` is called with the initial terminal/null token
 **And** the accumulator reflects the refreshed first page
-**And** token state reflects the refreshed next token
+**And** when the refresh replaces the accumulator, token state reflects the
+refreshed next token (COL-065 covers the branches that retain it)
 
 ### COL-028 — refresh dedup suppresses redundant mutation
 
