@@ -731,20 +731,22 @@ fn an_error_observer_may_unsubscribe_itself_during_delivery() {
 #[test]
 fn a_failed_fire_and_forget_run_releases_admission_and_signals_eligibility() {
     let command = AsyncRelayCommand::new(|_| Err(VmxError::Other("boom".into())));
-    let signals = Arc::new(AtomicUsize::new(0));
-    let observed = signals.clone();
+    let (signalled, signals) = mpsc::channel();
     let _signals = command.can_execute_changed().subscribe(move |_| {
-        observed.fetch_add(1, Ordering::SeqCst);
+        let _ = signalled.send(());
     });
     let (_errors, deliveries, _subscription) = record_errors(&command);
 
     command.execute();
     deliveries.recv_timeout(ERROR_TIMEOUT).unwrap();
-    wait_until_idle(&command);
+    // One signal when the run is admitted and one when admission is released;
+    // the release signal follows the admission reset, so wait for it.
+    signals.recv_timeout(ERROR_TIMEOUT).unwrap();
+    signals.recv_timeout(ERROR_TIMEOUT).unwrap();
 
     assert!(!command.is_executing());
     assert!(command.can_execute());
-    assert_eq!(signals.load(Ordering::SeqCst), 2);
+    assert!(signals.recv_timeout(Duration::from_millis(50)).is_err());
 }
 
 #[test]
