@@ -65,7 +65,10 @@ completes on disposal. A panic caught by `ConfirmationDecoratorCommand` arrives
 as `VmxError::Other` carrying the panic message, because a panic payload is not a
 clonable error; `execute_async().join()` still returns the payload itself. The
 older `errors()` hubs carry only an `"error"` marker and are deprecated
-(ADR-0137).
+(ADR-0137). A confirmation `AsyncValue` produced by a panicking `map` or
+`and_then` callback ends `execute_async().join()` with that panic instead of
+blocking, and fire-and-forget `execute` publishes it on `error_stream()`
+(ADR-0138).
 
 ## 6.3.3. Lifecycle And Messaging
 
