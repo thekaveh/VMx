@@ -864,6 +864,82 @@ final class ContainerOwnershipTransferTests: XCTestCase {
         XCTAssertTrue(group.at(0) === groupChild)
     }
 
+    func testPopulationWaitsForAnotherThreadsOpenTransactionOnTheOldParent() throws {
+        // The old parent commits its child's transfer, releasing the child's
+        // reservation, then publishes `added` while its membership transaction
+        // is still open. A population on another thread that moves the child
+        // must wait for that transaction to end, as C# does, instead of failing
+        // to detach it (#551).
+        let addedEntered = DispatchSemaphore(value: 0)
+        let releaseAdded = DispatchSemaphore(value: 0)
+        let child = try leaf("child")
+        let oldParent = GroupVM<ComponentVM>(
+            name: "old-parent",
+            hub: NullMessageHub.INSTANCE,
+            dispatcher: NullDispatcher.INSTANCE,
+            childrenFactory: { [child] }
+        )
+        let blockedOnce = NSLock()
+        var blocked = false
+        let subscription = oldParent.collectionChanged.sink { _ in
+            let first = blockedOnce.withLock { () -> Bool in
+                defer { blocked = true }
+                return !blocked
+            }
+            guard first else { return }
+            addedEntered.signal()
+            _ = releaseAdded.wait(timeout: .now() + 10)
+        }
+        defer { subscription.cancel() }
+        let destination = CompositeVM<ComponentVM>(
+            name: "destination",
+            hub: NullMessageHub.INSTANCE,
+            dispatcher: NullDispatcher.INSTANCE,
+            childrenFactory: { [child] }
+        )
+        let errors = OwnershipErrorStore()
+        let oldParentDone = DispatchSemaphore(value: 0)
+        let destinationDone = DispatchSemaphore(value: 0)
+
+        DispatchQueue.global().async {
+            do { try oldParent.construct() } catch { errors.append(error) }
+            oldParentDone.signal()
+        }
+        XCTAssertEqual(addedEntered.wait(timeout: .now() + 10), .success)
+        DispatchQueue.global().async {
+            do { try destination.construct() } catch { errors.append(error) }
+            destinationDone.signal()
+        }
+
+        XCTAssertEqual(
+            destinationDone.wait(timeout: .now() + 0.2), .timedOut,
+            "the destination must wait for the open transaction: \(errors.errors)"
+        )
+        releaseAdded.signal()
+        XCTAssertEqual(oldParentDone.wait(timeout: .now() + 10), .success)
+        XCTAssertEqual(destinationDone.wait(timeout: .now() + 10), .success)
+        XCTAssertTrue(errors.errors.isEmpty, "\(errors.errors)")
+        XCTAssertEqual(oldParent.count, 0)
+        XCTAssertEqual(destination.count, 1)
+        XCTAssertTrue(destination.at(0) === child)
+    }
+
+    func testMembershipWaitGraphRefusesTheEdgeThatClosesACycle() {
+        // Opposing populations would each wait for the other's transaction,
+        // so the coordinator refuses the closing edge (#551).
+        let coordinator = MembershipTransactionWaitCoordinator()
+        let first = NSObject(), second = NSObject(), third = NSObject()
+        let a = ObjectIdentifier(first), b = ObjectIdentifier(second), c = ObjectIdentifier(third)
+
+        XCTAssertTrue(coordinator.beginWait(caller: a, owner: b))
+        XCTAssertTrue(coordinator.beginWait(caller: b, owner: c))
+        XCTAssertFalse(coordinator.beginWait(caller: c, owner: a), "c -> a closes a -> b -> c")
+        XCTAssertFalse(coordinator.beginWait(caller: b, owner: a), "b -> a closes a -> b")
+
+        coordinator.endWait(caller: a)
+        XCTAssertTrue(coordinator.beginWait(caller: c, owner: a), "a no longer waits")
+    }
+
     func testReversedConcurrentPopulationCompletesWithoutSplitOwnership() throws {
         let first = try leaf("first")
         let second = try leaf("second")
@@ -904,7 +980,7 @@ final class ContainerOwnershipTransferTests: XCTestCase {
         }
 
         XCTAssertEqual(done.wait(timeout: .now() + 5), .success)
-        XCTAssertTrue(errors.errors.isEmpty)
+        XCTAssertTrue(errors.errors.isEmpty, "\(errors.errors)")
         XCTAssertEqual([destinationA.count, destinationB.count].sorted(), [0, 2])
         XCTAssertEqual(
             destinationA.snapshot().filter { $0 === first || $0 === second }.count
