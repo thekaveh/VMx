@@ -8,6 +8,23 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [0.31.0] — unreleased source version
 
+### Added
+
+- `CommandErrorStream`, returned by `AsyncRelayCommand::error_stream()` and
+  `ConfirmationDecoratorCommand::error_stream()`, delivers each fire-and-forget
+  failure once as the original `VmxError`. It is hot, isolates subscriber
+  panics, and completes on disposal. An awaited `execute_async` still returns
+  the failure and publishes nothing, and cancellation never appears. A panic
+  caught by the confirmation decorator arrives as `VmxError::Other` carrying the
+  panic message; `execute_async().join()` still returns the payload itself
+  (ADR-0137, #330).
+
+### Deprecated
+
+- `AsyncRelayCommand::errors()` and `ConfirmationDecoratorCommand::errors()`,
+  whose `Message::Custom { name: "error" }` marker carries no cause. They still
+  announce every failure; use `error_stream()` (#330).
+
 ### Fixed
 
 - `TokenPagedComposition` refresh keeps `items()` and `current_token()`
