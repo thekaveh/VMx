@@ -212,7 +212,7 @@ fn confirmation_decorator_async_path_propagates_inner_panic() {
         });
     let errors = Arc::new(AtomicUsize::new(0));
     let errors_clone = errors.clone();
-    let _subscription = command.errors().subscribe(move |_| {
+    let _subscription = command.error_stream().subscribe(move |_| {
         errors_clone.fetch_add(1, Ordering::SeqCst);
     });
 
@@ -277,30 +277,57 @@ fn decorators_compose() {
 fn confirmation_decorator_surfaces_fire_and_forget_errors() {
     let throwing = RelayCommand::new(|| panic!("inner boom"));
     let confirming = ConfirmationDecoratorCommand::new(throwing, || AsyncValue::ready(true));
-    let errors = Arc::new(AtomicUsize::new(0));
-    let errors_clone = errors.clone();
-    let _subscription = confirming.errors().subscribe(move |_| {
-        errors_clone.fetch_add(1, Ordering::SeqCst);
-    });
+    let errors = Arc::new(Mutex::new(Vec::new()));
+    let observed = errors.clone();
+    let _subscription = confirming
+        .error_stream()
+        .subscribe(move |error| observed.lock().unwrap().push(error));
 
     confirming.execute();
 
-    assert_eq!(errors.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        *errors.lock().unwrap(),
+        vec![VmxError::Other("command panicked: inner boom".to_string())]
+    );
+
+    let rejecting =
+        ConfirmationDecoratorCommand::new(RelayCommand::noop(), || -> AsyncValue<bool> {
+            std::panic::panic_any(String::from("confirm boom"))
+        });
+    let rejections = Arc::new(Mutex::new(Vec::new()));
+    let observed = rejections.clone();
+    let _rejections = rejecting
+        .error_stream()
+        .subscribe(move |error| observed.lock().unwrap().push(error));
+
+    rejecting.execute();
+
+    assert_eq!(
+        *rejections.lock().unwrap(),
+        vec![VmxError::Other(
+            "command panicked: confirm boom".to_string()
+        )]
+    );
 }
 
 #[test]
 fn confirmation_decorator_isolates_confirm_panics_by_execution_mode() {
     let fire_and_forget =
         ConfirmationDecoratorCommand::new(RelayCommand::noop(), || panic!("confirm boom"));
-    let errors = Arc::new(AtomicUsize::new(0));
+    let errors = Arc::new(Mutex::new(Vec::new()));
     let observed = errors.clone();
-    let _subscription = fire_and_forget.errors().subscribe(move |_| {
-        observed.fetch_add(1, Ordering::SeqCst);
-    });
+    let _subscription = fire_and_forget
+        .error_stream()
+        .subscribe(move |error| observed.lock().unwrap().push(error));
 
     fire_and_forget.execute();
 
-    assert_eq!(errors.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        *errors.lock().unwrap(),
+        vec![VmxError::Other(
+            "command panicked: confirm boom".to_string()
+        )]
+    );
 
     let awaited =
         ConfirmationDecoratorCommand::new(RelayCommand::noop(), || panic!("awaited confirm boom"));
@@ -316,6 +343,7 @@ fn confirmation_decorator_disposal_stops_in_flight_and_late_emissions() {
         recording_command(log.clone(), "confirmed", true),
         move || pending_decision.clone(),
     );
+    #[allow(deprecated)]
     let errors = confirming.errors();
     let deliveries = Arc::new(AtomicUsize::new(0));
     let deliveries_inner = deliveries.clone();
@@ -348,7 +376,7 @@ fn confirmation_error_value_precedes_disposal_completion() {
     let events = Arc::new(Mutex::new(Vec::new()));
     let values = events.clone();
     let completion = events.clone();
-    let _subscription = confirming.errors().subscribe_with_completion(
+    let _subscription = confirming.error_stream().subscribe_with_completion(
         move |_| values.lock().unwrap().push("value"),
         move || completion.lock().unwrap().push("completion"),
     );
@@ -518,7 +546,7 @@ fn disposed_confirmation_decorator_is_inert_including_pending_confirmations() {
         let confirming = ConfirmationDecoratorCommand::new(inner.clone(), move || pending.clone());
         let deliveries = Arc::new(AtomicUsize::new(0));
         let deliveries_inner = deliveries.clone();
-        let _subscription = confirming.errors().subscribe(move |_| {
+        let _subscription = confirming.error_stream().subscribe(move |_| {
             deliveries_inner.fetch_add(1, Ordering::SeqCst);
         });
 
@@ -843,13 +871,14 @@ fn trait_eligibility_matches_inherent_before_during_and_after_execution() {
 }
 
 #[test]
-fn trait_execute_reports_a_fault_once_on_the_errors_hub() {
+fn trait_execute_reports_a_fault_once_on_the_error_stream() {
     let gated = gated_async(|| Err(VmxError::Other("boom".to_string())));
-    let faults = Arc::new(AtomicUsize::new(0));
+    let faults = Arc::new(Mutex::new(Vec::new()));
     let counted = faults.clone();
-    let _faults = gated.command.errors().subscribe(move |_| {
-        counted.fetch_add(1, Ordering::SeqCst);
-    });
+    let _faults = gated
+        .command
+        .error_stream()
+        .subscribe(move |error| counted.lock().unwrap().push(error));
     let (changed, _subscription) = eligibility_signal(&gated.command);
 
     Command::execute(&gated.command);
@@ -858,7 +887,10 @@ fn trait_execute_reports_a_fault_once_on_the_errors_hub() {
     changed.recv_timeout(SIGNAL_TIMEOUT).unwrap();
     changed.recv_timeout(SIGNAL_TIMEOUT).unwrap();
 
-    assert_eq!(faults.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        *faults.lock().unwrap(),
+        vec![VmxError::Other("boom".to_string())]
+    );
 }
 
 #[test]

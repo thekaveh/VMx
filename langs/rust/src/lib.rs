@@ -57,9 +57,9 @@ pub use components::{
 
 mod commands;
 pub use commands::{
-    AsyncRelayCommand, AsyncRelayCommandBuilder, CancellationToken, Command, CommandExt, CommandOf,
-    CompositeCommand, ConfirmationDecoratorCommand, ConfirmationExecution, DecoratorCommand,
-    RelayCommand, RelayCommandBuilder, RelayCommandOf, NO_HOOK, NO_PREDICATE,
+    AsyncRelayCommand, AsyncRelayCommandBuilder, CancellationToken, Command, CommandErrorStream,
+    CommandExt, CommandOf, CompositeCommand, ConfirmationDecoratorCommand, ConfirmationExecution,
+    DecoratorCommand, RelayCommand, RelayCommandBuilder, RelayCommandOf, NO_HOOK, NO_PREDICATE,
 };
 
 mod collections;
