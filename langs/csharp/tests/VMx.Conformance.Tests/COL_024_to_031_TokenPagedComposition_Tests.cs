@@ -72,6 +72,96 @@ public class COL_024_to_031_TokenPagedCompositionTests
         propertyEvents.Should().Be(0);
     }
 
+    // Value-type cursors (#332): a non-nullable value type cannot represent the
+    // absent initial/terminal token, so TToken must be a reference type or Nullable<T>.
+    [Fact]
+    public void NonNullableValueTypeToken_IsRejectedWithNullableGuidance()
+    {
+        var act = () => new TokenPagedComposition<int, int>(_ =>
+            Task.FromResult(new TokenPage<int, int>([1], 0)));
+
+        act.Should().Throw<NotSupportedException>()
+            .WithMessage("*Int32?*null*");
+    }
+
+    [Fact]
+    public async Task OptionalIntegerCursor_TreatsZeroAsAValidTokenAndNullAsExhaustion()
+    {
+        var calls = new List<int?>();
+        using var sut = new TokenPagedComposition<int, int?>(token =>
+        {
+            calls.Add(token);
+            return Task.FromResult(token switch
+            {
+                null => new TokenPage<int, int?>([1], 0),
+                0 => new TokenPage<int, int?>([2], 5),
+                _ => new TokenPage<int, int?>([3], null),
+            });
+        });
+
+        sut.HasMore.Should().BeTrue();
+        sut.CurrentToken.Should().BeNull();
+        sut.LoadMoreCommand.CanExecute(null).Should().BeTrue();
+
+        await sut.LoadMoreCommand.ExecuteAsync();
+        sut.Items.Should().Equal(1);
+        sut.CurrentToken.Should().Be(0);
+        sut.HasMore.Should().BeTrue("a zero cursor is a valid continuation, not exhaustion");
+        sut.LoadMoreCommand.CanExecute(null).Should().BeTrue();
+
+        await sut.LoadMoreCommand.ExecuteAsync();
+        sut.Items.Should().Equal(1, 2);
+        sut.CurrentToken.Should().Be(5);
+        sut.HasMore.Should().BeTrue();
+
+        await sut.LoadMoreCommand.ExecuteAsync();
+        sut.Items.Should().Equal(1, 2, 3);
+        sut.CurrentToken.Should().BeNull();
+        sut.HasMore.Should().BeFalse();
+        sut.LoadMoreCommand.CanExecute(null).Should().BeFalse();
+        calls.Should().Equal(null, 0, 5);
+    }
+
+    [Fact]
+    public async Task OptionalIntegerCursor_RefreshToAnEmptyTerminalPageReportsExhaustion()
+    {
+        var refreshed = false;
+        using var sut = new TokenPagedComposition<int, int?>(token => Task.FromResult(
+            refreshed
+                ? new TokenPage<int, int?>([], null)
+                : token is null
+                    ? new TokenPage<int, int?>([1], 0)
+                    : new TokenPage<int, int?>([2], null)));
+        await sut.LoadMoreCommand.ExecuteAsync();
+        sut.CurrentToken.Should().Be(0);
+
+        refreshed = true;
+        await sut.RefreshCommand.ExecuteAsync();
+
+        sut.Items.Should().BeEmpty();
+        sut.CurrentToken.Should().BeNull();
+        sut.HasMore.Should().BeFalse();
+        sut.LoadMoreCommand.CanExecute(null).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task OptionalIntegerCursor_FailingLoaderLeavesItemsAndCursorUnchanged()
+    {
+        var fail = false;
+        using var sut = new TokenPagedComposition<int, int?>(token => fail
+            ? Task.FromException<TokenPage<int, int?>>(new InvalidOperationException("offline"))
+            : Task.FromResult(new TokenPage<int, int?>([1], 0)));
+        await sut.LoadMoreCommand.ExecuteAsync();
+
+        fail = true;
+        var act = () => sut.LoadMoreCommand.ExecuteAsync();
+
+        await act.Should().ThrowAsync<InvalidOperationException>();
+        sut.Items.Should().Equal(1);
+        sut.CurrentToken.Should().Be(0);
+        sut.HasMore.Should().BeTrue();
+    }
+
     [Fact, Trait("Conformance", "COL-026")]
     public async Task COL_026_TerminalTokenDisablesLoadMore()
     {
