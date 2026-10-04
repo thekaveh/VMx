@@ -2814,6 +2814,27 @@ delivery
 **And** no portable assertion requires one global interleaving order across the
 outer and nested operations
 
+### COL-065 — token refresh keeps the cursor aligned with the retained accumulator
+
+**Given** a token-paged composition that has loaded more than one page
+**When** `RefreshCommand` returns a first page whose items match the accumulator
+head under the flavor's equality hook
+**Then** a page as long as the accumulator leaves the accumulator unmutated and
+sets `CurrentToken` to the refreshed next token
+**And** a shorter, non-empty page with a non-terminal next token leaves the
+accumulator unmutated and keeps the prior `CurrentToken`, so a later
+`LoadMoreCommand` continues after the last retained item without refetching or
+duplicating a retained page
+**And** an empty page, or a page with a terminal next token, that is shorter
+than the accumulator replaces the accumulator, sets `CurrentToken` to the
+refreshed next token, and emits one `Reset`
+**And** a refresh that does not mutate the accumulator publishes no
+`CollectionChanged`, then `Items`, `CurrentToken`, and `HasMore` property
+notifications in that order, then re-signals command eligibility; a replacing
+refresh publishes one `Reset` before that same sequence
+**And** a load or refresh that completes after a later load or refresh started
+commits nothing and publishes nothing
+
 ## 25. HIER — HierarchicalVM (chapter 18) — spec v2.1
 
 ### HIER-001 — Recursive generic constraint compiles

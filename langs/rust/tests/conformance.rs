@@ -36,6 +36,7 @@ mod conformance {
     mod search_filter;
     mod subscribe_value;
     mod threading;
+    mod token_refresh_cursor;
     mod tree_utils;
     mod value_stream;
     mod vm_collection_move;
