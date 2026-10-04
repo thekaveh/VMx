@@ -217,6 +217,38 @@ func beginParentTransfer(
 
 private struct ContainerOwnershipTransactionError: Error {}
 
+/// Wait-for graph for container membership transactions (#551). A container
+/// serializes another thread's open transaction, as C# does, unless that
+/// thread already waits for this one, directly or through others: then the
+/// closing edge is refused, so opposing populations fail instead of
+/// deadlocking.
+final class MembershipTransactionWaitCoordinator: @unchecked Sendable {
+    static let shared = MembershipTransactionWaitCoordinator()
+
+    private let lock = NSLock()
+    private var waitingOn: [ObjectIdentifier: ObjectIdentifier] = [:]
+
+    /// Returns `false` when adding `caller -> owner` would close a cycle.
+    func beginWait(caller: ObjectIdentifier, owner: ObjectIdentifier) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        var cursor: ObjectIdentifier? = owner
+        var visited = Set<ObjectIdentifier>()
+        while let current = cursor, visited.insert(current).inserted {
+            if current == caller { return false }
+            cursor = waitingOn[current]
+        }
+        waitingOn[caller] = owner
+        return true
+    }
+
+    func endWait(caller: ObjectIdentifier) {
+        lock.lock()
+        waitingOn.removeValue(forKey: caller)
+        lock.unlock()
+    }
+}
+
 /// A `Subject` whose `send(_:)` snapshots subscribers under a brief lock and
 /// invokes them OUTSIDE the lock, so a slow consumer parked in one
 /// subscriber's closure cannot block a concurrent `send(_:)` on the same
