@@ -904,17 +904,44 @@ open class CompositeVM<Child: ComponentVMBase>:
 
     private func beginMembershipTransaction() throws -> ContainerOwnershipTransaction {
         let transaction = ContainerOwnershipTransaction()
-        try membershipGate.withLock {
-            try beginMembershipTransactionLocked(transaction, allowJoin: false)
-        }
+        try enterMembershipTransaction(transaction, allowJoin: false)
         return transaction
     }
 
     private func joinMembershipTransaction(
         _ transaction: ContainerOwnershipTransaction
     ) throws {
-        try membershipGate.withLock {
-            try beginMembershipTransactionLocked(transaction, allowJoin: true)
+        try enterMembershipTransaction(transaction, allowJoin: true)
+    }
+
+    /// Opens or joins a membership transaction. While another thread's
+    /// transaction is open, waits for it to end, as C# does, instead of
+    /// failing. A second transaction on the same thread is still rejected
+    /// (ADR-0118), and so is a wait that would close a cycle (#551).
+    private func enterMembershipTransaction(
+        _ transaction: ContainerOwnershipTransaction,
+        allowJoin: Bool
+    ) throws {
+        let caller = ObjectIdentifier(Thread.current)
+        while true {
+            let blocker = try membershipGate.withLock { () -> (ObjectIdentifier, DispatchGroup)? in
+                if membershipTransactionActive,
+                   !(allowJoin && membershipTransactionToken === transaction),
+                   let owner = membershipTransactionOwner, owner != caller,
+                   let completion = membershipTransactionCompletion {
+                    return (owner, completion)
+                }
+                try beginMembershipTransactionLocked(transaction, allowJoin: allowJoin)
+                return nil
+            }
+            guard let blocker else { return }
+            let (owner, completion) = blocker
+            let coordinator = MembershipTransactionWaitCoordinator.shared
+            guard coordinator.beginWait(caller: caller, owner: owner) else {
+                throw ContainerOwnershipError.attachmentFailed(ContainerMembershipTransactionError())
+            }
+            completion.wait()
+            coordinator.endWait(caller: caller)
         }
     }
 
