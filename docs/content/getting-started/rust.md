@@ -143,6 +143,34 @@ fn main() {
 > contract. `Command` is the object-safe trait exposing `can_execute()` and
 > `execute()`.
 
+`AsyncRelayCommand` runs its task on a worker thread. A fire-and-forget
+`execute()` publishes each failure on `error_stream()` as the original
+`VmxError`; an awaited `execute_async()` returns it instead.
+
+```rust
+use std::sync::mpsc;
+use vmx::{AsyncRelayCommand, VmxError};
+
+fn main() {
+    let save = AsyncRelayCommand::new(|_cancellation| {
+        Err(VmxError::InvalidArgument("server rejected the change".into()))
+    });
+    let (failed, failures) = mpsc::channel();
+    let _failures = save.error_stream().subscribe(move |error| {
+        failed.send(error).unwrap();
+    });
+
+    save.execute();
+
+    let error = failures.recv().unwrap();
+    assert_eq!(
+        error,
+        VmxError::InvalidArgument("server rejected the change".into())
+    );
+    save.dispose();
+}
+```
+
 ## 3.6.5. Build a `CompositeVm<T>` with selection
 
 `CompositeVm<T>` owns an ordered child collection and a `current` selection slot.

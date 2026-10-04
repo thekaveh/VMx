@@ -261,7 +261,10 @@ dedicated error observable rather than discarding it.
 > **Cross-flavor parity (ADR-0006/ADR-0049).** The `errors` channel is normative
 > in every flavor that ships `ConfirmationDecoratorCommand` (C#, Python,
 > TypeScript, Swift, Rust). Rust uses `AsyncValue<bool>` for the confirmation
-> awaitable and its VMx-owned hot-stream facade for errors. The decorator's `errors` channel is exercised by
+> awaitable and its VMx-owned hot-stream facade for errors: `error_stream()`
+> returns a `CommandErrorStream` of the original `VmxError`, and a caught panic,
+> whose payload is not a clonable error, arrives as `VmxError::Other` carrying
+> the panic message (ADR-0137). The decorator's `errors` channel is exercised by
 > `CMDD-010`.
 
 ### 8.4 Wrapper disposal (spec v3.24, ADR-0134)

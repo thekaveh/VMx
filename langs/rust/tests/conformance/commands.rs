@@ -530,8 +530,226 @@ fn async_relay_command_builder_owns_predicate_and_additive_triggers() {
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
 
+const ERROR_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Waits until the command has released its admission after a run.
+fn wait_until_idle(command: &AsyncRelayCommand) {
+    let deadline = Instant::now() + ERROR_TIMEOUT;
+    while command.is_executing() {
+        assert!(Instant::now() < deadline, "command stayed admitted");
+        std::thread::yield_now();
+    }
+}
+
+/// Records every typed failure and signals each delivery.
+fn record_errors(
+    command: &AsyncRelayCommand,
+) -> (
+    Arc<Mutex<Vec<VmxError>>>,
+    mpsc::Receiver<()>,
+    vmx::ValueSubscription,
+) {
+    let errors = Arc::new(Mutex::new(Vec::new()));
+    let (delivered, deliveries) = mpsc::channel();
+    let observed = errors.clone();
+    let subscription = command.error_stream().subscribe(move |error| {
+        observed.lock().unwrap().push(error);
+        let _ = delivered.send(());
+    });
+    (errors, deliveries, subscription)
+}
+
 #[test]
-fn async_relay_command_routes_fire_and_forget_faults_to_errors() {
+fn error_stream_delivers_each_original_fire_and_forget_failure_once() {
+    let failures = Arc::new(Mutex::new(vec![
+        VmxError::InvalidArgument("second".into()),
+        VmxError::Other("first".into()),
+    ]));
+    let command = AsyncRelayCommand::new({
+        let failures = failures.clone();
+        move |_| Err(failures.lock().unwrap().pop().expect("a failure per run"))
+    });
+    let (errors, deliveries, _subscription) = record_errors(&command);
+
+    command.execute();
+    deliveries.recv_timeout(ERROR_TIMEOUT).unwrap();
+    wait_until_idle(&command);
+    command.execute();
+    deliveries.recv_timeout(ERROR_TIMEOUT).unwrap();
+    wait_until_idle(&command);
+
+    assert_eq!(
+        *errors.lock().unwrap(),
+        vec![
+            VmxError::Other("first".into()),
+            VmxError::InvalidArgument("second".into()),
+        ]
+    );
+    assert!(deliveries.recv_timeout(Duration::from_millis(50)).is_err());
+}
+
+#[test]
+fn awaited_execute_async_returns_the_failure_and_publishes_nothing() {
+    let command = AsyncRelayCommand::new(|_| Err(VmxError::Other("awaited".into())));
+    let (errors, _deliveries, _subscription) = record_errors(&command);
+
+    let outcome = command.execute_async().join().unwrap();
+
+    assert_eq!(outcome, Err(VmxError::Other("awaited".into())));
+    assert!(errors.lock().unwrap().is_empty());
+}
+
+#[test]
+fn cancellation_never_reaches_the_error_stream() {
+    let command = AsyncRelayCommand::new(|token| {
+        while !token.is_cancelled() {
+            std::thread::yield_now();
+        }
+        Err(VmxError::Cancelled)
+    });
+    let (errors, _deliveries, _subscription) = record_errors(&command);
+
+    command.execute();
+    let deadline = Instant::now() + ERROR_TIMEOUT;
+    while !command.is_executing() {
+        assert!(Instant::now() < deadline, "command never started");
+        std::thread::yield_now();
+    }
+    command.cancel();
+    wait_until_idle(&command);
+
+    assert!(errors.lock().unwrap().is_empty());
+}
+
+#[test]
+fn disposal_before_a_failure_publishes_nothing_and_completes_the_stream() {
+    let (started_tx, started) = mpsc::channel();
+    let (release, release_rx) = mpsc::channel::<()>();
+    let release_rx = Mutex::new(release_rx);
+    let command = AsyncRelayCommand::new(move |_| {
+        started_tx.send(()).unwrap();
+        release_rx.lock().unwrap().recv().unwrap();
+        Err(VmxError::Other("after disposal".into()))
+    });
+    let errors = Arc::new(Mutex::new(Vec::new()));
+    let completions = Arc::new(AtomicUsize::new(0));
+    let _subscription = command.error_stream().subscribe_with_completion(
+        {
+            let errors = errors.clone();
+            move |error| errors.lock().unwrap().push(error)
+        },
+        {
+            let completions = completions.clone();
+            move || {
+                completions.fetch_add(1, Ordering::SeqCst);
+            }
+        },
+    );
+
+    command.execute();
+    started.recv_timeout(ERROR_TIMEOUT).unwrap();
+    command.dispose();
+    release.send(()).unwrap();
+    wait_until_idle(&command);
+
+    assert!(errors.lock().unwrap().is_empty());
+    assert_eq!(completions.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn late_error_subscribers_receive_only_later_failures() {
+    let runs = Arc::new(AtomicUsize::new(0));
+    let command = AsyncRelayCommand::new({
+        let runs = runs.clone();
+        move |_| {
+            let run = runs.fetch_add(1, Ordering::SeqCst) + 1;
+            Err(VmxError::Other(format!("run {run}")))
+        }
+    });
+    let (_early, early_deliveries, _early_subscription) = record_errors(&command);
+
+    command.execute();
+    early_deliveries.recv_timeout(ERROR_TIMEOUT).unwrap();
+    wait_until_idle(&command);
+    let (late, late_deliveries, _late_subscription) = record_errors(&command);
+    assert!(late_deliveries
+        .recv_timeout(Duration::from_millis(50))
+        .is_err());
+    command.execute();
+    late_deliveries.recv_timeout(ERROR_TIMEOUT).unwrap();
+    wait_until_idle(&command);
+
+    assert_eq!(*late.lock().unwrap(), vec![VmxError::Other("run 2".into())]);
+}
+
+#[test]
+fn a_panicking_error_observer_does_not_stop_other_observers_or_release() {
+    let command = AsyncRelayCommand::new(|_| Err(VmxError::Other("boom".into())));
+    let _panicking = command
+        .error_stream()
+        .subscribe(|_| panic!("observer boom"));
+    let (errors, deliveries, _subscription) = record_errors(&command);
+
+    command.execute();
+    deliveries.recv_timeout(ERROR_TIMEOUT).unwrap();
+    wait_until_idle(&command);
+
+    assert_eq!(
+        *errors.lock().unwrap(),
+        vec![VmxError::Other("boom".into())]
+    );
+    assert!(command.can_execute());
+}
+
+#[test]
+fn an_error_observer_may_unsubscribe_itself_during_delivery() {
+    let command = AsyncRelayCommand::new(|_| Err(VmxError::Other("boom".into())));
+    let own = Arc::new(Mutex::new(None::<vmx::ValueSubscription>));
+    let deliveries_to_self = Arc::new(AtomicUsize::new(0));
+    let subscription = command.error_stream().subscribe({
+        let own = own.clone();
+        let deliveries_to_self = deliveries_to_self.clone();
+        move |_| {
+            deliveries_to_self.fetch_add(1, Ordering::SeqCst);
+            drop(own.lock().unwrap().take());
+        }
+    });
+    *own.lock().unwrap() = Some(subscription);
+    let (errors, deliveries, _subscription) = record_errors(&command);
+
+    command.execute();
+    deliveries.recv_timeout(ERROR_TIMEOUT).unwrap();
+    wait_until_idle(&command);
+    command.execute();
+    deliveries.recv_timeout(ERROR_TIMEOUT).unwrap();
+    wait_until_idle(&command);
+
+    assert_eq!(deliveries_to_self.load(Ordering::SeqCst), 1);
+    assert_eq!(errors.lock().unwrap().len(), 2);
+}
+
+#[test]
+fn a_failed_fire_and_forget_run_releases_admission_and_signals_eligibility() {
+    let command = AsyncRelayCommand::new(|_| Err(VmxError::Other("boom".into())));
+    let signals = Arc::new(AtomicUsize::new(0));
+    let observed = signals.clone();
+    let _signals = command.can_execute_changed().subscribe(move |_| {
+        observed.fetch_add(1, Ordering::SeqCst);
+    });
+    let (_errors, deliveries, _subscription) = record_errors(&command);
+
+    command.execute();
+    deliveries.recv_timeout(ERROR_TIMEOUT).unwrap();
+    wait_until_idle(&command);
+
+    assert!(!command.is_executing());
+    assert!(command.can_execute());
+    assert_eq!(signals.load(Ordering::SeqCst), 2);
+}
+
+#[test]
+#[allow(deprecated)]
+fn deprecated_errors_hub_still_announces_fire_and_forget_faults() {
     let command = AsyncRelayCommand::new(|_| Err(VmxError::Other("boom".into())));
     let errors = Arc::new(AtomicUsize::new(0));
     let observed = errors.clone();

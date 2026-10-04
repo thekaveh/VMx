@@ -59,6 +59,14 @@ the command's error channel. In Rust this is `impl Command for AsyncRelayCommand
 usable as `Arc<dyn Command>` or as the inner command of `DecoratorCommand` and
 `ConfirmationDecoratorCommand`.
 
+Rust's error channel is `error_stream()`, a hot `CommandErrorStream` that
+delivers each fire-and-forget failure once as the original `VmxError` and
+completes on disposal. A panic caught by `ConfirmationDecoratorCommand` arrives
+as `VmxError::Other` carrying the panic message, because a panic payload is not a
+clonable error; `execute_async().join()` still returns the payload itself. The
+older `errors()` hubs carry only an `"error"` marker and are deprecated
+(ADR-0137).
+
 ## 6.3.3. Lifecycle And Messaging
 
 Commands become interesting when triggers are involved:

@@ -5,7 +5,7 @@
 use super::{
     catch_unwind, evaluate_command_predicate, lock, Arc, AssertUnwindSafe, AsyncValue, AtomicBool,
     AtomicU64, Context, Future, Message, MessageHub, Mutex, NullMessageHub, Ordering, Pin, Poll,
-    Subscription, VmxError, VmxResult,
+    Subscription, ValueStream, ValueSubscription, VmxError, VmxResult,
 };
 
 /// A parameterless action with queryable execution eligibility.
@@ -437,6 +437,75 @@ impl CancellationToken {
     }
 }
 
+#[derive(Clone)]
+/// A hot typed stream of a command's fire-and-forget failures.
+///
+/// Each failure reaches the subscribers present when it is published, once,
+/// as the original [`VmxError`]. Late subscribers do not receive earlier
+/// failures, cancellations never appear, and the stream completes when its
+/// command is disposed (spec `04-commands.md` §8.3.1 and §10.4, ADR-0137).
+/// Subscriber panics are isolated from the command and other subscribers.
+pub struct CommandErrorStream {
+    stream: ValueStream<Option<VmxError>>,
+}
+
+impl CommandErrorStream {
+    fn new() -> Self {
+        Self {
+            stream: ValueStream::hot(None),
+        }
+    }
+
+    /// Subscribes to failures published after this call.
+    pub fn subscribe<F>(&self, handler: F) -> ValueSubscription
+    where
+        F: Fn(VmxError) + Send + Sync + 'static,
+    {
+        self.stream.subscribe(move |error| {
+            if let Some(error) = error {
+                handler(error);
+            }
+        })
+    }
+
+    /// Subscribes to failures and receives one callback when the command is disposed.
+    pub fn subscribe_with_completion<F, C>(&self, handler: F, completion: C) -> ValueSubscription
+    where
+        F: Fn(VmxError) + Send + Sync + 'static,
+        C: Fn() + Send + Sync + 'static,
+    {
+        self.stream.subscribe_with_completion(
+            move |error| {
+                if let Some(error) = error {
+                    handler(error);
+                }
+            },
+            completion,
+        )
+    }
+
+    fn publish(&self, error: VmxError) {
+        self.stream.send(Some(error));
+    }
+
+    fn dispose(&self) {
+        self.stream.dispose();
+    }
+}
+
+/// Describes a caught panic as a [`VmxError`]. A panic payload is not a
+/// clonable error, so only its message travels (ADR-0137).
+fn panic_error(payload: &(dyn std::any::Any + Send)) -> VmxError {
+    let message = payload
+        .downcast_ref::<&str>()
+        .map(|message| (*message).to_string())
+        .or_else(|| payload.downcast_ref::<String>().cloned());
+    VmxError::Other(match message {
+        Some(message) => format!("command panicked: {message}"),
+        None => "command panicked".to_string(),
+    })
+}
+
 type AsyncCommandAction = Arc<dyn Fn(CancellationToken) -> VmxResult<()> + Send + Sync + 'static>;
 type AsyncCommandPredicate = Arc<dyn Fn() -> bool + Send + Sync + 'static>;
 
@@ -444,7 +513,8 @@ type AsyncCommandPredicate = Arc<dyn Fn() -> bool + Send + Sync + 'static>;
 /// A single-flight command that runs cancellable work on a worker thread.
 ///
 /// Eligibility is false while work is running or after disposal. Fire-and-
-/// forget execution routes non-cancellation failures to [`errors`](Self::errors).
+/// forget execution publishes each non-cancellation failure on
+/// [`error_stream`](Self::error_stream).
 pub struct AsyncRelayCommand {
     action: Option<AsyncCommandAction>,
     predicate: Option<AsyncCommandPredicate>,
@@ -454,6 +524,7 @@ pub struct AsyncRelayCommand {
     cancel_pending: Arc<AtomicBool>,
     can_execute_changed: MessageHub,
     errors: MessageHub,
+    error_stream: CommandErrorStream,
     throw_on_cancel: bool,
     trigger_subscriptions: Arc<Mutex<Vec<Subscription>>>,
     #[cfg(test)]
@@ -514,6 +585,7 @@ impl AsyncRelayCommand {
             cancel_pending: Arc::new(AtomicBool::new(false)),
             can_execute_changed: MessageHub::new(),
             errors: MessageHub::new(),
+            error_stream: CommandErrorStream::new(),
             throw_on_cancel,
             trigger_subscriptions: Arc::new(Mutex::new(Vec::new())),
             #[cfg(test)]
@@ -609,6 +681,7 @@ impl AsyncRelayCommand {
         self.raise_can_execute_changed();
         let action = self.action.clone();
         let errors = self.errors.clone();
+        let error_stream = self.error_stream.clone();
         let throw_on_cancel = self.throw_on_cancel;
         let disposed = self.disposed.clone();
         let guard = AsyncExecutionGuard {
@@ -639,15 +712,15 @@ impl AsyncRelayCommand {
             };
 
             if route_fire_and_forget_errors {
-                if result.is_err()
-                    && !matches!(&result, Err(VmxError::Cancelled))
-                    && !disposed.load(Ordering::SeqCst)
-                {
-                    errors.send(Message::Custom {
-                        sender_id: 0,
-                        sender_name: "AsyncRelayCommand".to_string(),
-                        name: "error".to_string(),
-                    });
+                if let Err(error) = &result {
+                    if !matches!(error, VmxError::Cancelled) && !disposed.load(Ordering::SeqCst) {
+                        error_stream.publish(error.clone());
+                        errors.send(Message::Custom {
+                            sender_id: 0,
+                            sender_name: "AsyncRelayCommand".to_string(),
+                            name: "error".to_string(),
+                        });
+                    }
                 }
                 Ok(())
             } else {
@@ -689,6 +762,7 @@ impl AsyncRelayCommand {
         lock(&self.trigger_subscriptions).clear();
         self.can_execute_changed.dispose();
         self.errors.dispose();
+        self.error_stream.dispose();
     }
 
     /// Returns the eligibility-change hub.
@@ -697,8 +771,26 @@ impl AsyncRelayCommand {
     }
 
     /// Returns the fire-and-forget error hub.
+    ///
+    /// Each failure arrives as a `Message::Custom` named `"error"` with no
+    /// payload. Use [`error_stream`](Self::error_stream) to receive the
+    /// original [`VmxError`].
+    #[deprecated(
+        since = "0.31.0",
+        note = "carries only an \"error\" marker; use `error_stream()`, which delivers the original `VmxError`"
+    )]
     pub fn errors(&self) -> MessageHub {
         self.errors.clone()
+    }
+
+    /// Returns the typed stream of fire-and-forget failures.
+    ///
+    /// [`execute`](Self::execute) publishes each non-cancellation failure here
+    /// as the original [`VmxError`]; an awaited
+    /// [`execute_async`](Self::execute_async) returns it instead and publishes
+    /// nothing.
+    pub fn error_stream(&self) -> CommandErrorStream {
+        self.error_stream.clone()
     }
 
     /// Returns a fluent asynchronous-command builder.
@@ -1042,12 +1134,13 @@ impl<C: Command + Clone> Command for DecoratorCommand<C> {
 #[derive(Clone)]
 /// A command decorator that executes only after asynchronous confirmation.
 ///
-/// Panics from confirmed fire-and-forget execution are isolated and announced
-/// through [`errors`](Self::errors).
+/// Panics from fire-and-forget confirmation or confirmed execution are
+/// isolated and published on [`error_stream`](Self::error_stream).
 pub struct ConfirmationDecoratorCommand<C: Command + Clone> {
     inner: C,
     confirm: Arc<dyn Fn() -> AsyncValue<bool> + Send + Sync>,
     errors: MessageHub,
+    error_stream: CommandErrorStream,
     disposed: Arc<AtomicBool>,
 }
 
@@ -1154,13 +1247,33 @@ impl<C: Command + Clone + 'static> ConfirmationDecoratorCommand<C> {
             inner,
             confirm: Arc::new(confirm),
             errors: MessageHub::new(),
+            error_stream: CommandErrorStream::new(),
             disposed: Arc::new(AtomicBool::new(false)),
         }
     }
 
     /// Returns the hub that announces isolated execution failures.
+    ///
+    /// Each failure arrives as a `Message::Custom` named `"error"` with no
+    /// payload. Use [`error_stream`](Self::error_stream) to receive it as a
+    /// [`VmxError`].
+    #[deprecated(
+        since = "0.31.0",
+        note = "carries only an \"error\" marker; use `error_stream()`, which delivers a `VmxError`"
+    )]
     pub fn errors(&self) -> MessageHub {
         self.errors.clone()
+    }
+
+    /// Returns the typed stream of isolated fire-and-forget failures.
+    ///
+    /// A panic from `confirm` or from the confirmed inner execution arrives as
+    /// [`VmxError::Other`] carrying the panic message. The panic payload itself
+    /// is not clonable, so it stays with
+    /// [`execute_async`](Self::execute_async), whose
+    /// [`join`](ConfirmationExecution::join) returns it unchanged (ADR-0137).
+    pub fn error_stream(&self) -> CommandErrorStream {
+        self.error_stream.clone()
     }
 
     /// Returns an executor-neutral completion for the confirmed execution.
@@ -1196,10 +1309,11 @@ impl<C: Command + Clone + 'static> ConfirmationDecoratorCommand<C> {
         execution
     }
 
-    /// Makes the decorator inert and disposes its error hub.
+    /// Makes the decorator inert and disposes its error hub and stream.
     pub fn dispose(&self) {
         if !self.disposed.swap(true, Ordering::SeqCst) {
             self.errors.dispose();
+            self.error_stream.dispose();
         }
     }
 
@@ -1207,16 +1321,16 @@ impl<C: Command + Clone + 'static> ConfirmationDecoratorCommand<C> {
         if !confirmed || self.disposed.load(Ordering::SeqCst) {
             return;
         }
-        let result = catch_unwind(AssertUnwindSafe(|| self.inner.execute()));
-        if result.is_err() && !self.disposed.load(Ordering::SeqCst) {
-            self.publish_error();
+        if let Err(payload) = catch_unwind(AssertUnwindSafe(|| self.inner.execute())) {
+            self.publish_error(panic_error(payload.as_ref()));
         }
     }
 
-    fn publish_error(&self) {
+    fn publish_error(&self, error: VmxError) {
         if self.disposed.load(Ordering::SeqCst) {
             return;
         }
+        self.error_stream.publish(error);
         self.errors.send(Message::Custom {
             sender_id: 0,
             sender_name: "ConfirmationDecoratorCommand".to_string(),
@@ -1238,8 +1352,8 @@ impl<C: Command + Clone + 'static> Command for ConfirmationDecoratorCommand<C> {
         }
         let decision = match catch_unwind(AssertUnwindSafe(|| (self.confirm)())) {
             Ok(decision) => decision,
-            Err(_) => {
-                self.publish_error();
+            Err(payload) => {
+                self.publish_error(panic_error(payload.as_ref()));
                 return;
             }
         };
