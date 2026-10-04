@@ -36,6 +36,9 @@ The main operational rules:
   messages
 - `KeyedServicedObservableCollection` adds a captured-key index without
   changing the ordered serviced message contract
+- `TokenPagedComposition` uses `null` as its first and last token, so a C#
+  value cursor is `int?` rather than `int`; a non-nullable value token is
+  rejected at construction
 - `TokenPagedComposition` keeps its loaded items and continuation token
   describing one prefix: a refresh whose first page matches a longer
   accumulator keeps the prior token, so the next load continues after the last
