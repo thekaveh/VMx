@@ -31,6 +31,10 @@ public final class NoteFormVM: ComponentVMBase {
     private var _editorModeCancellable: AnyCancellable?
     private var _tagCatalog: [String] = []
     private var _tagSuggestions: [String] = []
+    /// Guards `_tagDraft`, `_tagCatalog`, and `_tagSuggestions`. The tag
+    /// search's debounced emission runs on the main queue, which can be a
+    /// different thread from the one that types the draft (#550).
+    private let _tagLock = NSLock()
     private var _tagSearch: SearchableState<String>?
     private var _tagSearchCancellable: AnyCancellable?
 
@@ -123,10 +127,14 @@ public final class NoteFormVM: ComponentVMBase {
 
     /// Tag input buffer; cleared by `addTagCommand` and `unbind()`.
     public var tagDraft: String {
-        get { _tagDraft }
+        get { _tagLock.withLock { _tagDraft } }
         set {
-            guard _tagDraft != newValue else { return }
-            _tagDraft = newValue
+            let changed = _tagLock.withLock { () -> Bool in
+                guard _tagDraft != newValue else { return false }
+                _tagDraft = newValue
+                return true
+            }
+            guard changed else { return }
             _notifyPropertyChanged("tagDraft")
             _tagSearch?.searchTerm = newValue
             _tagSearch?.search()
@@ -144,10 +152,10 @@ public final class NoteFormVM: ComponentVMBase {
     public var titleError: String? { _form?.fieldError("title") }
 
     /// Workspace tag suggestions matching `tagDraft`.
-    public var tagSuggestions: [String] { _tagSuggestions }
+    public var tagSuggestions: [String] { _tagLock.withLock { _tagSuggestions } }
 
     /// Comma-joined tag suggestions for simple view bindings.
-    public var tagSuggestionsText: String { _tagSuggestions.joined(separator: ", ") }
+    public var tagSuggestionsText: String { tagSuggestions.joined(separator: ", ") }
 
     /// Active editor panel, backed by `DiscriminatorVM`.
     public var editorMode: String { _editorMode.activeKey }
@@ -193,15 +201,15 @@ public final class NoteFormVM: ComponentVMBase {
         super.init(name: name, hint: hint, hub: hub, dispatcher: dispatcher)
 
         _tagSearch = SearchableState<String>(
-            items: { [weak self] in self?._tagCatalog ?? [] },
+            items: { [weak self] in
+                guard let self else { return [] }
+                return self._tagLock.withLock { self._tagCatalog }
+            },
             predicate: { [weak self] tag, term in self?.tagMatches(tag, term) ?? false },
             debounce: .seconds(0)
         )
         _tagSearchCancellable = _tagSearch?.filtered
-            .sink { [weak self] suggestions in
-                self?._tagSuggestions = suggestions
-                self?.emitTagSuggestionChanges()
-            }
+            .sink { [weak self] suggestions in self?.receiveTagSearchResult(suggestions) }
 
         // Phase 2: rewire with real self-capturing closures.
         //
@@ -236,7 +244,7 @@ public final class NoteFormVM: ComponentVMBase {
             .predicate({ [weak self] in
                 guard let self else { return false }
                 return self.hasBoundNote
-                    && !self._tagDraft.trimmingCharacters(in: .whitespaces).isEmpty
+                    && !self.tagDraft.trimmingCharacters(in: .whitespaces).isEmpty
             })
             .task({ [weak self] in self?.addTag() })
             .triggers(trigger)
@@ -307,14 +315,14 @@ public final class NoteFormVM: ComponentVMBase {
     /// Disposes the inner form and clears `tagDraft`. All derived properties
     /// revert to their empty-model values. Mirrors C# `Unbind()`.
     public func unbind() {
-        let hadTagDraft = !_tagDraft.isEmpty
+        let hadTagDraft = !tagDraft.isEmpty
         guard _form != nil || hadTagDraft else { return }
         _form?.dispose()
         _form = nil
         _approvedCancellable?.cancel()
         _approvedCancellable = nil
         if hadTagDraft {
-            _tagDraft = ""
+            _tagLock.withLock { _tagDraft = "" }
             _notifyPropertyChanged("tagDraft")
         }
         emitDraftChanges()
@@ -354,7 +362,7 @@ public final class NoteFormVM: ComponentVMBase {
     }
 
     private func addTag() {
-        let trimmed = _tagDraft.trimmingCharacters(in: .whitespaces)
+        let trimmed = tagDraft.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty, _form != nil else { return }
         let current = draft.tags
         guard !current.contains(where: { $0.lowercased() == trimmed.lowercased() }) else { return }
@@ -389,22 +397,43 @@ public final class NoteFormVM: ComponentVMBase {
                 return leftKey == rightKey ? left < right : leftKey < rightKey
             }
             await runOnForeground { [weak self] in
-                self?._tagCatalog = catalog
-                self?._tagSearch?.search()
+                guard let self else { return }
+                self._tagLock.withLock { self._tagCatalog = catalog }
+                self._tagSearch?.search()
             }
         } catch {
             await runOnForeground { [weak self] in
-                self?._tagCatalog = []
-                self?._tagSearch?.search()
+                guard let self else { return }
+                self._tagLock.withLock { self._tagCatalog = [] }
+                self._tagSearch?.search()
             }
         }
     }
 
+    /// Applies one emission of the tag search. The debounced emission runs on
+    /// the main queue, so one computed for an earlier term can arrive after a
+    /// newer term's search has applied its result. The emission therefore only
+    /// signals a change: suggestions are derived from the current draft and
+    /// catalog, read under the lock the `tagDraft` setter writes with (#550).
+    func receiveTagSearchResult(_ suggestions: [String]) {
+        let existing = draft.tags
+        _tagLock.withLock {
+            _tagSuggestions = _tagCatalog.filter {
+                Self.tagMatches($0, _tagDraft, existing: existing)
+            }
+        }
+        emitTagSuggestionChanges()
+    }
+
     private func tagMatches(_ tag: String, _ term: String) -> Bool {
+        Self.tagMatches(tag, term, existing: draft.tags)
+    }
+
+    private static func tagMatches(_ tag: String, _ term: String, existing: [String]) -> Bool {
         let normalized = term.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else { return false }
         guard tag.localizedCaseInsensitiveContains(normalized) else { return false }
-        return !draft.tags.contains { $0.lowercased() == tag.lowercased() }
+        return !existing.contains { $0.lowercased() == tag.lowercased() }
     }
 
     /// Broadcasts property-changed signals for every surface affected by a
