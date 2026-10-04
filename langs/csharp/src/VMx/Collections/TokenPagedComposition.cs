@@ -14,6 +14,14 @@ public sealed record TokenPage<TVM, TToken>(IReadOnlyList<TVM> Items, TToken? Ne
 /// <summary>
 /// Accumulates pages fetched by an opaque forward-only token.
 /// </summary>
+/// <typeparam name="TVM">Item type.</typeparam>
+/// <typeparam name="TToken">
+/// Opaque cursor type. <c>null</c> is the initial and terminal token, so the type
+/// must be able to hold <c>null</c>: a reference type such as <see cref="string"/>,
+/// or <see cref="Nullable{T}"/> for value cursors (for example <c>int?</c>, where
+/// <c>0</c> is a valid cursor). A non-nullable value type such as <c>int</c> cannot
+/// represent "no next page" and is rejected at construction.
+/// </typeparam>
 public sealed class TokenPagedComposition<TVM, TToken> :
     INotifyCollectionChanged,
     INotifyPropertyChanged,
@@ -36,11 +44,22 @@ public sealed class TokenPagedComposition<TVM, TToken> :
     /// <summary>
     /// Creates a token-paged composition.
     /// </summary>
+    /// <exception cref="NotSupportedException">
+    /// <typeparamref name="TToken"/> is a non-nullable value type, which cannot
+    /// represent the absent initial and terminal token.
+    /// </exception>
     public TokenPagedComposition(
         Func<TToken?, Task<TokenPage<TVM, TToken>>> fetchNext,
         bool autoConstructOnAdd = false,
         Func<IReadOnlyList<TVM>, IReadOnlyList<TVM>, bool>? pagesEqual = null)
     {
+        if (typeof(TToken).IsValueType && Nullable.GetUnderlyingType(typeof(TToken)) is null)
+        {
+            throw new NotSupportedException(
+                $"TokenPagedComposition cannot use the non-nullable value type {typeof(TToken).Name} as its " +
+                $"token: null marks the first and last page. Use {typeof(TToken).Name}? instead, so a default " +
+                "value stays a valid cursor and null means no next page.");
+        }
         _fetchNext = fetchNext ?? throw new ArgumentNullException(nameof(fetchNext));
         _autoConstructOnAdd = autoConstructOnAdd;
         _pagesEqual = pagesEqual ?? DefaultPagesEqual;

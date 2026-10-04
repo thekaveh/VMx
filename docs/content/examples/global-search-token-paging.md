@@ -49,7 +49,27 @@ or superseded fetches from making a constructed result unreachable before its
 lifecycle closes. Rust's TUI search stores cloned `NoteModel` values rather than
 lifecycle-bearing result VMs, so it does not need this registry.
 
-## 8.6.4. Related Reading
+## 8.6.4. Token Types
+
+The token is opaque, and `null` / `None` / `nil` both requests the first page
+and ends paging. The showcases use string tokens. For an integer offset or
+page cursor, C# needs a token type that can hold `null`: use `int?`, where `0`
+is a valid cursor, rather than `int`, which cannot say "no next page" and is
+rejected when the composition is constructed.
+
+```csharp
+var paged = new TokenPagedComposition<NoteVM, int?>(async offset =>
+{
+    var page = await repository.LoadPageAsync(offset ?? 0, pageSize);
+    int? next = page.HasMore ? (offset ?? 0) + pageSize : null;
+    return new TokenPage<NoteVM, int?>(page.Items, next);
+});
+```
+
+Python, TypeScript, Swift, and Rust already express an absent token with
+`None`, `null`, `nil`, and `Option`.
+
+## 8.6.5. Related Reading
 
 - [Notes Workspace](notes-workspace.md)
 - [State & Reactive Helpers](../primitives/state-reactive-helpers.md)

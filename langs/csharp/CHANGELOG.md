@@ -45,6 +45,23 @@ All notable changes to the C# flavor are documented here. The format is based on
   refetches and duplicates page two. A matching page as long as the accumulator
   adopts the refreshed token, and an empty or terminal first page shorter than
   the accumulator replaces it (`COL-065`, ADR-0136, spec 3.25.0) (#326).
+- `TokenPagedComposition<TVM, TToken>` rejects a non-nullable value-type token
+  such as `int` with `NotSupportedException` at construction. Such a token could
+  not represent the absent first and last token, so `HasMore` never became false
+  and `0` was indistinguishable from "no token" (#332). Use `Nullable<T>`
+  instead: `int?` cursors already worked, `0` stays a valid continuation, and
+  `null` ends paging. Reference tokens such as `string` are unchanged.
+
+  Migration:
+
+  ```csharp
+  // Before: new TokenPagedComposition<NoteVM, int>(offset => ...)
+  var paged = new TokenPagedComposition<NoteVM, int?>(async offset =>
+  {
+      var page = await repository.LoadPageAsync(offset ?? 0, pageSize);
+      return new TokenPage<NoteVM, int?>(page.Items, page.HasMore ? (offset ?? 0) + pageSize : null);
+  });
+  ```
 
 ## [3.24.0] — unreleased source version
 
