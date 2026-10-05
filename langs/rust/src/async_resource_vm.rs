@@ -3,16 +3,14 @@
 //! Spec: `spec/23-async-resource-vm.md`; ADR-0100.
 
 use crate::{
-    lock, AsyncRelayCommand, CancellationToken, ComponentVm, ConstructionStatus, Dispatcher,
-    MessageHub, NullDispatcher, ParentHandle, PropertyChangedStream, RelayCommand, TreeNode,
-    VmNode, VmxError, VmxResult,
+    lock, spawn_worker, wait, AsyncRelayCommand, CancellationToken, ComponentVm,
+    ConstructionStatus, Dispatcher, MessageHub, NullDispatcher, ParentHandle,
+    PropertyChangedStream, RelayCommand, TreeNode, VmNode, VmxError, VmxResult,
 };
 use std::fmt;
 use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
-use std::sync::mpsc::{self, RecvTimeoutError};
-use std::sync::{Arc, Mutex};
-use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::sync::{Arc, Condvar, Mutex};
+use std::thread::JoinHandle;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 /// The current acquisition phase of an [`AsyncResourceVm`].
@@ -526,13 +524,13 @@ where
     /// Starts a load on a dedicated thread and returns its join handle.
     pub fn load_async(&self) -> JoinHandle<VmxResult<()>> {
         let inner = self.inner.clone();
-        thread::spawn(move || run_intent(inner, StartIntent::Load, CancellationToken::new()))
+        spawn_worker(move || run_intent(inner, StartIntent::Load, CancellationToken::new()))
     }
 
     /// Starts a reload on a dedicated thread and returns its join handle.
     pub fn reload_async(&self) -> JoinHandle<VmxResult<()>> {
         let inner = self.inner.clone();
-        thread::spawn(move || run_intent(inner, StartIntent::Reload, CancellationToken::new()))
+        spawn_worker(move || run_intent(inner, StartIntent::Reload, CancellationToken::new()))
     }
 
     /// Cancels the active acquisition, if any.
@@ -755,10 +753,15 @@ where
         return Ok(());
     }
 
-    let (done_send, done_receive) = mpsc::channel();
+    // The loader runs on its own worker so this thread can return as soon as
+    // the operation is cancelled, even while an uncooperative loader keeps
+    // running. This thread blocks until the loader reports or either token
+    // is cancelled; it does not poll.
+    let signal = Arc::new(LoadSignal::default());
+    let reporter = LoaderReporter(Some(signal.clone()));
     let loader_inner = inner.clone();
     let loader_operation = operation.clone();
-    thread::spawn(move || {
+    spawn_worker(move || {
         let outcome = catch_unwind(AssertUnwindSafe(|| {
             let result = (loader_inner.loader)(loader_operation.token.clone());
             complete_operation(&loader_inner, &loader_operation, result);
@@ -766,26 +769,89 @@ where
         if outcome.is_err() {
             rollback_panicked_operation(&loader_inner, &loader_operation);
         }
-        let _ = done_send.send(outcome);
+        reporter.finish(outcome);
     });
 
+    let wake: Arc<dyn Fn() + Send + Sync> = {
+        let signal = signal.clone();
+        Arc::new(move || signal.wake())
+    };
+    let _external_registration = external_token.on_cancel(wake.clone());
+    let _operation_registration = operation.token.on_cancel(wake);
+    let mut report = lock(&signal.report);
     loop {
+        // Checked under the signal lock: a cancellation listener takes the
+        // same lock before notifying, so no wakeup is lost.
         if external_token.is_cancelled() {
+            drop(report);
             cancel_operation(&inner, operation.identity);
             return Ok(());
         }
         if operation.token.is_cancelled() {
             return Ok(());
         }
-        match done_receive.recv_timeout(Duration::from_millis(1)) {
-            Ok(Ok(())) => return Ok(()),
-            Ok(Err(panic)) => resume_unwind(panic),
-            Err(RecvTimeoutError::Disconnected) => {
+        match report.take() {
+            Some(LoaderReport::Finished(Ok(()))) => return Ok(()),
+            Some(LoaderReport::Finished(Err(panic))) => {
+                drop(report);
+                resume_unwind(panic)
+            }
+            Some(LoaderReport::Disconnected) => {
+                drop(report);
                 panic!("async resource loader worker disconnected before reporting completion")
             }
-            Err(RecvTimeoutError::Timeout) => {}
+            None => {}
+        }
+        #[cfg(test)]
+        load_waits::record();
+        report = wait(&signal.changed, report);
+    }
+}
+
+/// What a loader worker tells the thread waiting on its load.
+enum LoaderReport {
+    Finished(std::thread::Result<()>),
+    Disconnected,
+}
+
+/// Wakes the thread waiting on a load when its loader reports or a token the
+/// waiter watches is cancelled.
+#[derive(Default)]
+struct LoadSignal {
+    report: Mutex<Option<LoaderReport>>,
+    changed: Condvar,
+}
+
+impl LoadSignal {
+    fn wake(&self) {
+        let _report = lock(&self.report);
+        self.changed.notify_all();
+    }
+}
+
+/// Reports the loader's outcome once, or `Disconnected` if the loader worker
+/// unwinds before reporting.
+struct LoaderReporter(Option<Arc<LoadSignal>>);
+
+impl LoaderReporter {
+    fn finish(mut self, outcome: std::thread::Result<()>) {
+        if let Some(signal) = self.0.take() {
+            deliver_report(&signal, LoaderReport::Finished(outcome));
         }
     }
+}
+
+impl Drop for LoaderReporter {
+    fn drop(&mut self) {
+        if let Some(signal) = self.0.take() {
+            deliver_report(&signal, LoaderReport::Disconnected);
+        }
+    }
+}
+
+fn deliver_report(signal: &LoadSignal, outcome: LoaderReport) {
+    *lock(&signal.report) = Some(outcome);
+    signal.changed.notify_all();
 }
 
 fn rollback_panicked_operation<T, D>(inner: &Inner<T, D>, operation: &Operation<T>)
@@ -946,5 +1012,121 @@ fn notify_state<T, D: Dispatcher>(inner: &Inner<T, D>) {
         commands.load.raise_can_execute_changed();
         commands.reload.raise_can_execute_changed();
         commands.cancel.raise_can_execute_changed();
+    }
+}
+
+// Unit-test instrumentation only: counts the times a load's waiting thread
+// blocks before the load settles.
+#[cfg(test)]
+mod load_waits {
+    use std::cell::Cell;
+
+    thread_local! {
+        static WAITS: Cell<usize> = const { Cell::new(0) };
+    }
+
+    pub(super) fn record() {
+        WAITS.with(|waits| waits.set(waits.get() + 1));
+    }
+
+    pub(super) fn counted<R>(work: impl FnOnce() -> R) -> (R, usize) {
+        let before = WAITS.with(Cell::get);
+        let result = work();
+        (result, WAITS.with(Cell::get) - before)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{load_waits, run_intent, StartIntent};
+    use crate::runtime::worker_spawns;
+    use crate::{AsyncResourceStatus, AsyncResourceVm, CancellationToken};
+    use std::sync::{mpsc, Mutex};
+    use std::thread;
+    use std::time::Duration;
+
+    const LOAD_DURATION: Duration = Duration::from_millis(100);
+    const BOUND: Duration = Duration::from_secs(5);
+
+    // Runs one load on a helper thread, so a waiter that never wakes fails
+    // the bound instead of hanging the test, and returns how often it blocked.
+    fn waits_for_one_load(resource: &AsyncResourceVm<i32>, intent: StartIntent) -> usize {
+        let inner = resource.inner.clone();
+        let (reported, report) = mpsc::channel();
+        thread::spawn(move || {
+            let (result, waits) =
+                load_waits::counted(|| run_intent(inner, intent, CancellationToken::new()));
+            let _ = reported.send((result, waits));
+        });
+        let (result, waits) = report
+            .recv_timeout(BOUND)
+            .expect("the waiting load returned");
+        result.expect("the load returned Ok");
+        waits
+    }
+
+    #[test]
+    fn a_waiting_load_blocks_until_its_loader_reports_instead_of_polling() {
+        let resource = AsyncResourceVm::new("resource", |_| {
+            thread::sleep(LOAD_DURATION);
+            Ok(1)
+        });
+
+        let waits = waits_for_one_load(&resource, StartIntent::Load);
+
+        assert_eq!(resource.value(), Some(1));
+        assert!(
+            waits <= 2,
+            "the waiter blocked {waits} times during a {LOAD_DURATION:?} load"
+        );
+    }
+
+    #[test]
+    fn cancellation_wakes_a_waiting_load_without_polling() {
+        let (release, released) = mpsc::channel::<()>();
+        let released = Mutex::new(released);
+        let (started_sender, started) = mpsc::channel();
+        let resource = AsyncResourceVm::new("resource", move |_| {
+            let _ = started_sender.send(());
+            let _ = released.lock().unwrap().recv();
+            Ok(1)
+        });
+        let canceller = {
+            let resource = resource.clone();
+            thread::spawn(move || {
+                started.recv_timeout(BOUND).expect("the loader started");
+                thread::sleep(LOAD_DURATION);
+                resource.cancel();
+            })
+        };
+
+        let waits = waits_for_one_load(&resource, StartIntent::Load);
+        canceller.join().unwrap();
+        release.send(()).unwrap();
+
+        assert_eq!(resource.resource_status(), AsyncResourceStatus::Idle);
+        assert!(
+            waits <= 2,
+            "the waiter blocked {waits} times before a cancellation {LOAD_DURATION:?} in"
+        );
+    }
+
+    #[test]
+    fn each_load_uses_one_waiting_worker_and_one_loader_worker() {
+        let resource = AsyncResourceVm::new("resource", |_| Ok(1));
+
+        let (load, waiting_workers) = worker_spawns::counted(|| resource.load_async());
+        load.join().unwrap().unwrap();
+        let (reload, loader_workers) = worker_spawns::counted(|| {
+            run_intent(
+                resource.inner.clone(),
+                StartIntent::Reload,
+                CancellationToken::new(),
+            )
+        });
+        reload.unwrap();
+
+        assert_eq!((waiting_workers, loader_workers), (1, 1));
+        assert_eq!(resource.value(), Some(1));
     }
 }

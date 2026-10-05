@@ -3,9 +3,9 @@
 //! Spec: `spec/04-commands.md`.
 
 use super::{
-    catch_unwind, evaluate_command_predicate, lock, Arc, AssertUnwindSafe, AsyncValue, AtomicBool,
-    AtomicU64, Context, Future, Message, MessageHub, Mutex, NullMessageHub, Ordering, Pin, Poll,
-    Subscription, ValueStream, ValueSubscription, VmxError, VmxResult,
+    catch_unwind, evaluate_command_predicate, lock, spawn_worker, Arc, AssertUnwindSafe,
+    AsyncValue, AtomicBool, AtomicU64, Context, Future, Message, MessageHub, Mutex, NullMessageHub,
+    Ordering, Pin, Poll, Subscription, ValueStream, ValueSubscription, VmxError, VmxResult, Weak,
 };
 
 /// A parameterless action with queryable execution eligibility.
@@ -417,7 +417,21 @@ impl<T: Clone + Send + 'static> CommandOf<T> for RelayCommandOf<T> {
 #[derive(Clone, Default)]
 /// A thread-safe cooperative cancellation signal.
 pub struct CancellationToken {
-    cancelled: Arc<AtomicBool>,
+    state: Arc<CancellationState>,
+}
+
+type CancellationListener = Arc<dyn Fn() + Send + Sync + 'static>;
+
+#[derive(Default)]
+struct CancellationState {
+    cancelled: AtomicBool,
+    listeners: Mutex<CancellationListeners>,
+}
+
+#[derive(Default)]
+struct CancellationListeners {
+    next_id: u64,
+    entries: Vec<(u64, CancellationListener)>,
 }
 
 impl CancellationToken {
@@ -428,12 +442,61 @@ impl CancellationToken {
 
     /// Permanently marks the token as cancelled.
     pub fn cancel(&self) {
-        self.cancelled.store(true, Ordering::SeqCst);
+        if self.state.cancelled.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        let listeners = std::mem::take(&mut lock(&self.state.listeners).entries);
+        for (_, listener) in listeners {
+            let _ = catch_unwind(AssertUnwindSafe(|| listener()));
+        }
     }
 
     /// Reports whether cancellation has been requested.
     pub fn is_cancelled(&self) -> bool {
-        self.cancelled.load(Ordering::SeqCst)
+        self.state.cancelled.load(Ordering::SeqCst)
+    }
+
+    /// Runs `listener` once, on the cancelling thread, when the token is
+    /// cancelled. Returns `None` without keeping the listener when the token
+    /// is already cancelled; dropping the registration removes the listener.
+    pub(crate) fn on_cancel(
+        &self,
+        listener: CancellationListener,
+    ) -> Option<CancellationRegistration> {
+        let mut listeners = lock(&self.state.listeners);
+        if self.is_cancelled() {
+            return None;
+        }
+        let id = listeners.next_id;
+        listeners.next_id += 1;
+        listeners.entries.push((id, listener));
+        Some(CancellationRegistration {
+            state: Arc::downgrade(&self.state),
+            id,
+        })
+    }
+}
+
+/// Removes a [`CancellationToken`] listener when dropped.
+pub(crate) struct CancellationRegistration {
+    state: Weak<CancellationState>,
+    id: u64,
+}
+
+impl Drop for CancellationRegistration {
+    fn drop(&mut self) {
+        let Some(state) = self.state.upgrade() else {
+            return;
+        };
+        let removed = {
+            let mut listeners = lock(&state.listeners);
+            listeners
+                .entries
+                .iter()
+                .position(|(id, _)| *id == self.id)
+                .map(|index| listeners.entries.remove(index))
+        };
+        drop(removed);
     }
 }
 
@@ -626,8 +689,14 @@ impl AsyncRelayCommand {
     }
 
     /// Starts fire-and-forget execution and routes failures to the error hub.
+    ///
+    /// An admitted execution runs its task on one worker thread. A rejected
+    /// call (no action, an execution already running, a false predicate, or
+    /// a disposed command) returns without starting a thread.
     pub fn execute(&self) {
-        let handle = self.start_execution(true);
+        let Some(handle) = self.start_execution(true) else {
+            return;
+        };
         #[cfg(test)]
         if let Some(collector) = lock(&self.test_executions).clone() {
             collector.register(handle);
@@ -637,18 +706,31 @@ impl AsyncRelayCommand {
     }
 
     /// Starts execution and returns a handle for its result.
+    ///
+    /// A rejected call returns a handle whose thread completes with `Ok(())`
+    /// at once. `JoinHandle` can only come from a spawned thread, so that
+    /// handle still costs one short-lived thread; use [`execute`](Self::execute)
+    /// when the result is not needed.
     pub fn execute_async(&self) -> std::thread::JoinHandle<VmxResult<()>> {
         self.start_execution(false)
+            .unwrap_or_else(|| spawn_worker(|| Ok(())))
+    }
+
+    /// Runs an admitted execution and waits for its result, or returns
+    /// `Ok(Ok(()))` at once, without a thread, for a rejected call.
+    pub(crate) fn execute_and_join(&self) -> std::thread::Result<VmxResult<()>> {
+        self.start_execution(false)
+            .map_or(Ok(Ok(())), std::thread::JoinHandle::join)
     }
 
     fn start_execution(
         &self,
         route_fire_and_forget_errors: bool,
-    ) -> std::thread::JoinHandle<VmxResult<()>> {
+    ) -> Option<std::thread::JoinHandle<VmxResult<()>>> {
         let epoch = self.execution_epoch.load(Ordering::SeqCst);
         if self.action.is_none() || !epoch.is_multiple_of(2) || self.disposed.load(Ordering::SeqCst)
         {
-            return std::thread::spawn(|| Ok(()));
+            return None;
         }
         let allowed = self
             .predicate
@@ -662,7 +744,7 @@ impl AsyncRelayCommand {
                 .compare_exchange(epoch, epoch + 1, Ordering::SeqCst, Ordering::SeqCst)
                 .is_err()
         {
-            return std::thread::spawn(|| Ok(()));
+            return None;
         }
         let token = CancellationToken::new();
         {
@@ -676,7 +758,7 @@ impl AsyncRelayCommand {
             token.cancel();
             *lock(&self.active_token) = None;
             self.execution_epoch.fetch_add(1, Ordering::SeqCst);
-            return std::thread::spawn(|| Ok(()));
+            return None;
         }
         self.raise_can_execute_changed();
         let action = self.action.clone();
@@ -693,7 +775,7 @@ impl AsyncRelayCommand {
         };
         #[cfg(test)]
         let collector = lock(&self.test_executions).clone();
-        std::thread::spawn(move || {
+        Some(spawn_worker(move || {
             let _guard = guard;
             let result = action.map(|action| action(token.clone())).unwrap_or(Ok(()));
             #[cfg(test)]
@@ -726,7 +808,7 @@ impl AsyncRelayCommand {
             } else {
                 result
             }
-        })
+        }))
     }
 
     /// Requests cancellation of the admitted execution, if any.
@@ -1499,5 +1581,171 @@ pub(crate) mod test_execution {
                 eprintln!("test command cleanup failures: {failures:?}; raw results: {results:?}");
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod worker_tests {
+    use super::AsyncRelayCommand;
+    use crate::runtime::worker_spawns;
+    use std::sync::{mpsc, Mutex};
+    use std::time::Duration;
+
+    const CALLS: usize = 100;
+    const BOUND: Duration = Duration::from_secs(5);
+
+    fn workers_for_repeated_execute(command: &AsyncRelayCommand) -> usize {
+        worker_spawns::counted(|| {
+            for _ in 0..CALLS {
+                command.execute();
+            }
+        })
+        .1
+    }
+
+    #[test]
+    fn rejected_fire_and_forget_execution_spawns_no_worker() {
+        let missing_action = AsyncRelayCommand::noop();
+        let false_predicate = AsyncRelayCommand::new(|_| Ok(())).with_can_execute(|| false);
+        let disposed = AsyncRelayCommand::new(|_| Ok(()));
+        disposed.dispose();
+
+        assert_eq!(
+            workers_for_repeated_execute(&missing_action),
+            0,
+            "missing action"
+        );
+        assert_eq!(
+            workers_for_repeated_execute(&false_predicate),
+            0,
+            "false predicate"
+        );
+        assert_eq!(workers_for_repeated_execute(&disposed), 0, "disposed");
+    }
+
+    #[test]
+    fn fire_and_forget_execution_while_busy_spawns_no_worker() {
+        let (release, released) = mpsc::channel::<()>();
+        let released = Mutex::new(released);
+        let (started_sender, started) = mpsc::channel();
+        let command = AsyncRelayCommand::new(move |_| {
+            let _ = started_sender.send(());
+            let _ = released.lock().unwrap().recv();
+            Ok(())
+        });
+
+        let (running, admitted) = worker_spawns::counted(|| command.execute_async());
+        started
+            .recv_timeout(BOUND)
+            .expect("the admitted body started");
+        let busy = workers_for_repeated_execute(&command);
+        release.send(()).unwrap();
+        running.join().unwrap().unwrap();
+
+        assert_eq!((admitted, busy), (1, 0));
+        assert!(started.try_recv().is_err(), "a busy call ran the body");
+    }
+
+    #[test]
+    fn accepted_fire_and_forget_execution_spawns_one_worker() {
+        let (finished_sender, finished) = mpsc::channel();
+        let command = AsyncRelayCommand::new(move |_| {
+            let _ = finished_sender.send(());
+            Ok(())
+        });
+
+        let ((), workers) = worker_spawns::counted(|| command.execute());
+        finished.recv_timeout(BOUND).expect("the body ran");
+
+        assert_eq!(workers, 1);
+    }
+
+    #[test]
+    fn rejected_internal_awaited_execution_spawns_no_worker() {
+        let command = AsyncRelayCommand::noop();
+
+        let (result, workers) = worker_spawns::counted(|| command.execute_and_join());
+
+        assert_eq!(result.unwrap(), Ok(()));
+        assert_eq!(workers, 0);
+    }
+
+    #[test]
+    fn rejected_awaited_execution_still_returns_a_completed_handle() {
+        let command = AsyncRelayCommand::noop();
+
+        let (handle, workers) = worker_spawns::counted(|| command.execute_async());
+
+        assert_eq!(handle.join().unwrap(), Ok(()));
+        assert_eq!(workers, 1, "JoinHandle can only come from a spawned thread");
+    }
+}
+
+#[cfg(test)]
+mod cancellation_listener_tests {
+    use super::CancellationToken;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    type Listener = Arc<dyn Fn() + Send + Sync>;
+
+    fn counting_listener() -> (Arc<AtomicUsize>, Listener) {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let counted = calls.clone();
+        (
+            calls,
+            Arc::new(move || {
+                counted.fetch_add(1, Ordering::SeqCst);
+            }),
+        )
+    }
+
+    #[test]
+    fn a_listener_runs_once_when_the_token_is_cancelled() {
+        let token = CancellationToken::new();
+        let (calls, listener) = counting_listener();
+        let _registration = token.on_cancel(listener).expect("registered");
+
+        token.clone().cancel();
+        token.cancel();
+
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn an_already_cancelled_token_keeps_no_listener() {
+        let token = CancellationToken::new();
+        token.cancel();
+        let (calls, listener) = counting_listener();
+
+        assert!(token.on_cancel(listener.clone()).is_none());
+
+        assert_eq!(Arc::strong_count(&listener), 1);
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn dropping_the_registration_removes_the_listener() {
+        let token = CancellationToken::new();
+        let (calls, listener) = counting_listener();
+
+        drop(token.on_cancel(listener.clone()));
+        token.cancel();
+
+        assert_eq!(Arc::strong_count(&listener), 1);
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn a_panicking_listener_does_not_stop_the_others() {
+        let token = CancellationToken::new();
+        let _panicking = token.on_cancel(Arc::new(|| panic!("listener failed")));
+        let (calls, listener) = counting_listener();
+        let _counting = token.on_cancel(listener);
+
+        token.cancel();
+
+        assert!(token.is_cancelled());
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 }

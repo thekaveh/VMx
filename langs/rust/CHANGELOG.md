@@ -28,6 +28,17 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- `AsyncRelayCommand::execute()` starts no worker thread for a rejected call:
+  no action, an execution already running, a false predicate, or a disposed
+  command. `execute_async()` still returns `JoinHandle<VmxResult<()>>`; for a
+  rejected call that handle comes from a short-lived thread and completes with
+  `Ok(())`. `TokenPagedComposition::refresh()` and `load_next()` start no
+  thread when their command rejects the call (ADR-0140, #356).
+- An awaited `AsyncResourceVm` load blocks until its loader reports or the load
+  is cancelled, superseded, or disposed, instead of polling every millisecond.
+  Cancellation still completes the load at once while an uncooperative loader
+  keeps running, and the loader's late value is still cleaned once
+  (ADR-0140, #356).
 - An approval callback registered after `FormVm::dispose()` is dropped at once
   instead of being retained, and a callback detached during an approval before
   its turn does not receive it (ADR-0139, #357).
