@@ -93,7 +93,8 @@ fn on_approved_fires_after_success_only() {
     let approved = Arc::new(Mutex::new(Vec::new()));
     let approved_inner = approved.clone();
     let form = FormVm::with_options("form", 1, |_| Ok(()), false, MessageHub::new());
-    form.on_approved(move |model| approved_inner.lock().unwrap().push(model));
+    let _approved =
+        form.subscribe_approved(move |model| approved_inner.lock().unwrap().push(model));
     form.set_model(2);
 
     form.approve().unwrap();
@@ -341,9 +342,14 @@ fn approved_callbacks_may_register_callbacks_reentrantly() {
     let form = FormVm::new("form", 1);
     let holder = Arc::new(Mutex::new(Some(form.clone())));
     let reentrant_holder = Arc::clone(&holder);
-    form.on_approved(move |_| {
+    let registered = Arc::new(Mutex::new(Vec::new()));
+    let reentrant_registered = Arc::clone(&registered);
+    let _registrar = form.subscribe_approved(move |_| {
         let form = reentrant_holder.lock().unwrap().clone().unwrap();
-        form.on_approved(|_| {});
+        reentrant_registered
+            .lock()
+            .unwrap()
+            .push(form.subscribe_approved(|_| {}));
     });
     form.set_model(2);
     let (completed, completion) = mpsc::channel();
@@ -615,7 +621,7 @@ fn reset_runs_after_persist_and_approved_uses_captured_model() {
         .unwrap();
     let approved_order = order.clone();
     let observed_form = form.clone();
-    form.on_approved(move |model| {
+    let _approved = form.subscribe_approved(move |model| {
         assert_eq!(observed_form.model(), "reset");
         assert_eq!(observed_form.snapshot(), "reset");
         assert!(!observed_form.is_dirty());
@@ -655,7 +661,7 @@ fn reset_error_observer_mutation_runs_after_pristine_approval() {
     let observed = Arc::new(Mutex::new(Vec::new()));
     let observed_inner = Arc::clone(&observed);
     let approval_form = form.clone();
-    form.on_approved(move |approved| {
+    let _approved = form.subscribe_approved(move |approved| {
         observed_inner.lock().unwrap().push((
             approved,
             approval_form.model(),

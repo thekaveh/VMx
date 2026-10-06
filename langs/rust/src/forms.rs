@@ -1,7 +1,7 @@
 use super::{
-    lock, Arc, BTreeMap, ComponentVm, FormRevertedMessage, Message, MessageHub, Mutex,
-    NullDispatcher, NullMessageHub, OnceLock, RelayCommand, RelayCommandBuilder, VmxError,
-    VmxResult,
+    lock, Arc, AtomicBool, BTreeMap, ComponentVm, FormRevertedMessage, Message, MessageHub, Mutex,
+    NullDispatcher, NullMessageHub, OnceLock, Ordering, RelayCommand, RelayCommandBuilder,
+    VmxError, VmxResult, Weak,
 };
 
 type FormPersister<M> = Arc<dyn Fn(&M) -> VmxResult<()> + Send + Sync>;
@@ -10,6 +10,107 @@ type FormResetOnApproved<M> = Arc<dyn Fn(&M) -> VmxResult<M> + Send + Sync>;
 type FieldValidator<M> = Arc<dyn Fn(&M) -> Option<String> + Send + Sync>;
 type ModelValidator<M> = Arc<dyn Fn(&M) -> BTreeMap<String, Option<String>> + Send + Sync>;
 type ApprovedCallback<M> = Arc<dyn Fn(M) + Send + Sync>;
+
+/// Approval callbacks keyed by registration, so one can detach without
+/// disturbing the others. Disposal sets `closed` under the same lock, so a
+/// registration racing disposal is rejected instead of retained.
+struct ApprovedRegistry<M> {
+    next_id: u64,
+    entries: Vec<(u64, ApprovedCallback<M>)>,
+    closed: bool,
+}
+
+impl<M> ApprovedRegistry<M> {
+    fn new() -> Self {
+        Self {
+            next_id: 0,
+            entries: Vec::new(),
+            closed: false,
+        }
+    }
+
+    fn register(&mut self, callback: ApprovedCallback<M>) -> Result<u64, ApprovedCallback<M>> {
+        if self.closed {
+            return Err(callback);
+        }
+        let id = self.next_id;
+        self.next_id += 1;
+        self.entries.push((id, callback));
+        Ok(id)
+    }
+
+    fn is_registered(&self, id: u64) -> bool {
+        self.entries.iter().any(|(entry, _)| *entry == id)
+    }
+
+    fn remove(&mut self, id: u64) -> Option<ApprovedCallback<M>> {
+        let index = self.entries.iter().position(|(entry, _)| *entry == id)?;
+        Some(self.entries.remove(index).1)
+    }
+}
+
+/// A detachable registration made by [`FormVm::subscribe_approved`].
+///
+/// [`dispose`](Self::dispose) or dropping the handle removes only this
+/// registration and releases the callback and its captures, unless an
+/// approval is invoking it at that moment. Repeated disposal is inert. A
+/// registration made after the form is disposed is inactive from the start.
+pub struct ApprovalSubscription {
+    active: AtomicBool,
+    registered: Box<dyn Fn() -> bool + Send + Sync>,
+    detach: Box<dyn Fn() + Send + Sync>,
+}
+
+impl ApprovalSubscription {
+    fn new<M: Send + 'static>(id: u64, registry: Weak<Mutex<ApprovedRegistry<M>>>) -> Self {
+        let observed = registry.clone();
+        Self {
+            active: AtomicBool::new(true),
+            registered: Box::new(move || {
+                observed
+                    .upgrade()
+                    .is_some_and(|registry| lock(&registry).is_registered(id))
+            }),
+            detach: Box::new(move || {
+                if let Some(registry) = registry.upgrade() {
+                    // Drop the callback after releasing the lock: its
+                    // captures may run code that touches the form.
+                    let removed = lock(&registry).remove(id);
+                    drop(removed);
+                }
+            }),
+        }
+    }
+
+    fn inactive() -> Self {
+        Self {
+            active: AtomicBool::new(false),
+            registered: Box::new(|| false),
+            detach: Box::new(|| {}),
+        }
+    }
+
+    /// Reports whether this registration still receives approvals.
+    ///
+    /// Becomes `false` after [`dispose`](Self::dispose) or when the form is
+    /// disposed.
+    pub fn is_active(&self) -> bool {
+        self.active.load(Ordering::SeqCst) && (self.registered)()
+    }
+
+    /// Detaches the callback; repeated calls are inert.
+    pub fn dispose(&self) {
+        if self.active.swap(false, Ordering::SeqCst) {
+            (self.detach)();
+        }
+    }
+}
+
+impl Drop for ApprovalSubscription {
+    fn drop(&mut self) {
+        self.dispose();
+    }
+}
 
 fn error_updates(errors: BTreeMap<String, String>) -> BTreeMap<String, Option<String>> {
     errors
@@ -57,7 +158,7 @@ pub struct FormVm<M: Clone + PartialEq + Send + 'static> {
     approve_can_execute_changed: MessageHub,
     approve_command: Arc<OnceLock<RelayCommand>>,
     deny_command: Arc<OnceLock<RelayCommand>>,
-    approved_callbacks: Arc<Mutex<Vec<ApprovedCallback<M>>>>,
+    approved_callbacks: Arc<Mutex<ApprovedRegistry<M>>>,
     approval_publication: Arc<Mutex<ApprovalPublication<M>>>,
     disposed: Arc<Mutex<bool>>,
     hub: MessageHub,
@@ -102,7 +203,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             approve_can_execute_changed: MessageHub::new(),
             approve_command: Arc::new(OnceLock::new()),
             deny_command: Arc::new(OnceLock::new()),
-            approved_callbacks: Arc::new(Mutex::new(Vec::new())),
+            approved_callbacks: Arc::new(Mutex::new(ApprovedRegistry::new())),
             approval_publication: Arc::new(Mutex::new(ApprovalPublication {
                 pre_publishing: false,
                 deferred_models: Vec::new(),
@@ -279,8 +380,13 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             }
             self.publish_approve_state_change(could_approve);
         }
-        let callbacks = lock(&self.approved_callbacks).clone();
-        for callback in callbacks {
+        let callbacks = lock(&self.approved_callbacks).entries.clone();
+        for (id, callback) in callbacks {
+            // A callback detached, or a form disposed, during this emission
+            // before the callback's turn does not receive it (ADR-0139).
+            if !lock(&self.approved_callbacks).is_registered(id) {
+                continue;
+            }
             callback(model.clone());
         }
         let deferred_models = {
@@ -365,11 +471,94 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     }
 
     /// Registers a callback invoked with each successfully persisted model.
+    ///
+    /// The registration lasts until the form is disposed and cannot be
+    /// detached; a registration made after disposal is dropped at once.
+    /// Prefer [`subscribe_approved`](Self::subscribe_approved), which returns
+    /// a handle that detaches the callback.
+    ///
+    /// Existing call sites keep compiling and keep their registration:
+    ///
+    /// ```
+    /// # #![allow(deprecated)]
+    /// use std::sync::atomic::{AtomicUsize, Ordering};
+    /// use std::sync::Arc;
+    /// use vmx::FormVm;
+    ///
+    /// let form = FormVm::new("profile", 1);
+    /// let approvals = Arc::new(AtomicUsize::new(0));
+    /// let counted = approvals.clone();
+    /// form.on_approved(move |_| {
+    ///     counted.fetch_add(1, Ordering::SeqCst);
+    /// });
+    ///
+    /// form.set_model(2);
+    /// form.approve().unwrap();
+    ///
+    /// assert_eq!(approvals.load(Ordering::SeqCst), 1);
+    /// ```
+    #[deprecated(
+        since = "0.31.0",
+        note = "cannot be detached before the form is disposed; use `subscribe_approved()`"
+    )]
     pub fn on_approved<F>(&self, callback: F)
     where
         F: Fn(M) + Send + Sync + 'static,
     {
-        lock(&self.approved_callbacks).push(Arc::new(callback));
+        let rejected = lock(&self.approved_callbacks).register(Arc::new(callback));
+        drop(rejected);
+    }
+
+    /// Subscribes to each successfully persisted model and returns a handle
+    /// that detaches the callback.
+    ///
+    /// Callbacks run in registration order, after the approval state is
+    /// published. A callback registered during an approval starts with the
+    /// next one, and a callback detached during an approval before its turn
+    /// does not receive it. Later subscribers do not receive earlier
+    /// approvals. After [`dispose`](Self::dispose) the form keeps no
+    /// callback, and a subscription made then is inactive and releases its
+    /// captures at once.
+    ///
+    /// Keep the returned handle for as long as the callback should run:
+    /// dropping it detaches the callback.
+    ///
+    /// ```
+    /// use std::sync::{Arc, Mutex};
+    /// use vmx::FormVm;
+    ///
+    /// let form = FormVm::new("profile", 1);
+    /// let saved = Arc::new(Mutex::new(Vec::new()));
+    /// let subscription = {
+    ///     let saved = saved.clone();
+    ///     form.subscribe_approved(move |model| saved.lock().unwrap().push(model))
+    /// };
+    ///
+    /// form.set_model(2);
+    /// form.approve().unwrap();
+    /// subscription.dispose(); // or drop it when the view closes
+    /// form.set_model(3);
+    /// form.approve().unwrap();
+    ///
+    /// assert_eq!(*saved.lock().unwrap(), vec![2]);
+    ///
+    /// // A handle that is not kept detaches at once.
+    /// drop(form.subscribe_approved(|_| unreachable!("detached")));
+    /// form.set_model(4);
+    /// form.approve().unwrap();
+    /// ```
+    pub fn subscribe_approved<F>(&self, callback: F) -> ApprovalSubscription
+    where
+        F: Fn(M) + Send + Sync + 'static,
+    {
+        let registered = lock(&self.approved_callbacks).register(Arc::new(callback));
+        match registered {
+            Ok(id) => ApprovalSubscription::new(id, Arc::downgrade(&self.approved_callbacks)),
+            Err(rejected) => {
+                drop(rejected);
+                ApprovalSubscription::inactive()
+            }
+        }
     }
 
     /// Disposes commands and notification hubs and makes later mutations inert.
@@ -396,7 +585,12 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         self.approve_can_execute_changed.dispose();
         self.errors_changed.dispose();
         self.approve_errors.dispose();
-        lock(&self.approved_callbacks).clear();
+        let released = {
+            let mut registry = lock(&self.approved_callbacks);
+            registry.closed = true;
+            std::mem::take(&mut registry.entries)
+        };
+        drop(released);
         lock(&self.field_validators).clear();
         lock(&self.model_validators).clear();
         let _ = self.component.dispose();
@@ -625,7 +819,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVmBuilder<M> {
             approve_can_execute_changed: MessageHub::new(),
             approve_command: Arc::new(OnceLock::new()),
             deny_command: Arc::new(OnceLock::new()),
-            approved_callbacks: Arc::new(Mutex::new(Vec::new())),
+            approved_callbacks: Arc::new(Mutex::new(ApprovedRegistry::new())),
             approval_publication: Arc::new(Mutex::new(ApprovalPublication {
                 pre_publishing: false,
                 deferred_models: Vec::new(),

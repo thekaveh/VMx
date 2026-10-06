@@ -10,6 +10,10 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `FormVm::subscribe_approved` returns an `ApprovalSubscription`. Disposing or
+  dropping it detaches that approval callback and releases its captures before
+  the form is disposed, and `is_active()` reports whether it still receives
+  approvals (ADR-0139, #357).
 - `AsyncValuePanic`, with `AsyncValue::wait_result()` and
   `AsyncValue::try_result()`, reports the panic of the `map` or `and_then`
   callback that produced a handle (ADR-0138, #339).
@@ -24,6 +28,9 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- An approval callback registered after `FormVm::dispose()` is dropped at once
+  instead of being retained, and a callback detached during an approval before
+  its turn does not receive it (ADR-0139, #357).
 - A panicking `AsyncValue::map` or `and_then` callback now settles the returned
   handle as panicked instead of leaving it pending forever. The panic propagates
   through compositions, every waker and other continuation still runs, `wait()`
@@ -34,6 +41,8 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Deprecated
 
+- `FormVm::on_approved`, which cannot be detached before the form is disposed;
+  use `subscribe_approved()` (#357).
 - `AsyncRelayCommand::errors()` and `ConfirmationDecoratorCommand::errors()`,
   whose `Message::Custom { name: "error" }` marker carries no cause. They still
   announce every failure; use `error_stream()` (#330).

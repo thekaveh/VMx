@@ -99,7 +99,7 @@ pub use dialogs::{
     DialogService, FileFilter, Localizer, NotificationSeverity, NullDialogService, NullLocalizer,
 };
 mod forms;
-pub use forms::{FormVm, FormVmBuilder};
+pub use forms::{ApprovalSubscription, FormVm, FormVmBuilder};
 
 mod discriminator;
 pub use discriminator::DiscriminatorVm;

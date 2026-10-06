@@ -66,6 +66,7 @@ tests/conformance/expandable.rs
 tests/conformance/expandable_support.rs
 tests/conformance/filtered_composite.rs
 tests/conformance/form_model_hub_publication.rs
+tests/conformance/form_approval_subscription.rs
 tests/conformance/forms.rs
 tests/conformance/forwarding.rs
 tests/conformance/group_vm.rs
