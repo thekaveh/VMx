@@ -1293,16 +1293,26 @@ impl<C: Command + Clone + 'static> ConfirmationDecoratorCommand<C> {
         };
         let command = self.clone();
         let (execution, completion) = ConfirmationExecution::pending();
-        let _continuation = decision.map(move |confirmed| {
-            let outcome = if confirmed && !command.disposed.load(Ordering::SeqCst) {
-                match catch_unwind(AssertUnwindSafe(|| command.inner.execute())) {
-                    Ok(()) => ConfirmationExecutionOutcome::Completed,
-                    Err(payload) => ConfirmationExecutionOutcome::Panicked(Arc::new(
-                        ConfirmationPanicPayload::new(payload),
-                    )),
+        decision.when_settled(move |decision| {
+            let outcome = match decision {
+                Ok(true) if !command.disposed.load(Ordering::SeqCst) => {
+                    match catch_unwind(AssertUnwindSafe(|| command.inner.execute())) {
+                        Ok(()) => ConfirmationExecutionOutcome::Completed,
+                        Err(payload) => ConfirmationExecutionOutcome::Panicked(Arc::new(
+                            ConfirmationPanicPayload::new(payload),
+                        )),
+                    }
                 }
-            } else {
-                ConfirmationExecutionOutcome::Completed
+                Ok(_) => ConfirmationExecutionOutcome::Completed,
+                // A confirmation produced by a panicking `map`/`and_then`
+                // ends the execution with that panic (ADR-0138).
+                Err(panic) => {
+                    ConfirmationExecutionOutcome::Panicked(Arc::new(ConfirmationPanicPayload::new(
+                        panic
+                            .take_payload()
+                            .unwrap_or_else(|| Box::new(panic.message().to_string())),
+                    )))
+                }
             };
             completion.resolve(outcome);
         });
@@ -1357,12 +1367,14 @@ impl<C: Command + Clone + 'static> Command for ConfirmationDecoratorCommand<C> {
                 return;
             }
         };
-        if let Some(confirmed) = decision.try_get() {
-            self.execute_after(confirmed);
-        } else {
-            let command = self.clone();
-            let _continuation = decision.map(move |confirmed| command.execute_after(confirmed));
-        }
+        let command = self.clone();
+        decision.when_settled(move |decision| match decision {
+            Ok(confirmed) => command.execute_after(confirmed),
+            Err(panic) => command.publish_error(VmxError::Other(format!(
+                "command panicked: {}",
+                panic.message()
+            ))),
+        });
     }
 
     fn can_execute_changed(&self) -> MessageHub {
