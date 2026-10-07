@@ -60,6 +60,13 @@ resource state; a stale or late successful return retains only its own cleanup
 obligation and cannot publish. See the [disposal contract](disposal-contract.md)
 for the complete release rules.
 
+In Rust, each load runs its loader on a worker thread while the `load_async`
+thread or the command worker waits for it. The waiting thread blocks until the
+loader reports or the load is cancelled, superseded, or disposed; it does not
+poll. A loader that ignores its token keeps running on its own worker, but the
+awaited load completes as soon as cancellation arrives, and the loader's late
+value is cleaned once (ADR-0140).
+
 In Python, every operation records the asyncio loop that created its task and
 cancellation future. Cancellation and disposal invalidate resource state
 synchronously, then perform native signals and late-result registration on that

@@ -22,23 +22,25 @@ fn expandable_state_supports_initially_expanded_construction() {
 #[test]
 fn expand_flips_state_and_emits_once() {
     let state = ExpandableState::new();
+    let state_expanded_changed_record = state.expanded_changed().record(1024);
 
     state.expand();
     state.expand();
 
     assert!(state.is_expanded());
-    assert_eq!(state.expanded_changed().history().len(), 1);
+    assert_eq!(state_expanded_changed_record.messages().len(), 1);
 }
 
 /// EXP-003 — Collapse flips state back
 #[test]
 fn collapse_flips_state_back() {
     let state = ExpandableState::new();
+    let state_expanded_changed_record = state.expanded_changed().record(1024);
     state.expand();
     state.collapse();
 
     assert!(!state.is_expanded());
-    assert_eq!(state.expanded_changed().history().len(), 2);
+    assert_eq!(state_expanded_changed_record.messages().len(), 2);
 }
 
 /// EXP-004 — ToggleExpansion alternates state
@@ -57,6 +59,7 @@ fn toggle_expansion_alternates_state() {
 fn expandable_state_dispose_is_idempotent_and_makes_changes_inert() {
     let state = ExpandableState::new_expanded();
     let changes = state.expanded_changed();
+    let recorder = changes.record(1024);
 
     state.dispose();
     state.dispose();
@@ -68,7 +71,7 @@ fn expandable_state_dispose_is_idempotent_and_makes_changes_inert() {
     });
 
     assert!(state.is_expanded());
-    assert!(changes.history().is_empty());
+    assert!(recorder.messages().is_empty());
 }
 
 /// EXP-005 — walk_expanded skips descendants of collapsed nodes

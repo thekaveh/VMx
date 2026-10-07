@@ -16,12 +16,21 @@ Rust is the fifth VMx source flavor. It lives under `langs/rust/` as the
 - Conformance: all 407 library IDs are covered by behavioral Rust tests
 - Hub concurrency: ordinary producers retain synchronous calling-thread
   delivery while nested cross-hub callbacks enqueue without a wait cycle
+- Hub retention: a `MessageHub` keeps no delivered message.
+  `record(capacity)` returns a bounded `MessageRecorder` for tests and
+  diagnostics, and the deprecated `history()` is always empty (ADR-0141)
 - Property notifications: `notify_property_changed` publishes to the hub and
   then the per-instance `property_changed` stream
 - Hint surfaces: `hint()` is immutable fixed metadata; `modeled_hint()` is
   recomputed from the model and publishes `modeled_hint` changes
 - Async commands: `AsyncRelayCommand::builder()` owns its task, predicate,
   additive triggers, cancellation mode, and fire-and-forget error stream
+- Worker threads: an admitted `AsyncRelayCommand` execution runs on one worker
+  thread, and a rejected `execute()` starts none. A rejected `execute_async()`
+  still returns a `JoinHandle` that completes with `Ok(())` from a short-lived
+  thread. An `AsyncResourceVm` load runs its loader on its own worker; the
+  thread awaiting the load blocks until the loader reports or the load is
+  cancelled, without polling (ADR-0140)
 - Completion handles: `AsyncValue<T>` is an executor-neutral `Future` with a
   blocking `wait()`. When a `map` or `and_then` callback panics, the handle it
   returns settles as panicked: `wait()` and `.await` re-raise the panic and

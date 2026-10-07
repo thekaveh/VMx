@@ -146,6 +146,7 @@ fn property_changed_can_be_observed_on_foreground_dispatcher() {
 #[test]
 fn construct_completion_can_be_scheduled() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let dispatcher = ManualDispatcher::new();
     let vm = ComponentVm::builder()
         .name("vm")
@@ -173,7 +174,8 @@ fn construct_completion_can_be_scheduled() {
     dispatcher.drain_foreground();
     assert_eq!(vm.status(), ConstructionStatus::Constructed);
     assert_eq!(
-        hub.history()
+        recorder
+            .messages()
             .iter()
             .filter(|message| matches!(message, Message::ConstructionStatusChanged(_)))
             .count(),
@@ -209,6 +211,7 @@ fn queued_background_construct_cannot_resurrect_a_disposed_component() {
 #[test]
 fn completed_background_hook_cannot_publish_after_foreground_disposal() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let dispatcher = ManualDispatcher::new();
     let vm = ComponentVm::builder()
         .name("vm")
@@ -225,8 +228,8 @@ fn completed_background_hook_cannot_publish_after_foreground_disposal() {
     dispatcher.drain_foreground();
 
     assert_eq!(vm.status(), ConstructionStatus::Disposed);
-    let statuses = hub
-        .history()
+    let statuses = recorder
+        .messages()
         .iter()
         .filter_map(|message| match message {
             Message::ConstructionStatusChanged(change) => Some(change.status),
@@ -245,6 +248,7 @@ fn completed_background_hook_cannot_publish_after_foreground_disposal() {
 #[test]
 fn background_hook_failure_rolls_back_and_publishes_on_foreground() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let dispatcher = ManualDispatcher::new();
     let vm = ComponentVm::builder()
         .name("vm")
@@ -270,8 +274,8 @@ fn background_hook_failure_rolls_back_and_publishes_on_foreground() {
     dispatcher.drain_foreground();
     assert_eq!(vm.status(), ConstructionStatus::Destructed);
     assert_eq!(error_receive.try_recv().unwrap(), expected_error);
-    let statuses = hub
-        .history()
+    let statuses = recorder
+        .messages()
         .iter()
         .filter_map(|message| match message {
             Message::ConstructionStatusChanged(change) => Some(change.status),
@@ -318,6 +322,7 @@ fn background_hook_panic_rolls_back_instead_of_wedging_lifecycle() {
 #[test]
 fn background_option_keeps_reconstruct_synchronous_and_atomic() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let dispatcher = ManualDispatcher::new();
     let vm = ComponentVm::builder()
         .name("vm")
@@ -348,8 +353,8 @@ fn background_option_keeps_reconstruct_synchronous_and_atomic() {
         *hooks.lock().unwrap(),
         vec!["construct", "destruct", "construct"]
     );
-    let statuses = hub
-        .history()
+    let statuses = recorder
+        .messages()
         .iter()
         .filter_map(|message| match message {
             Message::ConstructionStatusChanged(change) => Some(change.status),

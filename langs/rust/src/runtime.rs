@@ -90,6 +90,42 @@ pub(crate) fn wait<'a, T>(condition: &Condvar, guard: MutexGuard<'a, T>) -> Mute
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+/// Spawns a VMx-owned worker thread.
+///
+/// Library workers go through this helper so unit tests can count, on the
+/// spawning thread, how many workers an operation started.
+pub(crate) fn spawn_worker<F, T>(work: F) -> thread::JoinHandle<T>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    #[cfg(test)]
+    worker_spawns::record();
+    thread::spawn(work)
+}
+
+// Unit-test instrumentation only: counts the workers the current thread spawns.
+#[cfg(test)]
+pub(crate) mod worker_spawns {
+    use super::Cell;
+
+    thread_local! {
+        static SPAWNED: Cell<usize> = const { Cell::new(0) };
+    }
+
+    pub(super) fn record() {
+        SPAWNED.with(|spawned| spawned.set(spawned.get() + 1));
+    }
+
+    /// Runs `work` and returns its result with the number of workers this
+    /// thread spawned meanwhile.
+    pub(crate) fn counted<R>(work: impl FnOnce() -> R) -> (R, usize) {
+        let before = SPAWNED.with(Cell::get);
+        let result = work();
+        (result, SPAWNED.with(Cell::get) - before)
+    }
+}
+
 pub(crate) fn evaluate_command_predicate(predicate: impl FnOnce() -> bool) -> bool {
     catch_unwind(AssertUnwindSafe(predicate)).unwrap_or(false)
 }
@@ -515,8 +551,10 @@ type MessageHubCompletion = Arc<dyn Fn() + Send + Sync + 'static>;
 #[derive(Clone, Default)]
 /// A hot synchronous message stream with FIFO, batching, and resilient delivery.
 ///
-/// Sends update history before delivery. Re-entrant sends join the active FIFO
-/// drain, subscriber panics are isolated, and disposal makes the hub inert.
+/// Re-entrant sends join the active FIFO drain, subscriber panics are
+/// isolated, and disposal makes the hub inert. A hub retains no message after
+/// delivering it; attach a bounded [`MessageRecorder`] with
+/// [`record`](Self::record) to keep accepted messages (ADR-0141).
 pub struct MessageHub {
     inner: Arc<MessageHubShared>,
 }
@@ -532,7 +570,7 @@ struct MessageHubInner {
     next_subscription_id: usize,
     subscribers: BTreeMap<usize, Subscriber>,
     completion_subscribers: BTreeMap<usize, MessageHubCompletion>,
-    history: Vec<Message>,
+    recorders: BTreeMap<usize, Weak<Mutex<RecorderState>>>,
     pending: VecDeque<Message>,
     batch_owner: Option<ThreadId>,
     batch_depth: usize,
@@ -577,9 +615,86 @@ impl<T> SubscribeValueOptions<T> {
 }
 
 impl MessageHub {
-    /// Creates an active hub with no subscribers or history.
+    /// Creates an active hub with no subscribers or recorders.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Starts recording the messages this hub accepts, keeping the newest
+    /// `capacity` of them.
+    ///
+    /// A message is recorded when the hub accepts it, before delivery, so a
+    /// recorder holds messages in acceptance order: messages queued in a
+    /// [`batch`](Self::batch) and re-entrant sends accepted during delivery
+    /// appear in the order the hub will deliver them. Recording runs no
+    /// callback and cannot change delivery. When the recorder is full, the
+    /// oldest message is evicted and counted by
+    /// [`dropped`](MessageRecorder::dropped). A recorder made on a disposed hub
+    /// is inactive and records nothing.
+    ///
+    /// ```
+    /// use vmx::{Message, MessageHub};
+    ///
+    /// let hub = MessageHub::new();
+    /// let recorder = hub.record(2);
+    /// for name in ["first", "second", "third"] {
+    ///     hub.send(Message::Custom {
+    ///         sender_id: 1,
+    ///         sender_name: "demo".into(),
+    ///         name: name.into(),
+    ///     });
+    /// }
+    ///
+    /// let names: Vec<String> = recorder
+    ///     .messages()
+    ///     .into_iter()
+    ///     .map(|message| match message {
+    ///         Message::Custom { name, .. } => name,
+    ///         _ => unreachable!(),
+    ///     })
+    ///     .collect();
+    /// assert_eq!(names, ["second", "third"]);
+    /// assert_eq!(recorder.dropped(), 1);
+    /// ```
+    pub fn record(&self, capacity: usize) -> MessageRecorder {
+        let state = Arc::new(Mutex::new(RecorderState {
+            capacity,
+            messages: VecDeque::new(),
+            dropped: 0,
+            active: false,
+        }));
+        let mut inner = lock(&self.inner.state);
+        if inner.disposed || inner.dispose_requested {
+            return MessageRecorder {
+                id: 0,
+                state,
+                hub: Weak::new(),
+            };
+        }
+        inner.next_subscription_id += 1;
+        let id = inner.next_subscription_id;
+        lock(&state).active = true;
+        inner.recorders.insert(id, Arc::downgrade(&state));
+        MessageRecorder {
+            id,
+            state,
+            hub: Arc::downgrade(&self.inner),
+        }
+    }
+
+    fn accept(inner: &mut MessageHubInner, message: Message) {
+        if !inner.recorders.is_empty() {
+            inner
+                .recorders
+                .retain(|_, recorder| match recorder.upgrade() {
+                    Some(recorder) => {
+                        lock(&recorder).push(&message);
+                        true
+                    }
+                    None => false,
+                });
+        }
+        inner.pending.push_back(message);
     }
 
     pub(crate) fn is_delivering_from(&self, sender_id: usize) -> bool {
@@ -701,8 +816,7 @@ impl MessageHub {
         if inner.disposed || inner.dispose_requested {
             return;
         }
-        inner.history.push(message.clone());
-        inner.pending.push_back(message);
+        Self::accept(&mut inner, message);
         if inner.batch_owner.is_some()
             || inner.borrowed_batch_depth > 0
             || inner.draining_owner.is_some()
@@ -746,8 +860,7 @@ impl MessageHub {
 
         let (result, message) = prepare();
         if let Some(message) = message.filter(|_| !inner.disposed && !inner.dispose_requested) {
-            inner.history.push(message.clone());
-            inner.pending.push_back(message);
+            Self::accept(&mut inner, message);
         }
         let should_drain = !inner.pending.is_empty()
             && inner.batch_owner.is_none()
@@ -854,6 +967,11 @@ impl MessageHub {
     fn finish_dispose(inner: &mut MessageHubInner) -> Vec<MessageHubCompletion> {
         inner.subscribers.clear();
         inner.pending.clear();
+        for recorder in std::mem::take(&mut inner.recorders).into_values() {
+            if let Some(recorder) = recorder.upgrade() {
+                lock(&recorder).active = false;
+            }
+        }
         inner.dispose_requested = false;
         inner.disposed = true;
         std::mem::take(&mut inner.completion_subscribers)
@@ -931,9 +1049,16 @@ impl MessageHub {
         }
     }
 
-    /// Returns a snapshot of every accepted message.
+    /// Returns an empty list: a hub no longer retains accepted messages.
+    ///
+    /// Attach a [`MessageRecorder`] with [`record`](Self::record) before the
+    /// sends to observe, and read [`MessageRecorder::messages`] (ADR-0141).
+    #[deprecated(
+        since = "0.31.0",
+        note = "a hub no longer retains messages, so this is always empty; record with `record(capacity)`"
+    )]
     pub fn history(&self) -> Vec<Message> {
-        lock(&self.inner.state).history.clone()
+        Vec::new()
     }
 
     /// Removes subscribers and pending messages and makes future sends inert.
@@ -990,6 +1115,114 @@ impl MessageHub {
         let hub = Self::new();
         hub.dispose();
         hub
+    }
+}
+
+struct RecorderState {
+    capacity: usize,
+    messages: VecDeque<Message>,
+    dropped: u64,
+    active: bool,
+}
+
+impl RecorderState {
+    fn push(&mut self, message: &Message) {
+        if !self.active {
+            return;
+        }
+        if self.capacity == 0 {
+            self.dropped += 1;
+            return;
+        }
+        if self.messages.len() == self.capacity {
+            self.messages.pop_front();
+            self.dropped += 1;
+        }
+        self.messages.push_back(message.clone());
+    }
+}
+
+/// A bounded record of the messages a [`MessageHub`] accepts, made by
+/// [`MessageHub::record`].
+///
+/// The recorder owns its messages, and the hub refers to it only weakly, so a
+/// recorder never keeps its hub alive and dropping it frees what it recorded.
+/// Dropping the recorder or calling [`dispose`](Self::dispose) stops
+/// recording. When the hub is disposed, the recorder keeps the messages it
+/// already recorded and records nothing more.
+pub struct MessageRecorder {
+    id: usize,
+    state: Arc<Mutex<RecorderState>>,
+    hub: Weak<MessageHubShared>,
+}
+
+impl MessageRecorder {
+    /// Returns the retained messages, oldest first.
+    pub fn messages(&self) -> Vec<Message> {
+        lock(&self.state).messages.iter().cloned().collect()
+    }
+
+    /// Returns the number of retained messages, at most
+    /// [`capacity`](Self::capacity).
+    pub fn len(&self) -> usize {
+        lock(&self.state).messages.len()
+    }
+
+    /// Reports whether no message is retained.
+    pub fn is_empty(&self) -> bool {
+        lock(&self.state).messages.is_empty()
+    }
+
+    /// Returns the maximum number of retained messages.
+    pub fn capacity(&self) -> usize {
+        lock(&self.state).capacity
+    }
+
+    /// Returns how many accepted messages were evicted, or never stored
+    /// because the capacity is zero, while recording.
+    pub fn dropped(&self) -> u64 {
+        lock(&self.state).dropped
+    }
+
+    /// Removes the retained messages. The [`dropped`](Self::dropped) count is
+    /// unchanged, and recording continues.
+    pub fn clear(&self) {
+        lock(&self.state).messages.clear();
+    }
+
+    /// Reports whether the recorder still records accepted messages: it has
+    /// not been disposed, and its hub is alive and not disposed.
+    pub fn is_active(&self) -> bool {
+        lock(&self.state).active && self.hub.strong_count() > 0
+    }
+
+    /// Stops recording and detaches from the hub; repeated calls are inert.
+    /// The retained messages stay readable.
+    pub fn dispose(&self) {
+        lock(&self.state).active = false;
+        if let Some(hub) = self.hub.upgrade() {
+            let removed = lock(&hub.state).recorders.remove(&self.id);
+            drop(removed);
+        }
+    }
+}
+
+impl Drop for MessageRecorder {
+    fn drop(&mut self) {
+        self.dispose();
+    }
+}
+
+impl std::fmt::Debug for MessageRecorder {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let state = lock(&self.state);
+        formatter
+            .debug_struct("MessageRecorder")
+            .field("capacity", &state.capacity)
+            .field("len", &state.messages.len())
+            .field("dropped", &state.dropped)
+            .field("active", &state.active)
+            .finish()
     }
 }
 
@@ -2867,5 +3100,56 @@ pub(crate) mod wait_observation {
         let observed = observe(&first);
         entered(&first);
         assert!(observed.entered.try_recv().is_ok());
+    }
+}
+
+#[cfg(test)]
+mod message_recorder_tests {
+    use super::{lock, Message, MessageHub};
+
+    fn tick() -> Message {
+        Message::Custom {
+            sender_id: 1,
+            sender_name: "test".into(),
+            name: "tick".into(),
+        }
+    }
+
+    #[test]
+    fn a_hub_without_recorders_holds_no_message_after_heavy_traffic() {
+        let hub = MessageHub::new();
+        let _subscription = hub.subscribe(|_| {});
+
+        for _ in 0..100_000 {
+            hub.send(tick());
+        }
+
+        let state = lock(&hub.inner.state);
+        assert!(state.pending.is_empty());
+        assert!(state.recorders.is_empty());
+    }
+
+    #[test]
+    fn dropped_and_disposed_recorders_leave_no_registration() {
+        let hub = MessageHub::new();
+        let disposed = hub.record(4);
+        drop(hub.record(4));
+        disposed.dispose();
+
+        hub.send(tick());
+
+        assert!(lock(&hub.inner.state).recorders.is_empty());
+        assert!(disposed.is_empty());
+    }
+
+    #[test]
+    fn hub_disposal_releases_every_recorder_registration() {
+        let hub = MessageHub::new();
+        let recorder = hub.record(4);
+
+        hub.dispose();
+
+        assert!(lock(&hub.inner.state).recorders.is_empty());
+        assert!(!recorder.is_active());
     }
 }

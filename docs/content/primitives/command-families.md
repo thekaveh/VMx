@@ -70,6 +70,13 @@ older `errors()` hubs carry only an `"error"` marker and are deprecated
 blocking, and fire-and-forget `execute` publishes it on `error_stream()`
 (ADR-0138).
 
+A Rust `AsyncRelayCommand` runs an admitted execution on one worker thread. A
+rejected `execute()` (no action, an execution already running, a false
+predicate, or a disposed command) returns without starting a thread.
+`execute_async()` keeps returning a `JoinHandle`, so a rejected awaited call
+still costs one short-lived thread whose handle completes with `Ok(())`
+(ADR-0140).
+
 ## 6.3.3. Lifecycle And Messaging
 
 Commands become interesting when triggers are involved:

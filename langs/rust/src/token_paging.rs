@@ -465,7 +465,7 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + 'static>
         if self.lifecycle.is_reentrant_context() {
             self.refresh_command.execute();
         } else {
-            let _ = self.refresh_command.execute_async().join();
+            let _ = self.refresh_command.execute_and_join();
         }
     }
 
@@ -513,7 +513,7 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + 'static>
         if self.lifecycle.is_reentrant_context() {
             self.load_more_command.execute();
         } else {
-            let _ = self.load_more_command.execute_async().join();
+            let _ = self.load_more_command.execute_and_join();
         }
     }
 
@@ -790,6 +790,7 @@ mod controlled_interleaving_tests {
     #[test]
     fn token_cross_thread_hub_drainer_allows_reentrant_refresh_and_disposal() {
         let hub = MessageHub::new();
+        let recorder = hub.record(64);
         let observation = hub.observe_owner_wait();
         let trace = Arc::new(Mutex::new(Vec::new()));
         let callback_failures = Arc::new(Mutex::new(Vec::new()));
@@ -905,8 +906,8 @@ mod controlled_interleaving_tests {
             assert_eq!(hub.test_draining_owner(), Some(drainer_id));
             assert_ne!(loading_id, drainer_id);
             assert_eq!(callback_count.load(std::sync::atomic::Ordering::SeqCst), 0);
-            assert!(!hub
-                .history()
+            assert!(!recorder
+                .messages()
                 .iter()
                 .any(|message| matches!(message, Message::CollectionChanged(_))));
             // The foreign drainer exits before this sender enqueues. Its later

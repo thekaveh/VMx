@@ -49,6 +49,7 @@ src/value_stream.rs
 tests/conformance.rs
 tests/conformance/aggregate_change_stream.rs
 tests/conformance/aggregate_vm.rs
+tests/conformance/async_resource_completion.rs
 tests/conformance/async_resource_vm.rs
 tests/conformance/async_value.rs
 tests/conformance/builders.rs
@@ -75,6 +76,7 @@ tests/conformance/hierarchical_batch.rs
 tests/conformance/lifecycle.rs
 tests/conformance/localization.rs
 tests/conformance/message_hub.rs
+tests/conformance/message_recorder.rs
 tests/conformance/modeled_crud.rs
 tests/conformance/notifications.rs
 tests/conformance/null_services.rs

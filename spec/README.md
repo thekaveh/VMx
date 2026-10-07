@@ -640,7 +640,7 @@ See ADR-0136 and chapter 21.
 
 - `VERSION` — current spec SemVer (`3.25.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0139); see
+- `ADRs/` — Architecture Decision Records (0001-0141); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `schemas/` — versioned supporting machine contracts. The consumer
   conformance v1 schema is non-normative; see ADR-0102.

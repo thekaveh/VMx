@@ -124,13 +124,14 @@ fn persist_failure_leaves_state_unchanged() {
 #[test]
 fn revert_publishes_form_reverted_and_model_changed() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let form = FormVm::with_options("form", 1, |_| Ok(()), false, hub.clone());
     form.set_model(2);
-    let start = hub.history().len();
+    let start = recorder.messages().len();
 
     form.revert();
 
-    let history = hub.history();
+    let history = recorder.messages();
     let messages = &history[start..];
     assert_eq!(messages.len(), 2);
     assert!(matches!(
@@ -460,11 +461,12 @@ fn approve_command_surfaces_persister_failure_on_error_channel() {
         false,
         MessageHub::new(),
     );
+    let form_approve_errors_record = form.approve_errors().record(1024);
     form.set_model(2);
 
     form.approve_command().execute();
 
-    assert_eq!(form.approve_errors().history().len(), 1);
+    assert_eq!(form_approve_errors_record.messages().len(), 1);
     assert_eq!(form.snapshot(), 1);
     assert!(form.is_dirty());
 }
@@ -561,15 +563,16 @@ fn validation_reruns_after_model_mutation() {
 #[test]
 fn errors_changed_fires_only_on_effective_changes() {
     let form = FormVm::new("form", 0);
+    let form_errors_changed_record = form.errors_changed().record(1024);
     form.with_field_validator("amount", |model| {
         (*model == 0).then(|| "nonzero".to_string())
     });
-    let initial = form.errors_changed().history().len();
+    let initial = form_errors_changed_record.messages().len();
 
     form.set_model(0);
-    assert_eq!(form.errors_changed().history().len(), initial);
+    assert_eq!(form_errors_changed_record.messages().len(), initial);
     form.set_model(1);
-    assert_eq!(form.errors_changed().history().len(), initial + 1);
+    assert_eq!(form_errors_changed_record.messages().len(), initial + 1);
 }
 
 /// FORM-022 — FormVMBuilder<TM> registers validators immutably
@@ -725,11 +728,13 @@ fn reset_is_snapshotted_twice_and_revalidated() {
         .unwrap();
     *calls.lock().unwrap() = 0;
     let approve_command = form.approve_command();
+    let approve_command_can_execute_changed_record =
+        approve_command.can_execute_changed().record(1024);
     form.set_model(ResetModel {
         value: "saved".into(),
         nested: Arc::new(Mutex::new(vec![])),
     });
-    let notifications_before_approve = approve_command.can_execute_changed().history().len();
+    let notifications_before_approve = approve_command_can_execute_changed_record.messages().len();
 
     form.approve().unwrap();
 
@@ -739,7 +744,7 @@ fn reset_is_snapshotted_twice_and_revalidated() {
     assert!(!form.is_valid());
     assert!(!approve_command.can_execute());
     assert_eq!(
-        approve_command.can_execute_changed().history().len(),
+        approve_command_can_execute_changed_record.messages().len(),
         notifications_before_approve + 1
     );
 }
@@ -758,12 +763,13 @@ fn reset_failure_is_atomic_and_singly_observed() {
         .reset_on_approved(|_| Err(VmxError::Other("reset failed".to_string())))
         .build()
         .unwrap();
+    let direct_approve_errors_record = direct.approve_errors().record(1024);
     direct.set_model("saved".to_string());
     assert!(direct.approve().is_err());
     assert_eq!(*persisted.lock().unwrap(), 1);
     assert_eq!(direct.model(), "saved");
     assert_eq!(direct.snapshot(), "initial");
-    assert!(direct.approve_errors().history().is_empty());
+    assert!(direct_approve_errors_record.messages().is_empty());
 
     let command = FormVm::builder()
         .initial("initial".to_string())
@@ -771,9 +777,10 @@ fn reset_failure_is_atomic_and_singly_observed() {
         .reset_on_approved(|_| Err(VmxError::Other("reset failed".to_string())))
         .build()
         .unwrap();
+    let command_approve_errors_record = command.approve_errors().record(1024);
     command.set_model("saved".to_string());
     command.approve_command().execute();
-    assert_eq!(command.approve_errors().history().len(), 1);
+    assert_eq!(command_approve_errors_record.messages().len(), 1);
 }
 
 /// FORM-027 — Reset is skipped without successful approval
@@ -884,6 +891,8 @@ fn reset_wins_racing_model_mutation() {
         .build()
         .unwrap();
     let approve_command = form.approve_command();
+    let approve_command_can_execute_changed_record =
+        approve_command.can_execute_changed().record(1024);
     form.set_model("saved".to_string());
     let worker_form = form.clone();
     let worker = std::thread::spawn(move || worker_form.approve());
@@ -897,7 +906,10 @@ fn reset_wins_racing_model_mutation() {
     assert_eq!(form.snapshot(), "reset:saved");
     assert!(!form.is_dirty());
     assert!(approve_command.can_execute());
-    assert_eq!(approve_command.can_execute_changed().history().len(), 2);
+    assert_eq!(
+        approve_command_can_execute_changed_record.messages().len(),
+        2
+    );
 }
 
 #[test]
@@ -941,8 +953,8 @@ fn updates(entries: &[(&str, Option<&str>)]) -> BTreeMap<String, Option<String>>
         .collect()
 }
 
-fn approval_changes(form: &FormVm<i32>) -> usize {
-    form.approve_command().can_execute_changed().history().len()
+fn approval_changes(recorder: &vmx::MessageRecorder) -> usize {
+    recorder.len()
 }
 
 fn assert_surfaces(form: &FormVm<i32>, expected: &[(&str, &str)]) {
@@ -966,6 +978,8 @@ fn assert_surfaces(form: &FormVm<i32>, expected: &[(&str, &str)]) {
 #[test]
 fn model_clear_removes_field_error_and_updates_admission_once() {
     let form = FormVm::new("form", 0);
+    let form_errors_changed_record = form.errors_changed().record(1024);
+    let approval_record = form.approve_command().can_execute_changed().record(1024);
     form.with_field_validator("amount", amount_below_ten);
     form.with_clearing_model_validator(|model| {
         if *model == 5 {
@@ -975,14 +989,14 @@ fn model_clear_removes_field_error_and_updates_admission_once() {
         }
     });
     assert_surfaces(&form, &[("amount", "below ten")]);
-    let admission = approval_changes(&form);
-    let events = form.errors_changed().history().len();
+    let admission = approval_changes(&approval_record);
+    let events = form_errors_changed_record.messages().len();
 
     form.set_model(5);
 
     assert_surfaces(&form, &[]);
-    assert_eq!(approval_changes(&form), admission + 1);
-    assert_eq!(form.errors_changed().history().len(), events + 1);
+    assert_eq!(approval_changes(&approval_record), admission + 1);
+    assert_eq!(form_errors_changed_record.messages().len(), events + 1);
 }
 
 #[test]
@@ -1027,16 +1041,18 @@ fn empty_string_model_error_is_an_error() {
 #[test]
 fn clearing_an_unknown_field_is_a_noop() {
     let form = FormVm::new("form", 0);
-    let events = form.errors_changed().history().len();
+    let form_errors_changed_record = form.errors_changed().record(1024);
+    let events = form_errors_changed_record.messages().len();
     form.with_clearing_model_validator(|_| updates(&[("missing", None)]));
 
     assert_surfaces(&form, &[]);
-    assert_eq!(form.errors_changed().history().len(), events);
+    assert_eq!(form_errors_changed_record.messages().len(), events);
 }
 
 #[test]
 fn repeated_identical_effective_errors_emit_once() {
     let form = FormVm::new("form", 20);
+    let form_errors_changed_record = form.errors_changed().record(1024);
     form.with_field_validator("amount", amount_below_ten);
     form.with_clearing_model_validator(|model| {
         if *model == 5 {
@@ -1045,13 +1061,13 @@ fn repeated_identical_effective_errors_emit_once() {
             BTreeMap::new()
         }
     });
-    let events = form.errors_changed().history().len();
+    let events = form_errors_changed_record.messages().len();
 
     form.set_model(1);
     form.set_model(2);
     form.set_model(3);
 
-    assert_eq!(form.errors_changed().history().len(), events + 1);
+    assert_eq!(form_errors_changed_record.messages().len(), events + 1);
     assert_surfaces(&form, &[("amount", "below ten")]);
 }
 
