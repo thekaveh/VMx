@@ -98,6 +98,12 @@ launches on Windows because of the WPF target.
 bindings on a Dispatcher thread, and the Windows CI job runs it with
 `dotnet run --project wpf/RecipeHostCheck/RecipeHostCheck.csproj`.
 
+`wpf/TodoAppHostCheck/` is not an app either. It compiles this example's own
+window and view-models, opens the window on an STA Dispatcher, types and clicks
+Add through the real bindings, closes it, and checks that the view-model is
+disposed and collectable. The same Windows job runs it with
+`dotnet run --project wpf/TodoAppHostCheck/TodoAppHostCheck.csproj`.
+
 ---
 
 ## 4. Example 3 — `avalonia/NotesShowcase/` (Avalonia + MVVM, flagship)
@@ -149,8 +155,10 @@ examples/csharp/
 ├── wpf/
 │   ├── TodoApp/
 │   │   └── WpfTodoApp.csproj
-│   └── RecipeHostCheck/   # CI host check for the XAML adapter recipe
-│       └── RecipeHostCheck.csproj
+│   ├── RecipeHostCheck/   # CI host check for the XAML adapter recipe
+│   │   └── RecipeHostCheck.csproj
+│   └── TodoAppHostCheck/  # CI host check for the TodoApp window lifecycle
+│       └── TodoAppHostCheck.csproj
 └── avalonia/
     ├── NotesShowcase/
     │   └── NotesShowcase.csproj

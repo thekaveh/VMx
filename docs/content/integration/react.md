@@ -34,7 +34,9 @@ npm install @thekaveh/vmx @thekaveh/vmx-react react rxjs use-sync-external-store
 
 Until publication, follow the
 [pack-then-install source procedure](../installation.md);
-do not link a live adapter checkout into a React 18 application. The snippets
+do not link a live adapter checkout into a React 18 application. Apps moving
+from local binding hooks or an older VMx line can follow
+[Upgrading TypeScript and React Consumers](../getting-started/upgrading-typescript.md). The snippets
 on this page use `app`, `noteVm`, `workspace`, `screen`, `EditorVM`, `Editor`,
 and `EmptyEditor` for your application's own objects and components. Create
 one store at the application composition root:

@@ -10,6 +10,9 @@ script or test.
 > families](../primitives/command-families.md), and [composite
 > family](../primitives/viewmodel-families/composite-family.md).
 
+> Moving an existing app from an older VMx line? Start with
+> [Upgrading TypeScript and React Consumers](upgrading-typescript.md).
+
 ______________________________________________________________________
 
 ## 3.4.1. Install

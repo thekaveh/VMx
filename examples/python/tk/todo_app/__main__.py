@@ -297,7 +297,7 @@ class MainWindow:
         add_frame.pack(fill=tk.X, padx=8, pady=2)
 
         self._entry_var = tk.StringVar()
-        self._entry_var.trace_add("write", self._on_entry_changed)
+        self._entry_trace = self._entry_var.trace_add("write", self._on_entry_changed)
         entry = tk.Entry(add_frame, textvariable=self._entry_var)
         entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
         entry.bind("<Return>", lambda _e: self._on_add())
@@ -341,6 +341,9 @@ class MainWindow:
         self._vm.remove_command.execute()
 
     def _on_close(self) -> None:
+        # Destroying widgets deletes their commands but not variable traces;
+        # the interpreter would keep this window and its view-model alive.
+        self._entry_var.trace_remove("write", self._entry_trace)
         self._collection_sub.dispose()
         self._hub_sub.dispose()
         self._add_command_sub.dispose()
