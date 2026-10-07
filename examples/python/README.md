@@ -92,6 +92,16 @@ cd examples/python
 uv run python -c "from todo_app.__main__ import MainWindow; print('OK')"
 ```
 
+**Host check:** runs the window on a real Tk root. It types, adds, toggles and
+removes items through the widgets, then closes the window and checks that every
+subscription is disposed and nothing keeps the view-model alive. CI runs it
+under Xvfb:
+
+```bash
+cd examples/python
+xvfb-run --auto-servernum uv run python -m todo_app.host_check
+```
+
 ---
 
 ## 4. Example 3 — `textual/inspector` (Textual TUI)
@@ -161,7 +171,8 @@ examples/python/
 ├── tk/
 │   └── todo_app/
 │       ├── __init__.py
-│       └── __main__.py         # entry point: python -m todo_app
+│       ├── __main__.py         # entry point: python -m todo_app
+│       └── host_check.py       # CI host check: python -m todo_app.host_check
 └── textual/
     ├── inspector/              # stand-alone uv project (Textual)
     │   ├── pyproject.toml

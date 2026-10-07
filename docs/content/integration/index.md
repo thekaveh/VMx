@@ -142,3 +142,22 @@ them before the region.
 | Avalonia                      | `BindableVm.cs`, `examples/csharp/avalonia/NotesShowcase.Tests/Views/AvaloniaRecipeTests.cs`               | csharp `examples (notes-showcase)`, Linux                                | Executed with real Avalonia bindings on Avalonia's headless UI thread                     |
 | Tkinter                       | `examples/python/tk/note_recipe/`                                                                          | python `examples (console + tk)`, Linux                                  | Executed on a real Tk root under Xvfb; `run()` is type-checked, not executed              |
 | NiceGUI                       | none                                                                                                       | none                                                                     | Illustrative: NiceGUI is not a repository dependency, so its fences are not checked       |
+
+## 9.1.7. Host Coverage
+
+Three kinds of checks cover the desktop hosts, and they prove different things.
+Headless tests run the view-models and adapters without a UI toolkit.
+Compilation proves the host code builds for a platform. Only host execution
+runs the toolkit's own event loop, so only it can catch a binding, delivery, or
+teardown regression in the host.
+
+| Host               | Headless tests                                                       | Platform compilation                                                                | Host execution                                                                                                                          |
+| ------------------ | -------------------------------------------------------------------- | ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Tkinter            | none beyond the VMx Python suite                                     | `compileall tk/todo_app` and `mypy --strict`, python `examples (console + tk)`      | `todo_app.host_check` and `note_recipe` on a real Tk root under Xvfb, same job, Linux                                                   |
+| WPF                | `BindableVm` on test schedulers, csharp `build & test`               | `dotnet build WpfTodoApp.csproj`, `example + recipe host (WPF / Windows, executed)` | `TodoAppHostCheck` and `RecipeHostCheck` on a real STA Dispatcher, same job, `windows-latest`                                           |
+| SwiftUI (macOS)    | NotesShowcase VM suites; `SwiftUIRecipeTests` in the VMx Swift suite | `swift build`, including strict concurrency, swift `examples (notes-showcase)`      | `HostLifecycleTests` hosts a view in an `NSWindow` on macOS 15: appear, worker change delivered on the main thread, disappear; same job |
+| iOS, tvOS, watchOS | the same Swift suites, run on macOS                                  | `xcodebuild build` for generic destinations, swift `build (iOS 16)` and siblings    | none: no simulator runs in CI                                                                                                           |
+
+The Tk, WPF, and macOS host checks wait on the host's own idle, dispatcher, or
+run-loop signals with a bounded timeout, never on a fixed sleep. The Tk and WPF
+checks print every step they checked; the macOS test reports through XCTest.
