@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Runs the real TodoApp MainWindow on a WPF STA Dispatcher (#360).
+       Windows-only; CI runs it in the wpf-example job. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <RootNamespace>WpfTodoApp</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The example's own window and view-models, compiled in unchanged. -->
+    <Page Include="../TodoApp/MainWindow.xaml" Link="MainWindow.xaml" />
+    <Compile Include="../TodoApp/MainWindow.xaml.cs" Link="MainWindow.xaml.cs" />
+    <Compile Include="../TodoApp/MainWindowViewModel.cs" Link="MainWindowViewModel.cs" />
+    <Compile Include="../TodoApp/TodoItem.cs" Link="TodoItem.cs" />
+    <Compile Include="../TodoApp/TodoItemVM.cs" Link="TodoItemVM.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../../../langs/csharp/src/VMx/VMx.csproj" />
+  </ItemGroup>
+</Project>
