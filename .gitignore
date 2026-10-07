@@ -99,6 +99,7 @@ Cargo.lock
 # do so their documented and CI `--locked` commands are reproducible.
 !/examples/rust/console/hello-vmx/Cargo.lock
 !/examples/rust/tui/notes-showcase/Cargo.lock
+!/benchmarks/rust/Cargo.lock
 
 # ─── Node / TypeScript ────────────────────────────────────────────────
 node_modules/
