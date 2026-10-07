@@ -132,6 +132,24 @@ code legitimately lowers coverage, explain it in the pull request and record
 the new baseline. Percentages are not comparable across flavors, because each
 tool counts differently.
 
+### 11.3.4. Review Performance Changes
+
+A change that touches a hot path, such as hub delivery, batching, property
+publication, collections, or lifecycle, should include a benchmark comparison.
+Run the flavor's harness on the change and compare it with the committed
+baseline, or with a baseline you record from the base branch on the same
+machine:
+
+```bash
+node --expose-gc benchmarks/typescript/run.mjs --out ts.json
+python3 tools/compare-benchmarks.py benchmarks/baselines/2026-10-07-typescript.json ts.json
+```
+
+Explain every case the tool marks `SLOWER` and every probe that is not bounded
+in the pull request. The comparison is a review signal, not a CI gate. The
+method, cases, report format, and thresholds are in
+[Performance Methodology](performance-methodology.md).
+
 ## 11.4. Spec Discipline
 
 Two repo rules matter most:
