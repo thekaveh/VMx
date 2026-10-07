@@ -41,8 +41,9 @@ All three harnesses accept the same options:
 | `--only PREFIX` | Run only the cases whose id starts with `PREFIX`; skips the probe.     |
 | `--quick`       | Smoke run: 5% of the operations, 1 warm-up and 3 measured rounds.      |
 
-A full run takes two to four minutes per flavor. Quick runs are for checking
-that a harness works; never compare one with a baseline.
+On the recording machine a full run took about 100 seconds for TypeScript, 40
+for Python, and 10 for Rust. Quick runs are for checking that a harness works;
+never compare one with a baseline.
 
 ## 14.2. Method
 
@@ -94,7 +95,13 @@ per operation across sizes.
 The TypeScript `hub.observer` cases reproduce the DevTools pilot
 ([2026-08-11 pilot](../maintenance/2026-08-11-typescript-devtools-daydreams-pilot.md)):
 150,000 messages, two warm-up rounds, rotated order, and the median of nine
-rounds.
+rounds. On the recording machine, plain, disconnected, and active measured
+1,465, 1,636, and 4,483 ns per message in one run and 1,496, 1,622, and 4,462 in
+the next: an active observer costs about three times a plain send, close to the
+pilot's 2.7. A disabled connector returns a no-op before it touches the hub, so
+`plain` and `disconnected` run the same code, yet they measured 8–12% apart.
+That gap is the harness's noise between two different cases, which is why the
+comparison tool compares each case only with itself.
 
 ## 14.4. Memory And Queue Probe
 
@@ -155,7 +162,17 @@ widen the band. Four MADs is wide enough that two consecutive runs on the
 recording machine flagged no case, and narrow enough that an injected slowdown
 was flagged in every flavor:
 
-RESULTS_TABLE
+| Flavor     | Runtime              | Bands, run a against run b | Largest drift | Injected slowdown                     | Slowed ratio | Band  | Cases flagged        |
+| ---------- | -------------------- | -------------------------- | ------------- | ------------------------------------- | ------------ | ----- | -------------------- |
+| TypeScript | Node 22.22.2         | 13.7–37.8%, median 24.3%   | 6.8%          | 300 spins on `hub.send/subscribers=1` | 2.40×        | 13.6% | only the slowed case |
+| Python     | CPython 3.11.15      | 6.6–33.2%, median 15.6%    | 6.0%          | 20 spins on `hub.send/subscribers=1`  | 1.26×        | 10.4% | only the slowed case |
+| Rust       | rustc 1.94.1 release | 5.0–34.8%, median 11.0%    | 7.2%          | 40 spins on `hub.send/subscribers=1`  | 1.81×        | 16.9% | only the slowed case |
+
+The runs were recorded on 2026-10-07 in a Linux container with a 4-core Intel
+Xeon at 2.80 GHz. "Largest drift" is the biggest median change of any case
+between the two clean runs; no case left its band. Each slowed run flagged only
+the case it slowed. The Python slowdown of 26% sat about 2.5 times above its
+band.
 
 To show detection, set `VMX_BENCH_SLOWDOWN="case-id=iterations"`. Each
 operation of the named case then adds a fixed spin loop, and the report records
