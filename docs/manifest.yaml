@@ -304,3 +304,7 @@ sections:
     number: "13"
     title: Concurrency Test Audit
     source: docs/maintenance/2026-09-24-controlled-interleavings-audit.md
+  - id: performance-methodology
+    number: "14"
+    title: Performance Methodology
+    source: docs/content/performance-methodology.md
