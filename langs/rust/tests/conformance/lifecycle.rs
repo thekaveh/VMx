@@ -828,6 +828,7 @@ fn disposal_cascades_finish_before_returning_the_first_error() {
 #[test]
 fn repeated_parent_dispose_emits_one_terminal_transition_per_node() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let parent = CompositeVm::with_services("parent", hub.clone(), NullDispatcher::new());
     let child = ComponentVm::with_services("child", hub.clone(), NullDispatcher::new());
     let parent_id = parent.id();
@@ -837,8 +838,8 @@ fn repeated_parent_dispose_emits_one_terminal_transition_per_node() {
     parent.dispose().unwrap();
     parent.dispose().unwrap();
 
-    let disposed = hub
-        .history()
+    let disposed = recorder
+        .messages()
         .into_iter()
         .filter_map(|message| match message {
             Message::ConstructionStatusChanged(change)
@@ -927,6 +928,7 @@ fn panicking_child_action_rolls_parent_back_and_allows_retry() {
 #[test]
 fn failed_dispose_emits_one_terminal_status() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let vm = ComponentVm::with_services("failed-dispose", hub.clone(), NullDispatcher::new());
     let id = vm.id();
     vm.on_dispose(|| Err(VmxError::Other("dispose failure".to_string())));
@@ -935,8 +937,8 @@ fn failed_dispose_emits_one_terminal_status() {
         vm.dispose(),
         Err(VmxError::Other("dispose failure".to_string()))
     );
-    let disposed = hub
-        .history()
+    let disposed = recorder
+        .messages()
         .into_iter()
         .filter(|message| {
             matches!(message, Message::ConstructionStatusChanged(change)

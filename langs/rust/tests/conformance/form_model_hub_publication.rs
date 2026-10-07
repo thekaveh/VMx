@@ -99,6 +99,7 @@ fn set_model_publishes_one_settled_hub_message() {
     assert_eq!(null_hub_form.model(), 1);
 
     let deny_hub = MessageHub::new();
+    let deny_recorder = deny_hub.record(1024);
     let deny_form = FormVm::builder()
         .initial(0)
         .persister(|_| Ok(()))
@@ -106,9 +107,9 @@ fn set_model_publishes_one_settled_hub_message() {
         .build()
         .unwrap();
     deny_form.set_model(1);
-    let deny_start = deny_hub.history().len();
+    let deny_start = deny_recorder.messages().len();
     deny_form.deny_command().execute();
-    let deny_history = deny_hub.history();
+    let deny_history = deny_recorder.messages();
     let deny_messages = &deny_history[deny_start..];
     assert_eq!(deny_messages.len(), 2);
     assert!(matches!(deny_messages[0], Message::FormReverted(_)));
@@ -118,6 +119,7 @@ fn set_model_publishes_one_settled_hub_message() {
     ));
 
     let reset_hub = MessageHub::new();
+    let reset_recorder = reset_hub.record(1024);
     let reset_form = FormVm::builder()
         .initial("initial".to_string())
         .persister(|_| Ok(()))
@@ -126,13 +128,15 @@ fn set_model_publishes_one_settled_hub_message() {
         .build()
         .unwrap();
     reset_form.set_model("saved".to_string());
-    let reset_start = reset_hub.history().len();
+    let reset_start = reset_recorder.messages().len();
     reset_form.approve().unwrap();
     assert_eq!(reset_form.model(), "reset");
-    assert!(!reset_hub.history()[reset_start..].iter().any(|message| {
-        matches!(
-            message,
-            Message::PropertyChanged(change) if change.property_name == "model"
-        )
-    }));
+    assert!(!reset_recorder.messages()[reset_start..]
+        .iter()
+        .any(|message| {
+            matches!(
+                message,
+                Message::PropertyChanged(change) if change.property_name == "model"
+            )
+        }));
 }

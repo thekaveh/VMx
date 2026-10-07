@@ -89,22 +89,24 @@ fn owned_resource_survives_reconstruct() {
 #[test]
 fn injected_hub_is_publicly_visible() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let vm = probe(hub.clone());
     vm.hub().send(Message::Custom {
         sender_id: vm.id(),
         sender_name: vm.name(),
         name: "visible".to_string(),
     });
-    assert_eq!(hub.history().len(), 1);
+    assert_eq!(recorder.messages().len(), 1);
 }
 
 /// DISP-013 — VM disposal does not dispose the shared injected hub.
 #[test]
 fn vm_disposal_does_not_dispose_hub() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let vm = probe(hub.clone());
     vm.dispose().unwrap();
-    let baseline = hub.history().len();
+    let baseline = recorder.messages().len();
 
     hub.send(Message::Custom {
         sender_id: vm.id(),
@@ -112,5 +114,5 @@ fn vm_disposal_does_not_dispose_hub() {
         name: "still-alive".to_string(),
     });
 
-    assert_eq!(hub.history().len(), baseline + 1);
+    assert_eq!(recorder.messages().len(), baseline + 1);
 }

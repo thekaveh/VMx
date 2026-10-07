@@ -5,6 +5,7 @@ use vmx::{Dispatcher, Message, NullDispatcher, NullMessageHub};
 #[test]
 fn null_message_hub_is_safe_noop() {
     let hub = NullMessageHub::hub();
+    let recorder = hub.record(1024);
     let observed = std::sync::Arc::new(AtomicBool::new(false));
     let observed_clone = observed.clone();
     let _subscription = hub.subscribe(move |_| {
@@ -28,7 +29,8 @@ fn null_message_hub_is_safe_noop() {
 
     assert!(!observed.load(Ordering::SeqCst));
     assert!(body_ran.load(Ordering::SeqCst));
-    assert!(hub.history().is_empty());
+    assert!(!recorder.is_active());
+    assert!(recorder.messages().is_empty());
 
     let completions = std::sync::Arc::new(AtomicBool::new(false));
     let completed = completions.clone();

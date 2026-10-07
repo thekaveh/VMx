@@ -98,6 +98,7 @@ fn async_resource_is_an_ordinary_component_with_injected_services() {
     assert_component_contract::<AsyncResourceVm<i32>>();
 
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let vm =
         AsyncResourceVm::with_services("resource", hub.clone(), NullDispatcher::new(), |_| Ok(42));
 
@@ -107,8 +108,8 @@ fn async_resource_is_an_ordinary_component_with_injected_services() {
     vm.construct().unwrap();
     vm.load_async().join().unwrap().unwrap();
 
-    let state_changes = hub
-        .history()
+    let state_changes = recorder
+        .messages()
         .into_iter()
         .filter(|message| {
             matches!(
@@ -138,6 +139,7 @@ fn async_resource_is_an_ordinary_component_with_injected_services() {
 #[test]
 fn async_resource_honors_component_dispatch_and_lifecycle_independence() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let dispatcher = ManualDispatcher::new();
     let starts = Arc::new(AtomicUsize::new(0));
     let observed_starts = starts.clone();
@@ -159,8 +161,8 @@ fn async_resource_honors_component_dispatch_and_lifecycle_independence() {
     assert_eq!(vm.resource_status(), AsyncResourceStatus::Idle);
     assert_eq!(starts.load(Ordering::SeqCst), 0);
     dispatcher.drain();
-    let statuses = hub
-        .history()
+    let statuses = recorder
+        .messages()
         .into_iter()
         .filter_map(|message| match message {
             Message::ConstructionStatusChanged(change) => Some(change.status),
@@ -453,6 +455,7 @@ fn async_resource_cleanup_observes_the_terminal_component_boundary() {
             cleanup_rejected.store(vm.construct().is_err(), Ordering::SeqCst);
         })),
     );
+    let vm_hub_record = vm.hub().record(1024);
     *holder.lock().unwrap() = Some(vm.clone());
     vm.load_async().join().unwrap().unwrap();
 
@@ -464,11 +467,13 @@ fn async_resource_cleanup_observes_the_terminal_component_boundary() {
         Some(ConstructionStatus::Disposed)
     );
     assert!(construct_rejected.load(Ordering::SeqCst));
-    assert!(!vm.hub().history().into_iter().any(|message| matches!(
-        message,
-        Message::ConstructionStatusChanged(change)
-            if change.status == ConstructionStatus::Constructing
-    )));
+    assert!(
+        !vm_hub_record.messages().into_iter().any(|message| matches!(
+            message,
+            Message::ConstructionStatusChanged(change)
+                if change.status == ConstructionStatus::Constructing
+        ))
+    );
 }
 
 #[test]

@@ -5,8 +5,9 @@ use vmx::{
     VmxError,
 };
 
-fn collection_actions(hub: &MessageHub) -> Vec<CollectionChangeAction> {
-    hub.history()
+fn collection_actions(recorder: &vmx::MessageRecorder) -> Vec<CollectionChangeAction> {
+    recorder
+        .messages()
         .into_iter()
         .filter_map(|message| match message {
             Message::CollectionChanged(change) => Some(change.action),
@@ -15,8 +16,9 @@ fn collection_actions(hub: &MessageHub) -> Vec<CollectionChangeAction> {
         .collect()
 }
 
-fn count_notifications(hub: &MessageHub) -> usize {
-    hub.history()
+fn count_notifications(recorder: &vmx::MessageRecorder) -> usize {
+    recorder
+        .messages()
         .into_iter()
         .filter(|message| {
             matches!(
@@ -27,8 +29,9 @@ fn count_notifications(hub: &MessageHub) -> usize {
         .count()
 }
 
-fn collection_messages(hub: &MessageHub) -> Vec<vmx::CollectionChangedMessage> {
-    hub.history()
+fn collection_messages(recorder: &vmx::MessageRecorder) -> Vec<vmx::CollectionChangedMessage> {
+    recorder
+        .messages()
         .into_iter()
         .filter_map(|message| match message {
             Message::CollectionChanged(change) => Some(change),
@@ -41,6 +44,7 @@ fn collection_messages(hub: &MessageHub) -> Vec<vmx::CollectionChangedMessage> {
 #[test]
 fn serviced_collection_add_publishes_to_hub() {
     let external = MessageHub::new();
+    let external_recorder = external.record(1024);
     let list = ServicedObservableCollection::with_hub(1, external.clone());
     let order = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let local_order = order.clone();
@@ -57,7 +61,7 @@ fn serviced_collection_add_publishes_to_hub() {
     assert_eq!(list.to_vec(), vec!["a"]);
     assert_eq!(*order.lock().unwrap(), vec!["local", "external"]);
     assert_eq!(
-        collection_messages(&external),
+        collection_messages(&external_recorder),
         vec![vmx::CollectionChangedMessage {
             sender_id: 1,
             sender_name: "ServicedObservableCollection".to_string(),
@@ -73,13 +77,14 @@ fn serviced_collection_add_publishes_to_hub() {
 #[test]
 fn serviced_collection_publishes_remove_and_replace() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let list = ServicedObservableCollection::with_hub(1, hub.clone());
     list.push("a");
     list.replace(0, "b").unwrap();
     assert_eq!(list.remove_at(0).unwrap(), "b");
 
     assert_eq!(
-        collection_messages(&hub),
+        collection_messages(&recorder),
         vec![
             vmx::CollectionChangedMessage {
                 sender_id: 1,
@@ -114,6 +119,7 @@ fn serviced_collection_publishes_remove_and_replace() {
 fn serviced_collection_null_hub_is_safe() {
     let list = ServicedObservableCollection::new(1);
     let local = list.collection_changed();
+    let local_recorder = local.record(1024);
 
     list.push("a");
     list.replace(0, "b").unwrap();
@@ -121,7 +127,7 @@ fn serviced_collection_null_hub_is_safe() {
 
     assert!(list.is_empty());
     assert_eq!(
-        collection_actions(&local),
+        collection_actions(&local_recorder),
         vec![
             CollectionChangeAction::Add,
             CollectionChangeAction::Replace,
@@ -151,19 +157,21 @@ fn serviced_collection_hub_delivery_is_synchronous() {
 #[test]
 fn serviced_collection_value_removal_targets_first_duplicate() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let list = ServicedObservableCollection::with_hub(7, hub.clone());
     list.replace_all(["a", "b", "a"]);
     let local = list.collection_changed();
-    let before = collection_messages(&hub).len();
-    let local_before = collection_messages(&local).len();
+    let local_recorder = local.record(1024);
+    let before = collection_messages(&recorder).len();
+    let local_before = collection_messages(&local_recorder).len();
 
     assert!(list.remove(&"a"));
     assert_eq!(list.to_vec(), vec!["b", "a"]);
     assert!(!list.remove(&"missing"));
 
-    let messages = collection_messages(&hub);
+    let messages = collection_messages(&recorder);
     assert_eq!(messages.len(), before + 1);
-    assert_eq!(collection_messages(&local).len(), local_before + 1);
+    assert_eq!(collection_messages(&local_recorder).len(), local_before + 1);
     assert_eq!(
         messages.last().unwrap().action,
         CollectionChangeAction::Remove
@@ -176,11 +184,13 @@ fn serviced_collection_value_removal_targets_first_duplicate() {
 #[test]
 fn serviced_collection_indexed_removal_is_strict_and_atomic() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let list = ServicedObservableCollection::with_hub(8, hub.clone());
     list.replace_all(["a", "b", "c"]);
     let local = list.collection_changed();
-    let before = collection_messages(&hub).len();
-    let local_before = collection_messages(&local).len();
+    let local_recorder = local.record(1024);
+    let before = collection_messages(&recorder).len();
+    let local_before = collection_messages(&local_recorder).len();
 
     assert_eq!(list.remove_at(1).unwrap(), "b");
     assert_eq!(list.to_vec(), vec!["a", "c"]);
@@ -190,9 +200,9 @@ fn serviced_collection_indexed_removal_is_strict_and_atomic() {
     );
     assert_eq!(list.to_vec(), vec!["a", "c"]);
 
-    let messages = collection_messages(&hub);
+    let messages = collection_messages(&recorder);
     assert_eq!(messages.len(), before + 1);
-    assert_eq!(collection_messages(&local).len(), local_before + 1);
+    assert_eq!(collection_messages(&local_recorder).len(), local_before + 1);
     assert_eq!(messages.last().unwrap().old_index, Some(1));
     assert_eq!(messages.last().unwrap().new_index, None);
 }
@@ -201,11 +211,13 @@ fn serviced_collection_indexed_removal_is_strict_and_atomic() {
 #[test]
 fn serviced_collection_replacement_is_explicit_and_atomic() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let list = ServicedObservableCollection::with_hub(9, hub.clone());
     list.replace_all(["a", "b"]);
     let local = list.collection_changed();
-    let before = collection_messages(&hub).len();
-    let local_before = collection_messages(&local).len();
+    let local_recorder = local.record(1024);
+    let before = collection_messages(&recorder).len();
+    let local_before = collection_messages(&local_recorder).len();
 
     assert_eq!(list.replace(1, "c").unwrap(), "b");
     assert_eq!(list.replace(1, "c").unwrap(), "c");
@@ -215,9 +227,9 @@ fn serviced_collection_replacement_is_explicit_and_atomic() {
     );
     assert_eq!(list.to_vec(), vec!["a", "c"]);
 
-    let changes = &collection_messages(&hub)[before..];
+    let changes = &collection_messages(&recorder)[before..];
     assert_eq!(changes.len(), 2);
-    assert_eq!(collection_messages(&local).len(), local_before + 2);
+    assert_eq!(collection_messages(&local_recorder).len(), local_before + 2);
     assert!(changes.iter().all(|message| {
         message.action == CollectionChangeAction::Replace
             && message.old_index == Some(1)
@@ -243,36 +255,42 @@ fn serviced_collection_replace_all_is_snapshot_atomic() {
     }
 
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let list = ServicedObservableCollection::with_hub(10, hub.clone());
     list.replace_all([1, 2]);
     let local = list.collection_changed();
-    let before_identical = collection_messages(&hub).len();
-    let local_before_identical = collection_messages(&local).len();
+    let local_recorder = local.record(1024);
+    let before_identical = collection_messages(&recorder).len();
+    let local_before_identical = collection_messages(&local_recorder).len();
     list.replace_all(&list);
     assert_eq!(list.to_vec(), vec![1, 2]);
-    assert_eq!(collection_messages(&hub).len(), before_identical + 1);
+    assert_eq!(collection_messages(&recorder).len(), before_identical + 1);
     assert_eq!(
-        collection_messages(&local).len(),
+        collection_messages(&local_recorder).len(),
         local_before_identical + 1
     );
-    let reset = collection_messages(&hub).pop().unwrap();
+    let reset = collection_messages(&recorder).pop().unwrap();
     assert_eq!(reset.action, CollectionChangeAction::Reset);
     assert_eq!(reset.old_index, None);
     assert_eq!(reset.new_index, None);
 
-    let before_panic = collection_messages(&hub).len();
-    let local_before_panic = collection_messages(&local).len();
+    let before_panic = collection_messages(&recorder).len();
+    let local_before_panic = collection_messages(&local_recorder).len();
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         list.replace_all(PanicAfterOne(false));
     }));
     assert!(result.is_err());
     assert_eq!(list.to_vec(), vec![1, 2]);
-    assert_eq!(collection_messages(&hub).len(), before_panic);
-    assert_eq!(collection_messages(&local).len(), local_before_panic);
+    assert_eq!(collection_messages(&recorder).len(), before_panic);
+    assert_eq!(
+        collection_messages(&local_recorder).len(),
+        local_before_panic
+    );
 
     let empty = ServicedObservableCollection::<i32>::new(11);
+    let empty_collection_changed_record = empty.collection_changed().record(1024);
     empty.replace_all(std::iter::empty());
-    assert!(empty.collection_changed().history().is_empty());
+    assert!(empty_collection_changed_record.messages().is_empty());
 }
 
 /// COL-052 — serviced move preserves identity and precise positions
@@ -282,13 +300,14 @@ fn serviced_collection_move_preserves_identity_and_positions() {
     let b = std::sync::Arc::new("b");
     let c = std::sync::Arc::new("c");
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let forward = ServicedObservableCollection::with_hub(12, hub.clone());
     forward.replace_all([a.clone(), b.clone(), c.clone()]);
-    let before = collection_messages(&hub).len();
+    let before = collection_messages(&recorder).len();
     forward.move_item(0, 2).unwrap();
     assert_eq!(forward.to_vec(), vec![b.clone(), c.clone(), a.clone()]);
     assert!(std::sync::Arc::ptr_eq(&forward.get(2).unwrap(), &a));
-    let forward_message = &collection_messages(&hub)[before];
+    let forward_message = &collection_messages(&recorder)[before];
     assert_eq!(forward_message.action, CollectionChangeAction::Move);
     assert_eq!(forward_message.old_index, Some(0));
     assert_eq!(forward_message.new_index, Some(2));
@@ -303,11 +322,13 @@ fn serviced_collection_move_preserves_identity_and_positions() {
 #[test]
 fn serviced_collection_move_noops_and_bounds_are_strict() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let list = ServicedObservableCollection::with_hub(14, hub.clone());
     list.replace_all(["a", "b", "c"]);
     let local = list.collection_changed();
-    let before = collection_messages(&hub).len();
-    let local_before = collection_messages(&local).len();
+    let local_recorder = local.record(1024);
+    let before = collection_messages(&recorder).len();
+    let local_before = collection_messages(&local_recorder).len();
 
     list.move_item(1, 1).unwrap();
     assert_eq!(
@@ -323,8 +344,8 @@ fn serviced_collection_move_noops_and_bounds_are_strict() {
         ))
     );
     assert_eq!(list.to_vec(), vec!["a", "b", "c"]);
-    assert_eq!(collection_messages(&hub).len(), before);
-    assert_eq!(collection_messages(&local).len(), local_before);
+    assert_eq!(collection_messages(&recorder).len(), before);
+    assert_eq!(collection_messages(&local_recorder).len(), local_before);
 }
 
 /// COL-054 — serviced delivery is local-before-hub with final-state visibility
@@ -332,6 +353,7 @@ fn serviced_collection_move_noops_and_bounds_are_strict() {
 fn serviced_collection_delivery_orders_every_mutation_after_state_change() {
     let hub = MessageHub::new();
     let list = ServicedObservableCollection::with_hub(15, hub.clone());
+    let list_collection_changed_record = list.collection_changed().record(1024);
     let observations = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let local_observations = observations.clone();
     let local_list = list.clone();
@@ -373,9 +395,8 @@ fn serviced_collection_delivery_orders_every_mutation_after_state_change() {
         assert_eq!(pair[0].2, pair[1].2);
     }
     assert_eq!(observations.last().unwrap().2, Vec::<i32>::new());
-    assert!(list
-        .collection_changed()
-        .history()
+    assert!(list_collection_changed_record
+        .messages()
         .iter()
         .all(|message| matches!(message, Message::CollectionChanged(_))));
 }
@@ -447,6 +468,7 @@ fn serviced_collection_reentrant_delivery_keeps_local_external_pairs_ordered() {
 #[test]
 fn serviced_collection_foreign_publisher_waits_and_delivers_on_caller_thread() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let list = ServicedObservableCollection::with_hub(19, hub.clone());
     let gate = std::sync::Arc::new((
         std::sync::Mutex::new((false, false)),
@@ -530,7 +552,7 @@ fn serviced_collection_foreign_publisher_waits_and_delivers_on_caller_thread() {
 
     assert_eq!(*foreign_observed.lock().unwrap(), Some(foreign_caller));
     assert_eq!(
-        collection_messages(&hub)
+        collection_messages(&recorder)
             .into_iter()
             .map(|message| message.new_index)
             .collect::<Vec<_>>(),
@@ -543,6 +565,7 @@ fn serviced_collection_foreign_publisher_waits_and_delivers_on_caller_thread() {
 #[test]
 fn serviced_collection_delivery_recovers_after_debug_hub_unwind() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let list = ServicedObservableCollection::with_hub(20, hub.clone());
     let cycling_hub = hub.clone();
     let cycle = hub.subscribe(move |_| {
@@ -562,7 +585,7 @@ fn serviced_collection_delivery_recovers_after_debug_hub_unwind() {
     list.push("second");
 
     assert_eq!(list.to_vec(), vec!["first", "second"]);
-    let last_change = collection_messages(&hub).pop().unwrap();
+    let last_change = collection_messages(&recorder).pop().unwrap();
     assert_eq!(last_change.action, CollectionChangeAction::Add);
     assert_eq!(last_change.new_index, Some(1));
 }
@@ -681,11 +704,13 @@ fn serviced_collection_clear_and_mutations_preserve_caller_ownership() {
         second.assert_owned(b, operation);
     };
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let list = ServicedObservableCollection::with_hub(16, hub.clone());
+    let list_collection_changed_record = list.collection_changed().record(1024);
     list.clear();
     check(1, 1, "empty clear"); // Caller handles only.
-    assert!(list.collection_changed().history().is_empty());
-    assert!(hub.history().is_empty());
+    assert!(list_collection_changed_record.messages().is_empty());
+    assert!(recorder.messages().is_empty());
     list.replace_all(std::iter::empty());
     check(1, 1, "empty replacement");
     assert!(!list.remove(&first));
@@ -714,16 +739,16 @@ fn serviced_collection_clear_and_mutations_preserve_caller_ownership() {
     check(2, 4, "replace_all"); // Second now also has a membership.
     list.move_item(0, 1).unwrap();
     check(2, 4, "move_item");
-    let messages = list.collection_changed().history().len();
+    let messages = list_collection_changed_record.messages().len();
     list.move_item(1, 1).unwrap();
     check(2, 4, "same-index move");
-    assert_eq!(list.collection_changed().history().len(), messages);
+    assert_eq!(list_collection_changed_record.messages().len(), messages);
     list.clear();
     check(1, 3, "clear"); // Caller each and two second-item return handles.
     assert!(list.is_empty());
     assert!(collection_clone.is_empty());
     assert_eq!(
-        collection_actions(&list.collection_changed()).last(),
+        collection_actions(&list_collection_changed_record).last(),
         Some(&CollectionChangeAction::Reset)
     );
     list.clear();
@@ -732,8 +757,8 @@ fn serviced_collection_clear_and_mutations_preserve_caller_ownership() {
     check(1, 2, "remove_at return released");
     drop(replaced);
     check(1, 1, "replace return released");
-    let local_history = list.collection_changed().history();
-    let hub_history = hub.history();
+    let local_history = list_collection_changed_record.messages();
+    let hub_history = recorder.messages();
     check(1, 1, "histories retained"); // Rust messages have no item payload.
     first.dispose_by_owner();
     second.dispose_by_owner();
@@ -803,13 +828,14 @@ fn keyed_serviced_lookup_uses_captured_keys_without_reprojection() {
             Ok(item.lock().unwrap().key)
         },
     );
+    let list_collection_changed_record = list.collection_changed().record(1024);
     let a = std::sync::Arc::new(std::sync::Mutex::new(keyed_item("a", 1)));
     let b = std::sync::Arc::new(std::sync::Mutex::new(keyed_item("b", 2)));
     let c = std::sync::Arc::new(std::sync::Mutex::new(keyed_item("c", 3)));
     list.push(a.clone()).unwrap();
     list.push(b.clone()).unwrap();
     list.push(c.clone()).unwrap();
-    let message_count = list.collection_changed().history().len();
+    let message_count = list_collection_changed_record.messages().len();
 
     for key in ["a", "b", "c"] {
         assert!(list.contains_key(&key));
@@ -829,13 +855,17 @@ fn keyed_serviced_lookup_uses_captured_keys_without_reprojection() {
     assert!(std::sync::Arc::ptr_eq(&list.get_by_key(&"b").unwrap(), &b));
     assert!(list.get_by_key(&"renamed").is_none());
     assert_eq!(projections.load(std::sync::atomic::Ordering::SeqCst), 3);
-    assert_eq!(list.collection_changed().history().len(), message_count);
+    assert_eq!(
+        list_collection_changed_record.messages().len(),
+        message_count
+    );
 }
 
 /// COL-057 — keyed serviced insert uniqueness and projection failure are atomic
 #[test]
 fn keyed_serviced_projection_and_duplicate_failures_are_atomic() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let list =
         KeyedServicedObservableCollection::with_hub(22, hub.clone(), |item: &KeyedItem| match item
             .key
@@ -843,10 +873,11 @@ fn keyed_serviced_projection_and_duplicate_failures_are_atomic() {
             "fail" => Err(VmxError::Other("projection failed".to_string())),
             key => Ok(key),
         });
+    let list_collection_changed_record = list.collection_changed().record(1024);
     list.replace_all([keyed_item("a", 1), keyed_item("b", 2)])
         .unwrap();
-    let local_count = list.collection_changed().history().len();
-    let hub_count = hub.history().len();
+    let local_count = list_collection_changed_record.messages().len();
+    let hub_count = recorder.messages().len();
 
     assert!(matches!(
         list.push(keyed_item("a", 9)),
@@ -869,14 +900,15 @@ fn keyed_serviced_projection_and_duplicate_failures_are_atomic() {
         Err(VmxError::Other("projection failed".to_string()))
     );
     assert_eq!(list.to_vec(), vec![keyed_item("a", 1), keyed_item("b", 2)]);
-    assert_eq!(list.collection_changed().history().len(), local_count);
-    assert_eq!(hub.history().len(), hub_count);
+    assert_eq!(list_collection_changed_record.messages().len(), local_count);
+    assert_eq!(recorder.messages().len(), hub_count);
 }
 
 /// COL-058 — keyed serviced upsert distinguishes Add from stable-position Replace
 #[test]
 fn keyed_serviced_upsert_adds_or_replaces_at_the_stable_position() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let list = KeyedServicedObservableCollection::with_hub(
         23,
         hub.clone(),
@@ -886,7 +918,7 @@ fn keyed_serviced_upsert_adds_or_replaces_at_the_stable_position() {
     let b = std::sync::Arc::new(keyed_item("b", 2));
     list.push(a).unwrap();
     list.push(b.clone()).unwrap();
-    let before = collection_messages(&hub).len();
+    let before = collection_messages(&recorder).len();
 
     assert!(list
         .upsert(std::sync::Arc::new(keyed_item("c", 3)))
@@ -896,7 +928,7 @@ fn keyed_serviced_upsert_adds_or_replaces_at_the_stable_position() {
         .unwrap());
     assert!(!list.upsert(list.get_by_key(&"b").unwrap()).unwrap());
 
-    let changes = &collection_messages(&hub)[before..];
+    let changes = &collection_messages(&recorder)[before..];
     assert_eq!(
         changes
             .iter()
@@ -924,18 +956,19 @@ fn keyed_serviced_upsert_adds_or_replaces_at_the_stable_position() {
 #[test]
 fn keyed_serviced_deletion_returns_the_item_and_repairs_positions() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let list = KeyedServicedObservableCollection::with_hub(24, hub.clone(), |item: &KeyedItem| {
         Ok(item.key)
     });
     list.replace_all([keyed_item("a", 1), keyed_item("b", 2), keyed_item("c", 3)])
         .unwrap();
-    let before = collection_messages(&hub).len();
+    let before = collection_messages(&recorder).len();
 
     assert_eq!(list.remove_key(&"b"), Some(keyed_item("b", 2)));
     assert_eq!(list.remove_key(&"missing"), None);
     assert_eq!(list.to_vec(), vec![keyed_item("a", 1), keyed_item("c", 3)]);
     assert_eq!(list.get_by_key(&"c"), Some(keyed_item("c", 3)));
-    let changes = &collection_messages(&hub)[before..];
+    let changes = &collection_messages(&recorder)[before..];
     assert_eq!(changes.len(), 1);
     assert_eq!(changes[0].action, CollectionChangeAction::Remove);
     assert_eq!(changes[0].old_index, Some(1));
@@ -980,6 +1013,7 @@ fn keyed_serviced_removals_and_explicit_rekeys_keep_the_index_synchronized() {
 #[test]
 fn keyed_serviced_replace_all_preflights_and_accepts_self_input() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let list = KeyedServicedObservableCollection::with_hub(27, hub.clone(), |item: &KeyedItem| {
         if item.key == "fail" {
             Err(VmxError::Other("projection failed".to_string()))
@@ -989,10 +1023,10 @@ fn keyed_serviced_replace_all_preflights_and_accepts_self_input() {
     });
     list.replace_all([keyed_item("a", 1), keyed_item("b", 2)])
         .unwrap();
-    let before_self = collection_messages(&hub).len();
+    let before_self = collection_messages(&recorder).len();
     list.replace_all(&list).unwrap();
-    assert_eq!(collection_messages(&hub).len(), before_self + 1);
-    let before_failure = collection_messages(&hub).len();
+    assert_eq!(collection_messages(&recorder).len(), before_self + 1);
+    let before_failure = collection_messages(&recorder).len();
 
     assert!(matches!(
         list.replace_all([keyed_item("x", 1), keyed_item("x", 2)]),
@@ -1003,11 +1037,12 @@ fn keyed_serviced_replace_all_preflights_and_accepts_self_input() {
         Err(VmxError::Other("projection failed".to_string()))
     );
     assert_eq!(list.to_vec(), vec![keyed_item("a", 1), keyed_item("b", 2)]);
-    assert_eq!(collection_messages(&hub).len(), before_failure);
+    assert_eq!(collection_messages(&recorder).len(), before_failure);
 
     let empty = KeyedServicedObservableCollection::new(28, |item: &KeyedItem| Ok(item.key));
+    let empty_collection_changed_record = empty.collection_changed().record(1024);
     empty.replace_all(std::iter::empty()).unwrap();
-    assert!(empty.collection_changed().history().is_empty());
+    assert!(empty_collection_changed_record.messages().is_empty());
 }
 
 /// COL-062 — keyed move, clear, and convenience mutations preserve invariants and ownership
@@ -1025,6 +1060,7 @@ fn keyed_serviced_move_clear_and_conveniences_preserve_keys_and_ownership() {
         }
     };
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let list =
         KeyedServicedObservableCollection::with_hub(29, hub.clone(), |item: &OwnershipProbe| {
             if item.0.key == "fail" {
@@ -1033,9 +1069,10 @@ fn keyed_serviced_move_clear_and_conveniences_preserve_keys_and_ownership() {
                 Ok(item.0.key)
             }
         });
+    let list_collection_changed_record = list.collection_changed().record(1024);
     list.clear();
     check([1, 1, 1, 1, 1], "empty clear");
-    assert!(list.collection_changed().history().is_empty());
+    assert!(list_collection_changed_record.messages().is_empty());
     list.replace_all(std::iter::empty()).unwrap();
     check([1, 1, 1, 1, 1], "empty replace_all");
     list.replace_all([a.clone(), b.clone(), c.clone()]).unwrap();
@@ -1054,10 +1091,10 @@ fn keyed_serviced_move_clear_and_conveniences_preserve_keys_and_ownership() {
     check([3, 2, 2, 1, 1], "lookup"); // a also has the lookup result.
     drop(lookup);
     check([2, 2, 2, 1, 1], "lookup released");
-    let messages = list.collection_changed().history().len();
+    let messages = list_collection_changed_record.messages().len();
     list.move_item(1, 1).unwrap();
     check([2, 2, 2, 1, 1], "same-index move");
-    assert_eq!(list.collection_changed().history().len(), messages);
+    assert_eq!(list_collection_changed_record.messages().len(), messages);
     assert!(list.remove(&b));
     check([2, 1, 2, 1, 1], "remove");
     let removed = list.remove_at(0).unwrap();
@@ -1068,7 +1105,7 @@ fn keyed_serviced_move_clear_and_conveniences_preserve_keys_and_ownership() {
     check([2, 2, 2, 1, 1], "replace"); // a/c: caller+return; b: caller+membership.
     list.replace_all([a.clone(), b.clone(), c.clone()]).unwrap();
     check([3, 2, 3, 1, 1], "replace_all retaining returns");
-    let before_failure = list.collection_changed().history().len();
+    let before_failure = list_collection_changed_record.messages().len();
     assert!(matches!(
         list.push(duplicate.clone()),
         Err(VmxError::InvalidArgument(_))
@@ -1100,7 +1137,10 @@ fn keyed_serviced_move_clear_and_conveniences_preserve_keys_and_ownership() {
     );
     check([3, 2, 3, 1, 1], "projector replace_all failure");
     assert_eq!(list.to_vec(), vec![a.clone(), b.clone(), c.clone()]);
-    assert_eq!(list.collection_changed().history().len(), before_failure);
+    assert_eq!(
+        list_collection_changed_record.messages().len(),
+        before_failure
+    );
     assert_eq!(list.get_by_key(&"a"), Some(a.clone()));
     let removed_key = list.remove_key(&"b").unwrap();
     check([3, 2, 3, 1, 1], "remove_key"); // b: caller+return.
@@ -1121,7 +1161,7 @@ fn keyed_serviced_move_clear_and_conveniences_preserve_keys_and_ownership() {
     check([2, 1, 1, 1, 1], "remove_at return released");
     drop(replaced);
     check([1, 1, 1, 1, 1], "replace return released");
-    let messages = list.collection_changed().history().len();
+    let messages = list_collection_changed_record.messages().len();
     list.clear();
     check([1, 1, 1, 1, 1], "empty clear after clear");
     assert!(!list.remove(&a));
@@ -1130,9 +1170,9 @@ fn keyed_serviced_move_clear_and_conveniences_preserve_keys_and_ownership() {
     check([1, 1, 1, 1, 1], "absent remove_key");
     assert!(list.remove_at(0).is_err());
     check([1, 1, 1, 1, 1], "empty remove_at");
-    assert_eq!(list.collection_changed().history().len(), messages);
-    let local_history = list.collection_changed().history();
-    let hub_history = hub.history();
+    assert_eq!(list_collection_changed_record.messages().len(), messages);
+    let local_history = list_collection_changed_record.messages();
+    let hub_history = recorder.messages();
     check([1, 1, 1, 1, 1], "histories retained");
     a.dispose_by_owner();
     b.dispose_by_owner();
@@ -1266,6 +1306,7 @@ fn keyed_serviced_concurrent_upserts_publish_each_committed_add_position() {
     struct ConcurrentItem(usize);
 
     let list = KeyedServicedObservableCollection::new(32, |item: &ConcurrentItem| Ok(item.0));
+    let list_collection_changed_record = list.collection_changed().record(1024);
     let start = std::sync::Arc::new(std::sync::Barrier::new(33));
     let mut workers = Vec::new();
     for key in 0..32 {
@@ -1285,7 +1326,7 @@ fn keyed_serviced_concurrent_upserts_publish_each_committed_add_position() {
     for key in 0..32 {
         assert_eq!(list.get_by_key(&key), Some(ConcurrentItem(key)));
     }
-    let positions = collection_messages(&list.collection_changed())
+    let positions = collection_messages(&list_collection_changed_record)
         .into_iter()
         .map(|message| {
             assert_eq!(message.action, CollectionChangeAction::Add);
@@ -1298,6 +1339,7 @@ fn keyed_serviced_concurrent_upserts_publish_each_committed_add_position() {
 #[test]
 fn serviced_collection_concurrent_pushes_publish_in_committed_position_order() {
     let list = ServicedObservableCollection::new(33);
+    let list_collection_changed_record = list.collection_changed().record(1024);
     let start = std::sync::Arc::new(std::sync::Barrier::new(33));
     let mut workers = Vec::new();
     for value in 0..32 {
@@ -1313,7 +1355,7 @@ fn serviced_collection_concurrent_pushes_publish_in_committed_position_order() {
         worker.join().unwrap();
     }
 
-    let positions = collection_messages(&list.collection_changed())
+    let positions = collection_messages(&list_collection_changed_record)
         .into_iter()
         .map(|message| {
             assert_eq!(message.action, CollectionChangeAction::Add);
@@ -1327,42 +1369,49 @@ fn serviced_collection_concurrent_pushes_publish_in_committed_position_order() {
 #[test]
 fn observable_list_add_emits_add() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let list = ObservableList::new(1, hub.clone());
 
     list.push("a");
 
     assert_eq!(list.to_vec(), vec!["a"]);
-    assert_eq!(collection_actions(&hub), vec![CollectionChangeAction::Add]);
+    assert_eq!(
+        collection_actions(&recorder),
+        vec![CollectionChangeAction::Add]
+    );
 }
 
 /// COL-006 — ObservableList<T> ItemRemoved payload shape
 #[test]
 fn observable_list_remove_emits_remove() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let list = ObservableList::new(1, hub.clone());
     list.push("a");
 
     assert_eq!(list.remove_at(0).unwrap(), "a");
 
-    assert!(collection_actions(&hub).contains(&CollectionChangeAction::Remove));
+    assert!(collection_actions(&recorder).contains(&CollectionChangeAction::Remove));
 }
 
 #[test]
 fn observable_list_remove_at_rejects_an_out_of_range_index() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let list = ObservableList::<&str>::new(1, hub.clone());
 
     assert_eq!(
         list.remove_at(0),
         Err(VmxError::InvalidArgument("index out of range".to_string()))
     );
-    assert!(hub.history().is_empty());
+    assert!(recorder.messages().is_empty());
 }
 
 /// COL-007 — ObservableList<T> ItemReplaced payload shape
 #[test]
 fn observable_list_replace_emits_replace_without_count_change() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let list = ObservableList::new(1, hub.clone());
     list.push("a");
 
@@ -1370,18 +1419,19 @@ fn observable_list_replace_emits_replace_without_count_change() {
 
     assert_eq!(old, "a");
     assert_eq!(list.to_vec(), vec!["b"]);
-    assert!(collection_actions(&hub).contains(&CollectionChangeAction::Replace));
+    assert!(collection_actions(&recorder).contains(&CollectionChangeAction::Replace));
 }
 
 /// COL-008 — ObservableList<T> Count / PropertyChanged ordering after add
 #[test]
 fn observable_list_add_emits_count_notification_after_collection_change() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let list = ObservableList::new(1, hub.clone());
 
     list.push("a");
 
-    let history = hub.history();
+    let history = recorder.messages();
     assert!(matches!(history[0], Message::CollectionChanged(_)));
     assert!(matches!(history[1], Message::PropertyChanged(_)));
 }
@@ -1390,6 +1440,7 @@ fn observable_list_add_emits_count_notification_after_collection_change() {
 #[test]
 fn observable_list_batch_emits_single_reset() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let list = ObservableList::new(1, hub.clone());
 
     list.batch_update(|| {
@@ -1398,10 +1449,10 @@ fn observable_list_batch_emits_single_reset() {
     });
 
     assert_eq!(
-        collection_actions(&hub),
+        collection_actions(&recorder),
         vec![CollectionChangeAction::Reset]
     );
-    assert_eq!(count_notifications(&hub), 1);
+    assert_eq!(count_notifications(&recorder), 1);
 }
 
 /// COL-010 — ObservableDictionary insert and retrieve
@@ -1546,22 +1597,27 @@ fn paged_composition_composes_with_searchable_state() {
 #[test]
 fn observable_dictionary_publishes_to_hub() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let dictionary = ObservableDictionary::new(1, hub.clone());
 
     dictionary.insert("a", 1);
 
-    assert_eq!(collection_actions(&hub), vec![CollectionChangeAction::Add]);
+    assert_eq!(
+        collection_actions(&recorder),
+        vec![CollectionChangeAction::Add]
+    );
 }
 
 /// COL-023 — ObservableList batch-end Count notification
 #[test]
 fn observable_list_batch_end_count_notification() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let list = ObservableList::new(1, hub.clone());
 
     list.batch_update(|| list.push("a"));
 
-    assert_eq!(count_notifications(&hub), 1);
+    assert_eq!(count_notifications(&recorder), 1);
 }
 
 /// COL-024 — TokenPagedComposition<TVM,TToken> initial state
@@ -1643,6 +1699,7 @@ fn token_refresh_dedup_suppresses_redundant_reset() {
         },
         hub,
     );
+    let pages_hub_record = pages.hub().record(1024);
 
     pages.load_next();
     pages.load_next();
@@ -1650,7 +1707,7 @@ fn token_refresh_dedup_suppresses_redundant_reset() {
 
     assert_eq!(pages.items(), vec![1, 2, 3]);
     assert_eq!(
-        collection_actions(&pages.hub()),
+        collection_actions(&pages_hub_record),
         vec![CollectionChangeAction::Reset, CollectionChangeAction::Reset]
     );
 }
@@ -1668,6 +1725,7 @@ fn token_auto_refresh_dedups_against_the_accumulator_head() {
             _ => (Vec::new(), None),
         }
     });
+    let pages_hub_record = pages.hub().record(1024);
 
     pages.load_next();
     pages.load_next();
@@ -1675,7 +1733,7 @@ fn token_auto_refresh_dedups_against_the_accumulator_head() {
 
     assert_eq!(pages.items(), vec![first, second]);
     assert_eq!(
-        collection_actions(&pages.hub()),
+        collection_actions(&pages_hub_record),
         vec![CollectionChangeAction::Reset, CollectionChangeAction::Reset]
     );
 }
@@ -1699,6 +1757,7 @@ fn token_commands_are_single_flight_and_publish_eligibility_changes() {
             }
         }
     });
+    let pages_hub_record = pages.hub().record(1024);
     let load = pages.load_more_command();
     let eligibility_events = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let observed_events = eligibility_events.clone();
@@ -1713,9 +1772,8 @@ fn token_commands_are_single_flight_and_publish_eligibility_changes() {
     release_tx.send(()).unwrap();
     first.join().unwrap().unwrap();
     assert!(!load.can_execute());
-    let property_names = pages
-        .hub()
-        .history()
+    let property_names = pages_hub_record
+        .messages()
         .into_iter()
         .filter_map(|message| match message {
             Message::PropertyChanged(change) => Some(change.property_name),
@@ -1735,6 +1793,7 @@ fn token_commands_are_single_flight_and_publish_eligibility_changes() {
 #[test]
 fn token_reset_observer_disposal_stops_later_notifications() {
     let pages = TokenPagedComposition::<i32, usize>::with_loader(None, |_| (vec![1], Some(1)));
+    let pages_hub_record = pages.hub().record(1024);
     let load = pages.load_more_command();
     let eligibility_events = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let observed_events = eligibility_events.clone();
@@ -1750,9 +1809,8 @@ fn token_reset_observer_disposal_stops_later_notifications() {
 
     pages.load_next();
 
-    assert!(pages
-        .hub()
-        .history()
+    assert!(pages_hub_record
+        .messages()
         .iter()
         .all(|message| !matches!(message, Message::PropertyChanged(_))));
     assert_eq!(
@@ -1800,11 +1858,12 @@ fn token_reset_observer_can_start_refresh_without_deadlock() {
 #[test]
 fn token_load_uses_reset_collection_event() {
     let pages = TokenPagedComposition::<i32, usize>::with_loader(None, |_| (vec![1], Some(1)));
+    let pages_hub_record = pages.hub().record(1024);
 
     pages.load_next();
 
     assert_eq!(
-        collection_actions(&pages.hub()),
+        collection_actions(&pages_hub_record),
         vec![CollectionChangeAction::Reset]
     );
 }

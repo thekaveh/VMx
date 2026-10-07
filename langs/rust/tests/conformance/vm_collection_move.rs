@@ -12,8 +12,9 @@ fn child(name: &'static str) -> Child {
     Child::with_model(name, name, MessageHub::new(), NullDispatcher::new())
 }
 
-fn move_events(hub: &MessageHub) -> Vec<vmx::CollectionChangedMessage> {
-    hub.history()
+fn move_events(recorder: &vmx::MessageRecorder) -> Vec<vmx::CollectionChangedMessage> {
+    recorder
+        .messages()
         .into_iter()
         .filter_map(|message| match message {
             Message::CollectionChanged(change) if change.action == CollectionChangeAction::Move => {
@@ -47,6 +48,7 @@ fn shared_contract_separates_selection() {
 #[test]
 fn forward_move_emits_one_move_event() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let composite =
         vmx::CompositeVm::with_services("composite", hub.clone(), NullDispatcher::new());
     let (a, b, c) = (child("a"), child("b"), child("c"));
@@ -57,7 +59,7 @@ fn forward_move_emits_one_move_event() {
     composite.move_item(0, 2).unwrap();
 
     assert_eq!(composite.items(), vec![b, c, a.clone()]);
-    let events = move_events(&hub);
+    let events = move_events(&recorder);
     assert_eq!(events.len(), 1);
     assert_eq!(
         (events[0].old_index, events[0].new_index),
@@ -69,6 +71,7 @@ fn forward_move_emits_one_move_event() {
 #[test]
 fn backward_move_works_for_group() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let group = vmx::GroupVm::with_services("group", hub.clone(), NullDispatcher::new());
     let (a, b, c) = (child("a"), child("b"), child("c"));
     group.add(a.clone()).unwrap();
@@ -78,7 +81,7 @@ fn backward_move_works_for_group() {
     group.move_item(2, 0).unwrap();
 
     assert_eq!(group.items(), vec![c, a, b]);
-    let events = move_events(&hub);
+    let events = move_events(&recorder);
     assert_eq!(
         (events[0].old_index, events[0].new_index),
         (Some(2), Some(0))
@@ -89,31 +92,33 @@ fn backward_move_works_for_group() {
 #[test]
 fn same_index_move_is_true_no_op() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let composite =
         vmx::CompositeVm::with_services("composite", hub.clone(), NullDispatcher::new());
     let (a, b, c) = (child("a"), child("b"), child("c"));
     composite.add(a.clone()).unwrap();
     composite.add(b.clone()).unwrap();
     composite.add(c.clone()).unwrap();
-    let before = hub.history().len();
+    let before = recorder.messages().len();
 
     composite.batch_update(|| composite.move_item(1, 1).unwrap());
 
     assert_eq!(composite.items(), vec![a, b, c]);
-    assert_eq!(hub.history().len(), before);
+    assert_eq!(recorder.messages().len(), before);
 }
 
 /// COL-036 — invalid bounds are rejected atomically.
 #[test]
 fn invalid_bounds_are_atomic() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let composite =
         vmx::CompositeVm::with_services("composite", hub.clone(), NullDispatcher::new());
     let (a, b, c) = (child("a"), child("b"), child("c"));
     composite.add(a.clone()).unwrap();
     composite.add(b.clone()).unwrap();
     composite.add(c.clone()).unwrap();
-    let before = hub.history().len();
+    let before = recorder.messages().len();
 
     assert!(matches!(
         composite.move_item(3, 0),
@@ -124,7 +129,7 @@ fn invalid_bounds_are_atomic() {
         Err(VmxError::InvalidArgument(_))
     ));
     assert_eq!(composite.items(), vec![a, b, c]);
-    assert_eq!(hub.history().len(), before);
+    assert_eq!(recorder.messages().len(), before);
 }
 
 /// COL-037 — move preserves identity, parent, lifecycle, and current selection.
@@ -152,16 +157,17 @@ fn move_preserves_identity_parent_lifecycle_and_current() {
 #[test]
 fn batched_move_collapses_to_reset() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let composite =
         vmx::CompositeVm::with_services("composite", hub.clone(), NullDispatcher::new());
     composite.add(child("a")).unwrap();
     composite.add(child("b")).unwrap();
     composite.add(child("c")).unwrap();
-    let before = hub.history().len();
+    let before = recorder.messages().len();
 
     composite.batch_update(|| composite.move_item(0, 2).unwrap());
 
-    let changes: Vec<_> = hub.history()[before..]
+    let changes: Vec<_> = recorder.messages()[before..]
         .iter()
         .filter_map(|message| match message {
             Message::CollectionChanged(change) => Some(change.action.clone()),

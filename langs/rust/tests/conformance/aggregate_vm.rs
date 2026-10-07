@@ -393,6 +393,7 @@ fn arity5_constructs_all_components() {
 #[test]
 fn component_property_changes_fire_on_construct() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let aggregate = vmx::AggregateVm2::with_services(
         "aggregate",
         hub.clone(),
@@ -403,8 +404,8 @@ fn component_property_changes_fire_on_construct() {
 
     aggregate.construct().unwrap();
 
-    let property_names = hub
-        .history()
+    let property_names = recorder
+        .messages()
         .into_iter()
         .filter_map(|message| match message {
             Message::PropertyChanged(change) => Some(change.property_name),
@@ -649,6 +650,7 @@ fn assert_disposal_failure_keeps_reconstructed_slots_consistent(failing_slot: us
     let next1 = replacement1.clone();
     let next2 = replacement2.clone();
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let aggregate = vmx::AggregateVm2::builder()
         .name("aggregate")
         .services(hub.clone(), NullDispatcher::new())
@@ -676,8 +678,7 @@ fn assert_disposal_failure_keeps_reconstructed_slots_consistent(failing_slot: us
             observed_names.lock().unwrap().push(name.to_string());
         }
     });
-    let initial_hub_count = hub
-        .history()
+    let initial_hub_count = recorder.messages()
         .iter()
         .filter(|message| matches!(message, Message::PropertyChanged(change) if change.property_name.starts_with("component_")))
         .count();
@@ -688,8 +689,7 @@ fn assert_disposal_failure_keeps_reconstructed_slots_consistent(failing_slot: us
         *local_names.lock().unwrap(),
         vec!["component_1".to_string(), "component_2".to_string()]
     );
-    let final_hub_count = hub
-        .history()
+    let final_hub_count = recorder.messages()
         .iter()
         .filter(|message| matches!(message, Message::PropertyChanged(change) if change.property_name.starts_with("component_")))
         .count();

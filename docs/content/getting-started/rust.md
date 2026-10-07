@@ -52,13 +52,26 @@ viewmodels without cloning.
 deterministic tests. `NullDispatcher` and `ImmediateDispatcher` deliberately run
 both channels inline.
 
+A hub keeps no message after delivering it. When a test or diagnostic needs to
+inspect traffic, attach a bounded `MessageRecorder` with `hub.record(capacity)`
+before the sends. It keeps the newest `capacity` messages and counts the ones it
+evicts (ADR-0141).
+
 ```rust
-use vmx::{MessageHub, NullDispatcher};
+use vmx::{Message, MessageHub, NullDispatcher};
 
 fn main() {
     let hub = MessageHub::new();
     let dispatcher = NullDispatcher::new();
-    assert!(hub.history().is_empty());
+    let recorder = hub.record(64);
+
+    hub.send(Message::Custom {
+        sender_id: 1,
+        sender_name: "app".into(),
+        name: "ready".into(),
+    });
+
+    assert_eq!(recorder.len(), 1);
     let _ = dispatcher;
 }
 ```

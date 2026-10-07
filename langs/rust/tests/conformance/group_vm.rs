@@ -8,8 +8,9 @@ fn child(name: &'static str) -> Child {
     Child::with_model(name, name, MessageHub::new(), NullDispatcher::new())
 }
 
-fn collection_actions(hub: &MessageHub) -> Vec<CollectionChangeAction> {
-    hub.history()
+fn collection_actions(recorder: &vmx::MessageRecorder) -> Vec<CollectionChangeAction> {
+    recorder
+        .messages()
         .into_iter()
         .filter_map(|message| match message {
             Message::CollectionChanged(change) => Some(change.action),
@@ -22,11 +23,15 @@ fn collection_actions(hub: &MessageHub) -> Vec<CollectionChangeAction> {
 #[test]
 fn add_emits_collection_changed_add() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let group = vmx::GroupVm::with_services("group", hub.clone(), NullDispatcher::new());
 
     group.add(child("a")).unwrap();
 
-    assert_eq!(collection_actions(&hub), vec![CollectionChangeAction::Add]);
+    assert_eq!(
+        collection_actions(&recorder),
+        vec![CollectionChangeAction::Add]
+    );
 }
 
 /// GRP-002 — Group keeps baseline self-selection commands without child selection.
@@ -86,14 +91,15 @@ fn construct_constructs_all_children() {
 #[test]
 fn parent_reaches_constructed_only_after_children() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let group = vmx::GroupVm::with_services("group", hub.clone(), NullDispatcher::new());
     let item = Child::with_model("child", "child", hub.clone(), NullDispatcher::new());
     group.add(item.clone()).unwrap();
 
     group.construct().unwrap();
 
-    let statuses = hub
-        .history()
+    let statuses = recorder
+        .messages()
         .into_iter()
         .filter_map(|message| match message {
             Message::ConstructionStatusChanged(change) => Some((change.sender_id, change.status)),
@@ -141,6 +147,7 @@ fn auto_construct_on_add_constructs_late_children() {
 #[test]
 fn batch_update_emits_single_reset() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let group = vmx::GroupVm::with_services("group", hub.clone(), NullDispatcher::new());
 
     group.batch_update(|| {
@@ -149,7 +156,7 @@ fn batch_update_emits_single_reset() {
     });
 
     assert_eq!(
-        collection_actions(&hub),
+        collection_actions(&recorder),
         vec![CollectionChangeAction::Reset]
     );
 }
@@ -176,6 +183,7 @@ fn names(group: &vmx::GroupVm<Child>) -> Vec<&'static str> {
 #[test]
 fn insert_places_the_child_and_emits_add() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let group = vmx::GroupVm::with_services("group", hub.clone(), NullDispatcher::new());
     group.add(child("a")).unwrap();
     group.add(child("c")).unwrap();
@@ -184,7 +192,7 @@ fn insert_places_the_child_and_emits_add() {
 
     assert_eq!(names(&group), vec!["a", "b", "c"]);
     assert_eq!(
-        collection_actions(&hub),
+        collection_actions(&recorder),
         vec![CollectionChangeAction::Add; 3]
     );
 }
@@ -192,6 +200,7 @@ fn insert_places_the_child_and_emits_add() {
 #[test]
 fn insert_out_of_range_changes_nothing() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let group = vmx::GroupVm::with_services("group", hub.clone(), NullDispatcher::new());
     group.add(child("a")).unwrap();
 
@@ -199,7 +208,10 @@ fn insert_out_of_range_changes_nothing() {
 
     assert!(matches!(error, vmx::VmxError::InvalidArgument(_)));
     assert_eq!(names(&group), vec!["a"]);
-    assert_eq!(collection_actions(&hub), vec![CollectionChangeAction::Add]);
+    assert_eq!(
+        collection_actions(&recorder),
+        vec![CollectionChangeAction::Add]
+    );
 }
 
 #[test]
@@ -234,6 +246,7 @@ fn insert_into_a_disposed_group_is_rejected_and_leaves_the_child_free() {
 #[test]
 fn remove_detaches_the_member_and_emits_remove() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let group = vmx::GroupVm::with_services("group", hub.clone(), NullDispatcher::new());
     let (a, b) = (child("a"), child("b"));
     group.add(a.clone()).unwrap();
@@ -244,7 +257,7 @@ fn remove_detaches_the_member_and_emits_remove() {
     group.dispose().unwrap();
 
     assert_eq!(
-        collection_actions(&hub),
+        collection_actions(&recorder),
         vec![
             CollectionChangeAction::Add,
             CollectionChangeAction::Add,
@@ -259,18 +272,23 @@ fn remove_detaches_the_member_and_emits_remove() {
 #[test]
 fn removing_a_non_member_is_a_silent_no_op() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let group = vmx::GroupVm::with_services("group", hub.clone(), NullDispatcher::new());
     group.add(child("a")).unwrap();
 
     group.remove(&child("stranger")).unwrap();
 
     assert_eq!(names(&group), vec!["a"]);
-    assert_eq!(collection_actions(&hub), vec![CollectionChangeAction::Add]);
+    assert_eq!(
+        collection_actions(&recorder),
+        vec![CollectionChangeAction::Add]
+    );
 }
 
 #[test]
 fn remove_at_returns_the_child_and_rejects_a_bad_index() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let group = vmx::GroupVm::with_services("group", hub.clone(), NullDispatcher::new());
     group.add(child("a")).unwrap();
     group.add(child("b")).unwrap();
@@ -282,7 +300,7 @@ fn remove_at_returns_the_child_and_rejects_a_bad_index() {
     assert!(matches!(error, vmx::VmxError::InvalidArgument(_)));
     assert_eq!(names(&group), vec!["b"]);
     assert_eq!(
-        collection_actions(&hub),
+        collection_actions(&recorder),
         vec![
             CollectionChangeAction::Add,
             CollectionChangeAction::Add,
@@ -296,6 +314,7 @@ fn remove_at_returns_the_child_and_rejects_a_bad_index() {
 #[test]
 fn clear_releases_every_child_and_emits_one_reset() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let group = vmx::GroupVm::with_services("group", hub.clone(), NullDispatcher::new());
     let (a, b) = (child("a"), child("b"));
     group.add(a.clone()).unwrap();
@@ -307,7 +326,7 @@ fn clear_releases_every_child_and_emits_one_reset() {
 
     assert!(group.is_empty());
     assert_eq!(
-        collection_actions(&hub),
+        collection_actions(&recorder),
         vec![
             CollectionChangeAction::Add,
             CollectionChangeAction::Add,
@@ -318,8 +337,9 @@ fn clear_releases_every_child_and_emits_one_reset() {
     assert_ne!(b.status(), ConstructionStatus::Disposed);
 }
 
-fn disposed_announcements(hub: &MessageHub, sender_id: usize) -> usize {
-    hub.history()
+fn disposed_announcements(recorder: &vmx::MessageRecorder, sender_id: usize) -> usize {
+    recorder
+        .messages()
         .into_iter()
         .filter(|message| match message {
             Message::ConstructionStatusChanged(change) => {
@@ -337,8 +357,10 @@ fn failing_hook() -> vmx::VmxResult<()> {
 #[test]
 fn replace_moves_the_new_child_in_and_frees_the_old_one() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let group = vmx::GroupVm::with_services("group", hub.clone(), NullDispatcher::new());
     let other_hub = MessageHub::new();
+    let other_recorder = other_hub.record(1024);
     let other = vmx::GroupVm::with_services("other", other_hub.clone(), NullDispatcher::new());
     let (a, b, c) = (child("a"), child("b"), child("c"));
     group.add(a.clone()).unwrap();
@@ -353,7 +375,7 @@ fn replace_moves_the_new_child_in_and_frees_the_old_one() {
     assert_eq!(c.parent_id(), Some(group.id()));
     assert_eq!(b.parent_id(), None);
     assert_eq!(
-        collection_actions(&hub),
+        collection_actions(&recorder),
         vec![
             CollectionChangeAction::Add,
             CollectionChangeAction::Add,
@@ -361,7 +383,7 @@ fn replace_moves_the_new_child_in_and_frees_the_old_one() {
         ]
     );
     assert_eq!(
-        collection_actions(&other_hub),
+        collection_actions(&other_recorder),
         vec![CollectionChangeAction::Add, CollectionChangeAction::Remove]
     );
 }
@@ -369,6 +391,7 @@ fn replace_moves_the_new_child_in_and_frees_the_old_one() {
 #[test]
 fn a_failed_admission_rolls_the_insert_back_to_the_previous_owner() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let group = vmx::GroupVm::with_services("group", hub.clone(), NullDispatcher::new());
     group.set_auto_construct_on_add(true);
     group.construct().unwrap();
@@ -382,7 +405,7 @@ fn a_failed_admission_rolls_the_insert_back_to_the_previous_owner() {
 
     assert!(matches!(error, vmx::VmxError::InvalidArgument(_)));
     assert!(group.is_empty());
-    assert!(collection_actions(&hub).is_empty());
+    assert!(collection_actions(&recorder).is_empty());
     assert_eq!(names(&other), vec!["first", "refusing"]);
     assert_eq!(refusing.parent_id(), Some(other.id()));
     assert_ne!(refusing.status(), ConstructionStatus::Constructed);
@@ -391,6 +414,7 @@ fn a_failed_admission_rolls_the_insert_back_to_the_previous_owner() {
 #[test]
 fn a_second_dispose_disposes_nothing_again() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let group = vmx::GroupVm::with_services("group", hub.clone(), NullDispatcher::new());
     let member = child("member");
     let disposals = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -405,7 +429,7 @@ fn a_second_dispose_disposes_nothing_again() {
     group.dispose().unwrap();
 
     assert_eq!(disposals.load(std::sync::atomic::Ordering::SeqCst), 1);
-    assert_eq!(disposed_announcements(&hub, group.id()), 1);
+    assert_eq!(disposed_announcements(&recorder, group.id()), 1);
     assert_eq!(member.status(), ConstructionStatus::Disposed);
 }
 

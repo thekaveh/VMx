@@ -13,12 +13,13 @@ use vmx::{
 #[test]
 fn component_construct_emits_status_messages() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let vm = ComponentVm::with_model("vm", 1, hub.clone(), NullDispatcher::new());
 
     vm.construct().unwrap();
 
-    let statuses = hub
-        .history()
+    let statuses = recorder
+        .messages()
         .into_iter()
         .filter_map(|message| match message {
             Message::ConstructionStatusChanged(change) => Some(change.status),
@@ -38,11 +39,12 @@ fn component_construct_emits_status_messages() {
 #[test]
 fn modeled_component_fires_model_property_changed() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let vm = ComponentVm::with_model("vm", 1, hub.clone(), NullDispatcher::new());
 
     vm.set_model(2);
 
-    assert!(hub.history().iter().any(
+    assert!(recorder.messages().iter().any(
         |message| matches!(message, Message::PropertyChanged(change) if change.property_name == "model")
     ));
 }
@@ -227,6 +229,7 @@ fn component_disposal_tears_down_all_retained_baseline_commands() {
 #[test]
 fn modeled_hint_recomputes_when_model_changes() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let vm = ComponentVm::with_model("vm", 7, hub.clone(), NullDispatcher::new())
         .with_model_hint(|model| Some(format!("hint:{model}")));
 
@@ -234,7 +237,7 @@ fn modeled_hint_recomputes_when_model_changes() {
 
     assert_eq!(vm.hint(), None);
     assert_eq!(vm.modeled_hint(), Some("hint:8".to_string()));
-    assert!(hub.history().iter().any(
+    assert!(recorder.messages().iter().any(
         |message| matches!(message, Message::PropertyChanged(change) if change.property_name == "modeled_hint")
     ));
 }
@@ -416,6 +419,7 @@ fn deferred_delivery_and_reentrant_disposal_complete_pair() {
 #[test]
 fn equality_guard_suppresses_both_notification_channels() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let vm = ComponentVm::with_model("probe", 0, hub.clone(), NullDispatcher::new());
     let local_names = Arc::new(Mutex::new(Vec::new()));
     let local_names_clone = local_names.clone();
@@ -434,8 +438,7 @@ fn equality_guard_suppresses_both_notification_channels() {
     set_value(7);
     set_value(7);
 
-    let hub_count = hub
-        .history()
+    let hub_count = recorder.messages()
         .iter()
         .filter(|message| {
             matches!(message, Message::PropertyChanged(change) if change.property_name == "value")
@@ -449,6 +452,7 @@ fn equality_guard_suppresses_both_notification_channels() {
 #[test]
 fn notification_helper_is_inert_after_disposal() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let vm = ComponentVm::with_model("probe", 0, hub.clone(), NullDispatcher::new());
     let local_names = Arc::new(Mutex::new(Vec::new()));
     let local_names_clone = local_names.clone();
@@ -456,11 +460,11 @@ fn notification_helper_is_inert_after_disposal() {
         .property_changed()
         .subscribe(move |name| local_names_clone.lock().unwrap().push(name.to_string()));
     vm.dispose().unwrap();
-    let hub_before = hub.history().len();
+    let hub_before = recorder.messages().len();
 
     vm.notify_property_changed("value");
 
-    assert_eq!(hub.history().len(), hub_before);
+    assert_eq!(recorder.messages().len(), hub_before);
     assert!(local_names.lock().unwrap().is_empty());
 }
 
@@ -546,6 +550,7 @@ fn modeled_components_explicitly_republish_the_retained_model() {
     assert_eq!(*trace.lock().unwrap(), vec!["hub:model", "local:model"]);
 
     let readonly_hub = MessageHub::new();
+    let readonly_recorder = readonly_hub.record(1024);
     let readonly_vm = ReadonlyComponentVm::new(
         "readonly",
         model.clone(),
@@ -565,8 +570,7 @@ fn modeled_components_explicitly_republish_the_retained_model() {
 
     assert!(Arc::ptr_eq(&readonly_vm.model(), &model));
     assert_eq!(
-        readonly_hub
-            .history()
+        readonly_recorder.messages()
             .iter()
             .filter(|message| matches!(message, Message::PropertyChanged(change) if change.property_name == "model"))
             .count(),
@@ -575,6 +579,7 @@ fn modeled_components_explicitly_republish_the_retained_model() {
     assert_eq!(*readonly_local.lock().unwrap(), vec!["model"]);
 
     let wrapped_hub = MessageHub::new();
+    let wrapped_recorder = wrapped_hub.record(1024);
     let wrapped = ComponentVm::with_model(
         "wrapped",
         model.clone(),
@@ -593,7 +598,7 @@ fn modeled_components_explicitly_republish_the_retained_model() {
 
     forwarding.republish_model();
 
-    assert!(wrapped_hub.history().iter().any(
+    assert!(wrapped_recorder.messages().iter().any(
         |message| matches!(message, Message::PropertyChanged(change) if change.property_name == "model" && change.sender_id == wrapped.id())
     ));
     assert_eq!(*forwarded_local.lock().unwrap(), vec!["model"]);
@@ -618,6 +623,7 @@ fn modeled_components_explicitly_republish_the_retained_model() {
     assert_eq!(*null_local.lock().unwrap(), vec!["model"]);
 
     let disposed_hub = MessageHub::new();
+    let disposed_recorder = disposed_hub.record(1024);
     let disposed_vm = ComponentVm::with_model(
         "disposed",
         model.clone(),
@@ -633,11 +639,11 @@ fn modeled_components_explicitly_republish_the_retained_model() {
             .push(name.to_string());
     });
     disposed_vm.dispose().unwrap();
-    let disposed_history_before = disposed_hub.history().len();
+    let disposed_history_before = disposed_recorder.messages().len();
 
     disposed_vm.republish_model();
 
-    assert_eq!(disposed_hub.history().len(), disposed_history_before);
+    assert_eq!(disposed_recorder.messages().len(), disposed_history_before);
     assert!(disposed_local.lock().unwrap().is_empty());
 
     let reentrant_hub = MessageHub::new();
