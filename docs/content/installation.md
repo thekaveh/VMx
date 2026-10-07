@@ -53,7 +53,8 @@ source tree, so check the flavor README and registry before pinning a release.
     Until then, clone VMx beside the consumer and install packed tarballs. Do
     not link the live adapter directory: a source checkout's React dev dependency
     can conflict with a React 18 consumer, while the tarball matches the public
-    package payload.
+    package payload. Consumers upgrading an older VMx line should also read
+    [Upgrading TypeScript and React Consumers](getting-started/upgrading-typescript.md).
 
     ```bash
     npm --prefix ../VMx/langs/typescript ci
