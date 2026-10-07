@@ -38,14 +38,19 @@ const scale = options.quick ? 0.05 : 1;
 const size = (count) => Math.max(1, Math.round(count * scale));
 
 // VMX_BENCH_SLOWDOWN="case-id=iterations" adds a fixed spin per operation to
-// one case, to show that the comparison flags a known regression.
+// one case, to show that the comparison flags a known regression. Case ids
+// contain "=" themselves, so the count follows the last one.
 const slowdown = new Map(
   (process.env.VMX_BENCH_SLOWDOWN ?? "")
     .split(",")
     .filter(Boolean)
     .map((entry) => {
-      const [id, iterations] = entry.split("=");
-      return [id, Number(iterations)];
+      const split = entry.lastIndexOf("=");
+      const iterations = Number(entry.slice(split + 1));
+      if (split <= 0 || !Number.isInteger(iterations) || iterations < 0) {
+        throw new Error(`VMX_BENCH_SLOWDOWN entry ${entry} is not case-id=iterations`);
+      }
+      return [entry.slice(0, split), iterations];
     }),
 );
 let sink = 0;
@@ -235,7 +240,7 @@ function lifecycleCase(cycles) {
   };
 }
 
-const cases = [
+const allCases = [
   sendCase(0, size(150_000)),
   sendCase(1, size(150_000)),
   sendCase(100, size(15_000)),
@@ -251,7 +256,16 @@ const cases = [
   collectionCase("insert0", 1_000, size(20_000)),
   collectionCase("insert0", 10_000, size(20_000)),
   lifecycleCase(size(20_000)),
-].filter((entry) => options.only === null || entry.id.startsWith(options.only));
+];
+const unknownSlowdown = [...slowdown.keys()].filter(
+  (id) => !allCases.some((entry) => entry.id === id),
+);
+if (unknownSlowdown.length > 0) {
+  throw new Error(`VMX_BENCH_SLOWDOWN names unknown cases: ${unknownSlowdown.join(", ")}`);
+}
+const cases = allCases.filter(
+  (entry) => options.only === null || entry.id.startsWith(options.only),
+);
 
 function collectGarbage() {
   if (typeof globalThis.gc === "function") globalThis.gc();

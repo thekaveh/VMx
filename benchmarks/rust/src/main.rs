@@ -80,15 +80,21 @@ fn parse_options() -> Options {
 }
 
 /// `VMX_BENCH_SLOWDOWN="case-id=iterations"` adds a fixed spin per operation
-/// to one case, to show that the comparison flags a known regression.
+/// to one case, to show that the comparison flags a known regression. Case
+/// ids contain `=` themselves, so the count follows the last one.
 fn slowdown() -> BTreeMap<String, u64> {
     std::env::var("VMX_BENCH_SLOWDOWN")
         .unwrap_or_default()
         .split(',')
         .filter(|entry| !entry.is_empty())
         .map(|entry| {
-            let (id, iterations) = entry.split_once('=').expect("case-id=iterations");
-            (id.to_string(), iterations.parse().expect("iterations"))
+            let parsed = entry
+                .rsplit_once('=')
+                .filter(|(id, _)| !id.is_empty())
+                .and_then(|(id, iterations)| Some((id.to_string(), iterations.parse().ok()?)));
+            parsed.unwrap_or_else(|| {
+                panic!("VMX_BENCH_SLOWDOWN entry {entry:?} is not case-id=iterations")
+            })
         })
         .collect()
 }
@@ -393,6 +399,16 @@ fn main() {
         collection_case("insert0", 10_000, size(20_000)),
         lifecycle_case(size(20_000)),
     ];
+    let unknown: Vec<&str> = slowdown
+        .keys()
+        .filter(|id| !cases.iter().any(|case| &case.id == *id))
+        .map(String::as_str)
+        .collect();
+    assert!(
+        unknown.is_empty(),
+        "VMX_BENCH_SLOWDOWN names unknown cases: {}",
+        unknown.join(", ")
+    );
     if let Some(prefix) = &options.only {
         cases.retain(|case| case.id.starts_with(prefix.as_str()));
     }

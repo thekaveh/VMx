@@ -48,9 +48,17 @@ class Case:
 
 
 def parse_slowdown() -> dict[str, int]:
-    """VMX_BENCH_SLOWDOWN="case-id=iterations" adds a fixed spin per operation."""
-    entries = [entry for entry in os.environ.get("VMX_BENCH_SLOWDOWN", "").split(",") if entry]
-    return {entry.split("=")[0]: int(entry.split("=")[1]) for entry in entries}
+    """VMX_BENCH_SLOWDOWN="case-id=iterations" adds a fixed spin per operation.
+
+    Case ids contain "=" themselves, so the count follows the last one.
+    """
+    slowdown: dict[str, int] = {}
+    for entry in filter(None, os.environ.get("VMX_BENCH_SLOWDOWN", "").split(",")):
+        case_id, _, iterations = entry.rpartition("=")
+        if not case_id or not iterations.isdigit():
+            raise SystemExit(f"VMX_BENCH_SLOWDOWN entry {entry!r} is not case-id=iterations")
+        slowdown[case_id] = int(iterations)
+    return slowdown
 
 
 SLOWDOWN = parse_slowdown()
@@ -345,6 +353,9 @@ def main() -> int:
         collection_case("insert0", 10_000, size(20_000)),
         lifecycle_case(size(5_000)),
     ]
+    unknown = sorted(set(SLOWDOWN) - {case.id for case in cases})
+    if unknown:
+        raise SystemExit(f"VMX_BENCH_SLOWDOWN names unknown cases: {', '.join(unknown)}")
     if options.only:
         cases = [case for case in cases if case.id.startswith(options.only)]
 
