@@ -6,6 +6,9 @@
         Closed="Window_Closed">
 
     <Window.Resources>
+        <!-- Declared before the template: StaticResource cannot look forward. -->
+        <BooleanToVisibilityConverter x:Key="BoolToVisibilityConverter" />
+
         <!-- Item template: checkbox (toggle Done) + title text -->
         <DataTemplate DataType="{x:Type local:TodoItemVM}">
             <StackPanel Orientation="Horizontal" Margin="4,2">
@@ -20,8 +23,6 @@
                                Converter={StaticResource BoolToVisibilityConverter}}" />
             </StackPanel>
         </DataTemplate>
-
-        <BooleanToVisibilityConverter x:Key="BoolToVisibilityConverter" />
     </Window.Resources>
 
     <Grid Margin="12">
