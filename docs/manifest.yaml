@@ -40,6 +40,10 @@ sections:
         number: "3.6"
         title: Getting Started with VMx — Rust
         source: docs/content/getting-started/rust.md
+      - id: upgrading-typescript
+        number: "3.7"
+        title: Upgrading TypeScript and React Consumers
+        source: docs/content/getting-started/upgrading-typescript.md
   - id: core-concepts
     number: "4"
     title: Core Concepts
