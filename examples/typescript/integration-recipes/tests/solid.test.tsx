@@ -21,7 +21,7 @@ function observe<M>(vm: ComponentVMOf<M>, hub: IMessageHub) {
   return { dispose, renders: () => runs, latest: () => latest };
 }
 
-describe("Solid recipe (solid-js 1.9.15)", () => {
+describe("Solid recipe (solid-js 1.9.16)", () => {
   it("renders an in-place mutation announced by republishModel once, without replacement", () => {
     const hub = countingHub();
     const note: Note = { title: "draft" };
