@@ -134,6 +134,95 @@ Use `PagedComposition` or `TokenPagedComposition` when the domain is a page or
 cursor sequence. Keep product-specific client construction and caching outside
 this primitive and inject them through the loader closure.
 
+### 6.5.3.1. Connection State
+
+`AsyncResourceVM` models one value the UI requests and waits for. A long-lived
+connection that drops and re-establishes itself, such as a frame stream, a
+socket, or a server subscription, has a different shape: nothing requests it,
+it can retry many times, and it ends. Model its state as a `ComponentVMOf` over
+an immutable value with three states, and pass every report through one
+function that enforces the rules:
+
+- Connected and Reconnecting can follow each other any number of times.
+  Reconnecting carries the reason the transport gave.
+- Disconnected is terminal. Once the feed reaches it, later reports are ignored.
+- A report equal to the current state publishes nothing, so a retry loop does
+  not make the published state flicker at backoff frequency. A changed reason is
+  a new state and publishes once.
+
+<!-- checked-snippet: langs/python/tests/unit/state/test_connection_state_recipe.py#connection-state -->
+
+```python
+class Feed(Enum):
+    CONNECTED = "connected"
+    RECONNECTING = "reconnecting"
+    DISCONNECTED = "disconnected"
+
+
+@dataclass(frozen=True)
+class FeedState:
+    status: Feed
+    reason: str | None = None
+
+
+def advance(current: FeedState, reported: FeedState) -> FeedState:
+    """Disconnected is terminal: no later report moves the feed out of it."""
+    return current if current.status is Feed.DISCONNECTED else reported
+```
+
+The transport adapter reports each event through `advance`, and the view binds
+to the VM's `model`:
+
+<!-- checked-snippet: langs/python/tests/unit/state/test_connection_state_recipe.py#connection-state-retries -->
+
+```python
+def report(state: FeedState) -> None:
+    feed.model = advance(feed.model, state)
+
+for _attempt in range(5):
+    report(FeedState(Feed.RECONNECTING, "server restarting"))
+# Equal frozen dataclasses compare equal, so only the first retry publishes.
+```
+
+The suppression comes from `ComponentVMOf`, which publishes nothing when the
+new model equals the current one. Python compares with `==`, C# with
+`EqualityComparer<M>.Default`, Swift with `==` for an `Equatable` model, and
+Rust with `PartialEq`, so a frozen dataclass, `record`, `Equatable` struct, or
+`PartialEq` enum works as shown. TypeScript compares with `===`, so a fresh
+object for every retry would publish every time. Its `advance` keeps the
+current instance when the status and reason are unchanged:
+
+<!-- checked-snippet: langs/typescript/tests/unit/connectionStateRecipe.test.ts#connection-state -->
+
+```typescript
+type FeedState =
+  | { readonly status: "connected" }
+  | { readonly status: "reconnecting"; readonly reason: string }
+  | { readonly status: "disconnected"; readonly reason?: string };
+
+const reasonOf = (state: FeedState) => ("reason" in state ? state.reason : undefined);
+
+function advance(current: FeedState, reported: FeedState): FeedState {
+  // Disconnected is terminal: no later report moves the feed out of it.
+  if (current.status === "disconnected") return current;
+  // ComponentVMOf compares models with ===, so a fresh but equal object would
+  // publish again. Keep the current instance when nothing changed.
+  const unchanged = reported.status === current.status && reasonOf(reported) === reasonOf(current);
+  return unchanged ? current : reported;
+}
+```
+
+The recipe runs as
+`langs/python/tests/unit/state/test_connection_state_recipe.py` and
+`langs/typescript/tests/unit/connectionStateRecipe.test.ts`. Both drive five
+retries with one reason, a changed reason, and a reconnect after Disconnected,
+and count the hub's `PropertyChangedMessage`s for `model`.
+
+Use `AsyncResourceVM` when the UI asks for a value and may reload or cancel it.
+Use this recipe when a transport pushes a connection's state over time. The
+stream that produces the reports, retry backoff, and offline presentation stay
+outside it.
+
 ## 6.5.4. Reactive Search Sources
 
 `SearchableState<TItem>` always keeps its existing lazy item supplier. Add the

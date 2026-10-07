@@ -258,6 +258,10 @@ jobs:
         # Worker-thread lifecycle and model changes must reach real WPF
         # bindings on the Dispatcher thread (docs/content/integration/wpf.md).
         run: dotnet run --project examples/csharp/wpf/RecipeHostCheck/RecipeHostCheck.csproj -c Release
+      - name: Run the TodoApp window lifecycle on a WPF STA Dispatcher
+        # Types through the bound TextBox, clicks Add through UI Automation,
+        # closes the window, and checks the view-model is collectable (#360).
+        run: dotnet run --project examples/csharp/wpf/TodoAppHostCheck/TodoAppHostCheck.csproj -c Release
 
   required:
     timeout-minutes: 5
