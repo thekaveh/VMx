@@ -90,6 +90,42 @@ pub(crate) fn wait<'a, T>(condition: &Condvar, guard: MutexGuard<'a, T>) -> Mute
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+/// Spawns a VMx-owned worker thread.
+///
+/// Library workers go through this helper so unit tests can count, on the
+/// spawning thread, how many workers an operation started.
+pub(crate) fn spawn_worker<F, T>(work: F) -> thread::JoinHandle<T>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    #[cfg(test)]
+    worker_spawns::record();
+    thread::spawn(work)
+}
+
+// Unit-test instrumentation only: counts the workers the current thread spawns.
+#[cfg(test)]
+pub(crate) mod worker_spawns {
+    use super::Cell;
+
+    thread_local! {
+        static SPAWNED: Cell<usize> = const { Cell::new(0) };
+    }
+
+    pub(super) fn record() {
+        SPAWNED.with(|spawned| spawned.set(spawned.get() + 1));
+    }
+
+    /// Runs `work` and returns its result with the number of workers this
+    /// thread spawned meanwhile.
+    pub(crate) fn counted<R>(work: impl FnOnce() -> R) -> (R, usize) {
+        let before = SPAWNED.with(Cell::get);
+        let result = work();
+        (result, SPAWNED.with(Cell::get) - before)
+    }
+}
+
 pub(crate) fn evaluate_command_predicate(predicate: impl FnOnce() -> bool) -> bool {
     catch_unwind(AssertUnwindSafe(predicate)).unwrap_or(false)
 }

@@ -465,7 +465,7 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + 'static>
         if self.lifecycle.is_reentrant_context() {
             self.refresh_command.execute();
         } else {
-            let _ = self.refresh_command.execute_async().join();
+            let _ = self.refresh_command.execute_and_join();
         }
     }
 
@@ -513,7 +513,7 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + 'static>
         if self.lifecycle.is_reentrant_context() {
             self.load_more_command.execute();
         } else {
-            let _ = self.load_more_command.execute_async().join();
+            let _ = self.load_more_command.execute_and_join();
         }
     }
 

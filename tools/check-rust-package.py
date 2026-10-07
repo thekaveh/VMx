@@ -49,6 +49,7 @@ src/value_stream.rs
 tests/conformance.rs
 tests/conformance/aggregate_change_stream.rs
 tests/conformance/aggregate_vm.rs
+tests/conformance/async_resource_completion.rs
 tests/conformance/async_resource_vm.rs
 tests/conformance/async_value.rs
 tests/conformance/builders.rs

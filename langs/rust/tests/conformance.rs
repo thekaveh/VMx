@@ -1,6 +1,7 @@
 mod conformance {
     mod aggregate_change_stream;
     mod aggregate_vm;
+    mod async_resource_completion;
     mod async_resource_vm;
     mod async_value;
     mod builders;
