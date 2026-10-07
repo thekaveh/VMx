@@ -14,21 +14,23 @@ fn initial_active_key_and_is_active() {
 #[test]
 fn changing_active_key_emits_once() {
     let vm = DiscriminatorVm::new("home");
+    let vm_active_changed_record = vm.active_changed().record(1024);
 
     vm.set_active_key("settings");
 
     assert_eq!(vm.active_key(), "settings");
-    assert_eq!(vm.active_changed().history().len(), 1);
+    assert_eq!(vm_active_changed_record.messages().len(), 1);
 }
 
 /// DISC-003 — Setting the same key is a no-op
 #[test]
 fn setting_same_key_is_noop() {
     let vm = DiscriminatorVm::new("home");
+    let vm_active_changed_record = vm.active_changed().record(1024);
 
     vm.set_active_key("home");
 
-    assert!(vm.active_changed().history().is_empty());
+    assert!(vm_active_changed_record.messages().is_empty());
 }
 
 /// DISC-004 — Modal open activates modal key
@@ -86,15 +88,16 @@ fn modal_depth_tracks_frames_and_disposal_releases_them() {
 #[test]
 fn clear_modals_drains_without_changing_active_key() {
     let vm = DiscriminatorVm::new("home");
+    let vm_active_changed_record = vm.active_changed().record(1024);
     vm.modal_open("a");
     vm.modal_open("b");
-    let change_count = vm.active_changed().history().len();
+    let change_count = vm_active_changed_record.messages().len();
 
     vm.clear_modals();
 
     assert_eq!(vm.modal_depth(), 0);
     assert_eq!(vm.active_key(), "b");
-    assert_eq!(vm.active_changed().history().len(), change_count);
+    assert_eq!(vm_active_changed_record.messages().len(), change_count);
     vm.modal_close();
     assert_eq!(vm.active_key(), "b");
 }
@@ -103,6 +106,7 @@ fn clear_modals_drains_without_changing_active_key() {
 #[test]
 fn non_modal_set_abandons_history_including_same_key() {
     let vm = DiscriminatorVm::new("home");
+    let vm_active_changed_record = vm.active_changed().record(1024);
     vm.modal_open("a");
     vm.modal_open("b");
 
@@ -113,20 +117,21 @@ fn non_modal_set_abandons_history_including_same_key() {
     assert_eq!(vm.active_key(), "route");
 
     vm.modal_open("modal");
-    let change_count = vm.active_changed().history().len();
+    let change_count = vm_active_changed_record.messages().len();
     vm.set_active_key("modal");
     assert_eq!(vm.modal_depth(), 0);
-    assert_eq!(vm.active_changed().history().len(), change_count);
+    assert_eq!(vm_active_changed_record.messages().len(), change_count);
 }
 
 /// DISC-003 — arbitrary keys are valid and disposal makes later mutations inert.
 #[test]
 fn arbitrary_keys_are_valid_and_disposal_is_terminal() {
     let vm = DiscriminatorVm::new("home");
+    let vm_active_changed_record = vm.active_changed().record(1024);
 
     vm.set_active_key("unlisted");
     assert_eq!(vm.active_key(), "unlisted");
-    assert_eq!(vm.active_changed().history().len(), 1);
+    assert_eq!(vm_active_changed_record.messages().len(), 1);
 
     vm.dispose();
     vm.set_active_key("after-dispose");
@@ -135,5 +140,5 @@ fn arbitrary_keys_are_valid_and_disposal_is_terminal() {
     vm.dispose();
 
     assert_eq!(vm.active_key(), "unlisted");
-    assert_eq!(vm.active_changed().history().len(), 1);
+    assert_eq!(vm_active_changed_record.messages().len(), 1);
 }

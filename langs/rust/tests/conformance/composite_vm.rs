@@ -14,8 +14,9 @@ fn child(name: &'static str) -> Child {
     Child::with_model(name, name, MessageHub::new(), NullDispatcher::new())
 }
 
-fn collection_actions(hub: &MessageHub) -> Vec<CollectionChangeAction> {
-    hub.history()
+fn collection_actions(recorder: &vmx::MessageRecorder) -> Vec<CollectionChangeAction> {
+    recorder
+        .messages()
         .into_iter()
         .filter_map(|message| match message {
             Message::CollectionChanged(change) => Some(change.action),
@@ -54,24 +55,29 @@ fn composite_exposes_parent_delegating_disposable_baseline_commands() {
 #[test]
 fn add_emits_collection_changed_add() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let composite = vmx::CompositeVm::with_services("root", hub.clone(), NullDispatcher::new());
 
     composite.add(child("a")).unwrap();
 
-    assert_eq!(collection_actions(&hub), vec![CollectionChangeAction::Add]);
+    assert_eq!(
+        collection_actions(&recorder),
+        vec![CollectionChangeAction::Add]
+    );
 }
 
 /// COMP-002 — Remove emits CollectionChanged(action=Remove)
 #[test]
 fn remove_emits_collection_changed_remove() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let composite = vmx::CompositeVm::with_services("root", hub.clone(), NullDispatcher::new());
     let item = child("a");
     composite.add(item.clone()).unwrap();
 
     composite.remove(&item).unwrap();
 
-    assert!(collection_actions(&hub).contains(&CollectionChangeAction::Remove));
+    assert!(collection_actions(&recorder).contains(&CollectionChangeAction::Remove));
     assert_eq!(item.parent_id(), None);
 }
 
@@ -107,14 +113,15 @@ fn construct_constructs_all_children() {
 #[test]
 fn parent_reaches_constructed_only_after_children() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let composite = vmx::CompositeVm::with_services("root", hub.clone(), NullDispatcher::new());
     let item = Child::with_model("child", "child", hub.clone(), NullDispatcher::new());
     composite.add(item.clone()).unwrap();
 
     composite.construct().unwrap();
 
-    let statuses = hub
-        .history()
+    let statuses = recorder
+        .messages()
         .into_iter()
         .filter_map(|message| match message {
             Message::ConstructionStatusChanged(change) => Some((change.sender_id, change.status)),
@@ -339,6 +346,7 @@ fn deselect_component_rejects_non_current_child() {
 #[test]
 fn auto_construct_on_add_constructs_late_child_before_event() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let composite = vmx::CompositeVm::with_services("root", hub.clone(), NullDispatcher::new());
     composite.set_auto_construct_on_add(true);
     composite.construct().unwrap();
@@ -348,7 +356,7 @@ fn auto_construct_on_add_constructs_late_child_before_event() {
 
     assert_eq!(item.status(), ConstructionStatus::Constructed);
     assert_eq!(
-        collection_actions(&hub).last(),
+        collection_actions(&recorder).last(),
         Some(&CollectionChangeAction::Add)
     );
 }
@@ -876,10 +884,12 @@ fn deferred_disposal_failure_follows_committed_transfer_events() {
     let failing_sibling = child("failing-sibling");
     failing_sibling.on_dispose(|| Err(VmxError::Other("dispose failure".to_string())));
     let old_hub = MessageHub::new();
+    let old_recorder = old_hub.record(1024);
     let old_parent = vmx::GroupVm::with_services("old", old_hub.clone(), NullDispatcher::new());
     old_parent.add(item.clone()).unwrap();
     old_parent.add(failing_sibling.clone()).unwrap();
     let destination_hub = MessageHub::new();
+    let destination_recorder = destination_hub.record(1024);
     let destination = vmx::CompositeVm::with_services(
         "destination",
         destination_hub.clone(),
@@ -896,7 +906,7 @@ fn deferred_disposal_failure_follows_committed_transfer_events() {
     );
 
     assert_eq!(
-        collection_actions(&old_hub),
+        collection_actions(&old_recorder),
         vec![
             CollectionChangeAction::Add,
             CollectionChangeAction::Add,
@@ -904,7 +914,7 @@ fn deferred_disposal_failure_follows_committed_transfer_events() {
         ]
     );
     assert_eq!(
-        collection_actions(&destination_hub),
+        collection_actions(&destination_recorder),
         vec![CollectionChangeAction::Add]
     );
     assert_eq!(old_parent.status(), ConstructionStatus::Disposed);
@@ -947,6 +957,7 @@ fn late_disposal_failure_does_not_retry_committed_population() {
     let failing_sibling = child("failing-sibling");
     failing_sibling.on_dispose(|| Err(VmxError::Other("dispose failure".to_string())));
     let old_hub = MessageHub::new();
+    let old_recorder = old_hub.record(1024);
     let old_parent = vmx::GroupVm::with_services("old", old_hub.clone(), NullDispatcher::new());
     old_parent.add(item.clone()).unwrap();
     old_parent.add(failing_sibling).unwrap();
@@ -956,6 +967,7 @@ fn late_disposal_failure_does_not_retry_committed_population() {
     let calls_from_factory = Arc::clone(&calls);
     let mapped_item = item.clone();
     let destination_hub = MessageHub::new();
+    let destination_recorder = destination_hub.record(1024);
     let destination = vmx::ModeledCompositeVm::<i32, Child, NullDispatcher>::new(
         "destination",
         destination_hub.clone(),
@@ -973,8 +985,8 @@ fn late_disposal_failure_does_not_retry_committed_population() {
     );
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     assert_eq!(destination.items(), vec![item.clone()]);
-    assert!(collection_actions(&old_hub).contains(&CollectionChangeAction::Remove));
-    assert!(collection_actions(&destination_hub).contains(&CollectionChangeAction::Add));
+    assert!(collection_actions(&old_recorder).contains(&CollectionChangeAction::Remove));
+    assert!(collection_actions(&destination_recorder).contains(&CollectionChangeAction::Add));
 
     destination.construct().unwrap();
 
@@ -1042,7 +1054,9 @@ fn concurrent_old_parent_disposal_waits_for_transfer_commit() {
 #[test]
 fn failed_population_rolls_back_as_one_transaction() {
     let old_hub = MessageHub::new();
+    let old_recorder = old_hub.record(1024);
     let destination_hub = MessageHub::new();
+    let destination_recorder = destination_hub.record(1024);
     let first = Child::with_model("first", "first", MessageHub::new(), NullDispatcher::new());
     let failing = Child::with_model(
         "failing",
@@ -1086,8 +1100,8 @@ fn failed_population_rolls_back_as_one_transaction() {
     assert_eq!(old_parent.items(), vec![first.clone()]);
     assert_eq!(first.status(), ConstructionStatus::Destructed);
     assert!(destination.is_empty());
-    assert!(!collection_actions(&old_hub).contains(&CollectionChangeAction::Remove));
-    assert!(!collection_actions(&destination_hub).contains(&CollectionChangeAction::Add));
+    assert!(!collection_actions(&old_recorder).contains(&CollectionChangeAction::Remove));
+    assert!(!collection_actions(&destination_recorder).contains(&CollectionChangeAction::Add));
 
     fail.store(false, Ordering::SeqCst);
     destination.construct().unwrap();
@@ -1266,6 +1280,7 @@ fn transfer_old_current_callback_can_replace_itself() {
 #[test]
 fn batch_update_emits_single_reset() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let composite = vmx::CompositeVm::with_services("root", hub.clone(), NullDispatcher::new());
 
     composite.batch_update(|| {
@@ -1274,7 +1289,7 @@ fn batch_update_emits_single_reset() {
     });
 
     assert_eq!(
-        collection_actions(&hub),
+        collection_actions(&recorder),
         vec![CollectionChangeAction::Reset]
     );
 }
@@ -1309,6 +1324,7 @@ fn current_selector_builder_hook_drives_initial_selection_during_construct() {
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let null_selector = vmx::CompositeVm::<Child>::builder()
         .name("root")
         .services(hub.clone(), NullDispatcher::new())
@@ -1320,7 +1336,7 @@ fn current_selector_builder_hook_drives_initial_selection_during_construct() {
     null_selector.construct().unwrap();
 
     assert_eq!(null_selector.current(), None);
-    assert!(!hub.history().iter().any(|message| matches!(
+    assert!(!recorder.messages().iter().any(|message| matches!(
         message,
         Message::PropertyChanged(change) if change.property_name == "current"
     )));
@@ -1439,8 +1455,9 @@ fn add_and_remove_manage_child_parent() {
 // Losing the current child (#362 coverage review): removing or replacing the
 // current child clears `current` and announces it once.
 
-fn current_announcements(hub: &MessageHub, composite_id: usize) -> usize {
-    hub.history()
+fn current_announcements(recorder: &vmx::MessageRecorder, composite_id: usize) -> usize {
+    recorder
+        .messages()
         .into_iter()
         .filter(|message| {
             matches!(
@@ -1466,48 +1483,52 @@ fn composite_with_current(hub: &MessageHub) -> (vmx::CompositeVm<Child>, Child, 
 #[test]
 fn removing_the_current_child_clears_current() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let (composite, a, _b) = composite_with_current(&hub);
-    let before = current_announcements(&hub, composite.id());
+    let before = current_announcements(&recorder, composite.id());
 
     composite.remove(&a).unwrap();
 
     assert!(composite.current().is_none());
     assert!(!a.is_current());
-    assert_eq!(current_announcements(&hub, composite.id()), before + 1);
+    assert_eq!(current_announcements(&recorder, composite.id()), before + 1);
 }
 
 #[test]
 fn removing_the_current_child_by_index_clears_current() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let (composite, a, _b) = composite_with_current(&hub);
-    let before = current_announcements(&hub, composite.id());
+    let before = current_announcements(&recorder, composite.id());
 
     let removed = composite.remove_at(0).unwrap();
 
     assert_eq!(vmx::VmNode::id(&removed), vmx::VmNode::id(&a));
     assert!(composite.current().is_none());
-    assert_eq!(current_announcements(&hub, composite.id()), before + 1);
+    assert_eq!(current_announcements(&recorder, composite.id()), before + 1);
 }
 
 #[test]
 fn replacing_the_current_child_clears_current_and_keeps_the_rest() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let (composite, a, b) = composite_with_current(&hub);
-    let before = current_announcements(&hub, composite.id());
+    let before = current_announcements(&recorder, composite.id());
 
     composite.replace(0, child("c")).unwrap();
 
     assert!(composite.current().is_none());
     assert_eq!(a.parent_id(), None);
     assert_eq!(b.parent_id(), Some(composite.id()));
-    assert_eq!(current_announcements(&hub, composite.id()), before + 1);
+    assert_eq!(current_announcements(&recorder, composite.id()), before + 1);
 }
 
 #[test]
 fn removing_a_sibling_keeps_current() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let (composite, a, b) = composite_with_current(&hub);
-    let before = current_announcements(&hub, composite.id());
+    let before = current_announcements(&recorder, composite.id());
 
     composite.remove(&b).unwrap();
 
@@ -1515,5 +1536,5 @@ fn removing_a_sibling_keeps_current() {
         .current()
         .is_some_and(|current| current.model() == "a"));
     assert!(a.is_current());
-    assert_eq!(current_announcements(&hub, composite.id()), before);
+    assert_eq!(current_announcements(&recorder, composite.id()), before);
 }

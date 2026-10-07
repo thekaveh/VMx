@@ -644,6 +644,7 @@ fn eager_construct_materializes_descendants() {
 #[test]
 fn eager_construction_is_depth_first() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let child_hub = hub.clone();
     let root = HierarchicalVm::with_children_factory(
         "root",
@@ -664,8 +665,8 @@ fn eager_construction_is_depth_first() {
 
     root.construct().unwrap();
 
-    let constructed = hub
-        .history()
+    let constructed = recorder
+        .messages()
         .into_iter()
         .filter_map(|message| match message {
             Message::ConstructionStatusChanged(change)
@@ -683,6 +684,7 @@ fn eager_construction_is_depth_first() {
 #[test]
 fn parent_change_publishes_property_changed() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let root = HierarchicalVm::with_children_factory(
         "root",
         "root".to_string(),
@@ -700,7 +702,7 @@ fn parent_change_publishes_property_changed() {
 
     root.add_child(child).unwrap();
 
-    assert!(hub.history().iter().any(
+    assert!(recorder.messages().iter().any(
         |message| matches!(message, Message::PropertyChanged(change) if change.property_name == "parent")
     ));
 }
@@ -709,6 +711,7 @@ fn parent_change_publishes_property_changed() {
 #[test]
 fn structural_mutations_publish_tree_structure_changed() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let root = HierarchicalVm::with_children_factory(
         "root",
         "root".to_string(),
@@ -730,8 +733,8 @@ fn structural_mutations_publish_tree_structure_changed() {
     root.add_child(child.clone()).unwrap();
     destination.reparent_child(&child).unwrap();
 
-    let changes = hub
-        .history()
+    let changes = recorder
+        .messages()
         .into_iter()
         .filter_map(|message| match message {
             Message::TreeStructureChanged(change) => Some(change),
@@ -759,6 +762,7 @@ fn structural_mutations_publish_tree_structure_changed() {
 #[test]
 fn explicit_reparent_of_detached_child_reports_reparented() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let destination = HierarchicalVm::with_children_factory(
         "destination",
         "destination".to_string(),
@@ -770,8 +774,8 @@ fn explicit_reparent_of_detached_child_reports_reparented() {
 
     destination.reparent_child(&detached).unwrap();
 
-    let changes = hub
-        .history()
+    let changes = recorder
+        .messages()
         .into_iter()
         .filter_map(|message| match message {
             Message::TreeStructureChanged(change) => Some(change),
@@ -787,6 +791,7 @@ fn explicit_reparent_of_detached_child_reports_reparented() {
 #[test]
 fn removing_a_non_child_is_a_noop() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let root = HierarchicalVm::with_children_factory(
         "root",
         "root".to_string(),
@@ -800,8 +805,8 @@ fn removing_a_non_child_is_a_noop() {
 
     assert!(root.children().is_empty());
     assert!(foreign.parent().is_none());
-    assert!(!hub
-        .history()
+    assert!(!recorder
+        .messages()
         .iter()
         .any(|message| matches!(message, Message::TreeStructureChanged(_))));
 }
@@ -1027,6 +1032,7 @@ fn invalidate_subtree_invalidates_materialized_descendants() {
 #[test]
 fn invalidate_children_publishes_property_changed() {
     let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let node = HierarchicalVm::with_children_factory(
         "root",
         "root".to_string(),
@@ -1038,7 +1044,7 @@ fn invalidate_children_publishes_property_changed() {
 
     node.invalidate_children();
 
-    assert!(hub.history().iter().any(
+    assert!(recorder.messages().iter().any(
         |message| matches!(message, Message::PropertyChanged(change) if change.property_name == "children")
     ));
 }

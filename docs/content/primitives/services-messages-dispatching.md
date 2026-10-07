@@ -45,6 +45,12 @@ Important runtime rules from the spec:
 Thread-safe hubs atomically claim teardown, so racing callers still complete
 and clear owned state once. See the [Disposal Contract](disposal-contract.md).
 
+No hub retains the messages it delivers. A test or diagnostic that needs to
+inspect traffic opts in: Rust attaches a bounded `MessageRecorder` with
+`hub.record(capacity)`, and TypeScript wraps a hub in `RecordingMessageHub` from
+`@thekaveh/vmx/testing`. A recorder sees each accepted message in delivery order
+and never changes delivery (ADR-0141).
+
 Rust dialog, modal, notification-waiter, and confirmation-gate awaitables use
 `AsyncValue<T>`. The handle implements `Future` for async hosts and `wait()` for
 synchronous hosts, keeping the core independent of Tokio or another executor.
@@ -398,6 +404,8 @@ terminal cleanup.
 
 - Treating the hub like a replaying event store. It is hot and current-subscriber
   only.
+- Reading Rust's deprecated `MessageHub::history()`, which is always empty.
+  Attach a `MessageRecorder` before the sends to inspect.
 - Treating a hub transaction as message deduplication. It defers and orders;
   host adapters decide whether expensive rendering should be coalesced.
 - Waiting inside a transaction for another thread that must send through the

@@ -28,6 +28,7 @@ mod conformance {
     mod lifecycle;
     mod localization;
     mod message_hub;
+    mod message_recorder;
     mod modeled_crud;
     mod notifications;
     mod null_services;

@@ -20,6 +20,7 @@ impl PartialEq for CountingModel {
 #[test]
 fn modeled_assignment_after_disposal_is_inert() {
     let component_hub = MessageHub::new();
+    let component_recorder = component_hub.record(1024);
     let equality_calls = Arc::new(AtomicUsize::new(0));
     let hinter_calls = Arc::new(AtomicUsize::new(0));
     let initial = CountingModel {
@@ -55,7 +56,7 @@ fn modeled_assignment_after_disposal_is_inert() {
     equality_calls.store(0, Ordering::SeqCst);
     hinter_calls.store(0, Ordering::SeqCst);
     local_changes.lock().unwrap().clear();
-    let component_history_len = component_hub.history().len();
+    let component_history_len = component_recorder.messages().len();
     let late_component_completion = || component.set_model(replacement.clone());
 
     late_component_completion();
@@ -64,10 +65,11 @@ fn modeled_assignment_after_disposal_is_inert() {
     assert_eq!(equality_calls.load(Ordering::SeqCst), 0);
     assert_eq!(hinter_calls.load(Ordering::SeqCst), 0);
     assert!(local_changes.lock().unwrap().is_empty());
-    assert_eq!(component_hub.history().len(), component_history_len);
+    assert_eq!(component_recorder.messages().len(), component_history_len);
     assert_eq!(component.modeled_hint(), initial_hint);
 
     let form_hub = MessageHub::new();
+    let form_recorder = form_hub.record(1024);
     let form_equality_calls = Arc::new(AtomicUsize::new(0));
     let validator_calls = Arc::new(AtomicUsize::new(0));
     let initial_form_model = CountingModel {
@@ -107,7 +109,7 @@ fn modeled_assignment_after_disposal_is_inert() {
     validator_calls.store(0, Ordering::SeqCst);
     error_signals.store(0, Ordering::SeqCst);
     command_signals.store(0, Ordering::SeqCst);
-    let form_history_len = form_hub.history().len();
+    let form_history_len = form_recorder.messages().len();
     let late_form_completion = || {
         form.set_model(CountingModel {
             value: -1,
@@ -124,7 +126,7 @@ fn modeled_assignment_after_disposal_is_inert() {
     assert_eq!(validator_calls.load(Ordering::SeqCst), 0);
     assert_eq!(error_signals.load(Ordering::SeqCst), 0);
     assert_eq!(command_signals.load(Ordering::SeqCst), 0);
-    assert_eq!(form_hub.history().len(), form_history_len);
+    assert_eq!(form_recorder.messages().len(), form_history_len);
     assert_eq!(form.is_dirty(), initial_dirty);
     assert_eq!(form.is_valid(), initial_valid);
 }

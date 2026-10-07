@@ -10,6 +10,11 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `MessageHub::record(capacity)` returns a `MessageRecorder` that keeps the
+  newest `capacity` messages the hub accepts, records them at acceptance in
+  delivery order, and counts evicted messages in `dropped()`. It never changes
+  delivery, never keeps its hub alive, and stops recording when dropped,
+  disposed, or when its hub is disposed (ADR-0141, #325).
 - `FormVm::subscribe_approved` returns an `ApprovalSubscription`. Disposing or
   dropping it detaches that approval callback and releases its captures before
   the form is disposed, and `is_active()` reports whether it still receives
@@ -28,6 +33,10 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- `MessageHub` no longer retains accepted messages. Before, every hub, including
+  the private hubs inside commands, forms, collections, paging, and
+  notifications, kept every message ever sent, even after disposal. Attach a
+  `MessageRecorder` before the sends you need to inspect (ADR-0141, #325).
 - `AsyncRelayCommand::execute()` starts no worker thread for a rejected call:
   no action, an execution already running, a false predicate, or a disposed
   command. `execute_async()` still returns `JoinHandle<VmxResult<()>>`; for a
@@ -52,6 +61,8 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Deprecated
 
+- `MessageHub::history()`, which is now always empty; record with
+  `MessageHub::record(capacity)` and read `MessageRecorder::messages()` (#325).
 - `FormVm::on_approved`, which cannot be detached before the form is disposed;
   use `subscribe_approved()` (#357).
 - `AsyncRelayCommand::errors()` and `ConfirmationDecoratorCommand::errors()`,

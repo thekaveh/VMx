@@ -76,6 +76,7 @@ tests/conformance/hierarchical_batch.rs
 tests/conformance/lifecycle.rs
 tests/conformance/localization.rs
 tests/conformance/message_hub.rs
+tests/conformance/message_recorder.rs
 tests/conformance/modeled_crud.rs
 tests/conformance/notifications.rs
 tests/conformance/null_services.rs
