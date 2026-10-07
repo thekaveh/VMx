@@ -12,7 +12,7 @@
   "dependencies": {
     "@thekaveh/vmx": "file:../../../langs/typescript",
     "rxjs": "^7.8.1",
-    "solid-js": "1.9.15",
+    "solid-js": "1.9.16",
     "svelte": "5.57.1",
     "vue": "3.5.43"
   },
