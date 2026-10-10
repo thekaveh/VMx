@@ -9,6 +9,8 @@ Public surface (plan §4.b, scenario §7.3):
 * :func:`bind_property` / :func:`bind_property_two_way` — PropertyBridge.
 * :func:`bind_command` — CommandBridge.
 * :func:`bind_collection` — CollectionBridge.
+* :func:`bind_data_table` — DataTableBridge: a projection's rows by key, with
+  operator-only selection.
 * :class:`TextualDispatcher` — implements VMx's ``Dispatcher`` Protocol over
   Textual's asyncio loop.
 * :class:`TextualDialogService` — implements ``IDialogService`` against the
@@ -24,6 +26,7 @@ from notes_showcase.views.adapter.collection import (
     on_tree_structure_changed,
 )
 from notes_showcase.views.adapter.command import bind_command
+from notes_showcase.views.adapter.data_table import bind_data_table
 from notes_showcase.views.adapter.dialog import TextualDialogService
 from notes_showcase.views.adapter.dispatcher import TextualDispatcher
 from notes_showcase.views.adapter.property import (
@@ -39,6 +42,7 @@ __all__ = [
     "TextualDispatcher",
     "bind_collection",
     "bind_command",
+    "bind_data_table",
     "bind_derived_property",
     "bind_observable_list",
     "bind_property",
