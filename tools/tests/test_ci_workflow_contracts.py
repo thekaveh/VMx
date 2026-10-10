@@ -66,7 +66,7 @@ def test_protected_branch_checks_are_always_present_and_aggregate_every_job() ->
         "csharp.yml": ("required: csharp", "needs: [build, package, examples, wpf-example]"),
         "python.yml": (
             "required: python",
-            "needs: [build, examples, small-examples, inspector, package]",
+            "needs: [build, examples, small-examples, inspector, nicegui, package]",
         ),
         "rust.yml": ("required: rust", "needs: [audit, build, examples, package, coverage]"),
         "swift.yml": ("required: swift", "needs: [build, platforms, examples, coverage]"),
