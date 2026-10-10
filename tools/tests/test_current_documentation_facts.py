@@ -117,6 +117,7 @@ def test_contract_ledger_matches_python_reactivex_locks() -> None:
         ROOT / "examples/python/uv.lock",
         ROOT / "examples/python/textual/inspector/uv.lock",
         ROOT / "examples/python/textual/notes_showcase/uv.lock",
+        ROOT / "examples/python/nicegui/notes_showcase/uv.lock",
     )
     versions = set()
     for path in lock_paths:

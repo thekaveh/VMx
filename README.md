@@ -334,6 +334,8 @@ Smaller per-flavor demos:
 - [`examples/python/textual/inspector/`](examples/python/textual/inspector/) —
   Textual TUI inspector that introspects any VMx tree using
   `vmx.tree.walk`.
+- [`examples/python/nicegui/notes_showcase/`](examples/python/nicegui/notes_showcase/) —
+  NiceGUI web page over the Textual Notes-Showcase's view-models.
 - [`examples/typescript/console/hello-vmx/`](examples/typescript/console/hello-vmx/) — minimal
   Node script.
 - [`examples/rust/console/hello-vmx/`](examples/rust/console/hello-vmx/) —

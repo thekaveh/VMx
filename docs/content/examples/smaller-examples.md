@@ -24,10 +24,13 @@ Source index:
   tkinter MVVM app
 - `examples/python/textual/inspector/`:
   live tree and hub inspector
+- `examples/python/nicegui/notes_showcase/`:
+  NiceGUI web page over the Textual Notes-Showcase's view-models
 
 Source indexes:
 [examples/python/README.md](../../../examples/python/README.md),
-[examples/python/textual/inspector/README.md](../../../examples/python/textual/inspector/README.md)
+[examples/python/textual/inspector/README.md](../../../examples/python/textual/inspector/README.md),
+[examples/python/nicegui/notes_showcase/README.md](../../../examples/python/nicegui/notes_showcase/README.md)
 
 ## 8.9.3. TypeScript
 

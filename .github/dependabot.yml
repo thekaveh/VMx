@@ -43,6 +43,7 @@ updates:
       - /examples/python
       - /examples/python/textual/inspector
       - /examples/python/textual/notes_showcase
+      - /examples/python/nicegui/notes_showcase
     schedule: { interval: weekly, day: monday }
     target-branch: develop
     versioning-strategy: lockfile-only

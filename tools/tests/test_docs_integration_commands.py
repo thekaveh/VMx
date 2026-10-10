@@ -24,7 +24,12 @@ def test_integration_recipes_accept_commands_separately_from_base_vms() -> None:
         assert "ICommand" in text
         assert "saveCommand.execute()" in text
 
-    for name in ("nicegui", "tkinter", "textual"):
+    for name in ("tkinter", "textual"):
         text = (INTEGRATION / f"{name}.md").read_text(encoding="utf-8")
         assert "RelayCommand" in text
         assert "save_command.execute(None)" in text or "_save_command.execute(None)" in text
+
+    # The NiceGUI page binds the commands its real view-models expose.
+    nicegui = (INTEGRATION / "nicegui.md").read_text(encoding="utf-8")
+    assert "bind_command(save, form.approve_command)" in nicegui
+    assert "bind_command(revert, form.deny_command)" in nicegui
