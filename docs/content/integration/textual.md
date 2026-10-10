@@ -19,6 +19,7 @@ never carries a `PropertyChangedMessage` for `status`.
 | `reactive("value")`    | `vm.property_changed` (VM-local names)             |
 | `Binding` + `action_*` | `RelayCommand.execute()`                           |
 | `ListView` items       | `ObservableList[T]` + `CollectionChangedMessage`   |
+| `DataTable` rows       | a projection's items by key, selected by key       |
 | `post_message`         | thread-safe hand-off of a change to the App thread |
 
 ## 9.5.3. Adapter skeleton
@@ -127,7 +128,129 @@ created; use the shared
 [Python asyncio dispatcher ownership](../primitives/services-messages-dispatching.md#669-python-asyncio-dispatcher-ownership)
 teardown sequence.
 
-## 9.5.4. Fuller example
+## 9.5.4. Grids With DataTable
+
+A `ListView` binds to a `CompositeVM`. A `DataTable` grid has a different
+shape: its rows usually come from a paged or filtered projection, such as
+`PagedComposition.items`, and its selection is a cursor coordinate rather than
+a child VM. Textual also moves that cursor itself. `clear()` resets it, the
+first row added is highlighted, and turning `show_cursor` on highlights again.
+A binding that treats every highlight as a choice would select a row each time
+the grid repaints.
+
+The Textual Notes-Showcase adapter ships `bind_data_table` for this shape
+(`examples/python/textual/notes_showcase/src/notes_showcase/views/adapter/data_table.py`).
+It keys every row by a stable string and selects by that key:
+
+- Moving the cursor to another row, by keys or a click, calls `select(key)`
+  once. Enter, or a click on the highlighted row, selects that row as well, so
+  a single-row table can still be chosen.
+- Rebuilding the rows, Textual's own highlights, and a selection changed by the
+  VM never call `select`.
+- After each render the cursor rests on the selected key's row. If that row
+  was removed or filtered out, no other row is selected until the operator
+  acts.
+- `changes` may emit on any thread. The bridge renders on the App thread, and
+  disposing the binding removes its hooks from the table.
+
+The grid below is the module that the Notes-Showcase tests run on a live App,
+including a change made on a worker thread.
+
+<!-- checked-snippet: examples/python/textual/notes_showcase/tests/views/data_table_recipe.py -->
+
+```python
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+import reactivex as rx
+from reactivex.abc import DisposableBase
+from textual.widgets import DataTable
+from vmx import ComponentVMOf, Message, MessageHub, ObservableList, PagedComposition, RxDispatcher
+
+from notes_showcase.views.adapter import bind_data_table
+
+
+@dataclass(frozen=True)
+class Instance:
+    id: str
+    name: str
+    status: str
+
+
+class InstanceGrid:
+    """A paged, filtered projection of instances; the selection is held by key."""
+
+    def __init__(self, hub: MessageHub[Message], page_size: int = 0) -> None:
+        dispatcher = RxDispatcher.immediate()
+        self.instances: ObservableList[Instance] = ObservableList()
+        self.filter = (
+            ComponentVMOf[str].builder().name("filter").model("").services(hub, dispatcher).build()
+        )
+        self.selection = (
+            ComponentVMOf[str | None]
+            .builder()
+            .name("selection")
+            .model(None)
+            .services(hub, dispatcher)
+            .build()
+        )
+        self.page = PagedComposition(self._visible, page_size)
+        # Everything that can change the visible rows or the selection.
+        self.changes = rx.merge(
+            self.instances.on_property_changed,
+            self.filter.property_changed,
+            self.page.on_property_changed,
+            self.selection.property_changed,
+        )
+        self.filter.construct()
+        self.selection.construct()
+
+    def _visible(self) -> list[Instance]:
+        return [instance for instance in self.instances if self.filter.model in instance.name]
+
+    def select(self, key: str) -> None:
+        self.selection.model = key
+
+    def dispose(self) -> None:
+        self.page.dispose()
+        self.filter.dispose()
+        self.selection.dispose()
+        self.instances.dispose()
+
+
+class InstanceTable(DataTable[str]):
+    """Shows a borrowed grid; whoever created the grid disposes it."""
+
+    def __init__(self, grid: InstanceGrid) -> None:
+        super().__init__(cursor_type="row")
+        self._grid = grid
+        self._binding: DisposableBase | None = None
+
+    def on_mount(self) -> None:
+        self.add_columns("Name", "Status")
+        # Rows are keyed by instance id. Moving the cursor to a row, or
+        # pressing Enter on it, selects that key; rebuilding the rows never does.
+        self._binding = bind_data_table(
+            self,
+            rows=lambda: self._grid.page.items,
+            key=lambda instance: instance.id,
+            cells=lambda instance: (instance.name, instance.status),
+            selected_key=lambda: self._grid.selection.model,
+            select=self._grid.select,
+            changes=self._grid.changes,
+        )
+
+    def on_unmount(self) -> None:
+        if self._binding is not None:
+            self._binding.dispose()
+            self._binding = None
+```
+
+`changes` merges every stream that can change the rows or the selection:
+the source list, the filter, the page, and the selection itself.
+
+## 9.5.5. Fuller example
 
 - [`examples/python/textual/inspector/`](../../../examples/python/textual/inspector/) —
   a Textual viewer for any VMx tree, demonstrating the hub-subscription
@@ -135,4 +258,4 @@ teardown sequence.
 - [`examples/python/textual/notes_showcase/`](../../../examples/python/textual/notes_showcase/) —
   the Notes-Showcase Textual flagship: full `WorkspaceVM` with
   `bind_property` / `bind_command` helpers (shipped in v2.2.0; ThemeVM
-  added in v2.4.0).
+  added in v2.4.0) and the `bind_data_table` grid bridge.

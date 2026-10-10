@@ -28,6 +28,7 @@ on:
       - "examples/csharp/avalonia/NotesShowcase.Tests/Views/AvaloniaRecipeTests.cs"
       - "examples/csharp/wpf/RecipeHostCheck/**"
       - "examples/python/tk/note_recipe/**"
+      - "examples/python/textual/notes_showcase/tests/views/data_table_recipe.py"
       - "examples/python/textual/notes_showcase/tests/views/textual_recipe.py"
       - "examples/typescript/integration-recipes/**"
       - "examples/typescript/react/notes-showcase/tests/recipes/**"

@@ -14,6 +14,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 INTEGRATION = REPO_ROOT / "docs" / "content" / "integration"
 XAML_ADAPTER = "langs/csharp/tests/VMx.Tests/Integration/BindableVm.cs#xaml-adapter"
 TEXTUAL_WIDGET = "examples/python/textual/notes_showcase/tests/views/textual_recipe.py"
+TEXTUAL_GRID = "examples/python/textual/notes_showcase/tests/views/data_table_recipe.py"
 
 
 def _checked_fences(guide: str, heading: str, language: str) -> list[str]:
@@ -49,6 +50,12 @@ def test_xaml_recipe_fences_are_checked_against_executed_code(
 
 def test_textual_recipe_is_checked_against_the_executed_widget() -> None:
     assert _checked_fences("textual.md", "## 9.5.3. Adapter skeleton", "python") == [TEXTUAL_WIDGET]
+
+
+def test_textual_grid_recipe_is_checked_against_the_executed_grid() -> None:
+    assert _checked_fences("textual.md", "## 9.5.4. Grids With DataTable", "python") == [
+        TEXTUAL_GRID
+    ]
 
 
 def test_ci_runs_the_xaml_adapter_on_a_wpf_dispatcher() -> None:
