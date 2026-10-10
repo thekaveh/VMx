@@ -131,6 +131,8 @@ and the [disposal contract](../primitives/disposal-contract.md).
 - tkinter Todo app: `examples/python/tk/todo_app/`
 - Textual inspector: `examples/python/textual/inspector/`
 - Textual flagship: `examples/python/textual/notes_showcase/`
+- NiceGUI web page over the flagship's view-models:
+  `examples/python/nicegui/notes_showcase/`
 
 The flagship and inspector are the fastest way to see the hub, lifecycle, and
 tree helpers under a real host.

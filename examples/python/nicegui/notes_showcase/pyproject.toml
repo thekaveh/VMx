@@ -1,0 +1,55 @@
+[project]
+name = "nicegui-notes-showcase"
+version = "0.1.0"
+description = "VMx Notes Workspace showcase (NiceGUI web UI)"
+requires-python = ">=3.10"
+dependencies = [
+    "vmx>=3.1.0",
+    "notes-showcase",
+    "nicegui>=3.0,<4",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+vmx = { path = "../../../../langs/python", editable = true }
+notes-showcase = { path = "../../textual/notes_showcase", editable = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nicegui_notes"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "mypy>=1.10",
+    "ruff>=0.4",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+# The `user` fixture runs the real app's entry point in NiceGUI's user simulation.
+main_file = "src/nicegui_notes/__main__.py"
+addopts = "-p nicegui.testing.user_plugin"
+testpaths = ["tests"]
+
+[tool.mypy]
+strict = true
+python_version = "3.10"
+files = ["src/nicegui_notes"]
+mypy_path = "src"
+explicit_package_bases = true
+
+[[tool.mypy.overrides]]
+module = ["reactivex.*"]
+ignore_missing_imports = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "RUF"]
