@@ -5,6 +5,8 @@
 - Install: `pip install vmx` or `uv add vmx`
 - Publication status: `vmx` 3.23.0 is published on PyPI; the current Python
   source line is the unreleased 3.25.0.
+- Supported Python: 3.10 through 3.14; the package is `mypy --strict` clean
+- Notifications: the opt-in `vmx.notifications` subpackage
 - Reactive primitive: `reactivex`
 - Naming idiom: snake_case
 - Hub concurrency: ordinary producers retain synchronous calling-thread

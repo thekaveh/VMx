@@ -179,11 +179,13 @@ ID rather than on every render frame.
 
 ## 7.6.5. Local Use
 
+With VMx cloned beside your project, depend on the crate by path:
+
 === "Cargo.toml"
 
     ```toml
     [dependencies]
-    vmx-rs = { path = "langs/rust" }
+    vmx-rs = { path = "../VMx/langs/rust" }
     ```
 
 === "Rust"

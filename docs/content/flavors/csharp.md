@@ -6,6 +6,10 @@
 - Publication status: package name is documented, but the core NuGet package is
   not published yet; use a project or local source reference until a
   `csharp-v*` release publishes it.
+- Target frameworks: `netstandard2.0` and `net8.0`
+- Companion assemblies: `VMx.Extensions.DependencyInjection`
+  (`services.AddVMx(...)`) and `VMx.Notifications` (opt-in
+  `INotificationHub`); their NuGet pages appear with their first publication
 - Reactive primitive: `System.Reactive`
 - Naming idiom: PascalCase
 - Hub concurrency: ordinary producers retain synchronous calling-thread
@@ -14,8 +18,8 @@
 ## 7.2.2. What To Reach For
 
 C# is the most direct fit when you want .NET host integration, `ICommand`-style
-UI binding, or desktop MVVM with WPF or Avalonia. The README also documents
-companion assemblies for DI and notifications.
+UI binding, or desktop MVVM with WPF or Avalonia. The companion assemblies add
+dependency-injection registration and opt-in notifications.
 
 ## 7.2.3. Serviced Collections
 

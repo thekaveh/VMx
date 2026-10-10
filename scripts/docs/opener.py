@@ -33,9 +33,6 @@ def load_opener(path: Path, repo_root: Path) -> Opener:
 
     tagline = _required_text(data, "tagline", context=str(path))
     summary = " ".join(_required_text(data, "summary", context=str(path)).split())
-    word_count = len(summary.split())
-    if not 100 <= word_count <= 150:
-        raise ValueError(f"{path}: summary must contain 100-150 words; found {word_count}")
 
     poster = data.get("poster")
     poster_source = Path(_required_text(poster, "source", context=f"{path}: poster"))

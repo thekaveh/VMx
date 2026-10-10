@@ -8,7 +8,12 @@
   has not been published yet; use a local workspace or source reference until a
   `typescript-v*` release publishes it.
 - Reactive primitive: `rxjs`
-- Runtime floor: Node 20.5.0 (the first Node 20 release with `Symbol.dispose`)
+- Runtime floor: Node 20.5.0 (the first Node 20 release with `Symbol.dispose`);
+  CI tests that exact floor plus Node 20, 22, 24, and 26
+- Package name: `@thekaveh/vmx`, scoped since v2.4.0 because the unscoped `vmx`
+  name was unavailable
+- Bundles: dual ESM + CJS, with `notifications`, `conformance`, `testing`, and
+  `devtools` subpaths
 - Naming idiom: camelCase
 
 ## 7.4.2. What To Reach For
