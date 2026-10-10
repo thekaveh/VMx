@@ -8,14 +8,14 @@
 
 <p align="center"><strong>One specification. Five idiomatic flavors. Predictable MVVM behavior across UI stacks.</strong></p>
 
-<p align="center">VMx is a UI-neutral, lifecycle-aware MVVM viewmodel framework for building hierarchical application state with explicit construction, destruction, disposal, reactive messaging, commands, collections, and composable services. One language-neutral specification defines observable behavior, while five source flavors—C#, Python, TypeScript, Swift, and Rust—preserve each ecosystem’s naming, type, concurrency, and package conventions. A shared conformance catalog keeps those implementations aligned without erasing idiomatic APIs. The source tree currently carries complete 407-ID library coverage in every flavor, with flagship hosts exercising five additional THEME scenarios. Python and Swift are publicly available through PyPI and SwiftPM; the C#, TypeScript, and Rust registry channels are prepared but not yet published. VMx therefore separates source completeness from installable-release status and documents both explicitly.</p>
+<p align="center">VMx is a UI-neutral MVVM framework for building viewmodel trees with an explicit lifecycle, a message hub, commands, and observable collections. One language-neutral specification defines its behavior, and the C#, Python, TypeScript, Swift, and Rust flavors implement it in their own language idioms.</p>
 
 <!-- vmx-opener:end -->
 
 <div class="vmx-card-grid">
   <div class="vmx-card">
     <p class="vmx-card-title"><a href="installation.md">Install</a></p>
-    <p>Check source-tree version status and package commands for each flavor.</p>
+    <p>Install a public package or reference a VMx checkout, flavor by flavor.</p>
   </div>
   <div class="vmx-card">
     <p class="vmx-card-title"><a href="getting-started/index.md">Quickstart</a></p>
@@ -27,19 +27,43 @@
   </div>
 </div>
 
-## 1.1. Why VMx
+## 1.1. Availability
 
-- `spec/` is the source of truth for behavior, lifecycle, and conformance.
-- Every flavor implements the shared normative concepts while following native naming conventions.
-- The conformance catalog keeps 407 library IDs aligned across all five
-  catalog-complete source flavors, plus 5 scenario IDs for flagship examples.
-- The completed
-  [Rust convergence ledger](../maintenance/2026-07-16-rust-capability-parity.md)
-  ties its 0.27.0 capability and behavior claims to focused tests.
+Python and Swift install from public registries. C#, TypeScript, the React
+adapter, and Rust are complete in source but not yet published, so a project
+uses them from a VMx checkout.
 
-## 1.2. Start Here
+| Flavor        | Public package                                     | Source line |
+| ------------- | -------------------------------------------------- | ----------- |
+| Python        | `vmx` 3.23.0 on PyPI                               | 3.25.0      |
+| Swift         | `VMx` 3.24.0 through SwiftPM                       | 3.26.0      |
+| C#            | Not yet published to NuGet                         | 3.25.0      |
+| TypeScript    | Not yet published to npm                           | 3.26.0      |
+| React adapter | Not yet published to npm; follows the core package | 0.1.1       |
+| Rust          | Not yet published to crates.io                     | 0.31.0      |
 
-- Read [Installation](installation.md) for source-tree status and package availability.
-- Use [Quickstart](getting-started/index.md) for the smallest multi-language setup.
-- Read [Core Concepts](core-concepts.md) before choosing VM families or extension points.
-- Use [Architecture Map](architecture/index.md) when you want the system view first.
+A source line can be ahead of its public package.
+[Installation](installation.md) shows how to use each flavor today.
+
+## 1.2. Why VMx
+
+- Lifecycle is part of the contract: construction, destruction, and disposal
+  follow one state machine in every flavor.
+- `spec/` is the source of truth for behavior, and a shared conformance catalog
+  checks every flavor against it.
+- Each flavor keeps its language's naming and concurrency idioms instead of a
+  lowest-common-denominator API.
+- The core makes no UI assumption; the
+  [integration recipes](integration/index.md) bind it to desktop, terminal, and
+  web hosts.
+
+## 1.3. Start Here
+
+- [Installation](installation.md) — install a public package or reference a
+  VMx checkout.
+- [Quickstart](getting-started/index.md) — build the same small viewmodel tree
+  in each flavor.
+- [Core Concepts](core-concepts.md) — lifecycle, ownership, messaging, and the
+  complete framework surface.
+- [Architecture Map](architecture/index.md) — the system, class, and lifecycle
+  diagrams.

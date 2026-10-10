@@ -14,7 +14,11 @@ from scripts.docs.links import (
 )
 from scripts.docs.manifest import Manifest, Section
 
-ASSET_PREFIX_RE = re.compile(r"(?P<prefix>(?:\.\./)+)assets/diagrams/(?P<asset>[^)\s]+)")
+DIAGRAMS_SOURCE = Path("docs/assets/diagrams")
+DIAGRAMS_OUTPUT = Path("assets/diagrams")
+DIAGRAM_ASSET_SUFFIXES = (".html", ".svg", ".png", ".json")
+TAB_RE = re.compile(r'^===\+? "(?P<label>[^"]*)"\s*$')
+FENCE_OPEN_RE = re.compile(r"^ {0,3}(?P<fence>`{3,}|~{3,})")
 
 
 def wiki_name(section: Section) -> str:
@@ -22,6 +26,72 @@ def wiki_name(section: Section) -> str:
         return "Home.md"
     safe = re.sub(r"[^A-Za-z0-9]+", "-", section.label).strip("-")
     return f"{safe}.md"
+
+
+def _closes_fence(line: str, fence: str) -> bool:
+    stripped = line.strip()
+    indent = len(line) - len(line.lstrip(" "))
+    return indent <= 3 and len(stripped) >= len(fence) and set(stripped) == {fence[0]}
+
+
+def _dedent_panel_line(line: str) -> str:
+    if not line.strip():
+        return ""
+    return line[1:] if line.startswith("\t") else line[4:]
+
+
+def adapt_tabs_for_wiki(markdown: str) -> str:
+    """Render MkDocs content tabs as native details blocks with dedented panels.
+
+    GitHub's wiki has no tab syntax: it would print each ``=== "Label"`` line as
+    text and its four-space-indented panel as a code block, with the panel's
+    fences and links shown literally. Each panel becomes a ``<details>`` block;
+    the first of a group is open, as the first MkDocs tab is selected.
+    """
+    lines = markdown.split("\n")
+    output: list[str] = []
+    fence: str | None = None
+    in_tab_group = False
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        if fence is not None:
+            output.append(line)
+            if _closes_fence(line, fence):
+                fence = None
+            index += 1
+            continue
+        opening = FENCE_OPEN_RE.match(line)
+        tab = TAB_RE.match(line)
+        if tab is None:
+            if opening is not None:
+                fence = opening.group("fence")
+            if line.strip():
+                in_tab_group = False
+            output.append(line)
+            index += 1
+            continue
+        end = index + 1
+        while end < len(lines) and (
+            not lines[end].strip() or lines[end].startswith(("    ", "\t"))
+        ):
+            end += 1
+        while end > index + 1 and not lines[end - 1].strip():
+            end -= 1
+        panel = "\n".join(_dedent_panel_line(item) for item in lines[index + 1 : end])
+        output.extend(
+            (
+                "<details>" if in_tab_group else "<details open>",
+                f"<summary>{html.escape(tab.group('label'), quote=False)}</summary>",
+                "",
+                *adapt_tabs_for_wiki(panel.strip("\n")).split("\n"),
+                "",
+                "</details>",
+            )
+        )
+        in_tab_group = True
+        index = end
+    return "\n".join(output)
 
 
 def build_source_map(manifest: Manifest, surface: str) -> dict[Path, Path]:
@@ -67,6 +137,24 @@ def _repo_blob_to_path(target: str) -> Path | None:
     return Path(target[len(prefix) :])
 
 
+def _projected_asset(clean: str, *, current_source: Path, repo_root: Path) -> Path | None:
+    """Return where a canonical asset target lands in a generated surface.
+
+    The target is resolved lexically, as GitHub resolves it, so a symlinked
+    directory cannot make a path that is broken on GitHub look valid here.
+    """
+    canonical = Path(os.path.normpath(current_source.parent / clean))
+    if canonical.is_absolute() or canonical.parts[:1] == ("..",):
+        return None
+    if not (repo_root / canonical).is_file():
+        return None
+    if canonical.parent == DIAGRAMS_SOURCE and canonical.suffix in DIAGRAM_ASSET_SUFFIXES:
+        return DIAGRAMS_OUTPUT / canonical.name
+    if canonical.parts[:1] == ("assets",):
+        return canonical
+    return None
+
+
 def _mapped_target(
     target: str,
     *,
@@ -88,15 +176,10 @@ def _mapped_target(
 
     if clean.startswith(("http://", "https://", "mailto:")):
         return target
-    if (not clean and suffix.startswith("#")) or "assets/diagrams/" in clean:
+    if not clean and suffix.startswith("#"):
         return target
-    candidate = (repo_root / current_source.parent / clean).resolve()
-    try:
-        canonical = candidate.relative_to(repo_root.resolve())
-    except ValueError:
-        canonical = Path()
-    if canonical.parts[:1] == ("assets",) and candidate.is_file():
-        rel = os.path.relpath(canonical, start=current_output.parent)
+    if asset := _projected_asset(clean, current_source=current_source, repo_root=repo_root):
+        rel = os.path.relpath(asset, start=current_output.parent)
         return f"{rel.replace(os.sep, '/')}{suffix}"
     if clean.endswith("/"):
         sibling_page = f"{clean.rstrip('/')}.md"
@@ -134,6 +217,8 @@ def rewrite_for_surface(
     repo_root: Path | None = None,
 ) -> str:
     selected_root = (repo_root or Path.cwd()).resolve()
+    if surface == "wiki":
+        markdown = adapt_tabs_for_wiki(markdown)
 
     def markdown_form(link: MarkdownLink, target: str) -> str:
         destination = _markdown_destination(
@@ -210,10 +295,17 @@ def rewrite_for_surface(
             elif mapped_path.endswith(".md"):
                 mapped_path = f"{mapped_path.removesuffix('.md')}/"
                 converted_page = True
-            if converted_page and current_output.name != "index.md":
+            asset = (
+                surface == "site"
+                and _projected_asset(
+                    _strip_url_bits(target), current_source=current_source, repo_root=selected_root
+                )
+                is not None
+            )
+            if (converted_page or asset) and current_output.name != "index.md":
                 # MkDocs serves non-index pages at directory URLs. Raw HTML hrefs
-                # resolve in the browser from that extra page directory, unlike
-                # Markdown links which MkDocs rewrites from the source file path.
+                # and srcs resolve in the browser from that extra page directory,
+                # unlike Markdown links which MkDocs rewrites from the source file.
                 mapped_path = f"../{mapped_path}"
             mapped = f"{mapped_path}{suffix}"
         escaped = html.escape(mapped, quote=True)
@@ -223,6 +315,4 @@ def rewrite_for_surface(
     for attribute in reversed(find_html_link_attributes(text)):
         replacement = replace_html_link_attribute(attribute)
         text = f"{text[: attribute.start]}{replacement}{text[attribute.end :]}"
-    if surface == "wiki":
-        text = ASSET_PREFIX_RE.sub(r"assets/diagrams/\g<asset>", text)
     return text

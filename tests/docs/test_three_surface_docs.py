@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import os
 import re
 import textwrap
 import time
@@ -8,7 +9,8 @@ from html.parser import HTMLParser
 from pathlib import Path
 
 import pytest
-from scripts.docs import build_docs
+from markdown_it import MarkdownIt
+from scripts.docs import build_docs, check_docs
 from scripts.docs.check_docs import (
     _check_descendant_heading_numbers,
     check,
@@ -1166,3 +1168,235 @@ def test_generated_wiki_has_sidebar_footer_and_diagram_assets() -> None:
     assert (ROOT / "generated/wiki/assets/diagrams/system-architecture.png").exists()
     sidebar = (ROOT / "generated/wiki/_Sidebar.md").read_text(encoding="utf-8")
     assert re.search(r"\[\[5\.2\. System Architecture\|5-2-System-Architecture\]\]", sidebar)
+
+
+FLAGGED_DIAGRAM_PAGES = (
+    "docs/content/architecture/index.md",
+    "docs/content/primitives/viewmodel-families/index.md",
+    "docs/content/primitives/viewmodel-families/specialized/index.md",
+)
+
+
+def test_canonical_link_check_rejects_targets_reached_through_a_symlink(tmp_path: Path) -> None:
+    diagrams = tmp_path / "docs/assets/diagrams"
+    diagrams.mkdir(parents=True)
+    (diagrams / "map.svg").write_text("<svg></svg>\n", encoding="utf-8")
+    (tmp_path / "docs/content/assets").mkdir(parents=True)
+    (tmp_path / "docs/content/assets/diagrams").symlink_to(
+        "../../assets/diagrams", target_is_directory=True
+    )
+    page = tmp_path / "docs/content/guide/index.md"
+    page.parent.mkdir()
+    page.write_text(
+        '<img src="../assets/diagrams/map.svg">\n<img src="../../assets/diagrams/map.svg">\n',
+        encoding="utf-8",
+    )
+
+    findings = check_canonical_links(tmp_path)
+
+    assert [finding.message for finding in findings] == [
+        "docs/content/guide/index.md: target does not exist: ../assets/diagrams/map.svg"
+    ]
+
+
+def test_flagged_diagram_references_resolve_in_repository_rendering() -> None:
+    diagrams = ROOT / "docs/assets/diagrams"
+    references = [
+        (page, attribute.target)
+        for page in (ROOT / relative for relative in FLAGGED_DIAGRAM_PAGES)
+        for attribute in find_html_link_attributes(page.read_text(encoding="utf-8"))
+        if "assets/diagrams/" in attribute.target
+    ]
+
+    assert len(references) == 11
+    for page, target in references:
+        resolved = Path(os.path.normpath(page.parent / target))
+        assert resolved.parent == diagrams, target
+        assert resolved.is_file(), target
+    assert [path for path in (ROOT / "docs/content").rglob("*") if path.is_symlink()] == []
+
+
+@pytest.mark.parametrize(
+    ("surface", "source", "fragment", "expected"),
+    [
+        (
+            "site",
+            "docs/content/architecture/index.md",
+            '<img src="../../assets/diagrams/system-architecture.svg">',
+            '<img src="../assets/diagrams/system-architecture.svg">',
+        ),
+        (
+            "site",
+            "docs/content/architecture/system-architecture.md",
+            '<a href="../../assets/diagrams/system-architecture.html">HTML</a>',
+            '<a href="../../assets/diagrams/system-architecture.html">HTML</a>',
+        ),
+        (
+            "site",
+            "docs/content/primitives/viewmodel-families/specialized/index.md",
+            '<a href="../../../../assets/diagrams/specialized-vm-family.png">PNG</a>',
+            '<a href="../../../assets/diagrams/specialized-vm-family.png">PNG</a>',
+        ),
+        (
+            "site",
+            "docs/content/architecture/system-architecture.md",
+            "![Map](../../assets/diagrams/system-architecture.svg)",
+            "![Map](../assets/diagrams/system-architecture.svg)",
+        ),
+        (
+            "wiki",
+            "docs/content/architecture/index.md",
+            '<img src="../../assets/diagrams/system-architecture.svg">',
+            '<img src="assets/diagrams/system-architecture.svg">',
+        ),
+        (
+            "wiki",
+            "docs/content/primitives/viewmodel-families/specialized/index.md",
+            '<a href="../../../../assets/diagrams/specialized-vm-family.html">HTML</a>',
+            '<a href="assets/diagrams/specialized-vm-family.html">HTML</a>',
+        ),
+    ],
+)
+def test_surface_rewrite_projects_canonical_diagram_paths(
+    surface: str, source: str, fragment: str, expected: str
+) -> None:
+    manifest = load_manifest(ROOT / "docs/manifest.yaml", ROOT)
+    source_map = build_source_map(manifest, surface)
+    current_source = Path(source)
+
+    rewritten = rewrite_for_surface(
+        fragment,
+        surface=surface,
+        current_source=current_source,
+        current_output=source_map[current_source],
+        source_map=source_map,
+        repo_root=ROOT,
+    )
+
+    assert rewritten == expected
+
+
+TABBED_SOURCE = """Intro.
+
+=== "C#"
+
+    Use a project reference:
+
+    ```bash
+    dotnet add reference ../VMx/App.csproj
+    ```
+
+=== "Python"
+
+    ```python
+    def main():
+        return 1
+
+    ```
+
+    Read [Upgrading](getting-started/upgrading-typescript.md).
+
+After the tabs.
+
+```markdown
+=== "Literal"
+
+    stays code
+```
+"""
+
+
+def _rewrite_installation(markdown: str, surface: str) -> str:
+    manifest = load_manifest(ROOT / "docs/manifest.yaml", ROOT)
+    source_map = build_source_map(manifest, surface)
+    source = Path("docs/content/installation.md")
+    return rewrite_for_surface(
+        markdown,
+        surface=surface,
+        current_source=source,
+        current_output=source_map[source],
+        source_map=source_map,
+        repo_root=ROOT,
+    )
+
+
+ADAPTED_WIKI = """Intro.
+
+<details open>
+<summary>C#</summary>
+
+Use a project reference:
+
+```bash
+dotnet add reference ../VMx/App.csproj
+```
+
+</details>
+
+<details>
+<summary>Python</summary>
+
+```python
+def main():
+    return 1
+
+```
+
+Read [[Upgrading|3-7-Upgrading-TypeScript-and-React-Consumers]].
+
+</details>
+
+After the tabs.
+
+```markdown
+=== "Literal"
+
+    stays code
+```
+"""
+
+
+def test_wiki_rewrite_adapts_mkdocs_tabs_to_details_blocks() -> None:
+    rewritten = _rewrite_installation(TABBED_SOURCE, "wiki")
+
+    assert rewritten == ADAPTED_WIKI
+
+
+def test_site_rewrite_keeps_mkdocs_tabs() -> None:
+    rewritten = _rewrite_installation(TABBED_SOURCE, "site")
+
+    assert '=== "C#"\n\n    Use a project reference:' in rewritten
+    assert "<details" not in rewritten
+
+
+def test_generated_wiki_tab_check_rejects_leaked_tab_declarations(tmp_path: Path) -> None:
+    wiki = tmp_path / "generated/wiki"
+    wiki.mkdir(parents=True)
+    (wiki / "Leaky.md").write_text(
+        '=== "C#"\n\n    ```bash\n    dotnet build\n    ```\n', encoding="utf-8"
+    )
+    (wiki / "Quoted.md").write_text('```markdown\n=== "C#"\n```\n', encoding="utf-8")
+
+    findings = check_docs.check_generated_wiki_tabs(tmp_path)
+
+    assert [finding.message for finding in findings] == [
+        f"{wiki / 'Leaky.md'}:1: MkDocs tab declaration leaked into the wiki"
+    ]
+
+
+def test_generated_wiki_adapts_every_tabbed_page() -> None:
+    build_docs.build(site=False, wiki=True, check=False, repo_root=ROOT)
+    installation = (ROOT / "generated/wiki/2-Installation.md").read_text(encoding="utf-8")
+
+    assert check_docs.check_generated_wiki_tabs(ROOT) == []
+    assert installation.count("<details") == 5
+    assert (
+        "[[Upgrading TypeScript and React Consumers|3-7-Upgrading-TypeScript-and-React-Consumers]]"
+        in installation
+    )
+    assert re.search(r"^ {4}```", installation, re.MULTILINE) is None
+    tokens = MarkdownIt("commonmark").parse(installation)
+    assert [token for token in tokens if token.type == "code_block"] == []
+    assert sum(token.type == "fence" for token in tokens) >= 5
+    inline = "".join(token.content for token in tokens if token.type == "inline")
+    assert "[[Upgrading TypeScript and React Consumers|" in inline

@@ -8,7 +8,7 @@
 
 <p align="center"><strong>One specification. Five idiomatic flavors. Predictable MVVM behavior across UI stacks.</strong></p>
 
-<p align="center">VMx is a UI-neutral, lifecycle-aware MVVM viewmodel framework for building hierarchical application state with explicit construction, destruction, disposal, reactive messaging, commands, collections, and composable services. One language-neutral specification defines observable behavior, while five source flavors—C#, Python, TypeScript, Swift, and Rust—preserve each ecosystem’s naming, type, concurrency, and package conventions. A shared conformance catalog keeps those implementations aligned without erasing idiomatic APIs. The source tree currently carries complete 407-ID library coverage in every flavor, with flagship hosts exercising five additional THEME scenarios. Python and Swift are publicly available through PyPI and SwiftPM; the C#, TypeScript, and Rust registry channels are prepared but not yet published. VMx therefore separates source completeness from installable-release status and documents both explicitly.</p>
+<p align="center">VMx is a UI-neutral MVVM framework for building viewmodel trees with an explicit lifecycle, a message hub, commands, and observable collections. One language-neutral specification defines its behavior, and the C#, Python, TypeScript, Swift, and Rust flavors implement it in their own language idioms.</p>
 
 <!-- vmx-opener:end -->
 
@@ -39,71 +39,185 @@
 ## Contents
 
 1. [Overview](#1-overview)
-1. [Architecture](#2-architecture)
-   - 2.1 [Architecture diagram](#21-architecture-diagram)
-   - 2.2 [Class diagram](#22-class-diagram)
-   - 2.3 [Layers](#23-layers)
-1. [Flavors](#3-flavors)
-   - 3.1 [Versions and packages](#31-versions-and-packages)
-   - 3.2 [Spec and flavor compatibility](#32-spec-and-flavor-compatibility)
-1. [Getting started](#4-getting-started)
-   - 4.1 [Install](#41-install)
-   - 4.2 [Quickstart guides](#42-quickstart-guides)
-   - 4.3 [Examples](#43-examples)
-1. [Repository layout](#5-repository-layout)
-   - 5.1 [Documentation map](#51-documentation-map)
+1. [Availability](#2-availability)
+1. [Getting started](#3-getting-started)
+   - 3.1 [Install](#31-install)
+   - 3.2 [First steps](#32-first-steps)
+   - 3.3 [Examples](#33-examples)
+1. [Architecture](#4-architecture)
+   - 4.1 [Architecture diagram](#41-architecture-diagram)
+   - 4.2 [Class diagram](#42-class-diagram)
+1. [Flavors](#5-flavors)
 1. [Versioning and conformance](#6-versioning-and-conformance)
    - 6.1 [SemVer policy](#61-semver-policy)
-   - 6.2 [Conformance catalog](#62-conformance-catalog)
-1. [Contributing](#7-contributing)
-1. [License](#8-license)
+   - 6.2 [Spec and flavor compatibility](#62-spec-and-flavor-compatibility)
+   - 6.3 [Conformance catalog](#63-conformance-catalog)
+1. [Repository layout](#7-repository-layout)
+   - 7.1 [Documentation map](#71-documentation-map)
+1. [Contributing](#8-contributing)
+1. [License](#9-license)
 
 ## 1. Overview
 
-VMx is a framework for building MVVM viewmodels with explicit lifecycle and
-reactive messaging. It targets WPF / Avalonia / MAUI on .NET, Tkinter / PyQt /
-NiceGUI / Textual on Python, and any DOM- or rxjs-based UI on TypeScript — but
-makes no assumption about the UI layer. Every flavor exposes:
+VMx gives an application a viewmodel layer with an explicit lifecycle. Every
+viewmodel is constructed, destructed, and disposed through one state machine;
+parents own their children; property and lifecycle changes travel over a
+message hub; and commands, collections, forms, and paging helpers build on the
+same contract. The core makes no assumption about the UI: the
+[integration recipes](docs/content/integration/index.md) bind it to WPF,
+Avalonia, MAUI, Textual, NiceGUI, Tkinter, React, Vue, Svelte, SolidJS, and
+SwiftUI.
 
-- A five-state construction lifecycle (`Destructed`, `Constructing`,
-  `Constructed`, `Destructing`, plus terminal `Disposed`) with reversible
-  `construct`/`destruct`, `reconstruct()`, and a synchronous depth-first
-  `dispose()` cascade that can be invoked from any state.
-- A reactive message hub for `PropertyChangedMessage` and
-  `ConstructionStatusChangedMessage`, plus collection-change events on
-  container VMs.
-- Four hierarchy primitives — leaf `ComponentVM`, selectable `CompositeVM`,
-  peer `GroupVM`, fixed-arity `AggregateVM1..6` — plus forwarding decorators
-  for instrumentation.
-- One shared VM collection capability for groups and composites, with
-  selection layered only onto composites and atomic identity-preserving move.
-- A `RelayCommand` with reactive `canExecute` triggers and explicit imperative
-  re-evaluation notifications, plus v2.0 decorators
-  (`CompositeCommand`, `DecoratorCommand`, `ConfirmationDecoratorCommand`)
-  and a modeled-CRUD helper (`ModeledCrudCommands`).
-- Tree utilities (`walk`, `find`, `walk_expanded`) for introspection.
-- 22 opt-in capability micro-interfaces (`ISelectable`, `IExpandable`,
-  `IClosable`, `IFilterable`, `IPageable`, …) and helper state classes
-  (`ExpandableState`, `SearchableState`) for layering behaviour onto VMs
-  additively. `SearchableState` optionally observes a source-change signal so
-  an unchanged term stays synchronized with collection/member invalidations.
-- `DerivedProperty<T>` for N-source computed values, `FormVM<T>` for
-  snapshot/revert/validation flows, `DiscriminatorVM` for single-active-key
-  coordination, `AsyncResourceVM<T>` for cancellable latest-wins acquisition,
-  `PagedComposition` / `TokenPagedComposition` for finite and
-  cursor paging, an opt-in notification sub-package (`INotificationHub`),
-  `IDialogService`, null-object service variants (`NullMessageHub`,
-  `NullDispatcher`, `NullNotificationHub`, `NullLocalizer`,
-  `NullDialogService`), and an `ILocalizer` hook for i18n.
+One language-neutral specification in [`spec/`](spec/README.md) defines the
+behavior. The C#, Python, TypeScript, Swift, and Rust flavors implement it with
+each language's naming and concurrency idioms (ADR-0006), and a shared
+conformance catalog keeps them aligned.
+[Core Concepts](docs/content/core-concepts.md) lists the complete framework
+surface.
 
-The normative conceptual shape and observable behavior are shared across
-flavors, with intentional flavor idioms documented by ADR. Naming follows the
-local idiom (PascalCase in C#, snake_case in Python and Rust, camelCase in
-TypeScript and Swift — codified in ADR-0006).
+## 2. Availability
 
-## 2. Architecture
+Python and Swift install from public registries. C#, TypeScript, the React
+adapter, and Rust are complete in source but not yet published, so a project
+uses them from a VMx checkout until their first registry release.
 
-### 2.1 Architecture diagram
+| Flavor        | Public package                                                                          | Source line |
+| ------------- | --------------------------------------------------------------------------------------- | ----------- |
+| Python        | [`vmx` 3.23.0](https://pypi.org/project/vmx/3.23.0/) on PyPI                            | v3.25.0     |
+| Swift         | [`VMx` 3.24.0](https://github.com/thekaveh/VMx/releases/tag/swift-v3.24.0) via SwiftPM | v3.26.0     |
+| C#            | Not yet published to NuGet                                                              | v3.25.0     |
+| TypeScript    | Not yet published to npm                                                                | v3.26.0     |
+| React adapter | Not yet published to npm; follows the core npm release (#57)                            | v0.1.1      |
+| Rust          | Not yet published to crates.io                                                          | v0.31.0     |
+
+A source line can be ahead of its public package. The
+[`compatibility-matrix.md`](compatibility-matrix.md) ledger records which
+releases implement which spec version.
+
+## 3. Getting started
+
+### 3.1 Install
+
+Run these commands from your own project directory. The source-checkout
+commands assume VMx is cloned beside that project:
+
+```bash
+git clone https://github.com/thekaveh/VMx.git ../VMx
+```
+
+**Python** (PyPI):
+
+```bash
+pip install vmx
+# or
+uv add vmx
+```
+
+**Swift** (SwiftPM) — add the package to `Package.swift`:
+
+```swift
+dependencies: [
+    .package(url: "https://github.com/thekaveh/VMx.git", from: "3.24.0")
+],
+targets: [
+    .target(name: "MyApp", dependencies: [
+        .product(name: "VMx", package: "vmx")
+    ])
+]
+```
+
+**C#** (source checkout; `dotnet add package VMx` applies after the first
+NuGet release):
+
+```bash
+dotnet add MyApp.csproj reference ../VMx/langs/csharp/src/VMx/VMx.csproj
+```
+
+**TypeScript** (source checkout; `npm install @thekaveh/vmx rxjs` applies after
+the first npm release). Pack the sources so your project consumes the
+published-package layout:
+
+```bash
+npm --prefix ../VMx/langs/typescript ci
+npm --prefix ../VMx/packages/react ci
+mkdir -p /tmp/vmx-packs
+npm pack ../VMx/langs/typescript --pack-destination /tmp/vmx-packs
+npm pack ../VMx/packages/react --pack-destination /tmp/vmx-packs
+npm install /tmp/vmx-packs/thekaveh-vmx-3.26.0.tgz \
+  /tmp/vmx-packs/thekaveh-vmx-react-0.1.1.tgz react rxjs use-sync-external-store
+```
+
+**Rust** (source checkout; crates.io release pending):
+
+```bash
+cargo add vmx-rs --path ../VMx/langs/rust
+```
+
+[Installation](docs/content/installation.md) repeats these steps per flavor,
+with platform floors and upgrade notes.
+
+### 3.2 First steps
+
+[Quickstart](docs/content/getting-started/index.md) builds the same small tree
+in every flavor: a message hub and dispatcher, two leaf `ComponentVM` tabs, and
+a selectable `CompositeVM` that owns them. The per-flavor guides continue from
+there:
+
+- [C#](docs/content/getting-started/csharp.md) — a modeled
+  `ComponentVM<UserModel>`, a `RelayCommand`, and a `CompositeVM<TabVM>`.
+- [Python](docs/content/getting-started/python.md) — the same shape with the
+  snake_case API and immediate or asyncio dispatchers.
+- [TypeScript](docs/content/getting-started/typescript.md) — the camelCase API,
+  ESM imports, and rxjs-backed observables.
+- [Swift](docs/content/getting-started/swift.md) — the camelCase API and
+  Combine-backed publishers.
+- [Rust](docs/content/getting-started/rust.md) — `ComponentVm`,
+  `RelayCommand`, and a selectable `CompositeVm`, with
+  [`langs/rust/README.md`](langs/rust/README.md) for crate commands.
+
+### 3.3 Examples
+
+Run these commands from the root of a VMx checkout.
+
+Four flagship Notes Workspace apps implement one shared scenario covering
+**19 distinct VMx features** in their host UI; the
+[parity matrix](examples/notes-showcase-parity.md) maps each feature to each
+app. A Rust-native Ratatui showcase keeps a pure VMx view-model layer with its
+own smaller scenario.
+
+- [Avalonia](examples/csharp/avalonia/NotesShowcase/) (.NET 8):
+  `dotnet run --project examples/csharp/avalonia/NotesShowcase`
+- [Textual](examples/python/textual/notes_showcase/) (terminal UI):
+  `uv run --project examples/python/textual/notes_showcase python -m notes_showcase`
+- [React](examples/typescript/react/notes-showcase/) (React 19 + Vite):
+  `npm --prefix examples/typescript/react/notes-showcase ci`, then
+  `npm --prefix examples/typescript/react/notes-showcase run dev`
+- [SwiftUI](examples/swift/notes-showcase/) (macOS with Xcode):
+  `swift test --package-path examples/swift/notes-showcase`
+- [Ratatui](examples/rust/tui/notes-showcase/) (Rust terminal UI):
+  `cargo run --locked --manifest-path examples/rust/tui/notes-showcase/Cargo.toml -- --smoke`
+
+Smaller demos:
+
+- [`examples/csharp/console/HelloVMx/`](examples/csharp/console/HelloVMx/) — console.
+- [`examples/csharp/wpf/TodoApp/`](examples/csharp/wpf/TodoApp/) — WPF + MVVM
+  (Windows only).
+- [`examples/python/console/hello_vmx/`](examples/python/console/hello_vmx/) — console.
+- [`examples/python/tk/todo_app/`](examples/python/tk/todo_app/) — Tkinter
+  MVVM.
+- [`examples/python/textual/inspector/`](examples/python/textual/inspector/) —
+  Textual TUI inspector that introspects any VMx tree using
+  `vmx.tree.walk`.
+- [`examples/python/nicegui/notes_showcase/`](examples/python/nicegui/notes_showcase/) —
+  NiceGUI web page over the Textual Notes-Showcase's view-models.
+- [`examples/typescript/console/hello-vmx/`](examples/typescript/console/hello-vmx/) — minimal
+  Node script.
+- [`examples/rust/console/hello-vmx/`](examples/rust/console/hello-vmx/) —
+  minimal Cargo console demo using `ComponentVm` and `RelayCommand`.
+
+## 4. Architecture
+
+### 4.1 Architecture diagram
 
 ![VMx architecture diagram](assets/architecture.svg)
 
@@ -111,8 +225,10 @@ Lifecycle validation anchors every VM family while services and builders remain
 replaceable around that invariant. Optional decorators and capabilities compose
 over the same messages, commands, and collection contracts, so host integrations
 do not need to alter the core state machine.
+[System Architecture](docs/content/architecture/system-architecture.md)
+describes each layer.
 
-### 2.2 Class diagram
+### 4.2 Class diagram
 
 A cluster-level map of the principal library families and their relationships.
 
@@ -125,85 +241,44 @@ component composition. `FormVM`, `DiscriminatorVM`, `NotificationVM`, and
 with Rust's `FormVM` composing a component leaf. The remaining clusters cover
 commands, capabilities, services, messages, builders, collections, paging,
 state helpers, and tree utilities. The exhaustive member contracts live in the
-linked spec chapters and ADRs.
+linked spec chapters and ADRs, and the
+[Architecture Map](docs/content/architecture/index.md) walks the full diagram
+set.
 
-### 2.3 Layers
+## 5. Flavors
 
-Each flavor implements the same conceptual stack:
+| Flavor     | Naming idiom       | Reactive primitive          | Guide                                           |
+| ---------- | ------------------ | --------------------------- | ----------------------------------------------- |
+| C#         | PascalCase         | System.Reactive             | [C#](docs/content/flavors/csharp.md)            |
+| Python     | snake_case         | reactivex                   | [Python](docs/content/flavors/python.md)        |
+| TypeScript | camelCase          | rxjs                        | [TypeScript](docs/content/flavors/typescript.md) |
+| Swift      | camelCase          | Combine                     | [Swift](docs/content/flavors/swift.md)          |
+| Rust       | snake_case methods | VMx-owned hot-stream facade | [Rust](docs/content/flavors/rust.md)            |
 
-- **Spec** — `spec/` is the source of truth: 24 markdown chapters, 141 ADRs,
-  4 JSON fixtures, 412 conformance IDs, version pinned in `spec/VERSION`.
-- **Application code** — your host app instantiates VMs through builders.
-- **Forwarding decorators** *(optional)* — `ForwardingComponentVM` and
-  `ForwardingCompositeVM` wrap an inner VM for instrumentation, selective
-  override, or composition.
-- **Viewmodel hierarchy** — `ComponentVM<M>`, `CompositeVM<VM>`,
-  `GroupVM<VM>`, `AggregateVM1..6`.
-- **Commands** — `RelayCommand` and `RelayCommand<T>` with `execute`,
-  `canExecute`, reactive trigger observables, and imperative re-evaluation
-  notifications.
-- **Messages and collection events** — `PropertyChangedMessage`,
-  `ConstructionStatusChangedMessage`, `CollectionChangedEvent` with
-  `BatchUpdate()`, atomic `Move`, and `AutoConstructOnAdd` options.
-- **Tree utilities** — `walk(root)`, `walk_expanded(root)`, and
-  `find(root, predicate)` over any VM hierarchy.
-- **Services** — `MessageHub` (hot-stream pub/sub) and
-  `RxDispatcher` (paired foreground / background schedulers).
-- **Lifecycle state machine** — orchestrates every VM; transitions enforced
-  by a fixture-backed validator (`spec/fixtures/lifecycle-transitions.json`).
-- **Builders** — immutable fluent setters that return new instances and
-  validate required fields on `build()`.
+The normative conceptual shape and observable behavior are shared across
+flavors, with intentional flavor idioms documented by ADR. Each flavor guide
+covers its package, platform floors, and host-integration pointers; the React
+bindings ship as the `@thekaveh/vmx-react` adapter over the TypeScript flavor.
 
-## 3. Flavors
+## 6. Versioning and conformance
 
-### 3.1 Versions and packages
+### 6.1 SemVer policy
 
-| Flavor     | Source status     | Public package status                                                                  | Reactive primitive          |
-| ---------- | ----------------- | -------------------------------------------------------------------------------------- | --------------------------- |
-| C#         | v3.25.0 in source | NuGet package not published yet                                                        | System.Reactive             |
-| Python     | v3.25.0 in source | [`vmx` 3.23.0](https://pypi.org/project/vmx/3.23.0/) on PyPI                          | reactivex                   |
-| TypeScript | v3.26.0 in source | npm package not published yet                                                          | rxjs                        |
-| React      | adapter v0.1.1 in source | `@thekaveh/vmx-react`; publication waits for core npm #57                         | React 18/19 + rxjs          |
-| Swift      | v3.26.0 in source | [`VMx` 3.24.0](https://github.com/thekaveh/VMx/releases/tag/swift-v3.24.0) via SwiftPM | Combine                     |
-| Rust       | v0.31.0 in source | crates.io package not published yet                                                    | VMx-owned hot-stream facade |
+Each language flavor versions independently in SemVer. The spec also versions
+independently in SemVer. Every published package declares the spec version it
+implements (`MinSpecVersion` in C#, `__min_spec_version__` in Python,
+`__minSpecVersion__` in TypeScript, `VMxVersion.minSpecVersion` in Swift,
+`MIN_SPEC_VERSION` in Rust). A
+spec major bump triggers a major bump in every active flavor; a spec minor bump
+(like v2.1.0) is fully backwards compatible and ships in flavors as a minor
+bump.
 
-`main` may contain an in-development source version before that version is
-published to package registries. The §3.2 summary preserves source-line parity
-history, including lines that were never published. The
-[`compatibility-matrix.md`](compatibility-matrix.md) ledger is canonical for
-released compatibility plus the current in-development line; use each registry
-for installable package availability.
+### 6.2 Spec and flavor compatibility
 
-All five source flavors implement the 407 library conformance IDs. The flagship
-example apps cover 5 additional THEME scenario IDs, for **412 total** tracked
-scenarios. Swift covers those UI scenarios through
-`examples/swift/notes-showcase/` (ADR-0067). See
-[`langs/swift/README.md`](langs/swift/README.md) §5 for the Swift ID matrix.
-The C# flavor multi-targets `netstandard2.0` and
-`net8.0` and ships two companion assemblies:
-`VMx.Extensions.DependencyInjection` (`services.AddVMx(...)`) and
-`VMx.Notifications` (opt-in `INotificationHub`). Their NuGet pages will become
-available with their first publication. The Python flavor supports Python 3.10 through 3.14,
-is `mypy --strict` clean, and exposes `vmx.notifications` as an opt-in
-subpackage. The TypeScript flavor (npm package `@thekaveh/vmx` — renamed
-in v2.4.0 because the unscoped `vmx` name was unavailable) requires Node 20.5.0
-or newer and tests the exact floor plus Node 20, 22, 24, and 26. It emits dual ESM + CJS
-bundles and exposes notifications plus isolated consumer-conformance,
-runner-neutral testing, and opt-in DevTools observability subpaths. The
-testing and DevTools surfaces are present in source and packed-package
-verification but await the first npm publication. The DevTools bridge records
-safe message metadata and explicit consumer snapshots only; it does not offer
-replay or state reconstruction.
-The Rust flavor lives under
-`langs/rust/` as the
-`vmx-rs` crate with the `vmx` import namespace; it has full library conformance
-coverage in source and is awaiting a crates.io release channel.
-
-### 3.2 Spec and flavor compatibility
-
-This summary preserves source-line history; a historical row does not by itself
-claim that packages or tags were published. See the canonical compatibility
-ledger linked above for release status and the current in-development line.
+This summary preserves source-line history, including lines that were never
+published; a row does not by itself claim that packages or tags were
+published. The [`compatibility-matrix.md`](compatibility-matrix.md) ledger is
+canonical for released compatibility plus the current in-development line.
 
 | spec   | csharp        | python        | typescript    | swift          | rust          |
 | ------ | ------------- | ------------- | ------------- | -------------- | ------------- |
@@ -230,118 +305,29 @@ ledger linked above for release status and the current in-development line.
 | 2.0.x  | 2.0.0         | 2.0.0         | 2.0.0         | —              | —             |
 | 1.0.x  | 1.0.0         | 1.0.0         | —             | —              | —             |
 
-See [`compatibility-matrix.md`](compatibility-matrix.md) for the full table.
-Every published package declares its `MinSpecVersion` /
-`__min_spec_version__` so the runtime can verify compatibility.
+### 6.3 Conformance catalog
 
-## 4. Getting started
+`spec/` holds 24 chapters, 141 ADRs, 4 JSON fixtures, and the conformance
+catalog in `spec/12-conformance.md`. All five flavors implement its
+407 library conformance IDs, and the four UI-backed flagship apps cover
+5 additional THEME scenario IDs, for **412 total**. Rust has no UI scenario
+suite yet.
+`tools/check-conformance-coverage.py` enforces full catalog coverage, and
+[Specification & Conformance](docs/content/specification-conformance.md)
+describes the suites and test markers.
 
-### 4.1 Install
+Run the coverage check from the root of a VMx checkout:
 
 ```bash
-# C# (after the NuGet package is published)
-dotnet add package VMx
-# Source checkout today
-dotnet add MyApp.csproj reference ../VMx/langs/csharp/src/VMx/VMx.csproj
+# Verify all catalog-complete flavors are at full catalog coverage
+uv run --project langs/python python tools/check-conformance-coverage.py \
+    --require csharp --require python --require typescript --require swift --require rust
 
-# Python
-pip install vmx
-# or
-uv add vmx
-
-# TypeScript (after the npm package is published)
-npm install @thekaveh/vmx rxjs
-# Source checkout today: pack first so consumers exercise published-package shape
-npm --prefix ../VMx/langs/typescript ci
-npm --prefix ../VMx/packages/react ci
-mkdir -p /tmp/vmx-packs
-npm pack ../VMx/langs/typescript --pack-destination /tmp/vmx-packs
-npm pack ../VMx/packages/react --pack-destination /tmp/vmx-packs
-npm install /tmp/vmx-packs/thekaveh-vmx-3.26.0.tgz \
-  /tmp/vmx-packs/thekaveh-vmx-react-0.1.1.tgz react rxjs use-sync-external-store
-
-# Rust (source-tree path dependency today)
-cargo add vmx-rs --path langs/rust
+# Report all registered flavors
+python3 tools/check-conformance-coverage.py
 ```
 
-### 4.2 Quickstart guides
-
-- [`docs/content/getting-started/csharp.md`](docs/content/getting-started/csharp.md) — build a
-  modeled `ComponentVM<UserModel>`, wire a `RelayCommand`, manage a
-  `CompositeVM<TabVM>`.
-- [`docs/content/getting-started/python.md`](docs/content/getting-started/python.md) — same
-  shape, snake_case API, immediate / asyncio dispatchers.
-- [`docs/content/getting-started/typescript.md`](docs/content/getting-started/typescript.md) —
-  camelCase API, ESM imports, rxjs-backed observables.
-- [`docs/content/getting-started/swift.md`](docs/content/getting-started/swift.md) —
-  camelCase API, Combine-backed publishers, SwiftPM install (Swift flavor is
-  at total parity on the v3.26.0 source line; see `langs/swift/README.md` §5).
-- [`docs/content/getting-started/rust.md`](docs/content/getting-started/rust.md) —
-  Rust source-tree tutorial (ComponentVm, RelayCommand, CompositeVm with
-  selection), with [`langs/rust/README.md`](langs/rust/README.md) for crate
-  commands and a minimal example.
-
-### 4.3 Examples
-
-Four UI-backed **flagship Notes Workspace** apps, plus a Rust-native Ratatui
-showcase, exercise the VMx API in their host ecosystems. The four UI-backed
-apps implement the shared scenario matrix and **19 distinct VMx features**
-(notebooks tree,
-paged + filterable notes list, strict `FormVM` editor with validation,
-capability-aware action bar, notifications, async lifecycle, dialogs,
-`AggregateVM6` root, the `ThemeVM` scenario contract, token-paged global
-search, edit/preview `DiscriminatorVM`, and tag autocomplete via
-`SearchableState`). See
-[`examples/notes-showcase-parity.md`](examples/notes-showcase-parity.md) for
-the cross-flavor feature matrix and
-[`spec/proposals/2026-05-29-notes-showcase-scenario.md`](spec/proposals/2026-05-29-notes-showcase-scenario.md)
-for the canonical scenario contract. The VM hierarchy is diagrammed at
-[`examples/assets/notes-showcase-vm-hierarchy.svg`](examples/assets/notes-showcase-vm-hierarchy.svg);
-the companion VMx component map is at
-[`examples/assets/notes-showcase-vmx-components.svg`](examples/assets/notes-showcase-vmx-components.svg).
-The scenario is deliberately an en-US reference host; translated application
-catalogs are consumer-owned and are not a parity-matrix row.
-
-- [`examples/csharp/avalonia/NotesShowcase/`](examples/csharp/avalonia/NotesShowcase/)
-  — Notes Workspace flagship on Avalonia 12 + .NET 8 (cross-platform XAML).
-  Run: `dotnet run --project examples/csharp/avalonia/NotesShowcase`.
-- [`examples/python/textual/notes_showcase/`](examples/python/textual/notes_showcase/)
-  — Notes Workspace flagship on Textual ≥ 0.80 (TUI). Run:
-  `uv run --project examples/python/textual/notes_showcase python -m notes_showcase`.
-- [`examples/typescript/react/notes-showcase/`](examples/typescript/react/notes-showcase/)
-  — Notes Workspace flagship on React 19 + Vite using the official
-  `@thekaveh/vmx-react` source package. Run: `npm ci && npm run dev`
-  from the example dir; production bundle via `npm run build`.
-- [`examples/swift/notes-showcase/`](examples/swift/notes-showcase/)
-  — Notes Workspace flagship on SwiftUI + Combine (macOS). Build and test via
-  `swift build` / `swift test` from the example dir (requires macOS + Xcode).
-- [`examples/rust/tui/notes-showcase/`](examples/rust/tui/notes-showcase/)
-  — Rust-native Ratatui showcase with a pure VMx MVVM layer. Smoke-run via
-  `cargo run --locked --manifest-path examples/rust/tui/notes-showcase/Cargo.toml -- --smoke`.
-  Its five VM-layer tests cover the Rust-native showcase contract; the
-  `THEME-001..005` UI scenario matrix remains scoped to the four flagships.
-  The VM-layer diagram is
-  [`docs/assets/diagrams/rust-tui-notes-showcase.svg`](docs/assets/diagrams/rust-tui-notes-showcase.svg).
-
-Smaller per-flavor demos:
-
-- [`examples/csharp/console/HelloVMx/`](examples/csharp/console/HelloVMx/) — console.
-- [`examples/csharp/wpf/TodoApp/`](examples/csharp/wpf/TodoApp/) — WPF + MVVM
-  (Windows only).
-- [`examples/python/console/hello_vmx/`](examples/python/console/hello_vmx/) — console.
-- [`examples/python/tk/todo_app/`](examples/python/tk/todo_app/) — Tkinter
-  MVVM.
-- [`examples/python/textual/inspector/`](examples/python/textual/inspector/) —
-  Textual TUI inspector that introspects any VMx tree using
-  `vmx.tree.walk`.
-- [`examples/python/nicegui/notes_showcase/`](examples/python/nicegui/notes_showcase/) —
-  NiceGUI web page over the Textual Notes-Showcase's view-models.
-- [`examples/typescript/console/hello-vmx/`](examples/typescript/console/hello-vmx/) — minimal
-  Node script.
-- [`examples/rust/console/hello-vmx/`](examples/rust/console/hello-vmx/) —
-  minimal Cargo console demo using `ComponentVm` and `RelayCommand`.
-
-## 5. Repository layout
+## 7. Repository layout
 
 ```
 .
@@ -356,8 +342,8 @@ Smaller per-flavor demos:
 │   ├── csharp/            VMx (NuGet) + VMx.Extensions.DependencyInjection + VMx.Notifications
 │   ├── python/            vmx (PyPI)
 │   ├── typescript/        @thekaveh/vmx (npm)
-│   ├── swift/             VMx Swift Package (v3.26.0 source, total parity — 407 library + 5 THEME)
-│   └── rust/              vmx-rs crate (source-tree only; crates.io pending)
+│   ├── swift/             VMx Swift package (SwiftPM)
+│   └── rust/              vmx-rs crate
 ├── examples/              runnable example apps per flavor
 ├── docs/content/getting-started/  per-flavor quickstart tutorials
 ├── docs/content/integration/      one-page UI-framework integration recipes
@@ -368,7 +354,7 @@ Smaller per-flavor demos:
 └── compatibility-matrix.md
 ```
 
-### 5.1 Documentation map
+### 7.1 Documentation map
 
 This README is the entry point; the documents below add focused detail.
 
@@ -397,6 +383,8 @@ This README is the entry point; the documents below add focused detail.
 - [`spec/ADRs/README.md`](spec/ADRs/README.md) — ADR catalogue index.
 - [`docs/audit/README.md`](docs/audit/README.md) — index of historical
   documentation audit reports.
+- [`docs/maintenance/`](docs/maintenance/) — maintenance ledgers and their
+  verification evidence.
 - [`docs/assets/diagrams/README.md`](docs/assets/diagrams/README.md) — diagram
   source, regeneration, and validation contract.
 - [`docs/content/primitives/disposal-contract.md`](docs/content/primitives/disposal-contract.md)
@@ -405,7 +393,7 @@ This README is the entry point; the documents below add focused detail.
   [`langs/csharp/README.md`](langs/csharp/README.md),
   [`langs/python/README.md`](langs/python/README.md),
   [`langs/typescript/README.md`](langs/typescript/README.md),
-  [`langs/swift/README.md`](langs/swift/README.md) (v3.26.0 source, total parity — 407 library + 5 THEME),
+  [`langs/swift/README.md`](langs/swift/README.md),
   [`langs/rust/README.md`](langs/rust/README.md).
 - Per-flavor CHANGELOGs (release history):
   [`langs/csharp/CHANGELOG.md`](langs/csharp/CHANGELOG.md),
@@ -414,28 +402,12 @@ This README is the entry point; the documents below add focused detail.
   [`langs/swift/CHANGELOG.md`](langs/swift/CHANGELOG.md),
   [`langs/rust/CHANGELOG.md`](langs/rust/CHANGELOG.md).
 - Per-flavor release runbooks:
-  [`langs/csharp/RELEASING.md`](langs/csharp/RELEASING.md) — NuGet release
-  pipeline for `VMx` plus companion packages,
-  [`langs/python/RELEASING.md`](langs/python/RELEASING.md) — PyPI release
-  pipeline (`python-test` matrix gate → `pypi-python` environment approval →
-  exact-backend build → local-wheel fresh-venv smoke →
-  Trusted-Publishing-via-OIDC PyPI upload with Sigstore (PEP 740) attestations
-  → `python-verify-published` public fresh-venv smoke → `python-release-notes`
-  CHANGELOG-extracted GitHub Release),
-  [`langs/typescript/RELEASING.md`](langs/typescript/RELEASING.md) — npm
-  publish with provenance, and
-  [`langs/swift/RELEASING.md`](langs/swift/RELEASING.md) — SwiftPM tag +
-  GitHub Release flow, and
-  [`langs/rust/RELEASING.md`](langs/rust/RELEASING.md) — crates.io trusted
-  publishing and public-consumer verification. Release-please automates Python
-  routine version bumps and CHANGELOG entries after its last-published manifest
-  has been reconciled with a verified bootstrap release.
-- Per-flavor getting-started tutorials (longer walkthroughs):
-  [`docs/content/getting-started/csharp.md`](docs/content/getting-started/csharp.md),
-  [`docs/content/getting-started/python.md`](docs/content/getting-started/python.md),
-  [`docs/content/getting-started/typescript.md`](docs/content/getting-started/typescript.md),
-  [`docs/content/getting-started/swift.md`](docs/content/getting-started/swift.md),
-  [`docs/content/getting-started/rust.md`](docs/content/getting-started/rust.md).
+  [`langs/csharp/RELEASING.md`](langs/csharp/RELEASING.md) (NuGet),
+  [`langs/python/RELEASING.md`](langs/python/RELEASING.md) (PyPI),
+  [`langs/typescript/RELEASING.md`](langs/typescript/RELEASING.md) (npm),
+  [`langs/swift/RELEASING.md`](langs/swift/RELEASING.md) (SwiftPM tags and
+  GitHub Releases), and
+  [`langs/rust/RELEASING.md`](langs/rust/RELEASING.md) (crates.io).
 - Per-flavor examples READMEs (run instructions):
   [`examples/csharp/README.md`](examples/csharp/README.md),
   [`examples/python/README.md`](examples/python/README.md),
@@ -444,70 +416,22 @@ This README is the entry point; the documents below add focused detail.
   [`examples/rust/README.md`](examples/rust/README.md).
 - [`examples/notes-showcase-parity.md`](examples/notes-showcase-parity.md) —
   cross-flavor parity matrix for all four flagship Notes-Showcase apps
-  (Avalonia / Textual / React / SwiftUI); 19 spec features × 4 flavors, plus
-  hierarchy and VMx-component diagrams.
+  (Avalonia / Textual / React / SwiftUI), plus hierarchy and VMx-component
+  diagrams.
 - [`docs/content/integration/index.md`](docs/content/integration/index.md) — one-page
   integration recipes for 11 UI frameworks (WPF, MAUI, Avalonia, Textual,
   NiceGUI, Tkinter, React, Vue, Svelte, SolidJS, SwiftUI). Each recipe
   shows the framework-native binding + lifecycle + dispose pattern.
-- [`docs/maintenance/2026-07-01-contract-ledger.md`](docs/maintenance/2026-07-01-contract-ledger.md) —
-  external dependency and tool-contract checks recorded during the maintenance
-  run.
-- [`docs/maintenance/2026-07-16-rust-capability-parity.md`](docs/maintenance/2026-07-16-rust-capability-parity.md) —
-  completed evidence ledger for Rust capability-surface and behavioural
-  convergence, including the canonical decision and verification for each
-  formerly open item.
-- [`docs/maintenance/2026-07-16-swift-notesshowcase-test-deadlock.md`](docs/maintenance/2026-07-16-swift-notesshowcase-test-deadlock.md) —
-  the resolved Swift flagship command/test deadlock, including root cause,
-  correction, and successful CI runtime evidence.
 - [`tools/README.md`](tools/README.md) — conformance-coverage tool and
   cross-cutting scripts.
 
-## 6. Versioning and conformance
-
-### 6.1 SemVer policy
-
-Each language flavor versions independently in SemVer. The spec also versions
-independently in SemVer. Every published package declares the spec version it
-implements (`MinSpecVersion` in C#, `__min_spec_version__` in Python,
-`__minSpecVersion__` in TypeScript, `VMxVersion.minSpecVersion` in Swift,
-`MIN_SPEC_VERSION` in Rust). A
-spec major bump triggers a major bump in every active flavor; a spec minor bump
-(like v2.1.0) is fully backwards compatible and ships in flavors as a minor
-bump.
-
-### 6.2 Conformance catalog
-
-`spec/12-conformance.md` enumerates 412 normative test scenarios keyed by ID
-(`LIFE-001`, `HUB-007`, `COMP-013`, `UTIL-002`, `CAP-020`, `DPROP-012`,
-`NOTIF-010`, `DIA-001`, `FORM-001`, `COL-001`, `HIER-001`, `AGG-006`,
-`AGCH-001`, `ARES-001`, `THEME-001`, …) — 407 library IDs plus 5 `THEME` scenario IDs. All five
-flavors (C# / Python / TypeScript / Swift / Rust) implement the 407 library IDs under
-their registered conformance suites (`langs/csharp/tests/VMx.Conformance.Tests`,
-`langs/python/tests/conformance`, `langs/typescript/tests/conformance`, and
-`langs/swift/Tests/VMxTests`, and `langs/rust/tests/conformance`), and
-`tools/check-conformance-coverage.py` enforces 100% coverage in CI. The four
-UI-backed flavors also cover the 5 `THEME-00x` scenario IDs via their flagship
-example apps — Swift via `examples/swift/notes-showcase/` (ADR-0067). Those
-four flavors are at **total parity: 407 library + 5 THEME = 412**; Rust has
-full 407-ID library parity and intentionally has no UI scenario suite yet.
-
-```bash
-# Verify all catalog-complete flavors are at full catalog coverage
-uv run --project langs/python python tools/check-conformance-coverage.py \
-    --require csharp --require python --require typescript --require swift --require rust
-
-# Report all registered flavors
-python3 tools/check-conformance-coverage.py
-```
-
-## 7. Contributing
+## 8. Contributing
 
 See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the spec / ADR / conformance
 workflow and per-flavor build instructions. The repository uses pre-commit
 hooks (ruff, mdformat, dotnet format, eslint); install them with
 `pre-commit install`.
 
-## 8. License
+## 9. License
 
 Apache-2.0 — see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE).

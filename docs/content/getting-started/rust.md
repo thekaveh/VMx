@@ -21,11 +21,11 @@ ______________________________________________________________________
 
 The crate is named `vmx-rs` and exposes the module namespace `vmx`. It requires
 Rust edition 2021 and a `1.88` toolchain floor. Because it is not yet on
-crates.io, depend on it by path from a checkout:
+crates.io, clone VMx beside your project and depend on it by path:
 
 ```toml
 [dependencies]
-vmx-rs = { path = "langs/rust" }
+vmx-rs = { path = "../VMx/langs/rust" }
 ```
 
 Or by git:
