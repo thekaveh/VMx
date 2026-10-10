@@ -17,10 +17,113 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 def test_project_opening_matches_canonical_contract() -> None:
-    opener = load_opener(ROOT / "docs/opener.yaml", ROOT)
-
-    assert 100 <= len(opener.summary.split()) <= 150
     assert check_project_opening(ROOT) == []
+
+
+def test_opener_accepts_a_concise_summary(tmp_path: Path) -> None:
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "assets/poster.png").write_bytes(b"png")
+    (tmp_path / "opener.yaml").write_text(
+        "tagline: One spec.\n"
+        "summary: VMx keeps viewmodel lifecycles predictable.\n"
+        "poster:\n"
+        "  source: assets/poster.png\n"
+        "  alt: Poster\n",
+        encoding="utf-8",
+    )
+
+    opener = load_opener(tmp_path / "opener.yaml", tmp_path)
+
+    assert opener.summary == "VMx keeps viewmodel lifecycles predictable."
+
+
+def test_opener_summary_states_purpose_without_release_status() -> None:
+    summary = load_opener(ROOT / "docs/opener.yaml", ROOT).summary
+
+    assert "MVVM" in summary
+    assert "specification" in summary
+    for release_term in ("PyPI", "SwiftPM", "NuGet", "npm", "crates.io", "publish", "registr"):
+        assert release_term not in summary
+    assert re.search(r"\d", summary) is None
+
+
+def _section(markdown: str, heading: re.Pattern[str]) -> str:
+    """Return the text after ``heading`` up to the next H1-H3 outside a code fence."""
+    match = heading.search(markdown)
+    assert match is not None, heading.pattern
+    lines: list[str] = []
+    fenced = False
+    for line in markdown[match.end() :].splitlines(keepends=True):
+        if line.startswith("```"):
+            fenced = not fenced
+        elif not fenced and re.match(r"#{1,3} ", line):
+            break
+        lines.append(line)
+    return "".join(lines)
+
+
+@pytest.mark.parametrize(
+    ("relative_path", "heading"),
+    [
+        ("README.md", r"^## 2\. Availability$"),
+        ("docs/content/index.md", r"^## 1\.1\. Availability$"),
+    ],
+)
+def test_entry_pages_keep_package_availability_in_its_own_section(
+    relative_path: str, heading: str
+) -> None:
+    markdown = (ROOT / relative_path).read_text(encoding="utf-8")
+    availability = _section(markdown, re.compile(heading, re.MULTILINE))
+    rows = {
+        cells[0]: cells[1]
+        for line in availability.splitlines()
+        if line.startswith("| ")
+        and (cells := [cell.strip() for cell in line.strip("|").split("|")])[0]
+        not in {"Flavor", ""}
+        and not set(cells[0]) <= {"-"}
+    }
+
+    assert set(rows) == {"Python", "Swift", "C#", "TypeScript", "React adapter", "Rust"}
+    assert "PyPI" in rows["Python"]
+    assert "SwiftPM" in rows["Swift"]
+    for flavor in ("C#", "TypeScript", "React adapter", "Rust"):
+        assert "Not yet published" in rows[flavor], flavor
+
+
+def test_readme_reaches_install_and_first_steps_before_reference_catalogs() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    headings = re.findall(r"^#{2,3} (.+)$", readme, re.MULTILINE)
+    position = {title: index for index, title in enumerate(headings)}
+
+    assert position["3.1 Install"] < position["3.2 First steps"]
+    for reference in (
+        "4. Architecture",
+        "5. Flavors",
+        "6.3 Conformance catalog",
+        "7. Repository layout",
+    ):
+        assert position["3.2 First steps"] < position[reference]
+    assert "22 opt-in capability micro-interfaces" not in readme
+
+
+def test_readme_install_states_its_working_directory_contract() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    install = _section(readme, re.compile(r"^### 3\.1 Install$", re.MULTILINE))
+    examples = _section(readme, re.compile(r"^### 3\.3 Examples$", re.MULTILINE))
+
+    assert "project directory" in install
+    assert "git clone https://github.com/thekaveh/VMx.git ../VMx" in install
+    commands = [
+        line
+        for block in re.findall(r"```bash\n(.*?)```", install, re.DOTALL)
+        for line in block.splitlines()
+        if line and not line.startswith("#")
+    ]
+    source_commands = [line for line in commands if "langs/" in line or "packages/" in line]
+    assert source_commands
+    assert all("../VMx/" in line for line in source_commands), source_commands
+    assert "root of a VMx checkout" in examples
+    assert "from the example dir" not in examples
 
 
 @pytest.mark.parametrize(
@@ -130,7 +233,7 @@ def test_project_opening_rejects_punctuation_only_drift(tmp_path: Path) -> None:
     shutil.copy2(ROOT / "assets/vmx-poster.png", tmp_path / "assets/vmx-poster.png")
     readme = (tmp_path / "README.md").read_text(encoding="utf-8")
     (tmp_path / "README.md").write_text(
-        readme.replace("idiomatic APIs.", "idiomatic APIs!", 1),
+        readme.replace("idioms.", "idioms!", 1),
         encoding="utf-8",
     )
 

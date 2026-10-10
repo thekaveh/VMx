@@ -1,12 +1,17 @@
 # 2. Installation
 
-VMx has five catalog-complete source flavors implementing spec 3.25.0. Their
-current package source versions are listed below; Rust 0.31.0
-declares `MIN_SPEC_VERSION = "3.25.0"`. All five implement the canonical
-concepts and behavior, with intentional flavor idioms documented by ADR; the
-completed [Rust convergence ledger](../maintenance/2026-07-16-rust-capability-parity.md)
-records the focused 0.27.0 evidence. Public package availability can lag the
-source tree, so check the flavor README and registry before pinning a release.
+Python and Swift install from public registries. C#, TypeScript, the React
+adapter, and Rust are complete in source but not yet published, so a project
+uses them from a VMx checkout until their first registry release. Every flavor
+implements spec 3.25.0; check the flavor README and registry before pinning a
+release.
+
+Run the commands below from your own project's directory. The source-checkout
+commands assume VMx is cloned beside that project:
+
+```bash
+git clone https://github.com/thekaveh/VMx.git ../VMx
+```
 
 | Flavor     | Source tree   | Public package status               |
 | ---------- | ------------- | ----------------------------------- |

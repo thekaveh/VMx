@@ -56,3 +56,41 @@ Message payload property names follow the local idiom, with the documented
 The spec defines 412 conformance IDs: 407 library IDs plus 5 `THEME-00x`
 scenario IDs. Every catalog-complete flavor carries the 407 library IDs in its own
 conformance suite, and repository tooling checks coverage before CI passes.
+
+## 4.8. Framework Surface
+
+Every flavor exposes the same surface under its own naming idiom:
+
+- A five-state construction lifecycle (`Destructed`, `Constructing`,
+  `Constructed`, `Destructing`, plus terminal `Disposed`) with reversible
+  `construct`/`destruct`, `reconstruct()`, and a synchronous depth-first
+  `dispose()` cascade that can be invoked from any state.
+- A reactive message hub for `PropertyChangedMessage` and
+  `ConstructionStatusChangedMessage`, plus collection-change events on
+  container VMs.
+- Four hierarchy primitives — leaf `ComponentVM`, selectable `CompositeVM`,
+  peer `GroupVM`, fixed-arity `AggregateVM1..6` — plus forwarding decorators
+  for instrumentation.
+- One shared VM collection capability for groups and composites, with
+  selection layered only onto composites and atomic identity-preserving move.
+- A `RelayCommand` with reactive `canExecute` triggers and explicit imperative
+  re-evaluation notifications, plus the decorators `CompositeCommand`,
+  `DecoratorCommand`, and `ConfirmationDecoratorCommand`, and a modeled-CRUD
+  helper (`ModeledCrudCommands`).
+- Tree utilities (`walk`, `find`, `walk_expanded`) for introspection.
+- 22 opt-in capability micro-interfaces (`ISelectable`, `IExpandable`,
+  `IClosable`, `IFilterable`, `IPageable`, …) and helper state classes
+  (`ExpandableState`, `SearchableState`) for layering behaviour onto VMs
+  additively. `SearchableState` optionally observes a source-change signal so
+  an unchanged term stays synchronized with collection or member invalidations.
+- `DerivedProperty<T>` for N-source computed values, `FormVM<T>` for
+  snapshot/revert/validation flows, `DiscriminatorVM` for single-active-key
+  coordination, `AsyncResourceVM<T>` for cancellable latest-wins acquisition,
+  `PagedComposition` / `TokenPagedComposition` for finite and cursor paging,
+  an opt-in notification sub-package (`INotificationHub`), `IDialogService`,
+  null-object service variants (`NullMessageHub`, `NullDispatcher`,
+  `NullNotificationHub`, `NullLocalizer`, `NullDialogService`), and an
+  `ILocalizer` hook for i18n.
+
+[Framework Primitives](primitives/index.md) explains when to reach for each
+family.

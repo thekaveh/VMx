@@ -10,7 +10,7 @@ import yaml
 
 from scripts.docs.manifest import Manifest, Section, load_manifest
 from scripts.docs.opener import load_opener
-from scripts.docs.transforms import build_source_map, rewrite_for_surface
+from scripts.docs.transforms import DIAGRAM_ASSET_SUFFIXES, build_source_map, rewrite_for_surface
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MANIFEST_PATH = REPO_ROOT / "docs/manifest.yaml"
@@ -92,8 +92,8 @@ def copy_diagrams(target: Path, repo_root: Path = REPO_ROOT) -> None:
     dest = target / "assets/diagrams"
     dest.mkdir(parents=True, exist_ok=True)
     diagrams_dir = repo_root / "docs/assets/diagrams"
-    for pattern in ("*.html", "*.svg", "*.png", "*.json"):
-        for source in diagrams_dir.glob(pattern):
+    for suffix in DIAGRAM_ASSET_SUFFIXES:
+        for source in diagrams_dir.glob(f"*{suffix}"):
             shutil.copy2(source, dest / source.name)
 
 

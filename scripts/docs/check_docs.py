@@ -36,6 +36,7 @@ NUMBER_PREFIX_RE = re.compile(r"^(\d+(?:\.\d+)*)(\.)?\s+")
 HTML_HEADING_RE = re.compile(r"<\s*h[1-6](?:\s|>)", re.IGNORECASE)
 ANY_ATX_HEADING_RE = re.compile(r"^#{1,6}\s+(.+?)\s*$", re.MULTILINE)
 HTML_ID_RE = re.compile(r'<(?:a|h[1-6])\b[^>]*\bid=["\']([^"\']+)["\']', re.IGNORECASE)
+WIKI_TAB_RE = re.compile(r'^\s*===\+?\s+"')
 WIKI_LINK_RE = re.compile(r"\[\[(?P<label>[^\]\r\n]+)\|(?P<target>[^\]\r\n]+)\]\]")
 DECORATIVE_STATUS_ICON_RE = re.compile(r"[✓✔✅❌✗✘]")
 HISTORICAL_AUDIT_NOTICE = (
@@ -249,14 +250,22 @@ def check_self_containment(repo_root: Path) -> list[Finding]:
     return findings
 
 
-def _relative_target_exists(source: Path, target: str) -> bool:
+def _relative_target_exists(source: Path, target: str, repo_root: Path) -> bool:
+    """Resolve a relative target as GitHub does: lexically, never through a symlink."""
     clean = target.split("#", 1)[0].split("?", 1)[0]
     if not clean or clean.startswith(("#", "http://", "https://", "mailto:")):
         return True
-    candidate = (source.parent / clean).resolve()
-    if candidate.exists():
-        return True
-    return False
+    candidate = Path(os.path.normpath(source.parent / clean))
+    try:
+        parts = candidate.relative_to(repo_root).parts
+    except ValueError:
+        return False
+    current = repo_root
+    for part in parts:
+        current /= part
+        if current.is_symlink():
+            return False
+    return candidate.exists()
 
 
 def _relative_target_path(source: Path, target: str) -> Path | None:
@@ -315,7 +324,7 @@ def check_canonical_links(repo_root: Path) -> list[Finding]:
         targets = [link.target for link in find_links(text)]
         targets.extend(attribute.target for attribute in find_html_link_attributes(text))
         for target in targets:
-            if not _relative_target_exists(path, target):
+            if not _relative_target_exists(path, target, repo_root):
                 findings.append(
                     Finding(
                         "error",
@@ -376,6 +385,22 @@ def check_generated_wiki_links(repo_root: Path) -> list[Finding]:
                             f"{path}:{line_number}: wiki target does not exist: {target}",
                         )
                     )
+    return findings
+
+
+def check_generated_wiki_tabs(repo_root: Path) -> list[Finding]:
+    """Reject MkDocs tab declarations that reach the wiki unadapted."""
+    findings: list[Finding] = []
+    for path in _scan_markdown(repo_root / "generated/wiki"):
+        text = _without_fenced_code(path.read_text(encoding="utf-8"))
+        for line_number, line in enumerate(text.splitlines(), start=1):
+            if WIKI_TAB_RE.match(line):
+                findings.append(
+                    Finding(
+                        "error",
+                        f"{path}:{line_number}: MkDocs tab declaration leaked into the wiki",
+                    )
+                )
     return findings
 
 
@@ -793,6 +818,7 @@ def check(repo_root: Path) -> list[Finding]:
     findings.extend(check_self_containment(repo_root))
     findings.extend(check_canonical_links(repo_root))
     findings.extend(check_generated_wiki_links(repo_root))
+    findings.extend(check_generated_wiki_tabs(repo_root))
     findings.extend(check_generated_html_links(repo_root))
     findings.extend(check_raw_html_headings(repo_root))
     findings.extend(check_professional_markdown(repo_root))
