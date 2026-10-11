@@ -22,6 +22,105 @@ def load_generator_module():
     return module
 
 
+Rect = tuple[float, float, float, float]  # left, top, right, bottom
+
+
+def _intersects(a: Rect, b: Rect, clearance: float = 0) -> bool:
+    return (
+        a[0] < b[2] + clearance
+        and b[0] < a[2] + clearance
+        and a[1] < b[3] + clearance
+        and b[1] < a[3] + clearance
+    )
+
+
+def _inside(inner: Rect, outer: Rect, margin: float) -> bool:
+    return (
+        inner[0] >= outer[0] + margin
+        and inner[1] >= outer[1] + margin
+        and inner[2] <= outer[2] - margin
+        and inner[3] <= outer[3] - margin
+    )
+
+
+def layout_collisions(generator, diagram) -> list[str]:
+    """Report crowded, overlapping, or border-straddling elements in one diagram."""
+    glyph = generator.MONO_GLYPH_WIDTH_FACTOR
+    boxes = {box.title: (box.x, box.y, box.x + box.w, box.y + box.h) for box in diagram.boxes}
+    groups = {
+        group.label: (group.x, group.y, group.x + group.w, group.y + group.h)
+        for group in diagram.boundaries
+    }
+    headers = {
+        group.label: (
+            group.x + 8,
+            group.y + 6,
+            group.x + 20 + len(group.label) * 12 * glyph,
+            group.y + 30,
+        )
+        for group in diagram.boundaries
+    }
+    chips = {}
+    for line in diagram.lines:
+        if line.label and line.label_xy:
+            width = max(54, len(line.label) * 7 + 18)
+            left = line.label_xy[0] - width // 2
+            top = line.label_xy[1] - 12
+            chips[line.label] = (left, top, left + width, top + 20)
+
+    problems: list[str] = []
+    titles = list(boxes)
+    for index, first in enumerate(titles):
+        for second in titles[index + 1 :]:
+            if _intersects(boxes[first], boxes[second], clearance=16):
+                problems.append(f"boxes {first!r} and {second!r} are closer than 16 px")
+    for box in diagram.boxes:
+        rect = boxes[box.title]
+        last_baseline = box.y + 54 + (len(box.lines) - 1) * max(18, box.line_size + 6)
+        if box.lines and last_baseline > box.y + box.h - 14:
+            problems.append(f"box {box.title!r} leaves under 14 px below its last line")
+        for label, group in groups.items():
+            if _intersects(rect, group) and not (
+                _inside(rect, group, margin=12) and rect[1] >= headers[label][3] + 4
+            ):
+                problems.append(f"box {box.title!r} crosses group {label!r}")
+    for label, chip in chips.items():
+        for title, rect in boxes.items():
+            if _intersects(chip, rect, clearance=4):
+                problems.append(f"label {label!r} touches box {title!r}")
+        for other, rect in chips.items():
+            if other != label and _intersects(chip, rect, clearance=4):
+                problems.append(f"label {label!r} touches label {other!r}")
+        for group_label, group in groups.items():
+            if _intersects(chip, headers[group_label], clearance=4):
+                problems.append(f"label {label!r} touches header {group_label!r}")
+            if _intersects(chip, group, clearance=4) and not _inside(chip, group, margin=4):
+                problems.append(f"label {label!r} straddles group {group_label!r}")
+    for line in diagram.lines:
+        name = line.label or f"edge from {line.points[0]}"
+        for start, end in zip(line.points, line.points[1:], strict=False):
+            if start[0] != end[0] and start[1] != end[1]:
+                problems.append(f"{name!r} has a diagonal segment {start}->{end}")
+                continue
+            segment = (
+                min(start[0], end[0]),
+                min(start[1], end[1]),
+                max(start[0], end[0]),
+                max(start[1], end[1]),
+            )
+            for title, rect in boxes.items():
+                interior = (rect[0] + 1, rect[1] + 1, rect[2] - 1, rect[3] - 1)
+                if _intersects(segment, interior):
+                    problems.append(f"{name!r} passes through box {title!r}")
+            for group_label, header in headers.items():
+                if _intersects(segment, header):
+                    problems.append(f"{name!r} crosses header {group_label!r}")
+            for label, chip in chips.items():
+                if label != line.label and _intersects(segment, chip):
+                    problems.append(f"{name!r} runs under label {label!r}")
+    return problems
+
+
 class GenerateDiagramsTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -144,6 +243,53 @@ class GenerateDiagramsTests(unittest.TestCase):
                     box.y + box.h - 2,
                     f"{diagram.title}: {box.title!r} body overflows vertically",
                 )
+
+    def test_system_architecture_layout_has_no_collisions(self) -> None:
+        problems = layout_collisions(self.generator, self.generator.system_architecture())
+
+        self.assertEqual(problems, [])
+
+    def test_system_architecture_keeps_its_relationships(self) -> None:
+        diagram = self.generator.system_architecture()
+
+        self.assertEqual(
+            sorted(line.label for line in diagram.lines if line.label),
+            sorted(
+                (
+                    "norms",
+                    "injected into",
+                    "coordinates",
+                    "idiomatic APIs",
+                    "catalogues",
+                    "enforces",
+                    "versioned separately",
+                    "documents",
+                    "hosts",
+                )
+            ),
+        )
+        self.assertEqual(len(diagram.boxes), 22)
+        self.assertEqual(len(diagram.boundaries), 5)
+
+    def test_layout_check_reports_known_collisions(self) -> None:
+        diagram = self.generator.system_architecture()
+        group = diagram.boundaries[0]
+        crowded = replace(
+            diagram,
+            boxes=(
+                *diagram.boxes,
+                self.generator.Box(group.x - 10, group.y + 40, 80, 80, "Straddler", ()),
+            ),
+            lines=(
+                *diagram.lines,
+                self.generator.Polyline(((0, 0), (40, 40)), label="slanted", label_xy=(20, 20)),
+            ),
+        )
+
+        problems = layout_collisions(self.generator, crowded)
+
+        self.assertTrue(any("'Straddler' crosses group" in item for item in problems))
+        self.assertTrue(any("'slanted' has a diagonal segment" in item for item in problems))
 
     def test_class_lineage_routes_do_not_cross_boxes_or_overlap(self) -> None:
         diagram = self.generator.class_architecture()

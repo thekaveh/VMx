@@ -6,6 +6,7 @@ import importlib.util
 import re
 import shutil
 import sys
+from itertools import pairwise
 from pathlib import Path
 from types import ModuleType
 
@@ -180,3 +181,44 @@ def test_showcase_hierarchy_has_no_notification_self_edge(tmp_path: Path) -> Non
 
     assert "saved / post" in rendered
     assert "M1180,755 C1030,755 1030,755 880,755" not in rendered
+
+
+def _architecture_body(tmp_path: Path) -> str:
+    generator = _load_generator()
+    captured: list[str] = []
+    generator.write_triplet = lambda *args: captured.append(args[6])
+    generator.architecture(tmp_path)
+    return captured[0]
+
+
+def _edge_points(body: str) -> list[list[tuple[int, int]]]:
+    edges = []
+    for d in re.findall(r'<path d="(M[^"]+)"', body):
+        if " C" in d:
+            numbers = [int(value) for value in re.findall(r"-?\d+", d)]
+            edges.append([(numbers[0], numbers[1]), (numbers[-2], numbers[-1])])
+        else:
+            pairs = re.findall(r"(-?\d+),(-?\d+)", d)
+            edges.append([(int(x), int(y)) for x, y in pairs])
+    return edges
+
+
+def test_architecture_edges_run_straight_with_one_labeled_flavor_trunk(tmp_path: Path) -> None:
+    body = _architecture_body(tmp_path)
+
+    for points in _edge_points(body):
+        for (x1, y1), (x2, y2) in pairwise(points):
+            assert x1 == x2 or y1 == y2, f"diagonal edge {(x1, y1)} -> {(x2, y2)}"
+    assert body.count(">idiomatic APIs<") == 1
+
+
+def test_architecture_portfolio_box_has_no_dead_space(tmp_path: Path) -> None:
+    body = _architecture_body(tmp_path)
+    title = re.search(r'<text x="\d+" y="(\d+)"[^>]*>Example Portfolio</text>', body)
+    assert title is not None
+    top = int(title.group(1)) - 32
+    rect = re.search(rf'<rect x="\d+" y="{top}" width="\d+" height="(\d+)"', body)
+    assert rect is not None
+    last_baseline = top + 58 + 2 * 24
+
+    assert top + int(rect.group(1)) - last_baseline <= 32
