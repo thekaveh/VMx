@@ -139,6 +139,29 @@ def arrow(
     )
 
 
+def route(
+    points: tuple[tuple[int, int], ...],
+    color: str = "#64748b",
+    *,
+    marker: bool = True,
+    label: str = "",
+    label_at: tuple[int, int] | None = None,
+) -> str:
+    """Draw an orthogonal edge through ``points``, optionally labeled at ``label_at``."""
+    d = "M" + " L".join(f"{x},{y}" for x, y in points)
+    marker_attr = ' marker-end="url(#arrowhead)"' if marker else ""
+    parts = [f'<path d="{d}" fill="none" stroke="{color}" stroke-width="2.2"{marker_attr}/>']
+    if label and label_at:
+        x, y = label_at
+        label_width = len(label) * 7.5 + 12
+        parts.append(
+            f'<rect x="{x - label_width / 2:.1f}" y="{y - 15}" '
+            f'width="{label_width:.1f}" height="20" rx="3" fill="#020617"/>'
+        )
+        parts.append(text(x, y, label, 12, "#94a3b8"))
+    return "\n".join(parts)
+
+
 def svg_doc(title: str, subtitle: str, width: int, height: int, body: str) -> str:
     return f'''<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}" role="img" aria-labelledby="diagram-title diagram-description" style="font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;">
   <title id="diagram-title">{escape(title)}</title>
@@ -400,9 +423,9 @@ def architecture(output_root: Path) -> None:
         ),
         Box(
             260,
-            700,
+            640,
             1080,
-            170,
+            130,
             "Example Portfolio",
             (
                 "Notes Workspace flagships: Avalonia, Textual, React, SwiftUI",
@@ -417,13 +440,13 @@ def architecture(output_root: Path) -> None:
             arrow(360, 210, 450, 210, "norms"),
             arrow(750, 210, 840, 210, "uses"),
             arrow(1140, 210, 1230, 210, "injects"),
-            arrow(600, 290, 150, 410, "idiomatic APIs"),
-            arrow(600, 290, 400, 410),
-            arrow(600, 290, 650, 410),
-            arrow(600, 290, 900, 410),
-            arrow(600, 290, 1150, 410),
+            route(
+                ((600, 290), (600, 360)), marker=False, label="idiomatic APIs", label_at=(600, 330)
+            ),
+            route(((150, 360), (1150, 360)), marker=False),
+            *(route(((x, 360), (x, 410))) for x in (150, 400, 650, 900, 1150)),
             arrow(1420, 410, 1420, 290, "enforces", "#fb923c", True),
-            arrow(840, 555, 800, 700, "showcases"),
+            arrow(900, 555, 900, 640, "showcases"),
         ]
         + [box(b) for b in boxes]
     )
@@ -459,7 +482,7 @@ def architecture(output_root: Path) -> None:
         "VMx Architecture",
         f"spec {SPEC_VERSION} · five catalog-complete flavors · examples as contract probes",
         1600,
-        940,
+        830,
         body,
         cards,
     )
