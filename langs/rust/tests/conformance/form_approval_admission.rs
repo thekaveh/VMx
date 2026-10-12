@@ -521,6 +521,146 @@ fn an_approve_errors_subscriber_is_admitted_after_a_failed_command_approval() {
     assert_eq!(*approved.lock().unwrap(), vec![2]);
 }
 
+/// FORM-033 — an approval subscriber may approve through the command it settled
+#[test]
+fn an_approval_subscriber_executing_the_approve_command_is_admitted() {
+    let persister = GatedPersister::default();
+    let form = persister
+        .builder()
+        .initial(1)
+        .reset_on_approved(|model| Ok(model + 100))
+        .build()
+        .unwrap();
+    let observed = Arc::new(Mutex::new(Vec::new()));
+    let armed = Arc::new(AtomicBool::new(true));
+    let _subscriber = form.subscribe_approved({
+        let form = form.clone();
+        let persister = persister.clone();
+        let observed = Arc::clone(&observed);
+        let armed = Arc::clone(&armed);
+        move |approved| {
+            if armed.swap(false, Ordering::SeqCst) {
+                let can_execute = form.approve_command().can_execute();
+                let model = form.model();
+                // Re-enters the command whose approval is settling.
+                form.approve_command().execute();
+                observed
+                    .lock()
+                    .unwrap()
+                    .push((approved, can_execute, model, persister.calls()));
+            }
+        }
+    });
+    let (approved, _approved) = approvals(&form);
+    let approve_errors = form.approve_errors().record(64);
+    form.set_model(2);
+
+    settled(&execute_on_worker(&form)).unwrap();
+
+    // The nested approval was admitted, captured the settled model, and
+    // finished before its `execute` returned.
+    assert_eq!(
+        *observed.lock().unwrap(),
+        vec![(2, true, 102, vec![2, 102])]
+    );
+    assert_eq!(persister.calls(), vec![2, 102]);
+    assert_eq!(form.model(), 202);
+    assert_eq!(form.snapshot(), 202);
+    assert_eq!(*approved.lock().unwrap(), vec![102, 2]);
+    assert!(approve_errors.is_empty());
+    assert!(form.approve_command().can_execute());
+}
+
+/// FORM-033 — an approve-errors subscriber may approve through the command that failed
+#[test]
+fn an_approve_errors_subscriber_executing_the_approve_command_is_admitted() {
+    let persister = GatedPersister::default();
+    let form = persister.form(1);
+    let (approved, _approved) = approvals(&form);
+    let observed = Arc::new(Mutex::new(Vec::new()));
+    let armed = Arc::new(AtomicBool::new(true));
+    let _subscriber = form.approve_errors().subscribe({
+        let form = form.clone();
+        let persister = persister.clone();
+        let observed = Arc::clone(&observed);
+        let armed = Arc::clone(&armed);
+        move |message| {
+            if armed.swap(false, Ordering::SeqCst) {
+                let can_execute = form.approve_command().can_execute();
+                // Re-enters the command whose approval failed.
+                form.approve_command().execute();
+                observed.lock().unwrap().push((
+                    error_names(std::slice::from_ref(message)),
+                    can_execute,
+                    persister.calls(),
+                    form.snapshot(),
+                ));
+            }
+        }
+    });
+    persister.fail_next("persist failed");
+    form.set_model(2);
+
+    settled(&execute_on_worker(&form)).unwrap();
+
+    assert_eq!(
+        *observed.lock().unwrap(),
+        vec![(vec!["persist failed".to_string()], true, vec![2, 2], 2)]
+    );
+    assert_eq!(persister.calls(), vec![2, 2]);
+    assert_eq!(form.model(), 2);
+    assert_eq!(form.snapshot(), 2);
+    assert_eq!(*approved.lock().unwrap(), vec![2]);
+    assert!(form.approve_command().can_execute());
+}
+
+/// FORM-033 — a settlement eligibility handler may approve through the settling command
+#[test]
+fn a_settlement_can_execute_changed_handler_executing_the_approve_command_is_admitted() {
+    let persister = GatedPersister::default();
+    let form = persister
+        .builder()
+        .initial(1)
+        .reset_on_approved(|model| Ok(model + 100))
+        .build()
+        .unwrap();
+    let (approved, _approved) = approvals(&form);
+    let observed = Arc::new(Mutex::new(Vec::new()));
+    let armed = Arc::new(AtomicBool::new(false));
+    let _handler = form.approve_command().can_execute_changed().subscribe({
+        let form = form.clone();
+        let persister = persister.clone();
+        let observed = Arc::clone(&observed);
+        let armed = Arc::clone(&armed);
+        move |_| {
+            if armed.swap(false, Ordering::SeqCst) {
+                let can_execute = form.approve_command().can_execute();
+                let model = form.model();
+                form.approve_command().execute();
+                observed
+                    .lock()
+                    .unwrap()
+                    .push((can_execute, model, persister.calls()));
+            }
+        }
+    });
+    // Armed during the persist, so the settlement notification fires it.
+    persister.reenter({
+        let armed = Arc::clone(&armed);
+        move || armed.store(true, Ordering::SeqCst)
+    });
+    form.set_model(2);
+
+    settled(&execute_on_worker(&form)).unwrap();
+
+    assert_eq!(*observed.lock().unwrap(), vec![(true, 102, vec![2, 102])]);
+    assert_eq!(persister.calls(), vec![2, 102]);
+    assert_eq!(form.model(), 202);
+    assert_eq!(form.snapshot(), 202);
+    assert_eq!(*approved.lock().unwrap(), vec![102, 2]);
+    assert!(form.approve_command().can_execute());
+}
+
 /// FORM-033 — the awaiter of a failed approval may approve again
 #[test]
 fn the_awaiter_of_a_failed_approval_is_admitted_when_it_approves_again() {

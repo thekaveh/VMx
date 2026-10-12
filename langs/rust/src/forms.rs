@@ -575,13 +575,15 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     /// [`approve_errors`](Self::approve_errors). Its eligibility is
     /// [`can_approve`](Self::can_approve), so it is disabled while an approval
     /// is in flight, and its eligibility change fires when an approval is
-    /// admitted and once when it settles.
+    /// admitted and once when it settles. A settlement observer, such as an
+    /// approval or `approve_errors` subscriber, may execute it again: that
+    /// approval is admitted and runs before the observer's `execute` returns.
     pub fn approve_command(&self) -> RelayCommand {
         self.approve_command
             .get_or_init(|| {
                 let form = self.command_target();
                 RelayCommandBuilder::default()
-                    .action(move || {
+                    .shared_action(move || {
                         if let Err(error) = form.approve() {
                             form.approve_errors.send(Message::Custom {
                                 sender_id: form.component.id(),
@@ -605,7 +607,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         self.deny_command
             .get_or_init(|| {
                 let form = self.command_target();
-                RelayCommand::new(move || form.revert()).with_can_execute({
+                RelayCommand::new_shared(move || form.revert()).with_can_execute({
                     let form = self.command_target();
                     move || !*lock(&form.disposed)
                 })

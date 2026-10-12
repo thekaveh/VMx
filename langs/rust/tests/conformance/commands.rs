@@ -1,9 +1,10 @@
+use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Barrier, Mutex};
 use std::time::{Duration, Instant};
 use vmx::{
-    AsyncRelayCommand, CancellationToken, Command, Message, MessageHub, RelayCommand,
-    RelayCommandOf, VmxError, VmxResult,
+    AsyncRelayCommand, CancellationToken, Command, CompositeCommand, DecoratorCommand, Message,
+    MessageHub, RelayCommand, RelayCommandOf, VmxError, VmxResult, NO_PREDICATE,
 };
 
 #[derive(serde::Deserialize)]
@@ -910,4 +911,364 @@ fn disposed_relay_commands_are_inert() {
 
     assert!(!command.can_execute());
     assert_eq!(calls.load(Ordering::SeqCst), 0);
+}
+
+// Nested execution. The other flavors hold no lock while a relay command's
+// action runs, so an `execute` made from inside the action evaluates
+// `can_execute` and, when admitted, runs. Rust cannot call an `FnMut` action
+// again while it runs, so an admitted nested call is deferred until the
+// running action returns; it must never deadlock. Each scenario runs on a
+// worker thread with a bounded wait, so a deadlock fails the test instead of
+// hanging it.
+
+const NESTED_TIMEOUT: Duration = Duration::from_secs(5);
+
+fn without_deadlock<R: Send + 'static>(scenario: impl FnOnce() -> R + Send + 'static) -> R {
+    let (done, result) = mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = done.send(catch_unwind(AssertUnwindSafe(scenario)));
+    });
+    match result.recv_timeout(NESTED_TIMEOUT) {
+        Ok(Ok(value)) => value,
+        Ok(Err(panic)) => resume_unwind(panic),
+        Err(_) => panic!("the nested execution deadlocked: no result within {NESTED_TIMEOUT:?}"),
+    }
+}
+
+type Log = Arc<Mutex<Vec<String>>>;
+
+fn entries(log: &Log) -> Vec<String> {
+    log.lock().unwrap().clone()
+}
+
+fn note(log: &Log, entry: impl Into<String>) {
+    log.lock().unwrap().push(entry.into());
+}
+
+fn slot_command(slot: &Arc<Mutex<Option<RelayCommand>>>) -> RelayCommand {
+    slot.lock().unwrap().clone().expect("the command is stored")
+}
+
+#[test]
+fn an_action_that_executes_its_own_command_runs_the_nested_execution() {
+    let (log, predicate_calls) = without_deadlock(|| {
+        let log = Log::default();
+        let runs = Arc::new(AtomicUsize::new(0));
+        let predicate_calls = Arc::new(AtomicUsize::new(0));
+        let slot = Arc::new(Mutex::new(None::<RelayCommand>));
+        let command = RelayCommand::new({
+            let (log, runs, slot) = (log.clone(), runs.clone(), slot.clone());
+            move || {
+                let run = runs.fetch_add(1, Ordering::SeqCst) + 1;
+                note(&log, format!("start {run}"));
+                slot_command(&slot).execute();
+                note(&log, format!("end {run}"));
+            }
+        })
+        .with_can_execute({
+            let (runs, predicate_calls) = (runs.clone(), predicate_calls.clone());
+            move || {
+                predicate_calls.fetch_add(1, Ordering::SeqCst);
+                runs.load(Ordering::SeqCst) < 3
+            }
+        });
+        *slot.lock().unwrap() = Some(command.clone());
+
+        command.execute();
+        (entries(&log), predicate_calls.load(Ordering::SeqCst))
+    });
+
+    // As in the other flavors, every nested call re-evaluates `can_execute`
+    // once: three runs, and the third run's call is refused. The `FnMut`
+    // action runs each nested call after the run that made it returns.
+    assert_eq!(
+        log,
+        ["start 1", "end 1", "start 2", "end 2", "start 3", "end 3"]
+    );
+    assert_eq!(predicate_calls, 4);
+}
+
+#[test]
+fn nested_parameterized_executions_run_in_call_order_with_their_parameters() {
+    let visited = without_deadlock(|| {
+        let visited = Arc::new(Mutex::new(Vec::new()));
+        let slot = Arc::new(Mutex::new(None::<RelayCommandOf<u32>>));
+        let command = RelayCommandOf::new({
+            let (visited, slot) = (visited.clone(), slot.clone());
+            move |node: u32| {
+                visited.lock().unwrap().push(node);
+                let command = slot.lock().unwrap().clone().unwrap();
+                for child in [2 * node, 2 * node + 1] {
+                    if child < 8 {
+                        command.execute(child);
+                    }
+                }
+            }
+        })
+        .with_can_execute(|node| *node != 6);
+        *slot.lock().unwrap() = Some(command.clone());
+
+        command.execute(1);
+        let visited = visited.lock().unwrap().clone();
+        visited
+    });
+
+    // The pre-order an inline recursive walk starts in; node 6 is refused.
+    assert_eq!(visited, [1, 2, 4, 5, 3, 7]);
+}
+
+#[test]
+fn a_can_execute_changed_handler_may_execute_the_running_command() {
+    // The action raises the change imperatively, or through a builder trigger.
+    for through_trigger in [false, true] {
+        let (runs, log) = without_deadlock(move || {
+            let log = Log::default();
+            let runs = Arc::new(AtomicUsize::new(0));
+            let trigger = MessageHub::new();
+            let slot = Arc::new(Mutex::new(None::<RelayCommand>));
+            let command = RelayCommand::builder()
+                .action({
+                    let (log, runs, trigger, slot) =
+                        (log.clone(), runs.clone(), trigger.clone(), slot.clone());
+                    move || {
+                        let run = runs.fetch_add(1, Ordering::SeqCst) + 1;
+                        note(&log, format!("start {run}"));
+                        if through_trigger {
+                            trigger.send(Message::Custom {
+                                sender_id: 0,
+                                sender_name: "test".to_string(),
+                                name: "changed".to_string(),
+                            });
+                        } else {
+                            slot_command(&slot).raise_can_execute_changed();
+                        }
+                        note(&log, format!("end {run}"));
+                    }
+                })
+                .trigger(trigger.clone())
+                .build();
+            *slot.lock().unwrap() = Some(command.clone());
+            let armed = Arc::new(AtomicBool::new(true));
+            let _handler = command.can_execute_changed().subscribe({
+                let (log, slot) = (log.clone(), slot.clone());
+                move |_| {
+                    if armed.swap(false, Ordering::SeqCst) {
+                        let command = slot_command(&slot);
+                        assert!(command.can_execute());
+                        command.execute();
+                        note(&log, "handler returned");
+                    }
+                }
+            });
+
+            command.execute();
+            (runs.load(Ordering::SeqCst), entries(&log))
+        });
+
+        assert_eq!(runs, 2, "trigger: {through_trigger}");
+        assert_eq!(
+            log,
+            ["start 1", "handler returned", "end 1", "start 2", "end 2"],
+            "trigger: {through_trigger}"
+        );
+    }
+}
+
+#[test]
+fn a_nested_execution_is_admitted_when_it_is_made() {
+    let (runs, predicate_calls) = without_deadlock(|| {
+        let runs = Arc::new(AtomicUsize::new(0));
+        let busy = Arc::new(AtomicBool::new(false));
+        let predicate_calls = Arc::new(AtomicUsize::new(0));
+        let slot = Arc::new(Mutex::new(None::<RelayCommand>));
+        let command = RelayCommand::new({
+            let (runs, busy, slot) = (runs.clone(), busy.clone(), slot.clone());
+            move || {
+                if runs.fetch_add(1, Ordering::SeqCst) == 0 {
+                    let command = slot_command(&slot);
+                    // Admitted now, so it runs even though the command is
+                    // busy by its turn, as it would have run inline.
+                    command.execute();
+                    busy.store(true, Ordering::SeqCst);
+                    // Refused now, and never run, as inline.
+                    command.execute();
+                }
+            }
+        })
+        .with_can_execute({
+            let (busy, predicate_calls) = (busy.clone(), predicate_calls.clone());
+            move || {
+                predicate_calls.fetch_add(1, Ordering::SeqCst);
+                !busy.load(Ordering::SeqCst)
+            }
+        });
+        *slot.lock().unwrap() = Some(command.clone());
+
+        command.execute();
+        (
+            runs.load(Ordering::SeqCst),
+            predicate_calls.load(Ordering::SeqCst),
+        )
+    });
+
+    assert_eq!(runs, 2);
+    assert_eq!(predicate_calls, 3);
+}
+
+#[test]
+fn a_deferred_execution_does_not_run_once_its_command_is_disposed() {
+    let (runs, can_execute) = without_deadlock(|| {
+        let runs = Arc::new(AtomicUsize::new(0));
+        let slot = Arc::new(Mutex::new(None::<RelayCommand>));
+        let command = RelayCommand::new({
+            let (runs, slot) = (runs.clone(), slot.clone());
+            move || {
+                runs.fetch_add(1, Ordering::SeqCst);
+                let command = slot_command(&slot);
+                command.execute();
+                // Disposed before the deferred call's turn: it stays inert.
+                command.dispose();
+            }
+        });
+        *slot.lock().unwrap() = Some(command.clone());
+
+        command.execute();
+        command.execute();
+        (runs.load(Ordering::SeqCst), command.can_execute())
+    });
+
+    assert_eq!(runs, 1);
+    assert!(!can_execute);
+}
+
+#[test]
+fn a_panicking_action_discards_its_nested_executions_and_stays_usable() {
+    let (panicked, runs_after_panic, runs) = without_deadlock(|| {
+        let runs = Arc::new(AtomicUsize::new(0));
+        let slot = Arc::new(Mutex::new(None::<RelayCommand>));
+        let command = RelayCommand::new({
+            let (runs, slot) = (runs.clone(), slot.clone());
+            move || {
+                if runs.fetch_add(1, Ordering::SeqCst) == 0 {
+                    slot_command(&slot).execute();
+                    panic!("action failed after a nested execute");
+                }
+            }
+        });
+        *slot.lock().unwrap() = Some(command.clone());
+
+        let panicked = catch_unwind(AssertUnwindSafe(|| command.execute())).is_err();
+        let runs_after_panic = runs.load(Ordering::SeqCst);
+        command.execute();
+        (panicked, runs_after_panic, runs.load(Ordering::SeqCst))
+    });
+
+    // The panic propagates to the caller (spec §3) and drops the nested call.
+    assert!(panicked);
+    assert_eq!(runs_after_panic, 1);
+    assert_eq!(runs, 2);
+}
+
+#[test]
+fn an_execute_from_another_thread_waits_for_the_running_action() {
+    let log = without_deadlock(|| {
+        let log = Log::default();
+        let (entered_tx, entered) = mpsc::channel::<()>();
+        let (release, released) = mpsc::channel::<()>();
+        let gate = Arc::new(Mutex::new(Some((entered_tx, released))));
+        let command = RelayCommand::new({
+            let log = log.clone();
+            move || {
+                let thread = std::thread::current().name().unwrap_or("?").to_string();
+                let gate = gate.lock().unwrap().take();
+                note(&log, format!("start {thread}"));
+                if let Some((entered, released)) = gate {
+                    entered.send(()).unwrap();
+                    released.recv_timeout(NESTED_TIMEOUT).unwrap();
+                }
+                note(&log, format!("end {thread}"));
+            }
+        });
+        let execute_on = |name: &str| {
+            let command = command.clone();
+            std::thread::Builder::new()
+                .name(name.to_string())
+                .spawn(move || command.execute())
+                .unwrap()
+        };
+
+        let first = execute_on("first");
+        entered.recv_timeout(NESTED_TIMEOUT).unwrap();
+        let second = execute_on("second");
+        // Give the second caller time to reach the busy action.
+        std::thread::sleep(Duration::from_millis(50));
+        note(&log, "released");
+        release.send(()).unwrap();
+        first.join().unwrap();
+        second.join().unwrap();
+        entries(&log)
+    });
+
+    // The second call runs on its own thread, not deferred into the first.
+    assert_eq!(
+        log,
+        [
+            "start first",
+            "released",
+            "end first",
+            "start second",
+            "end second"
+        ]
+    );
+}
+
+#[test]
+fn wrappers_re_entered_from_their_inner_action_do_not_deadlock() {
+    let (composite_runs, decorator_log) = without_deadlock(|| {
+        let runs = Arc::new(AtomicUsize::new(0));
+        let composite_slot = Arc::new(Mutex::new(None::<CompositeCommand>));
+        let inner = RelayCommand::new({
+            let (runs, composite_slot) = (runs.clone(), composite_slot.clone());
+            move || {
+                if runs.fetch_add(1, Ordering::SeqCst) == 0 {
+                    composite_slot.lock().unwrap().clone().unwrap().execute();
+                }
+            }
+        });
+        let composite = CompositeCommand::from_commands(vec![inner]);
+        *composite_slot.lock().unwrap() = Some(composite.clone());
+        composite.execute();
+
+        let log = Log::default();
+        let decorator_slot = Arc::new(Mutex::new(None::<DecoratorCommand<RelayCommand>>));
+        let armed = Arc::new(AtomicBool::new(true));
+        let inner = RelayCommand::new({
+            let (log, decorator_slot) = (log.clone(), decorator_slot.clone());
+            move || {
+                note(&log, "run");
+                if armed.swap(false, Ordering::SeqCst) {
+                    decorator_slot.lock().unwrap().clone().unwrap().execute();
+                }
+            }
+        });
+        let decorator = inner.wrap_with(
+            NO_PREDICATE,
+            Some({
+                let log = log.clone();
+                move || note(&log, "pre")
+            }),
+            Some({
+                let log = log.clone();
+                move || note(&log, "post")
+            }),
+        );
+        *decorator_slot.lock().unwrap() = Some(decorator.clone());
+        decorator.execute();
+
+        (runs.load(Ordering::SeqCst), entries(&log))
+    });
+
+    assert_eq!(composite_runs, 2);
+    // Each admitted pre/post pair stays balanced around its inner execute.
+    assert_eq!(decorator_log, ["pre", "run", "pre", "post", "run", "post"]);
 }

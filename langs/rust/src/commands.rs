@@ -3,9 +3,10 @@
 //! Spec: `spec/04-commands.md`.
 
 use super::{
-    catch_unwind, evaluate_command_predicate, lock, spawn_worker, Arc, AssertUnwindSafe,
+    catch_unwind, evaluate_command_predicate, lock, spawn_worker, thread, Arc, AssertUnwindSafe,
     AsyncValue, AtomicBool, AtomicU64, Context, Future, Message, MessageHub, Mutex, NullMessageHub,
-    Ordering, Pin, Poll, Subscription, ValueStream, ValueSubscription, VmxError, VmxResult, Weak,
+    Ordering, Pin, Poll, Subscription, ThreadId, ValueStream, ValueSubscription, VmxError,
+    VmxResult, Weak,
 };
 
 /// A parameterless action with queryable execution eligibility.
@@ -124,7 +125,143 @@ pub trait CommandOf<T>: Send + Sync {
     fn execute(&self, parameter: T);
 }
 
-type CommandAction = Arc<Mutex<dyn FnMut() + Send + 'static>>;
+/// How a relay command runs an admitted execution.
+///
+/// The other flavors hold no lock while a relay command's action runs, so an
+/// `execute` made from inside the action evaluates `can_execute` and, when
+/// admitted, runs at once (spec `04-commands.md` §3). A shared `Fn` action
+/// does the same here. Rust cannot call an `FnMut` action again while it is
+/// running, so an exclusive action defers such a call instead of blocking its
+/// own thread (see [`ExclusiveAction`]).
+enum RelayAction<P> {
+    /// Runs with no lock held, so nested and concurrent executions run at once.
+    Shared(Arc<dyn Fn(P) + Send + Sync + 'static>),
+    /// Runs on one thread at a time.
+    Exclusive(Arc<ExclusiveAction<P>>),
+}
+
+impl<P> Clone for RelayAction<P> {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Shared(action) => Self::Shared(Arc::clone(action)),
+            Self::Exclusive(action) => Self::Exclusive(Arc::clone(action)),
+        }
+    }
+}
+
+impl<P> RelayAction<P> {
+    fn shared<F>(action: F) -> Self
+    where
+        F: Fn(P) + Send + Sync + 'static,
+    {
+        Self::Shared(Arc::new(action))
+    }
+
+    fn exclusive<F>(action: F) -> Self
+    where
+        F: FnMut(P) + Send + 'static,
+    {
+        Self::Exclusive(Arc::new(ExclusiveAction {
+            body: Mutex::new(Box::new(action)),
+            turn: Mutex::new(ExclusiveTurn {
+                owner: None,
+                deferred: Vec::new(),
+            }),
+        }))
+    }
+
+    /// Runs an execution that `can_execute` admitted. `live` reports that
+    /// the command is not disposed.
+    fn execute(&self, parameter: P, live: impl Fn() -> bool) {
+        match self {
+            Self::Shared(action) => action(parameter),
+            Self::Exclusive(action) => action.execute(parameter, live),
+        }
+    }
+}
+
+/// An `FnMut` relay action, which runs on one thread at a time.
+///
+/// An admitted execution from another thread waits until the action is free.
+/// One made on the thread that is running the action, from the action or from
+/// an observer it notifies, cannot wait for it without deadlocking, and cannot
+/// run inline because the action is already borrowed. It is deferred: it runs
+/// after the running action returns, before the outermost `execute` returns.
+/// Deferred executions start in the order inline recursion would start them.
+/// An execution that waited, for either reason, does not run once the command
+/// is disposed.
+struct ExclusiveAction<P> {
+    body: Mutex<Box<dyn FnMut(P) + Send + 'static>>,
+    turn: Mutex<ExclusiveTurn<P>>,
+}
+
+/// The thread running an [`ExclusiveAction`], and the executions it deferred.
+struct ExclusiveTurn<P> {
+    owner: Option<ThreadId>,
+    deferred: Vec<P>,
+}
+
+impl<P> ExclusiveAction<P> {
+    fn execute(&self, parameter: P, live: impl Fn() -> bool) {
+        let current = thread::current().id();
+        {
+            let mut turn = lock(&self.turn);
+            if turn.owner == Some(current) {
+                // This thread is running the action further up its stack.
+                turn.deferred.push(parameter);
+                return;
+            }
+        }
+        // A stack, so nested executions start in inline-recursion order.
+        let mut pending = vec![parameter];
+        while let Some(parameter) = pending.pop() {
+            let mut body = lock(&self.body);
+            if !live() {
+                // Disposal is final: no waiting execution runs.
+                return;
+            }
+            let run = ExclusiveRun::claim(&self.turn, current);
+            body(parameter);
+            let deferred = run.end();
+            drop(body);
+            pending.extend(deferred.into_iter().rev());
+        }
+    }
+}
+
+/// Marks the current thread as running an [`ExclusiveAction`] while its body
+/// lock is held. If the action panics, dropping the mark clears it and
+/// discards the executions deferred during the run.
+struct ExclusiveRun<'a, P> {
+    turn: Option<&'a Mutex<ExclusiveTurn<P>>>,
+}
+
+impl<'a, P> ExclusiveRun<'a, P> {
+    fn claim(turn: &'a Mutex<ExclusiveTurn<P>>, owner: ThreadId) -> Self {
+        lock(turn).owner = Some(owner);
+        Self { turn: Some(turn) }
+    }
+
+    /// Ends the run and returns the executions deferred during it.
+    fn end(mut self) -> Vec<P> {
+        self.turn.take().map(Self::release).unwrap_or_default()
+    }
+
+    fn release(turn: &Mutex<ExclusiveTurn<P>>) -> Vec<P> {
+        let mut turn = lock(turn);
+        turn.owner = None;
+        std::mem::take(&mut turn.deferred)
+    }
+}
+
+impl<P> Drop for ExclusiveRun<'_, P> {
+    fn drop(&mut self) {
+        if let Some(turn) = self.turn.take() {
+            drop(Self::release(turn));
+        }
+    }
+}
+
 type CommandPredicate = Arc<dyn Fn() -> bool + Send + Sync + 'static>;
 
 #[derive(Clone)]
@@ -132,8 +269,49 @@ type CommandPredicate = Arc<dyn Fn() -> bool + Send + Sync + 'static>;
 ///
 /// Predicate panics are treated as not executable. Disposal makes the command
 /// inert and completes its eligibility-change hub.
+///
+/// # Nested execution
+///
+/// Every `execute` evaluates `can_execute` when it is called, as in the other
+/// flavors, and no lock is held while the predicate runs or while the command
+/// notifies observers. The action is an `FnMut`, so it runs on one thread at a
+/// time: an admitted `execute` from another thread waits until the running
+/// action returns. Rust cannot call an `FnMut` again while it is running, so
+/// an admitted `execute` made on the same thread while the action runs, from
+/// the action itself or from an observer it notifies, cannot run inline as it
+/// does in the other flavors. It is deferred instead: it runs after the
+/// running action returns and before the outermost `execute` returns. Nested
+/// executions start in the order inline recursion would start them. An
+/// execution that waited does not run once the command is disposed.
+///
+/// ```
+/// use std::sync::{Arc, Mutex};
+/// use vmx::{Command, RelayCommand};
+///
+/// let log = Arc::new(Mutex::new(Vec::new()));
+/// let slot = Arc::new(Mutex::new(None::<RelayCommand>));
+/// let command = RelayCommand::new({
+///     let (log, slot) = (log.clone(), slot.clone());
+///     move || {
+///         log.lock().unwrap().push("start");
+///         let command = slot.lock().unwrap().clone().unwrap();
+///         command.execute(); // runs once this run returns
+///         log.lock().unwrap().push("end");
+///     }
+/// })
+/// .with_can_execute({
+///     let log = log.clone();
+///     move || log.lock().unwrap().len() < 3
+/// });
+/// *slot.lock().unwrap() = Some(command.clone());
+///
+/// command.execute();
+///
+/// // The nested call made by the second run finds `can_execute` false.
+/// assert_eq!(*log.lock().unwrap(), ["start", "end", "start", "end"]);
+/// ```
 pub struct RelayCommand {
-    action: Option<CommandAction>,
+    action: Option<RelayAction<()>>,
     predicate: Option<CommandPredicate>,
     disposed: Arc<Mutex<bool>>,
     can_execute_changed: MessageHub,
@@ -142,23 +320,33 @@ pub struct RelayCommand {
 
 impl RelayCommand {
     /// Creates a command that invokes `action` when executable.
-    pub fn new<F>(action: F) -> Self
+    ///
+    /// See [Nested execution](Self#nested-execution) for an `execute` made
+    /// while `action` runs.
+    pub fn new<F>(mut action: F) -> Self
     where
         F: FnMut() + Send + 'static,
     {
-        Self {
-            action: Some(Arc::new(Mutex::new(action))),
-            predicate: None,
-            disposed: Arc::new(Mutex::new(false)),
-            can_execute_changed: MessageHub::new(),
-            _trigger_subscriptions: Arc::new(Vec::new()),
-        }
+        Self::with_action(Some(RelayAction::exclusive(move |()| action())))
+    }
+
+    /// Creates a command whose shared `action` runs with no lock held, so a
+    /// nested or concurrent `execute` runs at once, as in the other flavors.
+    pub(crate) fn new_shared<F>(action: F) -> Self
+    where
+        F: Fn() + Send + Sync + 'static,
+    {
+        Self::with_action(Some(RelayAction::shared(move |()| action())))
     }
 
     /// Creates an executable command with no action.
     pub fn noop() -> Self {
+        Self::with_action(None)
+    }
+
+    fn with_action(action: Option<RelayAction<()>>) -> Self {
         Self {
-            action: None,
+            action,
             predicate: None,
             disposed: Arc::new(Mutex::new(false)),
             can_execute_changed: MessageHub::new(),
@@ -283,7 +471,7 @@ impl Command for RelayCommand {
             return;
         }
         if let Some(action) = &self.action {
-            (lock(action))();
+            action.execute((), || !*lock(&self.disposed));
         }
     }
 
@@ -292,13 +480,17 @@ impl Command for RelayCommand {
     }
 }
 
-type ParameterizedCommandAction<T> = Arc<Mutex<dyn FnMut(T) + Send + 'static>>;
 type ParameterizedCommandPredicate<T> = Arc<dyn Fn(&T) -> bool + Send + Sync + 'static>;
 
 #[derive(Clone)]
 /// A cloneable synchronous command whose predicate and action receive a value.
+///
+/// Nested execution follows [`RelayCommand`]'s rules: an admitted `execute`
+/// made on the thread running the action is deferred, with its parameter,
+/// until the running action returns (see
+/// [Nested execution](RelayCommand#nested-execution)).
 pub struct RelayCommandOf<T: Clone + Send + 'static> {
-    action: Option<ParameterizedCommandAction<T>>,
+    action: Option<RelayAction<T>>,
     predicate: Option<ParameterizedCommandPredicate<T>>,
     disposed: Arc<Mutex<bool>>,
     can_execute_changed: MessageHub,
@@ -311,7 +503,7 @@ impl<T: Clone + Send + 'static> RelayCommandOf<T> {
         F: FnMut(T) + Send + 'static,
     {
         Self {
-            action: Some(Arc::new(Mutex::new(action))),
+            action: Some(RelayAction::exclusive(action)),
             predicate: None,
             disposed: Arc::new(Mutex::new(false)),
             can_execute_changed: MessageHub::new(),
@@ -409,7 +601,7 @@ impl<T: Clone + Send + 'static> CommandOf<T> for RelayCommandOf<T> {
             return;
         }
         if let Some(action) = &self.action {
-            (lock(action))(parameter);
+            action.execute(parameter, || !*lock(&self.disposed));
         }
     }
 }
@@ -947,18 +1139,31 @@ impl AsyncRelayCommandBuilder {
 #[derive(Clone, Default)]
 /// A fluent builder for [`RelayCommand`].
 pub struct RelayCommandBuilder {
-    action: Option<CommandAction>,
+    action: Option<RelayAction<()>>,
     predicate: Option<CommandPredicate>,
     triggers: Vec<MessageHub>,
 }
 
 impl RelayCommandBuilder {
     /// Sets the optional command action.
-    pub fn action<F>(mut self, action: F) -> Self
+    ///
+    /// See [Nested execution](RelayCommand#nested-execution) for an `execute`
+    /// made while `action` runs.
+    pub fn action<F>(mut self, mut action: F) -> Self
     where
         F: FnMut() + Send + 'static,
     {
-        self.action = Some(Arc::new(Mutex::new(action)));
+        self.action = Some(RelayAction::exclusive(move |()| action()));
+        self
+    }
+
+    /// Sets a shared action that runs with no lock held, so a nested or
+    /// concurrent `execute` runs at once, as in the other flavors.
+    pub(crate) fn shared_action<F>(mut self, action: F) -> Self
+    where
+        F: Fn() + Send + Sync + 'static,
+    {
+        self.action = Some(RelayAction::shared(move |()| action()));
         self
     }
 
