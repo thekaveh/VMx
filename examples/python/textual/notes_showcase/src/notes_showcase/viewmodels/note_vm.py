@@ -194,7 +194,11 @@ class NoteVM(
     @property
     def delete_command(self) -> Command:
         """Delete command. ``ConfirmationDecoratorCommand`` when ``confirm_delete``
-        was wired on the builder; raw :class:`RelayCommand` otherwise.
+        was wired on the builder; raw :class:`AsyncRelayCommand` otherwise.
+
+        The inner delete is asynchronous, so awaiting the wrapper's
+        ``execute_async`` completes once the delete itself has finished
+        (spec §8.3.2, ADR-0145).
         """
         return self._delete_command
 

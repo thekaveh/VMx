@@ -1,7 +1,7 @@
 # 12 — Conformance test catalog
 
 This document enumerates every stable conformance test identifier in the form
-`XXX-NNN`. Each of the five language flavors MUST implement all 421 library IDs
+`XXX-NNN`. Each of the five language flavors MUST implement all 425 library IDs
 in `langs/<lang>/tests/conformance/` before it can be marked stable. The five
 `THEME-00x` IDs are application-level scenarios implemented by the four
 UI-backed flagship examples. CI verifies library coverage via
@@ -1525,6 +1525,81 @@ disposes the decorator
 **And** the decorator whose pre-action ran invokes its post-action exactly once
 **And** a decorator whose inner command throws still invokes its post-action once
 and the exception propagates
+
+### CMDD-014 — Awaited confirmation completes when an async inner completes
+
+Per spec/04-commands.md §8.3.2 and ADR-0145.
+
+**Given** a `ConfirmationDecoratorCommand` over an async inner command whose
+body blocks until released, with a `confirm` delegate that resolves `true`
+**When** `ExecuteAsync()` is awaited
+**Then** the awaiter has not completed while the inner body is blocked
+**And** it completes after the body is released
+**And** the inner's awaitable entry point ran exactly once and its synchronous
+`Execute()` never ran for this call
+
+**When** `confirm` resolves `false`
+**Then** the awaiter completes and the inner command is not invoked
+
+**Given** a synchronous inner command
+**When** `ExecuteAsync()` is awaited with `confirm` resolving `true`
+**Then** `inner.Execute()` runs exactly once and the awaiter completes after it
+returns
+
+### CMDD-015 — Failures reach exactly one channel
+
+Per spec/04-commands.md §8.3.1/§8.3.2 and ADR-0145.
+
+**Given** a `ConfirmationDecoratorCommand` over an async inner command whose
+body fails after being released
+**When** `ExecuteAsync()` is awaited
+**Then** the failure propagates to the awaiter
+**And** nothing is emitted on the decorator's `errors` or the inner's error
+channel
+
+**When** the same decorator is run through the fire-and-forget `Execute()`
+**Then** the inner's error channel emits the failure exactly once
+**And** the decorator's `errors` emits nothing
+
+**When** `confirm` itself fails on the fire-and-forget path
+**Then** the decorator's `errors` emits that failure exactly once and the inner
+is not invoked
+
+### CMDD-016 — The inner keeps its own admission and cancellation
+
+Per spec/04-commands.md §8.3.2 and ADR-0145.
+
+**Given** a `ConfirmationDecoratorCommand` over an `AsyncRelayCommand`, with an
+awaited `ExecuteAsync()` whose confirmation is pending
+**When** the inner starts executing elsewhere and `confirm` then resolves `true`
+**Then** the inner drops the decorator's call, its body runs no second time,
+and the awaiter completes
+**And** an inner already executing before the call disables the decorator
+through `CanExecute`, so `confirm` is not invoked
+
+**Given** an async inner whose body observes cancellation
+**When** the inner's `Cancel` is called while an awaited decorator call is in
+flight
+**Then** the awaiter completes with the inner's own cancellation outcome,
+unchanged by the decorator
+
+### CMDD-017 — Nested wrappers are awaited; disposal does not own the inner
+
+Per spec/04-commands.md §8.3.2/§8.4 and ADR-0145.
+
+**Given** an outer `ConfirmationDecoratorCommand` over an inner
+`ConfirmationDecoratorCommand` over an async command whose body blocks
+**When** the outer `ExecuteAsync()` is awaited and both confirmations resolve
+`true`
+**Then** the outer awaiter completes only after the body is released, and the
+body ran exactly once
+
+**When** a decorator is disposed while its async inner body is blocked
+**Then** the inner is neither cancelled nor disposed
+**And** the awaiter completes when the body is released
+
+**When** a decorator is disposed while its confirmation is pending
+**Then** resolving the confirmation `true` starts no inner work
 
 ______________________________________________________________________
 

@@ -6,6 +6,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.30.0] — unreleased source version
+
+### Changed
+
+- `ConfirmationDecoratorCommand`'s fire-and-forget `execute()` now starts an
+  `AsyncCommand` inner through the inner's own `execute()`, so the inner's
+  failure arrives on the inner's `errors` instead of the decorator's, matching
+  the other flavors. `executeAsync()` also awaits a nested
+  `ConfirmationDecoratorCommand` end to end, invoking every inner exactly once,
+  and an awaited inner failure reaches only the awaiter (`CMDD-014..017`,
+  ADR-0145, spec 3.29.0) (#355).
+
 ## [3.29.0] — unreleased source version
 
 ### Changed

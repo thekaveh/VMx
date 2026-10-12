@@ -60,6 +60,7 @@ tests/conformance/command_ext.rs
 tests/conformance/commands.rs
 tests/conformance/component_vm.rs
 tests/conformance/composite_vm.rs
+tests/conformance/confirmation_async_inner.rs
 tests/conformance/derived_properties.rs
 tests/conformance/dialogs.rs
 tests/conformance/discriminator.rs

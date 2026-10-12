@@ -6,7 +6,8 @@ Updated alongside spec and flavor releases.
 
 | spec  | python          | csharp          | typescript      | swift           | rust          |
 | ----- | --------------- | --------------- | --------------- | --------------- | ------------- |
-| 3.28.x | 3.28.0[^current] <!-- x-release-please-version --> | 3.28.0[^current] | 3.29.0[^current] | 3.29.0[^current] | 0.34.0[^rust] |
+| 3.29.x | 3.29.0[^current] <!-- x-release-please-version --> | 3.29.0[^current] | 3.30.0[^current] | 3.30.0[^current] | 0.35.0[^rust] |
+| 3.28.x | —[^source-3-28] | —[^source-3-28] | —[^source-3-28] | —[^source-3-28] | 0.34.0[^source-3-28] |
 | 3.27.x | —[^source-3-27] | —[^source-3-27] | —[^source-3-27] | —[^source-3-27] | 0.33.0[^source-3-27] |
 | 3.26.x | —[^source-3-26] | —[^source-3-26] | —[^source-3-26] | —[^source-3-26] | 0.32.0[^source-3-26] |
 | 3.25.x | —[^source-3-25] | —[^source-3-25] | —[^source-3-25] | —[^source-3-25] | 0.31.0[^source-3-25] |
@@ -59,7 +60,7 @@ semantics, `FormVM` (snapshot/dirty/approve/deny lifecycle), dialog
 service (`DialogService` / `NullDialogService`), and the notifications
 sub-package (`NotificationHub`, `NotificationVM`, `ConfirmationVM`,
 `makeConfirm` bridge) —
-**421 of 421 library conformance IDs + 5 `THEME-00x` scenario IDs = 426 total
+**425 of 425 library conformance IDs + 5 `THEME-00x` scenario IDs = 430 total
 (Swift UI-backed total parity) as of ADR-0066/ADR-0067 and ADR-0068..ADR-0100** (library IDs: base 44 per
 ADR-0037/ADR-0053; +50 leaf-area IDs per ADR-0059; +30 collections IDs per
 ADR-0060; +29 hierarchical/threading/expand-collapse IDs per ADR-0061;
@@ -90,9 +91,10 @@ and public-hub IDs per ADR-0090; +1 inert modeled-assignment ID per ADR-0091;
 +6 container hub-publication IDs (`COMP-042..045`, `GRP-012..013`) per ADR-0142;
 +4 FormVM approval-admission IDs (`FORM-031..034`) per ADR-0143;
 +4 FormVM failure-atomic update IDs (`FORM-035..038`) per ADR-0144;
++4 confirmation async-inner IDs (`CMDD-014..017`) per ADR-0145;
 THEME-001..005 covered by the
 `examples/swift/notes-showcase/` flagship — ADR-0067). This increment ledger is
-current through spec 3.28.0 / FORM-038. Swift has member-level
+current through spec 3.29.0 / CMDD-017. Swift has member-level
 parity with C#, Python, and TypeScript. Rust 0.29.0 preserves the capability,
 structural, command, reactive, and async convergence work recorded for 0.27.0
 in `docs/maintenance/2026-07-16-rust-capability-parity.md` and corrects the
@@ -100,8 +102,8 @@ async-resource family to expose the complete ordinary component contract, and
 adds paired dispatcher channels plus background lifecycle parity. See
 `langs/swift/README.md` §5 for the flagship scenario ledger.
 
-[^current]: C# 3.28.0, Python 3.28.0, TypeScript 3.29.0, and Swift 3.29.0 are
-the unreleased source lines implementing spec 3.28.0. Python 3.23.0 is publicly
+[^current]: C# 3.29.0, Python 3.29.0, TypeScript 3.30.0, and Swift 3.30.0 are
+the unreleased source lines implementing spec 3.29.0. Python 3.23.0 is publicly
 installable from PyPI, and Swift 3.24.0 through SwiftPM. C# and TypeScript
 public packages remain pending. Their release jobs refuse to green-skip a
 publish without configured credentials.
@@ -112,8 +114,8 @@ tag and [GitHub Release](https://github.com/thekaveh/VMx/releases/tag/swift-v3.2
 point to the same verified `main` commit.
 
 [^rust]: Rust is a source-tree, catalog-complete flavor promoted by ADR-0081. It
-is at source version 0.34.0, declares `MIN_SPEC_VERSION = "3.28.0"`, and carries
-behavioral tests for all 421 library conformance IDs. The completed
+is at source version 0.35.0, declares `MIN_SPEC_VERSION = "3.29.0"`, and carries
+behavioral tests for all 425 library conformance IDs. The completed
 `docs/maintenance/2026-07-16-rust-capability-parity.md` records its focused
 member and edge-behavior convergence evidence; it has not yet been published
 to crates.io.
@@ -141,6 +143,11 @@ rows.
 
 [^source-3-24]: C# 3.24.0, Python 3.24.0, TypeScript 3.25.0, Swift 3.25.0, and
 Rust 0.30.0 implemented spec 3.24.x as validated source lines but were never
+tagged or published, so the row lists no releases. The Rust version is recorded
+as source history, as for earlier Rust rows.
+
+[^source-3-28]: C# 3.28.0, Python 3.28.0, TypeScript 3.29.0, Swift 3.29.0, and
+Rust 0.34.0 implemented spec 3.28.x as validated source lines but were never
 tagged or published, so the row lists no releases. The Rust version is recorded
 as source history, as for earlier Rust rows.
 
@@ -190,8 +197,8 @@ version it implements.
 > independently from `VMx` core, starting from 1.0.0 (per ADR-0013). The `1.2.0` shown above is not
 > a divergence from the spec — it is the companion package's own version counter. The **Spec**
 > column is the spec revision each companion's own feature surface implements; it is not the core
-> dependency floor. As built at HEAD both companions reference the `VMx` 3.28.0 core project and
-> pack with a `VMx >= 3.28.0` NuGet dependency. The DI companion uses packaging-only patch 2.1.1
+> dependency floor. As built at HEAD both companions reference the `VMx` 3.29.0 core project and
+> pack with a `VMx >= 3.29.0` NuGet dependency. The DI companion uses packaging-only patch 2.1.1
 > because the historical core tag `csharp-v2.1.0` is immutable. Future companion releases use
 > package-specific `csharp-notifications-v*` and `csharp-dependency-injection-v*` tags, preventing
 > that legacy cross-package collision; the already-advanced DI version is not rewound. These source

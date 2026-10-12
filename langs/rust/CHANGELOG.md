@@ -6,6 +6,28 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.35.0] — unreleased source version
+
+### Added
+
+- `Command::as_async()`, a provided trait method that returns a command's
+  awaitable entry point, or `None` for a synchronous command. Calling it makes
+  one execution attempt whose `AsyncValue` settles when the attempt completes;
+  an attempt the command does not admit settles `Ok(())` at once.
+  `AsyncRelayCommand` and `ConfirmationDecoratorCommand` provide it, and
+  `Arc<T>` forwards it (ADR-0145) (#355).
+
+### Changed
+
+- An awaited `ConfirmationDecoratorCommand::execute_async()` now completes when
+  an asynchronous inner command's operation finishes, invoking it exactly once
+  through `as_async()`; a nested confirmation is awaited end to end. An inner
+  failure reaches the awaiter instead of the inner's error stream:
+  `ConfirmationExecution::join()` returns it as `Err(Box<VmxError>)`, which
+  downcasts to the original error, and the decorator's `as_async()` entry point
+  returns it as `Err(VmxError)`. The fire-and-forget `execute()` is unchanged
+  (`CMDD-014..017`, ADR-0145, spec 3.29.0) (#355).
+
 ## [0.34.0] — unreleased source version
 
 ### Changed

@@ -288,12 +288,15 @@ async def test_delete_command_with_confirm_true_publishes_note_deleted_notificat
 
 
 async def test_delete_success_notification_waits_for_async_callback() -> None:
+    from vmx.commands import ConfirmationDecoratorCommand
     from vmx.notifications import NotificationHub
 
+    started = asyncio.Event()
     release = asyncio.Event()
     notified = asyncio.Event()
 
     async def persist(_vm: NoteVM) -> None:
+        started.set()
         await release.wait()
 
     notification_hub = NotificationHub()
@@ -308,11 +311,17 @@ async def test_delete_success_notification_waits_for_async_callback() -> None:
         notification_hub=notification_hub,
     )
 
-    await vm.delete_command.execute_async()  # type: ignore[union-attr]
+    # The awaited confirmed delete waits for the async inner delete
+    # (spec §8.3.2, ADR-0145), so it runs as a task while the callback blocks.
+    assert isinstance(vm.delete_command, ConfirmationDecoratorCommand)
+    pending = asyncio.ensure_future(vm.delete_command.execute_async())
+    await asyncio.wait_for(started.wait(), timeout=2)
 
     assert not notified.is_set()
+    assert not pending.done()
     release.set()
-    await asyncio.wait_for(notified.wait(), timeout=2)
+    await asyncio.wait_for(pending, timeout=2)
+    assert notified.is_set()
 
 
 async def test_delete_failure_does_not_publish_success() -> None:

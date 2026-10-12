@@ -6,6 +6,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.30.0] — unreleased source version
+
+### Changed
+
+- An awaited `executeAsync()` on `ConfirmationDecoratorCommand` now completes
+  when an asynchronous inner command (an `IAsyncCommand`, or a nested
+  confirmation wrapper) finishes, not when it starts. After a true confirmation
+  the decorator invokes the inner exactly once through its awaitable entry
+  point, and an inner failure reaches the awaiter instead of the inner's
+  `errors`. The fire-and-forget `execute()` still starts an asynchronous inner
+  through the inner's own `execute()`, so its failures stay on the inner's
+  `errors`; the decorator's `errors` carries only confirmation failures and
+  synchronous-inner failures. The decorator adds no admission, cancellation, or
+  ownership of the inner (`CMDD-014..017`, ADR-0145, spec 3.29.0) (#355).
+- The `execute()` doc comment no longer claims that the void method returns a
+  promise (#355).
+
 ## [3.29.0] — unreleased source version
 
 ### Changed

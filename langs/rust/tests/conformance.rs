@@ -12,6 +12,7 @@ mod conformance {
     mod commands;
     mod component_vm;
     mod composite_vm;
+    mod confirmation_async_inner;
     mod derived_properties;
     mod dialogs;
     mod discriminator;

@@ -28,7 +28,7 @@ before any flavor releases a stable version.
 - `09-forwarding.md` — forwarding decorators.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
-- `12-conformance.md` — cross-language conformance test catalog (426 IDs).
+- `12-conformance.md` — cross-language conformance test catalog (430 IDs).
 - `13-tree-utilities.md` — `walk` / `find` / `walk_expanded` tree introspection.
 
 ### 1.2 Chapters (v2.0 additions)
@@ -673,11 +673,25 @@ library IDs plus 5 scenario IDs.
 
 See ADR-0144 and chapter 20 §5.4.
 
-### 1.40 Supporting artefacts
+### 1.40 v3.28.0 → v3.29.0 changes
 
-- `VERSION` — current spec SemVer (`3.28.0`).
+v3.29.0 makes an awaited `ConfirmationDecoratorCommand.ExecuteAsync` complete
+when an asynchronous inner command's operation completes. The inner is invoked
+exactly once, through its awaitable entry point, and its failure reaches the
+awaiter only; a nested confirmation wrapper is awaited end to end. The
+fire-and-forget `Execute` starts an asynchronous inner through the inner's own
+`Execute`, so its failures stay on the inner's error channel. The decorator adds
+no admission, cancellation, or ownership of its own (`CMDD-014..017`). Rust's
+`Command` trait gains a provided method exposing a command's awaitable entry
+point. The catalog now contains 425 library IDs plus 5 scenario IDs.
+
+See ADR-0145 and chapter 04 §8.3.2.
+
+### 1.41 Supporting artefacts
+
+- `VERSION` — current spec SemVer (`3.29.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0144); see
+- `ADRs/` — Architecture Decision Records (0001-0145); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `schemas/` — versioned supporting machine contracts. The consumer
   conformance v1 schema is non-normative; see ADR-0102.

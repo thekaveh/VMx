@@ -5,6 +5,10 @@ cannot propagate the way the base ``RelayCommand``'s task does. Previously BOTH
 a rejecting confirm delegate AND a throwing inner command were swallowed; they
 must now be surfaced on the ``errors`` channel. Await ``execute_async()`` to
 observe them inline.
+
+An inner command is asynchronous by shape: any inner offering an awaitable
+``execute_async`` is awaited by ``execute_async()`` and started through its own
+``execute()`` by the fire-and-forget path (spec §8.3.2, ADR-0145).
 """
 
 from __future__ import annotations
@@ -13,6 +17,8 @@ import asyncio
 from threading import Event, Thread
 
 import pytest
+from reactivex import Observable
+from reactivex.subject import Subject
 
 from vmx.commands import ConfirmationDecoratorCommand, RelayCommand
 
@@ -122,3 +128,57 @@ def test_execute_without_running_loop_returns_while_confirmation_is_pending() ->
     assert returned_before_release, "fire-and-forget execute must not await confirmation inline"
     assert invoked.wait(1)
     command.dispose()
+
+
+class _StructuralAsyncCommand:
+    """An async inner by shape alone: a coroutine ``execute_async`` (spec §8.3.2)."""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+        self.called = asyncio.Event()
+        self.release: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        self._changed: Subject[None] = Subject()
+
+    @property
+    def can_execute_changed(self) -> Observable[None]:
+        return self._changed
+
+    def can_execute(self, parameter: object = None) -> bool:
+        return True
+
+    def execute(self, parameter: object = None) -> None:
+        self.calls.append(f"execute:{parameter}")
+        self.called.set()
+
+    async def execute_async(self, parameter: object = None) -> None:
+        self.calls.append(f"execute_async:{parameter}")
+        self.called.set()
+        await self.release
+
+
+async def _confirm_yes() -> bool:
+    return True
+
+
+async def test_execute_async_awaits_any_inner_offering_an_awaitable_execute_async() -> None:
+    inner = _StructuralAsyncCommand()
+    command = ConfirmationDecoratorCommand(inner, confirm=_confirm_yes)
+
+    awaiter = asyncio.ensure_future(command.execute_async("p"))
+    await asyncio.wait_for(inner.called.wait(), 1)
+
+    assert inner.calls == ["execute_async:p"]
+    assert not awaiter.done(), "the awaited call waits for the structural async inner"
+    inner.release.set_result(None)
+    await asyncio.wait_for(awaiter, 1)
+    assert inner.calls == ["execute_async:p"]
+
+
+async def test_execute_starts_an_async_inner_through_its_own_execute() -> None:
+    inner = _StructuralAsyncCommand()
+    command = ConfirmationDecoratorCommand(inner, confirm=_confirm_yes)
+
+    command.execute("p")
+    await asyncio.wait_for(inner.called.wait(), 1)
+
+    assert inner.calls == ["execute:p"], "fire-and-forget uses the inner's own execute()"

@@ -93,6 +93,85 @@ private final class PendingDecision: @unchecked Sendable {
     }
 }
 
+/// Repository whose `deleteNote` stays pending until the test releases it.
+/// The released delete then runs against a zero-delay in-memory seed store, so
+/// the test can read the store while the delete is parked and after it lands.
+private actor PendingDeleteRepository: NoteRepository {
+    private let store = InMemoryNoteRepository(
+        seed: SeedData.build(),
+        loadAllDelay: 0,
+        loadNotesDelay: 0,
+        saveNoteDelay: 0,
+        deleteNoteDelay: 0
+    )
+    private let deleteStarted: XCTestExpectation
+    private var released = false
+    private var pendingDelete: CheckedContinuation<Void, Never>?
+    /// Ids whose gated delete has completed against the store.
+    private(set) var completedDeletes: [String] = []
+
+    init(deleteStarted: XCTestExpectation) {
+        self.deleteStarted = deleteStarted
+    }
+
+    func releasePendingDelete() {
+        released = true
+        pendingDelete?.resume()
+        pendingDelete = nil
+    }
+
+    func deleteNote(id: String) async throws {
+        deleteStarted.fulfill()
+        if !released {
+            await withCheckedContinuation { pendingDelete = $0 }
+        }
+        try await store.deleteNote(id: id)
+        completedDeletes.append(id)
+    }
+
+    func loadAll() async throws -> (notebooks: [NotebookModel], notes: [NoteModel]) {
+        try await store.loadAll()
+    }
+
+    func loadNotes(notebookId: String) async throws -> [NoteModel] {
+        try await store.loadNotes(notebookId: notebookId)
+    }
+
+    func searchNotes(
+        term: String,
+        token: String?,
+        pageSize: Int
+    ) async throws -> (items: [NoteModel], nextToken: String?) {
+        try await store.searchNotes(term: term, token: token, pageSize: pageSize)
+    }
+
+    func saveNote(_ note: NoteModel) async throws { try await store.saveNote(note) }
+    func addNotebook(_ notebook: NotebookModel) async throws { try await store.addNotebook(notebook) }
+    func export(
+        notebooks: [NotebookModel],
+        notes: [NoteModel],
+        path: String
+    ) async throws {
+        try await store.export(notebooks: notebooks, notes: notes, path: path)
+    }
+}
+
+/// Thread-safe flag set when an awaited command call returns.
+private final class AwaitReturnFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var returned = false
+
+    func markReturned() {
+        lock.lock(); defer { lock.unlock() }
+        returned = true
+    }
+
+    var hasReturned: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return returned
+    }
+}
+
 final class NoteVMTests: XCTestCase {
 
     // MARK: - Helpers
@@ -321,6 +400,64 @@ final class NoteVMTests: XCTestCase {
         XCTAssertTrue(recorder.deletedItems.isEmpty,
                       "A confirmation answered after disposal must not delete")
         XCTAssertFalse(vm.deleteCommand.canExecute())
+    }
+
+    // MARK: - ConfirmationDecoratorCommand (awaits the async repository delete)
+
+    func testAwaitingAConfirmedDelete_completesOnlyAfterTheGatedRepositoryDelete() async throws {
+        // spec/04-commands.md §8.3.2 (ADR-0145): the confirmation wraps the
+        // async inner delete, so awaiting it waits for the repository delete.
+        let deleteStarted = expectation(description: "repository delete parked")
+        let repo = PendingDeleteRepository(deleteStarted: deleteStarted)
+        let note = makeModel()
+        let vm = try NoteVM.builder()
+            .name("note")
+            .services(hub: MessageHub(), dispatcher: ImmediateDispatcher.INSTANCE)
+            .model(note)
+            .onDelete({ _ in try await repo.deleteNote(id: note.id) })
+            .confirmDelete({ true })    // user clicks "Yes"
+            .build()
+        try vm.construct()
+        let dc = try XCTUnwrap(vm.deleteCommand as? ConfirmationDecoratorCommand,
+                               "Expected ConfirmationDecoratorCommand")
+
+        let returned = AwaitReturnFlag()
+        let awaited = expectation(description: "confirmed delete awaited")
+        let execution = Task<Result<[String], Error>, Never> {
+            defer { awaited.fulfill() }
+            do {
+                try await dc.executeAsync()
+                returned.markReturned()
+                // Snapshot the repository the moment the awaited delete returns.
+                let deletedWhenReturned = await repo.completedDeletes
+                return .success(deletedWhenReturned)
+            } catch {
+                return .failure(error)
+            }
+        }
+
+        await fulfillment(of: [deleteStarted], timeout: 30)
+        // The repository delete is parked: the awaited delete must still be
+        // pending and the note must still be stored.
+        try? await Task.sleep(nanoseconds: 50_000_000)
+        XCTAssertFalse(returned.hasReturned,
+                       "Awaiting the confirmed delete must not return while the repository delete is parked")
+        let storedWhileParked = try await repo.loadNotes(notebookId: note.notebookId)
+        XCTAssertTrue(storedWhileParked.contains { $0.id == note.id })
+
+        await repo.releasePendingDelete()
+        await fulfillment(of: [awaited], timeout: 30)
+
+        let outcome = await execution.value
+        switch outcome {
+        case .success(let deletedWhenReturned):
+            XCTAssertEqual([note.id], deletedWhenReturned,
+                           "The awaited delete must return only after the gated repository delete completed")
+        case .failure(let error):
+            XCTFail("Expected the confirmed delete to succeed; got \(error)")
+        }
+        let storedAfterDelete = try await repo.loadNotes(notebookId: note.notebookId)
+        XCTAssertFalse(storedAfterDelete.contains { $0.id == note.id })
     }
 
     // MARK: - Notification hub

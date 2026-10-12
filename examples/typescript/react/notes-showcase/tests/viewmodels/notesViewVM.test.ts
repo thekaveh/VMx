@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  ConfirmationDecoratorCommand,
   ConstructionStatus,
   hasCapability,
   MessageHub,
@@ -337,6 +338,68 @@ describe("NotesViewVM", () => {
     await new Promise((r) => setTimeout(r, 20));
 
     expect(vm.inner.length).toBe(before - 1);
+    expect(vm.current).toBeNull();
+    const reload = await repo.loadNotes("nb-personal");
+    expect(reload.some((n) => n.id === target.noteId)).toBe(false);
+  });
+
+  // ADR-0145: an awaited confirmation over the async inner delete completes
+  // when the inner operation completes, so the repository delete is gated here
+  // and the awaiter must not settle until the gate opens.
+  it("awaiting a confirmed delete completes only after the gated repository delete", async () => {
+    const repo = new InMemoryNoteRepository(buildSeed(), {
+      loadNotesDelayMs: 0,
+      deleteNoteDelayMs: 0,
+    });
+    let enterDelete!: () => void;
+    const deleteEntered = new Promise<void>((resolve) => { enterDelete = resolve; });
+    let releaseDelete!: () => void;
+    const deleteGate = new Promise<void>((resolve) => { releaseDelete = resolve; });
+    const persisted: string[] = [];
+    const persistDelete = repo.deleteNote.bind(repo);
+    repo.deleteNote = async (id) => {
+      enterDelete();
+      await deleteGate;
+      await persistDelete(id);
+      persisted.push(id);
+    };
+    const vm = NotesViewVM.builder()
+      .name("notes")
+      .services(new MessageHub(), RxDispatcher.immediate())
+      .repository(repo)
+      .pageSize(5)
+      .searchDebounceMs(0)
+      .dialogService({
+        pickFileToOpen: () => Promise.resolve(null),
+        pickFileToSave: () => Promise.resolve(null),
+        confirm: () => Promise.resolve(true),
+        notify: () => Promise.resolve(),
+      })
+      .build();
+    vm.construct();
+    await vm.bindToAsync("nb-personal");
+    const target = vm.inner[0]!;
+    vm.current = target;
+    expect(target.deleteCommand).toBeInstanceOf(ConfirmationDecoratorCommand);
+
+    let settled = false;
+    const deletion = (target.deleteCommand as ConfirmationDecoratorCommand)
+      .executeAsync()
+      .then(() => { settled = true; });
+    await deleteEntered;
+    for (let i = 0; i < 25; i += 1) await Promise.resolve();
+
+    // The repository delete is blocked: the awaiter waits and the note stays.
+    expect(settled).toBe(false);
+    expect(persisted).toEqual([]);
+    expect(vm.inner).toContain(target);
+    expect(vm.current).toBe(target);
+
+    releaseDelete();
+    await deletion;
+
+    expect(persisted).toEqual([target.noteId]);
+    expect(vm.inner).not.toContain(target);
     expect(vm.current).toBeNull();
     const reload = await repo.loadNotes("nb-personal");
     expect(reload.some((n) => n.id === target.noteId)).toBe(false);

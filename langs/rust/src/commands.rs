@@ -3,10 +3,10 @@
 //! Spec: `spec/04-commands.md`.
 
 use super::{
-    catch_unwind, evaluate_command_predicate, lock, spawn_worker, thread, Arc, AssertUnwindSafe,
-    AsyncValue, AtomicBool, AtomicU64, Context, Future, Message, MessageHub, Mutex, NullMessageHub,
-    Ordering, Pin, Poll, Subscription, ThreadId, ValueStream, ValueSubscription, VmxError,
-    VmxResult, Weak,
+    catch_unwind, evaluate_command_predicate, lock, resume_unwind, spawn_worker, thread, Arc,
+    AssertUnwindSafe, AsyncValue, AtomicBool, AtomicU64, Context, Future, Message, MessageHub,
+    Mutex, NullMessageHub, Ordering, Pin, Poll, Subscription, ThreadId, ValueStream,
+    ValueSubscription, VmxError, VmxResult, Weak,
 };
 
 /// A parameterless action with queryable execution eligibility.
@@ -18,6 +18,41 @@ pub trait Command: Send + Sync {
     /// Returns the hub that announces eligibility changes.
     fn can_execute_changed(&self) -> MessageHub {
         NullMessageHub::hub()
+    }
+
+    /// Returns this command's awaitable entry point, or `None` for a
+    /// synchronous command.
+    ///
+    /// Calling the returned closure makes one execution attempt through the
+    /// command's awaitable path and returns an [`AsyncValue`] that settles
+    /// when that attempt completes, not when it starts: with `Ok(())`, with
+    /// the operation's [`VmxError`], or as panicked with the original panic
+    /// payload. An attempt the command does not admit, because it is busy,
+    /// disabled, or disposed, settles `Ok(())` at once. As with any awaited
+    /// call, a failure is returned to the caller and is not published on the
+    /// command's error stream.
+    ///
+    /// The default is `None`. [`AsyncRelayCommand`] and
+    /// [`ConfirmationDecoratorCommand`] return an entry point, and a
+    /// confirmation decorator uses it to await an asynchronous inner command
+    /// (spec `04-commands.md` §8.3.2, ADR-0145). An `Arc<T>` forwards to `T`.
+    ///
+    /// ```
+    /// use vmx::{AsyncRelayCommand, AsyncValue, Command, CommandExt, RelayCommand, VmxError};
+    ///
+    /// let save = AsyncRelayCommand::new(|_token| Err(VmxError::Other("offline".into())));
+    /// let start = save.as_async().expect("an async command has an entry point");
+    /// assert_eq!(start().wait(), Err(VmxError::Other("offline".into())));
+    ///
+    /// // A confirmation decorator is asynchronous too, and awaits its inner.
+    /// let confirmed = save.confirm(|| AsyncValue::ready(true));
+    /// let start = confirmed.as_async().expect("a confirmation has an entry point");
+    /// assert_eq!(start().wait(), Err(VmxError::Other("offline".into())));
+    ///
+    /// assert!(RelayCommand::noop().as_async().is_none());
+    /// ```
+    fn as_async(&self) -> Option<Box<dyn FnOnce() -> AsyncValue<VmxResult<()>> + Send>> {
+        None
     }
 }
 
@@ -36,6 +71,10 @@ impl<T: Command + ?Sized> Command for Arc<T> {
 
     fn can_execute_changed(&self) -> MessageHub {
         (**self).can_execute_changed()
+    }
+
+    fn as_async(&self) -> Option<Box<dyn FnOnce() -> AsyncValue<VmxResult<()>> + Send>> {
+        (**self).as_async()
     }
 }
 
@@ -786,6 +825,16 @@ pub struct AsyncRelayCommand {
     test_executions: Arc<Mutex<Option<Arc<test_execution::Collector>>>>,
 }
 
+/// Where an admitted [`AsyncRelayCommand`] execution reports its result.
+enum ExecutionReport {
+    /// Fire-and-forget: publish a non-cancellation failure on the error stream.
+    ErrorStream,
+    /// Return the result through the worker's join handle.
+    JoinHandle,
+    /// Settle this completion once the execution has released admission.
+    Completion(AsyncValue<VmxResult<()>>),
+}
+
 struct AsyncExecutionGuard {
     execution_epoch: Arc<AtomicU64>,
     active_token: Arc<Mutex<Option<CancellationToken>>>,
@@ -886,7 +935,7 @@ impl AsyncRelayCommand {
     /// call (no action, an execution already running, a false predicate, or
     /// a disposed command) returns without starting a thread.
     pub fn execute(&self) {
-        let Some(handle) = self.start_execution(true) else {
+        let Some(handle) = self.start_execution(ExecutionReport::ErrorStream) else {
             return;
         };
         #[cfg(test)]
@@ -904,20 +953,35 @@ impl AsyncRelayCommand {
     /// handle still costs one short-lived thread; use [`execute`](Self::execute)
     /// when the result is not needed.
     pub fn execute_async(&self) -> std::thread::JoinHandle<VmxResult<()>> {
-        self.start_execution(false)
+        self.start_execution(ExecutionReport::JoinHandle)
             .unwrap_or_else(|| spawn_worker(|| Ok(())))
     }
 
     /// Runs an admitted execution and waits for its result, or returns
     /// `Ok(Ok(()))` at once, without a thread, for a rejected call.
     pub(crate) fn execute_and_join(&self) -> std::thread::Result<VmxResult<()>> {
-        self.start_execution(false)
+        self.start_execution(ExecutionReport::JoinHandle)
             .map_or(Ok(Ok(())), std::thread::JoinHandle::join)
+    }
+
+    /// The awaitable entry point behind [`Command::as_async`]: an admitted
+    /// execution runs on the command's own worker, which settles the result
+    /// after releasing admission; a rejected call settles `Ok(())` at once,
+    /// without a thread.
+    fn execute_awaitable(&self) -> AsyncValue<VmxResult<()>> {
+        let completion = AsyncValue::pending();
+        if self
+            .start_execution(ExecutionReport::Completion(completion.clone()))
+            .is_none()
+        {
+            completion.resolve(Ok(()));
+        }
+        completion
     }
 
     fn start_execution(
         &self,
-        route_fire_and_forget_errors: bool,
+        report: ExecutionReport,
     ) -> Option<std::thread::JoinHandle<VmxResult<()>>> {
         let epoch = self.execution_epoch.load(Ordering::SeqCst);
         if self.action.is_none() || !epoch.is_multiple_of(2) || self.disposed.load(Ordering::SeqCst)
@@ -967,7 +1031,12 @@ impl AsyncRelayCommand {
         };
         #[cfg(test)]
         let collector = lock(&self.test_executions).clone();
-        Some(spawn_worker(move || {
+        let route_fire_and_forget_errors = matches!(report, ExecutionReport::ErrorStream);
+        let completion = match report {
+            ExecutionReport::Completion(completion) => Some(completion),
+            ExecutionReport::ErrorStream | ExecutionReport::JoinHandle => None,
+        };
+        let run = move || {
             let _guard = guard;
             let result = action.map(|action| action(token.clone())).unwrap_or(Ok(()));
             #[cfg(test)]
@@ -999,6 +1068,18 @@ impl AsyncRelayCommand {
                 Ok(())
             } else {
                 result
+            }
+        };
+        Some(spawn_worker(move || match completion {
+            None => run(),
+            // `run` drops the guard, releasing admission, before the awaiter
+            // observes the outcome; a panicking task settles it as panicked.
+            Some(completion) => {
+                match catch_unwind(AssertUnwindSafe(run)) {
+                    Ok(result) => completion.resolve(result),
+                    Err(payload) => completion.settle_panicked(payload),
+                };
+                Ok(())
             }
         }))
     }
@@ -1234,6 +1315,19 @@ impl Command for AsyncRelayCommand {
     fn can_execute_changed(&self) -> MessageHub {
         AsyncRelayCommand::can_execute_changed(self)
     }
+
+    /// Returns the awaitable entry point. Each call makes one attempt with
+    /// the same admission as [`AsyncRelayCommand::execute_async`]: an admitted
+    /// task runs on the command's own worker thread, and the returned value
+    /// settles after the execution has released admission, with the task's
+    /// result (cancellation normalized as for `execute_async`) or as panicked
+    /// with the task's panic payload. Nothing is published on
+    /// [`error_stream`](AsyncRelayCommand::error_stream). A rejected attempt
+    /// settles `Ok(())` at once without starting a thread.
+    fn as_async(&self) -> Option<Box<dyn FnOnce() -> AsyncValue<VmxResult<()>> + Send>> {
+        let command = self.clone();
+        Some(Box::new(move || command.execute_awaitable()))
+    }
 }
 
 #[derive(Clone)]
@@ -1423,6 +1517,15 @@ impl<C: Command + Clone> Command for DecoratorCommand<C> {
 ///
 /// Panics from fire-and-forget confirmation or confirmed execution are
 /// isolated and published on [`error_stream`](Self::error_stream).
+///
+/// An inner command whose [`Command::as_async`] returns an entry point, such
+/// as an [`AsyncRelayCommand`] or another confirmation decorator, is
+/// asynchronous: an awaited [`execute_async`](Self::execute_async) completes
+/// when the inner operation completes, while a fire-and-forget
+/// [`execute`](Command::execute) starts it through the inner's own `execute`,
+/// so the inner reports its failures on its own error stream (spec
+/// `04-commands.md` §8.3.2, ADR-0145). The decorator never cancels or
+/// disposes the inner command.
 pub struct ConfirmationDecoratorCommand<C: Command + Clone> {
     inner: C,
     confirm: Arc<dyn Fn() -> AsyncValue<bool> + Send + Sync>,
@@ -1431,36 +1534,19 @@ pub struct ConfirmationDecoratorCommand<C: Command + Clone> {
     disposed: Arc<AtomicBool>,
 }
 
-#[derive(Clone)]
-enum ConfirmationExecutionOutcome {
-    Completed,
-    Panicked(Arc<ConfirmationPanicPayload>),
-}
-
-struct ConfirmationPanicPayload {
-    value: Mutex<Option<Box<dyn std::any::Any + Send>>>,
-}
-
-impl ConfirmationPanicPayload {
-    fn new(value: Box<dyn std::any::Any + Send>) -> Self {
-        Self {
-            value: Mutex::new(Some(value)),
-        }
-    }
-
-    fn take(&self) -> Box<dyn std::any::Any + Send> {
-        lock(&self.value).take().unwrap_or_else(|| {
-            Box::new("confirmation panic payload was already consumed".to_string())
-        })
-    }
-}
-
 /// Executor-neutral completion returned by
 /// [`ConfirmationDecoratorCommand::execute_async`].
 ///
 /// The handle implements [`Future`] and exposes blocking [`join`](Self::join)
 /// plus non-blocking [`is_finished`](Self::is_finished) conveniences without
 /// creating a native worker thread.
+///
+/// A failed execution ends with a payload: the original panic payload when
+/// `confirm` or the inner command panicked, or the original [`VmxError`] when
+/// an asynchronous inner operation failed. [`join`](Self::join) returns that
+/// payload as `Err`, and `.await` resumes it as a panic. Call the decorator's
+/// [`Command::as_async`] entry point instead to receive an inner failure as a
+/// [`VmxResult`].
 ///
 /// # Migration from the pre-publication API
 ///
@@ -1473,31 +1559,19 @@ impl ConfirmationPanicPayload {
 /// as a truthful compatibility-shaped poll. There is no `thread()` accessor
 /// because no native worker exists.
 pub struct ConfirmationExecution {
-    completion: AsyncValue<ConfirmationExecutionOutcome>,
+    completion: AsyncValue<VmxResult<()>>,
 }
 
 impl ConfirmationExecution {
-    fn completed() -> Self {
-        Self {
-            completion: AsyncValue::ready(ConfirmationExecutionOutcome::Completed),
-        }
-    }
-
-    fn pending() -> (Self, AsyncValue<ConfirmationExecutionOutcome>) {
-        let completion = AsyncValue::pending();
-        (
-            Self {
-                completion: completion.clone(),
-            },
-            completion,
-        )
-    }
-
-    /// Blocks until execution completes, preserving the original panic payload.
+    /// Blocks until execution completes, returning the original panic payload
+    /// or the asynchronous inner operation's [`VmxError`] as `Err`.
     pub fn join(self) -> std::thread::Result<()> {
-        match self.completion.wait() {
-            ConfirmationExecutionOutcome::Completed => Ok(()),
-            ConfirmationExecutionOutcome::Panicked(payload) => Err(payload.take()),
+        match self.completion.wait_result() {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(error)) => Err(Box::new(error)),
+            Err(panic) => Err(panic
+                .take_payload()
+                .unwrap_or_else(|| Box::new(panic.message().to_string()))),
         }
     }
 
@@ -1506,7 +1580,7 @@ impl ConfirmationExecution {
     /// This mirrors the useful polling shape of `JoinHandle::is_finished`
     /// without implying that a native thread exists.
     pub fn is_finished(&self) -> bool {
-        self.completion.try_get().is_some()
+        self.completion.try_result().is_some()
     }
 }
 
@@ -1514,11 +1588,10 @@ impl Future for ConfirmationExecution {
     type Output = ();
 
     fn poll(mut self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<Self::Output> {
+        // A panicked completion re-raises its original payload while polled.
         match Pin::new(&mut self.completion).poll(context) {
-            Poll::Ready(ConfirmationExecutionOutcome::Completed) => Poll::Ready(()),
-            Poll::Ready(ConfirmationExecutionOutcome::Panicked(payload)) => {
-                std::panic::resume_unwind(payload.take())
-            }
+            Poll::Ready(Ok(())) => Poll::Ready(()),
+            Poll::Ready(Err(error)) => resume_unwind(Box::new(error)),
             Poll::Pending => Poll::Pending,
         }
     }
@@ -1559,51 +1632,70 @@ impl<C: Command + Clone + 'static> ConfirmationDecoratorCommand<C> {
     /// is not clonable, so it stays with
     /// [`execute_async`](Self::execute_async), whose
     /// [`join`](ConfirmationExecution::join) returns it unchanged (ADR-0137).
+    ///
+    /// An asynchronous inner command started by a fire-and-forget
+    /// [`execute`](Command::execute) reports its own failures on its own error
+    /// stream, and an awaited inner failure goes to the awaiter; neither
+    /// appears here (spec `04-commands.md` §8.3.2).
     pub fn error_stream(&self) -> CommandErrorStream {
         self.error_stream.clone()
     }
 
-    /// Returns an executor-neutral completion for the confirmed execution.
+    /// Runs the confirmation flow and returns an executor-neutral completion.
+    ///
+    /// The completion settles at once for a disabled or disposed decorator,
+    /// when `confirm` resolves `false`, or when the decorator was disposed
+    /// while the confirmation was pending; none of these invokes the inner
+    /// command. After a `true` confirmation the inner command is invoked
+    /// exactly once: an asynchronous inner through its [`Command::as_async`]
+    /// entry point, so the completion settles when the inner operation
+    /// finishes, and a synchronous inner through [`Command::execute`], so it
+    /// settles when that call returns (spec `04-commands.md` §8.3.2,
+    /// ADR-0145).
+    ///
+    /// The inner command keeps its own admission and cancellation: a busy
+    /// [`AsyncRelayCommand`] drops the call and the completion settles at
+    /// once, and cancelling the inner settles it with the inner's own
+    /// outcome. Disposing the decorator after the inner has started neither
+    /// cancels nor disposes it, and the completion still settles when the
+    /// inner operation does.
+    ///
+    /// Failures go to the caller, never to
+    /// [`error_stream`](Self::error_stream); see [`ConfirmationExecution`].
     pub fn execute_async(&self) -> ConfirmationExecution {
+        ConfirmationExecution {
+            completion: self.execute_awaitable(),
+        }
+    }
+
+    /// The awaited flow behind [`execute_async`](Self::execute_async) and the
+    /// [`Command::as_async`] entry point.
+    fn execute_awaitable(&self) -> AsyncValue<VmxResult<()>> {
         if self.disposed.load(Ordering::SeqCst) || !self.can_execute() {
-            return ConfirmationExecution::completed();
+            return AsyncValue::ready(Ok(()));
         }
         let decision = match catch_unwind(AssertUnwindSafe(|| (self.confirm)())) {
             Ok(decision) => decision,
-            Err(payload) => {
-                let (execution, completion) = ConfirmationExecution::pending();
-                completion.resolve(ConfirmationExecutionOutcome::Panicked(Arc::new(
-                    ConfirmationPanicPayload::new(payload),
-                )));
-                return execution;
-            }
+            Err(payload) => return AsyncValue::panicked(payload),
         };
         let command = self.clone();
-        let (execution, completion) = ConfirmationExecution::pending();
-        decision.when_settled(move |decision| {
-            let outcome = match decision {
-                Ok(true) if !command.disposed.load(Ordering::SeqCst) => {
-                    match catch_unwind(AssertUnwindSafe(|| command.inner.execute())) {
-                        Ok(()) => ConfirmationExecutionOutcome::Completed,
-                        Err(payload) => ConfirmationExecutionOutcome::Panicked(Arc::new(
-                            ConfirmationPanicPayload::new(payload),
-                        )),
-                    }
+        // `and_then` runs on the thread that resolves the confirmation, with
+        // no lock held. A panicked confirmation (ADR-0138) or a panicking
+        // synchronous inner settles the result as panicked with its payload.
+        decision.and_then(move |confirmed| {
+            // Disposal while the confirmation was pending starts no inner
+            // work (spec §8.4, ADR-0134).
+            if !confirmed || command.disposed.load(Ordering::SeqCst) {
+                return AsyncValue::ready(Ok(()));
+            }
+            match command.inner.as_async() {
+                Some(start) => start(),
+                None => {
+                    command.inner.execute();
+                    AsyncValue::ready(Ok(()))
                 }
-                Ok(_) => ConfirmationExecutionOutcome::Completed,
-                // A confirmation produced by a panicking `map`/`and_then`
-                // ends the execution with that panic (ADR-0138).
-                Err(panic) => {
-                    ConfirmationExecutionOutcome::Panicked(Arc::new(ConfirmationPanicPayload::new(
-                        panic
-                            .take_payload()
-                            .unwrap_or_else(|| Box::new(panic.message().to_string())),
-                    )))
-                }
-            };
-            completion.resolve(outcome);
-        });
-        execution
+            }
+        })
     }
 
     /// Makes the decorator inert and disposes its error hub and stream.
@@ -1666,6 +1758,17 @@ impl<C: Command + Clone + 'static> Command for ConfirmationDecoratorCommand<C> {
 
     fn can_execute_changed(&self) -> MessageHub {
         self.inner.can_execute_changed()
+    }
+
+    /// Returns the awaitable entry point: each call runs the same flow as
+    /// [`ConfirmationDecoratorCommand::execute_async`], and the returned value
+    /// settles with `Ok(())`, with an asynchronous inner operation's
+    /// [`VmxError`] unchanged, or as panicked with the payload of a panicking
+    /// `confirm` or inner command. A wrapping confirmation decorator uses it
+    /// to await this decorator's confirmation and inner operation.
+    fn as_async(&self) -> Option<Box<dyn FnOnce() -> AsyncValue<VmxResult<()>> + Send>> {
+        let command = self.clone();
+        Some(Box::new(move || command.execute_awaitable()))
     }
 }
 
@@ -1791,7 +1894,7 @@ pub(crate) mod test_execution {
 
 #[cfg(test)]
 mod worker_tests {
-    use super::AsyncRelayCommand;
+    use super::{AsyncRelayCommand, AsyncValue, Command, ConfirmationDecoratorCommand};
     use crate::runtime::worker_spawns;
     use std::sync::{mpsc, Mutex};
     use std::time::Duration;
@@ -1883,6 +1986,43 @@ mod worker_tests {
 
         assert_eq!(handle.join().unwrap(), Ok(()));
         assert_eq!(workers, 1, "JoinHandle can only come from a spawned thread");
+    }
+
+    #[test]
+    fn rejected_awaitable_entry_point_spawns_no_worker() {
+        let command = AsyncRelayCommand::noop();
+        let start = command
+            .as_async()
+            .expect("an async command has an entry point");
+
+        let (completion, workers) = worker_spawns::counted(start);
+
+        assert_eq!(completion.try_get(), Some(Ok(())));
+        assert_eq!(workers, 0);
+    }
+
+    // Spec §8.3.2: the decorator starts no task of its own to run or watch an
+    // asynchronous inner, on either path; only the inner's worker runs.
+    #[test]
+    fn confirmation_over_an_async_inner_spawns_only_the_inner_worker() {
+        let (finished_sender, finished) = mpsc::channel();
+        let inner = AsyncRelayCommand::new(move |_| {
+            let _ = finished_sender.send(());
+            Ok(())
+        });
+        let decorator = ConfirmationDecoratorCommand::new(inner, || AsyncValue::ready(true));
+
+        let (execution, awaited) = worker_spawns::counted(|| decorator.execute_async());
+        execution.join().expect("the awaited execution succeeded");
+        finished.recv_timeout(BOUND).expect("the awaited body ran");
+        // The awaited execution settles after the inner released admission,
+        // so the fire-and-forget call is admitted.
+        let ((), fire_and_forget) = worker_spawns::counted(|| decorator.execute());
+        finished
+            .recv_timeout(BOUND)
+            .expect("the fire-and-forget body ran");
+
+        assert_eq!((awaited, fire_and_forget), (1, 1));
     }
 }
 
