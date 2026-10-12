@@ -101,6 +101,9 @@ open class GroupVM<Child: ComponentVMBase>:
     /// Emits a `CollectionChangedEvent` after each `add` or `remove` mutation.
     /// During a batch, granular events are suppressed; `dispose()` on the
     /// returned `BatchUpdateHandle` emits a single `.reset` (if dirty).
+    ///
+    /// Each event is followed by one `CollectionChangedMessage<ComponentVMBase>`
+    /// sent by this group on `hub` (spec/01 §1.4, ADR-0142).
     public var collectionChanged: AnyPublisher<CollectionChangedEvent, Never> {
         collectionChangedSubject.eraseToAnyPublisher()
     }
@@ -121,7 +124,7 @@ open class GroupVM<Child: ComponentVMBase>:
         _batchLevel -= 1
         if _batchLevel == 0 && _batchDirty {
             _batchDirty = false
-            collectionChangedSubject.send(.reset())
+            deliverCollectionChanged(.reset())
         }
     }
 
@@ -305,7 +308,7 @@ open class GroupVM<Child: ComponentVMBase>:
         if _batchLevel > 0 {
             _batchDirty = true
         } else {
-            collectionChangedSubject.send(.added(child, at: index))
+            deliverCollectionChanged(.added(child, at: index))
         }
         return .success(())
     }
@@ -409,7 +412,7 @@ open class GroupVM<Child: ComponentVMBase>:
         if _batchLevel > 0 {
             _batchDirty = true
         } else {
-            collectionChangedSubject.send(.removed(item, at: index))
+            deliverCollectionChanged(.removed(item, at: index))
         }
         return true
     }
@@ -559,8 +562,19 @@ open class GroupVM<Child: ComponentVMBase>:
         if _batchLevel > 0 {
             _batchDirty = true
         } else {
-            collectionChangedSubject.send(event)
+            deliverCollectionChanged(event)
         }
+    }
+
+    /// Delivers `event` to local subscribers first, then publishes the
+    /// equivalent `CollectionChangedMessage` on `hub`, sent by this group
+    /// (spec/01 §1.4, spec/07, ADR-0142). Like the local delivery, it runs
+    /// outside `membershipGate`; publication uses the hub's ordinary `send`,
+    /// so hub transactions defer it. A disposed group publishes nothing.
+    private func deliverCollectionChanged(_ event: CollectionChangedEvent) {
+        collectionChangedSubject.send(event)
+        guard !membershipGate.withLock({ disposeRequested }) else { return }
+        hub.send(event.hubMessage(sentBy: self))
     }
 
     open override func _onConstruct() throws {

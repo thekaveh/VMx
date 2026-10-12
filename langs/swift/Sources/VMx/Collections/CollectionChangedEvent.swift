@@ -68,3 +68,34 @@ extension CollectionChangedEvent {
         .init(action: .reset, newItems: [], oldItems: [], newIndex: -1, oldIndex: -1)
     }
 }
+
+// MARK: — Hub publication (spec/01 §1.4, ADR-0142)
+
+extension CollectionChangedEvent {
+    /// The hub message a `CompositeVM` or `GroupVM` publishes after delivering
+    /// this event on its local `collectionChanged` stream: the same action,
+    /// positions, and items, sent by the container itself. The legacy `index`
+    /// follows spec/21 §2.4 (insertion/replacement/destination position, the
+    /// pre-removal position for a remove, `-1` for a reset).
+    func hubMessage(sentBy container: ComponentVMBase) -> CollectionChangedMessage<ComponentVMBase> {
+        let index: Int
+        switch action {
+        case .add, .replace, .move:
+            index = newIndex
+        case .remove:
+            index = oldIndex
+        case .reset:
+            index = -1
+        }
+        return CollectionChangedMessage<ComponentVMBase>(
+            senderObject: container,
+            senderName: container.name,
+            action: action,
+            newItems: newItems,
+            oldItems: oldItems,
+            index: index,
+            oldIndex: oldIndex,
+            newIndex: newIndex
+        )
+    }
+}

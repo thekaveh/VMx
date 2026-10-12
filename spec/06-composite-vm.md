@@ -121,6 +121,10 @@ Move follows chapter 01 §1.4 exactly: indices are validated before mutation,
 same-index moves emit nothing, and a successful move preserves child identity,
 parent, lifecycle, subscriptions, and `Current`.
 
+After each local event, the composite publishes the equivalent
+`CollectionChangedMessage` to its hub, sending it as itself (chapter 01 §1.4,
+ADR-0142, `COMP-042`).
+
 ### 4.1 Batch updates (spec v1.1)
 
 A composite MUST expose an idiomatic scoped batch API: a returned disposable /
@@ -131,10 +135,12 @@ invocation. While at least one batch scope is active, mutations (`Add`, `Insert`
 outermost scope completes normally:
 
 - If any mutations occurred during the batch, a single
-  `CollectionChanged(action=Reset)` MUST be raised.
-- If no mutations occurred, no event is raised.
+  `CollectionChanged(action=Reset)` MUST be raised, followed by one hub
+  `CollectionChangedMessage(action=Reset)`.
+- If no mutations occurred, no event is raised and nothing is published.
 
 Nested batches are ref-counted: only the outermost completion fires the `Reset`.
+No hub message is published while a batch scope is active (`COMP-043`).
 
 ### 4.2 Atomic child ownership transfer (spec v3.21)
 
@@ -151,6 +157,8 @@ destination performs one transaction:
    publishing.
 1. Attach it to the destination and perform any required auto-construction.
 1. Commit the old `Remove` notification before the new `Add` notification.
+   Each container's hub message follows its own local event, so the hub also
+   receives the old `Remove` before the new `Add` (`COMP-044`).
 
 The destination and any staged old parent remain under an exclusive membership
 transaction through hooks and commit or rollback. Re-entrant structural
@@ -456,6 +464,18 @@ through `SRCH-007`, in
 - scored filtering with stable score ordering
 - optional source-change refresh, independent debounce timing, termination,
   batching transparency, and subscription-only ownership
+
+Hub publication of collection changes (chapter 01 §1.4, ADR-0142) is covered by:
+
+- `COMP-042` — each effective local event is followed by one hub
+  `CollectionChangedMessage` sent by the composite, with the same action and
+  positions.
+- `COMP-043` — a batch publishes nothing inside its scope and one `Reset` on
+  outermost completion; an empty batch publishes nothing.
+- `COMP-044` — a transfer publishes the old `Remove` before the new `Add`;
+  failed preflight, rollback, and same-index moves publish nothing.
+- `COMP-045` — hub transactions defer the messages in order, a disposed
+  composite publishes nothing, and a forwarding wrapper adds no publication.
 
 The builder hooks introduced in §3.2 are covered by:
 

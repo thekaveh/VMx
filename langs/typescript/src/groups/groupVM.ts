@@ -14,6 +14,7 @@ import {
 } from "../components/componentVMBase.js";
 import type { IOwningParentVM } from "../components/componentVMBase.js";
 import { disposeBestEffort } from "../components/disposal.js";
+import { collectionChangedMessageFor } from "../collections/vmCollectionHubMessage.js";
 import { ViewModelType } from "../components/types.js";
 import { ConstructionStatus } from "../lifecycle/status.js";
 import type { IMessageHub } from "../services/messageHub.js";
@@ -333,7 +334,7 @@ export class GroupVM<VM extends ComponentVMBase>
     this.#batchDepth--;
     if (this.#batchDepth === 0 && this.#batchDirty) {
       this.#batchDirty = false;
-      this.#collectionChangedSubject.next(makeCollectionChangedEvent("reset"));
+      this.#deliverCollectionChanged(makeCollectionChangedEvent("reset"));
     }
   }
 
@@ -342,7 +343,15 @@ export class GroupVM<VM extends ComponentVMBase>
       this.#batchDirty = true;
       return;
     }
+    this.#deliverCollectionChanged(event);
+  }
+
+  // Local subscribers first, then one hub message sent by this container
+  // (spec ch. 01 §1.4, ADR-0142). A disposed container publishes nothing.
+  #deliverCollectionChanged(event: CollectionChangedEvent): void {
     this.#collectionChangedSubject.next(event);
+    if (this.#collectionChangedSubject.closed) return;
+    this.hub.send(collectionChangedMessageFor(this, event));
   }
 
   /** @internal */
