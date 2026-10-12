@@ -6,6 +6,19 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.32.0] — unreleased source version
+
+### Fixed
+
+- A disposed `CompositeVm` or `GroupVm` no longer publishes collection changes.
+  Removals, moves, clears, and a batch still open at disposal published
+  `CollectionChanged` and `PropertyChanged("Count")` messages after `dispose()`;
+  publication now stops when disposal starts. A disposal deferred by an
+  in-progress membership transaction still publishes that transaction's
+  committed changes first. The other flavors now publish container changes on
+  the hub as Rust already did (`COMP-042..045`, `GRP-012..013`, ADR-0142, spec
+  3.26.0) (#579).
+
 ## [0.31.0] — unreleased source version
 
 ### Added

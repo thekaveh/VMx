@@ -216,6 +216,31 @@ describe("createVmxStore and useVmx", () => {
     await act(async () => root?.unmount());
     error.mockRestore();
   });
+
+  it("re-renders a composite snapshot after a membership change on the hub (ADR-0142)", async () => {
+    const hub = new MessageHub();
+    const collection = CompositeVM.create<ComponentVM>({
+      name: "items",
+      hub,
+      dispatcher: NullDispatcher.INSTANCE,
+      children: () => [],
+    });
+    collection.construct();
+    const store = createVmxStore(hub);
+    function Probe(): JSX.Element {
+      return <span data-testid="hub-count">{useVmx(store, () => collection.count)}</span>;
+    }
+    render(<Probe />);
+    expect(screen.getByTestId("hub-count").textContent).toBe("0");
+
+    await act(async () => {
+      collection.add(ComponentVM.create({ name: "added", hub, dispatcher: NullDispatcher.INSTANCE }));
+      await Promise.resolve();
+    });
+
+    expect(screen.getByTestId("hub-count").textContent).toBe("1");
+    store.dispose();
+  });
 });
 
 describe("VM and value hooks", () => {

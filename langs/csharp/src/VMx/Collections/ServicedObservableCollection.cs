@@ -107,41 +107,6 @@ public class ServicedObservableCollection<T> : ObservableCollection<T>, IObserva
         // 2. Publish to hub (if present).
         if (_hub is null) return;
 
-        CollectionChangedMessage<T> msg = e.Action switch
-        {
-            NotifyCollectionChangedAction.Add =>
-                CollectionChangedMessage<T>.ForAdd(
-                    this,
-                    (T)e.NewItems![0]!,
-                    e.NewStartingIndex),
-
-            NotifyCollectionChangedAction.Remove =>
-                CollectionChangedMessage<T>.ForRemove(
-                    this,
-                    (T)e.OldItems![0]!,
-                    e.OldStartingIndex),
-
-            NotifyCollectionChangedAction.Replace =>
-                CollectionChangedMessage<T>.ForReplace(
-                    this,
-                    (T)e.NewItems![0]!,
-                    (T)e.OldItems![0]!,
-                    e.NewStartingIndex),
-
-            NotifyCollectionChangedAction.Move =>
-                CollectionChangedMessage<T>.ForMove(
-                    this,
-                    (T)e.NewItems![0]!,
-                    e.OldStartingIndex,
-                    e.NewStartingIndex),
-
-            NotifyCollectionChangedAction.Reset =>
-                CollectionChangedMessage<T>.ForReset(this),
-
-            _ => throw new InvalidOperationException(
-                $"Unexpected NotifyCollectionChangedAction: {e.Action}"),
-        };
-
-        _hub.Send(msg);
+        _hub.Send(CollectionChangedMessage<T>.From(this, e));
     }
 }

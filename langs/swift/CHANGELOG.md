@@ -6,6 +6,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.27.0] — unreleased source version
+
+### Changed
+
+- `CompositeVM` and `GroupVM` publish each local `collectionChanged` event to
+  their message hub as a `CollectionChangedMessage<ComponentVMBase>` sent by the
+  container, whatever its `Child` type. A batch publishes one `.reset` when its
+  outermost scope completes after a change, an ownership transfer publishes the
+  old container's `.remove` before the new container's `.add`, and a rejected
+  or rolled-back mutation, a disposed container, or a `ForwardingCompositeVM`
+  publishes nothing. Hub transactions defer the messages like any other send
+  (`COMP-042..045`, `GRP-012..013`, ADR-0142, spec 3.26.0) (#579).
+
 ## [3.26.0] — unreleased source version
 
 ### Fixed

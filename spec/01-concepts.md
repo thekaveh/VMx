@@ -143,6 +143,20 @@ subscriptions, auto-construction count, and a composite's `Current` reference
 remain unchanged. Chapters 06 and 07 define the container-specific details;
 `COL-032..039` are normative.
 
+Both containers also publish their collection changes to their own message hub
+(spec v3.26, ADR-0142). Each effective local collection-change event is
+followed by exactly one `CollectionChangedMessage` (chapter 21 §2.4) sent by the
+container, with the same action, positions, and (in typed flavors) items as the
+local event; replacement keeps each flavor's local decomposition. The local
+event is delivered first. A batch publishes nothing inside its scope and one
+`Reset` after the local `Reset` on outermost completion; a mutation that raises
+no local event publishes nothing. An ownership transfer publishes the old
+container's `Remove` before the new container's `Add`. Publication uses the
+hub's ordinary `Send`, so hub transactions defer it (chapter 03 §3.3); a
+disposed container publishes nothing, and a forwarding wrapper publishes
+nothing of its own. Rust additionally publishes `PropertyChanged("Count")` when
+the size changes (ADR-0085). `COMP-042..045` and `GRP-012..013` are normative.
+
 ## 2. Dependency philosophy
 
 Every VM receives two cross-cutting services:

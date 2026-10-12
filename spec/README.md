@@ -28,7 +28,7 @@ before any flavor releases a stable version.
 - `09-forwarding.md` — forwarding decorators.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
-- `12-conformance.md` — cross-language conformance test catalog (412 IDs).
+- `12-conformance.md` — cross-language conformance test catalog (418 IDs).
 - `13-tree-utilities.md` — `walk` / `find` / `walk_expanded` tree introspection.
 
 ### 1.2 Chapters (v2.0 additions)
@@ -636,11 +636,24 @@ scenario IDs.
 
 See ADR-0136 and chapter 21.
 
-### 1.37 Supporting artefacts
+### 1.37 v3.25.0 → v3.26.0 changes
 
-- `VERSION` — current spec SemVer (`3.25.0`).
+v3.26.0 makes `CompositeVM` and `GroupVM` publish their collection changes on
+the message hub. Each effective local collection-change event is followed by
+one `CollectionChangedMessage` sent by the container; a batch publishes one
+`Reset` on outermost completion; an ownership transfer publishes the old
+container's `Remove` before the new container's `Add`; and a failed mutation,
+a disposed container, or a forwarding wrapper publishes nothing
+(`COMP-042..045`, `GRP-012..013`). Rust already published these changes and
+now stops publishing once a container is disposed. The catalog now contains 413 library IDs plus 5 scenario IDs.
+
+See ADR-0142 and chapters 01, 06, 07, and 21.
+
+### 1.38 Supporting artefacts
+
+- `VERSION` — current spec SemVer (`3.26.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0141); see
+- `ADRs/` — Architecture Decision Records (0001-0142); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `schemas/` — versioned supporting machine contracts. The consumer
   conformance v1 schema is non-normative; see ADR-0102.

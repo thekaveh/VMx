@@ -1,7 +1,7 @@
 # 12 — Conformance test catalog
 
 This document enumerates every stable conformance test identifier in the form
-`XXX-NNN`. Each of the five language flavors MUST implement all 407 library IDs
+`XXX-NNN`. Each of the five language flavors MUST implement all 413 library IDs
 in `langs/<lang>/tests/conformance/` before it can be marked stable. The five
 `THEME-00x` IDs are application-level scenarios implemented by the four
 UI-backed flagship examples. CI verifies library coverage via
@@ -1945,6 +1945,50 @@ is surfaced rather than swallowed; exact lifecycle restoration is then not claim
 **And** when destination attachment or construction fails, neither recorder
 observes a membership event
 
+### COMP-042 — Composite collection changes publish on the hub
+
+**Given** a composite `p` with hub `H`, a recorder of `CollectionChangedMessage`
+on `H`, and a local collection-change recorder on `p`
+**When** `p` adds, inserts, removes, removes by index, replaces, moves, and
+clears children, one effective mutation at a time
+**Then** each local event is followed by exactly one `CollectionChangedMessage`
+on `H` whose sender is `p`
+**And** each message carries the local event's action, positions, and (in typed
+flavors) items, with replacement keeping the flavor's local decomposition
+**And** the local event is delivered before its hub message, and both observe
+the committed membership
+
+### COMP-043 — Composite batches publish one hub Reset
+
+**Given** a composite `p` with hub `H` and a recorder on `H`
+**When** a batch performs several mutations, including a nested batch
+**Then** no `CollectionChangedMessage` from `p` reaches `H` while any batch
+scope is active
+**And** exactly one `Reset` message from `p` follows the local `Reset` when the
+outermost scope completes
+**And** a batch that performs no mutation, or only a same-index move, publishes
+nothing
+
+### COMP-044 — Transfers publish removal before addition; failures publish nothing
+
+**Given** composites `old` and `new` sharing hub `H`, and child `c` in `old`
+**When** `new.Add(c)` succeeds
+**Then** `H` receives `old`'s `Remove(c)` message before `new`'s `Add(c)` message
+**And** a rejected duplicate add, a cycle, an invalid index, a transfer that
+rolls back after a failing attachment hook, and a same-index move each publish
+no `CollectionChangedMessage`
+
+### COMP-045 — Hub transactions, disposal, and forwarding
+
+**Given** a composite `p` whose hub supports transactions
+**When** `p` is mutated inside a hub transaction
+**Then** its messages are delivered in mutation order when the outermost
+transaction completes, and none is delivered inside it
+**And** after `p` is disposed, no further `CollectionChangedMessage` from `p`
+reaches the hub
+**And** mutating through a forwarding composite wrapper publishes each change
+once, sent by the wrapped composite
+
 ### SRCH-001 — source signal refreshes an unchanged search term
 
 **Given** a `SearchableState` over `["one"]` with an optional source-change
@@ -2055,6 +2099,25 @@ window elapses
 **Then** the result is `false`
 **And** the inherited child select command's predicate is disabled
 **And** calling `child.select()` / `child.Select()` does not make the child current
+
+### GRP-012 — Group collection changes publish on the hub
+
+**Given** a group `g` with hub `H` and a recorder of `CollectionChangedMessage`
+on `H`
+**When** `g` adds, inserts, removes, replaces, moves, and clears children
+**Then** each local event is followed by exactly one message on `H` whose sender
+is `g`, carrying the local event's action and positions
+**And** the local event is delivered first
+**And** a mutation that raises no local event, and any mutation after `g` is
+disposed, publishes nothing
+
+### GRP-013 — Group batches publish one hub Reset
+
+**Given** a group `g` with hub `H`
+**When** a batch, including a nested batch, performs several mutations
+**Then** nothing from `g` reaches `H` inside the batch and exactly one `Reset`
+message follows the local `Reset` on outermost completion
+**And** an empty batch publishes nothing
 
 ______________________________________________________________________
 

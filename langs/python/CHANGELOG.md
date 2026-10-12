@@ -6,6 +6,21 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ## [Unreleased]
 
+## [3.26.0] — unreleased source version
+
+### Changed
+
+- `CompositeVM`, `CompositeVMOf`, and `GroupVM` publish each local collection
+  change to their message hub as a `CollectionChangedMessage` sent by the
+  container, after the local `collection_changed` event. A batch publishes one
+  `reset` when its outermost scope completes after a change, an ownership
+  transfer publishes the old container's `remove` before the new container's
+  `add`, and a rejected or rolled-back mutation, a disposed container, or a
+  `ForwardingCompositeVM` publishes nothing. Hub transactions defer the
+  messages like any other send. A failing local subscriber does not suppress
+  the hub message for a committed change; its error is re-raised afterwards
+  (`COMP-042..045`, `GRP-012..013`, ADR-0142, spec 3.26.0) (#579).
+
 ## [3.25.0] — unreleased source version
 
 ### Fixed

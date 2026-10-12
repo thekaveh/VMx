@@ -23,6 +23,7 @@ from reactivex.abc import DisposableBase
 from reactivex.subject import Subject
 
 from vmx.collections import BatchUpdateHandle, CollectionChangedEvent
+from vmx.collections._vm_collection_hub_message import collection_changed_message_for
 from vmx.components.base import (
     _begin_parent_transfer,
     _commit_parent_transfer,
@@ -412,7 +413,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
             and not self._collection_changed_subject.is_disposed
         ):
             self._batch_dirty = False
-            self._collection_changed_subject.on_next(CollectionChangedEvent(action="reset"))
+            self._deliver_collection_changed(CollectionChangedEvent(action="reset"))
 
     def _emit_collection_changed(self, event: CollectionChangedEvent) -> None:
         # reactivex raises on post-dispose on_next (rxjs/Combine no-op); a
@@ -422,7 +423,34 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         if self._batch_depth > 0:
             self._batch_dirty = True
             return
-        self._collection_changed_subject.on_next(event)
+        self._deliver_collection_changed(event)
+
+    def _deliver_collection_changed(self, event: CollectionChangedEvent) -> None:
+        """Deliver one committed change locally, then publish it on the hub.
+
+        Local subscribers see the event first; exactly one
+        ``CollectionChangedMessage`` sent by this group then follows on its
+        hub (spec ch. 01 §1.4, ADR-0142). Every caller has already released
+        the membership gate, and publication uses the hub's ordinary ``send``,
+        so a hub transaction defers it. A failing local subscriber does not
+        suppress the hub message for the committed change; the first failure
+        is re-raised afterwards. A group disposed before or during local
+        delivery publishes nothing.
+        """
+        subject = self._collection_changed_subject
+        first_error: BaseException | None = None
+        try:
+            subject.on_next(event)
+        except BaseException as error:
+            first_error = error
+        if not (subject.is_disposed or subject.is_stopped):
+            try:
+                self._hub.send(collection_changed_message_for(self, event))
+            except BaseException as error:
+                if first_error is None:
+                    first_error = error
+        if first_error is not None:
+            raise first_error
 
     def _maybe_auto_construct(self, child: VM) -> None:
         if not self._auto_construct_on_add:

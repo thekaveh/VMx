@@ -35,6 +35,22 @@ All notable changes to the C# flavor are documented here. The format is based on
 - The NuGet package ships its own README describing `AddVMx()` registration
   and its dependency on `VMx` (#351).
 
+## [3.26.0] — unreleased source version
+
+### Changed
+
+- `CompositeVM` and `GroupVM` publish each local `CollectionChanged` event to
+  their message hub as a `CollectionChangedMessage<VM>` sent by the container,
+  typed by the container's child type. A batch publishes one `Reset` when its
+  outermost scope completes after a change, an ownership transfer publishes the
+  old container's `Remove` before the new container's `Add`, and a rejected or
+  rolled-back mutation, a disposed container, or a `ForwardingCompositeVM`
+  publishes nothing. Hub transactions defer the messages like any other send.
+  Subscribers filter by the exact message type, for example
+  `OfType<CollectionChangedMessage<IComponentVM>>()` for an
+  `IComponentVM`-typed container (`COMP-042..045`, `GRP-012..013`, ADR-0142,
+  spec 3.26.0) (#579).
+
 ## [3.25.0] — unreleased source version
 
 ### Fixed
