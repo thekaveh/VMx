@@ -6,6 +6,21 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A same-thread re-entrant `execute()` on a `RelayCommand` or
+  `RelayCommandOf<T>` no longer deadlocks. The command held its action's mutex
+  while running it, so a nested call from the action, a `can_execute_changed`
+  handler, or a hub subscriber (for example an `approve_command().execute()`
+  from FormVM's approved callback, `approve_errors` subscriber, or settlement
+  notification) blocked forever. Built-in commands now run a nested call inline,
+  as the other flavors do. A command built from a user `FnMut` action defers an
+  admitted nested call until its current action returns, still before the
+  outermost `execute` returns; a call from another thread waits, a deferred call
+  does not run after disposal, and a panicking action drops the calls deferred
+  during it. Built-in commands called from several threads now run concurrently,
+  like the methods they wrap.
+
 ## [0.33.0] — unreleased source version
 
 ### Changed
