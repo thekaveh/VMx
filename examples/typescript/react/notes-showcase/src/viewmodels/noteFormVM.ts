@@ -70,6 +70,8 @@ export class NoteFormVM extends ComponentVMBase {
   #tagDraft = "";
   #tagCatalog: readonly string[] = [];
   #tagSuggestions: readonly string[] = [];
+  /** Inner approvals admitted so far; see `#approveFormAsync`. */
+  #admissions = 0;
 
   constructor(opts: {
     name: string;
@@ -308,18 +310,20 @@ export class NoteFormVM extends ComponentVMBase {
   }
 
   /**
-   * Awaitable approve cycle — persists via the repo and (on success) publishes
-   * a "Saved" notification. Useful in tests.
+   * Awaitable approve cycle — persists via the repo and, only when this call
+   * saved, publishes a "Saved" notification and refreshes tag suggestions.
+   * Useful in tests.
    */
   async approveAsync(): Promise<void> {
-    if (this.#form === null) return;
-    await this.#form.approveAsync();
+    const form = this.#form;
+    if (form === null) return;
+    if (!(await this.#approveFormAsync(form))) return;
     this.#emitDraftChanges();
     if (this.#notificationHub !== null) {
       void this.#notificationHub.post(
         new Notification(
           NotificationType.Notification,
-          `Saved “${this.#form.snapshot.title}”`,
+          `Saved “${form.snapshot.title}”`,
         ),
       );
     }
@@ -349,7 +353,34 @@ export class NoteFormVM extends ComponentVMBase {
     }
   }
 
+  /**
+   * Runs one inner approval and resolves `true` only when it saved. FormVM
+   * admits one approval at a time (spec 20 §5.3): a call made while a save is
+   * pending is refused and resolves without persisting or emitting
+   * `onApproved`. A call saved when the form admitted it (admission runs
+   * `#persistAsync` before `form.approveAsync()` returns) and then published
+   * its approval. Both checks are needed: `await` always yields, so a refused
+   * call can resume after the pending save has published.
+   */
+  async #approveFormAsync(form: FormVM<NoteModel>): Promise<boolean> {
+    let approved = false;
+    const subscription = form.onApproved.subscribe(() => {
+      approved = true;
+    });
+    try {
+      const admissions = this.#admissions;
+      const approving = form.approveAsync();
+      const admitted = this.#admissions !== admissions;
+      await approving;
+      return admitted && approved;
+    } finally {
+      subscription.unsubscribe();
+    }
+  }
+
   async #persistAsync(note: NoteModel): Promise<void> {
+    // The form calls its persister only for an admitted approval.
+    this.#admissions += 1;
     await this.#repo.saveNote(note);
   }
 

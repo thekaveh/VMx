@@ -45,6 +45,7 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
     private IDisposable? _approvedSub;
     private IReadOnlyList<string> _tagCatalog = Array.Empty<string>();
     private IReadOnlyList<string> _tagSuggestions = Array.Empty<string>();
+    private int _admissions; // inner approvals admitted; see ApproveFormAsync
 
     /// <inheritdoc/>
     public override ViewModelType Type => ViewModelType.Component;
@@ -251,13 +252,17 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
     }
 
     /// <summary>
-    /// Awaitable approve cycle — persists via the repo and (on success)
-    /// publishes a "Saved" notification. Useful in tests.
+    /// Awaitable approve cycle — persists via the repo and, only when this
+    /// call saved, publishes a "Saved" notification and refreshes tag
+    /// suggestions. Useful in tests.
     /// </summary>
     public async Task ApproveAsync()
     {
-        if (_form is null) return;
-        await _form.ApproveAsync().ConfigureAwait(false);
+        // Dispose also disposed the form: it would refuse the approval, and its
+        // OnApproved no longer accepts subscribers.
+        var form = _form;
+        if (form is null || _ownDisposed) return;
+        if (!await ApproveFormAsync(form).ConfigureAwait(false)) return;
         // This continuation runs off the UI thread (ConfigureAwait(false));
         // EmitDraftChanges raises INPC into live XAML bindings, so marshal
         // (live binding).
@@ -296,8 +301,31 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
         _tagSearch.Search();
     }
 
+    /// <summary>
+    /// Runs one inner approval and returns <c>true</c> only when it saved.
+    /// <see cref="FormVM{TM}"/> admits one approval at a time (spec/20 §5.3):
+    /// a call made while a save is pending is refused and returns without
+    /// persisting or publishing <c>OnApproved</c>. A call saved when the form
+    /// admitted it (admission runs <see cref="PersistAsync"/> before
+    /// <c>ApproveAsync</c> returns) and then published its approval. Both
+    /// checks are needed: the pending save publishes on the thread its
+    /// repository write completes on, which can be while a refused call runs.
+    /// </summary>
+    private async Task<bool> ApproveFormAsync(FormVM<NoteModel> form)
+    {
+        var approved = false;
+        using var subscription = form.OnApproved.Subscribe(_ => approved = true);
+        var admissions = Volatile.Read(ref _admissions);
+        var approving = form.ApproveAsync();
+        var admitted = Volatile.Read(ref _admissions) != admissions;
+        await approving.ConfigureAwait(false);
+        return admitted && approved;
+    }
+
     private async Task PersistAsync(NoteModel note)
     {
+        // The form calls its persister only for an admitted approval.
+        Interlocked.Increment(ref _admissions);
         await _repo.SaveNoteAsync(note).ConfigureAwait(false);
     }
 
