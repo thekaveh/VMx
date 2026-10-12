@@ -82,7 +82,7 @@ def test_release_builds_and_validates_before_protected_authentication() -> None:
     assert "dotnet format langs/csharp/VMx.sln --verify-no-changes" in jobs
     assert "python3 tools/check-nuget-package.py" in jobs
     assert "python3 tools/smoke-nuget-consumer.py" in jobs
-    assert "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a" in jobs
+    assert "actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9" in jobs
     assert jobs.index("csharp-build:") < jobs.index("csharp-publish:")
 
 
