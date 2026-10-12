@@ -165,7 +165,7 @@ impl NotificationVm {
     /// Creates a command that dismisses this notification.
     pub fn dismiss_command(&self) -> RelayCommand {
         let vm = self.clone();
-        RelayCommand::new(move || vm.dismiss())
+        RelayCommand::new_shared(move || vm.dismiss())
     }
 }
 
@@ -213,13 +213,13 @@ impl ConfirmationVm {
     /// Creates a command that approves this confirmation.
     pub fn approve_command(&self) -> RelayCommand {
         let vm = self.clone();
-        RelayCommand::new(move || vm.approve())
+        RelayCommand::new_shared(move || vm.approve())
     }
 
     /// Creates a command that rejects this confirmation.
     pub fn reject_command(&self) -> RelayCommand {
         let vm = self.clone();
-        RelayCommand::new(move || vm.reject())
+        RelayCommand::new_shared(move || vm.reject())
     }
 
     fn resolve(&self, reaction: NotificationReaction) {

@@ -37,23 +37,23 @@ pub(crate) struct ComponentCommands {
 impl ComponentCommands {
     pub(crate) fn new<D: Dispatcher, F>(core: &ComponentCore<D>, reconstruct_action: F) -> Self
     where
-        F: FnMut() + Send + 'static,
+        F: Fn() + Send + Sync + 'static,
     {
         let select = {
             let action_core = core.clone();
             let predicate_core = core.clone();
-            RelayCommand::new(move || action_core.select_via_parent())
+            RelayCommand::new_shared(move || action_core.select_via_parent())
                 .with_can_execute(move || predicate_core.can_select())
         };
         let deselect = {
             let action_core = core.clone();
             let predicate_core = core.clone();
-            RelayCommand::new(move || action_core.deselect_via_parent())
+            RelayCommand::new_shared(move || action_core.deselect_via_parent())
                 .with_can_execute(move || predicate_core.can_deselect())
         };
         let reconstruct = {
             let predicate_core = core.clone();
-            RelayCommand::new(reconstruct_action).with_can_execute(move || {
+            RelayCommand::new_shared(reconstruct_action).with_can_execute(move || {
                 predicate_core.status() == ConstructionStatus::Constructed
             })
         };
