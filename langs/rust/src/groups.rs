@@ -739,6 +739,8 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
                     break if self.dispose_requested.swap(true, Ordering::AcqRel) {
                         None
                     } else {
+                        // A disposed container publishes nothing (ADR-0142).
+                        self.items.close_publication();
                         Some(self.items())
                     };
                 }

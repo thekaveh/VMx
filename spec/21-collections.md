@@ -173,7 +173,9 @@ emits one Reset under §2.4.
 
 ### 2.4 `CollectionChangedMessage`
 
-A `CollectionChangedMessage` is emitted for each mutation. C#, Python,
+A `CollectionChangedMessage` is emitted for each mutation. `CompositeVM` and
+`GroupVM` publish the same message for their membership changes, with the
+container as sender (chapter 01 §1.4, ADR-0142). C#, Python,
 TypeScript, and Swift use the typed item-payload shape:
 
 ```

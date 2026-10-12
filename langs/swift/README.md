@@ -5,10 +5,10 @@ spec-compatible with the C# / Python / TypeScript / Rust flavors.
 
 ## 1. Status
 
-**v3.26.0 source — total parity.** Swift implements `spec-v3.25.0` and covers
-all **407 of 407** library conformance IDs. The SwiftUI notes-showcase exercises
-the five additional `THEME-00x` scenarios, for **412 total**, matching the other
-UI-backed flavors; Rust covers the 407 library IDs and has no UI scenario suite.
+**v3.27.0 source — total parity.** Swift implements `spec-v3.26.0` and covers
+all **413 of 413** library conformance IDs. The SwiftUI notes-showcase exercises
+the five additional `THEME-00x` scenarios, for **418 total**, matching the other
+UI-backed flavors; Rust covers the 413 library IDs and has no UI scenario suite.
 The detailed capability and conformance history lives in the
 [changelog](CHANGELOG.md) and the specification ADRs rather than in this opener.
 
@@ -213,9 +213,9 @@ this fixed VM. The `Equatable` overload uses `==`; use the `isEqual:` overload
 for custom equality. The host owns the returned `AnyCancellable`; VMx does not
 attach it to the observed VM's lifetime.
 
-## 5. Conformance — total parity (412)
+## 5. Conformance — total parity (418)
 
-This flavor implements **all 407 library conformance IDs** from the
+This flavor implements **all 413 library conformance IDs** from the
 cross-language conformance catalog (Inc-0: 44 base IDs per ADR-0037/ADR-0053;
 Inc-1: +50 leaf-area IDs per ADR-0059; Inc-2: +30 collections IDs per ADR-0060;
 Inc-3: +29 hierarchical/threading/expand-collapse IDs per ADR-0061;
@@ -436,6 +436,8 @@ SUBV-001..004   fixed-source selected-state subscription (ADR-0095)
 AGCH-001..010   dynamic aggregate membership-and-item change stream (ADR-0098)
 SRCH-001..007   source-reactive SearchableState refresh (ADR-0099)
 ARES-001..011   cancellable latest-wins AsyncResourceVM (ADR-0100)
+COMP-042..045,  CompositeVM and GroupVM collection changes published on the hub
+GRP-012..013    (ADR-0142)
 ```
 
 **THEME scenario IDs (example app — not scraped by the library coverage gate):**
@@ -444,7 +446,7 @@ ARES-001..011   cancellable latest-wins AsyncResourceVM (ADR-0100)
   `examples/swift/notes-showcase/NotesShowcaseTests/`; validated by the
   `examples (notes-showcase)` CI job in `.github/workflows/swift.yml`.
 
-**All 407 library conformance IDs are covered, and the 5 `THEME-00x` scenario IDs are covered by the `examples/swift/notes-showcase/` flagship. Swift is at total parity (412) with the C#, Python, and TypeScript UI-backed flavors. Rust has full library parity but no UI scenario suite.**
+**All 413 library conformance IDs are covered, and the 5 `THEME-00x` scenario IDs are covered by the `examples/swift/notes-showcase/` flagship. Swift is at total parity (418) with the C#, Python, and TypeScript UI-backed flavors. Rust has full library parity but no UI scenario suite.**
 
 Run the suite:
 

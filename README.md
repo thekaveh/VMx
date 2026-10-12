@@ -83,12 +83,12 @@ uses them from a VMx checkout until their first registry release.
 
 | Flavor        | Public package                                                                          | Source line |
 | ------------- | --------------------------------------------------------------------------------------- | ----------- |
-| Python        | [`vmx` 3.23.0](https://pypi.org/project/vmx/3.23.0/) on PyPI                            | v3.25.0     |
-| Swift         | [`VMx` 3.24.0](https://github.com/thekaveh/VMx/releases/tag/swift-v3.24.0) via SwiftPM | v3.26.0     |
-| C#            | Not yet published to NuGet                                                              | v3.25.0     |
-| TypeScript    | Not yet published to npm                                                                | v3.26.0     |
+| Python        | [`vmx` 3.23.0](https://pypi.org/project/vmx/3.23.0/) on PyPI                            | v3.26.0     |
+| Swift         | [`VMx` 3.24.0](https://github.com/thekaveh/VMx/releases/tag/swift-v3.24.0) via SwiftPM | v3.27.0     |
+| C#            | Not yet published to NuGet                                                              | v3.26.0     |
+| TypeScript    | Not yet published to npm                                                                | v3.27.0     |
 | React adapter | Not yet published to npm; follows the core npm release (#57)                            | v0.1.1      |
-| Rust          | Not yet published to crates.io                                                          | v0.31.0     |
+| Rust          | Not yet published to crates.io                                                          | v0.32.0     |
 
 A source line can be ahead of its public package. The
 [`compatibility-matrix.md`](compatibility-matrix.md) ledger records which
@@ -143,7 +143,7 @@ npm --prefix ../VMx/packages/react ci
 mkdir -p /tmp/vmx-packs
 npm pack ../VMx/langs/typescript --pack-destination /tmp/vmx-packs
 npm pack ../VMx/packages/react --pack-destination /tmp/vmx-packs
-npm install /tmp/vmx-packs/thekaveh-vmx-3.26.0.tgz \
+npm install /tmp/vmx-packs/thekaveh-vmx-3.27.0.tgz \
   /tmp/vmx-packs/thekaveh-vmx-react-0.1.1.tgz react rxjs use-sync-external-store
 ```
 
@@ -282,6 +282,7 @@ canonical for released compatibility plus the current in-development line.
 
 | spec   | csharp        | python        | typescript    | swift          | rust          |
 | ------ | ------------- | ------------- | ------------- | -------------- | ------------- |
+| 3.26.x | 3.26.0        | 3.26.0        | 3.27.0        | 3.27.0         | 0.32.0        |
 | 3.25.x | 3.25.0        | 3.25.0        | 3.26.0        | 3.26.0         | 0.31.0        |
 | 3.24.x | 3.24.0        | 3.24.0        | 3.25.0        | 3.25.0         | 0.30.0        |
 | 3.23.x | 3.23.0        | 3.23.0–3.23.3 | 3.24.0–3.24.1 | 3.24.0         | 0.29.0        |
@@ -307,10 +308,10 @@ canonical for released compatibility plus the current in-development line.
 
 ### 6.3 Conformance catalog
 
-`spec/` holds 24 chapters, 141 ADRs, 4 JSON fixtures, and the conformance
+`spec/` holds 24 chapters, 142 ADRs, 4 JSON fixtures, and the conformance
 catalog in `spec/12-conformance.md`. All five flavors implement its
-407 library conformance IDs, and the four UI-backed flagship apps cover
-5 additional THEME scenario IDs, for **412 total**. Rust has no UI scenario
+413 library conformance IDs, and the four UI-backed flagship apps cover
+5 additional THEME scenario IDs, for **418 total**. Rust has no UI scenario
 suite yet.
 `tools/check-conformance-coverage.py` enforces full catalog coverage, and
 [Specification & Conformance](docs/content/specification-conformance.md)
@@ -333,7 +334,7 @@ python3 tools/check-conformance-coverage.py
 .
 ├── spec/                  language-neutral specification (source of truth)
 │   ├── 00-overview.md ... 23-async-resource-vm.md  (24 chapters)
-│   ├── ADRs/              architecture decision records (0001..0141)
+│   ├── ADRs/              architecture decision records (0001..0142)
 │   ├── fixtures/          JSON test inputs shared across flavors
 │   ├── schemas/           versioned supporting machine contracts
 │   ├── proposals/         mostly historical; scenario contracts may be normative
@@ -378,8 +379,8 @@ This README is the entry point; the documents below add focused detail.
   community guidelines.
 - [`compatibility-matrix.md`](compatibility-matrix.md) — spec ↔ flavor
   version pairing.
-- [`spec/README.md`](spec/README.md) — index of the 24 chapters, 141 ADRs,
-  4 fixtures, and the 412-ID conformance catalog.
+- [`spec/README.md`](spec/README.md) — index of the 24 chapters, 142 ADRs,
+  4 fixtures, and the 418-ID conformance catalog.
 - [`spec/ADRs/README.md`](spec/ADRs/README.md) — ADR catalogue index.
 - [`docs/audit/README.md`](docs/audit/README.md) — index of historical
   documentation audit reports.

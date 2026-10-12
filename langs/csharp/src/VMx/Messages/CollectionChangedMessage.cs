@@ -4,8 +4,11 @@ namespace VMx.Messages;
 
 /// <summary>
 /// Default <see cref="ICollectionChangedMessage{T}"/> implementation.
-/// Published by <see cref="VMx.Collections.ServicedObservableCollection{T}"/> to the hub.
-/// See spec/21-collections.md §2 and ADR-0024.
+/// Published to the hub by <see cref="VMx.Collections.ServicedObservableCollection{T}"/>
+/// and, with the container as sender, by every
+/// <see cref="VMx.Composites.CompositeVMBase{VM}"/> and
+/// <see cref="VMx.Groups.GroupVMBase{VM}"/> after each local collection change.
+/// See spec/21-collections.md §2, spec/01-concepts.md §1.4, ADR-0024, and ADR-0142.
 /// </summary>
 /// <typeparam name="T">Element type of the collection.</typeparam>
 public sealed record CollectionChangedMessage<T>(
@@ -66,4 +69,31 @@ public sealed record CollectionChangedMessage<T>(
     public static CollectionChangedMessage<T> ForReset(object sender)
         => new(sender, NotifyCollectionChangedAction.Reset,
                Array.Empty<T>(), Array.Empty<T>(), -1);
+
+    /// <summary>
+    /// Maps one single-item local collection-change event to the hub message
+    /// with the same action, positions, and items.
+    /// </summary>
+    internal static CollectionChangedMessage<T> From(
+        object sender,
+        NotifyCollectionChangedEventArgs e)
+        => e.Action switch
+        {
+            NotifyCollectionChangedAction.Add =>
+                ForAdd(sender, (T)e.NewItems![0]!, e.NewStartingIndex),
+
+            NotifyCollectionChangedAction.Remove =>
+                ForRemove(sender, (T)e.OldItems![0]!, e.OldStartingIndex),
+
+            NotifyCollectionChangedAction.Replace =>
+                ForReplace(sender, (T)e.NewItems![0]!, (T)e.OldItems![0]!, e.NewStartingIndex),
+
+            NotifyCollectionChangedAction.Move =>
+                ForMove(sender, (T)e.NewItems![0]!, e.OldStartingIndex, e.NewStartingIndex),
+
+            NotifyCollectionChangedAction.Reset => ForReset(sender),
+
+            _ => throw new InvalidOperationException(
+                $"Unexpected NotifyCollectionChangedAction: {e.Action}"),
+        };
 }

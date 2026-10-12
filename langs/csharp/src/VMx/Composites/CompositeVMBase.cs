@@ -4,6 +4,7 @@ using System.Reactive.Disposables;
 using VMx.Collections;
 using VMx.Components;
 using VMx.Lifecycle;
+using VMx.Messages;
 using VMx.Services;
 
 namespace VMx.Composites;
@@ -561,8 +562,10 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
 
     /// <summary>
     /// Opens a ref-counted batch window. Mutations inside suppress individual
-    /// <see cref="CollectionChanged"/> events. The outermost dispose fires a
-    /// single <c>Reset</c> event iff any mutation occurred during the batch.
+    /// <see cref="CollectionChanged"/> events and hub messages. The outermost
+    /// dispose fires a single <c>Reset</c> event, followed by one hub
+    /// <see cref="CollectionChangedMessage{T}"/> Reset, iff any mutation
+    /// occurred during the batch.
     /// </summary>
     public IDisposable BatchUpdate()
     {
@@ -576,7 +579,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         if (_batchDepth == 0 && _batchDirty)
         {
             _batchDirty = false;
-            CollectionChanged?.Invoke(this, new NotifyCollectionChangedEventArgs(
+            DeliverCollectionChanged(new NotifyCollectionChangedEventArgs(
                 NotifyCollectionChangedAction.Reset));
         }
     }
@@ -588,7 +591,21 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
             _batchDirty = true;
             return;
         }
+        DeliverCollectionChanged(args);
+    }
+
+    /// <summary>
+    /// Raises the local event, then publishes one equivalent
+    /// <see cref="CollectionChangedMessage{T}"/> sent by this composite through the
+    /// hub's ordinary <c>Send</c> (spec/01 §1.4, ADR-0142). Callers run outside
+    /// the membership gate and the shared coordination lane, so hub subscribers
+    /// hold neither. A disposed composite publishes nothing.
+    /// </summary>
+    private void DeliverCollectionChanged(NotifyCollectionChangedEventArgs args)
+    {
         CollectionChanged?.Invoke(this, args);
+        if (Volatile.Read(ref _disposeRequested) != 0 || IsDisposed()) return;
+        Hub.Send(CollectionChangedMessage<VM>.From(this, args));
     }
 
     private void MaybeAutoConstruct(VM item)

@@ -39,6 +39,9 @@ and ADR-0085. Group implements that complete capability but does not implement
 the selectable extension. `Move(from, to)` validates both pre-move indices,
 emits one `Move` event with the same child and both indices, and preserves
 identity, parent, lifecycle, subscriptions, and auto-construction state.
+Like a composite, a group publishes each effective collection change to its
+hub as a `CollectionChangedMessage` sent by the group, after the local event
+(chapter 01 §1.4, ADR-0142, `GRP-012`).
 
 ### 1.1 Atomic child ownership transfer (spec v3.21)
 
@@ -87,7 +90,9 @@ context-manager handle, or a callback-taking method whose scope is the callback
 invocation. While at least one batch scope is active, mutations MUST NOT raise
 individual `CollectionChanged` events. When the outermost scope completes
 normally, if any mutations occurred a single
-`CollectionChanged(action=Reset)` MUST be raised. Nested batches are
+`CollectionChanged(action=Reset)` MUST be raised, followed by one hub
+`CollectionChangedMessage(action=Reset)`; nothing is published inside the
+scope or for a batch without mutations (`GRP-013`). Nested batches are
 ref-counted.
 
 A same-index move is not a mutation and does not dirty the batch. A non-no-op
@@ -101,8 +106,8 @@ in the group context; only the conformance IDs differ (`GRP-007..GRP-010`).
 
 ## 7. Conformance
 
-`GRP-001` through `GRP-006`, `GRP-007` through `GRP-010`, and `GRP-011`
-in `12-conformance.md` cover:
+`GRP-001` through `GRP-006`, `GRP-007` through `GRP-010`, `GRP-011`, and
+`GRP-012` through `GRP-013` in `12-conformance.md` cover:
 
 - collection-change events on add/remove
 - absence of `Current`
@@ -111,6 +116,9 @@ in `12-conformance.md` cover:
 - (v1.1) `AutoConstructOnAdd(true)` auto-constructs children added after the group is `Constructed`
 - (v1.1) `BatchUpdate()` suppresses per-mutation events and emits a single `Reset` at completion
 - group children are peers whose inherited select command is disabled
+- (v3.26) each effective collection change publishes one hub
+  `CollectionChangedMessage` sent by the group, and a batch publishes one
+  `Reset` on outermost completion (`GRP-012`, `GRP-013`)
 - atomic cross-parent transfer, duplicate/cycle rejection, isolated rollback
   with explicit compensation failure, and old-removal-before-new-add
   observation order (`COMP-038` through `COMP-041`)

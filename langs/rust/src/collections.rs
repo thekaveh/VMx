@@ -3,9 +3,9 @@
 //! Spec: `spec/21-collections.md`.
 
 use super::{
-    catch_unwind, lock, resume_unwind, thread, wait, Arc, AssertUnwindSafe, CollectionChangeAction,
-    CollectionChangedMessage, Condvar, Hash, HashMap, Message, MessageHub, Mutex,
-    PropertyChangedMessage, ThreadId, VecDeque, VmxError, VmxResult,
+    catch_unwind, lock, resume_unwind, thread, wait, Arc, AssertUnwindSafe, AtomicBool,
+    CollectionChangeAction, CollectionChangedMessage, Condvar, Hash, HashMap, Message, MessageHub,
+    Mutex, Ordering, PropertyChangedMessage, ThreadId, VecDeque, VmxError, VmxResult,
 };
 
 #[derive(Default)]
@@ -772,6 +772,7 @@ pub struct ObservableList<T: Clone + Send + 'static> {
     batch_depth: Arc<Mutex<usize>>,
     batch_dirty: Arc<Mutex<bool>>,
     batch_count_at_start: Arc<Mutex<usize>>,
+    publication_closed: Arc<AtomicBool>,
 }
 
 impl<T: Clone + Send + 'static> ObservableList<T> {
@@ -784,7 +785,15 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
             batch_depth: Arc::new(Mutex::new(0)),
             batch_dirty: Arc::new(Mutex::new(false)),
             batch_count_at_start: Arc::new(Mutex::new(0)),
+            publication_closed: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    /// Stops all further publication for a disposed owning container
+    /// (ADR-0142): later mutations, including a pending batch `Reset`, send
+    /// nothing to the hub.
+    pub(crate) fn close_publication(&self) {
+        self.publication_closed.store(true, Ordering::Release);
     }
 
     /// Returns the number of items.
@@ -999,6 +1008,9 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
         new_index: Option<usize>,
         count_changed: bool,
     ) {
+        if self.publication_closed.load(Ordering::Acquire) {
+            return;
+        }
         if *lock(&self.batch_depth) > 0 {
             *lock(&self.batch_dirty) = true;
             return;

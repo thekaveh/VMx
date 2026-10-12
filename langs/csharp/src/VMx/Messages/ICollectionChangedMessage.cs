@@ -3,8 +3,10 @@ using System.Collections.Specialized;
 namespace VMx.Messages;
 
 /// <summary>
-/// Emitted by <see cref="VMx.Collections.ServicedObservableCollection{T}"/> when
-/// the collection mutates.  See spec/21-collections.md §2 and ADR-0024.
+/// Emitted by <see cref="VMx.Collections.ServicedObservableCollection{T}"/>,
+/// <see cref="VMx.Composites.CompositeVMBase{VM}"/>, and
+/// <see cref="VMx.Groups.GroupVMBase{VM}"/> when the collection mutates.
+/// See spec/21-collections.md §2, ADR-0024, and ADR-0142.
 /// </summary>
 /// <typeparam name="T">Element type of the collection.</typeparam>
 public interface ICollectionChangedMessage<T> : IMessage
