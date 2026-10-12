@@ -15,7 +15,7 @@ TEST_LOCKFILES = (
 EXPECTED_TEST_VERSIONS = {
     "Microsoft.NET.Test.Sdk": "18.10.1",
     "xunit": "2.9.3",
-    "xunit.runner.visualstudio": "4.0.0",
+    "xunit.runner.visualstudio": "4.0.1",
     "FluentAssertions": "6.12.2",
     "coverlet.collector": "10.0.0",
 }
@@ -27,7 +27,7 @@ EXPECTED_TEST_SDK_TRANSITIVES = {
 }
 LEDGER_CONTRACT = (
     "`Microsoft.NET.Test.Sdk` is `18.10.1`, "
-    "`xunit.runner.visualstudio` is `4.0.0`, and "
+    "`xunit.runner.visualstudio` is `4.0.1`, and "
     "`coverlet.collector` is `10.0.0`; "
     "`xunit` remains `2.9.3` and `FluentAssertions` remains `6.12.2`"
 )
