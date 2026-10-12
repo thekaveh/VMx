@@ -282,8 +282,13 @@ final class NoteFormVMTests: XCTestCase {
         XCTAssertTrue(form.isDirty, "the refused save changed nothing")
         XCTAssertEqual("Original", form.snapshot.title)
         // The refused save ran no post-save step: these run before
-        // `approveAsync` returns, so they would already be recorded.
-        XCTAssertEqual(changes.propertyNames, [], "the refused save re-emitted the draft")
+        // `approveAsync` returns, so they would already be recorded. The
+        // debounced tag search emits suggestion changes on its own schedule
+        // after the title edit, so those two names are not save evidence.
+        let draftChanges = changes.propertyNames.filter {
+            $0 != "tagSuggestions" && $0 != "tagSuggestionsText"
+        }
+        XCTAssertEqual(draftChanges, [], "the refused save re-emitted the draft")
         let refreshesWhilePending = await repo.loadAllCalls
         XCTAssertEqual(refreshesWhilePending, 0, "the refused save refreshed tag suggestions")
 
