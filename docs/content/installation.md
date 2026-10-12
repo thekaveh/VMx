@@ -3,7 +3,7 @@
 Python and Swift install from public registries. C#, TypeScript, the React
 adapter, and Rust are complete in source but not yet published, so a project
 uses them from a VMx checkout until their first registry release. Every flavor
-implements spec 3.26.0; check the flavor README and registry before pinning a
+implements spec 3.27.0; check the flavor README and registry before pinning a
 release.
 
 Run the commands below from your own project's directory. The source-checkout
@@ -15,12 +15,12 @@ git clone https://github.com/thekaveh/VMx.git ../VMx
 
 | Flavor     | Source tree   | Public package status               |
 | ---------- | ------------- | ----------------------------------- |
-| C#         | v3.26.0       | NuGet package not published yet     |
-| Python     | v3.26.0       | PyPI release 3.23.0                  |
-| TypeScript | v3.27.0       | npm package not published yet       |
+| C#         | v3.27.0       | NuGet package not published yet     |
+| Python     | v3.27.0       | PyPI release 3.23.0                  |
+| TypeScript | v3.28.0       | npm package not published yet       |
 | React adapter | v0.1.1 in source | publication waits for core npm #57 |
-| Swift      | v3.27.0       | SwiftPM release 3.24.0              |
-| Rust       | 0.32.0        | crates.io package not published yet |
+| Swift      | v3.28.0       | SwiftPM release 3.24.0              |
+| Rust       | 0.33.0        | crates.io package not published yet |
 
 === "C#"
 
@@ -69,7 +69,7 @@ git clone https://github.com/thekaveh/VMx.git ../VMx
     mkdir -p /tmp/vmx-packs
     npm pack ../VMx/langs/typescript --pack-destination /tmp/vmx-packs
     npm pack ../VMx/packages/react --pack-destination /tmp/vmx-packs
-    npm install /tmp/vmx-packs/thekaveh-vmx-3.27.0.tgz \
+    npm install /tmp/vmx-packs/thekaveh-vmx-3.28.0.tgz \
       /tmp/vmx-packs/thekaveh-vmx-react-0.1.1.tgz \
       react rxjs use-sync-external-store
     ```

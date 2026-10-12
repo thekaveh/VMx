@@ -19,7 +19,9 @@ import Foundation
 /// Use ``approveCommand`` (fire-and-forget) or ``approveAsync()`` (awaitable)
 /// to persist; use ``denyCommand`` to revert. Persister failures surface on
 /// ``approveErrors`` when the command path is used, and rethrow directly when
-/// awaited via ``approveAsync()``.
+/// awaited via ``approveAsync()``. One approval runs at a time: an approve
+/// call made while another is in flight does nothing (spec/20-form-vm.md
+/// §5.3, ADR-0143).
 public final class FormVM<Model> {
 
     // ── Stored state ──────────────────────────────────────────────────────────
@@ -31,6 +33,10 @@ public final class FormVM<Model> {
     private var mutationTeardownPending = false
     private var approvalPrePublishing = false
     private var deferredApprovalModels: [Model] = []
+    // Single-flight admission (§5.3, ADR-0143): set when an approval is
+    // admitted and cleared when it settles, both under `stateGate`. The gate
+    // is never held while the persister runs or observers are notified.
+    private var approvalInFlight = false
     private let stateGate = NSRecursiveLock()
     // Approval publication runs outside `stateGate`, so observers on other
     // threads can read the form while it is delivered (#533). Meanwhile,
@@ -122,7 +128,9 @@ public final class FormVM<Model> {
 
     /// Fire-and-forget approve. Persister failures surface on ``approveErrors``;
     /// they do NOT propagate to the caller of `execute()` (use ``approveAsync()``
-    /// directly when you need to `await` the outcome).
+    /// directly when you need to `await` the outcome). `execute()` admits the
+    /// approval synchronously, and `canExecute()` is `false` while an approval
+    /// is in flight; `canExecuteChanged` fires on admission and on settlement.
     public private(set) var approveCommand: RelayCommand
 
     // ── Properties ────────────────────────────────────────────────────────────
@@ -236,19 +244,12 @@ public final class FormVM<Model> {
     ///
     /// On success: advances the snapshot and fires ``onApproved``.
     /// On persister throw: mutates nothing and rethrows.
+    /// While another approval is in flight: returns without persisting,
+    /// mutating, throwing, or emitting (spec §5.3).
     /// After `dispose()`: returns immediately (no-op).
     public func approveAsync() async throws {
-        let captured = withStateGate { (_disposed || !_errors.isEmpty, _model) }
-        guard !captured.0 else { return }
-        let current = captured.1
-
-        // Throw path — no state mutation if this throws.
-        try await persister(current)
-
-        // Commit under the gate, then publish outside it: an observer may hand
-        // work to another thread that reads this form (#533).
-        guard let publication = try commitApproval(current) else { return }
-        publishApproval(publication)
+        guard let admission = admitApproval() else { return }
+        try await runApproval(admission)
     }
 
     // ── Dispose ───────────────────────────────────────────────────────────────
@@ -282,13 +283,16 @@ public final class FormVM<Model> {
         )
         approveCommand = RelayCommand(
             task: { [weak self] in
-                guard let self else { return }
-                let form = UncheckedSendableBox(self)
-                Task { [form] in
+                // Admit before returning, so a second `execute()` is refused
+                // even before the persister task starts (§5.3).
+                guard let self, let admission = self.admitApproval() else { return }
+                let context = UncheckedSendableBox((self, admission))
+                Task { [context] in
+                    let (form, admitted) = context.value
                     do {
-                        try await form.value.approveAsync()
+                        try await form.runApproval(admitted)
                     } catch {
-                        form.value.emitApproveError(error)
+                        form.emitApproveError(error)
                     }
                 }
             },
@@ -341,20 +345,93 @@ public final class FormVM<Model> {
         }
     }
 
+    /// The model captured by an admitted approval.
+    private struct ApprovalAdmission {
+        let captured: Model
+    }
+
+    /// Admits an approval when the form is not disposed, is valid, and has no
+    /// approval in flight (§5.3). The in-flight mark and the capture happen
+    /// together under `stateGate`; `canExecuteChanged` is then raised once
+    /// outside it. Returns `nil` for a refused call, which has no effect.
+    private func admitApproval() -> ApprovalAdmission? {
+        let admission = withStateGate { () -> ApprovalAdmission? in
+            guard !_disposed, _errors.isEmpty, !approvalInFlight else { return nil }
+            approvalInFlight = true
+            return ApprovalAdmission(captured: _model)
+        }
+        guard let admission else { return nil }
+        _approveCanExecSubject.send(())
+        return admission
+    }
+
+    /// Persists an admitted approval and settles it. A persister failure or
+    /// cancellation, or a failed reset, settles before it is rethrown, so the
+    /// caller routes it to exactly one channel.
+    private func runApproval(_ admission: ApprovalAdmission) async throws {
+        let captured = admission.captured
+        // A form disposed since admission never starts the persister, an
+        // external side effect (§10), and settles silently.
+        let disposedBeforePersist = withStateGate { () -> Bool in
+            guard _disposed else { return false }
+            approvalInFlight = false
+            return true
+        }
+        guard !disposedBeforePersist else { return }
+
+        do {
+            // Throw path — no state mutation if this throws.
+            try await persister(captured)
+        } catch {
+            settleFailedApproval()
+            throw error
+        }
+
+        // Commit under the gate, then publish outside it: an observer may hand
+        // work to another thread that reads this form (#533).
+        let publication: ApprovalPublication?
+        do {
+            publication = try commitApproval(captured)
+        } catch {
+            settleFailedApproval()
+            throw error
+        }
+        guard let publication else { return }
+        publishApproval(publication)
+    }
+
+    /// Settles a failed approval: clears the in-flight mark, then raises
+    /// `canExecuteChanged` once unless the form was disposed meanwhile.
+    private func settleFailedApproval() {
+        let disposed = withStateGate { () -> Bool in
+            approvalInFlight = false
+            return _disposed
+        }
+        guard !disposed else { return }
+        _approveCanExecSubject.send(())
+    }
+
     /// Values an approval publishes once its state is committed.
     private struct ApprovalPublication {
         let approved: Model
         let errors: [String: String]?
-        let canExecuteChanged: Bool
     }
 
-    /// Commits a successful approval under `stateGate` and marks this thread as
-    /// the approval publisher. Returns `nil` when there is nothing to publish.
+    /// Commits a successful approval under `stateGate`, clears the in-flight
+    /// mark, and marks this thread as the approval publisher. Returns `nil`
+    /// when disposal suppressed the commit. A failed reset throws with the
+    /// mark still set, for `settleFailedApproval` to clear.
     private func commitApproval(_ captured: Model) throws -> ApprovalPublication? {
         stateGate.lock()
         defer { stateGate.unlock() }
         awaitForeignApprovalLocked()
-        guard let publication = try completeApproval(captured) else { return nil }
+        guard let publication = try completeApproval(captured) else {
+            approvalInFlight = false
+            return nil
+        }
+        // Settlement clears the mark before publishing, so every observer
+        // below sees an idle form and may start the next approval (§5.3).
+        approvalInFlight = false
         approvalPublishing = true
         approvalPublisher = Self.currentThread
         approvalPrePublishing = true
@@ -363,16 +440,18 @@ public final class FormVM<Model> {
 
     /// Delivers a committed approval without holding `stateGate`, then admits
     /// waiting threads and replays models deferred during pre-publication.
+    /// Settlement order (§5.3): `errorsChanged` when the commit changed the
+    /// error map, one `canExecuteChanged`, then `onApproved`.
     private func publishApproval(_ publication: ApprovalPublication) {
         defer { finishApprovalPublication() }
         if let errors = publication.errors {
             _errorsChanged.send(errors)
             guard !isDisposed else { return }
         }
-        if publication.canExecuteChanged {
-            _approveCanExecSubject.send(())
-            guard !isDisposed else { return }
-        }
+        // The single settlement notification also covers any validity or
+        // strict-mode change made by the commit.
+        _approveCanExecSubject.send(())
+        guard !isDisposed else { return }
         withStateGate { approvalPrePublishing = false }
         _onApproved.send(publication.approved)
     }
@@ -413,8 +492,6 @@ public final class FormVM<Model> {
 
     private func completeApproval(_ captured: Model) throws -> ApprovalPublication? {
         guard !_disposed else { return nil }
-        let current = _model
-        let snapshot = _snapshot
         let currentErrors = _errors
 
         let nextModel: Model?
@@ -441,25 +518,15 @@ public final class FormVM<Model> {
             nextErrors = nil
         }
 
-        let committedModel = nextModel ?? current
         let committedErrors = nextErrors ?? currentErrors
-        let wasDirty = !equals(current, snapshot)
-        guard !_disposed else { return nil }
-        let wasValid = currentErrors.isEmpty
-        let nextDirty = !equals(committedModel, nextSnapshot)
-        guard !_disposed else { return nil }
-        let nextValid = committedErrors.isEmpty
         let errorsChanged = committedErrors != currentErrors
-        let canExecuteChanged =
-            (strict && nextDirty != wasDirty) || nextValid != wasValid
 
         if let nextModel { _model = nextModel }
         _snapshot = nextSnapshot
         if nextErrors != nil { _errors = committedErrors }
         return ApprovalPublication(
             approved: captured,
-            errors: errorsChanged ? committedErrors : nil,
-            canExecuteChanged: canExecuteChanged
+            errors: errorsChanged ? committedErrors : nil
         )
     }
 
@@ -474,7 +541,7 @@ public final class FormVM<Model> {
 
     private func canApprove() -> Bool {
         withStateGate {
-            guard !_disposed, _errors.isEmpty else { return false }
+            guard !_disposed, _errors.isEmpty, !approvalInFlight else { return false }
             guard strict else { return true }
             return !equals(_model, _snapshot)
         }
@@ -527,11 +594,12 @@ public final class FormVM<Model> {
         return errors
     }
 
+    /// Routes a command-path failure to ``approveErrors`` after settlement.
+    /// Sent outside `stateGate`, like every settlement notification (§5.3);
+    /// a failure that lands after disposal is dropped (§8.2).
     private func emitApproveError(_ error: Error) {
-        withStateGate {
-            guard !_disposed else { return }
-            _approveErrors.send(error)
-        }
+        guard !isDisposed else { return }
+        _approveErrors.send(error)
     }
 }
 

@@ -1,5 +1,11 @@
+use notes_showcase::viewmodels::NoteFormVm;
 use notes_showcase::{InMemoryNoteRepository, WorkspaceVm};
 use pretty_assertions::assert_eq;
+use std::sync::{mpsc, Arc, Mutex};
+use std::thread;
+use std::time::Duration;
+
+const TIMEOUT: Duration = Duration::from_secs(5);
 
 #[test]
 fn workspace_bootstraps_default_selection_and_vm_owned_sections() {
@@ -68,6 +74,74 @@ fn form_validation_save_and_revert_use_form_vm_contracts() {
     form.revert();
     assert_eq!(form.title(), "Rust VMx showcase");
     assert!(!form.is_dirty());
+}
+
+#[test]
+fn a_double_save_while_the_save_is_pending_persists_once() {
+    let repository = InMemoryNoteRepository::seeded();
+    let saved = Arc::new(Mutex::new(Vec::new()));
+    let reentrant = Arc::new(Mutex::new(Vec::new()));
+    let form_slot = Arc::new(Mutex::new(None::<NoteFormVm>));
+    let (entered_tx, entered) = mpsc::channel();
+    let (release, release_rx) = mpsc::channel::<()>();
+    let release_rx = Mutex::new(release_rx);
+    repository.set_save_hook({
+        let saved = Arc::clone(&saved);
+        let reentrant = Arc::clone(&reentrant);
+        let form_slot = Arc::clone(&form_slot);
+        move |_, draft| {
+            saved.lock().unwrap().push(draft.title.clone());
+            // Saving again from inside the pending save does nothing.
+            let form = form_slot.lock().unwrap().take();
+            if let Some(form) = form {
+                reentrant.lock().unwrap().push(form.save());
+            }
+            let _ = entered_tx.send(());
+            release_rx
+                .lock()
+                .unwrap()
+                .recv_timeout(TIMEOUT)
+                .expect("the test releases the pending save");
+        }
+    });
+    let workspace = WorkspaceVm::new(repository.clone()).expect("workspace builds");
+    let form = workspace.form();
+    *form_slot.lock().unwrap() = Some(form.clone());
+    form.set_title("Saved once");
+
+    let (done, pending) = mpsc::channel();
+    thread::spawn({
+        let form = form.clone();
+        move || {
+            let _ = done.send(form.save());
+        }
+    });
+    entered
+        .recv_timeout(TIMEOUT)
+        .expect("the first save is pending");
+    form.save()
+        .expect("a second save while one is pending is a no-op");
+    release.send(()).unwrap();
+
+    assert_eq!(
+        pending
+            .recv_timeout(TIMEOUT)
+            .expect("the first save settles"),
+        Ok(())
+    );
+    assert_eq!(*saved.lock().unwrap(), vec!["Saved once"]);
+    assert_eq!(*reentrant.lock().unwrap(), vec![Ok(())]);
+    assert_eq!(
+        repository.note("rust-parity").expect("saved note").title,
+        "Saved once"
+    );
+    assert!(!form.is_dirty());
+
+    // Once the save settles, the next one persists.
+    form.set_title("Saved twice");
+    release.send(()).unwrap();
+    form.save().expect("the next save persists");
+    assert_eq!(*saved.lock().unwrap(), vec!["Saved once", "Saved twice"]);
 }
 
 #[test]

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 from datetime import datetime, timezone
 
@@ -137,6 +138,54 @@ async def test_approve_persists_and_publishes_notification() -> None:
     # Notification posted — assert exactly one "Saved" with the new title.
     saved = [n for n in observed if "Saved" in n.message and "Edited title" in n.message]
     assert len(saved) == 1
+
+
+class _PendingSaveRepository(InMemoryNoteRepository):
+    """Repository whose ``save_note`` stays pending until the test releases it."""
+
+    def __init__(self) -> None:
+        super().__init__(build_seed(), load_all_delay=0.0, save_note_delay=0.0)
+        self.saves: list[NoteModel] = []
+        self.save_started = asyncio.Event()
+        self.release_save = asyncio.Event()
+
+    async def save_note(self, note: NoteModel) -> None:
+        self.saves.append(note)
+        self.save_started.set()
+        await self.release_save.wait()
+        await super().save_note(note)
+
+
+async def test_double_save_while_repository_save_is_pending_persists_once() -> None:
+    """FormVM admits one approval at a time (spec/20 §5.3, ADR-0143): a second
+    save that bypasses the Save command's own in-flight guard while the first
+    repository save is still pending must not persist the note again."""
+    repo = _PendingSaveRepository()
+    hub = MessageHub[Message]()
+    dispatcher = RxDispatcher(foreground=ImmediateScheduler(), background=ImmediateScheduler())
+    vm = NoteFormVM.builder().name("form").services(hub, dispatcher).repository(repo).build()
+    saved: list[NoteModel] = []
+    vm.on_saved.subscribe(on_next=saved.append)
+    vm.bind_to(_sample_note())
+    edited = _sample_note(title="Saved once")
+    vm.draft = edited
+
+    first = asyncio.create_task(vm.approve_command.execute_async())
+    await asyncio.wait_for(repo.save_started.wait(), timeout=1)
+    vm.approve_command.execute()  # the Save command is busy: dropped
+    await asyncio.wait_for(vm.approve_async(), timeout=1)  # reaches FormVM: refused
+
+    assert repo.saves == [edited]
+    assert vm.snapshot.title == "Hello"
+    assert vm.is_dirty.value is True
+
+    repo.release_save.set()
+    await asyncio.wait_for(first, timeout=1)
+
+    assert repo.saves == [edited]
+    assert saved == [edited]
+    assert vm.snapshot.title == "Saved once"
+    assert vm.is_dirty.value is False
 
 
 def test_deny_restores_snapshot() -> None:

@@ -6,6 +6,23 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ## [Unreleased]
 
+## [3.27.0] — unreleased source version
+
+### Changed
+
+- `FormVM` admits one approval at a time. While an approval is in flight,
+  `approve_command.can_execute()` is false and any other approve call through
+  `approve_async()` or `approve_command.execute()` does nothing: it does not
+  call the persister, change state, raise, or emit on `on_approved` or
+  `approve_errors`. Admission marks the approval in flight and captures the
+  model before raising the approve command's can-execute notification once;
+  settlement clears the mark first, then publishes `errors_changed` if needed,
+  one can-execute notification, and the outcome, so an approval started by an
+  outcome observer is admitted. `set_model` and deny are not blocked. A
+  double-executed save now persists once; to save again after an in-flight
+  approval, await it and approve again (`FORM-031..034`, ADR-0143, spec 3.27.0)
+  (#327).
+
 ## [3.26.0] — unreleased source version
 
 ### Changed

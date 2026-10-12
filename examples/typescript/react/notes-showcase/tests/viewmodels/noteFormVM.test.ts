@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FormVM, MessageHub, RxDispatcher } from "@thekaveh/vmx";
+import { FormVM, MessageHub, RxDispatcher, type IAsyncCommand } from "@thekaveh/vmx";
 import {
   NotificationHub,
   NotificationReaction,
@@ -23,6 +23,24 @@ function aNote(over: Partial<NoteModel> = {}): NoteModel {
     updatedAt: new Date().toISOString(),
     ...over,
   };
+}
+
+/** Holds every repository write until the test releases it. */
+class GatedSaveRepository extends InMemoryNoteRepository {
+  readonly saveCalls: NoteModel[] = [];
+  readonly #pending: Array<() => void> = [];
+
+  override async saveNote(note: NoteModel): Promise<void> {
+    this.saveCalls.push(note);
+    await new Promise<void>((resolve) => {
+      this.#pending.push(resolve);
+    });
+    await super.saveNote(note);
+  }
+
+  releaseSaves(): void {
+    for (const release of this.#pending.splice(0)) release();
+  }
 }
 
 function makeForm(): {
@@ -71,6 +89,51 @@ describe("NoteFormVM", () => {
     expect(vm.snapshot.title).toBe("Persisted");
     const work = await repo.loadNotes("nb-work");
     expect(work.find((n) => n.id === "note-99")?.title).toBe("Persisted");
+  });
+
+  it("a double save while the repository save is pending persists once", async () => {
+    // FormVM admits one approval at a time (spec 20 §5.3, ADR-0143). A second
+    // save from the awaitable path or the bound command, made while the
+    // repository is still writing, must not issue a second write.
+    const repo = new GatedSaveRepository(buildSeed(), {
+      saveNoteDelayMs: 0,
+      loadAllDelayMs: 0,
+      loadNotesDelayMs: 0,
+    });
+    const vm = NoteFormVM.builder()
+      .name("form")
+      .services(new MessageHub(), RxDispatcher.immediate())
+      .repository(repo)
+      .build();
+    vm.construct();
+    vm.bindTo(aNote({ title: "Original" }));
+    vm.draft = { ...vm.draft, title: "Saved once" };
+    const saved: NoteModel[] = [];
+    vm.onSaved.subscribe((note) => saved.push(note));
+
+    const first = vm.approveAsync();
+    const second = vm.approveAsync();
+    const viaCommand = (vm.approveCommand as IAsyncCommand).executeAsync();
+    // Every save attempt reaches the repository synchronously, so a second
+    // write would already be recorded here.
+    expect(repo.saveCalls.map((note) => note.title)).toEqual(["Saved once"]);
+
+    // The refused saves complete while the first write is still pending.
+    await Promise.all([second, viaCommand]);
+    expect(repo.saveCalls).toHaveLength(1);
+    expect(vm.isDirty).toBe(true);
+    expect(vm.snapshot.title).toBe("Original");
+
+    repo.releaseSaves();
+    await first;
+
+    expect(repo.saveCalls).toHaveLength(1);
+    expect(saved.map((note) => note.title)).toEqual(["Saved once"]);
+    expect(vm.isDirty).toBe(false);
+    expect(vm.snapshot.title).toBe("Saved once");
+    const stored = (await repo.loadNotes("nb-work")).filter((note) => note.id === "note-99");
+    expect(stored.map((note) => note.title)).toEqual(["Saved once"]);
+    vm.dispose();
   });
 
   it("approveCommand.canExecute = isDirty && isValid", () => {

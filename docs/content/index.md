@@ -35,12 +35,12 @@ uses them from a VMx checkout.
 
 | Flavor        | Public package                                     | Source line |
 | ------------- | -------------------------------------------------- | ----------- |
-| Python        | `vmx` 3.23.0 on PyPI                               | 3.26.0      |
-| Swift         | `VMx` 3.24.0 through SwiftPM                       | 3.27.0      |
-| C#            | Not yet published to NuGet                         | 3.26.0      |
-| TypeScript    | Not yet published to npm                           | 3.27.0      |
+| Python        | `vmx` 3.23.0 on PyPI                               | 3.27.0      |
+| Swift         | `VMx` 3.24.0 through SwiftPM                       | 3.28.0      |
+| C#            | Not yet published to NuGet                         | 3.27.0      |
+| TypeScript    | Not yet published to npm                           | 3.28.0      |
 | React adapter | Not yet published to npm; follows the core package | 0.1.1       |
-| Rust          | Not yet published to crates.io                     | 0.32.0      |
+| Rust          | Not yet published to crates.io                     | 0.33.0      |
 
 A source line can be ahead of its public package.
 [Installation](installation.md) shows how to use each flavor today.

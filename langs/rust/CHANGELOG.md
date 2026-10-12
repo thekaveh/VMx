@@ -6,6 +6,25 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.33.0] — unreleased source version
+
+### Changed
+
+- `FormVm` admits one approval at a time. While an approval is in flight, the
+  approve command's `can_execute()` is false and any other approve call through
+  `approve()` or the approve command does nothing: it does not call the
+  persister, change state, return an error, or emit on the approved callbacks or
+  `approve_errors`. Admission marks the approval in flight and captures the
+  model before raising its can-execute notification once; settlement clears the
+  mark first, then publishes errors-changed if needed, one can-execute
+  notification, and the outcome, so an approval started by an outcome observer
+  is admitted. `set_model` and deny are not blocked. A double-executed save now
+  persists once; to save again, approve after the in-flight approval returns
+  (`FORM-031..034`, ADR-0143, spec 3.27.0) (#327).
+- A panic in the persister or the reset settles the approval like a failure
+  (the mark is cleared and one can-execute notification is raised) before the
+  panic resumes on the caller (#327).
+
 ## [0.32.0] — unreleased source version
 
 ### Fixed

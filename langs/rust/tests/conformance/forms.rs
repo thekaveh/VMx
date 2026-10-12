@@ -743,9 +743,11 @@ fn reset_is_snapshotted_twice_and_revalidated() {
     assert_eq!(form.field_error("value"), Some("required".to_string()));
     assert!(!form.is_valid());
     assert!(!approve_command.can_execute());
+    // One change on admission and exactly one on settlement (FORM-032); the
+    // settlement change also announces the strict/validity transition.
     assert_eq!(
         approve_command_can_execute_changed_record.messages().len(),
-        notifications_before_approve + 1
+        notifications_before_approve + 2
     );
 }
 

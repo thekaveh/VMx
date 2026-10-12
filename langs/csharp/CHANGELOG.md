@@ -35,6 +35,25 @@ All notable changes to the C# flavor are documented here. The format is based on
 - The NuGet package ships its own README describing `AddVMx()` registration
   and its dependency on `VMx` (#351).
 
+## [3.27.0] — unreleased source version
+
+### Changed
+
+- `FormVM` admits one approval at a time. While an approval is in flight,
+  `ApproveCommand.CanExecute()` is false and any other `ApproveAsync()` or
+  `ApproveCommand.Execute()` call does nothing: it returns a completed task
+  without calling the persister, changing state, throwing, or emitting on
+  `OnApproved` or `ApproveErrors`. Admission marks the approval in flight and
+  captures the model before raising `CanExecuteChanged` once; settlement clears
+  the mark first, then publishes `ErrorsChanged` if needed, one
+  `CanExecuteChanged`, and the outcome, so an approval started by an outcome
+  observer is admitted. `SetModel` and deny are not blocked. A double-executed
+  save now persists once; to save again after an in-flight approval, await it
+  and approve again. `CanExecuteChanged` now fires on every admission and
+  settlement, on the persister's continuation thread, so a UI binding must
+  marshal it as it already does for `AsyncRelayCommand` (`FORM-031..034`,
+  ADR-0143, spec 3.27.0) (#327).
+
 ## [3.26.0] — unreleased source version
 
 ### Changed

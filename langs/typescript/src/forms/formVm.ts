@@ -402,6 +402,9 @@ export class FormVM<TM> {
   #disposed = false;
   #activeSyncOperations = 0;
   #teardownPending = false;
+  // Single-flight admission (§5.3): set when an approval is admitted, cleared
+  // when it settles. Disposal leaves it set; a disposed form is inert anyway.
+  #approvalInFlight = false;
   #approvalPrePublishing = false;
   #deferredApprovalModels: TM[] = [];
 
@@ -482,7 +485,10 @@ export class FormVM<TM> {
           }
         });
       })
-      .predicate(() => this.isValid && (!this.#strict || this.isDirty))
+      // While an approval is in flight the command is disabled, so execute()
+      // refuses a second approval before reaching the task (§5.3).
+      .predicate(() =>
+        !this.#approvalInFlight && this.isValid && (!this.#strict || this.isDirty))
       .triggers(this.#canExecuteTrigger)
       .build();
   }
@@ -581,16 +587,38 @@ export class FormVM<TM> {
   /**
    * Awaitable approve flow. Invokes the persister, advances `snapshot` on success,
    * and fires `onApproved`. Throws when the persister throws (no state mutation).
+   * Only one approval runs at a time: a call made while another is in flight
+   * returns without persisting, mutating, throwing, or emitting (§5.3).
    */
   async approveAsync(): Promise<void> {
     // A disposed form is a full no-op — the persister must not be invoked
     // (symmetric with the deny guard).
     if (this.#disposed) return;
     if (!this.isValid) return;
-    const current = this.#model;
+    // A refused call is observably the same as approving an invalid form,
+    // whether it comes from a caller, the persister, or an observer.
+    if (this.#approvalInFlight) return;
 
-    // May throw — intentional. No state mutation if this throws.
-    await this.#persister(current);
+    // Admission: mark the approval in flight before the capture and the
+    // persister call, then announce the disabled command once.
+    this.#approvalInFlight = true;
+    const current = this.#model;
+    this.#raiseApproveCanExecuteChanged();
+    // An admission observer may dispose the form reentrantly; a disposed form
+    // never invokes the persister. The analyzer narrows #disposed from the
+    // entry guard, but the notification is a genuine interleaving point.
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    if (this.#disposed) return;
+
+    try {
+      // May throw — intentional. No state mutation if this throws.
+      await this.#persister(current);
+    } catch (error: unknown) {
+      // Failure or cancellation settles the approval before the error reaches
+      // its one channel: this awaiter, or approveErrors on the command path.
+      this.#settleFailedApproval();
+      throw error;
+    }
 
     // dispose() may have run during the await; rxjs would silently no-op
     // the emissions below, but the snapshot advance is a real state
@@ -604,29 +632,36 @@ export class FormVM<TM> {
     try {
       // Success: atomically install the configured reset state, or preserve the
       // legacy snapshot-advance behavior when no reset is configured.
-      const wasDirty = this.isDirty;
-      const wasValid = Object.keys(this.#errors).length === 0;
-      let validityChanged = false;
       let errorsChanged = false;
-      if (this.#resetOnApproved !== null) {
-        // Prepare callback output, two independent values, and validation before
-        // committing any local field. A failure therefore leaves state intact.
-        const reset = this.#resetOnApproved(current);
-        const nextModel = this.#takeSnapshot(reset, "approve reset model");
-        const nextSnapshot = this.#takeSnapshot(reset, "approve reset snapshot");
-        const nextErrors = this.#validate(nextModel);
-        validityChanged = (Object.keys(nextErrors).length === 0) !== wasValid;
+      try {
+        if (this.#resetOnApproved !== null) {
+          // Prepare callback output, two independent values, and validation
+          // before committing any local field. A failure therefore leaves
+          // state intact.
+          const reset = this.#resetOnApproved(current);
+          const nextModel = this.#takeSnapshot(reset, "approve reset model");
+          const nextSnapshot = this.#takeSnapshot(reset, "approve reset snapshot");
+          const nextErrors = this.#validate(nextModel);
 
-        this.#model = nextModel;
-        this.#snapshot = nextSnapshot;
-        if (!sameErrors(nextErrors, this.#errors)) {
-          this.#errors = nextErrors;
-          errorsChanged = true;
+          this.#model = nextModel;
+          this.#snapshot = nextSnapshot;
+          if (!sameErrors(nextErrors, this.#errors)) {
+            this.#errors = nextErrors;
+            errorsChanged = true;
+          }
+        } else {
+          this.#snapshot = this.#takeSnapshot(current, "approve snapshot advance");
         }
-      } else {
-        this.#snapshot = this.#takeSnapshot(current, "approve snapshot advance");
+      } catch (error: unknown) {
+        // A failed reset or snapshot advance commits nothing and settles the
+        // approval exactly like a persister failure.
+        this.#settleFailedApproval();
+        throw error;
       }
 
+      // Settlement: clear the mark first, so every notification below reaches
+      // an idle form and an approval started by an observer is admitted.
+      this.#approvalInFlight = false;
       this.#approvalPrePublishing = true;
       try {
         if (errorsChanged) {
@@ -635,12 +670,12 @@ export class FormVM<TM> {
           // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
           if (this.#disposed) return;
         }
-        if ((this.#strict && this.isDirty !== wasDirty) || validityChanged) {
-          this.#canExecuteTrigger.next();
-          // A synchronous observer may dispose the form reentrantly.
-          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-          if (this.#disposed) return;
-        }
+        // Exactly one notification per settlement. It also covers any
+        // strict-mode dirty or validity change the commit made.
+        this.#canExecuteTrigger.next();
+        // A synchronous observer may dispose the form reentrantly.
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+        if (this.#disposed) return;
       } finally {
         this.#approvalPrePublishing = false;
       }
@@ -699,6 +734,27 @@ export class FormVM<TM> {
       if ((this.#strict && wasDirty !== this.isDirty) || wasValid !== this.isValid) {
         this.#canExecuteTrigger.next();
       }
+    } finally {
+      this.#endSyncOperation();
+    }
+  }
+
+  /**
+   * Settles an approval whose persister, reset, or snapshot advance failed:
+   * clear the mark, then raise the one settlement notification. The caller
+   * rethrows, so the outcome is routed after both. Disposal suppresses it.
+   */
+  #settleFailedApproval(): void {
+    if (this.#disposed) return;
+    this.#approvalInFlight = false;
+    this.#raiseApproveCanExecuteChanged();
+  }
+
+  /** Raises one approve re-evaluation; a reentrant dispose waits for it. */
+  #raiseApproveCanExecuteChanged(): void {
+    this.#beginSyncOperation();
+    try {
+      this.#canExecuteTrigger.next();
     } finally {
       this.#endSyncOperation();
     }

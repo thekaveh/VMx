@@ -346,4 +346,77 @@ public sealed class NoteFormVMTests
 
         Assert.Contains(observed, n => n.Message.Contains("Saved") && n.Message.Contains("Edited title"));
     }
+
+    [Fact]
+    public async Task Double_save_while_the_repository_save_is_pending_persists_once()
+    {
+        // Adversarial (spec/20 §5.3, ADR-0143): the inner FormVM admits one
+        // approval at a time, so a save issued while the repository save is
+        // still pending is refused instead of persisting the note twice.
+        var timeout = TimeSpan.FromSeconds(30);
+        var repo = new GatedSaveRepository(new InMemoryNoteRepository(
+            SeedData.Build(),
+            loadAllDelay: TimeSpan.Zero,
+            loadNotesDelay: TimeSpan.Zero,
+            saveNoteDelay: TimeSpan.Zero));
+        var hub = new MessageHub();
+        var dispatcher = new RxDispatcher(ImmediateScheduler.Instance, ImmediateScheduler.Instance);
+        var form = NoteFormVM.Builder()
+            .Name("form").Services(hub, dispatcher).Repository(repo).Build();
+        form.Construct();
+        var note = (await repo.LoadAllAsync()).Notes.First();
+        form.BindTo(note);
+        form.Title = "Saved once";
+
+        var first = form.ApproveAsync();
+        await repo.SaveEntered.WaitAsync(timeout);
+        var second = form.ApproveAsync();
+        form.ApproveCommand.Execute(null);
+
+        // Refusal is synchronous, so a second persist would already be counted.
+        Assert.Equal(1, repo.SaveCalls);
+        await second.WaitAsync(timeout);
+        Assert.Equal(1, repo.SaveCalls);
+        Assert.False(first.IsCompleted, "the first save is still waiting on the repository");
+        Assert.True(form.IsDirty, "the snapshot advances only when the pending save completes");
+
+        repo.ReleaseSave();
+        await first.WaitAsync(timeout);
+
+        Assert.Equal(1, repo.SaveCalls);
+        Assert.False(form.IsDirty);
+        Assert.Equal("Saved once", form.Snapshot.Title);
+        var reload = await repo.LoadNotesAsync(note.NotebookId);
+        Assert.Equal("Saved once", reload.Single(n => n.Id == note.Id).Title);
+    }
+
+    // Holds every SaveNoteAsync until the test releases it, counting calls.
+    private sealed class GatedSaveRepository(INoteRepository inner) : INoteRepository
+    {
+        private readonly TaskCompletionSource _saveEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _saveCalls;
+
+        public int SaveCalls => Volatile.Read(ref _saveCalls);
+        public Task SaveEntered => _saveEntered.Task;
+        public void ReleaseSave() => _release.TrySetResult();
+
+        public Task<(IReadOnlyList<NotebookModel> Notebooks, IReadOnlyList<NoteModel> Notes)> LoadAllAsync(CancellationToken ct = default)
+            => inner.LoadAllAsync(ct);
+        public Task<IReadOnlyList<NoteModel>> LoadNotesAsync(string notebookId, CancellationToken ct = default)
+            => inner.LoadNotesAsync(notebookId, ct);
+        public Task<NoteSearchPage> SearchNotesAsync(string term, string? token, int pageSize, CancellationToken ct = default)
+            => inner.SearchNotesAsync(term, token, pageSize, ct);
+        public async Task SaveNoteAsync(NoteModel note, CancellationToken ct = default)
+        {
+            Interlocked.Increment(ref _saveCalls);
+            _saveEntered.TrySetResult();
+            await _release.Task.ConfigureAwait(false);
+            await inner.SaveNoteAsync(note, ct).ConfigureAwait(false);
+        }
+        public Task DeleteNoteAsync(string id, CancellationToken ct = default) => inner.DeleteNoteAsync(id, ct);
+        public Task AddNotebookAsync(NotebookModel notebook, CancellationToken ct = default) => inner.AddNotebookAsync(notebook, ct);
+        public Task ExportAsync(IReadOnlyList<NotebookModel> notebooks, IReadOnlyList<NoteModel> notes, string path, CancellationToken ct = default)
+            => inner.ExportAsync(notebooks, notes, path, ct);
+    }
 }

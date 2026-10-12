@@ -1,3 +1,4 @@
+use std::fmt;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,9 +34,22 @@ impl NoteDraft {
     }
 }
 
+type SaveHook = Arc<dyn Fn(&str, &NoteDraft) + Send + Sync>;
+
 #[derive(Debug, Clone)]
 pub struct InMemoryNoteRepository {
     inner: Arc<Mutex<RepositoryInner>>,
+    save_hook: Arc<Mutex<Option<SaveHookSlot>>>,
+}
+
+/// Stands in for storage latency: runs before each draft is written.
+#[derive(Clone)]
+struct SaveHookSlot(SaveHook);
+
+impl fmt::Debug for SaveHookSlot {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("SaveHook")
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -48,6 +62,7 @@ impl InMemoryNoteRepository {
     pub fn new(notebooks: Vec<NotebookModel>, notes: Vec<NoteModel>) -> Self {
         Self {
             inner: Arc::new(Mutex::new(RepositoryInner { notebooks, notes })),
+            save_hook: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -128,7 +143,17 @@ impl InMemoryNoteRepository {
         self.notes().into_iter().find(|note| note.id == note_id)
     }
 
+    /// Runs `hook` before each draft is written, outside the repository
+    /// lock, as a stand-in for a slow store.
+    pub fn set_save_hook(&self, hook: impl Fn(&str, &NoteDraft) + Send + Sync + 'static) {
+        *lock(&self.save_hook) = Some(SaveHookSlot(Arc::new(hook)));
+    }
+
     pub fn save_draft(&self, note_id: &str, draft: &NoteDraft) -> Option<NoteModel> {
+        let hook = lock(&self.save_hook).clone();
+        if let Some(SaveHookSlot(hook)) = hook {
+            hook(note_id, draft);
+        }
         let mut inner = lock(&self.inner);
         let note = inner.notes.iter_mut().find(|note| note.id == note_id)?;
         note.title = draft.title.clone();
