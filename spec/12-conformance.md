@@ -1,7 +1,7 @@
 # 12 — Conformance test catalog
 
 This document enumerates every stable conformance test identifier in the form
-`XXX-NNN`. Each of the five language flavors MUST implement all 417 library IDs
+`XXX-NNN`. Each of the five language flavors MUST implement all 421 library IDs
 in `langs/<lang>/tests/conformance/` before it can be marked stable. The five
 `THEME-00x` IDs are application-level scenarios implemented by the four
 UI-backed flagship examples. CI verifies library coverage via
@@ -3728,6 +3728,69 @@ the persister then completes
 **And** the test completes within a bounded timeout
 
 > Spec: `20-form-vm.md §5.3/§10`, ADR-0143.
+
+### FORM-035 — a failing field validator leaves the form unchanged
+
+**Given** a strict `FormVM<TM>` whose field validator fails for a marked
+candidate, with counters on `ErrorsChanged`, `ApproveCommand.CanExecuteChanged`,
+and model hub messages
+**When** `SetModel` is called with the marked candidate on the validator's first
+run after construction, and again after earlier successful `SetModel` calls
+**Then** each call propagates the validator's failure to the caller
+**And** `Model`, `Snapshot`, `Errors`, `IsDirty`, `IsValid`, and
+`ApproveCommand.CanExecute()` keep their values from before the call
+**And** no counter changed
+
+**When** `SetModel` is then called with a candidate the validator accepts
+**Then** the assignment settles and publishes as `FORM-030` requires
+
+> Spec: `20-form-vm.md §5.2/§5.4`, ADR-0144.
+
+### FORM-036 — model-validator, equality, and deny failures are atomic
+
+**Given** a `FormVM<TM>` with a model validator that fails for a marked
+candidate
+**When** `SetModel` is called with that candidate
+**Then** the failure propagates and the form is unchanged, with no
+notification
+
+**Given** a flavor whose equality comparison is a callback that can fail (an
+injected `equals`, or a model's own equality)
+**When** that comparison fails during `SetModel`
+**Then** the failure propagates and the form is unchanged, with no
+notification
+
+**Given** a dirty form whose validator fails for the snapshot value
+**When** `DenyCommand.Execute()` runs
+**Then** the failure propagates, `Model` keeps the edited value, and neither
+`FormRevertedMessage` nor a model `PropertyChangedMessage` is published
+
+> Spec: `20-form-vm.md §5.4`, ADR-0144.
+
+### FORM-037 — a nested assignment from a validator wins
+
+**Given** a `FormVM<TM>` whose validator, on seeing candidate `a`, calls
+`SetModel(b)` once
+**When** `SetModel(a)` is called
+**Then** the nested `SetModel(b)` commits and publishes exactly one model
+message
+**And** the outer call commits and publishes nothing after the nested commit
+**And** `Model` equals `b`, and `Errors` and `IsDirty` describe `b`
+
+> Spec: `20-form-vm.md §5.4`, ADR-0144.
+
+### FORM-038 — disposal during preparation commits nothing
+
+**Given** a `FormVM<TM>` whose validator disposes the form when it sees a marked
+candidate
+**When** `SetModel` is called with that candidate
+**Then** the call returns without committing the candidate or publishing
+**And** the disposed form is inert (`FORM-014`)
+
+**When** a validator disposes the form while `DenyCommand` prepares its revert
+**Then** the model is not reverted and no deny message is published
+
+> Spec: `20-form-vm.md §5.4/§10`, ADR-0144.
 
 ## 28. DISC — DiscriminatorVM (chapter 22) — spec v3.1 and v3.23
 

@@ -173,16 +173,19 @@ public sealed class FORM_030_SetModelHubPublicationTests
         form.Model.Should().Be(new Model("accepted"));
     }
 
+    // spec/20 §5.4: preparation changes no form state, so a validator that
+    // reads the form sees the previous live model, not the candidate.
     [Fact]
-    public void Validator_Observes_The_Accepted_Live_Model()
+    public void Validator_Observes_The_Previous_Live_Model()
     {
         FormVM<Model>? form = null;
+        Model? observed = null;
         var validators = new Dictionary<string, Func<Model, string?>>
         {
             ["Value"] = candidate =>
             {
                 if (candidate.Value == "accepted")
-                    form!.Model.Should().Be(candidate);
+                    observed = form!.Model;
                 return null;
             },
         };
@@ -194,11 +197,14 @@ public sealed class FORM_030_SetModelHubPublicationTests
 
         form.SetModel(new Model("accepted"));
 
+        observed.Should().Be(new Model("initial"));
         form.Model.Should().Be(new Model("accepted"));
     }
 
+    // spec/20 §5.4 (FORM-038): a validator that disposes the form makes the
+    // assignment it is validating stale, so nothing is committed or published.
     [Fact]
-    public void Admitted_SetModel_Completes_When_Validator_Disposes_Reentrantly()
+    public void Admitted_SetModel_Commits_Nothing_When_Validator_Disposes_Reentrantly()
     {
         using var hub = new MessageHub();
         var messages = new List<IMessage>();
@@ -222,8 +228,8 @@ public sealed class FORM_030_SetModelHubPublicationTests
         form.SetModel(new Model("accepted"));
         form.SetModel(new Model("late"));
 
-        form.Model.Should().Be(new Model("accepted"));
-        messages.OfType<PropertyChangedMessage<FormVM<Model>>>().Should().ContainSingle();
+        form.Model.Should().Be(new Model("initial"));
+        messages.OfType<PropertyChangedMessage<FormVM<Model>>>().Should().BeEmpty();
     }
 
     [Theory]

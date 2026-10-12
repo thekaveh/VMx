@@ -28,7 +28,7 @@ before any flavor releases a stable version.
 - `09-forwarding.md` — forwarding decorators.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
-- `12-conformance.md` — cross-language conformance test catalog (422 IDs).
+- `12-conformance.md` — cross-language conformance test catalog (426 IDs).
 - `13-tree-utilities.md` — `walk` / `find` / `walk_expanded` tree introspection.
 
 ### 1.2 Chapters (v2.0 additions)
@@ -661,11 +661,23 @@ scenario IDs.
 
 See ADR-0143 and chapter 20 §5.3.
 
-### 1.39 Supporting artefacts
+### 1.39 v3.27.0 → v3.28.0 changes
 
-- `VERSION` — current spec SemVer (`3.27.0`).
+v3.28.0 makes `FormVM` model updates failure-atomic. `SetModel` and
+`DenyCommand` run the equality comparison, the validators, and (for deny) the
+snapshotter on the candidate before committing. A failing callback propagates
+with the model, snapshot, errors, dirty and valid state, and command state
+unchanged and nothing published; a preparation made stale by disposal or a
+nested commit commits nothing (`FORM-035..038`). The catalog now contains 421
+library IDs plus 5 scenario IDs.
+
+See ADR-0144 and chapter 20 §5.4.
+
+### 1.40 Supporting artefacts
+
+- `VERSION` — current spec SemVer (`3.28.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0143); see
+- `ADRs/` — Architecture Decision Records (0001-0144); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `schemas/` — versioned supporting machine contracts. The consumer
   conformance v1 schema is non-normative; see ADR-0102.

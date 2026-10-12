@@ -20,6 +20,7 @@ mod conformance {
     mod filtered_composite;
     mod form_approval_admission;
     mod form_approval_subscription;
+    mod form_failure_atomic_updates;
     mod form_model_hub_publication;
     mod forms;
     mod forwarding;

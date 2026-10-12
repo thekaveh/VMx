@@ -94,10 +94,18 @@ class FormVM(Generic[TM]):
         self._deferred_approval_models: list[TM] = []
         self._active_mutations = 0
         self._mutation_teardown_pending = False
+        # Commit generation (spec/20 §5.4): advanced by every commit of model,
+        # snapshot, or errors, so an update whose callbacks re-entered the form
+        # can tell that its preparation went stale.
+        self._generation = 0
 
+        # Construction runs the same preparation as an update (spec/20 §5.4):
+        # a failing snapshotter or validator fails construction.
+        snapshot = self._snapshotter(initial)
+        errors = self._validate(initial)
         self._model: TM = initial
-        self._snapshot: TM = self._snapshotter(initial)
-        self._errors: dict[str, str] = self._validate(initial)
+        self._snapshot: TM = snapshot
+        self._errors: dict[str, str] = errors
 
         self._disposed = False
 
@@ -209,6 +217,13 @@ class FormVM(Generic[TM]):
         Inert after :meth:`dispose` (like :meth:`approve_async`/:meth:`deny`): a
         post-dispose call would otherwise ``on_next`` a disposed reactivex Subject
         during validation publication and raise (parity with the TS/Swift no-op).
+
+        Failure-atomic (spec/20 §5.4): the model's ``__eq__`` and the validators
+        run on the candidate before anything is committed. If one raises, the
+        exception propagates unchanged and the form keeps its model, snapshot,
+        errors, and command state, with nothing published. If a callback
+        re-enters the form and another update commits, or the form is disposed,
+        this call commits and publishes nothing.
         """
         caller = get_ident()
         admitted = False
@@ -230,16 +245,27 @@ class FormVM(Generic[TM]):
                 admitted = True
                 if model is None:
                     raise ValueError("model must not be None")
-                if self._model == model:
+                # Prepare (spec/20 §5.4) without touching form state. Callbacks
+                # run under the re-entrant state lock: one may re-enter
+                # set_model, deny, or dispose on this thread, while another
+                # thread's update or dispose waits for this one.
+                generation = self._generation
+                current, snapshot = self._model, self._snapshot
+                if current == model:
                     return
-                was_dirty = self._model != self._snapshot
+                was_dirty = current != snapshot
                 was_valid = not self._errors
-                self._model = model
                 next_errors = self._validate(model)
-                is_dirty = model != self._snapshot
+                is_dirty = model != snapshot
+                # A re-entrant dispose or commit made this preparation stale.
+                if self._disposed or self._generation != generation:
+                    return
+                # Commit in one step, then notify.
                 errors_changed = next_errors != self._errors
+                self._model = model
                 self._errors = next_errors
-                is_valid = not self._errors
+                self._generation += 1
+                is_valid = not next_errors
                 if errors_changed:
                     self._errors_changed.on_next(dict(next_errors))
                 if (self._strict and is_dirty != was_dirty) or is_valid != was_valid:
@@ -371,6 +397,9 @@ class FormVM(Generic[TM]):
             if self._disposed:
                 return
             outer = self._enter_publication(caller, pre_publishing=True)
+            # The approval commit (snapshot advance or reset) supersedes any
+            # update still preparing on this thread (spec/20 §5.4).
+            self._generation += 1
             published_errors: dict[str, str] | None = None
             if reset_state is not None:
                 next_model, next_snapshot, next_errors = reset_state
@@ -555,15 +584,23 @@ class FormVM(Generic[TM]):
                     return
                 self._active_mutations += 1
                 admitted = True
-                was_dirty = self._model != self._snapshot
+                # Prepare the revert (spec/20 §5.4): the snapshotter, equality,
+                # and validators run before anything is committed or published.
+                generation = self._generation
+                current, snapshot = self._model, self._snapshot
+                was_dirty = current != snapshot
                 was_valid = not self._errors
-                next_model = self._snapshotter(self._snapshot)
-                self._model = next_model
+                next_model = self._snapshotter(snapshot)
                 next_errors = self._validate(next_model)
-                is_dirty = next_model != self._snapshot
+                is_dirty = next_model != snapshot
+                # A re-entrant dispose or commit made this preparation stale.
+                if self._disposed or self._generation != generation:
+                    return
                 errors_changed = next_errors != self._errors
+                self._model = next_model
                 self._errors = next_errors
-                is_valid = not self._errors
+                self._generation += 1
+                is_valid = not next_errors
 
                 if errors_changed:
                     self._errors_changed.on_next(dict(next_errors))

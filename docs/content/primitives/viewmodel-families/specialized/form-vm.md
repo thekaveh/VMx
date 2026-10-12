@@ -73,6 +73,18 @@ rxjs reports observer errors asynchronously, and Combine observers cannot throw.
 In Python, a teardown deferred until an in-progress set-model or deny finishes
 never replaces an error that mutation is already raising.
 
+`SetModel` / `set_model` and deny are failure-atomic (spec chapter 20 §5.4,
+ADR-0144). VMx runs the equality comparison, the validators, and, for deny, the
+snapshotter on the candidate before changing anything. If one of them throws
+(or panics in Rust), the exception reaches the caller and the form is exactly
+as it was: same model, snapshot, errors, dirty and valid state, and command
+state, with no notification. A failure never becomes a validation error.
+Validators receive the candidate as their argument; reading the form's model
+from inside a validator returns the previous model. Updates stay serialized,
+so an edit from another thread waits for an update in progress. If a validator
+itself disposes the form or makes another edit, the interrupted update commits
+nothing and the newest edit stands.
+
 `SetModel` / `set_model` that begins after disposal is also a complete no-op.
 It returns before null or equality work, leaves the live model and snapshot
 unchanged, does not re-run validators, and cannot change errors, dirty/valid
@@ -377,6 +389,9 @@ make dirty and revert semantics ambiguous.
 - Ignoring `ApproveErrors` on fire-and-forget command paths.
 - Expecting a second approve made during an in-flight save to save again. It is
   refused; await the first approval, then approve again.
+- Reading `Model` from inside a validator to see the candidate. Validators get
+  the candidate as their argument; the form still shows the previous model until
+  the update commits.
 - Retrying blindly after reset failure; the external persist already succeeded.
 - Re-implementing save/cancel/dirty plumbing in every editor instead of
   composing the primitive once.
