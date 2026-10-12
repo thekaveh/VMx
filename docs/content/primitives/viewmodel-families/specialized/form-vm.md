@@ -49,6 +49,8 @@ Construction captures the initial snapshot. After that:
 - validation re-runs on construct, set-model, and deny
 - deny restores from the snapshot
 - approve persists, advances the snapshot, and publishes `OnApproved`
+- only one approval runs at a time; another approve while one is in flight does
+  nothing
 - when configured, reset-after-approve derives a new pristine model from the
   captured persisted value before `OnApproved` fires
 - fire-and-forget approve failures surface on `ApproveErrors`
@@ -79,9 +81,9 @@ disposal keeps the normal mutation contract. Upstream async work should still
 be cancelled for resource control; this guard only rejects a late form result.
 
 Strict mode gates **approve-command eligibility** on `IsValid && IsDirty`.
-The direct awaitable approve path in all five flavors gates on validity (and
-disposal) only, so a strict, valid, clean form may still be persisted
-explicitly. The completed
+The direct awaitable approve path in all five flavors gates on validity,
+disposal, and the one-approval-at-a-time rule below, so a strict, valid, clean
+form may still be persisted explicitly. The completed
 [Rust parity ledger](../../../../maintenance/2026-07-16-rust-capability-parity.md#1244-formvm-direct-approval)
 records the focused Rust evidence.
 
@@ -122,6 +124,27 @@ persistence has already succeeded but local state is not changed and
 `OnApproved` does not fire. Awaitable approval throws that failure; the command
 path emits it once on `ApproveErrors`. A retry can therefore repeat external
 persistence and should be handled as such.
+
+### 6.2.8.2.3.3. One approval at a time
+
+A form runs at most one approval at a time (spec chapter 20 §5.3, ADR-0143).
+When an approval is admitted, VMx marks it in flight before capturing the model
+and calling the persister, and the approve command's `CanExecute` turns false.
+While it is in flight, another approve call through either the command or the
+awaitable path does nothing: it does not call the persister, change state,
+throw, or emit on `OnApproved` or `ApproveErrors`. A double-clicked Save button
+therefore persists once.
+
+Editing and deny are not blocked. A `SetModel` or deny during the save behaves as
+before: the approval still commits the model it captured, and a configured
+reset still wins.
+
+When the approval settles, VMx clears the in-flight mark first, then publishes
+any `ErrorsChanged`, one `CanExecuteChanged`, and the outcome on exactly one
+channel. Code that reacts to the outcome, including an `OnApproved` subscriber
+or the code awaiting `ApproveAsync`, sees an idle form and can approve again.
+To save again after the current save, await it (or react to `OnApproved`) and
+then approve; do not rely on a second call made during the save.
 
 ## 6.2.8.2.4. Cross-Language Surface
 
@@ -352,6 +375,8 @@ make dirty and revert semantics ambiguous.
   snapshotter and matching equality predicate where the default is not
   appropriate.
 - Ignoring `ApproveErrors` on fire-and-forget command paths.
+- Expecting a second approve made during an in-flight save to save again. It is
+  refused; await the first approval, then approve again.
 - Retrying blindly after reset failure; the external persist already succeeded.
 - Re-implementing save/cancel/dirty plumbing in every editor instead of
   composing the primitive once.

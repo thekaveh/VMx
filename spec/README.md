@@ -28,7 +28,7 @@ before any flavor releases a stable version.
 - `09-forwarding.md` — forwarding decorators.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
-- `12-conformance.md` — cross-language conformance test catalog (418 IDs).
+- `12-conformance.md` — cross-language conformance test catalog (422 IDs).
 - `13-tree-utilities.md` — `walk` / `find` / `walk_expanded` tree introspection.
 
 ### 1.2 Chapters (v2.0 additions)
@@ -649,11 +649,23 @@ now stops publishing once a container is disposed. The catalog now contains 413 
 
 See ADR-0142 and chapters 01, 06, 07, and 21.
 
-### 1.38 Supporting artefacts
+### 1.38 v3.26.0 → v3.27.0 changes
 
-- `VERSION` — current spec SemVer (`3.26.0`).
+v3.27.0 makes `FormVM` admit one approval at a time. While an approval is in
+flight, `ApproveCommand.CanExecute` is false and any other approve call through
+either entry point does nothing: no persister call, state change, exception, or
+signal. Settlement clears the in-flight mark before publishing, so an approval
+started by an outcome observer is admitted; `SetModel` and `DenyCommand` are not
+blocked (`FORM-031..034`). The catalog now contains 417 library IDs plus 5
+scenario IDs.
+
+See ADR-0143 and chapter 20 §5.3.
+
+### 1.39 Supporting artefacts
+
+- `VERSION` — current spec SemVer (`3.27.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0142); see
+- `ADRs/` — Architecture Decision Records (0001-0143); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `schemas/` — versioned supporting machine contracts. The consumer
   conformance v1 schema is non-normative; see ADR-0102.

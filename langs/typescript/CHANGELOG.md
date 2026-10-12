@@ -6,6 +6,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.28.0] — unreleased source version
+
+### Changed
+
+- `FormVM` admits one approval at a time. While an approval is in flight,
+  `approveCommand.canExecute()` is false and any other approve call through
+  `approveAsync()` or `approveCommand.execute()` does nothing: it does not call
+  the persister, change state, raise, or emit on `onApproved` or
+  `approveErrors`. Admission marks the approval in flight and captures the model
+  before raising `approveCommand.canExecuteChanged` once; settlement clears the
+  mark first, then publishes `errorsChanged` if needed, one can-execute
+  notification, and the outcome, so an approval started by an outcome observer
+  is admitted. `setModel` and deny are not blocked. A double-executed save now
+  persists once; to save again after an in-flight approval, await it and approve
+  again (`FORM-031..034`, ADR-0143, spec 3.27.0) (#327).
+
 ## [3.27.0] — unreleased source version
 
 ### Changed

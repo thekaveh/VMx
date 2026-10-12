@@ -185,6 +185,11 @@ Canonical relay-command shape:
       .build();
     ```
 
+A wrapping command like this inherits `FormVM`'s one-approval-at-a-time rule
+(ADR-0143): while a save is in flight, executing it again does nothing. Binding
+`form.approveCommand` directly is usually simpler, because its `CanExecute` also
+turns false during the save.
+
 The same normative command structure appears across all catalog-complete source
 flavors with casing and trait-import changes. Rust's command-disposal and
 thread-free confirmation convergence is recorded in the completed

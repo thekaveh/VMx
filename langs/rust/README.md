@@ -2,7 +2,7 @@
 
 Rust flavor of VMx, the language-neutral, lifecycle-aware MVVM viewmodel framework.
 
-**v0.32.0** implements `spec-v3.26.0` with complete catalog coverage: all 413
+**v0.33.0** implements `spec-v3.27.0` with complete catalog coverage: all 417
 library conformance IDs are covered by behavioral Rust tests. The completed
 [Rust parity ledger](../../docs/maintenance/2026-07-16-rust-capability-parity.md)
 records the 0.27.0 capability, structural, command, reactive, and async

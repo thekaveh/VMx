@@ -369,7 +369,11 @@ impl NoteFormVm {
     }
 
     pub fn save(&self) -> VmxResult<()> {
-        lock(&self.form).approve()
+        // Release the slot before persisting: a second save while this one is
+        // pending must reach the form's single-flight rule instead of
+        // waiting on this lock and saving again.
+        let form = lock(&self.form).clone();
+        form.approve()
     }
 
     pub fn revert(&self) {

@@ -17,6 +17,70 @@ private final class PropertyChangedRecorder {
     var cancellables = Set<AnyCancellable>()
 }
 
+/// Repository whose first `saveNote` stays pending until the test releases it.
+/// Later saves and every read go straight to a zero-delay in-memory store, so
+/// an extra save is counted instead of hanging the test.
+private actor PendingSaveRepository: NoteRepository {
+    private let store = InMemoryNoteRepository(
+        seed: SeedData.build(),
+        loadAllDelay: 0,
+        loadNotesDelay: 0,
+        saveNoteDelay: 0
+    )
+    private(set) var savedTitles: [String] = []
+    private var saveStarted = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var pendingSave: CheckedContinuation<Void, Never>?
+
+    func waitForPendingSave() async {
+        if saveStarted { return }
+        await withCheckedContinuation { startWaiters.append($0) }
+    }
+
+    func releasePendingSave() {
+        pendingSave?.resume()
+        pendingSave = nil
+    }
+
+    func saveNote(_ note: NoteModel) async throws {
+        savedTitles.append(note.title)
+        if !saveStarted {
+            saveStarted = true
+            let waiters = startWaiters
+            startWaiters.removeAll()
+            waiters.forEach { $0.resume() }
+            await withCheckedContinuation { pendingSave = $0 }
+        }
+        try await store.saveNote(note)
+    }
+
+    func loadAll() async throws -> (notebooks: [NotebookModel], notes: [NoteModel]) {
+        try await store.loadAll()
+    }
+
+    func loadNotes(notebookId: String) async throws -> [NoteModel] {
+        try await store.loadNotes(notebookId: notebookId)
+    }
+
+    func searchNotes(
+        term: String,
+        token: String?,
+        pageSize: Int
+    ) async throws -> (items: [NoteModel], nextToken: String?) {
+        try await store.searchNotes(term: term, token: token, pageSize: pageSize)
+    }
+
+    func deleteNote(id: String) async throws { try await store.deleteNote(id: id) }
+    func addNotebook(_ notebook: NotebookModel) async throws { try await store.addNotebook(notebook) }
+    func export(
+        notebooks: [NotebookModel],
+        notes: [NoteModel],
+        path: String
+    ) async throws {
+        try await store.export(notebooks: notebooks, notes: notes, path: path)
+    }
+}
+
 // MARK: - NoteFormVMTests
 
 final class NoteFormVMTests: XCTestCase {
@@ -138,6 +202,41 @@ final class NoteFormVMTests: XCTestCase {
             "Edited",
             reloaded.first(where: { $0.id == note.id })?.title
         )
+    }
+
+    func testDoubleSaveWhileTheRepositorySaveIsPending_persistsOnce() async throws {
+        // FormVM admits one approval at a time (spec/20-form-vm.md §5.3).
+        let repo = PendingSaveRepository()
+        let form = try NoteFormVM.builder()
+            .name("form")
+            .services(hub: MessageHub(), dispatcher: ImmediateDispatcher.INSTANCE)
+            .repository(repo)
+            .build()
+        try form.construct()
+        form.bindTo(sampleNote(title: "Original"))
+        form.title = "Edited"
+
+        let firstSave = Task { try await form.approveCommand.executeAsync() }
+        await repo.waitForPendingSave()
+
+        // The busy command drops a second click. A direct save, as a keyboard
+        // shortcut would make, reaches the inner FormVM, which refuses it
+        // while the first approval is in flight.
+        XCTAssertFalse(form.approveCommand.canExecute())
+        form.approveCommand.execute()
+        try await form.approveAsync()
+        let titlesWhilePending = await repo.savedTitles
+        XCTAssertEqual(titlesWhilePending, ["Edited"])
+        XCTAssertTrue(form.isDirty, "the refused save changed nothing")
+        XCTAssertEqual("Original", form.snapshot.title)
+
+        await repo.releasePendingSave()
+        try await firstSave.value
+
+        let savedTitles = await repo.savedTitles
+        XCTAssertEqual(savedTitles, ["Edited"], "the double save persisted once")
+        XCTAssertEqual("Edited", form.snapshot.title)
+        XCTAssertFalse(form.isDirty)
     }
 
     // MARK: - Deny

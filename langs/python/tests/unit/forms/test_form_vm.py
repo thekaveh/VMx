@@ -525,3 +525,80 @@ def test_approve_command_without_running_loop_returns_while_persist_is_pending()
     assert returned_before_release, "fire-and-forget approval must not await persistence inline"
     assert finished.wait(1)
     sut.dispose()
+
+
+# ---------------------------------------------------------------------------
+# Single-flight approval admission (spec/20 §5.3, ADR-0143) — flavor details
+# ---------------------------------------------------------------------------
+
+
+async def test_approve_command_task_refuses_when_admission_races_past_can_execute() -> None:
+    """The command task re-checks admission: an ``execute()`` whose
+    ``can_execute()`` passed before another approval was admitted does nothing."""
+    import asyncio
+
+    gate: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+    entered = asyncio.Event()
+    persisted: list[Model] = []
+
+    async def persister(m: Model) -> None:
+        persisted.append(m)
+        entered.set()
+        await gate
+
+    sut: FormVM[Model] = FormVM(Model("A", 1), persister)
+    approval = asyncio.create_task(sut.approve_async())
+    await asyncio.wait_for(entered.wait(), 1)
+
+    sut._approve_fire_and_forget()  # the task body RelayCommand.execute would run
+
+    assert asyncio.all_tasks() == {asyncio.current_task(), approval}
+    gate.set_result(None)
+    await asyncio.wait_for(approval, 1)
+    assert persisted == [Model("A", 1)]
+
+
+@pytest.mark.parametrize("notification", ["admission", "settlement", "approved", "errors"])
+def test_approval_notifications_are_delivered_without_the_state_lock(notification: str) -> None:
+    """Observers of admission and settlement run with no lock held: another
+    thread can read the form while one is being notified."""
+    import asyncio
+
+    async def persister(m: Model) -> None:
+        if notification == "errors":
+            raise RuntimeError("persist failed")
+
+    sut: FormVM[Model] = FormVM(Model("A", 1), persister)
+    reads: list[bool] = []
+
+    def read_from_another_thread(*_: object) -> None:
+        if reads:
+            return
+        reader = Thread(target=lambda: (sut.model, sut.is_dirty, sut.errors), daemon=True)
+        reader.start()
+        reader.join(1)
+        reads.append(not reader.is_alive())
+
+    notifications = 0
+
+    def on_can_execute_changed(_: None) -> None:
+        nonlocal notifications
+        notifications += 1
+        if (notification, notifications) in (("admission", 1), ("settlement", 2)):
+            read_from_another_thread()
+
+    sut.approve_command.can_execute_changed.subscribe(on_can_execute_changed)
+    if notification == "approved":
+        sut.on_approved.subscribe(read_from_another_thread)
+    observed_errors: list[BaseException] = []
+    sut.approve_errors.subscribe(observed_errors.append)
+    if notification == "errors":
+        sut.approve_errors.subscribe(read_from_another_thread)
+        done = Event()
+        sut.approve_errors.subscribe(lambda _: done.set())
+        sut.approve_command.execute()  # no running loop: background event loop
+        assert done.wait(1)
+    else:
+        asyncio.run(sut.approve_async())
+
+    assert reads == [True]

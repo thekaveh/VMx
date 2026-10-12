@@ -1,7 +1,7 @@
 use super::{
-    lock, Arc, AtomicBool, BTreeMap, ComponentVm, FormRevertedMessage, Message, MessageHub, Mutex,
-    NullDispatcher, NullMessageHub, OnceLock, Ordering, RelayCommand, RelayCommandBuilder,
-    VmxError, VmxResult, Weak,
+    catch_unwind, lock, resume_unwind, Arc, AssertUnwindSafe, AtomicBool, BTreeMap, ComponentVm,
+    FormRevertedMessage, Message, MessageHub, Mutex, NullDispatcher, NullMessageHub, OnceLock,
+    Ordering, RelayCommand, RelayCommandBuilder, VmxError, VmxResult, Weak,
 };
 
 type FormPersister<M> = Arc<dyn Fn(&M) -> VmxResult<()> + Send + Sync>;
@@ -119,9 +119,24 @@ fn error_updates(errors: BTreeMap<String, String>) -> BTreeMap<String, Option<St
         .collect()
 }
 
+/// Model edits deferred while a successful approval publishes the
+/// notifications that precede `OnApproved`, so its observers see the
+/// committed state.
 struct ApprovalPublication<M> {
-    pre_publishing: bool,
+    /// Number of settlements publishing those notifications. It is a depth,
+    /// not a flag: an approval admitted by one of their observers settles
+    /// inside the outer publication and must not end it (ADR-0143).
+    pre_publishing: usize,
     deferred_models: Vec<M>,
+}
+
+impl<M> ApprovalPublication<M> {
+    fn new() -> Self {
+        Self {
+            pre_publishing: 0,
+            deferred_models: Vec::new(),
+        }
+    }
 }
 
 struct ApprovalPrePublicationGuard<M> {
@@ -130,14 +145,41 @@ struct ApprovalPrePublicationGuard<M> {
 
 impl<M> ApprovalPrePublicationGuard<M> {
     fn new(publication: Arc<Mutex<ApprovalPublication<M>>>) -> Self {
-        lock(&publication).pre_publishing = true;
+        lock(&publication).pre_publishing += 1;
         Self { publication }
     }
 }
 
 impl<M> Drop for ApprovalPrePublicationGuard<M> {
     fn drop(&mut self) {
-        lock(&self.publication).pre_publishing = false;
+        lock(&self.publication).pre_publishing -= 1;
+    }
+}
+
+/// The in-flight mark of the one admitted approval (spec/20 §5.3,
+/// ADR-0143).
+///
+/// [`admit`](Self::admit) sets the mark only when it was clear. Dropping the
+/// flight clears it, so every exit path clears it, including a panicking
+/// persister, reset, or snapshotter.
+struct ApprovalFlight {
+    in_flight: Arc<AtomicBool>,
+}
+
+impl ApprovalFlight {
+    fn admit(in_flight: &Arc<AtomicBool>) -> Option<Self> {
+        in_flight
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .ok()
+            .map(|_| Self {
+                in_flight: Arc::clone(in_flight),
+            })
+    }
+}
+
+impl Drop for ApprovalFlight {
+    fn drop(&mut self) {
+        self.in_flight.store(false, Ordering::SeqCst);
     }
 }
 
@@ -160,6 +202,7 @@ pub struct FormVm<M: Clone + PartialEq + Send + 'static> {
     deny_command: Arc<OnceLock<RelayCommand>>,
     approved_callbacks: Arc<Mutex<ApprovedRegistry<M>>>,
     approval_publication: Arc<Mutex<ApprovalPublication<M>>>,
+    approval_in_flight: Arc<AtomicBool>,
     disposed: Arc<Mutex<bool>>,
     hub: MessageHub,
 }
@@ -204,10 +247,8 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             approve_command: Arc::new(OnceLock::new()),
             deny_command: Arc::new(OnceLock::new()),
             approved_callbacks: Arc::new(Mutex::new(ApprovedRegistry::new())),
-            approval_publication: Arc::new(Mutex::new(ApprovalPublication {
-                pre_publishing: false,
-                deferred_models: Vec::new(),
-            })),
+            approval_publication: Arc::new(Mutex::new(ApprovalPublication::new())),
+            approval_in_flight: Arc::new(AtomicBool::new(false)),
             disposed: Arc::new(Mutex::new(false)),
             hub,
         };
@@ -289,7 +330,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         }
         {
             let mut publication = lock(&self.approval_publication);
-            if publication.pre_publishing {
+            if publication.pre_publishing > 0 {
                 publication.deferred_models.push(model);
                 return;
             }
@@ -334,29 +375,125 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     }
 
     /// Reports whether approval is currently admitted.
+    ///
+    /// This is the approve command's predicate: the form is not disposed, no
+    /// approval is in flight, the model is valid, and, in strict mode, it is
+    /// dirty.
     pub fn can_approve(&self) -> bool {
-        !*lock(&self.disposed) && self.is_valid() && (!*lock(&self.strict) || self.is_dirty())
+        !*lock(&self.disposed)
+            && !self.approval_in_flight.load(Ordering::SeqCst)
+            && self.is_valid()
+            && (!*lock(&self.strict) || self.is_dirty())
     }
 
     /// Persists the captured model and advances or resets the pristine snapshot.
+    ///
+    /// One approval runs at a time (spec/20 §5.3, ADR-0143). The call returns
+    /// `Ok(())` without invoking the persister, changing state, or emitting
+    /// anything when the form is disposed, invalid, or already has an approval
+    /// in flight, whether that call comes from the persister, an observer, or
+    /// another thread. [`set_model`](Self::set_model) and
+    /// [`revert`](Self::revert) are not blocked by an approval in flight.
+    ///
+    /// An admitted approval raises the approve command's eligibility change
+    /// once, then persists. Its settlement clears the in-flight mark first, so
+    /// every observer it notifies sees an idle form and may approve again.
+    /// Settlement then publishes `errors_changed` when the commit changed the
+    /// errors, raises the eligibility change exactly once, and finally
+    /// notifies the approval subscribers, or returns the failure to this
+    /// caller. A panic in the persister, reset, or snapshotter settles the
+    /// same way before it resumes. Disposal during the approval suppresses
+    /// settlement.
+    ///
+    /// ```
+    /// use std::sync::{Arc, Mutex};
+    /// use vmx::FormVm;
+    ///
+    /// let slot = Arc::new(Mutex::new(None::<FormVm<i32>>));
+    /// let persisted = Arc::new(Mutex::new(Vec::new()));
+    /// let form = FormVm::builder()
+    ///     .initial(1)
+    ///     .persister({
+    ///         let slot = slot.clone();
+    ///         let persisted = persisted.clone();
+    ///         move |model: &i32| {
+    ///             persisted.lock().unwrap().push(*model);
+    ///             // A second approval while this one is in flight does nothing.
+    ///             let form = slot.lock().unwrap().take();
+    ///             if let Some(form) = form {
+    ///                 assert!(!form.can_approve());
+    ///                 assert_eq!(form.approve(), Ok(()));
+    ///             }
+    ///             Ok(())
+    ///         }
+    ///     })
+    ///     .build()
+    ///     .unwrap();
+    /// *slot.lock().unwrap() = Some(form.clone());
+    ///
+    /// form.set_model(2);
+    /// form.approve().unwrap();
+    ///
+    /// assert_eq!(*persisted.lock().unwrap(), vec![2]);
+    /// assert_eq!(form.snapshot(), 2);
+    /// assert!(form.can_approve());
+    /// ```
     pub fn approve(&self) -> VmxResult<()> {
-        if *lock(&self.disposed) {
+        let Some((flight, model)) = self.admit_approval() else {
             return Ok(());
+        };
+        // No lock is held while the persister runs. A panic is caught only to
+        // settle the approval before it resumes.
+        let outcome = catch_unwind(AssertUnwindSafe(|| self.persist_and_commit(&model)));
+        // Settlement step 1: every settlement observer sees an idle form.
+        drop(flight);
+        match outcome {
+            Ok(Ok(Some(errors_changed))) => {
+                self.settle_approved(model, errors_changed);
+                Ok(())
+            }
+            // Disposal during the approval suppressed the commit and settlement.
+            Ok(Ok(None)) => Ok(()),
+            Ok(Err(error)) => {
+                self.raise_approve_can_execute_changed();
+                Err(error)
+            }
+            Err(panic) => {
+                self.raise_approve_can_execute_changed();
+                resume_unwind(panic)
+            }
         }
-        if !self.is_valid() {
-            return Ok(());
+    }
+
+    /// Admits an approval when the form is not disposed, is valid, and has
+    /// none in flight. Admission sets the in-flight mark before it captures
+    /// the model, then raises the approve command's eligibility change once.
+    fn admit_approval(&self) -> Option<(ApprovalFlight, M)> {
+        if *lock(&self.disposed) || !self.is_valid() {
+            return None;
+        }
+        let flight = ApprovalFlight::admit(&self.approval_in_flight)?;
+        if *lock(&self.disposed) {
+            return None;
         }
         let model = self.model();
-        (self.persister)(&model)?;
+        self.raise_approve_can_execute_changed();
+        Some((flight, model))
+    }
+
+    /// Persists `model` and commits the post-persist state: the advanced
+    /// snapshot, or the prepared reset transaction. Returns whether the commit
+    /// changed the effective errors, or `None` when disposal suppressed it.
+    fn persist_and_commit(&self, model: &M) -> VmxResult<Option<bool>> {
+        (self.persister)(model)?;
         if *lock(&self.disposed) {
-            return Ok(());
+            return Ok(None);
         }
-        let could_approve = self.can_approve();
         let errors_changed = if let Some(reset_on_approved) = &self.reset_on_approved {
             // Prepare the complete transition before mutating local state. The
             // callback or either snapshot operation may fail/panic without a
             // partial assignment.
-            let reset = reset_on_approved(&model)?;
+            let reset = reset_on_approved(model)?;
             let next_model = (self.snapshotter)(&reset);
             let next_snapshot = (self.snapshotter)(&reset);
             let next_errors = self.validation_errors_for(&next_model);
@@ -369,16 +506,26 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             self.component.replace_model(next_model);
             errors_changed
         } else {
-            *lock(&self.snapshot) = (self.snapshotter)(&model);
+            *lock(&self.snapshot) = (self.snapshotter)(model);
             false
         };
+        Ok(Some(errors_changed))
+    }
+
+    /// Settlement steps 2 to 4 of a committed approval. The in-flight mark is
+    /// already clear.
+    fn settle_approved(&self, model: M, errors_changed: bool) {
         {
+            // Model edits made by these observers wait until the approval
+            // subscribers have seen the committed state.
             let _publication =
                 ApprovalPrePublicationGuard::new(Arc::clone(&self.approval_publication));
             if errors_changed {
                 self.publish_validation_changed();
             }
-            self.publish_approve_state_change(could_approve);
+            // The one settlement notification also covers any strict or
+            // validity change made by the commit.
+            self.raise_approve_can_execute_changed();
         }
         let callbacks = lock(&self.approved_callbacks).entries.clone();
         for (id, callback) in callbacks {
@@ -391,12 +538,17 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         }
         let deferred_models = {
             let mut publication = lock(&self.approval_publication);
-            std::mem::take(&mut publication.deferred_models)
+            // An enclosing settlement still publishing keeps the edits until
+            // its own subscribers have run.
+            if publication.pre_publishing > 0 {
+                Vec::new()
+            } else {
+                std::mem::take(&mut publication.deferred_models)
+            }
         };
         for deferred_model in deferred_models {
             self.set_model(deferred_model);
         }
-        Ok(())
     }
 
     /// Restores the last snapshot and publishes the revert outcome.
@@ -418,6 +570,12 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     }
 
     /// Returns the lazily created approval command.
+    ///
+    /// Executing it runs [`approve`](Self::approve) and routes a failure to
+    /// [`approve_errors`](Self::approve_errors). Its eligibility is
+    /// [`can_approve`](Self::can_approve), so it is disabled while an approval
+    /// is in flight, and its eligibility change fires when an approval is
+    /// admitted and once when it settles.
     pub fn approve_command(&self) -> RelayCommand {
         self.approve_command
             .get_or_init(|| {
@@ -668,12 +826,19 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
 
     fn publish_approve_state_change(&self, previous: bool) {
         if self.can_approve() != previous {
-            self.approve_can_execute_changed.send(Message::Custom {
-                sender_id: self.component.id(),
-                sender_name: self.component.name(),
-                name: "can_execute_changed".to_string(),
-            });
+            self.raise_approve_can_execute_changed();
         }
+    }
+
+    fn raise_approve_can_execute_changed(&self) {
+        if *lock(&self.disposed) {
+            return;
+        }
+        self.approve_can_execute_changed.send(Message::Custom {
+            sender_id: self.component.id(),
+            sender_name: self.component.name(),
+            name: "can_execute_changed".to_string(),
+        });
     }
 }
 
@@ -820,10 +985,8 @@ impl<M: Clone + PartialEq + Send + 'static> FormVmBuilder<M> {
             approve_command: Arc::new(OnceLock::new()),
             deny_command: Arc::new(OnceLock::new()),
             approved_callbacks: Arc::new(Mutex::new(ApprovedRegistry::new())),
-            approval_publication: Arc::new(Mutex::new(ApprovalPublication {
-                pre_publishing: false,
-                deferred_models: Vec::new(),
-            })),
+            approval_publication: Arc::new(Mutex::new(ApprovalPublication::new())),
+            approval_in_flight: Arc::new(AtomicBool::new(false)),
             disposed: Arc::new(Mutex::new(false)),
             hub: self.hub,
         };

@@ -1,7 +1,7 @@
 # 12 — Conformance test catalog
 
 This document enumerates every stable conformance test identifier in the form
-`XXX-NNN`. Each of the five language flavors MUST implement all 413 library IDs
+`XXX-NNN`. Each of the five language flavors MUST implement all 417 library IDs
 in `langs/<lang>/tests/conformance/` before it can be marked stable. The five
 `THEME-00x` IDs are application-level scenarios implemented by the four
 UI-backed flagship examples. CI verifies library coverage via
@@ -3648,6 +3648,86 @@ property message, with no duplicate
 property message
 
 > Spec: `20-form-vm.md §5.2/§8`, ADR-0092.
+
+### FORM-031 — a second approval during an in-flight approval is refused
+
+**Given** a valid `FormVM<TM>` whose persister blocks until released
+**And** an approval admitted through `ApproveAsync` and waiting in the persister
+**When** `ApproveAsync` is called again, `ApproveCommand.Execute()` is called,
+and the persister and a `CanExecuteChanged` handler each call `ApproveAsync`
+**Then** the persister has been invoked exactly once
+**And** each refused call completes without throwing, changes no model,
+snapshot, error, or dirty state, and emits nothing on `OnApproved` or
+`ApproveErrors`
+
+**When** the first persister is released and the approval settles
+**Then** `Snapshot` equals the model captured by the first approval
+**And** a new approval is admitted, invokes the persister a second time, and
+advances the snapshot to its own captured model
+
+> Spec: `20-form-vm.md §5.3`, ADR-0143.
+
+### FORM-032 — the approve command is disabled while an approval is in flight
+
+**Given** a valid `FormVM<TM>` with a counter on
+`ApproveCommand.CanExecuteChanged` and a persister that blocks until released
+**When** an approval is admitted
+**Then** `CanExecuteChanged` has fired exactly once before the persister runs
+**And** `ApproveCommand.CanExecute()` returns `false` while the persister is
+blocked
+
+**When** the persister is released with success, with a failure, and, with a
+`resetOnApproved` that throws, after a successful persist
+**Then** each settlement raises `CanExecuteChanged` exactly once
+**And** `CanExecute()` again reflects only the validity and strict-mode gates
+
+> Spec: `20-form-vm.md §5.3`, ADR-0143.
+
+### FORM-033 — settlement clears admission before publishing the outcome
+
+**Given** a valid `FormVM<TM>` whose `OnApproved` subscriber calls
+`ApproveAsync` once
+**When** an approval succeeds
+**Then** the subscriber observes `CanExecute()` reflecting only the validity and
+strict-mode gates
+**And** its approval is admitted, invokes the persister, and captures the
+settled model
+
+**Given** a command-path approval whose persister fails, and an
+`ApproveErrors` subscriber that calls `ApproveAsync` once
+**Then** the failure is emitted exactly once on `ApproveErrors` and the
+awaitable path emits nothing there
+**And** model, snapshot, and errors are unchanged by the failed approval
+**And** the subscriber's approval is admitted
+
+**When** the code awaiting a failed `ApproveAsync` catches the failure and calls
+`ApproveAsync` again
+**Then** the new approval is admitted and the failure was observed only by that
+awaiter
+
+> Spec: `20-form-vm.md §5.3/§8.2`, ADR-0143.
+
+### FORM-034 — edits, deny, and disposal during an in-flight approval
+
+**Given** a valid `FormVM<TM>` with an approval admitted and blocked in the
+persister
+**When** `SetModel` installs a newer model and the persister then succeeds
+**Then** `Snapshot` equals the captured model, `IsDirty` is `true`, and
+`OnApproved` carries the captured model
+**When** `DenyCommand` executes during another blocked approval
+**Then** the model reverts to the current snapshot and the approval still
+commits its captured value when it succeeds
+**And** with a configured `resetOnApproved`, the reset replaces the edited or
+reverted model
+
+**When** the form is disposed while an approval is blocked in the persister and
+the persister then completes
+**Then** no state is committed and nothing is emitted on `OnApproved`,
+`ApproveErrors`, `ErrorsChanged`, or `CanExecuteChanged` after disposal
+**And** a later `ApproveAsync` returns without invoking the persister
+**And** the test completes within a bounded timeout
+
+> Spec: `20-form-vm.md §5.3/§10`, ADR-0143.
 
 ## 28. DISC — DiscriminatorVM (chapter 22) — spec v3.1 and v3.23
 

@@ -38,7 +38,13 @@ public sealed class FormVM<TM> : IDisposable
     private TM _snapshot;
     private Dictionary<string, string> _errors;
     private volatile bool _disposed;
-    private bool _approvalPublishing;
+    // Single-flight approval admission (spec/20 §5.3, ADR-0143): set when an
+    // approve call is admitted, cleared when that approval settles.
+    private bool _approvalInFlight;
+    // Approval notification scopes (admission, settlement) run on one thread at
+    // a time. Same-thread observers may nest scopes, so this is a depth; other
+    // threads' approvals, edits, and Dispose wait until it returns to zero.
+    private int _approvalPublishingDepth;
     private bool _approvalPrePublishing;
     private int _approvalPublisherThreadId;
     private readonly Queue<TM> _deferredApprovalModels = new();
@@ -107,9 +113,17 @@ public sealed class FormVM<TM> : IDisposable
 
         ApproveCommand = RelayCommand.Builder()
             .Task(ApproveCommandExecute)
-            .Predicate(() => IsValid && (!_strict || IsDirty))
+            .Predicate(CanApprove)
             .Triggers(canExecuteTrigger)
             .Build();
+    }
+
+    // Approval is disabled while invalid, while strict and pristine, and while
+    // another approval is in flight (spec/20 §5, §5.3, §9).
+    private bool CanApprove()
+    {
+        lock (_stateGate)
+            return !_approvalInFlight && _errors.Count == 0 && (!_strict || !Equals(_model, _snapshot));
     }
 
     // Fire-and-forget command entry-point. ApproveCommand.Execute() is void, so a
@@ -188,6 +202,9 @@ public sealed class FormVM<TM> : IDisposable
     /// via <see cref="ApproveAsync"/> only — <c>ApproveCommand.Execute()</c>
     /// dispatches the persist call fire-and-forget (per FORM-007 and chapter 20 §2).
     /// In strict mode, <c>CanExecute</c> is <c>false</c> when <see cref="IsDirty"/> is <c>false</c>.
+    /// One approval runs at a time: <c>CanExecute</c> is <c>false</c> while an approval
+    /// is in flight, and <c>CanExecuteChanged</c> fires once when an approval is
+    /// admitted and once when it settles (chapter 20 §5.3).
     /// </summary>
     public ICommand ApproveCommand { get; }
 
@@ -222,6 +239,9 @@ public sealed class FormVM<TM> : IDisposable
     /// <see cref="Snapshot"/> on success, and fires <see cref="OnApproved"/>.
     /// Throws when the persister throws (no state mutation occurs on failure).
     /// Use this in tests and orchestrators that need to await the full cycle.
+    /// A call made while the form is invalid, disposed, or already approving
+    /// completes without invoking the persister (chapter 20 §5.3); await the
+    /// in-flight call and approve again to save after it.
     /// </summary>
     public Task ApproveAsync() => ApproveInternalAsync();
 
@@ -243,10 +263,9 @@ public sealed class FormVM<TM> : IDisposable
         {
             lock (_stateGate)
             {
-                while (_approvalPublishing && _approvalPublisherThreadId != caller && !_disposed)
-                    Monitor.Wait(_stateGate);
+                WaitForApprovalPublisher(caller);
                 if (_disposed) return;
-                if (_approvalPublishing && _approvalPrePublishing)
+                if (_approvalPublishingDepth > 0 && _approvalPrePublishing)
                 {
                     _deferredApprovalModels.Enqueue(model);
                     return;
@@ -294,8 +313,7 @@ public sealed class FormVM<TM> : IDisposable
         var tearDown = false;
         lock (_stateGate)
         {
-            while (_approvalPublishing && _approvalPublisherThreadId != caller && !_disposed)
-                Monitor.Wait(_stateGate);
+            WaitForApprovalPublisher(caller);
             if (_disposed) return;
             _disposed = true;
             if (_activeMutations == 0)
@@ -376,8 +394,7 @@ public sealed class FormVM<TM> : IDisposable
             bool canExecuteChanged;
             lock (_stateGate)
             {
-                while (_approvalPublishing && _approvalPublisherThreadId != caller && !_disposed)
-                    Monitor.Wait(_stateGate);
+                WaitForApprovalPublisher(caller);
                 if (_disposed) return;
                 _activeMutations++;
                 admitted = true;
@@ -415,63 +432,103 @@ public sealed class FormVM<TM> : IDisposable
         }
     }
 
+    // Approval runs single-flight (spec/20 §5.3, ADR-0143). Admission and the
+    // in-flight mark are one critical section; the mark is cleared before any
+    // settlement notification, so a settlement observer may approve again. No
+    // lock is held while the persister runs or while observers are notified.
     private async Task ApproveInternalAsync()
     {
-        // A disposed form is a full no-op — the persister must not be
-        // invoked (symmetric with the Deny guard).
+        // Admission. A disposed, invalid, or already-approving form refuses the
+        // call: the persister is not invoked and nothing is emitted (the
+        // disposed guard is symmetric with Deny).
+        var caller = Environment.CurrentManagedThreadId;
         TM current;
+        bool outerPrePublishing;
         lock (_stateGate)
         {
-            if (_disposed || _errors.Count != 0) return;
+            WaitForApprovalPublisher(caller);
+            if (_disposed || _errors.Count != 0 || _approvalInFlight) return;
+            _approvalInFlight = true;
             current = _model;
+            outerPrePublishing = EnterApprovalPublication(caller);
         }
 
-        // May throw — intentional. No state mutation if this throws.
-        await _persister(current).ConfigureAwait(false);
-
-        // Dispose() may have run during the await; the subjects below are
-        // completed and disposed, so emitting would throw inside an
-        // unobserved task.
-        lock (_stateGate)
+        try
         {
-            if (_disposed) return;
+            _canExecuteChangedTrigger.OnNext(Unit.Default);
         }
+        catch
+        {
+            // A throwing admission observer abandons this approval before the
+            // persister runs; release the mark so the form is not left busy.
+            lock (_stateGate)
+                _approvalInFlight = false;
+            throw;
+        }
+        finally
+        {
+            ExitApprovalPublication(outerPrePublishing);
+        }
+
+        // An admission observer may have disposed the form; a disposed form
+        // never invokes the persister.
+        if (_disposed) return;
+
+        try
+        {
+            // May throw — intentional. No state mutation if this throws.
+            await _persister(current).ConfigureAwait(false);
+        }
+        catch
+        {
+            SettleFailedApproval();
+            throw;
+        }
+
+        // Dispose() may have run during the await. It suppresses settlement:
+        // the subjects are completed and disposed, and emitting would throw
+        // inside an unobserved task.
+        if (_disposed) return;
 
         // Success: either atomically install the configured pristine reset
         // state, or preserve the legacy snapshot-advance behavior.
         TM? nextModel = default;
         TM nextSnapshot;
         Dictionary<string, string>? nextErrors = null;
-        if (_resetOnApproved is not null)
+        try
         {
-            // Prepare everything before assigning any field. A reset or
-            // snapshotter failure therefore leaves local state untouched even
-            // though persistence has already succeeded.
-            var reset = _resetOnApproved(current);
-            nextModel = _snapshotter(reset);
-            nextSnapshot = _snapshotter(reset);
-            nextErrors = Validate(nextModel);
+            if (_resetOnApproved is not null)
+            {
+                // Prepare everything before assigning any field. A reset or
+                // snapshotter failure therefore leaves local state untouched
+                // even though persistence has already succeeded.
+                var reset = _resetOnApproved(current);
+                nextModel = _snapshotter(reset);
+                nextSnapshot = _snapshotter(reset);
+                nextErrors = Validate(nextModel);
+            }
+            else
+            {
+                nextSnapshot = _snapshotter(current);
+            }
         }
-        else
+        catch
         {
-            nextSnapshot = _snapshotter(current);
+            SettleFailedApproval();
+            throw;
         }
 
-        var caller = Environment.CurrentManagedThreadId;
-        bool errorsChanged;
-        bool canExecuteChanged;
+        caller = Environment.CurrentManagedThreadId;
+        var errorsChanged = false;
         IReadOnlyDictionary<string, string>? publishedErrors = null;
         lock (_stateGate)
         {
-            while (_approvalPublishing && _approvalPublisherThreadId != caller)
-                Monitor.Wait(_stateGate);
+            WaitForApprovalPublisher(caller);
             if (_disposed) return;
-            _approvalPublishing = true;
+            // Settlement step 1: the commit and clearing the mark are atomic.
+            _approvalInFlight = false;
+            outerPrePublishing = EnterApprovalPublication(caller);
             _approvalPrePublishing = true;
-            _approvalPublisherThreadId = caller;
-            var wasDirty = !Equals(_model, _snapshot);
-            var wasValid = _errors.Count == 0;
-            errorsChanged = false;
             if (_resetOnApproved is not null)
             {
                 _model = nextModel!;
@@ -487,41 +544,93 @@ public sealed class FormVM<TM> : IDisposable
             {
                 _snapshot = nextSnapshot;
             }
-            canExecuteChanged = (_strict && !Equals(_model, _snapshot) != wasDirty) ||
-                (_errors.Count == 0) != wasValid;
         }
 
         try
         {
+            // Settlement steps 2-4: ErrorsChanged when the commit changed the
+            // error map, exactly one CanExecuteChanged (it also carries any
+            // strict/validity change), then the outcome.
             if (errorsChanged)
             {
                 _errorsChanged.OnNext(publishedErrors!);
                 if (_disposed) return;
             }
-            if (canExecuteChanged)
-            {
-                _canExecuteChangedTrigger.OnNext(Unit.Default);
-                if (_disposed) return;
-            }
+            _canExecuteChangedTrigger.OnNext(Unit.Default);
+            if (_disposed) return;
             lock (_stateGate)
                 _approvalPrePublishing = false;
             _onApproved.OnNext(current);
         }
         finally
         {
-            TM[] deferredModels;
-            lock (_stateGate)
+            ExitApprovalPublication(outerPrePublishing);
+        }
+    }
+
+    // Settles an approval whose persister failed or was cancelled, or whose
+    // reset transaction failed: clear the mark, then raise CanExecuteChanged
+    // once. The caller routes the failure to its one channel (the awaiter, or
+    // ApproveErrors on the command path). Disposal suppresses settlement.
+    private void SettleFailedApproval()
+    {
+        var caller = Environment.CurrentManagedThreadId;
+        bool outerPrePublishing;
+        lock (_stateGate)
+        {
+            WaitForApprovalPublisher(caller);
+            if (_disposed) return;
+            _approvalInFlight = false;
+            outerPrePublishing = EnterApprovalPublication(caller);
+        }
+
+        try
+        {
+            _canExecuteChangedTrigger.OnNext(Unit.Default);
+        }
+        finally
+        {
+            ExitApprovalPublication(outerPrePublishing);
+        }
+    }
+
+    // Called under _stateGate. Approval notification scopes are serialized
+    // across threads: another thread's approval, edit, or Dispose waits until
+    // the publishing thread leaves its outermost scope. The publishing thread
+    // itself (its observers) passes straight through.
+    private void WaitForApprovalPublisher(int caller)
+    {
+        while (_approvalPublishingDepth > 0 && _approvalPublisherThreadId != caller && !_disposed)
+            Monitor.Wait(_stateGate);
+    }
+
+    // Called under _stateGate after WaitForApprovalPublisher. Returns the
+    // enclosing scope's pre-publishing flag for ExitApprovalPublication.
+    private bool EnterApprovalPublication(int caller)
+    {
+        _approvalPublishingDepth++;
+        _approvalPublisherThreadId = caller;
+        return _approvalPrePublishing;
+    }
+
+    // Leaves a notification scope. The outermost exit wakes waiting threads
+    // and applies the model edits deferred while OnApproved was pending.
+    private void ExitApprovalPublication(bool outerPrePublishing)
+    {
+        TM[] deferredModels = [];
+        lock (_stateGate)
+        {
+            _approvalPrePublishing = outerPrePublishing;
+            if (--_approvalPublishingDepth == 0)
             {
-                _approvalPrePublishing = false;
-                _approvalPublishing = false;
                 _approvalPublisherThreadId = 0;
                 deferredModels = [.. _deferredApprovalModels];
                 _deferredApprovalModels.Clear();
                 Monitor.PulseAll(_stateGate);
             }
-            foreach (var deferredModel in deferredModels)
-                SetModel(deferredModel);
         }
+        foreach (var deferredModel in deferredModels)
+            SetModel(deferredModel);
     }
 
     // Cached per closed generic (one instance per TM): System.Text.Json caches
