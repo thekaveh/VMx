@@ -39,16 +39,15 @@ fn cleaned_values(cleaned: &Cleaned) -> Vec<i32> {
 }
 
 /// The control side of a loader that reports each start, then ignores its
-/// token and blocks until the test hands it a result.
+/// token and blocks until the test hands that start its own result. Each
+/// start carries its own result channel, so overlapping loads receive their
+/// results deterministically, whatever order their threads run in.
 struct Gate {
-    started: Receiver<()>,
-    results: Sender<VmxResult<i32>>,
+    started: Receiver<Sender<VmxResult<i32>>>,
 }
 
 fn gated_resource() -> (AsyncResourceVm<i32>, Gate, Cleaned) {
-    let (started_sender, started) = mpsc::channel();
-    let (results, pending_results) = mpsc::channel();
-    let pending_results = Mutex::new(pending_results);
+    let (started_sender, started) = mpsc::channel::<Sender<VmxResult<i32>>>();
     let cleaned: Cleaned = Arc::new(Mutex::new(Vec::new()));
     let cleanup = {
         let cleaned = cleaned.clone();
@@ -57,24 +56,25 @@ fn gated_resource() -> (AsyncResourceVm<i32>, Gate, Cleaned) {
     let resource = AsyncResourceVm::with_options(
         "resource",
         move |_ignored_token| {
-            let _ = started_sender.send(());
-            pending_results
-                .lock()
-                .unwrap()
+            let (results, pending_result) = mpsc::channel();
+            let _ = started_sender.send(results);
+            pending_result
                 .recv()
                 .unwrap_or_else(|_| Err(VmxError::Other("gate closed".into())))
         },
         AsyncResourceRetention::DiscardPrevious,
         Some(cleanup),
     );
-    (resource, Gate { started, results }, cleaned)
+    (resource, Gate { started }, cleaned)
 }
 
 impl Gate {
-    fn wait_for_start(&self) {
+    /// Waits for the next loader start and returns that start's result
+    /// channel.
+    fn wait_for_start(&self) -> Sender<VmxResult<i32>> {
         self.started
             .recv_timeout(BOUND)
-            .expect("the loader started within the bound");
+            .expect("the loader started within the bound")
     }
 }
 
@@ -83,8 +83,8 @@ fn a_successful_loader_completes_the_awaited_load() {
     let (resource, gate, cleaned) = gated_resource();
 
     let load = resource.load_async();
-    gate.wait_for_start();
-    gate.results.send(Ok(1)).unwrap();
+    let loader = gate.wait_for_start();
+    loader.send(Ok(1)).unwrap();
 
     join_within(load).unwrap().unwrap();
     assert_eq!(resource.state(), AsyncResourceState::Ready { value: 1 });
@@ -99,8 +99,8 @@ fn a_failing_loader_completes_the_awaited_load() {
     let error = VmxError::InvalidArgument("unavailable".into());
 
     let load = resource.load_async();
-    gate.wait_for_start();
-    gate.results.send(Err(error.clone())).unwrap();
+    let loader = gate.wait_for_start();
+    loader.send(Err(error.clone())).unwrap();
 
     join_within(load).unwrap().unwrap();
     assert_eq!(
@@ -154,14 +154,14 @@ fn cancelling_an_uncooperative_loader_wakes_the_awaited_load_promptly() {
     let (resource, gate, _cleaned) = gated_resource();
 
     let load = resource.load_async();
-    gate.wait_for_start();
+    let loader = gate.wait_for_start();
     resource.cancel();
 
     // The loader is still blocked: only the cancellation can complete the load.
     join_within(load).unwrap().unwrap();
     assert_eq!(resource.state(), AsyncResourceState::Idle);
     assert!(resource.load_command().can_execute());
-    gate.results
+    loader
         .send(Err(VmxError::Other("released".into())))
         .unwrap();
 }
@@ -171,13 +171,13 @@ fn cancelling_the_load_command_wakes_its_worker_promptly() {
     let (resource, gate, cleaned) = gated_resource();
 
     let load = resource.load_command().execute_async();
-    gate.wait_for_start();
+    let loader = gate.wait_for_start();
     // Cancels only the command's token, not the resource operation directly.
     resource.load_command().cancel();
 
     join_within(load).unwrap().unwrap();
     assert_eq!(resource.state(), AsyncResourceState::Idle);
-    gate.results.send(Ok(3)).unwrap();
+    loader.send(Ok(3)).unwrap();
     wait_until(|| cleaned_values(&cleaned) == [3]);
     assert_eq!(resource.state(), AsyncResourceState::Idle);
 }
@@ -192,11 +192,11 @@ fn an_uncooperative_late_success_is_cleaned_once_and_not_committed() {
     });
 
     let load = resource.load_async();
-    gate.wait_for_start();
+    let loader = gate.wait_for_start();
     resource.cancel();
     join_within(load).unwrap().unwrap();
     let after_cancel = *notifications.lock().unwrap();
-    gate.results.send(Ok(7)).unwrap();
+    loader.send(Ok(7)).unwrap();
 
     wait_until(|| cleaned_values(&cleaned) == [7]);
     assert_eq!(resource.state(), AsyncResourceState::Idle);
@@ -210,11 +210,11 @@ fn disposal_wakes_the_awaited_load_and_cleans_its_late_value_once() {
     let (resource, gate, cleaned) = gated_resource();
 
     let load = resource.load_async();
-    gate.wait_for_start();
+    let loader = gate.wait_for_start();
     resource.dispose().unwrap();
 
     join_within(load).unwrap().unwrap();
-    gate.results.send(Ok(9)).unwrap();
+    loader.send(Ok(9)).unwrap();
     wait_until(|| cleaned_values(&cleaned) == [9]);
     resource.dispose().unwrap();
     assert_eq!(cleaned_values(&cleaned), vec![9]);
@@ -225,13 +225,13 @@ fn a_superseding_reload_wakes_the_previous_awaited_load() {
     let (resource, gate, cleaned) = gated_resource();
 
     let older = resource.load_async();
-    gate.wait_for_start();
+    let older_loader = gate.wait_for_start();
     let newer = resource.reload_async();
 
     join_within(older).unwrap().unwrap();
-    gate.wait_for_start();
-    gate.results.send(Ok(1)).unwrap();
-    gate.results.send(Ok(2)).unwrap();
+    let newer_loader = gate.wait_for_start();
+    older_loader.send(Ok(1)).unwrap();
+    newer_loader.send(Ok(2)).unwrap();
     join_within(newer).unwrap().unwrap();
     wait_until(|| cleaned_values(&cleaned) == [1]);
     assert_eq!(resource.state(), AsyncResourceState::Ready { value: 2 });
