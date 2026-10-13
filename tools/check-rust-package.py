@@ -60,14 +60,17 @@ tests/conformance/command_ext.rs
 tests/conformance/commands.rs
 tests/conformance/component_vm.rs
 tests/conformance/composite_vm.rs
+tests/conformance/confirmation_async_inner.rs
 tests/conformance/derived_properties.rs
 tests/conformance/dialogs.rs
 tests/conformance/discriminator.rs
 tests/conformance/expandable.rs
 tests/conformance/expandable_support.rs
 tests/conformance/filtered_composite.rs
+tests/conformance/form_approval_admission.rs
 tests/conformance/form_model_hub_publication.rs
 tests/conformance/form_approval_subscription.rs
+tests/conformance/form_failure_atomic_updates.rs
 tests/conformance/forms.rs
 tests/conformance/forwarding.rs
 tests/conformance/group_vm.rs

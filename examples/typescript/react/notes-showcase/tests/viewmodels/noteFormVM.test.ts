@@ -1,13 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { FormVM, MessageHub, RxDispatcher } from "@thekaveh/vmx";
+import { FormVM, MessageHub, RxDispatcher, type IAsyncCommand } from "@thekaveh/vmx";
 import {
   NotificationHub,
   NotificationReaction,
   type INotificationHub,
+  type Notification,
 } from "@thekaveh/vmx/notifications";
 
 import { InMemoryNoteRepository } from "../../src/models/inMemoryRepository.js";
 import type { NoteModel } from "../../src/models/noteModel.js";
+import type { RepositorySnapshot } from "../../src/models/noteRepository.js";
 import { buildSeed } from "../../src/models/seed.js";
 import { NoteFormVM } from "../../src/viewmodels/noteFormVM.js";
 
@@ -23,6 +25,72 @@ function aNote(over: Partial<NoteModel> = {}): NoteModel {
     updatedAt: new Date().toISOString(),
     ...over,
   };
+}
+
+/**
+ * Holds every repository write until the test releases it, and counts the
+ * snapshot reads that a post-save tag refresh makes.
+ */
+class GatedSaveRepository extends InMemoryNoteRepository {
+  readonly saveCalls: NoteModel[] = [];
+  loadAllCalls = 0;
+  readonly #pending: Array<() => void> = [];
+
+  override async loadAll(): Promise<RepositorySnapshot> {
+    this.loadAllCalls += 1;
+    return super.loadAll();
+  }
+
+  override async saveNote(note: NoteModel): Promise<void> {
+    this.saveCalls.push(note);
+    await new Promise<void>((resolve) => {
+      this.#pending.push(resolve);
+    });
+    await super.saveNote(note);
+  }
+
+  releaseSaves(): void {
+    for (const release of this.#pending.splice(0)) release();
+  }
+}
+
+/** Records the message of every notification the hub receives, in order. */
+function recordNotifications(hub: INotificationHub): string[] {
+  const seen = new Set<Notification>();
+  const messages: string[] = [];
+  hub.pending.subscribe((list) => {
+    for (const notification of list) {
+      if (seen.has(notification)) continue;
+      seen.add(notification);
+      messages.push(notification.message);
+    }
+  });
+  return messages;
+}
+
+/** A form over a gated repository, with its notifications recorded. */
+function makeGatedForm(): {
+  vm: NoteFormVM;
+  hub: MessageHub;
+  repo: GatedSaveRepository;
+  notifications: string[];
+} {
+  const hub = new MessageHub();
+  const repo = new GatedSaveRepository(buildSeed(), {
+    saveNoteDelayMs: 0,
+    loadAllDelayMs: 0,
+    loadNotesDelayMs: 0,
+  });
+  const notifs = new NotificationHub();
+  const notifications = recordNotifications(notifs);
+  const vm = NoteFormVM.builder()
+    .name("form")
+    .services(hub, RxDispatcher.immediate())
+    .repository(repo)
+    .notificationHub(notifs)
+    .build();
+  vm.construct();
+  return { vm, hub, repo, notifications };
 }
 
 function makeForm(): {
@@ -71,6 +139,117 @@ describe("NoteFormVM", () => {
     expect(vm.snapshot.title).toBe("Persisted");
     const work = await repo.loadNotes("nb-work");
     expect(work.find((n) => n.id === "note-99")?.title).toBe("Persisted");
+  });
+
+  it("a double save while the repository save is pending persists once", async () => {
+    // FormVM admits one approval at a time (spec 20 §5.3, ADR-0143). A second
+    // save from the awaitable path or the bound command, made while the
+    // repository is still writing, must not issue a second write, and must not
+    // run the post-save steps for a save that did not happen.
+    const { PropertyChangedMessage } = await import("@thekaveh/vmx");
+    const { vm, hub, repo, notifications } = makeGatedForm();
+    vm.bindTo(aNote({ title: "Original" }));
+    vm.draft = { ...vm.draft, title: "Saved once" };
+    const saved: NoteModel[] = [];
+    vm.onSaved.subscribe((note) => saved.push(note));
+    const vmChanges: string[] = [];
+    hub.messages.subscribe((m) => {
+      if (m instanceof PropertyChangedMessage && m.sender === vm) {
+        vmChanges.push(m.propertyName);
+      }
+    });
+
+    const first = vm.approveAsync();
+    const second = vm.approveAsync();
+    const viaCommand = (vm.approveCommand as IAsyncCommand).executeAsync();
+    // Every save attempt reaches the repository synchronously, so a second
+    // write would already be recorded here.
+    expect(repo.saveCalls.map((note) => note.title)).toEqual(["Saved once"]);
+
+    // The refused saves complete while the first write is still pending,
+    // without any post-save step: no "Saved" notification, no draft
+    // re-emission, and no tag refresh.
+    await Promise.all([second, viaCommand]);
+    expect(repo.saveCalls).toHaveLength(1);
+    expect(vm.isDirty).toBe(true);
+    expect(vm.snapshot.title).toBe("Original");
+    expect(notifications).toEqual([]);
+    expect(vmChanges).toEqual([]);
+    expect(repo.loadAllCalls).toBe(0);
+    expect(saved).toEqual([]);
+
+    repo.releaseSaves();
+    await first;
+
+    expect(repo.saveCalls).toHaveLength(1);
+    expect(saved.map((note) => note.title)).toEqual(["Saved once"]);
+    expect(notifications).toEqual(["Saved “Saved once”"]);
+    expect(repo.loadAllCalls).toBe(1);
+    expect(vmChanges).toContain("snapshot");
+    expect(vm.isDirty).toBe(false);
+    expect(vm.snapshot.title).toBe("Saved once");
+    const stored = (await repo.loadNotes("nb-work")).filter((note) => note.id === "note-99");
+    expect(stored.map((note) => note.title)).toEqual(["Saved once"]);
+    vm.dispose();
+  });
+
+  it("a second save posts 'Saved' only when it wrote, however late it lands", async () => {
+    // `await` always yields, so a save refused while the first one is pending
+    // resumes some microtasks later, possibly after the first save has
+    // published. Land the second call at every microtask offset across the
+    // first save's settlement: each repository write is followed by exactly
+    // one "Saved" notification and one tag refresh, and a refused call by
+    // neither.
+    let refusedAfterRelease = 0;
+    let admittedAfterSettle = 0;
+    for (let ticks = 0; ticks <= 30; ticks++) {
+      const { vm, repo, notifications } = makeGatedForm();
+      vm.bindTo(aNote({ title: "Original" }));
+      vm.draft = { ...vm.draft, title: "Saved" };
+
+      const first = vm.approveAsync();
+      repo.releaseSaves();
+      for (let tick = 0; tick < ticks; tick++) await Promise.resolve();
+      const second = vm.approveAsync();
+      const writes = repo.saveCalls.length;
+      // An admitted second save is gated like the first; release it too.
+      repo.releaseSaves();
+      await Promise.all([first, second]);
+
+      if (writes === 1) refusedAfterRelease += 1;
+      else admittedAfterSettle += 1;
+      expect({ ticks, notifications }).toEqual({
+        ticks,
+        notifications: Array<string>(writes).fill("Saved “Saved”"),
+      });
+      expect({ ticks, refreshes: repo.loadAllCalls }).toEqual({ ticks, refreshes: writes });
+      vm.dispose();
+    }
+    // The sweep covers both outcomes for the second call.
+    expect(refusedAfterRelease).toBeGreaterThan(0);
+    expect(admittedAfterSettle).toBeGreaterThan(0);
+  });
+
+  it("rebinding while a save is pending posts no 'Saved' for either note", async () => {
+    // Rebinding disposes the pending save's form, which then publishes no
+    // approval (spec 20 §5.3), so the save runs no post-save step.
+    const { vm, repo, notifications } = makeGatedForm();
+    vm.bindTo(aNote({ title: "Original" }));
+    vm.draft = { ...vm.draft, title: "Edited" };
+    const saved: NoteModel[] = [];
+    vm.onSaved.subscribe((note) => saved.push(note));
+
+    const pending = vm.approveAsync();
+    vm.bindTo(aNote({ id: "note-98", title: "Next note" }));
+    repo.releaseSaves();
+    await pending;
+
+    expect(repo.saveCalls.map((note) => note.title)).toEqual(["Edited"]);
+    expect(saved).toEqual([]);
+    expect(notifications).toEqual([]);
+    expect(repo.loadAllCalls).toBe(0);
+    expect(vm.snapshot.title).toBe("Next note");
+    vm.dispose();
   });
 
   it("approveCommand.canExecute = isDirty && isValid", () => {

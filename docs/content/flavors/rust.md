@@ -7,13 +7,13 @@ Rust is the fifth VMx source flavor. It lives under `langs/rust/` as the
 
 - Source tree: `langs/rust/`
 - Package: `vmx-rs`
-- Current source line: `vmx-rs` 0.32.0 implementing spec 3.26.0
+- Current source line: `vmx-rs` 0.35.0 implementing spec 3.29.0
 - Publication status: crates.io release channel not published yet
 - License packaging: the crate ships the repository's Apache-2.0 text
 - Reactive primitive: VMx-owned hot-stream facade
 - Naming: Rust type names such as `ComponentVm`, snake_case methods such as
   `construct()` and `dispose()`
-- Conformance: all 413 library IDs are covered by behavioral Rust tests
+- Conformance: all 425 library IDs are covered by behavioral Rust tests
 - Hub concurrency: ordinary producers retain synchronous calling-thread
   delivery while nested cross-hub callbacks enqueue without a wait cycle
 - Hub retention: a `MessageHub` keeps no delivered message.
@@ -176,6 +176,24 @@ The callback receives `(current, previous)` by value; immediate delivery uses
 the initial value for both. The host adapter owns the subscription, and the
 selector reevaluates after every property message carrying this fixed sender
 ID rather than on every render frame.
+
+### 7.6.4.1. Nested Command Execution
+
+A command can be executed again from inside its own execution: from its
+action, from a `can_execute_changed` handler, or from a hub subscriber it
+triggers. As in the other flavors, the nested call evaluates `can_execute` when
+it is made and, if admitted, runs before the outer `execute` returns; it never
+deadlocks. Built-in commands, such as FormVM's approve and deny and the
+component, CRUD, notification, and async-resource commands, run the nested
+call inline.
+
+A command built from a user `FnMut` action (`RelayCommand::new` or the
+builder's `action`) cannot run that action while it is already running, so an
+admitted nested call on the same thread is deferred: it runs after the current
+action returns and before the outermost `execute` returns, in the order inline
+recursion would give. A call from another thread waits for the running action.
+A deferred call does not run once the command is disposed, and a panicking
+action drops the calls deferred during it.
 
 ## 7.6.5. Local Use
 

@@ -91,6 +91,13 @@ Commands become interesting when triggers are involved:
 - fire-and-forget confirmation flows surface asynchronous failures on an error
   observable instead of swallowing them
 
+When a confirmation wraps an async command, awaiting its `ExecuteAsync`
+completes when the inner operation completes, and the inner failure reaches the
+awaiter. The fire-and-forget `Execute` starts the inner through the inner's own
+`Execute`, so inner failures stay on the inner command's error channel; the
+confirmation's `errors` carries only confirmation failures and synchronous inner
+failures (ADR-0145).
+
 Repeated command disposal, including during an in-flight async operation,
 follows the [Disposal Contract](disposal-contract.md): cancellation and terminal
 completion occur at most once.
@@ -184,6 +191,11 @@ Canonical relay-command shape:
       .triggers(currentChanged)
       .build();
     ```
+
+A wrapping command like this inherits `FormVM`'s one-approval-at-a-time rule
+(ADR-0143): while a save is in flight, executing it again does nothing. Binding
+`form.approveCommand` directly is usually simpler, because its `CanExecute` also
+turns false during the save.
 
 The same normative command structure appears across all catalog-complete source
 flavors with casing and trait-import changes. Rust's command-disposal and

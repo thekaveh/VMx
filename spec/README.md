@@ -28,7 +28,7 @@ before any flavor releases a stable version.
 - `09-forwarding.md` — forwarding decorators.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
-- `12-conformance.md` — cross-language conformance test catalog (418 IDs).
+- `12-conformance.md` — cross-language conformance test catalog (430 IDs).
 - `13-tree-utilities.md` — `walk` / `find` / `walk_expanded` tree introspection.
 
 ### 1.2 Chapters (v2.0 additions)
@@ -649,11 +649,49 @@ now stops publishing once a container is disposed. The catalog now contains 413 
 
 See ADR-0142 and chapters 01, 06, 07, and 21.
 
-### 1.38 Supporting artefacts
+### 1.38 v3.26.0 → v3.27.0 changes
 
-- `VERSION` — current spec SemVer (`3.26.0`).
+v3.27.0 makes `FormVM` admit one approval at a time. While an approval is in
+flight, `ApproveCommand.CanExecute` is false and any other approve call through
+either entry point does nothing: no persister call, state change, exception, or
+signal. Settlement clears the in-flight mark before publishing, so an approval
+started by an outcome observer is admitted; `SetModel` and `DenyCommand` are not
+blocked (`FORM-031..034`). The catalog now contains 417 library IDs plus 5
+scenario IDs.
+
+See ADR-0143 and chapter 20 §5.3.
+
+### 1.39 v3.27.0 → v3.28.0 changes
+
+v3.28.0 makes `FormVM` model updates failure-atomic. `SetModel` and
+`DenyCommand` run the equality comparison, the validators, and (for deny) the
+snapshotter on the candidate before committing. A failing callback propagates
+with the model, snapshot, errors, dirty and valid state, and command state
+unchanged and nothing published; a preparation made stale by disposal or a
+nested commit commits nothing (`FORM-035..038`). The catalog now contains 421
+library IDs plus 5 scenario IDs.
+
+See ADR-0144 and chapter 20 §5.4.
+
+### 1.40 v3.28.0 → v3.29.0 changes
+
+v3.29.0 makes an awaited `ConfirmationDecoratorCommand.ExecuteAsync` complete
+when an asynchronous inner command's operation completes. The inner is invoked
+exactly once, through its awaitable entry point, and its failure reaches the
+awaiter only; a nested confirmation wrapper is awaited end to end. The
+fire-and-forget `Execute` starts an asynchronous inner through the inner's own
+`Execute`, so its failures stay on the inner's error channel. The decorator adds
+no admission, cancellation, or ownership of its own (`CMDD-014..017`). Rust's
+`Command` trait gains a provided method exposing a command's awaitable entry
+point. The catalog now contains 425 library IDs plus 5 scenario IDs.
+
+See ADR-0145 and chapter 04 §8.3.2.
+
+### 1.41 Supporting artefacts
+
+- `VERSION` — current spec SemVer (`3.29.0`).
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0142); see
+- `ADRs/` — Architecture Decision Records (0001-0145); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `schemas/` — versioned supporting machine contracts. The consumer
   conformance v1 schema is non-normative; see ADR-0102.

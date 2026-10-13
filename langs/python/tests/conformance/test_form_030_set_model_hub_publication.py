@@ -180,13 +180,16 @@ def test_admitted_set_model_finishes_before_concurrent_dispose() -> None:
     assert form.model == _Model("accepted")
 
 
-def test_validator_observes_the_accepted_live_model() -> None:
+def test_validator_observes_the_previous_live_model() -> None:
+    # Validation prepares the candidate before it is installed (spec/20 §5.4),
+    # so the live model is still the previous one while validators run.
     form: FormVM[_Model] | None = None
+    observed: list[_Model] = []
 
     def validate(candidate: _Model) -> str | None:
         if candidate.value == "accepted":
             assert form is not None
-            assert form.model == candidate
+            observed.append(form.model)
         return None
 
     form = FormVM(
@@ -198,10 +201,13 @@ def test_validator_observes_the_accepted_live_model() -> None:
 
     form.set_model(_Model("accepted"))
 
+    assert observed == [_Model("initial")]
     assert form.model == _Model("accepted")
 
 
-def test_admitted_set_model_completes_when_validator_disposes_reentrantly() -> None:
+def test_admitted_set_model_commits_nothing_when_validator_disposes_reentrantly() -> None:
+    # Disposal during preparation makes it stale (spec/20 §5.4, FORM-038): the
+    # call returns without installing the candidate or publishing.
     hub: MessageHub[Any] = MessageHub()
     messages: list[Any] = []
     subscription = hub.messages.subscribe(messages.append)
@@ -224,8 +230,8 @@ def test_admitted_set_model_completes_when_validator_disposes_reentrantly() -> N
     form.set_model(_Model("accepted"))
     form.set_model(_Model("late"))
 
-    assert form.model == _Model("accepted")
-    assert len([m for m in messages if isinstance(m, PropertyChangedMessage)]) == 1
+    assert form.model == _Model("initial")
+    assert not [m for m in messages if isinstance(m, PropertyChangedMessage)]
     subscription.dispose()
 
 

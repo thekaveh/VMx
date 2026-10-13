@@ -100,10 +100,10 @@ impl<VM: Clone + Send + 'static> ModeledCrudCommands<VM> {
         confirm_delete: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
         current_changed: Option<MessageHub>,
     ) -> Self {
-        let create_new_command = RelayCommand::new(move || create_new());
+        let create_new_command = RelayCommand::new_shared(move || create_new());
         let update_provider = current.clone();
         let update_predicate = current.clone();
-        let update_current_command = RelayCommand::new(move || {
+        let update_current_command = RelayCommand::new_shared(move || {
             if let Some(current) = update_provider() {
                 update_current(current);
             }
@@ -112,7 +112,7 @@ impl<VM: Clone + Send + 'static> ModeledCrudCommands<VM> {
         let delete_provider = current.clone();
         let delete_predicate = current.clone();
         let confirm_delete = confirm_delete.unwrap_or_else(|| Arc::new(|| true));
-        let delete_current_command = RelayCommand::new(move || {
+        let delete_current_command = RelayCommand::new_shared(move || {
             if confirm_delete() {
                 if let Some(current) = delete_provider() {
                     delete_current(current);

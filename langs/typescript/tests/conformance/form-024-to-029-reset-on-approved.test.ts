@@ -241,7 +241,9 @@ describe("FORM-029", () => {
     release();
     await approval;
 
-    expect(notifications).toEqual([false, true]);
+    // Admission disables the command, the racing invalid edit keeps it
+    // disabled, and the one settlement notification re-enables it (§5.3).
+    expect(notifications).toEqual([false, false, true]);
     expect(form.approveCommand.canExecute()).toBe(true);
     expect(form.model).toEqual(m("reset:approved"));
   });

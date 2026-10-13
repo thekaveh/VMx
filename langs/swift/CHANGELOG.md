@@ -6,6 +6,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.30.0] — unreleased source version
+
+### Changed
+
+- `ConfirmationDecoratorCommand`'s fire-and-forget `execute()` now starts an
+  `AsyncCommand` inner through the inner's own `execute()`, so the inner's
+  failure arrives on the inner's `errors` instead of the decorator's, matching
+  the other flavors. `executeAsync()` also awaits a nested
+  `ConfirmationDecoratorCommand` end to end, invoking every inner exactly once,
+  and an awaited inner failure reaches only the awaiter (`CMDD-014..017`,
+  ADR-0145, spec 3.29.0) (#355).
+
+## [3.29.0] — unreleased source version
+
+### Changed
+
+- `FormVM` model updates prepare before they commit. `setModel` and deny compute
+  the next model, errors, and dirty and valid state from the candidate before
+  installing anything, so a validator that reads the form sees the previous
+  model and no observer ever sees a new model with old errors. Swift validators,
+  `equals`, and the snapshotter cannot throw, so the failure half of the rule
+  does not apply. If a validator disposes the form or makes another edit, the
+  interrupted update commits nothing and the newest edit stands, while edits
+  from other threads still wait for an update in progress (`FORM-035..038`,
+  ADR-0144, spec 3.28.0) (#337).
+
+## [3.28.0] — unreleased source version
+
+### Changed
+
+- `FormVM` admits one approval at a time. While an approval is in flight,
+  `approveCommand.canExecute()` is false and any other approve call through
+  `approveAsync()` or `approveCommand.execute()` does nothing: it does not call
+  the persister, change state, raise, or emit on `onApproved` or
+  `approveErrors`. Admission marks the approval in flight and captures the model
+  before raising `approveCommand.canExecuteChanged` once; settlement clears the
+  mark first, then publishes `errorsChanged` if needed, one can-execute
+  notification, and the outcome, so an approval started by an outcome observer
+  is admitted. `setModel` and deny are not blocked. A double-executed save now
+  persists once; to save again after an in-flight approval, await it and approve
+  again (`FORM-031..034`, ADR-0143, spec 3.27.0) (#327).
+
 ## [3.27.0] — unreleased source version
 
 ### Changed

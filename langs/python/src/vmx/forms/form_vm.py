@@ -85,16 +85,27 @@ class FormVM(Generic[TM]):
         self._model_validator = model_validator
         self._reset_on_approved = reset_on_approved
         self._state_changed = Condition(RLock())
+        # Single-flight approval admission (spec/20 §5.3, ADR-0143): set when an
+        # approve call is admitted, cleared first thing at settlement.
+        self._approval_in_flight = False
         self._approval_publishing = False
         self._approval_pre_publishing = False
         self._approval_publisher_thread: int | None = None
         self._deferred_approval_models: list[TM] = []
         self._active_mutations = 0
         self._mutation_teardown_pending = False
+        # Commit generation (spec/20 §5.4): advanced by every commit of model,
+        # snapshot, or errors, so an update whose callbacks re-entered the form
+        # can tell that its preparation went stale.
+        self._generation = 0
 
+        # Construction runs the same preparation as an update (spec/20 §5.4):
+        # a failing snapshotter or validator fails construction.
+        snapshot = self._snapshotter(initial)
+        errors = self._validate(initial)
         self._model: TM = initial
-        self._snapshot: TM = self._snapshotter(initial)
-        self._errors: dict[str, str] = self._validate(initial)
+        self._snapshot: TM = snapshot
+        self._errors: dict[str, str] = errors
 
         self._disposed = False
 
@@ -109,7 +120,7 @@ class FormVM(Generic[TM]):
         self._approve_command = (
             RelayCommand.builder()
             .task(self._approve_fire_and_forget)
-            .predicate(lambda: self.is_valid and (not self._strict or self.is_dirty))
+            .predicate(self._can_approve)
             .triggers(self._can_execute_trigger)
             .build()
         )
@@ -164,7 +175,10 @@ class FormVM(Generic[TM]):
 
     @property
     def approve_command(self) -> RelayCommand:
-        """Invokes the persister; on success advances ``snapshot`` and fires ``on_approved``."""
+        """Invokes the persister; on success advances ``snapshot`` and fires ``on_approved``.
+
+        Disabled while an approval is in flight (spec/20 §5.3).
+        """
         return self._approve_command
 
     @property
@@ -203,6 +217,13 @@ class FormVM(Generic[TM]):
         Inert after :meth:`dispose` (like :meth:`approve_async`/:meth:`deny`): a
         post-dispose call would otherwise ``on_next`` a disposed reactivex Subject
         during validation publication and raise (parity with the TS/Swift no-op).
+
+        Failure-atomic (spec/20 §5.4): the model's ``__eq__`` and the validators
+        run on the candidate before anything is committed. If one raises, the
+        exception propagates unchanged and the form keeps its model, snapshot,
+        errors, and command state, with nothing published. If a callback
+        re-enters the form and another update commits, or the form is disposed,
+        this call commits and publishes nothing.
         """
         caller = get_ident()
         admitted = False
@@ -224,16 +245,27 @@ class FormVM(Generic[TM]):
                 admitted = True
                 if model is None:
                     raise ValueError("model must not be None")
-                if self._model == model:
+                # Prepare (spec/20 §5.4) without touching form state. Callbacks
+                # run under the re-entrant state lock: one may re-enter
+                # set_model, deny, or dispose on this thread, while another
+                # thread's update or dispose waits for this one.
+                generation = self._generation
+                current, snapshot = self._model, self._snapshot
+                if current == model:
                     return
-                was_dirty = self._model != self._snapshot
+                was_dirty = current != snapshot
                 was_valid = not self._errors
-                self._model = model
                 next_errors = self._validate(model)
-                is_dirty = model != self._snapshot
+                is_dirty = model != snapshot
+                # A re-entrant dispose or commit made this preparation stale.
+                if self._disposed or self._generation != generation:
+                    return
+                # Commit in one step, then notify.
                 errors_changed = next_errors != self._errors
+                self._model = model
                 self._errors = next_errors
-                is_valid = not self._errors
+                self._generation += 1
+                is_valid = not next_errors
                 if errors_changed:
                     self._errors_changed.on_next(dict(next_errors))
                 if (self._strict and is_dirty != was_dirty) or is_valid != was_valid:
@@ -261,53 +293,113 @@ class FormVM(Generic[TM]):
         :attr:`on_approved`.  Raises when the persister raises (no state mutation).
         A disposed form is a full no-op — the persister is not invoked
         (symmetric with the deny guard).
+
+        One approval runs at a time (spec/20 §5.3): the call is admitted when the
+        coroutine starts, and while another approval is in flight it returns
+        normally without invoking the persister, mutating state, or emitting.
         """
+        admission = self._admit_approval()
+        if admission is None:
+            return
+        await self._run_admitted_approval(admission[0])
+
+    def _admit_approval(self) -> tuple[TM] | None:
+        """Admit one approval or refuse it (spec/20 §5.3).
+
+        Admission marks the approval in flight and captures the model in one
+        critical section, then raises ``can_execute_changed`` once with no lock
+        held. Returns the captured model, or ``None`` when the call is refused
+        (disposed, invalid, or another approval in flight) or an admission
+        observer disposed the form, so the persister must not run.
+        """
+        caller = get_ident()
         with self._state_changed:
-            if self._disposed or self._errors:
-                return
-            current = self._model
-
-        # May raise — intentional.  No state mutation if this raises.
-        await self._persister(current)
-
-        # dispose() may have run during the await; the subjects below are
-        # completed and disposed, so emitting would raise DisposedException
-        # (mirrors the C# guard).
+            while (
+                self._approval_publishing
+                and self._approval_publisher_thread != caller
+                and not self._disposed
+            ):
+                self._state_changed.wait()
+            if self._disposed or self._errors or self._approval_in_flight:
+                return None
+            self._approval_in_flight = True
+            captured = self._model
+            # Hold teardown off while the admission notification is delivered.
+            self._active_mutations += 1
+        failure: BaseException | None = None
+        try:
+            self._can_execute_trigger.on_next(None)
+        except BaseException as error:
+            # The persister never runs; do not leave the form wedged in flight.
+            failure = error
+            with self._state_changed:
+                self._approval_in_flight = False
+            raise
+        finally:
+            self._end_mutation(failure)
         with self._state_changed:
             if self._disposed:
-                return
+                return None
+        return (captured,)
 
-        # Success: atomically install the configured reset state, or preserve
-        # the legacy snapshot-advance behavior when no reset is configured.
-        if self._reset_on_approved is not None:
-            # Prepare callback output, independent live/snapshot values, and
-            # validation before committing any local state.
-            reset = self._reset_on_approved(current)
-            next_model = self._snapshotter(reset)
-            next_snapshot = self._snapshotter(reset)
-            next_errors = self._validate(next_model)
+    async def _run_admitted_approval(self, current: TM) -> None:
+        """Persist the captured model of an admitted approval and settle it."""
+        try:
+            # May raise — intentional.  No state mutation if this raises.
+            await self._persister(current)
 
-            reset_state: tuple[TM, TM, dict[str, str]] | None = (
-                next_model,
-                next_snapshot,
-                next_errors,
-            )
-        else:
-            reset_state = None
-            next_snapshot = self._snapshotter(current)
+            # dispose() may have run during the await; disposal suppresses the
+            # whole settlement (spec/20 §5.3/§10): the subjects are completed
+            # and disposed, so emitting would raise DisposedException.
+            with self._state_changed:
+                if self._disposed:
+                    self._approval_in_flight = False
+                    return
 
+            # Success: prepare the configured reset state, or the legacy
+            # snapshot advance, before committing any local state.
+            if self._reset_on_approved is not None:
+                reset = self._reset_on_approved(current)
+                next_model = self._snapshotter(reset)
+                next_snapshot = self._snapshotter(reset)
+                next_errors = self._validate(next_model)
+                reset_state: tuple[TM, TM, dict[str, str]] | None = (
+                    next_model,
+                    next_snapshot,
+                    next_errors,
+                )
+            else:
+                reset_state = None
+                next_snapshot = self._snapshotter(current)
+        except BaseException:
+            # Persister failure or cancellation, or a failed reset transaction.
+            self._settle_failed_approval()
+            raise
+        self._settle_approval(current, reset_state, next_snapshot)
+
+    def _settle_approval(
+        self,
+        current: TM,
+        reset_state: tuple[TM, TM, dict[str, str]] | None,
+        next_snapshot: TM,
+    ) -> None:
+        """Commit a successful approval, then publish its settlement in order.
+
+        Order (spec/20 §5.3): clear the in-flight mark with the commit,
+        ``errors_changed`` when the effective map changed, ``can_execute_changed``
+        exactly once, then ``on_approved``.
+        """
         caller = get_ident()
         with self._state_changed:
             while self._approval_publishing and self._approval_publisher_thread != caller:
                 self._state_changed.wait()
+            self._approval_in_flight = False
             if self._disposed:
                 return
-            self._approval_publishing = True
-            self._approval_pre_publishing = True
-            self._approval_publisher_thread = caller
-            was_dirty = self._model != self._snapshot
-            was_valid = not self._errors
-            errors_changed = False
+            outer = self._enter_publication(caller, pre_publishing=True)
+            # The approval commit (snapshot advance or reset) supersedes any
+            # update still preparing on this thread (spec/20 §5.4).
+            self._generation += 1
             published_errors: dict[str, str] | None = None
             if reset_state is not None:
                 next_model, next_snapshot, next_errors = reset_state
@@ -315,23 +407,18 @@ class FormVM(Generic[TM]):
                 self._snapshot = next_snapshot
                 if next_errors != self._errors:
                     self._errors = next_errors
-                    errors_changed = True
                     published_errors = dict(next_errors)
             else:
                 self._snapshot = next_snapshot
-            is_dirty = self._model != self._snapshot
-            is_valid = not self._errors
 
         try:
-            if errors_changed:
-                assert published_errors is not None
+            if published_errors is not None:
                 self._errors_changed.on_next(published_errors)
                 if self._disposed:
                     return
-            if (self._strict and is_dirty != was_dirty) or is_valid != was_valid:
-                self._can_execute_trigger.on_next(None)
-                if self._disposed:
-                    return
+            self._can_execute_trigger.on_next(None)
+            if self._disposed:
+                return
 
             with self._state_changed:
                 self._approval_pre_publishing = False
@@ -341,15 +428,74 @@ class FormVM(Generic[TM]):
             # not swap the approved payload for a newer un-persisted model.
             self._on_approved.on_next(current)
         finally:
-            with self._state_changed:
-                self._approval_pre_publishing = False
-                self._approval_publishing = False
-                self._approval_publisher_thread = None
-                deferred_models = self._deferred_approval_models
-                self._deferred_approval_models = []
-                self._state_changed.notify_all()
-            for deferred_model in deferred_models:
-                self.set_model(deferred_model)
+            self._exit_publication(outer)
+
+    def _settle_failed_approval(self) -> None:
+        """Clear the in-flight mark and raise ``can_execute_changed`` once.
+
+        The caller then routes the failure to the awaiter (or, on the command
+        path, ``approve_errors``). That failure is the first error and wins: an
+        observer raising from this notification must not replace it (the
+        ``_end_mutation`` first-error policy).
+        """
+        caller = get_ident()
+        with self._state_changed:
+            while (
+                self._approval_publishing
+                and self._approval_publisher_thread != caller
+                and not self._disposed
+            ):
+                self._state_changed.wait()
+            self._approval_in_flight = False
+            if self._disposed:
+                return
+            outer = self._enter_publication(caller, pre_publishing=False)
+        try:
+            with contextlib.suppress(BaseException):
+                self._can_execute_trigger.on_next(None)
+        finally:
+            self._exit_publication(outer)
+
+    def _enter_publication(
+        self, caller: int, *, pre_publishing: bool
+    ) -> tuple[bool, bool, int | None]:
+        """Mark *caller* as the approval publisher; return the state to restore.
+
+        Must be called holding the state lock, after waiting out any other
+        thread's publication. Other threads' mutations and disposal wait until
+        :meth:`_exit_publication`; same-thread edits made while
+        ``pre_publishing`` is set are deferred until it ends.
+        """
+        outer = (
+            self._approval_publishing,
+            self._approval_pre_publishing,
+            self._approval_publisher_thread,
+        )
+        self._approval_publishing = True
+        self._approval_pre_publishing = pre_publishing
+        self._approval_publisher_thread = caller
+        return outer
+
+    def _exit_publication(self, outer: tuple[bool, bool, int | None]) -> None:
+        """End a publication; replay deferred edits once the outermost one ends."""
+        with self._state_changed:
+            if outer[0]:
+                # Nested inside this thread's own publication: restore it and
+                # leave the deferred edits to the outer publication.
+                (
+                    self._approval_publishing,
+                    self._approval_pre_publishing,
+                    self._approval_publisher_thread,
+                ) = outer
+                return
+            self._approval_pre_publishing = False
+            self._approval_publishing = False
+            self._approval_publisher_thread = None
+            deferred_models = self._deferred_approval_models
+            self._deferred_approval_models = []
+            self._state_changed.notify_all()
+        for deferred_model in deferred_models:
+            self.set_model(deferred_model)
 
     # ── Dispose ───────────────────────────────────────────────────────────────
 
@@ -438,15 +584,23 @@ class FormVM(Generic[TM]):
                     return
                 self._active_mutations += 1
                 admitted = True
-                was_dirty = self._model != self._snapshot
+                # Prepare the revert (spec/20 §5.4): the snapshotter, equality,
+                # and validators run before anything is committed or published.
+                generation = self._generation
+                current, snapshot = self._model, self._snapshot
+                was_dirty = current != snapshot
                 was_valid = not self._errors
-                next_model = self._snapshotter(self._snapshot)
-                self._model = next_model
+                next_model = self._snapshotter(snapshot)
                 next_errors = self._validate(next_model)
-                is_dirty = next_model != self._snapshot
+                is_dirty = next_model != snapshot
+                # A re-entrant dispose or commit made this preparation stale.
+                if self._disposed or self._generation != generation:
+                    return
                 errors_changed = next_errors != self._errors
+                self._model = next_model
                 self._errors = next_errors
-                is_valid = not self._errors
+                self._generation += 1
+                is_valid = not next_errors
 
                 if errors_changed:
                     self._errors_changed.on_next(dict(next_errors))
@@ -492,18 +646,31 @@ class FormVM(Generic[TM]):
         Called by the RelayCommand (which expects a sync callable). Fire-and-forget:
         a persister failure is routed to :attr:`approve_errors` instead of being
         swallowed (VMX-008). Use :meth:`approve_async` for awaitable raising behavior.
+
+        Admission (spec/20 §5.3) happens synchronously here, before the persist
+        is scheduled, so a second ``execute()`` in the same turn is refused.
         """
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            future = submit_background(self.approve_async())
-            future.add_done_callback(self._on_approve_done)
+        admission = self._admit_approval()
+        if admission is None:
             return
-        task = loop.create_task(self.approve_async())
+        approval = self._run_admitted_approval(admission[0])
+        try:
+            loop: asyncio.AbstractEventLoop | None = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        try:
+            scheduled: asyncio.Task[None] | Future[None] = (
+                loop.create_task(approval) if loop is not None else submit_background(approval)
+            )
+        except BaseException:
+            # Nothing was scheduled: release the admission instead of wedging.
+            approval.close()
+            self._settle_failed_approval()
+            raise
         # Mirror the C# continuation: surface the persister failure on the error
         # channel. Skip cancelled tasks — Task.exception() raises CancelledError
         # for those, which would error the loop's callback.
-        task.add_done_callback(self._on_approve_done)
+        scheduled.add_done_callback(self._on_approve_done)
 
     def _on_approve_done(self, task: asyncio.Future[None] | Future[None]) -> None:
         if task.cancelled():
@@ -515,7 +682,27 @@ class FormVM(Generic[TM]):
     def _emit_approve_error(self, exc: BaseException) -> None:
         # The subject is completed+disposed on dispose(); a persister failure
         # arriving after dispose must not raise reactivex DisposedException.
+        # Publish as an approval publication rather than under the lock, so a
+        # concurrent dispose still waits for delivery but observers run unlocked.
+        caller = get_ident()
         with self._state_changed:
+            while (
+                self._approval_publishing
+                and self._approval_publisher_thread != caller
+                and not self._disposed
+            ):
+                self._state_changed.wait()
             if self._disposed:
                 return
+            outer = self._enter_publication(caller, pre_publishing=False)
+        try:
             self._approve_errors.on_next(exc)
+        finally:
+            self._exit_publication(outer)
+
+    def _can_approve(self) -> bool:
+        """``approve_command`` predicate: validity, strict mode, and admission."""
+        with self._state_changed:
+            if self._errors or self._approval_in_flight:
+                return False
+            return not self._strict or self._model != self._snapshot

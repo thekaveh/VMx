@@ -37,12 +37,12 @@ pub use value_stream::{ValueStream, ValueSubscription};
 /// Version of the compiled Rust package.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Minimum language-neutral VMx specification version implemented by this package.
-pub const MIN_SPEC_VERSION: &str = "3.26.0";
+pub const MIN_SPEC_VERSION: &str = "3.29.0";
 
 mod runtime;
 pub use runtime::*;
 pub(crate) use runtime::{
-    begin_membership_transaction, begin_parent_transfer, evaluate_command_predicate,
+    begin_membership_transaction, begin_parent_transfer, clone_locked, evaluate_command_predicate,
     finish_with_first_error, finish_with_first_failure, lock, next_id, retain_first_error,
     retain_first_failure, retain_parent_transfer_commit, spawn_worker, wait, ComponentCore,
     FirstFailure, MembershipDisposeDisposition, MembershipTransactionControl,

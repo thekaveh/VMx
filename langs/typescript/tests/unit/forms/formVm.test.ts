@@ -580,6 +580,104 @@ describe("FormVM – approve error channel (VMX-008)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Approval admission edges (§5.3, ADR-0143)
+//
+// Conformance coverage lives in form-031-to-034-approval-admission.test.ts.
+// These pin the TypeScript paths that must also settle or stay inert.
+// ---------------------------------------------------------------------------
+
+describe("FormVM – approval admission edges", () => {
+  it("settles when the default snapshot advance fails, so the next approval is admitted", async () => {
+    type AnyModel = Record<string, unknown>;
+    const persisted: AnyModel[] = [];
+    const form = new FormVM<AnyModel>({
+      initial: { title: "safe" },
+      persister: (model) => {
+        persisted.push(model);
+        return Promise.resolve();
+      },
+    });
+    let notifications = 0;
+    form.approveCommand.canExecuteChanged.subscribe(() => { notifications++; });
+    form.setModel({ title: "changed", callback: () => undefined });
+
+    await expect(form.approveAsync()).rejects.toThrow("approve snapshot advance");
+    expect(notifications).toBe(2);
+    expect(form.approveCommand.canExecute()).toBe(true);
+
+    form.setModel({ title: "fixed" });
+    await form.approveAsync();
+    expect(persisted).toHaveLength(2);
+    expect(form.snapshot).toEqual({ title: "fixed" });
+  });
+
+  it("settles when the persister throws synchronously", async () => {
+    const boom = new Error("sync throw");
+    let calls = 0;
+    const form = new FormVM<IModel>({
+      initial: m("A", 1),
+      persister: () => {
+        calls++;
+        if (calls === 1) throw boom;
+        return Promise.resolve();
+      },
+    });
+
+    await expect(form.approveAsync()).rejects.toBe(boom);
+    expect(form.approveCommand.canExecute()).toBe(true);
+    await form.approveAsync();
+    expect(calls).toBe(2);
+  });
+
+  it("does not invoke the persister when an admission observer disposes the form", async () => {
+    const persister = vi.fn(noop);
+    const form = new FormVM<IModel>({ initial: m("A", 1), persister });
+    form.approveCommand.canExecuteChanged.subscribe(() => form.dispose());
+
+    await expect(form.approveAsync()).resolves.toBeUndefined();
+    expect(persister).not.toHaveBeenCalled();
+  });
+
+  it("admits an approval started by a settlement canExecuteChanged observer", async () => {
+    let releaseSecond!: () => void;
+    const persisted: IModel[] = [];
+    const form = new FormVM<IModel>({
+      initial: m("A", 1),
+      persister: (model) => {
+        persisted.push(model);
+        if (persisted.length === 1) return Promise.resolve();
+        return new Promise<void>((resolve) => { releaseSecond = resolve; });
+      },
+    });
+    const approved: IModel[] = [];
+    form.onApproved.subscribe((value) => approved.push(value));
+    form.setModel(m("B", 2));
+
+    const nested: Array<Promise<void>> = [];
+    let notifications = 0;
+    form.approveCommand.canExecuteChanged.subscribe(() => {
+      notifications++;
+      // The first settlement notification (after the admission one).
+      if (notifications === 2) nested.push(form.approveAsync());
+    });
+
+    await form.approveAsync();
+
+    // The nested approval was admitted during settlement and runs
+    // independently; the settled approval still routed its own outcome.
+    expect(persisted).toEqual([m("B", 2), m("B", 2)]);
+    expect(approved).toEqual([m("B", 2)]);
+    expect(form.approveCommand.canExecute()).toBe(false);
+
+    expect(nested).toHaveLength(1);
+    releaseSecond();
+    await nested[0]!;
+    expect(approved).toEqual([m("B", 2), m("B", 2)]);
+    expect(form.approveCommand.canExecute()).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Builder snapshotter (was ctor-only tested)
 // ---------------------------------------------------------------------------
 

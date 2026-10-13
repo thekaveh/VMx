@@ -6,6 +6,53 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ## [Unreleased]
 
+## [3.29.0] — unreleased source version
+
+### Changed
+
+- An awaited `execute_async()` on `ConfirmationDecoratorCommand` now completes
+  when an asynchronous inner command (one with an awaitable `execute_async`, or
+  a nested confirmation wrapper) finishes, not when it starts. After a true
+  confirmation the decorator invokes the inner exactly once through its
+  awaitable entry point, and an inner failure reaches the awaiter instead of the
+  inner's `errors`. The fire-and-forget `execute()` still starts an asynchronous
+  inner through the inner's own `execute()`, so its failures stay on the inner's
+  `errors`; the decorator's `errors` carries only confirmation failures and
+  synchronous-inner failures. The decorator adds no admission, cancellation, or
+  ownership of the inner (`CMDD-014..017`, ADR-0145, spec 3.29.0) (#355).
+
+## [3.28.0] — unreleased source version
+
+### Changed
+
+- `FormVM` model updates are failure-atomic. `set_model` and deny run the
+  equality comparison, the validators, and (for deny) the snapshotter on the
+  candidate before changing anything; if one raises, the exception reaches the
+  caller and the model, snapshot, errors, dirty and valid state, and command
+  state are unchanged, with no notification. A failure is never turned into a
+  validation error. A validator that reads the form's model sees the previous
+  model; it receives the candidate as its argument. If a validator disposes the
+  form or makes another edit, the interrupted update commits nothing and the
+  newest edit stands, while edits from other threads still wait for an update in
+  progress (`FORM-035..038`, ADR-0144, spec 3.28.0) (#337).
+
+## [3.27.0] — unreleased source version
+
+### Changed
+
+- `FormVM` admits one approval at a time. While an approval is in flight,
+  `approve_command.can_execute()` is false and any other approve call through
+  `approve_async()` or `approve_command.execute()` does nothing: it does not
+  call the persister, change state, raise, or emit on `on_approved` or
+  `approve_errors`. Admission marks the approval in flight and captures the
+  model before raising the approve command's can-execute notification once;
+  settlement clears the mark first, then publishes `errors_changed` if needed,
+  one can-execute notification, and the outcome, so an approval started by an
+  outcome observer is admitted. `set_model` and deny are not blocked. A
+  double-executed save now persists once; to save again after an in-flight
+  approval, await it and approve again (`FORM-031..034`, ADR-0143, spec 3.27.0)
+  (#327).
+
 ## [3.26.0] — unreleased source version
 
 ### Changed

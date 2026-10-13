@@ -35,6 +35,55 @@ All notable changes to the C# flavor are documented here. The format is based on
 - The NuGet package ships its own README describing `AddVMx()` registration
   and its dependency on `VMx` (#351).
 
+## [3.29.0] — unreleased source version
+
+### Changed
+
+- An awaited `ExecuteAsync()` on `ConfirmationDecoratorCommand` now completes
+  when an asynchronous inner command (an `IAsyncCommand`, or a nested
+  confirmation wrapper) finishes, not when it starts. After a true confirmation
+  the decorator invokes the inner exactly once through its awaitable entry
+  point, and an inner failure reaches the awaiter instead of the inner's
+  `Errors`. The fire-and-forget `Execute()` still starts an asynchronous inner
+  through the inner's own `Execute()`, so its failures stay on the inner's
+  `Errors`; the decorator's `Errors` carries only confirmation failures and
+  synchronous-inner failures. The decorator adds no admission, cancellation, or
+  ownership of the inner (`CMDD-014..017`, ADR-0145, spec 3.29.0) (#355).
+
+## [3.28.0] — unreleased source version
+
+### Changed
+
+- `FormVM` model updates are failure-atomic. `SetModel` and deny run the
+  equality comparison, the validators, and (for deny) the snapshotter on the
+  candidate before changing anything; if one throws, the exception reaches the
+  caller and the model, snapshot, errors, dirty and valid state, and command
+  state are unchanged, with no notification. A failure is never turned into a
+  validation error. A validator that reads the form's model sees the previous
+  model; it receives the candidate as its argument. If a validator disposes the
+  form or makes another edit, the interrupted update commits nothing and the
+  newest edit stands, while edits from other threads still wait for an update in
+  progress (`FORM-035..038`, ADR-0144, spec 3.28.0) (#337).
+
+## [3.27.0] — unreleased source version
+
+### Changed
+
+- `FormVM` admits one approval at a time. While an approval is in flight,
+  `ApproveCommand.CanExecute()` is false and any other `ApproveAsync()` or
+  `ApproveCommand.Execute()` call does nothing: it returns a completed task
+  without calling the persister, changing state, throwing, or emitting on
+  `OnApproved` or `ApproveErrors`. Admission marks the approval in flight and
+  captures the model before raising `CanExecuteChanged` once; settlement clears
+  the mark first, then publishes `ErrorsChanged` if needed, one
+  `CanExecuteChanged`, and the outcome, so an approval started by an outcome
+  observer is admitted. `SetModel` and deny are not blocked. A double-executed
+  save now persists once; to save again after an in-flight approval, await it
+  and approve again. `CanExecuteChanged` now fires on every admission and
+  settlement, on the persister's continuation thread, so a UI binding must
+  marshal it as it already does for `AsyncRelayCommand` (`FORM-031..034`,
+  ADR-0143, spec 3.27.0) (#327).
+
 ## [3.26.0] — unreleased source version
 
 ### Changed

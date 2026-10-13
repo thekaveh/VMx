@@ -346,4 +346,166 @@ public sealed class NoteFormVMTests
 
         Assert.Contains(observed, n => n.Message.Contains("Saved") && n.Message.Contains("Edited title"));
     }
+
+    [Fact]
+    public async Task Double_save_while_the_repository_save_is_pending_persists_once()
+    {
+        // Adversarial (spec/20 §5.3, ADR-0143): the inner FormVM admits one
+        // approval at a time, so a save issued while the repository save is
+        // still pending is refused instead of persisting the note twice, and
+        // it runs none of the post-save steps for a save that did not happen.
+        var timeout = TimeSpan.FromSeconds(30);
+        var gated = await BuildWithGatedSaves();
+        var (form, repo) = (gated.Form, gated.Repo);
+        form.Title = "Saved once";
+        gated.FormChanges.Clear(); // keep only what the saves emit
+        var loadsBeforeSave = repo.LoadAllCalls;
+
+        var first = form.ApproveAsync();
+        await repo.SaveEntered.WaitAsync(timeout);
+        var second = form.ApproveAsync();
+        form.ApproveCommand.Execute(null);
+
+        // Refusal is synchronous, so a second persist would already be counted.
+        Assert.Equal(1, repo.SaveCalls);
+        await second.WaitAsync(timeout);
+        Assert.Equal(1, repo.SaveCalls);
+        Assert.False(first.IsCompleted, "the first save is still waiting on the repository");
+        Assert.True(form.IsDirty, "the snapshot advances only when the pending save completes");
+        // No post-save step ran: no "Saved" notification, no draft
+        // re-emission, and no tag refresh.
+        Assert.Empty(gated.Notifications);
+        Assert.Empty(gated.FormChanges);
+        Assert.Equal(loadsBeforeSave, repo.LoadAllCalls);
+        Assert.Empty(gated.Saved);
+
+        repo.ReleaseSave();
+        await first.WaitAsync(timeout);
+
+        Assert.Equal(1, repo.SaveCalls);
+        Assert.False(form.IsDirty);
+        Assert.Equal("Saved once", form.Snapshot.Title);
+        Assert.Equal(new[] { "Saved “Saved once”" }, gated.Notifications);
+        Assert.Equal(loadsBeforeSave + 1, repo.LoadAllCalls);
+        Assert.Contains(nameof(NoteFormVM.Snapshot), gated.FormChanges);
+        Assert.Equal(new[] { "Saved once" }, gated.Saved.Select(n => n.Title));
+        var reload = await repo.LoadNotesAsync(gated.Note.NotebookId);
+        Assert.Equal("Saved once", reload.Single(n => n.Id == gated.Note.Id).Title);
+    }
+
+    [Fact]
+    public async Task Rebinding_while_a_save_is_pending_posts_no_Saved_for_either_note()
+    {
+        // Rebinding disposes the pending save's form, which then publishes no
+        // approval (spec/20 §5.3), so the save runs no post-save step.
+        var timeout = TimeSpan.FromSeconds(30);
+        var gated = await BuildWithGatedSaves();
+        var (form, repo) = (gated.Form, gated.Repo);
+        form.Title = "Edited";
+        var next = (await repo.LoadAllAsync()).Notes.First(n => n.Id != gated.Note.Id);
+        var loadsBeforeSave = repo.LoadAllCalls;
+
+        var pending = form.ApproveAsync();
+        await repo.SaveEntered.WaitAsync(timeout);
+        form.BindTo(next);
+        repo.ReleaseSave();
+        await pending.WaitAsync(timeout);
+
+        Assert.Equal(1, repo.SaveCalls);
+        Assert.Empty(gated.Saved);
+        Assert.Empty(gated.Notifications);
+        Assert.Equal(loadsBeforeSave, repo.LoadAllCalls);
+        Assert.Equal(next.Title, form.Snapshot.Title);
+    }
+
+    [Fact]
+    public async Task ApproveAsync_after_Dispose_saves_nothing_and_does_not_throw()
+    {
+        var (form, repo) = Build();
+        var note = (await repo.LoadAllAsync()).Notes.First();
+        form.BindTo(note);
+        form.Title = "Edited after dispose";
+        form.Dispose();
+
+        await form.ApproveAsync();
+
+        var reload = await repo.LoadNotesAsync(note.NotebookId);
+        Assert.Equal(note.Title, reload.Single(n => n.Id == note.Id).Title);
+    }
+
+    // A form over a GatedSaveRepository with a notification hub, bound to the
+    // first seeded note, recording what its post-save steps produce.
+    private static async Task<GatedForm> BuildWithGatedSaves()
+    {
+        var repo = new GatedSaveRepository(new InMemoryNoteRepository(
+            SeedData.Build(),
+            loadAllDelay: TimeSpan.Zero,
+            loadNotesDelay: TimeSpan.Zero,
+            saveNoteDelay: TimeSpan.Zero));
+        var hub = new MessageHub();
+        var dispatcher = new RxDispatcher(ImmediateScheduler.Instance, ImmediateScheduler.Instance);
+        var notificationHub = new NotificationHub();
+        var form = NoteFormVM.Builder()
+            .Name("form").Services(hub, dispatcher).Repository(repo)
+            .NotificationHub(notificationHub).Build();
+        form.Construct();
+        var note = (await repo.LoadAllAsync()).Notes.First();
+        form.BindTo(note);
+        var gated = new GatedForm(form, repo, note);
+        var seen = new HashSet<Notification>();
+        notificationHub.Pending.Subscribe(snapshot =>
+        {
+            foreach (var n in snapshot)
+                if (seen.Add(n)) gated.Notifications.Add(n.Message);
+        });
+        form.OnSaved.Subscribe(gated.Saved.Add);
+        hub.Messages
+            .OfType<VMx.Messages.PropertyChangedMessage<VMx.Components.IComponentVM>>()
+            .Where(m => ReferenceEquals(m.Sender, form))
+            .Subscribe(m => gated.FormChanges.Add(m.PropertyName));
+        return gated;
+    }
+
+    private sealed record GatedForm(NoteFormVM Form, GatedSaveRepository Repo, NoteModel Note)
+    {
+        public List<string> Notifications { get; } = [];
+        public List<NoteModel> Saved { get; } = [];
+        public List<string> FormChanges { get; } = [];
+    }
+
+    // Holds every SaveNoteAsync until the test releases it, counting calls,
+    // and counts the LoadAllAsync calls a post-save tag refresh makes.
+    private sealed class GatedSaveRepository(INoteRepository inner) : INoteRepository
+    {
+        private readonly TaskCompletionSource _saveEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _saveCalls;
+        private int _loadAllCalls;
+
+        public int SaveCalls => Volatile.Read(ref _saveCalls);
+        public int LoadAllCalls => Volatile.Read(ref _loadAllCalls);
+        public Task SaveEntered => _saveEntered.Task;
+        public void ReleaseSave() => _release.TrySetResult();
+
+        public Task<(IReadOnlyList<NotebookModel> Notebooks, IReadOnlyList<NoteModel> Notes)> LoadAllAsync(CancellationToken ct = default)
+        {
+            Interlocked.Increment(ref _loadAllCalls);
+            return inner.LoadAllAsync(ct);
+        }
+        public Task<IReadOnlyList<NoteModel>> LoadNotesAsync(string notebookId, CancellationToken ct = default)
+            => inner.LoadNotesAsync(notebookId, ct);
+        public Task<NoteSearchPage> SearchNotesAsync(string term, string? token, int pageSize, CancellationToken ct = default)
+            => inner.SearchNotesAsync(term, token, pageSize, ct);
+        public async Task SaveNoteAsync(NoteModel note, CancellationToken ct = default)
+        {
+            Interlocked.Increment(ref _saveCalls);
+            _saveEntered.TrySetResult();
+            await _release.Task.ConfigureAwait(false);
+            await inner.SaveNoteAsync(note, ct).ConfigureAwait(false);
+        }
+        public Task DeleteNoteAsync(string id, CancellationToken ct = default) => inner.DeleteNoteAsync(id, ct);
+        public Task AddNotebookAsync(NotebookModel notebook, CancellationToken ct = default) => inner.AddNotebookAsync(notebook, ct);
+        public Task ExportAsync(IReadOnlyList<NotebookModel> notebooks, IReadOnlyList<NoteModel> notes, string path, CancellationToken ct = default)
+            => inner.ExportAsync(notebooks, notes, path, ct);
+    }
 }

@@ -6,6 +6,79 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.35.0] — unreleased source version
+
+### Added
+
+- `Command::as_async()`, a provided trait method that returns a command's
+  awaitable entry point, or `None` for a synchronous command. Calling it makes
+  one execution attempt whose `AsyncValue` settles when the attempt completes;
+  an attempt the command does not admit settles `Ok(())` at once.
+  `AsyncRelayCommand` and `ConfirmationDecoratorCommand` provide it, and
+  `Arc<T>` forwards it (ADR-0145) (#355).
+
+### Changed
+
+- An awaited `ConfirmationDecoratorCommand::execute_async()` now completes when
+  an asynchronous inner command's operation finishes, invoking it exactly once
+  through `as_async()`; a nested confirmation is awaited end to end. An inner
+  failure reaches the awaiter instead of the inner's error stream:
+  `ConfirmationExecution::join()` returns it as `Err(Box<VmxError>)`, which
+  downcasts to the original error, and the decorator's `as_async()` entry point
+  returns it as `Err(VmxError)`. The fire-and-forget `execute()` is unchanged
+  (`CMDD-014..017`, ADR-0145, spec 3.29.0) (#355).
+
+## [0.34.0] — unreleased source version
+
+### Changed
+
+- `FormVm` model updates are failure-atomic. `set_model` and deny run the
+  equality comparison, the validators, and (for deny) the snapshotter on owned
+  copies before changing anything; a panic in one of them unwinds to the caller
+  with the model, snapshot, errors, dirty and valid state, and command state
+  unchanged, no notification, and no lock poisoned or held. A failure is never
+  turned into a validation error, and a panicking validator fails `build()`. A
+  validator that reads the form sees the previous model. Updates are serialized
+  per form by a re-entrant update lock, so another thread's edit, approval
+  commit, or disposal waits for an update in progress; if a validator itself
+  disposes the form or makes another edit, the interrupted update commits
+  nothing and the newest edit stands (`FORM-035..038`, ADR-0144, spec 3.28.0)
+  (#337).
+
+### Fixed
+
+- A same-thread re-entrant `execute()` on a `RelayCommand` or
+  `RelayCommandOf<T>` no longer deadlocks. The command held its action's mutex
+  while running it, so a nested call from the action, a `can_execute_changed`
+  handler, or a hub subscriber (for example an `approve_command().execute()`
+  from FormVM's approved callback, `approve_errors` subscriber, or settlement
+  notification) blocked forever. Built-in commands now run a nested call inline,
+  as the other flavors do. A command built from a user `FnMut` action defers an
+  admitted nested call until its current action returns, still before the
+  outermost `execute` returns; a call from another thread waits, a deferred call
+  does not run after disposal, and a panicking action drops the calls deferred
+  during it. Built-in commands called from several threads now run concurrently,
+  like the methods they wrap.
+
+## [0.33.0] — unreleased source version
+
+### Changed
+
+- `FormVm` admits one approval at a time. While an approval is in flight, the
+  approve command's `can_execute()` is false and any other approve call through
+  `approve()` or the approve command does nothing: it does not call the
+  persister, change state, return an error, or emit on the approved callbacks or
+  `approve_errors`. Admission marks the approval in flight and captures the
+  model before raising its can-execute notification once; settlement clears the
+  mark first, then publishes errors-changed if needed, one can-execute
+  notification, and the outcome, so an approval started by an outcome observer
+  is admitted. `set_model` and deny are not blocked. A double-executed save now
+  persists once; to save again, approve after the in-flight approval returns
+  (`FORM-031..034`, ADR-0143, spec 3.27.0) (#327).
+- A panic in the persister or the reset settles the approval like a failure
+  (the mark is cleared and one can-execute notification is raised) before the
+  panic resumes on the caller (#327).
+
 ## [0.32.0] — unreleased source version
 
 ### Fixed

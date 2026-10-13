@@ -45,6 +45,19 @@ type SnapshotPhase =
   | "approve reset snapshot"
   | "deny/revert";
 
+/**
+ * The result of preparing a model update (§5.4): the next model and error map,
+ * and the dirty and valid state before and after it. Every consumer callback
+ * the update needs has already run, so committing it runs none.
+ */
+interface PreparedUpdate<TM> {
+  readonly model: TM;
+  readonly errors: Record<string, string>;
+  readonly wasDirty: boolean;
+  readonly wasValid: boolean;
+  readonly isDirty: boolean;
+}
+
 function hasReachableEnumerableAccessor(
   value: unknown,
   seen = new Set<object>(),
@@ -402,8 +415,15 @@ export class FormVM<TM> {
   #disposed = false;
   #activeSyncOperations = 0;
   #teardownPending = false;
+  // Single-flight admission (§5.3): set when an approval is admitted, cleared
+  // when it settles. Disposal leaves it set; a disposed form is inert anyway.
+  #approvalInFlight = false;
   #approvalPrePublishing = false;
   #deferredApprovalModels: TM[] = [];
+  // Commit generation (§5.4): advanced by every committed state change (an
+  // assignment, a revert, or an approval snapshot advance or reset). A
+  // preparation that finishes under a newer generation is stale.
+  #generation = 0;
 
   readonly #onApproved = new Subject<TM>();
   readonly #approveErrors = new Subject<unknown>();
@@ -455,6 +475,8 @@ export class FormVM<TM> {
 
     this.#model = initial;
     this.#snapshot = this.#takeSnapshot(initial, "construction");
+    // The same preparation as an update (§5.4): a throwing validator fails
+    // construction, so no form exists.
     this.#errors = this.#validate(initial);
 
     this.denyCommand = RelayCommand.builder()
@@ -482,7 +504,10 @@ export class FormVM<TM> {
           }
         });
       })
-      .predicate(() => this.isValid && (!this.#strict || this.isDirty))
+      // While an approval is in flight the command is disabled, so execute()
+      // refuses a second approval before reaching the task (§5.3).
+      .predicate(() =>
+        !this.#approvalInFlight && this.isValid && (!this.#strict || this.isDirty))
       .triggers(this.#canExecuteTrigger)
       .build();
   }
@@ -550,6 +575,12 @@ export class FormVM<TM> {
    * Replaces the current model. May change `isDirty`; in strict mode fires
    * `approveCommand.canExecuteChanged` on dirty transitions.
    * A call begun after disposal returns before inspecting the candidate.
+   *
+   * The update is failure-atomic (§5.4): the equality comparisons and the
+   * validators run before anything is committed. If one throws, the error
+   * propagates and the form is unchanged, with nothing published. If a
+   * callback disposes the form or commits another update, this call commits
+   * and publishes nothing.
    */
   setModel(model: TM): void {
     if (this.#disposed) return;
@@ -562,14 +593,16 @@ export class FormVM<TM> {
       if (model === null || model === undefined) {
         throw new Error("model must not be null or undefined");
       }
+      // Preparation: every consumer callback runs before any commit.
+      const generation = this.#generation;
       if (this.#equals(this.#model, model)) return;
-      const wasDirty = this.isDirty;
-      const wasValid = this.isValid;
-      this.#model = model;
-      this.#revalidate();
-      if ((this.#strict && this.isDirty !== wasDirty) || this.isValid !== wasValid) {
-        this.#canExecuteTrigger.next();
-      }
+      const update = this.#prepare(model);
+      if (this.#isStale(generation)) return;
+
+      // Commit in one step, then publish; no consumer callback runs between.
+      const errorsChanged = this.#commit(update);
+      if (errorsChanged) this.#errorsChanged.next({ ...update.errors });
+      if (this.#approveStateChanged(update)) this.#canExecuteTrigger.next();
       this.#hub.send(PropertyChangedMessage.create(this, "FormVM", "model"));
     } finally {
       this.#endSyncOperation();
@@ -581,16 +614,38 @@ export class FormVM<TM> {
   /**
    * Awaitable approve flow. Invokes the persister, advances `snapshot` on success,
    * and fires `onApproved`. Throws when the persister throws (no state mutation).
+   * Only one approval runs at a time: a call made while another is in flight
+   * returns without persisting, mutating, throwing, or emitting (§5.3).
    */
   async approveAsync(): Promise<void> {
     // A disposed form is a full no-op — the persister must not be invoked
     // (symmetric with the deny guard).
     if (this.#disposed) return;
     if (!this.isValid) return;
-    const current = this.#model;
+    // A refused call is observably the same as approving an invalid form,
+    // whether it comes from a caller, the persister, or an observer.
+    if (this.#approvalInFlight) return;
 
-    // May throw — intentional. No state mutation if this throws.
-    await this.#persister(current);
+    // Admission: mark the approval in flight before the capture and the
+    // persister call, then announce the disabled command once.
+    this.#approvalInFlight = true;
+    const current = this.#model;
+    this.#raiseApproveCanExecuteChanged();
+    // An admission observer may dispose the form reentrantly; a disposed form
+    // never invokes the persister. The analyzer narrows #disposed from the
+    // entry guard, but the notification is a genuine interleaving point.
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    if (this.#disposed) return;
+
+    try {
+      // May throw — intentional. No state mutation if this throws.
+      await this.#persister(current);
+    } catch (error: unknown) {
+      // Failure or cancellation settles the approval before the error reaches
+      // its one channel: this awaiter, or approveErrors on the command path.
+      this.#settleFailedApproval();
+      throw error;
+    }
 
     // dispose() may have run during the await; rxjs would silently no-op
     // the emissions below, but the snapshot advance is a real state
@@ -604,29 +659,38 @@ export class FormVM<TM> {
     try {
       // Success: atomically install the configured reset state, or preserve the
       // legacy snapshot-advance behavior when no reset is configured.
-      const wasDirty = this.isDirty;
-      const wasValid = Object.keys(this.#errors).length === 0;
-      let validityChanged = false;
       let errorsChanged = false;
-      if (this.#resetOnApproved !== null) {
-        // Prepare callback output, two independent values, and validation before
-        // committing any local field. A failure therefore leaves state intact.
-        const reset = this.#resetOnApproved(current);
-        const nextModel = this.#takeSnapshot(reset, "approve reset model");
-        const nextSnapshot = this.#takeSnapshot(reset, "approve reset snapshot");
-        const nextErrors = this.#validate(nextModel);
-        validityChanged = (Object.keys(nextErrors).length === 0) !== wasValid;
+      try {
+        if (this.#resetOnApproved !== null) {
+          // Prepare callback output, two independent values, and validation
+          // before committing any local field. A failure therefore leaves
+          // state intact.
+          const reset = this.#resetOnApproved(current);
+          const nextModel = this.#takeSnapshot(reset, "approve reset model");
+          const nextSnapshot = this.#takeSnapshot(reset, "approve reset snapshot");
+          const nextErrors = this.#validate(nextModel);
 
-        this.#model = nextModel;
-        this.#snapshot = nextSnapshot;
-        if (!sameErrors(nextErrors, this.#errors)) {
-          this.#errors = nextErrors;
-          errorsChanged = true;
+          this.#model = nextModel;
+          this.#snapshot = nextSnapshot;
+          this.#generation += 1;
+          if (!sameErrors(nextErrors, this.#errors)) {
+            this.#errors = nextErrors;
+            errorsChanged = true;
+          }
+        } else {
+          this.#snapshot = this.#takeSnapshot(current, "approve snapshot advance");
+          this.#generation += 1;
         }
-      } else {
-        this.#snapshot = this.#takeSnapshot(current, "approve snapshot advance");
+      } catch (error: unknown) {
+        // A failed reset or snapshot advance commits nothing and settles the
+        // approval exactly like a persister failure.
+        this.#settleFailedApproval();
+        throw error;
       }
 
+      // Settlement: clear the mark first, so every notification below reaches
+      // an idle form and an approval started by an observer is admitted.
+      this.#approvalInFlight = false;
       this.#approvalPrePublishing = true;
       try {
         if (errorsChanged) {
@@ -635,12 +699,12 @@ export class FormVM<TM> {
           // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
           if (this.#disposed) return;
         }
-        if ((this.#strict && this.isDirty !== wasDirty) || validityChanged) {
-          this.#canExecuteTrigger.next();
-          // A synchronous observer may dispose the form reentrantly.
-          // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-          if (this.#disposed) return;
-        }
+        // Exactly one notification per settlement. It also covers any
+        // strict-mode dirty or validity change the commit made.
+        this.#canExecuteTrigger.next();
+        // A synchronous observer may dispose the form reentrantly.
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+        if (this.#disposed) return;
       } finally {
         this.#approvalPrePublishing = false;
       }
@@ -686,19 +750,84 @@ export class FormVM<TM> {
     if (this.#disposed) return;
     this.#beginSyncOperation();
     try {
-      const wasDirty = this.isDirty;
-      const wasValid = this.isValid;
-      this.#model = this.#takeSnapshot(this.#snapshot, "deny/revert");
-      this.#revalidate();
+      // Preparation (§5.4): the snapshotter, validators, and equality
+      // comparisons all run before any commit.
+      const generation = this.#generation;
+      const reverted = this.#takeSnapshot(this.#snapshot, "deny/revert");
+      const update = this.#prepare(reverted);
+      if (this.#isStale(generation)) return;
+
+      const errorsChanged = this.#commit(update);
+      if (errorsChanged) this.#errorsChanged.next({ ...update.errors });
 
       this.#hub.send(new FormRevertedMessage(this, "FormVM"));
       this.#hub.send(
         PropertyChangedMessage.create(this, "FormVM", "model"),
       );
 
-      if ((this.#strict && wasDirty !== this.isDirty) || wasValid !== this.isValid) {
-        this.#canExecuteTrigger.next();
-      }
+      if (this.#approveStateChanged(update)) this.#canExecuteTrigger.next();
+    } finally {
+      this.#endSyncOperation();
+    }
+  }
+
+  /**
+   * Prepares an update to `model` (§5.4): runs the dirty comparisons and the
+   * validators without changing any form state. A throwing callback
+   * propagates with nothing prepared.
+   */
+  #prepare(model: TM): PreparedUpdate<TM> {
+    const wasDirty = !this.#equals(this.#model, this.#snapshot);
+    const wasValid = this.isValid;
+    const errors = this.#validate(model);
+    const isDirty = !this.#equals(model, this.#snapshot);
+    return { model, errors, wasDirty, wasValid, isDirty };
+  }
+
+  /**
+   * True when a preparation begun at `generation` may not commit: a callback
+   * disposed the form or another update committed while it ran.
+   */
+  #isStale(generation: number): boolean {
+    return this.#disposed || generation !== this.#generation;
+  }
+
+  /**
+   * Installs a prepared model and error map in one step and advances the
+   * commit generation. Runs no consumer callback. Returns true when the
+   * effective error map changed.
+   */
+  #commit(update: PreparedUpdate<TM>): boolean {
+    this.#model = update.model;
+    this.#generation += 1;
+    if (sameErrors(update.errors, this.#errors)) return false;
+    this.#errors = update.errors;
+    return true;
+  }
+
+  /** Whether a committed update changes what the approve gates depend on. */
+  #approveStateChanged(update: PreparedUpdate<TM>): boolean {
+    const isValid = Object.keys(update.errors).length === 0;
+    return (this.#strict && update.isDirty !== update.wasDirty)
+      || isValid !== update.wasValid;
+  }
+
+  /**
+   * Settles an approval whose persister, reset, or snapshot advance failed:
+   * clear the mark, then raise the one settlement notification. The caller
+   * rethrows, so the outcome is routed after both. Disposal suppresses it.
+   */
+  #settleFailedApproval(): void {
+    if (this.#disposed) return;
+    this.#approvalInFlight = false;
+    this.#raiseApproveCanExecuteChanged();
+  }
+
+  /** Raises one approve re-evaluation; a reentrant dispose waits for it. */
+  #raiseApproveCanExecuteChanged(): void {
+    this.#beginSyncOperation();
+    try {
+      this.#canExecuteTrigger.next();
     } finally {
       this.#endSyncOperation();
     }
@@ -741,13 +870,6 @@ export class FormVM<TM> {
     } catch (cause: unknown) {
       throw defaultSnapshotError(model, phase, cause);
     }
-  }
-
-  #revalidate(): void {
-    const errors = this.#validate(this.#model);
-    if (sameErrors(errors, this.#errors)) return;
-    this.#errors = errors;
-    this.#errorsChanged.next({ ...errors });
   }
 }
 

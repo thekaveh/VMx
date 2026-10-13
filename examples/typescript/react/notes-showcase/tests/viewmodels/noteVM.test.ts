@@ -243,7 +243,7 @@ describe("NoteVM", () => {
     expect(command.isExecuting).toBe(false);
   });
 
-  it("delete success notification waits for async persistence", async () => {
+  it("awaiting a confirmed delete completes only after async persistence and its notification", async () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; });
     const notifs = new NotificationHub();
@@ -261,13 +261,20 @@ describe("NoteVM", () => {
       .build();
     vm.construct();
 
-    await (vm.deleteCommand as ConfirmationDecoratorCommand).executeAsync();
+    // ADR-0145: the awaited confirmation awaits the async inner delete.
+    let settled = false;
+    const deletion = (vm.deleteCommand as ConfirmationDecoratorCommand)
+      .executeAsync()
+      .then(() => { settled = true; });
+    for (let i = 0; i < 25; i += 1) await Promise.resolve();
 
+    expect(settled).toBe(false);
     expect(observed.some((message) => message.includes("Note deleted"))).toBe(false);
+
     release();
-    await vi.waitFor(() => {
-      expect(observed.some((message) => message.includes("Note deleted"))).toBe(true);
-    });
+    await deletion;
+
+    expect(observed.some((message) => message.includes("Note deleted"))).toBe(true);
   });
 
   it("delete failure propagates without a success notification", async () => {

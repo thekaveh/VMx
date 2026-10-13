@@ -1,7 +1,7 @@
 # 12 — Conformance test catalog
 
 This document enumerates every stable conformance test identifier in the form
-`XXX-NNN`. Each of the five language flavors MUST implement all 413 library IDs
+`XXX-NNN`. Each of the five language flavors MUST implement all 425 library IDs
 in `langs/<lang>/tests/conformance/` before it can be marked stable. The five
 `THEME-00x` IDs are application-level scenarios implemented by the four
 UI-backed flagship examples. CI verifies library coverage via
@@ -1525,6 +1525,81 @@ disposes the decorator
 **And** the decorator whose pre-action ran invokes its post-action exactly once
 **And** a decorator whose inner command throws still invokes its post-action once
 and the exception propagates
+
+### CMDD-014 — Awaited confirmation completes when an async inner completes
+
+Per spec/04-commands.md §8.3.2 and ADR-0145.
+
+**Given** a `ConfirmationDecoratorCommand` over an async inner command whose
+body blocks until released, with a `confirm` delegate that resolves `true`
+**When** `ExecuteAsync()` is awaited
+**Then** the awaiter has not completed while the inner body is blocked
+**And** it completes after the body is released
+**And** the inner's awaitable entry point ran exactly once and its synchronous
+`Execute()` never ran for this call
+
+**When** `confirm` resolves `false`
+**Then** the awaiter completes and the inner command is not invoked
+
+**Given** a synchronous inner command
+**When** `ExecuteAsync()` is awaited with `confirm` resolving `true`
+**Then** `inner.Execute()` runs exactly once and the awaiter completes after it
+returns
+
+### CMDD-015 — Failures reach exactly one channel
+
+Per spec/04-commands.md §8.3.1/§8.3.2 and ADR-0145.
+
+**Given** a `ConfirmationDecoratorCommand` over an async inner command whose
+body fails after being released
+**When** `ExecuteAsync()` is awaited
+**Then** the failure propagates to the awaiter
+**And** nothing is emitted on the decorator's `errors` or the inner's error
+channel
+
+**When** the same decorator is run through the fire-and-forget `Execute()`
+**Then** the inner's error channel emits the failure exactly once
+**And** the decorator's `errors` emits nothing
+
+**When** `confirm` itself fails on the fire-and-forget path
+**Then** the decorator's `errors` emits that failure exactly once and the inner
+is not invoked
+
+### CMDD-016 — The inner keeps its own admission and cancellation
+
+Per spec/04-commands.md §8.3.2 and ADR-0145.
+
+**Given** a `ConfirmationDecoratorCommand` over an `AsyncRelayCommand`, with an
+awaited `ExecuteAsync()` whose confirmation is pending
+**When** the inner starts executing elsewhere and `confirm` then resolves `true`
+**Then** the inner drops the decorator's call, its body runs no second time,
+and the awaiter completes
+**And** an inner already executing before the call disables the decorator
+through `CanExecute`, so `confirm` is not invoked
+
+**Given** an async inner whose body observes cancellation
+**When** the inner's `Cancel` is called while an awaited decorator call is in
+flight
+**Then** the awaiter completes with the inner's own cancellation outcome,
+unchanged by the decorator
+
+### CMDD-017 — Nested wrappers are awaited; disposal does not own the inner
+
+Per spec/04-commands.md §8.3.2/§8.4 and ADR-0145.
+
+**Given** an outer `ConfirmationDecoratorCommand` over an inner
+`ConfirmationDecoratorCommand` over an async command whose body blocks
+**When** the outer `ExecuteAsync()` is awaited and both confirmations resolve
+`true`
+**Then** the outer awaiter completes only after the body is released, and the
+body ran exactly once
+
+**When** a decorator is disposed while its async inner body is blocked
+**Then** the inner is neither cancelled nor disposed
+**And** the awaiter completes when the body is released
+
+**When** a decorator is disposed while its confirmation is pending
+**Then** resolving the confirmation `true` starts no inner work
 
 ______________________________________________________________________
 
@@ -3648,6 +3723,149 @@ property message, with no duplicate
 property message
 
 > Spec: `20-form-vm.md §5.2/§8`, ADR-0092.
+
+### FORM-031 — a second approval during an in-flight approval is refused
+
+**Given** a valid `FormVM<TM>` whose persister blocks until released
+**And** an approval admitted through `ApproveAsync` and waiting in the persister
+**When** `ApproveAsync` is called again, `ApproveCommand.Execute()` is called,
+and the persister and a `CanExecuteChanged` handler each call `ApproveAsync`
+**Then** the persister has been invoked exactly once
+**And** each refused call completes without throwing, changes no model,
+snapshot, error, or dirty state, and emits nothing on `OnApproved` or
+`ApproveErrors`
+
+**When** the first persister is released and the approval settles
+**Then** `Snapshot` equals the model captured by the first approval
+**And** a new approval is admitted, invokes the persister a second time, and
+advances the snapshot to its own captured model
+
+> Spec: `20-form-vm.md §5.3`, ADR-0143.
+
+### FORM-032 — the approve command is disabled while an approval is in flight
+
+**Given** a valid `FormVM<TM>` with a counter on
+`ApproveCommand.CanExecuteChanged` and a persister that blocks until released
+**When** an approval is admitted
+**Then** `CanExecuteChanged` has fired exactly once before the persister runs
+**And** `ApproveCommand.CanExecute()` returns `false` while the persister is
+blocked
+
+**When** the persister is released with success, with a failure, and, with a
+`resetOnApproved` that throws, after a successful persist
+**Then** each settlement raises `CanExecuteChanged` exactly once
+**And** `CanExecute()` again reflects only the validity and strict-mode gates
+
+> Spec: `20-form-vm.md §5.3`, ADR-0143.
+
+### FORM-033 — settlement clears admission before publishing the outcome
+
+**Given** a valid `FormVM<TM>` whose `OnApproved` subscriber calls
+`ApproveAsync` once
+**When** an approval succeeds
+**Then** the subscriber observes `CanExecute()` reflecting only the validity and
+strict-mode gates
+**And** its approval is admitted, invokes the persister, and captures the
+settled model
+
+**Given** a command-path approval whose persister fails, and an
+`ApproveErrors` subscriber that calls `ApproveAsync` once
+**Then** the failure is emitted exactly once on `ApproveErrors` and the
+awaitable path emits nothing there
+**And** model, snapshot, and errors are unchanged by the failed approval
+**And** the subscriber's approval is admitted
+
+**When** the code awaiting a failed `ApproveAsync` catches the failure and calls
+`ApproveAsync` again
+**Then** the new approval is admitted and the failure was observed only by that
+awaiter
+
+> Spec: `20-form-vm.md §5.3/§8.2`, ADR-0143.
+
+### FORM-034 — edits, deny, and disposal during an in-flight approval
+
+**Given** a valid `FormVM<TM>` with an approval admitted and blocked in the
+persister
+**When** `SetModel` installs a newer model and the persister then succeeds
+**Then** `Snapshot` equals the captured model, `IsDirty` is `true`, and
+`OnApproved` carries the captured model
+**When** `DenyCommand` executes during another blocked approval
+**Then** the model reverts to the current snapshot and the approval still
+commits its captured value when it succeeds
+**And** with a configured `resetOnApproved`, the reset replaces the edited or
+reverted model
+
+**When** the form is disposed while an approval is blocked in the persister and
+the persister then completes
+**Then** no state is committed and nothing is emitted on `OnApproved`,
+`ApproveErrors`, `ErrorsChanged`, or `CanExecuteChanged` after disposal
+**And** a later `ApproveAsync` returns without invoking the persister
+**And** the test completes within a bounded timeout
+
+> Spec: `20-form-vm.md §5.3/§10`, ADR-0143.
+
+### FORM-035 — a failing field validator leaves the form unchanged
+
+**Given** a strict `FormVM<TM>` whose field validator fails for a marked
+candidate, with counters on `ErrorsChanged`, `ApproveCommand.CanExecuteChanged`,
+and model hub messages
+**When** `SetModel` is called with the marked candidate on the validator's first
+run after construction, and again after earlier successful `SetModel` calls
+**Then** each call propagates the validator's failure to the caller
+**And** `Model`, `Snapshot`, `Errors`, `IsDirty`, `IsValid`, and
+`ApproveCommand.CanExecute()` keep their values from before the call
+**And** no counter changed
+
+**When** `SetModel` is then called with a candidate the validator accepts
+**Then** the assignment settles and publishes as `FORM-030` requires
+
+> Spec: `20-form-vm.md §5.2/§5.4`, ADR-0144.
+
+### FORM-036 — model-validator, equality, and deny failures are atomic
+
+**Given** a `FormVM<TM>` with a model validator that fails for a marked
+candidate
+**When** `SetModel` is called with that candidate
+**Then** the failure propagates and the form is unchanged, with no
+notification
+
+**Given** a flavor whose equality comparison is a callback that can fail (an
+injected `equals`, or a model's own equality)
+**When** that comparison fails during `SetModel`
+**Then** the failure propagates and the form is unchanged, with no
+notification
+
+**Given** a dirty form whose validator fails for the snapshot value
+**When** `DenyCommand.Execute()` runs
+**Then** the failure propagates, `Model` keeps the edited value, and neither
+`FormRevertedMessage` nor a model `PropertyChangedMessage` is published
+
+> Spec: `20-form-vm.md §5.4`, ADR-0144.
+
+### FORM-037 — a nested assignment from a validator wins
+
+**Given** a `FormVM<TM>` whose validator, on seeing candidate `a`, calls
+`SetModel(b)` once
+**When** `SetModel(a)` is called
+**Then** the nested `SetModel(b)` commits and publishes exactly one model
+message
+**And** the outer call commits and publishes nothing after the nested commit
+**And** `Model` equals `b`, and `Errors` and `IsDirty` describe `b`
+
+> Spec: `20-form-vm.md §5.4`, ADR-0144.
+
+### FORM-038 — disposal during preparation commits nothing
+
+**Given** a `FormVM<TM>` whose validator disposes the form when it sees a marked
+candidate
+**When** `SetModel` is called with that candidate
+**Then** the call returns without committing the candidate or publishing
+**And** the disposed form is inert (`FORM-014`)
+
+**When** a validator disposes the form while `DenyCommand` prepares its revert
+**Then** the model is not reverted and no deny message is published
+
+> Spec: `20-form-vm.md §5.4/§10`, ADR-0144.
 
 ## 28. DISC — DiscriminatorVM (chapter 22) — spec v3.1 and v3.23
 

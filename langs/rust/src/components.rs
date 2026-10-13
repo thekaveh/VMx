@@ -3,7 +3,7 @@
 //! Spec: `spec/05-component-vm.md`.
 
 use super::{
-    catch_unwind, fmt, lock, resume_unwind, Arc, AssertUnwindSafe, ComponentCore,
+    catch_unwind, clone_locked, fmt, lock, resume_unwind, Arc, AssertUnwindSafe, ComponentCore,
     ConstructionStatus, Dispatcher, LifecycleOperation, Message, MessageHub, ModelHint, Mutex,
     NullDispatcher, ParentHandle, PropertyChangedStream, RelayCommand, Subscription, TreeNode,
     VmNode, VmxError, VmxResult,
@@ -37,23 +37,23 @@ pub(crate) struct ComponentCommands {
 impl ComponentCommands {
     pub(crate) fn new<D: Dispatcher, F>(core: &ComponentCore<D>, reconstruct_action: F) -> Self
     where
-        F: FnMut() + Send + 'static,
+        F: Fn() + Send + Sync + 'static,
     {
         let select = {
             let action_core = core.clone();
             let predicate_core = core.clone();
-            RelayCommand::new(move || action_core.select_via_parent())
+            RelayCommand::new_shared(move || action_core.select_via_parent())
                 .with_can_execute(move || predicate_core.can_select())
         };
         let deselect = {
             let action_core = core.clone();
             let predicate_core = core.clone();
-            RelayCommand::new(move || action_core.deselect_via_parent())
+            RelayCommand::new_shared(move || action_core.deselect_via_parent())
                 .with_can_execute(move || predicate_core.can_deselect())
         };
         let reconstruct = {
             let predicate_core = core.clone();
-            RelayCommand::new(reconstruct_action).with_can_execute(move || {
+            RelayCommand::new_shared(reconstruct_action).with_can_execute(move || {
                 predicate_core.status() == ConstructionStatus::Constructed
             })
         };
@@ -216,7 +216,7 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
 
     /// Returns a snapshot of the current model.
     pub fn model(&self) -> M {
-        lock(&self.model).clone()
+        clone_locked(&self.model)
     }
 
     /// Returns the local property-change stream.
@@ -277,6 +277,13 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
             *current = model;
             true
         }
+    }
+
+    /// Installs `model` without comparing it and returns the value it
+    /// replaced, so the caller can drop that value after releasing its own
+    /// locks. No model code runs while the model lock is held.
+    pub(crate) fn store_model(&self, model: M) -> M {
+        std::mem::replace(&mut *lock(&self.model), model)
     }
 
     /// Replaces the hook invoked during construction.

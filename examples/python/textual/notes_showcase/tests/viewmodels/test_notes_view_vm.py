@@ -307,6 +307,83 @@ async def test_delete_via_dialog_removes_note_and_posts_notification(tmp_path) -
     assert any("Note deleted" in n.message for n in observed)
 
 
+class _GatedDeleteRepository(InMemoryNoteRepository):
+    """In-memory repository whose ``delete_note`` blocks until the test releases it."""
+
+    def __init__(self) -> None:
+        import asyncio
+
+        super().__init__(
+            build_seed(),
+            load_all_delay=0.0,
+            load_notes_delay=0.0,
+            save_note_delay=0.0,
+            delete_note_delay=0.0,
+        )
+        self.delete_started = asyncio.Event()
+        self.release_delete: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        self.deleted_ids: list[str] = []
+
+    async def delete_note(self, note_id: str) -> None:
+        self.delete_started.set()
+        await self.release_delete
+        await super().delete_note(note_id)
+        self.deleted_ids.append(note_id)
+
+
+async def test_awaited_confirmed_delete_completes_after_the_repository_delete() -> None:
+    """Awaiting the confirmed delete waits for the async inner delete, so it
+    completes only after the gated repository delete has finished (spec
+    §8.3.2, ADR-0145). No polling: the post-delete state holds as soon as the
+    awaited call returns.
+    """
+    import asyncio
+
+    from vmx.commands import ConfirmationDecoratorCommand
+    from vmx.notifications import Notification, NotificationHub
+
+    repo = _GatedDeleteRepository()
+    hub = MessageHub[Message]()
+    dispatcher = RxDispatcher(foreground=ImmediateScheduler(), background=ImmediateScheduler())
+    notification_hub = NotificationHub()
+    observed: list[Notification] = []
+    notification_hub.pending.subscribe(
+        on_next=lambda snap: [observed.append(n) for n in snap if n not in observed]
+    )
+    vm = (
+        NotesViewVM.builder()
+        .name("notes")
+        .services(hub, dispatcher)
+        .repository(repo)
+        .dialog_service(_AcceptDialog())
+        .notification_hub(notification_hub)
+        .build()
+    )
+    vm.construct()
+    await vm.bind_to_async("nb-personal")
+    before = vm.inner.count
+    target = vm.inner[0]
+    target_id = target.note_id
+    assert isinstance(target.delete_command, ConfirmationDecoratorCommand)
+
+    pending = asyncio.ensure_future(target.delete_command.execute_async())
+    await asyncio.wait_for(repo.delete_started.wait(), timeout=2)
+
+    assert not pending.done(), "the awaited delete must wait for the repository delete"
+    assert vm.inner.count == before
+    assert repo.deleted_ids == []
+    assert not any("Note deleted" in n.message for n in observed)
+
+    repo.release_delete.set_result(None)
+    await asyncio.wait_for(pending, timeout=2)
+
+    assert repo.deleted_ids == [target_id]
+    assert vm.inner.count == before - 1
+    assert all(note.note_id != target_id for note in vm.inner)
+    assert target.status == ConstructionStatus.DISPOSED
+    assert any("Note deleted" in n.message for n in observed)
+
+
 async def test_capability_save_persists_the_focused_note() -> None:
     """The capability-bar Save action (``NoteVM.save_command``) persists the
     note's current model through the repo.

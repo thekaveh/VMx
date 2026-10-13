@@ -6,6 +6,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.30.0] — unreleased source version
+
+### Changed
+
+- An awaited `executeAsync()` on `ConfirmationDecoratorCommand` now completes
+  when an asynchronous inner command (an `IAsyncCommand`, or a nested
+  confirmation wrapper) finishes, not when it starts. After a true confirmation
+  the decorator invokes the inner exactly once through its awaitable entry
+  point, and an inner failure reaches the awaiter instead of the inner's
+  `errors`. The fire-and-forget `execute()` still starts an asynchronous inner
+  through the inner's own `execute()`, so its failures stay on the inner's
+  `errors`; the decorator's `errors` carries only confirmation failures and
+  synchronous-inner failures. The decorator adds no admission, cancellation, or
+  ownership of the inner (`CMDD-014..017`, ADR-0145, spec 3.29.0) (#355).
+- The `execute()` doc comment no longer claims that the void method returns a
+  promise (#355).
+
+## [3.29.0] — unreleased source version
+
+### Changed
+
+- `FormVM` model updates are failure-atomic. `setModel` and deny run the
+  equality comparison, the validators, and (for deny) the snapshotter on the
+  candidate before changing anything; if one throws, the error reaches the
+  caller and the model, snapshot, errors, dirty and valid state, and command
+  state are unchanged, with no notification. A failure is never turned into a
+  validation error. A validator that reads the form's model sees the previous
+  model; it receives the candidate as its argument. If a validator disposes the
+  form or makes another edit, the interrupted update commits nothing and the
+  newest edit stands, while edits from other threads still wait for an update in
+  progress (`FORM-035..038`, ADR-0144, spec 3.28.0) (#337).
+
+## [3.28.0] — unreleased source version
+
+### Changed
+
+- `FormVM` admits one approval at a time. While an approval is in flight,
+  `approveCommand.canExecute()` is false and any other approve call through
+  `approveAsync()` or `approveCommand.execute()` does nothing: it does not call
+  the persister, change state, raise, or emit on `onApproved` or
+  `approveErrors`. Admission marks the approval in flight and captures the model
+  before raising `approveCommand.canExecuteChanged` once; settlement clears the
+  mark first, then publishes `errorsChanged` if needed, one can-execute
+  notification, and the outcome, so an approval started by an outcome observer
+  is admitted. `setModel` and deny are not blocked. A double-executed save now
+  persists once; to save again after an in-flight approval, await it and approve
+  again (`FORM-031..034`, ADR-0143, spec 3.27.0) (#327).
+
 ## [3.27.0] — unreleased source version
 
 ### Changed

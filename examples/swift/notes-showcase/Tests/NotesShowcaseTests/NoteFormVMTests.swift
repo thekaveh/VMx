@@ -17,6 +17,96 @@ private final class PropertyChangedRecorder {
     var cancellables = Set<AnyCancellable>()
 }
 
+/// Thread-safe recorder for notifications observed on a hub's `pending` stream.
+///
+/// The "Saved …" notification posts from a detached Task, so the `pending`
+/// sink fires on that Task's executor while assertions read on the test
+/// executor. A lock serialises both sides.
+private final class NotificationMessageRecorder {
+    private let lock = NSLock()
+    private var _messages: [String] = []
+    var cancellables = Set<AnyCancellable>()
+
+    /// Replace the recorded messages with the latest `pending` snapshot.
+    func record(_ snapshot: [VMx.Notification]) {
+        lock.lock(); defer { lock.unlock() }
+        _messages = snapshot.map(\.message)
+    }
+
+    /// Snapshot copy of the recorded messages.
+    var messages: [String] {
+        lock.lock(); defer { lock.unlock() }
+        return _messages
+    }
+}
+
+/// Repository whose first `saveNote` stays pending until the test releases it.
+/// Later saves and every read go straight to a zero-delay in-memory store, so
+/// an extra save is counted instead of hanging the test. It also counts the
+/// `loadAll` calls a post-save tag refresh makes.
+private actor PendingSaveRepository: NoteRepository {
+    private let store = InMemoryNoteRepository(
+        seed: SeedData.build(),
+        loadAllDelay: 0,
+        loadNotesDelay: 0,
+        saveNoteDelay: 0
+    )
+    private(set) var savedTitles: [String] = []
+    private(set) var loadAllCalls = 0
+    private var saveStarted = false
+    private var startWaiters: [CheckedContinuation<Void, Never>] = []
+    private var pendingSave: CheckedContinuation<Void, Never>?
+
+    func waitForPendingSave() async {
+        if saveStarted { return }
+        await withCheckedContinuation { startWaiters.append($0) }
+    }
+
+    func releasePendingSave() {
+        pendingSave?.resume()
+        pendingSave = nil
+    }
+
+    func saveNote(_ note: NoteModel) async throws {
+        savedTitles.append(note.title)
+        if !saveStarted {
+            saveStarted = true
+            let waiters = startWaiters
+            startWaiters.removeAll()
+            waiters.forEach { $0.resume() }
+            await withCheckedContinuation { pendingSave = $0 }
+        }
+        try await store.saveNote(note)
+    }
+
+    func loadAll() async throws -> (notebooks: [NotebookModel], notes: [NoteModel]) {
+        loadAllCalls += 1
+        return try await store.loadAll()
+    }
+
+    func loadNotes(notebookId: String) async throws -> [NoteModel] {
+        try await store.loadNotes(notebookId: notebookId)
+    }
+
+    func searchNotes(
+        term: String,
+        token: String?,
+        pageSize: Int
+    ) async throws -> (items: [NoteModel], nextToken: String?) {
+        try await store.searchNotes(term: term, token: token, pageSize: pageSize)
+    }
+
+    func deleteNote(id: String) async throws { try await store.deleteNote(id: id) }
+    func addNotebook(_ notebook: NotebookModel) async throws { try await store.addNotebook(notebook) }
+    func export(
+        notebooks: [NotebookModel],
+        notes: [NoteModel],
+        path: String
+    ) async throws {
+        try await store.export(notebooks: notebooks, notes: notes, path: path)
+    }
+}
+
 // MARK: - NoteFormVMTests
 
 final class NoteFormVMTests: XCTestCase {
@@ -46,6 +136,34 @@ final class NoteFormVMTests: XCTestCase {
             tags: [], body: "", starred: false,
             createdAt: Date(), updatedAt: Date()
         )
+    }
+
+    /// A form over `repo` with a notification hub whose pending notifications
+    /// `notifications` records.
+    private func buildPendingSaveForm(
+        _ repo: PendingSaveRepository,
+        notifications: NotificationMessageRecorder
+    ) throws -> NoteFormVM {
+        let notificationHub = NotificationHub()
+        notificationHub.pending
+            .sink { [weak notifications] snapshot in notifications?.record(snapshot) }
+            .store(in: &notifications.cancellables)
+        let form = try NoteFormVM.builder()
+            .name("form")
+            .services(hub: MessageHub(), dispatcher: ImmediateDispatcher.INSTANCE)
+            .repository(repo)
+            .notificationHub(notificationHub)
+            .build()
+        try form.construct()
+        return form
+    }
+
+    /// Polls `condition` for up to `attempts` milliseconds.
+    private func waitUntil(_ condition: @escaping () -> Bool, attempts: Int = 100) async {
+        for _ in 0..<attempts {
+            if condition() { return }
+            try? await Task.sleep(nanoseconds: 1_000_000)
+        }
     }
 
     /// Subscribes a `PropertyChangedRecorder` to all `PropertyChangedMessage`s
@@ -138,6 +256,83 @@ final class NoteFormVMTests: XCTestCase {
             "Edited",
             reloaded.first(where: { $0.id == note.id })?.title
         )
+    }
+
+    func testDoubleSaveWhileTheRepositorySaveIsPending_persistsOnce() async throws {
+        // FormVM admits one approval at a time (spec/20-form-vm.md §5.3), and a
+        // refused save runs none of the post-save steps.
+        let repo = PendingSaveRepository()
+        let notifications = NotificationMessageRecorder()
+        let form = try buildPendingSaveForm(repo, notifications: notifications)
+        form.bindTo(sampleNote(title: "Original"))
+        form.title = "Edited"
+        let changes = capture(form: form)
+
+        let firstSave = Task { try await form.approveCommand.executeAsync() }
+        await repo.waitForPendingSave()
+
+        // The busy command drops a second click. A direct save, as a keyboard
+        // shortcut would make, reaches the inner FormVM, which refuses it
+        // while the first approval is in flight.
+        XCTAssertFalse(form.approveCommand.canExecute())
+        form.approveCommand.execute()
+        try await form.approveAsync()
+        let titlesWhilePending = await repo.savedTitles
+        XCTAssertEqual(titlesWhilePending, ["Edited"])
+        XCTAssertTrue(form.isDirty, "the refused save changed nothing")
+        XCTAssertEqual("Original", form.snapshot.title)
+        // The refused save ran no post-save step: these run before
+        // `approveAsync` returns, so they would already be recorded. The
+        // debounced tag search emits suggestion changes on its own schedule
+        // after the title edit, so those two names are not save evidence.
+        let draftChanges = changes.propertyNames.filter {
+            $0 != "tagSuggestions" && $0 != "tagSuggestionsText"
+        }
+        XCTAssertEqual(draftChanges, [], "the refused save re-emitted the draft")
+        let refreshesWhilePending = await repo.loadAllCalls
+        XCTAssertEqual(refreshesWhilePending, 0, "the refused save refreshed tag suggestions")
+
+        await repo.releasePendingSave()
+        try await firstSave.value
+
+        let savedTitles = await repo.savedTitles
+        XCTAssertEqual(savedTitles, ["Edited"], "the double save persisted once")
+        XCTAssertEqual("Edited", form.snapshot.title)
+        XCTAssertFalse(form.isDirty)
+        XCTAssertTrue(changes.propertyNames.contains("snapshot"))
+        let refreshes = await repo.loadAllCalls
+        XCTAssertEqual(refreshes, 1)
+        // "Saved …" posts from a detached Task: wait for the admitted save's.
+        let savedMessage = "Saved \u{201C}Edited\u{201D}"
+        await waitUntil { notifications.messages.contains(savedMessage) }
+        XCTAssertEqual(notifications.messages, [savedMessage], "only the admitted save posts")
+    }
+
+    func testRebindingWhileASaveIsPending_postsNoSavedForEitherNote() async throws {
+        // Rebinding disposes the pending save's form, which then publishes no
+        // approval (spec/20-form-vm.md §5.3), so the save runs no post-save step.
+        let repo = PendingSaveRepository()
+        let notifications = NotificationMessageRecorder()
+        let form = try buildPendingSaveForm(repo, notifications: notifications)
+        form.bindTo(sampleNote(title: "Original"))
+        form.title = "Edited"
+
+        let pendingSave = Task { try await form.approveAsync() }
+        await repo.waitForPendingSave()
+        form.bindTo(NoteModel(
+            id: "note-02", notebookId: "nb-reviews", title: "Next note",
+            tags: [], body: "", starred: false,
+            createdAt: Date(), updatedAt: Date()
+        ))
+        await repo.releasePendingSave()
+        try await pendingSave.value
+
+        let savedTitles = await repo.savedTitles
+        XCTAssertEqual(savedTitles, ["Edited"])
+        let refreshes = await repo.loadAllCalls
+        XCTAssertEqual(refreshes, 0, "the disposed save refreshed tag suggestions")
+        XCTAssertEqual("Next note", form.snapshot.title)
+        XCTAssertEqual(notifications.messages, [], "the disposed save posted a notification")
     }
 
     // MARK: - Deny

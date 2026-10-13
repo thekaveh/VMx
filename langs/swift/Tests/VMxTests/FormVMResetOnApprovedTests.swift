@@ -333,7 +333,8 @@ final class FormVMResetOnApprovedTests: XCTestCase {
         XCTAssertEqual(publishedModels, ["accepted"])
     }
 
-    func testEqualityCallbackDisposalDoesNotCancelAdmittedAssignment() {
+    // Disposal by a callback during preparation makes the result stale (§5.4).
+    func testEqualityCallbackDisposalAbandonsAdmittedAssignment() {
         var form: FormVM<String>!
         form = FormVM(
             initial: "initial",
@@ -347,10 +348,10 @@ final class FormVMResetOnApprovedTests: XCTestCase {
         form.setModel("next")
         form.setModel("late")
 
-        XCTAssertEqual(form.model, "next")
+        XCTAssertEqual(form.model, "initial")
     }
 
-    func testValidatorCallbackDisposalDoesNotCancelAdmittedAssignment() {
+    func testValidatorCallbackDisposalAbandonsAdmittedAssignment() {
         var form: FormVM<String>!
         form = FormVM(
             initial: "initial",
@@ -364,16 +365,18 @@ final class FormVMResetOnApprovedTests: XCTestCase {
         form.setModel("next")
         form.setModel("late")
 
-        XCTAssertEqual(form.model, "next")
+        XCTAssertEqual(form.model, "initial")
     }
 
-    func testValidatorObservesAcceptedLiveModel() {
+    // Preparation changes no form state (§5.4): a validator reads the
+    // committed model, and the candidate is installed only afterwards.
+    func testValidatorObservesCommittedModelDuringPreparation() {
         var form: FormVM<String>!
         form = FormVM(
             initial: "initial",
             persister: { _ in },
             validators: ["value": { value in
-                if value == "next" { XCTAssertEqual(form.model, value) }
+                if value == "next" { XCTAssertEqual(form.model, "initial") }
                 return nil
             }]
         )

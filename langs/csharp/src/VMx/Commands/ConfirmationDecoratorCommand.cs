@@ -12,6 +12,14 @@ namespace VMx.Commands;
 /// The confirm delegate is intentionally UI-agnostic: it returns a Task&lt;bool&gt;
 /// that resolves to true if the user accepted, false otherwise. Bridge helpers
 /// to a notification hub live in the optional VMx.Notifications assembly.
+///
+/// An inner command is asynchronous when it implements <see cref="IAsyncCommand"/>
+/// or is another <see cref="ConfirmationDecoratorCommand"/> (spec §8.3.2,
+/// ADR-0145). The awaitable <see cref="ExecuteAsync"/> awaits such an inner
+/// operation to completion; the fire-and-forget <see cref="Execute"/> starts it
+/// through the inner's own <see cref="ICommand.Execute"/>. The decorator adds no
+/// admission or cancellation of its own beyond confirmation and disposal, and it
+/// never owns, cancels, or disposes the inner command.
 /// </summary>
 public sealed class ConfirmationDecoratorCommand : ICommand, IDisposable
 {
@@ -36,14 +44,17 @@ public sealed class ConfirmationDecoratorCommand : ICommand, IDisposable
 
     /// <summary>
     /// Observable that surfaces an error from the fire-and-forget <see cref="Execute"/>
-    /// path — either the confirm delegate faulting or the inner command throwing.
+    /// path — either the confirm delegate faulting or a synchronous inner command
+    /// throwing from <see cref="ICommand.Execute"/>.
     /// <see cref="ICommand.Execute"/> is <c>void</c>, so it cannot propagate the
     /// failure across the async confirm gate the way <see cref="RelayCommand"/>'s
     /// task does; instead of swallowing it (a discarded faulted <see cref="Task"/>
     /// would otherwise surface only as an <c>UnobservedTaskException</c> at GC) the
-    /// error is emitted here (VMX-009). The awaitable <see cref="ExecuteAsync"/>
-    /// path keeps its throw behavior — await it directly to handle the error
-    /// inline. Completes on <see cref="Dispose"/>.
+    /// error is emitted here (VMX-009). An asynchronous inner command started on
+    /// that path reports its own operation's faults on its own error channel, so
+    /// they are not re-emitted here (spec §8.3.2, ADR-0145). The awaitable
+    /// <see cref="ExecuteAsync"/> path keeps its throw behavior — await it directly
+    /// to handle the error inline. Completes on <see cref="Dispose"/>.
     /// </summary>
     public IObservable<Exception> Errors => _errors.AsObservable();
 
@@ -53,12 +64,15 @@ public sealed class ConfirmationDecoratorCommand : ICommand, IDisposable
     /// <inheritdoc/>
     /// <remarks>
     /// Synchronous <c>Execute</c> kicks off the confirmation flow and returns immediately.
-    /// A rejecting confirm delegate or a throwing inner command is routed to
-    /// <see cref="Errors"/> rather than swallowed (VMX-009). Use
+    /// Once confirmed, it invokes the inner command's own <see cref="ICommand.Execute"/>,
+    /// which starts an asynchronous inner command without awaiting it; that inner
+    /// command reports its operation's faults on its own error channel (spec §8.3.2,
+    /// ADR-0145). A rejecting confirm delegate or a throwing synchronous inner command
+    /// is routed to <see cref="Errors"/> rather than swallowed (VMX-009). Use
     /// <see cref="ExecuteAsync"/> to await the full sequence and observe the failure inline.
     /// </remarks>
     public void Execute(object? parameter) =>
-        _ = ExecuteAsync(parameter).ContinueWith(
+        _ = RunAsync(parameter, awaitInner: false).ContinueWith(
             t =>
             {
                 EmitError(t.Exception!.GetBaseException());
@@ -67,14 +81,44 @@ public sealed class ConfirmationDecoratorCommand : ICommand, IDisposable
             TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
             TaskScheduler.Default);
 
-    /// <summary>Awaits the confirm delegate, then invokes inner.Execute if accepted.</summary>
-    public async Task ExecuteAsync(object? parameter)
+    /// <summary>
+    /// Awaits the confirm delegate and, if it resolves <c>true</c>, invokes the inner
+    /// command exactly once: an <see cref="IAsyncCommand"/> or nested
+    /// <see cref="ConfirmationDecoratorCommand"/> through its own <c>ExecuteAsync</c>,
+    /// any other command through <see cref="ICommand.Execute"/>. The returned task
+    /// completes when that invocation completes — for an asynchronous inner, when its
+    /// operation finishes (spec §8.3.2, ADR-0145).
+    /// </summary>
+    /// <remarks>
+    /// A confirm or inner failure propagates to the awaiter unchanged and is not
+    /// emitted on <see cref="Errors"/>. The inner command applies its own admission
+    /// and cancellation: a busy <see cref="AsyncRelayCommand"/> drops the call, and the
+    /// inner's <see cref="IAsyncCommand.Cancel"/> outcome reaches the awaiter as the
+    /// inner reports it. The decorator passes no cancellation token of its own, and
+    /// disposing it neither cancels nor disposes an inner operation already started.
+    /// </remarks>
+    public Task ExecuteAsync(object? parameter) => RunAsync(parameter, awaitInner: true);
+
+    private async Task RunAsync(object? parameter, bool awaitInner)
     {
         // The inner predicate may dispose the decorator.
         if (!CanExecute(parameter) || _disposed) return;
         var confirmed = await _confirm().ConfigureAwait(false);
         // A confirmation that resolves after disposal runs nothing (spec §8.4, ADR-0134).
-        if (confirmed && !_disposed) _inner.Execute(parameter);
+        if (!confirmed || _disposed) return;
+        if (awaitInner)
+        {
+            switch (_inner)
+            {
+                case IAsyncCommand asyncInner:
+                    await asyncInner.ExecuteAsync(parameter).ConfigureAwait(false);
+                    return;
+                case ConfirmationDecoratorCommand nested:
+                    await nested.ExecuteAsync(parameter).ConfigureAwait(false);
+                    return;
+            }
+        }
+        _inner.Execute(parameter);
     }
 
     private void EmitError(Exception error)

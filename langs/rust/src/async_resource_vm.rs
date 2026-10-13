@@ -282,7 +282,7 @@ where
 
         let cancel_inner = Arc::downgrade(&inner);
         let cancel_predicate = Arc::downgrade(&inner);
-        let cancel_command = RelayCommand::new(move || {
+        let cancel_command = RelayCommand::new_shared(move || {
             if let Some(inner) = cancel_inner.upgrade() {
                 cancel_current(&inner);
             }

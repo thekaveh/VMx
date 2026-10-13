@@ -295,10 +295,14 @@ public sealed class NoteVMTests
             .Build();
         vm.Construct();
 
-        await ((ConfirmationDecoratorCommand)vm.DeleteCommand).ExecuteAsync(null);
+        // The awaited confirmed delete waits for the async inner delete (spec
+        // §8.3.2, ADR-0145), so release the gate before awaiting it.
+        var execution = ((ConfirmationDecoratorCommand)vm.DeleteCommand).ExecuteAsync(null);
 
+        Assert.False(execution.IsCompleted, "the awaited delete must wait for repository persistence");
         Assert.False(notified.Task.IsCompleted, "success must wait for repository persistence");
         release.SetResult();
+        await execution.WaitAsync(TimeSpan.FromSeconds(2));
         await notified.Task.WaitAsync(TimeSpan.FromSeconds(2));
     }
 

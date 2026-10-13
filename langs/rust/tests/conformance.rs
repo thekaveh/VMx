@@ -12,13 +12,16 @@ mod conformance {
     mod commands;
     mod component_vm;
     mod composite_vm;
+    mod confirmation_async_inner;
     mod derived_properties;
     mod dialogs;
     mod discriminator;
     mod expandable;
     mod expandable_support;
     mod filtered_composite;
+    mod form_approval_admission;
     mod form_approval_subscription;
+    mod form_failure_atomic_updates;
     mod form_model_hub_publication;
     mod forms;
     mod forwarding;
