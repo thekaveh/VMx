@@ -18,6 +18,7 @@ from vmx.notifications import NotificationHub
 
 from notes_showcase.models.in_memory_repository import InMemoryNoteRepository
 from notes_showcase.models.note_model import NoteModel
+from notes_showcase.models.notebook_model import NotebookModel
 from notes_showcase.models.seed import build_seed
 from notes_showcase.viewmodels.note_form_vm import NoteFormVM
 
@@ -141,13 +142,21 @@ async def test_approve_persists_and_publishes_notification() -> None:
 
 
 class _PendingSaveRepository(InMemoryNoteRepository):
-    """Repository whose ``save_note`` stays pending until the test releases it."""
+    """Repository whose ``save_note`` stays pending until the test releases it.
+
+    It also counts the ``load_all`` calls a post-save tag refresh makes.
+    """
 
     def __init__(self) -> None:
         super().__init__(build_seed(), load_all_delay=0.0, save_note_delay=0.0)
         self.saves: list[NoteModel] = []
+        self.load_all_calls = 0
         self.save_started = asyncio.Event()
         self.release_save = asyncio.Event()
+
+    async def load_all(self) -> tuple[list[NotebookModel], list[NoteModel]]:
+        self.load_all_calls += 1
+        return await super().load_all()
 
     async def save_note(self, note: NoteModel) -> None:
         self.saves.append(note)
@@ -156,19 +165,63 @@ class _PendingSaveRepository(InMemoryNoteRepository):
         await super().save_note(note)
 
 
-async def test_double_save_while_repository_save_is_pending_persists_once() -> None:
-    """FormVM admits one approval at a time (spec/20 §5.3, ADR-0143): a second
-    save that bypasses the Save command's own in-flight guard while the first
-    repository save is still pending must not persist the note again."""
+@dataclasses.dataclass
+class _PendingSaveForm:
+    """A form over a :class:`_PendingSaveRepository`, recording its post-save steps."""
+
+    vm: NoteFormVM
+    repo: _PendingSaveRepository
+    notifications: list[str] = dataclasses.field(default_factory=list)
+    saved: list[NoteModel] = dataclasses.field(default_factory=list)
+    vm_changes: list[str] = dataclasses.field(default_factory=list)
+
+
+def _build_pending_save_form() -> _PendingSaveForm:
+    from vmx import PropertyChangedMessage
+    from vmx.notifications import Notification
+
     repo = _PendingSaveRepository()
     hub = MessageHub[Message]()
     dispatcher = RxDispatcher(foreground=ImmediateScheduler(), background=ImmediateScheduler())
-    vm = NoteFormVM.builder().name("form").services(hub, dispatcher).repository(repo).build()
-    saved: list[NoteModel] = []
-    vm.on_saved.subscribe(on_next=saved.append)
+    notification_hub = NotificationHub()
+    vm = (
+        NoteFormVM.builder()
+        .name("form")
+        .services(hub, dispatcher)
+        .repository(repo)
+        .notification_hub(notification_hub)
+        .build()
+    )
+    form = _PendingSaveForm(vm=vm, repo=repo)
+    seen: list[Notification] = []
+
+    def _record_notifications(snapshot: list[Notification]) -> None:
+        for notification in snapshot:
+            if notification not in seen:
+                seen.append(notification)
+                form.notifications.append(notification.message)
+
+    def _record_vm_change(message: Message) -> None:
+        if isinstance(message, PropertyChangedMessage) and message.sender is vm:
+            form.vm_changes.append(message.property_name)
+
+    notification_hub.pending.subscribe(on_next=_record_notifications)
+    vm.on_saved.subscribe(on_next=form.saved.append)
+    hub.messages.subscribe(on_next=_record_vm_change)
+    return form
+
+
+async def test_double_save_while_repository_save_is_pending_persists_once() -> None:
+    """FormVM admits one approval at a time (spec/20 §5.3, ADR-0143): a second
+    save that bypasses the Save command's own in-flight guard while the first
+    repository save is still pending must not persist the note again, nor run
+    the post-save steps for a save that did not happen."""
+    form = _build_pending_save_form()
+    vm, repo = form.vm, form.repo
     vm.bind_to(_sample_note())
     edited = _sample_note(title="Saved once")
     vm.draft = edited
+    form.vm_changes.clear()  # keep only what the saves emit
 
     first = asyncio.create_task(vm.approve_command.execute_async())
     await asyncio.wait_for(repo.save_started.wait(), timeout=1)
@@ -178,14 +231,45 @@ async def test_double_save_while_repository_save_is_pending_persists_once() -> N
     assert repo.saves == [edited]
     assert vm.snapshot.title == "Hello"
     assert vm.is_dirty.value is True
+    # No post-save step ran: no "Saved" notification, no draft re-emission,
+    # and no tag refresh.
+    assert form.notifications == []
+    assert form.vm_changes == []
+    assert repo.load_all_calls == 0
+    assert form.saved == []
 
     repo.release_save.set()
     await asyncio.wait_for(first, timeout=1)
 
     assert repo.saves == [edited]
-    assert saved == [edited]
+    assert form.saved == [edited]
+    assert form.notifications == ["Saved “Saved once”"]
+    assert repo.load_all_calls == 1
+    assert "snapshot" in form.vm_changes
     assert vm.snapshot.title == "Saved once"
     assert vm.is_dirty.value is False
+
+
+async def test_rebinding_while_a_save_is_pending_posts_no_saved_for_either_note() -> None:
+    """Rebinding disposes the pending save's form, which then publishes no
+    approval (spec/20 §5.3), so the save runs no post-save step."""
+    form = _build_pending_save_form()
+    vm, repo = form.vm, form.repo
+    vm.bind_to(_sample_note())
+    edited = _sample_note(title="Edited")
+    vm.draft = edited
+
+    pending = asyncio.create_task(vm.approve_async())
+    await asyncio.wait_for(repo.save_started.wait(), timeout=1)
+    vm.bind_to(dataclasses.replace(_sample_note(title="Next note"), id="note-y"))
+    repo.release_save.set()
+    await asyncio.wait_for(pending, timeout=1)
+
+    assert repo.saves == [edited]
+    assert form.saved == []
+    assert form.notifications == []
+    assert repo.load_all_calls == 0
+    assert vm.snapshot.title == "Next note"
 
 
 def test_deny_restores_snapshot() -> None:
