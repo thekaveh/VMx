@@ -27,6 +27,10 @@ public final class NoteFormVM: ComponentVMBase {
     private var _form: FormVM<NoteModel>?
     private var _tagDraft: String = ""
     private var _approvedCancellable: AnyCancellable?
+    /// Inner approvals admitted so far; see `approveForm(_:)`. Guarded by
+    /// `_admissionLock`: the persister runs on the saving task's thread.
+    private var _admissions = 0
+    private let _admissionLock = NSLock()
     private let _editorMode = DiscriminatorVM<String>(initial: "edit")
     private var _editorModeCancellable: AnyCancellable?
     private var _tagCatalog: [String] = []
@@ -294,6 +298,8 @@ public final class NoteFormVM: ComponentVMBase {
             initial: note,
             persister: { [weak self] n in
                 guard let self else { return }
+                // The form calls its persister only for an admitted approval.
+                self._admissionLock.withLock { self._admissions += 1 }
                 try await self._repo.saveNote(n)
             },
             hub: hub,
@@ -328,12 +334,13 @@ public final class NoteFormVM: ComponentVMBase {
         emitDraftChanges()
     }
 
-    /// Awaitable approve — persists via the repository, emits `onSaved`, and
-    /// (when a `NotificationHubProtocol` is wired) posts a foreground
-    /// "Saved …" notification. Mirrors C# `ApproveAsync()`.
+    /// Awaitable approve — persists via the repository, emits `onSaved`, and,
+    /// only when this call saved, posts a foreground "Saved …" notification
+    /// (when a `NotificationHubProtocol` is wired) and refreshes tag
+    /// suggestions. Mirrors C# `ApproveAsync()`.
     public func approveAsync() async throws {
         guard let form = _form else { return }
-        try await form.approveAsync()
+        guard try await approveForm(form) else { return }
         // Marshal the INPC emit back onto the foreground
         // dispatcher: the thread that resumes after the await is not guaranteed
         // to be the UI execution target. Mirrors C# `_dispatcher.Foreground
@@ -353,6 +360,25 @@ public final class NoteFormVM: ComponentVMBase {
     }
 
     // ── Private helpers ────────────────────────────────────────────────────
+
+    /// Runs one inner approval and returns `true` only when it saved.
+    ///
+    /// `FormVM` admits one approval at a time (spec/20-form-vm.md §5.3): a call
+    /// made while a save is pending is refused and returns without persisting
+    /// or emitting `onApproved`. A call saved when the form admitted it (only
+    /// an admitted approval runs the persister, which counts it) and then
+    /// published its approval. Both checks are needed: the pending save
+    /// publishes on the thread its repository write resumes on, which can be
+    /// while a refused call runs.
+    private func approveForm(_ form: FormVM<NoteModel>) async throws -> Bool {
+        let lock = _admissionLock
+        var approved = false
+        let approvals = form.onApproved.sink { _ in lock.withLock { approved = true } }
+        defer { approvals.cancel() }
+        let admissions = lock.withLock { _admissions }
+        try await form.approveAsync()
+        return lock.withLock { _admissions != admissions && approved }
+    }
 
     /// Single mutation site: calls `form.setModel` then broadcasts changes.
     private func setDraft(_ newDraft: NoteModel) {

@@ -76,6 +76,8 @@ class NoteFormVM(ComponentVM, IReconstructable):
         # ``bind_to`` so we can dispose the previous one before re-subscribing
         # (previously the prior closure leaked on every rebind).
         self._bind_subscription: DisposableBase | None = None
+        # Inner approvals admitted so far; see ``_approve_form_async``.
+        self._admissions = 0
 
         from reactivex.subject import BehaviorSubject
 
@@ -437,19 +439,46 @@ class NoteFormVM(ComponentVM, IReconstructable):
         self._emit_draft_changes()
 
     async def approve_async(self) -> None:
-        """Awaitable approve cycle: persist + publish "Saved" notification."""
-        if self._form is None:
+        """Awaitable approve cycle: persist, then, only when this call saved,
+        publish a "Saved" notification and refresh tag suggestions."""
+        form = self._form
+        if form is None:
             return
-        await self._form.approve_async()
+        if not await self._approve_form_async(form):
+            return
         self._emit_draft_changes()
         if self._notification_hub is not None:
             self._notification_hub.post(
                 Notification(
                     NotificationType.NOTIFICATION,
-                    f"Saved “{self._form.snapshot.title}”",
+                    f"Saved “{form.snapshot.title}”",
                 )
             )
         await self.refresh_tag_suggestions_async()
+
+    async def _approve_form_async(self, form: FormVM[NoteModel]) -> bool:
+        """Run one inner approval and return ``True`` only when it saved.
+
+        ``FormVM`` admits one approval at a time (spec/20 §5.3): a call made
+        while a save is pending is refused and returns without persisting or
+        emitting ``on_approved``. A call saved when the form admitted it (only
+        an admitted approval runs :meth:`_persist`, which counts it) and then
+        published its approval. The admission check keeps a refused call from
+        claiming a pending save that publishes meanwhile on another thread.
+        """
+        approved = False
+
+        def _on_approved(_model: NoteModel) -> None:
+            nonlocal approved
+            approved = True
+
+        subscription = form.on_approved.subscribe(on_next=_on_approved)
+        try:
+            admissions = self._admissions
+            await form.approve_async()
+            return self._admissions != admissions and approved
+        finally:
+            subscription.dispose()
 
     def _handle_approved(self, model: NoteModel) -> None:
         self._emit_draft_changes()
@@ -461,6 +490,8 @@ class NoteFormVM(ComponentVM, IReconstructable):
             form.deny_command.execute()
 
     async def _persist(self, note: NoteModel) -> None:
+        # The form calls its persister only for an admitted approval.
+        self._admissions += 1
         await self._repo.save_note(note)
 
     async def refresh_tag_suggestions_async(self) -> None:
