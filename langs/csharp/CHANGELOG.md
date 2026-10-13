@@ -35,6 +35,21 @@ All notable changes to the C# flavor are documented here. The format is based on
 - The NuGet package ships its own README describing `AddVMx()` registration
   and its dependency on `VMx` (#351).
 
+## [3.28.0] — unreleased source version
+
+### Changed
+
+- `FormVM` model updates are failure-atomic. `SetModel` and deny run the
+  equality comparison, the validators, and (for deny) the snapshotter on the
+  candidate before changing anything; if one throws, the exception reaches the
+  caller and the model, snapshot, errors, dirty and valid state, and command
+  state are unchanged, with no notification. A failure is never turned into a
+  validation error. A validator that reads the form's model sees the previous
+  model; it receives the candidate as its argument. If a validator disposes the
+  form or makes another edit, the interrupted update commits nothing and the
+  newest edit stands, while edits from other threads still wait for an update in
+  progress (`FORM-035..038`, ADR-0144, spec 3.28.0) (#337).
+
 ## [3.27.0] — unreleased source version
 
 ### Changed

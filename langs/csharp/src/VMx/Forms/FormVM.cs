@@ -50,6 +50,12 @@ public sealed class FormVM<TM> : IDisposable
     private readonly Queue<TM> _deferredApprovalModels = new();
     private int _activeMutations;
     private bool _mutationTeardownPending;
+    // Failure-atomic updates (spec/20 §5.4, ADR-0144): every commit of model,
+    // snapshot, or errors advances this generation. Updates prepare and commit
+    // under the re-entrant _stateGate, so other threads wait; only a callback
+    // re-entering on the preparing thread can commit meanwhile, which makes the
+    // outer update's prepared result stale.
+    private long _commitGeneration;
 
     // ── Builder factory ───────────────────────────────────────────────────────
 
@@ -101,9 +107,13 @@ public sealed class FormVM<TM> : IDisposable
         _modelValidator = modelValidator;
         _resetOnApproved = resetOnApproved;
 
+        // Construction runs the same preparation as an update (spec/20 §5.4):
+        // a failing snapshotter or validator fails construction.
+        var snapshot = _snapshotter(initial);
+        var errors = Validate(initial);
         _model = initial;
-        _snapshot = _snapshotter(initial);
-        _errors = Validate(initial);
+        _snapshot = snapshot;
+        _errors = errors;
 
         IObservable<Unit> canExecuteTrigger = _canExecuteChangedTrigger;
 
@@ -250,6 +260,9 @@ public sealed class FormVM<TM> : IDisposable
     /// <summary>
     /// Replaces the current <see cref="Model"/>. Updating the model may change <see cref="IsDirty"/>;
     /// in strict mode it also fires <see cref="ICommand.CanExecuteChanged"/> on <see cref="ApproveCommand"/>.
+    /// The update is failure-atomic (chapter 20 §5.4): the model's equality and the
+    /// validators run before anything is committed, so an exception they throw
+    /// propagates to the caller with the form unchanged and nothing published.
     /// </summary>
     public void SetModel(TM model)
     {
@@ -273,16 +286,32 @@ public sealed class FormVM<TM> : IDisposable
                 _activeMutations++;
                 admitted = true;
                 ThrowHelper.ThrowIfNull(model, nameof(model));
-                if (Equals(_model, model)) return;
-                var wasDirty = !Equals(_model, _snapshot);
-                var wasValid = _errors.Count == 0;
-                _model = model;
+
+                // Preparation (spec/20 §5.2, §5.4) runs every consumer callback
+                // and changes no form state, so a callback failure propagates
+                // with nothing committed or published, and a callback reading
+                // the form sees the previous state.
+                var generation = _commitGeneration;
+                var live = _model;
+                var snapshot = _snapshot;
+                var errors = _errors;
+                if (Equals(live, model)) return;
+                var wasDirty = !Equals(live, snapshot);
                 var nextErrors = Validate(model);
-                var isDirty = !Equals(model, _snapshot);
-                var errorsChanged = !SameErrors(nextErrors, _errors);
-                _errors = nextErrors;
+                var isDirty = !Equals(model, snapshot);
+
+                // A callback re-entered on this thread and disposed the form or
+                // committed another update: the prepared result is stale, and
+                // the newest committed state stands.
+                if (_disposed || _commitGeneration != generation) return;
+
+                // Commit in one step, before any notification.
+                var errorsChanged = !SameErrors(nextErrors, errors);
                 var canExecuteChanged = (_strict && isDirty != wasDirty) ||
-                    (_errors.Count == 0) != wasValid;
+                    (nextErrors.Count == 0) != (errors.Count == 0);
+                _model = model;
+                _errors = nextErrors;
+                _commitGeneration++;
                 if (errorsChanged)
                     _errorsChanged.OnNext(new Dictionary<string, string>(nextErrors));
                 if (canExecuteChanged)
@@ -398,19 +427,32 @@ public sealed class FormVM<TM> : IDisposable
                 if (_disposed) return;
                 _activeMutations++;
                 admitted = true;
-                var wasDirty = !Equals(_model, _snapshot);
-                var wasValid = _errors.Count == 0;
-                var nextModel = _snapshotter(_snapshot);
-                _model = nextModel;
-                var nextErrors = Validate(nextModel);
-                var isDirty = !Equals(nextModel, _snapshot);
-                var errorsChanged = !SameErrors(nextErrors, _errors);
-                _errors = nextErrors;
-                var isValid = _errors.Count == 0;
 
+                // Preparation (spec/20 §5.4): the equality, snapshotter, and
+                // validator callbacks change no form state, so a failure
+                // propagates from DenyCommand.Execute() with nothing reverted
+                // or published.
+                var generation = _commitGeneration;
+                var live = _model;
+                var snapshot = _snapshot;
+                var errors = _errors;
+                var wasDirty = !Equals(live, snapshot);
+                var nextModel = _snapshotter(snapshot);
+                var nextErrors = Validate(nextModel);
+                var isDirty = !Equals(nextModel, snapshot);
+
+                // Same-thread re-entry disposed the form or committed another
+                // update: the prepared revert is stale.
+                if (_disposed || _commitGeneration != generation) return;
+
+                var errorsChanged = !SameErrors(nextErrors, errors);
+                _model = nextModel;
+                _errors = nextErrors;
+                _commitGeneration++;
                 if (errorsChanged)
                     _errorsChanged.OnNext(new Dictionary<string, string>(nextErrors));
-                canExecuteChanged = (_strict && wasDirty != isDirty) || isValid != wasValid;
+                canExecuteChanged = (_strict && wasDirty != isDirty) ||
+                    (nextErrors.Count == 0) != (errors.Count == 0);
             }
 
             _hub.Send(new FormRevertedMessage(this, nameof(FormVM<TM>)));
@@ -526,7 +568,10 @@ public sealed class FormVM<TM> : IDisposable
             WaitForApprovalPublisher(caller);
             if (_disposed) return;
             // Settlement step 1: the commit and clearing the mark are atomic.
+            // The commit is authoritative (§5.1, §5.3). An update whose callback
+            // started this approval re-entrantly is now stale (§5.4).
             _approvalInFlight = false;
+            _commitGeneration++;
             outerPrePublishing = EnterApprovalPublication(caller);
             _approvalPrePublishing = true;
             if (_resetOnApproved is not null)

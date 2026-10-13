@@ -147,27 +147,28 @@ describe("FORM-030", () => {
     resetSub.unsubscribe();
   });
 
-  it("finishes an admitted assignment before reentrant disposal tears down signals", () => {
+  it("finishes a committed assignment before reentrant disposal tears down signals", () => {
     const hub = new MessageHub();
     const published: string[] = [];
     const signalTrace: string[] = [];
-    let form: FormVM<Model>;
-    form = new FormVM<Model>({
+    const form = new FormVM<Model>({
       initial: model("initial"),
       persister: async () => {},
       hub,
       strict: true,
       snapshotter: (value) => value,
-      equals: (left, right) => {
-        if (right.value === "accepted") form.dispose();
-        return left.value === right.value;
-      },
       validators: {
         value: (value) => value.value === "accepted" ? "invalid" : undefined,
       },
     });
+    // Dispose from the first post-commit notification. A disposal during
+    // preparation (an equality or validator callback) commits nothing (§5.4,
+    // FORM-038), so deferred teardown is observable only after the commit.
     form.errorsChanged.subscribe({
-      next: () => signalTrace.push("errors"),
+      next: () => {
+        signalTrace.push("errors");
+        form.dispose();
+      },
       complete: () => signalTrace.push("complete"),
     });
     hub.messages.subscribe((message) => {
@@ -189,7 +190,7 @@ describe("FORM-030", () => {
     expect(signalTrace).toEqual(["errors", "complete"]);
   });
 
-  it("publishes validation from an assignment whose validator disposes reentrantly", () => {
+  it("commits nothing from an assignment whose validator disposes reentrantly", () => {
     const signalTrace: string[] = [];
     let form: FormVM<Model>;
     form = new FormVM<Model>({
@@ -210,8 +211,10 @@ describe("FORM-030", () => {
 
     form.setModel(model("accepted"));
 
-    expect(form.model).toEqual(model("accepted"));
-    expect(form.errors).toEqual({ value: "invalid" });
-    expect(signalTrace).toEqual(["errors", "complete"]);
+    // Disposal during preparation makes the result stale (§5.4, FORM-038):
+    // nothing is committed or published, and teardown still completes once.
+    expect(form.model).toEqual(model("initial"));
+    expect(form.errors).toEqual({});
+    expect(signalTrace).toEqual(["complete"]);
   });
 });

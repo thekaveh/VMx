@@ -1,7 +1,8 @@
 use super::{
-    catch_unwind, lock, resume_unwind, Arc, AssertUnwindSafe, AtomicBool, BTreeMap, ComponentVm,
-    FormRevertedMessage, Message, MessageHub, Mutex, NullDispatcher, NullMessageHub, OnceLock,
-    Ordering, RelayCommand, RelayCommandBuilder, VmxError, VmxResult, Weak,
+    catch_unwind, clone_locked, lock, resume_unwind, thread, wait, Arc, AssertUnwindSafe,
+    AtomicBool, AtomicU64, BTreeMap, ComponentVm, Condvar, FormRevertedMessage, Message,
+    MessageHub, Mutex, NullDispatcher, NullMessageHub, OnceLock, Ordering, RelayCommand,
+    RelayCommandBuilder, ThreadId, VmxError, VmxResult, Weak,
 };
 
 type FormPersister<M> = Arc<dyn Fn(&M) -> VmxResult<()> + Send + Sync>;
@@ -183,6 +184,78 @@ impl Drop for ApprovalFlight {
     }
 }
 
+/// Serializes a form's model updates (spec/20 §5.4, ADR-0144).
+///
+/// The lock is re-entrant: a callback may update or dispose the form again
+/// from the thread that holds it, and another thread waits until that thread
+/// releases it. Its state mutex is held only to change the owner and depth,
+/// never while a callback runs, and [`UpdateGuard`] releases the lock on every
+/// exit path, a panic included.
+struct UpdateLock {
+    owner: Mutex<UpdateOwner>,
+    released: Condvar,
+}
+
+struct UpdateOwner {
+    thread: Option<ThreadId>,
+    depth: usize,
+}
+
+impl UpdateLock {
+    fn new() -> Self {
+        Self {
+            owner: Mutex::new(UpdateOwner {
+                thread: None,
+                depth: 0,
+            }),
+            released: Condvar::new(),
+        }
+    }
+
+    fn acquire(&self) -> UpdateGuard<'_> {
+        let current = thread::current().id();
+        let mut owner = lock(&self.owner);
+        while owner.thread.is_some_and(|thread| thread != current) {
+            owner = wait(&self.released, owner);
+        }
+        owner.thread = Some(current);
+        owner.depth += 1;
+        UpdateGuard { lock: self }
+    }
+}
+
+/// One acquisition of an [`UpdateLock`]; dropping it releases that level.
+struct UpdateGuard<'a> {
+    lock: &'a UpdateLock,
+}
+
+impl Drop for UpdateGuard<'_> {
+    fn drop(&mut self) {
+        // Taken during an unwind, the state mutex is not poisoned on release.
+        let mut owner = lock(&self.lock.owner);
+        owner.depth -= 1;
+        if owner.depth == 0 {
+            owner.thread = None;
+            drop(owner);
+            self.lock.released.notify_all();
+        }
+    }
+}
+
+/// The next form state computed by a model update's preparation, before any
+/// of it is committed (spec/20 §5.4, ADR-0144).
+struct PreparedUpdate<M> {
+    /// The commit generation read before the preparation's first callback.
+    generation: u64,
+    model: M,
+    errors: BTreeMap<String, String>,
+    /// Whether the validity and strict-mode gates admitted approval before
+    /// the update.
+    was_eligible: bool,
+    /// Whether they admit approval after it.
+    eligible: bool,
+}
+
 #[derive(Clone)]
 /// Editable model state with validation, persistence, approval, and revert commands.
 pub struct FormVm<M: Clone + PartialEq + Send + 'static> {
@@ -203,6 +276,13 @@ pub struct FormVm<M: Clone + PartialEq + Send + 'static> {
     approved_callbacks: Arc<Mutex<ApprovedRegistry<M>>>,
     approval_publication: Arc<Mutex<ApprovalPublication<M>>>,
     approval_in_flight: Arc<AtomicBool>,
+    /// Serializes model updates, approval commits, and disposal across
+    /// threads (spec/20 §5.4, ADR-0144).
+    update_lock: Arc<UpdateLock>,
+    /// Counts the commits of model, snapshot, and error state, each made
+    /// under the update lock. Only a callback re-entering from the preparing
+    /// thread can advance it during a preparation, which is then stale.
+    commit_generation: Arc<AtomicU64>,
     disposed: Arc<Mutex<bool>>,
     hub: MessageHub,
 }
@@ -249,11 +329,12 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             approved_callbacks: Arc::new(Mutex::new(ApprovedRegistry::new())),
             approval_publication: Arc::new(Mutex::new(ApprovalPublication::new())),
             approval_in_flight: Arc::new(AtomicBool::new(false)),
+            update_lock: Arc::new(UpdateLock::new()),
+            commit_generation: Arc::new(AtomicU64::new(0)),
             disposed: Arc::new(Mutex::new(false)),
             hub,
         };
-        form.validate();
-        form
+        form.with_initial_validation()
     }
 
     /// Creates an empty immutable builder for a form.
@@ -274,7 +355,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
                 .map(|(index, error)| (index.to_string(), Some(error)))
                 .collect()
         }));
-        self.validate();
+        self.revalidate();
         self.publish_approve_state_change(could_approve);
         self
     }
@@ -286,7 +367,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     {
         let could_approve = self.can_approve();
         lock(&self.field_validators).insert(field.into(), Arc::new(validator));
-        self.validate();
+        self.revalidate();
         self.publish_approve_state_change(could_approve);
     }
 
@@ -314,7 +395,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     {
         let could_approve = self.can_approve();
         lock(&self.model_validators).push(Arc::new(validator));
-        self.validate();
+        self.revalidate();
         self.publish_approve_state_change(could_approve);
     }
 
@@ -324,6 +405,47 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     }
 
     /// Replaces the editable model and publishes resulting validation changes.
+    ///
+    /// A model equal to the live one, or any call after
+    /// [`dispose`](Self::dispose), does nothing. Otherwise the update prepares
+    /// before it commits (spec/20 §5.2 and §5.4, ADR-0144). Preparation
+    /// compares the model with the live model and, in strict mode, with the
+    /// snapshot, and runs the validators. It changes nothing, so a callback
+    /// that reads the form sees the previous state. The commit then installs
+    /// the model and its errors in one step, and the call publishes
+    /// `errors_changed`, the approve command's eligibility change, and the
+    /// `"model"` hub message, in that order.
+    ///
+    /// Updates are serialized: another thread's update, approval commit, or
+    /// disposal waits until this preparation and commit finish. A callback
+    /// may re-enter the form from this thread; when it disposes the form or
+    /// commits another update, this call commits and publishes nothing, and
+    /// the newer state stands.
+    ///
+    /// A panic in a validator or in `PartialEq` unwinds with the form
+    /// unchanged, nothing published, and no lock poisoned or held, so the form
+    /// stays usable.
+    ///
+    /// ```
+    /// use std::panic::{catch_unwind, AssertUnwindSafe};
+    /// use vmx::FormVm;
+    ///
+    /// let form = FormVm::builder()
+    ///     .initial(1)
+    ///     .persister(|_| Ok(()))
+    ///     .validator("value", |model: &i32| {
+    ///         assert_ne!(*model, 13, "a validator bug");
+    ///         (*model < 0).then(|| "negative".to_string())
+    ///     })
+    ///     .build()
+    ///     .unwrap();
+    ///
+    /// assert!(catch_unwind(AssertUnwindSafe(|| form.set_model(13))).is_err());
+    /// assert_eq!(form.model(), 1);
+    ///
+    /// form.set_model(-1);
+    /// assert_eq!(form.field_error("value").as_deref(), Some("negative"));
+    /// ```
     pub fn set_model(&self, model: M) {
         if *lock(&self.disposed) {
             return;
@@ -335,23 +457,35 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
                 return;
             }
         }
-        let could_approve = self.can_approve();
-        if !self.component.replace_model(model) {
+        let Some(serialized) = self.begin_update() else {
             return;
+        };
+        let Some(update) = self.prepare_assignment(model) else {
+            return;
+        };
+        let (was_eligible, eligible) = (update.was_eligible, update.eligible);
+        let committed = self.commit_update(update);
+        drop(serialized);
+        let Some(errors_changed) = committed else {
+            return;
+        };
+        if errors_changed {
+            self.publish_validation_changed();
         }
-        self.validate();
-        self.publish_approve_state_change(could_approve);
+        self.publish_eligibility_change(was_eligible, eligible);
         self.component.notify_property_changed("model");
     }
 
     /// Returns a clone of the last approved or initial snapshot.
     pub fn snapshot(&self) -> M {
-        lock(&self.snapshot).clone()
+        clone_locked(&self.snapshot)
     }
 
     /// Reports whether the current model differs from the snapshot.
     pub fn is_dirty(&self) -> bool {
-        self.model() != *lock(&self.snapshot)
+        // Compare copies, so no lock is held while `PartialEq` runs.
+        let model = self.model();
+        model != self.snapshot()
     }
 
     /// Returns the current validation messages in field-key order.
@@ -380,10 +514,16 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     /// approval is in flight, the model is valid, and, in strict mode, it is
     /// dirty.
     pub fn can_approve(&self) -> bool {
-        !*lock(&self.disposed)
-            && !self.approval_in_flight.load(Ordering::SeqCst)
-            && self.is_valid()
-            && (!*lock(&self.strict) || self.is_dirty())
+        if *lock(&self.disposed)
+            || self.approval_in_flight.load(Ordering::SeqCst)
+            || !self.is_valid()
+        {
+            return false;
+        }
+        // Read the flag first, so no lock is held while `is_dirty` runs
+        // `PartialEq`.
+        let strict = *lock(&self.strict);
+        !strict || self.is_dirty()
     }
 
     /// Persists the captured model and advances or resets the pristine snapshot.
@@ -489,7 +629,7 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         if *lock(&self.disposed) {
             return Ok(None);
         }
-        let errors_changed = if let Some(reset_on_approved) = &self.reset_on_approved {
+        let committed = if let Some(reset_on_approved) = &self.reset_on_approved {
             // Prepare the complete transition before mutating local state. The
             // callback or either snapshot operation may fail/panic without a
             // partial assignment.
@@ -497,19 +637,47 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             let next_model = (self.snapshotter)(&reset);
             let next_snapshot = (self.snapshotter)(&reset);
             let next_errors = self.validation_errors_for(&next_model);
-
-            // Install every derived field before the approval outcome is
-            // published, so synchronous observers cannot see a reset model
-            // paired with the previous snapshot or errors.
-            *lock(&self.snapshot) = next_snapshot;
-            let errors_changed = self.replace_validation_errors(next_errors);
-            self.component.replace_model(next_model);
-            errors_changed
+            self.commit_approval(next_snapshot, Some((next_model, next_errors)))
         } else {
-            *lock(&self.snapshot) = (self.snapshotter)(model);
-            false
+            self.commit_approval((self.snapshotter)(model), None)
         };
-        Ok(Some(errors_changed))
+        Ok(committed)
+    }
+
+    /// Commits the post-persist state: the advanced snapshot, or a prepared
+    /// reset with its model and errors.
+    ///
+    /// The commit is authoritative over edits made during the approval
+    /// (spec/20 §5.1) and yields only to disposal. Only this step takes the
+    /// update lock, so it waits for an update another thread is preparing,
+    /// while the persister runs with edits unblocked (§5.3). It installs every
+    /// field in one step before the approval outcome is published, so
+    /// synchronous observers cannot see a reset model paired with the previous
+    /// snapshot or errors. Returns whether the effective errors changed, or
+    /// `None` when disposal suppressed the commit.
+    fn commit_approval(
+        &self,
+        snapshot: M,
+        reset: Option<(M, BTreeMap<String, String>)>,
+    ) -> Option<bool> {
+        let serialized = self.update_lock.acquire();
+        if *lock(&self.disposed) {
+            drop(serialized);
+            return None;
+        }
+        self.commit_generation.fetch_add(1, Ordering::SeqCst);
+        let replaced_snapshot = std::mem::replace(&mut *lock(&self.snapshot), snapshot);
+        let (errors_changed, replaced_model) = match reset {
+            Some((model, errors)) => (
+                self.replace_validation_errors(errors),
+                Some(self.component.store_model(model)),
+            ),
+            None => (false, None),
+        };
+        drop(serialized);
+        // Replaced values are dropped after the update lock is released.
+        drop((replaced_snapshot, replaced_model));
+        Some(errors_changed)
     }
 
     /// Settlement steps 2 to 4 of a committed approval. The in-flight mark is
@@ -552,21 +720,40 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     }
 
     /// Restores the last snapshot and publishes the revert outcome.
+    ///
+    /// Like [`set_model`](Self::set_model), a revert prepares before it
+    /// commits (spec/20 §5.4, ADR-0144): the snapshotter copies the snapshot
+    /// and the validators run on that copy before the form changes. A panic in
+    /// either unwinds with the form unchanged and nothing published, including
+    /// no [`FormRevertedMessage`]. A revert is serialized with other updates,
+    /// and when a callback on this thread disposes the form or commits another
+    /// update during preparation, the revert commits and publishes nothing.
     pub fn revert(&self) {
         if *lock(&self.disposed) {
             return;
         }
-        let could_approve = self.can_approve();
-        let snapshot = lock(&self.snapshot).clone();
+        let Some(serialized) = self.begin_update() else {
+            return;
+        };
+        let generation = self.commit_generation.load(Ordering::SeqCst);
+        let snapshot = self.snapshot();
         let restored = (self.snapshotter)(&snapshot);
-        self.component.replace_model(restored);
-        self.validate();
+        let update = self.prepare_update(generation, None, Some(snapshot), restored);
+        let (was_eligible, eligible) = (update.was_eligible, update.eligible);
+        let committed = self.commit_update(update);
+        drop(serialized);
+        let Some(errors_changed) = committed else {
+            return;
+        };
+        if errors_changed {
+            self.publish_validation_changed();
+        }
         self.hub.send(Message::FormReverted(FormRevertedMessage {
             sender_id: self.component.id(),
             sender_name: "FormVm".to_string(),
         }));
         self.component.notify_property_changed("model");
-        self.publish_approve_state_change(could_approve);
+        self.publish_eligibility_change(was_eligible, eligible);
     }
 
     /// Returns the lazily created approval command.
@@ -724,6 +911,9 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     /// Disposes commands and notification hubs and makes later mutations inert.
     pub fn dispose(&self) {
         let should_dispose = {
+            // Disposal waits for an update in progress on another thread, so
+            // an admitted update completes (spec/20 §5.4).
+            let _serialized = self.update_lock.acquire();
             let mut disposed = lock(&self.disposed);
             if *disposed {
                 false
@@ -763,9 +953,112 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         target
     }
 
-    fn validate(&self) {
-        let next = self.validation_errors_for(&self.model());
-        self.commit_validation(next);
+    /// Installs the initial model's errors. Construction runs the same
+    /// preparation as an update, so a panicking validator fails construction
+    /// and produces no form (spec/20 §5.4).
+    fn with_initial_validation(self) -> Self {
+        let errors = self.validation_errors_for(&self.model());
+        *lock(&self.errors) = errors;
+        self
+    }
+
+    /// Revalidates the live model after a validator registration and
+    /// publishes an effective error change. The run is serialized with model
+    /// updates, and an update or registration that one of its validators
+    /// commits supersedes it.
+    fn revalidate(&self) {
+        let serialized = self.update_lock.acquire();
+        let generation = self.commit_generation.load(Ordering::SeqCst);
+        let errors = self.validation_errors_for(&self.model());
+        if self.commit_generation.load(Ordering::SeqCst) != generation {
+            return;
+        }
+        self.commit_generation.fetch_add(1, Ordering::SeqCst);
+        let errors_changed = self.replace_validation_errors(errors);
+        drop(serialized);
+        if errors_changed {
+            self.publish_validation_changed();
+        }
+    }
+
+    /// Takes the update lock for an update admitted before disposal. Returns
+    /// `None`, with the lock released, when a disposal that held the lock
+    /// first has ended the form.
+    fn begin_update(&self) -> Option<UpdateGuard<'_>> {
+        let serialized = self.update_lock.acquire();
+        let disposed = *lock(&self.disposed);
+        (!disposed).then_some(serialized)
+    }
+
+    /// Prepares assigning `model` (spec/20 §5.2 steps 3 to 6). Returns `None`
+    /// when `model` equals the live model.
+    fn prepare_assignment(&self, model: M) -> Option<PreparedUpdate<M>> {
+        let generation = self.commit_generation.load(Ordering::SeqCst);
+        let live = self.model();
+        if live == model {
+            return None;
+        }
+        Some(self.prepare_update(generation, Some(live), None, model))
+    }
+
+    /// Computes the rest of an update to `model` without changing the form:
+    /// the approval gates before and after it, and the model's validation
+    /// result. Every callback runs on copies, with no state mutex held; only
+    /// the re-entrant update lock is.
+    ///
+    /// Only strict mode reads dirty state, so only a strict form runs the
+    /// dirty comparisons, and only while its validity gate is open. A missing
+    /// `live` or `snapshot` is copied from the form when needed.
+    fn prepare_update(
+        &self,
+        generation: u64,
+        live: Option<M>,
+        snapshot: Option<M>,
+        model: M,
+    ) -> PreparedUpdate<M> {
+        let strict = *lock(&self.strict);
+        let dirty_inputs = strict.then(|| {
+            (
+                live.unwrap_or_else(|| self.model()),
+                snapshot.unwrap_or_else(|| self.snapshot()),
+            )
+        });
+        let was_eligible = self.is_valid()
+            && dirty_inputs
+                .as_ref()
+                .is_none_or(|(live, snapshot)| live != snapshot);
+        let errors = self.validation_errors_for(&model);
+        let eligible = errors.is_empty()
+            && dirty_inputs
+                .as_ref()
+                .is_none_or(|(_, snapshot)| model != *snapshot);
+        PreparedUpdate {
+            generation,
+            model,
+            errors,
+            was_eligible,
+            eligible,
+        }
+    }
+
+    /// Commits a completed preparation in one step: the model and its errors.
+    /// The caller holds the update lock.
+    ///
+    /// Returns whether the effective errors changed, or `None` for a stale
+    /// preparation: a callback re-entering from this thread disposed the form
+    /// or committed another update after the preparation began.
+    fn commit_update(&self, update: PreparedUpdate<M>) -> Option<bool> {
+        if self.commit_generation.load(Ordering::SeqCst) != update.generation
+            || *lock(&self.disposed)
+        {
+            return None;
+        }
+        self.commit_generation.fetch_add(1, Ordering::SeqCst);
+        // The replaced model is dropped after the model mutex is released.
+        let replaced = self.component.store_model(update.model);
+        let errors_changed = self.replace_validation_errors(update.errors);
+        drop(replaced);
+        Some(errors_changed)
     }
 
     fn validation_errors_for(&self, model: &M) -> BTreeMap<String, String> {
@@ -795,12 +1088,6 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         next
     }
 
-    fn commit_validation(&self, next: BTreeMap<String, String>) {
-        if self.replace_validation_errors(next) {
-            self.publish_validation_changed();
-        }
-    }
-
     fn replace_validation_errors(&self, next: BTreeMap<String, String>) -> bool {
         {
             let mut errors = lock(&self.errors);
@@ -824,6 +1111,16 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             sender_name: self.component.name(),
             name: "errors_changed".to_string(),
         });
+    }
+
+    /// Raises the approve command's eligibility change when an update moved
+    /// its validity or strict-mode gate. While the form is disposed or an
+    /// approval is in flight, the command stays disabled whatever the update
+    /// changed.
+    fn publish_eligibility_change(&self, was_eligible: bool, eligible: bool) {
+        if was_eligible != eligible && !self.approval_in_flight.load(Ordering::SeqCst) {
+            self.raise_approve_can_execute_changed();
+        }
     }
 
     fn publish_approve_state_change(&self, previous: bool) {
@@ -989,10 +1286,11 @@ impl<M: Clone + PartialEq + Send + 'static> FormVmBuilder<M> {
             approved_callbacks: Arc::new(Mutex::new(ApprovedRegistry::new())),
             approval_publication: Arc::new(Mutex::new(ApprovalPublication::new())),
             approval_in_flight: Arc::new(AtomicBool::new(false)),
+            update_lock: Arc::new(UpdateLock::new()),
+            commit_generation: Arc::new(AtomicU64::new(0)),
             disposed: Arc::new(Mutex::new(false)),
             hub: self.hub,
         };
-        form.validate();
-        Ok(form)
+        Ok(form.with_initial_validation())
     }
 }

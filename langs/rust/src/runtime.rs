@@ -82,6 +82,21 @@ pub(crate) fn lock<T: ?Sized>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+/// Clones the value behind `mutex`.
+///
+/// A panicking `Clone` resumes only after the guard is released, so it
+/// cannot poison the mutex.
+pub(crate) fn clone_locked<T: Clone>(mutex: &Mutex<T>) -> T {
+    let guard = lock(mutex);
+    match catch_unwind(AssertUnwindSafe(|| T::clone(&guard))) {
+        Ok(value) => value,
+        Err(panic) => {
+            drop(guard);
+            resume_unwind(panic)
+        }
+    }
+}
+
 pub(crate) fn wait<'a, T>(condition: &Condvar, guard: MutexGuard<'a, T>) -> MutexGuard<'a, T> {
     #[cfg(test)]
     wait_observation::entered(condition);

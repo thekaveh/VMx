@@ -295,9 +295,11 @@ option is absent, existing approval semantics remain unchanged.
 1. return without replacing the live value, validation, command work, or
    notification when equal;
 1. capture the previous dirty and valid state;
-1. install the candidate as the live `Model`;
-1. rerun validation and emit `ErrorsChanged` only for an effective error-map
-   change;
+1. prepare the candidate's validation result and dirty state against
+   `Snapshot` without changing any form state (§5.4);
+1. install the candidate as the live `Model` together with its prepared error
+   map;
+1. emit `ErrorsChanged` only for an effective error-map change;
 1. invalidate `ApproveCommand` when the existing strict/validity rules require
    it; and
 1. publish exactly one model `PropertyChangedMessage` on the configured hub.
@@ -314,9 +316,9 @@ performs no state work after its send returns. One message is published for each
 accepted unequal assignment.
 
 The null/default hub keeps null-object behavior: the local edit transaction still
-settles and no exception is raised. Validator failures retain their existing
-flavor behavior; this contract does not add rollback. Intentional publication of
-an equal/current FormVM model is outside this method by decision (ADR-0093).
+settles and no exception is raised. A callback that fails during the transaction
+leaves the form unchanged (§5.4). Intentional publication of an equal/current
+FormVM model is outside this method by decision (ADR-0093).
 
 ### 5.3 Approval admission (spec v3.27, ADR-0143)
 
@@ -372,6 +374,57 @@ unchanged by this section.
 
 This section adds no public member. A bindable submission state is left to
 future work.
+
+### 5.4 Failure-atomic model updates (spec v3.28, ADR-0144)
+
+`SetModel` and `DenyCommand` prepare before they commit. Preparation runs every
+consumer callback the update needs: the equality comparison against the live
+model and the snapshot (§4), the field and model validators (§5), and, for
+deny, the snapshotter that copies `Snapshot` (§3). It computes the next model,
+error map, and dirty and valid state without changing any form state, so a
+callback that reads the form during preparation sees the previous state. Only a
+completed preparation is committed, in one step, before any notification.
+
+If a callback fails during preparation, the failure propagates to the caller
+(`SetModel`, or `DenyCommand.Execute()`) unchanged and the update commits
+nothing:
+
+- `Model`, `Snapshot`, `Errors`, `IsDirty`, `IsValid`, and the approve command's
+  `CanExecute` keep their previous values;
+- nothing is published: no `ErrorsChanged`, no `CanExecuteChanged`, no model
+  `PropertyChangedMessage`, and, for deny, no `FormRevertedMessage`; and
+- the form stays usable, so a later update whose callbacks succeed settles
+  normally.
+
+A failure is never converted into a validation error. Construction runs the
+same preparation for the initial model, so a failing validator fails
+construction and produces no form.
+
+Updates are serialized. An update runs to completion, preparation included,
+before another thread's update, approval commit, or disposal proceeds, so an
+admitted update completes normally as chapter 02 §7 requires. Flavors keep this
+by holding the form's re-entrant state lock across preparation, or by an
+equivalent per-form serialization.
+
+A callback may still re-enter the form from the thread that is preparing. If,
+by the time preparation completes, that re-entry has disposed the form or
+committed another update (a nested `SetModel`, deny, approval commit, or
+reset), the prepared result is stale: the outer call returns without committing
+or publishing, and the newest committed state stands. A nested update therefore
+never overwrites or is overwritten by the outer one it interrupted. Disposal's
+own effects (§10) still occur; the abandoned update adds no notification of its
+own.
+
+Flavor notes:
+
+- Rust validators return no error value; a panic in a validator, equality
+  implementation, or snapshotter is the failure. It unwinds through the update
+  with the form unchanged and leaves no lock poisoned or held.
+- Swift validators and the injected `equals` cannot throw, so only the
+  re-entrancy and disposal rules apply.
+
+The approval reset of §5.1 already prepares before it commits and is unchanged.
+This section adds no public member.
 
 ## 6. Lifecycle state diagram
 
@@ -580,6 +633,22 @@ v2.5.0 via ADR-0038; the guards shipped in all flavors as v2.5.0 maintenance):
   approval, which still commits its captured value or authoritative reset;
   disposal during the approval suppresses every settlement notification and
   outcome, and later approve calls do nothing (§5.3, §10).
+- `FORM-035` — A field validator that fails during `SetModel`, on its first run
+  or after earlier successful runs, propagates its failure and leaves model,
+  snapshot, errors, dirty and valid state, and approve-command state unchanged,
+  with no notification; a later `SetModel` whose validators succeed settles
+  normally (§5.4).
+- `FORM-036` — A failing model validator, a failing equality comparison where
+  the flavor's equality can fail, and a failing validator during
+  `DenyCommand` are failure-atomic in the same way; deny publishes neither
+  `FormRevertedMessage` nor the model message (§5.4).
+- `FORM-037` — A validator that re-enters `SetModel` with another unequal value
+  during preparation: the nested assignment commits and publishes once, and the
+  interrupted outer call commits and publishes nothing, so the newest committed
+  model stands (§5.4).
+- `FORM-038` — A validator that disposes the form during `SetModel` or deny
+  preparation: the call commits and publishes nothing and the form stays inert
+  (§5.4, §10).
 
 `DISP-004` adds the cross-cutting assertion that repeated disposal completes
 owned form channels and commands at most once while preserving `FORM-014`.

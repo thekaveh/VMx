@@ -22,6 +22,13 @@ import Foundation
 /// awaited via ``approveAsync()``. One approval runs at a time: an approve
 /// call made while another is in flight does nothing (spec/20-form-vm.md
 /// §5.3, ADR-0143).
+///
+/// `setModel` and ``denyCommand`` prepare before they commit: the equality,
+/// snapshotter, and validator callbacks run first without changing form
+/// state, and only then is the result committed in one step and published.
+/// Updates are serialized: the form's re-entrant state lock is held across
+/// preparation, so another thread's update, approval commit, or disposal
+/// waits for it (spec/20-form-vm.md §5.4, ADR-0144).
 public final class FormVM<Model> {
 
     // ── Stored state ──────────────────────────────────────────────────────────
@@ -29,6 +36,13 @@ public final class FormVM<Model> {
     private var _model: Model
     private var _snapshot: Model
     private var _disposed = false
+    // Failure-atomic updates (§5.4, ADR-0144): every commit of the model,
+    // snapshot, or errors advances this generation under `stateGate`. An
+    // update holds the gate from admission through commit, so only a
+    // callback re-entering on the preparing thread can dispose the form or
+    // commit another update meanwhile; the prepared result is then stale and
+    // dropped, and the newest committed state stands.
+    private var commitGeneration: UInt64 = 0
     private var activeMutations = 0
     private var mutationTeardownPending = false
     private var approvalPrePublishing = false
@@ -188,6 +202,13 @@ public final class FormVM<Model> {
     /// In strict mode fires `approveCommand.canExecuteChanged` when `isDirty`
     /// transitions so that UI bindings can re-evaluate the approve button state.
     /// A call begun after disposal returns before inspecting the candidate.
+    ///
+    /// The equality and validator callbacks run before anything is committed
+    /// and observe the previous form state (§5.4). Another thread's update or
+    /// disposal waits until this call has committed. If a callback re-enters
+    /// on this thread and disposes the form or commits another update, this
+    /// call commits and publishes nothing, and the newest committed state
+    /// stands.
     public func setModel(_ newModel: Model) {
         stateGate.lock()
         awaitForeignApprovalLocked()
@@ -214,20 +235,28 @@ public final class FormVM<Model> {
             endMutation()
         }
 
-        guard !equals(_model, newModel) else { return }
-        let wasDirty = !equals(_model, _snapshot)
-        let wasValid = _errors.isEmpty
-        _model = newModel
+        // Preparation (§5.2, §5.4): consumer callbacks run under the
+        // re-entrant `stateGate`, which keeps updates serialized, and change
+        // no form state.
+        let base = updateBaseLocked()
+        guard !equals(base.model, newModel) else { return }
+        let wasDirty = !equals(base.model, base.snapshot)
         let nextErrors = Self.validate(
             newModel,
             validators: validators,
             modelValidator: modelValidator
         )
-        let nextDirty = !equals(newModel, _snapshot)
-        let errorsChanged = nextErrors != _errors
-        _errors = nextErrors
+        let nextDirty = !equals(newModel, base.snapshot)
+        let wasValid = base.errors.isEmpty
+        let errorsChanged = nextErrors != base.errors
         let canExecuteChanged =
             (strict && nextDirty != wasDirty) || nextErrors.isEmpty != wasValid
+
+        // Commit in one step, unless a re-entrant callback made the prepared
+        // result stale.
+        guard beginCommitLocked(base) else { return }
+        _model = newModel
+        _errors = nextErrors
         if errorsChanged {
             _errorsChanged.send(nextErrors)
         }
@@ -313,36 +342,75 @@ public final class FormVM<Model> {
             return
         }
         activeMutations += 1
-        let current = _model
-        let snapshot = _snapshot
-        let currentErrors = _errors
-        let nextModel = snapshotter(snapshot)
-        _model = nextModel
+        defer { endMutation() }
+
+        // Preparation (§5.4): the snapshotter, validator, and equality
+        // callbacks run under the re-entrant `stateGate`, which keeps updates
+        // serialized, and change no form state.
+        let base = updateBaseLocked()
+        let nextModel = snapshotter(base.snapshot)
         let nextErrors = Self.validate(
             nextModel,
             validators: validators,
             modelValidator: modelValidator
         )
-        let wasDirty = !equals(current, snapshot)
-        let wasValid = currentErrors.isEmpty
-        let nextDirty = !equals(nextModel, snapshot)
+        let wasDirty = !equals(base.model, base.snapshot)
+        let wasValid = base.errors.isEmpty
+        let nextDirty = !equals(nextModel, base.snapshot)
         let nextValid = nextErrors.isEmpty
-        let errorsChanged = nextErrors != currentErrors
+        let errorsChanged = nextErrors != base.errors
         let canExecuteChanged =
             (strict && nextDirty != wasDirty) || nextValid != wasValid
 
+        // Commit in one step, unless a re-entrant callback made the prepared
+        // revert stale: a form disposed meanwhile is not reverted and
+        // publishes no deny message.
+        guard beginCommitLocked(base) else {
+            stateGate.unlock()
+            return
+        }
+        _model = nextModel
         _errors = nextErrors
         if errorsChanged {
             _errorsChanged.send(nextErrors)
         }
         stateGate.unlock()
-        defer { endMutation() }
 
         hub.send(FormRevertedMessage(senderObject: self, senderName: "FormVM"))
         hub.send(PropertyChangedMessage(sender: self, senderName: "FormVM", propertyName: "model"))
         if canExecuteChanged {
             withStateGate { _approveCanExecSubject.send(()) }
         }
+    }
+
+    /// The committed state an update prepares against (§5.4).
+    private struct UpdateBase {
+        let generation: UInt64
+        let model: Model
+        let snapshot: Model
+        let errors: [String: String]
+    }
+
+    /// Reads the committed state for an update to prepare against. The caller
+    /// holds `stateGate`.
+    private func updateBaseLocked() -> UpdateBase {
+        UpdateBase(
+            generation: commitGeneration,
+            model: _model,
+            snapshot: _snapshot,
+            errors: _errors
+        )
+    }
+
+    /// Admits the commit of an update prepared against `base`, with
+    /// `stateGate` held since admission. A prepared result is stale (§5.4)
+    /// when a callback re-entering on this thread disposed the form, or
+    /// committed another update, while it was prepared; it is then dropped.
+    /// Otherwise this advances the generation for the commit that follows.
+    private func beginCommitLocked(_ base: UpdateBase) -> Bool {
+        guard !_disposed, commitGeneration == base.generation else { return false }
+        commitGeneration &+= 1
+        return true
     }
 
     /// The model captured by an admitted approval.
@@ -521,6 +589,9 @@ public final class FormVM<Model> {
         let committedErrors = nextErrors ?? currentErrors
         let errorsChanged = committedErrors != currentErrors
 
+        // Like every commit, the approval advances the generation (§5.4); it
+        // remains authoritative over earlier edits (§5.1, §5.3).
+        commitGeneration &+= 1
         if let nextModel { _model = nextModel }
         _snapshot = nextSnapshot
         if nextErrors != nil { _errors = committedErrors }

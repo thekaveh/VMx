@@ -16,7 +16,7 @@ if the core changes again.
 
 | Package               | Source line in the pilots                    | Target | Target availability                       |
 | --------------------- | -------------------------------------------- | ------ | ----------------------------------------- |
-| `@thekaveh/vmx`       | 3.1.0 (vendored by NNx); 3.24.0 pilot builds | 3.28.0 | Source only: npm publication waits on #57 |
+| `@thekaveh/vmx`       | 3.1.0 (vendored by NNx); 3.24.0 pilot builds | 3.29.0 | Source only: npm publication waits on #57 |
 | `@thekaveh/vmx-react` | none: each consumer had local hooks          | 0.1.1  | Source only: published after the core     |
 
 The targets match the [installation table](../installation.md). Until the
@@ -25,7 +25,7 @@ section 3.7.6. Each recipe repeats the versions it applies to.
 
 ## 3.7.2. Remove redundant `hub` members
 
-**From** core before 3.10.0 **to** core 3.28.0 (source only).
+**From** core before 3.10.0 **to** core 3.29.0 (source only).
 
 Core 3.10.0 added a public read-only `hub` accessor to every component VM
 (`IComponentVM.hub`). Consumer classes written against older lines often stored
@@ -165,7 +165,7 @@ binding releases its subscription on unmount.
 ## 3.7.6. Install packed tarballs, not a live directory link
 
 **From** a directory link to a VMx checkout **to** packed tarballs of core
-3.28.0 and adapter 0.1.1 (source only).
+3.29.0 and adapter 0.1.1 (source only).
 
 Linking the adapter directory into a React 18 application resolved the
 adapter's React 19 development dependency beside the application's React and
@@ -181,7 +181,7 @@ bun add ../VMx/packages/react
 # After: pack, then install the tarballs (full steps in the installation page)
 npm pack ../VMx/langs/typescript --pack-destination /tmp/vmx-packs
 npm pack ../VMx/packages/react --pack-destination /tmp/vmx-packs
-npm install /tmp/vmx-packs/thekaveh-vmx-3.28.0.tgz \
+npm install /tmp/vmx-packs/thekaveh-vmx-3.29.0.tgz \
   /tmp/vmx-packs/thekaveh-vmx-react-0.1.1.tgz
 npm ls react   # one React version
 ```

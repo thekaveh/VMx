@@ -6,6 +6,23 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.34.0] — unreleased source version
+
+### Changed
+
+- `FormVm` model updates are failure-atomic. `set_model` and deny run the
+  equality comparison, the validators, and (for deny) the snapshotter on owned
+  copies before changing anything; a panic in one of them unwinds to the caller
+  with the model, snapshot, errors, dirty and valid state, and command state
+  unchanged, no notification, and no lock poisoned or held. A failure is never
+  turned into a validation error, and a panicking validator fails `build()`. A
+  validator that reads the form sees the previous model. Updates are serialized
+  per form by a re-entrant update lock, so another thread's edit, approval
+  commit, or disposal waits for an update in progress; if a validator itself
+  disposes the form or makes another edit, the interrupted update commits
+  nothing and the newest edit stands (`FORM-035..038`, ADR-0144, spec 3.28.0)
+  (#337).
+
 ### Fixed
 
 - A same-thread re-entrant `execute()` on a `RelayCommand` or

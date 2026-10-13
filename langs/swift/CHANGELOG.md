@@ -6,6 +6,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.29.0] — unreleased source version
+
+### Changed
+
+- `FormVM` model updates prepare before they commit. `setModel` and deny compute
+  the next model, errors, and dirty and valid state from the candidate before
+  installing anything, so a validator that reads the form sees the previous
+  model and no observer ever sees a new model with old errors. Swift validators,
+  `equals`, and the snapshotter cannot throw, so the failure half of the rule
+  does not apply. If a validator disposes the form or makes another edit, the
+  interrupted update commits nothing and the newest edit stands, while edits
+  from other threads still wait for an update in progress (`FORM-035..038`,
+  ADR-0144, spec 3.28.0) (#337).
+
 ## [3.28.0] — unreleased source version
 
 ### Changed
