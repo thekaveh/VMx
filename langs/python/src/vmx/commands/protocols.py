@@ -5,6 +5,7 @@ Spec: spec/04-commands.md
 
 from __future__ import annotations
 
+from collections.abc import Awaitable
 from typing import Protocol, TypeVar, runtime_checkable
 
 import reactivex as rx
@@ -54,4 +55,19 @@ class ParameterizedCommand(Protocol[T]):
     @property
     def can_execute_changed(self) -> rx.Observable[None]:
         """Observable that emits whenever ``can_execute`` may have changed."""
+        ...
+
+
+@runtime_checkable
+class _AsyncCommand(Protocol):
+    """Internal structural check for a command with an awaitable entry point.
+
+    Python's form of the spec's async command capability (spec/04-commands.md
+    §8.3.2, ADR-0145): a command is asynchronous when it offers an awaitable
+    ``execute_async``. ``AsyncRelayCommand`` and ``ConfirmationDecoratorCommand``
+    both satisfy it. Private: the ADR adds no public member outside Rust.
+    """
+
+    def execute_async(self, parameter: object = None) -> Awaitable[None]:
+        """Run the command once and complete when that run completes."""
         ...

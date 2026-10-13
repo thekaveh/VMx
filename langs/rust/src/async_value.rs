@@ -9,7 +9,8 @@ use std::task::{Context, Poll, Waker};
 type PanicPayload = Box<dyn Any + Send>;
 
 /// The terminal failure of an [`AsyncValue`] whose `map` or `and_then`
-/// callback panicked.
+/// callback panicked, or whose awaited command operation panicked (see
+/// [`Command::as_async`](crate::Command::as_async)).
 ///
 /// Clones share one record. [`message`](Self::message) is available to every
 /// observer; the original panic payload is handed out once, to the first
@@ -101,7 +102,9 @@ struct AsyncValueInner<T> {
 ///
 /// A handle settles with a value through [`resolve`](Self::resolve), or as
 /// panicked when the `map` or `and_then` callback that produces it panics
-/// (ADR-0138). A panicked handle is terminal: [`wait`](Self::wait) and
+/// (ADR-0138). The handle returned by a command's awaitable entry point
+/// ([`Command::as_async`](crate::Command::as_async)) also settles as panicked
+/// when the operation panics. A panicked handle is terminal: [`wait`](Self::wait) and
 /// `.await` re-raise the panic, [`wait_result`](Self::wait_result) and
 /// [`try_result`](Self::try_result) return it as an [`AsyncValuePanic`], and
 /// [`try_get`](Self::try_get) returns `None`. Every observer terminates; the
@@ -140,6 +143,20 @@ impl<T: Clone + Send + 'static> AsyncValue<T> {
     /// keeps its first outcome.
     pub fn resolve(&self, value: T) -> bool {
         self.settle(Outcome::Value(value))
+    }
+
+    /// Creates a handle already settled as panicked with `payload`.
+    pub(crate) fn panicked(payload: PanicPayload) -> Self {
+        let completion = Self::pending();
+        completion.settle_panicked(payload);
+        completion
+    }
+
+    /// Settles the handle as panicked with `payload` unless it has already
+    /// settled, returning whether this call settled it. The payload stays
+    /// available to the first observer that takes or re-raises it.
+    pub(crate) fn settle_panicked(&self, payload: PanicPayload) -> bool {
+        self.settle(Outcome::Panicked(AsyncValuePanic::new(payload)))
     }
 
     fn settle(&self, outcome: Outcome<T>) -> bool {

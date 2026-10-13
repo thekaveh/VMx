@@ -2,6 +2,8 @@ using System.Reactive.Concurrency;
 using Microsoft.Reactive.Testing;
 using NotesShowcase.Models;
 using NotesShowcase.ViewModels;
+using VMx.Commands;
+using VMx.Dialogs;
 using VMx.Lifecycle;
 using VMx.Services;
 using Xunit;
@@ -234,6 +236,96 @@ public sealed class NotesViewVMTests
         // Persistence check: the repo no longer returns the deleted note.
         var reload = await repo.LoadNotesAsync("nb-personal");
         Assert.DoesNotContain(reload, n => n.Id == target.NoteId);
+    }
+
+    // Spec §8.3.2 / ADR-0145: awaiting a ConfirmationDecoratorCommand over an
+    // async inner command waits for the inner operation. The note's confirmed
+    // delete therefore resumes only after the repository delete finishes.
+    [Fact]
+    public async Task Awaited_confirmed_delete_completes_only_after_the_gated_repository_delete()
+    {
+        var repo = new GatedDeleteRepository(new InMemoryNoteRepository(
+            SeedData.Build(),
+            loadAllDelay: TimeSpan.Zero,
+            loadNotesDelay: TimeSpan.Zero,
+            saveNoteDelay: TimeSpan.Zero,
+            deleteNoteDelay: TimeSpan.Zero));
+        var vm = NotesViewVM.Builder()
+            .Name("notes")
+            .Services(new MessageHub(), new RxDispatcher(ImmediateScheduler.Instance, ImmediateScheduler.Instance))
+            .Repository(repo)
+            .DialogService(new AcceptingDialogService())
+            .PageSize(5)
+            .Build();
+        vm.Construct();
+        await vm.BindToAsync("nb-personal");
+        var before = vm.Inner.Count;
+        var target = vm.Inner[0];
+        var delete = Assert.IsType<ConfirmationDecoratorCommand>(target.DeleteCommand);
+
+        var awaited = delete.ExecuteAsync(null);
+        Assert.Equal(target.NoteId, await repo.DeleteStarted.WaitAsync(TimeSpan.FromSeconds(5)));
+
+        Assert.False(awaited.IsCompleted, "the confirmed delete is still waiting on the repository");
+        Assert.Equal(before, vm.Inner.Count);
+
+        repo.ReleaseDelete();
+        await awaited.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // No polling: the awaited call resumed after the repository delete and
+        // the list removal that follows it.
+        Assert.Equal(before - 1, vm.Inner.Count);
+        Assert.DoesNotContain(vm.Inner, n => n.NoteId == target.NoteId);
+        var reload = await repo.LoadNotesAsync("nb-personal");
+        Assert.DoesNotContain(reload, n => n.Id == target.NoteId);
+        vm.Dispose();
+    }
+
+    private sealed class AcceptingDialogService : IDialogService
+    {
+        public Task<string?> PickFileToOpen(FileFilter? filter, string? title)
+            => Task.FromResult<string?>(null);
+        public Task<string?> PickFileToSave(FileFilter? filter, string? title, string? suggestedName)
+            => Task.FromResult<string?>(null);
+        public Task<bool> Confirm(string message, string? title = null)
+            => Task.FromResult(true);
+        public Task Notify(string message, string? title = null, NotificationSeverity severity = NotificationSeverity.Info)
+            => Task.CompletedTask;
+    }
+
+    // Holds every DeleteNoteAsync call until ReleaseDelete, then forwards it.
+    private sealed class GatedDeleteRepository : INoteRepository
+    {
+        private readonly INoteRepository _inner;
+        private readonly TaskCompletionSource<string> _deleteStarted =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _release =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public GatedDeleteRepository(INoteRepository inner) => _inner = inner;
+
+        public Task<string> DeleteStarted => _deleteStarted.Task;
+
+        public void ReleaseDelete() => _release.TrySetResult();
+
+        public Task<(IReadOnlyList<NotebookModel> Notebooks, IReadOnlyList<NoteModel> Notes)> LoadAllAsync(CancellationToken ct = default)
+            => _inner.LoadAllAsync(ct);
+        public Task<IReadOnlyList<NoteModel>> LoadNotesAsync(string notebookId, CancellationToken ct = default)
+            => _inner.LoadNotesAsync(notebookId, ct);
+        public Task<NoteSearchPage> SearchNotesAsync(string term, string? token, int pageSize, CancellationToken ct = default)
+            => _inner.SearchNotesAsync(term, token, pageSize, ct);
+        public Task SaveNoteAsync(NoteModel note, CancellationToken ct = default)
+            => _inner.SaveNoteAsync(note, ct);
+        public async Task DeleteNoteAsync(string id, CancellationToken ct = default)
+        {
+            _deleteStarted.TrySetResult(id);
+            await _release.Task.WaitAsync(ct).ConfigureAwait(false);
+            await _inner.DeleteNoteAsync(id, ct).ConfigureAwait(false);
+        }
+        public Task AddNotebookAsync(NotebookModel notebook, CancellationToken ct = default)
+            => _inner.AddNotebookAsync(notebook, ct);
+        public Task ExportAsync(IReadOnlyList<NotebookModel> notebooks, IReadOnlyList<NoteModel> notes, string path, CancellationToken ct = default)
+            => _inner.ExportAsync(notebooks, notes, path, ct);
     }
 
     [Fact]

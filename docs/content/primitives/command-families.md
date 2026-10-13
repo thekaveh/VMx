@@ -91,6 +91,13 @@ Commands become interesting when triggers are involved:
 - fire-and-forget confirmation flows surface asynchronous failures on an error
   observable instead of swallowing them
 
+When a confirmation wraps an async command, awaiting its `ExecuteAsync`
+completes when the inner operation completes, and the inner failure reaches the
+awaiter. The fire-and-forget `Execute` starts the inner through the inner's own
+`Execute`, so inner failures stay on the inner command's error channel; the
+confirmation's `errors` carries only confirmation failures and synchronous inner
+failures (ADR-0145).
+
 Repeated command disposal, including during an in-flight async operation,
 follows the [Disposal Contract](disposal-contract.md): cancellation and terminal
 completion occur at most once.

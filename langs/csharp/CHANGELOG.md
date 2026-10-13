@@ -35,6 +35,21 @@ All notable changes to the C# flavor are documented here. The format is based on
 - The NuGet package ships its own README describing `AddVMx()` registration
   and its dependency on `VMx` (#351).
 
+## [3.29.0] — unreleased source version
+
+### Changed
+
+- An awaited `ExecuteAsync()` on `ConfirmationDecoratorCommand` now completes
+  when an asynchronous inner command (an `IAsyncCommand`, or a nested
+  confirmation wrapper) finishes, not when it starts. After a true confirmation
+  the decorator invokes the inner exactly once through its awaitable entry
+  point, and an inner failure reaches the awaiter instead of the inner's
+  `Errors`. The fire-and-forget `Execute()` still starts an asynchronous inner
+  through the inner's own `Execute()`, so its failures stay on the inner's
+  `Errors`; the decorator's `Errors` carries only confirmation failures and
+  synchronous-inner failures. The decorator adds no admission, cancellation, or
+  ownership of the inner (`CMDD-014..017`, ADR-0145, spec 3.29.0) (#355).
+
 ## [3.28.0] — unreleased source version
 
 ### Changed

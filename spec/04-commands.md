@@ -224,6 +224,8 @@ Wraps a single inner command, gating `Execute` on a user-confirmation delegate.
 - `CanExecute` returns `inner.CanExecute()`.
 - `Execute` invokes `confirm()`. If the awaited result is `true`, calls
   `inner.Execute()`. If `false`, does nothing.
+- `ExecuteAsync` awaits the confirmation and then, when the inner command is
+  asynchronous, awaits the inner operation itself (§8.3.2).
 
 Per ADR-0012, the confirmation delegate is intentionally generic — it does NOT
 depend on the notification service (chapter 16). Consumers may bridge it to
@@ -266,6 +268,60 @@ dedicated error observable rather than discarding it.
 > whose payload is not a clonable error, arrives as `VmxError::Other` carrying
 > the panic message (ADR-0137). The decorator's `errors` channel is exercised by
 > `CMDD-010`.
+
+#### 8.3.2 Asynchronous inner commands (spec v3.29, ADR-0145)
+
+An inner command is **asynchronous** when it offers the flavor's awaitable
+execution: the async command capability (`IAsyncCommand` in C# and
+TypeScript, `AsyncCommand` in Swift, an awaitable `execute_async` in Python, and
+the async capability of the Rust `Command` trait), or another
+`ConfirmationDecoratorCommand`. Any other inner command is synchronous.
+
+The awaitable `ExecuteAsync()` path:
+
+1. awaits `confirm()`; if it resolves `false`, completes without invoking the
+   inner command;
+1. otherwise invokes the inner command exactly once: an asynchronous inner
+   through its awaitable entry point, a synchronous inner through
+   `inner.Execute()`; it never calls both for one admitted call; and
+1. completes when that invocation completes. For an asynchronous inner, that is
+   when the inner operation finishes, not when it starts.
+
+A failure of the inner operation propagates directly to the awaiter, unchanged.
+It is not emitted on the decorator's `errors`. The inner command's own error
+channel follows the inner's rules for an awaited call, so awaiting an
+`AsyncRelayCommand` reports its failure only to the awaiter (§10.4).
+
+The fire-and-forget `Execute()` path starts an asynchronous inner through the
+inner's own fire-and-forget `Execute()`. The inner reports its failures on its
+own error channel, so the decorator does not observe the inner operation, does
+not start a second task to watch it, and does not re-emit its failures. The
+decorator's `errors` carries the confirmation's failures and, for a synchronous
+inner, the failure thrown by `inner.Execute()`, as §8.3.1 describes. Each
+failure therefore reaches exactly one channel.
+
+The decorator adds no admission or cancellation of its own beyond confirmation
+and disposal:
+
+- After confirmation, the inner command applies its own rules. An
+  `AsyncRelayCommand` that is already executing drops the call (§10.2), and
+  the awaiter completes when that dropped call returns.
+- Cancelling the inner command (`Cancel`) ends the inner operation according
+  to the inner's own cancellation rule, and the awaiter observes that outcome
+  unchanged.
+- The decorator never owns the inner command (§8.4). Disposing the decorator
+  while the inner operation runs neither cancels nor disposes it, and the
+  awaiter still completes when the inner operation completes. Disposal during
+  a pending confirmation starts no inner work (§8.4).
+
+A nested `ConfirmationDecoratorCommand` is asynchronous, so an outer wrapper
+awaits the inner wrapper's confirmation and its inner operation.
+
+Rust's `Command` trait gains a provided method that returns a command's
+awaitable entry point when it has one. `AsyncRelayCommand` and
+`ConfirmationDecoratorCommand` provide it, and the decorator uses it to detect
+an asynchronous inner. Other commands keep the synchronous default. This is the
+one public addition of this section.
 
 ### 8.4 Wrapper disposal (spec v3.24, ADR-0134)
 
@@ -462,7 +518,7 @@ cancellable body and Combine for the `canExecuteChanged` / `errors` channels
 
 ## 11. Conformance
 
-`CMD-001` through `CMD-019` and `CMDD-001` through `CMDD-013` in
+`CMD-001` through `CMD-019` and `CMDD-001` through `CMDD-017` in
 `12-conformance.md` cover:
 
 - `Execute` invokes the configured task
@@ -489,6 +545,11 @@ cancellable body and Combine for the `canExecuteChanged` / `errors` channels
   wrappers are inert; disposal during execution or a pending confirmation admits
   no later inner work while an admitted pre/post pair stays balanced (§8.4,
   ADR-0134)
+- `CMDD-014..CMDD-017` — an awaited confirmation with an asynchronous inner
+  command completes when the inner operation completes and invokes it once;
+  failures reach exactly one channel on each path; the inner keeps its own
+  admission and cancellation; nested wrappers are awaited, and disposal neither
+  cancels nor owns the inner (§8.3.2, ADR-0145)
 
 `DISP-002` additionally disposes an in-flight async command twice and pins one
 cancellation, one terminal teardown, and inert later execution (ADR-0084).

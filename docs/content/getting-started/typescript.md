@@ -17,7 +17,7 @@ ______________________________________________________________________
 
 ## 3.4.1. Install
 
-The source tree currently implements v3.29.0. The npm package is not published
+The source tree currently implements v3.30.0. The npm package is not published
 yet; use the package command after a `typescript-v*` release publishes it.
 
 ```bash
