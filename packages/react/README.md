@@ -5,11 +5,10 @@ Official React 18 and React 19 bindings for
 keeps React out of VMx core and adapts VMx hubs, commands, derived values, and
 collections to React's external-store contract.
 
-> Publication is intentionally gated on the first public `@thekaveh/vmx`
-> release. Until then, pack core and this adapter from the VMx repository and
-> install their tarballs. Do not link the live adapter directory into a React
-> 18 consumer because source-only dev dependencies are not part of the public
-> package shape.
+> To try an unreleased source line, pack core and this adapter from the VMx
+> repository and install their tarballs. Do not link the live adapter directory
+> into a React 18 consumer because source-only dev dependencies are not part of
+> the public package shape.
 
 ## 1. Install
 
