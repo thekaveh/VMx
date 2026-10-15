@@ -5,7 +5,10 @@ uses independent [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-## [0.1.1] - unreleased source version
+## [0.1.1] - 2026-10-15
+
+First version published to npm. It also contains everything listed under
+0.1.0, which was a source-only release.
 
 ### Fixed
 
