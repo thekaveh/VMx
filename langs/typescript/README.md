@@ -11,9 +11,8 @@ repository tests require Node 20.19+, 22.13+, or 24+ for jsdom 29. Dual ESM + CJ
 bundles; TypeScript declarations are bundled — no `@types/vmx` needed.
 Opt-in subpaths provide `@thekaveh/vmx/notifications` and the
 test-framework-neutral `@thekaveh/vmx/conformance` adapter runner. The
-source-ready `@thekaveh/vmx/testing` subpath adds runner-neutral fixtures,
-recorders, command doubles, and a FormVM harness; registry installation remains
-blocked on the first npm publication.
+`@thekaveh/vmx/testing` subpath adds runner-neutral fixtures, recorders,
+command doubles, and a FormVM harness.
 
 > **Package rename in v2.4.0:** the npm package is now
 > **`@thekaveh/vmx`** (scoped). The previous unscoped name `vmx` could
@@ -23,15 +22,15 @@ blocked on the first npm publication.
 
 ## 2. Install
 
-The source tree currently implements v3.30.0. The scoped npm package has not
-been published yet; use a local workspace/package reference until a
-`typescript-v*` release tag publishes it.
+```bash
+npm install @thekaveh/vmx rxjs
+```
+
+Releases are published to npm from `typescript-v*` tags on `main`.
+The source tree currently implements v3.30.0. To use an unreleased source
+line, build it from a VMx checkout cloned beside the consumer:
 
 ```bash
-# After the first npm publication
-npm install @thekaveh/vmx rxjs
-
-# Source checkout today (VMx cloned beside the consumer)
 npm --prefix ../VMx/langs/typescript ci
 npm --prefix ../VMx/langs/typescript run build
 npm install ../VMx/langs/typescript rxjs
@@ -91,11 +90,11 @@ hub.dispose();
 ```
 
 The C# and Python flavors mirror this shape: see
-[C# Quick start](../csharp/README.md#3-quick-start) and
-[Python Quick start](../python/README.md#3-quick-start) — only the
+[C# Quick start](https://github.com/thekaveh/VMx/blob/main/langs/csharp/README.md#3-quick-start) and
+[Python Quick start](https://github.com/thekaveh/VMx/blob/main/langs/python/README.md#3-quick-start) — only the
 identifier casing differs.
 
-See [Getting Started with VMx — TypeScript](../../docs/content/getting-started/typescript.md)
+See [Getting Started with VMx — TypeScript](https://github.com/thekaveh/VMx/blob/main/docs/content/getting-started/typescript.md)
 for the full walkthrough.
 
 ### 3.1 Cross-language naming
@@ -124,7 +123,7 @@ VMx-TS is browser-safe and works out of the box with all modern bundlers —
 contains no runtime imports of `node:fs`, `node:path`, or `node:url`; the
 lifecycle-transitions fixture is bundled in at build time.
 
-Minimal Vite/SvelteKit/Next.js install, after the npm package is published:
+Minimal Vite/SvelteKit/Next.js install:
 
 ```bash
 npm install @thekaveh/vmx rxjs
@@ -138,9 +137,9 @@ import { ComponentVMOf, MessageHub, RxDispatcher } from "@thekaveh/vmx";
 ```
 
 For a worked browser example, see the React `notes-showcase` app under
-[`examples/typescript/react/notes-showcase/`](../../examples/typescript/react/notes-showcase/),
+[`examples/typescript/react/notes-showcase/`](https://github.com/thekaveh/VMx/tree/main/examples/typescript/react/notes-showcase/),
 with cross-flavor parity documented in
-[`examples/notes-showcase-parity.md`](../../examples/notes-showcase-parity.md).
+[`examples/notes-showcase-parity.md`](https://github.com/thekaveh/VMx/blob/main/examples/notes-showcase-parity.md).
 
 A JSDOM smoke test (`tests/browser-build/smoke.test.ts`) runs on every CI
 build and asserts that the package keeps loading cleanly in a browser-like
@@ -434,9 +433,7 @@ All disposable helpers expose idempotent `dispose()` and history-clearing
 operations. The testing subpath is supported public TypeScript API and follows
 the package's SemVer: incompatible removal waits for a major release, with any
 replacement deprecated in declarations, documentation, and the changelog
-before removal. The source and packed artifact contain this entry now;
-installation from npm becomes valid only after #57 completes the first
-`typescript-v*` publication.
+before removal.
 
 ### 4.6 DevTools observability
 
@@ -492,9 +489,7 @@ or timer is created.
 
 Incoming Redux DevTools dispatches are deliberately ignored. VMx messages are
 observations, not reversible mutations, so this API makes no replay,
-time-travel, inverse-mutation, or state-reconstruction guarantee. The source
-and packed artifact contain the subpath now; npm installation remains gated on
-#57's first `typescript-v*` publication.
+time-travel, inverse-mutation, or state-reconstruction guarantee.
 
 ## 5. Conformance
 
@@ -555,4 +550,4 @@ npm test
 
 ## 7. License
 
-Apache-2.0 — see [`LICENSE`](../../LICENSE) and [`NOTICE`](../../NOTICE).
+Apache-2.0 — see [`LICENSE`](https://github.com/thekaveh/VMx/blob/main/LICENSE) and [`NOTICE`](https://github.com/thekaveh/VMx/blob/main/NOTICE).
