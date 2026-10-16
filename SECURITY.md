@@ -11,7 +11,8 @@ are unsupported; upgrade before requesting a backport.
 | Repository source and unpublished flavors | Current `main` |
 | Python (`vmx` on PyPI) | Latest stable PyPI release |
 | Swift (`VMx` through SwiftPM) | Latest stable GitHub release |
-| C# (`VMx`), TypeScript (`@thekaveh/vmx`), and Rust (`vmx-rs`) | Current `main` until the first public registry release; latest stable release thereafter |
+| TypeScript (`@thekaveh/vmx`) and React adapter (`@thekaveh/vmx-react`) on npm | Latest stable npm release |
+| C# (`VMx`) and Rust (`vmx-rs`) | Current `main` until the first public registry release; latest stable release thereafter |
 
 The compatibility matrix describes implementation compatibility, not a promise
 to maintain every historical package line.

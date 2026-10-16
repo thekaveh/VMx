@@ -16,6 +16,10 @@ collections to React's external-store contract.
 npm install @thekaveh/vmx @thekaveh/vmx-react react rxjs use-sync-external-store
 ```
 
+Releases are published to
+[npm](https://www.npmjs.com/package/@thekaveh/vmx-react) from `react-v*` tags
+on `main`, with provenance.
+
 Compatibility for 0.1.x:
 
 | Dependency | Supported range |

@@ -175,6 +175,11 @@ and fresh-consumer verification. The Python channel pins its isolated PEP 517
 backend and installs/smokes the wheel from `dist/` before the irreversible PyPI
 action, then repeats the consumer check from the public registry.
 
+Live channels: PyPI for Python, npm for the TypeScript core and the React
+adapter (`typescript-v*` and `react-v*` tags, npm trusted publishing), and
+repository tags for Swift through SwiftPM. The NuGet (C#) and crates.io (Rust)
+channels are prepared but have not published yet.
+
 ### 11.5.1. Release Checklist
 
 Use this sequence for every flavor so the repository, site, and wiki carry the

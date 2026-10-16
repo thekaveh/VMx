@@ -188,6 +188,7 @@ version are unused, then follow the flavor-specific runbook:
 - [`langs/csharp/RELEASING.md`](langs/csharp/RELEASING.md)
 - [`langs/python/RELEASING.md`](langs/python/RELEASING.md)
 - [`langs/typescript/RELEASING.md`](langs/typescript/RELEASING.md)
+- [`packages/react/RELEASING.md`](packages/react/RELEASING.md) (React adapter)
 - [`langs/swift/RELEASING.md`](langs/swift/RELEASING.md)
 - [`langs/rust/RELEASING.md`](langs/rust/RELEASING.md)
 

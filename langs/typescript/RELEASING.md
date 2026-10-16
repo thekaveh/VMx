@@ -12,8 +12,11 @@ release gate passes.
 Create the `npm-typescript` environment in the `thekaveh/VMx` repository:
 
 - restrict deployment refs to `typescript-v*` tags;
-- require a maintainer approval; and
-- do not permit administrators to bypass the protection.
+- require a maintainer approval, and leave "Prevent self-review" off while a
+  single maintainer holds the reviewer role, or that maintainer cannot approve
+  their own release run; and
+- do not permit administrators to bypass the protection; with bypass allowed,
+  an administrator's tag push publishes without waiting for approval.
 
 The release job has `id-token: write`. Keep credentials on this environment,
 not as repository-wide secrets.
@@ -55,6 +58,7 @@ package settings with these exact values:
   only stage, and the workflow's public-install checks time out).
 
 Then delete the `NPM_TOKEN` environment secret and revoke the bootstrap token.
+This was done on 2026-10-16, after the 3.30.0 bootstrap release.
 The workflow detects the absent secret and uses OIDC. Trusted publishing
 requires Node.js 22.14 or newer and npm CLI 11.18.0 or newer; the publish job pins
 Node 24 and npm 11.18.0. npm automatically attaches provenance for an eligible
@@ -80,7 +84,7 @@ GitHub-hosted trusted-publishing run.
 5. Create the immutable tag on the verified main commit and push it:
 
    ```bash
-   git tag "typescript-v${version}" origin/main
+   git tag -a "typescript-v${version}" -m "VMx TypeScript ${version}" origin/main
    git push origin "typescript-v${version}"
    ```
 
@@ -96,8 +100,8 @@ job uses Node 24 and npm 11.18.0 without an npm dependency cache.
 
 After npm accepts the package, separate Node 20.5.0, 22, 24, and 26 jobs poll for
 and install the exact public version in clean consumers. They test ESM imports,
-CommonJS `require`, NodeNext declarations, and the root, `notifications`, and
-`conformance` exports. They also require npm provenance metadata. Only after
+CommonJS `require`, NodeNext declarations, and the root, `notifications`,
+`conformance`, `testing`, and `devtools` exports. They also require npm provenance metadata. Only after
 those checks pass does CI create the TypeScript GitHub Release from the matching
 changelog section.
 

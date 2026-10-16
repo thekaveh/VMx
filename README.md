@@ -133,19 +133,15 @@ NuGet release):
 dotnet add MyApp.csproj reference ../VMx/langs/csharp/src/VMx/VMx.csproj
 ```
 
-**TypeScript** (source checkout; `npm install @thekaveh/vmx rxjs` applies after
-the first npm release). Pack the sources so your project consumes the
-published-package layout:
+**TypeScript** (npm), with the optional official React bindings:
 
 ```bash
-npm --prefix ../VMx/langs/typescript ci
-npm --prefix ../VMx/packages/react ci
-mkdir -p /tmp/vmx-packs
-npm pack ../VMx/langs/typescript --pack-destination /tmp/vmx-packs
-npm pack ../VMx/packages/react --pack-destination /tmp/vmx-packs
-npm install /tmp/vmx-packs/thekaveh-vmx-3.30.0.tgz \
-  /tmp/vmx-packs/thekaveh-vmx-react-0.1.1.tgz react rxjs use-sync-external-store
+npm install @thekaveh/vmx rxjs
+npm install @thekaveh/vmx-react react use-sync-external-store
 ```
+
+To try an unreleased TypeScript source line, pack the sources as described in
+[Installation](docs/content/installation.md).
 
 **Rust** (source checkout; crates.io release pending):
 
