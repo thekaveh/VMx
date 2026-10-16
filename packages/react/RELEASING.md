@@ -7,14 +7,18 @@ published only from a verified commit on `main`, after the exact compatible
 ## 1. One-time bootstrap
 
 Completed on 2026-10-16: `react-v0.1.1` published `@thekaveh/vmx-react` 0.1.1
-with the bootstrap token. Configure the trusted publisher (step 4, with "Allow
-npm publish" ticked) before the next release; these steps remain for reference.
+with the bootstrap token. The same day the trusted publisher was configured
+(`thekaveh/VMx`, `release.yml`, environment `npm-react`, "Allow npm publish"
+ticked) and the token was deleted and revoked, so later releases need no token.
+These steps remain for reference.
 
 1. Complete issue #57 and verify the core package from a fresh npm consumer.
 2. Confirm ownership of the `@thekaveh` npm scope and availability of
    `@thekaveh/vmx-react`.
 3. Create the protected `npm-react` GitHub environment, restricted to
-   `react-v*` tags with required maintainer approval.
+   `react-v*` tags with required maintainer approval and administrator bypass
+   turned off; with bypass allowed, an administrator's tag push publishes
+   without waiting for approval.
 4. Add a short-lived granular `NPM_TOKEN` limited to the adapter for the first
    publication. Revoke it after configuring npm trusted publishing for
    `thekaveh/VMx`, `release.yml`, and environment `npm-react`.

@@ -26,7 +26,8 @@ command doubles, and a FormVM harness.
 npm install @thekaveh/vmx rxjs
 ```
 
-Releases are published to npm from `typescript-v*` tags on `main`.
+Releases are published to [npm](https://www.npmjs.com/package/@thekaveh/vmx)
+from `typescript-v*` tags on `main`, with provenance.
 The source tree currently implements v3.30.0. To use an unreleased source
 line, build it from a VMx checkout cloned beside the consumer:
 
