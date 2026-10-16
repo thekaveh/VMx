@@ -86,7 +86,11 @@ def test_entry_pages_keep_package_availability_in_its_own_section(
     assert set(rows) == {"Python", "Swift", "C#", "TypeScript", "React adapter", "Rust"}
     assert "PyPI" in rows["Python"]
     assert "SwiftPM" in rows["Swift"]
-    for flavor in ("C#", "TypeScript", "React adapter", "Rust"):
+    assert "`@thekaveh/vmx` 3.30.0" in rows["TypeScript"]
+    assert "npm" in rows["TypeScript"]
+    assert "`@thekaveh/vmx-react` 0.1.1" in rows["React adapter"]
+    assert "npm" in rows["React adapter"]
+    for flavor in ("C#", "Rust"):
         assert "Not yet published" in rows[flavor], flavor
 
 

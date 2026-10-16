@@ -14,18 +14,18 @@ if the core changes again.
 
 ## 3.7.1. Versions
 
-| Package               | Source line in the pilots                    | Target | Target availability                       |
-| --------------------- | -------------------------------------------- | ------ | ----------------------------------------- |
-| `@thekaveh/vmx`       | 3.1.0 (vendored by NNx); 3.24.0 pilot builds | 3.30.0 | Source only: npm publication waits on #57 |
-| `@thekaveh/vmx-react` | none: each consumer had local hooks          | 0.1.1  | Source only: published after the core     |
+| Package               | Source line in the pilots                    | Target | Target availability |
+| --------------------- | -------------------------------------------- | ------ | ------------------- |
+| `@thekaveh/vmx`       | 3.1.0 (vendored by NNx); 3.24.0 pilot builds | 3.30.0 | Published on npm    |
+| `@thekaveh/vmx-react` | none: each consumer had local hooks          | 0.1.1  | Published on npm    |
 
-The targets match the [installation table](../installation.md). Until the
-packages are on npm, install them from packed tarballs as described in
-section 3.7.6. Each recipe repeats the versions it applies to.
+The targets match the [installation table](../installation.md). Install them
+from npm; section 3.7.6 covers consuming an unreleased source line from packed
+tarballs. Each recipe repeats the versions it applies to.
 
 ## 3.7.2. Remove redundant `hub` members
 
-**From** core before 3.10.0 **to** core 3.30.0 (source only).
+**From** core before 3.10.0 **to** core 3.30.0.
 
 Core 3.10.0 added a public read-only `hub` accessor to every component VM
 (`IComponentVM.hub`). Consumer classes written against older lines often stored
@@ -70,7 +70,7 @@ returns the injected hub is redundant.
 ## 3.7.3. Replace property-list hooks with selector projections
 
 **From** consumer-local binding hooks **to** `@thekaveh/vmx-react` 0.1.1 over
-core 3.24.1 or later (both source only).
+core 3.24.1 or later.
 
 NNx bound components through a local hook that took a list of property names.
 The official `useVm(vm, selector, equality)` renders only when the selected
@@ -165,7 +165,7 @@ binding releases its subscription on unmount.
 ## 3.7.6. Install packed tarballs, not a live directory link
 
 **From** a directory link to a VMx checkout **to** packed tarballs of core
-3.30.0 and adapter 0.1.1 (source only).
+and adapter, when consuming an unreleased source line.
 
 Linking the adapter directory into a React 18 application resolved the
 adapter's React 19 development dependency beside the application's React and
@@ -187,8 +187,8 @@ npm ls react   # one React version
 ```
 
 The complete build-and-pack sequence is in the
-[installation page](../installation.md). Switch to plain `npm install` only
-after the packages are published.
+[installation page](../installation.md). For published versions, use plain
+`npm install`.
 
 ## 3.7.7. Codemods
 

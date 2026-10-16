@@ -77,18 +77,18 @@ surface.
 
 ## 2. Availability
 
-Python and Swift install from public registries. C#, TypeScript, the React
-adapter, and Rust are complete in source but not yet published, so a project
-uses them from a VMx checkout until their first registry release.
+Python, Swift, TypeScript, and the React adapter install from public registries.
+C# and Rust are complete in source but not yet published, so a project uses
+them from a VMx checkout until their first registry release.
 
-| Flavor        | Public package                                                                          | Source line |
-| ------------- | --------------------------------------------------------------------------------------- | ----------- |
-| Python        | [`vmx` 3.23.0](https://pypi.org/project/vmx/3.23.0/) on PyPI                            | v3.29.0     |
-| Swift         | [`VMx` 3.24.0](https://github.com/thekaveh/VMx/releases/tag/swift-v3.24.0) via SwiftPM | v3.30.0     |
-| C#            | Not yet published to NuGet                                                              | v3.29.0     |
-| TypeScript    | Not yet published to npm                                                                | v3.30.0     |
-| React adapter | Not yet published to npm; follows the core npm release (#57)                            | v0.1.1      |
-| Rust          | Not yet published to crates.io                                                          | v0.35.0     |
+| Flavor        | Public package                                                                                  | Source line |
+| ------------- | ----------------------------------------------------------------------------------------------- | ----------- |
+| Python        | [`vmx` 3.23.0](https://pypi.org/project/vmx/3.23.0/) on PyPI                                    | v3.29.0     |
+| Swift         | [`VMx` 3.24.0](https://github.com/thekaveh/VMx/releases/tag/swift-v3.24.0) via SwiftPM          | v3.30.0     |
+| TypeScript    | [`@thekaveh/vmx` 3.30.0](https://www.npmjs.com/package/@thekaveh/vmx/v/3.30.0) on npm           | v3.30.0     |
+| React adapter | [`@thekaveh/vmx-react` 0.1.1](https://www.npmjs.com/package/@thekaveh/vmx-react/v/0.1.1) on npm | v0.1.1      |
+| C#            | Not yet published to NuGet                                                                      | v3.29.0     |
+| Rust          | Not yet published to crates.io                                                                  | v0.35.0     |
 
 A source line can be ahead of its public package. The
 [`compatibility-matrix.md`](compatibility-matrix.md) ledger records which

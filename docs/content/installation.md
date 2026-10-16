@@ -1,8 +1,8 @@
 # 2. Installation
 
-Python and Swift install from public registries. C#, TypeScript, the React
-adapter, and Rust are complete in source but not yet published, so a project
-uses them from a VMx checkout until their first registry release. Every flavor
+Python, Swift, TypeScript, and the React adapter install from public registries.
+C# and Rust are complete in source but not yet published, so a project uses
+them from a VMx checkout until their first registry release. Every flavor
 implements spec 3.29.0; check the flavor README and registry before pinning a
 release.
 
@@ -17,8 +17,8 @@ git clone https://github.com/thekaveh/VMx.git ../VMx
 | ---------- | ------------- | ----------------------------------- |
 | C#         | v3.29.0       | NuGet package not published yet     |
 | Python     | v3.29.0       | PyPI release 3.23.0                  |
-| TypeScript | v3.30.0       | npm package not published yet       |
-| React adapter | v0.1.1 in source | publication waits for core npm #57 |
+| TypeScript | v3.30.0       | npm release 3.30.0                  |
+| React adapter | v0.1.1     | npm release 0.1.1                   |
 | Swift      | v3.30.0       | SwiftPM release 3.24.0              |
 | Rust       | 0.35.0        | crates.io package not published yet |
 
@@ -46,20 +46,20 @@ git clone https://github.com/thekaveh/VMx.git ../VMx
 
 === "TypeScript"
 
-    The registry command applies after the first npm publication:
-
     ```bash
     npm install @thekaveh/vmx rxjs
 
-    # Official React bindings (after core and adapter publication)
+    # Official React bindings
     npm install @thekaveh/vmx-react react use-sync-external-store
     ```
 
-    Until then, clone VMx beside the consumer and install packed tarballs. Do
-    not link the live adapter directory: a source checkout's React dev dependency
-    can conflict with a React 18 consumer, while the tarball matches the public
-    package payload. Consumers upgrading an older VMx line should also read
+    Consumers upgrading an older VMx line should also read
     [Upgrading TypeScript and React Consumers](getting-started/upgrading-typescript.md).
+
+    To use an unreleased source line instead, clone VMx beside the consumer and
+    install packed tarballs. Do not link the live adapter directory: a source
+    checkout's React dev dependency can conflict with a React 18 consumer, while
+    the tarball matches the public package payload.
 
     ```bash
     npm --prefix ../VMx/langs/typescript ci
