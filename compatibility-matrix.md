@@ -102,11 +102,12 @@ async-resource family to expose the complete ordinary component contract, and
 adds paired dispatcher channels plus background lifecycle parity. See
 `langs/swift/README.md` §5 for the flagship scenario ledger.
 
-[^current]: C# 3.29.0, Python 3.29.0, TypeScript 3.30.0, and Swift 3.30.0 are
-the unreleased source lines implementing spec 3.29.0. Python 3.23.0 is publicly
-installable from PyPI, and Swift 3.24.0 through SwiftPM. C# and TypeScript
-public packages remain pending. Their release jobs refuse to green-skip a
-publish without configured credentials.
+[^current]: TypeScript 3.30.0 implements spec 3.29.0 and is published on npm as
+`@thekaveh/vmx` (`typescript-v3.30.0`, 2026-10-16). C# 3.29.0, Python 3.29.0,
+and Swift 3.30.0 are the unreleased source lines implementing spec 3.29.0.
+Python 3.23.0 is publicly installable from PyPI, and Swift 3.24.0 through
+SwiftPM. The C# public package remains pending; its release job refuses to
+green-skip a publish without configured credentials.
 
 [^swift]: Swift 3.24.0 is publicly installable from the repository root through
 the immutable `v3.24.0` semantic tag. The matching `swift-v3.24.0` operational
@@ -173,9 +174,9 @@ a namespace future specification releases reuse.
 
 ## 2.1. React adapter compatibility
 
-| Adapter source | VMx TypeScript | React | RxJS | Registry status |
+| Adapter | VMx TypeScript | React | RxJS | Registry status |
 | --- | --- | --- | --- | --- |
-| 0.1.1 | ^3.24.1 | ^18.3.1 or ^19.0.0 | ^7.8.0 | source complete; npm waits for #57 |
+| 0.1.1 | ^3.24.1 | ^18.3.1 or ^19.0.0 | ^7.8.0 | published on npm (`react-v0.1.1`, 2026-10-16) |
 
 `@thekaveh/vmx-react` uses independent SemVer and `react-v*` release tags. A
 core release requires an adapter release only when the supported API or peer

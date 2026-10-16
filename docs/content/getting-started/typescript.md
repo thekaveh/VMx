@@ -17,8 +17,8 @@ ______________________________________________________________________
 
 ## 3.4.1. Install
 
-The source tree currently implements v3.30.0. The npm package is not published
-yet; use the package command after a `typescript-v*` release publishes it.
+Version 3.30.0 is published on npm, and the source tree currently implements
+v3.30.0.
 
 ```bash
 npm install @thekaveh/vmx rxjs
@@ -338,8 +338,7 @@ fault, completion, and cancellation. `createFormHarness()` exercises a real
 FormVM through set/approve/deny and validation or persistence failures.
 
 These are supported TypeScript-package APIs, isolated from the root runtime
-entry and governed by its SemVer. The source-ready subpath becomes installable
-from npm only after the first TypeScript publication in issue #57.
+entry and governed by its SemVer, and ship in the npm package from 3.30.0.
 
 ______________________________________________________________________
 

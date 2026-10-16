@@ -3,8 +3,7 @@
 `@thekaveh/vmx-react` is the official React 18 and React 19 adapter for
 `@thekaveh/vmx`. It keeps React out of the language-neutral core while giving
 applications a StrictMode-safe, server-rendering-safe external-store boundary.
-The source package is complete; public npm publication follows the first public
-core package tracked by issue #57.
+Version 0.1.1 is published on npm.
 
 ## 9.8.1. Reactivity primitive
 
@@ -32,7 +31,7 @@ default or an explicit equality function such as `shallowEqual`.
 npm install @thekaveh/vmx @thekaveh/vmx-react react rxjs use-sync-external-store
 ```
 
-Until publication, follow the
+To use an unreleased source line, follow the
 [pack-then-install source procedure](../installation.md);
 do not link a live adapter checkout into a React 18 application. Apps moving
 from local binding hooks or an older VMx line can follow

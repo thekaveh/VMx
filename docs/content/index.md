@@ -29,18 +29,18 @@
 
 ## 1.1. Availability
 
-Python and Swift install from public registries. C#, TypeScript, the React
-adapter, and Rust are complete in source but not yet published, so a project
-uses them from a VMx checkout.
+Python, Swift, TypeScript, and the React adapter install from public registries.
+C# and Rust are complete in source but not yet published, so a project uses
+them from a VMx checkout.
 
-| Flavor        | Public package                                     | Source line |
-| ------------- | -------------------------------------------------- | ----------- |
-| Python        | `vmx` 3.23.0 on PyPI                               | 3.29.0      |
-| Swift         | `VMx` 3.24.0 through SwiftPM                       | 3.30.0      |
-| C#            | Not yet published to NuGet                         | 3.29.0      |
-| TypeScript    | Not yet published to npm                           | 3.30.0      |
-| React adapter | Not yet published to npm; follows the core package | 0.1.1       |
-| Rust          | Not yet published to crates.io                     | 0.35.0      |
+| Flavor        | Public package                     | Source line |
+| ------------- | ---------------------------------- | ----------- |
+| Python        | `vmx` 3.23.0 on PyPI               | 3.29.0      |
+| Swift         | `VMx` 3.24.0 through SwiftPM       | 3.30.0      |
+| C#            | Not yet published to NuGet         | 3.29.0      |
+| TypeScript    | `@thekaveh/vmx` 3.30.0 on npm      | 3.30.0      |
+| React adapter | `@thekaveh/vmx-react` 0.1.1 on npm | 0.1.1       |
+| Rust          | Not yet published to crates.io     | 0.35.0      |
 
 A source line can be ahead of its public package.
 [Installation](installation.md) shows how to use each flavor today.

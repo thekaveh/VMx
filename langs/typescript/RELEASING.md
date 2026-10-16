@@ -20,6 +20,10 @@ not as repository-wide secrets.
 
 ### 1.2 First publication bootstrap
 
+Completed on 2026-10-16: `typescript-v3.30.0` published `@thekaveh/vmx` 3.30.0
+with the bootstrap token. Later releases use trusted publishing (§1.3); these
+steps remain for reference.
+
 npm trusted publishing can be configured only after the package exists. The
 first publication therefore needs an authenticated owner of the `@thekaveh`
 scope and a narrowly scoped, short-lived granular access token:
@@ -47,7 +51,8 @@ package settings with these exact values:
 - repository: `VMx`;
 - workflow filename: `release.yml`;
 - environment: `npm-typescript`;
-- permission: publish.
+- permission: publish (tick "Allow npm publish"; without it the publisher may
+  only stage, and the workflow's public-install checks time out).
 
 Then delete the `NPM_TOKEN` environment secret and revoke the bootstrap token.
 The workflow detects the absent secret and uses OIDC. Trusted publishing
