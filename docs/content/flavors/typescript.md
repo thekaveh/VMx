@@ -4,9 +4,8 @@
 
 - Current source: TypeScript 3.30.0 implementing spec 3.29.0
 - Install: `npm install @thekaveh/vmx rxjs`
-- Publication status: the scoped package name is the supported surface, but it
-  has not been published yet; use a local workspace or source reference until a
-  `typescript-v*` release publishes it.
+- Publication status: `@thekaveh/vmx` 3.30.0 is published on npm; releases
+  come from `typescript-v*` tags on `main`.
 - Reactive primitive: `rxjs`
 - Runtime floor: Node 20.5.0 (the first Node 20 release with `Symbol.dispose`);
   CI tests that exact floor plus Node 20, 22, 24, and 26
@@ -133,7 +132,7 @@ factory, teardown, diagnostics, and non-goal guidance lives in
 
 ## 7.4.7. Runner-neutral testing support
 
-The source-ready `@thekaveh/vmx/testing` subpath is isolated from the root
+The `@thekaveh/vmx/testing` subpath is isolated from the root
 runtime entry and adds:
 
 - `RecordingMessageHub`, `createTestServices()`, and `ManualDispatcher`;
@@ -158,13 +157,12 @@ changes.dispose();
 services.dispose();
 ```
 
-The source tree and packed-package checks include this surface. The npm import
-becomes installable only after issue #57 completes the first public TypeScript
-release; current users must consume a local workspace or packed source artifact.
+The source tree and packed-package checks include this surface, and it ships in
+the npm package from 3.30.0.
 
 ## 7.4.8. DevTools observability
 
-The source-ready `@thekaveh/vmx/devtools` subpath keeps optional observability
+The `@thekaveh/vmx/devtools` subpath keeps optional observability
 out of the root bundle. `observeHub()` emits transport-neutral events;
 `connectReduxDevtools()` adapts them to a structurally typed Redux DevTools
 extension without adding an extension dependency.
@@ -184,7 +182,7 @@ The bridge ignores incoming DevTools dispatches. Hub messages do not encode
 complete or inverse mutations, so replay, time travel, and state reconstruction
 are explicitly out of scope. See the
 [TypeScript getting-started guide](../getting-started/typescript.md#349-observe-a-hub-safely)
-for a complete example. npm installation remains gated on issue #57.
+for a complete example.
 
 ## 7.4.9. Pointers
 

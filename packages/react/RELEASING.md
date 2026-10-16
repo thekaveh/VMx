@@ -6,6 +6,10 @@ published only from a verified commit on `main`, after the exact compatible
 
 ## 1. One-time bootstrap
 
+Completed on 2026-10-16: `react-v0.1.1` published `@thekaveh/vmx-react` 0.1.1
+with the bootstrap token. Configure the trusted publisher (step 4, with "Allow
+npm publish" ticked) before the next release; these steps remain for reference.
+
 1. Complete issue #57 and verify the core package from a fresh npm consumer.
 2. Confirm ownership of the `@thekaveh` npm scope and availability of
    `@thekaveh/vmx-react`.
