@@ -73,7 +73,8 @@ half-replaced aggregate.
 - `Rust`: `AggregateVm6::<...>::builder().name("workspace").services(hub, dispatcher).component_1(move || notebooks.clone()).component_2(move || notes.clone()).build()?`
 
 The Notes Workspace shell uses this pattern as its six-pane root in the C#,
-Python, TypeScript, and Swift examples.
+Python, TypeScript, and Swift examples. The Rust TUI companion also uses an
+`AggregateVm6` for its workspace.
 
 Rust implements the same aggregate type and builder shape. Its slot-notification
 and construction ordering evidence is recorded in the completed

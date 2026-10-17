@@ -74,7 +74,7 @@ while the group is their parent.
 Representative build shape:
 
 - `C#`: `GroupVM<IComponentVM>.Builder().Name("actions").Services(hub, dispatcher).Children(() => new[] { save, delete }).Build()`
-- `Python`: `GroupVMBuilder[ComponentVMProto]().name("actions").services(hub, dispatcher).children(lambda: [save, delete]).build()`
+- `Python`: `GroupVMBuilder[ComponentVM]().name("actions").services(hub, dispatcher).children(lambda: [save, delete]).build()`
 - `TypeScript`: `GroupVM.builder<ComponentVMBase>().name("actions").services(hub, dispatcher).children(() => [save, delete]).build()`
 - `Swift`: `try GroupVM<ComponentVMBase>.builder().name("actions").services(hub: hub, dispatcher: dispatcher).children { [save, delete] }.build()`
 - `Rust`: `GroupVm::<ComponentVm<_>>::builder().name("actions").services(hub, dispatcher).children(move || vec![save.clone(), delete.clone()]).build()?`

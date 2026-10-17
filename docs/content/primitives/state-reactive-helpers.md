@@ -75,17 +75,24 @@ VM thread-safety promise. See
 [Python asyncio dispatcher ownership](services-messages-dispatching.md#669-python-asyncio-dispatcher-ownership)
 for the supported synchronous-command sequence and shutdown order.
 
-A loader can also end the current operation by cancelling itself. In Python, a
-loader task that finishes with `asyncio.CancelledError` (raised directly, from
-cancelling its own task, or from a cancelled operation it awaited) restores the
-saved stable state exactly like `Cancel`, as Swift does for a loader's
-`CancellationError`: awaiters and commands complete, nothing enters Error or a
-command error channel, and a superseded loader's cancellation never rolls back
-newer work. C# and TypeScript treat cancellation they did not request (an
-`OperationCanceledException` from another token, a rejection while the
-operation's signal is not aborted) as an ordinary loader fault, and Rust loaders
-report outcomes through `VmxResult`, so every flavor leaves Loading with a
-visible terminal state.
+A loader can also end the current operation by cancelling itself. The flavors
+handle this case differently:
+
+- Python: a loader task that finishes with `asyncio.CancelledError` restores
+  the saved stable state, exactly like `Cancel`. The error can be raised
+  directly, come from cancelling the loader's own task, or come from a
+  cancelled operation that the loader awaited.
+- Swift: a loader that throws `CancellationError` restores the saved stable
+  state in the same way.
+- C# and TypeScript: cancellation that the VM did not request is an ordinary
+  loader fault. Examples are an `OperationCanceledException` from another
+  token, or a rejection while the operation's signal is not aborted.
+- Rust: loaders report outcomes through `VmxResult`, so an error is a fault.
+
+When Python or Swift restores the stable state, awaiters and commands
+complete, and nothing enters Error or a command error channel. The
+cancellation of a superseded loader never rolls back newer work. In every
+flavor, the VM leaves Loading with a visible terminal state.
 
 <!-- checked-snippet: langs/python/tests/unit/state/test_async_resource_cancellation_recipe.py#loader-cancellation -->
 

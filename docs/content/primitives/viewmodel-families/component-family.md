@@ -64,7 +64,7 @@ Important behavior from the spec:
 | Unmodeled leaf    | `ComponentVM`            | `ComponentVM`              | `ComponentVM`              | `ComponentVM`              | `ComponentVm`            |
 | Modeled leaf      | `ComponentVM<M>`         | `ComponentVMOf[M]`         | `ComponentVMOf<M>`         | `ComponentVMOf<M>`         | `ComponentVm<M>`         |
 | Readonly leaf     | `ReadonlyComponentVM<M>` | `ReadonlyComponentVMOf[M]` | `ReadonlyComponentVMOf<M>` | `ReadonlyComponentVMOf<M>` | `ReadonlyComponentVm<M>` |
-| Builder entry     | `Builder()`              | `builder()`                | `builder()`                | `builder()`                | `with_model(...)`        |
+| Builder entry     | `Builder()`              | `builder()`                | `builder()`                | `builder()`                | `builder()`              |
 | Property channel  | `INotifyPropertyChanged` | `property_changed`         | `propertyChanged`          | `propertyChanged`          | `property_changed()`     |
 | Shared hub        | `Hub`                    | `hub`                      | `hub`                      | `hub`                      | `hub()`                  |
 | Own until dispose | `Own(...)`               | `_own(...)`                | `own(...)`                 | `own(...)`                 | `own(...)`               |
@@ -136,7 +136,7 @@ Use `OnConstruct`/`OnDestruct` (or their flavor equivalents) for resources that
 must be replaced on every reconstruct. The helper deliberately does not expose
 two mutable lifetime bags.
 
-The NNx Studio pilot removed 16 inherited hub getters, two subscription fields,
+The pilot in NNx Studio, a VMx consumer application, removed 16 inherited hub getters, two subscription fields,
 two manual disposal overrides, and its two-case VMx hub-getter regression test
 (10 additions, 104 deletions). Its viewmodel package remained type-clean and
 all 319 remaining tests passed. The application-owned `WorkspaceVM` hub getter

@@ -49,7 +49,7 @@ inner VM's behavior unless an override changes it. In practice this means:
 | -------------------------- | -------------------------------------- | ----------------------------- | ------------------------------- | -------------------------------- | ----------------------------------------- |
 | Component wrapper          | `ForwardingComponentVM<M>`             | `ForwardingComponentVM[M]`    | `ForwardingComponentVM<M>`      | `ForwardingComponentVM<Model>`   | `ForwardingComponentVm<M>`                |
 | Composite wrapper          | `ForwardingCompositeVM<VM>`            | `ForwardingCompositeVM[VM]`   | `ForwardingCompositeVM<VM>`     | `ForwardingCompositeVM<Child>`   | `ForwardingCompositeVm<VM>`               |
-| Canonical wrapped contract | `IComponentVM<M>` / `ICompositeVM<VM>` | component/composite protocols | component/composite base shapes | component/composite base classes | component/composite traits and stable IDs |
+| Canonical wrapped contract | `IComponentVM<M>` / `ICompositeVM<VM>` | component/composite protocols | component/composite base shapes | component/composite base classes | `ComponentVm<M>` / `CompositeVm<VM>`      |
 
 ## 6.2.7.5. Example
 

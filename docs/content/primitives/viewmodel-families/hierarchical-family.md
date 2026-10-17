@@ -79,7 +79,8 @@ the root clears its parked set.
 
 ## 6.2.6.5. Tableau Pilot Result
 
-The issue's motivating Tableau helper was piloted in a temporary clone at
+The Tableau helper that motivated this feature (Tableau is a VMx consumer
+application) was piloted in a temporary clone at
 `0b53010065f71277d5c3504120e23442a46e30cb`, using the local VMx 3.8 source and
 without pushing any Tableau change. The pilot used real `HexNode` instances,
 passed the `@tableau/view-model` typecheck, and passed all 8 canvas plus 5
@@ -119,15 +120,18 @@ performed in an external repository.
 ## 6.2.6.7. Example
 
 The current Notes Workspace examples do **not** subclass `HierarchicalVM` in
-any flavor. Each `NotebooksRootVM` owns a flat notebook collection plus
+any flavor. In the C#, Python, TypeScript, and Swift showcases, each
+`NotebooksRootVM` owns a flat notebook collection plus
 `roots` / `childrenOf` / `walk` projections and republishes
 `TreeStructureChangedMessage`, which gives the host tree-shaped state without
-making the VM itself a recursive node tree.
+making the VM itself a recursive node tree. The Rust TUI companion keeps a
+plain `NotebooksVm` list instead.
 
 Use `HierarchicalVM` when the VM graph should actually be recursive:
 
 These concise examples show the canonical builder path per flavor. C#, Swift,
-and TypeScript supply a `TestNode` factory for their concrete recursive node;
+and TypeScript use `TestNode`, a minimal `HierarchicalVM` subclass that each
+snippet assumes, as their concrete recursive node;
 Python can build plain `HierarchicalVM` directly and uses `vm_factory(...)` only
 when a subclass is required.
 

@@ -71,7 +71,8 @@ A practical decision path for common cases:
 - choose [Hierarchical](hierarchical-family.md) when the VM tree is recursive
 
 The flagship Notes Workspace portfolio exercises most of the family map, but
-the notebooks tree is intentionally a flat adapter in every flavor today:
+the notebooks tree is intentionally flat. The C#, Python, TypeScript, and Swift
+showcases use:
 
 - flat `ComponentVM`-based notebooks adapters (`NotebooksRootVM` plus
   `NotebookVM`) that expose `Roots` / `ChildrenOf` / `Walk` or idiomatic
@@ -82,6 +83,9 @@ the notebooks tree is intentionally a flat adapter in every flavor today:
 - `ComponentVM` leaves for notebooks, notes, status, and capability actions
 - `FormVM`, `DiscriminatorVM`, and `NotificationVM` in the editor and
   notifications flows
+
+The Rust TUI companion keeps a plain `NotebooksVm` list of notebook models,
+with no tree projection and no `TreeStructureChangedMessage`.
 
 Use `HierarchicalVM` when the recursive VM tree is itself the right model. Use
 the Notes Workspace READMEs and parity tables when you want the current

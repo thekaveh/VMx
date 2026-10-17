@@ -164,7 +164,7 @@ then approve; do not rely on a second call made during the save.
 | Concept           | C#                  | Python                | TypeScript             | Swift               | Rust                  |
 | ----------------- | ------------------- | --------------------- | ---------------------- | ------------------- | --------------------- |
 | Type              | `FormVM<TM>`        | `FormVM[TM]`          | `FormVM<TM>`           | `FormVM<Model>`     | `FormVm<M>`           |
-| Builder           | `FormVMBuilder<TM>` | `FormVMBuilder[TM]`   | `FormVM.builder<TM>()` | builder surface     | `FormVm::builder()`   |
+| Builder           | `FormVMBuilder<TM>` | `FormVMBuilder[TM]`   | `FormVM.builder<TM>()` | `FormVM<Model>.builder()` | `FormVm::builder()`   |
 | Mutator           | `SetModel(...)`     | `set_model(...)`      | `setModel(...)`        | `setModel(...)`     | `set_model(...)`      |
 | Awaitable/direct approve | `ApproveAsync()` | `approve_async()` | `approveAsync()`       | `approveAsync()`    | `approve()`           |
 | Reset builder     | `ResetOnApproved`   | `reset_on_approved`   | `resetOnApproved`      | `resetOnApproved`   | `reset_on_approved`   |
@@ -239,7 +239,9 @@ The Notes Workspace editor is the best concrete reference:
 - Swift: [NoteFormVM.swift](../../../../../examples/swift/notes-showcase/Sources/NotesShowcaseCore/ViewModels/NoteFormVM.swift)
 
 All four compose a strict inner `FormVM` rather than subclassing it, then layer
-editor-specific commands and notifications around that core workflow.
+editor-specific commands and notifications around that core workflow. The Rust
+TUI companion's `NoteFormVm` also wraps a strict `FormVm`
+([viewmodels.rs](../../../../../examples/rust/tui/notes-showcase/src/viewmodels.rs)).
 
 === "C#"
 
@@ -347,7 +349,7 @@ have side effects during the original `structuredClone` call or descriptor
 inspection, so `FormVM` deliberately omits the field name when localization
 cannot be guaranteed.
 
-Tableau's genesis form carries an opaque `imagePayload` beside ordinary form
+The genesis form of Tableau, a VMx consumer application, carries an opaque `imagePayload` beside ordinary form
 data. Keep the opaque value by reference, explicitly define which plain fields
 participate in dirty tracking, and configure both hooks together:
 
