@@ -315,6 +315,7 @@ The `@thekaveh/vmx/testing` subpath supplies hermetic services and semantic
 recorders without importing Vitest or Jest:
 
 ```ts
+import { ComponentVMOf } from "@thekaveh/vmx";
 import { createTestServices, recordPropertyChanges } from "@thekaveh/vmx/testing";
 
 const services = createTestServices();

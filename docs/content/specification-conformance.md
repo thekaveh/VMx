@@ -51,8 +51,8 @@ construct, destruct or dispose hook, then exactly one explicit caller disposal
 and one final native release per item. Retained Rust change histories contain
 metadata rather than item payloads. A temporary mutation that leaks the items
 inside both `clear` implementations fails both tests while the unmodified
-implementations pass. This strengthens existing IDs; the catalog remains 403
-library IDs. See [Rust ownership-test conventions](flavors/rust.md#7631-ownership-test-conventions).
+implementations pass. This strengthens existing IDs and adds none to the
+library catalog. See [Rust ownership-test conventions](flavors/rust.md#7631-ownership-test-conventions).
 
 ### 10.3.2. Catalog, Execution, And Behavioral Evidence
 

@@ -288,7 +288,7 @@ The opt-in `vmx.notifications` subpackage (spec v2.0+) adds:
 
 ## 5. Conformance
 
-All 425 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5). Test-layout conventions for the conformance tree are documented in [`tests/conformance/README.md`](tests/conformance/README.md).
+All 425 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.6). Test-layout conventions for the conformance tree are documented in [`tests/conformance/README.md`](tests/conformance/README.md).
 
 ```
 v1.x   LIFE-001..013  HUB-001..007  PROP-001..004  CMD-001..007
@@ -322,6 +322,17 @@ v3.15  SUBV-001..004
 v3.16  COL-048..055
 v3.17  COL-056..064
 v3.18  AGCH-001..010
+v3.19  SRCH-001..007
+v3.20  ARES-001..011
+v3.21  COMP-038..041
+v3.22  AGG-007        HIER-031..032 LIFE-015
+v3.23  DISC-007..009
+v3.24  CMDD-011..013
+v3.25  COL-065
+v3.26  COMP-042..045  GRP-012..013
+v3.27  FORM-031..034
+v3.28  FORM-035..038
+v3.29  CMDD-014..017
 ```
 
 Run the suite:

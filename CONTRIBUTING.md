@@ -152,7 +152,8 @@ Behavior changes start in `spec/`. The rules are:
   (C#), `describe("XXX-NNN", ...)` (TypeScript), Swift doc / line comments
   where the ID is the first token after the marker (for example
   `/// XXX-NNN — ...`, with an em dash) in `langs/swift/Tests/VMxTests`, and equivalent leading
-  doc comments on Rust `#[test]` functions under `langs/rust/tests/conformance`.
+  doc comments, also with an em dash, on Rust `#[test]` functions under
+  `langs/rust/tests/conformance`.
 
 ### 3.1 Bypass
 

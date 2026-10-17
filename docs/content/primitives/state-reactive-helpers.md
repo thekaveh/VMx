@@ -270,7 +270,7 @@ When no signal is supplied, mutation remains intentionally explicit: call
 ## 6.5.5. Lifecycle And Messaging
 
 The lifecycle rule is simple: if a helper owns subscriptions, dispose it with
-its owner. That matters especially for `DerivedProperty`, `SearchableState`, and
+its owner. That matters especially for `DerivedProperty`, `SearchableState`,
 `DiscriminatorVM`, and `AsyncResourceVM`.
 
 `DerivedProperty` is also the standard replacement for older ad hoc

@@ -50,9 +50,14 @@ before any flavor releases a stable version.
   `DenyCommand`, `ApproveCommand`, `OnApproved`, strict mode.
 - `21-collections.md` — opt-in collection primitives: `ServicedObservableCollection<T>`,
   `ObservableList<T>`, `ObservableDictionary`, `PagedComposition<TVM>`.
-- `22-discriminator-vm.md` — active-key / modal-overlay state coordinator.
-- `23-async-resource-vm.md` — one-value asynchronous presentation lifecycle,
-  cancellation, stale-result suppression, retention, and optional cleanup.
+
+Later chapters:
+
+- `22-discriminator-vm.md` (v3.1) — active-key / modal-overlay state
+  coordinator.
+- `23-async-resource-vm.md` (v3.20) — one-value asynchronous presentation
+  lifecycle, cancellation, stale-result suppression, retention, and optional
+  cleanup.
 
 The following existing chapters were also extended in v2.1:
 

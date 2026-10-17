@@ -129,8 +129,9 @@ corresponding `rust-v*` tags or releases.
 
 The same source-only history applies to Rust `0.20.0` through `0.22.0` for
 spec 3.20.x and to Rust `0.23.0` for spec 3.21.x. The untagged C# `3.20.0–3.20.1`, Python `3.20.0–3.20.1`,
-TypeScript `3.20.0–3.21.1`, and Swift `3.20.1` source lines are intentionally
-not listed as releases in the matrix.
+TypeScript `3.20.0–3.21.1`, and Swift `3.20.1` source lines, and the untagged
+spec 3.21.x lines (C# `3.21.0`, Python `3.21.0`, TypeScript `3.22.0`, and Swift
+`3.21.0`), are intentionally not listed as releases in the matrix.
 
 [^source-only]: Spec 3.22.x and its listed flavor versions were validated source
 lines but were never tagged or published. They remain compatibility history,

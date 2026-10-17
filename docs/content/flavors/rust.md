@@ -145,7 +145,7 @@ categories, Python's keyed test does not retain failed-operation candidates,
 and TypeScript's keyed test instruments only one item. They do not assert
 exactly-once caller cleanup. These are limits of the test evidence, not proof
 of a collection implementation defect. The existing ownership contract and
-403-ID catalog are unchanged.
+the conformance catalog are unchanged.
 
 ## 7.6.4. Imperative Engine Bridge
 

@@ -32,11 +32,11 @@ once; first resolution still wins. See the
 
 ## 6.2.8.5.4. Cross-Language Surface
 
-| Concept          | C#               | Python           | TypeScript       | Swift            |
-| ---------------- | ---------------- | ---------------- | ---------------- | ---------------- |
-| Type             | `ConfirmationVM` | `ConfirmationVM` | `ConfirmationVM` | `ConfirmationVM` |
-| Default lifespan | 300 s            | 300 s            | 300 s            | 300 s            |
-| Reject command   | `RejectCommand`  | `reject_command` | `rejectCommand`  | `rejectCommand`  |
+| Concept          | C#               | Python           | TypeScript       | Swift            | Rust               |
+| ---------------- | ---------------- | ---------------- | ---------------- | ---------------- | ------------------ |
+| Type             | `ConfirmationVM` | `ConfirmationVM` | `ConfirmationVM` | `ConfirmationVM` | `ConfirmationVm`   |
+| Default lifespan | 300 s            | 300 s            | 300 s            | 300 s            | 300 s              |
+| Reject command   | `RejectCommand`  | `reject_command` | `rejectCommand`  | `rejectCommand`  | `reject_command()` |
 
 ## 6.2.8.5.5. Example
 

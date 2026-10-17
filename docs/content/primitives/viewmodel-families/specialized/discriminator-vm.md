@@ -39,13 +39,17 @@ The behavior is straightforward and important:
 
 ## 6.2.8.3.4. Cross-Language Surface
 
-| Concept       | C#               | Python            | TypeScript       | Swift            | Rust              |
-| ------------- | ---------------- | ----------------- | ---------------- | ---------------- | ----------------- |
-| Active key    | `ActiveKey`      | `active_key`      | `activeKey`      | `activeKey`      | `active_key()`    |
-| Change stream | `ActiveChanged`  | `active_changed`  | `activeChanged`  | `activeChanged`  | `active_changed()` |
-| Modal depth   | `ModalDepth`     | `modal_depth`     | `modalDepth`     | `modalDepth`     | `modal_depth()`   |
-| Open modal    | `ModalOpen(...)` | `modal_open(...)` | `modalOpen(...)` | `modalOpen(...)` | `modal_open(...)` |
-| Clear history | `ClearModals()`  | `clear_modals()`  | `clearModals()`  | `clearModals()`  | `clear_modals()`  |
+| Concept       | C#               | Python            | TypeScript       | Swift            | Rust                   |
+| ------------- | ---------------- | ----------------- | ---------------- | ---------------- | ---------------------- |
+| Active key    | `ActiveKey`      | `active_key`      | `activeKey`      | `activeKey`      | `active_key()`         |
+| Change stream | `ActiveChanged`  | `active_changed`  | `activeChanged`  | `activeChanged`  | `active_key_changes()` |
+| Modal depth   | `ModalDepth`     | `modal_depth`     | `modalDepth`     | `modalDepth`     | `modal_depth()`        |
+| Open modal    | `ModalOpen(...)` | `modal_open(...)` | `modalOpen(...)` | `modalOpen(...)` | `modal_open(...)`      |
+| Clear history | `ClearModals()`  | `clear_modals()`  | `clearModals()`  | `clearModals()`  | `clear_modals()`       |
+
+Rust's `active_key_changes()` is a `ValueStream<K>` that carries each new key.
+Its `active_changed()` hub still signals each change, but its messages carry no
+key.
 
 ## 6.2.8.3.5. Example
 
