@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `HierarchicalVM.removeChild` on a node whose children are not loaded yet
+  now runs the children factory first, as the other flavors do. Before, it
+  returned without loading the children.
+
 ## [3.30.0] — unreleased source version
 
 ### Changed

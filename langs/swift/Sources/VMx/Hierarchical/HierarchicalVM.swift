@@ -317,7 +317,9 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
     /// path caches, and publishes `TreeStructureChangedMessage(.removed, …)` (HIER-011).
     public func removeChild(_ child: TVM) {
         if rejectStructuralReentry() { return }
-        guard let idx = _children?.firstIndex(where: { $0 === child }) else { return }
+        // Materialize lazy children first, as every other flavor does.
+        guard case .success(let current) = tryChildren(),
+              let idx = current.firstIndex(where: { $0 === child }) else { return }
         _children!.remove(at: idx)
         setHierarchicalParent(of: child, to: nil) // → PropertyChangedMessage
         hub.send(TreeStructureChangedMessage(
