@@ -370,3 +370,28 @@ async def test_retained_and_replaced_item_vms_are_never_disposed_by_the_composit
     assert sut.items == changed_head
     assert all(item.is_constructed for item in changed_head)
     assert all(item.status is ConstructionStatus.CONSTRUCTED for item in loaded)
+
+
+async def test_a_comparer_that_disposes_the_pager_stops_auto_construction() -> None:
+    first = ComponentVM.builder().with_null_services().name("first").build()
+    replacement = ComponentVM.builder().with_null_services().name("replacement").build()
+    pages = [[first], [replacement]]
+
+    async def fetch(token: str | None) -> tuple[list[ComponentVM], str | None]:
+        return (pages.pop(0), None)
+
+    sut: TokenPagedComposition[ComponentVM, str]
+
+    def pages_equal(left: Sequence[ComponentVM], right: Sequence[ComponentVM]) -> bool:
+        sut.dispose()
+        return False
+
+    sut = TokenPagedComposition(
+        fetch_next=fetch, auto_construct_on_add=True, pages_equal=pages_equal
+    )
+    await sut.load_more_command.execute_async()
+
+    await sut.refresh_command.execute_async()
+
+    assert replacement.status is ConstructionStatus.DESTRUCTED
+    assert sut.items == [first]

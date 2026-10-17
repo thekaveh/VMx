@@ -8,6 +8,12 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
+- Fixed: `ConfirmationDecoratorCommand.CanExecute` re-checks disposal after the inner
+  predicate, which may dispose the wrapper, as the other wrappers do
+  (spec/04 §8.4).
+- Fixed: `AsyncResourceVM` never calls the loader for a load requested while
+  the VM publishes its Disposed status, or after an observer of the Loading
+  publication disposes it (spec/23 §4, ARES-011).
 - Fixed: a disposed view model's `Select` and `Deselect` are silent no-ops and
   `CanDeselect` returns false, so a disposed child no longer changes its live
   parent's selection (spec/02 §3).

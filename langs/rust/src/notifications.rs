@@ -158,9 +158,8 @@ impl NotificationHub {
         let (completion, admission) = {
             let mut state = lock(&self.state);
             if state.disposed {
-                state
-                    .reactions
-                    .insert(notification_id, NotificationReaction::Pending);
+                // A post after dispose returns a pending result and never
+                // replaces a stored terminal reaction (DISP-004).
                 (AsyncValue::ready(NotificationReaction::Pending), None)
             } else if let Some(completion) = state.completions.get(&notification_id).cloned() {
                 (completion, None)

@@ -59,7 +59,9 @@ public final class ConfirmationDecoratorCommand: Command {
     // MARK: - Command
 
     public func canExecute() -> Bool {
-        !isDisposed && inner.canExecute()
+        // Re-check after the call-out: the inner predicate may dispose this
+        // wrapper (spec/04 §8.4).
+        !isDisposed && inner.canExecute() && !isDisposed
     }
 
     /// Fire-and-forget. Awaits the confirm gate on a Swift Task and, when it

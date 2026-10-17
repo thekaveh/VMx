@@ -701,3 +701,17 @@ fn post_racing_dispose_never_orphans_its_waiter() {
         );
     }
 }
+
+/// NOTIF-017 — a post after dispose keeps a stored terminal reaction
+#[test]
+fn post_after_dispose_keeps_a_stored_reaction() {
+    let hub = NotificationHub::new();
+    let notification = hub.post(NotificationType::Notification, "info");
+    hub.resolve(notification.id, NotificationReaction::Approve);
+    hub.dispose();
+
+    let waiter = hub.post_notification(notification.clone());
+
+    assert_eq!(waiter.try_get(), Some(NotificationReaction::Pending));
+    assert_eq!(hub.reaction(notification.id), NotificationReaction::Approve);
+}

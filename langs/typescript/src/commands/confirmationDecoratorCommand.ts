@@ -44,7 +44,9 @@ export class ConfirmationDecoratorCommand implements ICommand {
   }
 
   canExecute(): boolean {
-    return !this.#disposed && this.#inner.canExecute();
+    // Re-check after the call-out: the inner predicate may dispose this
+    // wrapper (spec/04 §8.4).
+    return !this.#disposed && this.#inner.canExecute() && !this.#disposed;
   }
 
   /**

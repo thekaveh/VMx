@@ -12,8 +12,10 @@ UI-backed flavors; Rust covers the 425 library IDs and has no UI scenario suite.
 The detailed capability and conformance history lives in the
 [changelog](CHANGELOG.md) and the specification ADRs rather than in this opener.
 
-The package requires Swift 5.9+, Combine, iOS 16, macOS 13, tvOS 16, or watchOS
-9. The macOS SwiftUI flagship is at `examples/swift/notes-showcase/`; see §5.
+The package requires Combine and iOS 16, macOS 13, tvOS 16, or watchOS 9. The
+manifest declares Swift tools 5.9, but CI builds and tests only with Swift 6.0
+(Xcode 16.0) and later, so earlier compilers are untested. The macOS SwiftUI
+flagship is at `examples/swift/notes-showcase/`; see §5.
 
 ## 2. Install
 

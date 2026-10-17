@@ -286,6 +286,24 @@ async def _drain_other_tasks() -> None:
 
 
 @pytest.mark.conformance("CMDD-011")
+def test_CMDD_011_confirmation_can_execute_rechecks_disposal_after_the_inner_predicate() -> None:
+    wrapper: ConfirmationDecoratorCommand | None = None
+
+    def predicate() -> bool:
+        assert wrapper is not None
+        wrapper.dispose()
+        return True
+
+    async def confirm() -> bool:
+        return True
+
+    inner = RelayCommand.builder().task(lambda: None).predicate(predicate).build()
+    wrapper = ConfirmationDecoratorCommand(inner, confirm)
+
+    assert wrapper.can_execute() is False
+
+
+@pytest.mark.conformance("CMDD-011")
 def test_CMDD_011_disposed_composite_and_decorator_are_inert() -> None:
     log: list[str] = []
     a = _recording_command(log, "a", True)

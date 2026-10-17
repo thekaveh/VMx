@@ -1,6 +1,7 @@
 using System.Runtime.ExceptionServices;
 using VMx.Commands;
 using VMx.Components;
+using VMx.Lifecycle;
 using VMx.Services;
 
 namespace VMx.State;
@@ -219,7 +220,10 @@ public sealed class AsyncResourceVM<T> : ComponentVMBase
 
         lock (_resourceGate)
         {
-            if (_resourceDisposed) return;
+            // The base publishes Disposed before OnDispose sets
+            // _resourceDisposed; an observer of that publication must not start
+            // a load either (spec/23 §4, ARES-011).
+            if (_resourceDisposed || Status == ConstructionStatus.Disposed) return;
             if (externalToken.IsCancellationRequested) return;
             if (intent == StartIntent.Load && _state.Status != AsyncResourceStatus.Idle) return;
             if (intent == StartIntent.Reload && _state.Status == AsyncResourceStatus.Idle) return;
@@ -273,6 +277,13 @@ public sealed class AsyncResourceVM<T> : ComponentVMBase
         {
             RollBackStart(operation, error).Throw();
             throw;
+        }
+        // An observer of the Loading publication may have disposed the VM or
+        // started a newer operation; a stale start never calls the loader.
+        if (!IsOperationCurrent(operation))
+        {
+            operation.Dispose();
+            return;
         }
         Task<T> loaderTask;
         try

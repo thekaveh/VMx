@@ -206,6 +206,25 @@ public class CommandDecoratorsConformanceTests
 
     // ── CMDD-011 ────────────────────────────────────────────────────────────
 
+    /// <summary>CMDD-011: the confirmation wrapper re-checks disposal after the
+    /// inner predicate, which may dispose it.</summary>
+    [Fact, Trait("Conformance", "CMDD-011")]
+    public void CMDD_011_Confirmation_CanExecute_Rechecks_Disposal_After_Inner_Predicate()
+    {
+        ConfirmationDecoratorCommand? wrapper = null;
+        var inner = RelayCommand.Builder()
+            .Predicate(() =>
+            {
+                wrapper?.Dispose();
+                return true;
+            })
+            .Task(() => { })
+            .Build();
+        wrapper = new ConfirmationDecoratorCommand(inner, () => Task.FromResult(true));
+
+        wrapper.CanExecute(null).Should().BeFalse();
+    }
+
     /// <summary>CMDD-011: disposed composite and decorator commands are inert and
     /// leave their inner commands usable.</summary>
     [Fact, Trait("Conformance", "CMDD-011")]

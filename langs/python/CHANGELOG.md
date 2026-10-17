@@ -23,6 +23,11 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ### Fixed
 
+- `ConfirmationDecoratorCommand.can_execute` re-checks disposal after the inner
+  predicate, which may dispose the wrapper, as the other wrappers do
+  (spec/04 §8.4).
+- `TokenPagedComposition` stops auto-constructing page items once a hook
+  disposes it or starts a newer operation (spec/21 §6).
 - A disposed view model's `select` and `deselect` are silent no-ops and
   `can_deselect` returns false, so a disposed child no longer changes its live
   parent's selection (spec/02 §3).

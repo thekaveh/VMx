@@ -207,6 +207,22 @@ function deferred(): {
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe("CMDD-011", () => {
+  it("confirmation canExecute rechecks disposal after the inner predicate", () => {
+    let wrapper: ConfirmationDecoratorCommand | null = null;
+    const inner = RelayCommand.builder()
+      .predicate(() => {
+        wrapper?.dispose();
+        return true;
+      })
+      .task(() => {})
+      .build();
+    wrapper = new ConfirmationDecoratorCommand(inner, () => Promise.resolve(true));
+
+    expect(wrapper.canExecute()).toBe(false);
+  });
+});
+
+describe("CMDD-011", () => {
   it("disposed composite and decorator commands are inert and leave inner commands usable", () => {
     const log: string[] = [];
     const a = buildRecording(log, "a", true);

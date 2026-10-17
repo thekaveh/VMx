@@ -64,6 +64,22 @@ final class CommandWrapperDisposalTests: XCTestCase {
 
     // MARK: - CMDD-011
 
+    /// CMDD-011 — the confirmation wrapper re-checks disposal after the inner
+    /// predicate, which may dispose it.
+    func testCMDD011ConfirmationCanExecuteRechecksDisposal() {
+        var wrapper: ConfirmationDecoratorCommand?
+        let inner = RelayCommand.builder()
+            .predicate {
+                wrapper?.dispose()
+                return true
+            }
+            .task {}
+            .build()
+        wrapper = ConfirmationDecoratorCommand(inner) { true }
+
+        XCTAssertFalse(wrapper!.canExecute())
+    }
+
     /// CMDD-011 — disposed composite and decorator commands are inert and leave their inner commands usable.
     func testCmdd011DisposedCompositeAndDecoratorAreInert() {
         let recorder = Recorder()

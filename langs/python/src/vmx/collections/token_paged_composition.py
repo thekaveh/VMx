@@ -94,7 +94,7 @@ class TokenPagedComposition(Generic[TVM, TToken]):
         if self._disposed or generation != self._operation_generation:
             return
         additions = list(page)
-        self._construct_if_needed(additions)
+        self._construct_if_needed(additions, generation)
         if self._disposed or generation != self._operation_generation:
             return
         self._items.extend(additions)
@@ -120,7 +120,7 @@ class TokenPagedComposition(Generic[TVM, TToken]):
         same_length = len(fresh) == len(self._items)
         retain = head_matches and (same_length or (len(fresh) > 0 and next_token is not None))
         if not retain:
-            self._construct_if_needed(fresh)
+            self._construct_if_needed(fresh, generation)
         if self._disposed or generation != self._operation_generation:
             return
         if not retain:
@@ -133,10 +133,15 @@ class TokenPagedComposition(Generic[TVM, TToken]):
         else:
             self._notify_reset()
 
-    def _construct_if_needed(self, items: Sequence[TVM]) -> None:
+    def _construct_if_needed(self, items: Sequence[TVM], generation: int) -> None:
         if not self._auto_construct_on_add:
             return
         for item in items:
+            # A hook (pages_equal or an item's construct) may dispose this
+            # composition or start a newer operation; stale work stops before
+            # it constructs anything else (spec/21 §6).
+            if self._disposed or generation != self._operation_generation:
+                return
             if isinstance(item, _ComponentVMBase) and not item.is_constructed:
                 item.construct()
 

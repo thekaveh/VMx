@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `ConfirmationDecoratorCommand.canExecute` re-checks disposal after the inner
+  predicate, which may dispose the wrapper, as the other wrappers do
+  (spec/04 §8.4).
 - A disposed `ForwardingComponentVM` no longer changes its parent's
   selection: its `select()`/`deselect()` overrides honor disposal like the
   base (spec/02 §3).

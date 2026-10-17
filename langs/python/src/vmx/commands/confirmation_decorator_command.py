@@ -63,7 +63,9 @@ class ConfirmationDecoratorCommand:
         return self._errors.pipe(ops.as_observable())
 
     def can_execute(self, parameter: Any = None) -> bool:
-        return not self._disposed and self._inner.can_execute(parameter)
+        # Re-check after the call-out: the inner predicate may dispose this
+        # wrapper (spec/04 §8.4).
+        return not self._disposed and self._inner.can_execute(parameter) and not self._disposed
 
     def execute(self, parameter: Any = None) -> None:
         """Fire-and-forget. Schedules the confirm flow on the current event loop.

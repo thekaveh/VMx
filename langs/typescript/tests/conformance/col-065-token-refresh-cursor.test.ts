@@ -327,3 +327,29 @@ describe("COL-065", () => {
     expect(loaded.every((item) => item.status === ConstructionStatus.Constructed)).toBe(true);
   });
 });
+
+describe("COL-065 disposal during refresh", () => {
+  it("a comparer that disposes the pager stops auto-construction", async () => {
+    const first = ComponentVM.builder().withNullServices().name("first").build();
+    const replacement = ComponentVM.builder().withNullServices().name("replacement").build();
+    const pages = [[first], [replacement]];
+    let sut: TokenPagedComposition<ComponentVM, string> | null = null;
+    const pager = new TokenPagedComposition<ComponentVM, string>(
+      () => Promise.resolve({ items: pages.shift()!, nextToken: null }),
+      {
+        autoConstructOnAdd: true,
+        pagesEqual: () => {
+          sut?.dispose();
+          return false;
+        },
+      },
+    );
+    sut = pager;
+    await pager.loadMoreCommand.executeAsync();
+
+    await pager.refreshCommand.executeAsync();
+
+    expect(replacement.status).toBe(ConstructionStatus.Destructed);
+    expect(pager.items).toEqual([first]);
+  });
+});
