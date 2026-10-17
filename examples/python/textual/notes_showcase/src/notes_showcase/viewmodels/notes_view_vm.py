@@ -433,6 +433,10 @@ class NotesViewVM(
                     continue
             result.append(n)
         self._filtered = result
+        # The paged view reads ``_filtered`` through a factory, so it gets no
+        # mutation signal; re-clamp the page so a shrunken list never shows
+        # "Page 2 of 1" (spec/21 §5.2).
+        self._paged.current_page_index = self._paged.current_page_index
         # Re-push self into the subject so DerivedProperties recompute.
         self._self_subject.on_next(self)
         self._notify_property_changed("filtered_items")

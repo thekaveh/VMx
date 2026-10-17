@@ -525,3 +525,51 @@ async def test_global_search_vm_keeps_loaded_results_across_unchanged_term_refre
     assert len(ids) == 3
     assert len(set(ids)) == len(ids)
     vm.dispose()
+
+
+async def test_page_is_clamped_when_the_filtered_list_shrinks() -> None:
+    import asyncio
+
+    from reactivex.scheduler import ImmediateScheduler
+    from vmx import MessageHub, RxDispatcher
+
+    from notes_showcase.models.in_memory_repository import InMemoryNoteRepository
+    from notes_showcase.models.seed import build_seed
+    from notes_showcase.viewmodels.workspace_vm import WorkspaceVM
+
+    class _Approve:
+        async def confirm(self, message: str, title: str | None = None) -> bool:
+            return True
+
+    repo = InMemoryNoteRepository(
+        build_seed(),
+        load_all_delay=0.0,
+        load_notes_delay=0.0,
+        save_note_delay=0.0,
+        add_notebook_delay=0.0,
+        export_delay=0.0,
+        delete_note_delay=0.0,
+    )
+    workspace = (
+        WorkspaceVM.builder()
+        .name("w")
+        .repository(repo)
+        .message_hub(MessageHub())
+        .dispatcher(RxDispatcher(foreground=ImmediateScheduler(), background=ImmediateScheduler()))
+        .build()
+    )
+    await workspace.construct_async()
+    notes = workspace.notes_view
+    notes.dialog_service = _Approve()  # type: ignore[assignment]
+    reviews = next(n for n in workspace.notebooks_root.roots if n.model.id == "nb-reviews")
+    workspace.notebooks_root.current = reviews
+    await asyncio.sleep(0.05)
+    notes.move_to_last_page()
+    assert notes.current_page_index == 1
+
+    for note in list(notes.visible_items):
+        await note.delete_command.execute_async()
+
+    assert notes.current_page_index == 0
+    assert notes.page_label.value == "Page 1 of 1"
+    assert notes.visible_items

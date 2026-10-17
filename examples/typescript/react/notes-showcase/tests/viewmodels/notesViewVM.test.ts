@@ -43,6 +43,18 @@ describe("NotesViewVM", () => {
     }
   });
 
+  it("re-clamps the page when the filtered list shrinks", async () => {
+    const { vm } = makeVM({ pageSize: 5 });
+    await vm.bindToAsync("nb-reviews");
+    vm.moveToLastPageCommand.execute();
+    expect(vm.currentPageIndex).toBe(1);
+
+    vm.showStarredOnly = true;
+
+    expect(vm.currentPageIndex).toBe(0);
+    expect(vm.pageLabel).toBe("Page 1 of 1");
+  });
+
   it("bindToAsync populates inner items and resets current + page", async () => {
     const { vm } = makeVM();
     await vm.bindToAsync("nb-reviews");

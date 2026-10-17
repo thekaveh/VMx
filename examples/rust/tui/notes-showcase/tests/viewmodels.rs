@@ -184,6 +184,23 @@ fn global_search_refresh_after_the_last_page_keeps_results_without_duplicates() 
 }
 
 #[test]
+fn a_repeated_delete_request_keeps_one_resolvable_confirmation() {
+    let repository = InMemoryNoteRepository::seeded();
+    let workspace = WorkspaceVm::new(repository.clone()).expect("workspace builds");
+
+    workspace.request_delete_current();
+    workspace.request_delete_current();
+    assert_eq!(
+        workspace.notifications().messages(),
+        vec!["Delete note 'Rust flavor parity'?"]
+    );
+
+    workspace.reject_delete_current();
+    assert!(workspace.notifications().messages().is_empty());
+    assert!(repository.note("rust-parity").is_some());
+}
+
+#[test]
 fn editor_mode_and_delete_confirmation_are_vm_commands() {
     let repository = InMemoryNoteRepository::seeded();
     let workspace = WorkspaceVm::new(repository.clone()).expect("workspace builds");

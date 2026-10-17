@@ -350,6 +350,9 @@ public sealed class NotesViewVM
         // teardown, and Hub.Send / _stateSubject.OnNext on disposed subjects throw.
         if (_ownDisposed) return;
         var term = _search.SearchTerm;
+        // Clear() resets the paged view to page 0; keep the reader's page and
+        // re-clamp it after the refill, as the other flavors do.
+        var pageIndex = _paged.CurrentPageIndex;
         _filtered.Clear();
         foreach (var n in _inner)
         {
@@ -361,6 +364,7 @@ public sealed class NotesViewVM
                 && !n.Tags.Any(t => t.Contains(term, StringComparison.OrdinalIgnoreCase))) continue;
             _filtered.Add(n);
         }
+        _paged.CurrentPageIndex = pageIndex;
         NotifyPropertyChanged(nameof(FilteredItems));
         NotifyPropertyChanged(nameof(IsEmpty));
         NotifyPropertyChanged(nameof(VisibleItems));

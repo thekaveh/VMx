@@ -682,6 +682,12 @@ impl WorkspaceVm {
             let notifications = notifications.clone();
             let pending_delete = pending_delete.clone();
             move || {
+                // One delete confirmation at a time: a second request would
+                // replace the only slot that `y`/`r` resolve and strand the
+                // first confirmation.
+                if lock(&pending_delete).is_some() {
+                    return;
+                }
                 if let Some(note) = notes.current_note() {
                     let message = format!("Delete note '{}'?", note.title);
                     let notification_id =

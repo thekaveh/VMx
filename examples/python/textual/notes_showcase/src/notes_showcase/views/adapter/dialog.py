@@ -9,9 +9,11 @@ returns the contract's safe cancellation result. Export uses file-save through
 
 from __future__ import annotations
 
-from typing import Any
+import asyncio
+from typing import Any, TypeVar
 
 from textual.app import App
+from textual.screen import ModalScreen
 from vmx.dialogs import FileFilter, NotificationSeverity
 
 from notes_showcase.viewmodels.dialog_service import IDialogService
@@ -19,16 +21,30 @@ from notes_showcase.views.modals.confirm_modal import ConfirmModal
 from notes_showcase.views.modals.notify_modal import NotifyModal
 from notes_showcase.views.modals.save_file_modal import SaveFileModal
 
+_ResultT = TypeVar("_ResultT")
+
 
 class TextualDialogService(IDialogService):
     """Concrete :class:`IDialogService` rooted at a Textual :class:`App`.
 
-    The constructor accepts the host app so each method can call
-    ``await self._app.push_screen_wait(modal, ...)``.
+    The constructor accepts the host app. Each method pushes a modal and
+    awaits its dismissal through a callback. ``push_screen_wait`` is not used:
+    Textual allows it only inside a worker, and commands call these methods
+    from ordinary tasks.
     """
 
     def __init__(self, app: App[Any]) -> None:
         self._app = app
+
+    async def _show(self, screen: ModalScreen[_ResultT]) -> _ResultT | None:
+        result: asyncio.Future[_ResultT | None] = asyncio.get_running_loop().create_future()
+
+        def dismissed(value: _ResultT | None) -> None:
+            if not result.done():
+                result.set_result(value)
+
+        await self._app.push_screen(screen, callback=dismissed)
+        return await result
 
     async def pick_file_to_open(
         self,
@@ -43,16 +59,15 @@ class TextualDialogService(IDialogService):
         title: str | None = None,
         suggested_name: str | None = None,
     ) -> str | None:
-        return await self._app.push_screen_wait(
-            SaveFileModal(suggested_name=suggested_name, title=title)
-        )
+        return await self._show(SaveFileModal(suggested_name=suggested_name, title=title))
 
     async def confirm(
         self,
         message: str,
         title: str | None = None,
     ) -> bool:
-        return await self._app.push_screen_wait(ConfirmModal(message, title=title))
+        confirmed = await self._show(ConfirmModal(message, title=title))
+        return confirmed is True
 
     async def notify(
         self,
@@ -60,4 +75,4 @@ class TextualDialogService(IDialogService):
         title: str | None = None,
         severity: NotificationSeverity = NotificationSeverity.INFO,
     ) -> None:
-        await self._app.push_screen_wait(NotifyModal(message, title=title, severity=severity))
+        await self._show(NotifyModal(message, title=title, severity=severity))
