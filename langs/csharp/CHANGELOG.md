@@ -8,6 +8,12 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
+- Fixed: `NullDialogService.Present` and the `Present` extension return the
+  result of a modal that was already dismissed, because the first result wins.
+  Before, they returned the cancellation result (spec/19 §3, DIA-012).
+- Fixed: when a `FormVM` approval fails, a `CanExecuteChanged` handler that
+  throws during settlement no longer replaces the persister failure (§5.3
+  step 4, FORM-033).
 - Fixed: `AsyncRelayCommand.Cancel()` and `Dispose()` tag the cancellation
   origin under the gate that swaps executions. A cancel that raced completion
   could tag the next execution and hide its external-token cancellation.

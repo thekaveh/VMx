@@ -107,5 +107,6 @@ class DialogService(ABC):
         modal with its cancellation result. Host services override this method
         to bridge a modal VM to native UI.
         """
+        # First result wins: an already-dismissed modal keeps its result.
         modal_vm.dismiss(modal_vm.cancellation_result)
-        return modal_vm.cancellation_result
+        return await modal_vm.wait_result()

@@ -46,7 +46,14 @@ project adheres to [Semantic Versioning](https://semver.org/).
 - `CompositeVm` and `GroupVm` membership for `AggregateChangeStream` now comes
   from a local children stream that precedes the hub and is not deferred by a
   hub batch. Before, a member added and changed inside `hub.batch` lost its
-  first item change (AGCH-002).
+  first item change (AGCH-002). A membership pulse now arrives inside the
+  container's ownership transaction in a hub batch too, so an observer that
+  mutates the container from that pulse gets
+  `Err(OwnershipTransactionInProgress)`, as it already did outside a batch.
+- `NotificationHub` keeps pending notifications in post order. Before, it
+  ordered them by creation identity (spec/16 §2.1).
+- `NotificationVm::is_resolved` reports a hub-side resolve that used the
+  `Pending` reaction (NOTIF-015).
 - `CompositeVm::move_item` and `GroupVm::move_item` return
   `Err(VmxError::Disposed)` after disposal instead of reordering the children.
 - A disposal deferred behind an admitted lifecycle hook (same-thread or

@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `NullDialogService.present` returns the result of a modal that was already
+  dismissed, because the first result wins. Before, it returned the
+  cancellation result (spec/19 §3, DIA-012).
 - A disposed `CompositeVM` or `GroupVM` no longer sends a `CollectionChangedMessage`
   on the hub when a batch it was disposed inside closes, or when a local
   `collectionChanged` subscriber disposes it (ADR-0142, COMP-045, GRP-012).

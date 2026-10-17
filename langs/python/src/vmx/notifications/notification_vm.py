@@ -274,7 +274,7 @@ class NotificationVM:
 
     def _notify_external_resolve(self) -> None:
         """Handle external hub resolution: set is_resolved + cancel timer."""
-        if self._is_resolved:
+        if self._disposed or self._is_resolved:
             return
         self._is_resolved = True
         self._cancel_timers()

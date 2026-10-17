@@ -23,6 +23,11 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ### Fixed
 
+- `DialogService.present` (the null base) returns the result of a modal that
+  was already dismissed, because the first result wins. Before, it returned
+  the cancellation result (spec/19 §3, DIA-012).
+- `NotificationVM.notify_external_resolve()` is inert after `dispose()`
+  (DISP-004).
 - `NotificationHub.resolve` and `dispose` complete their waiters even when a
   `pending` subscriber raises. The waiters had already left the hub, so their
   `post` futures stayed pending forever.

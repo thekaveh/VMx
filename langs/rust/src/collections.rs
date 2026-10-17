@@ -800,7 +800,8 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
 
     /// Returns the local collection-change stream. It receives each
     /// `CollectionChanged` message before the hub does and is never deferred
-    /// by a hub batch (spec/21 §9.1).
+    /// by a hub batch, like the local collection events of the other flavors
+    /// that `AggregateChangeStream` membership uses (spec/21 §9.1).
     pub(crate) fn local_changes(&self) -> MessageHub {
         self.local.clone()
     }

@@ -367,6 +367,30 @@ public sealed class FORM_031_to_034_ApprovalAdmission_Tests
     }
 
     [Fact, Trait("Conformance", "FORM-033")]
+    public async Task FORM_033_Failed_Settlement_Keeps_The_Persister_Failure_First()
+    {
+        var persister = new GatedPersister();
+        using var form = new FormVM<Model>(new("initial"), persister.Persist);
+        form.SetModel(new("first"));
+
+        var approval = form.ApproveAsync();
+        await persister.Entered(0);
+        var throwOnce = true;
+        form.ApproveCommand.CanExecuteChanged += (_, _) =>
+        {
+            if (!throwOnce) return;
+            throwOnce = false;
+            throw new InvalidOperationException("observer-fail");
+        };
+        persister.Fail(0, new InvalidOperationException("persist-fail"));
+
+        var failure = await approval.Invoking(task => task.WaitAsync(HangGuard))
+            .Should().ThrowAsync<InvalidOperationException>();
+        failure.WithMessage("persist-fail");
+        throwOnce.Should().BeFalse("the settlement notification reached the observer");
+    }
+
+    [Fact, Trait("Conformance", "FORM-033")]
     public async Task FORM_033_Settlement_Clears_The_Mark_Before_Each_Notification()
     {
         // The model turns invalid during the persist and the reset makes it

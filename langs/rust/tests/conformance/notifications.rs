@@ -242,6 +242,19 @@ fn concurrent_resolve_returns_after_its_queued_snapshot_and_waiter_completion() 
     assert_eq!(waiter.try_get(), Some(NotificationReaction::Approve));
 }
 
+/// NOTIF-002 — Pending keeps post order, not creation order
+#[test]
+fn pending_keeps_post_order() {
+    let hub = NotificationHub::new();
+    let first_created = vmx::Notification::new(NotificationType::Notification, "a");
+    let second_created = vmx::Notification::new(NotificationType::Notification, "b");
+
+    hub.post_notification(second_created.clone());
+    hub.post_notification(first_created.clone());
+
+    assert_eq!(hub.pending(), vec![second_created, first_created]);
+}
+
 /// NOTIF-003 — Resolve removes the notification from Pending
 #[test]
 fn resolve_removes_notification_from_pending_snapshot() {
@@ -481,6 +494,20 @@ fn external_hub_resolve_marks_notification_vm_resolved() {
 
     hub.resolve(notification.id, NotificationReaction::Approve);
 
+    assert!(vm.is_resolved());
+}
+
+/// NOTIF-015 — Hub-side Resolve with a Pending reaction still resolves the VM
+#[test]
+fn external_pending_resolve_marks_notification_vm_resolved() {
+    let hub = NotificationHub::new();
+    let notification = hub.post(NotificationType::Notification, "info");
+    let vm = NotificationVm::with_hub(notification.clone(), hub.clone(), 10_000);
+    assert!(!vm.is_resolved());
+
+    hub.resolve(notification.id, NotificationReaction::Pending);
+
+    assert!(hub.pending().is_empty());
     assert!(vm.is_resolved());
 }
 

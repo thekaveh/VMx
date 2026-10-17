@@ -637,6 +637,12 @@ public sealed class FormVM<TM> : IDisposable
         {
             _canExecuteChangedTrigger.OnNext(Unit.Default);
         }
+        catch (Exception)
+        {
+            // The caller rethrows the approval failure next. That failure is
+            // the first error and wins: an observer that throws from this
+            // notification must not replace it (§5.3 step 4, FORM-033).
+        }
         finally
         {
             ExitApprovalPublication(outerPrePublishing);

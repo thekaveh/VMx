@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- The default `DialogService.present` returns the result of a modal that was
+  already dismissed, because the first result wins. Before, it returned the
+  cancellation result (spec/19 §3, DIA-012).
 - `HierarchicalVM.removeChild` on a node whose children are not loaded yet
   now runs the children factory first, as the other flavors do. Before, it
   returned without loading the children. Invalid factory output traps, as it

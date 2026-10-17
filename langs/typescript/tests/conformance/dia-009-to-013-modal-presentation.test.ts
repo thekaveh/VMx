@@ -30,6 +30,16 @@ describe("DIA-010", () => {
   });
 });
 
+describe("DIA-012", () => {
+  it("null present keeps an earlier result", async () => {
+    const modal = new ModalVM("cancel");
+    modal.dismiss("chosen");
+
+    await expect(NullDialogService.INSTANCE.present(modal)).resolves.toBe("chosen");
+    expect(modal.result).toBe("chosen");
+  });
+});
+
 describe("DIA-011", () => {
   it("modal dispose completes with cancellation result", async () => {
     const modal = new ModalVM("cancel");

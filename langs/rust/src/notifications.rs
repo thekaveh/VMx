@@ -3,8 +3,8 @@
 //! Spec: `spec/16-notifications.md`; ADR-0031.
 
 use super::{
-    catch_unwind, lock, thread, wait, Arc, AssertUnwindSafe, AsyncValue, AtomicU64, BTreeMap,
-    Condvar, Context, Future, HashMap, Message, MessageHub, Mutex, Ordering, Pin, Poll, ThreadId,
+    catch_unwind, lock, thread, wait, Arc, AssertUnwindSafe, AsyncValue, AtomicU64, Condvar,
+    Context, Future, HashMap, Message, MessageHub, Mutex, Ordering, Pin, Poll, ThreadId,
     ValueStream, VecDeque,
 };
 
@@ -81,7 +81,8 @@ impl Future for NotificationWaiter {
 
 #[derive(Default)]
 struct NotificationHubState {
-    pending: BTreeMap<u64, Notification>,
+    /// Pending notifications in post order (spec/16 §2.1).
+    pending: Vec<Notification>,
     reactions: HashMap<u64, NotificationReaction>,
     completions: HashMap<u64, AsyncValue<NotificationReaction>>,
     pending_snapshots: Vec<Vec<Notification>>,
@@ -163,14 +164,14 @@ impl NotificationHub {
                 (completion, None)
             } else {
                 let completion = AsyncValue::pending();
-                state.pending.insert(notification_id, notification);
+                state.pending.push(notification);
                 state
                     .reactions
                     .insert(notification_id, NotificationReaction::Pending);
                 state
                     .completions
                     .insert(notification_id, completion.clone());
-                let snapshot = state.pending.values().cloned().collect::<Vec<_>>();
+                let snapshot = state.pending.clone();
                 let admission =
                     Self::enqueue_pending_publication(&mut state, snapshot, Vec::new(), false);
                 (completion, Some(admission))
@@ -204,9 +205,14 @@ impl NotificationHub {
     pub fn resolve(&self, notification_id: u64, reaction: NotificationReaction) {
         let admission = {
             let mut state = lock(&self.state);
-            if state.pending.remove(&notification_id).is_none() {
+            let Some(index) = state
+                .pending
+                .iter()
+                .position(|pending| pending.id == notification_id)
+            else {
                 return;
-            }
+            };
+            state.pending.remove(index);
             state.reactions.insert(notification_id, reaction);
             let completions = state
                 .completions
@@ -214,15 +220,27 @@ impl NotificationHub {
                 .into_iter()
                 .map(|completion| (completion, reaction))
                 .collect();
-            let snapshot = state.pending.values().cloned().collect::<Vec<_>>();
+            let snapshot = state.pending.clone();
             Self::enqueue_pending_publication(&mut state, snapshot, completions, false)
         };
         self.complete_pending_publication(admission);
     }
 
+    /// Reports whether this live hub accepted `notification_id` and has since
+    /// removed it from the pending list, with any reaction.
+    pub(crate) fn was_resolved(&self, notification_id: u64) -> bool {
+        let state = lock(&self.state);
+        !state.disposed
+            && state.reactions.contains_key(&notification_id)
+            && !state
+                .pending
+                .iter()
+                .any(|pending| pending.id == notification_id)
+    }
+
     /// Returns a snapshot of currently pending notifications.
     pub fn pending(&self) -> Vec<Notification> {
-        lock(&self.state).pending.values().cloned().collect()
+        lock(&self.state).pending.clone()
     }
 
     /// Returns the hub that publishes committed pending-list changes.
@@ -264,7 +282,11 @@ impl NotificationHub {
                 return;
             }
             state.disposed = true;
-            let pending_ids = state.pending.keys().copied().collect::<Vec<_>>();
+            let pending_ids = state
+                .pending
+                .iter()
+                .map(|pending| pending.id)
+                .collect::<Vec<_>>();
             for id in pending_ids {
                 state.reactions.insert(id, NotificationReaction::Pending);
             }

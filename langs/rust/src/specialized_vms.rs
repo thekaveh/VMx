@@ -131,8 +131,9 @@ impl NotificationVm {
 
     /// Reports whether local or hub state has resolved the notification.
     pub fn is_resolved(&self) -> bool {
-        *lock(&self.resolved)
-            || self.hub.reaction(self.notification.id) != NotificationReaction::Pending
+        // Removal from the pending list, not the reaction, marks an external
+        // resolution: a hub may resolve with `Pending` (NOTIF-015).
+        *lock(&self.resolved) || self.hub.was_resolved(self.notification.id)
     }
 
     /// Returns the remaining lifespan in milliseconds.

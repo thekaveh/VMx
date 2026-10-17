@@ -32,6 +32,16 @@ public class DIA_009_to_013_ModalPresentation_Tests
         modal.Result.Should().Be("cancel");
     }
 
+    [Fact, Trait("Conformance", "DIA-012")]
+    public async Task DIA_012_Null_Present_Keeps_An_Earlier_Result()
+    {
+        var modal = new ModalVM<string>("cancel");
+        modal.Dismiss("chosen");
+
+        (await NullDialogService.Instance.Present(modal)).Should().Be("chosen");
+        modal.Result.Should().Be("chosen");
+    }
+
     [Fact, Trait("Conformance", "DIA-011")]
     public async Task DIA_011_Modal_Dispose_Completes_With_Cancellation_Result()
     {
