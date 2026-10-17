@@ -63,8 +63,12 @@ predicate signals "the operation is safe to call" rather than "the operation wil
 produce a state change".
 
 Calling an operation when its predicate returns `false` MUST raise
-`StatusTransitionError` (Python / TS / Swift) / `StatusTransitionException` (C#), or
-return `Err(VmxError::InvalidLifecycleTransition)` (Rust).
+`StatusTransitionError` (Python / TS / Swift) / `StatusTransitionException` (C#).
+Rust returns an `Err`: `VmxError::InvalidLifecycleTransition` names the state
+and the operation for an illegal call from a live state, but a call from
+`Disposed` returns `VmxError::Disposed` and a call during another transition
+returns `VmxError::ConcurrentOperation`. Those two variants do not name the
+state and operation; this is an open Rust gap against this rule.
 The exception's message MUST include the current state and the attempted
 operation. As of v3 the Swift flavor **throws** a catchable
 `StatusTransitionError` here — the same recoverable contract as the other
@@ -311,7 +315,7 @@ directly.
 
 - legal state transitions (construct / destruct / reconstruct / dispose)
 - predicates raising `StatusTransitionError` / `StatusTransitionException` (or
-  returning `VmxError::InvalidLifecycleTransition` in Rust) on illegal calls
+  returning a `VmxError` in Rust) on illegal calls
 - idempotency from `Constructed`/`Destructed`/`Disposed` states
 - the `IsConstructed == Status == Constructed` invariant
 - concurrent re-invocation during `Constructing` / `Destructing` raises (enforced by the

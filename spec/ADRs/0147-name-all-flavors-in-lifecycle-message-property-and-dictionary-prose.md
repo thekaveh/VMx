@@ -32,7 +32,11 @@ Chapter 21 §8 also listed `COL-001` through `COL-064`, although `COL-065`
 
 Add the missing flavors as the code ships them:
 
-- Chapter 02: Rust returns `Err(VmxError::InvalidLifecycleTransition)`.
+- Chapter 02: Rust returns `Err(VmxError::InvalidLifecycleTransition)` for an
+  illegal call from a live state. A call from `Disposed` returns
+  `VmxError::Disposed` and a call during another transition returns
+  `VmxError::ConcurrentOperation`; neither names the state and operation, so
+  chapter 02 records this as an open Rust gap.
 - Chapter 03 §7.1: Rust uses `MessageHub::subscribe_value` or
   `MessageHub::subscribe` with `Message::PropertyChanged`.
 - Chapter 15 §6: Swift uses the `valueEquals` closure, which the `fromSources`
@@ -49,5 +53,8 @@ The change is editorial. It adds no normative behavior and no conformance ID.
 ## 3. Consequences
 
 - The corrected sections satisfy ADR-0121.
+- The Rust lifecycle error variants stay an open gap. Changing them alters the
+  public Rust error contract and the aggregates that match on
+  `VmxError::Disposed`, so it needs its own decision and change.
 - The Rust dictionary payload difference stays a documented divergence under
   ADR-0009 §2.15; this ADR does not change it.
