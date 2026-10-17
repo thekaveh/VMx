@@ -652,6 +652,9 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
         )?;
         let changed = {
             let _gate = lock(&self.membership_gate);
+            if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
+                return Err(VmxError::Disposed);
+            }
             self.items.move_item_silent(from_index, to_index)?
         };
         if changed {
@@ -763,6 +766,12 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             self.core.dispose_then(move || commands.dispose())
         });
         finish_with_first_failure(first_failure)
+    }
+
+    /// Local collection-change stream of the children (see
+    /// `ObservableList::local_changes`).
+    pub(crate) fn membership_changes(&self) -> MessageHub {
+        self.items.local_changes()
     }
 
     fn disposal_pending(&self) -> bool {

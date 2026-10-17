@@ -10,7 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - `HierarchicalVM.removeChild` on a node whose children are not loaded yet
   now runs the children factory first, as the other flavors do. Before, it
-  returned without loading the children.
+  returned without loading the children. Invalid factory output traps, as it
+  does in the `children` accessor.
 
 ## [3.30.0] — unreleased source version
 

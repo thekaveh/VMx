@@ -768,6 +768,7 @@ where
 pub struct ObservableList<T: Clone + Send + 'static> {
     inner: Arc<Mutex<Vec<T>>>,
     hub: MessageHub,
+    local: MessageHub,
     owner_id: usize,
     batch_depth: Arc<Mutex<usize>>,
     batch_dirty: Arc<Mutex<bool>>,
@@ -781,6 +782,7 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
         Self {
             inner: Arc::new(Mutex::new(Vec::new())),
             hub,
+            local: MessageHub::new(),
             owner_id,
             batch_depth: Arc::new(Mutex::new(0)),
             batch_dirty: Arc::new(Mutex::new(false)),
@@ -794,6 +796,13 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
     /// nothing to the hub.
     pub(crate) fn close_publication(&self) {
         self.publication_closed.store(true, Ordering::Release);
+    }
+
+    /// Returns the local collection-change stream. It receives each
+    /// `CollectionChanged` message before the hub does and is never deferred
+    /// by a hub batch (spec/21 §9.1).
+    pub(crate) fn local_changes(&self) -> MessageHub {
+        self.local.clone()
     }
 
     /// Returns the number of items.
@@ -1015,15 +1024,16 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
             *lock(&self.batch_dirty) = true;
             return;
         }
-        self.hub
-            .send(Message::CollectionChanged(CollectionChangedMessage {
-                sender_id: self.owner_id,
-                sender_name: "ObservableList".to_string(),
-                property_name: "items".to_string(),
-                action: action.clone(),
-                old_index,
-                new_index,
-            }));
+        let message = Message::CollectionChanged(CollectionChangedMessage {
+            sender_id: self.owner_id,
+            sender_name: "ObservableList".to_string(),
+            property_name: "items".to_string(),
+            action,
+            old_index,
+            new_index,
+        });
+        self.local.send(message.clone());
+        self.hub.send(message);
         if count_changed {
             self.hub
                 .send(Message::PropertyChanged(PropertyChangedMessage {

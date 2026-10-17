@@ -82,6 +82,7 @@ fn backward_move_works_for_group() {
 
     assert_eq!(group.items(), vec![c, a, b]);
     let events = move_events(&recorder);
+    assert_eq!(events.len(), 1);
     assert_eq!(
         (events[0].old_index, events[0].new_index),
         (Some(2), Some(0))
@@ -197,4 +198,24 @@ fn move_does_not_reconstruct_auto_constructed_child() {
 
     assert_eq!(composite.get(1), Some(moved));
     assert_eq!(constructs.load(Ordering::SeqCst), 1);
+}
+
+/// COL-033 — a disposed container rejects a move and keeps its order.
+#[test]
+fn move_after_dispose_is_rejected() {
+    let composite = vmx::CompositeVm::<Child>::new("composite");
+    let group = vmx::GroupVm::<Child>::new("group");
+    let (a, b) = (child("a"), child("b"));
+    let (c, d) = (child("c"), child("d"));
+    composite.add(a.clone()).unwrap();
+    composite.add(b.clone()).unwrap();
+    group.add(c.clone()).unwrap();
+    group.add(d.clone()).unwrap();
+    composite.dispose().unwrap();
+    group.dispose().unwrap();
+
+    assert!(matches!(composite.move_item(0, 1), Err(VmxError::Disposed)));
+    assert!(matches!(group.move_item(0, 1), Err(VmxError::Disposed)));
+    assert_eq!(composite.items(), vec![a, b]);
+    assert_eq!(group.items(), vec![c, d]);
 }

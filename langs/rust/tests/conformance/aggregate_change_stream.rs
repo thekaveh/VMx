@@ -695,3 +695,36 @@ fn a_panic_during_setup_propagates_and_leaves_no_live_subscription() {
     source.pulse();
     assert_eq!(*locked(&source.snapshot_count), snapshots);
 }
+
+/// AGCH-002 — a composite or group member added inside a hub batch is
+/// observed before its first item change, which is not lost.
+#[test]
+fn aggregate_over_container_sees_member_added_inside_hub_batch() {
+    let hub = MessageHub::new();
+    let composite = CompositeVm::with_services("composite", hub.clone(), NullDispatcher::new());
+    let group = GroupVm::with_services("group", hub.clone(), NullDispatcher::new());
+    let composite_aggregate =
+        AggregateChangeStream::new(composite.clone(), |item: &TestNode| item.property_changed());
+    let group_aggregate =
+        AggregateChangeStream::new(group.clone(), |item: &TestNode| item.property_changed());
+    let (composite_changes, _composite_subscription) =
+        collect(&composite_aggregate, AggregateObserveOptions::default());
+    let (group_changes, _group_subscription) =
+        collect(&group_aggregate, AggregateObserveOptions::default());
+    let in_composite = TestNode::with_runtime_id("in-composite");
+    let in_group = TestNode::with_runtime_id("in-group");
+
+    hub.batch(|| {
+        composite.add(in_composite.clone()).unwrap();
+        in_composite.emit();
+        group.add(in_group.clone()).unwrap();
+        in_group.emit();
+    });
+
+    let expected = vec![
+        AggregateChangeReason::Membership,
+        AggregateChangeReason::Item,
+    ];
+    assert_eq!(reasons(&composite_changes), expected);
+    assert_eq!(reasons(&group_changes), expected);
+}

@@ -80,7 +80,7 @@ final class HierarchicalFactoryHydrationTests: XCTestCase {
         XCTAssertEqual(factoryCalls, 1)
         XCTAssertNil(child.parent)
         XCTAssertTrue(root.children.isEmpty)
-        XCTAssertEqual(factoryCalls, 1)
+        XCTAssertEqual(factoryCalls, 1, "the cached result is reused")
     }
 
     /// HIER-031 — self, ancestor, and already-parented results are rejected.

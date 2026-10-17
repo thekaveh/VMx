@@ -43,6 +43,12 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `CompositeVm` and `GroupVm` membership for `AggregateChangeStream` now comes
+  from a local children stream that precedes the hub and is not deferred by a
+  hub batch. Before, a member added and changed inside `hub.batch` lost its
+  first item change (AGCH-002).
+- `CompositeVm::move_item` and `GroupVm::move_item` return
+  `Err(VmxError::Disposed)` after disposal instead of reordering the children.
 - A disposal deferred behind an admitted lifecycle hook (same-thread or
   cyclic) now disposes the commands of `ComponentVm`, `CompositeVm`,
   `GroupVm`, and `AggregateVm1..6` only after the hook, owned resources, and
