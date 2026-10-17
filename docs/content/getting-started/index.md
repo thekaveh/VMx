@@ -54,7 +54,7 @@ leaf `ComponentVM`, then compose child tabs in a `CompositeVM`.
     )
 
     tabs = (
-        CompositeVM.builder()
+        CompositeVM[ComponentVMOf[TabModel]].builder()
         .name("tab-bar")
         .services(hub, dispatcher)
         .children(lambda: [home_tab, settings_tab])

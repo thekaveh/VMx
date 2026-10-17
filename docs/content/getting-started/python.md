@@ -137,13 +137,12 @@ user_vm: ComponentVMOf[UserModel] = (
 # Subscribe to hub messages BEFORE constructing so you don't miss any.
 # reactivex.operators has no OfType; filter by isinstance directly in the
 # subscriber.
-hub.messages.subscribe(
-    lambda msg: (
-        isinstance(msg, PropertyChangedMessage)
-        and msg.sender is user_vm
-        and print(f"Property '{msg.property_name}' changed on {msg.sender_name}")
-    )
-)
+def on_message(msg: Message) -> None:
+    if isinstance(msg, PropertyChangedMessage) and msg.sender is user_vm:
+        print(f"Property '{msg.property_name}' changed on {msg.sender_name}")
+
+
+hub.messages.subscribe(on_message)
 
 # Alternatively, subscribe via the VM's own property_changed observable,
 # which emits property name strings (snake_case).
@@ -276,7 +275,7 @@ tab2: ComponentVMOf[TabModel] = (
 
 # Build the composite. The children factory is evaluated on construct().
 tabs: CompositeVM[ComponentVMOf[TabModel]] = (
-    CompositeVM.builder()
+    CompositeVM[ComponentVMOf[TabModel]].builder()
     .name("tab-bar")
     .services(hub, dispatcher)
     .children(lambda: [tab1, tab2])
@@ -285,16 +284,17 @@ tabs: CompositeVM[ComponentVMOf[TabModel]] = (
 )
 
 # Watch for current-selection changes via the hub.
-hub.messages.subscribe(
-    lambda msg: (
+def on_message(msg: Message) -> None:
+    if (
         isinstance(msg, PropertyChangedMessage)
         and msg.sender is tabs
         and msg.property_name == "current"
-        and print(
-            f"Selected tab: {tabs.current.model.title if tabs.current else '(none)'}"
-        )
-    )
-)
+    ):
+        title = tabs.current.model.title if tabs.current else "(none)"
+        print(f"Selected tab: {title}")
+
+
+hub.messages.subscribe(on_message)
 
 # construct() cascades: the composite constructs itself then each child.
 tabs.construct()
@@ -427,8 +427,9 @@ cancelled = threading.Event()
 
 async def load_report() -> str:
     started.set()
+    never_ready: asyncio.Future[str] = asyncio.get_running_loop().create_future()
     try:
-        await asyncio.Future()
+        return await never_ready
     except asyncio.CancelledError:
         cancelled.set()
         raise
