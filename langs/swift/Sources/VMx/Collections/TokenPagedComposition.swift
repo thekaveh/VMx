@@ -75,7 +75,7 @@ public final class TokenPagedComposition<TVM, TToken> {
             !disposed && start.generation == operationGeneration
         }
         guard isCurrent else { return }
-        try constructIfNeeded(page.0)
+        try constructIfNeeded(page.0, generation: start.generation)
         let committed = stateQueue.sync { () -> Bool in
             guard !disposed, start.generation == operationGeneration else { return false }
             _items.append(contentsOf: page.0)
@@ -108,7 +108,7 @@ public final class TokenPagedComposition<TVM, TToken> {
         let sameLength = page.0.count == snapshot.count
         let retain = headMatches && (sameLength || (!page.0.isEmpty && page.1 != nil))
         if !retain {
-            try constructIfNeeded(page.0)
+            try constructIfNeeded(page.0, generation: generation)
         }
         let committed = stateQueue.sync { () -> Bool in
             guard !disposed, generation == operationGeneration else { return false }
@@ -129,9 +129,14 @@ public final class TokenPagedComposition<TVM, TToken> {
         }
     }
 
-    private func constructIfNeeded(_ items: [TVM]) throws {
+    private func constructIfNeeded(_ items: [TVM], generation: Int) throws {
         guard autoConstructOnAdd else { return }
         for item in items {
+            // A hook (pagesEqual or an item's construct) may dispose this
+            // composition or start a newer operation; stale work stops before
+            // it constructs anything else (spec/21 §6).
+            let isCurrent = stateQueue.sync { !disposed && generation == operationGeneration }
+            guard isCurrent else { return }
             if let vm = item as? ComponentVMBase, !vm.isConstructed {
                 try vm.construct()
             }

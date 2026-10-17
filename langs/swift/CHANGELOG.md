@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `TokenPagedComposition` stops auto-constructing page items once a hook
+  disposes it or starts a newer operation (spec/21 §6).
 - `ConfirmationDecoratorCommand.canExecute` re-checks disposal after the inner
   predicate, which may dispose the wrapper, as the other wrappers do
   (spec/04 §8.4).

@@ -8,6 +8,8 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
+- Fixed: `TokenPagedComposition` stops auto-constructing page items once a
+  hook disposes it or starts a newer operation (spec/21 §6).
 - Fixed: `ConfirmationDecoratorCommand.CanExecute` re-checks disposal after the inner
   predicate, which may dispose the wrapper, as the other wrappers do
   (spec/04 §8.4).

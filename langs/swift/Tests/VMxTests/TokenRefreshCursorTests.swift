@@ -387,4 +387,25 @@ final class TokenRefreshCursorTests: XCTestCase {
         XCTAssertTrue(changedHead.allSatisfy(\.isConstructed))
         XCTAssertTrue(loaded.allSatisfy { $0.status == .constructed })
     }
+
+    /// COL-065 — a comparer that disposes the pager stops auto-construction.
+    func testComparerThatDisposesThePagerStopsAutoConstruction() async throws {
+        let first = try ComponentVM.builder().name("first").withNullServices().build()
+        let replacement = try ComponentVM.builder().name("replacement").withNullServices().build()
+        var pages: [[ComponentVM]] = [[first], [replacement]]
+        var sut: TokenPagedComposition<ComponentVM, String>?
+        sut = TokenPagedComposition<ComponentVM, String>(
+            fetchNext: { _ in (pages.removeFirst(), nil) },
+            autoConstructOnAdd: true,
+            pagesEqual: { _, _ in
+                sut?.dispose()
+                return false
+            })
+        try await sut!.loadMoreCommand.executeAsync()
+
+        try await sut!.refreshCommand.executeAsync()
+
+        XCTAssertFalse(replacement.isConstructed)
+        XCTAssertEqual(sut!.items.map(\.name), ["first"])
+    }
 }
