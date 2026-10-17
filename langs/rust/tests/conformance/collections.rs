@@ -1458,31 +1458,48 @@ fn observable_list_batch_emits_single_reset() {
 /// COL-010 — ObservableDictionary insert and retrieve
 #[test]
 fn observable_dictionary_insert_and_get() {
-    let dictionary = ObservableDictionary::new(1, MessageHub::new());
+    let dictionary = ObservableMultiDictionary::new(1, MessageHub::new());
 
-    dictionary.insert("a", 1);
+    dictionary.add("a", 1, "x").unwrap();
 
-    assert_eq!(dictionary.get(&"a"), Some(1));
+    assert_eq!(dictionary.get(&"a", &1), Some("x"));
+    assert!(dictionary.contains_key(&"a", &1));
+    assert_eq!(dictionary.count(), 1);
+    assert!(
+        dictionary.add("a", 1, "y").is_err(),
+        "add rejects an existing key pair"
+    );
+    assert_eq!(dictionary.get(&"a", &1), Some("x"));
 }
 
 /// COL-011 — ObservableDictionary remove
 #[test]
 fn observable_dictionary_remove() {
-    let dictionary = ObservableDictionary::new(1, MessageHub::new());
-    dictionary.insert("a", 1);
+    let dictionary = ObservableMultiDictionary::new(1, MessageHub::new());
+    dictionary.add("a", 1, "x").unwrap();
 
-    assert_eq!(dictionary.remove(&"a"), Some(1));
-    assert_eq!(dictionary.get(&"a"), None);
+    assert_eq!(dictionary.remove(&"a", &1), Some("x"));
+    assert_eq!(dictionary.get(&"a", &1), None);
+    assert_eq!(dictionary.remove(&"a", &1), None);
+    assert_eq!(dictionary.count(), 0);
 }
 
 /// COL-012 — ObservableDictionary replace
 #[test]
 fn observable_dictionary_replace_existing_key() {
-    let dictionary = ObservableDictionary::new(1, MessageHub::new());
-    dictionary.insert("a", 1);
-    dictionary.insert("a", 2);
+    let hub = MessageHub::new();
+    let dictionary = ObservableMultiDictionary::new(1, hub.clone());
+    dictionary.add("a", 1, "x").unwrap();
+    let recorder = hub.record(1024);
 
-    assert_eq!(dictionary.get(&"a"), Some(2));
+    dictionary.insert("a", 1, "y");
+
+    assert_eq!(dictionary.get(&"a", &1), Some("y"));
+    assert_eq!(dictionary.count(), 1);
+    assert_eq!(
+        collection_actions(&recorder),
+        vec![CollectionChangeAction::Replace]
+    );
 }
 
 /// COL-013 — ObservableDictionary distinct-key observable views stay in sync
@@ -1502,22 +1519,53 @@ fn observable_multi_dictionary_distinct_key_views_stay_in_sync() {
 /// COL-014 — ObservableDictionary enumeration order is insertion order
 #[test]
 fn observable_dictionary_keys_are_in_insertion_order() {
-    let dictionary = ObservableDictionary::new(1, MessageHub::new());
-    dictionary.insert("b", 2);
-    dictionary.insert("a", 1);
+    let dictionary = ObservableMultiDictionary::new(1, MessageHub::new());
+    dictionary.add("b", 2, "first").unwrap();
+    dictionary.add("a", 1, "second").unwrap();
+    dictionary.add("b", 3, "third").unwrap();
 
-    assert_eq!(dictionary.keys(), vec!["b", "a"]);
+    assert_eq!(
+        dictionary.entries(),
+        vec![("b", 2, "first"), ("a", 1, "second"), ("b", 3, "third")]
+    );
 }
 
 /// COL-015 — ObservableDictionary clear empties keys views
 #[test]
 fn observable_dictionary_clear_empties_keys() {
-    let dictionary = ObservableDictionary::new(1, MessageHub::new());
-    dictionary.insert("a", 1);
+    let dictionary = ObservableMultiDictionary::new(1, MessageHub::new());
+    dictionary.add("a", 1, "x").unwrap();
+    dictionary.add("b", 2, "y").unwrap();
 
     dictionary.clear();
 
+    assert_eq!(dictionary.count(), 0);
+    assert!(dictionary.keys1().is_empty());
+    assert!(dictionary.keys2().is_empty());
+    assert!(dictionary.entries().is_empty());
+}
+
+// The single-key `ObservableDictionary` is a Rust-only convenience outside the
+// two-key catalog contract; this keeps its behavior covered.
+#[test]
+fn single_key_observable_dictionary_round_trip() {
+    let hub = MessageHub::new();
+    let recorder = hub.record(1024);
+    let dictionary = ObservableDictionary::new(1, hub.clone());
+
+    dictionary.insert("b", 2);
+    dictionary.insert("a", 1);
+    dictionary.insert("a", 3);
+    assert_eq!(dictionary.get(&"a"), Some(3));
+    assert_eq!(dictionary.keys(), vec!["b", "a"]);
+    assert_eq!(dictionary.remove(&"b"), Some(2));
+    dictionary.clear();
+
     assert!(dictionary.keys().is_empty());
+    assert_eq!(
+        collection_actions(&recorder).first(),
+        Some(&CollectionChangeAction::Add)
+    );
 }
 
 /// COL-016 — PagedComposition<TVM> clamps CurrentPageIndex when source shrinks
@@ -1598,13 +1646,24 @@ fn paged_composition_composes_with_searchable_state() {
 fn observable_dictionary_publishes_to_hub() {
     let hub = MessageHub::new();
     let recorder = hub.record(1024);
-    let dictionary = ObservableDictionary::new(1, hub.clone());
+    let dictionary = ObservableMultiDictionary::new(1, hub.clone());
 
-    dictionary.insert("a", 1);
+    dictionary.add("a", 1, "x").unwrap();
+    dictionary.insert("a", 1, "y");
+    dictionary.remove(&"a", &1);
+    dictionary.add("b", 2, "z").unwrap();
+    dictionary.clear();
+    dictionary.clear();
 
     assert_eq!(
         collection_actions(&recorder),
-        vec![CollectionChangeAction::Add]
+        vec![
+            CollectionChangeAction::Add,
+            CollectionChangeAction::Replace,
+            CollectionChangeAction::Remove,
+            CollectionChangeAction::Add,
+            CollectionChangeAction::Reset,
+        ]
     );
 }
 

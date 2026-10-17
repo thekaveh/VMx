@@ -1161,6 +1161,42 @@ where
         }
     }
 
+    /// Adds a new key pair, rejecting a pair that is already present without
+    /// changing the dictionary (spec/21 §4.1 `Add`).
+    pub fn add(&self, key1: K1, key2: K2, value: V) -> VmxResult<()> {
+        {
+            let mut inner = lock(&self.inner);
+            if inner
+                .iter()
+                .any(|(candidate1, candidate2, _)| *candidate1 == key1 && *candidate2 == key2)
+            {
+                return Err(VmxError::InvalidArgument("duplicate key pair".to_string()));
+            }
+            inner.push((key1, key2, value));
+        }
+        self.publish(CollectionChangeAction::Add);
+        Ok(())
+    }
+
+    /// Removes every entry and publishes one `Reset`; an empty dictionary
+    /// publishes nothing.
+    pub fn clear(&self) {
+        let cleared = {
+            let mut inner = lock(&self.inner);
+            let had_entries = !inner.is_empty();
+            inner.clear();
+            had_entries
+        };
+        if cleared {
+            self.publish(CollectionChangeAction::Reset);
+        }
+    }
+
+    /// Returns a snapshot of every entry in insertion order.
+    pub fn entries(&self) -> Vec<(K1, K2, V)> {
+        lock(&self.inner).clone()
+    }
+
     /// Adds a key pair or replaces its existing value in place.
     pub fn insert(&self, key1: K1, key2: K2, value: V) {
         let action = {

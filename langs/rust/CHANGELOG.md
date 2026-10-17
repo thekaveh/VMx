@@ -17,6 +17,10 @@ project adheres to [Semantic Versioning](https://semver.org/).
   `remaining_time_ms()`, `opacity()`, and `advance_by_ms()`. Dismissing a
   confirmation resolves it with `Approve`, and its lifespan expiring leaves it
   pending (spec/16 §7).
+- `ObservableMultiDictionary::add()`, which rejects an existing key pair,
+  `clear()`, which publishes one `Reset`, and `entries()`, an insertion-ordered
+  snapshot (spec/21 §4). COL-010..012, COL-014, COL-015, and COL-022 now
+  exercise the two-key dictionary instead of the single-key one.
 - `Command::as_async()`, a provided trait method that returns a command's
   awaitable entry point, or `None` for a synchronous command. Calling it makes
   one execution attempt whose `AsyncValue` settles when the attempt completes;
