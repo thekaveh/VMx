@@ -73,6 +73,8 @@ export class DerivedProperty<TValue> {
   }
 
   canSet(value: TValue): boolean {
+    // A disposed property rejects writes (spec/15, DISP-005).
+    if (this.#disposed) return false;
     return this.#canSet ? this.#canSet(value) : false;
   }
 

@@ -676,16 +676,23 @@ export abstract class ComponentVMBase {
   }
 
   select(): void {
+    // A disposed VM's selection calls are silent no-ops (spec/02 §3).
+    if (this.#status === ConstructionStatus.Disposed) return;
     if (this._parent !== null) {
       this._parent.selectChild(this);
     }
   }
 
   canDeselect(): boolean {
-    return this._parent !== null && this._parent.currentChild === this;
+    return (
+      this.#status !== ConstructionStatus.Disposed &&
+      this._parent !== null &&
+      this._parent.currentChild === this
+    );
   }
 
   deselect(): void {
+    if (this.#status === ConstructionStatus.Disposed) return;
     if (this._parent !== null) {
       this._parent.deselectChild(this);
     }

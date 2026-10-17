@@ -1021,16 +1021,24 @@ class _ComponentVMBase(ABC):
         )
 
     def select(self) -> None:
-        """Select this VM in its parent composite."""
+        """Select this VM in its parent composite (a no-op once disposed)."""
+        if self._status is ConstructionStatus.DISPOSED:
+            return
         if self._parent is not None:
             self._parent.select_child(self)
 
     def can_deselect(self) -> bool:
-        """True iff parent is not None and this VM is the current child."""
-        return self._parent is not None and self._parent.current_child is self
+        """True iff not disposed, parent is not None, and this VM is current."""
+        return (
+            self._status is not ConstructionStatus.DISPOSED
+            and self._parent is not None
+            and self._parent.current_child is self
+        )
 
     def deselect(self) -> None:
-        """Deselect this VM in its parent composite."""
+        """Deselect this VM in its parent composite (a no-op once disposed)."""
+        if self._status is ConstructionStatus.DISPOSED:
+            return
         if self._parent is not None:
             self._parent.deselect_child(self)
 

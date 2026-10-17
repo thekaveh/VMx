@@ -8,14 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A disposed `DerivedProperty` rejects writes: `canSet` returns false and
+  `setValue` throws instead of running the write-back action (spec/15, DISP-005).
+- A disposed `NotificationVM` no longer resolves the hub from `onExpire()`
+  or `dismiss()` (DISP-004).
 - A disposed `GroupVM` ignores `remove`, `removeAt`, and `clear`, and a
   disposed `CompositeVM` or `GroupVM` throws from `move`, as the disposal
   contract states. Before, they still changed the children.
 - A disposed `FilteredCompositeVM` ignores `setPredicate`, `setCurrent`, and
   the visible navigation methods, so it stays frozen as the disposal contract
   states (DISP-006).
-- `ObservableDictionary`: the add index is captured before the local event, so a subscriber that adds
-  another entry no longer shifts the first entry's reported hub index.
+- `ObservableDictionary`: the add index is captured before the local event,
+  so a subscriber that adds another entry no longer shifts the first entry's
+  reported hub index.
 - `HierarchicalVM` caches its path with weak references. Before, the cached
   `[root, …, self]` array retained the node and its ancestors, so a tree that
   had been read through `path` or `addChild` never deallocated.

@@ -1283,15 +1283,25 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         _status == ConstructionStatus.Constructed;
 
     /// <inheritdoc/>
-    public void Select() => Parent?.SelectChild(this);
+    public void Select()
+    {
+        // A disposed VM's selection calls are silent no-ops (spec/02 §3).
+        if (_status == ConstructionStatus.Disposed) return;
+        Parent?.SelectChild(this);
+    }
 
     /// <inheritdoc/>
     public bool CanDeselect() =>
+        _status != ConstructionStatus.Disposed &&
         Parent is not null &&
         ReferenceEquals(Parent.CurrentChild, this);
 
     /// <inheritdoc/>
-    public void Deselect() => Parent?.DeselectChild(this);
+    public void Deselect()
+    {
+        if (_status == ConstructionStatus.Disposed) return;
+        Parent?.DeselectChild(this);
+    }
 
     private bool CanSelectNext() => false; // requires parent enumeration
     private void SelectNext() { }

@@ -111,7 +111,9 @@ public final class DerivedProperty<TValue> {
     /// Whether `value` may be written. False for default-built (read-only)
     /// properties; otherwise delegates to the configured validator.
     public func canSet(_ value: TValue) -> Bool {
-        canSetValidator?(value) ?? false
+        // A disposed property rejects writes (spec/15, DISP-005).
+        guard !disposed else { return false }
+        return canSetValidator?(value) ?? false
     }
 
     /// Write-back entry point. Invokes the configured write-back action iff

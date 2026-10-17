@@ -3068,7 +3068,8 @@ impl<D: Dispatcher> ComponentCore<D> {
     pub(crate) fn set_expanded(&self, expanded: bool) {
         let changed = {
             let mut inner = lock(&self.inner);
-            if inner.expanded == expanded {
+            // A disposed view model's expansion is inert (disposal contract).
+            if inner.status == ConstructionStatus::Disposed || inner.expanded == expanded {
                 false
             } else {
                 inner.expanded = expanded;

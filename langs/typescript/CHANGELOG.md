@@ -8,11 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A disposed view model's `select` and `deselect` are silent no-ops and
+  `canDeselect` returns false, so a disposed child no longer changes its live
+  parent's selection (spec/02 §3).
+- A disposed `DerivedProperty` rejects writes: `canSet` returns false and
+  `setValue` raises instead of running the write-back action (spec/15, DISP-005).
+- A disposed `NotificationVM` ignores its internal resolution paths.
 - A disposed `FilteredCompositeVM` ignores `setPredicate`, `setCurrent`, and
   the visible navigation methods, so it stays frozen as the disposal contract
   states (DISP-006).
-- `ObservableDictionary`: the add index is captured before the local event, so a subscriber that adds
-  another entry no longer shifts the first entry's reported hub index.
+- `ObservableDictionary`: the add index is captured before the local event,
+  so a subscriber that adds another entry no longer shifts the first entry's
+  reported hub index.
 - `CompositeVM.removeAt`, `clear`, and `setAt` emit their collection events
   even when `onCurrentChanged` throws, then rethrow. Before, the committed
   change reached no observer.

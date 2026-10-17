@@ -8,6 +8,11 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
+- Fixed: a disposed view model's `Select` and `Deselect` are silent no-ops and
+  `CanDeselect` returns false, so a disposed child no longer changes its live
+  parent's selection (spec/02 §3).
+- Fixed: a disposed `DerivedProperty` rejects writes: `CanSet` returns false and
+  `SetValue` throws instead of running the write-back action (spec/15, DISP-005).
 - Fixed: a disposed `FilteredCompositeVM` or `ScoredFilteredCompositeVM`
   ignores `SetPredicate`, `SetCurrent`, and the visible navigation methods,
   so it stays frozen as the disposal contract states (DISP-006).

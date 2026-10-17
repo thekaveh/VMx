@@ -80,6 +80,8 @@ project adheres to [Semantic Versioning](https://semver.org/).
   async selection queued before `dispose()` does not run afterwards.
 - `FormVm` validators registered after `dispose()` are inactive, as the type
   documentation states; before, they revalidated the disposed form.
+- A disposed view model ignores `expand`, `collapse`, and
+  `toggle_expansion` (disposal contract).
 - `NotificationHub` keeps pending notifications in post order. Before, it
   ordered them by creation identity (spec/16 §2.1).
 - `NotificationVm::is_resolved` reports a hub-side resolve that used the

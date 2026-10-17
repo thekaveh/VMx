@@ -183,7 +183,8 @@ open class NotificationVM {
     /// firing after a manual dismiss, or the pending-stream echo of the VM's own
     /// `hub.resolve`, is a no-op.
     private func markResolved(reaction: NotificationReaction?, notifyHub: Bool) {
-        if resolved { return }
+        // A disposed VM's later resolution paths are inert (DISP-004).
+        if resolved || disposed { return }
         resolved = true
         timerCancellable?.cancel(); timerCancellable = nil
         tickCancellable?.cancel(); tickCancellable = nil

@@ -123,6 +123,20 @@ final class NotificationVMTests: XCTestCase {
         sut.dispose()
     }
 
+    /// NOTIF-012 — a disposed VM's expiry hook no longer resolves the hub.
+    func testNotif012ExpiryAfterDisposeIsInert() async {
+        let scheduler = VirtualTimeScheduler()
+        let hub = NotificationHub()
+        let n = Notif(type: .notification, message: "late")
+        _ = await post(hub, n)
+        let sut = NotificationVM(notification: n, hub: hub, scheduler: scheduler, lifespan: 10)
+        sut.dispose()
+
+        sut.onExpire()
+
+        XCTAssertFalse(sut.isResolved)
+    }
+
     // MARK: NOTIF-013
 
     /// NOTIF-013 — ConfirmationVM exposes approve/reject commands resolving the

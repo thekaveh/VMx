@@ -63,8 +63,9 @@ public sealed class DerivedProperty<TValue> : IDisposable
     /// <summary>Emits on every distinct recompute. Does not replay the initial value.</summary>
     public IObservable<TValue> ValueChanged => _changes.AsObservable();
 
-    /// <summary>Returns true when <see cref="SetValue"/> may be called with <paramref name="value"/>.</summary>
-    public bool CanSet(TValue value) => _canSet is not null && _canSet(value);
+    /// <summary>Returns true when <see cref="SetValue"/> may be called with <paramref name="value"/>.
+    /// Always false after disposal, so a disposed property rejects writes (spec/15, DISP-005).</summary>
+    public bool CanSet(TValue value) => !_disposed && _canSet is not null && _canSet(value);
 
     /// <summary>Invokes the write-back action with <paramref name="value"/>.
     /// Raises if <see cref="CanSet"/> returns false.</summary>

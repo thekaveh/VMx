@@ -681,3 +681,19 @@ fn modeled_components_explicitly_republish_the_retained_model() {
         vec!["hub:model", "local:model", "hub:model", "local:model"]
     );
 }
+
+#[test]
+fn a_disposed_view_model_ignores_expansion() {
+    let vm = vmx::ComponentVm::<i32>::with_model(
+        "vm",
+        1,
+        vmx::MessageHub::new(),
+        vmx::NullDispatcher::new(),
+    );
+    vm.dispose().unwrap();
+
+    vm.expand();
+    assert!(!vm.is_expanded());
+    vm.toggle_expansion();
+    assert!(!vm.is_expanded());
+}

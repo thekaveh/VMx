@@ -224,6 +224,21 @@ final class DerivedPropertyTests: XCTestCase {
         let data = try Data(contentsOf: url)
         return try JSONDecoder().decode(DerivedPropertiesFixture.self, from: data)
     }
+
+    /// DPROP-011 — a disposed property rejects writes.
+    func testDisposedPropertyRejectsWrites() {
+        var writes: [Int] = []
+        let source = CurrentValueSubject<Int, Never>(1)
+        let dp = DerivedProperty<Int>.from(
+            source.eraseToAnyPublisher(), { $0 },
+            canSet: { _ in true },
+            setAction: { writes.append($0) })
+        dp.dispose()
+
+        XCTAssertFalse(dp.canSet(7))
+        XCTAssertThrowsError(try dp.setValue(7))
+        XCTAssertEqual(writes, [])
+    }
 }
 
 // ── Fixture model (derived-properties.json) ─────────────────────────────────
