@@ -244,9 +244,9 @@ ______________________________________________________________________
 
 ## 3.4.6. Lifecycle and cleanup
 
-Every VM follows a five-state lifecycle:
-`Destructed → Constructing → Constructed → Destructing → Destructed`, plus the
-terminal `Disposed`.
+Every VM has five lifecycle states. Four of them form a reversible cycle,
+`Destructed → Constructing → Constructed → Destructing → Destructed`. The fifth
+state, `Disposed`, is terminal.
 
 ```ts
 import { ConstructionStatus } from "@thekaveh/vmx";

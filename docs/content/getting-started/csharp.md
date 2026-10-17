@@ -99,8 +99,8 @@ ______________________________________________________________________
 
 `ComponentVM<M>` is the primary leaf viewmodel. It holds a typed model,
 fires `IPropertyChangedMessage` on the hub when the model changes, and
-participates in the five-state lifecycle (Destructed, Constructing,
-Constructed, Destructing) plus terminal Disposed.
+participates in the lifecycle: four reversible states (Destructed,
+Constructing, Constructed, Destructing) and the terminal Disposed state.
 
 ```csharp
 using System.Reactive.Linq;
@@ -264,7 +264,7 @@ ______________________________________________________________________
 
 ## 3.2.6. Lifecycle and cleanup
 
-Every VM follows a five-state lifecycle: `Destructed → Constructing → Constructed → Destructing → Destructed`, plus the terminal `Disposed`.
+Every VM has five lifecycle states. Four of them form a reversible cycle, `Destructed → Constructing → Constructed → Destructing → Destructed`. The fifth state, `Disposed`, is terminal.
 
 ```csharp
 // States are exposed via IComponentVM.Status (a ConstructionStatus enum).

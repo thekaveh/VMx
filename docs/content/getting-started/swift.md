@@ -230,9 +230,9 @@ ______________________________________________________________________
 
 ## 3.5.6. Lifecycle and cleanup
 
-Every VM follows a five-state lifecycle:
-`destructed → constructing → constructed → destructing → destructed`,
-plus the terminal `disposed`.
+Every VM has five lifecycle states. Four of them form a reversible cycle,
+`destructed → constructing → constructed → destructing → destructed`. The fifth
+state, `disposed`, is terminal.
 
 ```swift
 print(userVM.status)            // constructed

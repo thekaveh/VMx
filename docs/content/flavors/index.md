@@ -7,13 +7,13 @@ language.
 
 ## 7.1.1. At A Glance
 
-| Flavor     | Package status                                                         | Reactive primitive | Naming idiom |
-| ---------- | ---------------------------------------------------------------------- | ------------------ | ------------ |
-| C#         | `VMx` package name reserved in docs; source-tree/local reference today | `System.Reactive`  | PascalCase   |
-| Python     | `vmx` 3.23.0 published on PyPI                                         | `reactivex`        | snake_case   |
-| TypeScript | `@thekaveh/vmx` 3.30.0 published on npm                                | `rxjs`             | camelCase    |
-| Swift      | VMx 3.24.0 released through repository-root SwiftPM tags               | `Combine`          | camelCase    |
-| Rust       | `vmx-rs` crate in source tree; crates.io release not published         | VMx-owned facade   | snake_case   |
+| Flavor     | Package status                                                 | Reactive primitive | Naming idiom |
+| ---------- | -------------------------------------------------------------- | ------------------ | ------------ |
+| C#         | not on NuGet; use a source-tree or local package reference     | `System.Reactive`  | PascalCase   |
+| Python     | `vmx` 3.23.0 published on PyPI                                 | `reactivex`        | snake_case   |
+| TypeScript | `@thekaveh/vmx` 3.30.0 published on npm                        | `rxjs`             | camelCase    |
+| Swift      | VMx 3.24.0 released through repository-root SwiftPM tags       | `Combine`          | camelCase    |
+| Rust       | `vmx-rs` crate in source tree; crates.io release not published | VMx-owned facade   | snake_case   |
 
 ## 7.1.2. Reading Path
 

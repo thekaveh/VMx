@@ -236,9 +236,9 @@ the full contract.
 
 ## 3.6.6. Lifecycle and cleanup
 
-Every viewmodel follows a five-state lifecycle —
-`Destructed -> Constructing -> Constructed -> Destructing -> Destructed` — plus
-the terminal `Disposed`. The mutating transitions return `VmxResult<()>`: an
+Every viewmodel has five lifecycle states. Four of them form a reversible
+cycle, `Destructed -> Constructing -> Constructed -> Destructing -> Destructed`.
+The fifth state, `Disposed`, is terminal. The mutating transitions return `VmxResult<()>`: an
 illegal transition (for example constructing a disposed viewmodel) is a
 **catchable** `Err`, not a panic, under the v3 lifecycle convergence (ADR-0053).
 

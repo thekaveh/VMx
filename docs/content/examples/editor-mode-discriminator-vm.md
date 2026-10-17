@@ -1,7 +1,7 @@
 # 8.7. Editor Mode & DiscriminatorVM
 
 The note editor shows the current `DiscriminatorVM` use case in the example
-portfolio: one editor surface, multiple active modes.
+portfolio: one editor surface with several modes, one active at a time.
 
 ## 8.7.1. Current Scenario Use
 

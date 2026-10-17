@@ -87,7 +87,7 @@ swift build -c release
 swift test --parallel
 ```
 
-Swift requires the toolchain shipped with a current Xcode (5.9+) and a
+Swift requires Swift 5.9 or later (the toolchain of a current Xcode) and a
 macOS / iOS / tvOS / watchOS host — the flavor depends on Combine, which
 is not available on Linux. See `langs/swift/README.md` §5 for the full
 conformance matrix; the current source line is at full library parity.

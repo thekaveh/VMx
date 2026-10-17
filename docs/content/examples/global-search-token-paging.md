@@ -54,8 +54,9 @@ lifecycle-bearing result VMs, so it does not need this registry.
 The token is opaque, and `null` / `None` / `nil` both requests the first page
 and ends paging. The showcases use string tokens. For an integer offset or
 page cursor, C# needs a token type that can hold `null`: use `int?`, where `0`
-is a valid cursor, rather than `int`, which cannot say "no next page" and is
-rejected when the composition is constructed.
+is a valid cursor, rather than `int`, which cannot say "no next page". With
+`int`, the `TokenPagedComposition` constructor throws
+`NotSupportedException`.
 
 ```csharp
 var paged = new TokenPagedComposition<NoteVM, int?>(async offset =>

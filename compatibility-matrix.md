@@ -36,9 +36,10 @@ Updated alongside spec and flavor releases.
 
 ## 2. Notes
 
-A `—` cell indicates no flavor has released against that spec version. Once a
-flavor ships, its cell shows the version range that implements this spec major
-(e.g. `1.0.0` or `1.0.0–1.2.x` once minor/patch releases follow).
+A `—` cell indicates that this flavor has no version for that spec line. A
+cell shows the version range of the flavor that implements the spec line (e.g.
+`1.0.0` or `1.0.0–1.2.x` once minor/patch releases follow). A cell with a
+source footnote names an unreleased source version.
 
 The Swift flavor covers the lifecycle, leaf ComponentVM, Composite
 (`CompositeVMOf`), Group, Aggregate (arity 1–6), RelayCommand,
@@ -61,7 +62,7 @@ service (`DialogService` / `NullDialogService`), and the notifications
 sub-package (`NotificationHub`, `NotificationVM`, `ConfirmationVM`,
 `makeConfirm` bridge) —
 **425 of 425 library conformance IDs + 5 `THEME-00x` scenario IDs = 430 total
-(Swift UI-backed total parity) as of ADR-0066/ADR-0067 and ADR-0068..ADR-0100** (library IDs: base 44 per
+(Swift UI-backed total parity) as of ADR-0066/ADR-0067 and ADR-0068..ADR-0145** (library IDs: base 44 per
 ADR-0037/ADR-0053; +50 leaf-area IDs per ADR-0059; +30 collections IDs per
 ADR-0060; +29 hierarchical/threading/expand-collapse IDs per ADR-0061;
 +40 forms/commands/hub IDs per ADR-0062; +25 notifications/dialogs IDs per
@@ -95,7 +96,7 @@ and public-hub IDs per ADR-0090; +1 inert modeled-assignment ID per ADR-0091;
 THEME-001..005 covered by the
 `examples/swift/notes-showcase/` flagship — ADR-0067). This increment ledger is
 current through spec 3.29.0 / CMDD-017. Swift has member-level
-parity with C#, Python, and TypeScript. Rust 0.29.0 preserves the capability,
+parity with C#, Python, and TypeScript. The Rust 0.35.0 source preserves the capability,
 structural, command, reactive, and async convergence work recorded for 0.27.0
 in `docs/maintenance/2026-07-16-rust-capability-parity.md` and corrects the
 async-resource family to expose the complete ordinary component contract, and

@@ -13,18 +13,18 @@ Workspace portfolio.
   full MVVM terminal example.
 - [VM Layer Map](notes-workspace-vm-layer.md) when you want the component-to-VM
   mapping first.
-- [Smaller Examples](smaller-examples.md) for console, WPF, tkinter, and
-  inspector demos.
+- [Smaller Examples](smaller-examples.md) for console, WPF, tkinter,
+  inspector, and NiceGUI demos.
 
 ## 8.1.2. Current Portfolio
 
-| Flavor     | Small demos                                          | Scenario role             |
-| ---------- | ---------------------------------------------------- | ------------------------- |
-| C#         | Console `HelloVMx`, WPF Todo                         | Avalonia flagship         |
-| Python     | Console `hello-vmx`, tkinter Todo, Textual Inspector | Textual flagship          |
-| TypeScript | Console `hello-vmx`                                  | React flagship            |
-| Swift      | none beyond the flagship today                       | SwiftUI flagship          |
-| Rust       | Console `hello-vmx`                                  | Reduced Ratatui companion |
+| Flavor     | Small demos                                          | Scenario role                               |
+| ---------- | ---------------------------------------------------- | ------------------------------------------- |
+| C#         | Console `HelloVMx`, WPF Todo                         | Avalonia flagship                           |
+| Python     | Console `hello-vmx`, tkinter Todo, Textual Inspector | Textual flagship, NiceGUI host over its VMs |
+| TypeScript | Console `hello-vmx`                                  | React flagship                              |
+| Swift      | none beyond the flagship today                       | SwiftUI flagship                            |
+| Rust       | Console `hello-vmx`                                  | Reduced Ratatui companion                   |
 
 ## 8.1.3. Reading Strategy
 

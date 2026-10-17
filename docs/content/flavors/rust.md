@@ -267,7 +267,7 @@ It does not replace the conformance assertions.
 Rust now ships a Ratatui Notes Showcase at
 `examples/rust/tui/notes-showcase/`. The host is intentionally a renderer and
 input adapter only: VMx view models own notebook selection, search/filtering,
-page state, form validation, save/revert commands, global token search,
+page state, form validation, save/revert operations, global token search,
 notifications, and edit/preview mode.
 
 See [Rust TUI Notes Showcase](../examples/rust-tui-notes-showcase.md) for the

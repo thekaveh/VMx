@@ -315,9 +315,9 @@ ______________________________________________________________________
 
 ## 3.3.6. Lifecycle and cleanup
 
-Every VM follows a five-state lifecycle:
-`DESTRUCTED → CONSTRUCTING → CONSTRUCTED → DESTRUCTING → DESTRUCTED`, plus the
-terminal `DISPOSED`.
+Every VM has five lifecycle states. Four of them form a reversible cycle,
+`DESTRUCTED → CONSTRUCTING → CONSTRUCTED → DESTRUCTING → DESTRUCTED`. The fifth
+state, `DISPOSED`, is terminal.
 
 ```python
 from vmx.lifecycle.status import ConstructionStatus

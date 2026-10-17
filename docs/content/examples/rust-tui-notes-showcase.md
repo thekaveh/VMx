@@ -32,8 +32,9 @@ This is a **reduced companion**, not a fifth canonical Notes Workspace
 flagship. It proves Rust-native MVVM composition, but it intentionally omits
 `THEME-001..005`, `IDialogService` export, the capability action bar, the async
 dispatcher scenario, and tag autocomplete. Consequently,
-`tools/check-showcase-parity.py` continues to enforce the complete 19-feature
-scenario across C#, Python, TypeScript, and Swift only.
+`tools/check-showcase-parity.py` checks the shared test-file names,
+`THEME-001..005` markers, and the two shared scenarios across C#, Python,
+TypeScript, and Swift only.
 
 ## 8.5.3. Run It
 

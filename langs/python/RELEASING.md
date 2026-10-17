@@ -90,11 +90,14 @@ git tag "python-v${version}"
 git push origin "python-v${version}"
 ```
 
-The same four publish jobs run.
+The same five publish jobs run.
 
 The `release-please` workflow deliberately pauses while the source version and
 `.release-please-manifest.json` disagree. The manifest records the last version
-actually published; never advance it merely to silence the guard. After the
+that the release pipeline tagged; never advance it merely to silence the guard.
+One exception exists: the manifest holds 3.23.1, which is tagged but whose PyPI
+upload failed, so PyPI's latest version is 3.23.0 (see the compatibility
+matrix). After the
 bootstrap pipeline and public-install verification succeed:
 
 1. Confirm PyPI and the GitHub release both report the exact source version.
