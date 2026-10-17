@@ -618,6 +618,11 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         }
         let model = self.model();
         self.raise_approve_can_execute_changed();
+        // An admission observer that disposes the form prevents the persister
+        // call (spec/20 §5.3). Dropping the flight clears the in-flight mark.
+        if *lock(&self.disposed) {
+            return None;
+        }
         Some((flight, model))
     }
 

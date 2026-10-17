@@ -420,6 +420,28 @@ public sealed class FORM_031_to_034_ApprovalAdmission_Tests
         form.Snapshot.Should().Be(new Model("reset:reset:first"));
     }
 
+    [Fact, Trait("Conformance", "FORM-032")]
+    public async Task FORM_032_Cancelled_Command_Approval_Is_Routed_To_ApproveErrors()
+    {
+        var persister = new GatedPersister();
+        using var form = new FormVM<Model>(new("initial"), persister.Persist);
+        form.SetModel(new("edited"));
+        var errorSeen = new TaskCompletionSource<Exception>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var approved = 0;
+        using var errors = form.ApproveErrors.Subscribe(error => errorSeen.TrySetResult(error));
+        using var approvals = form.OnApproved.Subscribe(_ => Interlocked.Increment(ref approved));
+
+        form.ApproveCommand.Execute(null);
+        await persister.Entered(0);
+        persister.Cancel(0);
+
+        var error = await errorSeen.Task.WaitAsync(HangGuard);
+        error.Should().BeAssignableTo<OperationCanceledException>();
+        Volatile.Read(ref approved).Should().Be(0);
+        form.ApproveCommand.CanExecute(null).Should().BeTrue();
+        form.Snapshot.Should().Be(new Model("initial"));
+    }
+
     [Fact, Trait("Conformance", "FORM-033")]
     public async Task FORM_033_Command_Failure_Routes_Once_And_Its_Observer_Approval_Is_Admitted()
     {

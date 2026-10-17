@@ -668,12 +668,13 @@ class FormVM(Generic[TM]):
             self._settle_failed_approval()
             raise
         # Mirror the C# continuation: surface the persister failure on the error
-        # channel. Skip cancelled tasks — Task.exception() raises CancelledError
-        # for those, which would error the loop's callback.
+        # channel. A cancelled approval is also a non-success outcome (spec/20
+        # §5.3); Task.exception() raises for it, so it is reported explicitly.
         scheduled.add_done_callback(self._on_approve_done)
 
     def _on_approve_done(self, task: asyncio.Future[None] | Future[None]) -> None:
         if task.cancelled():
+            self._emit_approve_error(asyncio.CancelledError())
             return
         exc = task.exception()
         if exc is not None:

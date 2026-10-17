@@ -98,7 +98,9 @@ export class ConfirmationDecoratorCommand implements ICommand {
    * the inner through its own `execute()`.
    */
   async #run(awaitInner: boolean): Promise<void> {
-    if (!this.canExecute()) return;
+    // The inner predicate may dispose this wrapper; confirm is never consulted
+    // after disposal (spec §8.4).
+    if (!this.canExecute() || this.#isDisposed()) return;
     const ok = await this.#confirm();
     // A confirmation that resolves after disposal runs nothing (spec §8.4).
     if (!ok || this.#isDisposed()) return;

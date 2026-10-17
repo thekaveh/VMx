@@ -105,7 +105,9 @@ class ConfirmationDecoratorCommand:
         await self._run(parameter, await_inner=True)
 
     async def _run(self, parameter: Any, *, await_inner: bool) -> None:
-        if not self.can_execute(parameter):
+        # The inner predicate may dispose this wrapper; confirm is never consulted
+        # after disposal (spec §8.4).
+        if not self.can_execute(parameter) or self._disposed:
             return
         # A confirmation that resolves after disposal runs nothing (spec §8.4).
         if not await self._confirm() or self._disposed:

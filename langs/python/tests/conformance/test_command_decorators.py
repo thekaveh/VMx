@@ -467,6 +467,36 @@ def test_CMDD_013_composite_runs_no_child_after_disposal_by_an_earlier_child() -
 
 
 @pytest.mark.conformance("CMDD-013")
+@pytest.mark.parametrize("entry", ["execute", "execute_async"])
+async def test_CMDD_013_confirmation_disposed_by_inner_predicate_never_confirms(
+    entry: str,
+) -> None:
+    log: list[str] = []
+    confirms: list[None] = []
+    holder: list[ConfirmationDecoratorCommand] = []
+
+    def _predicate() -> bool:
+        holder[0].dispose()
+        return True
+
+    async def _confirm() -> bool:
+        confirms.append(None)
+        return True
+
+    inner = RelayCommand.builder().task(lambda: log.append("inner")).predicate(_predicate).build()
+    holder.append(ConfirmationDecoratorCommand(inner, _confirm))
+
+    if entry == "execute":
+        holder[0].execute()
+    else:
+        await holder[0].execute_async()
+    await _drain_other_tasks()
+
+    assert confirms == []
+    assert log == []
+
+
+@pytest.mark.conformance("CMDD-013")
 def test_CMDD_013_decorator_disposed_by_its_predicate_runs_nothing() -> None:
     log: list[str] = []
     holder: list[DecoratorCommand] = []

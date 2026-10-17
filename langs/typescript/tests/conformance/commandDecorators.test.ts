@@ -335,6 +335,38 @@ describe("CMDD-013", () => {
     expect(log).toEqual(["first"]);
   });
 
+  it.each([
+    ["execute", (d: ConfirmationDecoratorCommand) => {
+      d.execute();
+      return Promise.resolve();
+    }],
+    ["executeAsync", (d: ConfirmationDecoratorCommand) => d.executeAsync()],
+  ])(
+    "a confirmation decorator disposed by its inner predicate never consults confirm (%s)",
+    async (_, run) => {
+      const log: string[] = [];
+      let confirms = 0;
+      let decorator: ConfirmationDecoratorCommand | null = null;
+      const inner = RelayCommand.builder()
+        .predicate(() => {
+          decorator?.dispose();
+          return true;
+        })
+        .task(() => log.push("inner"))
+        .build();
+      decorator = new ConfirmationDecoratorCommand(inner, () => {
+        confirms += 1;
+        return Promise.resolve(true);
+      });
+
+      await run(decorator);
+      await settle();
+
+      expect(confirms).toBe(0);
+      expect(log).toEqual([]);
+    },
+  );
+
   it("a decorator disposed by its extra predicate runs neither hook nor inner", () => {
     const log: string[] = [];
     let decorator: DecoratorCommand | null = null;

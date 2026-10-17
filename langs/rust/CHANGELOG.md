@@ -8,6 +8,12 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [0.35.0] — unreleased source version
 
+### Fixed
+
+- `FormVm::approve()` no longer calls the persister when an approve-command
+  `can_execute_changed` handler disposes the form during admission. The
+  approval is refused and its in-flight mark is cleared (spec/20 §5.3).
+
 ### Added
 
 - `Command::as_async()`, a provided trait method that returns a command's

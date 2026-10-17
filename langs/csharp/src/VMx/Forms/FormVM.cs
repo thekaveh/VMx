@@ -146,10 +146,14 @@ public sealed class FormVM<TM> : IDisposable
         _ = ApproveInternalAsync().ContinueWith(
             t =>
             {
-                EmitApproveError(t.Exception!.GetBaseException());
+                // A cancelled persister is a non-success outcome too (spec/20
+                // §5.3); a cancelled Task carries no Exception, so report one.
+                EmitApproveError(t.IsCanceled
+                    ? new TaskCanceledException(t)
+                    : t.Exception!.GetBaseException());
             },
             CancellationToken.None,
-            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskContinuationOptions.NotOnRanToCompletion | TaskContinuationOptions.ExecuteSynchronously,
             TaskScheduler.Default);
     }
 

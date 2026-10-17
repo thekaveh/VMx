@@ -6,6 +6,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `ConfirmationDecoratorCommand` no longer calls `confirm` when the inner
+  command's `canExecute` predicate disposes the decorator (spec/04 §8.4).
+
 ## [3.30.0] — 2026-10-16
 
 First version published to npm. Earlier versions were source-only releases;

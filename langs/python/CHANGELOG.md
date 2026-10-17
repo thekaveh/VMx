@@ -8,6 +8,14 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ## [3.29.0] — unreleased source version
 
+### Fixed
+
+- `ConfirmationDecoratorCommand` no longer calls `confirm` when the inner
+  command's `can_execute` predicate disposes the decorator (spec/04 §8.4).
+- A cancelled persister on the `approve_command` path is now reported on
+  `approve_errors` as `asyncio.CancelledError`. Before, the cancellation reached
+  no channel (spec/20 §5.3).
+
 ### Changed
 
 - An awaited `execute_async()` on `ConfirmationDecoratorCommand` now completes

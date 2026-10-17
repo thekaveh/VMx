@@ -8,6 +8,9 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
+- Fixed: a cancelled persister on the `ApproveCommand` path is now reported on
+  `ApproveErrors` as a `TaskCanceledException`. Before, the cancellation reached
+  no channel (spec/20 §5.3).
 - The `netstandard2.0` dependency floors of all three packages move to the
   10.0.12 servicing releases of `System.Text.Json`,
   `System.Collections.Immutable`, and `Microsoft.Bcl.AsyncInterfaces` (#519).
