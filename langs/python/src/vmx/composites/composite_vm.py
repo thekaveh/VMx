@@ -478,15 +478,23 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                     removed, was_current = self._remove_at_locked(idx)
                 if was_current:
                     previous_flag_changed = removed._commit_is_current(False)
-            if was_current:
-                self._finish_current_change(
-                    removed,
-                    None,
-                    previous_flag_changed=previous_flag_changed,
-                    value_flag_changed=False,
-                )
-            self._emit_collection_changed(
-                CollectionChangedEvent(action="remove", old_items=(removed,), old_index=idx)
+
+            def finish_current() -> None:
+                if was_current:
+                    self._finish_current_change(
+                        removed,
+                        None,
+                        previous_flag_changed=previous_flag_changed,
+                        value_flag_changed=False,
+                    )
+
+            # The removal is committed: the collection event is emitted even
+            # when on_current_changed raises; the first failure is re-raised.
+            _run_every_step(
+                finish_current,
+                lambda: self._emit_collection_changed(
+                    CollectionChangedEvent(action="remove", old_items=(removed,), old_index=idx)
+                ),
             )
         finally:
             self._end_membership_transaction(propagate_dispose_failure=sys.exc_info()[0] is None)

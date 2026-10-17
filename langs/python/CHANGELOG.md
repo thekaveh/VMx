@@ -25,7 +25,7 @@ All notable changes to the Python flavor are documented here. The format is base
 
 - `ObservableDictionary`: the add index is captured before the local event, so a subscriber that adds
   another entry no longer shifts the first entry's reported hub index.
-- `CompositeVM` removal, `clear`, and item replacement emit their collection
+- `CompositeVM.remove`, `remove_at`, `clear`, and item replacement emit their collection
   events even when `on_current_changed` raises, then re-raise. Before, the
   committed change reached no observer.
 - Container builders and constructors accept any `MessageHubProto`, as

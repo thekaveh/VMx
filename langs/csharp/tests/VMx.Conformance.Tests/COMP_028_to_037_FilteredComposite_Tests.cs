@@ -137,6 +137,26 @@ public class COMP_028_to_037_FilteredCompositeTests
         sut.Visible.Select(vm => vm.Name).Should().Equal("alpha");
     }
 
+    [Fact, Trait("Conformance", "COMP-035")]
+    public void COMP_035_DisposedProjectionIgnoresItsMutators()
+    {
+        var src = Source("alpha", "bee", "cat");
+        var sut = new FilteredCompositeVM<ComponentVM>(src, _ => true);
+        sut.Current = sut.Visible[0];
+        sut.Dispose();
+        var changes = 0;
+        sut.Changed += (_, _) => changes++;
+
+        sut.SetPredicate(vm => vm.Name == "cat");
+        sut.SetCurrent(null);
+        sut.MoveToNextVisible();
+        sut.MoveToPreviousVisible();
+
+        sut.Visible.Select(vm => vm.Name).Should().Equal("alpha", "bee", "cat");
+        sut.Current!.Name.Should().Be("alpha");
+        changes.Should().Be(0);
+    }
+
     [Fact, Trait("Conformance", "COMP-036")]
     public void COMP_036_ScoredFilterSortsByScoreWithStableTies()
     {

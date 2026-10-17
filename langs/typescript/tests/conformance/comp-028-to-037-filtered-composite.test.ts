@@ -99,6 +99,24 @@ describe("COMP-035", () => {
     src.add(child("bee"));
     expect(sut.visible.map((vm) => vm.name)).toEqual(["alpha"]);
   });
+
+  it("a disposed projection ignores its mutators", () => {
+    const src = source("alpha", "bee", "cat");
+    const sut = new FilteredCompositeVM(src, { predicate: () => true });
+    sut.current = sut.visible[0]!;
+    sut.dispose();
+    let changes = 0;
+    sut.changed.subscribe(() => changes++);
+
+    sut.setPredicate((vm) => vm.name === "cat");
+    sut.setCurrent(null);
+    sut.moveToNextVisible();
+    sut.moveToPreviousVisible();
+
+    expect(sut.visible.map((vm) => vm.name)).toEqual(["alpha", "bee", "cat"]);
+    expect(sut.current?.name).toBe("alpha");
+    expect(changes).toBe(0);
+  });
 });
 
 describe("COMP-036", () => {

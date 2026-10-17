@@ -125,6 +125,25 @@ fn source_removal_and_clear_reconcile_current() {
     assert!(filtered.current().is_none());
 }
 
+/// COMP-035 — a disposed projection ignores its mutators
+#[test]
+fn disposed_projection_ignores_its_mutators() {
+    let source = source_with(&[1, 2, 3]);
+    let filtered = FilteredCompositeVm::new(source.clone(), |_| true);
+    filtered.dispose();
+
+    filtered.set_predicate(|vm: &ComponentVm<i32>| vm.model() == 3);
+    filtered.set_current(None).unwrap();
+    assert_eq!(filtered.current().map(|vm| vm.model()), Some(1));
+    filtered.move_next_visible();
+    assert_eq!(filtered.current().map(|vm| vm.model()), Some(1));
+    filtered.move_previous_visible();
+
+    let visible: Vec<i32> = filtered.visible().iter().map(|vm| vm.model()).collect();
+    assert_eq!(visible, vec![1, 2, 3]);
+    assert_eq!(filtered.current().map(|vm| vm.model()), Some(1));
+}
+
 /// COMP-033 — filtered cursor policies
 #[test]
 fn cursor_policies_clear_or_snap_to_first() {

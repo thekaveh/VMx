@@ -8,6 +8,11 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
+- Fixed: a disposed `FilteredCompositeVM` or `ScoredFilteredCompositeVM`
+  ignores `SetPredicate`, `SetCurrent`, and the visible navigation methods,
+  so it stays frozen as the disposal contract states (DISP-006).
+- Fixed: the `SelectNextCommand` and `SelectPreviousCommand` doc comments now
+  say that the base commands are never executable (spec/05 §5).
 - Fixed: `ObservableDictionary` captures the add index before the local
   events, so a handler that adds another entry no longer shifts the first
   entry's reported hub index.

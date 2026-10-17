@@ -48,6 +48,7 @@ def _replace_first(composite: CompositeVM[ComponentVM]) -> None:
     ("mutate", "expected"),
     [
         (lambda c: c.remove_at(0), ["remove"]),
+        (lambda c: c.remove(c[0]), ["remove"]),
         (lambda c: c.clear(), ["reset"]),
         (_replace_first, ["remove", "add"]),
     ],

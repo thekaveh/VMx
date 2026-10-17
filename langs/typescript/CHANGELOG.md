@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A disposed `FilteredCompositeVM` ignores `setPredicate`, `setCurrent`, and
+  the visible navigation methods, so it stays frozen as the disposal contract
+  states (DISP-006).
 - `ObservableDictionary`: the add index is captured before the local event, so a subscriber that adds
   another entry no longer shifts the first entry's reported hub index.
 - `CompositeVM.removeAt`, `clear`, and `setAt` emit their collection events

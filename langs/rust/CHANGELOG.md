@@ -68,6 +68,9 @@ project adheres to [Semantic Versioning](https://semver.org/).
   freed a dropped `TokenPagedComposition`.
 - `DerivedProperty::recompute` releases the value lock before it runs the
   transform, so a transform that reads `value()` no longer deadlocks.
+- A disposed `FilteredCompositeVm` ignores `set_predicate`, `set_current`,
+  and the visible navigation methods, so it stays frozen as the disposal
+  contract states (DISP-006).
 - `NotificationHub` keeps pending notifications in post order. Before, it
   ordered them by creation identity (spec/16 §2.1).
 - `NotificationVm::is_resolved` reports a hub-side resolve that used the

@@ -1586,6 +1586,10 @@ impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
 
     /// Assigns a visible current item or clears it.
     pub fn set_current(&self, item: Option<T>) -> VmxResult<()> {
+        // A disposed projection stays frozen (disposal contract, DISP-006).
+        if *lock(&self.disposed) {
+            return Ok(());
+        }
         self.reconcile_if_source_changed();
         if let Some(item) = item.as_ref() {
             if !self
@@ -1605,6 +1609,9 @@ impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
     where
         F: Fn(&T) -> bool + Send + Sync + 'static,
     {
+        if *lock(&self.disposed) {
+            return;
+        }
         *lock(&self.predicate) = Arc::new(predicate);
         self.reconcile_current();
     }
@@ -1626,6 +1633,9 @@ impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
 
     /// Advances current within the visible projection, clamped at the end.
     pub fn move_next_visible(&self) {
+        if *lock(&self.disposed) {
+            return;
+        }
         let visible = self.visible();
         if visible.is_empty() {
             *lock(&self.current) = None;
@@ -1641,6 +1651,9 @@ impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
 
     /// Moves current backward within the visible projection.
     pub fn move_previous_visible(&self) {
+        if *lock(&self.disposed) {
+            return;
+        }
         let visible = self.visible();
         if visible.is_empty() {
             *lock(&self.current) = None;

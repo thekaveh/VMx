@@ -87,6 +87,26 @@ final class FilteredCompositeVMTests: XCTestCase {
         XCTAssertEqual(sut.visible.map(\.name), ["alpha"])
     }
 
+    /// COMP-035 — a disposed projection ignores its mutators.
+    func testCOMP035DisposedProjectionIgnoresItsMutators() throws {
+        let src = try source("alpha", "bee", "cat")
+        let sut = FilteredCompositeVM(src) { _ in true }
+        sut.setCurrent(sut.visible[0])
+        sut.dispose()
+        var changes = 0
+        let subscription = sut.changed.sink { changes += 1 }
+
+        sut.setPredicate { $0.name == "cat" }
+        sut.setCurrent(nil)
+        sut.moveToNextVisible()
+        sut.moveToPreviousVisible()
+
+        XCTAssertEqual(sut.visible.map(\.name), ["alpha", "bee", "cat"])
+        XCTAssertEqual(sut.current?.name, "alpha")
+        XCTAssertEqual(changes, 0)
+        subscription.cancel()
+    }
+
     /// COMP-036 — scored filter sorts by score with stable ties.
     func testCOMP036ScoredFilterSortsByScoreWithStableTies() throws {
         let sut = try ScoredFilteredCompositeVM(source("alpha", "bee", "ax")) {

@@ -60,11 +60,14 @@ export class FilteredCompositeVM<VM extends ComponentVMBase> {
   }
 
   setPredicate(predicate: (vm: VM) => boolean): void {
+    // A disposed projection stays frozen (disposal contract, DISP-006).
+    if (this.#disposed) return;
     this.predicate = predicate;
     this._recompute();
   }
 
   setCurrent(item: VM | null): void {
+    if (this.#disposed) return;
     if (item !== null && !this.#visible.includes(item)) {
       throw new Error("current must be null or a visible item");
     }
@@ -74,6 +77,7 @@ export class FilteredCompositeVM<VM extends ComponentVMBase> {
   }
 
   moveToNextVisible(): void {
+    if (this.#disposed) return;
     if (this.#visible.length === 0) {
       this.setCurrent(null);
       return;
@@ -87,6 +91,7 @@ export class FilteredCompositeVM<VM extends ComponentVMBase> {
   }
 
   moveToPreviousVisible(): void {
+    if (this.#disposed) return;
     if (this.#visible.length === 0) {
       this.setCurrent(null);
       return;
@@ -104,6 +109,7 @@ export class FilteredCompositeVM<VM extends ComponentVMBase> {
   }
 
   protected _recompute(): void {
+    if (this.#disposed) return;
     this.#visible = this.orderedVisible();
     if (this.#current !== null && !this.#visible.includes(this.#current)) {
       this.#current =
