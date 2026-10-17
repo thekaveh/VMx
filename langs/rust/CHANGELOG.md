@@ -71,11 +71,13 @@ project adheres to [Semantic Versioning](https://semver.org/).
 - A disposed `FilteredCompositeVm` ignores `set_predicate`, `set_current`,
   `set_cursor_policy`, `refresh`, `refresh_scores`, and the visible navigation
   methods, so it stays frozen as the disposal contract states (DISP-006).
-  `dispose()` first applies an unread source change, so the frozen current
-  item is a member of the frozen projection.
+  `dispose()` first applies an unread source change, and the cursor policy
+  when the predicate now hides the current item, so the frozen current item
+  is a member of the frozen projection.
 - A disposed `CompositeVm` or `GroupVm` returns `Err(VmxError::Disposed)` from
   `remove`, `remove_at`, and the selection methods, and `clear()` does
-  nothing, as `add`, `insert`, `replace`, and `move_item` already did.
+  nothing, as `add`, `insert`, `replace`, and `move_item` already did. An
+  async selection queued before `dispose()` does not run afterwards.
 - `FormVm` validators registered after `dispose()` are inactive, as the type
   documentation states; before, they revalidated the disposed form.
 - `NotificationHub` keeps pending notifications in post order. Before, it

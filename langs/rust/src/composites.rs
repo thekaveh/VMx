@@ -124,7 +124,10 @@ fn assign_current_maybe_async<T: VmNode, D: Dispatcher>(
             ) else {
                 return;
             };
-            let valid = {
+            // A container disposed before the queued selection ran stays
+            // inert (disposal contract).
+            let disposed = core_for_action.status() == ConstructionStatus::Disposed;
+            let valid = !disposed && {
                 let _gate = lock(&membership_gate);
                 next.as_ref().is_none_or(|next| {
                     items.to_vec().iter().any(|item| item.id() == next.id())
@@ -1699,6 +1702,15 @@ impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
         // `current` is a member of the frozen `visible`, as in the flavors
         // that subscribe to their source.
         self.reconcile_if_source_changed();
+        let visible = self.visible();
+        let current_is_visible = lock(&self.current)
+            .as_ref()
+            .is_none_or(|current| visible.iter().any(|item| same_node(item, current)));
+        if !current_is_visible {
+            // A predicate input changed without a source change; apply the
+            // cursor policy so the frozen current item is still visible.
+            self.reconcile_current();
+        }
         *lock(&self.frozen) = self.visible();
         *lock(&self.disposed) = true;
     }

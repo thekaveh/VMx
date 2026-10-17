@@ -1538,3 +1538,25 @@ fn removing_a_sibling_keeps_current() {
     assert!(a.is_current());
     assert_eq!(current_announcements(&recorder, composite.id()), before);
 }
+
+/// COMP-010 — a queued async selection does not change a disposed composite.
+#[test]
+fn queued_async_selection_is_inert_after_dispose() {
+    let hub = MessageHub::new();
+    let dispatcher = ManualDispatcher::new();
+    let composite =
+        vmx::CompositeVm::<vmx::ComponentVm<&'static str>, ManualDispatcher>::with_services(
+            "root",
+            hub.clone(),
+            dispatcher.clone(),
+        );
+    let a = vmx::ComponentVm::with_model("a", "a", hub, NullDispatcher::new());
+    composite.add(a.clone()).unwrap();
+    composite.set_async_selection(true);
+    composite.set_current(Some(a)).unwrap();
+
+    composite.dispose().unwrap();
+    dispatcher.drain();
+
+    assert!(composite.current().is_none());
+}

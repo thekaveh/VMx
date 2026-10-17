@@ -283,3 +283,24 @@ fn scored_filter_can_recompute_ordering() {
 
     assert_eq!(filtered.visible()[0].model(), 1);
 }
+
+/// COMP-035 — dispose applies the cursor policy when the predicate now hides current
+#[test]
+fn dispose_reconciles_a_current_item_hidden_by_its_predicate() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    let source = source_with(&[1, 2]);
+    let hide_first = Arc::new(AtomicBool::new(false));
+    let hidden = hide_first.clone();
+    let filtered = FilteredCompositeVm::new(source, move |vm: &ComponentVm<i32>| {
+        !(hidden.load(Ordering::SeqCst) && vm.model() == 1)
+    });
+    assert_eq!(filtered.current().map(|vm| vm.model()), Some(1));
+
+    hide_first.store(true, Ordering::SeqCst);
+    filtered.dispose();
+
+    let visible: Vec<i32> = filtered.visible().iter().map(|vm| vm.model()).collect();
+    assert_eq!(visible, vec![2]);
+    assert_eq!(filtered.current().map(|vm| vm.model()), Some(2));
+}
