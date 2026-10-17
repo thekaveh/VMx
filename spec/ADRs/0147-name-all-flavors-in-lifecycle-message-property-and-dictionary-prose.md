@@ -37,8 +37,8 @@ Add the missing flavors as the code ships them:
   `MessageHub::subscribe` with `Message::PropertyChanged`.
 - Chapter 15 §6: Swift uses the `valueEquals` closure, which the `fromSources`
   factories supply as `==`; Rust uses `PartialEq`.
-- Chapter 21 §4.4: Swift and Rust key types are non-optional, so the type
-  system rejects a null key.
+- Chapter 21 §4.4: Swift and Rust keys are statically typed and have no
+  runtime null check; an optional key type chosen by the caller is accepted.
 - Chapter 21 §4.7: Swift publishes a `DictionaryEntry`; Rust publishes the
   non-generic `CollectionChangedMessage` with no entry payload, as ADR-0009
   §2.15 records.

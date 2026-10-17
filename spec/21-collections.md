@@ -689,8 +689,9 @@ Null / `None` keys are not permitted. Passing a null key raises:
 - Python: `TypeError`
 - TypeScript: `Error`
 
-Swift and Rust key types are non-optional, so the type system already rejects a
-null key and no runtime check exists.
+Swift and Rust keys are statically typed and have no runtime null check. A
+non-optional key type cannot hold a null key; a caller-chosen optional key type
+(`String?`, `Option<String>`) is accepted as is.
 
 ### 4.5 Enumeration order
 
@@ -718,7 +719,7 @@ flavor-idiomatic per ADR-0006:
   (`DictionaryEntry<TKey1, TKey2, TValue>`).
 - **Swift**: `DictionaryEntry<TKey1, TKey2, TValue>` struct — both keys + value.
 - **Rust**: the non-generic hub `CollectionChangedMessage` carries the action
-  and no entry payload; subscribers read the dictionary (`entries()`). See
+  and no entry payload; subscribers read `ObservableMultiDictionary::entries()`. See
   ADR-0009 §2.15.
 
 For `Clear()`, the hub message uses action `Reset` with empty `NewItems` and
