@@ -273,8 +273,10 @@ bump.
 
 This summary preserves source-line history, including lines that were never
 published; a row does not by itself claim that packages or tags were
-published. The [`compatibility-matrix.md`](compatibility-matrix.md) ledger is
-canonical for released compatibility plus the current in-development line.
+published. The published packages are Python 3.23.0, Swift 3.24.0,
+TypeScript 3.30.0, and React adapter 0.1.1 ([§2](#2-availability)). The
+[`compatibility-matrix.md`](compatibility-matrix.md) ledger is canonical for
+released compatibility plus the current in-development line.
 
 | spec   | csharp        | python        | typescript    | swift          | rust          |
 | ------ | ------------- | ------------- | ------------- | -------------- | ------------- |

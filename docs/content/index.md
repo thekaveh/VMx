@@ -37,9 +37,9 @@ them from a VMx checkout.
 | ------------- | ---------------------------------- | ----------- |
 | Python        | `vmx` 3.23.0 on PyPI               | 3.29.0      |
 | Swift         | `VMx` 3.24.0 through SwiftPM       | 3.30.0      |
-| C#            | Not yet published to NuGet         | 3.29.0      |
 | TypeScript    | `@thekaveh/vmx` 3.30.0 on npm      | 3.30.0      |
 | React adapter | `@thekaveh/vmx-react` 0.1.1 on npm | 0.1.1       |
+| C#            | Not yet published to NuGet         | 3.29.0      |
 | Rust          | Not yet published to crates.io     | 0.35.0      |
 
 A source line can be ahead of its public package.

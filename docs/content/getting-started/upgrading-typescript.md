@@ -107,8 +107,7 @@ For several VMs on one hub, select from a shared `createVmxStore(hub)` with
 
 ## 3.7.4. Treat list snapshots as read-only
 
-**From** consumer-local list hooks **to** `@thekaveh/vmx-react` 0.1.1 (source
-only).
+**From** consumer-local list hooks **to** `@thekaveh/vmx-react` 0.1.1.
 
 `useObservableList` and `useVmCollection` return a cached `readonly T[]`
 snapshot so React can compare renders by identity. Code that sorted or spliced
@@ -179,10 +178,11 @@ bun add ../VMx/packages/react
 
 ```bash
 # After: pack, then install the tarballs (full steps in the installation page)
+rm -rf /tmp/vmx-packs && mkdir -p /tmp/vmx-packs
 npm pack ../VMx/langs/typescript --pack-destination /tmp/vmx-packs
 npm pack ../VMx/packages/react --pack-destination /tmp/vmx-packs
-npm install /tmp/vmx-packs/thekaveh-vmx-3.30.0.tgz \
-  /tmp/vmx-packs/thekaveh-vmx-react-0.1.1.tgz
+npm install /tmp/vmx-packs/thekaveh-vmx-[0-9]*.tgz \
+  /tmp/vmx-packs/thekaveh-vmx-react-[0-9]*.tgz
 npm ls react   # one React version
 ```
 

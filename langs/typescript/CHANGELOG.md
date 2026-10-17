@@ -6,7 +6,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-## [3.30.0] — 2026-10-15
+## [3.30.0] — 2026-10-16
 
 First version published to npm. Earlier versions were source-only releases;
 this package contains every change listed below for them.
