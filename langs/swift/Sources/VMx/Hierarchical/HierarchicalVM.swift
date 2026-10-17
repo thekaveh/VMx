@@ -359,10 +359,15 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
 
         // Materialize both lists before mutation so a factory failure cannot
         // leave the child detached from its original parent.
-        if _children == nil { _ = children }
+        // Report invalid lazy factory output as a failure rather than trapping
+        // in the fail-fast `children` accessor (spec/18 §6).
+        if _children == nil, case .failure(let error) = tryChildren() {
+            return .failure(error)
+        }
         let oldParent = node(child).parent
-        if let oldParent, node(oldParent)._children == nil {
-            _ = node(oldParent).children
+        if let oldParent, node(oldParent)._children == nil,
+           case .failure(let error) = node(oldParent).tryChildren() {
+            return .failure(error)
         }
         let oldIndex = oldParent.flatMap { parent in
             node(parent)._children?.firstIndex(where: { $0 === child })
@@ -502,9 +507,16 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
                     continue
                 }
 
-                // After selector evaluation, Swift's addChild path is
-                // non-throwing; fallible flavors wrap and roll back this step.
-                node(parent).addChild(candidate.item)
+                // addChild validates before mutating, so a failure leaves the
+                // links unchanged; record it and continue the batch (spec/18 §6).
+                if case .failure = node(parent).addChild(candidate.item) {
+                    rejections.append(BatchAttachRejection(
+                        item: candidate.item,
+                        reason: .attachmentFailed
+                    ))
+                    progressed = true
+                    continue
+                }
                 existing[candidate.key] = candidate.item
                 added.append(candidate.item)
                 progressed = true

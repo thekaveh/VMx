@@ -1620,6 +1620,69 @@ fn observable_list_batch_end_count_notification() {
     assert_eq!(count_notifications(&recorder), 1);
 }
 
+/// Lists hub events as "reset" or "count" in delivery order.
+fn reset_and_count_events(recorder: &vmx::MessageRecorder) -> Vec<&'static str> {
+    recorder
+        .messages()
+        .into_iter()
+        .filter_map(|message| match message {
+            Message::CollectionChanged(change)
+                if change.action == CollectionChangeAction::Reset =>
+            {
+                Some("reset")
+            }
+            Message::PropertyChanged(change) if change.property_name == "Count" => Some("count"),
+            _ => None,
+        })
+        .collect()
+}
+
+/// COL-023 — a count-changing batch emits Reset before Count
+#[test]
+fn observable_list_batch_emits_reset_before_count() {
+    let hub = MessageHub::new();
+    let list = ObservableList::new(1, hub.clone());
+    list.push(10);
+    let recorder = hub.record(1024);
+
+    list.batch_update(|| {
+        list.push(20);
+        list.push(30);
+    });
+
+    assert_eq!(reset_and_count_events(&recorder), vec!["reset", "count"]);
+    assert_eq!(list.len(), 3);
+}
+
+/// COL-023 — an empty batch emits nothing
+#[test]
+fn observable_list_empty_batch_emits_nothing() {
+    let hub = MessageHub::new();
+    let list = ObservableList::new(1, hub.clone());
+    list.push(1);
+    let recorder = hub.record(1024);
+
+    list.batch_update(|| {});
+
+    assert!(reset_and_count_events(&recorder).is_empty());
+}
+
+/// COL-023 — a count-preserving batch emits Reset but no Count
+#[test]
+fn observable_list_replace_only_batch_emits_reset_without_count() {
+    let hub = MessageHub::new();
+    let list = ObservableList::new(1, hub.clone());
+    list.push(1);
+    list.push(2);
+    let recorder = hub.record(1024);
+
+    list.batch_update(|| {
+        list.replace(0, 99).unwrap();
+    });
+
+    assert_eq!(reset_and_count_events(&recorder), vec!["reset"]);
+}
+
 /// COL-024 — TokenPagedComposition<TVM,TToken> initial state
 #[test]
 fn token_paged_initial_state_is_empty_and_loadable() {

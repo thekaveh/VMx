@@ -398,3 +398,14 @@ def test_hub_none_does_not_throw_on_any_mutation() -> None:
     sut.remove("a", 1)
     sut.add("b", 2, 3.0)
     sut.clear()
+
+
+@pytest.mark.parametrize("key", [(None, 1), ("a", None)])
+def test_none_key_raises_type_error_on_item_access_and_membership(
+    key: tuple[object, object],
+) -> None:
+    d: ObservableDictionary[str, int, float] = ObservableDictionary()
+    with pytest.raises(TypeError):
+        d[key]  # type: ignore[index]
+    with pytest.raises(TypeError):
+        key in d  # noqa: B015

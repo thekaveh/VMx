@@ -680,6 +680,68 @@ fn eager_construction_is_depth_first() {
     assert_eq!(constructed.last(), Some(&root.id()));
 }
 
+fn eager_tree(hub: &MessageHub) -> HierarchicalVm<String> {
+    let child_hub = hub.clone();
+    HierarchicalVm::with_children_factory(
+        "root",
+        "root".to_string(),
+        move |_| {
+            vec![HierarchicalVm::with_children_factory(
+                "child",
+                "child".to_string(),
+                |_| Vec::new(),
+                false,
+                child_hub.clone(),
+            )]
+        },
+        true,
+        hub.clone(),
+    )
+}
+
+/// HIER-009 — Eager construction enters the parent's Constructing before any child
+#[test]
+fn eager_construction_starts_the_parent_before_its_children() {
+    let hub = MessageHub::new();
+    let recorder = hub.record(1024);
+    let root = eager_tree(&hub);
+
+    root.construct().unwrap();
+
+    let first = recorder
+        .messages()
+        .into_iter()
+        .find_map(|message| match message {
+            Message::ConstructionStatusChanged(change) => Some(change.sender_id),
+            _ => None,
+        });
+    assert_eq!(first, Some(root.id()));
+}
+
+/// HIER-009 — A rejected construct does not construct eager children
+#[test]
+fn a_rejected_eager_construct_leaves_children_untouched() {
+    let hub = MessageHub::new();
+    let root = eager_tree(&hub);
+    let child = root.try_children().unwrap().remove(0);
+    root.dispose().unwrap();
+
+    assert!(root.construct().is_err());
+    assert_eq!(child.status(), ConstructionStatus::Destructed);
+}
+
+/// HIER-009 — Constructing an already-constructed eager parent is a no-op
+#[test]
+fn constructing_a_constructed_eager_parent_does_not_touch_children() {
+    let hub = MessageHub::new();
+    let root = eager_tree(&hub);
+    root.construct().unwrap();
+    let child = root.try_children().unwrap().remove(0);
+    child.dispose().unwrap();
+
+    assert_eq!(root.construct(), Ok(()));
+}
+
 /// HIER-010 — PropertyChangedMessage on Parent change
 #[test]
 fn parent_change_publishes_property_changed() {

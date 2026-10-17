@@ -244,6 +244,40 @@ fn modal_dismissal_is_idempotent() {
     assert_eq!(modal.result(), Some("first"));
 }
 
+/// DIA-012 — Reopening a dismissed modal cannot replace its first result
+#[test]
+fn reopening_a_dismissed_modal_keeps_the_first_result() {
+    let modal = ModalVm::new("cancel");
+
+    modal.dismiss("first");
+    modal.open();
+    modal.dismiss("second");
+
+    assert!(modal.is_dismissed());
+    assert_eq!(modal.completion().wait(), "first");
+    assert_eq!(modal.result(), Some("first"));
+}
+
+/// DIA-012 — A dismissed modal always reports its stored result
+#[test]
+fn a_dismissed_modal_always_reports_its_result() {
+    for _ in 0..200 {
+        let modal = ModalVm::new("cancel");
+        let dismisser = {
+            let modal = modal.clone();
+            std::thread::spawn(move || modal.dismiss("done"))
+        };
+        loop {
+            if modal.is_dismissed() {
+                assert_eq!(modal.result(), Some("done"));
+                break;
+            }
+            std::hint::spin_loop();
+        }
+        dismisser.join().unwrap();
+    }
+}
+
 /// DIA-013 — Existing dialog methods remain source-compatible
 #[test]
 fn null_dialog_service_exposes_existing_method_names() {

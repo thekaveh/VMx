@@ -8,14 +8,15 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [0.35.0] — unreleased source version
 
-### Fixed
-
-- `FormVm::approve()` no longer calls the persister when an approve-command
-  `can_execute_changed` handler disposes the form during admission. The
-  approval is refused and its in-flight mark is cleared (spec/20 §5.3).
-
 ### Added
 
+- `DiscriminatorVm::active_key_changes()`, a `ValueStream<K>` that carries the
+  new active key with each effective change, as DISC-002 requires. The
+  existing `active_changed()` hub still signals changes but carries no key.
+- `ConfirmationVm::dismiss()`, `dismiss_command()`, `notification()`,
+  `remaining_time_ms()`, `opacity()`, and `advance_by_ms()`. Dismissing a
+  confirmation resolves it with `Approve`, and its lifespan expiring leaves it
+  pending (spec/16 §7).
 - `Command::as_async()`, a provided trait method that returns a command's
   awaitable entry point, or `None` for a synchronous command. Calling it makes
   one execution attempt whose `AsyncValue` settles when the attempt completes;
@@ -33,6 +34,21 @@ project adheres to [Semantic Versioning](https://semver.org/).
   downcasts to the original error, and the decorator's `as_async()` entry point
   returns it as `Err(VmxError)`. The fire-and-forget `execute()` is unchanged
   (`CMDD-014..017`, ADR-0145, spec 3.29.0) (#355).
+
+### Fixed
+
+- `FormVm::approve()` no longer calls the persister when an approve-command
+  `can_execute_changed` handler disposes the form during admission. The
+  approval is refused and its in-flight mark is cleared (spec/20 §5.3).
+- `ModalVm` keeps its first result: `open()` no longer re-arms a dismissed
+  modal, so a later `dismiss` cannot replace the stored result. The claim and
+  the stored result now share one lock, so `is_dismissed()` never reports a
+  dismissal before `result()` holds it (DIA-012).
+- An eager `HierarchicalVm::construct()` now cascades into its children inside
+  its own Constructing phase. A disposed or already-constructed parent
+  constructs no child, a lazy factory failure returns an error instead of
+  panicking, and the parent's Constructing message precedes its children's
+  (spec/18 §3).
 
 ## [0.34.0] — unreleased source version
 

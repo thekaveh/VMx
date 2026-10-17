@@ -2,13 +2,14 @@
 //!
 //! Spec: `spec/22-discriminator-vm.md`; ADR-0051.
 
-use super::{lock, Arc, Message, MessageHub, Mutex};
+use super::{lock, Arc, Message, MessageHub, Mutex, ValueStream};
 
 #[derive(Clone)]
 /// Keyed active-mode state with LIFO modal override restoration.
 pub struct DiscriminatorVm<K: Clone + PartialEq + Send + 'static> {
     current_key: Arc<Mutex<K>>,
     active_changed: MessageHub,
+    active_key_changes: ValueStream<K>,
     modal_stack: Arc<Mutex<Vec<K>>>,
     disposed: Arc<Mutex<bool>>,
 }
@@ -17,8 +18,9 @@ impl<K: Clone + PartialEq + Send + 'static> DiscriminatorVm<K> {
     /// Creates discriminator state with `initial` active.
     pub fn new(initial: K) -> Self {
         Self {
-            current_key: Arc::new(Mutex::new(initial)),
+            current_key: Arc::new(Mutex::new(initial.clone())),
             active_changed: MessageHub::new(),
+            active_key_changes: ValueStream::hot(initial),
             modal_stack: Arc::new(Mutex::new(Vec::new())),
             disposed: Arc::new(Mutex::new(false)),
         }
@@ -54,7 +56,7 @@ impl<K: Clone + PartialEq + Send + 'static> DiscriminatorVm<K> {
             if *current == key {
                 false
             } else {
-                *current = key;
+                *current = key.clone();
                 true
             }
         };
@@ -64,6 +66,7 @@ impl<K: Clone + PartialEq + Send + 'static> DiscriminatorVm<K> {
                 sender_name: "DiscriminatorVm".to_string(),
                 name: "active_changed".to_string(),
             });
+            self.active_key_changes.send(key);
         }
     }
 
@@ -73,8 +76,17 @@ impl<K: Clone + PartialEq + Send + 'static> DiscriminatorVm<K> {
     }
 
     /// Returns the hub that publishes effective active-key changes.
+    ///
+    /// Its messages carry no key; use [`active_key_changes`](Self::active_key_changes)
+    /// to receive the new key with each change.
     pub fn active_changed(&self) -> MessageHub {
         self.active_changed.clone()
+    }
+
+    /// Returns a typed stream of the new active key, one value per effective
+    /// change. It does not replay the current key to a new subscriber.
+    pub fn active_key_changes(&self) -> ValueStream<K> {
+        self.active_key_changes.clone()
     }
 
     /// Returns the number of saved modal frames.
@@ -127,5 +139,6 @@ impl<K: Clone + PartialEq + Send + 'static> DiscriminatorVm<K> {
         }
         lock(&self.modal_stack).clear();
         self.active_changed.dispose();
+        self.active_key_changes.dispose();
     }
 }

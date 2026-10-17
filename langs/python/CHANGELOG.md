@@ -8,14 +8,6 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ## [3.29.0] — unreleased source version
 
-### Fixed
-
-- `ConfirmationDecoratorCommand` no longer calls `confirm` when the inner
-  command's `can_execute` predicate disposes the decorator (spec/04 §8.4).
-- A cancelled persister on the `approve_command` path is now reported on
-  `approve_errors` as `asyncio.CancelledError`. Before, the cancellation reached
-  no channel (spec/20 §5.3).
-
 ### Changed
 
 - An awaited `execute_async()` on `ConfirmationDecoratorCommand` now completes
@@ -28,6 +20,20 @@ All notable changes to the Python flavor are documented here. The format is base
   `errors`; the decorator's `errors` carries only confirmation failures and
   synchronous-inner failures. The decorator adds no admission, cancellation, or
   ownership of the inner (`CMDD-014..017`, ADR-0145, spec 3.29.0) (#355).
+
+### Fixed
+
+- `ConfirmationDecoratorCommand` no longer calls `confirm` when the inner
+  command's `can_execute` predicate disposes the decorator (spec/04 §8.4).
+- `CompositeVM`, `GroupVM`, `AggregateVM1..6`, `HierarchicalVM`,
+  `ForwardingComponentVM`, and `AsyncResourceVM` now satisfy
+  `IConstructable`, `IDestructable`, and `IReconstructable` in `isinstance`
+  checks; only the component classes were registered (spec/14 rule 2).
+- `ObservableDictionary` raises `TypeError` for a `None` key in `d[k1, k2]`
+  and `(k1, k2) in d`, as every other accessor already did (spec/21 §4.4).
+- A cancelled persister on the `approve_command` path is now reported on
+  `approve_errors` as `asyncio.CancelledError`. Before, the cancellation reached
+  no channel (spec/20 §5.3).
 
 ## [3.28.0] — unreleased source version
 

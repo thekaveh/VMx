@@ -435,6 +435,29 @@ fn confirmation_vm_commands_resolve_hub() {
     assert_eq!(hub.reaction(reject.id), NotificationReaction::Reject);
 }
 
+/// NOTIF-013 — ConfirmationVM inherits DismissCommand, which resolves with Approve
+#[test]
+fn confirmation_vm_dismiss_command_approves_and_does_not_expire() {
+    let hub = NotificationHub::new();
+    let notification = hub.post(NotificationType::Confirmation, "proceed?");
+    let vm = vmx::ConfirmationVm::with_hub(notification.clone(), hub.clone());
+    assert_eq!(vm.notification().id, notification.id);
+    assert_eq!(vm.remaining_time_ms(), 300_000);
+
+    vm.advance_by_ms(300_000);
+    assert!(
+        !vm.is_resolved(),
+        "a confirmation does not auto-resolve at expiry"
+    );
+    assert_eq!(vm.remaining_time_ms(), 0);
+    assert_eq!(vm.opacity(), 0.0);
+
+    vm.dismiss_command().execute();
+
+    assert!(vm.is_resolved());
+    assert_eq!(hub.reaction(notification.id), NotificationReaction::Approve);
+}
+
 /// NOTIF-014 — Manual DismissCommand cancels the lifespan timer
 #[test]
 fn dismiss_command_is_idempotent_against_later_ticks() {

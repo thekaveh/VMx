@@ -577,12 +577,19 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
 
     /// Constructs this node and, when configured eager, its descendants.
     pub fn construct(&self) -> VmxResult<()> {
-        if *lock(&self.inner.eager_children) {
-            for child in self.children() {
+        if !*lock(&self.inner.eager_children) {
+            return self.inner.component.construct();
+        }
+        // Cascade inside this node's own Constructing phase: a rejected
+        // transition (disposed or already constructed) constructs no child, and
+        // the parent reaches Constructed only after every descendant
+        // (spec/18 §3).
+        self.inner.component.construct_with(|| {
+            for child in self.try_children()? {
                 child.construct()?;
             }
-        }
-        self.inner.component.construct()
+            Ok(())
+        })
     }
 
     /// Returns this node's lifecycle status.

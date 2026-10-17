@@ -141,6 +141,10 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
         if not isinstance(key, tuple) or len(key) != 2:
             return False
         k1, k2 = key
+        if k1 is None:
+            raise TypeError("key1 must not be None")
+        if k2 is None:
+            raise TypeError("key2 must not be None")
         return (k1, k2) in self._data
 
     # ── Item access ───────────────────────────────────────────────────────────
@@ -173,6 +177,10 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
 
     def __getitem__(self, key: tuple[TKey1, TKey2]) -> TValue:
         k1, k2 = key
+        if k1 is None:
+            raise TypeError("key1 must not be None")
+        if k2 is None:
+            raise TypeError("key2 must not be None")
         return self._data[(k1, k2)]
 
     def __setitem__(self, key: tuple[TKey1, TKey2], value: TValue) -> None:

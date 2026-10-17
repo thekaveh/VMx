@@ -58,9 +58,13 @@ describe("createVmxStore and useVmx", () => {
 
     hub.send(PropertyChangedMessage.create({}, "test", "value"));
     expect(store.getSnapshot()).toBe(initial + 2);
+    // A later message in the same drain still advances the snapshot, so a
+    // synchronous render between the two messages cannot miss the second one.
+    hub.send(PropertyChangedMessage.create({}, "test", "value"));
+    expect(store.getSnapshot()).toBe(initial + 3);
     expect(notify).not.toHaveBeenCalled();
     await Promise.resolve();
-    expect(store.getSnapshot()).toBe(initial + 2);
+    expect(store.getSnapshot()).toBe(initial + 3);
     expect(notify).toHaveBeenCalledTimes(1);
     expect(store.subscribe).toBe(subscribe);
 
@@ -68,7 +72,7 @@ describe("createVmxStore and useVmx", () => {
     store.dispose();
     store.dispose();
     hub.send(PropertyChangedMessage.create({}, "test", "value"));
-    expect(store.getSnapshot()).toBe(initial + 2);
+    expect(store.getSnapshot()).toBe(initial + 3);
   });
 
   it("disconnects, reconnects, and treats repeated cleanup or post-dispose subscribe as safe", async () => {
@@ -272,6 +276,21 @@ describe("VM and value hooks", () => {
     expect(selectorRenders).toHaveBeenCalledTimes(selectorBaseline + 1);
   });
 
+  it("re-renders whole-VM useVm on a lifecycle status change", async () => {
+    const vm = modeled(new MessageHub());
+    const renders = vi.fn();
+    function Probe(): JSX.Element {
+      const live = useVm(vm);
+      renders(live.status);
+      return <span>{String(live.status)}</span>;
+    }
+    render(<Probe />);
+    const baseline = renders.mock.calls.length;
+    await act(async () => { vm.construct(); await Promise.resolve(); });
+    expect(renders.mock.calls.length).toBeGreaterThan(baseline);
+    expect(renders.mock.calls.at(-1)?.[0]).toBe(vm.status);
+  });
+
   it("catches a focused VM mutation between render and subscription installation", () => {
     const vm = modeled(new MessageHub());
     function Probe(): JSX.Element {
@@ -462,5 +481,10 @@ describe("shallowEqual", () => {
     expect(shallowEqual({ a: 1 }, { a: 2 })).toBe(false);
     expect(shallowEqual({ a: 1 }, { b: 1 })).toBe(false);
     expect(shallowEqual([1], { 0: 1 })).toBe(false);
+    // Only plain objects compare by keys; other objects compare by identity.
+    expect(shallowEqual(new Date(1), new Date(2))).toBe(false);
+    expect(shallowEqual(new Map([[1, 2]]), new Map())).toBe(false);
+    expect(shallowEqual(new Set([1]), new Set())).toBe(false);
+    expect(shallowEqual(Object.create(null) as object, {})).toBe(true);
   });
 });

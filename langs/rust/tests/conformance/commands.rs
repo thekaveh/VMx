@@ -210,9 +210,8 @@ fn imperative_raise_after_disposal_is_noop() {
     let relay = RelayCommand::noop();
     let parameterized = RelayCommandOf::<i32>::noop();
     let async_command = AsyncRelayCommand::noop();
-    relay.dispose();
-    parameterized.dispose();
-    async_command.dispose();
+    // Subscribe before disposal: after disposal the eligibility hub hands out
+    // no-op subscriptions, so a later subscriber could never fail the check.
     let fired = Arc::new(AtomicUsize::new(0));
     let subscriptions = [
         relay.can_execute_changed(),
@@ -227,6 +226,11 @@ fn imperative_raise_after_disposal_is_noop() {
         })
     })
     .collect::<Vec<_>>();
+    relay.dispose();
+    parameterized.dispose();
+    async_command.dispose();
+    // Disposal itself may emit one final notification; count only later raises.
+    fired.store(0, Ordering::SeqCst);
 
     relay.raise_can_execute_changed();
     parameterized.raise_can_execute_changed();

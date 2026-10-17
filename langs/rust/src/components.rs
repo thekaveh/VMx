@@ -318,6 +318,17 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
         self.core.transition(LifecycleOperation::Construct)
     }
 
+    /// Constructs the component and runs `action` while it is Constructing,
+    /// so a container can cascade into its children inside its own legal
+    /// transition. A rejected transition runs nothing.
+    pub(crate) fn construct_with<F>(&self, action: F) -> VmxResult<()>
+    where
+        F: FnOnce() -> VmxResult<()>,
+    {
+        self.core
+            .transition_with(LifecycleOperation::Construct, action)
+    }
+
     /// Transitions the component to destructed state.
     pub fn destruct(&self) -> VmxResult<()> {
         self.core.transition(LifecycleOperation::Destruct)
