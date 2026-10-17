@@ -317,7 +317,7 @@ The Quickstart flow shows the minimal service pair every VM needs:
 === "Python"
 
     ```python
-    hub = MessageHub()
+    hub: MessageHub[Message] = MessageHub()
     dispatcher = RxDispatcher.immediate()
     ```
 

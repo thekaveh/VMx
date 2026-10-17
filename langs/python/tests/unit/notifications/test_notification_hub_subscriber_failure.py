@@ -56,3 +56,27 @@ async def test_dispose_completes_waiters_when_a_pending_subscriber_raises() -> N
         hub.dispose()
 
     assert await asyncio.wait_for(post, timeout=1) is NotificationReaction.PENDING
+
+
+async def test_pending_completes_when_a_subscriber_disposes_the_hub_and_then_raises() -> None:
+    hub = NotificationHub()
+    armed = [False]
+    completed: list[None] = []
+
+    def dispose_then_raise(_: object) -> None:
+        if not armed[0]:
+            return
+        armed[0] = False
+        hub.dispose()
+        raise _SubscriberError
+
+    failing = hub.pending.subscribe(dispose_then_raise)
+    observer = hub.pending.subscribe(on_completed=lambda: completed.append(None))
+    armed[0] = True
+
+    with pytest.raises(_SubscriberError):
+        hub.post(Notification(NotificationType.NOTIFICATION, "saved"))
+
+    assert completed == [None]
+    failing.dispose()
+    observer.dispose()

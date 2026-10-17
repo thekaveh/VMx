@@ -166,6 +166,8 @@ impl NotificationHub {
                 (completion, None)
             } else {
                 let completion = AsyncValue::pending();
+                // A re-posted notification is pending again, not resolved.
+                state.resolved.remove(&notification_id);
                 state.pending.push(notification);
                 state
                     .reactions

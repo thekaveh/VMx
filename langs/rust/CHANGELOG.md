@@ -54,9 +54,12 @@ project adheres to [Semantic Versioning](https://semver.org/).
   `error_stream()` as `VmxError::Other("command panicked: …")`, as for
   `ConfirmationDecoratorCommand` (spec/04 §10.4, ADR-0137). Before, it was
   lost on the worker thread.
-- `FilteredCompositeVm::current()` reconciles the selection against the
-  source's present children before it returns, so a current item that the
-  source removed or cleared follows the cursor policy (COMP-032, COMP-033).
+- `FilteredCompositeVm::current()` reconciles the selection when the source's
+  membership changed since the last reconciliation, so a current item that
+  the source removed or cleared follows the cursor policy (COMP-032,
+  COMP-033). An explicit `set_current(None)` stays cleared until the next
+  source change. `move_next_visible()` after such a removal now starts from
+  the reconciled item, as in the subscribed flavors.
 - `CompositeVm` and `GroupVm` collection and `Count` messages carry the
   container's name as `sender_name` instead of `"ObservableList"` (ADR-0120).
 - `NotificationHub` keeps pending notifications in post order. Before, it

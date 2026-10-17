@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `ServicedObservableCollection.splice` resolves a fractional or `NaN` start
+  like `Array.prototype.splice` before it reports the Remove index. Before, it
+  could report `2.5` or `NaN`.
 - `NullDialogService.present` returns the result of a modal that was already
   dismissed, because the first result wins. Before, it returned the
   cancellation result (spec/19 §3, DIA-012).

@@ -521,6 +521,16 @@ fn external_pending_resolve_marks_notification_vm_resolved() {
     let open_vm = NotificationVm::with_hub(unresolved, unresolved_hub.clone(), 10_000);
     unresolved_hub.dispose();
     assert!(!open_vm.is_resolved(), "hub disposal is not a resolution");
+
+    let repost_hub = NotificationHub::new();
+    let reposted = repost_hub.post(NotificationType::Notification, "again");
+    repost_hub.resolve(reposted.id, NotificationReaction::Approve);
+    repost_hub.post_notification(reposted.clone());
+    let reposted_vm = NotificationVm::with_hub(reposted, repost_hub.clone(), 10_000);
+    assert!(
+        !reposted_vm.is_resolved(),
+        "a re-posted notification is pending"
+    );
 }
 
 /// NOTIF-016 — Deterministic behavior under injected TestScheduler / fake clock

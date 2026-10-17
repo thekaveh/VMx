@@ -33,6 +33,9 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx.Notifications
 
+- Fixed: when a `Pending` subscriber disposes the hub and then throws, the
+  queued completion still runs, so `Pending` completes and its subject is
+  disposed. Before, the abandoned queue dropped it for good.
 - Fixed: `NotificationHub.Resolve` and `Dispose` complete their waiters even
   when a `Pending` subscriber throws. The waiters had already left the hub, so
   their `Post` tasks stayed pending forever.

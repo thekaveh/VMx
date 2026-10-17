@@ -125,7 +125,10 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
 
     /// Cached root→self path. `nil` until first access. (Invalidation on
     /// reparent keeps the cached path consistent with structural mutation.)
-    private var _pathCache: [TVM]?
+    /// The cache holds weak references: a strong array would contain `self`
+    /// and its ancestors and keep the node alive (the `parent` link is weak
+    /// for the same reason).
+    private var _pathCache: [WeakPathNode<TVM>]?
     private var materializingChildren = false
     private var materializationReentered = false
 
@@ -275,9 +278,12 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
     /// Cached root-first path `[root, …, self]`. Built by walking up the
     /// `parent` chain on first access, then cached.
     public var path: [TVM] {
-        if let cached = _pathCache { return cached }
+        if let cached = _pathCache {
+            let nodes = cached.compactMap(\.value)
+            if nodes.count == cached.count { return nodes }
+        }
         let built = buildPath()
-        _pathCache = built
+        _pathCache = built.map(WeakPathNode.init)
         return built
     }
 
@@ -667,5 +673,14 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
             node(kid)._pathCache = nil
             invalidatePathCacheDescendants(of: kid)
         }
+    }
+}
+
+/// A weak reference to one node of a cached hierarchical path.
+struct WeakPathNode<Node: AnyObject> {
+    weak var value: Node?
+
+    init(_ value: Node) {
+        self.value = value
     }
 }

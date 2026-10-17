@@ -192,6 +192,17 @@ class NotificationHub:
         if emission.error is not None:
             raise emission.error
 
+    def _complete_pending_after_failure(self, *, completion_started: bool) -> None:
+        # The delivery failure that abandoned the queue is the one the caller
+        # sees; a completion observer failure must not replace it.
+        try:
+            if not completion_started:
+                self._pending_subject.on_completed()
+        except Exception:
+            pass
+        finally:
+            self._pending_subject.dispose()
+
     def _drain_emissions(self) -> None:
         while True:
             with self._lock:
@@ -219,6 +230,11 @@ class NotificationHub:
                 for item in abandoned:
                     item.error = error
                     item.completed.set()
+                # A dispose queued behind the failed delivery has already
+                # returned and is idempotent, so it cannot retry. Finish the
+                # terminal step here: ``pending`` still completes once.
+                if emission.complete or any(item.complete for item in abandoned):
+                    self._complete_pending_after_failure(completion_started=emission.complete)
                 raise
             finally:
                 _delivery_context.depth = depth

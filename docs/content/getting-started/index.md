@@ -34,11 +34,11 @@ leaf `ComponentVM`, then compose child tabs in a `CompositeVM`.
 === "Python"
 
     ```python
-    hub = MessageHub()
+    hub: MessageHub[Message] = MessageHub()
     dispatcher = RxDispatcher.immediate()
 
     home_tab = (
-        ComponentVMOf.builder()
+        ComponentVMOf[TabModel].builder()
         .name("home-tab")
         .model(TabModel("Home"))
         .services(hub, dispatcher)
@@ -46,7 +46,7 @@ leaf `ComponentVM`, then compose child tabs in a `CompositeVM`.
     )
 
     settings_tab = (
-        ComponentVMOf.builder()
+        ComponentVMOf[TabModel].builder()
         .name("settings-tab")
         .model(TabModel("Settings"))
         .services(hub, dispatcher)

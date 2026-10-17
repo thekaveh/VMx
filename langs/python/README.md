@@ -37,6 +37,7 @@ from dataclasses import dataclass
 from vmx import (
     ComponentVMOf,
     CompositeVM,
+    Message,
     MessageHub,
     RxDispatcher,
 )
@@ -48,12 +49,13 @@ class TabModel:
 
 
 # 1. Services (a hub + a dispatcher).
-hub = MessageHub()
+hub: MessageHub[Message] = MessageHub()
 dispatcher = RxDispatcher.immediate()
 
 # 2. Build leaves: name, model, services, optional modeled_hinter.
 home: ComponentVMOf[TabModel] = (
-    ComponentVMOf.builder()
+    ComponentVMOf[TabModel]
+    .builder()
     .name("home")
     .model(TabModel("Home"))
     .modeled_hinter(lambda m: m.title)  # optional — defaults to lambda _m: ""
@@ -62,7 +64,8 @@ home: ComponentVMOf[TabModel] = (
 )
 
 settings: ComponentVMOf[TabModel] = (
-    ComponentVMOf.builder()
+    ComponentVMOf[TabModel]
+    .builder()
     .name("settings")
     .model(TabModel("Settings"))
     .services(hub, dispatcher)

@@ -108,6 +108,16 @@ fn source_removal_and_clear_reconcile_current() {
 
     source.clear();
     assert!(filtered.current().is_none());
+
+    let source = source_with(&[1, 2]);
+    let filtered = FilteredCompositeVm::new(source.clone(), |_| true);
+    filtered.set_current(None).unwrap();
+    assert!(
+        filtered.current().is_none(),
+        "an explicit clear stays cleared"
+    );
+    source.add(child(3)).unwrap();
+    assert_eq!(filtered.current().map(|vm| vm.model()), Some(1));
 }
 
 /// COMP-033 — filtered cursor policies

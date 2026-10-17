@@ -409,3 +409,20 @@ def test_none_key_raises_type_error_on_item_access_and_membership(
         d[key]  # type: ignore[index]
     with pytest.raises(TypeError):
         key in d  # noqa: B015
+
+
+def test_dispose_completes_every_stream_when_an_observer_raises() -> None:
+    d: ObservableDictionary[str, str, int] = ObservableDictionary()
+    completed: list[str] = []
+
+    def raise_on_completed() -> None:
+        raise RuntimeError("observer")
+
+    d.on_item_added.subscribe(on_completed=raise_on_completed)
+    d.on_item_removed.subscribe(on_completed=lambda: completed.append("removed"))
+    d.on_reset.subscribe(on_completed=lambda: completed.append("reset"))
+
+    with pytest.raises(RuntimeError, match="observer"):
+        d.dispose()
+
+    assert completed == ["removed", "reset"]

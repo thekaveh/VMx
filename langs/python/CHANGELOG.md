@@ -23,6 +23,14 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ### Fixed
 
+- When a `pending` subscriber disposes the `NotificationHub` and then raises,
+  `pending` still completes and its subject is disposed.
+- `ObservableList.dispose` and `ObservableDictionary.dispose` complete and
+  dispose every stream even when an observer raises, then re-raise the first
+  failure.
+- The README quick start and getting-started samples type-check under
+  `mypy --strict`: the hub is `MessageHub[Message]` and builders name their
+  model type.
 - `DialogService.present` (the null base) returns the result of a modal that
   was already dismissed, because the first result wins. Before, it returned
   the cancellation result (spec/19 §3, DIA-012).

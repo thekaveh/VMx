@@ -13,6 +13,8 @@ import reactivex as rx
 from reactivex import operators as ops
 from reactivex.subject import Subject
 
+from vmx.commands.relay_command import _run_disposal_steps
+
 T = TypeVar("T")
 
 
@@ -231,15 +233,21 @@ class ObservableList(Generic[T]):
         if self._disposed:
             return
         self._disposed = True
-        for subject in (
-            self._added_subject,
-            self._removed_subject,
-            self._replaced_subject,
-            self._reset_subject,
-            self._prop_changed_subject,
-        ):
-            subject.on_completed()
-            subject.dispose()
+        # Every subject completes and disposes even when an observer raises;
+        # the first failure is re-raised afterwards.
+        _run_disposal_steps(
+            *(
+                step
+                for subject in (
+                    self._added_subject,
+                    self._removed_subject,
+                    self._replaced_subject,
+                    self._reset_subject,
+                    self._prop_changed_subject,
+                )
+                for step in (subject.on_completed, subject.dispose)
+            )
+        )
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 

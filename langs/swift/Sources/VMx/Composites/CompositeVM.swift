@@ -834,6 +834,13 @@ open class CompositeVM<Child: ComponentVMBase>:
         try super._onDestruct()
     }
 
+    /// Completes `collectionChanged` once the container is disposed, as the
+    /// other flavors do, so derived views and sinks observe termination.
+    open override func _onDispose() {
+        super._onDispose()
+        collectionChangedSubject.send(completion: .finished)
+    }
+
     open override func dispose() {
         while true {
             var waitForTransaction: DispatchGroup?

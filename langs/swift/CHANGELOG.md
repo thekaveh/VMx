@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `HierarchicalVM` caches its path with weak references. Before, the cached
+  `[root, …, self]` array retained the node and its ancestors, so a tree that
+  had been read through `path` or `addChild` never deallocated.
+- `CompositeVM` and `GroupVM` complete `collectionChanged` when disposed.
+- `VirtualTimeScheduler.schedule(at:_:)` is no longer `@discardableResult`:
+  releasing the returned token cancels the action, so discarding it now warns.
 - The default `DialogService.present` returns the result of a modal that was
   already dismissed, because the first result wins. Before, it returned the
   cancellation result (spec/19 §3, DIA-012).

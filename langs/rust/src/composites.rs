@@ -1472,6 +1472,8 @@ pub struct FilteredCompositeVm<T: VmNode, D: Dispatcher = NullDispatcher> {
     cursor_policy: Arc<Mutex<FilteredCursorPolicy>>,
     disposed: Arc<Mutex<bool>>,
     frozen: Arc<Mutex<Vec<T>>>,
+    /// Source membership seen at the last reconciliation.
+    source_ids: Arc<Mutex<Vec<usize>>>,
 }
 
 impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
@@ -1493,6 +1495,7 @@ impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
             cursor_policy: Arc::new(Mutex::new(FilteredCursorPolicy::SnapToFirst)),
             disposed: Arc::new(Mutex::new(false)),
             frozen: Arc::new(Mutex::new(Vec::new())),
+            source_ids: Arc::new(Mutex::new(Vec::new())),
         };
         filtered.reconcile_current();
         filtered
@@ -1516,6 +1519,7 @@ impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
             cursor_policy: Arc::new(Mutex::new(FilteredCursorPolicy::SnapToFirst)),
             disposed: Arc::new(Mutex::new(false)),
             frozen: Arc::new(Mutex::new(Vec::new())),
+            source_ids: Arc::new(Mutex::new(Vec::new())),
         };
         filtered.reconcile_current();
         filtered
@@ -1559,14 +1563,19 @@ impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
     /// Returns the current visible item.
     ///
     /// The projection does not subscribe to its source, so a read first
-    /// reconciles the selection against the source's present children: a
-    /// current item that the source removed or hid follows the cursor policy
-    /// (COMP-030, COMP-032, COMP-033).
+    /// reconciles the selection when the source's membership changed since the
+    /// last reconciliation: a current item that the source removed follows the
+    /// cursor policy (COMP-032, COMP-033). An explicit clear stays cleared
+    /// until the next source change, predicate change, or refresh.
     pub fn current(&self) -> Option<T> {
-        if !*lock(&self.disposed) {
+        if !*lock(&self.disposed) && *lock(&self.source_ids) != self.source_member_ids() {
             self.reconcile_current();
         }
         lock(&self.current).clone()
+    }
+
+    fn source_member_ids(&self) -> Vec<usize> {
+        self.source.items().iter().map(VmNode::id).collect()
     }
 
     /// Assigns a visible current item or clears it.
@@ -1645,6 +1654,7 @@ impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
     }
 
     fn reconcile_current(&self) {
+        *lock(&self.source_ids) = self.source_member_ids();
         let visible = self.visible();
         let current_is_visible = lock(&self.current)
             .clone()

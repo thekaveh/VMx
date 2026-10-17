@@ -47,4 +47,26 @@ public sealed class NotificationHubSubscriberFailureTests
         post.IsCompleted.Should().BeTrue();
         (await post).Should().Be(NotificationReaction.Pending);
     }
+
+    [Fact]
+    public void Pending_completes_when_a_subscriber_disposes_the_hub_and_then_throws()
+    {
+        var hub = new NotificationHub();
+        var completed = 0;
+        var armed = false;
+        using var failing = hub.Pending.Subscribe(_ =>
+        {
+            if (!armed) return;
+            armed = false;
+            hub.Dispose();
+            throw new InvalidOperationException("subscriber");
+        });
+        using var observer = hub.Pending.Subscribe(_ => { }, () => completed++);
+        armed = true;
+
+        Action post = () => _ = hub.Post(new Notification(NotificationType.Notification, "saved"));
+
+        post.Should().Throw<InvalidOperationException>();
+        completed.Should().Be(1, "the reentrant Dispose still completes Pending");
+    }
 }

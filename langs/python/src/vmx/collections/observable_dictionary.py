@@ -13,6 +13,7 @@ from reactivex import operators as ops
 from reactivex.subject import Subject
 
 from vmx.collections.observable_list import ObservableList, ReadOnlyObservableList
+from vmx.commands.relay_command import _run_disposal_steps
 from vmx.messages.collection_changed import CollectionChangedMessage
 from vmx.services.message_hub import MessageHubProto
 
@@ -269,16 +270,22 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
         if self._disposed:
             return
         self._disposed = True
-        for subject in (
-            self._added_subject,
-            self._removed_subject,
-            self._replaced_subject,
-            self._reset_subject,
-        ):
-            subject.on_completed()
-            subject.dispose()
-        self._keys1.dispose()
-        self._keys2.dispose()
+        # Every subject and key view is released even when an observer
+        # raises; the first failure is re-raised afterwards.
+        _run_disposal_steps(
+            *(
+                step
+                for subject in (
+                    self._added_subject,
+                    self._removed_subject,
+                    self._replaced_subject,
+                    self._reset_subject,
+                )
+                for step in (subject.on_completed, subject.dispose)
+            ),
+            self._keys1.dispose,
+            self._keys2.dispose,
+        )
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 

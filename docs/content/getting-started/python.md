@@ -44,9 +44,10 @@ viewmodels and a dispatcher that knows about your event loop or UI thread.
 ### 3.3.2.1. Option A — immediate (console / synchronous tests)
 
 ```python
+from vmx.messages import Message
 from vmx.services import MessageHub, RxDispatcher
 
-hub = MessageHub()
+hub: MessageHub[Message] = MessageHub()
 dispatcher = RxDispatcher.immediate()
 # Both foreground and background schedulers are ImmediateScheduler — safe for
 # console scripts and pytest suites where there is no event loop.
@@ -56,11 +57,12 @@ dispatcher = RxDispatcher.immediate()
 
 ```python
 import asyncio
+from vmx.messages import Message
 from vmx.services import MessageHub, RxDispatcher
 
 async def main() -> None:
     loop = asyncio.get_running_loop()
-    hub = MessageHub()
+    hub: MessageHub[Message] = MessageHub()
     dispatcher = RxDispatcher.asyncio(loop)
     # Unreleased source 3.23.2 and later (current: 3.29.0):
     # foreground → AsyncIOThreadSafeScheduler(loop)
@@ -105,7 +107,7 @@ participates in the lifecycle state machine
 from dataclasses import dataclass
 
 from vmx.components import ComponentVMOf
-from vmx.messages import PropertyChangedMessage
+from vmx.messages import Message, PropertyChangedMessage
 from vmx.services import MessageHub, RxDispatcher
 
 # A simple domain model — use your own real types here.
@@ -114,12 +116,12 @@ class UserModel:
     name: str
     email: str
 
-hub = MessageHub()
+hub: MessageHub[Message] = MessageHub()
 dispatcher = RxDispatcher.immediate()
 
 # Build the viewmodel — every builder setter returns a NEW builder (immutable).
 user_vm: ComponentVMOf[UserModel] = (
-    ComponentVMOf.builder()
+    ComponentVMOf[UserModel].builder()
     .name("user-card")
     .model(UserModel("Alice", "alice@example.com"))
     .services(hub, dispatcher)
@@ -245,19 +247,19 @@ from dataclasses import dataclass
 
 from vmx.components import ComponentVMOf
 from vmx.composites import CompositeVM
-from vmx.messages import PropertyChangedMessage
+from vmx.messages import Message, PropertyChangedMessage
 from vmx.services import MessageHub, RxDispatcher
 
 @dataclass(frozen=True)
 class TabModel:
     title: str
 
-hub = MessageHub()
+hub: MessageHub[Message] = MessageHub()
 dispatcher = RxDispatcher.immediate()
 
 # Build two tab children — they share the same hub and dispatcher.
 tab1: ComponentVMOf[TabModel] = (
-    ComponentVMOf.builder()
+    ComponentVMOf[TabModel].builder()
     .name("home-tab")
     .model(TabModel("Home"))
     .services(hub, dispatcher)
@@ -265,7 +267,7 @@ tab1: ComponentVMOf[TabModel] = (
 )
 
 tab2: ComponentVMOf[TabModel] = (
-    ComponentVMOf.builder()
+    ComponentVMOf[TabModel].builder()
     .name("settings-tab")
     .model(TabModel("Settings"))
     .services(hub, dispatcher)
@@ -415,6 +417,7 @@ from vmx import (
     NULL_DISPATCHER,
     AsyncResourceStatus,
     AsyncResourceVM,
+    Message,
     MessageHub,
 )
 
@@ -431,7 +434,7 @@ async def load_report() -> str:
         raise
 
 
-hub = MessageHub()
+hub: MessageHub[Message] = MessageHub()
 report = AsyncResourceVM(
     name="report",
     loader=load_report,

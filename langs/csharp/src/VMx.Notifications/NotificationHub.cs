@@ -136,6 +136,24 @@ public sealed class NotificationHub : INotificationHub, IDisposable
         emission.Completed.Dispose();
     }
 
+    private void CompletePendingAfterFailure(bool completionAlreadyStarted)
+    {
+        try
+        {
+            if (!completionAlreadyStarted)
+                _pendingSubject.OnCompleted();
+        }
+        catch (Exception)
+        {
+            // The delivery failure that abandoned the queue is the one the
+            // caller sees; a completion observer failure must not replace it.
+        }
+        finally
+        {
+            _pendingSubject.Dispose();
+        }
+    }
+
     private void DrainEmissions()
     {
         while (true)
@@ -180,6 +198,11 @@ public sealed class NotificationHub : INotificationHub, IDisposable
                     item.Error = error;
                     item.Completed.Set();
                 }
+                // A Dispose queued behind the failed delivery has already
+                // returned and is idempotent, so it cannot retry. Finish the
+                // terminal step here: Pending still completes exactly once.
+                if (emission.Complete || Array.Exists(abandoned, item => item.Complete))
+                    CompletePendingAfterFailure(completionAlreadyStarted: emission.Complete);
                 throw;
             }
             finally

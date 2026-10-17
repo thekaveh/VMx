@@ -200,7 +200,7 @@ child factory and is not a settable retained property.
 Representative modeled leaf shape across the five source flavors:
 
 - `C#`: `ComponentVM<TabModel>.Builder().Name("home-tab").Model(model).Services(hub, dispatcher).Build()`
-- `Python`: `ComponentVMOf.builder().name("home-tab").model(model).services(hub, dispatcher).build()`
+- `Python`: `ComponentVMOf[TabModel].builder().name("home-tab").model(model).services(hub, dispatcher).build()`
 - `TypeScript`: `ComponentVMOf.builder<TabModel>().name("home-tab").model(model).services(hub, dispatcher).build()`
 - `Swift`: `try ComponentVMOf<TabModel>.builder().name("home-tab").model(model).services(hub: hub, dispatcher: dispatcher).build()`
 - `Rust`: `ComponentVm::with_model("home-tab", model, hub, dispatcher)`
