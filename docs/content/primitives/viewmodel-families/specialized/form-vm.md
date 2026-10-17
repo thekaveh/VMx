@@ -161,14 +161,14 @@ then approve; do not rely on a second call made during the save.
 
 ## 6.2.8.2.4. Cross-Language Surface
 
-| Concept           | C#                  | Python                | TypeScript             | Swift               | Rust                  |
-| ----------------- | ------------------- | --------------------- | ---------------------- | ------------------- | --------------------- |
-| Type              | `FormVM<TM>`        | `FormVM[TM]`          | `FormVM<TM>`           | `FormVM<Model>`     | `FormVm<M>`           |
-| Builder           | `FormVMBuilder<TM>` | `FormVMBuilder[TM]`   | `FormVM.builder<TM>()` | `FormVM<Model>.builder()` | `FormVm::builder()`   |
-| Mutator           | `SetModel(...)`     | `set_model(...)`      | `setModel(...)`        | `setModel(...)`     | `set_model(...)`      |
-| Awaitable/direct approve | `ApproveAsync()` | `approve_async()` | `approveAsync()`       | `approveAsync()`    | `approve()`           |
-| Reset builder     | `ResetOnApproved`   | `reset_on_approved`   | `resetOnApproved`      | `resetOnApproved`   | `reset_on_approved`   |
-| Approval subscription | `OnApproved.Subscribe(...)` | `on_approved.subscribe(...)` | `onApproved.subscribe(...)` | `onApproved.sink { ... }` | `subscribe_approved(...)` |
+| Concept                  | C#                          | Python                       | TypeScript                  | Swift                     | Rust                      |
+| ------------------------ | --------------------------- | ---------------------------- | --------------------------- | ------------------------- | ------------------------- |
+| Type                     | `FormVM<TM>`                | `FormVM[TM]`                 | `FormVM<TM>`                | `FormVM<Model>`           | `FormVm<M>`               |
+| Builder                  | `FormVMBuilder<TM>`         | `FormVMBuilder[TM]`          | `FormVM.builder<TM>()`      | `FormVM<Model>.builder()` | `FormVm::builder()`       |
+| Mutator                  | `SetModel(...)`             | `set_model(...)`             | `setModel(...)`             | `setModel(...)`           | `set_model(...)`          |
+| Awaitable/direct approve | `ApproveAsync()`            | `approve_async()`            | `approveAsync()`            | `approveAsync()`          | `approve()`               |
+| Reset builder            | `ResetOnApproved`           | `reset_on_approved`          | `resetOnApproved`           | `resetOnApproved`         | `reset_on_approved`       |
+| Approval subscription    | `OnApproved.Subscribe(...)` | `on_approved.subscribe(...)` | `onApproved.subscribe(...)` | `onApproved.sink { ... }` | `subscribe_approved(...)` |
 
 Each approval subscription detaches on its own: dispose the C# `IDisposable`,
 Python disposable, or TypeScript `Subscription`, cancel the Swift

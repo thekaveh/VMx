@@ -51,14 +51,6 @@ before any flavor releases a stable version.
 - `21-collections.md` — opt-in collection primitives: `ServicedObservableCollection<T>`,
   `ObservableList<T>`, `ObservableDictionary`, `PagedComposition<TVM>`.
 
-Later chapters:
-
-- `22-discriminator-vm.md` (v3.1) — active-key / modal-overlay state
-  coordinator.
-- `23-async-resource-vm.md` (v3.20) — one-value asynchronous presentation
-  lifecycle, cancellation, stale-result suppression, retention, and optional
-  cleanup.
-
 The following existing chapters were also extended in v2.1:
 
 - `03-messages.md` — §7 Convenience helpers (ADR-0032, informative):
@@ -71,6 +63,14 @@ The following existing chapters were also extended in v2.1:
   lazy initialization.
 - `16-notifications.md` — §6–§7 render-side VMs `NotificationVM` and
   `ConfirmationVM` (ADR-0031, NOTIF-011..016) with auto-dismiss lifecycle.
+
+Chapters added after v2.1:
+
+- `22-discriminator-vm.md` (v3.1) — active-key / modal-overlay state
+  coordinator.
+- `23-async-resource-vm.md` (v3.20) — one-value asynchronous presentation
+  lifecycle, cancellation, stale-result suppression, retention, and optional
+  cleanup.
 
 ### 1.4 v2.1.x → v2.2.0 changes
 

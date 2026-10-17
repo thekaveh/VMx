@@ -120,7 +120,8 @@ function BoundEditor({ vm }: { vm: EditorVM }) {
 `FormVM` has no public hub, so `useVm` cannot bind it directly, and an approve
 publishes nothing on the hub (spec/20 §8). Wrap the form in an application VM
 that republishes its state, as the Notes showcase `NoteFormVM` does, or
-subscribe to `onApproved` and `errorsChanged` in an effect.
+subscribe in an effect to `onApproved`, `approveErrors` (approve failures),
+and `errorsChanged` (validation errors).
 
 ## 9.8.5. StrictMode, SSR, hydration, and virtualization
 
