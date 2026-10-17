@@ -227,14 +227,15 @@ class NotificationHub:
                     self._emissions.clear()
                     self._emitter_thread = None
                     self._lock.notify_all()
+                # A dispose queued behind the failed delivery cannot retry: it
+                # has returned, or it is waiting, and it is idempotent. Finish
+                # the terminal step before waking any waiter, so ``pending``
+                # completes once and no waiter sees it still open.
+                if emission.complete or any(item.complete for item in abandoned):
+                    self._complete_pending_after_failure(completion_started=emission.complete)
                 for item in abandoned:
                     item.error = error
                     item.completed.set()
-                # A dispose queued behind the failed delivery has already
-                # returned and is idempotent, so it cannot retry. Finish the
-                # terminal step here: ``pending`` still completes once.
-                if emission.complete or any(item.complete for item in abandoned):
-                    self._complete_pending_after_failure(completion_started=emission.complete)
                 raise
             finally:
                 _delivery_context.depth = depth

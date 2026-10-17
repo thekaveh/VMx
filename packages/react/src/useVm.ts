@@ -1,9 +1,5 @@
 import { useCallback } from "react";
-import {
-  ConstructionStatusChangedMessage,
-  PropertyChangedMessage,
-  type IMessageHub,
-} from "@thekaveh/vmx";
+import type { IMessageHub } from "@thekaveh/vmx";
 
 import { useVersionedSelector, type Equality } from "./internal/useVersionedSelector.js";
 
@@ -26,15 +22,11 @@ export function useVm<TVm extends object & HubBackedValue, TSelected>(
     (invalidate: () => void): (() => void) => {
       const subscription = vm.hub.messages.subscribe({
         next: (message) => {
-          // Whole-VM invalidation covers property changes and lifecycle
-          // status transitions published for this VM.
-          if (
-            (message instanceof PropertyChangedMessage ||
-              message instanceof ConstructionStatusChangedMessage) &&
-            message.sender === vm
-          ) {
-            invalidate();
-          }
+          // Whole-VM invalidation covers every message this VM publishes:
+          // property, lifecycle, collection, and tree-structure changes.
+          // Comparing the sender, not the message class, also works when
+          // two copies of @thekaveh/vmx are installed.
+          if (message.sender === vm) invalidate();
         },
       });
       return () => subscription.unsubscribe();

@@ -62,6 +62,12 @@ project adheres to [Semantic Versioning](https://semver.org/).
   the reconciled item, as in the subscribed flavors.
 - `CompositeVm` and `GroupVm` collection and `Count` messages carry the
   container's name as `sender_name` instead of `"ObservableList"` (ADR-0120).
+- An `AsyncRelayCommand` built with `trigger(...)` and dropped without
+  `dispose()` is freed. Its trigger subscription captured a full clone of the
+  command, so the trigger hub kept the command and its task alive. This also
+  freed a dropped `TokenPagedComposition`.
+- `DerivedProperty::recompute` releases the value lock before it runs the
+  transform, so a transform that reads `value()` no longer deadlocks.
 - `NotificationHub` keeps pending notifications in post order. Before, it
   ordered them by creation identity (spec/16 §2.1).
 - `NotificationVm::is_resolved` reports a hub-side resolve that used the

@@ -7,6 +7,11 @@ uses independent [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `useVm` re-renders for every hub message the VM sends, including collection
+  and tree-structure changes. Before, a `HierarchicalVM` child added with
+  `addChild` left a `children.length` selector stale.
+- `useCommand` re-reads `canExecute` when the command's `canExecuteChanged`
+  stream completes, so a disposed `AsyncRelayCommand` renders as disabled.
 - `useVm(vm)` now also re-renders when the VM's lifecycle status changes, as
   "whole-VM invalidation" promises. Before, it reacted only to property
   changes, so a component rendering `vm.status` stayed stale.

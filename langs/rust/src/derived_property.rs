@@ -482,7 +482,10 @@ impl<T: Clone + PartialEq + Send + 'static> DerivedProperty<T> {
         if *lock(&self.disposed) {
             return;
         }
-        let next = transform(&lock(&self.value));
+        // Release the value lock before the user transform runs: a transform
+        // that reads `value()` would otherwise deadlock on this mutex.
+        let current = lock(&self.value).clone();
+        let next = transform(&current);
         self.set_computed(next);
     }
 

@@ -193,16 +193,17 @@ public sealed class NotificationHub : INotificationHub, IDisposable
                     _emitterThreadId = 0;
                     Monitor.PulseAll(_lock);
                 }
+                // A Dispose queued behind the failed delivery cannot retry: it
+                // has returned, or it is waiting, and it is idempotent. Finish
+                // the terminal step before waking any waiter, so Pending
+                // completes exactly once and no waiter sees it still open.
+                if (emission.Complete || Array.Exists(abandoned, item => item.Complete))
+                    CompletePendingAfterFailure(completionAlreadyStarted: emission.Complete);
                 foreach (var item in abandoned)
                 {
                     item.Error = error;
                     item.Completed.Set();
                 }
-                // A Dispose queued behind the failed delivery has already
-                // returned and is idempotent, so it cannot retry. Finish the
-                // terminal step here: Pending still completes exactly once.
-                if (emission.Complete || Array.Exists(abandoned, item => item.Complete))
-                    CompletePendingAfterFailure(completionAlreadyStarted: emission.Complete);
                 throw;
             }
             finally

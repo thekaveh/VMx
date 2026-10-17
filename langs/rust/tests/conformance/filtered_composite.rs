@@ -118,6 +118,11 @@ fn source_removal_and_clear_reconcile_current() {
     );
     source.add(child(3)).unwrap();
     assert_eq!(filtered.current().map(|vm| vm.model()), Some(1));
+
+    // A clear made after an unread source change also sticks.
+    source.add(child(4)).unwrap();
+    filtered.set_current(None).unwrap();
+    assert!(filtered.current().is_none());
 }
 
 /// COMP-033 — filtered cursor policies

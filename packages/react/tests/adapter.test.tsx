@@ -5,6 +5,7 @@ import { renderToString } from "react-dom/server";
 import { BehaviorSubject, Observable, Subject } from "rxjs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  AsyncRelayCommand,
   AsyncResourceStatus,
   AsyncResourceVM,
   ComponentVM,
@@ -12,11 +13,16 @@ import {
   CompositeVM,
   DerivedProperty,
   FormVM,
+  HierarchicalVM,
+  HierarchicalVMBuilder,
   MessageHub,
   NullDispatcher,
   ObservableList,
   PropertyChangedMessage,
   RelayCommand,
+  RxDispatcher,
+  ViewModelType,
+  type HierarchicalVMConstructionContext,
   type IMessage,
   type IMessageHub,
 } from "@thekaveh/vmx";
@@ -374,6 +380,53 @@ describe("command and collection hooks", () => {
     act(() => button.click());
     expect(task).toHaveBeenCalledTimes(1);
     expect(renders).toHaveBeenCalledTimes(2);
+  });
+
+  it("renders a disposed async command as disabled", () => {
+    const command = AsyncRelayCommand.builder().task(async () => {}).build();
+    function Probe(): JSX.Element {
+      const binding = useCommand(command);
+      return <button disabled={!binding.canExecute}>run</button>;
+    }
+    render(<Probe />);
+    const button = screen.getByRole("button") as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+
+    act(() => command.dispose());
+
+    expect(command.canExecute()).toBe(false);
+    expect(button.disabled).toBe(true);
+  });
+
+  it("re-renders a whole-VM binding for tree-structure changes", () => {
+    class Node extends HierarchicalVM<string, Node> {
+      constructor(context: HierarchicalVMConstructionContext<string, Node>) {
+        super(context);
+      }
+
+      override get type(): ViewModelType {
+        return ViewModelType.Component;
+      }
+    }
+    const hub = new MessageHub();
+    const node = (model: string): Node =>
+      new HierarchicalVMBuilder<string, Node>()
+        .model(model)
+        .childrenFactory(() => [])
+        .services(hub, RxDispatcher.immediate())
+        .vmFactory((context) => new Node(context))
+        .build();
+    const root = node("root");
+    function Probe(): JSX.Element {
+      const count = useVm(root, (current) => current.children.length);
+      return <span data-testid="count">{count}</span>;
+    }
+    render(<Probe />);
+    expect(screen.getByTestId("count").textContent).toBe("0");
+
+    act(() => root.addChild(node("child")));
+
+    expect(screen.getByTestId("count").textContent).toBe("1");
   });
 
   it("keeps ObservableList snapshots stable and emits one render for a batch", () => {

@@ -296,3 +296,21 @@ fn all_fixture_scenarios_match_expected_values() {
         }
     }
 }
+
+#[test]
+fn a_recompute_transform_may_read_the_property() {
+    let property = Arc::new(vmx::DerivedProperty::new(2));
+    let reader = property.clone();
+    let (done, finished) = std::sync::mpsc::channel();
+
+    std::thread::spawn(move || {
+        property.recompute(move |value| reader.value() + *value);
+        let _ = done.send(property.value());
+    });
+
+    assert_eq!(
+        finished.recv_timeout(std::time::Duration::from_secs(3)),
+        Ok(4),
+        "recompute must not hold the value lock while the transform runs"
+    );
+}

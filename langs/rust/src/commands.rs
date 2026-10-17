@@ -898,8 +898,16 @@ impl AsyncRelayCommand {
         let subscriptions = triggers
             .into_iter()
             .map(|trigger| {
-                let observed = command.clone();
-                trigger.subscribe(move |_| observed.raise_can_execute_changed())
+                // Capture only what the signal needs. A full command clone
+                // would make the trigger hub own the command that owns this
+                // subscription, so a dropped command would never be freed.
+                let disposed = command.disposed.clone();
+                let can_execute_changed = command.can_execute_changed.clone();
+                trigger.subscribe(move |_| {
+                    if !disposed.load(Ordering::SeqCst) {
+                        can_execute_changed.send(async_can_execute_changed_message());
+                    }
+                })
             })
             .collect();
         *lock(&command.trigger_subscriptions) = subscriptions;
@@ -1169,11 +1177,16 @@ impl AsyncRelayCommand {
         if self.disposed.load(Ordering::SeqCst) {
             return;
         }
-        self.can_execute_changed.send(Message::Custom {
-            sender_id: 0,
-            sender_name: "AsyncRelayCommand".to_string(),
-            name: "can_execute_changed".to_string(),
-        });
+        self.can_execute_changed
+            .send(async_can_execute_changed_message());
+    }
+}
+
+fn async_can_execute_changed_message() -> Message {
+    Message::Custom {
+        sender_id: 0,
+        sender_name: "AsyncRelayCommand".to_string(),
+        name: "can_execute_changed".to_string(),
     }
 }
 

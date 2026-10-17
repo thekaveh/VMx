@@ -1292,3 +1292,43 @@ fn wrappers_re_entered_from_their_inner_action_do_not_deadlock() {
     // Each admitted pre/post pair stays balanced around its inner execute.
     assert_eq!(decorator_log, ["pre", "run", "pre", "post", "run", "post"]);
 }
+
+#[test]
+fn a_dropped_async_command_with_a_trigger_is_released() {
+    let trigger = MessageHub::new();
+    let marker = Arc::new(());
+    let captured = marker.clone();
+    let command = AsyncRelayCommand::builder()
+        .task(move |_| {
+            let _ = &captured;
+            Ok(())
+        })
+        .trigger(trigger.clone())
+        .build();
+
+    drop(command);
+    trigger.send(Message::Custom {
+        sender_id: 0,
+        sender_name: "test".to_string(),
+        name: "changed".to_string(),
+    });
+
+    assert_eq!(Arc::strong_count(&marker), 1, "the command was freed");
+}
+
+#[test]
+fn a_dropped_token_pager_is_released() {
+    let marker = Arc::new(());
+    let captured = marker.clone();
+    let pager = vmx::TokenPagedComposition::<vmx::ComponentVm, String>::with_loader(
+        None,
+        move |_token: Option<String>| {
+            let _ = &captured;
+            (Vec::new(), None)
+        },
+    );
+
+    drop(pager);
+
+    assert_eq!(Arc::strong_count(&marker), 1, "the pager was freed");
+}

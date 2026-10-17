@@ -1568,10 +1568,16 @@ impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
     /// cursor policy (COMP-032, COMP-033). An explicit clear stays cleared
     /// until the next source change, predicate change, or refresh.
     pub fn current(&self) -> Option<T> {
+        self.reconcile_if_source_changed();
+        lock(&self.current).clone()
+    }
+
+    /// Applies a source membership change that no read has reconciled yet,
+    /// so a later explicit assignment is not undone by it.
+    fn reconcile_if_source_changed(&self) {
         if !*lock(&self.disposed) && *lock(&self.source_ids) != self.source_member_ids() {
             self.reconcile_current();
         }
-        lock(&self.current).clone()
     }
 
     fn source_member_ids(&self) -> Vec<usize> {
@@ -1580,6 +1586,7 @@ impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
 
     /// Assigns a visible current item or clears it.
     pub fn set_current(&self, item: Option<T>) -> VmxResult<()> {
+        self.reconcile_if_source_changed();
         if let Some(item) = item.as_ref() {
             if !self
                 .visible()
