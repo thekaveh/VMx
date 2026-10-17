@@ -1990,3 +1990,21 @@ def test_main_still_fails_when_non_current_2x_untagged(tmp_path: Path, monkeypat
     monkeypatch.setattr(_cvc, "get_git_tags", lambda _root: set())
     rc = _cvc.main(["--repo-root", str(tmp_path)])
     assert rc == 1
+
+
+def test_react_changelog_section_is_required_for_the_current_version(tmp_path: Path) -> None:
+    react = tmp_path / "packages/react"
+    react.mkdir(parents=True)
+    (react / "package.json").write_text('{"version": "0.1.2"}', encoding="utf-8")
+    changelog = react / "CHANGELOG.md"
+
+    changelog.write_text("## [Unreleased]\n\n## [0.1.1]\n\n- Old notes.\n", encoding="utf-8")
+    assert cvc.check_react_changelog_section(tmp_path) == [
+        "  react: CHANGELOG section '0.1.2' is missing for current version"
+    ]
+
+    changelog.write_text(
+        "## [Unreleased]\n\n## [0.1.2]\n\n### Fixed\n\n- A fix.\n\n## [0.1.1]\n\n- Old.\n",
+        encoding="utf-8",
+    )
+    assert cvc.check_react_changelog_section(tmp_path) == []

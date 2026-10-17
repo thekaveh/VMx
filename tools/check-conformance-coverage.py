@@ -75,6 +75,25 @@ def parse_catalog_ids(catalog_path: Path) -> set[str]:
     return ids
 
 
+def find_duplicate_catalog_ids(catalog_path: Path) -> list[str]:
+    """Return catalog IDs declared by more than one ### heading, sorted.
+
+    `parse_catalog_ids` returns a set, so a duplicated heading would otherwise
+    disappear silently; each ID must name exactly one test.
+    """
+    seen: set[str] = set()
+    duplicates: set[str] = set()
+    for raw_line in catalog_path.read_text(encoding="utf-8").splitlines():
+        if not raw_line.startswith(_HEADING_PREFIX):
+            continue
+        for match in _ID_PATTERN.finditer(raw_line):
+            catalog_id = f"{match.group(1)}-{match.group(2)}"
+            if catalog_id in seen:
+                duplicates.add(catalog_id)
+            seen.add(catalog_id)
+    return sorted(duplicates)
+
+
 _PY_MARK_PATTERN = re.compile(
     r'@pytest\.mark\.conformance\(\s*["\']([A-Z]{3,5}-\d{3})["\']\s*(?:,[\s\S]*?)?\)',
     re.DOTALL,
@@ -538,6 +557,13 @@ def main(argv: Iterable[str] | None = None) -> int:
         print(f"ERROR: catalog not found at {catalog_path}", file=sys.stderr)
         return 2
 
+    duplicates = find_duplicate_catalog_ids(catalog_path)
+    if duplicates:
+        print(
+            "ERROR: catalog IDs declared by more than one heading: " + ", ".join(duplicates),
+            file=sys.stderr,
+        )
+        return 1
     catalog = parse_catalog_ids(catalog_path)
     coverage, subsets = collect_coverage(repo_root)
 

@@ -459,6 +459,32 @@ def check_changelog_sections(repo_root: Path, manifests: dict[str, dict[str, str
     return issues
 
 
+def check_react_changelog_section(repo_root: Path) -> list[str]:
+    """Require a substantive section for the React adapter's current version.
+
+    The adapter is versioned independently of the core TypeScript package and
+    is not part of the flavor manifests, so it gets its own check: a release
+    tag must never publish a version whose notes are missing.
+    """
+    package_json = repo_root / "packages" / "react" / "package.json"
+    if not package_json.is_file():
+        return []
+    version = str(json.loads(package_json.read_text(encoding="utf-8")).get("version", ""))
+    if not version:
+        return ["  react: packages/react/package.json has no version"]
+    changelog = repo_root / "packages" / "react" / "CHANGELOG.md"
+    if not changelog.is_file():
+        return [f"  react: missing {changelog.relative_to(repo_root)}"]
+    sections, parse_errors = _parse_changelog_sections(changelog, ())
+    if parse_errors:
+        return parse_errors
+    if version not in sections:
+        return [f"  react: CHANGELOG section {version!r} is missing for current version"]
+    if not _has_substantive_markdown(sections[version]):
+        return [f"  react: CHANGELOG section {version!r} has no substantive release notes"]
+    return []
+
+
 def check_release_unreleased(changelog: Path, package: str = "") -> list[str]:
     """Reject substantive notes left outside the immutable tagged section."""
     sections, parse_errors = _parse_changelog_sections(
@@ -1001,7 +1027,10 @@ def render_report(
         return "\n".join(lines)
 
     if msv_issues:
-        lines.append("minSpecVersion mismatches (all must equal spec/VERSION):")
+        lines.append(
+            "Version issues (minSpecVersion must equal spec/VERSION; every current"
+            " version needs a substantive CHANGELOG section):"
+        )
         lines.extend(msv_issues)
         lines.append("")
 
@@ -1067,6 +1096,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     msv_issues = validate_semver_values(spec_version, manifests, matrix_rows)
     msv_issues.extend(check_min_spec_versions(spec_version, manifests))
     msv_issues.extend(check_changelog_sections(repo_root, manifests))
+    msv_issues.extend(check_react_changelog_section(repo_root))
     if any(
         flavor in manifests
         for flavor in (
