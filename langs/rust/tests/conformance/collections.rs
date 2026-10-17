@@ -1663,6 +1663,7 @@ fn observable_dictionary_publishes_to_hub() {
             CollectionChangeAction::Remove,
             CollectionChangeAction::Add,
             CollectionChangeAction::Reset,
+            CollectionChangeAction::Reset,
         ]
     );
 }

@@ -3,10 +3,9 @@
 //! Spec: `spec/05-component-vm.md`.
 
 use super::{
-    catch_unwind, clone_locked, fmt, lock, resume_unwind, Arc, AssertUnwindSafe, ComponentCore,
-    ConstructionStatus, Dispatcher, LifecycleOperation, Message, MessageHub, ModelHint, Mutex,
-    NullDispatcher, ParentHandle, PropertyChangedStream, RelayCommand, Subscription, TreeNode,
-    VmNode, VmxError, VmxResult,
+    clone_locked, fmt, lock, Arc, ComponentCore, ConstructionStatus, Dispatcher,
+    LifecycleOperation, Message, MessageHub, ModelHint, Mutex, NullDispatcher, ParentHandle,
+    PropertyChangedStream, RelayCommand, Subscription, TreeNode, VmNode, VmxError, VmxResult,
 };
 
 /// Identifies the role a view model plays in the VM hierarchy.
@@ -347,14 +346,8 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
 
     /// Transitions the component to its terminal disposed state.
     pub fn dispose(&self) -> VmxResult<()> {
-        let result = catch_unwind(AssertUnwindSafe(|| {
-            self.core.transition(LifecycleOperation::Dispose)
-        }));
-        self.commands.dispose();
-        match result {
-            Ok(result) => result,
-            Err(payload) => resume_unwind(payload),
-        }
+        let commands = self.commands.clone();
+        self.core.dispose_then(move || commands.dispose())
     }
 
     /// Returns the current lifecycle status.

@@ -87,6 +87,45 @@ fn foreign_disposal_waits_for_an_admitted_lifecycle_hook() {
     assert_eq!(vm.status(), ConstructionStatus::Disposed);
 }
 
+/// LIFE-015 — a disposal deferred behind the caller's own admitted hook keeps
+/// the commands live until the hook returns (spec/02 §2.4, §7).
+#[test]
+fn deferred_self_disposal_tears_down_commands_after_the_hook() {
+    let vm = ComponentVm::new("self-dispose");
+    let teardowns = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::clone(&teardowns);
+    let _subscription = vm
+        .reconstruct_command()
+        .can_execute_changed()
+        .subscribe_with_completion(
+            |_| {},
+            move || {
+                observed.fetch_add(1, Ordering::SeqCst);
+            },
+        );
+    let during_hook = Arc::new(AtomicUsize::new(usize::MAX));
+    {
+        let vm_in_hook = vm.clone();
+        let teardowns = Arc::clone(&teardowns);
+        let during_hook = Arc::clone(&during_hook);
+        vm.on_construct(move || {
+            vm_in_hook.dispose()?;
+            during_hook.store(teardowns.load(Ordering::SeqCst), Ordering::SeqCst);
+            Ok(())
+        });
+    }
+
+    vm.construct().unwrap();
+
+    assert_eq!(
+        during_hook.load(Ordering::SeqCst),
+        0,
+        "commands were torn down while the admitted hook still ran"
+    );
+    assert_eq!(teardowns.load(Ordering::SeqCst), 1);
+    assert_eq!(vm.status(), ConstructionStatus::Disposed);
+}
+
 #[test]
 fn disposed_parent_skips_post_hook_child_construction() {
     let child_constructs = Arc::new(AtomicUsize::new(0));

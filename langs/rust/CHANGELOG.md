@@ -18,7 +18,7 @@ project adheres to [Semantic Versioning](https://semver.org/).
   confirmation resolves it with `Approve`, and its lifespan expiring leaves it
   pending (spec/16 §7).
 - `ObservableMultiDictionary::add()`, which rejects an existing key pair,
-  `clear()`, which publishes one `Reset`, and `entries()`, an insertion-ordered
+  `clear()`, which publishes one `Reset` (also when empty, as in every flavor), and `entries()`, an insertion-ordered
   snapshot (spec/21 §4). COL-010..012, COL-014, COL-015, and COL-022 now
   exercise the two-key dictionary instead of the single-key one.
 - `Command::as_async()`, a provided trait method that returns a command's
@@ -41,6 +41,10 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A disposal deferred behind an admitted lifecycle hook (same-thread or
+  cyclic) now disposes the commands of `ComponentVm`, `CompositeVm`,
+  `GroupVm`, and `AggregateVm1..6` only after the hook, owned resources, and
+  streams finish, as on the immediate path (spec/02 §2.4, §7).
 - `FormVm::approve()` no longer calls the persister when an approve-command
   `can_execute_changed` handler disposes the form during admission. The
   approval is refused and its in-flight mark is cleared (spec/20 §5.3).

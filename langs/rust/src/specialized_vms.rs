@@ -17,7 +17,7 @@ pub struct ModalVm<T: Clone + Send + 'static> {
 }
 
 impl<T: Clone + Send + 'static> ModalVm<T> {
-    /// Creates a closed modal with the result used by cancellation and disposal.
+    /// Creates an open, unresolved modal with the result used by cancellation and disposal.
     pub fn new(cancellation_result: T) -> Self {
         Self {
             cancellation_result,

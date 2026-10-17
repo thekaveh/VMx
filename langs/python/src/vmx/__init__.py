@@ -332,10 +332,11 @@ from vmx.components.base import _ComponentVMBase
 
 # Lifecycle capabilities are baseline: every core VM trivially satisfies them.
 # See spec/14-capabilities.md rule 2 and CAP-020.
-# Registering the shared base covers every VM type: components, composites,
-# groups, aggregates, hierarchical, forwarding, and async-resource VMs.
-# ABCMeta.register accepts an abstract class at runtime; mypy's type-abstract
-# check does not model that.
-IConstructable.register(_ComponentVMBase)  # type: ignore[type-abstract]
-IDestructable.register(_ComponentVMBase)  # type: ignore[type-abstract]
-IReconstructable.register(_ComponentVMBase)  # type: ignore[type-abstract]
+# Registering the shared base covers components, composites, groups,
+# aggregates, hierarchical, and async-resource VMs, and ForwardingComponentVM;
+# ForwardingCompositeVM does not derive from it, so it is registered itself.
+for _lifecycle_vm in (_ComponentVMBase, ForwardingCompositeVM):
+    IConstructable.register(_lifecycle_vm)
+    IDestructable.register(_lifecycle_vm)
+    IReconstructable.register(_lifecycle_vm)
+del _lifecycle_vm

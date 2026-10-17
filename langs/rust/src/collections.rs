@@ -1178,18 +1178,11 @@ where
         Ok(())
     }
 
-    /// Removes every entry and publishes one `Reset`; an empty dictionary
-    /// publishes nothing.
+    /// Removes every entry and publishes one `Reset`, as every flavor's
+    /// dictionary does, even when it was already empty.
     pub fn clear(&self) {
-        let cleared = {
-            let mut inner = lock(&self.inner);
-            let had_entries = !inner.is_empty();
-            inner.clear();
-            had_entries
-        };
-        if cleared {
-            self.publish(CollectionChangeAction::Reset);
-        }
+        lock(&self.inner).clear();
+        self.publish(CollectionChangeAction::Reset);
     }
 
     /// Returns a snapshot of every entry in insertion order.

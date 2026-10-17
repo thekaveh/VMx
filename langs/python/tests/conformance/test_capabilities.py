@@ -582,7 +582,13 @@ def test_CAP_020_bare_componentvm_opt_in_only() -> None:
 
 @pytest.mark.conformance("CAP-020")
 def test_CAP_020_container_vms_satisfy_lifecycle_capabilities() -> None:
-    from vmx import AggregateVM1Builder, ComponentVMOf, CompositeVM, GroupVMBuilder
+    from vmx import (
+        AggregateVM1Builder,
+        ComponentVMOf,
+        CompositeVM,
+        ForwardingCompositeVM,
+        GroupVMBuilder,
+    )
 
     hub, dispatcher = MessageHub(), RxDispatcher.immediate()
     child = ComponentVMOf.builder().name("child").model(1).services(hub, dispatcher).build()
@@ -594,6 +600,9 @@ def test_CAP_020_container_vms_satisfy_lifecycle_capabilities() -> None:
         .services(hub, dispatcher)
         .component_1(lambda: child)
         .build(),
+        ForwardingCompositeVM(
+            CompositeVM.builder().name("inner").services(hub, dispatcher).children(list).build()
+        ),
     )
     for vm in containers:
         for cap in (IConstructable, IDestructable, IReconstructable):

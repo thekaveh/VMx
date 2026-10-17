@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A disposed `CompositeVM` or `GroupVM` no longer sends a `CollectionChangedMessage`
+  on the hub when a batch it was disposed inside closes, or when a local
+  `collectionChanged` subscriber disposes it (ADR-0142, COMP-045, GRP-012).
 - `ConfirmationDecoratorCommand` no longer calls `confirm` when the inner
   command's `canExecute` predicate disposes the decorator (spec/04 §8.4).
 

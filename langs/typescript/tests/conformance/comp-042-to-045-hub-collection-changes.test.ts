@@ -223,6 +223,32 @@ describe("COMP-045", () => {
     expect(messages.filter((message) => message.sender === parent)).toEqual([]);
   });
 
+  it("publishes no batch Reset when the composite is disposed inside a dirty batch", () => {
+    const hub = new MessageHub();
+    const parent = composite(hub);
+    const messages = hubMessages(hub);
+    const batch = parent.batchUpdate();
+    parent.add(child(hub, "a"));
+
+    parent.dispose();
+    batch.dispose();
+
+    expect(messages.filter((message) => message.sender === parent)).toEqual([]);
+  });
+
+  it("publishes no hub message for a change whose local subscriber disposes the composite", () => {
+    const hub = new MessageHub();
+    const parent = composite(hub);
+    parent.add(child(hub, "a"));
+    parent.add(child(hub, "b"));
+    parent.collectionChanged.subscribe(() => parent.dispose());
+    const messages = hubMessages(hub);
+
+    parent.move(0, 1);
+
+    expect(messages.filter((message) => message.sender === parent)).toEqual([]);
+  });
+
   it("publishes each change once through a forwarding wrapper, sent by the wrapped composite", () => {
     const hub = new MessageHub();
     const parent = composite(hub);
@@ -269,6 +295,34 @@ describe("GRP-012", () => {
     } catch {
       // A disposed container may reject the mutation; either way it publishes nothing.
     }
+
+    expect(messages).toEqual([]);
+  });
+});
+
+describe("GRP-012 disposal", () => {
+  it("publishes no batch Reset when the group is disposed inside a dirty batch", () => {
+    const hub = new MessageHub();
+    const peers = group(hub);
+    const messages = hubMessages(hub);
+    const batch = peers.batchUpdate();
+    peers.add(child(hub, "a"));
+
+    peers.dispose();
+    batch.dispose();
+
+    expect(messages).toEqual([]);
+  });
+
+  it("publishes no hub message for a change whose local subscriber disposes the group", () => {
+    const hub = new MessageHub();
+    const peers = group(hub);
+    peers.add(child(hub, "a"));
+    peers.add(child(hub, "b"));
+    peers.collectionChanged.subscribe(() => peers.dispose());
+    const messages = hubMessages(hub);
+
+    peers.move(0, 1);
 
     expect(messages).toEqual([]);
   });

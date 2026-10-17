@@ -507,7 +507,10 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
   // (spec ch. 01 §1.4, ADR-0142). A disposed container publishes nothing.
   #deliverCollectionChanged(event: CollectionChangedEvent): void {
     this.#collectionChangedSubject.next(event);
-    if (this.#collectionChangedSubject.closed) return;
+    // A completed rxjs Subject is stopped, not closed, so check this
+    // container's own disposal: it may have been disposed before a batch
+    // closed or by a local subscriber of this very event.
+    if (this.#disposeRequested || this.#disposeDeferred) return;
     this.hub.send(collectionChangedMessageFor(this, event));
   }
 

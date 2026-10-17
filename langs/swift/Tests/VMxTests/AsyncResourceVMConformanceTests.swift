@@ -168,6 +168,28 @@ final class AsyncResourceVMConformanceTests: XCTestCase {
         XCTAssertTrue(vm.reloadCommand.canExecute())
     }
 
+    /// ARES-003 — the fire-and-forget load reports failure only as state.
+    func testAres003CommandFailureBecomesStateNotCommandError() async {
+        let vm: AsyncResourceVM<Int> = makeAsyncResourceVM {
+            throw AsyncResourceTestError.failed
+        }
+        let commandErrors = LockedCount()
+        let errorsCancellable = vm.loadCommand.errors.sink { _ in commandErrors.increment() }
+        let names = LockedValues<String>()
+        let stateCancellable = vm.propertyChanged.sink { names.append($0) }
+        let settled = names.expectation(forCount: 2, "Loading then Error published")
+
+        vm.loadCommand.execute()
+        await fulfillment(of: [settled], timeout: signalTimeout)
+
+        XCTAssertEqual(vm.state.status, .error)
+        XCTAssertNil(vm.state.value)
+        XCTAssertTrue(vm.state.error is AsyncResourceTestError)
+        XCTAssertEqual(commandErrors.value, 0)
+        XCTAssertTrue(vm.reloadCommand.canExecute())
+        withExtendedLifetime((errorsCancellable, stateCancellable)) {}
+    }
+
     /// ARES-004 — reload retries an Error state and may reach Ready.
     func testAres004RetryReplacesError() async {
         let queue = LoaderQueue<Int>([
@@ -351,14 +373,36 @@ final class AsyncResourceVMConformanceTests: XCTestCase {
         await fulfillment(of: [deferred.parked], timeout: signalTimeout)
         XCTAssertEqual(vm.state.status, .loading)
 
+        let notifications = LockedCount()
+        let stateCancellable = vm.propertyChanged.sink { _ in notifications.increment() }
+        let commandCancellables = [
+            vm.loadCommand.canExecuteChanged,
+            vm.reloadCommand.canExecuteChanged,
+            vm.cancelCommand.canExecuteChanged,
+        ].map { $0.sink { notifications.increment() } }
+
+        vm.dispose()
         vm.dispose()
         await intent.value
+        let statusAfterDispose = vm.state.status
+        let notificationsAfterDispose = notifications.value
+
+        XCTAssertFalse(vm.loadCommand.canExecute())
+        XCTAssertFalse(vm.reloadCommand.canExecute())
+        XCTAssertFalse(vm.cancelCommand.canExecute())
+        await vm.load()
+        await vm.reload()
+        vm.cancel()
         let lateCleaned = cleaned.expectation(forCount: 1, "late success cleaned after disposal")
         deferred.resolve(8)
         await fulfillment(of: [lateCleaned], timeout: signalTimeout)
 
         XCTAssertEqual(vm.status, .disposed)
+        XCTAssertEqual(vm.state.status, statusAfterDispose)
+        XCTAssertNil(vm.state.value)
+        XCTAssertEqual(notifications.value, notificationsAfterDispose)
         XCTAssertEqual(cleaned.values, [8])
+        withExtendedLifetime((stateCancellable, commandCancellables)) {}
     }
 
     func testReentrantDisposeDuringLoadingNotificationPreventsLoaderStart() async {

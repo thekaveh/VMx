@@ -194,6 +194,32 @@ fn async_resource_failure_becomes_state() {
     assert!(vm.reload_command().can_execute());
 }
 
+/// ARES-003 — the fire-and-forget load reports the failure only as state.
+#[test]
+fn async_resource_command_failure_becomes_state_not_command_error() {
+    let vm: AsyncResourceVm<i32> =
+        AsyncResourceVm::new("resource", |_| Err(VmxError::Other("offline".into())));
+    let command_errors = Arc::new(AtomicUsize::new(0));
+    let observed = command_errors.clone();
+    let _subscription = vm.load_command().error_stream().subscribe(move |_| {
+        observed.fetch_add(1, Ordering::SeqCst);
+    });
+
+    vm.load_command().execute();
+    wait_until(|| vm.resource_status() == AsyncResourceStatus::Error);
+
+    match vm.state() {
+        AsyncResourceState::Error {
+            previous: None,
+            error,
+        } => assert_eq!(error.to_string(), "offline"),
+        other => panic!("expected Error with no value, got {other:?}"),
+    }
+    wait_until(|| vm.load_command().can_execute() || vm.reload_command().can_execute());
+    assert_eq!(command_errors.load(Ordering::SeqCst), 0);
+    assert!(vm.reload_command().can_execute());
+}
+
 #[test]
 fn async_resource_loader_panic_restores_stable_state_and_remains_retryable() {
     let attempt = Arc::new(AtomicUsize::new(0));

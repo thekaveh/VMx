@@ -26,9 +26,10 @@ All notable changes to the Python flavor are documented here. The format is base
 - `ConfirmationDecoratorCommand` no longer calls `confirm` when the inner
   command's `can_execute` predicate disposes the decorator (spec/04 §8.4).
 - `CompositeVM`, `GroupVM`, `AggregateVM1..6`, `HierarchicalVM`,
-  `ForwardingComponentVM`, and `AsyncResourceVM` now satisfy
-  `IConstructable`, `IDestructable`, and `IReconstructable` in `isinstance`
-  checks; only the component classes were registered (spec/14 rule 2).
+  `ForwardingComponentVM`, `ForwardingCompositeVM`, and `AsyncResourceVM`
+  now satisfy `IConstructable`, `IDestructable`, and `IReconstructable` in
+  `isinstance` checks; only the component classes were registered (spec/14
+  rule 2).
 - `ObservableDictionary` raises `TypeError` for a `None` key in `d[k1, k2]`
   and `(k1, k2) in d`, as every other accessor already did (spec/21 §4.4).
 - A cancelled persister on the `approve_command` path is now reported on

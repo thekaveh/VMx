@@ -439,11 +439,13 @@ impl<T1: VmNode, D: Dispatcher> AggregateVm1<T1, D> {
         }
         self.ownership.replace_ids(HashSet::new());
         retain_first_failure(&mut first_failure, || {
-            self.core.transition(LifecycleOperation::Dispose)
+            let commands = Arc::clone(&self.commands);
+            self.core.dispose_then(move || {
+                if let Some(commands) = commands.get() {
+                    commands.dispose();
+                }
+            })
         });
-        if let Some(commands) = self.commands.get() {
-            commands.dispose();
-        }
         finish_with_first_failure(first_failure)
     }
 
@@ -808,11 +810,13 @@ impl<T1: VmNode, T2: VmNode, D: Dispatcher> AggregateVm2<T1, T2, D> {
         }
         self.ownership.replace_ids(HashSet::new());
         retain_first_failure(&mut first_failure, || {
-            self.core.transition(LifecycleOperation::Dispose)
+            let commands = Arc::clone(&self.commands);
+            self.core.dispose_then(move || {
+                if let Some(commands) = commands.get() {
+                    commands.dispose();
+                }
+            })
         });
-        if let Some(commands) = self.commands.get() {
-            commands.dispose();
-        }
         finish_with_first_failure(first_failure)
     }
 
@@ -1158,11 +1162,13 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, D: Dispatcher> AggregateVm3<T1, T2, T3,
         }
         self.ownership.replace_ids(HashSet::new());
         retain_first_failure(&mut first_failure, || {
-            self.core.transition(LifecycleOperation::Dispose)
+            let commands = Arc::clone(&self.commands);
+            self.core.dispose_then(move || {
+                if let Some(commands) = commands.get() {
+                    commands.dispose();
+                }
+            })
         });
-        if let Some(commands) = self.commands.get() {
-            commands.dispose();
-        }
         finish_with_first_failure(first_failure)
     }
 
@@ -1513,11 +1519,13 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, D: Dispatcher>
         }
         self.ownership.replace_ids(HashSet::new());
         retain_first_failure(&mut first_failure, || {
-            self.core.transition(LifecycleOperation::Dispose)
+            let commands = Arc::clone(&self.commands);
+            self.core.dispose_then(move || {
+                if let Some(commands) = commands.get() {
+                    commands.dispose();
+                }
+            })
         });
-        if let Some(commands) = self.commands.get() {
-            commands.dispose();
-        }
         finish_with_first_failure(first_failure)
     }
 
@@ -1915,11 +1923,13 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, D: Dispatcher>
         }
         self.ownership.replace_ids(HashSet::new());
         retain_first_failure(&mut first_failure, || {
-            self.core.transition(LifecycleOperation::Dispose)
+            let commands = Arc::clone(&self.commands);
+            self.core.dispose_then(move || {
+                if let Some(commands) = commands.get() {
+                    commands.dispose();
+                }
+            })
         });
-        if let Some(commands) = self.commands.get() {
-            commands.dispose();
-        }
         finish_with_first_failure(first_failure)
     }
 
@@ -2363,11 +2373,13 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, T6: VmNode, D: 
         }
         self.ownership.replace_ids(HashSet::new());
         retain_first_failure(&mut first_failure, || {
-            self.core.transition(LifecycleOperation::Dispose)
+            let commands = Arc::clone(&self.commands);
+            self.core.dispose_then(move || {
+                if let Some(commands) = commands.get() {
+                    commands.dispose();
+                }
+            })
         });
-        if let Some(commands) = self.commands.get() {
-            commands.dispose();
-        }
         finish_with_first_failure(first_failure)
     }
 

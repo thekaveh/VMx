@@ -2084,6 +2084,7 @@ struct ComponentCoreInner<D: Dispatcher> {
     on_destruct: Option<Hook>,
     on_dispose: Option<Hook>,
     owned_cleanups: Vec<OwnedCleanup>,
+    terminal_cleanups: Vec<OwnedCleanup>,
     active_hook_owner: Option<ThreadId>,
     deferred_core_disposal: bool,
     selected: bool,
@@ -2111,6 +2112,7 @@ impl<D: Dispatcher> ComponentCore<D> {
                 on_destruct: None,
                 on_dispose: None,
                 owned_cleanups: Vec::new(),
+                terminal_cleanups: Vec::new(),
                 active_hook_owner: None,
                 deferred_core_disposal: false,
                 selected: false,
@@ -2837,6 +2839,7 @@ impl<D: Dispatcher> ComponentCore<D> {
         self.dispose_owned();
         property_changed.dispose();
         background_errors.dispose();
+        self.run_terminal_cleanups();
         match result {
             Ok(result) => result,
             Err(payload) => resume_unwind(payload),
@@ -2866,6 +2869,32 @@ impl<D: Dispatcher> ComponentCore<D> {
             }
         };
         if let Some(cleanup) = cleanup {
+            let _ = catch_unwind(AssertUnwindSafe(cleanup));
+        }
+    }
+
+    /// Disposes the component and then runs `terminal`, the wrapper's own
+    /// last teardown step (its commands, spec/02 §7). When a foreign or
+    /// cyclic disposal defers behind an admitted hook (§2.4), `terminal`
+    /// runs only once the deferred hook, owned resources, and streams finish.
+    pub(crate) fn dispose_then(&self, terminal: impl FnOnce() + Send + 'static) -> VmxResult<()> {
+        lock(&self.inner).terminal_cleanups.push(Box::new(terminal));
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            self.transition(LifecycleOperation::Dispose)
+        }));
+        let deferred = lock(&self.inner).deferred_core_disposal;
+        if !deferred {
+            self.run_terminal_cleanups();
+        }
+        match result {
+            Ok(result) => result,
+            Err(payload) => resume_unwind(payload),
+        }
+    }
+
+    fn run_terminal_cleanups(&self) {
+        let cleanups = std::mem::take(&mut lock(&self.inner).terminal_cleanups);
+        for cleanup in cleanups {
             let _ = catch_unwind(AssertUnwindSafe(cleanup));
         }
     }

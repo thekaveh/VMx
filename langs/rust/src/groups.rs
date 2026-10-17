@@ -749,9 +749,9 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
         let Some(snapshot) = snapshot else {
             let mut first_failure = None;
             retain_first_failure(&mut first_failure, || {
-                self.core.transition(LifecycleOperation::Dispose)
+                let commands = self.commands.clone();
+                self.core.dispose_then(move || commands.dispose())
             });
-            self.commands.dispose();
             return finish_with_first_failure(first_failure);
         };
         let mut first_failure = None;
@@ -759,9 +759,9 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             retain_first_failure(&mut first_failure, || item.dispose());
         }
         retain_first_failure(&mut first_failure, || {
-            self.core.transition(LifecycleOperation::Dispose)
+            let commands = self.commands.clone();
+            self.core.dispose_then(move || commands.dispose())
         });
-        self.commands.dispose();
         finish_with_first_failure(first_failure)
     }
 
