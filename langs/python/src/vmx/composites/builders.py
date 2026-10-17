@@ -18,7 +18,7 @@ from vmx.builders.exceptions import BuilderValidationError
 from vmx.components.base import _ComponentVMBase
 from vmx.messages.protocols import Message
 from vmx.services.dispatcher import Dispatcher
-from vmx.services.message_hub import MessageHub
+from vmx.services.message_hub import MessageHubProto
 
 VM = TypeVar("VM", bound=_ComponentVMBase)
 M = TypeVar("M")
@@ -39,7 +39,7 @@ class CompositeVMBuilder(Generic[VM]):
     __orig_class__: object = dataclasses.field(init=False, repr=False, compare=False)
     _name: str | None = dataclasses.field(default=None)
     _hint: str = dataclasses.field(default="")
-    _hub: MessageHub[Message] | None = dataclasses.field(default=None)
+    _hub: MessageHubProto[Message] | None = dataclasses.field(default=None)
     _dispatcher: Dispatcher | None = dataclasses.field(default=None)
     _async_selection: bool = dataclasses.field(default=False)
     _auto_construct_on_add: bool = dataclasses.field(default=False)
@@ -59,11 +59,13 @@ class CompositeVMBuilder(Generic[VM]):
         """Set the optional ``hint`` field (default: empty string)."""
         return dataclasses.replace(self, _hint=value)
 
-    def services(self, hub: MessageHub[Message], dispatcher: Dispatcher) -> CompositeVMBuilder[VM]:
+    def services(
+        self, hub: MessageHubProto[Message], dispatcher: Dispatcher
+    ) -> CompositeVMBuilder[VM]:
         """Set the required hub and dispatcher."""
         return dataclasses.replace(self, _hub=hub, _dispatcher=dispatcher)
 
-    def _option_hub(self, hub: MessageHub[Message]) -> CompositeVMBuilder[VM]:
+    def _option_hub(self, hub: MessageHubProto[Message]) -> CompositeVMBuilder[VM]:
         """Retain a hub supplied through the options factory until build validation."""
         return dataclasses.replace(self, _hub=hub)
 
@@ -162,7 +164,7 @@ class CompositeVMOfBuilder(Generic[M, VM]):
     __orig_class__: object = dataclasses.field(init=False, repr=False, compare=False)
     _name: str | None = dataclasses.field(default=None)
     _hint: str = dataclasses.field(default="")
-    _hub: MessageHub[Message] | None = dataclasses.field(default=None)
+    _hub: MessageHubProto[Message] | None = dataclasses.field(default=None)
     _dispatcher: Dispatcher | None = dataclasses.field(default=None)
     _async_selection: bool = dataclasses.field(default=False)
     _auto_construct_on_add: bool = dataclasses.field(default=False)
@@ -182,7 +184,7 @@ class CompositeVMOfBuilder(Generic[M, VM]):
         return dataclasses.replace(self, _hint=value)
 
     def services(
-        self, hub: MessageHub[Message], dispatcher: Dispatcher
+        self, hub: MessageHubProto[Message], dispatcher: Dispatcher
     ) -> CompositeVMOfBuilder[M, VM]:
         return dataclasses.replace(self, _hub=hub, _dispatcher=dispatcher)
 

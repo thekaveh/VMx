@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from collections.abc import Callable
 
 import pytest
@@ -80,3 +81,51 @@ async def test_pending_completes_when_a_subscriber_disposes_the_hub_and_then_rai
     assert completed == [None]
     failing.dispose()
     observer.dispose()
+
+
+class _Stop(BaseException):
+    pass
+
+
+def test_a_waiting_dispose_wakes_when_a_completion_observer_raises_base_exception() -> None:
+    import threading
+    import time
+
+    hub = NotificationHub()
+    in_next = threading.Event()
+    release = threading.Event()
+
+    def on_next(snapshot: object) -> None:
+        if snapshot:
+            in_next.set()
+            release.wait(5)
+            raise ValueError("delivery")
+
+    def on_completed() -> None:
+        raise _Stop
+
+    hub.pending.subscribe(on_next=on_next, on_completed=on_completed, on_error=lambda _: None)
+
+    def post_on_loop() -> None:
+        async def post() -> None:
+            with contextlib.suppress(BaseException):
+                hub.post(Notification(NotificationType.NOTIFICATION, "m"))
+
+        asyncio.run(post())
+
+    poster = threading.Thread(target=post_on_loop)
+    poster.start()
+    assert in_next.wait(5)
+    disposed = threading.Event()
+
+    def dispose() -> None:
+        with contextlib.suppress(BaseException):
+            hub.dispose()
+        disposed.set()
+
+    threading.Thread(target=dispose, daemon=True).start()
+    time.sleep(0.2)
+    release.set()
+    poster.join(5)
+
+    assert disposed.wait(5), "the waiting dispose must wake"

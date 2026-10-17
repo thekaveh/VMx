@@ -37,7 +37,7 @@ from vmx.components.protocols import ViewModelType
 from vmx.lifecycle.status import ConstructionStatus
 from vmx.messages.protocols import Message
 from vmx.services.dispatcher import Dispatcher
-from vmx.services.message_hub import MessageHub
+from vmx.services.message_hub import MessageHubProto
 
 VM = TypeVar("VM", bound=_ComponentVMBase)
 
@@ -78,7 +78,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         *,
         name: str,
         hint: str,
-        hub: MessageHub[Message],
+        hub: MessageHubProto[Message],
         dispatcher: Dispatcher,
         auto_construct_on_add: bool = False,
         children_factory: Callable[[], Iterable[VM]] | None = None,
@@ -643,7 +643,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         cls,
         *,
         name: str | None = None,
-        hub: MessageHub[Message] | None = None,
+        hub: MessageHubProto[Message] | None = None,
         dispatcher: Dispatcher | None = None,
         children: Callable[[], Iterable[VM]],
         hint: str = "",

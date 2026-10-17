@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `ObservableDictionary`: the add index is captured before the local event, so a subscriber that adds
+  another entry no longer shifts the first entry's reported hub index.
 - `HierarchicalVM` caches its path with weak references. Before, the cached
   `[root, …, self]` array retained the node and its ancestors, so a tree that
   had been read through `path` or `addChild` never deallocated.

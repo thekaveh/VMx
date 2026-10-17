@@ -22,7 +22,7 @@ from typing import Any, Generic, TypeVar
 from vmx.builders import _validation
 from vmx.builders.exceptions import BuilderValidationError
 from vmx.services.dispatcher import Dispatcher
-from vmx.services.message_hub import MessageHub
+from vmx.services.message_hub import MessageHub, MessageHubProto
 
 TModel = TypeVar("TModel")
 TVM = TypeVar("TVM", bound="Any")
@@ -68,7 +68,7 @@ class HierarchicalVMBuilder(Generic[TModel, TVM]):
     _model: object = dataclasses.field(default=_MODEL_SENTINEL)
     _model_set: bool = dataclasses.field(default=False)
     _children_factory: Callable[[Any], Iterable[Any]] | None = dataclasses.field(default=None)
-    _hub: MessageHub[Any] | None = dataclasses.field(default=None)
+    _hub: MessageHubProto[Any] | None = dataclasses.field(default=None)
     _dispatcher: Dispatcher | None = dataclasses.field(default=None)
     _name: str | None = dataclasses.field(default=None)
     _hint: str = dataclasses.field(default="")
@@ -88,7 +88,7 @@ class HierarchicalVMBuilder(Generic[TModel, TVM]):
         return dataclasses.replace(self, _children_factory=value)
 
     def services(
-        self, hub: MessageHub[Any], dispatcher: Dispatcher
+        self, hub: MessageHubProto[Any], dispatcher: Dispatcher
     ) -> HierarchicalVMBuilder[TModel, TVM]:
         """Set the required hub + dispatcher."""
         return dataclasses.replace(self, _hub=hub, _dispatcher=dispatcher)

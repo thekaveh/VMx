@@ -19,6 +19,28 @@ final class ObservableDictionaryTests: XCTestCase {
         super.tearDown()
     }
 
+    /// COL-022 — the hub add index is captured before a reentrant add.
+    func testCOL022HubAddIndexIsCapturedBeforeAReentrantAdd() {
+        let hub = MessageHub()
+        let sut = ObservableDictionary<String, String, Int>(hub: hub)
+        var indices: [String: Int] = [:]
+        hub.messages
+            .compactMap { $0 as? CollectionChangedMessage<DictionaryEntry<String, String, Int>> }
+            .sink { message in
+                for item in message.newItems { indices[item.key1] = message.index }
+            }
+            .store(in: &cancellables)
+        sut.itemAdded
+            .sink { event in
+                if event.key1 == "a" { sut.set("b", "y", 2) }
+            }
+            .store(in: &cancellables)
+
+        sut.set("a", "x", 1)
+
+        XCTAssertEqual(indices, ["a": 0, "b": 1])
+    }
+
     // ── COL-010 ──────────────────────────────────────────────────────────────
 
     /// COL-010 — ObservableDictionary insert sets has() and get() returns value.

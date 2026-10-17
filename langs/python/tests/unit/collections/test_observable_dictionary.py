@@ -426,3 +426,24 @@ def test_dispose_completes_every_stream_when_an_observer_raises() -> None:
         d.dispose()
 
     assert completed == ["removed", "reset"]
+
+
+def test_hub_add_index_is_captured_before_a_reentrant_add() -> None:
+    hub: MessageHub[CollectionChangedMessage[object]] = MessageHub()
+    d: ObservableDictionary[str, str, int] = ObservableDictionary(hub)
+    indices: dict[object, int] = {}
+
+    def record(message: CollectionChangedMessage[object]) -> None:
+        for item in message.new_items:
+            indices[item] = message.index
+
+    hub.messages.subscribe(record)
+
+    def add_nested(entry: tuple[str, str, int]) -> None:
+        if entry[0] == "a":
+            d.add("b", "y", 2)
+
+    d.on_item_added.subscribe(add_nested)
+    d.add("a", "x", 1)
+
+    assert indices == {("a", "x", 1): 0, ("b", "y", 2): 1}

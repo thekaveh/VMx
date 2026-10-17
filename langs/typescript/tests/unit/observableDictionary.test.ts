@@ -453,3 +453,24 @@ describe("ObservableDictionary hub injection", () => {
     }).not.toThrow();
   });
 });
+
+describe("ObservableDictionary hub add index", () => {
+  it("captures the add index before a reentrant add", () => {
+    const hub = new MessageHub();
+    const sut = new ObservableDictionary<string, string, number>(hub);
+    const indices = new Map<string, number>();
+    hub.messages.subscribe((message) => {
+      if (!(message instanceof CollectionChangedMessage)) return;
+      for (const item of message.newItems as { key1: string }[]) {
+        indices.set(item.key1, message.index);
+      }
+    });
+    sut.itemAdded.subscribe(({ key1 }) => {
+      if (key1 === "a") sut.set("b", "y", 2);
+    });
+
+    sut.set("a", "x", 1);
+
+    expect(Object.fromEntries(indices)).toEqual({ a: 0, b: 1 });
+  });
+});

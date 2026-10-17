@@ -17,6 +17,7 @@ from reactivex.subject import Subject
 
 from vmx.collections import BatchUpdateHandle, CollectionChangedEvent
 from vmx.collections._vm_collection_hub_message import collection_changed_message_for
+from vmx.commands.relay_command import _run_disposal_steps as _run_every_step
 from vmx.components.base import (
     _begin_parent_transfer,
     _commit_parent_transfer,
@@ -30,7 +31,7 @@ from vmx.components.protocols import ViewModelType
 from vmx.lifecycle.status import ConstructionStatus
 from vmx.messages.protocols import Message
 from vmx.services.dispatcher import Dispatcher
-from vmx.services.message_hub import MessageHub
+from vmx.services.message_hub import MessageHubProto
 
 VM = TypeVar("VM", bound=_ComponentVMBase)
 M = TypeVar("M")
@@ -58,7 +59,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         *,
         name: str,
         hint: str,
-        hub: MessageHub[Message],
+        hub: MessageHubProto[Message],
         dispatcher: Dispatcher,
         async_selection: bool = False,
         auto_construct_on_add: bool = False,
@@ -321,16 +322,33 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             raise
         else:
             commit_error = _commit_parent_transfer(transfer)
-            if self.current is old:
-                self._apply_current_change(None, internal=True)
-            self._emit_collection_changed(
-                CollectionChangedEvent(action="remove", old_items=(old,), old_index=resolved_index)
+            was_current = self.current is old
+
+            def clear_current() -> None:
+                if was_current:
+                    self._apply_current_change(None, internal=True)
+
+            def raise_commit_error() -> None:
+                if commit_error is not None:
+                    raise commit_error
+
+            # The change is committed: every publication step runs even when
+            # an earlier one raises (e.g. on_current_changed), and the first
+            # failure is re-raised.
+            _run_every_step(
+                raise_commit_error,
+                clear_current,
+                lambda: self._emit_collection_changed(
+                    CollectionChangedEvent(
+                        action="remove", old_items=(old,), old_index=resolved_index
+                    )
+                ),
+                lambda: self._emit_collection_changed(
+                    CollectionChangedEvent(
+                        action="add", new_items=(value,), new_index=resolved_index
+                    )
+                ),
             )
-            self._emit_collection_changed(
-                CollectionChangedEvent(action="add", new_items=(value,), new_index=resolved_index)
-            )
-            if commit_error is not None:
-                raise commit_error
         finally:
             self._end_membership_transaction(propagate_dispose_failure=sys.exc_info()[0] is None)
 
@@ -492,14 +510,22 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                     self._children.clear()
                 if previous is not None:
                     previous_flag_changed = previous._commit_is_current(False)
-            if previous is not None:
-                self._finish_current_change(
-                    previous,
-                    None,
-                    previous_flag_changed=previous_flag_changed,
-                    value_flag_changed=False,
-                )
-            self._emit_collection_changed(CollectionChangedEvent(action="reset"))
+
+            def finish_current() -> None:
+                if previous is not None:
+                    self._finish_current_change(
+                        previous,
+                        None,
+                        previous_flag_changed=previous_flag_changed,
+                        value_flag_changed=False,
+                    )
+
+            # The clear is committed: the reset is emitted even when
+            # on_current_changed raises; the first failure is re-raised.
+            _run_every_step(
+                finish_current,
+                lambda: self._emit_collection_changed(CollectionChangedEvent(action="reset")),
+            )
         finally:
             self._end_membership_transaction(propagate_dispose_failure=sys.exc_info()[0] is None)
 
@@ -537,15 +563,25 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                     item, was_current = self._remove_at_locked(index)
                 if was_current:
                     previous_flag_changed = item._commit_is_current(False)
-            if was_current:
-                self._finish_current_change(
-                    item,
-                    None,
-                    previous_flag_changed=previous_flag_changed,
-                    value_flag_changed=False,
-                )
-            self._emit_collection_changed(
-                CollectionChangedEvent(action="remove", old_items=(item,), old_index=resolved_index)
+
+            def finish_current() -> None:
+                if was_current:
+                    self._finish_current_change(
+                        item,
+                        None,
+                        previous_flag_changed=previous_flag_changed,
+                        value_flag_changed=False,
+                    )
+
+            # The removal is committed: the collection event is emitted even
+            # when on_current_changed raises; the first failure is re-raised.
+            _run_every_step(
+                finish_current,
+                lambda: self._emit_collection_changed(
+                    CollectionChangedEvent(
+                        action="remove", old_items=(item,), old_index=resolved_index
+                    )
+                ),
             )
         finally:
             self._end_membership_transaction(propagate_dispose_failure=sys.exc_info()[0] is None)
@@ -997,7 +1033,7 @@ class CompositeVM(Generic[VM], _CompositeVMBase[VM]):
         *,
         name: str,
         hint: str,
-        hub: MessageHub[Message],
+        hub: MessageHubProto[Message],
         dispatcher: Dispatcher,
         async_selection: bool = False,
         auto_construct_on_add: bool = False,
@@ -1031,7 +1067,7 @@ class CompositeVM(Generic[VM], _CompositeVMBase[VM]):
         cls,
         *,
         name: str | None = None,
-        hub: MessageHub[Message] | None = None,
+        hub: MessageHubProto[Message] | None = None,
         dispatcher: Dispatcher | None = None,
         children: Callable[[], Iterable[VM]],
         hint: str = "",
@@ -1099,7 +1135,7 @@ class CompositeVMOf(Generic[M, VM], _CompositeVMBase[VM]):
         *,
         name: str,
         hint: str,
-        hub: MessageHub[Message],
+        hub: MessageHubProto[Message],
         dispatcher: Dispatcher,
         async_selection: bool = False,
         auto_construct_on_add: bool = False,

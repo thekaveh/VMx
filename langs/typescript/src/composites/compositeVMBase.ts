@@ -365,22 +365,47 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
         throw new RangeError(`Index ${String(index)} out of range`);
       }
       item = this._children[index] as VM;
-      this._children.splice(index, 1);
-      if (item._parent === this) item._parent = null;
-      if (this.#current === item) {
-        this._applyCurrentChange(null, true);
-      }
-      this._emitCollectionChanged(
-        makeCollectionChangedEvent("remove", {
-          oldItems: [item],
-          oldIndex: index,
-        }),
-      );
     } catch (error) {
       this.#endMembershipTransaction(false);
       throw error;
     }
-    this.#endMembershipTransaction();
+    this._children.splice(index, 1);
+    if (item._parent === this) item._parent = null;
+    const wasCurrent = this.#current === item;
+    this.#publishCommittedMembership([
+      () => {
+        if (wasCurrent) this._applyCurrentChange(null, true);
+      },
+      () =>
+        this._emitCollectionChanged(
+          makeCollectionChangedEvent("remove", {
+            oldItems: [item],
+            oldIndex: index,
+          }),
+        ),
+    ]);
+  }
+
+  /**
+   * Publishes a committed membership change. Every step runs even when an
+   * earlier one throws (for example a throwing `onCurrentChanged`), so the
+   * collection event is never lost; the first failure is rethrown after the
+   * membership transaction ends.
+   */
+  #publishCommittedMembership(
+    steps: readonly (() => void)[],
+    priorError?: { readonly error: unknown },
+  ): void {
+    let failure = priorError;
+    for (const step of steps) {
+      try {
+        step();
+      } catch (error) {
+        failure ??= { error };
+      }
+    }
+    this.#endMembershipTransaction(failure === undefined);
+    if (failure !== undefined) throw failure.error;
   }
 
   /** Replace the child at *index*. Emits a Remove followed by an Add (per spec). */
@@ -430,36 +455,35 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
       throw error;
     }
     const commitError = captureParentTransferCommit(transfer);
-    try {
-      if (this.#current === old) this._applyCurrentChange(null, true);
-      this._emitCollectionChanged(
-        makeCollectionChangedEvent("remove", { oldItems: [old], oldIndex: index }),
-      );
-      this._emitCollectionChanged(
-        makeCollectionChangedEvent("add", { newItems: [value], newIndex: index }),
-      );
-      if (commitError !== undefined) throw commitError;
-    } catch (error) {
-      this.#endMembershipTransaction(false);
-      throw error;
-    }
-    this.#endMembershipTransaction();
+    const wasCurrent = this.#current === old;
+    this.#publishCommittedMembership(
+      [
+        () => {
+          if (wasCurrent) this._applyCurrentChange(null, true);
+        },
+        () =>
+          this._emitCollectionChanged(
+            makeCollectionChangedEvent("remove", { oldItems: [old], oldIndex: index }),
+          ),
+        () =>
+          this._emitCollectionChanged(
+            makeCollectionChangedEvent("add", { newItems: [value], newIndex: index }),
+          ),
+      ],
+      commitError === undefined ? undefined : { error: commitError },
+    );
   }
 
   clear(): void {
     this.#beginMembershipTransaction();
-    try {
-      for (const child of this._children) {
-        if (child._parent === this) child._parent = null;
-      }
-      this._children = [];
-      this._applyCurrentChange(null, true);
-      this._emitCollectionChanged(makeCollectionChangedEvent("reset"));
-    } catch (error) {
-      this.#endMembershipTransaction(false);
-      throw error;
+    for (const child of this._children) {
+      if (child._parent === this) child._parent = null;
     }
-    this.#endMembershipTransaction();
+    this._children = [];
+    this.#publishCommittedMembership([
+      () => this._applyCurrentChange(null, true),
+      () => this._emitCollectionChanged(makeCollectionChangedEvent("reset")),
+    ]);
   }
 
   move(fromIndex: number, toIndex: number): void {

@@ -231,11 +231,13 @@ class NotificationHub:
                 # has returned, or it is waiting, and it is idempotent. Finish
                 # the terminal step before waking any waiter, so ``pending``
                 # completes once and no waiter sees it still open.
-                if emission.complete or any(item.complete for item in abandoned):
-                    self._complete_pending_after_failure(completion_started=emission.complete)
-                for item in abandoned:
-                    item.error = error
-                    item.completed.set()
+                try:
+                    if emission.complete or any(item.complete for item in abandoned):
+                        self._complete_pending_after_failure(completion_started=emission.complete)
+                finally:
+                    for item in abandoned:
+                        item.error = error
+                        item.completed.set()
                 raise
             finally:
                 _delivery_context.depth = depth

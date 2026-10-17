@@ -328,6 +328,8 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
 
     private void OnAdded(TKey1 key1, TKey2 key2, TValue value)
     {
+        // Capture the position now: a local handler may add another entry.
+        var index = _keyOrder.Count - 1;
         // 1. Raise granular local event first.
         ItemAdded?.Invoke(this, new DictionaryItemAddedEventArgs<TKey1, TKey2, TValue>(key1, key2, value));
         CollectionChanged?.Invoke(this, new NotifyCollectionChangedEventArgs(
@@ -337,7 +339,7 @@ public sealed class ObservableDictionary<TKey1, TKey2, TValue> :
         _hub?.Send(CollectionChangedMessage<KeyValuePair<(TKey1, TKey2), TValue>>.ForAdd(
             this,
             new KeyValuePair<(TKey1, TKey2), TValue>((key1, key2), value),
-            _keyOrder.Count - 1));
+            index));
     }
 
     private void OnRemoved(TKey1 key1, TKey2 key2, TValue value)

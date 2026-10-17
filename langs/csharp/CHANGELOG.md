@@ -8,6 +8,11 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
+- Fixed: `ObservableDictionary` captures the add index before the local
+  events, so a handler that adds another entry no longer shifts the first
+  entry's reported hub index.
+- Fixed: `CompositeVM` `Remove`, `RemoveAt`, `Clear`, and the indexer setter
+  raise `CollectionChanged` even when `OnCurrentChanged` throws, then rethrow.
 - Fixed: `NullDialogService.Present` and the `Present` extension return the
   result of a modal that was already dismissed, because the first result wins.
   Before, they returned the cancellation result (spec/19 §3, DIA-012).

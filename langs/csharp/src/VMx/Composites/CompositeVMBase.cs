@@ -120,12 +120,17 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                 admissionComplete = true;
                 ComponentOwnership.CommitThenPublish(transfer, () =>
                 {
-                    if (ReferenceEquals(Current, old))
-                        ApplyCurrentChange(null, internalTransaction: true);
-                    RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
-                        NotifyCollectionChangedAction.Remove, old, index));
-                    RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
-                        NotifyCollectionChangedAction.Add, value, index));
+                    var wasCurrent = ReferenceEquals(Current, old);
+                    PublishEvery(
+                        () =>
+                        {
+                            if (wasCurrent)
+                                ApplyCurrentChange(null, internalTransaction: true);
+                        },
+                        () => RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+                            NotifyCollectionChangedAction.Remove, old, index)),
+                        () => RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+                            NotifyCollectionChangedAction.Add, value, index)));
                 });
             }
             catch (Exception originalError) when (!admissionComplete)
@@ -400,10 +405,14 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                     (removed, wasCurrent) = RemoveAtLocked(idx);
                 if (wasCurrent) previousFlagChanged = removed.CommitIsCurrent(false);
             }
-            if (wasCurrent)
-                FinishCurrentChange(removed, null, previousFlagChanged, false);
-            RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
-                NotifyCollectionChangedAction.Remove, removed, idx));
+            PublishEvery(
+                () =>
+                {
+                    if (wasCurrent)
+                        FinishCurrentChange(removed, null, previousFlagChanged, false);
+                },
+                () => RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+                    NotifyCollectionChangedAction.Remove, removed, idx)));
         }
         catch
         {
@@ -497,6 +506,25 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
             NotifyCollectionChangedAction.Move, item, toIndex, fromIndex));
     }
 
+    /// <summary>
+    /// Publishes a committed membership change. Every step runs even when an
+    /// earlier one throws (for example a throwing <c>OnCurrentChanged</c>), so
+    /// the collection event is never lost; the first failure is rethrown.
+    /// </summary>
+    private static void PublishEvery(params Action[] steps)
+    {
+        System.Runtime.ExceptionServices.ExceptionDispatchInfo? firstError = null;
+        foreach (var step in steps)
+        {
+            try { step(); }
+            catch (Exception error)
+            {
+                firstError ??= System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error);
+            }
+        }
+        firstError?.Throw();
+    }
+
     /// <inheritdoc/>
     public void RemoveAt(int index)
     {
@@ -512,10 +540,14 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                     (item, wasCurrent) = RemoveAtLocked(index);
                 if (wasCurrent) previousFlagChanged = item.CommitIsCurrent(false);
             }
-            if (wasCurrent)
-                FinishCurrentChange(item, null, previousFlagChanged, false);
-            RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
-                NotifyCollectionChangedAction.Remove, item, index));
+            PublishEvery(
+                () =>
+                {
+                    if (wasCurrent)
+                        FinishCurrentChange(item, null, previousFlagChanged, false);
+                },
+                () => RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+                    NotifyCollectionChangedAction.Remove, item, index)));
         }
         catch
         {
@@ -547,10 +579,14 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                 if (previous is not null)
                     previousFlagChanged = previous.CommitIsCurrent(false);
             }
-            if (previous is not null)
-                FinishCurrentChange(previous, null, previousFlagChanged, false);
-            RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
-                NotifyCollectionChangedAction.Reset));
+            PublishEvery(
+                () =>
+                {
+                    if (previous is not null)
+                        FinishCurrentChange(previous, null, previousFlagChanged, false);
+                },
+                () => RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+                    NotifyCollectionChangedAction.Reset)));
         }
         catch
         {

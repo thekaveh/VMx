@@ -18,7 +18,7 @@ from vmx.builders.exceptions import BuilderValidationError
 from vmx.components.protocols import ComponentVMProto
 from vmx.messages.protocols import Message
 from vmx.services.dispatcher import Dispatcher
-from vmx.services.message_hub import MessageHub
+from vmx.services.message_hub import MessageHubProto
 
 V1 = TypeVar("V1", bound=ComponentVMProto)
 V2 = TypeVar("V2", bound=ComponentVMProto)
@@ -43,7 +43,7 @@ class AggregateVM1Builder(Generic[V1]):
     __orig_class__: object = dataclasses.field(init=False, repr=False, compare=False)
     _name: str | None = dataclasses.field(default=None)
     _hint: str = dataclasses.field(default="")
-    _hub: MessageHub[Message] | None = dataclasses.field(default=None)
+    _hub: MessageHubProto[Message] | None = dataclasses.field(default=None)
     _dispatcher: Dispatcher | None = dataclasses.field(default=None)
     _factory1: Callable[[], V1] | None = dataclasses.field(default=None)
 
@@ -53,7 +53,9 @@ class AggregateVM1Builder(Generic[V1]):
     def hint(self, value: str) -> AggregateVM1Builder[V1]:
         return dataclasses.replace(self, _hint=value)
 
-    def services(self, hub: MessageHub[Message], dispatcher: Dispatcher) -> AggregateVM1Builder[V1]:
+    def services(
+        self, hub: MessageHubProto[Message], dispatcher: Dispatcher
+    ) -> AggregateVM1Builder[V1]:
         return dataclasses.replace(self, _hub=hub, _dispatcher=dispatcher)
 
     def component_1(self, factory: Callable[[], V1]) -> AggregateVM1Builder[V1]:
@@ -91,7 +93,7 @@ class AggregateVM2Builder(Generic[V1, V2]):
     __orig_class__: object = dataclasses.field(init=False, repr=False, compare=False)
     _name: str | None = dataclasses.field(default=None)
     _hint: str = dataclasses.field(default="")
-    _hub: MessageHub[Message] | None = dataclasses.field(default=None)
+    _hub: MessageHubProto[Message] | None = dataclasses.field(default=None)
     _dispatcher: Dispatcher | None = dataclasses.field(default=None)
     _factory1: Callable[[], V1] | None = dataclasses.field(default=None)
     _factory2: Callable[[], V2] | None = dataclasses.field(default=None)
@@ -103,7 +105,7 @@ class AggregateVM2Builder(Generic[V1, V2]):
         return dataclasses.replace(self, _hint=value)
 
     def services(
-        self, hub: MessageHub[Message], dispatcher: Dispatcher
+        self, hub: MessageHubProto[Message], dispatcher: Dispatcher
     ) -> AggregateVM2Builder[V1, V2]:
         return dataclasses.replace(self, _hub=hub, _dispatcher=dispatcher)
 
@@ -143,7 +145,7 @@ class AggregateVM3Builder(Generic[V1, V2, V3]):
     __orig_class__: object = dataclasses.field(init=False, repr=False, compare=False)
     _name: str | None = dataclasses.field(default=None)
     _hint: str = dataclasses.field(default="")
-    _hub: MessageHub[Message] | None = dataclasses.field(default=None)
+    _hub: MessageHubProto[Message] | None = dataclasses.field(default=None)
     _dispatcher: Dispatcher | None = dataclasses.field(default=None)
     _factory1: Callable[[], V1] | None = dataclasses.field(default=None)
     _factory2: Callable[[], V2] | None = dataclasses.field(default=None)
@@ -156,7 +158,7 @@ class AggregateVM3Builder(Generic[V1, V2, V3]):
         return dataclasses.replace(self, _hint=value)
 
     def services(
-        self, hub: MessageHub[Message], dispatcher: Dispatcher
+        self, hub: MessageHubProto[Message], dispatcher: Dispatcher
     ) -> AggregateVM3Builder[V1, V2, V3]:
         return dataclasses.replace(self, _hub=hub, _dispatcher=dispatcher)
 
@@ -202,7 +204,7 @@ class AggregateVM4Builder(Generic[V1, V2, V3, V4]):
     __orig_class__: object = dataclasses.field(init=False, repr=False, compare=False)
     _name: str | None = dataclasses.field(default=None)
     _hint: str = dataclasses.field(default="")
-    _hub: MessageHub[Message] | None = dataclasses.field(default=None)
+    _hub: MessageHubProto[Message] | None = dataclasses.field(default=None)
     _dispatcher: Dispatcher | None = dataclasses.field(default=None)
     _factory1: Callable[[], V1] | None = dataclasses.field(default=None)
     _factory2: Callable[[], V2] | None = dataclasses.field(default=None)
@@ -216,7 +218,7 @@ class AggregateVM4Builder(Generic[V1, V2, V3, V4]):
         return dataclasses.replace(self, _hint=value)
 
     def services(
-        self, hub: MessageHub[Message], dispatcher: Dispatcher
+        self, hub: MessageHubProto[Message], dispatcher: Dispatcher
     ) -> AggregateVM4Builder[V1, V2, V3, V4]:
         return dataclasses.replace(self, _hub=hub, _dispatcher=dispatcher)
 
@@ -268,7 +270,7 @@ class AggregateVM5Builder(Generic[V1, V2, V3, V4, V5]):
     __orig_class__: object = dataclasses.field(init=False, repr=False, compare=False)
     _name: str | None = dataclasses.field(default=None)
     _hint: str = dataclasses.field(default="")
-    _hub: MessageHub[Message] | None = dataclasses.field(default=None)
+    _hub: MessageHubProto[Message] | None = dataclasses.field(default=None)
     _dispatcher: Dispatcher | None = dataclasses.field(default=None)
     _factory1: Callable[[], V1] | None = dataclasses.field(default=None)
     _factory2: Callable[[], V2] | None = dataclasses.field(default=None)
@@ -283,7 +285,7 @@ class AggregateVM5Builder(Generic[V1, V2, V3, V4, V5]):
         return dataclasses.replace(self, _hint=value)
 
     def services(
-        self, hub: MessageHub[Message], dispatcher: Dispatcher
+        self, hub: MessageHubProto[Message], dispatcher: Dispatcher
     ) -> AggregateVM5Builder[V1, V2, V3, V4, V5]:
         return dataclasses.replace(self, _hub=hub, _dispatcher=dispatcher)
 
@@ -344,7 +346,7 @@ class AggregateVM6Builder(Generic[V1, V2, V3, V4, V5, V6]):
     __orig_class__: object = dataclasses.field(init=False, repr=False, compare=False)
     _name: str | None = dataclasses.field(default=None)
     _hint: str = dataclasses.field(default="")
-    _hub: MessageHub[Message] | None = dataclasses.field(default=None)
+    _hub: MessageHubProto[Message] | None = dataclasses.field(default=None)
     _dispatcher: Dispatcher | None = dataclasses.field(default=None)
     _factory1: Callable[[], V1] | None = dataclasses.field(default=None)
     _factory2: Callable[[], V2] | None = dataclasses.field(default=None)
@@ -360,7 +362,7 @@ class AggregateVM6Builder(Generic[V1, V2, V3, V4, V5, V6]):
         return dataclasses.replace(self, _hint=value)
 
     def services(
-        self, hub: MessageHub[Message], dispatcher: Dispatcher
+        self, hub: MessageHubProto[Message], dispatcher: Dispatcher
     ) -> AggregateVM6Builder[V1, V2, V3, V4, V5, V6]:
         return dataclasses.replace(self, _hub=hub, _dispatcher=dispatcher)
 

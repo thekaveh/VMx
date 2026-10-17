@@ -17,7 +17,7 @@ from vmx.builders import _validation
 from vmx.components.base import _ComponentVMBase
 from vmx.messages.protocols import Message
 from vmx.services.dispatcher import Dispatcher
-from vmx.services.message_hub import MessageHub
+from vmx.services.message_hub import MessageHubProto
 
 VM = TypeVar("VM", bound=_ComponentVMBase)
 
@@ -44,7 +44,7 @@ class GroupVMBuilder(Generic[VM]):
     __orig_class__: object = dataclasses.field(init=False, repr=False, compare=False)
     _name: str | None = dataclasses.field(default=None)
     _hint: str = dataclasses.field(default="")
-    _hub: MessageHub[Message] | None = dataclasses.field(default=None)
+    _hub: MessageHubProto[Message] | None = dataclasses.field(default=None)
     _dispatcher: Dispatcher | None = dataclasses.field(default=None)
     _auto_construct_on_add: bool = dataclasses.field(default=False)
     _children_factory: Callable[[], Iterable[VM]] | None = dataclasses.field(default=None)
@@ -61,11 +61,11 @@ class GroupVMBuilder(Generic[VM]):
         """Set the optional ``hint`` field (default: ``""``)."""
         return dataclasses.replace(self, _hint=value)
 
-    def services(self, hub: MessageHub[Message], dispatcher: Dispatcher) -> GroupVMBuilder[VM]:
+    def services(self, hub: MessageHubProto[Message], dispatcher: Dispatcher) -> GroupVMBuilder[VM]:
         """Set the required hub and dispatcher."""
         return dataclasses.replace(self, _hub=hub, _dispatcher=dispatcher)
 
-    def _option_hub(self, hub: MessageHub[Message]) -> GroupVMBuilder[VM]:
+    def _option_hub(self, hub: MessageHubProto[Message]) -> GroupVMBuilder[VM]:
         """Retain a hub supplied through the options factory until build validation."""
         return dataclasses.replace(self, _hub=hub)
 

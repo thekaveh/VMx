@@ -316,12 +316,12 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
     def _on_added(self, key1: TKey1, key2: TKey2, value: TValue) -> None:
         if self._disposed:
             return
+        # Capture the position now: a local subscriber may add another entry.
+        index = len(self._key_order) - 1
         # 1. Local granular event first.
         self._added_subject.on_next((key1, key2, value))
         # 2. Publish to hub (if present).
-        self._publish_to_hub(
-            CollectionChangedMessage.for_add(self, (key1, key2, value), len(self._key_order) - 1)
-        )
+        self._publish_to_hub(CollectionChangedMessage.for_add(self, (key1, key2, value), index))
 
     def _on_removed(self, key1: TKey1, key2: TKey2, value: TValue) -> None:
         if self._disposed:
