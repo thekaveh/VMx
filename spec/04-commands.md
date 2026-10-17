@@ -373,7 +373,9 @@ active flavor. All four are pure convenience — they produce exactly the same
 object graph as the equivalent explicit constructor call.
 
 Per-flavor surface (ADR-0006): C# exposes them as static extension methods on
-`ICommand`; Python as module-level functions; TypeScript as named exports.
+`ICommand`; Python as module-level functions; TypeScript as named exports;
+Swift as free functions that take the command first; Rust as methods of the
+`CommandExt` trait, implemented for every cloneable `Command` (ADR-0146).
 
 ### 9.1 `Confirm(confirm)`
 

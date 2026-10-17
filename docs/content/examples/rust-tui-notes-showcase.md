@@ -19,9 +19,10 @@ state, lifecycle, filtering, paging, commands, notifications, and editor mode.
 - `WorkspaceVm` composes six child surfaces through `AggregateVm6`.
 - `NotesViewVm` uses `CompositeVm`, `FilteredCompositeVm`, and
   `PagedComposition`.
-- `NoteFormVm` uses strict `FormVm<NoteDraft>` validation and save/revert
-  commands.
-- `GlobalSearchVm` combines `SearchableState` with `TokenPagedComposition`.
+- `NoteFormVm` uses strict `FormVm<NoteDraft>` validation with `save()` and
+  `revert()` methods. The terminal app does not bind keys to them.
+- `GlobalSearchVm` pages the filtered projection of a `SearchableState` with
+  `TokenPagedComposition`.
 - `NotificationsVm` uses `NotificationHub` and `NotificationVm` wrappers.
 - `EditorModeVm` uses `DiscriminatorVm` for edit/preview switching.
 

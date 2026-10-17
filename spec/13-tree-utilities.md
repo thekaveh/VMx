@@ -51,12 +51,13 @@ Properties:
 
 ## 4. Idiomatic surface
 
-| Flavor     | Module     | Walk / WalkExpanded return           | Find return            |
-| ---------- | ---------- | ------------------------------------ | ---------------------- |
-| C#         | `VMx.Tree` | `IEnumerable<IComponentVM>` (lazy)   | `IComponentVM?`        |
-| Python     | `vmx.tree` | `Iterator[IComponentVM]` (generator) | `IComponentVM \| None` |
-| TypeScript | `vmx/tree` | `Iterable<IComponentVM>` (generator) | `IComponentVM \| null` |
-| Swift      | `VMx`      | `[ComponentVMBase]` (materialized)   | `ComponentVMBase?`     |
+| Flavor     | Module     | Walk / WalkExpanded return                | Find return            |
+| ---------- | ---------- | ----------------------------------------- | ---------------------- |
+| C#         | `VMx.Tree` | `IEnumerable<IComponentVM>` (lazy)        | `IComponentVM?`        |
+| Python     | `vmx.tree` | `Iterator[IComponentVM]` (generator)      | `IComponentVM \| None` |
+| TypeScript | `vmx/tree` | `Iterable<IComponentVM>` (generator)      | `IComponentVM \| null` |
+| Swift      | `VMx`      | `[ComponentVMBase]` (materialized)        | `ComponentVMBase?`     |
+| Rust       | `vmx`      | `Vec<T>` for `T: TreeNode` (materialized) | `Option<T>`            |
 
 `walk_expanded` (spec v2.0) shares the same return shape as `walk` per flavor.
 Swift returns materialized `[ComponentVMBase]` arrays rather than lazy sequences
