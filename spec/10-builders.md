@@ -55,7 +55,8 @@ The one exception is additive setters like `Triggers` on `RelayCommand` — see
 
 If a required field is missing, `Build()` raises a `BuilderValidationError`
 (Python / TS / Swift) / `BuilderValidationException` (C#, sealed subclass of
-`InvalidOperationException`) whose message identifies the missing field.
+`InvalidOperationException`) / returns `Err(VmxError::BuilderValidation(..))`
+(Rust) whose message identifies the missing field.
 
 ## 4. Default values
 
@@ -70,6 +71,11 @@ Optional fields have these defaults if not set:
 - `OnConstruct`, `OnDestruct` → no-op callbacks
 - `ModeledHinter` → `(m) -> ""` (modeled variants only)
 - `OnModelChanged` → no-op callback (modeled variants only)
+
+Open Rust gap: Rust types `Hint` and `ModeledHint` as `Option<String>`, so an
+unset `Hint` and the default `ModeledHinter` give `None` instead of the empty
+string. The Rust builder also has no `OnModelChanged` callback.
+
 - `Predicate` (commands) → returns `true`
 - `Task` (commands) → no-op
 - `Triggers` (commands) → empty set
@@ -113,6 +119,10 @@ Each flavor exposes the form idiomatically:
   (`ComponentVMOf.create({ name, hub, dispatcher, model })`).
 - **Swift** — a static `create(_:)` factory taking an options value
   (`ComponentVMOf.create(ComponentVMOfOptions(name: ..., model: ..., hub: ..., dispatcher: ...))`).
+- **Rust** — `ComponentVm::create`, `CompositeVm::create`, and `GroupVm::create`,
+  each taking an options struct (`ComponentVmOptions`, `CompositeVmOptions`,
+  `GroupVmOptions`) and returning `VmxResult<Self>`. These factories exist only
+  for the null-dispatcher form (`NullDispatcher`).
 
 The form is **semantically identical** to the builder: implementations MUST route
 it through the same builder (or shared validation) so that

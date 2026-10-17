@@ -119,9 +119,10 @@ language and lives under `docs/`.
 
 ## 6. C#-only extensions
 
-The C# flavor ships one utility that has no counterpart in the other four flavors:
-`LinqHelpers` (in `VMx.Extensions`) — a small set of LINQ utility methods over
-`IEnumerable<T>`: `CartesianProduct`, `Sample`, and `Product`. Python,
-TypeScript, Swift, and Rust cover the same use-cases through their standard
-library collection and iterator facilities rather than VMx wrappers. This
-asymmetry is intentional and documented in ADR-0033.
+The C# flavor does not ship a C#-only utility extension. Earlier C# releases
+shipped `LinqHelpers` (in `VMx.Extensions`), a small set of LINQ utility methods
+over `IEnumerable<T>`: `CartesianProduct`, `Sample`, and `Product`. ADR-0052
+removed it in v3.0.0 because these methods are not part of the viewmodel domain.
+ADR-0033 records the original asymmetry. C#, Python, TypeScript, Swift, and Rust
+cover the same use-cases through their standard library collection and iterator
+facilities rather than VMx wrappers.

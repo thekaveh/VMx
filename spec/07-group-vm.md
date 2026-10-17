@@ -69,6 +69,9 @@ The builder accepts:
 
 - `children : () -> Iterable<VM>` (factory, evaluated on `construct()`).
 
+Open Rust gap: Rust's `GroupVmBuilder::build()` evaluates the `children` factory
+and attaches the initial population at build time, not on `construct()`.
+
 The modeled variant (if needed) follows the same pattern as `CompositeVM<M, VM>`.
 Only the non-modeled variant currently ships.
 

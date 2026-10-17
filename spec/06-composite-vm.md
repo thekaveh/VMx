@@ -11,6 +11,10 @@ selected one.
 | `CompositeVM<VM>` (non-modeled) | builder factory `() -> Iterable<VM>`                 | yes       |
 | `CompositeVM<M, VM>` (modeled)  | model factory `() -> Iterable<M>` + mapper `M -> VM` | yes       |
 
+The non-modeled builder factory is evaluated on `construct()`, as for `GroupVM`
+(chapter 07 §3). Open Rust gap: Rust's `CompositeVmBuilder::build()` evaluates
+the factory and attaches the initial population at build time.
+
 For domains that are natively recursive (trees), use `HierarchicalVM<TModel, TVM>` (chapter 18) instead of
 recursively nesting `CompositeVM<M, VM>`. `HierarchicalVM` provides built-in parent / depth / path semantics
 plus depth-first construction order.
@@ -71,7 +75,10 @@ language-neutral contract name; each flavor realizes it per the ADR-0006 idiom:
 C# ships the literal `ICompositeVM<VM>` interface, Python the structural
 `CompositeVMProto` (the `…Proto` convention catalogued in ADR-0009), and
 TypeScript the structural `CompositeVMBase<VM>` shape the forwarding decorator
-wraps.
+wraps. Swift realizes it as the `open class CompositeVM<Child>`, which
+`ForwardingCompositeVM` subclasses and wraps. Rust has no separate interface: the
+concrete `CompositeVm<T, D>` struct is the surface that `ForwardingCompositeVm`
+holds and delegates to.
 
 ## 3. `Current` contract
 
@@ -317,8 +324,11 @@ Behavior:
   RECOMMENDED whenever the commands are bound to UI; omitting it leaves
   `CanExecute` correct on demand but non-reactive. Exposing the optional
   `current_changed` parameter is, per ADR-0049, a clarification first realized in
-  C# (VMX-011) and also exposed by Swift's `ModeledCrudCommands`; Python and
-  TypeScript compose the same reactivity through the base `Triggers` mechanism
+  C# (VMX-011). C# (`currentChanged`), Swift (`currentChanged`), and Rust
+  (`ModeledCrudCommands::with_current_changed`) accept the trigger. The Python and
+  TypeScript helpers accept no trigger input, so their Update and Delete commands
+  stay correct on demand but non-reactive. To get reactive commands in these two
+  flavors, build the commands directly with the base `Triggers` mechanism
   (chapter 04 §4.2).
 
 The helper is opt-in; the base `CompositeVM<M, VM>` retains its current shape.
@@ -358,6 +368,11 @@ Behavior:
 - When an optional `SourceChanged` signal is supplied, every signal immediately
   re-reads `Items`, applies the current `SearchTerm`, and emits one filtered
   snapshot. The signal payload is ignored.
+
+Open Rust gap: Rust's `SearchableState` has no `SearchTermChanged` stream and no
+debounce. `set_search_term` sends one synchronous `Custom("filtered")`
+notification on the `filtered_changed()` hub, and consumers pull the result with
+`filtered()`. ADR-0099 §2.7 records this facade mapping.
 
 ### 8.1 Source-change timing and batching (spec v3.19)
 

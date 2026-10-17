@@ -149,8 +149,8 @@ The setter for `Model`:
 1. If the new value equals the old (`==` semantics per language), no message is
    emitted and no derived properties update.
 1. Otherwise, the field is replaced, `PropertyChangedMessage("Model")` is emitted,
-   and if `ModeledHint` is wired (see below), it is recomputed and
-   `PropertyChangedMessage("ModeledHint")` is emitted.
+   `ModeledHint` (see below) is recomputed. `PropertyChangedMessage("ModeledHint")`
+   is emitted only when the recomputed hint differs from the previous hint.
 
 ### 3.1 `ModeledHint`
 
@@ -163,11 +163,17 @@ ModeledHinter : (M) -> string
 
 If no `ModeledHinter` is configured, `ModeledHint` returns the empty string.
 
+Open Rust gap: Rust types `Hint` and `ModeledHint` as `Option<String>`. Its
+default hinter returns `None` instead of the empty string.
+
 ### 3.2 `OnModelChanged`
 
 The builder accepts an `OnModelChanged` callback (`(M) -> void`). When the model
 setter accepts a new value, this callback is invoked AFTER the
 `PropertyChangedMessage` is emitted. Use it to wire model-driven side effects.
+
+Open Rust gap: the Rust `ComponentVmBuilder` has no `OnModelChanged` callback.
+Rust consumers observe the `model` property-change notification instead.
 
 ### 3.3 Explicit model republish
 
@@ -253,6 +259,7 @@ can_select() returns true iff:
   - Status == Constructed
 
 can_deselect() returns true iff:
+  - Status != Disposed
   - Parent is not null
   - Parent.Current == this
 ```
@@ -264,12 +271,15 @@ can_deselect() returns true iff:
 `Parent.Current` denotes the container's `Current` slot, which only a `CompositeVM`
 owns. A `GroupVM` has no selection slot; its `Current` is conceptually always empty,
 so `Parent.Current != this` holds for every group child. (All five active flavors add a
-"parent supports child selection" guard — `Parent.SupportsChildSelection` /
+"parent supports child selection" guard to `can_select` — `Parent.SupportsChildSelection` /
 `supports_child_selection`, which a `GroupVM` reports as `false` and a `CompositeVM`
-as `true` — so a group child's `can_select` / `can_deselect` is `false` in every
-flavor. That uniform guard is precisely why chapter 07 §1's requirement — a group
-child's inherited `can_select` MUST return `false` while the parent is the group —
-holds everywhere. The guard is unaffected by the `Parent` declaration here.)
+as `true` — so a group child's `can_select` is `false` in every flavor. That uniform
+guard is precisely why chapter 07 §1's requirement — a group child's inherited
+`can_select` MUST return `false` while the parent is the group — holds everywhere.
+Only Rust also applies the guard to `can_deselect`. The other flavors do not need
+it there: a group has no current child, so `Parent.Current == this` is false and a
+group child's `can_deselect` is `false` in every flavor. The guard is unaffected by
+the `Parent` declaration here.)
 
 ### 6.1 The `Parent` back-reference
 
@@ -325,6 +335,10 @@ ExpandableState : IExpandable, ICollapsible, IExpansionTogglable:
     Expand() / Collapse() / ToggleExpansion()
     IsExpandedChanged : Observable<bool>    # emits on every change
 ```
+
+Open Rust gap: Rust's `ExpandableState` has no `Observable<bool>`. Its
+`expanded_changed()` method returns a `MessageHub` that publishes a
+`Message::Custom` whose `name` is `"true"` or `"false"` on each effective change.
 
 The helper is composition-friendly: VMs that want expand/collapse hold an
 `ExpandableState` and delegate the capability members to it. The
