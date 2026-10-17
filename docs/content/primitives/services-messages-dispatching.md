@@ -227,6 +227,9 @@ Put the collection scope inside the hub scope. The collection emits its one
 reset into the hub queue, sibling viewmodels enqueue their own typed messages,
 and observers receive the complete FIFO only after both scopes close.
 
+In the samples below, `notes` is a hub-connected `CompositeVM` of note
+viewmodels, and `first` and `second` are note viewmodels.
+
 === "C#"
 
     ```csharp
@@ -253,10 +256,13 @@ and observers receive the complete FIFO only after both scopes close.
 
     ```typescript
     hub.batch(() => {
-      notes.withBatch(() => {
-        notes.push(first);
-        notes.push(second);
-      });
+      const update = notes.batchUpdate();
+      try {
+        notes.add(first);
+        notes.add(second);
+      } finally {
+        update.dispose();
+      }
       summary.model = buildSummary(notes);
     });
     ```

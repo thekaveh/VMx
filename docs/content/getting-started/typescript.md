@@ -251,22 +251,22 @@ terminal `Disposed`.
 ```ts
 import { ConstructionStatus } from "@thekaveh/vmx";
 
-console.log(userVM.status); // ConstructionStatus.Constructed
+console.log(userVM.status); // 4 (ConstructionStatus.Constructed)
 
 // reconstruct() is destruct() + construct() in a single call. It is only valid
 // from Constructed (canReconstruct() is true iff status === Constructed); it
 // round-trips through Destructed and back to Constructed.
 userVM.reconstruct();
-console.log(userVM.status); // ConstructionStatus.Constructed
+console.log(userVM.status); // 4 (ConstructionStatus.Constructed)
 
 // destruct() transitions back to Destructed and runs onDestruct.
 userVM.destruct();
-console.log(userVM.status); // ConstructionStatus.Destructed
+console.log(userVM.status); // 2 (ConstructionStatus.Destructed)
 
 // dispose() is terminal and idempotent. Calling construct() or destruct()
 // on a disposed VM raises StatusTransitionError.
 userVM.dispose();
-console.log(userVM.status); // ConstructionStatus.Disposed
+console.log(userVM.status); // 0 (ConstructionStatus.Disposed)
 
 // CompositeVM.dispose() disposes children, then itself.
 tabs.dispose();
