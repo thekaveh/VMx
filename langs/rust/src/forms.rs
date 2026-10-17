@@ -708,14 +708,23 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             // validity change made by the commit.
             self.raise_approve_can_execute_changed();
         }
-        let callbacks = lock(&self.approved_callbacks).entries.clone();
-        for (id, callback) in callbacks {
-            // A callback detached, or a form disposed, during this emission
-            // before the callback's turn does not receive it (ADR-0139).
-            if !lock(&self.approved_callbacks).is_registered(id) {
-                continue;
+        // Snapshot only the identities: each callback is looked up when its
+        // turn comes, so a callback detached (or a form disposed) earlier in
+        // this emission neither runs nor stays alive until it ends (ADR-0139).
+        let ids: Vec<u64> = lock(&self.approved_callbacks)
+            .entries
+            .iter()
+            .map(|(id, _)| *id)
+            .collect();
+        for id in ids {
+            let callback = lock(&self.approved_callbacks)
+                .entries
+                .iter()
+                .find(|(entry_id, _)| *entry_id == id)
+                .map(|(_, callback)| Arc::clone(callback));
+            if let Some(callback) = callback {
+                callback(model.clone());
             }
-            callback(model.clone());
         }
         let deferred_models = {
             let mut publication = lock(&self.approval_publication);

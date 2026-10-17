@@ -20,8 +20,8 @@ project adheres to [Semantic Versioning](https://semver.org/).
   confirmation resolves it with `Approve`, and its lifespan expiring leaves it
   pending (spec/16 §7).
 - `ObservableMultiDictionary::add()`, which rejects an existing key pair,
-  `clear()`, which publishes one `Reset` (also when empty, as in every flavor), and `entries()`, an insertion-ordered
-  snapshot (spec/21 §4). COL-010..012, COL-014, COL-015, and COL-022 now
+  `clear()`, which publishes one `Reset` (also when empty, as in every
+  flavor), and `entries()`, an insertion-ordered snapshot (spec/21 §4). COL-010..012, COL-014, COL-015, and COL-022 now
   exercise the two-key dictionary instead of the single-key one.
 - `Command::as_async()`, a provided trait method that returns a command's
   awaitable entry point, or `None` for a synchronous command. Calling it makes
@@ -76,12 +76,16 @@ project adheres to [Semantic Versioning](https://semver.org/).
   is a member of the frozen projection.
 - A disposed `CompositeVm` or `GroupVm` returns `Err(VmxError::Disposed)` from
   `remove`, `remove_at`, and the selection methods, and `clear()` does
-  nothing, as `add`, `insert`, `replace`, and `move_item` already did. An
+  nothing, as `add`, `insert`, and `replace` already did (and `move_item`
+  now does, see below). An
   async selection queued before `dispose()` does not run afterwards.
 - `FormVm` validators registered after `dispose()` are inactive, as the type
   documentation states; before, they revalidated the disposed form.
 - A disposed view model ignores `expand`, `collapse`, and
   `toggle_expansion` (disposal contract).
+- An approval subscription disposed by an earlier subscriber during the same
+  emission releases its captured state at once, not at the end of the
+  emission (ADR-0139).
 - `NotificationHub` keeps pending notifications in post order. Before, it
   ordered them by creation identity (spec/16 §2.1).
 - `NotificationVm::is_resolved` reports a hub-side resolve that used the

@@ -331,4 +331,27 @@ final class ForwardingTests: XCTestCase {
         XCTAssertTrue(fwd.at(1) === vm2)
         subscription.cancel()
     }
+
+    /// FWD-001 — a disposed wrapper does not change its parent's selection.
+    func testFWD001DisposedWrapperSelectionIsInert() throws {
+        func inner(_ name: String) throws -> ComponentVMOf<String> {
+            try ComponentVMOf<String>.builder().name(name).model("").withNullServices().build()
+        }
+        let wrapper = ForwardingComponentVM(try inner("w"))
+        let other = ForwardingComponentVM(try inner("o"))
+        let parent = try CompositeVM<ForwardingComponentVM<String>>.builder()
+            .name("c").withNullServices().children { [] }.build()
+        parent.add(wrapper)
+        parent.add(other)
+        try parent.construct()
+        parent.current = wrapper
+        wrapper.dispose()
+        other.dispose()
+
+        XCTAssertFalse(wrapper.canDeselect())
+        wrapper.deselect()
+        other.select()
+
+        XCTAssertTrue(parent.current === wrapper)
+    }
 }

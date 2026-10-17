@@ -27,13 +27,13 @@ All notable changes to the Python flavor are documented here. The format is base
   `can_deselect` returns false, so a disposed child no longer changes its live
   parent's selection (spec/02 §3).
 - A disposed `DerivedProperty` rejects writes: `can_set` returns false and
-  `set_value` raises instead of running the write-back action (spec/15, DISP-005).
+  `set_value` raises instead of running the write-back action (spec/15 §4).
 - `ObservableDictionary`: the add index is captured before the local event,
   so a subscriber that adds another entry no longer shifts the first entry's
   reported hub index.
-- `CompositeVM.remove`, `remove_at`, `clear`, and item replacement emit their collection
-  events even when `on_current_changed` raises, then re-raise. Before, the
-  committed change reached no observer.
+- `CompositeVM.remove`, `remove_at`, `clear`, and item replacement emit
+  their collection events even when `on_current_changed` raises, then
+  re-raise. Before, the committed change reached no observer.
 - Container builders and constructors accept any `MessageHubProto`, as
   component builders do, so `NULL_MESSAGE_HUB` or a custom hub type-checks.
 - When a `pending` subscriber disposes the `NotificationHub` and then raises,

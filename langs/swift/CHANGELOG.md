@@ -8,8 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A disposed `ForwardingComponentVM` no longer changes its parent's
+  selection: its `select()`/`deselect()` overrides honor disposal like the
+  base (spec/02 §3).
 - A disposed `DerivedProperty` rejects writes: `canSet` returns false and
-  `setValue` throws instead of running the write-back action (spec/15, DISP-005).
+  `setValue` throws instead of running the write-back action (spec/15 §4).
 - A disposed `NotificationVM` no longer resolves the hub from `onExpire()`
   or `dismiss()` (DISP-004).
 - A disposed `GroupVM` ignores `remove`, `removeAt`, and `clear`, and a

@@ -56,7 +56,7 @@ class DerivedProperty(Generic[TValue]):
         return self._changes.pipe(ops.as_observable())
 
     def can_set(self, value: TValue) -> bool:
-        # A disposed property rejects writes (spec/15, DISP-005).
+        # A disposed property rejects writes (spec/15 §4).
         if self._disposed:
             return False
         return self._can_set(value) if self._can_set is not None else False

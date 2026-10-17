@@ -110,21 +110,26 @@ open class ForwardingComponentVM<Model>: ComponentVMOf<Model> {
 
     // ── Selection ───────────────────────────────────────────────────────
     open override func canSelect() -> Bool {
+        // A disposed wrapper is inert, like the base (spec/02 §3).
+        guard status != .disposed else { return false }
         guard let parent = _parent else { return _wrapped.canSelect() }
         return _wrapped.status == .constructed
             && parent.supportsChildSelection
             && parent.currentChild !== self
     }
     open override func select() {
+        guard status != .disposed else { return }
         if let parent = _parent { parent.selectChild(self) } else { _wrapped.select() }
     }
     open override func canDeselect() -> Bool {
+        guard status != .disposed else { return false }
         guard let parent = _parent else { return _wrapped.canDeselect() }
         return _wrapped.status == .constructed
             && parent.supportsChildSelection
             && parent.currentChild === self
     }
     open override func deselect() {
+        guard status != .disposed else { return }
         if let parent = _parent { parent.deselectChild(self) } else { _wrapped.deselect() }
     }
 }

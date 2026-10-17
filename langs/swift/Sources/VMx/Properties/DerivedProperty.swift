@@ -108,10 +108,11 @@ public final class DerivedProperty<TValue> {
         changesSubject.eraseToAnyPublisher()
     }
 
-    /// Whether `value` may be written. False for default-built (read-only)
-    /// properties; otherwise delegates to the configured validator.
+    /// Whether `value` may be written. False after disposal and for
+    /// default-built (read-only) properties; otherwise delegates to the
+    /// configured validator.
     public func canSet(_ value: TValue) -> Bool {
-        // A disposed property rejects writes (spec/15, DISP-005).
+        // A disposed property rejects writes (spec/15 §4).
         guard !disposed else { return false }
         return canSetValidator?(value) ?? false
     }

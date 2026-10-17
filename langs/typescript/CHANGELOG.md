@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `canDeselect` returns false, so a disposed child no longer changes its live
   parent's selection (spec/02 §3).
 - A disposed `DerivedProperty` rejects writes: `canSet` returns false and
-  `setValue` raises instead of running the write-back action (spec/15, DISP-005).
+  `setValue` raises instead of running the write-back action (spec/15 §4).
 - A disposed `NotificationVM` ignores its internal resolution paths.
 - A disposed `FilteredCompositeVM` ignores `setPredicate`, `setCurrent`, and
   the visible navigation methods, so it stays frozen as the disposal contract

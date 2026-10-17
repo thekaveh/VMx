@@ -7,14 +7,13 @@ uses independent [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
-- `useVm` re-renders for every hub message the VM sends, including collection
-  and tree-structure changes. Before, a `HierarchicalVM` child added with
-  `addChild` left a `children.length` selector stale.
+- `useVm` re-renders for every hub message the VM sends: property, lifecycle
+  status, collection, and tree-structure changes, as "whole-VM invalidation"
+  promises. Before, it reacted only to property changes, so a component
+  rendering `vm.status`, or a `children.length` selector after `addChild`,
+  stayed stale.
 - `useCommand` re-reads `canExecute` when the command's `canExecuteChanged`
   stream completes, so a disposed `AsyncRelayCommand` renders as disabled.
-- `useVm(vm)` now also re-renders when the VM's lifecycle status changes, as
-  "whole-VM invalidation" promises. Before, it reacted only to property
-  changes, so a component rendering `vm.status` stayed stale.
 - `shallowEqual` compares only plain objects by their keys. A `Date`, `Map`,
   `Set`, or class instance now compares by identity; before, two different
   instances compared equal and a selector returning them never re-rendered.
