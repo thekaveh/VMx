@@ -689,6 +689,9 @@ Null / `None` keys are not permitted. Passing a null key raises:
 - Python: `TypeError`
 - TypeScript: `Error`
 
+Swift and Rust key types are non-optional, so the type system already rejects a
+null key and no runtime check exists.
+
 ### 4.5 Enumeration order
 
 Enumeration yields entries in insertion order. Flavors that cannot guarantee
@@ -713,6 +716,10 @@ flavor-idiomatic per ADR-0006:
 - **Python**: `(key1, key2, value)` tuple.
 - **TypeScript**: `{ key1: TKey1; key2: TKey2; value: TValue }` object
   (`DictionaryEntry<TKey1, TKey2, TValue>`).
+- **Swift**: `DictionaryEntry<TKey1, TKey2, TValue>` struct — both keys + value.
+- **Rust**: the non-generic hub `CollectionChangedMessage` carries the action
+  and no entry payload; subscribers read the dictionary (`entries()`). See
+  ADR-0009 §2.15.
 
 For `Clear()`, the hub message uses action `Reset` with empty `NewItems` and
 `OldItems` arrays (no entry data is needed because the entire collection is
@@ -960,7 +967,7 @@ list-compatible keyed-collection mutation before any downstream view logic.
 
 ## 8. Conformance
 
-`COL-001` through `COL-064` and `AGCH-001` through `AGCH-010` in
+`COL-001` through `COL-065` and `AGCH-001` through `AGCH-010` in
 `12-conformance.md`. Applicable ADRs:
 ADR-0024, ADR-0096, and ADR-0097 (§2), ADR-0026 and ADR-0089 (§3),
 ADR-0025 (§4), ADR-0023 (§5), ADR-0069 (§6), and ADR-0085 (shared Move

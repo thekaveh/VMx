@@ -12,7 +12,7 @@ UI-backed flagship examples. CI verifies library coverage via
 | Prefix      | Area                                                 | File                                          |
 | ----------- | ---------------------------------------------------- | --------------------------------------------- |
 | `LIFE-NNN`  | Lifecycle state machine                              | `02-lifecycle.md`                             |
-| `DISP-NNN`  | Cross-cutting disposal invariant                     | `01-concepts.md`                              |
+| `DISP-NNN`  | Cross-cutting disposal invariant                     | `01-concepts.md` and the owning chapters      |
 | `HUB-NNN`   | Message hub                                          | `03-messages.md`                              |
 | `PROP-NNN`  | Property change notifications                        | `03-messages.md`                              |
 | `SUBV-NNN`  | SubscribeValue selected-state subscription           | `03-messages.md`                              |

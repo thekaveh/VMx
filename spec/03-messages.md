@@ -266,7 +266,9 @@ Per-flavor names and shapes:
 | TypeScript | `propertyValueChangedMessagesFor`     | Named export from `src/messages`        |
 | Swift      | `propertyValueChangedMessagesFor`     | Method on `MessageHubProtocol`          |
 
-See ADR-0032 for the rationale and full per-flavor signature table.
+Rust ships no message-stream helper; consumers use `MessageHub::subscribe_value`
+for a selected value, or `MessageHub::subscribe` with the
+`Message::PropertyChanged` variant. See ADR-0032 for the rationale and full per-flavor signature table.
 
 ### 7.2 `whenPropertyChanged` — observe the message (spec v3)
 

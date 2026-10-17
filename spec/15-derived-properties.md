@@ -100,6 +100,9 @@ Emission on `ValueChanged` is gated by equality. The exact semantics:
 - C#: `EqualityComparer<TValue>.Default.Equals(prev, next)`
 - Python: `prev == next` (built-in equality)
 - TypeScript: `Object.is(prev, next)` (matches `distinctUntilChanged` default)
+- Swift: the `valueEquals` closure; the `fromSources` factories supply `==`
+  (`TValue: Equatable`)
+- Rust: `PartialEq` (`prev == next`)
 
 If equal, no `ValueChanged` emission is published and `Value` retains its
 current instance (an equal-valued recompute is a no-op — the prior instance is
