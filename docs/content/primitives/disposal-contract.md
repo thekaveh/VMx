@@ -32,15 +32,15 @@ resource cancellation.
 
 ## 6.8.2. The Seven Disposal Families
 
-| Family                        | Representative surfaces                                             | Cross-cutting ID | Existing detailed coverage                    |
-| ----------------------------- | ------------------------------------------------------------------- | ---------------- | --------------------------------------------- |
-| VM and owner cascades         | Component, composite, group, aggregate, hierarchy, forwarding       | `DISP-001`       | `LIFE-004`, `LIFE-012`, `LIFE-013`, `CVM-009` |
-| Commands                      | Relay, async relay, composite/decorator, modeled CRUD               | `DISP-002`       | `CMD-012`, `CMD-013`, `CMDD-010`..`CMDD-013`  |
-| Hubs and services             | Message hub, notification hub                                       | `DISP-003`       | `HUB-012`, `NOTIF-017`                        |
-| Interaction owners            | Form, modal, notification rendering VMs                             | `DISP-004`       | `DIA-011`, `DIA-012`, `FORM-014`, `NOTIF-017` |
-| Reactive helpers              | Derived property, expansion/search state, discriminator             | `DISP-005`       | `DPROP-011`, `COMP-035`                       |
-| Collection/projection helpers | Batch handles, paging, filtered projections, disposable collections | `DISP-006`       | `COMP-013`, `GRP-006`, `COL-024..031`         |
-| Async resource owners         | AsyncResourceVM loader, commands, and accepted value                | `ARES-010..011`  | `ARES-005`, `ARES-008`, `ARES-009`            |
+| Family                        | Representative surfaces                                             | Cross-cutting ID | Existing detailed coverage                        |
+| ----------------------------- | ------------------------------------------------------------------- | ---------------- | ------------------------------------------------- |
+| VM and owner cascades         | Component, composite, group, aggregate, hierarchy, forwarding       | `DISP-001`       | `LIFE-004`, `LIFE-012`, `LIFE-013`, `CVM-009`     |
+| Commands                      | Relay, async relay, composite/decorator, modeled CRUD               | `DISP-002`       | `CMD-012`, `CMD-013`, `CMDD-010`..`CMDD-013`      |
+| Hubs and services             | Message hub, notification hub                                       | `DISP-003`       | `HUB-012`, `NOTIF-017`                            |
+| Interaction owners            | Form, modal, notification rendering VMs                             | `DISP-004`       | `DIA-011`, `DIA-012`, `FORM-014`, `NOTIF-017`     |
+| Reactive helpers              | Derived property, expansion/search state, discriminator             | `DISP-005`       | `DPROP-011`                                       |
+| Collection/projection helpers | Batch handles, paging, filtered projections, disposable collections | `DISP-006`       | `COMP-013`, `COMP-035`, `GRP-006`, `COL-024..031` |
+| Async resource owners         | AsyncResourceVM loader, commands, and accepted value                | `ARES-010..011`  | `ARES-005`, `ARES-008`, `ARES-009`                |
 
 Only types already documented as thread-safe promise racing disposal. Those
 types atomically claim terminal work. Single-threaded flavors and helpers still

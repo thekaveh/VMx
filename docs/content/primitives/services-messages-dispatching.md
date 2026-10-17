@@ -253,10 +253,13 @@ and observers receive the complete FIFO only after both scopes close.
 
     ```typescript
     hub.batch(() => {
-      notes.withBatch(() => {
-        notes.push(first);
-        notes.push(second);
-      });
+      const update = notes.batchUpdate();
+      try {
+        notes.add(first);
+        notes.add(second);
+      } finally {
+        update.dispose();
+      }
       summary.model = buildSummary(notes);
     });
     ```

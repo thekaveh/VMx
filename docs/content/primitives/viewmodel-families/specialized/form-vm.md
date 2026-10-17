@@ -55,9 +55,10 @@ Construction captures the initial snapshot. After that:
   captured persisted value before `OnApproved` fires
 - fire-and-forget approve failures surface on `ApproveErrors`
 
-Field validators run first. Model validators then run in registration order and
-can add, replace, or clear field errors: a null/none/nil value removes an entry,
-and an omitted field keeps it. In Rust, the string-map `with_model_validator` /
+Field validators run first. The model validator then runs and can add, replace,
+or clear field errors: a null/none/nil value removes an entry, and an omitted
+field keeps it. Rust alone accepts several model validators and runs them in
+registration order. In Rust, the string-map `with_model_validator` /
 `model_validator` forms can only add or replace; use
 `with_clearing_model_validator` / `clearing_model_validator`, which return
 `BTreeMap<String, Option<String>>`, to clear.

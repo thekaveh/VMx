@@ -77,7 +77,7 @@ Representative build shape:
 - `Python`: `GroupVMBuilder[ComponentVMProto]().name("actions").services(hub, dispatcher).children(lambda: [save, delete]).build()`
 - `TypeScript`: `GroupVM.builder<ComponentVMBase>().name("actions").services(hub, dispatcher).children(() => [save, delete]).build()`
 - `Swift`: `try GroupVM<ComponentVMBase>.builder().name("actions").services(hub: hub, dispatcher: dispatcher).children { [save, delete] }.build()`
-- `Rust`: `GroupVm::<ComponentVm<_>>::builder().name("actions").services(hub, dispatcher).children(|| vec![save.clone(), delete.clone()]).build()?`
+- `Rust`: `GroupVm::<ComponentVm<_>>::builder().name("actions").services(hub, dispatcher).children(move || vec![save.clone(), delete.clone()]).build()?`
 
 Rust ships the same peer-container and builder concepts; the completed
 [Rust parity ledger](../../../maintenance/2026-07-16-rust-capability-parity.md)

@@ -131,7 +131,7 @@ The composite owns both child lifecycle and selection messaging:
     let tabs = CompositeVm::<ComponentVm<TabModel>>::builder()
         .name("tab-bar")
         .services(hub, dispatcher)
-        .children(|| vec![home.clone(), settings.clone()])
+        .children(move || vec![home.clone(), settings.clone()])
         .build()?;
     ```
 

@@ -70,7 +70,7 @@ half-replaced aggregate.
 - `Python`: `AggregateVM6Builder[...]().name("workspace").services(hub, dispatcher).component_1(lambda: notebooks).component_2(lambda: notes).build()`
 - `TypeScript`: `AggregateVM6.builder<...>().name("workspace").services(hub, dispatcher).component1(() => notebooks).component2(() => notes).build()`
 - `Swift`: `try AggregateVM6<...>.builder().name("workspace").services(hub: hub, dispatcher: dispatcher).component1 { notebooks }.component2 { notes }.build()`
-- `Rust`: `AggregateVm6::<...>::builder().name("workspace").services(hub, dispatcher).component_1(|| notebooks.clone()).component_2(|| notes.clone()).build()?`
+- `Rust`: `AggregateVm6::<...>::builder().name("workspace").services(hub, dispatcher).component_1(move || notebooks.clone()).component_2(move || notes.clone()).build()?`
 
 The Notes Workspace shell uses this pattern as its six-pane root in the C#,
 Python, TypeScript, and Swift examples.
