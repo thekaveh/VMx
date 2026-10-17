@@ -115,6 +115,24 @@ async def test_dropped_notifications_are_dismissed_and_never_rebuilt() -> None:
             pass
 
 
+async def test_backlog_over_the_cap_keeps_the_newest_on_construct() -> None:
+    vm, hub = _build(cap=2)
+    futures = [hub.post(Notification(NotificationType.NOTIFICATION, f"m{i}")) for i in range(4)]
+
+    vm.construct()
+
+    assert [v.notification.message for v in vm.visible] == ["m2", "m3"]
+    pending: list[Notification] = []
+    hub.pending.subscribe(pending.extend).dispose()
+    assert [n.message for n in pending] == ["m2", "m3"]
+    for f in futures[2:]:
+        f.cancel()
+        try:
+            await f
+        except (asyncio.CancelledError, Exception):
+            pass
+
+
 def test_default_cap_is_5() -> None:
     vm, _ = _build()
     assert vm.cap == 5

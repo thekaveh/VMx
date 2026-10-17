@@ -52,6 +52,9 @@ class NotificationsVM(ComponentVM):
         self._cap = cap
         self._visible: ObservableList[NotificationVM] = ObservableList()
         self._map: dict[Notification, NotificationVM] = {}
+        # Notifications this VM dropped over the cap and is dismissing; a sync
+        # that re-enters while they are still pending must not rebuild them.
+        self._dismissed: set[Notification] = set()
         self._pending_sub: DisposableBase | None = None
 
     # ── Public surface ─────────────────────────────────────────────────────
@@ -95,12 +98,13 @@ class NotificationsVM(ComponentVM):
             while self._visible.count > 0:
                 self._visible.remove_at(0)
         self._map.clear()
+        self._dismissed.clear()
 
     def _sync_from_pending(self, pending: list[Notification]) -> None:
         # Add VMs for notifications not yet rendered.
         evicted: list[NotificationVM] = []
         for n in pending:
-            if n in self._map:
+            if n in self._map or n in self._dismissed:
                 continue
             vm = NotificationVM(
                 notification=n,
@@ -117,6 +121,7 @@ class NotificationsVM(ComponentVM):
                 key = next((k for k, v in self._map.items() if v is oldest), None)
                 if key is not None:
                     self._map.pop(key, None)
+                self._dismissed.add(oldest.notification)
                 evicted.append(oldest)
         # Remove VMs whose notifications are no longer pending.
         still = set(map(id, pending))
@@ -125,6 +130,7 @@ class NotificationsVM(ComponentVM):
             vm = self._map.pop(n)
             self._visible.remove(vm)
             vm.dispose()
+        self._dismissed.intersection_update(pending)
         self._notify_property_changed("visible")
         # A dropped notification is dismissed, not just hidden: left pending in
         # the hub, the next sync would rebuild it and evict another one.

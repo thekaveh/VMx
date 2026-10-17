@@ -536,6 +536,8 @@ impl NotificationsVm {
         let notification = self.hub.post(kind, message);
         let dropped = {
             let mut active = lock(&self.active_vms);
+            // Entries resolved through the hub must not hold a cap slot.
+            active.retain(|vm| !vm.is_resolved());
             active.push(NotificationVm::with_hub(
                 notification.clone(),
                 self.hub.clone(),

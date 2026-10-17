@@ -43,6 +43,9 @@ public final class NotificationsVM: ComponentVMBase {
     private var _visible: [NotificationVM] = []
     /// Keyed by `ObjectIdentifier(notification)` for O(1) dedup.
     private var _map: [ObjectIdentifier: NotificationVM] = [:]
+    /// Notifications this VM dropped over the cap and is dismissing; a sync
+    /// that re-enters while they are still pending must not rebuild them.
+    private var _dismissed: Set<ObjectIdentifier> = []
     /// Set on destruct/dispose so a delivery that arrives late changes nothing.
     private var _closed = false
     private var _pendingCancellable: AnyCancellable?
@@ -131,7 +134,7 @@ public final class NotificationsVM: ComponentVMBase {
             // Add VMs for new pending notifications, respecting cap.
             for n in pending {
                 let key = ObjectIdentifier(n)
-                if _map[key] != nil { continue }
+                if _map[key] != nil || _dismissed.contains(key) { continue }
 
                 let lifespan = _lifespan ?? 60.0
                 let vm = NotificationVM(
@@ -149,6 +152,7 @@ public final class NotificationsVM: ComponentVMBase {
                     if let oldKey = _map.first(where: { $0.value === oldest })?.key {
                         _map.removeValue(forKey: oldKey)
                     }
+                    _dismissed.insert(ObjectIdentifier(oldest.notification))
                     evicted.append(oldest)
                 }
             }
@@ -162,6 +166,7 @@ public final class NotificationsVM: ComponentVMBase {
                     released.append(vm)
                 }
             }
+            _dismissed.formIntersection(stillPendingKeys)
             return true
         }
 
@@ -181,6 +186,7 @@ public final class NotificationsVM: ComponentVMBase {
             defer {
                 _visible.removeAll()
                 _map.removeAll()
+                _dismissed.removeAll()
             }
             return _visible
         }

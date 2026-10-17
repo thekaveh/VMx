@@ -60,6 +60,21 @@ describe("NotificationsVM", () => {
     expect(pending.map((n) => n.message)).toEqual(["c", "d"]);
   });
 
+  it("keeps the newest notifications when a backlog over the cap arrives on construct", () => {
+    const { vm, notifs } = makeVM({ cap: 2 });
+    vm.destruct();
+    for (const message of ["a", "b", "c", "d"]) {
+      void notifs.post(new Notification(NotificationType.Notification, message));
+    }
+
+    vm.construct();
+
+    expect(vm.visible.map((v) => v.notification.message)).toEqual(["c", "d"]);
+    let pending: readonly Notification[] = [];
+    notifs.pending.subscribe((list) => (pending = list)).unsubscribe();
+    expect(pending.map((n) => n.message)).toEqual(["c", "d"]);
+  });
+
   it("removes a VM when the notification is resolved externally", () => {
     const { vm, notifs } = makeVM();
     const n = new Notification(NotificationType.Notification, "x");
