@@ -61,12 +61,14 @@ impl<K: Clone + PartialEq + Send + 'static> DiscriminatorVm<K> {
             }
         };
         if changed {
+            // The key stream goes first: a hub subscriber that changes the key
+            // again must not have its newer key overtaken by this one.
+            self.active_key_changes.send(key);
             self.active_changed.send(Message::Custom {
                 sender_id: 0,
                 sender_name: "DiscriminatorVm".to_string(),
                 name: "active_changed".to_string(),
             });
-            self.active_key_changes.send(key);
         }
     }
 

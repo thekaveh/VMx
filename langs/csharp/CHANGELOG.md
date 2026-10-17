@@ -8,6 +8,9 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
+- Fixed: `AsyncRelayCommand.Cancel()` and `Dispose()` tag the cancellation
+  origin under the gate that swaps executions. A cancel that raced completion
+  could tag the next execution and hide its external-token cancellation.
 - Fixed: a cancelled persister on the `ApproveCommand` path is now reported on
   `ApproveErrors` as a `TaskCanceledException`. Before, the cancellation reached
   no channel (spec/20 §5.3).
@@ -24,6 +27,9 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx.Notifications
 
+- Fixed: `NotificationHub.Resolve` and `Dispose` complete their waiters even
+  when a `Pending` subscriber throws. The waiters had already left the hub, so
+  their `Post` tasks stayed pending forever.
 - Fixed: `NotificationVM` disposes every subscription and its dismiss command
   when one disposal throws, and `ConfirmationVM` disposes its approve and reject
   commands even when the base teardown throws. The first failure is rethrown

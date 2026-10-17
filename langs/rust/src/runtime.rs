@@ -2085,6 +2085,7 @@ struct ComponentCoreInner<D: Dispatcher> {
     on_dispose: Option<Hook>,
     owned_cleanups: Vec<OwnedCleanup>,
     terminal_cleanups: Vec<OwnedCleanup>,
+    disposal_complete: bool,
     active_hook_owner: Option<ThreadId>,
     deferred_core_disposal: bool,
     selected: bool,
@@ -2113,6 +2114,7 @@ impl<D: Dispatcher> ComponentCore<D> {
                 on_dispose: None,
                 owned_cleanups: Vec::new(),
                 terminal_cleanups: Vec::new(),
+                disposal_complete: false,
                 active_hook_owner: None,
                 deferred_core_disposal: false,
                 selected: false,
@@ -2732,6 +2734,7 @@ impl<D: Dispatcher> ComponentCore<D> {
             self.dispose_owned();
             self.property_changed_stream().dispose();
             self.background_errors().dispose();
+            self.complete_disposal();
             let mut inner = lock(&self.inner);
             if inner.transition_generation == generation {
                 inner.transitioning = false;
@@ -2839,7 +2842,7 @@ impl<D: Dispatcher> ComponentCore<D> {
         self.dispose_owned();
         property_changed.dispose();
         background_errors.dispose();
-        self.run_terminal_cleanups();
+        self.complete_disposal();
         match result {
             Ok(result) => result,
             Err(payload) => resume_unwind(payload),
@@ -2874,22 +2877,28 @@ impl<D: Dispatcher> ComponentCore<D> {
     }
 
     /// Disposes the component and then runs `terminal`, the wrapper's own
-    /// last teardown step (its commands, spec/02 §7). When a foreign or
-    /// cyclic disposal defers behind an admitted hook (§2.4), `terminal`
-    /// runs only once the deferred hook, owned resources, and streams finish.
+    /// last teardown step (its commands, spec/02 §7). `terminal` runs only
+    /// after the dispose hook, owned resources, and streams finish: on this
+    /// thread when it completes the disposal, otherwise on the thread that
+    /// does, whether that finishes a disposal deferred behind an admitted hook
+    /// (§2.4) or is a concurrent disposer whose hook is still running.
     pub(crate) fn dispose_then(&self, terminal: impl FnOnce() + Send + 'static) -> VmxResult<()> {
         lock(&self.inner).terminal_cleanups.push(Box::new(terminal));
         let result = catch_unwind(AssertUnwindSafe(|| {
             self.transition(LifecycleOperation::Dispose)
         }));
-        let deferred = lock(&self.inner).deferred_core_disposal;
-        if !deferred {
+        if lock(&self.inner).disposal_complete {
             self.run_terminal_cleanups();
         }
         match result {
             Ok(result) => result,
             Err(payload) => resume_unwind(payload),
         }
+    }
+
+    fn complete_disposal(&self) {
+        lock(&self.inner).disposal_complete = true;
+        self.run_terminal_cleanups();
     }
 
     fn run_terminal_cleanups(&self) {

@@ -23,6 +23,9 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ### Fixed
 
+- `NotificationHub.resolve` and `dispose` complete their waiters even when a
+  `pending` subscriber raises. The waiters had already left the hub, so their
+  `post` futures stayed pending forever.
 - `ConfirmationDecoratorCommand` no longer calls `confirm` when the inner
   command's `can_execute` predicate disposes the decorator (spec/04 §8.4).
 - `CompositeVM`, `GroupVM`, `AggregateVM1..6`, `HierarchicalVM`,

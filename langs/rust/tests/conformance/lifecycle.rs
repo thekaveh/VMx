@@ -126,6 +126,54 @@ fn deferred_self_disposal_tears_down_commands_after_the_hook() {
     assert_eq!(vm.status(), ConstructionStatus::Disposed);
 }
 
+/// LIFE-015 — a second, concurrent disposer leaves the commands live until the
+/// first disposer's dispose hook finishes (spec/02 §7).
+#[test]
+fn concurrent_disposer_tears_down_commands_after_the_running_dispose_hook() {
+    let vm = ComponentVm::new("concurrent-dispose");
+    let teardowns = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::clone(&teardowns);
+    let _subscription = vm
+        .reconstruct_command()
+        .can_execute_changed()
+        .subscribe_with_completion(
+            |_| {},
+            move || {
+                observed.fetch_add(1, Ordering::SeqCst);
+            },
+        );
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel::<()>();
+    let during_hook = Arc::new(AtomicUsize::new(usize::MAX));
+    {
+        let teardowns = Arc::clone(&teardowns);
+        let during_hook = Arc::clone(&during_hook);
+        vm.on_dispose(move || {
+            entered_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+            during_hook.store(teardowns.load(Ordering::SeqCst), Ordering::SeqCst);
+            Ok(())
+        });
+    }
+    let first = {
+        let vm = vm.clone();
+        std::thread::spawn(move || vm.dispose())
+    };
+    entered_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+
+    let second = vm.dispose();
+    release_tx.send(()).unwrap();
+
+    assert_eq!(second, Ok(()));
+    assert_eq!(first.join().unwrap(), Ok(()));
+    assert_eq!(
+        during_hook.load(Ordering::SeqCst),
+        0,
+        "commands were torn down while the first disposer's hook still ran"
+    );
+    assert_eq!(teardowns.load(Ordering::SeqCst), 1);
+}
+
 #[test]
 fn disposed_parent_skips_post_hook_child_construction() {
     let child_constructs = Arc::new(AtomicUsize::new(0));

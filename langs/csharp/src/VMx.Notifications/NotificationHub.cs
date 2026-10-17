@@ -70,8 +70,16 @@ public sealed class NotificationHub : INotificationHub, IDisposable
             _pending.Remove(notification);
             (emission, shouldEmit, shouldWait) = QueueEmissionLocked(new(_pending.ToArray()));
         }
-        PublishEmission(emission, shouldEmit, shouldWait);
-        tcs.TrySetResult(reaction);
+        // The waiter completes even when a Pending subscriber throws: it has
+        // already left _waiters, so nothing else could ever complete it.
+        try
+        {
+            PublishEmission(emission, shouldEmit, shouldWait);
+        }
+        finally
+        {
+            tcs.TrySetResult(reaction);
+        }
     }
 
     /// <summary>
@@ -93,9 +101,15 @@ public sealed class NotificationHub : INotificationHub, IDisposable
             _pending.Clear();
             (emission, shouldEmit, shouldWait) = QueueEmissionLocked(new(complete: true));
         }
-        PublishEmission(emission, shouldEmit, shouldWait);
-        foreach (var waiter in waiters)
-            waiter.TrySetResult(NotificationReaction.Pending);
+        try
+        {
+            PublishEmission(emission, shouldEmit, shouldWait);
+        }
+        finally
+        {
+            foreach (var waiter in waiters)
+                waiter.TrySetResult(NotificationReaction.Pending);
+        }
     }
 
     private (PendingEmission Emission, bool ShouldEmit, bool ShouldWait) QueueEmissionLocked(

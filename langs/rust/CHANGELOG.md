@@ -13,6 +13,8 @@ project adheres to [Semantic Versioning](https://semver.org/).
 - `DiscriminatorVm::active_key_changes()`, a `ValueStream<K>` that carries the
   new active key with each effective change, as DISC-002 requires. The
   existing `active_changed()` hub still signals changes but carries no key.
+  The key stream publishes before the hub, so a hub subscriber that changes
+  the key again leaves the stream on the active key.
 - `ConfirmationVm::dismiss()`, `dismiss_command()`, `notification()`,
   `remaining_time_ms()`, `opacity()`, and `advance_by_ms()`. Dismissing a
   confirmation resolves it with `Approve`, and its lifespan expiring leaves it
@@ -44,7 +46,9 @@ project adheres to [Semantic Versioning](https://semver.org/).
 - A disposal deferred behind an admitted lifecycle hook (same-thread or
   cyclic) now disposes the commands of `ComponentVm`, `CompositeVm`,
   `GroupVm`, and `AggregateVm1..6` only after the hook, owned resources, and
-  streams finish, as on the immediate path (spec/02 §2.4, §7).
+  streams finish, as on the immediate path (spec/02 §2.4, §7). A second,
+  concurrent disposer also leaves them to the thread that completes the
+  disposal.
 - `FormVm::approve()` no longer calls the persister when an approve-command
   `can_execute_changed` handler disposes the form during admission. The
   approval is refused and its in-flight mark is cleared (spec/20 §5.3).
