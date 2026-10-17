@@ -12,7 +12,8 @@ bundles; TypeScript declarations are bundled — no `@types/vmx` needed.
 Opt-in subpaths provide `@thekaveh/vmx/notifications` and the
 test-framework-neutral `@thekaveh/vmx/conformance` adapter runner. The
 `@thekaveh/vmx/testing` subpath adds runner-neutral fixtures, recorders,
-command doubles, and a FormVM harness.
+command doubles, and a FormVM harness, and `@thekaveh/vmx/devtools` adds an
+optional Redux DevTools bridge.
 
 > **Package rename in v2.4.0:** the npm package is now
 > **`@thekaveh/vmx`** (scoped). The previous unscoped name `vmx` could

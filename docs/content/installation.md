@@ -2,9 +2,11 @@
 
 Python, Swift, TypeScript, and the React adapter install from public registries.
 C# and Rust are complete in source but not yet published, so a project uses
-them from a VMx checkout until their first registry release. Every flavor
-implements spec 3.29.0; check the flavor README and registry before pinning a
-release.
+them from a VMx checkout until their first registry release. Every flavor's
+source line implements spec 3.29.0. A published package can implement an
+earlier spec version. The repository's
+[`compatibility-matrix.md`](../../compatibility-matrix.md) lists the spec
+version of each release.
 
 Run the commands below from your own project's directory. The source-checkout
 commands assume VMx is cloned beside that project:
@@ -66,11 +68,11 @@ git clone https://github.com/thekaveh/VMx.git ../VMx
     npm --prefix ../VMx/langs/typescript run build
     npm --prefix ../VMx/packages/react ci
     npm --prefix ../VMx/packages/react run build
-    mkdir -p /tmp/vmx-packs
+    rm -rf /tmp/vmx-packs && mkdir -p /tmp/vmx-packs
     npm pack ../VMx/langs/typescript --pack-destination /tmp/vmx-packs
     npm pack ../VMx/packages/react --pack-destination /tmp/vmx-packs
-    npm install /tmp/vmx-packs/thekaveh-vmx-3.30.0.tgz \
-      /tmp/vmx-packs/thekaveh-vmx-react-0.1.1.tgz \
+    npm install /tmp/vmx-packs/thekaveh-vmx-[0-9]*.tgz \
+      /tmp/vmx-packs/thekaveh-vmx-react-[0-9]*.tgz \
       react rxjs use-sync-external-store
     ```
 

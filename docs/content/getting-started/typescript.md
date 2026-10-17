@@ -24,11 +24,9 @@ v3.30.0.
 npm install @thekaveh/vmx rxjs
 ```
 
-For local development from a checked-out clone:
-
-```bash
-npm install /path/to/VMx/langs/typescript
-```
+To use an unreleased source line, build and pack a VMx checkout as described in
+[Installation](../installation.md). The source tree does not contain the built
+`dist/` output, so an install from the unbuilt directory does not work.
 
 `@thekaveh/vmx` (renamed in v2.4.0 from the unscoped `vmx` name, which was
 unavailable on the npm registry) ships dual ESM + CJS bundles and full

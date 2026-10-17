@@ -1,8 +1,8 @@
 # 2026-07 Maintenance Contract Ledger
 
-Last revalidated: **2026-08-02**. This branch-independent ledger records the
-external package, tool, documentation, CI, and publication contracts consumed
-by the repository. It is not a release note and does not assert that a registry
+Last revalidated: **2026-08-02**; the npm rows in §4 and §4.1 on
+**2026-10-16**. This branch-independent ledger records the external package,
+tool, documentation, CI, and publication contracts consumed by the repository. It is not a release note and does not assert that a registry
 publication occurred during maintenance.
 
 ## 1. Scope and evidence policy
