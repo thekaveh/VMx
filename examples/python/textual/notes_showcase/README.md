@@ -49,10 +49,12 @@ examples/python/textual/notes_showcase/
 ├── pyproject.toml
 ├── src/notes_showcase/
 │   ├── __main__.py                  ← composition root
+│   ├── messages/theme_changed.py    ← ThemeChangedMessage (row 16)
 │   ├── models/
 │   │   ├── notebook_model.py, note_model.py
 │   │   ├── note_repository.py       ← Protocol
 │   │   ├── in_memory_repository.py, seed.py
+│   │   └── theme_model.py           ← ThemeVM model (row 16)
 │   ├── viewmodels/
 │   │   ├── workspace_vm.py          ← AggregateVM6 composition
 │   │   ├── notebooks_root_vm.py, notebook_vm.py
@@ -69,10 +71,12 @@ examples/python/textual/notes_showcase/
 │       ├── theme.tcss
 │       ├── adapter/                 ← VMx → Textual bridge
 │       │   ├── property.py, command.py, collection.py
-│       │   ├── dispatcher.py, dialog.py
+│       │   ├── dispatcher.py, dialog.py, data_table.py
+│       │   ├── theme_adapter.py      ← ThemeVM → Textual theme (row 16)
 │       │   └── _hub_accessor.py
 │       ├── notebooks_tree.py, notes_list.py, note_form.py,
-│       │   status_bar.py, notifications.py, capability_actions.py
+│       │   status_bar.py, notifications.py, capability_actions.py,
+│       │   global_search.py
 │       └── modals/{confirm_modal,save_file_modal,notify_modal}.py
 └── tests/{models,viewmodels,views}/
 ```

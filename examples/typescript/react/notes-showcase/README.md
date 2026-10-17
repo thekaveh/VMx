@@ -50,13 +50,15 @@ npm run typecheck   # builds local VMx first
 
 ```
 examples/typescript/react/notes-showcase/
-├── package.json, vite.config.ts, tsconfig.json, index.html, .eslintrc.cjs
+├── package.json, vite.config.ts, tsconfig.json, index.html, eslint.config.js
 ├── src/
 │   ├── main.tsx                     ← composition root
+│   ├── messages/themeChanged.ts     ← ThemeChangedMessage (row 16)
 │   ├── models/
 │   │   ├── notebookModel.ts, noteModel.ts
 │   │   ├── noteRepository.ts        ← interface
 │   │   ├── inMemoryRepository.ts, seed.ts
+│   │   └── themeModel.ts            ← ThemeVM model (row 16)
 │   ├── viewmodels/
 │   │   ├── workspaceVM.ts           ← AggregateVM6 composition
 │   │   ├── notebooksRootVM.ts, notebookVM.ts
@@ -77,9 +79,9 @@ examples/typescript/react/notes-showcase/
 │       │   ├── Layout.tsx, NotebooksTree.tsx, NotesList.tsx,
 │       │   │   NoteForm.tsx, StatusBar.tsx, Notifications.tsx,
 │       │   │   CapabilityActions.tsx, GlobalSearch.tsx, DialogOverlay.tsx
-│       │   └── modals/{ConfirmModal,SaveFileModal,NotifyModal}.tsx
+│       │   └── modals/{ModalShell,ConfirmModal,SaveFileModal,NotifyModal}.tsx
 │       └── hooks/useHotkeys.ts
-└── tests/{models,viewmodels,views}/
+└── tests/{models,recipes,viewmodels,views}/, sharedScenario.test.ts, edgeCases.test.ts
 ```
 
 ## 3. Feature traceability

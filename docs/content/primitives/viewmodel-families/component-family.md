@@ -121,6 +121,14 @@ class SearchVM extends ComponentVMBase {
     super({ name: "search", hint: "", hub, dispatcher });
     this.own(hub.messages.subscribe(message => this.receive(message)));
   }
+
+  get type(): ViewModelType {
+    return ViewModelType.Component;
+  }
+
+  private receive(message: IMessage): void {
+    // React to the message.
+  }
 }
 ```
 

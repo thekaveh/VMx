@@ -18,6 +18,9 @@ on:
       - "tools/check-react-package.py"
       - "tools/smoke-react-consumer.py"
       - ".github/workflows/typescript.yml"
+      - "tools/check-conformance-coverage.py"
+      - "tools/check-conformance-execution.py"
+      - "tools/check-typescript-schema-sync.py"
   pull_request:
     branches: [main, develop]
   workflow_dispatch:

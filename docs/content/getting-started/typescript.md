@@ -114,6 +114,7 @@ userVM.construct();
 // Update the model.
 userVM.model = { name: "Alice Smith", email: "asmith@example.com" };
 // stdout: "Property 'model' changed on user-card"
+// stdout: "Property 'modeledHint' changed on user-card"
 
 console.log(userVM.modeledHint); // "Alice Smith"
 console.log(userVM.isConstructed); // true
@@ -317,15 +318,24 @@ recorders without importing Vitest or Jest:
 import { createTestServices, recordPropertyChanges } from "@thekaveh/vmx/testing";
 
 const services = createTestServices();
+// The recorder observes services.hub, so build the VM under test on it.
+const testVM = ComponentVMOf.builder<UserModel>()
+  .name("user-card")
+  .model({ name: "Alice", email: "alice@example.com" })
+  .services(services.hub, services.dispatcher)
+  .build();
+testVM.construct();
+
 const changes = recordPropertyChanges(services.hub, {
-  sender: userVM,
+  sender: testVM,
   propertyName: "model",
 });
 
-userVM.model = { name: "Updated", email: "updated@example.com" };
+testVM.model = { name: "Updated", email: "updated@example.com" };
 
 expect(changes.records).toHaveLength(1);
 changes.dispose();
+testVM.dispose();
 services.dispose();
 ```
 

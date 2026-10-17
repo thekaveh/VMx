@@ -49,7 +49,7 @@ def test_root_readme_preserves_complete_3_22_source_ranges() -> None:
 
     assert (
         f"| 3.22.x | 3.22.0{en}3.22.1 | 3.22.0{en}3.22.1 | 3.23.0{en}3.23.1 "
-        f"| 3.22.0{en}3.23.0  | 0.25.0{en}0.26.0 |"
+        f"| 3.22.0{en}3.23.0  | 0.24.0{en}0.26.0 |"
     ) in readme
 
 

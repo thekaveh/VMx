@@ -60,7 +60,7 @@ package settings with these exact values:
 Then delete the `NPM_TOKEN` environment secret and revoke the bootstrap token.
 This was done on 2026-10-16, after the 3.30.0 bootstrap release.
 The workflow detects the absent secret and uses OIDC. Trusted publishing
-requires Node.js 22.14 or newer and npm CLI 11.18.0 or newer; the publish job pins
+requires Node.js 22.14 or newer and npm CLI 11.5.1 or newer; the publish job pins
 Node 24 and npm 11.18.0. npm automatically attaches provenance for an eligible
 GitHub-hosted trusted-publishing run.
 

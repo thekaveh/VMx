@@ -12,9 +12,9 @@ Updated alongside spec and flavor releases.
 | 3.26.x | —[^source-3-26] | —[^source-3-26] | —[^source-3-26] | —[^source-3-26] | 0.32.0[^source-3-26] |
 | 3.25.x | —[^source-3-25] | —[^source-3-25] | —[^source-3-25] | —[^source-3-25] | 0.31.0[^source-3-25] |
 | 3.24.x | —[^source-3-24] | —[^source-3-24] | —[^source-3-24] | —[^source-3-24] | 0.30.0[^source-3-24] |
-| 3.23.x | 3.23.0–3.23.1 | —[^source-3-23] | —[^source-3-23] | 3.24.0[^swift] | 0.29.0[^source-3-23] |
-| 3.22.x[^source-only] | 3.22.0–3.22.1 | 3.22.0–3.22.1 | 3.23.0–3.23.1 | 3.22.0–3.23.0 | 0.25.0–0.26.0 |
-| 3.21.x | —               | —               | —               | —               | —             |
+| 3.23.x | 3.23.0–3.23.1[^python-3-23-1] | —[^source-3-23] | —[^source-3-23] | 3.24.0[^swift] | 0.29.0[^source-3-23] |
+| 3.22.x[^source-only] | 3.22.0–3.22.1 | 3.22.0–3.22.1 | 3.23.0–3.23.1 | 3.22.0–3.23.0 | 0.24.0–0.26.0 |
+| 3.21.x | —               | —               | —               | —               | 0.23.0[^rust-source] |
 | 3.20.x[^legacy-semantic-tag-only] | —               | —               | —               | 3.20.0         | 0.20.0–0.22.0[^rust-source] |
 | 3.19.x | —               | —               | —               | —               | 0.19.0[^rust-source] |
 | 3.18.x | —               | —               | —               | —               | 0.18.0[^rust-source] |
@@ -128,13 +128,16 @@ They were not published to crates.io and do not imply
 corresponding `rust-v*` tags or releases.
 
 The same source-only history applies to Rust `0.20.0` through `0.22.0` for
-spec 3.20.x. The untagged C# `3.20.0–3.20.1`, Python `3.20.0–3.20.1`,
+spec 3.20.x and to Rust `0.23.0` for spec 3.21.x. The untagged C# `3.20.0–3.20.1`, Python `3.20.0–3.20.1`,
 TypeScript `3.20.0–3.21.1`, and Swift `3.20.1` source lines are intentionally
 not listed as releases in the matrix.
 
 [^source-only]: Spec 3.22.x and its listed flavor versions were validated source
 lines but were never tagged or published. They remain compatibility history,
 not release claims.
+
+[^python-3-23-1]: Python 3.23.1 is tagged (`python-v3.23.1`) and has a GitHub
+Release, but its PyPI upload failed; PyPI's latest Python release is 3.23.0.
 
 [^source-3-23]: C# 3.23.0, Python 3.23.2–3.23.3, TypeScript 3.24.0–3.24.1, and
 Rust 0.29.0 implemented spec 3.23.x as validated source lines but were never

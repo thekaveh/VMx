@@ -223,13 +223,13 @@ jobs:
             fi
             # Swift stub presence
             if [ -d langs/swift/Tests/VMxTests ]; then
-              if ! grep -rE -q "^[[:space:]]*///?[[:space:]]+${id}([[:space:](]|$).*(—|-)" langs/swift/Tests/VMxTests; then
+              if ! grep -rE -q "^[[:space:]]*///?[[:space:]]+${id}([[:space:](]|$).*—" langs/swift/Tests/VMxTests; then
                 missing_in+=("langs/swift/Tests/VMxTests:${id}")
               fi
             fi
             # Rust stub presence
             if [ -d langs/rust/tests/conformance ]; then
-              if ! grep -rE -q "^[[:space:]]*///[[:space:]]+${id}([[:space:](]|$).*(—|-)" langs/rust/tests/conformance; then
+              if ! grep -rE -q "^[[:space:]]*///[[:space:]]+${id}([[:space:](]|$).*—" langs/rust/tests/conformance; then
                 missing_in+=("langs/rust/tests/conformance:${id}")
               fi
             fi

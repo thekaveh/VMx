@@ -1,14 +1,14 @@
 # VMx Python Examples
 
-Four self-contained demos of the [VMx Python library](../../langs/python/).
+Five self-contained demos of the [VMx Python library](../../langs/python/).
 Generated architecture diagrams for all examples live in
 [`../DIAGRAMS.md`](../DIAGRAMS.md).
 
 ## 1. Setup
 
 The console and tkinter examples share the root `examples/python` environment.
-Each Textual example is a standalone uv project with its own environment and
-lockfile, as shown in its section below.
+Each Textual and NiceGUI example is a standalone uv project with its own
+environment and lockfile, as shown in its section below.
 
 ```bash
 cd examples/python
@@ -115,7 +115,7 @@ A general-purpose live inspector for any VMx hierarchy. Demonstrates:
   `x` dispose, `s` select) on the highlighted node.
 
 `textual/inspector/` is its own uv project (Textual is a heavier dependency
-than the other two examples) — run it from its own directory:
+than the console and tkinter examples) — run it from its own directory:
 
 Diagram:
 [`python-textual-inspector.svg`](../../docs/assets/diagrams/python-textual-inspector.svg)
@@ -158,7 +158,25 @@ scenario contract lives at
 
 ---
 
-## 6. Project layout
+## 6. Example 5 — `nicegui/notes_showcase` (NiceGUI web page)
+
+A NiceGUI web page over the same workspace view-models as the Textual
+flagship. It reuses that project's models and view-models; only the host, the
+page, and a small adapter live here. It is its own uv project:
+
+```bash
+cd examples/python/nicegui/notes_showcase
+uv sync --locked
+uv run python -m nicegui_notes
+```
+
+Then open <http://localhost:8080>. See
+[`nicegui/notes_showcase/README.md`](nicegui/notes_showcase/README.md) for the
+layout and checks.
+
+---
+
+## 7. Project layout
 
 ```
 examples/python/
@@ -169,10 +187,13 @@ examples/python/
 │       ├── __init__.py
 │       └── __main__.py         # entry point: python -m hello_vmx
 ├── tk/
-│   └── todo_app/
-│       ├── __init__.py
-│       ├── __main__.py         # entry point: python -m todo_app
-│       └── host_check.py       # CI host check: python -m todo_app.host_check
+│   ├── todo_app/
+│   │   ├── __init__.py
+│   │   ├── __main__.py         # entry point: python -m todo_app
+│   │   └── host_check.py       # CI host check: python -m todo_app.host_check
+│   └── note_recipe/            # tkinter recipe checked in CI: python -m note_recipe
+├── nicegui/
+│   └── notes_showcase/         # stand-alone uv project (NiceGUI web page)
 └── textual/
     ├── inspector/              # stand-alone uv project (Textual)
     │   ├── pyproject.toml

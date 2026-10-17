@@ -152,12 +152,19 @@ user_vm.property_changed.subscribe(
 # This fires the VM's on_construct callback. Model assignment is already valid
 # before construction and remains valid until the terminal DISPOSED state.
 user_vm.construct()
+# stdout: "  [property_changed] status"
+# stdout: "  [property_changed] is_constructed"
 # stdout: "user-card constructed"
+# stdout: "  [property_changed] status"
+# stdout: "  [property_changed] is_constructed"
 
 # Update the model — triggers on_model_changed and publishes
 # PropertyChangedMessage for "model" (and "modeled_hint" if it changed).
 user_vm.model = UserModel("Alice Smith", "asmith@example.com")
 # stdout: "Property 'model' changed on user-card"
+# stdout: "  [property_changed] model"
+# stdout: "Property 'modeled_hint' changed on user-card"
+# stdout: "  [property_changed] modeled_hint"
 # stdout: "Model updated → Alice Smith"
 
 print(user_vm.modeled_hint)  # "Alice Smith"  (modeled_hinter result)

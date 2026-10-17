@@ -43,10 +43,12 @@ examples/csharp/avalonia/NotesShowcase/
 ├── NotesShowcase.csproj
 ├── Program.cs                     ← process entry (composition root lives in App.BuildMainWindow)
 ├── App.axaml(.cs)                 ← Avalonia entrypoint
+├── Messages/ThemeChangedMessage.cs ← ThemeChangedMessage (row 16)
 ├── Models/
 │   ├── NotebookModel.cs, NoteModel.cs
 │   ├── INoteRepository.cs, InMemoryNoteRepository.cs
-│   └── SeedData.cs
+│   ├── SeedData.cs
+│   └── ThemeModel.cs              ← ThemeVM model (row 16)
 ├── ViewModels/
 │   ├── WorkspaceVM.cs             ← AggregateVM6 composition
 │   ├── NotebooksRootVM.cs, NotebookVM.cs
@@ -63,6 +65,7 @@ examples/csharp/avalonia/NotesShowcase/
     │   ├── BindableVm.cs, BindableDerived.cs
     │   ├── RelayCommandBridge.cs, ObservableCollectionBridge.cs
     │   ├── AvaloniaDispatcher.cs, AvaloniaDialogService.cs
+    │   └── ThemeAdapter.cs        ← ThemeVM → Avalonia resources (row 16)
     ├── Theme/DarkTheme.axaml
     ├── MainWindow.axaml(.cs)
     ├── NotebooksTreeView, NotesListView, NoteFormView, GlobalSearchView,

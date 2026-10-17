@@ -61,8 +61,10 @@ Add the optional DI package:
 Then register in your host startup (WPF, MAUI, ASP.NET, etc.):
 
 ```csharp
+using System.Reactive.Concurrency;
 using Microsoft.Extensions.DependencyInjection;
 using VMx.Extensions.DependencyInjection;
+using VMx.Services;
 
 var services = new ServiceCollection();
 
@@ -91,12 +93,10 @@ participates in the five-state lifecycle (Destructed, Constructing,
 Constructed, Destructing) plus terminal Disposed.
 
 ```csharp
+using System.Reactive.Linq;
 using VMx.Components;
 using VMx.Messages;
 using VMx.Services;
-
-// A simple domain model — use your own real types here.
-public record UserModel(string Name, string Email);
 
 // Build the viewmodel — builder is immutable; every setter returns a new instance.
 ComponentVM<UserModel> userVM =
@@ -128,6 +128,10 @@ userVM.Construct();
 userVM.Model = new UserModel("Alice Smith", "asmith@example.com");
 
 Console.WriteLine(userVM.ModeledHint);  // "Alice Smith"  (ModeledHinter result)
+
+// A simple domain model — use your own real types here. In a file with
+// top-level statements, type declarations come after the statements.
+public record UserModel(string Name, string Email);
 ```
 
 > See the [component family](../primitives/viewmodel-families/component-family.md)
@@ -193,12 +197,10 @@ Children are built ahead of time and handed in via a factory; the factory runs
 lazily on the first `Construct`.
 
 ```csharp
+using System.Reactive.Linq;
 using VMx.Components;
 using VMx.Composites;
 using VMx.Messages;
-
-// A tab viewmodel — a ComponentVM wrapping a tab model.
-public record TabModel(string Title);
 
 // Build two tab children. They share the same hub and dispatcher.
 ComponentVM<TabModel> tab1 =
@@ -239,6 +241,9 @@ tabs.Construct();
 // Select a tab — publishes PropertyChangedMessage for Current, sets child.IsCurrent.
 tabs.Current = tab2;  // prints "Selected tab: Settings"
 tabs.Current = tab1;  // prints "Selected tab: Home"
+
+// A tab viewmodel — a ComponentVM wrapping a tab model.
+public record TabModel(string Title);
 ```
 
 > See the [composite family](../primitives/viewmodel-families/composite-family.md)
@@ -304,6 +309,8 @@ All hub observations delivered on `Foreground` are safe to bind directly to UI
 controls. Use `ObserveOn` to marshal:
 
 ```csharp
+using System.Reactive.Linq;
+
 hub.Messages
    .OfType<IPropertyChangedMessage<IComponentVM>>()
    .ObserveOn(dispatcher.Foreground)     // marshal to UI thread
@@ -313,6 +320,8 @@ hub.Messages
 For background work (e.g. loading data before a Construct):
 
 ```csharp
+using System.Reactive.Linq;
+
 Observable
     .Start(() => LoadFromDatabase(), dispatcher.Background)
     .ObserveOn(dispatcher.Foreground)

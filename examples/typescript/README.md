@@ -57,7 +57,7 @@ Diagram:
 [PNG](../../docs/assets/diagrams/typescript-react-notes-showcase.png)).
 
 ```bash
-cd react/notes-showcase
+cd examples/typescript/react/notes-showcase
 npm ci
 npm run dev         # builds local VMx, then serves http://localhost:5173
 ```
@@ -65,7 +65,8 @@ npm run dev         # builds local VMx, then serves http://localhost:5173
 **Production build:**
 
 ```bash
-cd react/notes-showcase
+cd examples/typescript/react/notes-showcase
+npm ci
 npm run build       # builds local VMx, then writes static bundle to dist/
 ```
 
@@ -86,9 +87,10 @@ examples/typescript/
 ├── console/
 │   └── hello-vmx/
 │       └── index.ts       # entry point
+├── integration-recipes/   # Vue, Svelte, and Solid recipes checked in CI
 └── react/
     └── notes-showcase/
         ├── package.json, vite.config.ts, tsconfig.json
-        ├── src/{models,viewmodels,views}/
-        └── tests/{models,viewmodels,views}/
+        ├── src/{messages,models,viewmodels,views}/
+        └── tests/{models,recipes,viewmodels,views}/
 ```

@@ -9,8 +9,9 @@ The release pipeline has two halves:
   in `langs/python/src/vmx/__about__.py` and writes the new section in
   `langs/python/CHANGELOG.md`. Merging that PR pushes a `python-v<X.Y.Z>`
   tag, which fires the publish pipeline.
-- **Publish pipeline.** `.github/workflows/release.yml` runs four jobs on
-  the new tag: `python-test` (full pytest matrix gate), `python-build-and-publish`
+- **Publish pipeline.** `.github/workflows/release.yml` runs five jobs on
+  the new tag: `release-metadata` (version, tag, and changelog preflight),
+  `python-test` (full pytest matrix gate), `python-build-and-publish`
   (gated on the `pypi-python` GitHub environment for manual approval, then an
   exact-backend build, metadata check, fresh-environment install/smoke of the
   local wheel, and Trusted-Publishing-via-OIDC upload with Sigstore (PEP 740)
@@ -39,7 +40,7 @@ No API tokens. No Test PyPI. Trusted Publishing only.
 
 - In the repo's Settings → Environments, create `pypi-python`.
 - Under "Deployment protection rules", enable "Required reviewers" and add yourself.
-- Leave "Allow self review" unchecked — every publish requires an explicit click after the test gate passes.
+- Leave "Prevent self-review" unchecked while one maintainer holds the reviewer role; otherwise that maintainer cannot approve a release they started. Required reviewers still make every publish wait for an explicit approval after the test gate passes.
 - (Optional) Set "Environment URL" to `https://pypi.org/p/vmx`.
 
 ### 1.3 Pre-publish URL + metadata validation
@@ -62,8 +63,8 @@ The same lesson applies to npm `package.json` `homepage`/`bugs`/`repository`, Nu
 
 ### 2.1 Routine release (release-please-driven)
 
-1. Land Conventional-Commit-style PRs on `main` (`feat: …`, `fix: …`, `docs: …`, etc.).
-2. `release-please` opens a "chore(main): release vmx-python …" PR — review the version bump in `langs/python/src/vmx/__about__.py` and the matching `langs/python/CHANGELOG.md` entry.
+1. Land Conventional-Commit-style PRs on `develop` (`feat: …`, `fix: …`, `docs: …`, etc.), then promote `develop` to `main` through a separate PR.
+2. `release-please` opens a "chore(main): release python X.Y.Z" PR — review the version bump in `langs/python/src/vmx/__about__.py` and the matching `langs/python/CHANGELOG.md` entry.
 3. If the spec version also bumped, update `__min_spec_version__` in the same PR (release-please does not auto-bump that — see the comment in `__about__.py`).
 4. Merge the release PR. release-please pushes a `python-v<X.Y.Z>` tag on the merge commit.
 5. Watch <https://github.com/thekaveh/VMx/actions?query=workflow%3Arelease> — the publish pipeline fires on the tag.
@@ -121,17 +122,17 @@ change that updates every release validator and workflow together.
 ```bash
 # PyPI page renders:
 curl -sS https://pypi.org/pypi/vmx/json | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['info']['name'], d['info']['version'])"
-# → vmx 2.6.1
+# → vmx X.Y.Z
 
 # Install in a fresh venv:
 python3 -m venv /tmp/vmx-verify
 /tmp/vmx-verify/bin/pip install --upgrade pip
-/tmp/vmx-verify/bin/pip install vmx==2.6.1
-/tmp/vmx-verify/bin/python langs/python/scripts/smoke_test.py 2.6.1
+/tmp/vmx-verify/bin/pip install vmx==X.Y.Z
+/tmp/vmx-verify/bin/python langs/python/scripts/smoke_test.py X.Y.Z
 # → OK
 
 # GitHub Release:
-gh release view python-v2.6.1
+gh release view python-vX.Y.Z
 ```
 
 ## 4. Failure modes
@@ -169,10 +170,10 @@ tagged workflow input. The PyPI artifact is already live.
 
 ## 5. Tag scheme and multi-flavor coexistence
 
-Python releases use `python-v<X.Y.Z>`. Other flavors will adopt the same flavor-prefixed convention (`csharp-v*`, `typescript-v*`, `swift-v*`); `release.yml` already filters by prefix per job, so adding more flavors does not change the Python pipeline.
+Python releases use `python-v<X.Y.Z>`. The other packages use the same flavor-prefixed convention (`csharp-v*` and its companion prefixes, `typescript-v*`, `react-v*`, `swift-v*`, and `rust-v*`); `release.yml` filters by prefix per job, so another flavor's tag does not start the Python pipeline.
 
 `release-please-config.json` is monorepo-aware. When other flavors adopt release-please, add their package entries alongside `langs/python` — each gets its own component-prefixed tag and its own changelog.
 
 ## 6. Spec compatibility
 
-`__min_spec_version__` in `langs/python/src/vmx/__about__.py` declares the minimum `spec/VERSION` this package implements. Bumping the spec major (e.g., 2.x → 3.0) requires a corresponding flavor major bump per the policy in `README.md` §6.1. The release pipeline does NOT enforce this — `.github/workflows/spec-discipline.yml` does, on the prep PR. release-please leaves `__min_spec_version__` untouched; bump it manually in the release PR review if a spec major bumps in the same window.
+`__min_spec_version__` in `langs/python/src/vmx/__about__.py` declares the minimum `spec/VERSION` this package implements. Bumping the spec major (e.g., 2.x → 3.0) requires a corresponding flavor major bump per the policy in `README.md` §6.1. `tools/check-version-consistency.py` enforces that `__min_spec_version__` equals `spec/VERSION`; it runs in the conformance workflow on every PR and in the release workflow's `release-metadata` preflight. release-please leaves `__min_spec_version__` untouched; bump it manually in the release PR review if a spec major bumps in the same window.

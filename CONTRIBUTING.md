@@ -151,7 +151,7 @@ Behavior changes start in `spec/`. The rules are:
   `@pytest.mark.conformance("XXX-NNN")` (Python), `[Trait("Conformance", "XXX-NNN")]`
   (C#), `describe("XXX-NNN", ...)` (TypeScript), Swift doc / line comments
   where the ID is the first token after the marker (for example
-  `/// XXX-NNN - ...`) in `langs/swift/Tests/VMxTests`, and equivalent leading
+  `/// XXX-NNN — ...`, with an em dash) in `langs/swift/Tests/VMxTests`, and equivalent leading
   doc comments on Rust `#[test]` functions under `langs/rust/tests/conformance`.
 
 ### 3.1 Bypass
@@ -165,10 +165,11 @@ See the ADRs in `spec/ADRs/` for the rationale behind each architectural rule.
 ## 4. Releases and tagging
 
 Each flavor versions and releases independently. Most operational tags use
-`<lang>-vX.Y.Z`, where `<lang>` is `csharp`, `python`, `typescript`, `swift`, or
-`rust`. C# keeps that form for the core `VMx` package and uses package-specific
-`csharp-notifications-vX.Y.Z` and `csharp-dependency-injection-vX.Y.Z` tags for
-its independently versioned companions. A spec tag uses `spec-vX.Y.Z`. Swift
+`<lang>-vX.Y.Z`, where `<lang>` is `csharp`, `python`, `typescript`, `swift`,
+`rust`, or `react` (the React adapter). C# keeps that form for the core `VMx`
+package and uses package-specific `csharp-notifications-vX.Y.Z` and
+`csharp-dependency-injection-vX.Y.Z` tags for its independently versioned
+companions. A spec tag uses `spec-vX.Y.Z`. Swift
 additionally requires a semantic `vX.Y.Z` tag for SwiftPM, paired with its
 `swift-vX.Y.Z` operational tag.
 

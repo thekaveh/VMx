@@ -227,7 +227,8 @@ Inc-8: +6 transactional-hub IDs per ADR-0082;
 Inc-9: +3 dual-channel property-notification IDs per ADR-0083;
 Inc-10: +6 cross-cutting disposal IDs per ADR-0084; subsequent increments
 through ADR-0099 bring the catalog to 380; Inc-28: +11 async-resource IDs per
-ADR-0100). The covered IDs are:
+ADR-0100; later increments through ADR-0145 bring it to 425, as recorded in
+[`compatibility-matrix.md`](../../compatibility-matrix.md)). The covered IDs are:
 
 ```
 LIFE-001..015   lifecycle state machine, transition table, and disposal coordination
@@ -247,6 +248,7 @@ GRP-001..004    group surface contract + lifecycle cascades + CollectionChanged 
 GRP-005/006     autoConstructOnAdd + BatchUpdateHandle on GroupVM (Inc-2 — ADR-0060)
 GRP-011         group children are non-selectable peers (ADR-0079)
 AGG-001..006    AggregateVM1..AggregateVM6 parametric coverage
+AGG-007         transactional fixed-slot reconstruction (ADR-0125)
 CMD-001..004, 006   RelayCommand task + predicate + triggers (Inc-0)
 BLD-001..006    builders immutable + validation + defaults + options factories
 PROP-001..004   hub property-change accessors
@@ -441,6 +443,12 @@ GRP-012..013    (ADR-0142)
 FORM-031..034   one approval at a time (ADR-0143)
 FORM-035..038   failure-atomic model updates (ADR-0144)
 CMDD-014..017   awaited confirmation over an async inner (ADR-0145)
+HUB-008..013    message-hub transactions (ADR-0082)
+COMP-038..041   atomic container ownership transfer (ADR-0107)
+DISC-007..009   modal history release (ADR-0128)
+HIER-031..032   atomic child-factory hydration (ADR-0127)
+CMDD-011..013   inert disposed command wrappers (ADR-0134)
+COL-065         token refresh cursor alignment (ADR-0136)
 ```
 
 **THEME scenario IDs (example app — not scraped by the library coverage gate):**

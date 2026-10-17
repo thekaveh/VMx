@@ -16,6 +16,9 @@ on:
       - "tools/check-swift-package-sync.py"
       - "tools/swift-test-watchdog.py"
       - ".github/workflows/swift.yml"
+      - "tools/check-conformance-execution.py"
+      - "tools/check-coverage-floor.py"
+      - "tools/coverage-floors.json"
   pull_request:
     branches: [main, develop]
   workflow_dispatch:

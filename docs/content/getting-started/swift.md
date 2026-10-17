@@ -285,7 +285,12 @@ dispatcher.scheduleBackground {
     let data = loadFromDatabase()
     dispatcher.scheduleForeground {
         userVM.model = data
-        userVM.construct()
+        // scheduleForeground takes a non-throwing closure; handle the error here.
+        do {
+            try userVM.construct()
+        } catch {
+            print("construct failed: \(error)")
+        }
     }
 }
 ```

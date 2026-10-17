@@ -24,6 +24,14 @@ git clone https://github.com/thekaveh/VMx.git ../VMx
 | Swift      | v3.30.0       | SwiftPM release 3.24.0              |
 | Rust       | 0.35.0        | crates.io package not published yet |
 
+Minimum runtimes:
+
+- C#: .NET 8, or any runtime that supports .NET Standard 2.0
+- Python: 3.10
+- TypeScript and the React adapter: Node.js 20.5.0, with RxJS 7.8
+- Swift: iOS 16, macOS 13, tvOS 16, or watchOS 9
+- Rust: 1.88
+
 === "C#"
 
     The package command applies after the first NuGet publication:
