@@ -267,7 +267,7 @@ public sealed class WorkspaceVM : IDisposable
             .Triggers(_commandTrigger)
             .Build();
         NewNoteCommand = AsyncRelayCommand.Builder()
-            .Predicate(() => IsConstructed && NotebooksRoot.Current is not null)
+            .Predicate(() => IsConstructed && NotebooksRoot.Current is not null && !NotesView.CurrentNotebookIsReadOnly)
             .Task(_ => AddNewNoteToCurrentAsync())
             .Triggers(_commandTrigger)
             .Build();

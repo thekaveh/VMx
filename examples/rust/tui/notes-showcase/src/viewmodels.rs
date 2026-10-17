@@ -1,5 +1,4 @@
 use crate::models::{InMemoryNoteRepository, NoteDraft, NoteModel, NotebookModel};
-use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard};
 use vmx::{
     AggregateVm6, Command, ComponentVm, CompositeVm, DecoratorCommand, DiscriminatorVm,
@@ -10,6 +9,8 @@ use vmx::{
 
 const PAGE_SIZE: usize = 2;
 const SEARCH_PAGE_SIZE: usize = 2;
+/// At most this many notifications stay pending, as in every flavor.
+const NOTIFICATION_CAP: usize = 5;
 
 #[derive(Clone)]
 pub struct NoteVm {
@@ -158,6 +159,11 @@ impl NotebooksVm {
     }
 }
 
+impl NotebooksVm {
+    /// Owns no disposable primitives beyond its core.
+    fn release_owned(&self) {}
+}
+
 impl_node!(NotebooksVm);
 
 #[derive(Clone)]
@@ -273,7 +279,7 @@ impl NotesViewVm {
         self.source.clear();
         let notebook_id = lock(&self.notebook_id).clone();
         for note in self.repository.notes_for_notebook(&notebook_id) {
-            let _ = self.source.add(NoteVm::new(note, MessageHub::new()));
+            let _ = self.source.add(NoteVm::new(note, self.core.hub()));
         }
         if let Some(first) = self.source.items().first().cloned() {
             let _ = self.source.set_current(Some(first));
@@ -284,6 +290,14 @@ impl NotesViewVm {
     fn refresh_page(&self) {
         self.filtered.refresh();
         self.pager.set_source(self.filtered.visible());
+    }
+}
+
+impl NotesViewVm {
+    /// Releases the primitives this view-model owns once its core is disposed.
+    fn release_owned(&self) {
+        self.filtered.dispose();
+        let _ = self.source.dispose();
     }
 }
 
@@ -320,10 +334,11 @@ impl NoteFormVm {
             self.repository.clone(),
             &note_id,
             NoteDraft::from_note(&note),
-            MessageHub::new(),
+            self.core.hub(),
         );
         *lock(&self.current_note_id) = note_id;
-        *lock(&self.form) = form;
+        let previous = std::mem::replace(&mut *lock(&self.form), form);
+        previous.dispose();
     }
 
     pub fn title(&self) -> String {
@@ -381,6 +396,13 @@ impl NoteFormVm {
     }
 }
 
+impl NoteFormVm {
+    /// Releases the primitives this view-model owns once its core is disposed.
+    fn release_owned(&self) {
+        lock(&self.form).dispose();
+    }
+}
+
 impl_node!(NoteFormVm);
 
 fn build_form(
@@ -396,17 +418,10 @@ fn build_form(
         .strict(true)
         .validator("title", |draft: &NoteDraft| {
             if draft.title.trim().is_empty() {
-                Some("Title is required".to_string())
+                Some("Title is required.".to_string())
             } else {
                 None
             }
-        })
-        .model_validator(|draft: &NoteDraft| {
-            let mut errors = BTreeMap::new();
-            if draft.body.trim().is_empty() {
-                errors.insert("body".to_string(), "Body is required".to_string());
-            }
-            errors
         })
         .persister(move |draft| {
             repository
@@ -429,24 +444,18 @@ pub struct GlobalSearchVm {
 impl GlobalSearchVm {
     fn new(repository: InMemoryNoteRepository, hub: MessageHub) -> Self {
         let query = Arc::new(Mutex::new(String::new()));
-        let state_query = query.clone();
+        // The searchable state owns the term and the matching rule; the token
+        // pager pages over its filtered projection.
         let state = SearchableState::from_items(
-            {
-                let repository = repository.clone();
-                move || repository.notes()
-            },
-            move |note: &NoteModel, _term: &str| note_matches(note, &lock(&state_query)),
+            move || repository.notes(),
+            |note: &NoteModel, term: &str| note_matches(note, term),
         );
-        let loader_query = query.clone();
+        let loader_state = state.clone();
         let pages = TokenPagedComposition::with_loader_and_hub(
             Some(0usize),
             move |token| {
                 let offset = token.unwrap_or(0);
-                let matches = repository
-                    .notes()
-                    .into_iter()
-                    .filter(|note| note_matches(note, &lock(&loader_query)))
-                    .collect::<Vec<_>>();
+                let matches = loader_state.filtered();
                 let page = matches
                     .iter()
                     .skip(offset)
@@ -497,6 +506,14 @@ impl GlobalSearchVm {
     }
 }
 
+impl GlobalSearchVm {
+    /// Releases the primitives this view-model owns once its core is disposed.
+    fn release_owned(&self) {
+        self.state.dispose();
+        self.pages.dispose();
+    }
+}
+
 impl_node!(GlobalSearchVm);
 
 #[derive(Clone)]
@@ -517,11 +534,22 @@ impl NotificationsVm {
 
     pub fn post(&self, kind: NotificationType, message: impl Into<String>) -> u64 {
         let notification = self.hub.post(kind, message);
-        lock(&self.active_vms).push(NotificationVm::with_hub(
-            notification.clone(),
-            self.hub.clone(),
-            60_000,
-        ));
+        let dropped = {
+            let mut active = lock(&self.active_vms);
+            active.push(NotificationVm::with_hub(
+                notification.clone(),
+                self.hub.clone(),
+                60_000,
+            ));
+            let excess = active.len().saturating_sub(NOTIFICATION_CAP);
+            active.drain(..excess).collect::<Vec<_>>()
+        };
+        // Over the cap, the oldest are dismissed, not just hidden, so the
+        // hub's pending list stays bounded too.
+        for vm in dropped {
+            self.hub
+                .resolve(vm.notification().id, NotificationReaction::Approve);
+        }
         notification.id
     }
 
@@ -536,6 +564,14 @@ impl NotificationsVm {
             .into_iter()
             .map(|notification| notification.message)
             .collect()
+    }
+}
+
+impl NotificationsVm {
+    /// Releases the primitives this view-model owns once its core is disposed.
+    fn release_owned(&self) {
+        lock(&self.active_vms).clear();
+        self.hub.dispose();
     }
 }
 
@@ -573,6 +609,13 @@ impl EditorModeVm {
         } else {
             self.show_edit();
         }
+    }
+}
+
+impl EditorModeVm {
+    /// Releases the primitives this view-model owns once its core is disposed.
+    fn release_owned(&self) {
+        self.discriminator.dispose();
     }
 }
 
@@ -748,7 +791,7 @@ impl WorkspaceVm {
     }
 
     pub fn dispose(&self) -> VmxResult<()> {
-        self.aggregate.destruct()
+        self.aggregate.dispose()
     }
 }
 
@@ -795,7 +838,9 @@ macro_rules! impl_node {
             }
 
             fn dispose(&self) -> VmxResult<()> {
-                self.core.dispose()
+                let result = self.core.dispose();
+                self.release_owned();
+                result
             }
 
             fn status(&self) -> vmx::ConstructionStatus {

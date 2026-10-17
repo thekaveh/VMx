@@ -124,6 +124,7 @@ public final class NotificationsVM: ComponentVMBase {
         // this one ordered pass under the lock. Disposal and the change
         // notification reach observers, so they run after it (ADR-0117).
         var released: [NotificationVM] = []
+        var evicted: [NotificationVM] = []
         let changed = _stateLock.withLock { () -> Bool in
             guard !_closed else { return false }
 
@@ -148,7 +149,7 @@ public final class NotificationsVM: ComponentVMBase {
                     if let oldKey = _map.first(where: { $0.value === oldest })?.key {
                         _map.removeValue(forKey: oldKey)
                     }
-                    released.append(oldest)
+                    evicted.append(oldest)
                 }
             }
 
@@ -166,6 +167,12 @@ public final class NotificationsVM: ComponentVMBase {
 
         for vm in released { vm.dispose() }
         if changed { _notifyPropertyChanged("visible") }
+        // A dropped notification is dismissed, not just hidden: left pending in
+        // the hub, the next sync would rebuild it and evict another one.
+        for vm in evicted {
+            vm.dismissCommand.execute()
+            vm.dispose()
+        }
     }
 
     private func clearVisible() {

@@ -114,7 +114,7 @@ TUI counterpart stores cloned `NoteModel` values and therefore has no
 lifecycle-bearing search-result ownership obligation.
 
 [^theme]: ThemeVM ships in each flavor's `viewmodels/` plus a per-framework
-    `ThemeAdapter` in `views/adapter/`. `WorkspaceVM` owns the `ThemeVM` as a
+    `ThemeAdapter` in `views/adapter/` (Swift: `Sources/NotesShowcase/Adapter/`). `WorkspaceVM` owns the `ThemeVM` as a
     sibling of its six aggregate children, and the host binds the adapter to that
     workspace-owned instance. Composition as a 7th aggregate child remains
     **deferred** pending an `AggregateVM7` core-library extension — see

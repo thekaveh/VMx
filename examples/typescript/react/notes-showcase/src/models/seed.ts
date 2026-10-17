@@ -31,7 +31,7 @@ export function buildSeed(): {
     { id: "nb-specs", name: "Specs", parentId: "nb-work" },
     { id: "nb-reviews", name: "Reviews", parentId: null },
     { id: "nb-personal", name: "Personal", parentId: null },
-    { id: "nb-archive", name: "Archive", parentId: null },
+    { id: "nb-archive", name: "Archive", parentId: null, isReadonly: true },
   ];
 
   const notes: NoteModel[] = [];

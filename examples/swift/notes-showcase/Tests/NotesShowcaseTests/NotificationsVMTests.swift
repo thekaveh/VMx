@@ -160,6 +160,27 @@ final class NotificationsVMTests: XCTestCase {
                        "Expected newest notification to be 'n6'")
     }
 
+    // MARK: - Dropped notifications are dismissed
+
+    func testDroppedNotificationsAreDismissedAndNeverRebuilt() async throws {
+        let f = try build(cap: 2)
+        defer { f.notifHub.dispose() }
+
+        var posts: [Task<NotificationReaction, Never>] = []
+        for i in 0..<4 {
+            let msg = "n\(i)"
+            posts.append(Task { await f.notifHub.post(self.n(msg)) })
+            await waitUntil { f.vm.visible.contains { $0.notification.message == msg } }
+        }
+
+        XCTAssertEqual(["n2", "n3"], f.vm.visible.map { $0.notification.message })
+        let first = await posts[0].value
+        let second = await posts[1].value
+        XCTAssertEqual(.approve, first, "a dropped notification is dismissed in the hub")
+        XCTAssertEqual(.approve, second, "a dropped notification is dismissed in the hub")
+        XCTAssertEqual(["n2", "n3"], f.vm.visible.map { $0.notification.message })
+    }
+
     // MARK: - Resolved notifications removed
 
     func testResolvedNotificationsAreRemovedFromVisible() async throws {

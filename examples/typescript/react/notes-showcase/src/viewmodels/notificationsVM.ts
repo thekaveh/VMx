@@ -86,6 +86,7 @@ export class NotificationsVM extends ComponentVMBase {
 
   #syncFromPending(pending: Notification[]): void {
     // Add VMs for new pending notifications, respecting the cap.
+    const evicted: NotificationVM[] = [];
     for (const n of pending) {
       if (this.#map.has(n)) continue;
       const vm = new NotificationVM(
@@ -105,7 +106,7 @@ export class NotificationsVM extends ComponentVMBase {
             break;
           }
         }
-        oldest.dispose();
+        evicted.push(oldest);
       }
     }
     // Remove VMs whose notifications are no longer pending.
@@ -119,6 +120,12 @@ export class NotificationsVM extends ComponentVMBase {
       }
     }
     this._notifyPropertyChanged("visible");
+    // A dropped notification is dismissed, not just hidden: left pending in
+    // the hub, the next sync would rebuild it and evict another one.
+    for (const vm of evicted) {
+      vm.dismissCommand.execute();
+      vm.dispose();
+    }
   }
 
   #clearVisible(): void {

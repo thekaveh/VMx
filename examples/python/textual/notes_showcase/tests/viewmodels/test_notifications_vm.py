@@ -10,7 +10,12 @@ from reactivex.scheduler import ImmediateScheduler
 from reactivex.testing import TestScheduler
 from vmx import MessageHub, RxDispatcher
 from vmx.messages.protocols import Message
-from vmx.notifications import Notification, NotificationHub, NotificationType
+from vmx.notifications import (
+    Notification,
+    NotificationHub,
+    NotificationReaction,
+    NotificationType,
+)
 
 from notes_showcase.viewmodels.notifications_vm import NotificationsVM
 
@@ -88,6 +93,26 @@ async def test_auto_dismiss_resolves_notification_after_lifespan() -> None:
     await asyncio.sleep(0)
     assert vm.visible.count == 0
     assert fut.done()
+
+
+async def test_dropped_notifications_are_dismissed_and_never_rebuilt() -> None:
+    vm, hub = _build(cap=2)
+    vm.construct()
+    futures = [hub.post(Notification(NotificationType.NOTIFICATION, f"m{i}")) for i in range(4)]
+
+    assert [v.notification.message for v in vm.visible] == ["m2", "m3"]
+    await asyncio.sleep(0)  # the hub settles post futures on the loop
+    assert futures[0].done() and futures[1].done()
+    assert futures[0].result() is NotificationReaction.APPROVE
+    pending: list[Notification] = []
+    hub.pending.subscribe(pending.extend).dispose()
+    assert [n.message for n in pending] == ["m2", "m3"]
+    for f in futures[2:]:
+        f.cancel()
+        try:
+            await f
+        except (asyncio.CancelledError, Exception):
+            pass
 
 
 def test_default_cap_is_5() -> None:

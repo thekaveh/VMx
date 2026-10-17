@@ -46,6 +46,20 @@ describe("NotificationsVM", () => {
     expect(vm.visible.map((v) => v.notification.message)).toEqual(["b", "c"]);
   });
 
+  it("dismisses dropped notifications so later posts never rebuild them", async () => {
+    const { vm, notifs } = makeVM({ cap: 2 });
+    const posts = ["a", "b", "c", "d"].map((message) =>
+      notifs.post(new Notification(NotificationType.Notification, message)),
+    );
+
+    expect(vm.visible.map((v) => v.notification.message)).toEqual(["c", "d"]);
+    await expect(posts[0]).resolves.toBe(NotificationReaction.Approve);
+    await expect(posts[1]).resolves.toBe(NotificationReaction.Approve);
+    let pending: readonly Notification[] = [];
+    notifs.pending.subscribe((list) => (pending = list)).unsubscribe();
+    expect(pending.map((n) => n.message)).toEqual(["c", "d"]);
+  });
+
   it("removes a VM when the notification is resolved externally", () => {
     const { vm, notifs } = makeVM();
     const n = new Notification(NotificationType.Notification, "x");

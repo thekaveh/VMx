@@ -245,7 +245,12 @@ export class WorkspaceVM {
       .triggers(this.#commandTrigger)
       .build();
     this.#newNoteCommand = AsyncRelayCommand.builder()
-      .predicate(() => this.isConstructed && this.#notebooks.current !== null)
+      .predicate(
+        () =>
+          this.isConstructed &&
+          this.#notebooks.current !== null &&
+          !this.#notesView.currentNotebookIsReadonly,
+      )
       .task(async () => { await this.#addNewNoteToCurrentAsync(); })
       .triggers(this.#commandTrigger)
       .build();

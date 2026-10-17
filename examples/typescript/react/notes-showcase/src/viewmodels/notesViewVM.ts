@@ -443,11 +443,15 @@ export class NotesViewVM extends ComponentVMBase {
   }
 
   protected override _onDestruct(): void {
+    // Invalidate a load still in flight so it cannot repopulate this VM.
+    this.#activeBindingToken += 1;
     this.#releaseChildren();
     super._onDestruct();
   }
 
   protected override _onDispose(): void {
+    // Invalidate a load still in flight so it cannot repopulate this VM.
+    this.#activeBindingToken += 1;
     this.#releaseChildren();
     this.#paged.dispose();
     this.#search.dispose();

@@ -32,6 +32,7 @@ private final class AppTransferBox<Value>: @unchecked Sendable {
 final class AppState: ObservableObject {
     let workspace: WorkspaceVM
     let themeAdapter: ThemeAdapter
+    private var hostSubscriptions = Set<AnyCancellable>()
 
     init() {
         let repo = InMemoryNoteRepository(seed: SeedData.build())
@@ -53,6 +54,19 @@ final class AppState: ObservableObject {
         Task { [transferableWorkspace] in
             await transferableWorkspace.value.constructReportingFailure()
         }
+
+        // Notification lifespans run on a virtual clock; advance it in real
+        // time so toasts auto-dismiss in the running app.
+        let clock = workspace.notificationClock
+        Timer.publish(every: 1, on: .main, in: .common)
+            .autoconnect()
+            .sink { _ in clock.advance(by: .seconds(1)) }
+            .store(in: &hostSubscriptions)
+        // Closing the app disposes the workspace, as in the C# host.
+        NotificationCenter.default
+            .publisher(for: NSApplication.willTerminateNotification)
+            .sink { _ in workspace.dispose() }
+            .store(in: &hostSubscriptions)
     }
 }
 

@@ -462,10 +462,14 @@ class NotesViewVM(
         self._bound_notebook_id = None
 
     def _on_destruct(self) -> None:
+        # Invalidate a load still in flight so it cannot repopulate this VM.
+        self._active_binding_token += 1
         self._release_children()
         super()._on_destruct()
 
     def _on_dispose(self) -> None:
+        # Invalidate a load still in flight so it cannot repopulate this VM.
+        self._active_binding_token += 1
         self._release_children()
         self._paged.dispose()
         self._search.dispose()

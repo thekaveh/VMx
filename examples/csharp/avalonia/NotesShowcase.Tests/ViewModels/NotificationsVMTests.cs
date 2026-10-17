@@ -46,6 +46,23 @@ public sealed class NotificationsVMTests
     }
 
     [Fact]
+    public void Dropped_notifications_are_dismissed_and_never_rebuilt()
+    {
+        var (vm, hub, _) = Build(cap: 2);
+        var posts = new List<Task<NotificationReaction>>();
+        for (var i = 0; i < 4; i++)
+            posts.Add(hub.Post(new Notification(NotificationType.Notification, $"n{i}")));
+
+        Assert.Equal(new[] { "n2", "n3" }, vm.Visible.Select(v => v.Notification.Message));
+        Assert.True(posts[0].IsCompleted && posts[1].IsCompleted, "dropped notifications resolve");
+        Assert.Equal(NotificationReaction.Approve, posts[0].Result);
+        Assert.False(posts[2].IsCompleted || posts[3].IsCompleted);
+        IReadOnlyList<Notification>? pending = null;
+        using var subscription = hub.Pending.Subscribe(list => pending = list);
+        Assert.Equal(new[] { "n2", "n3" }, pending!.Select(n => n.Message));
+    }
+
+    [Fact]
     public void Resolved_notifications_are_removed_from_Visible()
     {
         var (vm, hub, _) = Build();

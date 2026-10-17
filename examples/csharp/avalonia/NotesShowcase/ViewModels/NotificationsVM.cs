@@ -38,7 +38,7 @@ public sealed class NotificationsVM : ComponentVMBase
     /// <summary>Public hub accessor.</summary>
     public new IMessageHub Hub => base.Hub;
 
-    /// <summary>Bounded list of currently-rendered notifications (newest first).</summary>
+    /// <summary>Bounded list of currently-rendered notifications (oldest first).</summary>
     public ObservableCollection<NotificationVM> Visible => _visible;
 
     /// <summary>Maximum number of concurrently rendered notifications.</summary>
@@ -87,6 +87,7 @@ public sealed class NotificationsVM : ComponentVMBase
     private void SyncFromPending(IReadOnlyList<Notification> pending)
     {
         // Add VMs for new pending notifications, respecting cap.
+        var evicted = new List<NotificationVM>();
         foreach (var n in pending)
         {
             if (_map.ContainsKey(n)) continue;
@@ -100,7 +101,7 @@ public sealed class NotificationsVM : ComponentVMBase
                 _visible.RemoveAt(0);
                 var keyToRemove = _map.FirstOrDefault(kv => ReferenceEquals(kv.Value, oldest)).Key;
                 if (keyToRemove is not null) _map.Remove(keyToRemove);
-                oldest.Dispose();
+                evicted.Add(oldest);
             }
         }
         // Remove VMs whose notifications are no longer pending.
@@ -114,6 +115,13 @@ public sealed class NotificationsVM : ComponentVMBase
             vm.Dispose();
         }
         NotifyPropertyChanged(nameof(Visible));
+        // A dropped notification is dismissed, not just hidden: left pending in
+        // the hub, the next sync would rebuild it and evict another one.
+        foreach (var vm in evicted)
+        {
+            vm.DismissCommand.Execute(null);
+            vm.Dispose();
+        }
     }
 
     private void ClearVisible()

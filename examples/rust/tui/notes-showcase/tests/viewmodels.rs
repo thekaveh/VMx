@@ -4,6 +4,7 @@ use pretty_assertions::assert_eq;
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+use vmx::{ConstructionStatus, NotificationType, VmNode};
 
 const TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -51,7 +52,7 @@ fn form_validation_save_and_revert_use_form_vm_contracts() {
 
     form.set_title("");
     assert!(!form.is_valid());
-    assert_eq!(form.title_error(), Some("Title is required".to_string()));
+    assert_eq!(form.title_error(), Some("Title is required.".to_string()));
     form.save().expect("invalid direct save is a no-op");
     assert_eq!(
         repository.note("rust-parity").expect("original note").title,
@@ -209,4 +210,28 @@ fn editor_mode_and_delete_confirmation_are_vm_commands() {
         workspace.notifications().messages(),
         vec!["Deleted 'Rust flavor parity'"]
     );
+}
+
+#[test]
+fn workspace_dispose_disposes_the_tree() {
+    let workspace = WorkspaceVm::seeded().unwrap();
+    let notifications = workspace.notifications();
+
+    workspace.dispose().unwrap();
+
+    assert_eq!(notifications.status(), ConstructionStatus::Disposed);
+}
+
+#[test]
+fn notifications_over_the_cap_are_dismissed() {
+    let workspace = WorkspaceVm::seeded().unwrap();
+    let notifications = workspace.notifications();
+
+    for index in 0..8 {
+        notifications.post(NotificationType::Notification, format!("n{index}"));
+    }
+
+    let messages = notifications.messages();
+    assert_eq!(messages.len(), 5);
+    assert_eq!(messages.last().map(String::as_str), Some("n7"));
 }

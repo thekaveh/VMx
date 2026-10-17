@@ -98,6 +98,7 @@ class NotificationsVM(ComponentVM):
 
     def _sync_from_pending(self, pending: list[Notification]) -> None:
         # Add VMs for notifications not yet rendered.
+        evicted: list[NotificationVM] = []
         for n in pending:
             if n in self._map:
                 continue
@@ -116,7 +117,7 @@ class NotificationsVM(ComponentVM):
                 key = next((k for k, v in self._map.items() if v is oldest), None)
                 if key is not None:
                     self._map.pop(key, None)
-                oldest.dispose()
+                evicted.append(oldest)
         # Remove VMs whose notifications are no longer pending.
         still = set(map(id, pending))
         to_remove = [n for n in self._map if id(n) not in still]
@@ -125,6 +126,11 @@ class NotificationsVM(ComponentVM):
             self._visible.remove(vm)
             vm.dispose()
         self._notify_property_changed("visible")
+        # A dropped notification is dismissed, not just hidden: left pending in
+        # the hub, the next sync would rebuild it and evict another one.
+        for vm in evicted:
+            vm.dismiss_command.execute()
+            vm.dispose()
 
     # ── Builder entry-point ────────────────────────────────────────────────
     @staticmethod

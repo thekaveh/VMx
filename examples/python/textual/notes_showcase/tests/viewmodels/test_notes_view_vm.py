@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 from reactivex.scheduler import ImmediateScheduler
 from reactivex.testing import TestScheduler
@@ -64,6 +66,19 @@ async def test_bind_to_async_loads_notes_for_notebook() -> None:
     assert vm.bound_notebook_id == "nb-reviews"
     assert vm.inner.count == 7
     assert vm.visible_items[0].model.notebook_id == "nb-reviews"
+
+
+async def test_load_in_flight_at_dispose_leaves_no_children() -> None:
+    vm = _build()
+    vm.construct()
+    load = asyncio.ensure_future(vm.bind_to_async("nb-reviews"))
+    await asyncio.sleep(0)  # the load is now awaiting the repository
+
+    vm.dispose()
+    await load
+
+    assert vm.inner.count == 0
+    assert vm.bound_notebook_id is None
 
 
 async def test_show_starred_only_filters_to_starred_notes() -> None:

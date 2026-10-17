@@ -256,7 +256,13 @@ class WorkspaceVM:
         )
         self._new_note_command = (
             AsyncRelayCommand.builder()
-            .predicate(lambda: self.is_constructed and self.notebooks_root.current is not None)
+            .predicate(
+                lambda: (
+                    self.is_constructed
+                    and self.notebooks_root.current is not None
+                    and not self.notes_view.current_notebook_is_readonly
+                )
+            )
             .task(self._add_new_note_to_current)
             .build()
         )

@@ -52,6 +52,17 @@ describe("NotesViewVM", () => {
     expect(vm.currentPageIndex).toBe(0);
   });
 
+  it("a notebook load still in flight at dispose leaves no children", async () => {
+    const { vm } = makeVM();
+    const load = vm.bindToAsync("nb-reviews");
+
+    vm.dispose();
+    await load;
+
+    expect(vm.inner.length).toBe(0);
+    expect(vm.boundNotebookId).toBeNull();
+  });
+
   it("direct dispose releases all live note children", async () => {
     const { vm } = makeVM();
     await vm.bindToAsync("nb-personal");

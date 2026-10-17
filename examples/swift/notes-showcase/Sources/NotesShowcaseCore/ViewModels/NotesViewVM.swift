@@ -376,8 +376,11 @@ public final class NotesViewVM: ComponentVMBase, Searchable, Pageable, Filterabl
             })
 
         if let dialogService = _dialogService {
-            b = b.confirmDelete({ [title = note.title] in
-                await dialogService.confirm(
+            // Read the title when the prompt opens: the note may have been
+            // renamed since this VM was built.
+            b = b.confirmDelete({ [box, fallbackTitle = note.title] in
+                let title = box.value?.title ?? fallbackTitle
+                return await dialogService.confirm(
                     "Delete \u{201C}\(title)\u{201D}?",
                     title: "Delete note"
                 )
