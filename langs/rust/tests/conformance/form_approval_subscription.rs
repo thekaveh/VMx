@@ -254,3 +254,16 @@ fn legacy_on_approved_callbacks_keep_firing_in_registration_order() {
         vec![("legacy", 2), ("subscribed", 2)]
     );
 }
+
+#[test]
+fn validators_registered_after_dispose_are_inactive() {
+    let form = FormVm::new("form", 1);
+    form.dispose();
+
+    form.with_field_validator("value", |_| Some("bad".to_string()));
+    form.with_model_validator(|_| {
+        std::collections::BTreeMap::from([("value".to_string(), "bad".to_string())])
+    });
+
+    assert!(form.errors().is_empty());
+}

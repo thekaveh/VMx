@@ -69,8 +69,15 @@ project adheres to [Semantic Versioning](https://semver.org/).
 - `DerivedProperty::recompute` releases the value lock before it runs the
   transform, so a transform that reads `value()` no longer deadlocks.
 - A disposed `FilteredCompositeVm` ignores `set_predicate`, `set_current`,
-  and the visible navigation methods, so it stays frozen as the disposal
-  contract states (DISP-006).
+  `set_cursor_policy`, `refresh`, `refresh_scores`, and the visible navigation
+  methods, so it stays frozen as the disposal contract states (DISP-006).
+  `dispose()` first applies an unread source change, so the frozen current
+  item is a member of the frozen projection.
+- A disposed `CompositeVm` or `GroupVm` returns `Err(VmxError::Disposed)` from
+  `remove`, `remove_at`, and the selection methods, and `clear()` does
+  nothing, as `add`, `insert`, `replace`, and `move_item` already did.
+- `FormVm` validators registered after `dispose()` are inactive, as the type
+  documentation states; before, they revalidated the disposed form.
 - `NotificationHub` keeps pending notifications in post order. Before, it
   ordered them by creation identity (spec/16 §2.1).
 - `NotificationVm::is_resolved` reports a hub-side resolve that used the

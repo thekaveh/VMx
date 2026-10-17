@@ -147,4 +147,26 @@ final class VMCollectionMoveConformanceTests: XCTestCase {
         XCTAssertTrue(value.at(1) === moved)
         XCTAssertEqual(constructs, 1)
     }
+
+    /// COL-033 — a disposed container rejects move, and a disposed group
+    /// ignores removal and clear.
+    func testCOL033DisposedContainersAreInert() {
+        let c = composite()
+        let g = group()
+        for name in ["a", "b", "c"] {
+            c.add(leaf(name))
+            g.add(leaf(name))
+        }
+        c.dispose()
+        g.dispose()
+
+        XCTAssertThrowsError(try c.move(from: 0, to: 1))
+        XCTAssertThrowsError(try g.move(from: 0, to: 1))
+        XCTAssertFalse(g.remove(g.at(0)))
+        g.removeAt(0)
+        g.clear()
+
+        XCTAssertEqual(c.count, 3)
+        XCTAssertEqual(g.count, 3)
+    }
 }

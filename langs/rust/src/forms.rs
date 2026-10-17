@@ -365,6 +365,10 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     where
         F: Fn(&M) -> Option<String> + Send + Sync + 'static,
     {
+        // A registration after dispose is inactive (see the type docs).
+        if *lock(&self.disposed) {
+            return;
+        }
         let could_approve = self.can_approve();
         lock(&self.field_validators).insert(field.into(), Arc::new(validator));
         self.revalidate();
@@ -393,6 +397,10 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     where
         F: Fn(&M) -> BTreeMap<String, Option<String>> + Send + Sync + 'static,
     {
+        // A registration after dispose is inactive (see the type docs).
+        if *lock(&self.disposed) {
+            return;
+        }
         let could_approve = self.can_approve();
         lock(&self.model_validators).push(Arc::new(validator));
         self.revalidate();

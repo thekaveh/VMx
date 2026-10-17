@@ -64,6 +64,9 @@ class FilteredCompositeVM(Generic[VM]):
         return self._changed.pipe(ops.as_observable())
 
     def set_predicate(self, predicate: Callable[[VM], bool]) -> None:
+        # A disposed projection stays frozen (disposal contract, DISP-006).
+        if self._disposed:
+            return
         self._predicate = predicate
         self._recompute()
 
@@ -78,6 +81,8 @@ class FilteredCompositeVM(Generic[VM]):
         self._changed.on_next(None)
 
     def move_to_next_visible(self) -> None:
+        if self._disposed:
+            return
         if not self._visible:
             self.set_current(None)
             return
@@ -88,6 +93,8 @@ class FilteredCompositeVM(Generic[VM]):
         self.set_current(self._visible[min(index + 1, len(self._visible) - 1)])
 
     def move_to_previous_visible(self) -> None:
+        if self._disposed:
+            return
         if not self._visible:
             self.set_current(None)
             return

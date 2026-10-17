@@ -398,6 +398,8 @@ open class GroupVM<Child: ComponentVMBase>:
 
     public func remove(_ child: Child) -> Bool {
         let removed: (Child, Int)? = membershipGate.withLock {
+            // A disposed group is inert (disposal contract).
+            guard !disposeRequested && !disposeDeferred else { return nil }
             guard !membershipTransactionActive else { return nil }
             guard let index = children.firstIndex(where: { $0 === child }) else { return nil }
             let item = children.remove(at: index)
@@ -419,6 +421,7 @@ open class GroupVM<Child: ComponentVMBase>:
 
     public func removeAt(_ index: Int) {
         let child: Child? = membershipGate.withLock {
+            guard !disposeRequested && !disposeDeferred else { return nil }
             guard !membershipTransactionActive else { return nil }
             let removed = children.remove(at: index)
             if removed._ownershipParent === groupParent {
@@ -524,6 +527,7 @@ open class GroupVM<Child: ComponentVMBase>:
 
     public func clear() {
         let accepted: Bool = membershipGate.withLock {
+            guard !disposeRequested && !disposeDeferred else { return false }
             guard !membershipTransactionActive else { return false }
             for child in children where child._ownershipParent === groupParent {
                 child._parent = nil
@@ -538,6 +542,9 @@ open class GroupVM<Child: ComponentVMBase>:
 
     public func move(from fromIndex: Int, to toIndex: Int) throws {
         let child: Child? = try membershipGate.withLock {
+            guard !disposeRequested && !disposeDeferred else {
+                throw ContainerOwnershipError.attachmentFailed(GroupDisposalAdmissionError())
+            }
             guard !membershipTransactionActive else {
                 throw ContainerOwnershipError.attachmentFailed(GroupMembershipTransactionError())
             }

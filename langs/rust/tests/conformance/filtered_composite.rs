@@ -144,6 +144,25 @@ fn disposed_projection_ignores_its_mutators() {
     assert_eq!(filtered.current().map(|vm| vm.model()), Some(1));
 }
 
+/// COMP-035 — the frozen current item is a member of the frozen projection
+#[test]
+fn dispose_freezes_a_reconciled_current_item() {
+    let source = source_with(&[1, 2, 3]);
+    let filtered = FilteredCompositeVm::new(source.clone(), |_| true);
+    let first = source.items()[0].clone();
+    source.remove(&first).unwrap();
+
+    filtered.dispose();
+    assert_eq!(filtered.current().map(|vm| vm.model()), Some(2));
+    filtered.set_cursor_policy(FilteredCursorPolicy::Clear);
+    filtered.refresh();
+    filtered.refresh_scores();
+
+    let visible: Vec<i32> = filtered.visible().iter().map(|vm| vm.model()).collect();
+    assert_eq!(visible, vec![2, 3]);
+    assert_eq!(filtered.current().map(|vm| vm.model()), Some(2));
+}
+
 /// COMP-033 — filtered cursor policies
 #[test]
 fn cursor_policies_clear_or_snap_to_first() {

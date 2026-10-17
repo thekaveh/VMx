@@ -832,6 +832,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
 
     /// Removes a child, clearing ownership and current selection if needed.
     pub fn remove(&self, item: &T) -> VmxResult<()> {
+        self.reject_if_disposed()?;
         let transaction = begin_membership_transaction(
             &self.membership_transaction_active,
             &self.membership_transaction_control,
@@ -867,6 +868,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
 
     /// Removes and returns the child at `index`.
     pub fn remove_at(&self, index: usize) -> VmxResult<T> {
+        self.reject_if_disposed()?;
         let transaction = begin_membership_transaction(
             &self.membership_transaction_active,
             &self.membership_transaction_control,
@@ -1005,6 +1007,9 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
 
     /// Clears all children, ownership links, and current selection.
     pub fn clear(&self) {
+        if self.reject_if_disposed().is_err() {
+            return;
+        }
         let Ok(_transaction) = begin_membership_transaction(
             &self.membership_transaction_active,
             &self.membership_transaction_control,
@@ -1183,6 +1188,16 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         self.items.local_changes()
     }
 
+    /// Rejects a membership or selection change after disposal, as `add`,
+    /// `insert`, `replace`, and `move_item` do (disposal contract).
+    fn reject_if_disposed(&self) -> VmxResult<()> {
+        if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
+            Err(VmxError::Disposed)
+        } else {
+            Ok(())
+        }
+    }
+
     fn disposal_pending(&self) -> bool {
         self.dispose_requested.load(Ordering::Acquire)
             || self.membership_transaction_control.has_deferred_dispose()
@@ -1295,6 +1310,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         require_constructed: bool,
         expected_current_id: Option<usize>,
     ) -> VmxResult<()> {
+        self.reject_if_disposed()?;
         assign_current_maybe_async(
             CurrentAssignmentContext {
                 core: &self.core,
@@ -1618,17 +1634,24 @@ impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
 
     /// Sets the policy for a current item hidden by filtering.
     pub fn set_cursor_policy(&self, policy: FilteredCursorPolicy) {
+        if *lock(&self.disposed) {
+            return;
+        }
         *lock(&self.cursor_policy) = policy;
     }
 
     /// Re-evaluates visibility and reconciles current selection.
     pub fn refresh(&self) {
-        self.reconcile_current();
+        if !*lock(&self.disposed) {
+            self.reconcile_current();
+        }
     }
 
     /// Re-evaluates scores and reconciles current selection.
     pub fn refresh_scores(&self) {
-        self.reconcile_current();
+        if !*lock(&self.disposed) {
+            self.reconcile_current();
+        }
     }
 
     /// Advances current within the visible projection, clamped at the end.
@@ -1669,6 +1692,13 @@ impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
 
     /// Freezes the current visible projection for subsequent reads.
     pub fn dispose(&self) {
+        if *lock(&self.disposed) {
+            return;
+        }
+        // Apply a source change no read has reconciled yet, so the frozen
+        // `current` is a member of the frozen `visible`, as in the flavors
+        // that subscribe to their source.
+        self.reconcile_if_source_changed();
         *lock(&self.frozen) = self.visible();
         *lock(&self.disposed) = true;
     }

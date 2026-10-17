@@ -669,6 +669,9 @@ open class CompositeVM<Child: ComponentVMBase>:
 
     public func move(from fromIndex: Int, to toIndex: Int) throws {
         let child: Child? = try membershipGate.withLock {
+            guard !disposeRequested && !disposeDeferred else {
+                throw ContainerOwnershipError.attachmentFailed(ContainerDisposalAdmissionError())
+            }
             guard !membershipTransactionActive else {
                 throw ContainerOwnershipError.attachmentFailed(ContainerMembershipTransactionError())
             }

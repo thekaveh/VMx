@@ -510,6 +510,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
     ///
     /// Removing an item that is not a member is a no-op.
     pub fn remove(&self, item: &T) -> VmxResult<()> {
+        self.reject_if_disposed()?;
         let transaction = begin_membership_transaction(
             &self.membership_transaction_active,
             &self.membership_transaction_control,
@@ -539,6 +540,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
 
     /// Removes and returns the child at `index`, clearing its parent link.
     pub fn remove_at(&self, index: usize) -> VmxResult<T> {
+        self.reject_if_disposed()?;
         let transaction = begin_membership_transaction(
             &self.membership_transaction_active,
             &self.membership_transaction_control,
@@ -665,6 +667,9 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
 
     /// Removes all children and clears their links to this parent.
     pub fn clear(&self) {
+        if self.reject_if_disposed().is_err() {
+            return;
+        }
         let Ok(_transaction) = begin_membership_transaction(
             &self.membership_transaction_active,
             &self.membership_transaction_control,
@@ -772,6 +777,16 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
     /// `ObservableList::local_changes`).
     pub(crate) fn membership_changes(&self) -> MessageHub {
         self.items.local_changes()
+    }
+
+    /// Rejects a membership or selection change after disposal, as `add`,
+    /// `insert`, `replace`, and `move_item` do (disposal contract).
+    fn reject_if_disposed(&self) -> VmxResult<()> {
+        if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
+            Err(VmxError::Disposed)
+        } else {
+            Ok(())
+        }
     }
 
     fn disposal_pending(&self) -> bool {

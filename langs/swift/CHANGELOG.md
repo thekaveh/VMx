@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A disposed `GroupVM` ignores `remove`, `removeAt`, and `clear`, and a
+  disposed `CompositeVM` or `GroupVM` throws from `move`, as the disposal
+  contract states. Before, they still changed the children.
 - A disposed `FilteredCompositeVM` ignores `setPredicate`, `setCurrent`, and
   the visible navigation methods, so it stays frozen as the disposal contract
   states (DISP-006).
