@@ -50,10 +50,20 @@ project adheres to [Semantic Versioning](https://semver.org/).
   container's ownership transaction in a hub batch too, so an observer that
   mutates the container from that pulse gets
   `Err(OwnershipTransactionInProgress)`, as it already did outside a batch.
+- A panic in a fire-and-forget `AsyncRelayCommand::execute()` run reaches
+  `error_stream()` as `VmxError::Other("command panicked: …")`, as for
+  `ConfirmationDecoratorCommand` (spec/04 §10.4, ADR-0137). Before, it was
+  lost on the worker thread.
+- `FilteredCompositeVm::current()` reconciles the selection against the
+  source's present children before it returns, so a current item that the
+  source removed or cleared follows the cursor policy (COMP-032, COMP-033).
+- `CompositeVm` and `GroupVm` collection and `Count` messages carry the
+  container's name as `sender_name` instead of `"ObservableList"` (ADR-0120).
 - `NotificationHub` keeps pending notifications in post order. Before, it
   ordered them by creation identity (spec/16 §2.1).
 - `NotificationVm::is_resolved` reports a hub-side resolve that used the
-  `Pending` reaction (NOTIF-015).
+  `Pending` reaction (NOTIF-015). Hub disposal neither resolves nor
+  unresolves the VM.
 - `CompositeVm::move_item` and `GroupVm::move_item` return
   `Err(VmxError::Disposed)` after disposal instead of reordering the children.
 - A disposal deferred behind an admitted lifecycle hook (same-thread or

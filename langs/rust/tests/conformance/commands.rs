@@ -734,6 +734,22 @@ fn an_error_observer_may_unsubscribe_itself_during_delivery() {
 }
 
 #[test]
+fn a_panicking_fire_and_forget_run_reaches_the_error_stream() {
+    let command = AsyncRelayCommand::new(|_| panic!("relay boom"));
+    let (errors, deliveries, _subscription) = record_errors(&command);
+
+    command.execute();
+    deliveries.recv_timeout(ERROR_TIMEOUT).unwrap();
+    wait_until_idle(&command);
+
+    assert_eq!(
+        *errors.lock().unwrap(),
+        vec![VmxError::Other("command panicked: relay boom".into())]
+    );
+    assert!(command.can_execute());
+}
+
+#[test]
 fn a_failed_fire_and_forget_run_releases_admission_and_signals_eligibility() {
     let command = AsyncRelayCommand::new(|_| Err(VmxError::Other("boom".into())));
     let (signalled, signals) = mpsc::channel();

@@ -219,3 +219,28 @@ fn move_after_dispose_is_rejected() {
     assert_eq!(composite.items(), vec![a, b]);
     assert_eq!(group.items(), vec![c, d]);
 }
+
+/// PROP-004 — container collection messages carry the container's name.
+#[test]
+fn container_collection_messages_carry_the_container_name() {
+    let hub = MessageHub::new();
+    let recorder = hub.record(64);
+    let composite = vmx::CompositeVm::with_services("notes", hub.clone(), NullDispatcher::new());
+    let group = vmx::GroupVm::with_services("actions", hub.clone(), NullDispatcher::new());
+
+    composite.add(child("a")).unwrap();
+    group.add(child("b")).unwrap();
+
+    let names = recorder
+        .messages()
+        .into_iter()
+        .filter_map(|message| match message {
+            Message::CollectionChanged(change) => Some(change.sender_name),
+            Message::PropertyChanged(change) if change.property_name == "Count" => {
+                Some(change.sender_name)
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(names, vec!["notes", "notes", "actions", "actions"]);
+}

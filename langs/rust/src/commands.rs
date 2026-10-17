@@ -1038,7 +1038,18 @@ impl AsyncRelayCommand {
         };
         let run = move || {
             let _guard = guard;
-            let result = action.map(|action| action(token.clone())).unwrap_or(Ok(()));
+            let result = action
+                .map(|action| {
+                    if route_fire_and_forget_errors {
+                        // A fire-and-forget fault must not be lost (spec/04
+                        // §10.4); a panic travels as its message (ADR-0137).
+                        catch_unwind(AssertUnwindSafe(|| action(token.clone())))
+                            .unwrap_or_else(|payload| Err(panic_error(&*payload)))
+                    } else {
+                        action(token.clone())
+                    }
+                })
+                .unwrap_or(Ok(()));
             #[cfg(test)]
             if let Some(collector) = collector {
                 collector.record(result.clone());
@@ -1877,8 +1888,14 @@ pub(crate) mod test_execution {
             .unwrap();
         let (count, raw, failures) = registration.join_all();
         assert_eq!(count, 1);
-        assert!(raw.is_empty(), "a panicking action never produced a Result");
-        assert_eq!(failures, vec!["worker panicked"]);
+        // A fire-and-forget panic becomes an error result (spec/04 §10.4).
+        assert_eq!(
+            raw,
+            vec![Err(super::VmxError::Other(
+                "command panicked: action panic for collector test".to_string()
+            ))]
+        );
+        assert!(failures.is_empty(), "the worker no longer panics");
     }
 
     impl Drop for Registration {

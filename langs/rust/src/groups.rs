@@ -44,7 +44,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
     /// Creates an empty group with explicit message and dispatch services.
     pub fn with_services(name: impl Into<String>, hub: MessageHub, dispatcher: D) -> Self {
         let core = ComponentCore::new(name, hub.clone(), dispatcher);
-        let items: ObservableList<T> = ObservableList::new(core.id(), hub);
+        let items: ObservableList<T> = ObservableList::with_owner_name(core.id(), core.name(), hub);
         let dispose_requested = Arc::new(AtomicBool::new(false));
         let membership_gate = Arc::new(Mutex::new(()));
         let membership_transaction_active = Arc::new(AtomicBool::new(false));

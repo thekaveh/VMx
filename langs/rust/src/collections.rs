@@ -770,6 +770,7 @@ pub struct ObservableList<T: Clone + Send + 'static> {
     hub: MessageHub,
     local: MessageHub,
     owner_id: usize,
+    owner_name: Arc<str>,
     batch_depth: Arc<Mutex<usize>>,
     batch_dirty: Arc<Mutex<bool>>,
     batch_count_at_start: Arc<Mutex<usize>>,
@@ -779,11 +780,22 @@ pub struct ObservableList<T: Clone + Send + 'static> {
 impl<T: Clone + Send + 'static> ObservableList<T> {
     /// Creates an empty list whose messages use `owner_id`.
     pub fn new(owner_id: usize, hub: MessageHub) -> Self {
+        Self::with_owner_name(owner_id, "ObservableList", hub)
+    }
+
+    /// Creates an empty list whose messages carry the owning container's
+    /// identity and diagnostic name (ADR-0120).
+    pub(crate) fn with_owner_name(
+        owner_id: usize,
+        owner_name: impl Into<Arc<str>>,
+        hub: MessageHub,
+    ) -> Self {
         Self {
             inner: Arc::new(Mutex::new(Vec::new())),
             hub,
             local: MessageHub::new(),
             owner_id,
+            owner_name: owner_name.into(),
             batch_depth: Arc::new(Mutex::new(0)),
             batch_dirty: Arc::new(Mutex::new(false)),
             batch_count_at_start: Arc::new(Mutex::new(0)),
@@ -1027,7 +1039,7 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
         }
         let message = Message::CollectionChanged(CollectionChangedMessage {
             sender_id: self.owner_id,
-            sender_name: "ObservableList".to_string(),
+            sender_name: self.owner_name.to_string(),
             property_name: "items".to_string(),
             action,
             old_index,
@@ -1039,7 +1051,7 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
             self.hub
                 .send(Message::PropertyChanged(PropertyChangedMessage {
                     sender_id: self.owner_id,
-                    sender_name: "ObservableList".to_string(),
+                    sender_name: self.owner_name.to_string(),
                     property_name: "Count".to_string(),
                 }));
         }

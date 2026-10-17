@@ -4,7 +4,7 @@
 
 use super::{
     catch_unwind, lock, thread, wait, Arc, AssertUnwindSafe, AsyncValue, AtomicU64, Condvar,
-    Context, Future, HashMap, Message, MessageHub, Mutex, Ordering, Pin, Poll, ThreadId,
+    Context, Future, HashMap, HashSet, Message, MessageHub, Mutex, Ordering, Pin, Poll, ThreadId,
     ValueStream, VecDeque,
 };
 
@@ -84,6 +84,8 @@ struct NotificationHubState {
     /// Pending notifications in post order (spec/16 §2.1).
     pending: Vec<Notification>,
     reactions: HashMap<u64, NotificationReaction>,
+    /// Notifications removed by `resolve`, with any reaction (NOTIF-015).
+    resolved: HashSet<u64>,
     completions: HashMap<u64, AsyncValue<NotificationReaction>>,
     pending_snapshots: Vec<Vec<Notification>>,
     pending_publications: VecDeque<PendingPublication>,
@@ -213,6 +215,7 @@ impl NotificationHub {
                 return;
             };
             state.pending.remove(index);
+            state.resolved.insert(notification_id);
             state.reactions.insert(notification_id, reaction);
             let completions = state
                 .completions
@@ -226,16 +229,10 @@ impl NotificationHub {
         self.complete_pending_publication(admission);
     }
 
-    /// Reports whether this live hub accepted `notification_id` and has since
-    /// removed it from the pending list, with any reaction.
+    /// Reports whether `resolve` removed `notification_id` from the pending
+    /// list, with any reaction. Hub disposal does not count as a resolution.
     pub(crate) fn was_resolved(&self, notification_id: u64) -> bool {
-        let state = lock(&self.state);
-        !state.disposed
-            && state.reactions.contains_key(&notification_id)
-            && !state
-                .pending
-                .iter()
-                .any(|pending| pending.id == notification_id)
+        lock(&self.state).resolved.contains(&notification_id)
     }
 
     /// Returns a snapshot of currently pending notifications.

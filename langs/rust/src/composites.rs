@@ -244,7 +244,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
     /// Creates an empty composite with explicit services.
     pub fn with_services(name: impl Into<String>, hub: MessageHub, dispatcher: D) -> Self {
         let core = ComponentCore::new(name, hub.clone(), dispatcher);
-        let items: ObservableList<T> = ObservableList::new(core.id(), hub);
+        let items: ObservableList<T> = ObservableList::with_owner_name(core.id(), core.name(), hub);
         let current = Arc::new(Mutex::new(None));
         let async_selection = Arc::new(Mutex::new(false));
         let current_selector: Arc<Mutex<Option<CurrentSelector<T>>>> = Arc::new(Mutex::new(None));
@@ -1557,7 +1557,15 @@ impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
     }
 
     /// Returns the current visible item.
+    ///
+    /// The projection does not subscribe to its source, so a read first
+    /// reconciles the selection against the source's present children: a
+    /// current item that the source removed or hid follows the cursor policy
+    /// (COMP-030, COMP-032, COMP-033).
     pub fn current(&self) -> Option<T> {
+        if !*lock(&self.disposed) {
+            self.reconcile_current();
+        }
         lock(&self.current).clone()
     }
 
@@ -1638,8 +1646,8 @@ impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
 
     fn reconcile_current(&self) {
         let visible = self.visible();
-        let current_is_visible = self
-            .current()
+        let current_is_visible = lock(&self.current)
+            .clone()
             .is_some_and(|current| visible.iter().any(|item| same_node(item, &current)));
         if current_is_visible {
             return;

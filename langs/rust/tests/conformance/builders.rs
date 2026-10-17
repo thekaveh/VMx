@@ -14,10 +14,17 @@ fn child(name: &'static str) -> Child {
 /// BLD-001 — Setter returns a new builder instance
 #[test]
 fn setter_returns_new_builder_instance() {
-    let b1 = ComponentVm::<&'static str>::builder();
+    let b1 = ComponentVm::<&'static str>::builder()
+        .model("model")
+        .services(MessageHub::new(), NullDispatcher::new());
     let b2 = b1.clone().name("vm");
 
-    assert!(format!("{:p}", &b1) != format!("{:p}", &b2));
+    // b1 keeps no name; b2 carries the one set on it.
+    assert!(matches!(
+        b1.build(),
+        Err(vmx::VmxError::BuilderValidation(message)) if message.contains("name")
+    ));
+    assert_eq!(b2.build().unwrap().name(), "vm");
 }
 
 /// BLD-002 — Required fields validated on Build

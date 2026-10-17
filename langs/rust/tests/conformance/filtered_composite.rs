@@ -95,6 +95,21 @@ fn source_mutation_recomputes_projection() {
     assert_eq!(filtered.visible()[0].model(), 2);
 }
 
+/// COMP-032 — a source removal or clear reconciles the filtered current item
+#[test]
+fn source_removal_and_clear_reconcile_current() {
+    let source = source_with(&[1, 2, 3]);
+    let filtered = FilteredCompositeVm::new(source.clone(), |_| true);
+    let second = source.items()[1].clone();
+    filtered.set_current(Some(second.clone())).unwrap();
+
+    source.remove(&second).unwrap();
+    assert_eq!(filtered.current().map(|vm| vm.model()), Some(1));
+
+    source.clear();
+    assert!(filtered.current().is_none());
+}
+
 /// COMP-033 — filtered cursor policies
 #[test]
 fn cursor_policies_clear_or_snap_to_first() {
