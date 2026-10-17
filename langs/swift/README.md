@@ -83,11 +83,11 @@ let tabs = try CompositeVM<ComponentVMOf<TabModel>>.builder()
 //    Lifecycle ops are throwing in v3 (ADR-0053): an illegal transition raises
 //    a catchable `StatusTransitionError` instead of trapping.
 try tabs.construct()
-print(tabs.status)              // ConstructionStatus.constructed
+print(tabs.status)              // constructed
 
 tabs.current = tab2             // setter traps on a non-child; use
                                // try tabs.setCurrent(tab2) for a catchable check
-print(tabs.current?.model.title) // "Settings"
+print(tabs.current?.model.title ?? "(none)") // Settings
 
 tabs.dispose()                  // dispose() is terminal/idempotent — never throws
 hub.dispose()
@@ -454,7 +454,7 @@ COL-065         token refresh cursor alignment (ADR-0136)
 **THEME scenario IDs (example app — not scraped by the library coverage gate):**
 
 - `THEME-001..005` — covered by `ThemeVMTests.swift` in
-  `examples/swift/notes-showcase/NotesShowcaseTests/`; validated by the
+  `examples/swift/notes-showcase/Tests/NotesShowcaseTests/`; validated by the
   `examples (notes-showcase)` CI job in `.github/workflows/swift.yml`.
 
 **All 425 library conformance IDs are covered, and the 5 `THEME-00x` scenario IDs are covered by the `examples/swift/notes-showcase/` flagship. Swift is at total parity (430) with the C#, Python, and TypeScript UI-backed flavors. Rust has full library parity but no UI scenario suite.**

@@ -62,7 +62,8 @@ async def main() -> None:
     loop = asyncio.get_running_loop()
     hub = MessageHub()
     dispatcher = RxDispatcher.asyncio(loop)
-    # Source 3.23.2: foreground → AsyncIOThreadSafeScheduler(loop)
+    # Unreleased source 3.23.2 and later (current: 3.29.0):
+    # foreground → AsyncIOThreadSafeScheduler(loop)
     # background → ThreadPoolScheduler
     ...
 

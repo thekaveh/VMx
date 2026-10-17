@@ -58,25 +58,35 @@ Add the optional DI package:
     VMx.Extensions.DependencyInjection.csproj" />
 ```
 
-Then register in your host startup (WPF, MAUI, ASP.NET, etc.):
+The DI package references only the service-collection abstractions. A host
+such as WPF, MAUI, or ASP.NET Core already supplies the container. A console
+app that calls `BuildServiceProvider()` itself also needs the
+`Microsoft.Extensions.DependencyInjection` package.
+
+The default `AddVMx()` dispatcher binds to the `SynchronizationContext` that
+is current when `AddVMx()` runs, so call it on the UI thread of a WPF,
+WinForms, MAUI, or Avalonia app. If there is no context at that time, the
+first resolution of `IDispatcher` tries the context of the resolving thread.
+ASP.NET Core and console hosts have no `SynchronizationContext`, so the default
+throws `InvalidOperationException` there; supply a dispatcher factory instead,
+for example `RxDispatcher.Immediate()`.
+
+Register VMx in your host startup:
 
 ```csharp
-using System.Reactive.Concurrency;
 using Microsoft.Extensions.DependencyInjection;
 using VMx.Extensions.DependencyInjection;
 using VMx.Services;
 
 var services = new ServiceCollection();
 
-// IMessageHub → singleton MessageHub
+// UI host: IMessageHub → singleton MessageHub,
 // IDispatcher → singleton RxDispatcher bound to SynchronizationContext.Current
 services.AddVMx();
 
-// Or supply your own dispatcher factory:
-services.AddVMx(opts =>
-    opts.UseDispatcher(_ => new RxDispatcher(
-        foreground: new SynchronizationContextScheduler(SynchronizationContext.Current!),
-        background: TaskPoolScheduler.Default)));
+// Host without a SynchronizationContext (ASP.NET Core, console, tests):
+// supply your own dispatcher factory instead.
+// services.AddVMx(opts => opts.UseDispatcher(_ => RxDispatcher.Immediate()));
 
 var provider = services.BuildServiceProvider();
 var hub        = provider.GetRequiredService<IMessageHub>();

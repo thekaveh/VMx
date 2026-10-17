@@ -215,10 +215,10 @@ let tabs = try CompositeVM<ComponentVMOf<TabModel>>.builder()
 try tabs.construct()
 
 tabs.current = tab2
-print(tabs.current?.model.title ?? "(none)")  // "Settings"
+print(tabs.current?.model.title ?? "(none)")  // Settings
 
 tabs.current = tab1
-print(tabs.current?.model.title ?? "(none)")  // "Home"
+print(tabs.current?.model.title ?? "(none)")  // Home
 
 print((0..<tabs.count).compactMap { tabs.at($0).name })  // ["home-tab", "settings-tab"]
 ```
@@ -235,17 +235,17 @@ Every VM follows a five-state lifecycle:
 plus the terminal `disposed`.
 
 ```swift
-print(userVM.status)            // ConstructionStatus.constructed
+print(userVM.status)            // constructed
 
 try userVM.reconstruct()            // destruct + construct in one call — only valid
                                 // from .constructed; round-trips back to it
-print(userVM.status)            // ConstructionStatus.constructed
+print(userVM.status)            // constructed
 
 try userVM.destruct()
-print(userVM.status)            // ConstructionStatus.destructed
+print(userVM.status)            // destructed
 
 userVM.dispose()                // idempotent + terminal
-print(userVM.status)            // ConstructionStatus.disposed
+print(userVM.status)            // disposed
 
 tabs.dispose()                  // disposes children, then itself
 hub.dispose()
@@ -301,6 +301,7 @@ idiomatic Scheduler for SwiftUI / UIKit binding:
 
 ```swift
 import Combine
+import Foundation
 import VMx
 
 let cancellable = hub.messages
