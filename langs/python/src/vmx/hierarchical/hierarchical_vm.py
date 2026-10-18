@@ -117,9 +117,11 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
 
     Children are **lazy by default**: the ``children_factory`` is not invoked
     until :attr:`children` is first accessed. Eager materialization is
-    requested by passing ``eager_children=True`` at construction time, which
-    causes the full subtree to be materialized and each child constructed
-    during :meth:`_on_construct`, in depth-first order.
+    requested by passing ``eager_children=True`` at construction time: this
+    node then materializes its children and constructs each of them during
+    :meth:`_on_construct`, in depth-first order. The option applies per node
+    (spec/18 §4), so the whole subtree is eager when the factory creates eager
+    nodes.
 
     Parameters
     ----------

@@ -106,8 +106,9 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
     /// `eagerChildren` is set).
     private let childrenFactory: (TVM) -> [TVM]
 
-    /// When `true`, the full subtree is materialized at construct() time
-    /// (depth-first), as required by HIER-008/009.
+    /// When `true`, this node materializes and constructs its children at
+    /// construct() time (depth-first, HIER-008/009). The option applies per
+    /// node (spec/18 §4).
     private let eagerChildren: Bool
 
     // ── Tree links / caches ─────────────────────────────────────────────

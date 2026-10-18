@@ -112,7 +112,11 @@ Correct the prose as the code ships it:
   - The `HierarchicalVm` `TreeNode` implementation never reports collapse, so
     `walk_expanded` does not stop at a collapsed node (chapter 13 §6).
 
-The change is editorial. It adds no normative behavior and no conformance ID.
+The change adds no conformance ID. It is editorial except for three follow-up
+alignments, where a lone flavor was brought to the behavior the other flavors
+and the catalog already had, and the prose now states it: Python empty slice
+mutations emit nothing (chapter 21 §2.10), Rust `search()` notifies (SRCH-005),
+and the Python tree helpers use the public `ComponentVMProto` (chapter 13).
 
 ## 3. Consequences
 
@@ -131,9 +135,9 @@ The change is editorial. It adds no normative behavior and no conformance ID.
   (`COMP-026`); chapter 18 §4 says the eager option applies per node, as
   every flavor implements it, so the whole tree is eager when every node is;
   chapter 21 §2.10 says an empty Python slice mutation emits
-  nothing, matching TypeScript `splice` (the code now does so); and that Rust
-  `search()` notifies, as the other flavors'
-  explicit `Search()` does (SRCH-005); chapter 13 gives the Python helper types as the public
+  nothing, matching TypeScript `splice` (the code now does so); chapter 06 says
+  Rust `search()` notifies, as the other flavors' explicit `Search()` does
+  (SRCH-005); chapter 13 gives the Python helper types as the public
   `ComponentVMProto`, which the helpers now accept and return, instead of the
   private `_ComponentVMBase`; chapter 10 says the Rust builders default `Hint` to
   `Some("")` and records the `ModeledCompositeVm` hint and identity gap;

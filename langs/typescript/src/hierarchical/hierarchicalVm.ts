@@ -28,7 +28,7 @@ export interface HierarchicalVMOptions<TModel, TVM> {
   dispatcher?: IDispatcher;
   name?: string;
   hint?: string;
-  /** When true, the full subtree is materialized at construct() time (depth-first). */
+  /** When true, this node materializes and constructs its children at construct() time (depth-first, per node: spec/18 §4). */
   eagerChildren?: boolean;
 }
 
@@ -776,8 +776,9 @@ export class HierarchicalVMBuilder<
   }
 
   /**
-   * When `true`, the full subtree is materialized at construct() time
-   * (depth-first). Default: `false`.
+   * When `true`, this node materializes and constructs its children at
+   * construct() time (depth-first). The option applies per node (spec/18 §4).
+   * Default: `false`.
    */
   eagerChildren(value: boolean): HierarchicalVMBuilder<TModel, TVM> {
     const b = new HierarchicalVMBuilder<TModel, TVM>(this);

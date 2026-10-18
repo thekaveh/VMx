@@ -428,8 +428,9 @@ TypeScript's normalized `start` / `deleteCount` behavior remain native.
 Only after successful final-result validation does the operation atomically
 commit items, captured keys, and the index. Duplicate, projection, input
 iteration, or native slice-shape failure changes nothing and emits nothing.
-On success, Python slice mutation emits its established Reset; a slice that
-selects nothing and inserts nothing emits nothing, as in TypeScript. TypeScript
+On success, Python slice mutation emits its established Reset. On both the
+keyed and the unkeyed Python collection, a slice that selects nothing and
+inserts nothing emits nothing, as TypeScript `splice` does. TypeScript
 `splice` returns the removed items and preserves the unkeyed notification
 rule: a removal of exactly one item with no inserts emits Remove, any other
 effective splice emits Reset, and removal/insertion of nothing emits nothing.
