@@ -854,7 +854,8 @@ them. Observable-list split streams (`ItemAdded` / `ItemRemoved` /
 
 Open Rust gap: Rust `PagedComposition` takes a `Vec` snapshot source and does
 not observe it, so `COL-031` (observing a composite source) does not apply to
-Rust; a caller replaces the source to recompute pages.
+Rust; a caller updates the source through the composition's own `Vec`
+mutators or replaces it to recompute pages.
 
 ### 5.6 Conformance
 

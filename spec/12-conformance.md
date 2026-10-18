@@ -2554,6 +2554,9 @@ refreshed next token (COL-065 covers the branches that retain it)
 
 ### COL-031 — `PagedComposition<TVM>` observes composite collection changes
 
+Applies to C#, Python, TypeScript, and Swift. Rust `PagedComposition` takes a
+`Vec` source and does not observe it (chapter 21 §5.5).
+
 **Given** a finite `PagedComposition<TVM>` wrapping a `CompositeVM<TVM>` source
 **And** a property-changed subscriber
 **When** the composite source is mutated
@@ -3554,9 +3557,10 @@ optional `Strict(true)`, `Hub(hub)`, `Snapshotter(s)`
 
 **Given** a `FormVMBuilder<TM>` configured with only `Initial(m0)` + `Persister(p)`
 **When** `.Build()` is called
-**Then** the form uses the flavor's null message hub (checked by identity where
-the flavor exposes the form's hub; otherwise by observing that the form's
-changes reach no caller-supplied hub)
+**Then** the form uses the flavor's null message hub. A flavor that exposes the
+form's hub (Python, Rust) checks it against the null hub; a flavor that keeps it
+private (C#, TypeScript, Swift) cannot observe the default and checks only that
+the form builds and runs without a supplied hub
 **And** `form.Snapshot == m0` (the flavor default snapshotter is applied — chapter 20 §3)
 **And** `form.ApproveCommand.CanExecute() == true` regardless of `IsDirty`
 (strict defaults to `false`)
