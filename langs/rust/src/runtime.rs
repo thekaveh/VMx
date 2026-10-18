@@ -2149,6 +2149,23 @@ struct ComponentCoreInner<D: Dispatcher> {
     settle_waiters: Vec<LifecycleSettleCallback>,
 }
 
+/// Admits `reconstruct` from `status` with the same errors the lifecycle core
+/// returns: `Disposed`, `ConcurrentOperation` during another transition
+/// (spec/02 §2.1, LIFE-008), or `InvalidLifecycleTransition` otherwise.
+pub(crate) fn reconstruct_admission(status: ConstructionStatus) -> VmxResult<()> {
+    match status {
+        ConstructionStatus::Constructed => Ok(()),
+        ConstructionStatus::Disposed => Err(VmxError::Disposed),
+        ConstructionStatus::Constructing | ConstructionStatus::Destructing => {
+            Err(VmxError::ConcurrentOperation)
+        }
+        other => Err(VmxError::InvalidLifecycleTransition {
+            from: other,
+            operation: "reconstruct",
+        }),
+    }
+}
+
 impl<D: Dispatcher> ComponentCore<D> {
     pub(crate) fn new(name: impl Into<String>, hub: MessageHub, dispatcher: D) -> Self {
         Self {

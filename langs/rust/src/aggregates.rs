@@ -2682,12 +2682,7 @@ macro_rules! impl_fixed_aggregate_baseline {
 
             /// Destructs and then constructs the aggregate.
             pub fn reconstruct(&self) -> VmxResult<()> {
-                if self.status() != ConstructionStatus::Constructed {
-                    return Err(VmxError::InvalidLifecycleTransition {
-                        from: self.status(),
-                        operation: "reconstruct",
-                    });
-                }
+                crate::runtime::reconstruct_admission(self.status())?;
                 self.destruct()?;
                 let aggregate = self.clone();
                 self.core.construct_after_destruct(move || aggregate.construct())

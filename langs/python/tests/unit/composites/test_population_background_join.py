@@ -75,3 +75,59 @@ def test_later_failing_child_is_joined_and_rolls_the_container_back(kind: str) -
     assert bad.status is ConstructionStatus.DESTRUCTED
     assert container.status is ConstructionStatus.DESTRUCTED
     assert container.can_construct()
+
+
+@pytest.mark.parametrize("kind", ["composite", "group"])
+def test_joined_child_that_settles_during_the_join_check_is_never_restarted(kind: str) -> None:
+    """A joined child that fails between the status check and the join stays final."""
+    bg = _LifoScheduler()
+    dispatcher = RxDispatcher(ImmediateScheduler(), bg)  # type: ignore[arg-type]
+    hub: MessageHub[object] = MessageHub()
+    bad_hook_runs: list[None] = []
+
+    def fail() -> None:
+        bad_hook_runs.append(None)
+        raise RuntimeError("bad failed")
+
+    ok = ComponentVMBuilder().name("ok").services(hub, dispatcher).background(True).build()
+    bad = (
+        ComponentVMBuilder()
+        .name("bad")
+        .services(hub, dispatcher)
+        .background(True)
+        .on_construct(fail)
+        .build()
+    )
+    base = type(bad)
+    armed = [False]
+    bad_action: list[Any] = []
+
+    def racy_status(self: ComponentVM) -> ConstructionStatus:
+        # Settle the child to Destructed right after a reader observes Constructing.
+        status = base.status.fget(self)  # type: ignore[attr-defined]
+        if armed[0] and status is ConstructionStatus.CONSTRUCTING:
+            armed[0] = False
+            bg.actions.remove(bad_action[0])
+            try:
+                bad_action[0](bg, None)
+            except RuntimeError as error:
+                bg.errors.append(error)
+        return status  # type: ignore[no-any-return]
+
+    bad.__class__ = type("RacyComponentVM", (base,), {"status": property(racy_status)})
+    builder = (
+        CompositeVMBuilder[ComponentVM]() if kind == "composite" else GroupVMBuilder[ComponentVM]()
+    )
+    container = builder.name("root").services(hub, dispatcher).children(lambda: [ok, bad]).build()
+
+    container.construct()
+    ok_action, bad_work = bg.actions
+    bad_action.append(bad_work)
+    armed[0] = True
+    bg.actions.remove(ok_action)
+    ok_action(bg, None)
+    bg.run_all()
+
+    assert len(bad_hook_runs) == 1
+    assert bad.status is ConstructionStatus.DESTRUCTED
+    assert container.status is ConstructionStatus.DESTRUCTED

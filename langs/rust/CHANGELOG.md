@@ -52,6 +52,10 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `reconstruct()` on a component, composite, group, or aggregate returns
+  `ConcurrentOperation` during another transition and `Disposed` after
+  disposal, as the lifecycle core does (spec/02 §2.1, LIFE-008). Before, these
+  wrappers returned `InvalidLifecycleTransition` for both.
 - `CompositeVm`, `GroupVm`, `ModeledCompositeVm`, and `AggregateVm1` to
   `AggregateVm6` stay Constructing or Destructing until every background child
   settles. Then they publish their own terminal status (spec/02 §6). Children

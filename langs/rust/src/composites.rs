@@ -1237,12 +1237,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
 
     /// Destructs and then constructs the composite.
     pub fn reconstruct(&self) -> VmxResult<()> {
-        if self.status() != ConstructionStatus::Constructed {
-            return Err(VmxError::InvalidLifecycleTransition {
-                from: self.status(),
-                operation: "reconstruct",
-            });
-        }
+        crate::runtime::reconstruct_admission(self.status())?;
         self.destruct()?;
         let composite = self.clone();
         self.core

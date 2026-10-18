@@ -362,3 +362,19 @@ fn wrapper_forwarding_settle_hook_makes_container_wait() {
     assert_eq!(child.status(), ConstructionStatus::Constructed);
     assert_eq!(composite.status(), ConstructionStatus::Constructed);
 }
+
+/// LIFE-008 — reconstruct during another transition is a concurrent operation
+#[test]
+fn reconstruct_during_a_transition_reports_a_concurrent_operation() {
+    let hub = MessageHub::new();
+    let dispatcher = ManualDispatcher::new();
+    let child = background_child(&hub, &dispatcher, "child");
+
+    child.construct().unwrap();
+    assert_eq!(child.status(), ConstructionStatus::Constructing);
+    assert_eq!(child.reconstruct(), Err(VmxError::ConcurrentOperation));
+
+    dispatcher.drain();
+    child.dispose().unwrap();
+    assert_eq!(child.reconstruct(), Err(VmxError::Disposed));
+}

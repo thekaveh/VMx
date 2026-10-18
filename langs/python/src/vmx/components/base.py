@@ -1135,9 +1135,14 @@ class _ComponentVMBase(ABC):
                     return
 
                 try:
-                    if id(child) in joined_ids and child.status not in (expected, transient):
+                    is_joined = id(child) in joined_ids
+                    if is_joined and isinstance(child, _ComponentVMBase):
+                        # Check and join under the child's lifecycle lock so a
+                        # child that settles meanwhile is never started again.
+                        pending = child._join_transition_future(construct=construct)
+                    elif is_joined and child.status not in (expected, transient):
                         raise RuntimeError(f"child '{child.name}' did not reach {expected.name}")
-                    if isinstance(child, _ComponentVMBase):
+                    elif isinstance(child, _ComponentVMBase):
                         pending = (
                             child._construct_future() if construct else child._destruct_future()
                         )
@@ -1152,10 +1157,10 @@ class _ComponentVMBase(ABC):
                     result.set_exception(error)
                     return
 
-                def child_settled(
+                def child_reached_expected(
                     completed: Future[None],
                     current: ComponentVMProto = child,
-                ) -> None:
+                ) -> bool:
                     try:
                         completed.result()
                         if current.status is not expected:
@@ -1165,14 +1170,20 @@ class _ComponentVMBase(ABC):
                     except BaseException as error:
                         if not result.done():
                             result.set_exception(error)
-                    else:
-                        advance()
+                        return False
+                    return True
 
                 if pending.done():
-                    child_settled(pending)
-                    if result.done():
+                    # Settle inline and keep this loop as the only walker. A
+                    # nested advance() here would walk the remaining children
+                    # and then let this loop complete the result early.
+                    if not child_reached_expected(pending):
                         return
                     continue
+
+                def child_settled(completed: Future[None]) -> None:
+                    if child_reached_expected(completed):
+                        advance()
 
                 pending.add_done_callback(child_settled)
                 return
@@ -1273,6 +1284,27 @@ class _ComponentVMBase(ABC):
                 self._lifecycle_waiters.append(waiter)
                 return waiter
         return self._start_lifecycle_future(self.construct)
+
+    def _join_transition_future(self, *, construct: bool) -> Future[None]:
+        """Join an already-started transition without ever starting a new one.
+
+        Reads the status and registers the waiter under the lifecycle lock. A
+        child that already settled at the target completes at once; any other
+        settled status fails the join.
+        """
+        expected = ConstructionStatus.CONSTRUCTED if construct else ConstructionStatus.DESTRUCTED
+        transient = ConstructionStatus.CONSTRUCTING if construct else ConstructionStatus.DESTRUCTING
+        joined: Future[None] = Future()
+        with self._lifecycle_lock:
+            status = self._status
+            if status is transient:
+                self._lifecycle_waiters.append(joined)
+                return joined
+        if status is expected:
+            joined.set_result(None)
+        else:
+            joined.set_exception(RuntimeError(f"child '{self.name}' did not reach {expected.name}"))
+        return joined
 
     def _destruct_future(self) -> Future[None]:
         with self._lifecycle_lock:

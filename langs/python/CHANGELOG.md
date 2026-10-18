@@ -23,6 +23,15 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ### Fixed
 
+- `CompositeVM`, `GroupVM`, `AggregateVM*`, and `HierarchicalVM` wait for a
+  background child in any position, including the last. The container
+  publishes its terminal status after every child settles, and it rolls back
+  when the last child fails to construct or destruct (spec/02 §6, LIFE-014).
+  Before, a synchronous child that settled inline let the child walk finish
+  early, so the container ignored a background child after it.
+- A joined factory child is now checked and joined under its lifecycle lock.
+  A child that settles between the check and the join is never started again,
+  so its construct hook runs once.
 - `CompositeVM` and `GroupVM` join the background children that factory
   population starts and never construct them again. A later child that fails
   while the container waits on an earlier one rolls the container back, and
