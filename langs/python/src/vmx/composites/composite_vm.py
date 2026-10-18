@@ -82,6 +82,8 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         self._current: VM | None = None
         self._collection_changed_subject: Subject[CollectionChangedEvent] = Subject()
         self._populated: bool = False
+        # Collects the children population started constructing (see _on_construct).
+        self._population_joined: list[VM] | None = None
         self._batch_depth: int = 0
         self._batch_dirty: bool = False
         self._dispose_requested: bool = False
@@ -705,8 +707,11 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         emits no notification — matching the select_component semantics.
         """
         super()._on_construct()
+        # Children whose construct population started are joined, not restarted.
+        joined: list[VM] = []
         if not self._populated:
             initial_count = len(self._children)
+            self._population_joined = joined
             try:
                 self._populate_children()
             except Exception:
@@ -714,6 +719,8 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                     while len(self._children) > initial_count:
                         self._remove_at(len(self._children) - 1)
                 raise
+            finally:
+                self._population_joined = None
             self._populated = True
 
         def apply_initial_current() -> None:
@@ -728,6 +735,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                 list(self.snapshot()),
                 construct=True,
                 after=apply_initial_current,
+                joined=joined,
             )
         )
 
@@ -829,6 +837,14 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         Subclasses override to evaluate their factory.
         """
 
+    def _join_if_pending(self, child: VM) -> None:
+        """Record a child population left pending: the child walk joins it."""
+        if self._population_joined is not None and child.status not in (
+            ConstructionStatus.CONSTRUCTED,
+            ConstructionStatus.DISPOSED,
+        ):
+            self._population_joined.append(child)
+
     def _attach_population(self, children: Iterable[VM]) -> None:
         """Attach one factory population as an all-or-nothing transaction."""
         candidates = list(children)
@@ -862,6 +878,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                     and child.status is not ConstructionStatus.CONSTRUCTED
                 ):
                     child.construct()
+                    self._join_if_pending(child)
                 else:
                     self._maybe_auto_construct(child)
             with self._membership_gate:

@@ -88,6 +88,7 @@ internal interface IComponentVMInternals
     bool CommitIsCurrent(bool value);
     void PublishIsCurrent();
     Task ConstructOrJoinAsync();
+    Task JoinConstructAsync();
 }
 
 /// <summary>
@@ -118,6 +119,11 @@ internal static class ComponentVMExtensions
         => vm is IComponentVMInternals internals
             ? internals.ConstructOrJoinAsync()
             : vm.ConstructAsync();
+
+    internal static Task JoinConstructAsync(this IComponentVM vm)
+        => vm is IComponentVMInternals internals
+            ? internals.JoinConstructAsync()
+            : Task.CompletedTask;
 }
 
 /// <summary>Shared identity validation and old-parent staging for container mutations.</summary>
@@ -403,16 +409,31 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     }
 
     /// <summary>Transitions children sequentially and validates their settled state.</summary>
-    protected static async Task TransitionChildrenAsync(
+    protected static Task TransitionChildrenAsync(
         IEnumerable<IComponentVM> children,
         bool construct,
         Action? after = null)
+        => TransitionChildrenAsync(children, construct, after, joined: null);
+
+    /// <summary>
+    /// Transitions children sequentially. A child in <paramref name="joined"/>
+    /// already started this transition (factory population): it is joined and
+    /// its settled status is final, so it is never restarted.
+    /// </summary>
+    private protected static async Task TransitionChildrenAsync(
+        IEnumerable<IComponentVM> children,
+        bool construct,
+        Action? after,
+        IReadOnlyCollection<IComponentVM>? joined)
     {
         foreach (var child in children)
         {
             if (construct)
             {
-                await child.ConstructOrJoinAsync().ConfigureAwait(false);
+                var join = joined is not null &&
+                    joined.Any(candidate => ReferenceEquals(candidate, child));
+                await (join ? child.JoinConstructAsync() : child.ConstructOrJoinAsync())
+                    .ConfigureAwait(false);
                 if (child.Status != ConstructionStatus.Constructed)
                     throw new InvalidOperationException(
                         $"Child '{child.Name}' did not reach Constructed.");
@@ -447,6 +468,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     bool IComponentVMInternals.CommitIsCurrent(bool value) => CommitIsCurrent(value);
     void IComponentVMInternals.PublishIsCurrent() => NotifyPropertyChanged(nameof(IsCurrent));
     Task IComponentVMInternals.ConstructOrJoinAsync() => ConstructOrJoinAsync();
+    Task IComponentVMInternals.JoinConstructAsync() => JoinConstructAsync();
 
     // ── IComponentVM: identity ──────────────────────────────────────────────
     /// <inheritdoc/>
@@ -761,6 +783,17 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
 
         CompleteWaiterIfSettled(tcs);
         return tcs.Task;
+    }
+
+    /// <summary>Waits for an in-flight construct without ever starting one.</summary>
+    private Task JoinConstructAsync()
+    {
+        lock (_gate)
+        {
+            return _status == ConstructionStatus.Constructing && _inFlight
+                ? RegisterLifecycleWaiter().Task
+                : Task.CompletedTask;
+        }
     }
 
     private Task ConstructOrJoinAsync()

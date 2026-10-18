@@ -233,5 +233,7 @@ public abstract class ForwardingComponentVM<M> : IComponentVM<M>, IComponentVMIn
     void IComponentVMInternals.PublishIsCurrent() => _wrapped.PublishIsCurrent();
 
     Task IComponentVMInternals.ConstructOrJoinAsync() => _wrapped.ConstructOrJoinAsync();
+
+    Task IComponentVMInternals.JoinConstructAsync() => _wrapped.JoinConstructAsync();
 }
 #pragma warning restore CA1051

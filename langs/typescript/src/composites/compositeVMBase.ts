@@ -55,6 +55,8 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
   #current: VM | null = null;
   readonly #collectionChangedSubject = new Subject<CollectionChangedEvent>();
   #populated = false;
+  /** Collects the children population started constructing (see `_onConstruct`). */
+  #populationJoined: Set<ComponentVMBase> | null = null;
   #batchDepth = 0;
   #batchDirty = false;
   readonly #currentSelector: ((xs: Iterable<VM>) => VM | null) | null;
@@ -555,24 +557,36 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
 
   protected override _onConstruct(): void {
     super._onConstruct();
+    // Children whose construct population started are joined, not restarted.
+    const joined = new Set<ComponentVMBase>();
     if (!this.#populated) {
-      this._populateChildren();
+      this.#populationJoined = joined;
+      try {
+        this._populateChildren();
+      } finally {
+        this.#populationJoined = null;
+      }
       this.#populated = true;
     }
     // spec/02 §6: the composite settles only after every child has (a
     // background child defers the composite's terminal status).
-    this._transitionChildren([...this._children], true, () => {
-      // Apply the optional initial-current selector (spec/06 §3.2, ADR-0042).
-      // The composite is still in Constructing here; every child is Constructed.
-      // Selector returning null or an out-of-set value leaves current at its
-      // prior value and emits no notification (matches selectComponent semantics).
-      if (this.#currentSelector !== null) {
-        const initial = this.#currentSelector(this);
-        if (initial !== null && this._children.includes(initial)) {
-          this._setCurrent(initial, false);
+    this._transitionChildren(
+      [...this._children],
+      true,
+      () => {
+        // Apply the optional initial-current selector (spec/06 §3.2, ADR-0042).
+        // The composite is still in Constructing here; every child is Constructed.
+        // Selector returning null or an out-of-set value leaves current at its
+        // prior value and emits no notification (matches selectComponent semantics).
+        if (this.#currentSelector !== null) {
+          const initial = this.#currentSelector(this);
+          if (initial !== null && this._children.includes(initial)) {
+            this._setCurrent(initial, false);
+          }
         }
-      }
-    });
+      },
+      joined,
+    );
   }
 
   protected override _onDestruct(): void {
@@ -644,6 +658,14 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     }
   }
 
+  /** A child population left pending is joined by the child walk, never restarted. */
+  #joinIfPending(child: VM): void {
+    if (
+      child.status !== ConstructionStatus.Constructed &&
+      child.status !== ConstructionStatus.Disposed
+    ) this.#populationJoined?.add(child);
+  }
+
   protected _attachPopulation(children: Iterable<VM>): void {
     const candidates = [...children];
     if (new Set(candidates.map((child) => child._ownershipIdentity)).size !== candidates.length) {
@@ -671,7 +693,10 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
         if (
           this.status === ConstructionStatus.Constructing &&
           child.status !== ConstructionStatus.Constructed
-        ) child.construct();
+        ) {
+          child.construct();
+          this.#joinIfPending(child);
+        }
       }
       this.#requireTransactionCanContinue();
     } catch (error) {

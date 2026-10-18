@@ -61,6 +61,8 @@ open class CompositeVM<Child: ComponentVMBase>:
     private let currentSelector: (([Child]) -> Child?)?
     private let onCurrentChanged: ((Child?) -> Void)?
     private var populated = false
+    /// Collects the children population started constructing (see `_onConstruct`).
+    private var populationJoined: [ComponentVMBase]?
     private let _autoConstructOnAdd: Bool
     private let _asyncSelection: Bool
     private var disposeRequested = false
@@ -715,8 +717,15 @@ open class CompositeVM<Child: ComponentVMBase>:
 
     open override func _onConstruct() throws {
         try super._onConstruct()
+        // Children whose construct population started are joined, not restarted.
+        var joined: [ComponentVMBase] = []
         if !populated {
             if let factory = childrenFactory {
+                populationJoined = []
+                defer {
+                    joined = populationJoined ?? []
+                    populationJoined = nil
+                }
                 try attachPopulation(factory()).get()
             }
             populated = true
@@ -728,7 +737,7 @@ open class CompositeVM<Child: ComponentVMBase>:
         // A background child defers the composite's Constructed status (and the
         // selector) until every child has reached Constructed (spec/02 §6).
         let snapshot = snapshot()
-        try _transitionChildren(snapshot, construct: true) { [self] in
+        try _transitionChildren(snapshot, construct: true, joined: joined) { [self] in
             if let selector = currentSelector,
                let initial = selector(snapshot),
                snapshot.contains(where: { $0 === initial }) {
@@ -787,6 +796,10 @@ open class CompositeVM<Child: ComponentVMBase>:
                 if _autoConstructOnAdd && isConstructed { try child.construct() }
                 if status == .constructing && child.status != .constructed {
                     try child.construct()
+                    // A child population left pending is joined, never restarted.
+                    if child.status != .constructed && child.status != .disposed {
+                        populationJoined?.append(child)
+                    }
                 }
             }
             try membershipGate.withLock { try requireTransactionCanContinueLocked() }

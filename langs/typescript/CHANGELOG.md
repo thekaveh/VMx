@@ -8,33 +8,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `CompositeVM` and `GroupVM` join the background children that factory
+  population starts and never construct them again. A later child that fails
+  while the container waits on an earlier one rolls the container back, and
+  its construct hook runs once (spec/02 §6, LIFE-014). Before, the child walk
+  restarted the failed child and ran its hook a second time.
 - Aggregates, `CompositeVM`, `GroupVM`, and eager `HierarchicalVM` reach
-  `Constructed`/`Destructed` only after every child has (spec/02 §6,
-  spec/08 §8). With a `.background(true)` child, an aggregate used to report
-  `Constructed` while the child was still `Constructing`, and a composite or
-  group threw `StatusTransitionError` from `construct()`. The container now
-  stays in `Constructing`/`Destructing` until the child settles. If the child
-  rolls back or is disposed, the container rolls back too. The composite's
-  initial-current selector and the composite and group `onDestruct` callbacks
-  run after the children settle. Children that settle synchronously still
-  complete the whole transition synchronously. A waiting container continues
-  only after the child has published its terminal status and released its
-  in-flight guard. So a background VM, like a synchronous one, rejects a
-  reentrant transition from an observer of its terminal status with
-  `StatusTransitionError`. When the container's deferred continuation fails
-  (for example, a throwing composite `current` selector, or a synchronous
-  sibling whose construct throws after a background child), the container
-  rolls back. The error is then thrown from the dispatcher work that settled
-  the child, as for a throwing background hook (VMX-049). It is no longer
-  reported as an rxjs unhandled subscriber error that no caller can catch. A
-  container whose children are all synchronous still throws from
-  `construct()`.
+  `Constructed` or `Destructed` only after every child settles (spec/02 §6,
+  spec/08 §2-§3). Before, with a `.background(true)` child, an aggregate
+  reported `Constructed` while the child was still `Constructing`, and a
+  composite or group threw `StatusTransitionError` from `construct()`.
+- A container rolls back when a background child rolls back or is disposed.
+  The composite's initial-current selector and the composite and group
+  `onDestruct` callbacks run after the children settle. Children that settle
+  synchronously keep the whole transition synchronous.
+- A waiting container continues only after the child publishes its terminal
+  status and releases its in-flight guard. A background VM therefore rejects a
+  reentrant transition from an observer of its terminal status, as a
+  synchronous VM does.
+- When a container's deferred continuation fails, the container rolls back and
+  the error comes from the dispatcher work that settled the child, as for a
+  throwing background hook (VMX-049). Examples: a throwing `current` selector,
+  or a synchronous sibling whose construct throws after a background child.
+  Before, rxjs reported the error as an unhandled subscriber error. A container
+  whose children are all synchronous still throws from `construct()`.
 - `FilteredCompositeVM.setPredicate` restores the previous predicate when the
   new one throws, so later source changes keep using the working predicate.
 - `CompositeVM` and `GroupVM` `insert`/`removeAt`/`setAt` reject a
   `NaN` or fractional index with a `RangeError` before any change, like `move`.
   Before, `removeAt(NaN)` removed a child, then threw and left the membership
-  transaction open, so every later mutation failed (spec/21 §3.2).
+  transaction open, so every later mutation failed (spec/06 §4, spec/07 §4).
 - `FormVM`'s default deep equality compares boxed `Number`, `Boolean`,
   `String`, and `BigInt` values by value (with `+0` equal to `-0` and `NaN`
   equal to `NaN`, as for primitives), so `setModel` no longer drops a change to

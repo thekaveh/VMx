@@ -60,6 +60,8 @@ export class GroupVM<VM extends ComponentVMBase>
   readonly #childrenFactory: (() => Iterable<VM>) | null;
   protected _children: VM[] = [];
   #populated = false;
+  /** Collects the children population started constructing (see `_onConstruct`). */
+  #populationJoined: Set<ComponentVMBase> | null = null;
   #batchDepth = 0;
   #disposeRequested = false;
   #disposeDeferred = false;
@@ -411,12 +413,19 @@ export class GroupVM<VM extends ComponentVMBase>
 
   protected override _onConstruct(): void {
     super._onConstruct();
-    this._populateChildren();
+    // Children whose construct population started are joined, not restarted.
+    const joined = new Set<ComponentVMBase>();
+    this.#populationJoined = joined;
+    try {
+      this._populateChildren();
+    } finally {
+      this.#populationJoined = null;
+    }
     // Snapshot (parity with CompositeVMBase and dispose below): a child
     // lifecycle hook that mutates the group must not skip/repeat siblings.
     // spec/02 §6: the group settles only after every child has (a background
     // child defers the group's terminal status).
-    this._transitionChildren([...this._children], true);
+    this._transitionChildren([...this._children], true, undefined, joined);
   }
 
   protected override _onDestruct(): void {
@@ -478,6 +487,14 @@ export class GroupVM<VM extends ComponentVMBase>
     }
   }
 
+  /** A child population left pending is joined by the child walk, never restarted. */
+  #joinIfPending(child: VM): void {
+    if (
+      child.status !== ConstructionStatus.Constructed &&
+      child.status !== ConstructionStatus.Disposed
+    ) this.#populationJoined?.add(child);
+  }
+
   private _populateChildren(): void {
     if (this.#populated || this.#childrenFactory === null) return;
     const children = [...this.#childrenFactory()];
@@ -507,7 +524,10 @@ export class GroupVM<VM extends ComponentVMBase>
         if (
           this.status === ConstructionStatus.Constructing &&
           child.status !== ConstructionStatus.Constructed
-        ) child.construct();
+        ) {
+          child.construct();
+          this.#joinIfPending(child);
+        }
       }
       this.#requireTransactionCanContinue();
     } catch (error) {

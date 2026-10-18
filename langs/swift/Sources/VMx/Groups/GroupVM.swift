@@ -78,6 +78,8 @@ open class GroupVM<Child: ComponentVMBase>:
     private var children: [Child] = []
     private let childrenFactory: (() -> [Child])?
     private var populated = false
+    /// Collects the children population started constructing (see `_onConstruct`).
+    private var populationJoined: [ComponentVMBase]?
     private lazy var groupParent = GroupParent(group: self)
     private let _autoConstructOnAdd: Bool
     private var disposeRequested = false
@@ -586,7 +588,14 @@ open class GroupVM<Child: ComponentVMBase>:
 
     open override func _onConstruct() throws {
         try super._onConstruct()
+        // Children whose construct population started are joined, not restarted.
+        var joined: [ComponentVMBase] = []
         if !populated, let factory = childrenFactory {
+            populationJoined = []
+            defer {
+                joined = populationJoined ?? []
+                populationJoined = nil
+            }
             try attachPopulation(factory()).get()
             populated = true
         }
@@ -595,7 +604,7 @@ open class GroupVM<Child: ComponentVMBase>:
         // mutations from population hooks are rejected until commit/rollback.
         // A background peer defers Constructed until every peer is (spec/02 §6).
         let snapshot = snapshot()
-        try _transitionChildren(snapshot, construct: true)
+        try _transitionChildren(snapshot, construct: true, joined: joined)
     }
 
     private func attachPopulation(
@@ -645,6 +654,10 @@ open class GroupVM<Child: ComponentVMBase>:
                 if _autoConstructOnAdd && isConstructed { try child.construct() }
                 if status == .constructing && child.status != .constructed {
                     try child.construct()
+                    // A child population left pending is joined, never restarted.
+                    if child.status != .constructed && child.status != .disposed {
+                        populationJoined?.append(child)
+                    }
                 }
             }
             try membershipGate.withLock { try requireTransactionCanContinueLocked() }

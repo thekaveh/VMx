@@ -1106,10 +1106,19 @@ class _ComponentVMBase(ABC):
         *,
         construct: bool,
         after: Callable[[], None] | None = None,
+        joined: Iterable[object] = (),
     ) -> Future[None]:
-        """Transition children sequentially and validate each settled state."""
+        """Transition children sequentially and validate each settled state.
+
+        A child in ``joined`` already started this transition (factory
+        population): it is joined and its settled status is final, so it is
+        never restarted.
+        """
         result: Future[None] = Future()
         iterator = iter(children)
+        joined_ids = {id(child) for child in joined}
+        expected = ConstructionStatus.CONSTRUCTED if construct else ConstructionStatus.DESTRUCTED
+        transient = ConstructionStatus.CONSTRUCTING if construct else ConstructionStatus.DESTRUCTING
 
         def advance() -> None:
             while not result.done():
@@ -1126,6 +1135,8 @@ class _ComponentVMBase(ABC):
                     return
 
                 try:
+                    if id(child) in joined_ids and child.status not in (expected, transient):
+                        raise RuntimeError(f"child '{child.name}' did not reach {expected.name}")
                     if isinstance(child, _ComponentVMBase):
                         pending = (
                             child._construct_future() if construct else child._destruct_future()
@@ -1147,11 +1158,6 @@ class _ComponentVMBase(ABC):
                 ) -> None:
                     try:
                         completed.result()
-                        expected = (
-                            ConstructionStatus.CONSTRUCTED
-                            if construct
-                            else ConstructionStatus.DESTRUCTED
-                        )
                         if current.status is not expected:
                             raise RuntimeError(
                                 f"child '{current.name}' did not reach {expected.name}"

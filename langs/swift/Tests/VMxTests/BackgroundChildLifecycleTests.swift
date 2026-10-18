@@ -260,4 +260,60 @@ final class BackgroundChildLifecycleTests: XCTestCase {
         XCTAssertEqual(aggregate.component1?.status, .disposed)
         XCTAssertEqual(statuses(of: "agg"), ["agg:constructing", "agg:disposed"])
     }
+
+    // ── Factory population joins background children ───────────────────
+
+    /// Runs the newest background work first; foreground work runs inline.
+    private final class LifoDispatcher: Dispatcher {
+        private var work: [() -> Void] = []
+        func scheduleForeground(_ work: @escaping () -> Void) { work() }
+        func scheduleBackground(_ work: @escaping () -> Void) { self.work.append(work) }
+        func runAll() { while let next = work.popLast() { next() } }
+    }
+
+    /// Population starts every factory child before the child walk runs. A
+    /// later child that fails while the walk waits on an earlier one is final:
+    /// it is joined, never restarted, and the container rolls back.
+    private func assertLaterFailingFactoryChildIsJoined(
+        _ makeContainer: (MessageHub, Dispatcher, [ComponentVM]) -> ComponentVMBase
+    ) throws {
+        let lifo = LifoDispatcher()
+        var badHookRuns = 0
+        let ok = try ComponentVM.builder()
+            .name("ok").services(hub: hub, dispatcher: lifo).background(true).build()
+        let bad = try ComponentVM.builder()
+            .name("bad").services(hub: hub, dispatcher: lifo).background(true)
+            .onConstruct {
+                badHookRuns += 1
+                throw Boom()
+            }
+            .build()
+        let container = makeContainer(hub, lifo, [ok, bad])
+
+        try container.construct()
+        XCTAssertEqual(ok.status, .constructing)
+        XCTAssertEqual(bad.status, .constructing)
+        lifo.runAll()
+
+        XCTAssertEqual(badHookRuns, 1, "a joined child is never restarted")
+        XCTAssertEqual(bad.status, .destructed)
+        XCTAssertEqual(container.status, .destructed)
+        XCTAssertTrue(container.canConstruct())
+    }
+
+    func testCompositeJoinsFactoryChildThatFailsWhileEarlierChildIsPending() throws {
+        try assertLaterFailingFactoryChildIsJoined { hub, dispatcher, children in
+            CompositeVM<ComponentVM>(
+                name: "comp", hub: hub, dispatcher: dispatcher, childrenFactory: { children }
+            )
+        }
+    }
+
+    func testGroupJoinsFactoryChildThatFailsWhileEarlierChildIsPending() throws {
+        try assertLaterFailingFactoryChildIsJoined { hub, dispatcher, children in
+            GroupVM<ComponentVM>(
+                name: "grp", hub: hub, dispatcher: dispatcher, childrenFactory: { children }
+            )
+        }
+    }
 }

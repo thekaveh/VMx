@@ -8,16 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
-- `CompositeVM`, `GroupVM`, and `AggregateVM1`…`AggregateVM6` wait for
-  background children. `construct()` reaches Constructed (and the composite's
-  current selector runs) only once every child is Constructed, and `destruct()`
-  reaches Destructed only once every child is Destructed; `reconstruct()` waits
-  for both phases. A background child that fails rolls the parent back
-  (LIFE-014), and disposing a parent while it waits publishes no further
-  status. Before, the parent committed while background children were still
-  Constructing or Destructing, and stayed Constructed when one failed
-  (spec/02 §6). Children that finish synchronously keep the parent fully
-  synchronous, with unchanged emission order.
+- `CompositeVM` and `GroupVM` join the background children that factory
+  population starts and never construct them again. A later child that fails
+  while the container waits on an earlier one rolls the container back, and
+  its construct hook runs once (spec/02 §6, LIFE-014). Before, the child walk
+  restarted the failed child and ran its hook a second time.
+- `CompositeVM`, `GroupVM`, and `AggregateVM1` to `AggregateVM6` wait for
+  background children to settle (spec/02 §6). `construct()` reaches
+  Constructed, and the composite's current selector runs, only after every
+  child is Constructed. `destruct()` reaches Destructed only after every child
+  is Destructed. `reconstruct()` waits for both phases. A background child
+  that fails rolls the container back (LIFE-014). Disposing a container while
+  it waits publishes no further status. Before, the container committed while
+  background children were still Constructing or Destructing, and stayed
+  Constructed when one failed. Children that settle synchronously keep the
+  container synchronous, with unchanged emission order.
 - A disposed `CompositeCommand`, `DecoratorCommand`, or
   `ConfirmationDecoratorCommand` stops forwarding inner `canExecuteChanged`
   emissions. Disposal releases the wrapper's inner subscriptions, notifies once,

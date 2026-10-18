@@ -33,8 +33,8 @@ This crate implements the VMx spec with idiomatic Rust naming and error handling
   arrive on its `background_errors()`. Wrapper nodes should forward
   `VmNode::when_lifecycle_settled`; a node that does not is accepted while still
   in flight. Without background children, reconstruct remains a synchronous
-  destruct/construct operation, and rejected background or foreground
-  scheduling restores lifecycle admission;
+  destruct/construct operation, and
+  rejected background or foreground scheduling restores lifecycle admission;
 - relay commands expose `raise_can_execute_changed` for precise binding
   invalidation without predicate polling;
 - async relay commands provide an immutable builder, cooperative cancellation,

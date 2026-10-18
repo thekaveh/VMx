@@ -152,6 +152,9 @@ interface DeferredLifecycleResult {
   readonly rethrow: boolean;
 }
 
+/** A joined child settled outside the target; it surfaced its own failure. */
+class JoinedChildFailure extends Error {}
+
 /** One-shot completion of a lifecycle hook deferred by `_transitionChildren`. */
 class DeferredLifecycle {
   #result: DeferredLifecycleResult | null = null;
@@ -799,12 +802,15 @@ export abstract class ComponentVMBase {
    * synchronous. A child left in its transient status (a background child)
    * defers this VM's own terminal status until the child settles (spec/02 §6,
    * spec/08 §8); a child that settles anywhere else rolls this VM back. A child
-   * already in the transient status is joined, not restarted.
+   * already in the transient status is joined, not restarted. A child in
+   * `joined` already started this transition (factory population): it is
+   * joined and its settled status is final, so it is never restarted.
    */
   protected _transitionChildren(
     children: readonly ComponentVMBase[],
     construct: boolean,
     after?: () => void,
+    joined?: ReadonlySet<ComponentVMBase>,
   ): void {
     const target = construct ? ConstructionStatus.Constructed : ConstructionStatus.Destructed;
     const transient = construct
@@ -862,7 +868,7 @@ export abstract class ComponentVMBase {
             try {
               stillPending = advance();
             } catch (error) {
-              settle({ failed: true, error, rethrow: true });
+              settle({ failed: true, error, rethrow: !(error instanceof JoinedChildFailure) });
               return;
             }
             if (!stillPending) settle({ failed: false, error: undefined, rethrow: false });
@@ -889,7 +895,11 @@ export abstract class ComponentVMBase {
       for (; index < children.length; index += 1) {
         const child = children[index];
         if (child === undefined) continue;
-        if (child.status !== target && child.status !== transient) {
+        if (
+          child.status !== target &&
+          child.status !== transient &&
+          joined?.has(child) !== true
+        ) {
           if (construct) child.construct();
           else child.destruct();
         }
@@ -898,7 +908,9 @@ export abstract class ComponentVMBase {
           return true;
         }
         if (child.status !== target) {
-          throw new Error(`Child '${child.name}' did not reach ${targetName}`);
+          const message = `Child '${child.name}' did not reach ${targetName}`;
+          // A joined child already surfaced its own failure.
+          throw joined?.has(child) === true ? new JoinedChildFailure(message) : new Error(message);
         }
       }
       after?.();

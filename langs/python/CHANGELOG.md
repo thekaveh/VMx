@@ -23,6 +23,11 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ### Fixed
 
+- `CompositeVM` and `GroupVM` join the background children that factory
+  population starts and never construct them again. A later child that fails
+  while the container waits on an earlier one rolls the container back, and
+  its construct hook runs once (spec/02 §6, LIFE-014). Before, the child walk
+  restarted the failed child and ran its hook a second time.
 - `FilteredCompositeVM.set_predicate` restores the previous predicate when the
   new one raises, so later source changes keep using the working predicate.
 - `FormVM.set_model(None)` raises `ValueError` to the caller during an
@@ -30,26 +35,24 @@ All notable changes to the Python flavor are documented here. The format is base
   `approve_async`.
 - `CompositeVM.copy_to` validates the index and the target size before writing,
   like `List<T>.CopyTo`; a negative index no longer wraps silently.
-- `ObservableList` read-only views find an item by identity first, so a `NaN`
-  key appears in `keys1` as the dictionary reports.
 - `ForwardingCompositeVM` delegates the rest of the wrapped composite's
   surface: `snapshot`, `subscribe_membership`, `__delitem__`, `append`,
   `index`, `copy_to`, `current_child`, `select_child`, `deselect_child`, and
   `supports_child_selection`. A forwarder can now be the source of an
-  `AggregateChangeStream`, as in TypeScript (spec/09 §0/§2, FWD-001).
-- A `bool` index raises `TypeError` instead of being taken as `0`/`1` by the
-  index-taking mutators of `CompositeVM`, `GroupVM`,
-  `ServicedObservableCollection`, and `KeyedServicedObservableCollection`
-  (`insert`, item assignment, `move`, `remove_at`/`del`, and `replace` on the
-  serviced collections) and of `ObservableList` (`insert`, `remove_at`,
-  `replace`). The rejection happens before any mutation, so `True`/`False`
-  no longer appears as an index in collection-changed payloads.
+  `AggregateChangeStream`, as in TypeScript (spec/09, FWD-001).
+- A `bool` index raises `TypeError` before any mutation. Before, `True` and
+  `False` were taken as `1` and `0` and appeared as indices in
+  collection-changed payloads. The check covers `insert`, item assignment,
+  `move`, and `remove_at`/`del` on `CompositeVM`, `GroupVM`,
+  `ServicedObservableCollection`, and `KeyedServicedObservableCollection`;
+  `replace` on the serviced collections; and `insert`, `remove_at`, and
+  `replace` on `ObservableList`.
 - A slice delete or assignment that selects nothing and inserts nothing on
   `ServicedObservableCollection` or `KeyedServicedObservableCollection` emits
   nothing, instead of a Reset, as TypeScript `splice` does (spec/21 §2.10).
 - `ObservableDictionary` key views use dictionary-key equality (identity, then
-  `==`), so one `NaN` key object appears once in `keys1`/`keys2`
-  (spec/21 §4.1).
+  `==`), so one `NaN` key object appears once in `keys1`/`keys2`, and
+  `nan in view` is true (spec/21 §4.1).
 - `walk`, `walk_expanded`, and `find` accept and return the public
   `ComponentVMProto` instead of the private `_ComponentVMBase`, so a caller
   typed against the public protocol passes `mypy --strict` (spec/13 §4).

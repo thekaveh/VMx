@@ -418,6 +418,9 @@ final class ChildTransitionWalker {
     private var index = 0
     private var cancelled = false
     private var waiting: (child: ComponentVMBase, id: UInt64)?
+    /// Children that already started this transition (factory population):
+    /// joined, never restarted.
+    private let joined: Set<ObjectIdentifier>
     private let target: ConstructionStatus
     private let transient: ConstructionStatus
     let deferral = LifecycleDeferral()
@@ -425,10 +428,12 @@ final class ChildTransitionWalker {
     init(
         children: [ComponentVMBase],
         construct: Bool,
-        after: (() throws -> Void)?
+        after: (() throws -> Void)?,
+        joined: [ComponentVMBase] = []
     ) {
         self.children = children
         self.after = after
+        self.joined = Set(joined.map(ObjectIdentifier.init))
         self.target = construct ? .constructed : .destructed
         self.transient = construct ? .constructing : .destructing
     }
@@ -467,7 +472,8 @@ final class ChildTransitionWalker {
             lock.unlock()
 
             let status = child.status
-            if status != target && status != transient {
+            if status != target && status != transient
+                && !joined.contains(ObjectIdentifier(child)) {
                 if target == .constructed { try child.construct() } else { try child.destruct() }
             }
             if child.status == transient {
@@ -1163,16 +1169,20 @@ open class ComponentVMBase {
     /// synchronous. A child left in its transient status (a background child)
     /// defers this VM's terminal status until it settles; a child that settles
     /// anywhere else rolls this VM back (LIFE-014). A child already in its
-    /// transient status is joined, not restarted.
+    /// transient status is joined, not restarted. A child in `joined` already
+    /// started this transition (factory population): it is joined and its
+    /// settled status is final, so it is never restarted.
     func _transitionChildren(
         _ children: [ComponentVMBase],
         construct: Bool,
+        joined: [ComponentVMBase] = [],
         after: (() throws -> Void)? = nil
     ) throws {
         let walker = ChildTransitionWalker(
             children: children,
             construct: construct,
-            after: after
+            after: after,
+            joined: joined
         )
         guard try walker.start() else { return }
         lifecycleLock.lock()

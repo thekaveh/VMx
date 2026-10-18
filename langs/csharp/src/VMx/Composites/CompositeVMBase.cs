@@ -41,6 +41,9 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     // ── Batch-update state (spec v1.1) ────────────────────────────────────────
     private int _batchDepth;
     private bool _batchDirty;
+
+    // Collects the children population started constructing (see OnConstruct).
+    private List<IComponentVM>? _populationJoined;
     private int _disposeRequested;
     private bool _disposeDeferred;
     private int _activeCurrentPublications;
@@ -710,7 +713,11 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     {
         base.OnConstruct(); // invoke user's onConstruct callback if any
         // Populate children from factory (lazy: only on first construct).
-        PopulateChildren();
+        // Children whose construct population started are joined, not restarted.
+        var joined = new List<IComponentVM>();
+        _populationJoined = joined;
+        try { PopulateChildren(); }
+        finally { _populationJoined = null; }
         CompleteLifecycleHookAfter(TransitionChildrenAsync(
             Snapshot().ToArray(),
             construct: true,
@@ -721,7 +728,8 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                 var initial = _currentSelector(this);
                 if (initial is not null && IndexOfIdentity(initial) >= 0)
                     SetCurrent(initial, async: false);
-            }));
+            },
+            joined: joined));
     }
 
     /// <summary>Constructs all current children sequentially.</summary>
@@ -779,7 +787,13 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
             foreach (var child in candidates)
             {
                 if (Status == ConstructionStatus.Constructing)
+                {
                     child.Construct();
+                    // A child population left pending is joined, never restarted.
+                    if (child.Status is not ConstructionStatus.Constructed
+                        and not ConstructionStatus.Disposed)
+                        _populationJoined?.Add(child);
+                }
                 else
                     MaybeAutoConstruct(child);
             }

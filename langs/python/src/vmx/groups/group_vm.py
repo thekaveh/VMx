@@ -97,6 +97,8 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         self._children: list[VM] = []
         self._children_factory: Callable[[], Iterable[VM]] | None = children_factory
         self._populated: bool = False
+        # Collects the children population started constructing (see _on_construct).
+        self._population_joined: list[VM] | None = None
         self._batch_depth: int = 0
         self._batch_dirty: bool = False
         self._dispose_requested: bool = False
@@ -480,9 +482,15 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         # Invoke the builder's on_construct callback first.
         if self._on_construct_cb is not None:
             self._on_construct_cb()
-        self._populate_children()
+        # Children whose construct population started are joined, not restarted.
+        joined: list[VM] = []
+        self._population_joined = joined
+        try:
+            self._populate_children()
+        finally:
+            self._population_joined = None
         self._complete_lifecycle_hook_after(
-            self._transition_children(list(self.snapshot()), construct=True)
+            self._transition_children(list(self.snapshot()), construct=True, joined=joined)
         )
 
     def _on_destruct(self) -> None:
@@ -587,6 +595,14 @@ class GroupVM(Generic[VM], _ComponentVMBase):
                     and child.status is not ConstructionStatus.CONSTRUCTED
                 ):
                     child.construct()
+                    # A child population left pending is joined, never restarted.
+                    if child.status not in (
+                        ConstructionStatus.CONSTRUCTED,
+                        ConstructionStatus.DISPOSED,
+                    ):
+                        joined = self._population_joined
+                        if joined is not None:
+                            joined.append(child)
             with self._membership_gate:
                 self._require_transaction_can_continue_locked()
         except BaseException as original_error:

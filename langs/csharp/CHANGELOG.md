@@ -8,6 +8,11 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
+- Fixed: `CompositeVM` and `GroupVM` join the background children that
+  factory population starts and never construct them again. A later child that
+  fails while the container waits on an earlier one rolls the container back,
+  and its construct hook runs once (spec/02 §6, LIFE-014). Before, the child
+  walk restarted the failed child and ran its hook a second time.
 - Fixed: `FormVM.SetModel(null)` throws `ArgumentNullException` to the caller
   during an approval's settlement, instead of being queued and surfacing later
   from `ApproveAsync` (spec/20, failure-atomic).
@@ -16,7 +21,7 @@ All notable changes to the C# flavor are documented here. The format is based on
   predicate, `Visible`, and `Current` in place, as in Python and TypeScript.
 - Fixed: `CompositeCommand` copies the inner command list and rejects null
   entries before subscribing, so a later change to the caller's list cannot
-  desynchronise execution and unsubscription (spec/04 §8.4).
+  desynchronize execution and unsubscription (spec/04 §8.4).
 - Fixed: `AsyncResourceVM` treats a loader that returns a null task as a failed
   load: the state becomes `Error` and the load completes, instead of staying
   in `Loading` and throwing `ArgumentNullException` (spec/23 §7, ARES-003).

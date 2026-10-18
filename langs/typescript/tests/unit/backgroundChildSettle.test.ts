@@ -1,5 +1,5 @@
 // A container's construct()/destruct() completes only when every child has
-// reached Constructed/Destructed (spec/02-lifecycle.md §6, spec/08 §8). A
+// reached Constructed/Destructed (spec/02-lifecycle.md §6, spec/08 §2-§3). A
 // background child settles later, so the container must stay in its transient
 // status until then. Mirrors the C# `*_Background_Child_*` tests.
 
@@ -355,4 +355,72 @@ describe("deferred container continuation failures", () => {
     expect(() => composite.construct()).toThrow("selector boom");
     expect(composite.status).toBe(S.Destructed);
   });
+});
+
+describe("factory population – background children are joined, never restarted", () => {
+  /** Runs the newest background work first and collects its failures. */
+  class LifoScheduler {
+    readonly #work: Array<() => void> = [];
+    readonly errors: unknown[] = [];
+
+    schedule(work: () => void): { unsubscribe(): void } {
+      this.#work.push(work);
+      return { unsubscribe() {} };
+    }
+
+    runAll(): void {
+      for (let work = this.#work.pop(); work !== undefined; work = this.#work.pop()) {
+        try {
+          work();
+        } catch (error) {
+          this.errors.push(error);
+        }
+      }
+    }
+  }
+
+  it.each(["composite", "group"])(
+    "%s: a later child that fails while an earlier one is pending rolls the container back",
+    (kind) => {
+      const bg = new LifoScheduler();
+      const dispatcher = new RxDispatcher(
+        RxDispatcher.immediate().foreground,
+        bg as unknown as SchedulerLike,
+      );
+      const hub = new MessageHub();
+      let badHookRuns = 0;
+      const ok = ComponentVM.builder().name("ok").services(hub, dispatcher).background(true).build();
+      const bad = ComponentVM.builder()
+        .name("bad")
+        .services(hub, dispatcher)
+        .background(true)
+        .onConstruct(() => {
+          badHookRuns += 1;
+          throw new Error("bad failed");
+        })
+        .build();
+      const container: ComponentVMBase =
+        kind === "composite"
+          ? CompositeVM.builder<ComponentVM>()
+              .name("root")
+              .services(hub, dispatcher)
+              .children(() => [ok, bad])
+              .build()
+          : GroupVM.builder<ComponentVM>()
+              .name("root")
+              .services(hub, dispatcher)
+              .children(() => [ok, bad])
+              .build();
+
+      container.construct();
+      expect(ok.status).toBe(S.Constructing);
+      expect(bad.status).toBe(S.Constructing);
+      bg.runAll();
+
+      expect(badHookRuns).toBe(1);
+      expect(bad.status).toBe(S.Destructed);
+      expect(container.status).toBe(S.Destructed);
+      expect(container.canConstruct()).toBe(true);
+    },
+  );
 });
