@@ -45,6 +45,7 @@ mod conformance {
     mod threading;
     mod token_refresh_cursor;
     mod tree_utils;
+    mod user_equality_reentry;
     mod value_stream;
     mod vm_collection_move;
 }

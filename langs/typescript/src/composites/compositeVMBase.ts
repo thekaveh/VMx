@@ -559,29 +559,29 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
       this._populateChildren();
       this.#populated = true;
     }
-    for (const child of [...this._children]) {
-      child.construct();
-    }
-    // Apply the optional initial-current selector (spec/06 §3.2, ADR-0042).
-    // The composite is still in Constructing here; every child is Constructed.
-    // Selector returning null or an out-of-set value leaves current at its
-    // prior value and emits no notification (matches selectComponent semantics).
-    if (this.#currentSelector !== null) {
-      const initial = this.#currentSelector(this);
-      if (initial !== null && this._children.includes(initial)) {
-        this._setCurrent(initial, false);
+    // spec/02 §6: the composite settles only after every child has (a
+    // background child defers the composite's terminal status).
+    this._transitionChildren([...this._children], true, () => {
+      // Apply the optional initial-current selector (spec/06 §3.2, ADR-0042).
+      // The composite is still in Constructing here; every child is Constructed.
+      // Selector returning null or an out-of-set value leaves current at its
+      // prior value and emits no notification (matches selectComponent semantics).
+      if (this.#currentSelector !== null) {
+        const initial = this.#currentSelector(this);
+        if (initial !== null && this._children.includes(initial)) {
+          this._setCurrent(initial, false);
+        }
       }
-    }
+    });
   }
 
   protected override _onDestruct(): void {
     if (this.#current !== null) {
       this._setCurrent(null, false);
     }
-    for (const child of [...this._children]) {
-      child.destruct();
-    }
-    super._onDestruct();
+    this._transitionChildren([...this._children], false, () => {
+      super._onDestruct();
+    });
   }
 
   override dispose(): void {
@@ -593,6 +593,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     this.#disposeRequested = true;
     // Dispose cascade (LIFE-013): depth-first dispose each child, then self.
     disposeBestEffort([
+      () => this._abandonChildTransition(),
       ...[...this._children].map((child) => () => child.dispose()),
       () => super.dispose(),
     ]);

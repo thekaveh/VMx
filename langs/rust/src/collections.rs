@@ -18,6 +18,15 @@ struct ServicedCollectionDelivery {
 struct ServicedCollectionDeliveryState {
     pending: VecDeque<Message>,
     draining_owner: Option<ThreadId>,
+    /// Counts published changes. Every effective mutation publishes, so a
+    /// caller that compared items on a copy detects an intervening change.
+    revision: u64,
+}
+
+impl ServicedCollectionDelivery {
+    fn revision(&self) -> u64 {
+        lock(&self.state).revision
+    }
 }
 
 struct ServicedCollectionAdmission {
@@ -151,16 +160,27 @@ where
         T: PartialEq,
     {
         let admission = ServicedCollectionAdmission::acquire(Arc::clone(&self.delivery));
-        let index = {
-            let mut inner = lock(&self.inner);
-            let Some(index) = inner.iter().position(|candidate| candidate == item) else {
+        // `PartialEq` runs on a copy, with no lock held; the admission keeps
+        // other threads out, and the revision check catches a change that
+        // `eq` itself made, after which the search runs again.
+        loop {
+            let revision = self.delivery.revision();
+            let snapshot = lock(&self.inner).clone();
+            let Some(index) = snapshot.iter().position(|candidate| candidate == item) else {
                 return false;
             };
-            inner.remove(index);
-            index
-        };
-        self.publish(admission, CollectionChangeAction::Remove, Some(index), None);
-        true
+            drop(snapshot);
+            let removed = {
+                let mut inner = lock(&self.inner);
+                if self.delivery.revision() != revision {
+                    continue;
+                }
+                inner.remove(index)
+            };
+            drop(removed);
+            self.publish(admission, CollectionChangeAction::Remove, Some(index), None);
+            return true;
+        }
     }
 
     /// Removes and returns the item at `index`.
@@ -271,6 +291,7 @@ where
         let mut delivery = lock(&self.delivery.state);
         debug_assert_eq!(delivery.draining_owner, Some(current));
         delivery.pending.push_back(message);
+        delivery.revision = delivery.revision.wrapping_add(1);
         if !admission.owns_drain {
             admission.disarm();
             return;
@@ -477,21 +498,31 @@ where
         T: PartialEq,
     {
         let admission = ServicedCollectionAdmission::acquire(Arc::clone(&self.delivery));
-        let position = {
-            let mut inner = lock(&self.inner);
-            let Some(position) = inner.items.iter().position(|candidate| candidate == item) else {
+        // `PartialEq` runs on a copy, with no lock held (see
+        // `ServicedObservableCollection::remove`).
+        loop {
+            let revision = self.delivery.revision();
+            let snapshot = lock(&self.inner).items.clone();
+            let Some(position) = snapshot.iter().position(|candidate| candidate == item) else {
                 return false;
             };
-            Self::remove_membership(&mut inner, position);
-            position
-        };
-        self.publish(
-            admission,
-            CollectionChangeAction::Remove,
-            Some(position),
-            None,
-        );
-        true
+            drop(snapshot);
+            let removed = {
+                let mut inner = lock(&self.inner);
+                if self.delivery.revision() != revision {
+                    continue;
+                }
+                Self::remove_membership(&mut inner, position)
+            };
+            drop(removed);
+            self.publish(
+                admission,
+                CollectionChangeAction::Remove,
+                Some(position),
+                None,
+            );
+            return true;
+        }
     }
 
     /// Removes and returns the membership at `index`.
@@ -706,6 +737,7 @@ where
         let mut delivery = lock(&self.delivery.state);
         debug_assert_eq!(delivery.draining_owner, Some(current));
         delivery.pending.push_back(message);
+        delivery.revision = delivery.revision.wrapping_add(1);
         if !admission.owns_drain {
             admission.disarm();
             return;
@@ -1058,6 +1090,50 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
     }
 }
 
+/// Insertion-ordered dictionary entries plus a write counter.
+///
+/// Key comparisons run user `PartialEq` code, so the dictionaries compare
+/// keys on copies with no lock held and commit only when `revision` still
+/// matches the copy; otherwise they search again (the `FormVm::set_model`
+/// pattern). Replaced and removed values are dropped after the lock is
+/// released.
+struct DictionaryEntries<E> {
+    entries: Vec<E>,
+    revision: u64,
+}
+
+impl<E> Default for DictionaryEntries<E> {
+    fn default() -> Self {
+        Self {
+            entries: Vec::new(),
+            revision: 0,
+        }
+    }
+}
+
+/// Copies each entry's keys with the current revision.
+fn snapshot_keys<E, P>(
+    inner: &Mutex<DictionaryEntries<E>>,
+    project: impl Fn(&E) -> P,
+) -> (u64, Vec<P>) {
+    let inner = lock(inner);
+    (inner.revision, inner.entries.iter().map(project).collect())
+}
+
+/// Runs `write` when no write happened since `revision`, bumping it.
+fn commit_entries<E, R>(
+    inner: &Mutex<DictionaryEntries<E>>,
+    revision: u64,
+    write: impl FnOnce(&mut Vec<E>) -> R,
+) -> Option<R> {
+    let mut inner = lock(inner);
+    if inner.revision != revision {
+        return None;
+    }
+    inner.revision = inner.revision.wrapping_add(1);
+    Some(write(&mut inner.entries))
+}
+
 #[derive(Clone)]
 /// An insertion-ordered observable key/value dictionary.
 pub struct ObservableDictionary<K, V>
@@ -1065,7 +1141,7 @@ where
     K: Clone + Eq + Hash + Send + 'static,
     V: Clone + Send + 'static,
 {
-    inner: Arc<Mutex<Vec<(K, V)>>>,
+    inner: Arc<Mutex<DictionaryEntries<(K, V)>>>,
     hub: MessageHub,
     owner_id: usize,
 }
@@ -1078,58 +1154,81 @@ where
     /// Creates an empty dictionary whose messages use `owner_id`.
     pub fn new(owner_id: usize, hub: MessageHub) -> Self {
         Self {
-            inner: Arc::new(Mutex::new(Vec::new())),
+            inner: Arc::new(Mutex::new(DictionaryEntries::default())),
             hub,
             owner_id,
         }
     }
 
+    fn locate(&self, key: &K) -> (u64, Option<usize>) {
+        let (revision, keys) = snapshot_keys(&self.inner, |(candidate, _)| candidate.clone());
+        (revision, keys.iter().position(|candidate| candidate == key))
+    }
+
     /// Adds `key` or replaces its existing value in place.
     pub fn insert(&self, key: K, value: V) {
-        let action = {
-            let mut inner = lock(&self.inner);
-            if let Some((_, existing)) = inner.iter_mut().find(|(candidate, _)| *candidate == key) {
-                *existing = value;
-                CollectionChangeAction::Replace
-            } else {
-                inner.push((key, value));
-                CollectionChangeAction::Add
+        let mut entry = Some((key, value));
+        let (action, replaced) = loop {
+            let (revision, index) = self.locate(&entry.as_ref().expect("entry pending").0);
+            let committed = commit_entries(&self.inner, revision, |entries| {
+                let (key, value) = entry.take().expect("entry pending");
+                match index {
+                    Some(index) => (
+                        CollectionChangeAction::Replace,
+                        Some(std::mem::replace(&mut entries[index].1, value)),
+                    ),
+                    None => {
+                        entries.push((key, value));
+                        (CollectionChangeAction::Add, None)
+                    }
+                }
+            });
+            if let Some(committed) = committed {
+                break committed;
             }
         };
+        drop(replaced);
         self.publish(action);
     }
 
     /// Returns the value associated with `key`, if present.
     pub fn get(&self, key: &K) -> Option<V> {
-        lock(&self.inner)
-            .iter()
-            .find(|(candidate, _)| candidate == key)
-            .map(|(_, value)| value.clone())
+        loop {
+            let (revision, index) = self.locate(key);
+            let inner = lock(&self.inner);
+            if inner.revision == revision {
+                return index.map(|index| inner.entries[index].1.clone());
+            }
+        }
     }
 
     /// Removes and returns the value associated with `key`.
     pub fn remove(&self, key: &K) -> Option<V> {
-        let removed = {
-            let mut inner = lock(&self.inner);
-            inner
-                .iter()
-                .position(|(candidate, _)| candidate == key)
-                .map(|index| inner.remove(index).1)
+        let removed = loop {
+            let (revision, index) = self.locate(key);
+            let Some(index) = index else {
+                break None;
+            };
+            if let Some(removed) =
+                commit_entries(&self.inner, revision, |entries| entries.remove(index))
+            {
+                break Some(removed);
+            }
         };
-        if removed.is_some() {
-            self.publish(CollectionChangeAction::Remove);
-        }
-        removed
+        let (_, value) = removed?;
+        self.publish(CollectionChangeAction::Remove);
+        Some(value)
     }
 
     /// Clears a non-empty dictionary and publishes one reset.
     pub fn clear(&self) {
-        let changed = {
+        let removed = {
             let mut inner = lock(&self.inner);
-            let changed = !inner.is_empty();
-            inner.clear();
-            changed
+            inner.revision = inner.revision.wrapping_add(1);
+            std::mem::take(&mut inner.entries)
         };
+        let changed = !removed.is_empty();
+        drop(removed);
         if changed {
             self.publish(CollectionChangeAction::Reset);
         }
@@ -1137,10 +1236,7 @@ where
 
     /// Returns keys in insertion order.
     pub fn keys(&self) -> Vec<K> {
-        lock(&self.inner)
-            .iter()
-            .map(|(key, _)| key.clone())
-            .collect()
+        snapshot_keys(&self.inner, |(key, _)| key.clone()).1
     }
 
     fn publish(&self, action: CollectionChangeAction) {
@@ -1164,7 +1260,7 @@ where
     K2: Clone + Eq + Hash + Send + 'static,
     V: Clone + Send + 'static,
 {
-    inner: Arc<Mutex<Vec<(K1, K2, V)>>>,
+    inner: Arc<Mutex<DictionaryEntries<(K1, K2, V)>>>,
     hub: MessageHub,
     owner_id: usize,
 }
@@ -1178,24 +1274,38 @@ where
     /// Creates an empty multi-key dictionary whose messages use `owner_id`.
     pub fn new(owner_id: usize, hub: MessageHub) -> Self {
         Self {
-            inner: Arc::new(Mutex::new(Vec::new())),
+            inner: Arc::new(Mutex::new(DictionaryEntries::default())),
             hub,
             owner_id,
         }
     }
 
+    fn locate(&self, key1: &K1, key2: &K2) -> (u64, Option<usize>) {
+        let (revision, keys) = snapshot_keys(&self.inner, |(k1, k2, _)| (k1.clone(), k2.clone()));
+        (
+            revision,
+            keys.iter()
+                .position(|(candidate1, candidate2)| candidate1 == key1 && candidate2 == key2),
+        )
+    }
+
     /// Adds a new key pair, rejecting a pair that is already present without
     /// changing the dictionary (spec/21 §4.1 `Add`).
     pub fn add(&self, key1: K1, key2: K2, value: V) -> VmxResult<()> {
-        {
-            let mut inner = lock(&self.inner);
-            if inner
-                .iter()
-                .any(|(candidate1, candidate2, _)| *candidate1 == key1 && *candidate2 == key2)
-            {
+        let mut entry = Some((key1, key2, value));
+        loop {
+            let pending = entry.as_ref().expect("entry pending");
+            let (revision, index) = self.locate(&pending.0, &pending.1);
+            if index.is_some() {
                 return Err(VmxError::InvalidArgument("duplicate key pair".to_string()));
             }
-            inner.push((key1, key2, value));
+            if commit_entries(&self.inner, revision, |entries| {
+                entries.push(entry.take().expect("entry pending"));
+            })
+            .is_some()
+            {
+                break;
+            }
         }
         self.publish(CollectionChangeAction::Add);
         Ok(())
@@ -1204,54 +1314,74 @@ where
     /// Removes every entry and publishes one `Reset`, as every flavor's
     /// dictionary does, even when it was already empty.
     pub fn clear(&self) {
-        lock(&self.inner).clear();
+        let removed = {
+            let mut inner = lock(&self.inner);
+            inner.revision = inner.revision.wrapping_add(1);
+            std::mem::take(&mut inner.entries)
+        };
+        drop(removed);
         self.publish(CollectionChangeAction::Reset);
     }
 
     /// Returns a snapshot of every entry in insertion order.
     pub fn entries(&self) -> Vec<(K1, K2, V)> {
-        lock(&self.inner).clone()
+        lock(&self.inner).entries.clone()
     }
 
     /// Adds a key pair or replaces its existing value in place.
     pub fn insert(&self, key1: K1, key2: K2, value: V) {
-        let action = {
-            let mut inner = lock(&self.inner);
-            if let Some((_, _, existing)) = inner
-                .iter_mut()
-                .find(|(candidate1, candidate2, _)| *candidate1 == key1 && *candidate2 == key2)
-            {
-                *existing = value;
-                CollectionChangeAction::Replace
-            } else {
-                inner.push((key1, key2, value));
-                CollectionChangeAction::Add
+        let mut entry = Some((key1, key2, value));
+        let (action, replaced) = loop {
+            let pending = entry.as_ref().expect("entry pending");
+            let (revision, index) = self.locate(&pending.0, &pending.1);
+            let committed = commit_entries(&self.inner, revision, |entries| {
+                let pending = entry.take().expect("entry pending");
+                match index {
+                    Some(index) => (
+                        CollectionChangeAction::Replace,
+                        Some(std::mem::replace(&mut entries[index].2, pending.2)),
+                    ),
+                    None => {
+                        entries.push(pending);
+                        (CollectionChangeAction::Add, None)
+                    }
+                }
+            });
+            if let Some(committed) = committed {
+                break committed;
             }
         };
+        drop(replaced);
         self.publish(action);
     }
 
     /// Removes and returns the value associated with a key pair.
     pub fn remove(&self, key1: &K1, key2: &K2) -> Option<V> {
-        let removed = {
-            let mut inner = lock(&self.inner);
-            inner
-                .iter()
-                .position(|(candidate1, candidate2, _)| candidate1 == key1 && candidate2 == key2)
-                .map(|index| inner.remove(index).2)
+        let removed = loop {
+            let (revision, index) = self.locate(key1, key2);
+            let Some(index) = index else {
+                break None;
+            };
+            if let Some(removed) =
+                commit_entries(&self.inner, revision, |entries| entries.remove(index))
+            {
+                break Some(removed);
+            }
         };
-        if removed.is_some() {
-            self.publish(CollectionChangeAction::Remove);
-        }
-        removed
+        let (_, _, value) = removed?;
+        self.publish(CollectionChangeAction::Remove);
+        Some(value)
     }
 
     /// Returns the value associated with a key pair, if present.
     pub fn get(&self, key1: &K1, key2: &K2) -> Option<V> {
-        lock(&self.inner)
-            .iter()
-            .find(|(candidate1, candidate2, _)| candidate1 == key1 && candidate2 == key2)
-            .map(|(_, _, value)| value.clone())
+        loop {
+            let (revision, index) = self.locate(key1, key2);
+            let inner = lock(&self.inner);
+            if inner.revision == revision {
+                return index.map(|index| inner.entries[index].2.clone());
+            }
+        }
     }
 
     /// Reports whether a key pair is present.
@@ -1261,15 +1391,15 @@ where
 
     /// Returns the number of key-pair memberships.
     pub fn count(&self) -> usize {
-        lock(&self.inner).len()
+        lock(&self.inner).entries.len()
     }
 
     /// Returns distinct first-dimension keys in insertion order.
     pub fn keys1(&self) -> Vec<K1> {
         let mut keys = Vec::new();
-        for (key, _, _) in lock(&self.inner).iter() {
-            if !keys.contains(key) {
-                keys.push(key.clone());
+        for key in snapshot_keys(&self.inner, |(key, _, _)| key.clone()).1 {
+            if !keys.contains(&key) {
+                keys.push(key);
             }
         }
         keys
@@ -1278,9 +1408,9 @@ where
     /// Returns distinct second-dimension keys in insertion order.
     pub fn keys2(&self) -> Vec<K2> {
         let mut keys = Vec::new();
-        for (_, key, _) in lock(&self.inner).iter() {
-            if !keys.contains(key) {
-                keys.push(key.clone());
+        for key in snapshot_keys(&self.inner, |(_, key, _)| key.clone()).1 {
+            if !keys.contains(&key) {
+                keys.push(key);
             }
         }
         keys

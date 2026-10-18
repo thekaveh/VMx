@@ -156,7 +156,7 @@ impl NotificationVm {
         }
         let remaining = {
             let mut elapsed = lock(&self.elapsed_ms);
-            *elapsed = (*elapsed + millis).min(self.lifespan_ms);
+            *elapsed = elapsed.saturating_add(millis).min(self.lifespan_ms);
             self.lifespan_ms.saturating_sub(*elapsed)
         };
         if remaining == 0 {
@@ -259,7 +259,7 @@ impl ConfirmationVm {
         }
         let vm = &self.notification_vm;
         let mut elapsed = lock(&vm.elapsed_ms);
-        *elapsed = (*elapsed + millis).min(vm.lifespan_ms);
+        *elapsed = elapsed.saturating_add(millis).min(vm.lifespan_ms);
     }
 
     fn resolve(&self, reaction: NotificationReaction) {

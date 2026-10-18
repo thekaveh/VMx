@@ -218,10 +218,9 @@ export abstract class HierarchicalVM<
   protected override _onConstruct(): void {
     super._onConstruct();
     if (this.#eagerChildren) {
-      // Depth-first: materialize and construct children before returning.
-      for (const child of this.children) {
-        child.construct();
-      }
+      // Depth-first: materialize and construct children; the node settles
+      // only after every child has (spec/02 §6).
+      this._transitionChildren([...this.children], true);
     }
   }
 

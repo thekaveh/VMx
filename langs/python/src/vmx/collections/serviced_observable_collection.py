@@ -91,6 +91,8 @@ class ServicedObservableCollection(MutableSequence[T], Generic[T]):
     def __setitem__(self, index: slice, value: Iterable[T]) -> None: ...
 
     def __setitem__(self, index: int | slice, value: T | Iterable[T]) -> None:
+        if isinstance(index, bool):
+            raise TypeError("index must be an int, not bool")
         if isinstance(index, slice):
             # Slice replacement: emit reset (coarse-grained)
             items: Iterable[T] = value  # type: ignore[assignment]
@@ -118,6 +120,8 @@ class ServicedObservableCollection(MutableSequence[T], Generic[T]):
         :meth:`list.insert`). The emitted payload carries the actual
         insertion index (spec/21 §3.2).
         """
+        if isinstance(index, bool):
+            raise TypeError("index must be an int, not bool")
         if index < 0:
             index = max(index + len(self._items), 0)
         elif index > len(self._items):

@@ -369,6 +369,11 @@ impl<T: Clone + PartialEq + Send + 'static> DerivedProperty<T> {
     }
 
     /// Creates a derived property from an arbitrary number of same-typed sources.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `sources` is empty, since there is nothing to derive from.
+    /// C# throws `ArgumentException` and Swift traps for the same input.
     pub fn from_sources<S, F>(sources: Vec<ValueStream<S>>, transform: F) -> Self
     where
         S: Clone + Send + 'static,
@@ -414,6 +419,11 @@ impl<T: Clone + PartialEq + Send + 'static> DerivedProperty<T> {
     }
 
     /// Creates a writable derived property from same-typed replaying sources.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `sources` is empty, since there is nothing to derive from.
+    /// C# throws `ArgumentException` and Swift traps for the same input.
     pub fn from_sources_with_write_back<S, F, Validate, WriteBack>(
         sources: Vec<ValueStream<S>>,
         transform: F,

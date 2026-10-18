@@ -516,6 +516,15 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
     }
 
     /// Materializes and returns this node's ordered children.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the children factory returns structurally invalid output
+    /// (a duplicate child, this node or an ancestor, or an already-parented
+    /// child) or re-enters structural materialization on its receiver. This
+    /// is the fail-fast accessor of spec/18 §4 and ADR-0127, matching Swift's
+    /// `children`; use [`try_children`](Self::try_children) to receive the
+    /// error instead.
     pub fn children(&self) -> Vec<Self> {
         self.try_children().unwrap_or_else(|error| {
             panic!("children factory returned structurally invalid output: {error}")
@@ -540,6 +549,11 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
     }
 
     /// Reports whether this node has no children.
+    ///
+    /// # Panics
+    ///
+    /// Materializes this node's children through [`children`](Self::children), so it panics
+    /// under the same conditions.
     pub fn is_leaf(&self) -> bool {
         self.children().is_empty()
     }
@@ -560,6 +574,11 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
     }
 
     /// Reports whether this is the first child of its parent.
+    ///
+    /// # Panics
+    ///
+    /// Materializes the parent's children through [`children`](Self::children), so it panics
+    /// under the same conditions.
     pub fn is_first(&self) -> bool {
         self.parent()
             .and_then(|parent| parent.children().first().cloned())
@@ -568,6 +587,11 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
     }
 
     /// Reports whether this is the last child of its parent.
+    ///
+    /// # Panics
+    ///
+    /// Materializes the parent's children through [`children`](Self::children), so it panics
+    /// under the same conditions.
     pub fn is_last(&self) -> bool {
         self.parent()
             .and_then(|parent| parent.children().last().cloned())
@@ -695,7 +719,21 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
         let children = match generated {
             Ok(children) => children,
             Err(error) => {
+                // A factory that re-entered materialization on its receiver
+                // (for example through `is_leaf` or `children`) received the
+                // re-entry error, and `children` turned it into a panic. Report
+                // the re-entry as this call's error instead of re-raising it.
+                let reentered = {
+                    let state = lock(&self.inner.materializing_children.0);
+                    state.epoch == epoch && state.reentered_epoch == epoch
+                };
                 self.finish_children_materialization(epoch);
+                if reentered {
+                    drop(error);
+                    return Err(VmxError::InvalidArgument(
+                        "children factory re-entered structural materialization".to_string(),
+                    ));
+                }
                 resume_unwind(error);
             }
         };
@@ -939,6 +977,12 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> VmNode for HierarchicalVm<M> 
 }
 
 impl<M: Clone + PartialEq + Send + Sync + 'static> TreeNode for HierarchicalVm<M> {
+    /// Returns [`HierarchicalVm::children`], which tree traversal such as
+    /// `walk` and `find` uses.
+    ///
+    /// # Panics
+    ///
+    /// Panics under the same conditions as [`HierarchicalVm::children`].
     fn children_nodes(&self) -> Vec<Self> {
         self.children()
     }

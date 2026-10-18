@@ -73,20 +73,17 @@ export class AggregateVM3<
     this._notifyPropertyChanged("component2");
     this._notifyPropertyChanged("component3");
 
-    next1.construct();
-    next2.construct();
-    next3.construct();
+    this._transitionChildren([next1, next2, next3], true);
   }
 
   protected override _onDestruct(): void {
-    this.#component1?.destruct();
-    this.#component2?.destruct();
-    this.#component3?.destruct();
+    this._transitionChildren(this.components(), false);
   }
 
   override dispose(): void {
     // Depth-first dispose (LIFE-013): each component slot first, then self.
     disposeBestEffort([
+      () => this._abandonChildTransition(),
       () => this.#component1?.dispose(),
       () => this.#component2?.dispose(),
       () => this.#component3?.dispose(),

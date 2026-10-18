@@ -1350,3 +1350,36 @@ fn dropping_a_materialized_tree_releases_parent_and_child_state() {
         "parent back-references must not keep an unreachable tree alive"
     );
 }
+
+/// A factory that asks its own receiver `is_leaf` re-enters materialization;
+/// `try_children` reports that as an error instead of panicking, and the
+/// node can be retried with a well-behaved factory result.
+#[test]
+fn try_children_reports_factory_is_leaf_reentry_as_error() {
+    let reenter = Arc::new(Mutex::new(true));
+    let gate = Arc::clone(&reenter);
+    let root = HierarchicalVm::with_children_factory(
+        "root",
+        "root".to_string(),
+        move |node: &HierarchicalVm<String>| {
+            if *gate.lock().unwrap() {
+                let _ = node.is_leaf();
+            }
+            vec![leaf("child")]
+        },
+        false,
+        MessageHub::new(),
+    );
+
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| root.try_children()));
+
+    let result = outcome.expect("try_children must return the re-entry error, not panic");
+    assert!(matches!(
+        result,
+        Err(VmxError::InvalidArgument(message)) if message.contains("re-entered")
+    ));
+    assert!(!root.is_children_materialized());
+
+    *reenter.lock().unwrap() = false;
+    assert_eq!(root.try_children().unwrap().len(), 1);
+}

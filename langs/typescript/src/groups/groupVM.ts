@@ -414,16 +414,15 @@ export class GroupVM<VM extends ComponentVMBase>
     this._populateChildren();
     // Snapshot (parity with CompositeVMBase and dispose below): a child
     // lifecycle hook that mutates the group must not skip/repeat siblings.
-    for (const child of [...this._children]) {
-      child.construct();
-    }
+    // spec/02 §6: the group settles only after every child has (a background
+    // child defers the group's terminal status).
+    this._transitionChildren([...this._children], true);
   }
 
   protected override _onDestruct(): void {
-    for (const child of [...this._children]) {
-      child.destruct();
-    }
-    super._onDestruct();
+    this._transitionChildren([...this._children], false, () => {
+      super._onDestruct();
+    });
   }
 
   override dispose(): void {
@@ -435,6 +434,7 @@ export class GroupVM<VM extends ComponentVMBase>
     this.#disposeRequested = true;
     // Dispose cascade (LIFE-013): depth-first dispose each child, then self.
     disposeBestEffort([
+      () => this._abandonChildTransition(),
       ...[...this._children].map((child) => () => child.dispose()),
       () => super.dispose(),
     ]);

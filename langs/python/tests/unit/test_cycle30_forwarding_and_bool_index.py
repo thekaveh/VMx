@@ -167,3 +167,48 @@ def test_keyed_collection_move_remove_replace_reject_bool() -> None:
         sut.replace(False, "z")
     assert list(sut) == ["x", "y"]
     assert events == []
+
+
+def test_insert_and_setitem_reject_bool_everywhere() -> None:
+    from vmx.collections.observable_list import ObservableList
+
+    composite = _composite(_leaf("a"))
+    with pytest.raises(TypeError):
+        composite.insert(True, _leaf("x"))
+    with pytest.raises(TypeError):
+        composite[True] = _leaf("y")
+    assert len(composite) == 1
+
+    group: GroupVM[ComponentVM] = GroupVM.create(
+        name="grp",
+        children=lambda: [_leaf("a")],
+        hub=MessageHub(),
+        dispatcher=RxDispatcher.immediate(),
+    )
+    with pytest.raises(TypeError):
+        group.insert(True, _leaf("x"))
+    with pytest.raises(TypeError):
+        group[False] = _leaf("y")
+
+    serviced: ServicedObservableCollection[str] = ServicedObservableCollection()
+    serviced.append("a")
+    keyed: KeyedServicedObservableCollection[str, str] = KeyedServicedObservableCollection(
+        lambda item: item
+    )
+    keyed.append("a")
+    for collection in (serviced, keyed):
+        with pytest.raises(TypeError):
+            collection.insert(True, "z")
+        with pytest.raises(TypeError):
+            collection[True] = "z"
+        assert list(collection) == ["a"]
+
+    items: ObservableList[int] = ObservableList()
+    items.append(1)
+    with pytest.raises(TypeError):
+        items.insert(True, 2)
+    with pytest.raises(TypeError):
+        items.remove_at(True)
+    with pytest.raises(TypeError):
+        items.replace(True, 3)
+    assert list(items) == [1]

@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Aggregates, `CompositeVM`, `GroupVM`, and eager `HierarchicalVM` reach
+  `Constructed`/`Destructed` only after every child has (spec/02 §6,
+  spec/08 §8). With a `.background(true)` child, an aggregate used to report
+  `Constructed` while the child was still `Constructing`, and a composite or
+  group threw `StatusTransitionError` from `construct()`. The container now
+  stays in `Constructing`/`Destructing` until the child settles. If the child
+  rolls back or is disposed, the container rolls back too. The composite's
+  initial-current selector and the composite and group `onDestruct` callbacks
+  run after the children settle. Children that settle synchronously still
+  complete the whole transition synchronously.
 - `FilteredCompositeVM.setPredicate` restores the previous predicate when the
   new one throws, so later source changes keep using the working predicate.
 - `CompositeVM` and `GroupVM` `insert`/`removeAt`/`setAt` reject a

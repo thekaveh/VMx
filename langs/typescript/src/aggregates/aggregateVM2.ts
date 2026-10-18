@@ -68,18 +68,17 @@ export class AggregateVM2<VM1 extends ComponentVMBase, VM2 extends ComponentVMBa
     this._notifyPropertyChanged("component1");
     this._notifyPropertyChanged("component2");
 
-    next1.construct();
-    next2.construct();
+    this._transitionChildren([next1, next2], true);
   }
 
   protected override _onDestruct(): void {
-    this.#component1?.destruct();
-    this.#component2?.destruct();
+    this._transitionChildren(this.components(), false);
   }
 
   override dispose(): void {
     // Depth-first dispose (LIFE-013): each component slot first, then self.
     disposeBestEffort([
+      () => this._abandonChildTransition(),
       () => this.#component1?.dispose(),
       () => this.#component2?.dispose(),
       () => super.dispose(),

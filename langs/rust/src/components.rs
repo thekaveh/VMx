@@ -7,6 +7,7 @@ use super::{
     LifecycleOperation, Message, MessageHub, ModelHint, Mutex, NullDispatcher, ParentHandle,
     PropertyChangedStream, RelayCommand, Subscription, TreeNode, VmNode, VmxError, VmxResult,
 };
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Identifies the role a view model plays in the VM hierarchy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -140,6 +141,8 @@ impl ComponentCommands {
 pub struct ComponentVm<M = (), D: Dispatcher = NullDispatcher> {
     pub(crate) core: ComponentCore<D>,
     model: Arc<Mutex<M>>,
+    /// Counts model replacements; only changed while the model lock is held.
+    model_generation: Arc<AtomicU64>,
     model_hint: ModelHint<M>,
     view_model_type: ViewModelType,
     commands: ComponentCommands,
@@ -170,6 +173,7 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
         Self {
             core,
             model: Arc::new(Mutex::new(model)),
+            model_generation: Arc::new(AtomicU64::new(0)),
             model_hint: Arc::new(|_| None),
             view_model_type: ViewModelType::Component,
             commands,
@@ -268,13 +272,34 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
         }
     }
 
+    /// Installs `model` unless it equals the live model. `PartialEq` runs on
+    /// a copy with no lock held, so an `eq` may read this component; the
+    /// install re-checks the model generation under the lock and compares
+    /// again when another writer got there first. The replaced model is
+    /// dropped after the lock is released.
     pub(crate) fn replace_model(&self, model: M) -> bool {
-        let mut current = lock(&self.model);
-        if *current == model {
-            false
-        } else {
-            *current = model;
-            true
+        loop {
+            let (generation, live) = {
+                let current = lock(&self.model);
+                (
+                    self.model_generation.load(Ordering::SeqCst),
+                    current.clone(),
+                )
+            };
+            if live == model {
+                return false;
+            }
+            drop(live);
+            let replaced = {
+                let mut current = lock(&self.model);
+                if self.model_generation.load(Ordering::SeqCst) != generation {
+                    continue;
+                }
+                self.model_generation.fetch_add(1, Ordering::SeqCst);
+                std::mem::replace(&mut *current, model)
+            };
+            drop(replaced);
+            return true;
         }
     }
 
@@ -282,7 +307,9 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
     /// replaced, so the caller can drop that value after releasing its own
     /// locks. No model code runs while the model lock is held.
     pub(crate) fn store_model(&self, model: M) -> M {
-        std::mem::replace(&mut *lock(&self.model), model)
+        let mut current = lock(&self.model);
+        self.model_generation.fetch_add(1, Ordering::SeqCst);
+        std::mem::replace(&mut *current, model)
     }
 
     /// Replaces the hook invoked during construction.

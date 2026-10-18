@@ -159,6 +159,8 @@ class GroupVM(Generic[VM], _ComponentVMBase):
             return self._children[index]
 
     def __setitem__(self, index: int, value: VM) -> None:
+        if isinstance(index, bool):
+            raise TypeError("index must be an int, not bool")
         # Emit the actual position; a negative index counts from the end
         # (mirrors insert/remove_at and ObservableList).
         parent = self._as_parent()
@@ -230,6 +232,8 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         The emitted ``new_index`` is the actual insertion position (stdlib
         semantics: negatives count from the end, out-of-range clamps).
         """
+        if isinstance(index, bool):
+            raise TypeError("index must be an int, not bool")
         parent = self._as_parent()
         self._begin_membership_transaction()
         transfer: _ParentTransfer | None = None

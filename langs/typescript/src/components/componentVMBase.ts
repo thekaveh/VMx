@@ -11,7 +11,7 @@
  * See spec/05-component-vm.md and spec/02-lifecycle.md.
  */
 import { Subject } from "rxjs";
-import type { Observable } from "rxjs";
+import type { Observable, Subscription } from "rxjs";
 import type { ViewModelType } from "./types.js";
 import { ConstructionStatus } from "../lifecycle/status.js";
 import { StatusTransitionError } from "../lifecycle/exceptions.js";
@@ -144,6 +144,33 @@ export type OwnedResource =
   | DisposableResource
   | UnsubscribableResource;
 
+/** Outcome of a lifecycle hook whose completion was deferred to child settles. */
+interface DeferredLifecycleResult {
+  readonly failed: boolean;
+  readonly error: unknown;
+  /** True when the error was not already surfaced by the failing child. */
+  readonly rethrow: boolean;
+}
+
+/** One-shot completion of a lifecycle hook deferred by `_transitionChildren`. */
+class DeferredLifecycle {
+  #result: DeferredLifecycleResult | null = null;
+  #callback: ((result: DeferredLifecycleResult) => void) | null = null;
+
+  settle(result: DeferredLifecycleResult): void {
+    if (this.#result !== null) return;
+    this.#result = result;
+    const callback = this.#callback;
+    this.#callback = null;
+    callback?.(result);
+  }
+
+  then(callback: (result: DeferredLifecycleResult) => void): void {
+    if (this.#result !== null) callback(this.#result);
+    else this.#callback = callback;
+  }
+}
+
 export abstract class ComponentVMBase {
   readonly #name: string;
   readonly #hint: string;
@@ -175,6 +202,10 @@ export abstract class ComponentVMBase {
   #activeLifecycleHook = false;
   #terminalCleanupPending = false;
   #terminalCleanupStarted = false;
+  /** Set by `_transitionChildren` while a hook waits for a pending child. */
+  #deferredLifecycle: DeferredLifecycle | null = null;
+  /** Cancels the active child-settle subscription, if any. */
+  #cancelChildWait: (() => void) | null = null;
 
   readonly #selectCommand: RelayCommand;
   readonly #deselectCommand: RelayCommand;
@@ -402,8 +433,9 @@ export abstract class ComponentVMBase {
           this.#inFlight = false;
           return;
         }
+        let deferred: DeferredLifecycle | null;
         try {
-          this.#runLifecycleHook(() => this._onConstruct());
+          deferred = this.#runLifecycleHookPhase(() => this._onConstruct());
         } catch (e) {
           // VMX-007: roll _status back to Destructed (marshalled onto the
           // foreground per VMX-025; _setStatus re-checks Disposed) and clear the
@@ -426,15 +458,15 @@ export abstract class ComponentVMBase {
         // (UI) thread, not the background (pool) thread. _setStatus re-checks
         // Disposed, so a dispose() landing before this runs still aborts the
         // transition — no resurrection, no post-dispose publish.
-        this._scheduleForeground(() => {
-          try {
-            this._setStatus(ConstructionStatus.Constructed);
-          } finally {
-            this.#inFlight = false;
-          }
-        });
+        this.#completeTransition(
+          deferred,
+          ConstructionStatus.Constructed,
+          ConstructionStatus.Destructed,
+          true,
+        );
       });
     } else {
+      let pending = false;
       try {
         try {
           this._setStatus(ConstructionStatus.Constructing);
@@ -443,8 +475,9 @@ export abstract class ComponentVMBase {
           throw error;
         }
         if (this.#isDisposed()) return;
+        let deferred: DeferredLifecycle | null;
         try {
-          this.#runLifecycleHook(() => this._onConstruct());
+          deferred = this.#runLifecycleHookPhase(() => this._onConstruct());
         } catch (e) {
           // VMX-007: a throwing construct hook must not wedge the VM in the
           // transient Constructing state. Roll _status back to the prior settled
@@ -453,9 +486,14 @@ export abstract class ComponentVMBase {
           this._setStatus(ConstructionStatus.Destructed);
           throw e;
         }
-        this._setStatus(ConstructionStatus.Constructed);
+        pending = this.#completeTransition(
+          deferred,
+          ConstructionStatus.Constructed,
+          ConstructionStatus.Destructed,
+          false,
+        );
       } finally {
-        this.#inFlight = false;
+        if (!pending) this.#inFlight = false;
       }
     }
   }
@@ -486,8 +524,9 @@ export abstract class ComponentVMBase {
           this.#inFlight = false;
           return;
         }
+        let deferred: DeferredLifecycle | null;
         try {
-          this.#runLifecycleHook(() => this._onDestruct());
+          deferred = this.#runLifecycleHookPhase(() => this._onDestruct());
         } catch (e) {
           // VMX-007: roll _status back to Constructed (marshalled onto the
           // foreground per VMX-025; _setStatus re-checks Disposed) and clear the
@@ -508,15 +547,15 @@ export abstract class ComponentVMBase {
         // (UI) thread, not the background (pool) thread. _setStatus re-checks
         // Disposed, so a dispose() landing before this runs still aborts the
         // transition — no resurrection, no post-dispose publish.
-        this._scheduleForeground(() => {
-          try {
-            this._setStatus(ConstructionStatus.Destructed);
-          } finally {
-            this.#inFlight = false;
-          }
-        });
+        this.#completeTransition(
+          deferred,
+          ConstructionStatus.Destructed,
+          ConstructionStatus.Constructed,
+          true,
+        );
       });
     } else {
+      let pending = false;
       try {
         try {
           this._setStatus(ConstructionStatus.Destructing);
@@ -525,8 +564,9 @@ export abstract class ComponentVMBase {
           throw error;
         }
         if (this.#isDisposed()) return;
+        let deferred: DeferredLifecycle | null;
         try {
-          this.#runLifecycleHook(() => this._onDestruct());
+          deferred = this.#runLifecycleHookPhase(() => this._onDestruct());
         } catch (e) {
           // VMX-007: a throwing destruct hook must not wedge the VM in the
           // transient Destructing state. Roll _status back to the prior settled
@@ -534,9 +574,14 @@ export abstract class ComponentVMBase {
           this._setStatus(ConstructionStatus.Constructed);
           throw e;
         }
-        this._setStatus(ConstructionStatus.Destructed);
+        pending = this.#completeTransition(
+          deferred,
+          ConstructionStatus.Destructed,
+          ConstructionStatus.Constructed,
+          false,
+        );
       } finally {
-        this.#inFlight = false;
+        if (!pending) this.#inFlight = false;
       }
     }
   }
@@ -549,6 +594,7 @@ export abstract class ComponentVMBase {
     }
     this.#inFlight = true;
 
+    let pending = false;
     try {
       try {
         this._setStatus(ConstructionStatus.Destructing);
@@ -557,42 +603,257 @@ export abstract class ComponentVMBase {
         throw error;
       }
       if (this.#isDisposed()) return;
+      let deferred: DeferredLifecycle | null;
       try {
-        this.#runLifecycleHook(() => this._onDestruct());
+        deferred = this.#runLifecycleHookPhase(() => this._onDestruct());
       } catch (e) {
         // VMX-007: a failed destruct phase rolls back to Constructed (the state
         // reconstruct started from) so the VM stays recoverable.
         this._setStatus(ConstructionStatus.Constructed);
         throw e;
       }
-      this._setStatus(ConstructionStatus.Destructed);
-      if (this.#isDisposed()) return;
-
-      try {
-        this._setStatus(ConstructionStatus.Constructing);
-      } catch (error) {
-        this.#restoreStatusAfterPublicationFailure(ConstructionStatus.Destructed);
-        throw error;
+      if (deferred !== null) {
+        // A background child is still destructing: continue with the construct
+        // phase only once every child has reached Destructed (spec/02 §6).
+        pending = true;
+        deferred.then(({ failed, error, rethrow }) => {
+          if (failed) {
+            try {
+              this._setStatus(ConstructionStatus.Constructed);
+            } finally {
+              this.#inFlight = false;
+            }
+            if (rethrow) throw error;
+            return;
+          }
+          let stillPending = false;
+          try {
+            stillPending = this.#reconstructConstructPhase();
+          } finally {
+            if (!stillPending) this.#inFlight = false;
+          }
+        });
+        return;
       }
-      if (this.#isDisposed()) return;
-      try {
-        this.#runLifecycleHook(() => this._onConstruct());
-      } catch (e) {
-        // VMX-007: a failed construct phase rolls back to Destructed (the
-        // destruct phase already completed) so the VM stays recoverable.
-        this._setStatus(ConstructionStatus.Destructed);
-        throw e;
-      }
-      this._setStatus(ConstructionStatus.Constructed);
+      pending = this.#reconstructConstructPhase();
     } finally {
-      this.#inFlight = false;
+      if (!pending) this.#inFlight = false;
     }
+  }
+
+  /**
+   * The Destructed → Constructing → Constructed half of reconstruct(). Returns
+   * true while the construct phase waits for a background child.
+   */
+  #reconstructConstructPhase(): boolean {
+    this._setStatus(ConstructionStatus.Destructed);
+    if (this.#isDisposed()) return false;
+
+    try {
+      this._setStatus(ConstructionStatus.Constructing);
+    } catch (error) {
+      this.#restoreStatusAfterPublicationFailure(ConstructionStatus.Destructed);
+      throw error;
+    }
+    if (this.#isDisposed()) return false;
+    let deferred: DeferredLifecycle | null;
+    try {
+      deferred = this.#runLifecycleHookPhase(() => this._onConstruct());
+    } catch (e) {
+      // VMX-007: a failed construct phase rolls back to Destructed (the
+      // destruct phase already completed) so the VM stays recoverable.
+      this._setStatus(ConstructionStatus.Destructed);
+      throw e;
+    }
+    return this.#completeTransition(
+      deferred,
+      ConstructionStatus.Constructed,
+      ConstructionStatus.Destructed,
+      false,
+    );
+  }
+
+  /**
+   * Publish the terminal status of a transition whose hook has returned. When
+   * the hook deferred completion (a background child is still settling), the
+   * terminal status — or the rollback status if a child failed — is published
+   * once the deferral settles, and the in-flight guard is held until then.
+   * Returns true while the transition is pending. A synchronous, non-foreground
+   * completion leaves clearing the in-flight guard to the caller.
+   */
+  #completeTransition(
+    deferred: DeferredLifecycle | null,
+    success: ConstructionStatus,
+    rollback: ConstructionStatus,
+    foreground: boolean,
+  ): boolean {
+    // The status is settled before it is published, so the in-flight guard is
+    // released first: a parent waiting on this VM continues from inside this
+    // emission and may legally start this VM's next transition (reconstruct).
+    const finish = (status: ConstructionStatus): void => {
+      this.#inFlight = false;
+      this._setStatus(status);
+    };
+    if (deferred === null) {
+      if (foreground) this._scheduleForeground(() => { finish(success); });
+      else this._setStatus(success);
+      return false;
+    }
+    deferred.then(({ failed, error, rethrow }) => {
+      const status = failed ? rollback : success;
+      if (foreground) this._scheduleForeground(() => { finish(status); });
+      else finish(status);
+      if (failed && rethrow) throw error;
+    });
+    return true;
+  }
+
+  /** Run a lifecycle hook and return its deferred completion, if it registered one. */
+  #runLifecycleHookPhase(hook: () => void): DeferredLifecycle | null {
+    this.#deferredLifecycle = null;
+    try {
+      this.#runLifecycleHook(hook);
+    } catch (error) {
+      this.#abandonDeferredLifecycle();
+      throw error;
+    }
+    // The hook may have registered a deferral through _transitionChildren.
+    const deferred = this.#deferredLifecycle as DeferredLifecycle | null;
+    this.#deferredLifecycle = null;
+    if (deferred !== null && this.#isDisposed()) {
+      this.#abandonDeferredLifecycle();
+      return null;
+    }
+    return deferred;
+  }
+
+  #abandonDeferredLifecycle(): void {
+    this.#deferredLifecycle = null;
+    const cancel = this.#cancelChildWait;
+    this.#cancelChildWait = null;
+    cancel?.();
+  }
+
+  /**
+   * Stop waiting for a pending child transition without settling this VM.
+   * Containers call this at the start of `dispose()`, before disposing their
+   * children, so a child reaching Disposed does not roll this VM back first.
+   */
+  protected _abandonChildTransition(): void {
+    this.#abandonDeferredLifecycle();
+  }
+
+  /**
+   * Transition `children` sequentially to Constructed (`construct === true`)
+   * or Destructed, then run `after`. Call only from `_onConstruct` /
+   * `_onDestruct`. A child that settles synchronously keeps the hook
+   * synchronous. A child left in its transient status (a background child)
+   * defers this VM's own terminal status until the child settles (spec/02 §6,
+   * spec/08 §8); a child that settles anywhere else rolls this VM back. A child
+   * already in the transient status is joined, not restarted.
+   */
+  protected _transitionChildren(
+    children: readonly ComponentVMBase[],
+    construct: boolean,
+    after?: () => void,
+  ): void {
+    const target = construct ? ConstructionStatus.Constructed : ConstructionStatus.Destructed;
+    const transient = construct
+      ? ConstructionStatus.Constructing
+      : ConstructionStatus.Destructing;
+    const targetName = construct ? "Constructed" : "Destructed";
+    let index = 0;
+    let deferred: DeferredLifecycle | null = null;
+
+    const settle = (result: DeferredLifecycleResult): void => {
+      this.#cancelChildWait = null;
+      deferred?.settle(result);
+    };
+
+    const waitFor = (child: ComponentVMBase): void => {
+      if (deferred === null) {
+        if (this.#deferredLifecycle !== null) {
+          throw new Error("A lifecycle hook already deferred completion");
+        }
+        deferred = new DeferredLifecycle();
+        this.#deferredLifecycle = deferred;
+      }
+      let done = false;
+      let subscription: Subscription | undefined;
+      const stopWaiting = (): boolean => {
+        if (done) return false;
+        done = true;
+        subscription?.unsubscribe();
+        this.#cancelChildWait = null;
+        return true;
+      };
+      subscription = child.propertyChanged.subscribe({
+        next: (name) => {
+          // "isConstructed" is the last per-status notification _setStatus raises.
+          if (name !== "isConstructed" || child.status === transient) return;
+          if (!stopWaiting()) return;
+          if (child.status !== target) {
+            // The child rolled back (and surfaced its own failure) or was disposed.
+            settle({
+              failed: true,
+              error: new Error(`Child '${child.name}' did not reach ${targetName}`),
+              rethrow: false,
+            });
+            return;
+          }
+          index += 1;
+          let stillPending: boolean;
+          try {
+            stillPending = advance();
+          } catch (error) {
+            settle({ failed: true, error, rethrow: true });
+            return;
+          }
+          if (!stillPending) settle({ failed: false, error: undefined, rethrow: false });
+        },
+        complete: () => {
+          if (!stopWaiting()) return;
+          settle({
+            failed: true,
+            error: new Error(`Child '${child.name}' was disposed before reaching ${targetName}`),
+            rethrow: false,
+          });
+        },
+      });
+      // propertyChanged does not replay, so no settle can have arrived yet.
+      this.#cancelChildWait = () => { stopWaiting(); };
+    };
+
+    // Returns true when a child is pending and the rest continues on its settle.
+    const advance = (): boolean => {
+      for (; index < children.length; index += 1) {
+        const child = children[index];
+        if (child === undefined) continue;
+        if (child.status !== target && child.status !== transient) {
+          if (construct) child.construct();
+          else child.destruct();
+        }
+        if (child.status === transient) {
+          waitFor(child);
+          return true;
+        }
+        if (child.status !== target) {
+          throw new Error(`Child '${child.name}' did not reach ${targetName}`);
+        }
+      }
+      after?.();
+      return false;
+    };
+
+    advance();
   }
 
   dispose(): void {
     if (this.#status === ConstructionStatus.Disposed) return;
 
     disposeBestEffort([
+      // A transition waiting on a child never settles once Disposed.
+      () => this.#abandonDeferredLifecycle(),
       () => this._setStatus(ConstructionStatus.Disposed),
       () => {
         if (this.#activeLifecycleHook) {

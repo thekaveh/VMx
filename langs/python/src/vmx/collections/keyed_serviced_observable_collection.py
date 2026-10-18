@@ -77,6 +77,8 @@ class KeyedServicedObservableCollection(MutableSequence[T], Generic[TKey, T]):
     def __setitem__(self, index: slice, value: Iterable[T]) -> None: ...
 
     def __setitem__(self, index: int | slice, value: T | Iterable[T]) -> None:
+        if isinstance(index, bool):
+            raise TypeError("index must be an int, not bool")
         if not isinstance(index, slice):
             new_item: T = value  # type: ignore[assignment]
             self.replace(index, new_item)
@@ -126,6 +128,8 @@ class KeyedServicedObservableCollection(MutableSequence[T], Generic[TKey, T]):
 
     def insert(self, index: int, value: T) -> None:
         """Insert using native ``list.insert`` index normalization."""
+        if isinstance(index, bool):
+            raise TypeError("index must be an int, not bool")
         resolved_index = self._normalize_insert_index(index)
         key = self._key_of(value)
         candidate_items = self._items.copy()

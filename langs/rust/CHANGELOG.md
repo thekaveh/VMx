@@ -44,6 +44,27 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- User `PartialEq` code no longer runs while a VMx mutex is held, so an
+  `eq` that reads its owner returns instead of deadlocking.
+  `ComponentVm::set_model`, `ServicedObservableCollection::remove`,
+  `KeyedServicedObservableCollection::remove`, `ObservableDictionary` and
+  `ObservableMultiDictionary` key lookups, `DiscriminatorVm` key changes and
+  `is_active`, and `TokenPagedComposition` refresh now compare copies and
+  commit only after a generation or revision check, searching again when the
+  state changed meanwhile. Replaced and removed values are dropped after the
+  lock is released. Semantics and emission order are unchanged.
+- `NotificationVm::advance_by_ms` and `ConfirmationVm::advance_by_ms`
+  saturate the elapsed clock. A large advance used to overflow: a panic in
+  debug builds, and in release builds a wrapped clock that left the
+  notification undismissed.
+- `HierarchicalVm::try_children` returns an error when the children factory
+  re-enters materialization on its receiver (for example through `is_leaf`),
+  instead of panicking.
+- Documented the panics of `HierarchicalVm::children`, `is_leaf`, `is_first`,
+  `is_last`, and `TreeNode::children_nodes` (the fail-fast accessor of spec/18
+  §4 and ADR-0127; `try_children` is the fallible one), and of
+  `DerivedProperty::from_sources` and `from_sources_with_write_back` on an
+  empty source list.
 - `SearchableState::search` announces the projection on `filtered_changed`, as
   the pushed filtered output of the other flavors does, including after the
   source signal is disposed (SRCH-005).

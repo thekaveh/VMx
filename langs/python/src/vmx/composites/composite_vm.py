@@ -279,6 +279,8 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             return self._children[index]
 
     def __setitem__(self, index: int, value: VM) -> None:
+        if isinstance(index, bool):
+            raise TypeError("index must be an int, not bool")
         # Emit the actual position; a negative index counts from the end
         # (mirrors insert and ObservableList).
         self._begin_membership_transaction()
@@ -369,6 +371,8 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         whose ``new_index`` is the actual insertion position (stdlib
         semantics: negatives count from the end, out-of-range clamps).
         """
+        if isinstance(index, bool):
+            raise TypeError("index must be an int, not bool")
         self._begin_membership_transaction()
         transfer: _ParentTransfer | None = None
         attached = False
