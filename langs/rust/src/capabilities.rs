@@ -379,6 +379,11 @@ impl<T: VmNode> Reconstructable for T {
     }
 
     fn reconstruct(&self) {
+        // Mirror the lifecycle rule (spec/02, spec/14 §2.3): reconstruct only
+        // from Constructed. From any other status it does nothing.
+        if !self.can_reconstruct() {
+            return;
+        }
         if VmNode::destruct(self).is_ok() {
             let _ = VmNode::construct(self);
         }

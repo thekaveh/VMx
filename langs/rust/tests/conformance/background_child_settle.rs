@@ -378,3 +378,20 @@ fn reconstruct_during_a_transition_reports_a_concurrent_operation() {
     child.dispose().unwrap();
     assert_eq!(child.reconstruct(), Err(VmxError::Disposed));
 }
+
+/// LIFE-008 — the Reconstructable trait reconstructs only from Constructed
+#[test]
+fn reconstructable_trait_does_nothing_outside_constructed() {
+    use vmx::Reconstructable;
+    let hub = MessageHub::new();
+    let child = ComponentVm::builder()
+        .name("leaf")
+        .model(1)
+        .services(hub, vmx::NullDispatcher::new())
+        .build()
+        .unwrap();
+
+    Reconstructable::reconstruct(&child);
+
+    assert_eq!(child.status(), ConstructionStatus::Destructed);
+}

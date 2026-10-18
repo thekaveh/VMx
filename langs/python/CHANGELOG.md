@@ -23,6 +23,10 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ### Fixed
 
+- A lifecycle hook that defers completion and then raises abandons that
+  deferral. The next transition starts clean instead of staying in the
+  transient state or raising "a lifecycle hook already deferred completion",
+  and the abandoned child transition never runs its continuation.
 - `CompositeVM`, `GroupVM`, `AggregateVM*`, and `HierarchicalVM` wait for a
   background child in any position, including the last. The container
   publishes its terminal status after every child settles, and it rolls back

@@ -426,28 +426,116 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         Action? after,
         IReadOnlyCollection<IComponentVM>? joined)
     {
+        // Captured synchronously while the owner's lifecycle hook runs, before
+        // the first await, so a deferred `after` can return to its foreground.
+        var scope = t_lifecycleHookScope;
+        var yielded = false;
         foreach (var child in children)
         {
             if (construct)
             {
                 var join = joined is not null &&
                     joined.Any(candidate => ReferenceEquals(candidate, child));
-                await (join ? child.JoinConstructAsync() : child.ConstructOrJoinAsync())
-                    .ConfigureAwait(false);
+                var pending = join ? child.JoinConstructAsync() : child.ConstructOrJoinAsync();
+                yielded |= !pending.IsCompleted;
+                await pending.ConfigureAwait(false);
                 if (child.Status != ConstructionStatus.Constructed)
                     throw new InvalidOperationException(
                         $"Child '{child.Name}' did not reach Constructed.");
             }
             else
             {
-                await child.DestructAsync().ConfigureAwait(false);
+                var pending = child.DestructAsync();
+                yielded |= !pending.IsCompleted;
+                await pending.ConfigureAwait(false);
                 if (child.Status != ConstructionStatus.Destructed)
                     throw new InvalidOperationException(
                         $"Child '{child.Name}' did not reach Destructed.");
             }
         }
 
-        after?.Invoke();
+        if (after is null) return;
+        if (!yielded || scope is null)
+        {
+            // All children settled synchronously: still inside the hook, inline.
+            after();
+            return;
+        }
+
+        // spec/11 §3: the continuation selects Current / runs user hooks, so it
+        // publishes on the owner's foreground dispatcher, like the terminal status.
+        await scope.Owner.RunDeferredOnForeground(after, scope).ConfigureAwait(false);
+    }
+
+    /// <summary>The lifecycle hook currently running on this thread, if any.</summary>
+    [ThreadStatic]
+    private static LifecycleHookScope? t_lifecycleHookScope;
+
+    private sealed class LifecycleHookScope(ComponentVMBase owner)
+    {
+        internal ComponentVMBase Owner { get; } = owner;
+        internal volatile bool Abandoned;
+    }
+
+    private Task<bool> RunDeferredOnForeground(Action action, LifecycleHookScope scope)
+    {
+        var done = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _dispatcher.Foreground.Schedule(Unit.Default, (_, _) =>
+        {
+            if (scope.Abandoned)
+            {
+                done.TrySetResult(false);
+                return Disposable.Empty;
+            }
+            try
+            {
+                action();
+                done.TrySetResult(true);
+            }
+            catch (Exception error)
+            {
+                done.TrySetException(error);
+            }
+            return Disposable.Empty;
+        });
+        return done.Task;
+    }
+
+    /// <summary>
+    /// Runs one lifecycle hook with a fresh deferral slot. A hook that throws
+    /// after deferring completion abandons that deferral: its continuation never
+    /// runs and its eventual fault is observed (ADR-0109), so the next transition
+    /// starts clean.
+    /// </summary>
+    private void RunLifecycleHook(Action hook, LifecycleHookLease lease)
+    {
+        var scope = new LifecycleHookScope(this);
+        lock (_gate)
+        {
+            _deferredLifecycleTask = null;
+        }
+        var previous = t_lifecycleHookScope;
+        t_lifecycleHookScope = scope;
+        try
+        {
+            try { hook(); }
+            finally
+            {
+                t_lifecycleHookScope = previous;
+                FinishLifecycleHook(lease);
+            }
+        }
+        catch
+        {
+            scope.Abandoned = true;
+            var abandoned = TakeDeferredLifecycleTask();
+            _ = abandoned?.ContinueWith(
+                static completed => _ = completed.Exception,
+                CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+            throw;
+        }
     }
 
     /// <summary>
@@ -649,8 +737,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
 
                     try
                     {
-                        try { OnConstruct(); }
-                        finally { FinishLifecycleHook(hookLease); }
+                        RunLifecycleHook(OnConstruct, hookLease);
                     }
                     catch (Exception error)
                     {
@@ -728,8 +815,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                     return;
                 try
                 {
-                    try { OnConstruct(); }
-                    finally { FinishLifecycleHook(hookLease); }
+                    RunLifecycleHook(OnConstruct, hookLease);
                 }
                 catch
                 {
@@ -859,8 +945,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
 
                     try
                     {
-                        try { OnDestruct(); }
-                        finally { FinishLifecycleHook(hookLease); }
+                        RunLifecycleHook(OnDestruct, hookLease);
                     }
                     catch (Exception error)
                     {
@@ -935,8 +1020,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                     return;
                 try
                 {
-                    try { OnDestruct(); }
-                    finally { FinishLifecycleHook(hookLease); }
+                    RunLifecycleHook(OnDestruct, hookLease);
                 }
                 catch
                 {
@@ -1027,8 +1111,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                 return;
             try
             {
-                try { OnDestruct(); }
-                finally { FinishLifecycleHook(hookLease); }
+                RunLifecycleHook(OnDestruct, hookLease);
             }
             catch
             {
@@ -1092,8 +1175,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             return false;
         try
         {
-            try { OnConstruct(); }
-            finally { FinishLifecycleHook(hookLease); }
+            RunLifecycleHook(OnConstruct, hookLease);
         }
         catch
         {

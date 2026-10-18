@@ -52,6 +52,9 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `Reconstructable::reconstruct` does nothing outside Constructed, as the
+  lifecycle rule and `can_reconstruct()` say. Before, it constructed a
+  Destructed node (spec/14 §2.3).
 - `reconstruct()` on a component, composite, group, or aggregate returns
   `ConcurrentOperation` during another transition and `Disposed` after
   disposal, as the lifecycle core does (spec/02 §2.1, LIFE-008). Before, these

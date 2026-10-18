@@ -1054,8 +1054,18 @@ class _ComponentVMBase(ABC):
                 return False
             lease = _LifecycleHookLease()
             self._active_hook_lease = lease
+            # Each hook starts with a fresh deferral slot.
+            self._deferred_lifecycle_future = None
         try:
             hook()
+        except BaseException:
+            # A hook that raises after deferring completion abandons the
+            # deferral: cancelling the pending future stops the child walk
+            # before ``after`` runs, and the next transition starts clean.
+            abandoned = self._take_deferred_lifecycle_future()
+            if abandoned is not None:
+                abandoned.cancel()
+            raise
         finally:
             with self._lifecycle_lock:
                 if self._active_hook_lease is lease:
