@@ -233,7 +233,8 @@ callbacks directly and assert value-before-completion ordering.
 
 Still open (recorded in spec chapter 06): `FilteredCompositeVm` has no
 `Changed` stream, and `ModeledCrudCommands` has no `confirm_update` and a
-synchronous, non-reactive `with_confirm_delete`. `CompositeVm` holds its
+synchronous `with_confirm_delete`, which takes no `current_changed` trigger
+(`with_current_changed` takes the trigger but no confirmation). `CompositeVm` holds its
 membership transaction across `CollectionChanged` and current-change
 publication, so a selection from those callbacks or a concurrent selection
 fails with `OwnershipTransactionInProgress` (two `COMP-026` tests are ignored).
@@ -340,3 +341,10 @@ It does not forward `is_current`, the selection methods and commands
 `reconstruct_command`), expansion (`expand`, `collapse`, `toggle_expansion`,
 `is_expanded`), the lifecycle hooks, `on_current_changed`, or
 `background_errors`. spec/09 §2 requires the same delegation as §1.
+
+## 12.9. Open Item: FormVm Approval Completion
+
+`FormVm::subscribe_approved` (ADR-0139) has no completion callback, so a
+subscriber is not told when the form is disposed. The other flavors complete
+`OnApproved` on dispose (spec/20 §10). `errors_changed` and `approve_errors`
+do complete in Rust.

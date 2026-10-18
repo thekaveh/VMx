@@ -346,8 +346,9 @@ Behavior:
 Open Rust gap: Rust has no `confirm_update` delegate. Its
 `ModeledCrudCommands::with_confirm_delete` takes a synchronous `Fn() -> bool`
 inside a plain `RelayCommand`, not an async delegate wrapped in a
-`ConfirmationDecoratorCommand`, and it accepts no `current_changed` trigger, so
-its Delete command is not reactive.
+`ConfirmationDecoratorCommand`. The `with_confirm_delete` constructor also
+takes no `current_changed` trigger, so that Delete command is not reactive; the
+`with_current_changed` constructor accepts the trigger but has no confirmation.
 
 The helper is opt-in; the base `CompositeVM<M, VM>` retains its current shape.
 

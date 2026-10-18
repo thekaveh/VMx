@@ -44,10 +44,9 @@ A command is built with an optional `task` (`() -> void` / `Action` or `(T) -> v
 ## 4. Triggers
 
 A command MAY be built with one or more `triggers` (`IObservable<Unit>`). On each
-emission of any trigger, the command:
-
-1. Re-evaluates `CanExecute`.
-1. Fires `CanExecuteChanged` (the consumer-facing event/observable).
+emission of any trigger, the command fires `CanExecuteChanged` (the
+consumer-facing event/observable). The command does not evaluate its predicate
+itself; consumers re-read `CanExecute` when they receive the event.
 
 Triggers do NOT carry data — only the fact that re-evaluation should happen. The
 typical pattern: derive a trigger from a property's change stream

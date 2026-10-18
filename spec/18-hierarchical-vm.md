@@ -79,9 +79,9 @@ every descendant has reached `Constructed`; this preserves the invariant
 "children exist before parent reports ready". This construction coordination
 does not imply ownership: disposing a hierarchical node does not dispose,
 destruct, detach, reparent, or otherwise manage its children. Destructing a
-node does not destruct its children either; only eager construction cascades. Consumers own
-child lifetimes unless they register cleanup explicitly through the ordinary
-owned-resource surface.
+node does not destruct its children either; only eager construction cascades.
+Consumers own child lifetimes unless they register cleanup explicitly through
+the ordinary owned-resource surface.
 
 Lazy children do NOT participate in construction order until materialized. A node
 with un-materialized children is `Constructed` once it has called `construct()`
