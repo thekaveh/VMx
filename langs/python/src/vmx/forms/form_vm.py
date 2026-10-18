@@ -18,7 +18,8 @@ from reactivex import operators as ops
 from reactivex.subject import Subject
 
 from vmx._asyncio_runner import submit_background
-from vmx.commands.relay_command import RelayCommand, _run_disposal_steps
+from vmx._disposal import _run_disposal_steps
+from vmx.commands.relay_command import RelayCommand
 from vmx.forms.builders import FormVMBuilder
 from vmx.messages.form_reverted import FormRevertedMessage
 from vmx.messages.property_changed import PropertyChangedMessage

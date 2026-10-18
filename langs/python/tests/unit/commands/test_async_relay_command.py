@@ -523,7 +523,10 @@ async def test_execute_raises_the_start_notification_before_returning() -> None:
     command.execute()
 
     assert events == [True]
-    await asyncio.sleep(0.01)
+    for _ in range(200):
+        if len(events) == 2:
+            break
+        await asyncio.sleep(0.01)
     assert events == [True, False]
     command.dispose()
 

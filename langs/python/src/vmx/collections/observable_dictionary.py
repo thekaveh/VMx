@@ -12,8 +12,8 @@ import reactivex as rx
 from reactivex import operators as ops
 from reactivex.subject import Subject
 
+from vmx._disposal import _run_disposal_steps
 from vmx.collections.observable_list import ObservableList, ReadOnlyObservableList
-from vmx.commands.relay_command import _run_disposal_steps
 from vmx.messages.collection_changed import CollectionChangedMessage
 from vmx.services.message_hub import MessageHubProto
 

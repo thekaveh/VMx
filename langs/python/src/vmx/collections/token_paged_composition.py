@@ -9,9 +9,9 @@ import reactivex as rx
 from reactivex import operators as ops
 from reactivex.subject import Subject
 
+from vmx._disposal import _run_disposal_steps
 from vmx.collections.collection_changed import CollectionChangedEvent
 from vmx.commands.async_relay_command import AsyncRelayCommand
-from vmx.commands.relay_command import _run_disposal_steps
 from vmx.components.base import _ComponentVMBase
 
 TVM = TypeVar("TVM")

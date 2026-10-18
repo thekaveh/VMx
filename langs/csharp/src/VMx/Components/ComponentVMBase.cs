@@ -408,6 +408,15 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         }
     }
 
+    private sealed class ChildReferenceComparer : IEqualityComparer<IComponentVM>
+    {
+        internal static ChildReferenceComparer Instance { get; } = new();
+
+        public bool Equals(IComponentVM? x, IComponentVM? y) => ReferenceEquals(x, y);
+
+        public int GetHashCode(IComponentVM obj) => RuntimeHelpers.GetHashCode(obj);
+    }
+
     /// <summary>Transitions children sequentially and validates their settled state.</summary>
     protected static Task TransitionChildrenAsync(
         IEnumerable<IComponentVM> children,
@@ -430,6 +439,9 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         // the first await, so a deferred `after` can return to its foreground.
         var scope = t_lifecycleHookScope;
         var yielded = false;
+        var joinedSet = joined is null || joined.Count == 0
+            ? null
+            : new HashSet<IComponentVM>(joined, ChildReferenceComparer.Instance);
         foreach (var child in children)
         {
             // An abandoned walk (its hook threw after deferring) drives no
@@ -437,8 +449,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             if (scope is not null && scope.Abandoned) return;
             if (construct)
             {
-                var join = joined is not null &&
-                    joined.Any(candidate => ReferenceEquals(candidate, child));
+                var join = joinedSet is not null && joinedSet.Contains(child);
                 var pending = join ? child.JoinConstructAsync() : child.ConstructOrJoinAsync();
                 yielded |= !pending.IsCompleted;
                 await pending.ConfigureAwait(false);

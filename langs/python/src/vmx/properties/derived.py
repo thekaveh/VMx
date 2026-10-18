@@ -12,7 +12,7 @@ import reactivex as rx
 from reactivex import Observable, Subject
 from reactivex import operators as ops
 
-from vmx.commands.relay_command import _run_disposal_steps
+from vmx._disposal import _run_disposal_steps
 
 TValue = TypeVar("TValue")
 

@@ -35,7 +35,7 @@ from reactivex import operators as ops
 from reactivex.subject import Subject
 
 from vmx._asyncio_runner import post_to_loop, submit_background
-from vmx.commands.relay_command import _run_disposal_steps
+from vmx._disposal import _run_disposal_steps
 
 TEmission = TypeVar("TEmission")
 CancellationOrigin = Literal["command", "external"]

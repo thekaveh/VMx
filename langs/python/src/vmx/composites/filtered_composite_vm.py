@@ -10,7 +10,7 @@ import reactivex as rx
 from reactivex import operators as ops
 from reactivex.subject import Subject
 
-from vmx.commands.relay_command import _run_disposal_steps
+from vmx._disposal import _run_disposal_steps
 from vmx.components.base import _ComponentVMBase
 from vmx.composites.composite_vm import CompositeVM
 

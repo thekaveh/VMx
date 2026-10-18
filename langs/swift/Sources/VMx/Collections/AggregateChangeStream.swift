@@ -231,20 +231,24 @@ public final class AggregateChangeStream<Item: AnyObject> {
     /// Detaches aggregate-owned subscriptions and completes output once.
     public func dispose() {
         var shouldProcess = false
+        // Released after `gate` so a deinit cannot re-enter the aggregate
+        // while dispose holds it.
+        var releasedMembership: AnyCancellable?
+        var releasedEntries: [Entry] = []
+        var releasedStaged: [(Entry, EmissionClassification)] = []
         gate.lock()
         if !completed {
             completed = true
             membershipSubscription?.cancel()
+            releasedMembership = membershipSubscription
             membershipSubscription = nil
             for entry in entries.values { entry.terminate() }
+            releasedEntries = Array(entries.values)
             entries.removeAll()
-            // Staged entries are released after `stagingLock` (non-recursive)
-            // so an entry's deinit cannot re-enter it.
             stagingLock.lock()
-            let releasedStaged = stagedEmissions
+            releasedStaged = stagedEmissions
             stagedEmissions.removeAll()
             stagingLock.unlock()
-            withExtendedLifetime(releasedStaged) {}
             work.removeAll()
             let recipients = Array(observers.values)
             observers.removeAll()
@@ -252,6 +256,7 @@ public final class AggregateChangeStream<Item: AnyObject> {
             shouldProcess = startProcessingLocked()
         }
         gate.unlock()
+        withExtendedLifetime((releasedMembership, releasedEntries, releasedStaged)) {}
         if shouldProcess { processWork() }
     }
 

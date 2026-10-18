@@ -17,8 +17,8 @@ from reactivex.internal.exceptions import DisposedException
 from reactivex.subject import Subject
 
 from vmx._asyncio_runner import submit_background
+from vmx._disposal import _run_disposal_steps
 from vmx.commands.protocols import Command, _AsyncCommand
-from vmx.commands.relay_command import _run_disposal_steps
 
 
 class ConfirmationDecoratorCommand:

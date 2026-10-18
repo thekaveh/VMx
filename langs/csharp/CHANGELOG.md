@@ -23,6 +23,9 @@ All notable changes to the C# flavor are documented here. The format is based on
   `ObjectDisposedException` through `OnError`.
 - Fixed: an abandoned child walk (its hook threw after deferring) constructs
   no further children, as in Python and TypeScript.
+- Fixed: a construct walk over factory-started children checks each child
+  against the joined set by reference in constant time. It was a linear scan
+  per child, so quadratic in the child count.
 - Fixed: A lifecycle hook that defers completion and then throws abandons that
   deferral. The next transition starts clean instead of adopting the stale
   task or throwing "A lifecycle hook already deferred completion." forever, the

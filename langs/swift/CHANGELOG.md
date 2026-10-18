@@ -22,7 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   subject's lock. `TokenPagedComposition` releases replaced items and tokens
   after its state queue in `refresh()` and `loadMore()` (COL-065).
   `AggregateChangeStream` releases discarded staged emissions after its staging
-  lock. Before, a message whose `deinit` sent on the hub, a subscriber whose
+  lock, and `dispose()` releases its entries, staged emissions and membership
+  subscription after its gate. Before, a message whose `deinit` sent on the hub, a subscriber whose
   `deinit` subscribed again, or an item or token whose `deinit` read the
   composition re-entered a non-recursive lock on the same thread.
 

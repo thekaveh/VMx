@@ -13,7 +13,8 @@ from reactivex import operators as ops
 from reactivex.abc import DisposableBase, SchedulerBase
 from reactivex.subject import Subject
 
-from vmx.commands.relay_command import RelayCommand, _run_disposal_steps
+from vmx._disposal import _run_disposal_steps
+from vmx.commands.relay_command import RelayCommand
 from vmx.notifications.notification import Notification
 from vmx.notifications.notification_hub import INotificationHub
 from vmx.notifications.notification_reaction import NotificationReaction

@@ -15,9 +15,9 @@ from reactivex import operators as ops
 from reactivex.abc import DisposableBase, SchedulerBase
 from reactivex.subject import Subject
 
+from vmx._disposal import _run_disposal_steps as _run_every_step
 from vmx.collections import BatchUpdateHandle, CollectionChangedEvent
 from vmx.collections._vm_collection_hub_message import collection_changed_message_for
-from vmx.commands.relay_command import _run_disposal_steps as _run_every_step
 from vmx.components.base import (
     _begin_parent_transfer,
     _commit_parent_transfer,
