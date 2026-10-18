@@ -55,7 +55,7 @@ Properties:
 | Flavor     | Module          | Walk / WalkExpanded return                | Find return                |
 | ---------- | --------------- | ----------------------------------------- | -------------------------- |
 | C#         | `VMx.Tree`      | `IEnumerable<IComponentVM>` (lazy)        | `IComponentVM?`            |
-| Python     | `vmx.tree`      | `Iterator[_ComponentVMBase]` (generator)  | `_ComponentVMBase \| None` |
+| Python     | `vmx.tree`      | `Iterator[ComponentVMProto]` (generator)  | `ComponentVMProto \| None` |
 | TypeScript | `@thekaveh/vmx` | `Iterable<ComponentVMBase>` (generator)   | `ComponentVMBase \| null`  |
 | Swift      | `VMx`           | `[ComponentVMBase]` (materialized)        | `ComponentVMBase?`         |
 | Rust       | `vmx`           | `Vec<T>` for `T: TreeNode` (materialized) | `Option<T>`                |

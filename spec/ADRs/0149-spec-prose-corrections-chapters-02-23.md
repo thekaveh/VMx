@@ -127,7 +127,9 @@ The change is editorial. It adds no normative behavior and no conformance ID.
   `HierarchicalVm` and `ModeledCompositeVm` have no hook methods, and
   `ForwardingCompositeVm` reaches them only through `inner()`); chapter 06
   records the Rust `FilteredCompositeVm` `Changed` and `ModeledCrudCommands`
-  confirmation gaps; chapter 10 says the Rust builders default `Hint` to
+  confirmation gaps; chapter 13 gives the Python helper types as the public
+  `ComponentVMProto`, which the helpers now accept and return, instead of the
+  private `_ComponentVMBase`; chapter 10 says the Rust builders default `Hint` to
   `Some("")` and records the `ModeledCompositeVm` hint and identity gap;
   chapter 16 §8.1 states Rust's `NotificationVm`
   construction.
