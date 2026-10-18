@@ -125,7 +125,11 @@ The change is editorial. It adds no normative behavior and no conformance ID.
   `addChild` returns the cycle error as `.failure` while `reparentChild` throws
   it; chapter 02 lists which Rust VM types have the hook methods (open gaps:
   `HierarchicalVm` and `ModeledCompositeVm` have no hook methods, and
-  `ForwardingCompositeVm` reaches them only through `inner()`); chapter 16 §8.1 states Rust's `NotificationVm`
+  `ForwardingCompositeVm` reaches them only through `inner()`); chapter 06
+  records the Rust `FilteredCompositeVm` `Changed` and `ModeledCrudCommands`
+  confirmation gaps; chapter 10 says the Rust builders default `Hint` to
+  `Some("")` and records the `ModeledCompositeVm` hint and identity gap;
+  chapter 16 §8.1 states Rust's `NotificationVm`
   construction.
 - The Rust gaps stay open. Each is recorded, not closed; closing one changes the
   public Rust surface and needs its own decision and change.

@@ -226,6 +226,10 @@ publication order surfaces remain `1, 2`.
 
 Evidence: the collection, filtered-composite, confirmation-decorator, relay-
 command, and composite suites contain focused assertions for each edge.
+
+Still open (recorded in spec chapter 06): `FilteredCompositeVm` has no
+`Changed` stream, and `ModeledCrudCommands` has no `confirm_update` and a
+synchronous, non-reactive `with_confirm_delete`.
 `confirmation_error_value_precedes_disposal_completion` and
 `relay_disposal_emits_one_final_can_execute_notification` observe terminal
 callbacks directly and assert value-before-completion ordering.

@@ -72,9 +72,11 @@ Optional fields have these defaults if not set:
 - `ModeledHinter` → `(m) -> ""` (modeled variants only)
 - `OnModelChanged` → no-op callback (modeled variants only)
 
-Open Rust gap: Rust types `Hint` and `ModeledHint` as `Option<String>`, so an
-unset `Hint` and the default `ModeledHinter` give `None` instead of the empty
-string. The Rust builder also has no `OnModelChanged` callback.
+Open Rust gap: Rust types `Hint` and `ModeledHint` as `Option<String>`. The
+builders default an unset `Hint` to `Some("")`, but the default `ModeledHinter`
+gives `None` instead of the empty string. The Rust builder also has no
+`OnModelChanged` callback. `ModeledCompositeVmBuilder` has no `hint` setter, and
+`ModeledCompositeVm` exposes no `name`, `hint`, or `id`.
 
 - `Predicate` (commands) → returns `true`
 - `Task` (commands) → no-op

@@ -331,6 +331,12 @@ Behavior:
   flavors, build the commands directly with the base `Triggers` mechanism
   (chapter 04 §4.2).
 
+Open Rust gap: Rust has no `confirm_update` delegate. Its
+`ModeledCrudCommands::with_confirm_delete` takes a synchronous `Fn() -> bool`
+inside a plain `RelayCommand`, not an async delegate wrapped in a
+`ConfirmationDecoratorCommand`, and it accepts no `current_changed` trigger, so
+its Delete command is not reactive.
+
 The helper is opt-in; the base `CompositeVM<M, VM>` retains its current shape.
 
 ## 8. Search / filter (spec v2.0, source reactivity v3.19)
@@ -439,6 +445,9 @@ FilteredCompositeVM<VM>:
     MoveToPreviousVisible()
     Dispose()
 ```
+
+Open Rust gap: Rust's `FilteredCompositeVm` has no `Changed` stream, so a view
+reads `visible()` and `current()` on demand.
 
 The source composite remains the owner of child membership and lifecycle. The
 filtered view owns the visible projection and its own current slot in the visible
