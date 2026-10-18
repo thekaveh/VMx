@@ -59,9 +59,10 @@ property changes. Compose the hub's `Messages` stream (or the per-flavor
 `PropertyValueChangedMessagesFor` convenience helper) as the trigger:
 
 ```
-# C# — filter the hub stream and project to Unit
+# C# — filter the hub stream and project to Unit. VMs publish
+# PropertyChangedMessage<IComponentVM>, so match the covariant interface.
 hub.Messages
-   .OfType<PropertyChangedMessage<TSource>>()
+   .OfType<IPropertyChangedMessage<IComponentVM>>()
    .Where(m => ReferenceEquals(m.Sender, this) && m.PropertyName == nameof(IsValid))
    .Select(_ => Unit.Default)
 

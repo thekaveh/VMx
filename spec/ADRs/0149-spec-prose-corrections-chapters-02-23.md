@@ -160,7 +160,10 @@ and the Python tree helpers use the public `ComponentVMProto` (chapter 13).
   construction; chapter 06 §8 drops `SearchTermChanged` from the
   `SearchableState` shape, because no flavor exposes the debounced term as a
   public stream (the debounce is internal and consumers observe `Filtered`);
-  chapter 13 records that Rust `walk` does not descend into a `CompositeVm`.
+  chapter 13 records that Rust `walk` does not descend into a `CompositeVm`;
+  the chapter 04 §4.1 C# trigger recipe matches
+  `IPropertyChangedMessage<IComponentVM>`, because VMs publish
+  `PropertyChangedMessage<IComponentVM>` and the record type is invariant.
 - The Rust gaps stay open. Each is recorded, not closed; closing one changes the
   public Rust surface and needs its own decision and change.
 - The chapter 16 §8.1 recipe stays a composition pattern, not a new primitive.
