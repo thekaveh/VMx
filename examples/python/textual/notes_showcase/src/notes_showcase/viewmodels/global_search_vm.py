@@ -67,6 +67,15 @@ class GlobalSearchVM(ComponentVM):
         self._property_sub = self._paged.on_property_changed.subscribe(
             lambda name: self._notify_has_more() if name == "has_more" else None
         )
+        # Latest term wins: the refresh command refuses to start while one is
+        # in flight, so a term typed during a refresh would otherwise leave
+        # results for the stale term on screen. ``_results_term`` is the term
+        # the loaded pages describe; when a refresh settles for an older term,
+        # refresh again for the current one.
+        self._results_term: str | None = None
+        self._refresh_settled_sub = self._paged.refresh_command.can_execute_changed.subscribe(
+            lambda _: self._refresh_if_stale()
+        )
 
     @property
     def search_term(self) -> str:
@@ -84,7 +93,20 @@ class GlobalSearchVM(ComponentVM):
 
     def search(self) -> None:
         self._search.search()
-        self.refresh_command.execute()
+        if not self.refresh_command.is_executing:
+            self.refresh_command.execute()
+        # Otherwise _refresh_if_stale re-runs it for the latest term once the
+        # in-flight refresh settles.
+
+    def _refresh_if_stale(self) -> None:
+        command = self.refresh_command
+        if (
+            self._results_term is not None
+            and self._results_term != self.search_term
+            and not command.is_executing
+            and command.can_execute()
+        ):
+            command.execute()
 
     @property
     def results(self) -> list[NoteVM]:
@@ -103,7 +125,12 @@ class GlobalSearchVM(ComponentVM):
         return self._paged.load_more_command
 
     async def _fetch_next(self, token: str | None) -> tuple[list[NoteVM], str | None]:
-        page, next_token = await self._repo.search_notes(self.search_term, token, self._page_size)
+        # A refresh (no token) pins the term; later pages continue that term so
+        # "Load more" never splices another term's results onto the list.
+        if token is None or self._results_term is None:
+            self._results_term = self.search_term
+        term = self._results_term
+        page, next_token = await self._repo.search_notes(term, token, self._page_size)
         return (
             [
                 self._own_result(
@@ -144,6 +171,7 @@ class GlobalSearchVM(ComponentVM):
     def dispose(self) -> None:
         self._collection_sub.dispose()
         self._property_sub.dispose()
+        self._refresh_settled_sub.dispose()
         self._dispose_owned_results()
         self._paged.dispose()
         self._search.dispose()

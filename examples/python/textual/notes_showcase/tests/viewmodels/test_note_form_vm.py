@@ -250,9 +250,11 @@ async def test_double_save_while_repository_save_is_pending_persists_once() -> N
     assert vm.is_dirty.value is False
 
 
-async def test_rebinding_while_a_save_is_pending_posts_no_saved_for_either_note() -> None:
-    """Rebinding disposes the pending save's form, which then publishes no
-    approval (spec/20 §5.3), so the save runs no post-save step."""
+async def test_rebinding_while_a_save_is_pending_still_completes_that_save() -> None:
+    """Rebinding retires the pending save's form instead of disposing it
+    (disposal would suppress its settlement, spec/20 §5.3): the save still
+    publishes ``on_saved`` and its "Saved" toast, the next note binds at once
+    and stays clean, and the retired form is disposed once the save settles."""
     form = _build_pending_save_form()
     vm, repo = form.vm, form.repo
     vm.bind_to(_sample_note())
@@ -266,10 +268,12 @@ async def test_rebinding_while_a_save_is_pending_posts_no_saved_for_either_note(
     await asyncio.wait_for(pending, timeout=1)
 
     assert repo.saves == [edited]
-    assert form.saved == []
-    assert form.notifications == []
-    assert repo.load_all_calls == 0
+    assert form.saved == [edited]
+    assert form.notifications == ["Saved “Edited”"]
+    assert repo.load_all_calls == 1
     assert vm.snapshot.title == "Next note"
+    assert vm.is_dirty.value is False
+    assert vm._retired_forms == set()
 
 
 def test_deny_restores_snapshot() -> None:

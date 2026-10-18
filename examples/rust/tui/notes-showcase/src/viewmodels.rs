@@ -12,6 +12,9 @@ const SEARCH_PAGE_SIZE: usize = 2;
 /// At most this many notifications stay pending, as in every flavor.
 const NOTIFICATION_CAP: usize = 5;
 
+/// Observer told about each note a save persisted.
+type SavedHook = Arc<Mutex<Option<Arc<dyn Fn(&NoteModel) + Send + Sync>>>>;
+
 #[derive(Clone)]
 pub struct NoteVm {
     component: ComponentVm<NoteModel>,
@@ -34,6 +37,10 @@ impl NoteVm {
 
     pub fn title(&self) -> String {
         self.model().title
+    }
+
+    fn set_model(&self, note: NoteModel) {
+        self.component.set_model(note);
     }
 
     fn matches(&self, term: &str) -> bool {
@@ -316,6 +323,21 @@ impl NotesViewVm {
         Some(note.model())
     }
 
+    /// Reseats a saved note into its row, so the list, local search, delete
+    /// prompt, and a later editor load see the persisted values.
+    pub fn refresh_note(&self, note: &NoteModel) {
+        let Some(row) = self
+            .source
+            .items()
+            .into_iter()
+            .find(|row| row.id() == note.id)
+        else {
+            return;
+        };
+        row.set_model(note.clone());
+        self.refresh_page();
+    }
+
     pub fn reload(&self) {
         self.source.clear();
         let notebook_id = lock(&self.notebook_id).clone();
@@ -350,23 +372,33 @@ pub struct NoteFormVm {
     repository: InMemoryNoteRepository,
     current_note_id: Arc<Mutex<String>>,
     form: Arc<Mutex<FormVm<NoteDraft>>>,
+    on_saved: SavedHook,
 }
 
 impl NoteFormVm {
     fn new(repository: InMemoryNoteRepository, note: NoteModel, hub: MessageHub) -> Self {
         let note_id = note.id.clone();
+        let on_saved: SavedHook = Arc::new(Mutex::new(None));
         let form = build_form(
             repository.clone(),
             &note_id,
             NoteDraft::from_note(&note),
             hub.clone(),
+            on_saved.clone(),
         );
         Self {
             core: ComponentVm::with_model("note-form", (), hub, NullDispatcher::new()),
             repository,
             current_note_id: Arc::new(Mutex::new(note_id)),
             form: Arc::new(Mutex::new(form)),
+            on_saved,
         }
+    }
+
+    /// Calls `hook` with each note a save persisted (the workspace reseats
+    /// it into the notes list).
+    pub fn set_on_saved(&self, hook: impl Fn(&NoteModel) + Send + Sync + 'static) {
+        *lock(&self.on_saved) = Some(Arc::new(hook));
     }
 
     /// Leaves the editor empty when no note is selected (for example after
@@ -381,6 +413,7 @@ impl NoteFormVm {
                 tags: Vec::new(),
             },
             self.core.hub(),
+            self.on_saved.clone(),
         );
         lock(&self.current_note_id).clear();
         let previous = std::mem::replace(&mut *lock(&self.form), form);
@@ -399,6 +432,7 @@ impl NoteFormVm {
             &note_id,
             NoteDraft::from_note(&note),
             self.core.hub(),
+            self.on_saved.clone(),
         );
         *lock(&self.current_note_id) = note_id;
         let previous = std::mem::replace(&mut *lock(&self.form), form);
@@ -478,6 +512,7 @@ fn build_form(
     note_id: &str,
     draft: NoteDraft,
     hub: MessageHub,
+    on_saved: SavedHook,
 ) -> FormVm<NoteDraft> {
     let note_id = note_id.to_string();
     FormVm::builder()
@@ -492,10 +527,17 @@ fn build_form(
             }
         })
         .persister(move |draft| {
-            repository
+            let saved = repository
                 .save_draft(&note_id, draft)
-                .map(|_| ())
-                .ok_or_else(|| VmxError::InvalidArgument("note not found".to_string()))
+                .ok_or_else(|| VmxError::InvalidArgument("note not found".to_string()))?;
+            // The repository alone holds the saved note until it is reseated
+            // into its NoteVm; otherwise the list and later editor loads use
+            // the old model and a later save writes it back.
+            let hook = lock(&on_saved).clone();
+            if let Some(hook) = hook {
+                hook(&saved);
+            }
+            Ok(())
         })
         .build()
         .expect("form builder is complete")
@@ -744,6 +786,10 @@ impl WorkspaceVm {
             editor.clone(),
         );
         aggregate.construct()?;
+        form.set_on_saved({
+            let notes = notes.clone();
+            move |note| notes.refresh_note(note)
+        });
         let pending_delete = Arc::new(Mutex::new(None));
         let delete_command = RelayCommand::new({
             let notes = notes.clone();
@@ -814,6 +860,7 @@ impl WorkspaceVm {
 
     pub fn select_notebook(&self, notebook_id: &str) -> VmxResult<()> {
         self.notebooks.select(notebook_id)?;
+        self.reject_delete_current();
         self.notes.set_notebook(notebook_id);
         match self.notes.select_first_visible() {
             Some(note) => self.form.load_note(note),
@@ -822,17 +869,24 @@ impl WorkspaceVm {
         Ok(())
     }
 
+    // Paging, searching, and switching notebooks cancel a pending delete:
+    // its note may leave the screen, and `y` must never delete a note the
+    // user no longer sees.
+
     pub fn next_page(&self) {
+        self.reject_delete_current();
         self.notes.next_page();
         self.sync_form_to_page();
     }
 
     pub fn previous_page(&self) {
+        self.reject_delete_current();
         self.notes.previous_page();
         self.sync_form_to_page();
     }
 
     pub fn set_search_term(&self, term: &str) {
+        self.reject_delete_current();
         self.notes.set_search_term(term);
         self.sync_form_to_page();
     }

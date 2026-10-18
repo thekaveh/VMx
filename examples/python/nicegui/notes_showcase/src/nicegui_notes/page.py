@@ -18,6 +18,7 @@ from reactivex.abc import DisposableBase
 from nicegui_notes.adapter import (
     bind_command,
     bind_derived_property,
+    bind_property,
     bind_property_two_way,
     bind_refreshable,
     release_on_delete,
@@ -40,6 +41,10 @@ def _select_note(notes: NotesViewVM, note: NoteVM) -> None:
 
 def _dirty_text(is_dirty: object) -> str:
     return "Unsaved changes" if is_dirty else "Saved"
+
+
+def _error_text(error: object) -> str:
+    return str(error) if error else ""
 
 
 def _notebooks_pane(workspace: WorkspaceVM) -> DisposableBase:
@@ -90,6 +95,7 @@ def _editor_pane(workspace: WorkspaceVM) -> list[DisposableBase]:
     form = workspace.note_form
     with ui.column().classes("grow"):
         title = ui.input("Title").classes("w-full").mark("note-title")
+        title_error = ui.label().classes("text-negative").mark("title-error")
         body = ui.textarea("Body").classes("w-full").mark("note-body")
         with ui.row():
             save = ui.button("Save").mark("save")
@@ -97,6 +103,7 @@ def _editor_pane(workspace: WorkspaceVM) -> list[DisposableBase]:
             dirty = ui.label().mark("dirty")
     return [
         bind_property_two_way(title, form, "title", text),
+        bind_property(title_error, "text", form, "title_error", _error_text),
         bind_property_two_way(body, form, "body", text),
         bind_command(save, form.approve_command),
         bind_command(revert, form.deny_command),

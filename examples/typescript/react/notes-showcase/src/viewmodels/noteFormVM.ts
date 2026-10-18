@@ -72,6 +72,14 @@ export class NoteFormVM extends ComponentVMBase {
   #tagSuggestions: readonly string[] = [];
   /** Inner approvals admitted so far; see `#approveFormAsync`. */
   #admissions = 0;
+  /**
+   * Forms with an approval in flight, with the number of pending calls. A
+   * form rebound or unbound mid-save is retired but not disposed until its
+   * approval settles: FormVM suppresses settlement on a disposed form, so an
+   * early dispose would drop the saved list-row refresh and the toast while
+   * the repository already holds the new value.
+   */
+  readonly #settling = new Map<FormVM<NoteModel>, number>();
 
   constructor(opts: {
     name: string;
@@ -265,7 +273,7 @@ export class NoteFormVM extends ComponentVMBase {
 
   /** Binds the form to `note` (creates / replaces the inner FormVM). */
   bindTo(note: NoteModel): void {
-    this.#form?.dispose();
+    this.#retireForm();
     this.#bound = note;
     this.#form = new FormVM<NoteModel>({
       initial: note,
@@ -300,7 +308,7 @@ export class NoteFormVM extends ComponentVMBase {
   unbind(): void {
     const hadTagDraft = this.#tagDraft.length > 0;
     if (this.#form === null && this.#bound === null && !hadTagDraft) return;
-    this.#form?.dispose();
+    this.#retireForm();
     this.#form = null;
     this.#bound = null;
     if (hadTagDraft) {
@@ -318,7 +326,25 @@ export class NoteFormVM extends ComponentVMBase {
   async approveAsync(): Promise<void> {
     const form = this.#form;
     if (form === null) return;
-    if (!(await this.#approveFormAsync(form))) return;
+    this.#settling.set(form, (this.#settling.get(form) ?? 0) + 1);
+    let saved: boolean;
+    try {
+      saved = await this.#approveFormAsync(form);
+    } finally {
+      const pending = (this.#settling.get(form) ?? 1) - 1;
+      if (pending > 0) {
+        this.#settling.set(form, pending);
+      } else {
+        this.#settling.delete(form);
+        // Retired while saving: its settlement has now published, so the
+        // deferred dispose runs here.
+        if (form !== this.#form) form.dispose();
+      }
+    }
+    // A save that settles after the user moved to another note still
+    // refreshes its row (via onSaved) and posts its toast; only the editor
+    // re-read below is about the form that is bound now.
+    if (!saved) return;
     this.#emitDraftChanges();
     if (this.#notificationHub !== null) {
       void this.#notificationHub.post(
@@ -377,6 +403,12 @@ export class NoteFormVM extends ComponentVMBase {
     } finally {
       subscription.unsubscribe();
     }
+  }
+
+  /** Disposes the bound form unless an approval on it is still in flight. */
+  #retireForm(): void {
+    const form = this.#form;
+    if (form !== null && !this.#settling.has(form)) form.dispose();
   }
 
   async #persistAsync(note: NoteModel): Promise<void> {
@@ -448,6 +480,8 @@ export class NoteFormVM extends ComponentVMBase {
 
   protected override _onDispose(): void {
     this.#form?.dispose();
+    for (const form of this.#settling.keys()) form.dispose();
+    this.#settling.clear();
     this.#approveCommand.dispose();
     this.#addTagCommand.dispose();
     this.#removeTagCommand.dispose();

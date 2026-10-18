@@ -46,6 +46,15 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
     private IReadOnlyList<string> _tagCatalog = Array.Empty<string>();
     private IReadOnlyList<string> _tagSuggestions = Array.Empty<string>();
     private int _admissions; // inner approvals admitted; see ApproveFormAsync
+    // Approvals still awaiting settlement, per inner form, and the forms a
+    // rebind retired while one of their approvals was pending. FormVM
+    // suppresses settlement once disposed, so disposing a retired form
+    // mid-save would drop OnApproved (the list row refresh) and the toast
+    // even though the repository already holds the new note. A retired form
+    // is disposed when its last pending approval settles instead.
+    private readonly object _retireGate = new();
+    private readonly Dictionary<FormVM<NoteModel>, int> _pendingApprovals = new();
+    private readonly Dictionary<FormVM<NoteModel>, IDisposable?> _retiredForms = new();
 
     /// <inheritdoc/>
     public override ViewModelType Type => ViewModelType.Component;
@@ -204,8 +213,7 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
     /// </summary>
     public void BindTo(NoteModel note)
     {
-        _form?.Dispose();
-        _approvedSub?.Dispose();
+        RetireCurrentForm();
         _bound = note;
         _form = new FormVM<NoteModel>(
             initial: note,
@@ -240,8 +248,7 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
     {
         var hadTagDraft = _tagDraft.Length > 0;
         if (_form is null && _bound is null && !hadTagDraft) return;
-        _form?.Dispose();
-        _form = null;
+        RetireCurrentForm();
         _bound = null;
         if (hadTagDraft)
         {
@@ -262,10 +269,24 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
         // OnApproved no longer accepts subscribers.
         var form = _form;
         if (form is null || _ownDisposed) return;
-        if (!await ApproveFormAsync(form).ConfigureAwait(false)) return;
+        NoteModel? saved;
+        lock (_retireGate)
+        {
+            _pendingApprovals[form] = _pendingApprovals.GetValueOrDefault(form) + 1;
+        }
+        try
+        {
+            saved = await ApproveFormAsync(form).ConfigureAwait(false);
+        }
+        finally
+        {
+            SettlePendingApproval(form);
+        }
+        if (saved is null) return;
         // This continuation runs off the UI thread (ConfigureAwait(false));
         // EmitDraftChanges raises INPC into live XAML bindings, so marshal
-        // (live binding).
+        // (live binding). The toast names the saved note, not the current
+        // snapshot: the user may have selected another note mid-save.
         _dispatcher.Foreground.Schedule(() =>
         {
             if (_ownDisposed) return; // queued tail may outlive the VM
@@ -274,7 +295,7 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
             {
                 _ = _notificationHub.Post(new Notification(
                     NotificationType.Notification,
-                    $"Saved “{Snapshot.Title}”"));
+                    $"Saved “{saved.Title}”"));
             }
         });
         await RefreshTagSuggestionsAsync().ConfigureAwait(false);
@@ -302,7 +323,7 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
     }
 
     /// <summary>
-    /// Runs one inner approval and returns <c>true</c> only when it saved.
+    /// Runs one inner approval and returns the saved note only when it saved.
     /// <see cref="FormVM{TM}"/> admits one approval at a time (spec/20 §5.3):
     /// a call made while a save is pending is refused and returns without
     /// persisting or publishing <c>OnApproved</c>. A call saved when the form
@@ -311,15 +332,62 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
     /// checks are needed: the pending save publishes on the thread its
     /// repository write completes on, which can be while a refused call runs.
     /// </summary>
-    private async Task<bool> ApproveFormAsync(FormVM<NoteModel> form)
+    private async Task<NoteModel?> ApproveFormAsync(FormVM<NoteModel> form)
     {
-        var approved = false;
-        using var subscription = form.OnApproved.Subscribe(_ => approved = true);
+        NoteModel? approved = null;
+        using var subscription = form.OnApproved.Subscribe(m => approved = m);
         var admissions = Volatile.Read(ref _admissions);
         var approving = form.ApproveAsync();
         var admitted = Volatile.Read(ref _admissions) != admissions;
         await approving.ConfigureAwait(false);
-        return admitted && approved;
+        return admitted ? approved : null;
+    }
+
+    /// <summary>
+    /// Detaches the current inner form on a rebind. It is disposed now unless
+    /// one of its approvals is still pending; then it stays alive until that
+    /// approval settles, so the save still publishes <see cref="OnSaved"/>
+    /// (the list row refresh) and its toast while the new note binds at once.
+    /// </summary>
+    private void RetireCurrentForm()
+    {
+        var form = _form;
+        var sub = _approvedSub;
+        _form = null;
+        _approvedSub = null;
+        if (form is null)
+        {
+            sub?.Dispose();
+            return;
+        }
+        lock (_retireGate)
+        {
+            if (_pendingApprovals.ContainsKey(form))
+            {
+                _retiredForms[form] = sub;
+                return;
+            }
+        }
+        form.Dispose();
+        sub?.Dispose();
+    }
+
+    private void SettlePendingApproval(FormVM<NoteModel> form)
+    {
+        IDisposable? sub;
+        lock (_retireGate)
+        {
+            var remaining = _pendingApprovals[form] - 1;
+            if (remaining > 0)
+            {
+                _pendingApprovals[form] = remaining;
+                return;
+            }
+            _pendingApprovals.Remove(form);
+            if (!_retiredForms.Remove(form, out sub)) return;
+        }
+        form.Dispose();
+        sub?.Dispose();
     }
 
     private async Task PersistAsync(NoteModel note)
@@ -468,6 +536,17 @@ public sealed class NoteFormVM : ComponentVMBase, IReconstructable
         _ownDisposed = true;
         _form?.Dispose();
         _approvedSub?.Dispose();
+        KeyValuePair<FormVM<NoteModel>, IDisposable?>[] retired;
+        lock (_retireGate)
+        {
+            retired = _retiredForms.ToArray();
+            _retiredForms.Clear();
+        }
+        foreach (var (form, sub) in retired)
+        {
+            form.Dispose();
+            sub?.Dispose();
+        }
         (ApproveCommand as IDisposable)?.Dispose();
         (DenyCommand as IDisposable)?.Dispose();
         (AddTagCommand as IDisposable)?.Dispose();

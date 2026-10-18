@@ -197,6 +197,7 @@ def _editor_pane(workspace: WorkspaceVM) -> list[DisposableBase]:
     form = workspace.note_form
     with ui.column().classes("grow"):
         title = ui.input("Title").classes("w-full").mark("note-title")
+        title_error = ui.label().classes("text-negative").mark("title-error")
         body = ui.textarea("Body").classes("w-full").mark("note-body")
         with ui.row():
             save = ui.button("Save").mark("save")
@@ -204,6 +205,7 @@ def _editor_pane(workspace: WorkspaceVM) -> list[DisposableBase]:
             dirty = ui.label().mark("dirty")
     return [
         bind_property_two_way(title, form, "title", text),
+        bind_property(title_error, "text", form, "title_error", _error_text),
         bind_property_two_way(body, form, "body", text),
         bind_command(save, form.approve_command),
         bind_command(revert, form.deny_command),

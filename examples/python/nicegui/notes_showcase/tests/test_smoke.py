@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 
+from nicegui import ui
 from nicegui.testing import User
 
 
@@ -73,3 +74,35 @@ async def test_new_note_is_disabled_on_the_readonly_archive(user: User) -> None:
             break
         await asyncio.sleep(0.05)
     assert not new_note.enabled
+
+
+async def test_an_empty_title_shows_the_required_error(user: User) -> None:
+    await user.open("/")
+    user.find("Standup notes").click()
+    await user.should_see(marker="note-title", content="Standup notes")
+    await user.should_not_see("Title is required.")
+
+    user.find(marker="note-title").clear()
+
+    await user.should_see(marker="title-error", content="Title is required.")
+    (save,) = user.find(marker="save").elements
+    assert not save.enabled
+
+
+async def test_switching_notes_while_a_save_is_pending_still_relabels_the_row(
+    user: User,
+) -> None:
+    # The seeded repository takes 200 ms to save; the second click lands first.
+    await user.open("/")
+    user.find("Standup notes").click()
+    await user.should_see(marker="note-title", content="Standup notes")
+    user.find(marker="note-title").clear().type("Standup, saved mid-switch")
+    await user.should_see("Unsaved changes")
+
+    user.find(marker="save").click()
+    user.find("Roadmap snapshot").click()
+    await user.should_see(marker="note-title", content="Roadmap snapshot")
+    await asyncio.sleep(0.5)
+
+    await user.should_see("Standup, saved mid-switch", kind=ui.button)
+    await user.should_see(marker="dirty", content="Saved")

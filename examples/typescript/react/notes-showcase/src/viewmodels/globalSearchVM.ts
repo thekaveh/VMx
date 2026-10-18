@@ -21,6 +21,8 @@ export class GlobalSearchVM extends ComponentVMBase {
   readonly #paged: TokenPagedComposition<NoteVM, string>;
   readonly #ownedResults = new Set<NoteVM>();
   #ownedResultsDisposed = false;
+  /** A search asked for while a refresh was in flight; see `search()`. */
+  #searchPending = false;
 
   constructor(opts: {
     name: string;
@@ -68,6 +70,11 @@ export class GlobalSearchVM extends ComponentVMBase {
           && left.every((item, idx) => item.model.id === right[idx]?.model.id),
       },
     );
+    // Re-run a search that arrived while the previous refresh was busy, once
+    // the command goes idle (it announces that through canExecuteChanged).
+    this.#paged.refreshCommand.canExecuteChanged.subscribe(() => {
+      this.#runPendingSearch();
+    });
     this.#paged.propertyChanged.subscribe((name) => {
       if (name === "items") {
         this._notifyPropertyChanged("results");
@@ -100,8 +107,21 @@ export class GlobalSearchVM extends ComponentVMBase {
     return this.#search.canSearch();
   }
 
+  /**
+   * Requests a refresh for the current term. The refresh command admits one
+   * execution at a time and drops calls made while busy, so a request made
+   * mid-flight is remembered and re-run when the in-flight fetch settles:
+   * the latest term always wins, however fast the user types.
+   */
   search(): void {
     this.#search.search();
+    this.#searchPending = true;
+    this.#runPendingSearch();
+  }
+
+  #runPendingSearch(): void {
+    if (!this.#searchPending || this.refreshCommand.isExecuting) return;
+    this.#searchPending = false;
     this.refreshCommand.execute();
   }
 

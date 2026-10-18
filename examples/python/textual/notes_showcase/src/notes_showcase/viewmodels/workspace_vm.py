@@ -31,7 +31,7 @@ from vmx import (
     when_property_changed,
 )
 from vmx.messages.protocols import Message
-from vmx.notifications import INotificationHub, NotificationHub
+from vmx.notifications import INotificationHub, Notification, NotificationHub, NotificationType
 from vmx.services.dispatcher import Dispatcher
 
 from notes_showcase.models.note_model import NoteModel
@@ -508,8 +508,15 @@ class WorkspaceVM:
         )
         if not path:
             return
-        notebooks, notes = await self._repo.load_all()
-        await self._repo.export(notebooks, notes, path)
+        try:
+            notebooks, notes = await self._repo.load_all()
+            await self._repo.export(notebooks, notes, path)
+        except Exception as error:
+            # Surface the failure (e.g. a missing directory) instead of
+            # leaving it on the command's unobserved error channel.
+            self._notification_hub.post(
+                Notification(NotificationType.ERROR, f"Export failed: {error}")
+            )
 
     # ── Builder entry-point ────────────────────────────────────────────────
     @staticmethod
