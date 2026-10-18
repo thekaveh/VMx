@@ -64,7 +64,7 @@ async def main() -> None:
     loop = asyncio.get_running_loop()
     hub: MessageHub[Message] = MessageHub()
     dispatcher = RxDispatcher.asyncio(loop)
-    # Unreleased source 3.23.2 and later (current: 3.29.0):
+    # Source 3.23.2 and later, not yet on PyPI (current source: 3.29.0):
     # foreground → AsyncIOThreadSafeScheduler(loop)
     # background → ThreadPoolScheduler
     ...

@@ -192,6 +192,10 @@ observers must not see intermediate state. The API is idiomatic per flavor:
 | Swift      | `try hub.batch { ... }`              |
 | Rust       | `hub.batch(|| { ... })`              |
 
+In C#, `Batch` is on `ITransactionalMessageHub`, which `MessageHub` implements.
+A variable typed as `IMessageHub` must be a `MessageHub` or an
+`ITransactionalMessageHub` to call it.
+
 The scope is lossless. If it sends `A`, `B`, and `C`, every current subscriber
 receives `A`, `B`, and `C` exactly once after the outermost scope exits. Nested
 scopes flatten. If the body raises, queued messages drain first and the original
@@ -235,9 +239,11 @@ viewmodels, and `first` and `second` are note viewmodels.
     ```csharp
     hub.Batch(() =>
     {
-        using var update = notes.BatchUpdate();
-        notes.Add(first);
-        notes.Add(second);
+        using (notes.BatchUpdate())
+        {
+            notes.Add(first);
+            notes.Add(second);
+        }
         summary.Model = BuildSummary(notes);
     });
     ```

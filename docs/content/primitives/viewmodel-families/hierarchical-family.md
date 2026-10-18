@@ -152,7 +152,7 @@ when a subclass is required.
 
     ```python
     root = (
-        HierarchicalVMBuilder()
+        HierarchicalVMBuilder[str, HierarchicalVM[str, Any]]()
         .model("root")
         .children_factory(lambda _parent: [])
         .services(hub, dispatcher)

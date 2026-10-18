@@ -55,10 +55,12 @@ public sealed class BindableVm<M> : INotifyPropertyChanged, IDisposable
     {
         _vm = vm;
         // ComponentVM<M> implements INotifyPropertyChanged: it raises Model on
-        // assignment and Status on every lifecycle transition, on the thread
-        // that made the change. Forward each notification on the UI thread.
-        // Hub messages are not forwarded: the hub carries no Status change,
-        // and its Model message would notify a second time.
+        // assignment, and Status and IsConstructed on every lifecycle
+        // transition, on the thread that made the change. Forward each
+        // notification on the UI thread. Hub messages are not forwarded: the
+        // hub carries status changes as ConstructionStatusChangedMessage, not
+        // as a Status PropertyChanged, and its Model message would notify a
+        // second time.
         _subscription = Observable
             .FromEventPattern<PropertyChangedEventHandler, PropertyChangedEventArgs>(
                 handler => vm.PropertyChanged += handler,
