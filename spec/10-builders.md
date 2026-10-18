@@ -76,7 +76,8 @@ Open Rust gap: Rust types `Hint` and `ModeledHint` as `Option<String>`. The
 builders default an unset `Hint` to `Some("")`, but the default `ModeledHinter`
 gives `None` instead of the empty string. The Rust builder also has no
 `OnModelChanged` callback. `ModeledCompositeVmBuilder` has no `hint` setter, and
-`ModeledCompositeVm` exposes no `name`, `hint`, or `id`.
+`ModeledCompositeVm` exposes no `name`, `hint`, or `id`. A non-modeled Rust `ComponentVm<()>` requires `.model(())`;
+its `build()` reports a missing `model` before missing services.
 
 - `Predicate` (commands) → returns `true`
 - `Task` (commands) → no-op

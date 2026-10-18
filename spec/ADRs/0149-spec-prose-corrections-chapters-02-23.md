@@ -131,7 +131,9 @@ and the Python tree helpers use the public `ComponentVMProto` (chapter 13).
   `HierarchicalVm` and `ModeledCompositeVm` have no hook methods, and
   `ForwardingCompositeVm` reaches them only through `inner()`); chapter 06
   records the Rust `FilteredCompositeVm` `Changed` and `ModeledCrudCommands`
-  confirmation gaps (chapter 06 separates the two Rust constructors: only
+  confirmation gaps, chapter 08 says Swift slot factories cannot throw, chapter
+  10 records that a non-modeled Rust `ComponentVm<()>` needs `.model(())`
+  (chapter 06 separates the two Rust constructors: only
   `with_current_changed` takes the trigger), chapter 04 §4 says a trigger fires
   `CanExecuteChanged` and consumers re-read `CanExecute`, chapter 18 §3 and §5 state that destruct does not cascade and
   that invalidation detaches children without a `Parent` message (as every flavor
