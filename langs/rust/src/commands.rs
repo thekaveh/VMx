@@ -1524,11 +1524,18 @@ impl<C: Command + Clone> Command for DecoratorCommand<C> {
         }
         // The pre-action may dispose the decorator: skip the inner command but
         // keep the admitted pre/post pair balanced (spec §8.4, ADR-0134).
-        if !self.is_disposed() {
-            self.inner.execute();
-        }
+        // A panicking inner command still runs the post-action once, and the
+        // panic then continues (CMDD-013, every exit path).
+        let outcome = if self.is_disposed() {
+            Ok(())
+        } else {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.inner.execute()))
+        };
         if let Some(post) = &self.post {
             post();
+        }
+        if let Err(panic) = outcome {
+            std::panic::resume_unwind(panic);
         }
     }
 

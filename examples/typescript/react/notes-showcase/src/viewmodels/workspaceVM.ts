@@ -270,8 +270,10 @@ export class WorkspaceVM {
    */
   selectNotebook(nb: NotebookVM): void {
     this.#notebooks.current = nb;
-    this.setFocus(nb);
+    // Set the readonly mirror before setFocus fires the command trigger, so
+    // the re-evaluated predicates see the new notebook (as in C# and Swift).
     this.#notesView.currentNotebookIsReadonly = nb.model.isReadonly ?? false;
+    this.setFocus(nb);
     void this.#bindNotesObservedAsync(nb.model.id);
   }
 

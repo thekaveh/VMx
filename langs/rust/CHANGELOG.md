@@ -44,6 +44,11 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `SearchableState::search` announces the projection on `filtered_changed`, as
+  the pushed filtered output of the other flavors does, including after the
+  source signal is disposed (SRCH-005).
+- `DecoratorCommand` runs its post-action once when the inner command panics,
+  then continues the panic (CMDD-013, spec/04 §8.4).
 - `FormVm::with_validator` keys each registration's errors separately, so a
   second whole-model validator no longer replaces the first one's errors, and
   a registration after dispose is inactive (spec/20 §10).

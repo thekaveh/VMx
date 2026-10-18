@@ -914,3 +914,25 @@ fn trait_calls_on_a_clone_share_in_flight_state() {
     );
     assert!(clone.can_execute());
 }
+
+/// CMDD-013 — a panicking inner command still runs the post-action once
+#[test]
+fn panicking_inner_command_still_runs_the_post_action_once() {
+    let posts = Arc::new(AtomicUsize::new(0));
+    let decorator = DecoratorCommand::new(
+        RelayCommand::new(|| panic!("inner failed")),
+        None::<fn() -> bool>,
+        None::<fn()>,
+        Some({
+            let posts = posts.clone();
+            move || {
+                posts.fetch_add(1, Ordering::SeqCst);
+            }
+        }),
+    );
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| decorator.execute()));
+
+    assert!(result.is_err(), "the inner panic propagates");
+    assert_eq!(posts.load(Ordering::SeqCst), 1);
+}

@@ -38,6 +38,25 @@ describe("WorkspaceVM", () => {
     ws.dispose();
   });
 
+  it("newNoteCommand reports the new notebook's readonly state when it notifies", async () => {
+    const ws = makeWorkspace();
+    await ws.constructAsync();
+    const archive = ws.notebooksRoot.roots.find((nb) => nb.model.id === "nb-archive")!;
+    const work = ws.notebooksRoot.roots.find((nb) => nb.model.id === "nb-work")!;
+    let seen = ws.newNoteCommand.canExecute();
+    const sub = ws.newNoteCommand.canExecuteChanged.subscribe(() => {
+      seen = ws.newNoteCommand.canExecute();
+    });
+
+    ws.selectNotebook(archive);
+    expect(seen).toBe(false);
+    ws.selectNotebook(work);
+    expect(seen).toBe(true);
+
+    sub.unsubscribe();
+    ws.dispose();
+  });
+
   it("observes a failed selection bind and permits a retry", async () => {
     const repo = new InMemoryNoteRepository(buildSeed(), {
       loadAllDelayMs: 0,

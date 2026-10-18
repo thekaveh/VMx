@@ -253,7 +253,7 @@ fn source_disposal_is_isolated_from_manual_search() {
     items.lock().unwrap().push("two");
 
     assert_eq!(state.search(), vec!["one", "two"]);
-    assert_eq!(hits.load(Ordering::SeqCst), 0);
+    assert_eq!(hits.load(Ordering::SeqCst), 1);
 }
 
 /// SRCH-006 — disposal cancels source observation once without owning the source
