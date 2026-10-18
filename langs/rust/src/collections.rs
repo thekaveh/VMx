@@ -1186,7 +1186,7 @@ where
     /// Adds `key` or replaces its existing value in place.
     pub fn insert(&self, key: K, value: V) {
         let mut entry = Some((key, value));
-        let (action, replaced) = loop {
+        let (action, replaced, new_index) = loop {
             let (revision, index) = self.locate(&entry.as_ref().expect("entry pending").0);
             let committed = commit_entries(&self.inner, revision, |entries| {
                 let (key, value) = entry.take().expect("entry pending");
@@ -1194,10 +1194,12 @@ where
                     Some(index) => (
                         CollectionChangeAction::Replace,
                         Some(std::mem::replace(&mut entries[index].1, value)),
+                        None,
                     ),
                     None => {
                         entries.push((key, value));
-                        (CollectionChangeAction::Add, None)
+                        // Add carries its insertion position (spec/21 §2.4).
+                        (CollectionChangeAction::Add, None, Some(entries.len() - 1))
                     }
                 }
             });
@@ -1206,7 +1208,7 @@ where
             }
         };
         drop(replaced);
-        self.publish(action);
+        self.publish_at(action, new_index);
     }
 
     /// Returns the value associated with `key`, if present.
@@ -1258,6 +1260,10 @@ where
     }
 
     fn publish(&self, action: CollectionChangeAction) {
+        self.publish_at(action, None);
+    }
+
+    fn publish_at(&self, action: CollectionChangeAction, new_index: Option<usize>) {
         self.hub
             .send(Message::CollectionChanged(CollectionChangedMessage {
                 sender_id: self.owner_id,
@@ -1265,7 +1271,7 @@ where
                 property_name: "items".to_string(),
                 action,
                 old_index: None,
-                new_index: None,
+                new_index,
             }));
     }
 }
@@ -1311,21 +1317,21 @@ where
     /// changing the dictionary (spec/21 §4.1 `Add`).
     pub fn add(&self, key1: K1, key2: K2, value: V) -> VmxResult<()> {
         let mut entry = Some((key1, key2, value));
-        loop {
+        let position = loop {
             let pending = entry.as_ref().expect("entry pending");
             let (revision, index) = self.locate(&pending.0, &pending.1);
             if index.is_some() {
                 return Err(VmxError::InvalidArgument("duplicate key pair".to_string()));
             }
-            if commit_entries(&self.inner, revision, |entries| {
+            if let Some(position) = commit_entries(&self.inner, revision, |entries| {
                 entries.push(entry.take().expect("entry pending"));
-            })
-            .is_some()
-            {
-                break;
+                entries.len() - 1
+            }) {
+                break position;
             }
-        }
-        self.publish(CollectionChangeAction::Add);
+        };
+        // Add carries its insertion position (spec/21 §2.4).
+        self.publish_at(CollectionChangeAction::Add, Some(position));
         Ok(())
     }
 
@@ -1349,7 +1355,7 @@ where
     /// Adds a key pair or replaces its existing value in place.
     pub fn insert(&self, key1: K1, key2: K2, value: V) {
         let mut entry = Some((key1, key2, value));
-        let (action, replaced) = loop {
+        let (action, replaced, new_index) = loop {
             let pending = entry.as_ref().expect("entry pending");
             let (revision, index) = self.locate(&pending.0, &pending.1);
             let committed = commit_entries(&self.inner, revision, |entries| {
@@ -1358,10 +1364,11 @@ where
                     Some(index) => (
                         CollectionChangeAction::Replace,
                         Some(std::mem::replace(&mut entries[index].2, pending.2)),
+                        None,
                     ),
                     None => {
                         entries.push(pending);
-                        (CollectionChangeAction::Add, None)
+                        (CollectionChangeAction::Add, None, Some(entries.len() - 1))
                     }
                 }
             });
@@ -1370,7 +1377,7 @@ where
             }
         };
         drop(replaced);
-        self.publish(action);
+        self.publish_at(action, new_index);
     }
 
     /// Removes and returns the value associated with a key pair.
@@ -1435,6 +1442,10 @@ where
     }
 
     fn publish(&self, action: CollectionChangeAction) {
+        self.publish_at(action, None);
+    }
+
+    fn publish_at(&self, action: CollectionChangeAction, new_index: Option<usize>) {
         self.hub
             .send(Message::CollectionChanged(CollectionChangedMessage {
                 sender_id: self.owner_id,
@@ -1442,7 +1453,7 @@ where
                 property_name: "items".to_string(),
                 action,
                 old_index: None,
-                new_index: None,
+                new_index,
             }));
     }
 }

@@ -52,6 +52,11 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `ObservableDictionary` and `ObservableMultiDictionary` hub `Add` messages
+  carry the insertion index in `new_index`, as the other flavors do
+  (spec/21 §2.4). Before, every action sent `None`.
+- `DerivedProperty::set_value` reports a disposed property and a rejected value
+  with separate messages. Before, both said "derived property is read-only".
 - `FormVm::dispose` no longer publishes `ConstructionStatusChanged`
   (`Disposed`) on the form's hub. The hub carries only the spec/20 §8
   messages, the model `PropertyChanged` and `FormReverted`, as in the other

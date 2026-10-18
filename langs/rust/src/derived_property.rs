@@ -592,9 +592,14 @@ impl<T: Clone + PartialEq + Send + 'static> DerivedProperty<T> {
     /// Returns [`VmxError::InvalidArgument`] when the property is read-only,
     /// disposed, or the configured validator rejects the candidate.
     pub fn set_value(&self, value: T) -> VmxResult<()> {
-        if !self.can_set(&value) {
+        if *lock(&self.disposed) {
             return Err(VmxError::InvalidArgument(
-                "derived property is read-only".to_string(),
+                "derived property is disposed".to_string(),
+            ));
+        }
+        if !(self.validator)(&value) {
+            return Err(VmxError::InvalidArgument(
+                "derived property rejected the value (read-only or invalid)".to_string(),
             ));
         }
         (self.write_back)(value);

@@ -180,11 +180,21 @@ class AsyncRelayCommand:
             self._admission_epoch += 1
         return task_factory
 
-    async def _run_admitted(self, task_factory: Callable[[], Awaitable[None]]) -> None:
-        """Run a task that :meth:`_admit` accepted."""
+    async def _run_admitted(
+        self,
+        task_factory: Callable[[], Awaitable[None]],
+        *,
+        start_notified: bool = False,
+    ) -> None:
+        """Run a task that :meth:`_admit` accepted.
+
+        ``start_notified`` is True when the caller already raised the
+        execution-started ``can_execute_changed``.
+        """
         first_error: tuple[BaseException, TracebackType | None] | None = None
         try:
-            self.raise_can_execute_changed()
+            if not start_notified:
+                self.raise_can_execute_changed()
             try:
                 inner: asyncio.Task[None] = asyncio.ensure_future(task_factory())
                 with self._gate:
@@ -230,13 +240,17 @@ class AsyncRelayCommand:
         task_factory = self._admit()
         if task_factory is None:
             return
+        # The start notification goes out with the flag flip, before the task
+        # is scheduled, so observers see is_executing and the event together.
+        self.raise_can_execute_changed()
+        run = self._run_admitted(task_factory, start_notified=True)
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
-            future = submit_background(self._run_admitted(task_factory))
+            future = submit_background(run)
             future.add_done_callback(self._on_done)
             return
-        task = loop.create_task(self._run_admitted(task_factory))
+        task = loop.create_task(run)
         task.add_done_callback(self._on_done)
 
     def cancel(self) -> None:

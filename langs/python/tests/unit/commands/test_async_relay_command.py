@@ -505,3 +505,24 @@ async def test_execute_admits_before_returning_so_cancel_applies() -> None:
     assert "end" not in log
     assert not command.is_executing
     command.dispose()
+
+
+@pytest.mark.asyncio
+async def test_execute_raises_the_start_notification_before_returning() -> None:
+    import asyncio
+
+    from vmx.commands.async_relay_command import AsyncRelayCommand
+
+    async def task() -> None:
+        await asyncio.sleep(0)
+
+    command = AsyncRelayCommand.builder().task(task).build()
+    events: list[bool] = []
+    command.can_execute_changed.subscribe(lambda _: events.append(command.is_executing))
+
+    command.execute()
+
+    assert events == [True]
+    await asyncio.sleep(0.01)
+    assert events == [True, False]
+    command.dispose()
