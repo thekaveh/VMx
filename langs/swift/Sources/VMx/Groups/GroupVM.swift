@@ -593,8 +593,9 @@ open class GroupVM<Child: ComponentVMBase>:
         // A peer's throwing `construct()` (ADR-0053) propagates up the cascade.
         // Snapshot first so the lifecycle iteration is stable; membership
         // mutations from population hooks are rejected until commit/rollback.
+        // A background peer defers Constructed until every peer is (spec/02 §6).
         let snapshot = snapshot()
-        for child in snapshot { try child.construct() }
+        try _transitionChildren(snapshot, construct: true)
     }
 
     private func attachPopulation(
@@ -690,8 +691,9 @@ open class GroupVM<Child: ComponentVMBase>:
 
     open override func _onDestruct() throws {
         let snapshot = snapshot()
-        for child in snapshot { try child.destruct() }
-        try super._onDestruct()
+        try _transitionChildren(snapshot, construct: false) {
+            try super._onDestruct()
+        }
     }
 
     /// Completes `collectionChanged` once the container is disposed, as the
@@ -725,6 +727,8 @@ open class GroupVM<Child: ComponentVMBase>:
                 continue
             }
             guard let snapshot else { return }
+            // A disposed peer must not roll back a pending transition.
+            _abandonChildTransition()
             for child in snapshot { child.dispose() }
             super.dispose()
             return

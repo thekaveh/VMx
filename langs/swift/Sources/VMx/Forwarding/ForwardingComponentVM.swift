@@ -108,6 +108,15 @@ open class ForwardingComponentVM<Model>: ComponentVMOf<Model> {
     open override func own(_ cancellable: any Cancellable) { _wrapped.own(cancellable) }
     open override func dispose() { _wrapped.dispose() }
 
+    // A parent waits on the wrapped instance's in-flight transition.
+    override func _awaitSettle(
+        from transient: ConstructionStatus,
+        _ callback: @escaping () -> Void
+    ) -> UInt64? {
+        _wrapped._awaitSettle(from: transient, callback)
+    }
+    override func _cancelSettleWait(_ id: UInt64) { _wrapped._cancelSettleWait(id) }
+
     // ── Selection ───────────────────────────────────────────────────────
     open override func canSelect() -> Bool {
         // A disposed wrapper is inert, like the base (spec/02 §3).

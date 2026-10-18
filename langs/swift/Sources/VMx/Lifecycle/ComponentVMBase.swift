@@ -370,6 +370,161 @@ public enum ViewModelType: String, Sendable {
     case aggregate = "Aggregate"
 }
 
+/// One-shot completion of a lifecycle hook deferred by `_transitionChildren`.
+final class LifecycleDeferral {
+    private let lock = NSLock()
+    private var result: Bool?
+    private var callback: ((Bool) -> Void)?
+
+    func settle(_ succeeded: Bool) {
+        lock.lock()
+        guard result == nil else {
+            lock.unlock()
+            return
+        }
+        result = succeeded
+        let callback = self.callback
+        self.callback = nil
+        lock.unlock()
+        callback?(succeeded)
+    }
+
+    func onSettle(_ callback: @escaping (Bool) -> Void) {
+        lock.lock()
+        if let result {
+            lock.unlock()
+            callback(result)
+            return
+        }
+        self.callback = callback
+        lock.unlock()
+    }
+}
+
+/// A child did not reach the status its parent's transition requires.
+struct ChildTransitionError: Error, CustomStringConvertible {
+    let childName: String
+    let reason: String
+    var description: String { "Child '\(childName)' \(reason)" }
+}
+
+/// Walks a parent's children through one transition, waiting on each child
+/// left in its transient status (spec/02 §6). Cancellation never settles the
+/// deferral, so a disposed parent publishes nothing further.
+final class ChildTransitionWalker {
+    private let lock = NSLock()
+    private var children: [ComponentVMBase]
+    private var after: (() throws -> Void)?
+    private var index = 0
+    private var cancelled = false
+    private var waiting: (child: ComponentVMBase, id: UInt64)?
+    private let target: ConstructionStatus
+    private let transient: ConstructionStatus
+    let deferral = LifecycleDeferral()
+
+    init(
+        children: [ComponentVMBase],
+        construct: Bool,
+        after: (() throws -> Void)?
+    ) {
+        self.children = children
+        self.after = after
+        self.target = construct ? .constructed : .destructed
+        self.transient = construct ? .constructing : .destructing
+    }
+
+    /// Returns `true` while a child is pending; the walk then resumes when
+    /// that child settles and finally settles `deferral`.
+    func start() throws -> Bool { try advance() }
+
+    func cancel() {
+        lock.lock()
+        cancelled = true
+        let waiting = self.waiting
+        self.waiting = nil
+        children = []
+        after = nil
+        lock.unlock()
+        if let waiting { waiting.child._cancelSettleWait(waiting.id) }
+    }
+
+    private func advance() throws -> Bool {
+        while true {
+            lock.lock()
+            guard !cancelled else {
+                lock.unlock()
+                return true
+            }
+            guard index < children.count else {
+                let after = self.after
+                self.after = nil
+                children = []
+                lock.unlock()
+                try after?()
+                return false
+            }
+            let child = children[index]
+            lock.unlock()
+
+            let status = child.status
+            if status != target && status != transient {
+                if target == .constructed { try child.construct() } else { try child.destruct() }
+            }
+            if child.status == transient {
+                lock.lock()
+                if cancelled {
+                    lock.unlock()
+                    return true
+                }
+                // Register under `lock` so a settle racing in from another
+                // thread observes `waiting` before it resumes the walk.
+                if let id = child._awaitSettle(from: transient, { [self] in
+                    self.childSettled(child)
+                }) {
+                    waiting = (child, id)
+                    lock.unlock()
+                    return true
+                }
+                lock.unlock()
+            }
+            guard child.status == target else {
+                throw ChildTransitionError(
+                    childName: child.name,
+                    reason: "did not reach \(target)"
+                )
+            }
+            lock.lock()
+            index += 1
+            lock.unlock()
+        }
+    }
+
+    private func childSettled(_ child: ComponentVMBase) {
+        lock.lock()
+        guard !cancelled, let waiting, waiting.child === child else {
+            lock.unlock()
+            return
+        }
+        self.waiting = nil
+        lock.unlock()
+        // The child rolled back or was disposed: roll the parent back.
+        guard child.status == target else {
+            deferral.settle(false)
+            return
+        }
+        lock.lock()
+        index += 1
+        lock.unlock()
+        do {
+            if try advance() { return }
+            deferral.settle(true)
+        } catch {
+            // A deferred failure has no caller to rethrow to: roll back.
+            deferral.settle(false)
+        }
+    }
+}
+
 open class ComponentVMBase {
     // ── Identity ────────────────────────────────────────────────────────
 
@@ -483,6 +638,17 @@ open class ComponentVMBase {
     private var activeHookLease: LifecycleHookLease?
     private var disposalCleanupPendingForHook = false
     private var disposalFinished = false
+
+    // ── Deferred child transitions (spec/02 §6, LIFE-014) ───────────────
+
+    /// Callbacks resumed once the in-flight transition settles (or the VM is
+    /// disposed). A parent waiting on this VM registers here.
+    private var settleWaiters: [(id: UInt64, callback: () -> Void)] = []
+    private var nextSettleWaiterID: UInt64 = 0
+    /// Set by `_transitionChildren` while a hook defers its terminal status.
+    private var pendingLifecycleDeferral: LifecycleDeferral?
+    /// The walker waiting on a pending child; cancelled on dispose.
+    private var activeChildWalker: ChildTransitionWalker?
 
     // ── Built-in commands ───────────────────────────────────────────────
 
@@ -726,24 +892,12 @@ open class ComponentVMBase {
 
         if background {
             dispatcher.scheduleBackground { [weak self] in
-                guard let self else { return }
-                guard let lease = self._claimHook(
-                    generation,
-                    status: .constructing
-                ) else { return }
-                let terminal: ConstructionStatus
-                do {
-                    try self._onConstruct()
-                    terminal = .constructed
-                } catch {
-                    terminal = current
-                }
-                self._finishHook(lease)
-                self.dispatcher.scheduleForeground { [weak self] in
-                    guard let self else { return }
-                    _ = self._commitStatus(terminal, generation: generation)
-                    self._clearInFlight(generation)
-                }
+                self?._runBackgroundHook(
+                    generation: generation,
+                    status: .constructing,
+                    success: .constructed,
+                    rollback: current
+                ) { try $0._onConstruct() }
             }
         } else {
             guard let lease = _claimHook(
@@ -753,14 +907,17 @@ open class ComponentVMBase {
             do {
                 try _onConstruct()
             } catch {
+                _abandonChildTransition()
                 _finishHook(lease)
-                _ = _commitStatus(current, generation: generation)
-                _clearInFlight(generation)
+                _completeTransition(current, generation: generation)
                 throw error
             }
             _finishHook(lease)
-            _ = _commitStatus(.constructed, generation: generation)
-            _clearInFlight(generation)
+            _completeTransitionAfterChildren(
+                success: .constructed,
+                rollback: current,
+                generation: generation
+            )
         }
     }
 
@@ -795,24 +952,12 @@ open class ComponentVMBase {
 
         if background {
             dispatcher.scheduleBackground { [weak self] in
-                guard let self else { return }
-                guard let lease = self._claimHook(
-                    generation,
-                    status: .destructing
-                ) else { return }
-                let terminal: ConstructionStatus
-                do {
-                    try self._onDestruct()
-                    terminal = .destructed
-                } catch {
-                    terminal = current
-                }
-                self._finishHook(lease)
-                self.dispatcher.scheduleForeground { [weak self] in
-                    guard let self else { return }
-                    _ = self._commitStatus(terminal, generation: generation)
-                    self._clearInFlight(generation)
-                }
+                self?._runBackgroundHook(
+                    generation: generation,
+                    status: .destructing,
+                    success: .destructed,
+                    rollback: current
+                ) { try $0._onDestruct() }
             }
         } else {
             guard let lease = _claimHook(
@@ -822,14 +967,17 @@ open class ComponentVMBase {
             do {
                 try _onDestruct()
             } catch {
+                _abandonChildTransition()
                 _finishHook(lease)
-                _ = _commitStatus(current, generation: generation)
-                _clearInFlight(generation)
+                _completeTransition(current, generation: generation)
                 throw error
             }
             _finishHook(lease)
-            _ = _commitStatus(.destructed, generation: generation)
-            _clearInFlight(generation)
+            _completeTransitionAfterChildren(
+                success: .destructed,
+                rollback: current,
+                generation: generation
+            )
         }
     }
 
@@ -865,12 +1013,32 @@ open class ComponentVMBase {
         do {
             try _onDestruct()
         } catch {
+            _abandonChildTransition()
             _finishHook(destructLease)
-            _ = _commitStatus(.constructed, generation: generation)
-            _clearInFlight(generation)
+            _completeTransition(.constructed, generation: generation)
             throw error
         }
         _finishHook(destructLease)
+        if let deferral = _takeLifecycleDeferral() {
+            // A background child is still destructing: run the construct
+            // phase only once every child has reached Destructed (spec/02 §6).
+            deferral.onSettle { [weak self] succeeded in
+                guard let self else { return }
+                guard succeeded else {
+                    self._completeTransition(.constructed, generation: generation)
+                    return
+                }
+                // A deferred construct-phase failure has already rolled back;
+                // there is no caller left to rethrow to.
+                try? self._reconstructConstructPhase(generation: generation)
+            }
+            return
+        }
+        try _reconstructConstructPhase(generation: generation)
+    }
+
+    /// The Destructed → Constructing → Constructed half of `reconstruct()`.
+    private func _reconstructConstructPhase(generation: UInt64) throws {
         guard _commitStatus(.destructed, generation: generation) else { return }
         guard _commitStatus(.constructing, generation: generation) else { return }
 
@@ -881,14 +1049,170 @@ open class ComponentVMBase {
         do {
             try _onConstruct()
         } catch {
+            _abandonChildTransition()
             _finishHook(constructLease)
-            _ = _commitStatus(.destructed, generation: generation)
-            _clearInFlight(generation)
+            _completeTransition(.destructed, generation: generation)
             throw error
         }
         _finishHook(constructLease)
-        _ = _commitStatus(.constructed, generation: generation)
-        _clearInFlight(generation)
+        _completeTransitionAfterChildren(
+            success: .constructed,
+            rollback: .destructed,
+            generation: generation
+        )
+    }
+
+    /// Runs a background lifecycle hook and marshals its terminal status
+    /// (deferred until pending children settle) back to the foreground.
+    private func _runBackgroundHook(
+        generation: UInt64,
+        status: ConstructionStatus,
+        success: ConstructionStatus,
+        rollback: ConstructionStatus,
+        _ hook: (ComponentVMBase) throws -> Void
+    ) {
+        guard let lease = _claimHook(generation, status: status) else { return }
+        var failed = false
+        do {
+            try hook(self)
+        } catch {
+            _abandonChildTransition()
+            failed = true
+        }
+        _finishHook(lease)
+        let finish: (ConstructionStatus) -> Void = { [weak self] terminal in
+            self?.dispatcher.scheduleForeground { [weak self] in
+                self?._completeTransition(terminal, generation: generation)
+            }
+        }
+        if !failed, let deferral = _takeLifecycleDeferral() {
+            deferral.onSettle { succeeded in finish(succeeded ? success : rollback) }
+        } else {
+            finish(failed ? rollback : success)
+        }
+    }
+
+    /// Commits `success` now, or — when the hook deferred through
+    /// `_transitionChildren` — once every pending child settles (`rollback` if
+    /// one did not reach its target). The in-flight guard is held meanwhile.
+    private func _completeTransitionAfterChildren(
+        success: ConstructionStatus,
+        rollback: ConstructionStatus,
+        generation: UInt64
+    ) {
+        guard let deferral = _takeLifecycleDeferral() else {
+            _completeTransition(success, generation: generation)
+            return
+        }
+        deferral.onSettle { [weak self] succeeded in
+            self?._completeTransition(
+                succeeded ? success : rollback,
+                generation: generation
+            )
+        }
+    }
+
+    /// Publishes the terminal status, then releases the in-flight guard, then
+    /// resumes any parent waiting on this transition — so a resumed parent
+    /// observes the fully published status and may start the next transition.
+    private func _completeTransition(
+        _ status: ConstructionStatus,
+        generation: UInt64
+    ) {
+        lifecycleLock.lock()
+        if transitionGeneration == generation { activeChildWalker = nil }
+        lifecycleLock.unlock()
+        _ = _commitStatus(status, generation: generation)
+        lifecycleLock.lock()
+        var waiters: [(id: UInt64, callback: () -> Void)] = []
+        if transitionGeneration == generation {
+            inFlight = false
+            waiters = settleWaiters
+            settleWaiters.removeAll()
+        }
+        lifecycleLock.unlock()
+        for waiter in waiters { waiter.callback() }
+    }
+
+    // ── Child transitions (spec/02 §6) ──────────────────────────────────
+
+    /// Registers `callback` to run once this VM's in-flight `transient`
+    /// transition settles or the VM is disposed. Returns `nil` without
+    /// registering when no such transition is in flight.
+    func _awaitSettle(
+        from transient: ConstructionStatus,
+        _ callback: @escaping () -> Void
+    ) -> UInt64? {
+        lifecycleLock.lock()
+        defer { lifecycleLock.unlock() }
+        guard inFlight, !disposalRequested, _status == transient else { return nil }
+        nextSettleWaiterID &+= 1
+        settleWaiters.append((nextSettleWaiterID, callback))
+        return nextSettleWaiterID
+    }
+
+    func _cancelSettleWait(_ id: UInt64) {
+        lifecycleLock.lock()
+        settleWaiters.removeAll { $0.id == id }
+        lifecycleLock.unlock()
+    }
+
+    /// Transitions `children` sequentially to Constructed (`construct`) or
+    /// Destructed, then runs `after`. Call only from `_onConstruct` /
+    /// `_onDestruct`. Children that settle synchronously keep the hook fully
+    /// synchronous. A child left in its transient status (a background child)
+    /// defers this VM's terminal status until it settles; a child that settles
+    /// anywhere else rolls this VM back (LIFE-014). A child already in its
+    /// transient status is joined, not restarted.
+    func _transitionChildren(
+        _ children: [ComponentVMBase],
+        construct: Bool,
+        after: (() throws -> Void)? = nil
+    ) throws {
+        let walker = ChildTransitionWalker(
+            children: children,
+            construct: construct,
+            after: after
+        )
+        guard try walker.start() else { return }
+        lifecycleLock.lock()
+        if disposalRequested || _status == .disposed {
+            // Disposed mid-hook: a disposed VM never settles.
+            lifecycleLock.unlock()
+            walker.cancel()
+            return
+        }
+        guard pendingLifecycleDeferral == nil else {
+            lifecycleLock.unlock()
+            walker.cancel()
+            throw ChildTransitionError(
+                childName: name,
+                reason: "a lifecycle hook already deferred completion"
+            )
+        }
+        pendingLifecycleDeferral = walker.deferral
+        activeChildWalker = walker
+        lifecycleLock.unlock()
+    }
+
+    /// Stops waiting for a pending child transition without settling this
+    /// VM. Containers call this before disposing their children so a child
+    /// reaching Disposed cannot roll this VM back ahead of its own disposal.
+    func _abandonChildTransition() {
+        lifecycleLock.lock()
+        let walker = activeChildWalker
+        activeChildWalker = nil
+        pendingLifecycleDeferral = nil
+        lifecycleLock.unlock()
+        walker?.cancel()
+    }
+
+    private func _takeLifecycleDeferral() -> LifecycleDeferral? {
+        lifecycleLock.lock()
+        defer { lifecycleLock.unlock() }
+        let deferral = pendingLifecycleDeferral
+        pendingLifecycleDeferral = nil
+        return deferral
     }
 
     /// Idempotent terminal transition. From any non-Disposed state,
@@ -905,6 +1229,12 @@ open class ComponentVMBase {
         transitionGeneration &+= 1
         inFlight = false
         let hookLease = activeHookLease
+        // A transition waiting on a child never settles once Disposed.
+        let walker = activeChildWalker
+        activeChildWalker = nil
+        pendingLifecycleDeferral = nil
+        let waiters = settleWaiters
+        settleWaiters.removeAll()
         let publication = _enqueueStatusLocked(
             .disposed,
             isDisposal: true,
@@ -913,7 +1243,10 @@ open class ComponentVMBase {
             }
         )
         lifecycleLock.unlock()
+        walker?.cancel()
         _publishLifecycle(publication)
+        // A parent waiting on this VM observes Disposed and rolls back.
+        for waiter in waiters { waiter.callback() }
     }
 
     // ── Selection ───────────────────────────────────────────────────────
@@ -1048,12 +1381,6 @@ open class ComponentVMBase {
         if shouldFinishDisposal {
             _finishDisposalNow()
         }
-    }
-
-    private func _clearInFlight(_ generation: UInt64) {
-        lifecycleLock.lock()
-        if transitionGeneration == generation { inFlight = false }
-        lifecycleLock.unlock()
     }
 
     @discardableResult

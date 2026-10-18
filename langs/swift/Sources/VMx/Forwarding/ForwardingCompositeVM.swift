@@ -66,6 +66,15 @@ open class ForwardingCompositeVM<Child: ComponentVMBase>: CompositeVM<Child> {
     open override func own(_ cancellable: any Cancellable) { _wrapped.own(cancellable) }
     open override func dispose() { _wrapped.dispose() }
 
+    // A parent waits on the wrapped instance's in-flight transition.
+    override func _awaitSettle(
+        from transient: ConstructionStatus,
+        _ callback: @escaping () -> Void
+    ) -> UInt64? {
+        _wrapped._awaitSettle(from: transient, callback)
+    }
+    override func _cancelSettleWait(_ id: UInt64) { _wrapped._cancelSettleWait(id) }
+
     // ── Selection (ComponentVMBase) ─────────────────────────────────────
     open override func canSelect() -> Bool { _wrapped.canSelect() }
     open override func select() { _wrapped.select() }

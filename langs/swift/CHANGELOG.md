@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `CompositeVM`, `GroupVM`, and `AggregateVM1`…`AggregateVM6` wait for
+  background children. `construct()` reaches Constructed (and the composite's
+  current selector runs) only once every child is Constructed, and `destruct()`
+  reaches Destructed only once every child is Destructed; `reconstruct()` waits
+  for both phases. A background child that fails rolls the parent back
+  (LIFE-014), and disposing a parent while it waits publishes no further
+  status. Before, the parent committed while background children were still
+  Constructing or Destructing, and stayed Constructed when one failed
+  (spec/02 §6). Children that finish synchronously keep the parent fully
+  synchronous, with unchanged emission order.
 - A disposed `CompositeCommand`, `DecoratorCommand`, or
   `ConfirmationDecoratorCommand` stops forwarding inner `canExecuteChanged`
   emissions. Disposal releases the wrapper's inner subscriptions, notifies once,

@@ -725,15 +725,18 @@ open class CompositeVM<Child: ComponentVMBase>:
         // hook to the composite's originating `construct()` call. Snapshot first
         // so the lifecycle iteration is stable; membership mutations attempted
         // from population hooks are rejected until the transaction completes.
+        // A background child defers the composite's Constructed status (and the
+        // selector) until every child has reached Constructed (spec/02 §6).
         let snapshot = snapshot()
-        for child in snapshot { try child.construct() }
-        if let selector = currentSelector,
-           let initial = selector(snapshot),
-           snapshot.contains(where: { $0 === initial }) {
-            // Non-raising validated assignment (spec/06 §3.1 / COMP-025): the
-            // membership is already checked above, so the internal setter never
-            // hits its non-child trap here.
-            _setCurrent(initial)
+        try _transitionChildren(snapshot, construct: true) { [self] in
+            if let selector = currentSelector,
+               let initial = selector(snapshot),
+               snapshot.contains(where: { $0 === initial }) {
+                // Non-raising validated assignment (spec/06 §3.1 / COMP-025):
+                // the membership is already checked above, so the internal
+                // setter never hits its non-child trap here.
+                _setCurrent(initial)
+            }
         }
     }
 
@@ -833,8 +836,9 @@ open class CompositeVM<Child: ComponentVMBase>:
         // clear the current slot before children are destructed.
         if membershipGate.withLock({ _current != nil }) { _applyCurrentChange(nil) }
         let snapshot = snapshot()
-        for child in snapshot { try child.destruct() }
-        try super._onDestruct()
+        try _transitionChildren(snapshot, construct: false) {
+            try super._onDestruct()
+        }
     }
 
     /// Completes `collectionChanged` once the container is disposed, as the
@@ -872,6 +876,8 @@ open class CompositeVM<Child: ComponentVMBase>:
                 continue
             }
             guard let snapshot else { return }
+            // A disposed child must not roll back a pending transition.
+            _abandonChildTransition()
             // LIFE-013: depth-first dispose children, then self.
             for child in snapshot { child.dispose() }
             super.dispose()
