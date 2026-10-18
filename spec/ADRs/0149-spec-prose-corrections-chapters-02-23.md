@@ -131,8 +131,10 @@ and the Python tree helpers use the public `ComponentVMProto` (chapter 13).
   `HierarchicalVm` and `ModeledCompositeVm` have no hook methods, and
   `ForwardingCompositeVm` reaches them only through `inner()`); chapter 06
   records the Rust `FilteredCompositeVm` `Changed` and `ModeledCrudCommands`
-  confirmation gaps and the Rust membership transaction held across publication
-  (`COMP-026`); chapter 18 §4 says the eager option applies per node, as
+  confirmation gaps, the Rust membership transaction held across publication
+  (`COMP-026`), and the missing Rust local collection-change stream
+  (`COMP-041`/`COMP-042`); chapter 21 §5.5 records that Rust `PagedComposition`
+  does not observe its source (`COL-031`); chapter 18 §4 says the eager option applies per node, as
   every flavor implements it, so the whole tree is eager when every node is;
   chapter 21 §2.10 says an empty Python slice mutation emits
   nothing, matching TypeScript `splice` (the code now does so); chapter 06 says

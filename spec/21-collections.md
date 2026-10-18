@@ -852,6 +852,10 @@ them. Observable-list split streams (`ItemAdded` / `ItemRemoved` /
 `ItemReplaced` / `Reset`, with per-flavor casing) and composite-style
 `CollectionChanged` streams are both valid source shapes.
 
+Open Rust gap: Rust `PagedComposition` takes a `Vec` snapshot source and does
+not observe it, so `COL-031` (observing a composite source) does not apply to
+Rust; a caller replaces the source to recompute pages.
+
 ### 5.6 Conformance
 
 `COL-016` through `COL-021` and `COL-031` in `12-conformance.md`.

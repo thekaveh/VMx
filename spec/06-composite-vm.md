@@ -139,6 +139,11 @@ After each local event, the composite publishes the equivalent
 `CollectionChangedMessage` to its hub, sending it as itself (chapter 01 §1.4,
 ADR-0142, `COMP-042`).
 
+Open Rust gap: Rust `CompositeVm` and `GroupVm` have no public local
+collection-change stream; consumers observe membership through the hub
+`CollectionChanged` messages. The local-recorder clauses of `COMP-041` and
+`COMP-042` apply to Rust through the hub messages only.
+
 ### 4.1 Batch updates (spec v1.1)
 
 A composite MUST expose an idiomatic scoped batch API: a returned disposable /
