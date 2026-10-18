@@ -92,7 +92,8 @@ follow the flavor idiom (`OnConstruct` C# / `_on_construct` Python /
 forwarding, composite, group, aggregate, and async-resource VM types expose
 public `on_construct`, `on_destruct`, and `on_dispose` methods that replace the
 hook with a closure returning `VmxResult<()>`. Open Rust gap: `HierarchicalVm`
-has the lifecycle but no hook methods:
+and `ModeledCompositeVm` have the lifecycle but no hook methods, and
+`ForwardingCompositeVm` reaches them only through `inner()`:
 
 - `OnConstruct` — invoked during `construct()` (and the construct phase of
   `reconstruct()`), after the VM enters `Constructing` and before it reaches

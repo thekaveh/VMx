@@ -123,8 +123,9 @@ The change is editorial. It adds no normative behavior and no conformance ID.
 - Follow-up corrections in the same change: chapter 19 §1 and its §5 diagram no
   longer call the notification hub fire-and-forget; chapter 18 says Swift's
   `addChild` returns the cycle error as `.failure` while `reparentChild` throws
-  it; chapter 02 lists which Rust VM types have the hook methods (open gap:
-  `HierarchicalVm`); chapter 16 §8.1 states Rust's `NotificationVm`
+  it; chapter 02 lists which Rust VM types have the hook methods (open gaps:
+  `HierarchicalVm` and `ModeledCompositeVm` have no hook methods, and
+  `ForwardingCompositeVm` reaches them only through `inner()`); chapter 16 §8.1 states Rust's `NotificationVm`
   construction.
 - The Rust gaps stay open. Each is recorded, not closed; closing one changes the
   public Rust surface and needs its own decision and change.
