@@ -8,10 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
-- `HierarchicalVM` reports invalid lazy children-factory output as a failure
-  instead of trapping (spec/18 §6). `addChild` returns `.failure`, reparenting
-  fails the same way, and `attachMany` records an `attachmentFailed` rejection
-  and continues the batch.
+- `HierarchicalVM` `addChild`, `reparentChild`, and `attachMany` report invalid
+  lazy children-factory output as an error instead of trapping (spec/18 §6).
+  `addChild` returns `.failure`, `reparentChild` throws the error, and
+  `attachMany` records an `attachmentFailed` rejection and continues the batch.
+  The `children` accessor, `isLeaf`, and `removeChild` still trap on such
+  output.
 
 - A user object whose `deinit` calls back into the VMx primitive that drops
   it no longer deadlocks or traps. `MessageHub` releases delivered and dropped

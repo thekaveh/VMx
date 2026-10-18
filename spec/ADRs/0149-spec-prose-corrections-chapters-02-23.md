@@ -141,6 +141,9 @@ and the Python tree helpers use the public `ComponentVMProto` (chapter 13).
     (SRCH-005). Chapter 06 §8 drops `SearchTermChanged` from the
     `SearchableState` shape. No flavor exposes the debounced term as a public
     stream; the debounce is internal, and consumers observe `Filtered`.
+    Chapter 06 also records the Rust membership transaction held across
+    publication (`COMP-026`) and the missing Rust local collection-change
+    stream (`COMP-041`/`COMP-042`).
   - Chapter 08 says Swift slot factories cannot throw.
   - Chapter 09 §2 records that the TypeScript and Rust forwarding composites
     cannot be children of a container.
@@ -149,9 +152,7 @@ and the Python tree helpers use the public `ComponentVMProto` (chapter 13).
     records the `ModeledCompositeVm` hint and identity gap.
   - Chapter 11 says the containers of every flavor wait for background children
     at the status level and that the Rust containers expose
-    `background_errors()`. It records the Rust membership transaction held
-    across publication (`COMP-026`) and the missing Rust local
-    collection-change stream (`COMP-041`/`COMP-042`).
+    `background_errors()`.
   - The catalog (chapter 12) scopes `COL-031` and the `HUB-013` cross-hub
     clauses to the flavors that can satisfy them. It words `FORM-013` and
     `CMDD-009` per flavor.

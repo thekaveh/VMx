@@ -296,8 +296,8 @@ observable behavior covered by this review.
 
 The ADR-0120 sender representation in §12.2.1 remains the sole intentional
 flavor-specific shape in this ledger. The §12.5 editorial note applies to all
-five flavors and is not a parity backlog. §12.7 to §12.12 record open items and recorded
-differences found after closure. Future differences still require
+five flavors and is not a parity backlog. §12.7 to §12.12 record the open items and differences found
+after closure. Future differences still require
 spec/ADR review. This record is evidence of the 0.27.0 convergence for the
 original scope. It is not permission to add undocumented divergence.
 
