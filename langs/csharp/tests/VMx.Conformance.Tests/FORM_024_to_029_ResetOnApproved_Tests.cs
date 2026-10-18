@@ -232,6 +232,27 @@ public class FORM_024_to_029_ResetOnApproved_Tests
     }
 
     [Fact]
+    public async Task SetModel_Null_During_Approval_Throws_To_The_Caller()
+    {
+        using var form = FormVM<Model>.Builder()
+            .Initial(new("saved"))
+            .Persister(_ => Task.CompletedTask)
+            .Validator("value", model => model.Value.Length == 0 ? "required" : null)
+            .ResetOnApproved(_ => new(""))
+            .Build();
+        var raised = new List<Type>();
+        using var errorsSubscription = form.ErrorsChanged.Subscribe(_ =>
+        {
+            try { form.SetModel(null!); }
+            catch (ArgumentNullException error) { raised.Add(error.GetType()); }
+        });
+
+        await form.ApproveAsync();
+
+        raised.Should().Equal(typeof(ArgumentNullException));
+    }
+
+    [Fact]
     public async Task Dispose_From_Reset_Error_Observer_Stops_Remaining_Publication()
     {
         var form = FormVM<Model>.Builder()

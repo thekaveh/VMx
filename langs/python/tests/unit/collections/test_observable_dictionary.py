@@ -461,3 +461,11 @@ def test_nan_key_is_one_axis_key_like_a_dict_key() -> None:
     assert sut.keys1.count == 1
     sut.remove(nan, "b")
     assert sut.keys1.count == 0
+
+
+def test_key_view_contains_a_nan_key_by_identity() -> None:
+    sut: ObservableDictionary[float, str, int] = ObservableDictionary()
+    nan = float("nan")
+    sut.add(nan, "b", 1)
+
+    assert nan in sut.keys1

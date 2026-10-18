@@ -23,6 +23,26 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ### Fixed
 
+- `FilteredCompositeVM.set_predicate` restores the previous predicate when the
+  new one raises, so later source changes keep using the working predicate.
+- `FormVM.set_model(None)` raises `ValueError` to the caller during an
+  approval's settlement, instead of being queued and surfacing later from
+  `approve_async`.
+- `CompositeVM.copy_to` validates the index and the target size before writing,
+  like `List<T>.CopyTo`; a negative index no longer wraps silently.
+- `ObservableList` read-only views find an item by identity first, so a `NaN`
+  key appears in `keys1` as the dictionary reports.
+- `ForwardingCompositeVM` delegates the rest of the wrapped composite's
+  surface: `snapshot`, `subscribe_membership`, `__delitem__`, `append`,
+  `index`, `copy_to`, `current_child`, `select_child`, `deselect_child`, and
+  `supports_child_selection`. A forwarder can now be the source of an
+  `AggregateChangeStream`, as in TypeScript (spec/09 §0/§2, FWD-001).
+- A `bool` index raises `TypeError` instead of being taken as `0`/`1` by
+  `move` on `CompositeVM`, `GroupVM`, `ServicedObservableCollection`, and
+  `KeyedServicedObservableCollection`, and by `remove_at`/`del` on composites
+  and groups and `remove_at`/`replace` on both serviced collections. The
+  rejection happens before any mutation, so `True`/`False` no longer appears as
+  an index in collection-changed payloads.
 - A slice delete or assignment that selects nothing and inserts nothing on
   `ServicedObservableCollection` or `KeyedServicedObservableCollection` emits
   nothing, instead of a Reset, as TypeScript `splice` does (spec/21 §2.10).

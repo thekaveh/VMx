@@ -149,6 +149,8 @@ class ServicedObservableCollection(MutableSequence[T], Generic[T]):
 
     def remove_at(self, index: int) -> T:
         """Remove and return the item at *index* using Python index semantics."""
+        if isinstance(index, bool):
+            raise TypeError("index must be an int, not bool")
         item = self._items[index]
         resolved_index = index + len(self._items) if index < 0 else index
         del self._items[index]
@@ -157,6 +159,8 @@ class ServicedObservableCollection(MutableSequence[T], Generic[T]):
 
     def replace(self, index: int, new_item: T) -> T:
         """Replace the item at *index* and return the former item."""
+        if isinstance(index, bool):
+            raise TypeError("index must be an int, not bool")
         old_item = self._items[index]
         resolved_index = index + len(self._items) if index < 0 else index
         self._items[index] = new_item
@@ -173,6 +177,8 @@ class ServicedObservableCollection(MutableSequence[T], Generic[T]):
 
     def move(self, from_index: int, to_index: int) -> None:
         """Move one item between strict pre-move indices."""
+        if isinstance(from_index, bool) or isinstance(to_index, bool):
+            raise TypeError("index must be an int, not bool")
         count = len(self._items)
         if from_index < 0 or from_index >= count or to_index < 0 or to_index >= count:
             raise IndexError("collection move index out of range")

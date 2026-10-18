@@ -133,3 +133,21 @@ def test_COMP_037_scored_filter_recomputes_order_when_scores_change() -> None:
     weights["alpha"] = 3
     sut.refresh_scores()
     assert [vm.name for vm in sut.visible] == ["alpha", "bee"]
+
+
+def test_throwing_predicate_leaves_the_previous_projection_in_place() -> None:
+    src = source("alpha", "beta")
+    sut = FilteredCompositeVM(src, predicate=lambda _vm: True)
+    beta = sut.visible[1]
+    sut.set_current(beta)
+
+    def boom(_vm: ComponentVM) -> bool:
+        raise RuntimeError("boom")
+
+    with pytest.raises(RuntimeError):
+        sut.set_predicate(boom)
+
+    assert [vm.name for vm in sut.visible] == ["alpha", "beta"]
+    assert sut.current is beta
+    src.add(child("gamma"))  # the previous predicate still runs
+    assert [vm.name for vm in sut.visible] == ["alpha", "beta", "gamma"]

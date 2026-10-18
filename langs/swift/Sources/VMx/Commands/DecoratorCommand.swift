@@ -11,9 +11,11 @@
 //   with the TS/C# flavours whose inner can throw).
 // - execute() is a complete no-op (pre/inner/post all skipped) when
 //   canExecute() is false.
-// - canExecuteChanged delegates to the inner command's publisher.
+// - canExecuteChanged forwards the inner command's emissions through the
+//   decorator's own stream.
 // - dispose() makes the decorator inert and is idempotent (spec §8.4,
-//   ADR-0134); the inner command stays owned by its creator.
+//   ADR-0134): it releases the inner subscription, notifies once, and
+//   completes canExecuteChanged. The inner command stays owned by its creator.
 //
 import Foundation
 import Combine
@@ -25,6 +27,7 @@ public final class DecoratorCommand: Command {
     private let extraPredicate: (() -> Bool)?
     private let disposalLock = NSLock()
     private var disposed = false
+    private let changes: WrapperChangeStream
 
     /// Re-reads disposal after a call-out that may have disposed this wrapper.
     private var isDisposed: Bool {
@@ -40,6 +43,7 @@ public final class DecoratorCommand: Command {
         extraPredicate: (() -> Bool)? = nil
     ) {
         self.inner = inner
+        self.changes = WrapperChangeStream(forwarding: [inner.canExecuteChanged])
         self.preExecute = preExecute
         self.postExecute = postExecute
         self.extraPredicate = extraPredicate
@@ -62,16 +66,19 @@ public final class DecoratorCommand: Command {
         inner.execute()
     }
 
+    /// Forwards the inner command's emissions until disposal, which notifies
+    /// once and completes this stream (spec §8.4). The inner stream stays open.
     public var canExecuteChanged: AnyPublisher<Void, Never> {
-        inner.canExecuteChanged
+        changes.publisher
     }
 
-    /// Makes the decorator inert (spec §8.4, ADR-0134). Idempotent. The inner
-    /// command stays owned by its creator, and `canExecuteChanged` delegates to
-    /// its publisher, so nothing else is released here.
+    /// Makes the decorator inert (spec §8.4, ADR-0134). Idempotent. Releases
+    /// the inner subscription, notifies once, and completes
+    /// `canExecuteChanged`; the inner command stays owned by its creator.
     public func dispose() {
         disposalLock.lock()
         disposed = true
         disposalLock.unlock()
+        changes.close()
     }
 }

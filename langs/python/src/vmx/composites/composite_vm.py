@@ -558,11 +558,22 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         )
 
     def copy_to(self, target: list[VM], array_index: int) -> None:
-        """Copy children into *target* starting at *array_index*."""
-        for i, child in enumerate(self.snapshot()):
+        """Copy children into *target* starting at *array_index*.
+
+        Validates first, like ``List<T>.CopyTo``: a negative index or a target
+        too small for every child raises before anything is written.
+        """
+        children = self.snapshot()
+        if isinstance(array_index, bool) or array_index < 0:
+            raise IndexError(f"array_index {array_index!r} must be a non-negative int")
+        if array_index + len(children) > len(target):
+            raise IndexError("target is too small for the children")
+        for i, child in enumerate(children):
             target[array_index + i] = child
 
     def _remove_at(self, index: int) -> None:
+        if isinstance(index, bool):
+            raise TypeError("index must be an int, not bool")
         self._begin_membership_transaction()
         try:
             with _current_change_coordinator:
@@ -673,6 +684,8 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         child.construct()
 
     def _validate_move_index(self, index: int) -> None:
+        if isinstance(index, bool):
+            raise TypeError("index must be an int, not bool")
         if index < 0 or index >= len(self._children):
             raise IndexError(f"move index {index} out of range for {len(self._children)} children")
 

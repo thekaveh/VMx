@@ -238,13 +238,14 @@ class FormVM(Generic[TM]):
                     self._state_changed.wait()
                 if self._disposed:
                     return
+                if model is None:
+                    # Reject before any deferral, so the caller sees the error.
+                    raise ValueError("model must not be None")
                 if self._approval_publishing and self._approval_pre_publishing:
                     self._deferred_approval_models.append(model)
                     return
                 self._active_mutations += 1
                 admitted = True
-                if model is None:
-                    raise ValueError("model must not be None")
                 # Prepare (spec/20 §5.4) without touching form state. Callbacks
                 # run under the re-entrant state lock: one may re-enter
                 # set_model, deny, or dispose on this thread, while another

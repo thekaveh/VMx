@@ -67,8 +67,15 @@ class FilteredCompositeVM(Generic[VM]):
         # A disposed projection stays frozen (disposal contract, DISP-006).
         if self._disposed:
             return
+        # A throwing predicate leaves the previous predicate, projection, and
+        # current in place (the recompute computes before it assigns).
+        previous = self._predicate
         self._predicate = predicate
-        self._recompute()
+        try:
+            self._recompute()
+        except BaseException:
+            self._predicate = previous
+            raise
 
     def set_current(self, item: VM | None) -> None:
         if self._disposed:

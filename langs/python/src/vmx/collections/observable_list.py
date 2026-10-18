@@ -326,7 +326,8 @@ class ReadOnlyObservableList(Generic[T]):
         return self._source[index]
 
     def __contains__(self, item: object) -> bool:
-        return any(item == existing for existing in self._source)
+        # Identity first, then ==, like dict keys (a NaN key is found).
+        return any(item is existing or item == existing for existing in self._source)
 
     # ── Observable surface (delegated; already sealed by the source) ───────────
 

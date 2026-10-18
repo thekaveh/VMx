@@ -354,4 +354,25 @@ final class ForwardingTests: XCTestCase {
 
         XCTAssertTrue(parent.current === wrapper)
     }
+
+    /// FWD-001 — a selected, destructed forwarding child can still be
+    /// deselected: `canDeselect()` follows spec/05 §6 (not disposed, parented,
+    /// current) and agrees with `deselect()` and `deselectCommand`.
+    func testFWD001DestructedSelectedWrapperCanDeselect() throws {
+        let inner = try ComponentVMOf<String>.builder().name("w").model("").withNullServices().build()
+        let wrapper = ForwardingComponentVM(inner)
+        let parent = try CompositeVM<ForwardingComponentVM<String>>.builder()
+            .name("c").withNullServices().children { [] }.build()
+        parent.add(wrapper)
+        try parent.construct()
+        parent.current = wrapper
+        try wrapper.destruct()
+
+        XCTAssertEqual(wrapper.status, .destructed)
+        XCTAssertTrue(wrapper.canDeselect())
+        XCTAssertTrue(wrapper.deselectCommand.canExecute())
+        wrapper.deselectCommand.execute()
+        XCTAssertNil(parent.current)
+        XCTAssertFalse(wrapper.canDeselect())
+    }
 }

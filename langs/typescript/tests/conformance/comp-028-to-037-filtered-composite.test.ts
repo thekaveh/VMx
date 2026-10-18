@@ -158,3 +158,23 @@ describe("COMP-037", () => {
     expect(sut.visible.map((vm) => vm.name)).toEqual(["alpha", "bee"]);
   });
 });
+
+describe("FilteredCompositeVM – throwing predicate", () => {
+  it("leaves the previous predicate, projection, and current in place", () => {
+    const src = source("alpha", "beta");
+    const sut = new FilteredCompositeVM(src, { predicate: () => true });
+    const beta = sut.visible[1]!;
+    sut.setCurrent(beta);
+
+    expect(() =>
+      sut.setPredicate(() => {
+        throw new Error("boom");
+      }),
+    ).toThrow("boom");
+
+    expect(sut.visible.map((vm) => vm.name)).toEqual(["alpha", "beta"]);
+    expect(sut.current).toBe(beta);
+    src.add(child("gamma"));
+    expect(sut.visible.map((vm) => vm.name)).toEqual(["alpha", "beta", "gamma"]);
+  });
+});

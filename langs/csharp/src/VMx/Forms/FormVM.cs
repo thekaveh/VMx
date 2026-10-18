@@ -282,6 +282,9 @@ public sealed class FormVM<TM> : IDisposable
             {
                 WaitForApprovalPublisher(caller);
                 if (_disposed) return;
+                // Reject a null model before any deferral, so the caller sees
+                // the error (failure-atomic).
+                ThrowHelper.ThrowIfNull(model, nameof(model));
                 if (_approvalPublishingDepth > 0 && _approvalPrePublishing)
                 {
                     _deferredApprovalModels.Enqueue(model);
@@ -289,7 +292,6 @@ public sealed class FormVM<TM> : IDisposable
                 }
                 _activeMutations++;
                 admitted = true;
-                ThrowHelper.ThrowIfNull(model, nameof(model));
 
                 // Preparation (spec/20 §5.2, §5.4) runs every consumer callback
                 // and changes no form state, so a callback failure propagates

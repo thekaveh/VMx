@@ -504,3 +504,55 @@ def test_after_bind_to_deny_command_property_changed_fires() -> None:
     vm.bind_to(_sample_note())
     assert "deny_command" in observed
     assert "approve_command" in observed
+
+
+class _HeldTagRefreshRepository(InMemoryNoteRepository):
+    """Repository whose ``load_all`` (the post-save tag refresh) stays pending
+    until the test releases it; saves complete immediately."""
+
+    def __init__(self) -> None:
+        super().__init__(build_seed(), load_all_delay=0.0, save_note_delay=0.0)
+        self.saves: list[str] = []
+        self.load_all_started = asyncio.Event()
+        self.release_load_all = asyncio.Event()
+
+    async def load_all(self) -> tuple[list[NotebookModel], list[NoteModel]]:
+        self.load_all_started.set()
+        await self.release_load_all.wait()
+        return await super().load_all()
+
+    async def save_note(self, note: NoteModel) -> None:
+        self.saves.append(note.title)
+        await super().save_note(note)
+
+
+async def test_rebinding_during_post_save_tag_refresh_saves_the_new_note_next() -> None:
+    """The Save command is still executing while its post-save tag refresh is
+    pending, but the save itself already ran. A rebind in that window must
+    dispose the replaced form, not hand it to the next Save as if its run had
+    not started — otherwise the next Save re-saves the old note and the newly
+    bound note is never persisted."""
+    repo = _HeldTagRefreshRepository()
+    hub = MessageHub[Message]()
+    dispatcher = RxDispatcher(foreground=ImmediateScheduler(), background=ImmediateScheduler())
+    vm = NoteFormVM.builder().name("form").services(hub, dispatcher).repository(repo).build()
+
+    vm.bind_to(_sample_note(title="A"))
+    vm.draft = _sample_note(title="A edited")
+    first = asyncio.create_task(vm.approve_command.execute_async())
+    await asyncio.wait_for(repo.load_all_started.wait(), timeout=1)
+    assert repo.saves == ["A edited"]
+    assert vm.approve_command.is_executing
+
+    note_b = dataclasses.replace(_sample_note(title="B"), id="note-b")
+    vm.bind_to(note_b)
+    vm.draft = dataclasses.replace(note_b, title="B edited")
+    assert vm._handoff_form is None
+
+    repo.release_load_all.set()
+    await asyncio.wait_for(first, timeout=1)
+    await asyncio.wait_for(vm.approve_command.execute_async(), timeout=1)
+
+    assert repo.saves == ["A edited", "B edited"]
+    assert vm.snapshot.title == "B edited"
+    assert vm._retired_forms == set()

@@ -195,6 +195,8 @@ class KeyedServicedObservableCollection(MutableSequence[T], Generic[TKey, T]):
 
     def move(self, from_index: int, to_index: int) -> None:
         """Move one item between strict, non-negative pre-move indices."""
+        if isinstance(from_index, bool) or isinstance(to_index, bool):
+            raise TypeError("index must be an int, not bool")
         count = len(self._items)
         if from_index < 0 or from_index >= count or to_index < 0 or to_index >= count:
             raise IndexError("collection move index out of range")
@@ -261,6 +263,8 @@ class KeyedServicedObservableCollection(MutableSequence[T], Generic[TKey, T]):
     def _resolve_index(self, index: int) -> int:
         # Indexing first preserves Python's exact bounds behavior and ensures an
         # invalid target never invokes the user projector.
+        if isinstance(index, bool):
+            raise TypeError("index must be an int, not bool")
         self._items[index]
         return index + len(self._items) if index < 0 else index
 

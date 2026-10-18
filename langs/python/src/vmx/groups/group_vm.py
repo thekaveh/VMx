@@ -348,6 +348,8 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         index counts from the end (mirrors :meth:`insert` and
         ``ObservableList.remove_at``).
         """
+        if isinstance(index, bool):
+            raise TypeError("index must be an int, not bool")
         with self._membership_gate:
             resolved_index = index + len(self._children) if index < 0 else index
             self._require_child_admission()
@@ -462,6 +464,8 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         child.construct()
 
     def _validate_move_index(self, index: int) -> None:
+        if isinstance(index, bool):
+            raise TypeError("index must be an int, not bool")
         if index < 0 or index >= len(self._children):
             raise IndexError(f"move index {index} out of range for {len(self._children)} children")
 

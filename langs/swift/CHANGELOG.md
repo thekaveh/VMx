@@ -8,6 +8,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A disposed `CompositeCommand`, `DecoratorCommand`, or
+  `ConfirmationDecoratorCommand` stops forwarding inner `canExecuteChanged`
+  emissions. Disposal releases the wrapper's inner subscriptions, notifies once,
+  and completes the wrapper's own stream, as a disposed `RelayCommand` does; a
+  later subscriber receives only completion. The inner streams stay open. Before,
+  the stream was the live inner publisher, so it kept emitting and never
+  completed (spec/04 §8.4).
+- A parented `ForwardingComponentVM.canDeselect()` no longer requires the
+  wrapped VM to be constructed. It follows spec/05 §6 (not disposed, parented,
+  the parent's current child), so a selected, destructed forwarding child can be
+  deselected and its `deselectCommand` is enabled, in agreement with
+  `deselect()`.
 - `BatchUpdateHandle` has a public `init(endBatch:)`, so a `VMCollection`
   implemented outside the module can return one from `batchUpdate()`, as the
   public protocol requires (spec/01 §1.4).

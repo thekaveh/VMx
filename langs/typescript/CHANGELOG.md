@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `FilteredCompositeVM.setPredicate` restores the previous predicate when the
+  new one throws, so later source changes keep using the working predicate.
 - `CompositeVM` and `GroupVM` `insert`/`removeAt`/`setAt` reject a
   `NaN` or fractional index with a `RangeError` before any change, like `move`.
   Before, `removeAt(NaN)` removed a child, then threw and left the membership

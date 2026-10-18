@@ -8,6 +8,9 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
+- Fixed: `FormVM.SetModel(null)` throws `ArgumentNullException` to the caller
+  during an approval's settlement, instead of being queued and surfacing later
+  from `ApproveAsync` (spec/20, failure-atomic).
 - Fixed: `FilteredCompositeVM.SetPredicate` and recomputation compute the
   projection before changing it, so a throwing predicate leaves the previous
   predicate, `Visible`, and `Current` in place, as in Python and TypeScript.

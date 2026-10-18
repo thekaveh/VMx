@@ -461,25 +461,30 @@ class NoteFormVM(ComponentVM, IReconstructable):
         if form is None:
             return
         self._approving_forms.add(form)
+        # Cleared only when this run ends: the command stays executing through
+        # the post-save tag refresh, and a rebind in that window must not take
+        # the replaced form for a run that has not started yet.
         self._approval_started = True
         try:
-            if not await self._approve_form_async(form):
-                return
-            self._emit_draft_changes()
-            if self._notification_hub is not None:
-                self._notification_hub.post(
-                    Notification(
-                        NotificationType.NOTIFICATION,
-                        f"Saved “{form.snapshot.title}”",
+            try:
+                if not await self._approve_form_async(form):
+                    return
+                self._emit_draft_changes()
+                if self._notification_hub is not None:
+                    self._notification_hub.post(
+                        Notification(
+                            NotificationType.NOTIFICATION,
+                            f"Saved “{form.snapshot.title}”",
+                        )
                     )
-                )
+            finally:
+                self._approving_forms.discard(form)
+                if form in self._retired_forms:
+                    self._retired_forms.discard(form)
+                    form.dispose()
+            await self.refresh_tag_suggestions_async()
         finally:
             self._approval_started = False
-            self._approving_forms.discard(form)
-            if form in self._retired_forms:
-                self._retired_forms.discard(form)
-                form.dispose()
-        await self.refresh_tag_suggestions_async()
 
     def _retire_form(self, form: FormVM[NoteModel]) -> None:
         """Dispose *form* now, or once its in-flight approval settles."""

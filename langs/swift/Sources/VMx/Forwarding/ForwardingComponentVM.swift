@@ -124,9 +124,8 @@ open class ForwardingComponentVM<Model>: ComponentVMOf<Model> {
     open override func canDeselect() -> Bool {
         guard status != .disposed else { return false }
         guard let parent = _parent else { return _wrapped.canDeselect() }
-        return _wrapped.status == .constructed
-            && parent.supportsChildSelection
-            && parent.currentChild === self
+        // spec/05 §6: not disposed, parented, and the parent's current child.
+        return parent.supportsChildSelection && parent.currentChild === self
     }
     open override func deselect() {
         guard status != .disposed else { return }
