@@ -1,18 +1,18 @@
 # AGENTS.md
 
-This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
+This file provides guidance to coding agents that work with code in this repository.
 
 ## 1. Architecture
 
-VMx is **one language-neutral specification with five idiomatic flavors**. All five are catalog-complete for the 425 library conformance IDs and aligned on the canonical public concepts and observable behavior. Rust's completed convergence evidence is recorded in `docs/maintenance/2026-07-16-rust-capability-parity.md`; ADR-0120 retains its ownership-safe sender-identity idiom. Naming remains idiomatic (PascalCase C#, snake_case Python and Rust methods, camelCase TypeScript and Swift — codified in `spec/ADRs/0006-idiomatic-api-per-language.md`).
+VMx is **one language-neutral specification with five idiomatic flavors**. All five are catalog-complete for the 425 library conformance IDs. C#, Python, TypeScript, and Swift are member-aligned. Rust's remaining gaps, the open items in §12.4.7 and §12.7–§12.12, are recorded in `docs/maintenance/2026-07-16-rust-capability-parity.md`; ADR-0120 retains its ownership-safe sender-identity idiom. Naming remains idiomatic (PascalCase C#, snake_case Python and Rust methods, camelCase TypeScript and Swift — codified in `spec/ADRs/0006-idiomatic-api-per-language.md`).
 
 - **`spec/` is the source of truth.** 24 numbered markdown chapters (`00-overview.md` … `23-async-resource-vm.md`), 149 ADRs, four JSON fixtures, supporting schemas, current version in `spec/VERSION` (3.29.0). Behavior changes start here.
 - **`spec/fixtures/*.json` are consumed by all flavors** for lifecycle, message-ordering, command-truthtable, and derived-property validation. Python tracks `lifecycle-transitions.json` under `langs/python/src/vmx/lifecycle/_data/` for runtime loading, and `tools/check-python-fixture-sync.py` keeps it byte-identical to the spec fixture; Rust tracks the same runtime fixture under `langs/rust/src/fixtures/` so the published crate is self-contained, and `tools/check-rust-fixture-sync.py` keeps that copy byte-identical. The other fixtures are conformance-test inputs. TypeScript copies all fixtures via `npm run sync-fixtures` (auto-run by `prebuild`, `pretest`, and `prepack`). C# embeds `lifecycle-transitions.json` for runtime and copies all fixtures into conformance test output. Swift ships all four JSON resources under `langs/swift/Sources/VMx/Resources`, including `LifecycleTransitionTable.swift` loading `lifecycle-transitions.json` from `Bundle.module`. When editing a fixture, ensure every flavor still loads the relevant runtime/test resource.
 - **`spec/12-conformance.md` enumerates 430 normative test IDs** — 425 library IDs (`LIFE-001`, `HUB-013`, `CVM-010`, `SUBV-004`, `AGCH-010`, `SRCH-007`, `ARES-011`, `DISP-014`, `FORM-038`, `COL-064`, `BLD-006`, `GRP-013`, `HIER-030`, `NOTIF-017`, `COMP-045`, `DISC-006`, …) plus 5 `THEME-00x` scenario IDs that live in the flagship example apps. C#, Python, TypeScript, Swift, and Rust each implement all 425 library IDs under their conformance test trees. `tools/check-conformance-coverage.py` enforces 100% catalog coverage for all five flavors in CI; coverage alone does not prove member-level parity.
-- **Each flavor versions independently** but a spec major bump triggers a major bump in every active flavor. Each package declares the spec version it implements: `MinSpecVersion` (C#), `__min_spec_version__` (Python), `__minSpecVersion__` (TypeScript), `VMxVersion.minSpecVersion` (Swift), `MIN_SPEC_VERSION` (Rust). Compatibility is recorded in `compatibility-matrix.md`; release-please updates the current Python cell, while spec and other flavor changes remain explicit edits.
+- **Each flavor versions independently** but a spec major bump triggers a major bump in every active flavor. Each package declares the spec version it implements: `MinSpecVersion` (C#), `__min_spec_version__` (Python), `__minSpecVersion__` (TypeScript), `VMxVersion.minSpecVersion` (Swift), `MIN_SPEC_VERSION` (Rust). Compatibility is recorded in `compatibility-matrix.md`. Release-please updates the current Python cell after its manifest matches the source version (`tools/check-release-please-state.py`). Spec and other flavor changes remain explicit edits.
 - **Per-flavor source layout mirrors the spec chapters** — `aggregates/`, `builders/`, `commands/`, `components/`, `composites/`, `forwarding/`, `groups/`, `lifecycle/`, `messages/`, `services/`, `tree/`, `collections/`, `capabilities/`, `properties/` (DerivedProperty), `notifications` (opt-in package/sub-path where applicable), `localization/`, `hierarchical/`, `dialogs/`, `forms/`, and `state/` (DiscriminatorVM). When adding a primitive, add it to the same-named area in every supported flavor that ships the area.
 - **Reactive primitive per flavor**: C# uses `System.Reactive`, Python uses `reactivex`, TypeScript uses `rxjs`, Swift uses `Combine` (macOS-only — no Linux CI for Swift), and Rust uses VMx-owned hot-stream facades with no third-party reactive runtime per ADR-0103. Don't introduce additional reactive libraries.
-- **Known cross-flavor divergences are documented**, not accidental: Swift still traps where Swift setters cannot throw (for example read-only model assignment), while illegal lifecycle transitions and non-child current selection are catchable throws after the v3 convergence. Reactivex Subjects raise on post-dispose use where rxjs silently no-ops (guards exist where it matters). Check ADR-0009, ADR-0037, and ADR-0053 before "fixing" an apparent divergence.
+- **Known cross-flavor divergences are documented**, not accidental: Swift still traps where Swift setters cannot throw (for example read-only model assignment), while illegal lifecycle transitions and non-child current selection are catchable throws (ADR-0053). Reactivex Subjects raise on post-dispose use where rxjs silently no-ops (guards exist where it matters). Check ADR-0009, ADR-0037, and ADR-0053 before "fixing" an apparent divergence.
 
 ## 2. Spec discipline (enforced by CI)
 
@@ -36,7 +36,7 @@ keys consumed by tools, tests, and review checklists.
 ### 3.1 Python (`langs/python`)
 ```bash
 cd langs/python
-uv sync --all-extras
+uv sync --locked --all-extras
 uv run pytest                              # full suite
 uv run pytest tests/conformance            # conformance only
 uv run pytest -k LIFE_005                  # a single conformance ID
@@ -49,7 +49,7 @@ uv run mypy --strict src/vmx               # must be strict-clean
 ```bash
 cd langs/csharp
 dotnet restore VMx.sln --locked-mode
-dotnet build
+dotnet build VMx.sln -c Release
 dotnet test                                # both VMx.Tests + VMx.Conformance.Tests
 dotnet test --filter "Conformance=LIFE-005"
 dotnet format --verify-no-changes

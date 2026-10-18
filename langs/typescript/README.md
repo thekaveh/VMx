@@ -15,12 +15,6 @@ test-framework-neutral `@thekaveh/vmx/conformance` adapter runner. The
 command doubles, and a FormVM harness, and `@thekaveh/vmx/devtools` adds an
 optional Redux DevTools bridge.
 
-> **Package rename in v2.4.0:** the npm package is now
-> **`@thekaveh/vmx`** (scoped). The previous unscoped name `vmx` could
-> not be claimed on the public npm registry. Imports change from
-> `from "vmx"` to `from "@thekaveh/vmx"`; everything else is
-> source-compatible.
-
 ## 2. Install
 
 ```bash
@@ -29,8 +23,9 @@ npm install @thekaveh/vmx rxjs
 
 Releases are published to [npm](https://www.npmjs.com/package/@thekaveh/vmx)
 from `typescript-v*` tags on `main`, with provenance.
-The source tree currently implements v3.30.0. To use an unreleased source
-line, build it from a VMx checkout cloned beside the consumer:
+
+To build from source instead of npm, use a VMx checkout cloned beside the
+consumer:
 
 ```bash
 npm --prefix ../VMx/langs/typescript ci
@@ -101,22 +96,9 @@ for the full walkthrough.
 
 ### 3.1 Cross-language naming
 
-The conceptual surface is identical across the five flavors; identifier
-casing follows the per-language idiom (see ADR-0006).
-
-| Concept             | C#                        | Python             | TypeScript               | Swift                     | Rust                    |
-| ------------------- | ------------------------- | ------------------ | ------------------------ | ------------------------- | ----------------------- |
-| Unmodeled VM        | `ComponentVM`             | `ComponentVM`      | `ComponentVM`            | `ComponentVM`             | `ComponentVm<()>`       |
-| Modeled VM          | `ComponentVM<M>`          | `ComponentVMOf[M]` | `ComponentVMOf<M>`       | `ComponentVMOf<M>`        | `ComponentVm<M>`        |
-| Status property     | `Status`                  | `status`           | `status`                 | `status`                  | `status()`              |
-| Builder entrypoint  | `Builder()`               | `builder()`        | `builder()`              | `builder()`               | `builder()`             |
-| Null hub singleton  | `NullMessageHub.Instance` | `NULL_MESSAGE_HUB` | `NullMessageHub.INSTANCE` | `NullMessageHub.INSTANCE` | `NullMessageHub::hub()` |
-
-C# uses PascalCase, Python and Rust use snake_case, TypeScript and Swift use
-camelCase. C# and Rust retain the same public type name for modeled and
-unmodeled components (`ComponentVM<M>` / `ComponentVm<M>`), while Python,
-TypeScript, and Swift use a separate `ComponentVMOf` type because their
-generics syntax cannot overload an unparameterised name.
+The concepts are identical across the five flavors; identifier casing follows
+each language idiom (ADR-0006). See the
+[cross-language naming table](https://github.com/thekaveh/VMx/blob/main/docs/content/flavors/cross-language-naming.md).
 
 ### 3.2 Browser usage
 
@@ -172,11 +154,11 @@ Key exports:
 | `GroupVM<VM>`                   | Collection without current selection             |
 | `IVmCollection<VM>`            | Shared group/composite collection + atomic move  |
 | `ISelectableVmCollection<VM>`  | Composite-only current-selection extension       |
-| `AggregateVM1..6<...>`          | Fixed-arity named component slots (arity 6 added in spec v2.2.0 — see ADR-0034) |
+| `AggregateVM1..6<...>`          | Fixed-arity named component slots (ADR-0034) |
 | `ForwardingComponentVM<M>`      | Decorator for `IComponentVMOf<M>`                |
 | `ForwardingCompositeVM<VM>`     | Decorator for composites                         |
 | `RelayCommand` / `RelayCommandOf<T>` | Executable command with `canExecute`        |
-| `CompositeCommand`              | Aggregate N inner commands (spec v2.0)           |
+| `CompositeCommand`              | Aggregate N inner commands           |
 | `DecoratorCommand`              | Wrap a command with pre/post + can-execute gate  |
 | `ConfirmationDecoratorCommand`  | Wrap a command with an async confirm delegate    |
 | `ModeledCrudCommands<M, VM>`    | Create / UpdateCurrent / DeleteCurrent helper    |
@@ -188,360 +170,99 @@ Key exports:
 | `StatusTransitionError`         | Raised on illegal lifecycle operations           |
 | `BuilderValidationError`        | Raised when a builder is missing required fields |
 | `walk(root)`                    | DFS pre-order tree traversal generator           |
-| `walkExpanded(root)`            | DFS walk gated on `IExpandable.isExpanded` (v2.0) |
+| `walkExpanded(root)`            | DFS walk gated on `IExpandable.isExpanded` |
 | `find(root, predicate)`         | Short-circuit tree search                        |
-| `DerivedProperty<TValue>` / `fromSources` | N-source computed value (v2.0)   |
-| `ExpandableState`               | `IExpandable`+`ICollapsible` helper (spec v2.0)  |
-| `SearchableState<T>`            | Debounced filter + optional source signal (v3.19) |
-| `AsyncResourceVM<T>`            | Cancellable latest-wins async value state (v3.20) |
-| `ILocalizer` / `NullLocalizer`  | i18n hook + null-default (spec v2.0)             |
-| 22× capability interfaces       | `vmx/capabilities/*` (re-exported) — opt-in v2.0+ |
+| `DerivedProperty<TValue>` / `fromSources` | N-source computed value   |
+| `ExpandableState`               | `IExpandable`+`ICollapsible` helper  |
+| `SearchableState<T>`            | Debounced filter + optional source signal |
+| `AsyncResourceVM<T>`            | Cancellable latest-wins async value state |
+| `ILocalizer` / `NullLocalizer`  | i18n hook + null-default             |
+| 22× capability interfaces       | `vmx/capabilities/*` (re-exported) — opt-in |
 | `HierarchicalVM<TModel, TVM>`   | Recursive tree VM with key-aware `attachMany`    |
-| `TreeStructureChangedMessage`   | Tree-structural-change notification (spec v2.1)  |
-| `FormVM<TM>` / `FormVMOptions<TM>` | Snapshot/revert form lifecycle (spec v2.1)    |
-| `IDialogService` / `NullDialogService` | File/confirm/notify dialogs + null (spec v2.1) |
-| `ServicedObservableCollection<T>` | Complete local-before-hub mutation surface (spec v3.16) |
-| `KeyedServicedObservableCollection<TKey, TItem>` | Ordered serviced surface plus captured-key index (spec v3.17) |
-| `ObservableMembershipSource<T>` / `AggregateChangeStream<T>` | Dynamic membership-and-item fan-in with provenance (spec v3.18) |
+| `TreeStructureChangedMessage`   | Tree-structural-change notification  |
+| `FormVM<TM>` / `FormVMOptions<TM>` | Snapshot/revert form lifecycle    |
+| `IDialogService` / `NullDialogService` | File/confirm/notify dialogs + null |
+| `ServicedObservableCollection<T>` | Complete local-before-hub mutation surface |
+| `KeyedServicedObservableCollection<TKey, TItem>` | Ordered serviced surface plus captured-key index |
+| `ObservableMembershipSource<T>` / `AggregateChangeStream<T>` | Dynamic membership-and-item fan-in with provenance |
 | `ObservableList<T>`             | Granular events + atomic `replaceAll`            |
-| `ObservableDictionary<K1, K2, V>` | Multi-key observable dictionary (spec v2.1)    |
-| `PagedComposition<TVM>`         | Pageable iterable decorator (spec v2.1)          |
-| Fluent command helpers          | `confirm` / `precedeWith` / `succeedWith` / `wrapWith` over commands (spec v2.1) |
-| `propertyValueChangedMessagesFor` | Hub helper yielding an `Observable<TProperty>` of property-value snapshots (spec v2.1) |
+| `ObservableDictionary<K1, K2, V>` | Multi-key observable dictionary    |
+| `PagedComposition<TVM>`         | Pageable iterable decorator          |
+| Fluent command helpers          | `confirm` / `precedeWith` / `succeedWith` / `wrapWith` over commands |
+| `propertyValueChangedMessagesFor` | Hub helper yielding an `Observable<TProperty>` of property-value snapshots |
 | `whenPropertyChanged`           | Hub helper yielding matching property-change messages |
-| `isPropertyChanged` / `isCollectionChanged` / `isConstructionStatusChanged` | Filter-safe predicates for mixed raw messages (spec v3.14) |
-| `subscribeValue`                | Fixed-VM selected-state bridge returning an RxJS `Subscription` (spec v3.15) |
+| `isPropertyChanged` / `isCollectionChanged` / `isConstructionStatusChanged` | Filter-safe predicates for mixed raw messages |
+| `subscribeValue`                | Fixed-VM selected-state bridge returning an RxJS `Subscription` |
 
 ### 4.1 Serviced collections
 
-Use `ServicedObservableCollection<T>` for local `collectionChanged` delivery
-plus optional hub publication:
+`ServicedObservableCollection<T>` provides local `collectionChanged` delivery
+plus optional hub publication. `KeyedServicedObservableCollection<TKey,TItem>`
+adds a captured stable-key index (`get`, `upsert`, `delete`, `has`) without
+changing the ordered message shape.
 
-```ts
-const notes = new ServicedObservableCollection<Note>(hub);
-const local = notes.collectionChanged.subscribe(render);
-
-notes.push(first);
-notes.push(second);
-notes.replace(0, revised);        // setAt remains an alias
-notes.move(0, notes.length - 1);  // one Move locally, then on the hub
-notes.replaceAll(serverSnapshot); // one Reset
-
-local.unsubscribe();
-```
-
-`remove` deletes the first `indexOf` match and returns `false` when absent.
-Indexed operations reject invalid positions atomically. Same-index move, empty
-clear, and empty-to-empty replacement are no-ops. Messages retain `index` and
-add `oldIndex` / `newIndex`; items remain caller-owned. Choose
-`ObservableList<T>` for list-local batching and the `Count` channel.
-
-Choose `KeyedServicedObservableCollection<TKey,TItem>` for stable-key access
-without changing the ordered message shape:
-
-```ts
-const notesById = new KeyedServicedObservableCollection<string, Note>({
-  keyOf: note => note.id,
-  hub,
-});
-notesById.push(first);
-const note = notesById.get(first.id);
-const added = notesById.upsert(revised); // false: Replace at stable position
-const removed = notesById.delete(first.id);
-```
-
-`has` tests membership; `pop` and atomic final-result `splice` remain available.
-Keys are captured until indexed replacement or delete-then-add. Duplicate and
-projector failures preserve state. Lookup/target discovery are expected O(1),
-while ordered middle shifts remain O(n). Local delivery stays immediate before
-optional hub delivery, and stored items remain caller-owned.
+Same-index move, empty clear, and empty-to-empty replacement are no-ops. Items
+remain caller-owned. Use `ObservableList<T>` for list-local batching and the
+`Count` channel. See
+[TypeScript serviced collections](https://github.com/thekaveh/VMx/blob/main/docs/content/flavors/typescript.md#743-serviced-collections).
 
 ### 4.2 Raw message predicates
 
-All three predicates accept an `IMessage` and narrow it to an existing concrete
-message type. Each has a unary overload for direct use with `Array.filter` or
-RxJS `filter`, plus inline constraint-object overloads:
-
-| Call signature | Result after a match |
-| -------------- | -------------------- |
-| `isPropertyChanged(message)` or `isPropertyChanged(message, { propertyName? })` | `PropertyChangedMessage<unknown>` |
-| `isPropertyChanged(message, { sender, propertyName? })` | `PropertyChangedMessage<TSender>` inferred from the checked sender |
-| `isCollectionChanged(message)` or any source/action constraints | `CollectionChangedMessage<unknown>` |
-| `isConstructionStatusChanged(message)` or its sender/status constraints | `ConstructionStatusChangedMessage` |
-
-The unconstrained unary form is the shortest way to classify a whole mixed
-stream:
-
-```ts
-import {
-  ConstructionStatus,
-  isCollectionChanged,
-  isConstructionStatusChanged,
-  isPropertyChanged,
-  ServicedObservableCollection,
-} from "@thekaveh/vmx";
-import { filter } from "rxjs";
-
-interface Note { readonly title: string }
-
-const notes = new ServicedObservableCollection<Note>(hub);
-
-const propertyChanges = hub.messages.pipe(filter(isPropertyChanged));
-
-const modelChanges = hub.messages.pipe(
-  filter((message) =>
-    isPropertyChanged(message, { sender: vm, propertyName: "model" }),
-  ),
-);
-
-const addedNotes = hub.messages.pipe(
-  filter((message) =>
-    isCollectionChanged(message, {
-      source: notes,
-      action: "add",
-    }),
-  ),
-);
-
-const constructed = hub.messages.pipe(
-  filter((message) =>
-    isConstructionStatusChanged(message, {
-      sender: vm,
-      status: ConstructionStatus.Constructed,
-    }),
-  ),
-);
-```
-
-Generic property senders cannot be selected without runtime evidence and are
-inferred only from a supplied sender constraint. Collection predicates always
-retain `CollectionChangedMessage<unknown>`, even for a typed
-`ServicedObservableCollection<TItem>` source, because source identity cannot
-prove the independently constructed message payload type. Optional fields use
-own-property presence: an explicitly supplied `undefined` value compares
-exactly, while an omitted field disables that constraint. No cast is required
-for any predicate.
-
-Use raw predicates to classify mixed `IMessage` arrays or streams. If the hub,
-sender, and property are already known, prefer `whenPropertyChanged` for the
-matching message or `propertyValueChangedMessagesFor` for the property's current
-value.
-
-This API is intentionally TypeScript-only. It fills a TypeScript type-narrowing
-gap without changing message semantics; other flavors already use their
-idiomatic nominal/runtime checks, so ADR-0094 adds no artificial cross-flavor
-surface or conformance ID.
+`isPropertyChanged`, `isCollectionChanged`, and `isConstructionStatusChanged`
+narrow a mixed `IMessage` array or stream without a cast. Each works directly
+with `Array.filter` or RxJS `filter`. They are TypeScript-only type ergonomics
+(ADR-0094). See
+[TypeScript raw message predicates](https://github.com/thekaveh/VMx/blob/main/docs/content/flavors/typescript.md#745-raw-message-predicates).
 
 ### 4.3 Imperative engine bridge
 
-Use `subscribeValue` to update an engine uniform only when selected VM state
-changes:
+`subscribeValue` pushes a selected value from one fixed VM into an imperative
+host as `(current, previous)`. It returns an RxJS `Subscription` that the host
+owns; VMx does not attach it to the observed VM's lifetime. See
+[TypeScript imperative engine bridge](https://github.com/thekaveh/VMx/blob/main/docs/content/flavors/typescript.md#744-imperative-engine-bridge).
 
-```typescript
-const exposureSubscription = subscribeValue(
-  cameraVm,
-  vm => vm.model.exposure,
-  exposure => { material.uniforms.exposure.value = exposure; },
-  { fireImmediately: true },
-);
+### 4.4 Consumer conformance adapter
 
-// When the host adapter is disposed:
-exposureSubscription.unsubscribe();
-```
+`@thekaveh/vmx/conformance` runs strict, test-runner-neutral
+operation/assertion suites against consumer factories. It imports no Vitest or
+Jest API and does not parse YAML. See the
+[v1 schema](https://github.com/thekaveh/VMx/blob/main/spec/schemas/consumer-conformance-v1.schema.json),
+ADR-0102, and
+[TypeScript consumer conformance adapter](https://github.com/thekaveh/VMx/blob/main/docs/content/flavors/typescript.md#746-consumer-conformance-adapter).
 
-The callback receives `(current, previous)`; immediate delivery passes the
-initial value for both. The selector runs after every property message from
-this fixed VM, and `Object.is` suppresses unchanged selections. Pass an
-`equality` option for custom equality. The host owns the returned RxJS
-`Subscription`; VMx does not attach it to the observed VM's lifetime.
+### 4.5 Testing utilities
 
-The opt-in `@thekaveh/vmx/notifications` sub-path export (spec v2.0+) adds:
+`@thekaveh/vmx/testing` adds runner-neutral services, recorders, command
+doubles, and a FormVM harness. The root entry re-exports nothing from it, and
+the package stays `sideEffects: false`. The subpath is public API under package
+SemVer. See
+[TypeScript runner-neutral testing support](https://github.com/thekaveh/VMx/blob/main/docs/content/flavors/typescript.md#747-runner-neutral-testing-support).
+
+### 4.6 DevTools observability
+
+`@thekaveh/vmx/devtools` provides `observeHub()` and an optional
+`connectReduxDevtools()` bridge outside the root entry. Default actions carry
+only bounded scalar metadata; state appears only through consumer snapshot
+selectors. Dispose the bridge before its owning hub. The bridge ignores
+incoming DevTools dispatches and gives no replay or time-travel guarantee. See
+[TypeScript DevTools observability](https://github.com/thekaveh/VMx/blob/main/docs/content/flavors/typescript.md#748-devtools-observability).
+
+## 5. Notifications
+
+The opt-in `@thekaveh/vmx/notifications` sub-path export adds:
 
 | Export                                                            | Description                            |
 | ----------------------------------------------------------------- | -------------------------------------- |
 | `Notification` / `NotificationType` / `NotificationReaction`      | Notification primitives                |
 | `INotificationHub` / `NotificationHub` / `NullNotificationHub`    | Async notification hub + null variant  |
 | `makeConfirm(hub, prompt)`                                        | Bridge to `ConfirmationDecoratorCommand` |
-| `NotificationVM`                                                  | Render-side VM for `Notification` (spec v2.1) |
-| `ConfirmationVM`                                                  | Render-side VM with Approve/Reject (spec v2.1) |
+| `NotificationVM`                                                  | Render-side VM for `Notification`      |
+| `ConfirmationVM`                                                  | Render-side VM with Approve/Reject     |
 
-### 4.4 Consumer conformance adapter
+## 6. Conformance
 
-Import `@thekaveh/vmx/conformance` when consumer fixtures need a strict,
-test-runner-neutral operation/assertion harness:
-
-```typescript
-import {
-  parseConsumerConformance,
-  runConsumerConformance,
-  type ConsumerConformanceFactory,
-} from "@thekaveh/vmx/conformance";
-
-const suite = parseConsumerConformance(input);
-const factory: ConsumerConformanceFactory = ({ caseFixture }) =>
-  createConsumerAdapter(caseFixture);
-const report = await runConsumerConformance(suite, factory);
-```
-
-The v1 schema supports ordered awaited operations, RFC 6901 state assertions,
-exact normalized-message assertions, path-addressed diagnostics, and exactly
-one disposal after successful factory creation. The subpath is excluded from
-the root runtime entry and imports no Vitest/Jest API. Consumer YAML, domain
-types, snapshot encoding, and operation dispatch remain consumer-owned; VMx
-does not parse YAML or generate Swift/code from this contract. See
-`spec/schemas/consumer-conformance-v1.schema.json` and ADR-0102.
-
-### 4.5 Testing utilities
-
-Import test-only support from `@thekaveh/vmx/testing`. Nothing from this
-subpath is re-exported by `@thekaveh/vmx`, and the package remains
-`sideEffects: false`:
-
-```typescript
-import {
-  CommandDoubleOf,
-  createTestServices,
-  recordPropertyChanges,
-} from "@thekaveh/vmx/testing";
-
-const services = createTestServices();
-const changes = recordPropertyChanges(services.hub, {
-  sender: userVM,
-  propertyName: "model",
-});
-const save = new CommandDoubleOf<UserModel>();
-
-userVM.model = revised;
-save.execute(revised);
-
-expect(changes.records).toHaveLength(1);
-expect(save.executions).toEqual([revised]);
-
-changes.dispose();
-save.dispose();
-services.dispose();
-```
-
-The entry contains no Vitest or Jest imports. Tests assert on ordinary readonly
-records, so the same helpers work with any runner. `RecordingMessageHub`
-retains real delivery order; `ManualDispatcher` separates explicitly flushed
-foreground/background queues; property, serviced-collection, and
-`ObservableList` recorders own their subscriptions; command doubles control
-admission, faults, completion, and cancellation; and `createFormHarness()`
-drives the real FormVM state machine through set, approve, deny, validation,
-and persistence failures.
-
-All disposable helpers expose idempotent `dispose()` and history-clearing
-operations. The testing subpath is supported public TypeScript API and follows
-the package's SemVer: incompatible removal waits for a major release, with any
-replacement deprecated in declarations, documentation, and the changelog
-before removal.
-
-### 4.6 DevTools observability
-
-Import the optional bridge from `@thekaveh/vmx/devtools`; it is not included in
-the root runtime entry:
-
-```typescript
-import { connectReduxDevtools } from "@thekaveh/vmx/devtools";
-
-const devtools = connectReduxDevtools(hub, {
-  name: "notes",
-  snapshots: [
-    {
-      name: "workspace",
-      select: () => ({ route: appVM.model.route, noteCount: notes.length }),
-    },
-  ],
-  deny: message => message.senderName === "TelemetryVM",
-  redact: (value, context) => context.kind === "action"
-    ? { ...(value as object), senderName: "[redacted]" }
-    : removePrivateFields(value),
-  throttleMs: 16,
-  onError: (error, context) => reportDiagnostic(error, context.phase),
-});
-
-// Dispose before the owning hub.
-devtools.dispose();
-```
-
-`observeHub()` provides the same transport-neutral event stream for a custom
-sink. Default actions contain only the message type, `senderName`, sequence,
-and bounded scalar message metadata; VMx never traverses `sender`, models, or
-collection items by default. These fields are graph-safe, not inherently
-non-sensitive: consumer-controlled names and scalar values can still contain
-identifiers, so redact actions as well as snapshots when required. State
-exists only when the consumer supplies a
-named selector, and an optional per-source serializer can reduce domain values
-before bounded JSON sanitization. Circular references, throwing getters,
-functions, symbols, large strings, arrays, and objects are represented safely.
-VMx built-in message names are canonicalized across ESM and CommonJS builds;
-applications that define custom message classes should use `mapAction` when
-they need a name stable across their own minifier or bundler.
-
-Allow/deny filters run before `sampleEvery`; `throttleMs` coalesces accepted
-messages into an action batch, bounds its emitted details through the same
-serialization limits, and captures snapshots once at flush.
-Selector, serializer, redactor, clock, scheduler, sink, and Redux transport
-failures are isolated and reported through `onError`. Disposal is idempotent,
-pending batches are canceled when a hub completes, and reconnecting creates a
-fresh sequence. Passing `{ extension: null }`, or running without the Redux
-DevTools extension, returns a frozen no-op before a hub subscription, snapshot,
-or timer is created.
-
-Incoming Redux DevTools dispatches are deliberately ignored. VMx messages are
-observations, not reversible mutations, so this API makes no replay,
-time-travel, inverse-mutation, or state-reconstruction guarantee.
-
-## 5. Conformance
-
-All 425 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.6).
-
-```
-v1.x   LIFE-001..013  HUB-001..007  PROP-001..004  CMD-001..007
-       CVM-001..006   COMP-001..013 GRP-001..006   AGG-001..005
-       FWD-001..004   BLD-001..004  THR-001..004   UTIL-001..003
-v2.0   CAP-001..020   NULL-001..003 DPROP-001..012 CMDD-001..009
-       NOTIF-001..010 COMP-014..024 GRP-007..010   EXP-001..005
-       LOC-001..003
-v2.1   HIER-001..014  DIA-001..008  FORM-001..010  NOTIF-011..016
-       COL-001..023   CMD-008..011  CAP-021..022
-v2.2   AGG-006
-v2.3   BLD-005        FORM-011..013 HIER-015..017
-v2.4   THEME-001..005
-v2.5   HIER-018       NOTIF-017     FORM-014
-v2.6   COMP-025..026
-v3.0   LIFE-014       FORM-015      CMDD-010      COMP-027      CMD-012
-v3.1   CMD-013        COL-024..031  COMP-028..037 FORM-016..023
-       DIA-009..013   HIER-019..022 DISC-001..006 BLD-006 GRP-011
-v3.2   HUB-008..013
-v3.3   CVM-007..009
-v3.4   DISP-001..006
-v3.5   COL-032..039
-v3.6   CMD-014..019
-v3.7   FORM-024..029
-v3.8   HIER-023..030
-v3.9   COL-040..047
-v3.10  DISP-007..013
-v3.11  DISP-014
-v3.12  FORM-030
-v3.13  CVM-010
-v3.15  SUBV-001..004
-v3.16  COL-048..055
-v3.17  COL-056..064
-v3.18  AGCH-001..010
-v3.19  SRCH-001..007
-v3.20  ARES-001..011
-v3.21  COMP-038..041
-v3.22  AGG-007        HIER-031..032 LIFE-015
-v3.23  DISC-007..009
-v3.24  CMDD-011..013
-v3.25  COL-065
-v3.26  COMP-042..045  GRP-012..013
-v3.27  FORM-031..034
-v3.28  FORM-035..038
-v3.29  CMDD-014..017
-```
+Implements all 425 library conformance IDs; THEME scenario IDs live in the
+example apps. See [`spec/12-conformance.md`](https://github.com/thekaveh/VMx/blob/main/spec/12-conformance.md).
 
 Run the suite:
 
@@ -549,7 +270,7 @@ Run the suite:
 npm test
 ```
 
-## 6. Development
+## 7. Development
 
 ```bash
 # From this directory
@@ -562,6 +283,9 @@ npm run build
 npm test
 ```
 
-## 7. License
+See [`CONTRIBUTING.md`](https://github.com/thekaveh/VMx/blob/main/CONTRIBUTING.md) for the contributor workflow and
+[`RELEASING.md`](https://github.com/thekaveh/VMx/blob/main/langs/typescript/RELEASING.md) for the npm release runbook.
+
+## 8. License
 
 Apache-2.0 — see [`LICENSE`](https://github.com/thekaveh/VMx/blob/main/LICENSE) and [`NOTICE`](https://github.com/thekaveh/VMx/blob/main/NOTICE).

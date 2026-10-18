@@ -69,8 +69,9 @@ preserving the form's inert post-dispose behavior. See the
 
 Teardown is exception-resilient: a raising completion observer or owned
 disposable does not stop the remaining channels and commands from completing and
-disposing. Throwing flavors rethrow the first failure after every step has run;
+disposing. Throwing flavors rethrow the first failure after every step has run.
 rxjs reports observer errors asynchronously, and Combine observers cannot throw.
+
 In Python, a teardown deferred until an in-progress set-model or deny finishes
 never replaces an error that mutation is already raising.
 
@@ -78,8 +79,10 @@ never replaces an error that mutation is already raising.
 ADR-0144). VMx runs the equality comparison, the validators, and, for deny, the
 snapshotter on the candidate before changing anything. If one of them throws
 (or panics in Rust), the exception reaches the caller and the form is exactly
-as it was: same model, snapshot, errors, dirty and valid state, and command
-state, with no notification. A failure never becomes a validation error.
+as it was. The model, snapshot, errors, dirty and valid state, and command
+state are unchanged, and no notification is sent. A failure never becomes a
+validation error.
+
 Validators receive the candidate as their argument; reading the form's model
 from inside a validator returns the previous model. Updates stay serialized,
 so an edit from another thread waits for an update in progress. If a validator
@@ -96,11 +99,11 @@ be cancelled for resource control; this guard only rejects a late form result.
 Strict mode gates **approve-command eligibility** on `IsValid && IsDirty`.
 The direct awaitable approve path in all five flavors gates on validity,
 disposal, and the one-approval-at-a-time rule below, so a strict, valid, clean
-form may still be persisted explicitly. The completed
-[Rust parity ledger](../../../../maintenance/2026-07-16-rust-capability-parity.md#1244-formvm-direct-approval)
-records the focused Rust evidence.
+form may still be persisted explicitly. The
+[Rust parity ledger](../../../../maintenance/2026-07-16-rust-capability-parity.md#1244-formvm-direct-approval) records the focused Rust
+evidence.
 
-### 6.2.8.2.3.1. Settled model publication
+### 6.2.8.2.3.1. Settled Model Publication
 
 An accepted unequal `SetModel` / `set_model` call is one synchronous edit
 transaction. VMx installs the candidate, recomputes validation, errors, dirty
@@ -121,7 +124,7 @@ one idiomatic model property message after the revert settles. A successful
 reset-after-approve publishes through `OnApproved` only and does not emit a
 model property message.
 
-### 6.2.8.2.3.2. Declarative submit-then-clear
+### 6.2.8.2.3.2. Declarative Submit-Then-Clear
 
 Configure reset-after-approve when a successful submission should leave the
 form pristine with a derived next model. VMx captures the model before awaiting
@@ -138,7 +141,7 @@ persistence has already succeeded but local state is not changed and
 path emits it once on `ApproveErrors`. A retry can therefore repeat external
 persistence and should be handled as such.
 
-### 6.2.8.2.3.3. One approval at a time
+### 6.2.8.2.3.3. One Approval At A Time
 
 A form runs at most one approval at a time (spec chapter 20 §5.3, ADR-0143).
 When an approval is admitted, VMx marks it in flight before capturing the model
@@ -148,9 +151,9 @@ awaitable path does nothing: it does not call the persister, change state,
 throw, or emit on `OnApproved` or `ApproveErrors`. A double-clicked Save button
 therefore persists once.
 
-Editing and deny are not blocked. A `SetModel` or deny during the save behaves as
-before: the approval still commits the model it captured, and a configured
-reset still wins.
+Editing and deny are not blocked. A `SetModel` or deny during the save keeps its
+normal behavior: the approval still commits the model it captured, and a
+configured reset still wins.
 
 When the approval settles, VMx clears the in-flight mark first, then publishes
 any `ErrorsChanged`, one `CanExecuteChanged`, and the outcome on exactly one
@@ -174,8 +177,10 @@ Each approval subscription detaches on its own: dispose the C# `IDisposable`,
 Python disposable, or TypeScript `Subscription`, cancel the Swift
 `AnyCancellable`, or dispose or drop the Rust `ApprovalSubscription`. Form
 disposal releases every remaining subscriber, and a registration made after
-disposal keeps nothing. Rust's older `on_approved` registration lasts until the
-form is disposed and is deprecated (ADR-0139).
+disposal keeps nothing. Rust `subscribe_approved` subscribers receive no
+completion signal on dispose; the other flavors complete `OnApproved` (Rust
+parity ledger §12.9). Rust's deprecated `on_approved` registration lasts until
+the form is disposed (ADR-0139).
 
 Builder examples use the idiomatic name but the same captured-model contract:
 
@@ -304,7 +309,7 @@ TUI companion's `NoteFormVm` also wraps a strict `FormVm`
     )
     ```
 
-## 6.2.8.2.6. TypeScript Cloneability And Tableau Migration
+## 6.2.8.2.6. TypeScript Snapshot And Equality Defaults
 
 TypeScript uses `structuredClone` for the default snapshot. Functions,
 `WeakMap`/`WeakSet`, host handles, and objects containing those values are not
@@ -349,38 +354,37 @@ have side effects during the original `structuredClone` call or descriptor
 inspection, so `FormVM` deliberately omits the field name when localization
 cannot be guaranteed.
 
-The genesis form of Tableau, a VMx consumer application, carries an opaque `imagePayload` beside ordinary form
-data. Keep the opaque value by reference, explicitly define which plain fields
+When a model carries an opaque, non-cloneable payload beside ordinary form
+data, keep the payload by reference. Define explicitly which plain fields
 participate in dirty tracking, and configure both hooks together:
 
 ```typescript
-const snapshotGenesis = (model: GenesisModel): GenesisModel => ({
-  ...structuredClone({ prompt: model.prompt, seed: model.seed }),
-  imagePayload: model.imagePayload,
+const snapshotDraft = (model: DraftModel): DraftModel => ({
+  ...structuredClone({ title: model.title, body: model.body }),
+  payload: model.payload,
 });
 
-const equalsGenesis = (a: GenesisModel, b: GenesisModel): boolean =>
-  a.prompt === b.prompt && a.seed === b.seed;
+const equalsDraft = (a: DraftModel, b: DraftModel): boolean =>
+  a.title === b.title && a.body === b.body;
 
-const form = FormVM.builder<GenesisModel>()
+const form = FormVM.builder<DraftModel>()
   .initial(initial)
-  .persister(persistGenesis)
-  .snapshotter(snapshotGenesis)
-  .equals(equalsGenesis)
+  .persister(persistDraft)
+  .snapshotter(snapshotDraft)
+  .equals(equalsDraft)
   .resetOnApproved((approved) => ({
     ...approved,
-    imagePayload: undefined,
+    payload: undefined,
   }))
   .build();
 ```
 
-Here `imagePayload` is intentionally excluded from dirty tracking, restored by
-reference on deny, and cleared only after its captured value has been
-successfully persisted. This replaces a persister closure that captured the
-not-yet-created form merely to call `setModel` at the end. If reference identity should count as dirty,
-include `a.imagePayload === b.imagePayload` in `equalsGenesis`. VMx does not
-provide `snapshotExclude`: exclusion without an explicit equality policy would
-make dirty and revert semantics ambiguous.
+Here `payload` is excluded from dirty tracking, restored by reference on deny,
+and cleared only after its captured value is persisted. If reference identity
+should count as dirty, include `a.payload === b.payload` in `equalsDraft`.
+
+VMx does not provide `snapshotExclude`: exclusion without an explicit equality
+policy would make dirty and revert semantics ambiguous.
 
 ## 6.2.8.2.7. Common Pitfalls
 
@@ -399,7 +403,7 @@ make dirty and revert semantics ambiguous.
 - Re-implementing save/cancel/dirty plumbing in every editor instead of
   composing the primitive once.
 - Keeping a form-specific “zombie assignment” flag solely to stop late
-  `setModel` calls. VMx now rejects those calls after disposal; retain only
+  `setModel` calls. VMx rejects those calls after disposal; retain only
   cancellation that still owns application resources.
 
 ## 6.2.8.2.8. Related Primitives

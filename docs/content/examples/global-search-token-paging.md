@@ -5,17 +5,17 @@ Global all-notes search is the scenario path that demonstrates
 
 ## 8.6.1. What It Proves
 
-- forward-only token paging through repository-backed search
-- search results that are independent of the currently focused notebook
-- a refresh after a source change, with an unchanged search term. The refresh
-  occurs before token paging reads the new filtered projection
-- a refresh that does not change the first page. This refresh keeps every
-  loaded result and its continuation. Thus Load More continues after the last
-  visible result. It does not fetch page two again (spec 21 §6.2, ADR-0136)
-- explicit ownership of every lifecycle-bearing result VM created by a search,
-  including results later replaced, equality-suppressed, or returned by stale
-  asynchronous work
-- the same conceptual flow across C#, Python, TypeScript, and Swift
+- Token paging moves forward only, through repository-backed search.
+- Search results do not depend on the focused notebook.
+- A source change refreshes the results while the search term stays the same.
+  The refresh occurs before token paging reads the new filtered projection.
+- A refresh that does not change the first page keeps every loaded result and
+  its continuation. Load More then continues after the last visible result and
+  does not fetch page two again (spec 21 §6.2, ADR-0136).
+- The search explicitly owns every lifecycle-bearing result VM it creates. This
+  includes results that are later replaced, equality-suppressed, or returned by
+  stale asynchronous work.
+- C#, Python, TypeScript, and Swift use the same conceptual flow.
 
 ## 8.6.2. Where It Lives
 
@@ -67,7 +67,7 @@ var paged = new TokenPagedComposition<NoteVM, int?>(async offset =>
 });
 ```
 
-Python, TypeScript, Swift, and Rust already express an absent token with
+Python, TypeScript, Swift, and Rust express an absent token with
 `None`, `null`, `nil`, and `Option`.
 
 ## 8.6.5. Related Reading

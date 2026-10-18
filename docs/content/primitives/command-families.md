@@ -33,49 +33,12 @@ Commands own their predicates, tasks, trigger subscriptions, and disposal
 inertness. They do not own VM lifecycle.
 
 The fluent helpers apply to any command, so each one's result chains further.
-In Rust they come from the `CommandExt` trait (`use vmx::CommandExt;`), which
-every `Command + Clone + 'static` implements; `RelayCommand` keeps the same
-methods inherently, so its existing calls need no import. A command that is not
-`Clone`, or an `Arc<dyn Command>`, uses the helpers through an `Arc`. Pass
-`NO_PREDICATE` or `NO_HOOK` for an absent `wrap_with` argument:
-
-```rust
-use vmx::{AsyncValue, CommandExt, NO_HOOK, NO_PREDICATE};
-
-let command = save
-    .confirm(|| AsyncValue::ready(true))
-    .wrap_with(NO_PREDICATE, Some(begin_busy), Some(end_busy))
-    .succeed_with(refresh);
-```
-
-Each helper moves its receiver into the wrapper it returns; VMx command clones
-share state, so keep a clone to keep using the receiver directly.
 
 `AsyncRelayCommand` is also a base command in every flavor (`IAsyncCommand :
-ICommand`), so it can be stored wherever a command is expected and wrapped by the
+ICommand`). It can be stored wherever a command is expected and wrapped by the
 composite and decorator commands. Through that base surface, `Execute` starts
-fire-and-forget execution without waiting for the async body; failures surface on
-the command's error channel. In Rust this is `impl Command for AsyncRelayCommand`,
-usable as `Arc<dyn Command>` or as the inner command of `DecoratorCommand` and
-`ConfirmationDecoratorCommand`.
-
-Rust's error channel is `error_stream()`, a hot `CommandErrorStream` that
-delivers each fire-and-forget failure once as the original `VmxError` and
-completes on disposal. A panic caught by `ConfirmationDecoratorCommand` arrives
-as `VmxError::Other` carrying the panic message, because a panic payload is not a
-clonable error; `execute_async().join()` still returns the payload itself. The
-older `errors()` hubs carry only an `"error"` marker and are deprecated
-(ADR-0137). A confirmation `AsyncValue` produced by a panicking `map` or
-`and_then` callback ends `execute_async().join()` with that panic instead of
-blocking, and fire-and-forget `execute` publishes it on `error_stream()`
-(ADR-0138).
-
-A Rust `AsyncRelayCommand` runs an admitted execution on one worker thread. A
-rejected `execute()` (no action, an execution already running, a false
-predicate, or a disposed command) returns without starting a thread.
-`execute_async()` keeps returning a `JoinHandle`, so a rejected awaited call
-still costs one short-lived thread whose handle completes with `Ok(())`
-(ADR-0140).
+fire-and-forget execution without waiting for the async body. Failures surface
+on the command's error channel.
 
 ## 6.3.3. Lifecycle And Messaging
 
@@ -120,6 +83,51 @@ Representative naming differences:
 | Trigger setter   | `Triggers(...)`            | `triggers(...)`               | `triggers(...)`            | `triggers(...)`            | `trigger(...)`                |
 | Imperative raise | `RaiseCanExecuteChanged()` | `raise_can_execute_changed()` | `raiseCanExecuteChanged()` | `raiseCanExecuteChanged()` | `raise_can_execute_changed()` |
 | Confirm helper   | extension `Confirm(...)`   | `confirm(...)` helper         | `confirm(...)` helper      | `confirm(...)` helper      | `confirm(...)`                |
+
+### 6.3.4.1. Rust Notes
+
+In Rust, the fluent helpers come from the `CommandExt` trait
+(`use vmx::CommandExt;`). Every `Command + Clone + 'static` type implements it.
+`RelayCommand` also has the same methods inherently, so its calls need no
+import.
+
+A command that is not `Clone`, or an `Arc<dyn Command>`, uses the helpers
+through an `Arc`. Pass `NO_PREDICATE` or `NO_HOOK` for an absent `wrap_with`
+argument:
+
+```rust
+use vmx::{AsyncValue, CommandExt, NO_HOOK, NO_PREDICATE};
+
+let command = save
+    .confirm(|| AsyncValue::ready(true))
+    .wrap_with(NO_PREDICATE, Some(begin_busy), Some(end_busy))
+    .succeed_with(refresh);
+```
+
+Each helper moves its receiver into the wrapper it returns. VMx command clones
+share state, so keep a clone to keep using the receiver directly.
+
+`AsyncRelayCommand` implements `Command`. Use it as `Arc<dyn Command>` or as
+the inner command of `DecoratorCommand` and `ConfirmationDecoratorCommand`.
+
+The error channel is `error_stream()`, a hot `CommandErrorStream`. It delivers
+each fire-and-forget failure once as the original `VmxError` and completes on
+disposal. The older `errors()` hubs carry only an `"error"` marker and are
+deprecated (ADR-0137).
+
+A panic caught by `ConfirmationDecoratorCommand` arrives as `VmxError::Other`
+with the panic message, because a panic payload is not a clonable error.
+`execute_async().join()` still returns the payload itself. A panic in the
+`map` or `and_then` callback of a confirmation `AsyncValue` ends
+`execute_async().join()` with that panic instead of blocking. Fire-and-forget
+`execute` publishes it on `error_stream()` (ADR-0138).
+
+`AsyncRelayCommand` runs an admitted execution on one worker thread. A rejected
+`execute()` returns without starting a thread. Rejection causes are no action,
+an execution already running, a false predicate, or a disposed command.
+`execute_async()` always returns a `JoinHandle`, so a rejected awaited call
+still costs one short-lived thread whose handle completes with `Ok(())`
+(ADR-0140).
 
 ## 6.3.5. Triggers Or Imperative Raise?
 
@@ -178,30 +186,30 @@ command that needs imperative invalidation.
 
 ## 6.3.6. Example
 
-Canonical relay-command shape:
+Canonical relay-command shape, closing the current tab of a composite:
 
 === "TypeScript"
 
     ```ts
-    const save = RelayCommand.builder()
-      .predicate(() => form.isDirty && form.isValid)
+    // currentChanged: an Observable that emits when tabs.current changes.
+    const closeTab = RelayCommand.builder()
+      .predicate(() => tabs.current !== null)
       .task(() => {
-        void form.approveAsync();
+        const current = tabs.current;
+        if (current !== null) tabs.remove(current);
       })
       .triggers(currentChanged)
       .build();
     ```
 
-A wrapping command like this inherits `FormVM`'s one-approval-at-a-time rule
-(ADR-0143): while a save is in flight, executing it again does nothing. Binding
-`form.approveCommand` directly is usually simpler, because its `CanExecute` also
-turns false during the save.
+The same normative command structure appears in all five flavors, with casing
+and trait-import changes. The
+[Rust parity ledger](../../maintenance/2026-07-16-rust-capability-parity.md)
+records Rust command-disposal and thread-free confirmation evidence. The Notes Workspace editor and
+delete flows are concrete examples.
 
-The same normative command structure appears across all catalog-complete source
-flavors with casing and trait-import changes. Rust's command-disposal and
-thread-free confirmation convergence is recorded in the completed
-[Rust parity ledger](../../maintenance/2026-07-16-rust-capability-parity.md).
-The Notes Workspace editor and delete flows are concrete examples.
+To bind a form's approval, bind `form.approveCommand` directly. Its
+`CanExecute` turns false while a save is in flight (ADR-0143).
 
 ## 6.3.7. Common Pitfalls
 

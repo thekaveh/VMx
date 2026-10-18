@@ -14,25 +14,10 @@ ______________________________________________________________________
 
 ## 3.3.1. Install
 
-PyPI provides VMx 3.23.0, which implements this tutorial's minimum
-specification. The current 3.29.0 Python source line is not published yet;
-pin `vmx==3.23.0` when reproducing released behavior.
-
-```bash
-# Using uv (recommended)
-uv add vmx
-
-# Using pip
-pip install vmx
-```
-
-For local development from a checked-out clone:
-
-```bash
-uv add --editable path/to/VMx/langs/python
-# or
-pip install -e path/to/VMx/langs/python
-```
+Add VMx as described in [Installation](../installation.md). PyPI provides
+`vmx` 3.23.0. Examples that need a later source line state their minimum
+version; the Python tab on the installation page installs the source line from
+a checkout.
 
 ______________________________________________________________________
 
@@ -64,9 +49,8 @@ async def main() -> None:
     loop = asyncio.get_running_loop()
     hub: MessageHub[Message] = MessageHub()
     dispatcher = RxDispatcher.asyncio(loop)
-    # Source 3.23.2 and later, not yet on PyPI (current source: 3.29.0):
-    # foreground → AsyncIOThreadSafeScheduler(loop)
-    # background → ThreadPoolScheduler
+    # Source 3.23.2 or later maps foreground to AsyncIOThreadSafeScheduler(loop).
+    # Background stays on ThreadPoolScheduler.
     ...
 
 asyncio.run(main())
@@ -87,7 +71,7 @@ from vmx.services import RxDispatcher
 
 async def main() -> None:
     loop = asyncio.get_running_loop()
-    # Verified workaround for published vmx 3.23.0 with RxPY 4.0.4.
+    # This pairing gives vmx 3.23.0 from PyPI the thread-safe scheduler (tested with RxPY 4.0.4).
     dispatcher = RxDispatcher(
         foreground=AsyncIOThreadSafeScheduler(loop),
         background=ThreadPoolScheduler(),
@@ -222,16 +206,20 @@ save_command.can_execute_changed.subscribe(
 )
 
 print(save_command.can_execute())   # True
-save_command.execute()              # prints "Saving…"
+save_command.execute()
+# stdout: "Saving…"
+# stdout: "  can_execute is now False"   (the task fires the trigger)
 print(save_command.can_execute())   # False again
 
-# Dispose to unsubscribe all trigger subscriptions.
+# Dispose to unsubscribe all trigger subscriptions. Disposal sends one final
+# can_execute_changed notification before it completes the stream.
 save_command.dispose()
+# stdout: "  can_execute is now False"
 ```
 
 > See [command families](../primitives/command-families.md) for the full command
 > contract, including the
-> "predicate-false gates execute" rule (CMD-003).
+> "predicate-false gates execute" rule (CMD-007).
 
 ______________________________________________________________________
 
@@ -343,10 +331,11 @@ print(user_vm.status)    # ConstructionStatus.DISPOSED
 
 # CompositeVM.dispose() disposes children, then itself.
 tabs.dispose()
-
-# MessageHub.dispose() completes the underlying Rx Subject.
-hub.dispose()
 ```
+
+Dispose the hub last, after every viewmodel that uses it. `MessageHub.dispose()`
+completes the underlying Rx subject. The threading examples below still use the
+hub, so the full shutdown sequence appears after them.
 
 > See [Lifecycle & Messaging](../architecture/lifecycle-messaging.md) for the
 > full transition table and the
@@ -376,19 +365,35 @@ hub.messages.pipe(
 ).subscribe(lambda msg: update_label(msg))   # safe to touch UI here
 ```
 
-For background work before constructing a VM:
+The next example loads data in the background before `construct()`. It builds
+a new viewmodel because section 3.3.6 disposed `user_vm`.
 
 ```python
 import reactivex as rx
 import reactivex.operators as ops
 
+profile_vm: ComponentVMOf[UserModel] = (
+    ComponentVMOf[UserModel].builder()
+    .name("profile")
+    .model(UserModel("", ""))
+    .services(hub, dispatcher)
+    .build()
+)
+
 def apply_remote_data(data: UserModel) -> None:
-    user_vm.model = data
-    user_vm.construct()
+    profile_vm.model = data
+    profile_vm.construct()
 
 rx.from_callable(lambda: load_from_database(), scheduler=dispatcher.background).pipe(
     ops.observe_on(dispatcher.foreground),
 ).subscribe(apply_remote_data)
+```
+
+At shutdown, dispose the viewmodels first and the hub last:
+
+```python
+profile_vm.dispose()
+hub.dispose()
 ```
 
 When using `RxDispatcher.asyncio(loop)`, the foreground scheduler is
@@ -405,9 +410,9 @@ daemon loop. A later `cancel()` call invalidates the resource state
 synchronously. It then posts native task and future work to that operation
 loop. Thus the command can settle after the state changes.
 
-This recipe requires the unreleased Python 3.29.0 source. Install that source
-from a checkout. The current PyPI 3.23.0 package does not contain this
-operation-loop repair.
+This recipe requires source 3.29.0 or later. PyPI 3.23.0 does not include this
+operation-loop behavior. [Installation](../installation.md) shows how to
+install the source line from a checkout.
 
 ```python
 import asyncio
@@ -454,7 +459,7 @@ hub.dispose()
 ```
 
 The corresponding
-[`langs/python/tests/unit/state/test_async_resource_threading.py`](https://github.com/thekaveh/VMx/blob/main/langs/python/tests/unit/state/test_async_resource_threading.py)
+[`langs/python/tests/unit/state/test_async_resource_threading.py`](../../../langs/python/tests/unit/state/test_async_resource_threading.py)
 also records the loop used for task cancellation, future completion, and late
 callback registration. State and cleanup notifications are not automatically
 UI-dispatched. For caller-owned loops, stop admissions, cancel, and drain while

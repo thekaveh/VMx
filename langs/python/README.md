@@ -12,14 +12,12 @@ spec-compatible with the C#, TypeScript, Swift, and Rust flavors.
 **v3.29.0 source** — implements `spec-v3.29.0` end-to-end. 425/425 library conformance IDs
 pass. Supports Python 3.10–3.14.
 `mypy --strict` clean. Opt-in `vmx.notifications` subpackage ships an
-`INotificationHub` for async confirmations. The Swift flavor is at total
-parity; see `../swift/README.md` §5 for the current conformance matrix.
+`INotificationHub` for async confirmations.
 
 ## 2. Install
 
-VMx 3.23.0 is publicly available on PyPI and implements spec 3.23.0. The
-3.29.0 source line is not published yet; pin 3.23.0 when reproducing released
-behavior.
+VMx 3.23.0 is on PyPI and implements spec 3.23.0. The 3.29.0 source line is
+not published; pin 3.23.0 when reproducing released behavior.
 
 ```bash
 pip install vmx
@@ -110,27 +108,14 @@ The C# and TypeScript flavors mirror this shape: see
 [TypeScript Quick start](https://github.com/thekaveh/VMx/blob/main/langs/typescript/README.md#3-quick-start) — only the
 identifier casing differs.
 
-See [Getting Started with VMx — Python](../../docs/content/getting-started/python.md)
+See [Getting Started with VMx — Python](https://github.com/thekaveh/VMx/blob/main/docs/content/getting-started/python.md)
 for the full walkthrough.
 
 ### 3.1 Cross-language naming
 
-The conceptual surface is identical across the five flavors; identifier
-casing follows the per-language idiom (see ADR-0006).
-
-| Concept            | C#                        | Python             | TypeScript                | Swift                     | Rust                    |
-| ------------------ | ------------------------- | ------------------ | ------------------------- | ------------------------- | ----------------------- |
-| Unmodeled VM       | `ComponentVM`             | `ComponentVM`      | `ComponentVM`             | `ComponentVM`             | `ComponentVm<()>`       |
-| Modeled VM         | `ComponentVM<M>`          | `ComponentVMOf[M]` | `ComponentVMOf<M>`        | `ComponentVMOf<M>`        | `ComponentVm<M>`        |
-| Status property    | `Status`                  | `status`           | `status`                  | `status`                  | `status()`              |
-| Builder entrypoint | `Builder()`               | `builder()`        | `builder()`               | `builder()`               | `builder()`             |
-| Null hub singleton | `NullMessageHub.Instance` | `NULL_MESSAGE_HUB` | `NullMessageHub.INSTANCE` | `NullMessageHub.INSTANCE` | `NullMessageHub::hub()` |
-
-C# uses PascalCase, Python and Rust use snake_case, TypeScript and Swift use
-camelCase. C# and Rust retain the same public type name for modeled and
-unmodeled components (`ComponentVM<M>` / `ComponentVm<M>`), while Python,
-TypeScript, and Swift use a separate `ComponentVMOf` type because their
-generics syntax cannot overload an unparameterised name.
+The concepts are identical across the five flavors; identifier casing follows
+each language idiom (ADR-0006). See the
+[cross-language naming table](https://github.com/thekaveh/VMx/blob/main/docs/content/flavors/cross-language-naming.md).
 
 ## 4. API surface
 
@@ -149,11 +134,11 @@ from vmx import ComponentVM, ConstructionStatus, MessageHub, RelayCommand, RxDis
 | `GroupVM[VM]`                                     | Collection without current selection                                                |
 | `VmCollectionProto[VM]`                           | Shared group/composite collection + atomic move                                     |
 | `SelectableVmCollectionProto[VM]`                 | Composite-only current-selection extension                                          |
-| `AggregateVM1..6[…]`                              | Fixed-arity named component slots (arity 6 added in spec v2.2.0 — see ADR-0034)     |
+| `AggregateVM1..6[…]`                              | Fixed-arity named component slots (ADR-0034)     |
 | `ForwardingComponentVM`                           | Decorator for `ComponentVMOfProto`                                                  |
 | `ForwardingCompositeVM`                           | Decorator for composites                                                            |
 | `RelayCommand` / `RelayCommandOf[T]`              | Executable command with `can_execute` predicate                                     |
-| `CompositeCommand`                                | Aggregate N inner commands (spec v2.0)                                              |
+| `CompositeCommand`                                | Aggregate N inner commands                                              |
 | `DecoratorCommand`                                | Wrap a command with pre/post + can-execute gate                                     |
 | `ConfirmationDecoratorCommand`                    | Wrap a command with an async confirm coroutine                                      |
 | `ModeledCrudCommands[M,VM]`                       | Create / UpdateCurrent / DeleteCurrent helper                                       |
@@ -165,179 +150,76 @@ from vmx import ComponentVM, ConstructionStatus, MessageHub, RelayCommand, RxDis
 | `StatusTransitionError`                           | Raised on illegal lifecycle operations                                              |
 | `BuilderValidationError`                          | Raised when a builder is missing required fields                                    |
 | `walk(root)`                                      | DFS pre-order tree traversal generator                                              |
-| `walk_expanded(root)`                             | DFS walk gated on `IExpandable.is_expanded` (v2.0)                                  |
+| `walk_expanded(root)`                             | DFS walk gated on `IExpandable.is_expanded`                                  |
 | `find(root, predicate)`                           | Short-circuit tree search                                                           |
-| `DerivedProperty[TValue]` / `from_sources(...)`   | N-source computed value (spec v2.0)                                                 |
-| `ExpandableState`                                 | `IExpandable`+`ICollapsible` helper (spec v2.0)                                     |
-| `SearchableState[T]`                              | Debounced filter + optional source signal (spec v3.19)                              |
-| `AsyncResourceVM[T]`                             | Cancellable latest-wins async value state (spec v3.20)                              |
-| `ILocalizer` / `NullLocalizer` / `NULL_LOCALIZER` | i18n hook + null-default (v2.0)                                                     |
-| 22× capability ABCs                               | `vmx.capabilities.*` — opt-in (spec v2.0+)                                          |
+| `DerivedProperty[TValue]` / `from_sources(...)`   | N-source computed value                                                 |
+| `ExpandableState`                                 | `IExpandable`+`ICollapsible` helper                                     |
+| `SearchableState[T]`                              | Debounced filter + optional source signal                              |
+| `AsyncResourceVM[T]`                             | Cancellable latest-wins async value state                              |
+| `ILocalizer` / `NullLocalizer` / `NULL_LOCALIZER` | i18n hook + null-default                                                     |
+| 22× capability ABCs                               | `vmx.capabilities.*` — opt-in                                          |
 | `HierarchicalVM[TModel, TVM]`                     | Recursive tree VM with key-aware `attach_many`                                      |
-| `TreeStructureChangedMessage`                     | Tree-structural-change notification (spec v2.1)                                     |
-| `FormVM[TM]`                                      | Snapshot/revert form lifecycle (spec v2.1)                                          |
-| `DialogService` / `NullDialogService`             | File/confirm/notify dialogs + null (spec v2.1)                                      |
-| `ServicedObservableCollection[T]`                 | Complete local-before-hub mutation surface (spec v3.16)                              |
-| `KeyedServicedObservableCollection[TKey, T]`      | Ordered serviced surface plus captured-key index (spec v3.17)                        |
-| `ObservableMembershipSource[T]` / `AggregateChangeStream[T]` | Dynamic membership-and-item fan-in with provenance (spec v3.18)          |
+| `TreeStructureChangedMessage`                     | Tree-structural-change notification                                     |
+| `FormVM[TM]`                                      | Snapshot/revert form lifecycle                                          |
+| `DialogService` / `NullDialogService`             | File/confirm/notify dialogs + null                                      |
+| `ServicedObservableCollection[T]`                 | Complete local-before-hub mutation surface                              |
+| `KeyedServicedObservableCollection[TKey, T]`      | Ordered serviced surface plus captured-key index                        |
+| `ObservableMembershipSource[T]` / `AggregateChangeStream[T]` | Dynamic membership-and-item fan-in with provenance          |
 | `ObservableList[T]`                               | Granular events + atomic `replace_all`                                               |
-| `ObservableDictionary[K1, K2, V]`                 | Multi-key observable dictionary (spec v2.1)                                         |
-| `PagedComposition[TVM]`                           | Pageable iterable decorator (spec v2.1)                                             |
-| Fluent command helpers                            | `confirm` / `precede_with` / `succeed_with` / `wrap_with` over commands (spec v2.1) |
-| `property_value_changed_messages_for`             | Hub helper yielding an observable of property-value snapshots (spec v2.1)           |
-| `subscribe_value`                                 | Fixed-VM selected-state bridge returning `DisposableBase` (spec v3.15)              |
+| `ObservableDictionary[K1, K2, V]`                 | Multi-key observable dictionary                                         |
+| `PagedComposition[TVM]`                           | Pageable iterable decorator                                             |
+| Fluent command helpers                            | `confirm` / `precede_with` / `succeed_with` / `wrap_with` over commands |
+| `property_value_changed_messages_for`             | Hub helper yielding an observable of property-value snapshots           |
+| `subscribe_value`                                 | Fixed-VM selected-state bridge returning `DisposableBase`              |
 
 ### 4.1 Serviced collections
 
-Use `ServicedObservableCollection[T]` for a caller-owned sequence with local
-`on_collection_changed` delivery and optional hub publication:
+`ServicedObservableCollection[T]` is a caller-owned sequence with local
+`on_collection_changed` delivery and optional hub publication.
+`KeyedServicedObservableCollection[TKey, T]` adds a captured stable-key index
+(`get`, `upsert`, `delete`, `contains_key`) and keeps the full
+`MutableSequence` surface.
 
-```python
-notes = ServicedObservableCollection[Note](hub)
-notes.append(first)
-notes.append(second)
-removed = notes.remove_at(-1)
-old = notes.replace(-1, revised)
-notes.append(second)
-notes.move(0, len(notes) - 1)  # strict, nonnegative positions
-notes.replace_all(server_snapshot)  # one Reset
-```
-
-List-style `remove(value)` removes the first match, returns `None`, and raises
-`ValueError` when missing. `remove_at` / `replace` accept normal negative list
-indices and return the removed / old item; `move` rejects negative or
-out-of-range positions with `IndexError`. Empty Clear and empty-to-empty
-replacement are no-ops. Messages expose `index`, `old_index`, and `new_index`;
-the collection does not batch or own items. Use `ObservableList[T]` when you
-need batch scopes and the `Count` channel.
-
-Choose `KeyedServicedObservableCollection[TKey, T]` for one stable domain-key
-index without giving up list order or the full `MutableSequence` surface:
-
-```python
-notes_by_id = KeyedServicedObservableCollection[str, Note](lambda note: note.id, hub)
-notes_by_id.append(first)
-note = notes_by_id.get(first.id)
-added = notes_by_id.upsert(revised)  # False: Replace at stable position
-removed = notes_by_id.delete(first.id)
-```
-
-`contains_key` tests membership. Keys are captured until indexed replacement
-or delete-then-add; slice mutations and `reverse()` are atomic. Duplicate and
-projector failures preserve state. Lookup/target discovery are expected O(1),
-while ordered middle shifts remain O(n). Local delivery stays immediate even
-when an external hub transaction defers hub messages. Items remain caller-owned.
+Empty Clear and empty-to-empty replacement are no-ops. Messages expose `index`,
+`old_index`, and `new_index`. Use `ObservableList[T]` when you need batch scopes
+and the `Count` channel. See
+[Python serviced collections](https://github.com/thekaveh/VMx/blob/main/docs/content/flavors/python.md#733-serviced-collections).
 
 ### 4.2 Imperative engine bridge
 
-Use `subscribe_value` to push selected VM state into a renderer or other
-imperative host without polling it every frame:
-
-```python
-from reactivex.abc import DisposableBase
-
-from vmx import subscribe_value
-
-
-def apply_exposure(exposure: float, _previous_exposure: float) -> None:
-    material.uniforms.exposure.value = exposure
-
-
-exposure_subscription: DisposableBase = subscribe_value(
-    camera_vm,
-    lambda vm: vm.model.exposure,
-    apply_exposure,
-    fire_immediately=True,
-)
-
-# When the host adapter is disposed:
-exposure_subscription.dispose()
-```
-
-The callback receives `(current, previous)`; immediate delivery passes the
-initial value for both. The selector runs after every property message from
-this fixed VM, and `==` suppresses unchanged selections. Pass `equality=` for
-custom equality. The host owns the returned `DisposableBase`; VMx does not
-attach it to the observed VM's lifetime.
+`subscribe_value` pushes a selected value from one fixed VM into an imperative
+host as `(current, previous)`. It returns a `DisposableBase` that the host owns;
+VMx does not attach it to the observed VM's lifetime. See
+[Python imperative engine bridge](https://github.com/thekaveh/VMx/blob/main/docs/content/flavors/python.md#734-imperative-engine-bridge).
 
 ### 4.3 Async resource operation loops
 
-A synchronous caller may start `AsyncResourceVM` with
-`load_command.execute()`. When that caller has no running asyncio loop, VMx uses
-its shared daemon loop for the operation. `cancel()` and `dispose()` invalidate
-the resource state immediately; VMx then performs native task/future signals
-and late-result registration on that operation loop. Command settlement may
-therefore follow the synchronous state change.
+A synchronous caller without a running asyncio loop can start `AsyncResourceVM`
+with `load_command.execute()`; VMx runs the operation on its shared daemon loop.
+Application-owned loops must stay runnable until resource work is cancelled and
+drained. See
+[Python async resource operation loops](https://github.com/thekaveh/VMx/blob/main/docs/content/flavors/python.md#735-async-resource-operation-loops)
+and the
+[asyncio ownership guidance](https://github.com/thekaveh/VMx/blob/main/docs/content/primitives/services-messages-dispatching.md#669-python-asyncio-dispatcher-ownership).
 
-State and cleanup notifications retain their ordinary calling-context rules;
-operation-loop ownership does not dispatch them to a UI scheduler. For a loop
-owned by the application, stop admissions, cancel, and drain while the loop can
-still run, then close it. VMx cannot complete pending work or force `finally`
-blocks after the loop is closed. The VMx shared daemon loop is infrastructure,
-not an application-owned loop to close. See the
-[focused executable regression](tests/unit/state/test_async_resource_threading.py)
-and the central
-[asyncio ownership guidance](../../docs/content/primitives/services-messages-dispatching.md#669-python-asyncio-dispatcher-ownership).
+## 5. Notifications
 
-The opt-in `vmx.notifications` subpackage (spec v2.0+) adds:
+The opt-in `vmx.notifications` subpackage adds:
 
 | Export                                                                                   | Description                                    |
 | ---------------------------------------------------------------------------------------- | ---------------------------------------------- |
 | `Notification` / `NotificationType` / `NotificationReaction`                             | Notification primitives                        |
 | `INotificationHub` / `NotificationHub` / `NullNotificationHub` / `NULL_NOTIFICATION_HUB` | Async notification hub + null variant          |
 | `make_confirm(hub, prompt)`                                                              | Bridge to `ConfirmationDecoratorCommand`       |
-| `NotificationVM`                                                                         | Render-side VM for `Notification` (spec v2.1)  |
-| `ConfirmationVM`                                                                         | Render-side VM with Approve/Reject (spec v2.1) |
+| `NotificationVM`                                                                         | Render-side VM for `Notification`              |
+| `ConfirmationVM`                                                                         | Render-side VM with Approve/Reject             |
 
-## 5. Conformance
+## 6. Conformance
 
-All 425 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.6). Test-layout conventions for the conformance tree are documented in [`tests/conformance/README.md`](tests/conformance/README.md).
-
-```
-v1.x   LIFE-001..013  HUB-001..007  PROP-001..004  CMD-001..007
-       CVM-001..006   COMP-001..013 GRP-001..006   AGG-001..005
-       FWD-001..004   BLD-001..004  THR-001..004   UTIL-001..003
-v2.0   CAP-001..020   NULL-001..003 DPROP-001..012 CMDD-001..009
-       NOTIF-001..010 COMP-014..024 GRP-007..010   EXP-001..005
-       LOC-001..003
-v2.1   HIER-001..014  DIA-001..008  FORM-001..010  NOTIF-011..016
-       COL-001..023   CMD-008..011  CAP-021..022
-v2.2   AGG-006
-v2.3   BLD-005        FORM-011..013 HIER-015..017
-v2.4   THEME-001..005
-v2.5   HIER-018       NOTIF-017     FORM-014
-v2.6   COMP-025..026
-v3.0   LIFE-014       FORM-015      CMDD-010      COMP-027      CMD-012
-v3.1   CMD-013        COL-024..031  COMP-028..037 FORM-016..023
-       DIA-009..013   HIER-019..022 DISC-001..006 BLD-006 GRP-011
-v3.2   HUB-008..013
-v3.3   CVM-007..009
-v3.4   DISP-001..006
-v3.5   COL-032..039
-v3.6   CMD-014..019
-v3.7   FORM-024..029
-v3.8   HIER-023..030
-v3.9   COL-040..047
-v3.10  DISP-007..013
-v3.11  DISP-014
-v3.12  FORM-030
-v3.13  CVM-010
-v3.15  SUBV-001..004
-v3.16  COL-048..055
-v3.17  COL-056..064
-v3.18  AGCH-001..010
-v3.19  SRCH-001..007
-v3.20  ARES-001..011
-v3.21  COMP-038..041
-v3.22  AGG-007        HIER-031..032 LIFE-015
-v3.23  DISC-007..009
-v3.24  CMDD-011..013
-v3.25  COL-065
-v3.26  COMP-042..045  GRP-012..013
-v3.27  FORM-031..034
-v3.28  FORM-035..038
-v3.29  CMDD-014..017
-```
+Implements all 425 library conformance IDs; THEME scenario IDs live in the
+example apps. See [`spec/12-conformance.md`](https://github.com/thekaveh/VMx/blob/main/spec/12-conformance.md).
+[`tests/conformance/README.md`](https://github.com/thekaveh/VMx/blob/main/langs/python/tests/conformance/README.md)
+documents the test-layout conventions.
 
 Run the suite:
 
@@ -345,7 +227,7 @@ Run the suite:
 uv run pytest
 ```
 
-## 6. Development
+## 7. Development
 
 ```bash
 # From this directory
@@ -362,9 +244,8 @@ The `lifecycle-transitions.json` fixture from `spec/fixtures/` is tracked under
 with a repo-relative fallback for diagnostics. `tools/check-python-fixture-sync.py`
 keeps the package copy byte-identical to the spec fixture.
 
-## 7. Releasing
-
-See [`RELEASING.md`](RELEASING.md) for the PyPI release pipeline runbook.
+See [`CONTRIBUTING.md`](https://github.com/thekaveh/VMx/blob/main/CONTRIBUTING.md) for the contributor workflow and
+[`RELEASING.md`](https://github.com/thekaveh/VMx/blob/main/langs/python/RELEASING.md) for the PyPI release runbook.
 
 ## 8. License
 

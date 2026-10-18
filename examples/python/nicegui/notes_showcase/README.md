@@ -27,6 +27,8 @@ workspace, like a desktop app opened twice.
 
 ## Check
 
+Run from `examples/python/nicegui/notes_showcase`:
+
 ```bash
 uv run ruff check
 uv run ruff format --check

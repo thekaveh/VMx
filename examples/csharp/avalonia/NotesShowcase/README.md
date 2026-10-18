@@ -1,15 +1,12 @@
 # NotesShowcase (C# / Avalonia)
 
-VMx flagship example — Notes Workspace, the C# / Avalonia flavor. A
-cross-platform XAML app on Avalonia 12 + .NET 8 that drives a single
-`WorkspaceVM` exercising 19 distinct VMx features (see the
-[parity matrix](../../../notes-showcase-parity.md) for the full feature
-table, and the
-[VM hierarchy diagram](../../../assets/notes-showcase-vm-hierarchy.svg)
-plus
-[VMx component map](../../../assets/notes-showcase-vmx-components.svg)
-for the canonical visuals of how the VMs compose). The C# host-specific
-diagram is
+VMx flagship example — Notes Workspace, the C# / Avalonia flavor. This
+cross-platform XAML app is built on Avalonia 12 + .NET 8. It drives a single
+`WorkspaceVM` that exercises 19 VMx features. The
+[parity matrix](../../../notes-showcase-parity.md) has the full feature table.
+The [VM hierarchy diagram](../../../assets/notes-showcase-vm-hierarchy.svg)
+and the [VMx component map](../../../assets/notes-showcase-vmx-components.svg)
+show how the VMs compose. The C# host-specific diagram is
 [`csharp-avalonia-notes-showcase.svg`](../../../../docs/assets/diagrams/csharp-avalonia-notes-showcase.svg)
 ([HTML](../../../../docs/assets/diagrams/csharp-avalonia-notes-showcase.html),
 [PNG](../../../../docs/assets/diagrams/csharp-avalonia-notes-showcase.png)).
@@ -78,7 +75,7 @@ examples/csharp/avalonia/NotesShowcase/
 | #   | Feature                                                  | Where                                                                                                                                                                                                                                                                     |
 | --- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1   | Notebook tree projection                                 | `ViewModels/NotebooksRootVM.cs`, `ViewModels/NotebookVM.cs` (flat `ComponentVM`-based adapters representing the `HierarchicalVM` capability and emitting `TreeStructureChangedMessage`)                                                                                   |
-| 2   | `CompositeVM.Current`                                    | `ViewModels/NotesViewVM.cs` (app-owned `_current` selection slot over the inner composite used as storage)                                                                                                                                                                |
+| 2   | App-owned `current` selection (models `CompositeVM.Current`, ch. 6) | `ViewModels/NotesViewVM.cs` (app-owned `_current` selection slot over the inner composite used as storage)                                                                                                                                                                |
 | 3   | `ComponentVM<M>` modeled                                 | `ViewModels/NoteVM.cs`, `ViewModels/NotebookVM.cs`                                                                                                                                                                                                                        |
 | 4   | `FormVM` snapshot / revert / validation                  | `ViewModels/NoteFormVM.cs` (owns a strict `FormVM<NoteModel>`)                                                                                                                                                                                                            |
 | 5   | `DerivedProperty`                                        | `ViewModels/StatusBarVM.cs`, `NotesViewVM.IsEmptyDerived` / `PageLabelDerived`, `CapabilityActionsVM.Actions` (`NoteFormVM.IsDirty` is a plain proxy over `FormVM.IsDirty`, not a `DerivedProperty`)                                                                      |
@@ -91,8 +88,8 @@ examples/csharp/avalonia/NotesShowcase/
 | 12  | `ConfirmationDecoratorCommand`                           | `ViewModels/NoteVM.cs` (`DeleteCommand` wraps inner delete)                                                                                                                                                                                                               |
 | 13  | `IDialogService`                                         | Interface from VMx library (`langs/csharp/src/VMx/Dialogs/IDialogService.cs`); implemented here by `Views/Adapter/AvaloniaDialogService.cs` + `Views/Modals/ConfirmDialog.axaml`                                                                                          |
 | 14  | Capability-aware UI                                      | `ViewModels/CapabilityActionsVM.cs` + `Views/CapabilityActionsView.axaml`                                                                                                                                                                                                 |
-| 15  | `AggregateVM6` (spec 2.2.0)                              | `ViewModels/WorkspaceVM.cs` (wraps a sealed `AggregateVM6<…>` of the six children)                                                                                                                                                                                        |
-| 16  | `ThemeVM` scenario contract (spec 2.4.0, THEME-001..005) | `Models/ThemeModel.cs`, `ViewModels/ThemeVM.cs`, `Messages/ThemeChangedMessage.cs`, `Views/Adapter/ThemeAdapter.cs` (workspace-owned `ThemeVM` sibling bound through the Avalonia adapter; still outside the `AggregateVM6` child list pending any future `AggregateVM7`) |
+| 15  | `AggregateVM6` (ch. 8, ADR-0034)                         | `ViewModels/WorkspaceVM.cs` (wraps a sealed `AggregateVM6<…>` of the six children)                                                                                                                                                                                        |
+| 16  | `ThemeVM` scenario contract (THEME-001..005)             | `Models/ThemeModel.cs`, `ViewModels/ThemeVM.cs`, `Messages/ThemeChangedMessage.cs`, `Views/Adapter/ThemeAdapter.cs` (workspace-owned `ThemeVM` sibling bound through the Avalonia adapter; outside the `AggregateVM6` child list; see the parity matrix theme footnote) |
 | 17  | `TokenPagedComposition`                                  | `ViewModels/GlobalSearchVM.cs` + repository token-paged `SearchNotesAsync`                                                                                                                                                                                                |
 | 18  | `DiscriminatorVM`                                        | `ViewModels/NoteFormVM.cs` edit/preview editor mode                                                                                                                                                                                                                       |
 | 19  | Tag autocomplete                                         | `ViewModels/NoteFormVM.cs` composes `SearchableState<string>` over workspace tags                                                                                                                                                                                         |

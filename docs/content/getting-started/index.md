@@ -1,11 +1,19 @@
 # 3.1. Quickstart
 
 Each flavor exposes the same shape: wire a message hub and dispatcher, build a
-leaf `ComponentVM`, then compose child tabs in a `CompositeVM`.
+leaf `ComponentVM`, then compose child tabs in a `CompositeVM`. Names follow
+each language's idiom, and the construction and selection behavior is the same
+in every flavor. Each snippet is a complete program. The C# snippet uses
+top-level statements, and the Swift snippet runs in a throwing context such as
+`main.swift`.
 
 === "C#"
 
     ```csharp
+    using VMx.Components;
+    using VMx.Composites;
+    using VMx.Services;
+
     IMessageHub hub = new MessageHub();
     IDispatcher dispatcher = RxDispatcher.Immediate();
 
@@ -29,11 +37,24 @@ leaf `ComponentVM`, then compose child tabs in a `CompositeVM`.
 
     tabs.Construct();
     tabs.Current = settingsTab;
+
+    public record TabModel(string Title);
     ```
 
 === "Python"
 
     ```python
+    from dataclasses import dataclass
+
+    from vmx.components import ComponentVMOf
+    from vmx.composites import CompositeVM
+    from vmx.messages import Message
+    from vmx.services import MessageHub, RxDispatcher
+
+    @dataclass(frozen=True)
+    class TabModel:
+        title: str
+
     hub: MessageHub[Message] = MessageHub()
     dispatcher = RxDispatcher.immediate()
 
@@ -68,6 +89,12 @@ leaf `ComponentVM`, then compose child tabs in a `CompositeVM`.
 === "TypeScript"
 
     ```ts
+    import { ComponentVMOf, CompositeVM, MessageHub, RxDispatcher } from "@thekaveh/vmx";
+
+    interface TabModel {
+      title: string;
+    }
+
     const hub = new MessageHub();
     const dispatcher = RxDispatcher.immediate();
 
@@ -96,6 +123,12 @@ leaf `ComponentVM`, then compose child tabs in a `CompositeVM`.
 === "Swift"
 
     ```swift
+    import VMx
+
+    struct TabModel: Equatable {
+        let title: String
+    }
+
     let hub = MessageHub()
     let dispatcher = ImmediateDispatcher.INSTANCE
 
@@ -156,9 +189,3 @@ leaf `ComponentVM`, then compose child tabs in a `CompositeVM`.
         tabs.select_component(&settings_tab)
     }
     ```
-
-## 3.1.1. What This Shows
-
-- One spec and five idiomatic source surfaces.
-- Builders/direct construction stay idiomatic per flavor.
-- Construction and selection semantics stay aligned even as naming changes.

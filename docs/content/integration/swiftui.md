@@ -132,14 +132,13 @@ Construction errors are not discarded with `try?`: the adapter stores them in
 
 ## 9.12.4. Lifecycle is throwing (ADR-0053)
 
-As of the v3 convergence (ADR-0053, superseding ADR-0037 §2.5), the Swift
-lifecycle operations `construct()`, `destruct()`, and `reconstruct()` are
-`throws` — matching the catchable exceptions the C#/Python/TypeScript flavors
-already raise, instead of the earlier uncatchable `preconditionFailure` trap.
-An **illegal transition** (e.g. `construct()` on a disposed VM) or a concurrent
-re-invocation while a transition is in flight throws a catchable
-`StatusTransitionError`; the legal idempotent no-ops (`construct` from
-`Constructed`, `destruct` from `Destructed`) still return without throwing.
+The Swift lifecycle operations `construct()`, `destruct()`, and `reconstruct()`
+are `throws` (ADR-0053, superseding ADR-0037 §2.5). They match the catchable
+exceptions of the C#, Python, and TypeScript flavors. An illegal transition,
+such as `construct()` on a disposed VM, throws a catchable
+`StatusTransitionError`. A concurrent call while a transition is in flight
+throws the same error. The legal idempotent no-ops (`construct` from
+`Constructed`, `destruct` from `Destructed`) return without throwing.
 
 <!-- checked-snippet: langs/swift/Tests/VMxTests/SwiftUIRecipeTests.swift#swiftui-throwing-lifecycle -->
 
@@ -164,7 +163,8 @@ the app target contains the Combine-to-SwiftUI binding bridge.
 
 ## 9.12.6. Cross-flavor parity
 
-This recipe parallels the React adapter ([react.md](react.md)) — both
-bridge a hub message stream into the framework's "re-render this view"
-hook. The Avalonia ([avalonia.md](avalonia.md)) and Textual
-([textual.md](textual.md)) recipes follow the same shape.
+Each recipe bridges VM change notifications into the host's re-render
+primitive. This adapter forwards the VM-local `propertyChanged` stream into
+`objectWillChange`. The Avalonia ([avalonia.md](avalonia.md)) and Textual
+([textual.md](textual.md)) recipes also forward VM-local notifications. React
+uses the packaged `@thekaveh/vmx-react` adapter ([react.md](react.md)).

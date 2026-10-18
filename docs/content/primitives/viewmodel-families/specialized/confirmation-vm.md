@@ -40,7 +40,7 @@ once; first resolution still wins. See the
 
 ## 6.2.8.5.5. Example
 
-The flagship Notes Workspace apps currently do not project confirmations through
+The flagship Notes Workspace apps do not project confirmations through
 `ConfirmationVM`. They use command-level confirmation gates plus host dialogs:
 
 - command gating in the note delete flow via `ConfirmationDecoratorCommand`

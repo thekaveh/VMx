@@ -36,8 +36,9 @@ The family map is the quickest ownership comparison:
 ## 6.2.1.3. Lifecycle And Messaging
 
 - Use the smallest primitive that matches the ownership model.
-- Prefer composition over subclassing; the shipped VM types are designed to be
-  composed, not turned into inheritance trees.
+- Compose the shipped VM types where they fit. To add domain state or
+  properties to a leaf, derive from the component base, not from a sealed
+  concrete leaf such as C# `ComponentVM`.
 - Reach for specialized helpers only when the workflow itself is the primitive,
   not just a property on a leaf or container.
 
@@ -49,14 +50,17 @@ detail.
 Every family that exposes disposal follows one shared at-most-once rule; parent
 cascades remain depth-first. See the [Disposal Contract](../disposal-contract.md).
 
+In Rust, a container with background children stays Constructing until those
+children settle. This applies to composites, groups, and aggregates. Thus
+`construct()` can return `Ok` while the container is still transient. A
+background child failure rolls the container back and arrives on its
+`background_errors()` stream (spec/11 §2).
+
 ## 6.2.1.4. Cross-Language Surface
 
 The conceptual family map is shared across all five source flavors. The main
 cross-language differences are the usual casing rules and the modeled-type
 spellings called out on each concrete page.
-
-This index intentionally stays above the API level: it points you to the right
-family first and leaves method and builder details to the leaf pages.
 
 ## 6.2.1.5. Example
 

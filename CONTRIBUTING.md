@@ -11,9 +11,9 @@ Thanks for your interest in contributing!
 4. Open a PR to `develop`. Direct pushes are blocked. The protected-branch
    ruleset requires the always-present conformance, five-flavor, docs, examples,
    security, and spec-discipline aggregate checks to pass against the latest
-   target branch. Obtain maintainer review when another reviewer is available;
-   the repository currently has one direct collaborator, so the ruleset does
-   not impose an impossible self-approval requirement.
+   target branch. Obtain maintainer review when another reviewer is available.
+   The repository has one direct collaborator, so the ruleset does not require
+   self-approval.
 5. Maintainers promote `develop` to protected `main` through a separate PR.
 
 ## 2. Per-language setup
@@ -47,15 +47,9 @@ use `$env:UV_PYTHON = "3.12"`. Installing an interpreter alone does not select
 it for a compatible existing uv environment. Keep the selector set for sync,
 run, build, and tool commands.
 
-CI selects each matrix version through setup-uv's `python-version` input.
-Before checks, it prints the requested and actual major/minor, `sys.executable`,
-and `sys.prefix`, then captures the executable for subsequent lint, typing,
-and test assertions. Wheel consumers, extracted sdists, and ephemeral tools
-have deliberately separate environments; identity is checked within each
-context, with the same requested Python version. The Ubuntu 3.10 cell also
-seeds a 3.14 environment and proves selected sync repairs it. Cache evidence
-reports setup-uv's actual `cache-hit` output: a package-cache hit does not mean
-a virtualenv or Python installation was restored.
+CI selects each matrix version the same way and checks the interpreter
+identity before every lint, typing, and test step. The Ubuntu 3.10 cell first
+seeds a 3.14 environment and checks that a selected sync repairs it.
 
 ### 2.3 TypeScript
 
@@ -70,14 +64,10 @@ npm run build
 npm test
 ```
 
-Vitest global setup builds the package before test workers start, including
-when invoking `npx vitest` directly or running coverage. Watch reruns wait for
-the preceding run, rebuild through the same npm lifecycle, and invalidate the
-generated modules before starting workers. Generated `dist`, fixture, and
-schema writes are excluded from watch triggers to prevent rebuild loops.
-Automatic test selection still follows Vitest's existing import graph; use a
-manual rerun after editing canonical spec inputs outside that graph. Do not
-start a separate package build while tests are running.
+Vitest global setup builds the package before test workers start, also for
+direct `npx vitest`, watch, and coverage runs. Rerun manually after editing
+spec inputs outside Vitest's import graph, and do not start a separate build
+while tests run.
 
 ### 2.4 Swift
 
@@ -90,8 +80,8 @@ swift test --parallel
 Swift requires the toolchain of a current Xcode (CI uses Swift 6.0 and later;
 the manifest declares tools version 5.9) and a macOS / iOS / tvOS / watchOS
 host — the flavor depends on Combine, which
-is not available on Linux. See `langs/swift/README.md` §5 for the full
-conformance matrix; the current source line is at full library parity.
+is not available on Linux. See `langs/swift/README.md` §5 for the conformance
+summary and the Swift-specific divergences.
 
 ### 2.5 Rust
 
@@ -109,8 +99,8 @@ example lockfiles current.
 
 ### 2.6 Cross-cutting checks (conformance + example-app contracts)
 
-Two CI-only workflows enforce repo-wide invariants. To run the same
-checks locally before pushing:
+These checks mirror `conformance.yml`, `examples-contract-checks.yml`, and
+each flavor workflow. Run them locally before pushing:
 
 ```bash
 # Cross-language library conformance coverage (all five flavors).
@@ -134,6 +124,22 @@ python3 tools/check-axaml-codebehind.py
 python3 tools/check-textual-views.py
 python3 tools/check-layer-imports.py
 python3 tools/check-showcase-parity.py
+```
+
+### 2.7 React adapter (`packages/react`)
+
+The adapter resolves `@thekaveh/vmx` from `langs/typescript`, so build the core
+first:
+
+```bash
+npm ci --prefix langs/typescript
+npm run build --prefix langs/typescript
+cd packages/react
+npm ci
+npm run typecheck
+npm run lint
+npm test
+npm run build
 ```
 
 ## 3. Spec-driven changes
@@ -175,13 +181,11 @@ companions. A spec tag uses `spec-vX.Y.Z`. Swift
 additionally requires a semantic `vX.Y.Z` tag for SwiftPM, paired with its
 `swift-vX.Y.Z` operational tag.
 
-### 4.1 Why all three families
+### 4.1 Versioning rules
 
-- A flavor/package tag starts only its matching release jobs and artifact.
-- Package versions do not need to match one another or the spec's minor/patch
-  version; each package declares the minimum spec version it implements.
-- A spec major bump requires a major bump in every active flavor.
-- Tags and registry versions are immutable after publication.
+Package versions do not need to match one another or the spec's minor/patch
+version. Spec compatibility, tag selection, and immutability rules are in
+[Release invariants](#43-release-invariants).
 
 ### 4.2 Cutting a release
 
@@ -195,19 +199,79 @@ version are unused, then follow the flavor-specific runbook:
 - [`langs/swift/RELEASING.md`](langs/swift/RELEASING.md)
 - [`langs/rust/RELEASING.md`](langs/rust/RELEASING.md)
 
-Registry-backed releases require their protected GitHub environment, trusted
-publisher/OIDC policy, public artifact verification, and a fresh exact-version
-consumer. Never create or move release tags from `develop`.
+Every runbook applies the [release invariants](#43-release-invariants).
+Registry-backed releases also require public artifact verification and a fresh
+exact-version consumer.
 
-### 4.3 Source-version invariant
+### 4.3 Release invariants
 
-`main` may contain an in-development source version before publication. The
-compatibility matrix must distinguish source status from public package status,
-and release automation must verify exact tag/package agreement before upload.
+These rules apply to every flavor runbook. Each runbook adds only its
+flavor-specific steps.
+
+**Protected environment.** Each registry-backed channel publishes through one
+protected GitHub environment. Swift has no registry and no environment.
+Configure each environment as follows:
+
+- Restrict deployments to the flavor's tag pattern.
+- Require a maintainer reviewer.
+- Disable administrator bypass. With bypass allowed, an administrator's tag
+  push publishes without waiting for approval.
+- Leave "Prevent self-review" off while one maintainer holds the reviewer role.
+  Otherwise that maintainer cannot approve their own release. Revisit this rule
+  when a second maintainer joins.
+- Keep any credential on the environment, never as a repository-wide secret.
+
+**Trusted publisher.** Registry channels authenticate through GitHub OIDC; the
+publish job has `id-token: write`. A registry that requires an existing package
+needs a one-time bootstrap credential first; the flavor runbook describes it.
+Register the trusted publisher with these exact fields:
+
+| Field             | Value                              |
+| ----------------- | ---------------------------------- |
+| Owner             | `thekaveh`                         |
+| Repository        | `VMx`                              |
+| Workflow filename | `release.yml` (filename only)      |
+| Environment       | the flavor's protected environment |
+
+Do not add a long-lived registry token or bypass the environment.
+
+**Tags.** Create every manual release tag as an annotated tag on the verified
+`origin/main` commit, then push it:
+
+```bash
+git tag -a "<tag>" -m "<package> <version>" origin/main
+git push origin "<tag>"
+```
+
+The release workflow also accepts the lightweight tags that release-please
+creates for Python. Never create a release tag from `develop`.
+
+**Immutability.** Tags and registry versions are immutable, even when a release
+fails before upload. Never move, delete, or recreate a release tag. Fix the
+cause on `main` through the normal PR flow, bump the package to a new patch
+version, and release it with a new tag.
+
+**Spec compatibility.** Each package declares the minimum spec version it
+implements. A spec major bump requires a major bump in every active flavor
+(`README.md` §6.1).
+
+**Tag prefixes.** Every operational tag prefix (`csharp-*`, `python-v`,
+`typescript-v`, `react-v`, `rust-v`, `swift-v`) selects only its own release
+jobs. Spec tags and Swift semantic tags trigger no release jobs. `release.yml`
+filters jobs by prefix, so one flavor's tag never publishes another package.
+
+**Source version.** `main` may contain an in-development source version before
+publication. The compatibility matrix must distinguish source status from
+public package status. Release automation verifies exact tag/package agreement
+before upload.
+
+**Publication claims.** Publication claims never precede public evidence. After
+the public artifact and a fresh consumer verify, update the repository docs and
+regenerate the documentation site and wiki through `develop` and `main` PRs.
 
 ### 4.4 Validate Python release tests without publishing
 
-After the workflow change reaches the default branch, `develop`, run:
+Run the release workflow on the default branch, `develop`:
 
 ```bash
 gh workflow run release.yml --ref develop
@@ -223,8 +287,7 @@ their `origin/main` ancestry check and all publication protections.
 To verify warm-cache behavior, rerun the successful workflow at the same
 revision and inspect the 3.10 cell for `cache-hit=true`, both managed Python
 versions, the seeded 3.14 identity, and the repaired 3.10 identity. A cache miss
-does not establish warm-cache coverage. Record the run URL and exact revision;
-these checks make no claim about interpreter choices in historical runs.
+does not establish warm-cache coverage. Record the run URL and exact revision.
 
 ## 5. Code of conduct
 

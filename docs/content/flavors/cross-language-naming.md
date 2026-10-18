@@ -17,7 +17,7 @@ names shift only to match the host language idiom.
 ## 7.7.2. Serviced Collection Mutations
 
 `ServicedObservableCollection` has the same seven mutation concepts in every
-flavor. Existing array- or indexer-style aliases remain available where shown.
+flavor. Array- or indexer-style aliases are also available where shown.
 
 | Concept      | C#                  | Python        | TypeScript                   | Swift                                  | Rust          |
 | ------------ | ------------------- | ------------- | ---------------------------- | -------------------------------------- | ------------- |
@@ -31,9 +31,9 @@ flavor. Existing array- or indexer-style aliases remain available where shown.
 
 The keyed serviced type inherits this ordered shape. Host-specific conveniences
 also remain available: C# `Insert`, Python integer/slice `MutableSequence`
-operations and `reverse`, TypeScript `pop` and `splice`, Swift `removeLast` and
-Equatable value removal, and Rust's existing surface without a new positional
-insert.
+operations and `reverse`, TypeScript `pop` and `splice`, and Swift
+`removeLast` and Equatable value removal. Rust has no positional insert on
+serviced collections.
 
 ## 7.7.3. Keyed Serviced Collections
 

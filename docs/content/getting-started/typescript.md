@@ -17,20 +17,10 @@ ______________________________________________________________________
 
 ## 3.4.1. Install
 
-Version 3.30.0 is published on npm, and the source tree currently implements
-v3.30.0.
-
-```bash
-npm install @thekaveh/vmx rxjs
-```
-
-To use an unreleased source line, build and pack a VMx checkout as described in
-[Installation](../installation.md). The source tree does not contain the built
-`dist/` output, so an install from the unbuilt directory does not work.
-
-`@thekaveh/vmx` (renamed in v2.4.0 from the unscoped `vmx` name, which was
-unavailable on the npm registry) ships dual ESM + CJS bundles and full
-TypeScript declarations. No extra `@types/vmx` package is needed.
+Add VMx as described in [Installation](../installation.md). The TypeScript tab
+there covers the npm package and an unreleased source line. `@thekaveh/vmx`
+ships dual ESM and CJS bundles with full TypeScript declarations, so no
+`@types` package is needed.
 
 ______________________________________________________________________
 
@@ -160,11 +150,15 @@ saveCommand.canExecuteChanged.subscribe(() =>
 );
 
 console.log(saveCommand.canExecute()); // true
-saveCommand.execute();                 // prints "Saving…"
+saveCommand.execute();
+// stdout: "Saving…"
+// stdout: "  canExecute is now false"   (the task fires the trigger)
 console.log(saveCommand.canExecute()); // false again
 
-// Dispose to unsubscribe all trigger subscriptions.
+// Dispose to unsubscribe all trigger subscriptions. Disposal sends one final
+// canExecuteChanged notification before it completes the stream.
 saveCommand.dispose();
+// stdout: "  canExecute is now false"
 ```
 
 > See [command families](../primitives/command-families.md) for the full command
@@ -270,10 +264,11 @@ console.log(userVM.status); // 0 (ConstructionStatus.Disposed)
 
 // CompositeVM.dispose() disposes children, then itself.
 tabs.dispose();
-
-// MessageHub.dispose() completes the underlying Rx Subject.
-hub.dispose();
 ```
+
+Dispose the hub last, after every viewmodel that uses it. `MessageHub.dispose()`
+completes the underlying Rx subject. The later sections still use the hub, so
+the full shutdown sequence appears at the end of section 3.4.9.
 
 > See [Lifecycle & Messaging](../architecture/lifecycle-messaging.md) for the
 > full lifecycle contract (`LIFE-001..015`),
@@ -291,10 +286,10 @@ ______________________________________________________________________
 | `dispatcher.background` | `asyncScheduler` / worker threads     |
 
 All hub observations delivered on `foreground` are safe to bind to UI controls.
-Use `observeOn` from `rxjs/operators` to marshal:
+Use `observeOn` from `rxjs` to marshal:
 
 ```ts
-import { filter, observeOn } from "rxjs/operators";
+import { filter, observeOn } from "rxjs";
 import { PropertyChangedMessage } from "@thekaveh/vmx";
 
 hub.messages.pipe(
@@ -347,7 +342,7 @@ fault, completion, and cancellation. `createFormHarness()` exercises a real
 FormVM through set/approve/deny and validation or persistence failures.
 
 These are supported TypeScript-package APIs, isolated from the root runtime
-entry and governed by its SemVer, and ship in the npm package from 3.30.0.
+entry and governed by its SemVer. They require `@thekaveh/vmx` 3.30.0 or later.
 
 ______________________________________________________________________
 
@@ -357,14 +352,21 @@ Use the optional DevTools subpath when development diagnostics need a message
 log or an explicit state snapshot:
 
 ```ts
+import { ComponentVMOf } from "@thekaveh/vmx";
 import { connectReduxDevtools } from "@thekaveh/vmx/devtools";
+
+const editorVM = ComponentVMOf.builder<UserModel>()
+  .name("user-editor")
+  .model({ name: "Alice", email: "alice@example.com" })
+  .services(hub, dispatcher)
+  .build();
 
 const devtools = connectReduxDevtools(hub, {
   name: "user-editor",
   snapshots: [
     {
       name: "user",
-      select: () => ({ name: userVM.model.name }),
+      select: () => ({ name: editorVM.model.name }),
     },
   ],
   throttleMs: 16,
@@ -385,6 +387,13 @@ metadata can still contain identifiers, so redact actions too when required.
 
 This is an observability API only. Incoming Redux DevTools commands are ignored,
 and VMx does not promise replay, time travel, or state reconstruction.
+
+At shutdown, dispose the viewmodels first and the hub last:
+
+```ts
+editorVM.dispose();
+hub.dispose();
+```
 
 ______________________________________________________________________
 

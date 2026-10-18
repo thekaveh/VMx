@@ -28,6 +28,8 @@ Modal completion is single-winner and host-driven:
 - `Dispose()` completes it with the cancellation result
 - null dialog presentation returns the cancellation result immediately
 - awaiters never hang if the modal is disposed instead of explicitly dismissed
+- when dismissal and disposal race, only the first result is accepted; Swift
+  `BasicModalVM` also registers waiters atomically
 
 Repeated disposal never replaces a prior result or resumes awaiters twice. See
 the [Disposal Contract](../../disposal-contract.md).

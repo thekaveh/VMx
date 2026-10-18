@@ -151,7 +151,6 @@
     "png": "examples-vm-layer.png",
     "referencedBy": [
       "docs/content/examples/notes-workspace-vm-layer.md",
-      "docs/content/examples/notes-workspace.md",
       "docs/content/architecture/diagram-gallery.md"
     ]
   },

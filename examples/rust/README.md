@@ -14,12 +14,12 @@ Minimal Cargo console demo. Demonstrates:
 1. Executing a `RelayCommand`.
 1. Running the lifecycle through `construct()` and `dispose()`.
 
-Run from the repository root:
-
 Diagram:
 [`rust-console-hello-vmx.svg`](../../docs/assets/diagrams/rust-console-hello-vmx.svg)
 ([HTML](../../docs/assets/diagrams/rust-console-hello-vmx.html),
 [PNG](../../docs/assets/diagrams/rust-console-hello-vmx.png)).
+
+Run from the repository root:
 
 ```bash
 cargo run --locked --manifest-path examples/rust/console/hello-vmx/Cargo.toml
@@ -36,19 +36,16 @@ rust search matches: 1
 
 ## 2. Example 2 — `tui/notes-showcase`
 
-Cross-platform Ratatui showcase app. The terminal host is intentionally thin:
-VMx view models own notebook selection, note filtering, page state, editor
-mode, form validation, save/revert commands, global token search, and
-notifications.
+Cross-platform Ratatui showcase app. The terminal host is thin. VMx view
+models own notebook selection, note filtering, page state, editor mode, form
+validation, save/revert commands, global token search, and notifications.
 
 ### 2.1. Parity Role
 
-This is a **reduced companion** to the four canonical Notes Workspace
-flagships, not a fifth column in the 19-feature parity matrix. It intentionally
-does not implement `THEME-001..005`, `IDialogService` export, the capability
-action bar, the async dispatcher scenario, or tag autocomplete. The narrower
-scope keeps the example focused on Rust-native terminal composition while the
-four UI-backed hosts remain the executable cross-flavor scenario contract.
+This app is a **reduced companion** to the four Notes Workspace flagships, not
+a fifth column in the parity matrix. The
+[parity matrix](../notes-showcase-parity.md#2-flavors) lists the features it
+omits.
 
 VM-layer diagram:
 [`docs/assets/diagrams/rust-tui-notes-showcase.svg`](../../docs/assets/diagrams/rust-tui-notes-showcase.svg)

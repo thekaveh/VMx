@@ -5,11 +5,6 @@ Official React 18 and React 19 bindings for
 keeps React out of VMx core and adapts VMx hubs, commands, derived values, and
 collections to React's external-store contract.
 
-> To try an unreleased source line, pack core and this adapter from the VMx
-> repository and install their tarballs. Do not link the live adapter directory
-> into a React 18 consumer because source-only dev dependencies are not part of
-> the public package shape.
-
 ## 1. Install
 
 ```bash
@@ -28,9 +23,33 @@ Compatibility for 0.1.x:
 | React | `^18.3.1` or `^19.0.0` |
 | RxJS | `^7.8.0` |
 | `use-sync-external-store` | `^1.6.0` |
+| Node.js | `>=20.5.0` |
 
 The adapter follows independent SemVer. A core change only requires an adapter
 release when it changes the adapter's supported API or compatibility range.
+
+### 1.1 Unreleased source
+
+To try an unreleased source line, build core and this adapter from a VMx
+checkout cloned beside your project, then install the packed tarballs. Do not
+link the live adapter directory: its React dev dependency can conflict with a
+React 18 consumer. A tarball matches the public package payload.
+
+```bash
+npm --prefix ../VMx/langs/typescript ci
+npm --prefix ../VMx/langs/typescript run build
+npm --prefix ../VMx/packages/react ci
+npm --prefix ../VMx/packages/react run build
+rm -rf /tmp/vmx-packs && mkdir -p /tmp/vmx-packs
+npm pack ../VMx/langs/typescript --pack-destination /tmp/vmx-packs
+npm pack ../VMx/packages/react --pack-destination /tmp/vmx-packs
+npm install /tmp/vmx-packs/thekaveh-vmx-[0-9]*.tgz \
+  /tmp/vmx-packs/thekaveh-vmx-react-[0-9]*.tgz \
+  react rxjs use-sync-external-store
+npm ls react   # expect one React version
+```
+
+See [Installation](https://github.com/thekaveh/VMx/blob/main/docs/content/installation.md) for the other flavors.
 
 ## 2. Shared selector store
 
@@ -114,18 +133,12 @@ the list boundary, use stable VM/model keys, and pass item identity into rows.
 Do not create one full-list subscription per row. Bind a row's mutable VM with
 `useVm` inside the row component when row-local updates are required.
 
-## 6. Verification
-
-```bash
-cd packages/react
-npm ci
-npm run typecheck
-npm run lint
-npm test
-npm run build
-```
+## 6. Development
 
 The contract suite covers selector render counts, render-to-subscribe mutation
 catch-up, VMx hub batches, StrictMode subscription lifetime, SSR/hydration,
 conditional VMs, commands, derived and async state, and collection identity. CI
-repeats the adapter suite on React 18 and React 19.
+repeats it on React 18 and React 19.
+
+See [`CONTRIBUTING.md`](https://github.com/thekaveh/VMx/blob/main/CONTRIBUTING.md) for build and test commands and
+[`RELEASING.md`](https://github.com/thekaveh/VMx/blob/main/packages/react/RELEASING.md) for the release runbook.

@@ -2,6 +2,10 @@
 
 This runbook documents Swift flavor releases. SwiftPM consumes VMx directly from
 git tags; there is no NuGet/PyPI/npm-style central registry publish step.
+Swift therefore needs no protected environment or trusted publisher. The other
+shared [release invariants](../../CONTRIBUTING.md#43-release-invariants) apply:
+annotated immutable tags, fix-forward patches, spec compatibility, and
+documentation updates.
 
 The latest verified release is
 [`3.24.0`](https://github.com/thekaveh/VMx/releases/tag/swift-v3.24.0).
@@ -55,8 +59,8 @@ lines cannot compete for the same generic tag.
    ```bash
    git fetch --prune origin main
    release_sha="$(git rev-parse origin/main)"
-   git tag vX.Y.Z "$release_sha"
-   git tag swift-vX.Y.Z "$release_sha"
+   git tag -a vX.Y.Z -m "VMx Swift X.Y.Z" "$release_sha"
+   git tag -a swift-vX.Y.Z -m "VMx Swift X.Y.Z" "$release_sha"
    git push --atomic origin vX.Y.Z swift-vX.Y.Z
    ```
 
@@ -93,9 +97,11 @@ git ls-remote --tags origin refs/tags/vX.Y.Z refs/tags/swift-vX.Y.Z
 gh release view swift-vX.Y.Z
 ```
 
-Then update the README, Swift README, compatibility matrix, canonical
-installation/Swift docs, `.io` site, and wiki with the verified version and
-working dependency form through a second feature-to-develop-to-main PR pair.
+Then update the README, Swift README, compatibility matrix, and installation
+and Swift docs with the verified version and working dependency form. Follow
+the publication-claims invariant in
+[CONTRIBUTING §4.3](../../CONTRIBUTING.md#43-release-invariants) through a
+second feature-to-develop-to-main PR pair.
 
 ## 5. Failure Modes
 

@@ -47,11 +47,11 @@ Important behavior from the spec:
 
 - `Model` changes publish only on real value change.
 - `ModeledHint` recomputes only when the model actually changes.
-- Explicit model republish announces the retained model without assignment,
-  equality, hinter, callback, or hint-state work.
 - A model assignment that begins after disposal is inert before equality,
   retained-state mutation, hint recomputation, callbacks, or either
   notification channel. The previous model and hint remain readable.
+  Forwarding components and Swift's internal read-only update path inherit
+  this guard.
 - `SelectNextCommand` and `SelectPreviousCommand` exist for uniform surface,
   but the base leaf implementation is inert.
 - `can_select()` depends on `Parent`, current-selection state, and the leaf
@@ -73,18 +73,14 @@ Important behavior from the spec:
 ## 6.2.2.5. Explicitly Republishing The Retained Model
 
 Use explicit republish when observable state reachable through the retained
-model changed outside ordinary model replacement and existing adapters
-intentionally refresh from the model property notification. The operation is
-available on writable and read-only modeled leaves and delegates through
-`ForwardingComponentVM` to the wrapped VM.
+model changed without a model replacement, and adapters refresh from the model
+property notification. One call sends one ordinary model notification on both
+channels. It does not compare or assign the model, recompute the hint, or run
+`OnModelChanged` / `onModelChanged`.
 
-One call preserves the exact model reference/value and observable modeled-hint
-value. Republish itself does not compare or assign the model, invoke the modeled
-hinter, or run `OnModelChanged` / `onModelChanged`. It requests one ordinary
-model notification through the existing dual-channel helper: one
-`PropertyChangedMessage` on the hub followed by one local property notification
-for a top-level call. Property names remain idiomatic: `"Model"` in C# and
-`"model"` in Python, TypeScript, Swift, and Rust.
+Writable and read-only modeled leaves expose republish, and
+`ForwardingComponentVM` delegates it to the wrapped VM. `FormVM` does not
+expose it.
 
 ```typescript
 // heightFields is external renderer state reachable through this cell VM.
@@ -92,21 +88,9 @@ heightFields.set(cell.coordKey, heightField);
 cell.republishModel();
 ```
 
-A null/default hub remains safe and the local channel still emits. Calls that
-begin after disposal are inert. Re-entrant calls use the hub's existing
-lossless queue, so each admitted call contributes one complete pair without
-recursive delivery or message loss.
-
-Read-only means VMx cannot replace the retained model; it does not make a
-referenced object deeply immutable. Republish therefore remains available on a
-read-only modeled leaf without exposing a setter or requesting hint
-recomputation. Forwarding preserves the wrapped sender, hub, local stream, and
-disposal boundary.
-
-Do not use republish to conceal an ordinary model replacement or mutation that
-belongs in the equality-gated assignment path. `FormVM` does not expose this
-operation: its model publication is a distinct validation, dirty-state, and
-command transaction.
+Do not use republish to hide a model replacement or a mutation that belongs in
+the equality-gated setter. Assign through that setter instead. See spec/05 §3.3 for
+the full contract, including disposal, null hubs, and re-entrant calls.
 
 ## 6.2.2.6. Owning Long-Lived Resources
 
@@ -135,12 +119,6 @@ class SearchVM extends ComponentVMBase {
 Use `OnConstruct`/`OnDestruct` (or their flavor equivalents) for resources that
 must be replaced on every reconstruct. The helper deliberately does not expose
 two mutable lifetime bags.
-
-The pilot in NNx Studio, a VMx consumer application, removed 16 inherited hub getters, two subscription fields,
-two manual disposal overrides, and its two-case VMx hub-getter regression test
-(10 additions, 104 deletions). Its viewmodel package remained type-clean and
-all 319 remaining tests passed. The application-owned `WorkspaceVM` hub getter
-remained because that class does not derive from a VMx component base.
 
 ## 6.2.2.7. Authoring A Mutable Property
 
@@ -182,18 +160,8 @@ Do not wrap fields with a VMx property decorator or descriptor. Explicit
 setters preserve each flavor's idioms and make equality, assignment, and
 notification order visible at the mutation site.
 
-This pattern was piloted against NNx Studio's `ConsoleVM`: two hand-written
-hub-plus-local emission sequences collapsed to the helper call, the viewmodel
-package remained type-clean, and its focused test suite passed all 7 tests,
-including an assertion that the hub event precedes the local event.
-
-VMx's C#, Python, TypeScript, and Swift Notes Showcase viewmodels use the same
-helper, eliminating their former hand-written hub-plus-local pairs.
-
-The built-in modeled setter applies the disposal admission guard before its own
-equality check. Forwarding components and Swift's internal read-only update path
-inherit that guard. A modeled composite is different: its model configures a
-child factory and is not a settable retained property.
+The C#, Python, TypeScript, and Swift Notes Showcase viewmodels use this
+helper.
 
 ## 6.2.2.8. Example
 
@@ -205,8 +173,8 @@ Representative modeled leaf shape across the five source flavors:
 - `Swift`: `try ComponentVMOf<TabModel>.builder().name("home-tab").model(model).services(hub: hub, dispatcher: dispatcher).build()`
 - `Rust`: `ComponentVm::with_model("home-tab", model, hub, dispatcher)`
 
-The Quickstart page uses exactly this pattern before composing those leaves into
-a `CompositeVM`.
+The [Quickstart](../../getting-started/index.md) uses this pattern before
+composing those leaves into a `CompositeVM`.
 
 ## 6.2.2.9. Common Pitfalls
 
@@ -214,15 +182,14 @@ a `CompositeVM`.
   `CompositeVM`, `GroupVM`, or `AggregateVM`.
 - Expecting the built-in next/previous commands on a leaf to walk siblings.
   Container-driven navigation is the intended model.
-- Subclassing to add domain behavior instead of composing around the sealed VM.
+- Subclassing the sealed concrete leaf (C# `ComponentVM` / `ComponentVM<M>`).
+  Derive from the component base instead.
 - Forgetting that a detached leaf has no `Parent`, so selection predicates stay
   false until a container owns it.
 - Disposing `vm.hub` from the VM. Public visibility does not transfer ownership.
 - Registering per-construct work with `own`; it would survive reconstruct.
 - Treating the post-disposal model guard as task cancellation. Cancel upstream
   work to release resources; rely on the guard only to reject a late result.
-- Calling model republish after an ordinary replacement instead of assigning
-  the new model through the normal equality-gated setter.
 
 ## 6.2.2.10. Related Primitives
 

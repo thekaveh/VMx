@@ -86,6 +86,14 @@ Correct the prose as the code ships it:
     `construct()` (chapters 06 §1 and 07 §3).
   - `Localizer` has only `localize(key)`, with no args overload (chapter 17).
 
+The spec README keeps only the current chapter list, the supporting
+artefacts, and the versioning rule. The release-by-release change history that
+filled most of the README moves to `spec/HISTORY.md`, changed only to update
+cross-references. The README
+lists chapters by topic, not by the release that added them. The Swift README
+§5 keeps a conformance summary, not a per-ID matrix, so chapter 01 points to
+that summary.
+
 The change is editorial. It adds no normative behavior and no conformance ID.
 
 ## 3. Consequences
@@ -95,6 +103,8 @@ The change is editorial. It adds no normative behavior and no conformance ID.
   public Rust surface and needs its own decision and change.
 - Python and TypeScript `ModeledCrudCommands` stay non-reactive. Adding a trigger
   input to them needs its own change.
+- Readers find the current chapters in the spec README and each release's
+  changes in `spec/HISTORY.md`.
 - Follow-up correction: chapter 01 says the Rust builders default an unset hint
   to `Some("")` and only the direct constructors leave it `None`, as chapter 10
   says (ADR-0149).

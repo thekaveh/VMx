@@ -43,14 +43,19 @@ def test_current_lifecycle_docs_match_the_normative_catalog_range() -> None:
             assert expected in text, path
 
 
-def test_root_readme_preserves_complete_3_22_source_ranges() -> None:
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+def test_compatibility_matrix_preserves_complete_3_22_source_ranges() -> None:
+    matrix = (ROOT / "compatibility-matrix.md").read_text(encoding="utf-8")
     en = "\N{EN DASH}"
+    row = next(line for line in matrix.splitlines() if line.startswith("| 3.22.x"))
+    cells = [cell.strip() for cell in row.strip("|").split("|")]
 
-    assert (
-        f"| 3.22.x | 3.22.0{en}3.22.1 | 3.22.0{en}3.22.1 | 3.23.0{en}3.23.1 "
-        f"| 3.22.0{en}3.23.0  | 0.24.0{en}0.26.0 |"
-    ) in readme
+    assert cells[1:] == [
+        f"3.22.0{en}3.22.1",
+        f"3.22.0{en}3.22.1",
+        f"3.23.0{en}3.23.1",
+        f"3.22.0{en}3.23.0",
+        f"0.24.0{en}0.26.0",
+    ]
 
 
 def test_rust_threading_claim_has_paired_dispatch_and_real_thr_002() -> None:
@@ -230,15 +235,13 @@ def test_current_rust_docs_match_cargo_package_version() -> None:
         assert "v0.25.1" not in text
 
 
-def test_swift_conformance_ledger_counts_each_library_id_once() -> None:
+def test_compatibility_matrix_states_current_library_id_count() -> None:
     catalog = (ROOT / "spec/12-conformance.md").read_text(encoding="utf-8")
     library_count = len(set(re.findall(r"^### (?!THEME-)[A-Z]+-[0-9]{3}\b", catalog, re.MULTILINE)))
-    ledger = (ROOT / "compatibility-matrix.md").read_text(encoding="utf-8")
-    start = ledger.index("+50 leaf-area")
-    end = ledger.index("THEME-001..005 covered by the", start)
-    increments = [int(value) for value in re.findall(r"\+(\d+)", ledger[start:end])]
-    assert 44 + sum(increments) == library_count
-    assert ledger[start:end].count("COMP-038..041") == 1
+    matrix = (ROOT / "compatibility-matrix.md").read_text(encoding="utf-8")
+
+    assert f"Every flavor covers all {library_count} library conformance IDs." in matrix
+    assert "+50 leaf-area" not in matrix
 
 
 def test_swift_readme_summarizes_current_conformance_without_history_ledger() -> None:

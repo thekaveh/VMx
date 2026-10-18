@@ -59,6 +59,7 @@ The Notes Workspace editor mode is the concrete showcase feature:
 - Python: [note_form_vm.py](../../../../../examples/python/textual/notes_showcase/src/notes_showcase/viewmodels/note_form_vm.py)
 - TypeScript: [noteFormVM.ts](../../../../../examples/typescript/react/notes-showcase/src/viewmodels/noteFormVM.ts)
 - Swift: [NoteFormVM.swift](../../../../../examples/swift/notes-showcase/Sources/NotesShowcaseCore/ViewModels/NoteFormVM.swift)
+- Rust: `EditorModeVm` in [viewmodels.rs](../../../../../examples/rust/tui/notes-showcase/src/viewmodels.rs)
 
 Each editor keeps `"edit"` and `"preview"` in a `DiscriminatorVM` instead of
 spreading active-mode booleans across unrelated properties.
@@ -98,6 +99,16 @@ spreading active-mode booleans across unrelated properties.
 
     public var isPreviewMode: Bool {
         _editorMode.isActive("preview")
+    }
+    ```
+
+=== "Rust"
+
+    ```rust
+    discriminator: DiscriminatorVm::new("edit".to_string()),
+
+    pub fn mode(&self) -> String {
+        self.discriminator.active_key()
     }
     ```
 

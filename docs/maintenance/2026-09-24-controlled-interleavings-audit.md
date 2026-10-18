@@ -1,10 +1,10 @@
-# 13. Concurrency Test Audit
+# Concurrency Test Audit
 
 This ledger records the controlled-interleaving work for issue 348. It is a
 source and test audit at the issue branch revision, not a claim that remote CI,
 publication, or every possible runtime schedule has completed successfully.
 
-## 13.1. Scope And Evidence Standard
+## Scope And Evidence Standard
 
 The audit traced lifecycle publication, notification waiting, token-pager hub
 draining, and command admission through the implementations and tests in all
@@ -21,7 +21,7 @@ no test, fails for another assertion, crashes, or times out when assertion-level
 evidence is required. Deliberate deadlock mutants are recorded as externally
 terminated outcomes, not as successful pending assertions.
 
-## 13.2. Five-Flavor Disposition
+## Five-Flavor Disposition
 
 | Flavor     | Exact location and schedule                                                                                                                                                                               | Disposition                                                          | Evidence boundary and limit                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -31,7 +31,7 @@ terminated outcomes, not as successful pending assertions.
 | Swift      | `langs/swift/Tests/VMxTests/AsyncRelayCommandTests.swift`, `testCmd012ImmediateCancelDuringAdmissionIsNeverLost`; `AsyncRelayCommand.executeAsync`                                                        | Fixed, supported-Xcode delivery gate required                        | Synchronous `canExecuteChanged` cancellation forces the window after executing state changes and before the body cancellation handle is installed. Before delivery, the supported-Xcode gate must record five normal passes, five selected assertion failures with pending forwarding removed, source restoration, and a rebuilt pass; the issue 348 delivery record is the place to record those observed outcomes. The lifecycle blocked-wait oracle and fire-and-forget wrapper completion remain follow-up robustness work. |
 | TypeScript | `langs/typescript/tests/globalSetup.ts`; `tests/dist-build/instanceof.test.ts`; lifecycle, notification, token-paging, and command suites                                                                 | Build ordering fixed; runtime schedules retain follow-up weak oracle | Global setup completes build and fixture/schema synchronization before workers; reruns await the previous run and invalidate generated modules without watcher feedback. Deferred lifecycle scheduling, synchronous delivery and explicit promises control runtime boundaries. Command event-loop drains still have the weak-oracle limitations below.                                                                                                                                                                          |
 
-## 13.3. Comparable Tests And Remaining Work
+## Comparable Tests And Remaining Work
 
 The focused fixes do not turn every concurrent test into the same mechanism.
 The items below are public, independently actionable follow-up records. A
@@ -39,7 +39,7 @@ bounded wait may diagnose a missing positive event; it does not establish that
 another worker is blocked. None of the follow-up or weak-oracle items is a new
 shipping defect without a reproduction at the named boundary.
 
-### 13.3.1. C\#
+### C\#
 
 1. **Follow-up robustness:**
    [`langs/csharp/tests/VMx.Tests/Components/ComponentVMLifecycleRaceTests.cs`](../../langs/csharp/tests/VMx.Tests/Components/ComponentVMLifecycleRaceTests.cs)
@@ -79,7 +79,7 @@ shipping defect without a reproduction at the named boundary.
    failure-path task ownership; they are not evidence of a competing-thread
    drainer wait.
 
-### 13.3.2. Python
+### Python
 
 1. **Weak oracle:**
    [`langs/python/tests/unit/components/test_lifecycle_race.py`](../../langs/python/tests/unit/components/test_lifecycle_race.py)
@@ -117,7 +117,7 @@ shipping defect without a reproduction at the named boundary.
    callback cases in `test_notifications.py` lines 406--465 retain worker
    error/join ownership work; no runtime fault is established.
 
-### 13.3.3. Rust
+### Rust
 
 1. **Weak oracle:**
    [`langs/rust/tests/conformance/lifecycle.rs`](../../langs/rust/tests/conformance/lifecycle.rs)
@@ -169,7 +169,7 @@ shipping defect without a reproduction at the named boundary.
    cyclic-lock mutants require subprocess containment rather than an in-process
    join timeout.
 
-### 13.3.4. Swift
+### Swift
 
 1. **Weak oracle and cleanup follow-up:**
    [`langs/swift/Tests/VMxTests/LifecycleRaceTests.swift`](../../langs/swift/Tests/VMxTests/LifecycleRaceTests.swift)
@@ -217,7 +217,7 @@ shipping defect without a reproduction at the named boundary.
    overlap, then select one executor/scheduler policy and drain/cancel search
    work during cleanup. Do not mask it with retries, delays, or a disabled test.
 
-### 13.3.5. TypeScript
+### TypeScript
 
 1. **Fixed build/test ordering:**
    [`langs/typescript/tests/globalSetup.ts`](../../langs/typescript/tests/globalSetup.ts)
@@ -257,7 +257,7 @@ shipping defect without a reproduction at the named boundary.
    before error routing. Do not replace the timers with an arbitrary single
    promise hop or add a public API solely for this test.
 
-## 13.4. CI Evidence Contract
+## CI Evidence Contract
 
 Ubuntu C#, Python, and Rust jobs run the selected command three times normally
 and three times with `taskset` restricted to one CPU from
@@ -280,7 +280,7 @@ delivery gate: before publication, issue 348 must record its observed outcome
 ledger defines the required check and does not claim that a remote run has
 already occurred.
 
-## 13.5. Unchanged Contract And Cascade
+## Unchanged Contract And Cascade
 
 The work changes test scheduling and CI evidence only. Public APIs, normative
 behavior, the 403 library conformance IDs, five scenario IDs, specification

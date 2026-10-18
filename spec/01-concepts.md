@@ -48,8 +48,8 @@ unparameterised name. Throughout this spec, statements about
 `ComponentVM<M>` apply equally to `ComponentVMOf[M]`, `ComponentVMOf<M>`, and
 `ComponentVm<M>` unless explicitly called out. The Swift flavor reached
 full library parity in v3.1.0; see
-[`langs/swift/README.md` §5](../langs/swift/README.md) for the current
-conformance matrix and documented Swift-specific divergences.
+[`langs/swift/README.md` §5](../langs/swift/README.md) for the
+conformance summary and documented Swift-specific divergences.
 
 **Rendering VMs** (opt-in sub-package, chapter 16): `NotificationVM` and `ConfirmationVM`
 are render-side VMs with auto-dismiss lifecycle, suitable for toast/banner UI.

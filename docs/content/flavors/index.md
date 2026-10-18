@@ -7,18 +7,21 @@ language.
 
 ## 7.1.1. At A Glance
 
-| Flavor     | Package status                                                 | Reactive primitive | Naming idiom |
-| ---------- | -------------------------------------------------------------- | ------------------ | ------------ |
-| C#         | not on NuGet; use a source-tree or local package reference     | `System.Reactive`  | PascalCase   |
-| Python     | `vmx` 3.23.0 published on PyPI                                 | `reactivex`        | snake_case   |
-| TypeScript | `@thekaveh/vmx` 3.30.0 published on npm                        | `rxjs`             | camelCase    |
-| Swift      | VMx 3.24.0 released through repository-root SwiftPM tags       | `Combine`          | camelCase    |
-| Rust       | `vmx-rs` crate in source tree; crates.io release not published | VMx-owned facade   | snake_case   |
+| Flavor     | Reactive primitive | Naming idiom |
+| ---------- | ------------------ | ------------ |
+| C#         | `System.Reactive`  | PascalCase   |
+| Python     | `reactivex`        | snake_case   |
+| TypeScript | `rxjs`             | camelCase    |
+| Swift      | `Combine`          | camelCase    |
+| Rust       | VMx-owned facade   | snake_case   |
+
+Package status for each flavor is in [Availability](../index.md#11-availability).
+[Installation](../installation.md) gives the package and source-checkout steps.
 
 ## 7.1.2. Reading Path
 
-- Start with the page for your flavor when you need install, package-status,
-  and host-integration pointers.
+- Start with the page for your flavor when you need package and
+  host-integration pointers.
 - Use [Cross-Language Naming](cross-language-naming.md) when you are translating
   an idea or snippet across flavors.
 - Use [Quickstart](../getting-started/index.md) when you want the smallest same-shape setup
@@ -35,9 +38,10 @@ language.
 ## 7.1.4. Common Rules
 
 - All five catalog-complete source flavors target the same VM family model and
-  425-ID library conformance catalog. The completed
-  [Rust convergence ledger](../../maintenance/2026-07-16-rust-capability-parity.md)
-  records its focused 0.27.0 public-surface and behavior evidence.
+  425-ID library conformance catalog. The
+  [Rust parity ledger](../../maintenance/2026-07-16-rust-capability-parity.md)
+  (open items and recorded differences in §12.4.7 and §12.7–§12.12) tracks the remaining Rust
+  public-surface and behavior gaps.
 - Public naming follows ADR-0006: PascalCase in C#, snake_case in Python,
   camelCase in TypeScript and Swift, and snake_case for Rust methods with
   Rust-style type names such as `ComponentVm`.

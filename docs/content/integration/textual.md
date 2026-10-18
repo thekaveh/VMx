@@ -119,14 +119,13 @@ class NoteWidget(Widget, can_focus=True):
 - **Borrowed lifetime.** `on_unmount` disposes the subscription and nothing
   else. The code that created the VM constructs and disposes it.
 
-A host that runs VMx work on its own threads owns that machinery:
-`TextualDispatcher` captures the running App loop and uses
-`AsyncIOThreadSafeScheduler(loop)` for worker-to-loop delivery. The host must
-stop admissions, await admitted hooks while the loop remains responsive,
-dispose resources, then explicitly release any `ThreadPoolScheduler` it
-created; use the shared
+A host that runs VMx work on its own threads owns that dispatcher and its
+teardown. Follow the
 [Python asyncio dispatcher ownership](../primitives/services-messages-dispatching.md#669-python-asyncio-dispatcher-ownership)
-teardown sequence.
+sequence. The Notes-Showcase `TextualDispatcher` is an example of such a host
+dispatcher. It is in
+`examples/python/textual/notes_showcase/src/notes_showcase/views/adapter/dispatcher.py`
+and is not part of `vmx`.
 
 ## 9.5.4. Grids With DataTable
 
@@ -256,6 +255,6 @@ the source list, the filter, the page, and the selection itself.
   a Textual viewer for any VMx tree, demonstrating the hub-subscription
   pattern at scale.
 - [`examples/python/textual/notes_showcase/`](../../../examples/python/textual/notes_showcase/) —
-  the Notes-Showcase Textual flagship: full `WorkspaceVM` with
-  `bind_property` / `bind_command` helpers (shipped in v2.2.0; ThemeVM
-  added in v2.4.0) and the `bind_data_table` grid bridge.
+  the Notes-Showcase Textual flagship: full `WorkspaceVM` and `ThemeVM` with
+  `bind_property` / `bind_command` helpers and the `bind_data_table` grid
+  bridge.

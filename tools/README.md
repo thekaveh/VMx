@@ -8,6 +8,10 @@ Cross-cutting scripts that operate across `spec/` and `langs/`.
   HTML/SVG/PNG triplets from repository facts. Run it without arguments to
   regenerate or with `--check` to verify byte-for-byte drift.
 
+- `docs/validate_diagrams.py` — validates the diagram registry and every
+  diagram link and PNG asset that the documentation references. Run it with
+  `python -m scripts.docs.validate_diagrams`; `make docs-check` includes it.
+
 - `check-conformance-coverage.py` — parses `spec/12-conformance.md` for the catalog
   of `XXX-NNN` conformance IDs and walks each active language's registered conformance
   test directory for matching tests. The exact directories are registered in the
@@ -104,10 +108,11 @@ Cross-cutting scripts that operate across `spec/` and `langs/`.
 - `smoke-rust-consumer.py` — Builds and runs VMx from a local `.crate` or the public crates.io registry.
 - `smoke-swiftpm-consumer.py` — Resolves and runs VMx from a fresh public SwiftPM consumer package.
 
-## 2. Pure-VM contract checks (notes-showcase, Phase 6)
+## 2. Pure-VM contract checks (notes-showcase)
 
-Four lint-style scripts that lock in the §6.1 Pure-VM contract and the
-cross-flavor parity of the `examples/notes-showcase` apps. Each is
+Four lint-style scripts that lock in the Pure-VM contract and the
+cross-flavor parity of the flagship notes-showcase apps under
+`examples/<lang>/`. Each is
 self-contained, runs from the repo root with no required arguments, and
 exits 0 on success / non-zero with a per-line violation report on failure.
 
@@ -141,7 +146,7 @@ exits 0 on success / non-zero with a per-line violation report on failure.
   scenario markers.
 
 A fifth check is the React ESLint rule under
-`examples/typescript/react/notes-showcase/.eslintrc.cjs` —
+`examples/typescript/react/notes-showcase/eslint.config.js` —
 `no-restricted-imports` on `src/views/components/**/*.{ts,tsx}` blocks
 `useState` and `useReducer`, steering authors to the adapter hooks
 (`useVm`, `useCommand`, `useDerivedProperty`).

@@ -1,7 +1,7 @@
 # 12. Rust Parity Status
 
 Filed: **2026-07-16**. Original scope closed: **2026-07-26**. Open items found
-after closure: §12.7 to §12.12.
+after closure: §12.7 to §12.12, plus the "Still open" notes in §12.4.7.
 
 This record began as the evidence ledger for capability-surface and observable-
 behavior differences between Rust and the four other flavors. The Rust 0.27.0

@@ -43,8 +43,11 @@ The destination and staged old parent stay isolated until commit or rollback.
 Structural mutation attempted re-entrantly from an auto-construction or
 population hook is rejected before it can invalidate rollback state. Selection
 validation and assignment share the membership gate, and deferred selection
-rechecks that the candidate is still a child. The transaction also rechecks
-destination disposal after auto-construction before it commits membership. If
+rechecks that the candidate is still a child.
+
+Reverse-order bulk transfers use deterministic reservation ordering. The
+transaction rechecks destination disposal after auto-construction before it
+commits membership. If
 user lifecycle code fails during compensation, VMx surfaces that rollback
 failure instead of claiming that lifecycle state was restored exactly
 (ADR-0118).
@@ -71,17 +74,14 @@ The composite owns both child lifecycle and selection messaging:
 - a non-batched move emits one move event with both indices; a batched move is
   represented by the outer reset
 
-In Rust, a composite with background children stays Constructing until those
-children settle. Thus `construct()` can return `Ok` while the composite is still
-transient. A background child failure rolls the composite back. The failure
-arrives on the composite's `background_errors()` stream (spec/11 §2).
+Rust background-child settling follows the shared container rule in
+[ViewModel Families](index.md#6213-lifecycle-and-messaging).
 
-Rust has one open selection gap (spec/06 §3.2). A Rust composite keeps its
-membership transaction open while it publishes `CollectionChanged` from `add`.
-It also keeps the transaction open while it publishes the current-flag changes
-and runs the current-changed callback. A selection that starts from one of
-these callbacks returns `OwnershipTransactionInProgress`. A concurrent
-selection gets the same error.
+Rust has one open selection gap. `CompositeVm` keeps its ownership transaction
+open while it publishes `CollectionChanged`, the children's `is_current`
+changes, and `current`, and while it runs the current-changed callback. A
+selection started from one of these observers, or concurrently, returns
+`OwnershipTransactionInProgress` (spec/06 §3.2).
 
 ## 6.2.5.4. Cross-Language Surface
 
@@ -147,9 +147,9 @@ selection gets the same error.
         .build()?;
     ```
 
-Rust ships both `CompositeVm` and `ModeledCompositeVm`; the completed Rust
-[parity ledger](../../../maintenance/2026-07-16-rust-capability-parity.md)
-records its removal and filtered-cursor edge evidence.
+Rust ships both `CompositeVm` and `ModeledCompositeVm`. The
+[Rust parity ledger](../../../maintenance/2026-07-16-rust-capability-parity.md) records its removal evidence. Its §12.12 keeps the Rust `FilteredCompositeVm`
+initial cursor policy open: a Rust view always starts under `SnapToFirst`.
 
 ## 6.2.5.6. Common Pitfalls
 

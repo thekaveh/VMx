@@ -5,49 +5,97 @@ Rust is the fifth VMx source flavor. It lives under `langs/rust/` as the
 
 ## 7.6.1. Status
 
-- Source tree: `langs/rust/`
-- Package: `vmx-rs`
-- Current source line: `vmx-rs` 0.35.0 implementing spec 3.29.0
-- Publication status: crates.io release channel not published yet
-- License packaging: the crate ships the repository's Apache-2.0 text
-- Reactive primitive: VMx-owned hot-stream facade
+- Package: `vmx-rs`, imported as the crate `vmx`; it ships the repository's
+  Apache-2.0 text
+- Version: `vmx-rs` 0.35.0 implements spec 3.29.0; the MSRV is Rust 1.88
+- Publication status: not published on crates.io
+- Reactive primitive: VMx-owned hot-stream facade (ADR-0103)
 - Naming: Rust type names such as `ComponentVm`, snake_case methods such as
   `construct()` and `dispose()`
-- Conformance: all 425 library IDs are covered by behavioral Rust tests
-- Hub concurrency: ordinary producers retain synchronous calling-thread
-  delivery while nested cross-hub callbacks enqueue without a wait cycle
+- Conformance: behavioral Rust tests cover all 425 library IDs. Rust has no UI
+  scenario suite for the five THEME IDs.
+- Known gaps: the public surface and some behaviors are not fully aligned with
+  the other flavors. The
+  [Rust parity ledger](../../maintenance/2026-07-16-rust-capability-parity.md)
+  lists the open items and recorded differences in §12.4.7 and §12.7–§12.12. Two COMP-026
+  tests in `langs/rust/tests/conformance/composite_vm.rs` are `#[ignore]`d for
+  a composite-selection gap.
+
+For hub delivery and callback ordering, see
+[Callback-Safe Transition Ordering](../architecture/lifecycle-messaging.md#541-callback-safe-transition-ordering).
+
+## 7.6.2. Runtime Behavior
+
 - Hub retention: a `MessageHub` keeps no delivered message.
   `record(capacity)` returns a bounded `MessageRecorder` for tests and
-  diagnostics, and the deprecated `history()` is always empty (ADR-0141)
+  diagnostics. The deprecated `history()` is always empty (ADR-0141).
 - Property notifications: `notify_property_changed` publishes to the hub and
-  then the per-instance `property_changed` stream
-- Hint surfaces: `hint()` is immutable fixed metadata; `modeled_hint()` is
-  recomputed from the model and publishes `modeled_hint` changes
+  then to the per-instance `property_changed` stream.
+- Hint surfaces: `hint()` is immutable fixed metadata. `modeled_hint()` is
+  recomputed from the model and publishes `modeled_hint` changes.
 - Async commands: `AsyncRelayCommand::builder()` owns its task, predicate,
-  additive triggers, cancellation mode, and fire-and-forget error stream
-- Worker threads: an admitted `AsyncRelayCommand` execution runs on one worker
-  thread, and a rejected `execute()` starts none. A rejected `execute_async()`
-  still returns a `JoinHandle` that completes with `Ok(())` from a short-lived
-  thread. An `AsyncResourceVm` load runs its loader on its own worker; the
-  thread awaiting the load blocks until the loader reports or the load is
-  cancelled, without polling (ADR-0140)
+  additive triggers, cancellation mode, and fire-and-forget error stream.
 - Completion handles: `AsyncValue<T>` is an executor-neutral `Future` with a
-  blocking `wait()`. When a `map` or `and_then` callback panics, the handle it
-  returns settles as panicked: `wait()` and `.await` re-raise the panic and
-  `wait_result()` returns an `AsyncValuePanic`, so no waiter hangs (ADR-0138)
-- Async resources: `AsyncResourceVm<T, D>` accepts the shared hub and dispatcher,
-  implements the ordinary component/node contract, and keeps resource phase in
-  `resource_status()` / `state().status()` independently of lifecycle status
-- Threading: `Dispatcher` has paired foreground and background closure
-  channels. Component and read-only builders opt into background lifecycle work
-  with `.background(true)`. The `background_errors()` stream reports
-  fire-and-forget failures. Containers stay transient until their background
-  children settle. Thus a container `construct`, `destruct`, or `reconstruct`
-  call can return `Ok` while the container is still Constructing or
-  Destructing. Wrapper nodes should forward `VmNode::when_lifecycle_settled`,
-  so that containers can wait for them
+  blocking `wait()`. When a `map` or `and_then` callback panics, the returned
+  handle settles as panicked. `wait()` and `.await` re-raise the panic, and
+  `wait_result()` returns an `AsyncValuePanic`, so no waiter hangs (ADR-0138).
+- Async resources: `AsyncResourceVm<T, D>` accepts the shared hub and
+  dispatcher and implements the ordinary component and node contract. It keeps
+  resource phase in `resource_status()` / `state().status()`, independently of
+  lifecycle status.
 
-## 7.6.2. Fixed Aggregates
+## 7.6.3. Background Lifecycle And Threading
+
+`Dispatcher` has paired foreground and background closure channels.
+`NullDispatcher` and `ImmediateDispatcher` run both channels inline.
+`DefaultDispatcher` supplies dedicated foreground and background workers. A host
+dispatcher can target its foreground channel at the UI event loop.
+
+Component and read-only component builders opt into background lifecycle work
+with `.background(true)`:
+
+```rust
+use vmx::{ComponentVm, DefaultDispatcher, MessageHub, ValueSubscription, VmxResult};
+
+fn start_in_background(
+) -> VmxResult<(ComponentVm<(), DefaultDispatcher>, ValueSubscription)> {
+    let vm = ComponentVm::builder()
+        .name("loader")
+        .model(())
+        .background(true)
+        .services(MessageHub::new(), DefaultDispatcher::new())
+        .build()?;
+
+    let errors = vm.background_errors().subscribe(|error| {
+        eprintln!("background lifecycle failed: {error}");
+    });
+    vm.construct()?; // admits Constructing; completion is fire-and-forget
+    Ok((vm, errors)) // host retains both for the active lifetime
+}
+```
+
+Background mode applies only to standalone construct and destruct hooks. The
+terminal state and its publication return to the foreground. Hook failures
+arrive on the event-only hot `background_errors()` stream. `reconstruct()` and
+its command complete their two-phase transition synchronously. Rejected
+foreground or background scheduling restores lifecycle admission.
+
+Containers stay Constructing or Destructing until their background children
+settle. Thus a container `construct`, `destruct`, or `reconstruct` call can
+return `Ok` while the container is still transient. A child failure rolls the
+container back and arrives on the container's `background_errors()` stream.
+Wrapper nodes should forward `VmNode::when_lifecycle_settled`. If a node does
+not forward `when_lifecycle_settled`, the container accepts that node while it
+is still in flight instead of failing.
+
+An admitted `AsyncRelayCommand` execution runs on one worker thread, and a
+rejected `execute()` starts none. A rejected `execute_async()` still returns a
+`JoinHandle` that completes with `Ok(())` from a short-lived thread. An
+`AsyncResourceVm` load runs its loader on its own worker. The thread that awaits
+the load blocks, without polling, until the loader reports or the load is
+cancelled (ADR-0140).
+
+## 7.6.4. Fixed Aggregates
 
 `AggregateVm1` through `AggregateVm6` expose immutable builders whose required
 component factories run at construct time. Typed `component_1` through
@@ -72,7 +120,7 @@ Factories are all evaluated and ownership-validated before any previous slot
 changes. Failed validation preserves the prior slots and parent links;
 reconstruction invokes the factories again and disposes replaced children.
 
-## 7.6.3. Serviced Collections
+## 7.6.5. Serviced Collections
 
 Rust's `ServicedObservableCollection<T>` is distinct from `ObservableList<T>`.
 It owns an always-present local `MessageHub` stream and may also forward to an
@@ -90,13 +138,19 @@ notes.move_item(0, notes.len() - 1)?;     // one Move locally, then externally
 notes.replace_all(server_snapshot);       // one Reset
 ```
 
-`remove` removes the first equal value and returns `false` when absent;
-`remove_at` and `replace` return the removed or old item. Indices are `usize`,
-and out-of-range indexed operations fail atomically with `VmxResult`. Empty
-clear and same-index move are no-ops. Rust messages carry action plus optional
-old/new positions, sender ID, and property name; they intentionally carry no
-legacy `index` or item payload. The caller owns the subscription and stored
-items.
+`remove` removes the first equal value and returns `false` when absent.
+`remove_at` and `replace` return the removed or old item. `usize` indices make
+negative positions unrepresentable, and out-of-range indexed operations fail
+atomically with `VmxResult`. Same-index move, empty clear, and empty-to-empty
+replacement are no-ops.
+
+Rust messages carry the action, optional old and new positions, sender ID, and
+property name. They carry no legacy `index` and no typed item payload. Use
+`ObservableList<T>` for granular streams, batching, and `Count` notifications.
+
+The caller owns the subscription and controls each stored VM's construct,
+destruct, and dispose operations. Membership retains an item as an ordinary
+Rust value but does not transfer lifecycle ownership.
 
 `KeyedServicedObservableCollection<K,T>` adds captured-key access while
 preserving that ordered surface. Rust keeps positional `get(usize)` and names
@@ -116,8 +170,9 @@ let removed = notes_by_id.remove_key(&first_id); // Option<Note>
 
 Without an external hub, construct it with `new(owner_id, key_of)`.
 `contains_key` tests membership. Keys require `Eq + Hash + Send`, not `Clone`.
-Projector and duplicate-key failures are atomic `VmxResult` failures. Captured
-keys do not follow mutable item properties; indexed `replace` or
+Projector and duplicate-key failures are atomic `VmxResult` failures.
+
+Captured keys do not follow mutable item properties. Indexed `replace` or
 remove-then-push rekeys explicitly, and a same mutated instance can occupy two
 memberships. Lookup and target discovery are expected O(1), push is amortized
 O(1), and ordered middle shifts remain O(n). Local delivery precedes optional
@@ -125,36 +180,11 @@ hub publication; a hub transaction defers only external delivery. The keyed
 type has no batch or VM lifecycle interface and never owns stored-item
 lifecycle.
 
-### 7.6.3.1. Ownership-Test Conventions
+## 7.6.6. Imperative Engine Bridge
 
-The caller controls each stored VM's construct, destruct and dispose operations.
-A serviced collection retains an item as an ordinary Rust value while it is a
-member; that retention does not transfer semantic lifecycle ownership. A
-returned old value, lookup result or snapshot can keep a shared item alive after
-removal. Cloning the collection shares its backing store without cloning every
-item, and Rust's collection-change history has no item payload to retain.
-
-`COL-055` and `COL-062` use test-private shared wrappers around real
-`ComponentVm` instances. After each operation they count every known wrapper
-handle and check lifecycle hooks and parent state. Once returned and snapshot
-handles are released, the caller disposes each VM exactly once, releases its
-last wrapper, and checks both weak-reference expiration and a separate native
-release counter. Rust `Drop` is not treated as VM disposal. These exact counts
-are deterministic because the tests control every holder and run mutations
-synchronously; they do not count the VM's internal implementation references.
-
-The eight C#, Python, TypeScript and Swift counterpart tests already use direct
-lifecycle observables rather than the Rust reference-count tautology. Their
-probe coverage varies: C# observes disposal, Swift omits some lifecycle
-categories, Python's keyed test does not retain failed-operation candidates,
-and TypeScript's keyed test instruments only one item. They do not assert
-exactly-once caller cleanup. These are limits of the test evidence, not proof
-of a collection implementation defect. The existing ownership contract and
-the conformance catalog are unchanged.
-
-## 7.6.4. Imperative Engine Bridge
-
-Rust expresses the fixed source as `hub + sender_id`. `subscribe_value` returns
+Rust expresses the fixed source as `hub + sender_id`. Every message variant
+also carries the diagnostic `sender_name`; `Message::sender_name()` reads it
+without a match on the concrete variant. `subscribe_value` returns
 VMx's `Subscription`; `SubscribeValueOptions::default()` uses `PartialEq`, while
 `SubscribeValueOptions::with_equality(...)` accepts custom equality without
 that bound:
@@ -178,11 +208,12 @@ exposure_subscription.dispose();
 ```
 
 The callback receives `(current, previous)` by value; immediate delivery uses
-the initial value for both. The host adapter owns the subscription, and the
-selector reevaluates after every property message carrying this fixed sender
-ID rather than on every render frame.
+the initial value for both. The selector reevaluates after every property
+message carrying this fixed sender ID rather than on every render frame. The
+host adapter owns the subscription; VMx does not attach it to the observed VM's
+lifetime.
 
-### 7.6.4.1. Nested Command Execution
+### 7.6.6.1. Nested Command Execution
 
 A command can be executed again from inside its own execution: from its
 action, from a `can_execute_changed` handler, or from a hub subscriber it
@@ -200,34 +231,26 @@ recursion would give. A call from another thread waits for the running action.
 A deferred call does not run once the command is disposed, and a panicking
 action drops the calls deferred during it.
 
-## 7.6.5. Local Use
+## 7.6.7. Local Use
 
-With VMx cloned beside your project, depend on the crate by path:
+Add the `vmx-rs` crate as [Installation](../installation.md) shows. This
+program confirms that the crate builds and runs:
 
-=== "Cargo.toml"
+```rust
+use vmx::{Command, ComponentVm, MessageHub, NullDispatcher, RelayCommand, VmxResult};
 
-    ```toml
-    [dependencies]
-    vmx-rs = { path = "../VMx/langs/rust" }
-    ```
+fn main() -> VmxResult<()> {
+    let hub = MessageHub::new();
+    let dispatcher = NullDispatcher::new();
+    let vm = ComponentVm::with_services("hello-rust", hub, dispatcher);
 
-=== "Rust"
+    vm.construct()?;
+    RelayCommand::new(|| println!("Hello from VMx Rust")).execute();
+    vm.dispose()
+}
+```
 
-    ```rust
-    use vmx::{Command, ComponentVm, MessageHub, NullDispatcher, RelayCommand, VmxResult};
-
-    fn main() -> VmxResult<()> {
-        let hub = MessageHub::new();
-        let dispatcher = NullDispatcher::new();
-        let vm = ComponentVm::with_services("hello-rust", hub, dispatcher);
-
-        vm.construct()?;
-        RelayCommand::new(|| println!("Hello from VMx Rust")).execute();
-        vm.dispose()
-    }
-    ```
-
-## 7.6.6. Development
+## 7.6.8. Development
 
 ```bash
 cargo fmt --manifest-path langs/rust/Cargo.toml -- --check
@@ -238,42 +261,15 @@ cargo test --locked --manifest-path examples/rust/tui/notes-showcase/Cargo.toml
 cargo run --locked --manifest-path examples/rust/tui/notes-showcase/Cargo.toml -- --smoke
 ```
 
-### 7.6.6.1. Coverage
+CI also gates library coverage; see
+[Coverage Floors](../contributing-releases.md#1133-coverage-floors).
 
-The `coverage floor` job in `.github/workflows/rust.yml` measures library
-coverage with `cargo-llvm-cov` on a pinned toolchain. It fails when line,
-region, or function coverage falls below the Rust floors in
-`tools/coverage-floors.json`:
+## 7.6.9. Showcase
 
-```bash
-cargo install cargo-llvm-cov --version 0.9.1 --locked
-cargo llvm-cov --locked --all-features --manifest-path langs/rust/Cargo.toml \
-  --json --output-path rust-coverage.json
-python3 tools/check-coverage-floor.py --flavor rust --report rust-coverage.json
-```
-
-The denominator is `langs/rust/src/` only. Test, example, and build files are
-not counted, so a change that touches only generated or resource files cannot
-fail the gate. Removing a test that exercised library code lowers the figure and
-can. A failure names each source file that gained uncovered lines since the
-recorded baseline, with that file's unexecuted line ranges as `llvm-cov show`
-marks them. The counts come from llvm-cov's summaries, which count a line once
-for each function that spans it, so a closure's lines count twice and a file's
-ranges can hold fewer lines than its count. The job uploads the llvm-cov export
-and a provenance file that names the commit, toolchain, and measured figures.
-`cargo-llvm-cov` builds into its own target directory, so instrumented code
-never reaches the package job or a published crate.
-
-Coverage says which lines ran, not whether a test would catch a wrong result.
-It does not replace the conformance assertions.
-
-## 7.6.7. Showcase
-
-Rust now ships a Ratatui Notes Showcase at
-`examples/rust/tui/notes-showcase/`. The host is intentionally a renderer and
-input adapter only: VMx view models own notebook selection, search/filtering,
-page state, form validation, save/revert operations, global token search,
-notifications, and edit/preview mode.
+The Ratatui Notes Showcase is at `examples/rust/tui/notes-showcase/`. The host
+is only a renderer and input adapter. VMx view models own notebook selection,
+search and filtering, page state, form validation, save and revert operations,
+global token search, notifications, and edit/preview mode.
 
 See [Rust TUI Notes Showcase](../examples/rust-tui-notes-showcase.md) for the
 VM-layer diagram and run commands.
@@ -281,3 +277,16 @@ VM-layer diagram and run commands.
 Use [ADR-0080](../../../spec/ADRs/0080-rust-flavor-feasibility.md)
 for the adoption decision and [ADR-0081](../../../spec/ADRs/0081-rust-full-parity-cutover.md)
 for the full-conformance cutover.
+
+## 7.6.10. Pointers
+
+- Flavor README:
+  [langs/rust/README.md](../../../langs/rust/README.md)
+- Getting started guide:
+  [Getting Started with VMx — Rust](../getting-started/rust.md)
+- Example portfolio:
+  [Examples overview](../examples/index.md)
+- Rust TUI showcase:
+  [Rust TUI Notes Showcase](../examples/rust-tui-notes-showcase.md)
+- Host wiring routes:
+  [Integration Recipes](../integration/index.md)

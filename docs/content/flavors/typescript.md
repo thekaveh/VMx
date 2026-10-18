@@ -3,14 +3,12 @@
 ## 7.4.1. Snapshot
 
 - Current source: TypeScript 3.30.0 implementing spec 3.29.0
-- Install: `npm install @thekaveh/vmx rxjs`
-- Publication status: `@thekaveh/vmx` 3.30.0 is published on npm; releases
-  come from `typescript-v*` tags on `main`.
+- Install and package status: see [Installation](../installation.md) and
+  [Availability](../index.md#11-availability).
 - Reactive primitive: `rxjs`
 - Runtime floor: Node 20.5.0 (the first Node 20 release with `Symbol.dispose`);
   CI tests that exact floor plus Node 20, 22, 24, and 26
-- Package name: `@thekaveh/vmx`, scoped since v2.4.0 because the unscoped `vmx`
-  name was unavailable
+- Package name: `@thekaveh/vmx`
 - Bundles: dual ESM + CJS, with `notifications`, `conformance`, `testing`, and
   `devtools` subpaths
 - Naming idiom: camelCase
@@ -40,9 +38,11 @@ local.unsubscribe();
 ```
 
 `remove` deletes only the first `indexOf` match and returns `false` when absent.
-`removeAt`, `replace`, and `move` require integer positions in range;
-equal-index move and empty clear are no-ops. Collection messages carry legacy
-`index` plus `oldIndex` / `newIndex`. Items remain caller-owned.
+`removeAt`, `replace`, and `move` require integer positions in range and reject
+invalid positions atomically. Equal-index move, empty clear, and empty-to-empty
+replacement are no-ops. Collection messages carry legacy `index` plus
+`oldIndex` / `newIndex`. Items remain caller-owned. Choose `ObservableList<T>`
+for list-local batching and the `Count` channel.
 
 Use `KeyedServicedObservableCollection<TKey,TItem>` when that ordered list also
 needs captured-key access:
@@ -60,7 +60,9 @@ const removed = notesById.delete(first.id);
 
 `has` tests membership. `pop` and native `splice` behavior remain available;
 splice projects inserted items and validates the complete candidate atomically
-before commit. Captured membership keys do not follow mutable item properties;
+before commit.
+
+Captured membership keys do not follow mutable item properties;
 use indexed replacement or delete-then-add to rekey explicitly. Upserting the
 same mutated instance can add a second membership under its new projected key.
 Duplicate/projector failure preserves state and emits nothing. Lookup and
@@ -87,9 +89,9 @@ exposureSubscription.unsubscribe();
 ```
 
 The callback receives `(current, previous)`; immediate delivery uses the
-initial value for both. The host adapter owns the subscription, and the
-selector reevaluates after every property message from this fixed VM rather
-than on every render frame.
+initial value for both. The selector reevaluates after every property message
+from this fixed VM rather than on every render frame. The host adapter owns the
+subscription; VMx does not attach it to the observed VM's lifetime.
 
 ## 7.4.5. Raw Message Predicates
 
@@ -117,10 +119,7 @@ sender, and property are already known, `whenPropertyChanged` is the shorter
 message-returning helper, while `propertyValueChangedMessagesFor` emits the
 property's current value.
 
-These predicates are TypeScript-only type ergonomics, not new message behavior.
-The other flavors already have idiomatic nominal/runtime checks, so ADR-0094
-intentionally adds no artificial cross-flavor API parity requirement and no
-conformance ID.
+These predicates are TypeScript-only; see ADR-0094.
 
 ## 7.4.6. Consumer Conformance Adapter
 
@@ -130,21 +129,30 @@ a test framework. It is isolated from the root runtime entry. Full schema,
 factory, teardown, diagnostics, and non-goal guidance lives in
 [Specification & Conformance](../specification-conformance.md).
 
-## 7.4.7. Runner-neutral testing support
+## 7.4.7. Runner-Neutral Testing Support
 
-The `@thekaveh/vmx/testing` subpath is isolated from the root
-runtime entry and adds:
+The `@thekaveh/vmx/testing` subpath is isolated from the root runtime entry.
+The root `@thekaveh/vmx` entry re-exports nothing from it, and the package
+remains `sideEffects: false`. The subpath adds:
 
-- `RecordingMessageHub`, `createTestServices()`, and `ManualDispatcher`;
-- semantic property, serviced-collection, and `ObservableList` recorders;
-- configurable parameterless, parameterized, and async command doubles; and
-- `createFormHarness()` around the real FormVM lifecycle.
+- `RecordingMessageHub`, which retains real delivery order;
+- `createTestServices()` and `ManualDispatcher`, which separates explicitly
+  flushed foreground and background queues;
+- semantic property, serviced-collection, and `ObservableList` recorders that
+  own their subscriptions;
+- parameterless, parameterized, and async command doubles that control
+  admission, faults, completion, and cancellation; and
+- `createFormHarness()`, which drives the real FormVM state machine through
+  set, approve, deny, validation, and persistence failures.
 
-The helpers return ordinary readonly records and import no Vitest or Jest API.
-Every owned subscription and controllable resource has idempotent disposal.
-The subpath follows TypeScript-package SemVer: incompatible removal is reserved
-for a major release, and replacements are deprecated in declarations,
-documentation, and the changelog first.
+The helpers return ordinary readonly records and import no Vitest or Jest API,
+so they work with any runner. Every disposable helper has idempotent
+`dispose()`. `RecordingMessageHub`, the recorders, the command doubles, and the
+form harness also expose `clear()`, which drops recorded history.
+
+The subpath follows TypeScript-package SemVer. Incompatible removal waits for a
+major release. Replacements are deprecated in declarations, documentation, and
+the changelog first.
 
 ```typescript
 import { createTestServices, recordPropertyChanges } from "@thekaveh/vmx/testing";
@@ -157,30 +165,42 @@ changes.dispose();
 services.dispose();
 ```
 
-The source tree and packed-package checks include this surface, and it ships in
-the npm package from 3.30.0.
+## 7.4.8. DevTools Observability
 
-## 7.4.8. DevTools observability
-
-The `@thekaveh/vmx/devtools` subpath keeps optional observability
-out of the root bundle. `observeHub()` emits transport-neutral events;
+The `@thekaveh/vmx/devtools` subpath keeps optional observability out of the
+root bundle. `observeHub()` emits transport-neutral events for a custom sink.
 `connectReduxDevtools()` adapts them to a structurally typed Redux DevTools
-extension without adding an extension dependency.
+extension without adding an extension dependency. Dispose the bridge before
+its owning hub.
 
-Default actions expose only stable message type, sender name, sequence, and
-bounded scalar metadata. This is graph-safe, not necessarily non-sensitive:
-consumer-controlled names and scalars may still need action redaction.
-Consumer state is opt-in through named snapshot selectors and serializers.
-Built-in names are canonical across package formats; custom messages can use
-`mapAction` to choose an application-owned stable name.
-Allow/deny filters, sampling, throttled batches,
-redaction, bounded JSON sanitization, and phase-specific error reporting keep
-high-volume and private state under consumer control. A missing or explicitly
-disabled extension returns a no-op before any hub subscription or snapshot.
+Default actions expose only the message type, `senderName`, sequence, and
+bounded scalar metadata. VMx never traverses `sender`, models, or collection
+items by default. These fields are graph-safe, not necessarily non-sensitive:
+consumer-controlled names and scalars can contain identifiers, so redact
+actions as well as snapshots when required.
+
+Consumer state exists only when the consumer supplies a named snapshot
+selector. An optional per-source serializer can reduce domain values before
+bounded JSON sanitization. Circular references, throwing getters, functions,
+symbols, and large strings, arrays, and objects are represented safely.
+Built-in message names are canonical across ESM and CommonJS builds. Custom
+message classes can use `mapAction` for a name that is stable across the
+application's own minifier or bundler.
+
+Allow/deny filters run before `sampleEvery`. `throttleMs` coalesces accepted
+messages into one action batch, bounds its details with the same serialization
+limits, and captures snapshots once at flush. Selector, serializer, redactor,
+clock, scheduler, sink, and Redux transport failures are isolated and reported
+through `onError` with their phase.
+
+Disposal is idempotent. Pending batches are cancelled when a hub completes, and
+reconnecting creates a fresh sequence. `{ extension: null }`, or a missing
+Redux DevTools extension, returns a frozen no-op before any hub subscription,
+snapshot, or timer exists.
 
 The bridge ignores incoming DevTools dispatches. Hub messages do not encode
-complete or inverse mutations, so replay, time travel, and state reconstruction
-are explicitly out of scope. See the
+complete or inverse mutations, so replay, time travel, inverse mutation, and
+state reconstruction are out of scope. See the
 [TypeScript getting-started guide](../getting-started/typescript.md#349-observe-a-hub-safely)
 for a complete example.
 

@@ -42,9 +42,8 @@ Source index:
 
 ## 8.9.4. Swift
 
-Swift currently exposes the flagship Notes Workspace example rather than a
-separate small demo. Use the flavor README and SwiftUI integration recipe as the
-minimum entry points:
+Swift has the flagship Notes Workspace example and no separate small demo. Use
+the flavor README and SwiftUI integration recipe as the minimum entry points:
 [langs/swift/README.md](../../../langs/swift/README.md),
 [SwiftUI Integration](../integration/swiftui.md)
 
@@ -53,9 +52,9 @@ minimum entry points:
 - `examples/rust/console/hello-vmx/`:
   Cargo console demo using `ComponentVm`, `CompositeVm`, `FilteredCompositeVm`,
   and `RelayCommand`
-- `examples/rust/tui/notes-showcase/`:
-  Ratatui showcase using a pure VMx MVVM layer with search, paging, validation,
-  notifications, and editor mode
+
+For the Ratatui terminal app, see
+[Rust TUI Notes Showcase](rust-tui-notes-showcase.md).
 
 Source index:
 [examples/rust/README.md](../../../examples/rust/README.md)

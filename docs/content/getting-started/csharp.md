@@ -14,21 +14,10 @@ ______________________________________________________________________
 
 ## 3.2.1. Install
 
-The source tree currently implements v3.29.0. The NuGet package is not published
-yet; use the package command after a `csharp-v*` release publishes it.
-
-```bash
-dotnet add package VMx
-```
-
-For local development from a checked-out clone, reference the project directly:
-
-```xml
-<!-- In your .csproj -->
-<ItemGroup>
-  <ProjectReference Include="path/to/langs/csharp/src/VMx/VMx.csproj" />
-</ItemGroup>
-```
+Add VMx as described in [Installation](../installation.md). The NuGet package
+is not published, so the C# tab there references the VMx project from a
+checkout. This tutorial needs only the core `VMx` project; section 3.2.2.2 adds
+the optional dependency-injection project.
 
 ______________________________________________________________________
 
@@ -51,11 +40,10 @@ IMessageHub hub = new MessageHub();
 
 ### 3.2.2.2. Option B — dependency injection (`VMx.Extensions.DependencyInjection`)
 
-Add the optional DI package:
+Add the optional DI project:
 
 ```xml
-<ProjectReference Include="path/to/langs/csharp/src/VMx.Extensions.DependencyInjection/
-    VMx.Extensions.DependencyInjection.csproj" />
+<ProjectReference Include="../VMx/langs/csharp/src/VMx.Extensions.DependencyInjection/VMx.Extensions.DependencyInjection.csproj" />
 ```
 
 The DI package references only the service-collection abstractions. A host
@@ -195,8 +183,8 @@ Console.WriteLine(saveCommand.CanExecute(null));   // False again
 ```
 
 > See [command families](../primitives/command-families.md) for the full command
-> contract including
-> the "predicate-false gates Execute" rule (CMD-003).
+> contract, including
+> the "predicate-false gates Execute" rule (CMD-007).
 
 ______________________________________________________________________
 
@@ -287,10 +275,11 @@ Console.WriteLine(userVM.Status);  // Disposed
 
 // CompositeVM.Dispose() disposes children then itself.
 tabs.Dispose();
-
-// MessageHub.Dispose() completes the underlying Rx Subject.
-((IDisposable)hub).Dispose();
 ```
+
+Dispose the hub last, after every viewmodel that uses it. `MessageHub.Dispose()`
+completes the underlying Rx subject. The threading examples below still use the
+hub, so the full shutdown sequence appears at the end of section 3.2.7.
 
 The C#-specific `ConstructAsync()`, `DestructAsync()`, and
 `ReconstructAsync()` methods complete after terminal lifecycle publication. If
@@ -327,19 +316,35 @@ hub.Messages
    .Subscribe(msg => UpdateLabel(msg));  // safe to touch UI here
 ```
 
-For background work (e.g. loading data before a Construct):
+The next example loads data in the background before `Construct`. It builds a
+new viewmodel because section 3.2.6 disposed `userVM`.
 
 ```csharp
 using System.Reactive.Linq;
+using VMx.Components;
+
+ComponentVM<UserModel> profileVM =
+    ComponentVM<UserModel>.Builder()
+        .Name("profile")
+        .Model(new UserModel("", ""))
+        .Services(hub, dispatcher)
+        .Build();
 
 Observable
     .Start(() => LoadFromDatabase(), dispatcher.Background)
     .ObserveOn(dispatcher.Foreground)
     .Subscribe(data =>
     {
-        userVM.Model = data;
-        userVM.Construct();
+        profileVM.Model = data;
+        profileVM.Construct();
     });
+```
+
+At shutdown, dispose the viewmodels first and the hub last:
+
+```csharp
+profileVM.Dispose();
+((IDisposable)hub).Dispose();
 ```
 
 > See [Services, Messages &

@@ -1,8 +1,8 @@
 # 9.7. Tkinter Integration
 
 Wire a `ComponentVMOf[M]` to a Tkinter widget through `StringVar`,
-`IntVar`, and friends. Tkinter is included with CPython — no extra
-dependency.
+`IntVar`, and friends. Tkinter ships with most CPython installers; some Linux
+distributions package it separately (for example `python3-tk`).
 
 ## 9.7.1. Reactivity primitive
 

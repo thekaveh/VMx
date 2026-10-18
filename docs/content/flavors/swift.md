@@ -2,18 +2,13 @@
 
 ## 7.5.1. Snapshot
 
-- Install: `.package(url: "https://github.com/thekaveh/VMx.git", from: "3.24.0")`
 - Current source: Swift 3.30.0 implementing spec 3.29.0
-- Publication status: 3.24.0 is public through the immutable `v3.24.0`
-  SwiftPM tag and matching `swift-v3.24.0` GitHub Release.
+- Install and package status: see [Installation](../installation.md) and
+  [Availability](../index.md#11-availability).
 - Reactive primitive: `Combine`
 - Naming idiom: camelCase
-- Hub delivery: callbacks run outside the state condition; ordinary concurrent
-  producers remain synchronous and nested cross-hub sends cannot deadlock
-- Notification replay: pending subscribers are registered atomically, then
-  attached outside the hub lock before `CurrentValueSubject` replays state
-- Modal completion: `BasicModalVM` atomically registers waiters and accepts only
-  the first concurrent dismissal or disposal result
+- Hub delivery and notification replay: see
+  [Callback-Safe Transition Ordering](../architecture/lifecycle-messaging.md#541-callback-safe-transition-ordering)
 
 ## 7.5.2. What To Reach For
 
@@ -42,10 +37,12 @@ notes.replaceAll(serverSnapshot)     // one Reset
 ```
 
 Value removal is available when `T: Equatable`, removes the first match, and
-returns `false` when absent. `removeAt` and `replace` retain Swift's established
+returns `false` when absent. `removeAt` and `replace` keep Swift's
 array-precondition bounds behavior; `move` instead throws the catchable
-`VMCollectionIndexError`. Equal-index move and empty clear are no-ops. The
-caller owns both the Combine cancellable and every stored item.
+`VMCollectionIndexError`. Equal-index move, empty clear, and empty-to-empty
+replacement are no-ops. Messages expose `index`, `oldIndex`, and `newIndex`.
+The caller owns both the Combine cancellable and every stored item. Use
+`ObservableList<T>` for batching and `Count` notifications.
 
 Use `KeyedServicedObservableCollection<Key,T>` for captured-key access while
 retaining the same ordered message contract:
@@ -63,6 +60,7 @@ let removed = notesByID.delete(first.id)
 
 `containsKey` tests membership. The projector is throwing, so append,
 replacement, whole-list replacement, and upsert are throwing and atomic.
+
 Captured membership keys do not follow mutable properties; indexed replacement
 or delete-then-add rekeys explicitly. The same mutated instance can occupy its
 old and newly projected memberships. Duplicate/projector failure preserves
@@ -96,9 +94,9 @@ exposureSubscription.cancel()
 ```
 
 The callback receives `(current, previous)`; immediate delivery uses the
-initial value for both. The host adapter owns the cancellable, and the selector
-reevaluates after every property message from this fixed VM rather than on
-every render frame.
+initial value for both. The selector reevaluates after every property message
+from this fixed VM rather than on every render frame. The host adapter owns the
+cancellable; VMx does not attach it to the observed VM's lifetime.
 
 ## 7.5.5. Pointers
 
@@ -123,34 +121,5 @@ cross-flavor scenario contract and parity matrix.
 
 ## 7.5.7. Coverage
 
-The `coverage floor` job in `.github/workflows/swift.yml` runs the library tests
-once with code coverage on `macos-15` and the default Xcode. It fails when line,
-region, or function coverage falls below the Swift floors in
-`tools/coverage-floors.json`:
-
-```bash
-swift test --package-path langs/swift --enable-code-coverage \
-  -Xswiftc -Xllvm -Xswiftc -instrprof-atomic-counter-update-all
-python3 tools/check-coverage-floor.py --flavor swift \
-  --report "$(swift test --package-path langs/swift --show-codecov-path)"
-```
-
-The denominator is `langs/swift/Sources/VMx/` only. Test files, the bundled
-JSON resources, and build output are not counted, so a change that touches only
-generated or resource files cannot fail the gate. Removing a test that exercised
-library code lowers the figure and can. A failure names each source file that
-gained uncovered lines since the recorded baseline, with that file's unexecuted
-line ranges as `llvm-cov show` marks them. The job uploads the llvm-cov export
-and a provenance file that names the commit, toolchain, and measured figures.
-Instrumentation stays in that job's debug build; the release builds, platform
-builds, and packages never see it.
-
-The coverage build updates its counters atomically. Coverage counts the code
-after a `guard` as the function's entries minus its early returns, and plain
-counter updates can lose entries when a test calls one function from many
-threads at once, as DISP-003 does with `NotificationHub.dispose()`. A lost entry
-can make a region that ran read as unexecuted and fail the floor without a code
-change (#513).
-
-Coverage says which lines ran, not whether a test would catch a wrong result.
-It does not replace the conformance assertions.
+CI gates Swift library coverage; see
+[Coverage Floors](../contributing-releases.md#1133-coverage-floors).

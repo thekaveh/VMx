@@ -10,12 +10,12 @@ both before/after counts.
 
 VMx source: `d8946a18ca1ec49babdf4fb45bb768142a05fb9a` plus the uncommitted #84
 worktree. Packed artifact:
-`/private/tmp/vmx-issue84-packs/thekaveh-vmx-3.24.0.tgz`.
+`thekaveh-vmx-3.24.0.tgz` in a temporary directory.
 
 ## 2. NNx Studio
 
 - Source revision: `e1569caa869925ac6f99eab8fb53f80543e8d183`.
-- Disposable clone: `/private/tmp/vmx-issue84-pilot-nnx-20260811`.
+- Disposable clone in a temporary directory.
 - Representative file:
   `packages/viewmodel/tests/diffusionSetupVM.test.ts`.
 - Migration: two direct service constructions became one
@@ -47,7 +47,7 @@ packages/viewmodel/node_modules/.bin/vitest run \
 ## 3. Tableau
 
 - Source revision: `2326d7e3cd94f7d8fab0d64e1adb9f0b1dbd62da`.
-- Disposable clone: `/private/tmp/vmx-issue84-pilot-tableau-20260811`.
+- Disposable clone in a temporary directory.
 - Representative file: `frontend/view/react/tests/CommandDeck.test.tsx`.
 - Migration: four structural command objects became `CommandDouble` /
   `CommandDoubleOf<T>` instances. Invocation assertions read semantic execution
@@ -91,8 +91,8 @@ mechanics disappear.
 After both pilots, these commands returned no changes:
 
 ```bash
-git -C /Users/kaveh/repos/nnx-studio status --short
-git -C /Users/kaveh/repos/tableau status --short
+git -C <nnx-studio checkout> status --short
+git -C <tableau checkout> status --short
 ```
 
 The clones and package tarball are disposable evidence only and are not part of

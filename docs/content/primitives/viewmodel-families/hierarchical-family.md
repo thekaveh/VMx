@@ -39,13 +39,13 @@ is materialized.
 
 The important differences from manual recursive composites are:
 
-- an eager node constructs its children depth-first; the whole subtree is
-  eager only when every node in it is eager
 - lazy children do not participate until materialized
 - structural mutations publish `TreeStructureChangedMessage`
 - cache invalidation publishes property-changed for the children property
 
-The family integrates directly with `walk` and `walk_expanded`.
+The family integrates directly with the tree walkers `walk` and
+`walk_expanded` (flavor-idiomatic spellings). See
+[Builders, Collections & Tree Utilities](../builders-collections-tree-utilities.md).
 
 ## 6.2.6.4. Progressive Batch Hydration
 
@@ -79,35 +79,10 @@ them. Cycles, already-attached nodes, and selector/attachment failures are
 terminal structured results rather than batch-stopping exceptions. Disposing
 the root clears its parked set.
 
-## 6.2.6.5. Tableau Pilot Result
+Consumers still adapt domain facts that the generic tree must not own, such as
+forest roots, alias parent IDs, and creation of registered domain nodes.
 
-The Tableau helper that motivated this feature (Tableau is a VMx consumer
-application) was piloted in a temporary clone at
-`0b53010065f71277d5c3504120e23442a46e30cb`, using the local VMx 3.8 source and
-without pushing any Tableau change. The pilot used real `HexNode` instances,
-passed the `@tableau/view-model` typecheck, and passed all 8 canvas plus 5
-progressive-load tests.
-
-The measurement corrects the proposal's optimistic “about 10 lines remain”
-estimate:
-
-| Measurement                              | Existing helper | VMx pilot |
-| ---------------------------------------- | --------------- | --------- |
-| Total function lines                     | 49              | 55        |
-| Nonblank function lines                  | 47              | 51        |
-| Direct `attachMany` configuration lines | —               | 4         |
-
-VMx removes the hand-written fixpoint and identity-key replacement logic, but
-Tableau still needs domain adaptation for four facts that the generic tree
-primitive must not own: its canvas is a forest held by `CompositeVM`, coordinate
-uniqueness is independent of cell ID, persisted parent IDs may resolve through
-an alias, and fetched documents must become registered/constructed `HexNode`
-instances. Those account for roughly 47 nonblank domain/integration lines in
-the pilot. Adopting a single synthetic hierarchy root could reduce that adapter,
-but would change Tableau's public root/path semantics and was deliberately not
-performed in an external repository.
-
-## 6.2.6.6. Cross-Language Surface
+## 6.2.6.5. Cross-Language Surface
 
 | Concept            | C#                                   | Python                               | TypeScript                           | Swift                                   | Rust                              |
 | ------------------ | ------------------------------------ | ------------------------------------ | ------------------------------------ | --------------------------------------- | --------------------------------- |
@@ -119,7 +94,7 @@ performed in an external repository.
 | Root parent key    | `BatchParentKey<TKey>.Root`          | `None`                               | `null`                               | `nil`                                   | `None`                            |
 | Parked count       | `ParkedAttachCount`                  | `parked_attach_count`                | `parkedAttachCount`                  | `parkedAttachCount`                     | `parked_attach_count()`           |
 
-## 6.2.6.7. Example
+## 6.2.6.6. Example
 
 The current Notes Workspace examples do **not** subclass `HierarchicalVM` in
 any flavor. In the C#, Python, TypeScript, and Swift showcases, each
@@ -197,7 +172,7 @@ when a subclass is required.
 That split is the practical rule: use the tree primitive when the tree is real,
 not simply because the UI displays indentation.
 
-## 6.2.6.8. Common Pitfalls
+## 6.2.6.7. Common Pitfalls
 
 - Recursing `CompositeVM` instead of using the tree primitive and then having to
   rebuild `Parent`, `Depth`, and `Path` yourself.
@@ -211,7 +186,7 @@ not simply because the UI displays indentation.
 - Treating `park` as a general retry queue. Only missing-parent items park;
   duplicates, cycles, and invalid links are terminal results.
 
-## 6.2.6.9. Related Primitives
+## 6.2.6.8. Related Primitives
 
 - [Composite Family](composite-family.md)
 - [State & Reactive Helpers](../state-reactive-helpers.md)

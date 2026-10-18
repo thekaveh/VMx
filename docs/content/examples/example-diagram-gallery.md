@@ -1,10 +1,9 @@
 # 8.2. Example Diagram Gallery
 
 This gallery maps every committed VMx example app except the Python NiceGUI
-page, which reuses the Textual Notes Showcase view-models and has no diagram of
-its own yet. Each diagram depicts the
-same three elements: the host and adapter boundary, the VMx-owned application
-state, and the verification/modeling rule.
+page. That page reuses the Textual Notes Showcase view-models and has no diagram
+of its own. Each diagram depicts the same three elements: the host and adapter
+boundary, the VMx-owned application state, and the verification/modeling rule.
 
 ## 8.2.1. C\#
 

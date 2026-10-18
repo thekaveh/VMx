@@ -187,7 +187,8 @@ changes. Use `AggregateChangeStream` (ADR-0098) for dynamic member fan-in.
 ## 6.6.7. Hub Transactions
 
 Use a hub transaction when one logical operation mutates several viewmodels and
-observers must not see intermediate state. The API is idiomatic per flavor:
+observers must not see intermediate state (ADR-0082). The API is idiomatic
+per flavor:
 
 | Flavor     | Transaction scope                    |
 | ---------- | ------------------------------------ |
@@ -206,15 +207,21 @@ receives `A`, `B`, and `C` exactly once after the outermost scope exits. Nested
 scopes flatten. If the body raises, queued messages drain first and the original
 error is then rethrown. Disposing the hub clears the undelivered queue.
 
-An ordinary top-level send remains synchronous. If a subscriber sends another
-message, that message waits behind the in-flight message, so all subscribers
-finish `A` before any starts `B`. Threaded flavors serialize another producer
-behind the active transaction and then deliver on that producer's calling
-thread. The only exception is an actual cross-hub thread wait cycle: the edge
-that would close the cycle enqueues and returns to the active owner. A cyclic
-batch borrows the target until its body exits, so the owner cannot resume
-draining early. Unrelated busy targets still wait synchronously. Keep
-transaction bodies short and never wait for a thread that is itself trying to
+An ordinary top-level send is synchronous. If a subscriber sends another
+message, that message waits behind the in-flight message. All subscribers
+therefore finish `A` before any starts `B`.
+
+Threaded flavors serialize another producer behind the active transaction. They
+then deliver on that producer's calling thread, also from inside a callback.
+Unrelated busy targets therefore still wait synchronously.
+
+The only exception is an actual cross-hub thread wait cycle (ADR-0119). The
+send that would close the cycle enqueues and returns to the active owner's
+drain. A disposal in that position records terminal intent for the owner to
+finish. A cyclic batch borrows the target until its body exits, so the owner
+cannot resume draining early.
+
+Keep transaction bodies short. Never wait for a thread that is itself trying to
 send through the same hub.
 
 Development builds bound a drain cycle and report the involved message types.
@@ -278,25 +285,11 @@ viewmodels, and `first` and `second` are note viewmodels.
     });
     ```
 
-### 6.6.7.2. Tableau Migration And Performance Trace
+### 6.6.7.2. Coalescing Host Refresh
 
-The motivating React consumer added a hand-written `refreshing` flag after
-`refreshShell()` updated derived VM models, republished through the same hub,
-and recursively re-entered the store subscription. ADR-0082 records the
-consumer trace and the resulting transaction contract in this repository.
-
-The v3.2 contract changes the execution trace without hiding messages:
-
-| Stage                     | Immediate recursive hub                       | v3.2 transaction + iterative drain                    |
-| ------------------------- | --------------------------------------------- | ----------------------------------------------------- |
-| Three model mutations     | observers run after each intermediate change | zero observer calls until the outer scope exits       |
-| Publish stack             | grows with subscriber-generated sends        | stays at one drainer frame                            |
-| Message fidelity          | all messages delivered                       | all messages delivered once, FIFO                    |
-| Plain subscriber refresh  | up to one refresh per message                | still one per message; batching is intentionally lossless |
-| Scheduled host invalidation | consumer-specific                           | one refresh for the synchronous drain                |
-
-For an affected consumer, wrap command-side multi-VM mutations in `hub.batch(...)` and make
-the React adapter schedule one invalidation for the synchronous drain:
+A hub transaction stays lossless, so a host adapter coalesces expensive work
+itself. Wrap command-side multi-VM mutations in `hub.batch(...)`. Then schedule
+one invalidation for the synchronous drain:
 
 ```typescript
 let invalidationPending = false;
@@ -315,11 +308,11 @@ const sub = app.canvas.hub.messages.subscribe(() => {
 });
 ```
 
-For a transaction that publishes `N` messages to `S` subscribers, the hub still
-performs `N × S` message callbacks—typed events are not discarded. The useful
-performance boundary is that all `N` callbacks occur in one synchronous drain,
-so a host adapter can collapse expensive rendering or derived-state refresh
-from `N` executions to one while retaining the full event stream.
+For a transaction that publishes `N` messages to `S` subscribers, the hub
+performs `N × S` message callbacks; it discards no typed event. All `N`
+callbacks occur in one synchronous drain. A host adapter can therefore collapse
+expensive rendering or derived-state refresh from `N` executions to one. It
+keeps the full event stream.
 
 ## 6.6.8. Example
 
@@ -385,7 +378,7 @@ thread.
 
 A synchronous caller may launch Python `AsyncResourceVM` through
 `load_command.execute()` without owning a running loop on that thread. VMx then
-starts the operation on its existing shared daemon loop. Each resource
+starts the operation on its shared daemon loop. Each resource
 operation records the loop that created its loader task and cancellation
 future. Direct `cancel()` or `dispose()` invalidates the resource generation and
 state immediately; cancellation-future completion, loader-task cancellation,
@@ -403,7 +396,7 @@ blocks. The shared daemon loop used by the no-loop command fallback is VMx
 infrastructure; applications do not close it.
 
 The tracked
-[`langs/python/tests/unit/state/test_async_resource_threading.py`](https://github.com/thekaveh/VMx/blob/main/langs/python/tests/unit/state/test_async_resource_threading.py)
+[`langs/python/tests/unit/state/test_async_resource_threading.py`](../../../langs/python/tests/unit/state/test_async_resource_threading.py)
 executes the synchronous launch plus caller-thread cancellation and disposal:
 
 ```bash

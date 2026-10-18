@@ -4,11 +4,10 @@ This tutorial walks you through building viewmodels with the VMx Rust crate.
 You will build a `ComponentVm<Model>`, a `RelayCommand`, and a `CompositeVm<T>`
 with child selection — all in a plain Cargo binary.
 
-> The Rust flavor is a source-tree flavor at the v0.35.0 source line: it declares
-> `MIN_SPEC_VERSION = "3.29.0"` and carries behavioral tests for all 425 library
-> conformance IDs. The `vmx-rs` crate is not yet published to crates.io; consume
-> it as a path or git dependency (below). See the [Rust flavor
-> page](../flavors/rust.md) for current status and convergence evidence.
+> The Rust source line v0.35.0 declares `MIN_SPEC_VERSION = "3.29.0"` and has
+> behavioral tests for all 425 library conformance IDs. The
+> [Rust flavor page](../flavors/rust.md) describes its status and parity
+> evidence.
 >
 > For the contracts behind each type, see the [component
 > family](../primitives/viewmodel-families/component-family.md), [command
@@ -19,25 +18,13 @@ ______________________________________________________________________
 
 ## 3.6.1. Install
 
-The crate is named `vmx-rs` and exposes the module namespace `vmx`. It requires
-Rust edition 2021 and a `1.88` toolchain floor. Because it is not yet on
-crates.io, clone VMx beside your project and depend on it by path:
+Add VMx as described in [Installation](../installation.md). The `vmx-rs` crate
+is not published to crates.io, so the Rust tab there adds it as a path or git
+dependency. Code imports the crate as `vmx`.
 
-```toml
-[dependencies]
-vmx-rs = { path = "../VMx/langs/rust" }
-```
-
-Or by git:
-
-```toml
-[dependencies]
-vmx-rs = { git = "https://github.com/thekaveh/VMx.git" }
-```
-
-The crate declares only `serde` and `thiserror` as runtime dependencies; the
-reactive primitives are VMx-owned hot-stream facades, so no third-party reactive
-runtime is pulled in.
+The crate declares only `serde` and `thiserror` as runtime dependencies. Its
+reactive primitives are VMx-owned hot-stream facades, so it pulls in no
+third-party reactive runtime.
 
 ## 3.6.2. Wire up `MessageHub` and a `Dispatcher`
 
@@ -87,7 +74,7 @@ call returns; the stream completes on disposal.
 `ComponentVm<M>` is the primary leaf viewmodel. It holds a typed model, publishes
 a property message on the hub when the model changes, and participates in the
 lifecycle state machine. `with_model` constructs one directly; the model type
-must be `Clone + PartialEq`.
+must be `Clone + PartialEq + Send + 'static`.
 
 ```rust
 use vmx::{ComponentVm, MessageHub, NullDispatcher, VmxResult};
@@ -238,9 +225,9 @@ the full contract.
 
 Every viewmodel has five lifecycle states. Four of them form a reversible
 cycle, `Destructed -> Constructing -> Constructed -> Destructing -> Destructed`.
-The fifth state, `Disposed`, is terminal. The mutating transitions return `VmxResult<()>`: an
-illegal transition (for example constructing a disposed viewmodel) is a
-**catchable** `Err`, not a panic, under the v3 lifecycle convergence (ADR-0053).
+The fifth state, `Disposed`, is terminal. The mutating transitions return
+`VmxResult<()>`. An illegal transition, such as constructing a disposed
+viewmodel, returns an `Err` and does not panic.
 
 ```rust
 use vmx::{ComponentVm, ConstructionStatus, VmxResult};

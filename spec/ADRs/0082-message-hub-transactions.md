@@ -93,3 +93,16 @@ executes its body without publishing.
   several derived viewmodels and one shared hub.
 - **Apply the overflow limit in release builds.** Rejected because it would
   reject large finite transactions and change production correctness.
+
+## 5. Appendix: consumer trace comparison
+
+The transaction contract changed the consumer execution trace without hiding
+messages:
+
+| Stage                       | Immediate recursive hub                      | v3.2 transaction + iterative drain                        |
+| --------------------------- | -------------------------------------------- | --------------------------------------------------------- |
+| Three model mutations       | observers run after each intermediate change | zero observer calls until the outer scope exits           |
+| Publish stack               | grows with subscriber-generated sends        | stays at one drainer frame                                |
+| Message fidelity            | all messages delivered                       | all messages delivered once, FIFO                         |
+| Plain subscriber refresh    | up to one refresh per message                | still one per message; batching is intentionally lossless |
+| Scheduled host invalidation | consumer-specific                            | one refresh for the synchronous drain                     |

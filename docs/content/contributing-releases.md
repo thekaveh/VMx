@@ -1,7 +1,8 @@
 # 11. Contributing & Releases
 
-This page is the short routing layer for contributors. The operational source of
-truth remains the repository docs.
+This page is the site's contributor and release guide. It covers the
+contribution flow, local checks, coverage and performance review, and the
+release procedure for every flavor.
 
 ## 11.1. Start With
 
@@ -32,26 +33,73 @@ The main local check families are:
 
 - C#: restore, build, test, and `dotnet format`
 - Python: `uv run pytest`, `ruff`, and `mypy --strict`
-- TypeScript: `npm ci`, fixture sync, typecheck, lint, build, and test
+- TypeScript: `npm ci`, fixture sync, typecheck, lint, build, and test.
+  Vitest global setup runs `npm run build`, including fixture and schema
+  synchronization, before test workers start. This also applies to watch
+  reruns, direct `npx vitest`, and coverage runs. Generated writes do not
+  trigger reruns. Rerun manually after changing spec inputs outside Vitest's
+  import graph. Do not run a separate build of the package while tests run.
 - Swift: `swift build` and `swift test`
-- Rust: `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, and
-  `cargo test --locked`
-- Repo-wide coverage and example-contract tools from `CONTRIBUTING.md`
+- Rust: `cargo fmt --check`,
+  `cargo clippy --locked --all-targets --all-features -- -D warnings`, and
+  `cargo test --locked --all-features`
+- Repo-wide coverage and example-contract tools
 
-Use the canonical command list in
-[CONTRIBUTING.md](../../CONTRIBUTING.md)
-instead of copying commands from this page into long-lived process docs.
+The repository's `CONTRIBUTING.md` lists the full commands for each flavor.
 
-For reproducible Python checks, set `UV_PYTHON` to the intended supported
-version (3.10–3.14) before locked sync and subsequent uv commands. Installing
-Python alone does not select it for an existing compatible environment. CI
-selects the matrix version and logs the requested version, actual major/minor,
-executable, and virtualenv prefix before checks. Later checks compare against
-the captured executable. Isolated wheel, sdist, and tool environments keep
-their own identities and must use the same requested version. The Ubuntu 3.10
-cell deliberately seeds a 3.14 environment and verifies sync repairs it.
+For reproducible Python checks, set `UV_PYTHON` to a supported version
+(3.10–3.14) before locked sync and every later uv command. Installing Python
+alone does not select it for an existing compatible environment. The Ubuntu
+3.10 CI cell first seeds a 3.14 environment and checks that a selected sync
+repairs it.
 
 ### 11.3.1. Reproduce Controlled Interleavings
+
+A controlled interleaving acknowledges the exact runtime boundary that creates
+the tested ordering. A worker-start signal proves only that a worker began.
+Elapsed time proves only that a deadline passed. Neither proves that VMx
+entered a specific wait. The selected lifecycle and notification regressions
+acknowledge the exact per-instance wait and inspect the protected state while
+it is active.
+
+The Swift command regression cancels from the synchronous executing
+notification. This happens inside the admission window, before the body task
+installs its cancellation handle.
+
+The test owns every participant and error channel. It releases gates in
+cleanup, joins workers, awaits task results, and reports callback failures to
+the coordinator. The test fails on premature completion, missing terminal
+delivery, a swallowed worker or subscriber error, or cleanup that leaves work
+running. A diagnostic timeout fails the test; it never proves that an operation
+was correctly blocked.
+
+Negative controls mutate the production boundary that the test exercises. They
+run in a subprocess group with a watchdog and restore the original source bytes
+in `finally`. A valid control reaches the selected assertion or ends as a
+demonstrated deadlock mutant. A compilation failure, zero matched tests, an
+unrelated assertion, a crash, or watchdog expiry is not proof. The Swift lane
+records five normal passes, five failures without admission-cancellation
+forwarding, and a rebuilt restored pass.
+
+Order test infrastructure like runtime participants. A build that rewrites
+imported fixtures or schemas must finish before workers read them; TypeScript
+enforces this with global setup and an awaited rerun hook. A filesystem error
+alone does not identify the process that holds a lock. Trace the actual writer
+and reader before you assign a cause.
+
+Each technique answers a different question:
+
+- Controlled thread interleavings force and acknowledge a particular runtime
+  boundary.
+- Stress tests sample many schedules and remain supplementary evidence.
+- Event-loop drains let queued continuations run, but do not prove that a
+  foreign thread reached a boundary.
+- Virtual schedulers advance modeled time deterministically, but do not
+  establish native-thread scheduling behavior.
+
+The controls establish the named paths, not exhaustive freedom from races.
+Linux CPU affinity does not represent macOS scheduling. An external watchdog
+contains a stuck process but does not prove in-process cleanup.
 
 Run the selected regressions from the repository root with the same locked
 inputs used by CI:
@@ -76,18 +124,10 @@ CPU 0: hosted runners may exclude it. The Swift mutation experiment belongs in
 the macOS workflow because it requires supported Xcode XCTest; local machines
 without an accepted Xcode license cannot supply that evidence.
 
-TypeScript's Vitest global setup completes `npm run build`, including fixture
-and schema synchronization, before starting test workers. Each watch rerun
-waits for the preceding run, rebuilds, and invalidates generated modules;
-generated writes cannot themselves trigger reruns. This also supports direct
-`npx vitest` and coverage runs. Automatic test selection remains import-based;
-manually rerun after changing canonical spec inputs outside that graph. Avoid
-running a separate build against the same package while tests are active.
-
-See [Controlled Concurrency Interleavings](specification-conformance.md#108-controlled-concurrency-interleavings)
-for the evidence rules and the
+The
 [Concurrency Test Audit](../maintenance/2026-09-24-controlled-interleavings-audit.md)
-for exact test locations and limitations.
+records exact test locations, the maintained scope, follow-up dispositions, and
+limitations.
 
 ### 11.3.2. Checked Documentation Snippets
 
@@ -119,18 +159,69 @@ Every flavor gates CI on a coverage floor over its library sources:
 | Rust       | `tools/check-coverage-floor.py` with `tools/coverage-floors.json` | lines, regions, functions              |
 | Swift      | `tools/check-coverage-floor.py` with `tools/coverage-floors.json` | lines, regions, functions              |
 
+For Rust and Swift, the `coverage floor` job runs in `rust.yml` or
+`swift.yml`. It fails when line, region, or function coverage falls below the
+flavor's floors in `tools/coverage-floors.json`. Rust measures with
+`cargo-llvm-cov` on a pinned toolchain:
+
+```bash
+cargo install cargo-llvm-cov --version 0.9.1 --locked
+cargo llvm-cov --locked --all-features --manifest-path langs/rust/Cargo.toml \
+  --json --output-path rust-coverage.json
+python3 tools/check-coverage-floor.py --flavor rust --report rust-coverage.json
+```
+
+Swift runs the library tests once with coverage on `macos-15` and the default
+Xcode:
+
+```bash
+swift test --package-path langs/swift --enable-code-coverage \
+  -Xswiftc -Xllvm -Xswiftc -instrprof-atomic-counter-update-all
+python3 tools/check-coverage-floor.py --flavor swift \
+  --report "$(swift test --package-path langs/swift --show-codecov-path)"
+```
+
+The denominator is library sources only: `langs/rust/src/` and
+`langs/swift/Sources/VMx/`. Tests, examples, bundled resources, and build
+output are not counted. A change that touches only generated or resource files
+therefore cannot fail the gate. Removing a test that exercised library code
+lowers the figure and can fail it.
+
+A failure names each source file that gained uncovered lines since the
+recorded baseline, with the unexecuted line ranges that `llvm-cov show` marks.
+Each job uploads the llvm-cov export and a provenance file with the commit,
+toolchain, and measured figures. Instrumented code stays in the coverage job:
+`cargo-llvm-cov` uses its own target directory, and Swift instruments only that
+job's debug build. No release build, package, or published crate contains it.
+
+Two flavor details affect the figures:
+
+- Rust counts come from llvm-cov summaries, which count a line once for each
+  function that spans it. A closure's lines count twice, so a file's ranges can
+  hold fewer lines than its count.
+- The Swift build updates counters atomically. Coverage counts the code after a
+  `guard` as the function's entries minus its early returns. Plain counter
+  updates can lose entries when many threads call one function, as DISP-003
+  does with `NotificationHub.dispose()`. A region that ran could then read as
+  unexecuted and fail the floor without a code change (#513).
+
 Each Rust and Swift floor is the lowest figure measured across repeated runs of
-the baseline commit, truncated to two decimals, so only run-to-run variation in
-scheduling-dependent paths is tolerated. The file records the commit, toolchain,
-every measured run, and each source file's uncovered lines, so a failure names
-the files that lost coverage and lists their unexecuted line ranges.
-`tools/compare-coverage-runs.py` compares the llvm-cov exports of repeated runs
-and names every line that some runs execute and others do not. Cover such a
-line with a deterministic test rather than lowering a floor. Raise a floor when
-coverage improves. Never lower one to make a change pass: if deleting
-code legitimately lowers coverage, explain it in the pull request and record
-the new baseline. Percentages are not comparable across flavors, because each
-tool counts differently.
+the baseline commit, truncated to two decimals. Only run-to-run variation in
+scheduling-dependent paths is tolerated.
+
+The floors file records the commit, toolchain, every measured run, and each
+source file's uncovered lines. `tools/compare-coverage-runs.py` compares the
+llvm-cov exports of repeated runs. It names every line that some runs execute
+and others do not. Cover such a line with a deterministic test rather than
+lowering a floor.
+
+Raise a floor when coverage improves. Never lower one to make a change pass. If
+deleting code legitimately lowers coverage, explain it in the pull request and
+record the new baseline. Percentages are not comparable across flavors, because
+each tool counts differently.
+
+Coverage shows which lines ran, not whether a test would catch a wrong result.
+It does not replace the conformance assertions.
 
 ### 11.3.4. Review Performance Changes
 
@@ -138,17 +229,47 @@ A change that touches a hot path, such as hub delivery, batching, property
 publication, collections, or lifecycle, should include a benchmark comparison.
 Run the flavor's harness on the change and compare it with the committed
 baseline, or with a baseline you record from the base branch on the same
-machine:
-
-```bash
-node --expose-gc benchmarks/typescript/run.mjs --out ts.json
-python3 tools/compare-benchmarks.py benchmarks/baselines/2026-10-07-typescript.json ts.json
-```
+machine. [Baselines](performance-methodology.md#137-baselines) gives the
+commands.
 
 Explain every case the tool marks `SLOWER` and every probe that is not bounded
 in the pull request. The comparison is a review signal, not a CI gate. The
 method, cases, report format, and thresholds are in
 [Performance Methodology](performance-methodology.md).
+
+### 11.3.5. Rust Ownership-Test Conventions
+
+The caller controls each stored VM's construct, destruct, and dispose
+operations. A Rust serviced collection retains a member item as an ordinary
+value; that retention does not transfer lifecycle ownership. A returned old
+value, lookup result, or snapshot can keep a shared item alive after removal.
+Cloning the collection shares its backing store without cloning items. Rust's
+collection-change history has no item payload to retain.
+
+`COL-055` and `COL-062` wrap real `ComponentVm` instances in test-private
+shared wrappers. After each operation, including failed keyed preflight and
+empty operations, they count every known wrapper handle. They also check
+lifecycle hooks and parent state. After returned and snapshot handles are
+released, the caller disposes each VM exactly once and releases its last
+wrapper. The test then checks weak-reference expiration and a separate native
+release counter.
+
+Rust `Drop` is not VM disposal. The exact counts are deterministic because the
+tests control every holder and run mutations synchronously. They do not count
+the VM's internal references.
+
+A retained caller `Arc` always has at least one strong reference. A check of
+`strong_count >= 1` therefore cannot prove that a collection released its item
+handles. A temporary mutation that leaks items inside both `clear`
+implementations fails both tests; the unmodified implementations pass. These
+tests strengthen `COL-055` and `COL-062` and add no catalog IDs.
+
+The C#, Python, TypeScript, and Swift counterparts use direct lifecycle
+observables, with different probe coverage. C# observes disposal. Swift omits
+some lifecycle categories. Python's keyed test does not retain failed-operation
+candidates, and TypeScript's keyed test instruments one item. None asserts
+exactly-once caller cleanup. These are limits of the test evidence, not proof of
+a collection defect.
 
 ## 11.4. Spec Discipline
 
@@ -178,12 +299,17 @@ action, then repeats the consumer check from the public registry.
 Live channels: PyPI for Python, npm for the TypeScript core and the React
 adapter (`typescript-v*` and `react-v*` tags, npm trusted publishing), and
 repository tags for Swift through SwiftPM. The NuGet (C#) and crates.io (Rust)
-channels are prepared but have not published yet.
+channels are prepared but unpublished.
+
+Each registry channel's protected environment restricts deployments to its tag
+pattern, requires a maintainer reviewer, and disables administrator bypass.
+Self-review stays allowed while one maintainer holds the reviewer role.
+Publication uses a trusted publisher bound to `release.yml` and that
+environment, not a long-lived token.
 
 ### 11.5.1. Release Checklist
 
-Use this sequence for every flavor so the repository, site, and wiki carry the
-same actionable procedure:
+Use this sequence for every flavor:
 
 1. Start from a clean, freshly fetched `origin/main`; never release from
    `develop` or an unmerged feature branch.
@@ -193,15 +319,19 @@ same actionable procedure:
 1. Run the flavor's complete release gate and build the exact package locally.
    Inspect that artifact, install it into a clean consumer, and retain the check
    evidence before creating a tag.
-1. Create the immutable `<lang>-vX.Y.Z` tag from the verified `main` commit. For
-   Swift, create the paired semantic `vX.Y.Z` tag from the same commit. For C#
-   companion packages, use their package-specific tag prefixes.
+1. Create the immutable annotated `<lang>-vX.Y.Z` tag
+   (`git tag -a "<tag>" -m "<package> <version>" origin/main`) on the verified
+   `main` commit. For Swift, create the paired semantic `vX.Y.Z` tag on the same
+   commit. For C# companion packages, use their package-specific tag prefixes.
+   Python release-please tags are lightweight; the workflow accepts both.
 1. Monitor the matching release workflow, approve its protected environment
    only after the pre-publish jobs identify the expected artifact, and do not
    bypass a failed gate.
 1. Verify the exact version on the public registry and install it into a second
    fresh consumer. Confirm the GitHub release points to the tagged commit and
    contains the expected artifacts and notes.
+1. Only after public verification, update the repository docs and regenerate
+   this site and the wiki through `develop` and `main` PRs.
 1. If source, build, package-publication, or package behavior fails after tag
    creation, keep the tag immutable. Correct the source or workflow on `main`,
    bump the affected package to a new patch version, and publish through a new
@@ -211,20 +341,18 @@ same actionable procedure:
 
 ### 11.5.2. Validate Python Release Tests
 
-Once the dispatch-capable workflow is on the default branch, `develop`, run
-`gh workflow run release.yml --ref develop` to validate only the five-version
-Ubuntu Python test matrix. Dispatch has no publication inputs, and all other
-release jobs require a tag push, including when dispatch targets an existing
-release tag. This does not exercise the protected build/publish job; normal
-Python CI separately checks wheel and extracted-sdist packaging. Real tag
-pushes retain their main-ancestry and publication gates.
+Run `gh workflow run release.yml --ref develop` to validate only the
+five-version Ubuntu Python test matrix. Dispatch has no publication inputs.
+All other release jobs require a tag push, including when dispatch targets an
+existing release tag. This does not exercise the protected build/publish job;
+normal Python CI separately checks wheel and extracted-sdist packaging. Real
+tag pushes retain their main-ancestry and publication gates.
 
 Rerun a successful revision to collect warm-cache evidence. The 3.10 cell must
 report `cache-hit=true`, list both managed versions, and log the seeded 3.14
 and selected 3.10 identities. A setup-uv package-cache hit is neither a restored
 virtualenv nor necessarily a cached Python installation. Record the run URL
-and revision; no historical interpreter selection is inferred. See
-[CONTRIBUTING.md](../../CONTRIBUTING.md) for the full local procedure.
+and revision.
 
 ### 11.5.3. Recover React Release Metadata
 

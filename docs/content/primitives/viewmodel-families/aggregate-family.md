@@ -45,10 +45,8 @@ Construction and destruction cascade through the slot children:
 1. each populated child is constructed
 1. the aggregate reaches `Constructed` only after every child does
 
-In Rust, an aggregate with background children stays Constructing until those
-children settle. Thus `construct()` can return `Ok` while the aggregate is still
-transient. A background child failure rolls the aggregate back. The failure
-arrives on the aggregate's `background_errors()` stream (spec/11 §2).
+Rust background-child settling follows the shared container rule in
+[ViewModel Families](index.md#6213-lifecycle-and-messaging).
 
 Each successful slot population publishes a property-changed message for that
 slot (`Component1`, `component_1`, `component1`, and so on).
@@ -81,9 +79,9 @@ The Notes Workspace shell uses this pattern as its six-pane root in the C#,
 Python, TypeScript, and Swift examples. The Rust TUI companion also uses an
 `AggregateVm6` for its workspace.
 
-Rust implements the same aggregate type and builder shape. Its slot-notification
-and construction ordering evidence is recorded in the completed
-[Rust parity ledger](../../../maintenance/2026-07-16-rust-capability-parity.md).
+Rust implements the same aggregate type and builder shape. The
+[Rust parity ledger](../../../maintenance/2026-07-16-rust-capability-parity.md) records its slot-notification and construction-ordering
+evidence.
 
 ## 6.2.3.6. Common Pitfalls
 

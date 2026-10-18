@@ -11,4 +11,4 @@ thresholds are in
 | `typescript/` | `node --expose-gc benchmarks/typescript/run.mjs`               |
 | `python/`     | `uv run --project langs/python python benchmarks/python/run.py` |
 | `rust/`       | `cargo run --release --locked --manifest-path benchmarks/rust/Cargo.toml --` |
-| `baselines/`  | Reports recorded on a named machine, compared with `tools/compare-benchmarks.py` |
+| `baselines/`  | Reports recorded on a described machine (see `hardware`), compared with `tools/compare-benchmarks.py` |

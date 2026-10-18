@@ -1,6 +1,6 @@
 # VMx Python Examples
 
-Five self-contained demos of the [VMx Python library](../../langs/python/).
+Five demos of the [VMx Python library](../../langs/python/).
 Generated architecture diagrams for all examples live in
 [`../DIAGRAMS.md`](../DIAGRAMS.md).
 
@@ -8,7 +8,10 @@ Generated architecture diagrams for all examples live in
 
 The console and tkinter examples share the root `examples/python` environment.
 Each Textual and NiceGUI example is a standalone uv project with its own
-environment and lockfile, as shown in its section below.
+environment and lockfile.
+
+Run the setup, console, and tkinter commands from `examples/python`. Run the
+Textual and NiceGUI commands from the repository root.
 
 ```bash
 cd examples/python
@@ -26,15 +29,14 @@ Minimal console demo. Demonstrates:
 3. The full lifecycle: construct → model mutations → destruct → dispose.
 4. The equality guard: setting the same model value emits **no** hub message.
 
-**Run:**
-
 Diagram:
 [`python-console-hello-vmx.svg`](../../docs/assets/diagrams/python-console-hello-vmx.svg)
 ([HTML](../../docs/assets/diagrams/python-console-hello-vmx.html),
 [PNG](../../docs/assets/diagrams/python-console-hello-vmx.png)).
 
+**Run:**
+
 ```bash
-cd examples/python
 uv run python -m hello_vmx
 ```
 
@@ -73,22 +75,20 @@ Full MVVM todo app using tkinter. Demonstrates:
 - `MainWindowViewModel` — holds a `CompositeVM[TodoItemVM]`; exposes `add_command` and `remove_command`.
 - `MainWindow` — pure view; all logic lives in the ViewModel.
 
-**Run (requires a display):**
-
 Diagram:
 [`python-tk-todo-app.svg`](../../docs/assets/diagrams/python-tk-todo-app.svg)
 ([HTML](../../docs/assets/diagrams/python-tk-todo-app.html),
 [PNG](../../docs/assets/diagrams/python-tk-todo-app.png)).
 
+**Run (requires a display):**
+
 ```bash
-cd examples/python
 uv run python -m todo_app
 ```
 
 **Headless import check:**
 
 ```bash
-cd examples/python
 uv run python -c "from todo_app.__main__ import MainWindow; print('OK')"
 ```
 
@@ -98,7 +98,6 @@ subscription is disposed and nothing keeps the view-model alive. CI runs it
 under Xvfb:
 
 ```bash
-cd examples/python
 xvfb-run --auto-servernum uv run python -m todo_app.host_check
 ```
 
@@ -114,13 +113,14 @@ A general-purpose live inspector for any VMx hierarchy. Demonstrates:
 - Lifecycle keybindings (`c` construct, `d` destruct, `r` reconstruct,
   `x` dispose, `s` select) on the highlighted node.
 
-`textual/inspector/` is its own uv project (Textual is a heavier dependency
-than the console and tkinter examples) — run it from its own directory:
-
 Diagram:
 [`python-textual-inspector.svg`](../../docs/assets/diagrams/python-textual-inspector.svg)
 ([HTML](../../docs/assets/diagrams/python-textual-inspector.html),
 [PNG](../../docs/assets/diagrams/python-textual-inspector.png)).
+
+`textual/inspector/` is its own uv project because Textual is a heavier
+dependency than the console and tkinter examples. Run it from the repository
+root:
 
 ```bash
 uv run --project examples/python/textual/inspector python -m vmx_inspector
@@ -130,30 +130,26 @@ uv run --project examples/python/textual/inspector python -m vmx_inspector
 
 ## 5. Example 4 — `textual/notes_showcase` (Textual TUI, flagship)
 
-The Notes Workspace flagship app — a TUI on Textual ≥ 0.80 that exercises
-**19 distinct VMx features** in one cohesive scenario (notebooks tree,
-paged + filterable notes list, FormVM editor, capability-aware action bar,
-notifications, async lifecycle, dialogs, `AggregateVM6` root, and the
-v2.4.0 `ThemeVM` scenario contract, plus token-paged global search,
-edit/preview state, and tag autocomplete). Pure-VM contract enforced; widget
-classes expose only `compose()` / `on_mount()` / one-statement `action_*()`.
-
-`textual/notes_showcase/` is its own uv project — run it from the repo root:
+The Notes Workspace flagship app is a TUI on Textual ≥ 0.80 that exercises
+19 VMx features in one scenario. The
+[parity matrix](../notes-showcase-parity.md) lists them. Widget classes expose
+only `compose()`, `on_mount()`, and one-statement `action_*()` methods.
 
 Diagram:
 [`python-textual-notes-showcase.svg`](../../docs/assets/diagrams/python-textual-notes-showcase.svg)
 ([HTML](../../docs/assets/diagrams/python-textual-notes-showcase.html),
 [PNG](../../docs/assets/diagrams/python-textual-notes-showcase.png)).
 
+`textual/notes_showcase/` is its own uv project. Run it from the repository
+root:
+
 ```bash
 uv run --project examples/python/textual/notes_showcase python -m notes_showcase
 ```
 
 See [`textual/notes_showcase/README.md`](textual/notes_showcase/README.md)
-for project layout, feature-traceability, and keybindings (`Ctrl+S` to save,
-`Ctrl+F` to search, etc.). Cross-flavor parity is documented in
-[`../notes-showcase-parity.md`](../notes-showcase-parity.md); the canonical
-scenario contract lives at
+for project layout, feature traceability, and keybindings (`Ctrl+S` to save,
+`Ctrl+F` to search, and others). The canonical scenario contract is at
 [`../../spec/proposals/2026-05-29-notes-showcase-scenario.md`](../../spec/proposals/2026-05-29-notes-showcase-scenario.md).
 
 ---
@@ -162,7 +158,8 @@ scenario contract lives at
 
 A NiceGUI web page over the same workspace view-models as the Textual
 flagship. It reuses that project's models and view-models; only the host, the
-page, and a small adapter live here. It is its own uv project:
+page, and a small adapter live here. It is its own uv project. Start from
+the repository root:
 
 ```bash
 cd examples/python/nicegui/notes_showcase

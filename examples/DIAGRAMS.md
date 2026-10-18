@@ -1,9 +1,9 @@
 # VMx Example Diagrams
 
 This gallery collects the generated architecture diagrams for every committed
-example app except the Python NiceGUI page, which reuses the Textual Notes
-Showcase view-models and has no diagram of its own yet. Use the SVG links for source browsing and the PNG exports for
-GitHub-native rendering.
+example app except the Python NiceGUI page. That page reuses the Textual Notes
+Showcase view-models and has no diagram of its own. Use the SVG links for
+source browsing and the PNG exports for GitHub-native rendering.
 
 ## 1. C#
 

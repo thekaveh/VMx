@@ -18,9 +18,23 @@ services.AddVMx();
 ```
 
 `AddVMx` takes an optional `configure` action; `options.UseDispatcher(...)`
-supplies your own dispatcher factory. Registrations use `TryAdd`, so services
-registered before `AddVMx` win and a second call adds nothing. Applications
-that construct their hub and dispatcher directly do not need this package.
+supplies your own dispatcher factory.
+
+If no `SynchronizationContext` is current when `AddVMx` runs, the default
+factory reads the context at first `IDispatcher` resolution. It throws
+`InvalidOperationException` when that thread has no context either. Console
+apps, worker services, and tests usually have no context, so supply a
+dispatcher:
+
+```csharp
+using VMx.Services;
+
+services.AddVMx(options => options.UseDispatcher(_ => RxDispatcher.Immediate()));
+```
+
+Registrations use `TryAdd`, so services registered before `AddVMx` win and a
+second call adds nothing. Applications that construct their hub and dispatcher
+directly do not need this package.
 
 ## Documentation
 

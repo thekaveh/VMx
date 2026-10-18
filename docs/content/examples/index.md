@@ -8,22 +8,22 @@ Workspace portfolio.
 
 - [Notes Workspace](notes-workspace.md) for the full stable four-flavor scenario.
 - [Example Diagram Gallery](example-diagram-gallery.md) for one generated VMx
-  architecture diagram per committed example app.
+  architecture diagram per committed example app, except the NiceGUI page.
 - [Rust TUI Notes Showcase](rust-tui-notes-showcase.md) for the Rust-native
   full MVVM terminal example.
 - [VM Layer Map](notes-workspace-vm-layer.md) when you want the component-to-VM
   mapping first.
-- [Smaller Examples](smaller-examples.md) for console, WPF, tkinter,
-  inspector, and NiceGUI demos.
+- [Smaller Examples](smaller-examples.md) for the C#, Python, TypeScript, and
+  Rust console demos, plus the WPF, tkinter, inspector, and NiceGUI demos.
 
-## 8.1.2. Current Portfolio
+## 8.1.2. Portfolio
 
 | Flavor     | Small demos                                          | Scenario role                               |
 | ---------- | ---------------------------------------------------- | ------------------------------------------- |
 | C#         | Console `HelloVMx`, WPF Todo                         | Avalonia flagship                           |
 | Python     | Console `hello_vmx`, tkinter Todo, Textual Inspector | Textual flagship, NiceGUI host over its VMs |
 | TypeScript | Console `hello-vmx`                                  | React flagship                              |
-| Swift      | none beyond the flagship today                       | SwiftUI flagship                            |
+| Swift      | none beyond the flagship                             | SwiftUI flagship                            |
 | Rust       | Console `hello-vmx`                                  | Reduced Ratatui companion                   |
 
 ## 8.1.3. Reading Strategy
