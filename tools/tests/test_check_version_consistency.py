@@ -2008,3 +2008,35 @@ def test_react_changelog_section_is_required_for_the_current_version(tmp_path: P
         encoding="utf-8",
     )
     assert cvc.check_react_changelog_section(tmp_path) == []
+
+
+def test_check_react_example_locks_reports_stale_adapter_version(tmp_path: Path) -> None:
+    lock_path = tmp_path / cvc.REACT_EXAMPLE_LOCKS[0]
+    lock_path.parent.mkdir(parents=True)
+    lock_path.write_text(
+        json.dumps(
+            {
+                "packages": {
+                    "node_modules/@thekaveh/vmx-react": {
+                        "version": "0.1.0",
+                        "resolved": "file:../../../../packages/react",
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    issues = cvc.check_react_example_locks(tmp_path, "0.1.1")
+
+    assert len(issues) == 1
+    assert "@thekaveh/vmx-react" in issues[0]
+    assert "0.1.0" in issues[0]
+    assert cvc.check_react_example_locks(tmp_path, "0.1.0") == []
+
+
+def test_typescript_example_locks_include_the_integration_recipes() -> None:
+    assert (
+        Path("examples/typescript/integration-recipes/package-lock.json")
+        in cvc.TYPESCRIPT_EXAMPLE_LOCKS
+    )

@@ -9,6 +9,7 @@ on:
     paths:
       - "langs/rust/**"
       - "examples/rust/**"
+      - "benchmarks/rust/**"
       - "spec/**"
       - ".github/workflows/rust.yml"
       - "tools/check-rust-package.py"
@@ -142,6 +143,9 @@ jobs:
 
       - name: Compile public getting-started snippets
         run: python3 tools/check-rust-doc-snippets.py
+
+      - name: Check benchmark harness
+        run: cargo check --locked --all-targets --manifest-path benchmarks/rust/Cargo.toml
 
   package:
     timeout-minutes: 15
