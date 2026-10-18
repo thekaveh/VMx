@@ -1023,15 +1023,18 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
 
     /// Clears a non-empty list and publishes reset and count changes.
     pub fn clear(&self) {
-        if self.clear_silent() {
+        let previous = self.take_silent();
+        // Items are dropped after the lock is released.
+        if !previous.is_empty() {
+            drop(previous);
             self.publish_reset();
         }
     }
 
-    pub(crate) fn clear_silent(&self) -> bool {
-        let previous = std::mem::take(&mut *lock(&self.inner));
-        // Items are dropped after the lock is released.
-        !previous.is_empty()
+    /// Empties the list without notifying and returns the removed items, so
+    /// the caller drops them after releasing any lock it holds.
+    pub(crate) fn take_silent(&self) -> Vec<T> {
+        std::mem::take(&mut *lock(&self.inner))
     }
 
     pub(crate) fn publish_reset(&self) {

@@ -249,12 +249,12 @@ impl<T: Clone + Send + 'static> ValueStream<T> {
     /// Publishes `value` to current subscribers unless the stream is disposed.
     pub fn send(&self, value: T) {
         let current = thread::current().id();
-        let (completion, should_drain, reentrant) = {
+        let (completion, should_drain, reentrant, replaced) = {
             let mut state = lock(&self.inner);
             if state.disposed || state.dispose_requested {
                 return;
             }
-            state.current = value.clone();
+            let replaced = std::mem::replace(&mut state.current, value.clone());
             state.revision = state.revision.wrapping_add(1);
             let subscribers = state
                 .subscribers
@@ -272,8 +272,10 @@ impl<T: Clone + Send + 'static> ValueStream<T> {
             if should_drain {
                 state.draining_owner = Some(current);
             }
-            (completion, should_drain, reentrant)
+            (completion, should_drain, reentrant, replaced)
         };
+        // The replaced value is dropped after the stream lock is released.
+        drop(replaced);
         if should_drain {
             self.drain(current);
         } else if !reentrant && !ValueStreamDrainContext::is_active() {

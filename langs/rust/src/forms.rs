@@ -380,7 +380,9 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             return;
         }
         let could_approve = self.can_approve();
-        lock(&self.field_validators).insert(field.into(), Arc::new(validator));
+        let replaced = lock(&self.field_validators).insert(field.into(), Arc::new(validator));
+        // A replaced validator is dropped after the lock is released.
+        drop(replaced);
         self.revalidate();
         self.publish_approve_state_change(could_approve);
     }
@@ -973,8 +975,10 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             std::mem::take(&mut registry.entries)
         };
         drop(released);
-        lock(&self.field_validators).clear();
-        lock(&self.model_validators).clear();
+        let field_validators = std::mem::take(&mut *lock(&self.field_validators));
+        let model_validators = std::mem::take(&mut *lock(&self.model_validators));
+        drop(field_validators);
+        drop(model_validators);
         // The form's hub carries only the spec/20 §8 messages (model and
         // FormReverted). The wrapped component's ConstructionStatusChanged
         // (Disposed) is not one, and no other flavor publishes it.

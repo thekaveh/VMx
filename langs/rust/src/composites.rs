@@ -4,12 +4,13 @@
 
 use super::{
     begin_membership_transaction, begin_parent_transfer, catch_unwind, finish_with_first_error,
-    finish_with_first_failure, lock, resume_unwind, retain_first_error, retain_first_failure,
-    retain_parent_transfer_commit, Arc, AssertUnwindSafe, AtomicBool, ComponentCore,
-    ConstructionStatus, Dispatcher, HashSet, LifecycleOperation, MembershipDisposeDisposition,
-    MembershipTransactionControl, MembershipTransactionGuard, MessageHub, Mutex, NullDispatcher,
-    ObservableList, Ordering, ParentHandle, ParentRegistration, ParentTransfer,
-    PropertyChangedStream, RelayCommand, TreeNode, ViewModelType, VmNode, VmxError, VmxResult,
+    finish_with_first_failure, lock, replace_locked, resume_unwind, retain_first_error,
+    retain_first_failure, retain_parent_transfer_commit, Arc, AssertUnwindSafe, AtomicBool,
+    ComponentCore, ConstructionStatus, Dispatcher, HashSet, LifecycleOperation,
+    MembershipDisposeDisposition, MembershipTransactionControl, MembershipTransactionGuard,
+    MessageHub, Mutex, NullDispatcher, ObservableList, Ordering, ParentHandle, ParentRegistration,
+    ParentTransfer, PropertyChangedStream, RelayCommand, TreeNode, ViewModelType, VmNode, VmxError,
+    VmxResult,
 };
 use crate::components::ComponentCommands;
 
@@ -1036,7 +1037,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         ) else {
             return;
         };
-        let changed = {
+        let removed = {
             let _gate = lock(&self.membership_gate);
             for item in self.items() {
                 if item
@@ -1047,8 +1048,11 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                 }
                 item.set_current_flag(false);
             }
-            self.items.clear_silent()
+            self.items.take_silent()
         };
+        // Removed children are dropped after the membership gate is released.
+        let changed = !removed.is_empty();
+        drop(removed);
         self.assign_current(None);
         if changed {
             self.items.publish_reset();
@@ -1104,7 +1108,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
     where
         F: Fn(Vec<T>) -> Option<T> + Send + Sync + 'static,
     {
-        *lock(&self.current_selector) = Some(Arc::new(selector));
+        replace_locked(&self.current_selector, Some(Arc::new(selector)));
     }
 
     /// Sets the callback invoked after effective current changes.
@@ -1112,7 +1116,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
     where
         F: Fn(Option<T>) + Send + Sync + 'static,
     {
-        *lock(&self.on_current_changed) = Some(Arc::new(callback));
+        replace_locked(&self.on_current_changed, Some(Arc::new(callback)));
     }
 
     /// Coalesces child-collection notifications produced by `action`.
@@ -1644,7 +1648,7 @@ impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
                 return Err(VmxError::NonChild);
             }
         }
-        *lock(&self.current) = item;
+        replace_locked(&self.current, item);
         Ok(())
     }
 
@@ -1656,7 +1660,7 @@ impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
         if *lock(&self.disposed) {
             return;
         }
-        *lock(&self.predicate) = Arc::new(predicate);
+        replace_locked(&self.predicate, Arc::new(predicate));
         self.reconcile_current();
     }
 
@@ -1689,7 +1693,7 @@ impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
         }
         let visible = self.visible();
         if visible.is_empty() {
-            *lock(&self.current) = None;
+            replace_locked(&self.current, None);
             return;
         }
         let next_index = self
@@ -1697,7 +1701,7 @@ impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
             .and_then(|current| visible.iter().position(|item| same_node(item, &current)))
             .map(|index| (index + 1).min(visible.len() - 1))
             .unwrap_or(0);
-        *lock(&self.current) = Some(visible[next_index].clone());
+        replace_locked(&self.current, Some(visible[next_index].clone()));
     }
 
     /// Moves current backward within the visible projection.
@@ -1707,7 +1711,7 @@ impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
         }
         let visible = self.visible();
         if visible.is_empty() {
-            *lock(&self.current) = None;
+            replace_locked(&self.current, None);
             return;
         }
         let previous_index = self
@@ -1715,7 +1719,7 @@ impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
             .and_then(|current| visible.iter().position(|item| same_node(item, &current)))
             .map(|index| index.saturating_sub(1))
             .unwrap_or(0);
-        *lock(&self.current) = Some(visible[previous_index].clone());
+        replace_locked(&self.current, Some(visible[previous_index].clone()));
     }
 
     /// Freezes the current visible projection for subsequent reads.
@@ -1736,7 +1740,7 @@ impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
             // cursor policy so the frozen current item is still visible.
             self.reconcile_current();
         }
-        *lock(&self.frozen) = self.visible();
+        replace_locked(&self.frozen, self.visible());
         *lock(&self.disposed) = true;
     }
 
@@ -1753,7 +1757,7 @@ impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
             FilteredCursorPolicy::Clear | FilteredCursorPolicy::PreserveIfVisible => None,
             FilteredCursorPolicy::SnapToFirst => visible.first().cloned(),
         };
-        *lock(&self.current) = next;
+        replace_locked(&self.current, next);
     }
 }
 

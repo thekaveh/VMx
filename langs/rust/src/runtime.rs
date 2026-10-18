@@ -82,6 +82,14 @@ pub(crate) fn lock<T: ?Sized>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+/// Stores `value` behind `mutex` and drops the previous value only after the
+/// guard is released, so a user `Drop` that re-enters the owner cannot
+/// deadlock on this mutex.
+pub(crate) fn replace_locked<T>(mutex: &Mutex<T>, value: T) {
+    let previous = std::mem::replace(&mut *lock(mutex), value);
+    drop(previous);
+}
+
 /// Clones the value behind `mutex`.
 ///
 /// A panicking `Clone` resumes only after the guard is released, so it

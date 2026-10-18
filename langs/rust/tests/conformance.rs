@@ -17,6 +17,7 @@ mod conformance {
     mod derived_properties;
     mod dialogs;
     mod discriminator;
+    mod drop_reentry;
     mod expandable;
     mod expandable_support;
     mod filtered_composite;

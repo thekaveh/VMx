@@ -629,7 +629,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
         if self.reject_structural_reentry().is_err() {
             return;
         }
-        let was_materialized = {
+        let discarded = {
             let _topology = lock(&HIERARCHY_TOPOLOGY_GATE);
             let discarded = lock(&self.inner.children).take();
             if let Some(children) = &discarded {
@@ -640,8 +640,11 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
                     }
                 }
             }
-            discarded.is_some()
+            discarded
         };
+        // Discarded children are dropped after the topology gate is released.
+        let was_materialized = discarded.is_some();
+        drop(discarded);
         if was_materialized {
             self.inner
                 .hub
@@ -671,7 +674,9 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
     /// disposed, destructed, detached, or reparented (spec/18-hierarchical-vm.md
     /// §3).
     pub fn dispose(&self) -> VmxResult<()> {
-        lock(&self.inner.parked_attach_items).clear();
+        let parked = std::mem::take(&mut *lock(&self.inner.parked_attach_items));
+        // Parked items are dropped after the lock is released.
+        drop(parked);
         self.inner.component.dispose()
     }
 

@@ -503,15 +503,17 @@ impl<T: Clone + PartialEq + Send + 'static> DerivedProperty<T> {
         if *lock(&self.disposed) {
             return;
         }
-        let changed = {
+        let replaced = {
             let mut value = lock(&self.value);
             if *value == next {
-                false
+                None
             } else {
-                *value = next.clone();
-                true
+                Some(std::mem::replace(&mut *value, next.clone()))
             }
         };
+        // The replaced value is dropped after the value lock is released.
+        let changed = replaced.is_some();
+        drop(replaced);
         if changed {
             self.value_changes.send(next);
             self.value_changed
@@ -544,17 +546,19 @@ impl<T: Clone + PartialEq + Send + 'static> DerivedProperty<T> {
         if *lock(&self.disposed) {
             return;
         }
-        let changed = {
+        let replaced = {
             let mut value = lock(&self.value);
             if source_revision.load(Ordering::Acquire) != computed.revision
                 || *value == computed.value
             {
-                false
+                None
             } else {
-                *value = computed.value.clone();
-                true
+                Some(std::mem::replace(&mut *value, computed.value.clone()))
             }
         };
+        // The replaced value is dropped after the value lock is released.
+        let changed = replaced.is_some();
+        drop(replaced);
         if changed {
             #[cfg(test)]
             let commit_hook = lock(&self.revisioned_commit_hook).clone();

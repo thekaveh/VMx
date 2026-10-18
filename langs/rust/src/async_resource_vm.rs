@@ -687,7 +687,7 @@ where
     T: Clone + Send + 'static,
     D: Dispatcher,
 {
-    let (operation, previous, discarded) = {
+    let (operation, previous, discarded, replaced_state) = {
         let mut machine = lock(&inner.machine);
         if machine.disposed
             || (matches!(intent, StartIntent::Load)
@@ -708,23 +708,28 @@ where
         } else {
             None
         };
-        let baseline = machine.stable.clone();
+        // No clone of a user value is dropped while the machine lock is held.
         let operation = Operation {
             identity: machine.identity,
             token: CancellationToken::new(),
-            baseline: baseline.clone(),
+            baseline: machine.stable.clone(),
         };
         let previous_value = if inner.retention == AsyncResourceRetention::RetainPrevious {
-            baseline.value().cloned()
+            operation.baseline.value().cloned()
         } else {
             None
         };
-        machine.state = AsyncResourceState::Loading {
-            previous: previous_value,
-        };
+        let replaced_state = std::mem::replace(
+            &mut machine.state,
+            AsyncResourceState::Loading {
+                previous: previous_value,
+            },
+        );
         machine.operation = Some(operation.clone());
-        (operation, previous, discarded)
+        (operation, previous, discarded, replaced_state)
     };
+    // The replaced state is dropped after the machine lock is released.
+    drop(replaced_state);
 
     if let Some(previous) = previous {
         previous.token.cancel();
@@ -863,19 +868,23 @@ where
     T: Clone + Send + 'static,
     D: Dispatcher,
 {
-    let notify = {
+    let released = {
         let mut machine = lock(&inner.machine);
         if machine.disposed
             || machine.operation.as_ref().map(|current| current.identity)
                 != Some(operation.identity)
         {
-            false
+            None
         } else {
-            machine.operation = None;
-            machine.state = state_from_stable(&operation.baseline);
-            true
+            let replaced_operation = machine.operation.take();
+            let replaced_state =
+                std::mem::replace(&mut machine.state, state_from_stable(&operation.baseline));
+            Some((replaced_operation, replaced_state))
         }
     };
+    // Replaced values are dropped after the machine lock is released.
+    let notify = released.is_some();
+    drop(released);
     if notify {
         notify_state(inner);
     }
@@ -913,9 +922,13 @@ where
         }
         machine.identity = machine.identity.wrapping_add(1);
         let operation = machine.operation.take().expect("operation checked above");
-        machine.state = state_from_stable(&operation.baseline);
-        operation
+        let replaced_state =
+            std::mem::replace(&mut machine.state, state_from_stable(&operation.baseline));
+        (operation, replaced_state)
     };
+    let (operation, replaced_state) = operation;
+    // The replaced state is dropped after the machine lock is released.
+    drop(replaced_state);
     operation.token.cancel();
     notify_state(inner);
 }
@@ -927,7 +940,7 @@ where
 {
     match result {
         Ok(value) => {
-            let (previous, committed_identity) = {
+            let (previous, committed_identity, replaced) = {
                 let mut machine = lock(&inner.machine);
                 if machine.disposed
                     || machine.operation.as_ref().map(|current| current.identity)
@@ -937,12 +950,19 @@ where
                     cleanup(inner, value);
                     return;
                 }
-                machine.operation = None;
+                let replaced_operation = machine.operation.take();
                 let stable =
                     std::mem::replace(&mut machine.stable, StableState::Ready(value.clone()));
-                machine.state = AsyncResourceState::Ready { value };
-                (owned_value(stable), machine.identity)
+                let replaced_state =
+                    std::mem::replace(&mut machine.state, AsyncResourceState::Ready { value });
+                (
+                    owned_value(stable),
+                    machine.identity,
+                    (replaced_operation, replaced_state),
+                )
             };
+            // Replaced values are dropped after the machine lock is released.
+            drop(replaced);
             if let Some(previous) = previous {
                 cleanup(inner, previous);
             }
@@ -957,25 +977,34 @@ where
             }
         }
         Err(error) => {
-            let notify = {
+            let released = {
                 let mut machine = lock(&inner.machine);
                 if machine.disposed
                     || machine.operation.as_ref().map(|current| current.identity)
                         != Some(operation.identity)
                 {
-                    false
+                    None
                 } else {
-                    machine.operation = None;
+                    let replaced_operation = machine.operation.take();
                     let previous = if inner.retention == AsyncResourceRetention::RetainPrevious {
                         machine.stable.value().cloned()
                     } else {
                         None
                     };
-                    machine.stable = StableState::Error(previous.clone(), error.clone());
-                    machine.state = AsyncResourceState::Error { previous, error };
-                    true
+                    let replaced_stable = std::mem::replace(
+                        &mut machine.stable,
+                        StableState::Error(previous.clone(), error.clone()),
+                    );
+                    let replaced_state = std::mem::replace(
+                        &mut machine.state,
+                        AsyncResourceState::Error { previous, error },
+                    );
+                    Some((replaced_operation, replaced_stable, replaced_state))
                 }
             };
+            // Replaced values are dropped after the machine lock is released.
+            let notify = released.is_some();
+            drop(released);
             if notify {
                 notify_state(inner);
             }

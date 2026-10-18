@@ -58,6 +58,15 @@ project adheres to [Semantic Versioning](https://semver.org/).
   queued messages are now dropped after the hub's lock is released. The same
   applies to `ValueStream` subscriptions and disposal, and to the
   `property_changed()` stream.
+- A user value or closure whose `Drop` reads or mutates its owner no longer
+  deadlocks when VMx replaces, discards, or clears it. Replaced form field
+  validators and disposed form validators, invalidated hierarchical children
+  and parked batch items, replaced composite selectors, current-changed
+  callbacks, filtered predicates and filtered current items, cleared composite
+  and group children, removed `AggregateChangeStream` entries, replaced
+  `PagedComposition` sources, replaced `ValueStream` and `DerivedProperty`
+  values, and replaced `AsyncResourceVm` states are now dropped after the
+  owning lock is released.
 - A hub subscriber disposed by an earlier subscriber while a message is being
   delivered no longer receives that message, as in C#, Python, and
   TypeScript. A subscriber that disposes itself still finishes the message it

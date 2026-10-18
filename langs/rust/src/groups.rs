@@ -687,7 +687,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
         ) else {
             return;
         };
-        let changed = {
+        let removed = {
             let _gate = lock(&self.membership_gate);
             for item in self.items() {
                 if item
@@ -697,8 +697,11 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
                     item.set_parent_handle(None);
                 }
             }
-            self.items.clear_silent()
+            self.items.take_silent()
         };
+        // Removed children are dropped after the membership gate is released.
+        let changed = !removed.is_empty();
+        drop(removed);
         if changed {
             self.items.publish_reset();
         }
