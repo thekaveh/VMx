@@ -141,7 +141,8 @@ way to wire a UI-driven confirmation gate through the notification hub.
 
 `INotificationHub` carries **in-app, non-modal** notifications: toast and
 banner messages, and confirmation prompts that the application renders in its
-own UI (`NotificationVM`, `ConfirmationVM`). Each `Post` returns an awaitable,
+own UI (`NotificationVM`, `ConfirmationVM`). `Post` gives the caller an
+awaitable reaction (in Rust, `post_notification` returns a `NotificationWaiter`),
 so a caller can await the user's reaction, and an informational post can be
 left unawaited. The hub is hot: subscribers see messages as they happen.
 
@@ -266,7 +267,9 @@ resolves its notification through it. A view binds to `vms`; a component VM
 that owns the list can expose it as a property.
 
 Rust exposes the stream as `pending_stream()` and the current list as
-`pending()`; the other flavors expose `Pending` as an observable.
+`pending()`; the other flavors expose `Pending` as an observable. Rust builds a
+`NotificationVm` with `with_hub(notification, hub, lifespan_ms)` (no scheduler)
+and has no `dispose`, so dropping the list entry releases it.
 
 This pattern generalises to any service whose state is an observable collection
 of items. It is a documented composition recipe, not a normative spec addition —

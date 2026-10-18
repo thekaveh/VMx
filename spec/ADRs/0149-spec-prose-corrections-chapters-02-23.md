@@ -90,7 +90,8 @@ Correct the prose as the code ships it:
 - Chapter 19: §2.1 describes the `present` placement per flavor and says "all
   five methods". §5 aligns its rule of thumb with chapter 16 §5.
 - Chapter 20: Rust uses `Clone` for the default snapshot and `PartialEq` for
-  dirty tracking; Swift requires the `equals:` argument.
+  dirty tracking; Swift's designated initializer takes `equals:`, and the
+  `Equatable` convenience initializer and the builder default it to `==`.
 - Chapter 21: the C# `Count` exception (§2.3.3); the Rust message
   `sender_name` field (§2.4); Swift and Rust in §3.4, §3.6, §4.1, and §5.1;
   the per-flavor auto-construction option (§6.2).
@@ -116,6 +117,15 @@ The change is editorial. It adds no normative behavior and no conformance ID.
 ## 3. Consequences
 
 - The corrected sections agree with the code and satisfy ADR-0121.
+- Chapter 04 §4.2 no longer says MUST for the `ModeledCrudCommands` trigger. This
+  is not a new relaxation: chapter 06 §7 and ADR-0049 already made the trigger
+  RECOMMENDED, and the chapter 04 sentence contradicted them.
+- Follow-up corrections in the same change: chapter 19 §1 and its §5 diagram no
+  longer call the notification hub fire-and-forget; chapter 18 says Swift's
+  `addChild` returns the cycle error as `.failure` while `reparentChild` throws
+  it; chapter 02 lists which Rust VM types have the hook methods (open gap:
+  `HierarchicalVm`); chapter 16 §8.1 states Rust's `NotificationVm`
+  construction.
 - The Rust gaps stay open. Each is recorded, not closed; closing one changes the
   public Rust surface and needs its own decision and change.
 - The chapter 16 §8.1 recipe stays a composition pattern, not a new primitive.

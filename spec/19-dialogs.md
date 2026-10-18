@@ -11,8 +11,9 @@ the host (OS, UI framework) to block until the user responds. It lives in core �
 in an opt-in sub-package — because the contract surface is small and
 the null implementation is always needed in tests.
 
-Contrast with `INotificationHub` (chapter 16), which is fire-and-forget. See §5 for
-the responsibility-split diagram.
+Contrast with `INotificationHub` (chapter 16), which shows non-modal in-app
+notifications and confirmations that the user may answer later. See §5 for the
+responsibility-split diagram.
 
 ## 2. Contract surface
 
@@ -115,11 +116,11 @@ for tests and headless environments:
 graph TB
     subgraph "Host-side services"
         D["IDialogService (modal)"]
-        N["INotificationHub (toast/banner)"]
+        N["INotificationHub (in-app toast, banner, or confirmation)"]
     end
     subgraph "User interaction model"
         D -->|"blocks until user responds (request/response)"| User
-        N -->|"fire-and-forget — user may dismiss later"| User
+        N -->|"non-modal — user may respond or dismiss later"| User
     end
     User[User]
 ```

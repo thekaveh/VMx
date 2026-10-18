@@ -88,9 +88,11 @@ ADR-0053.
 `ComponentVMBase` exposes three protected, overridable hooks so subclasses can
 attach per-phase logic without reimplementing the status state machine. Names
 follow the flavor idiom (`OnConstruct` C# / `_on_construct` Python /
-`_onConstruct` TypeScript and Swift). Rust has no subclassing: its VM types
-expose public `on_construct`, `on_destruct`, and `on_dispose` methods that
-replace the hook with a closure returning `VmxResult<()>`:
+`_onConstruct` TypeScript and Swift). Rust has no subclassing: its component,
+forwarding, composite, group, aggregate, and async-resource VM types expose
+public `on_construct`, `on_destruct`, and `on_dispose` methods that replace the
+hook with a closure returning `VmxResult<()>`. Open Rust gap: `HierarchicalVm`
+has the lifecycle but no hook methods:
 
 - `OnConstruct` — invoked during `construct()` (and the construct phase of
   `reconstruct()`), after the VM enters `Constructing` and before it reaches

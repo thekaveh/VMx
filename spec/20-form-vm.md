@@ -124,9 +124,10 @@ TypeScript additionally accepts an `equals?: (a, b) => boolean` option — the
 injectable dirty-tracking equality predicate (default: a structural deep-equal —
 §4). C# and Python derive dirty state from the model's own idiomatic value
 equality (`object.Equals` / `__eq__`), so the equality hook is the model type's
-own concern there rather than a separate constructor parameter. Swift requires
-an `equals:` initializer argument, because its unconstrained generic `Model`
-has no default equality. Rust bounds the model type by `PartialEq` and uses it
+own concern there rather than a separate constructor parameter. Swift's
+designated initializer takes an `equals:` argument, because its unconstrained
+generic `Model` has no default equality; the `Equatable` convenience
+initializer and the builder default it to `==` (§4). Rust bounds the model type by `PartialEq` and uses it
 for dirty tracking, with no separate equality hook.
 
 ## 3. Snapshot policy

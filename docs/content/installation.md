@@ -15,14 +15,14 @@ commands assume VMx is cloned beside that project:
 git clone https://github.com/thekaveh/VMx.git ../VMx
 ```
 
-| Flavor     | Source tree   | Public package status               |
-| ---------- | ------------- | ----------------------------------- |
-| C#         | v3.29.0       | NuGet package not published yet     |
-| Python     | v3.29.0       | PyPI release 3.23.0                  |
-| TypeScript | v3.30.0       | npm release 3.30.0                  |
-| React adapter | v0.1.1     | npm release 0.1.1                   |
-| Swift      | v3.30.0       | SwiftPM release 3.24.0              |
-| Rust       | 0.35.0        | crates.io package not published yet |
+| Flavor        | Source line | Public package status               |
+| ------------- | ----------- | ----------------------------------- |
+| C#            | v3.29.0     | NuGet package not published yet     |
+| Python        | v3.29.0     | PyPI release 3.23.0                 |
+| TypeScript    | v3.30.0     | npm release 3.30.0                  |
+| React adapter | v0.1.1      | npm release 0.1.1                   |
+| Swift         | v3.30.0     | SwiftPM release 3.24.0              |
+| Rust          | v0.35.0     | crates.io package not published yet |
 
 Minimum runtimes:
 

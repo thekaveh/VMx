@@ -226,9 +226,10 @@ Two messages flow on `IMessageHub`:
 Structural mutators MUST reject operations that would corrupt the tree:
 reparenting a node under itself or under one of its own descendants (an
 ancestor cycle) raises the flavor's standard invalid-operation error
-(`InvalidOperationException` / `ValueError` / `Error`; Swift throws
-`HierarchyError.invalidReparent` and Rust returns
-`Err(VmxError::InvalidArgument)`), leaves the tree
+(`InvalidOperationException` / `ValueError` / `Error`; Swift reports
+`HierarchyError.invalidReparent`, thrown by `reparentChild` and returned as
+`.failure` by `addChild`, and Rust returns `Err(VmxError::InvalidArgument)`),
+leaves the tree
 unchanged, and publishes no message (HIER-018; added in v2.5.0 via
 ADR-0037 — previously the cycle silently corrupted `Depth`/`Path`/`walk`).
 
