@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `CompositeVM` `insert`/`removeAt`/`setAt` and `GroupVM.insert` reject a
+  `NaN` or fractional index with a `RangeError` before any change, like `move`.
+  Before, `removeAt(NaN)` removed a child, then threw and left the membership
+  transaction open, so every later mutation failed (spec/21 §3.2).
 - `FormVM`'s default deep equality compares boxed `Number`, `Boolean`,
   `String`, and `BigInt` values by value (with `+0` equal to `-0` and `NaN`
   equal to `NaN`, as for primitives), so `setModel` no longer drops a change to

@@ -170,7 +170,7 @@ export class GroupVM<VM extends ComponentVMBase>
     this.#beginMembershipTransaction();
     // splice would silently normalize/clamp while the emitted newIndex
     // carried the raw argument (spec/21 §3.2); `length` appends.
-    if (index < 0 || index > this._children.length) {
+    if (!Number.isInteger(index) || index < 0 || index > this._children.length) {
       this.#endMembershipTransaction();
       throw new RangeError(`Index ${String(index)} out of range`);
     }

@@ -293,7 +293,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     this.#beginMembershipTransaction();
     // splice would silently normalize/clamp while the emitted newIndex
     // carried the raw argument (spec/21 §3.2); `length` appends.
-    if (index < 0 || index > this._children.length) {
+    if (!Number.isInteger(index) || index < 0 || index > this._children.length) {
       this.#endMembershipTransaction();
       throw new RangeError(`Index ${String(index)} out of range`);
     }
@@ -361,7 +361,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     this.#beginMembershipTransaction();
     let item: VM;
     try {
-      if (index < 0 || index >= this._children.length) {
+      if (!Number.isInteger(index) || index < 0 || index >= this._children.length) {
         throw new RangeError(`Index ${String(index)} out of range`);
       }
       item = this._children[index] as VM;
@@ -411,7 +411,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
   /** Replace the child at *index*. Emits a Remove followed by an Add (per spec). */
   setAt(index: number, value: VM): void {
     this.#beginMembershipTransaction();
-    if (index < 0 || index >= this._children.length) {
+    if (!Number.isInteger(index) || index < 0 || index >= this._children.length) {
       this.#endMembershipTransaction();
       throw new RangeError(`Index ${String(index)} out of range`);
     }

@@ -201,3 +201,30 @@ describe("CompositeVM – a throwing onCurrentChanged does not lose the collecti
     expect(composite.current).toBeNull();
   });
 });
+
+describe("CompositeVM – non-integer indices", () => {
+  it("rejects NaN and fractional indices before any change and stays usable", () => {
+    const hub = makeHub();
+    const composite = CompositeVM.builder<ComponentVM>()
+      .name("c")
+      .services(hub, makeDisp())
+      .children(() => [])
+      .build();
+    composite.construct();
+    const a = makeChild(hub, "a");
+    const b = makeChild(hub, "b");
+    composite.add(a);
+    composite.add(b);
+    const x = makeChild(hub, "x");
+
+    for (const index of [Number.NaN, 0.5]) {
+      expect(() => composite.removeAt(index)).toThrow(RangeError);
+      expect(() => composite.setAt(index, x)).toThrow(RangeError);
+      expect(() => composite.insert(index, x)).toThrow(RangeError);
+    }
+
+    expect([...composite].map((vm) => vm.name)).toEqual(["a", "b"]);
+    composite.add(x);
+    expect(composite.count).toBe(3);
+  });
+});
