@@ -29,7 +29,8 @@ All notable changes to the Python flavor are documented here. The format is base
 - `AsyncRelayCommand.execute()` admits the run before it returns, so
   `is_executing` is `True` at once, the execution-started `can_execute_changed`
   fires at once, and a following `cancel()` cancels the run. The predicate now
-  runs on the caller's thread.
+  runs on the caller's thread. If a start-event observer raises, `execute()`
+  releases the admission, so the command does not stay executing.
   Before, admission waited one event-loop turn and such a `cancel()` did
   nothing (spec/04 §10.2).
 - A `ForwardingComponentVM` around a background component can be a

@@ -1,7 +1,7 @@
 # 12. Rust Parity Status
 
 Filed: **2026-07-16**. Original scope closed: **2026-07-26**. Open items found
-after closure: §12.7.
+after closure: §12.7 to §12.12.
 
 This record began as the evidence ledger for capability-surface and observable-
 behavior differences between Rust and the four other flavors. The Rust 0.27.0
@@ -296,8 +296,8 @@ observable behavior covered by this review.
 
 The ADR-0120 sender representation in §12.2.1 remains the sole intentional
 flavor-specific shape in this ledger. The §12.5 editorial note applies to all
-five flavors and is not a parity backlog. §12.7 records open items found after
-closure. Future differences still require
+five flavors and is not a parity backlog. §12.7 to §12.12 record open items and recorded
+differences found after closure. Future differences still require
 spec/ADR review. This record is evidence of the 0.27.0 convergence for the
 original scope. It is not permission to add undocumented divergence.
 
@@ -305,8 +305,8 @@ original scope. It is not permission to add undocumented divergence.
 
 Containers (`CompositeVm`, `GroupVm`, the modeled composite, and the fixed
 aggregates) now stay transient until background children settle (spec/02 §6,
-LIFE-014). `HierarchicalVm` has no background option, so it never waits. Two
-Rust-specific shapes remain open:
+LIFE-014). `HierarchicalVm` has no background option, so it never waits. Three
+Rust-specific items remain open:
 
 - **Container `background_errors()`.** A background child failure that rolls a
   container back is reported on the container's `background_errors()` stream.
@@ -314,8 +314,9 @@ Rust-specific shapes remain open:
   failure through their background-hook error path.
 - **No join of an in-flight child.** When a container constructs a child that
   is already Constructing in the background, Rust returns
-  `ConcurrentOperation`. C# (`ConstructOrJoinAsync`) and TypeScript join the
-  in-flight transition instead.
+  `ConcurrentOperation`. C# (`ConstructOrJoinAsync`), Python, TypeScript, and
+  Swift join the in-flight transition instead.
+- **Nodes that do not forward the settle hook.** See the next paragraph.
 
 Settle notification uses the documented `VmNode::when_lifecycle_settled` hook,
 which wrapper nodes should forward to the wrapped VM. A third-party node that

@@ -124,46 +124,53 @@ and the Python tree helpers use the public `ComponentVMProto` (chapter 13).
 - Chapter 04 §4.2 no longer says MUST for the `ModeledCrudCommands` trigger. This
   is not a new relaxation: chapter 06 §7 and ADR-0049 already made the trigger
   RECOMMENDED, and the chapter 04 sentence contradicted them.
-- Follow-up corrections in the same change: chapter 19 §1 and its §5 diagram no
-  longer call the notification hub fire-and-forget; chapter 18 says Swift's
-  `addChild` returns the cycle error as `.failure` while `reparentChild` throws
-  it; chapter 02 lists which Rust VM types have the hook methods (open gaps:
-  `HierarchicalVm` and `ModeledCompositeVm` have no hook methods, and
-  `ForwardingCompositeVm` reaches them only through `inner()`); chapter 06
-  records the Rust `FilteredCompositeVm` `Changed` and `ModeledCrudCommands`
-  confirmation gaps, chapter 08 says Swift slot factories cannot throw, chapter
-  10 records that a non-modeled Rust `ComponentVm<()>` needs `.model(())`
-  (chapter 06 separates the two Rust constructors: only
-  `with_current_changed` takes the trigger), chapter 04 §4 says a trigger fires
-  `CanExecuteChanged` and consumers re-read `CanExecute`, chapter 18 §3 and §5 state that destruct does not cascade and
-  that invalidation detaches children without a `Parent` message (as every flavor
-  implements), chapter 09 §2 records that the TypeScript and Rust
-  forwarding composites cannot be children of a container, chapter 02 §6 (and
-  chapter 06 by reference) says which
-  flavors drive container children sequentially, chapter 11 says every flavor's containers wait for
-  background children at the status level and that the Rust containers expose
-  `background_errors()`, the Rust membership transaction held across publication
-  (`COMP-026`), and the missing Rust local collection-change stream
-  (`COMP-041`/`COMP-042`); chapter 21 §5.5 records that Rust `PagedComposition`
-  does not observe its source (`COL-031`); the catalog scopes `COL-031` and
-  the `HUB-013` cross-hub clauses to the flavors that can satisfy them and words
-  `FORM-013` and `CMDD-009` per flavor; chapter 18 §4 says the eager option applies per node, as
-  every flavor implements it, so the whole tree is eager when every node is;
-  chapter 21 §2.10 says an empty Python slice mutation emits
-  nothing, matching TypeScript `splice` (the code now does so); chapter 06 says
-  Rust `search()` notifies, as the other flavors' explicit `Search()` does
-  (SRCH-005); chapter 13 gives the Python helper types as the public
-  `ComponentVMProto`, which the helpers now accept and return, instead of the
-  private `_ComponentVMBase`; chapter 10 says the Rust builders default `Hint` to
-  `Some("")` and records the `ModeledCompositeVm` hint and identity gap;
-  chapter 16 §8.1 states Rust's `NotificationVm`
-  construction; chapter 06 §8 drops `SearchTermChanged` from the
-  `SearchableState` shape, because no flavor exposes the debounced term as a
-  public stream (the debounce is internal and consumers observe `Filtered`);
-  chapter 13 records that Rust `walk` does not descend into a `CompositeVm`;
-  the chapter 04 §4.1 C# trigger recipe matches
-  `IPropertyChangedMessage<IComponentVM>`, because VMs publish
-  `PropertyChangedMessage<IComponentVM>` and the record type is invariant.
+- Follow-up corrections in the same change, by chapter:
+  - Chapter 02 lists which Rust VM types have the hook methods. Open gaps:
+    `HierarchicalVm` and `ModeledCompositeVm` have no hook methods, and
+    `ForwardingCompositeVm` reaches them only through `inner()`. Chapter 02 §6
+    (and chapter 06 by reference) says which flavors drive container children
+    sequentially.
+  - Chapter 04 §4 says a trigger fires `CanExecuteChanged` and consumers re-read
+    `CanExecute`. The chapter 04 §4.1 C# trigger recipe matches
+    `IPropertyChangedMessage<IComponentVM>`. VMs publish
+    `PropertyChangedMessage<IComponentVM>`, and the record type is invariant.
+  - Chapter 06 records the Rust `FilteredCompositeVm` `Changed` and
+    `ModeledCrudCommands` confirmation gaps. It separates the two Rust
+    constructors: only `with_current_changed` takes the trigger. It says Rust
+    `search()` notifies, as the explicit `Search()` of the other flavors does
+    (SRCH-005). Chapter 06 §8 drops `SearchTermChanged` from the
+    `SearchableState` shape. No flavor exposes the debounced term as a public
+    stream; the debounce is internal, and consumers observe `Filtered`.
+  - Chapter 08 says Swift slot factories cannot throw.
+  - Chapter 09 §2 records that the TypeScript and Rust forwarding composites
+    cannot be children of a container.
+  - Chapter 10 records that a non-modeled Rust `ComponentVm<()>` needs
+    `.model(())`. It says the Rust builders default `Hint` to `Some("")` and
+    records the `ModeledCompositeVm` hint and identity gap.
+  - Chapter 11 says the containers of every flavor wait for background children
+    at the status level and that the Rust containers expose
+    `background_errors()`. It records the Rust membership transaction held
+    across publication (`COMP-026`) and the missing Rust local
+    collection-change stream (`COMP-041`/`COMP-042`).
+  - The catalog (chapter 12) scopes `COL-031` and the `HUB-013` cross-hub
+    clauses to the flavors that can satisfy them. It words `FORM-013` and
+    `CMDD-009` per flavor.
+  - Chapter 13 gives the Python helper types as the public `ComponentVMProto`,
+    which the helpers now accept and return, instead of the private
+    `_ComponentVMBase`. It records that Rust `walk` does not descend into a
+    `CompositeVm`.
+  - Chapter 16 §8.1 states the construction of the Rust `NotificationVm`.
+  - Chapter 18 says Swift's `addChild` returns the cycle error as `.failure`,
+    while `reparentChild` throws it. Chapter 18 §3 and §5 state that destruct
+    does not cascade and that invalidation detaches children without a `Parent`
+    message, as every flavor implements. Chapter 18 §4 says the eager option
+    applies per node, as every flavor implements it, so the whole tree is eager
+    when every node is.
+  - Chapter 19 §1 and its §5 diagram no longer call the notification hub
+    fire-and-forget.
+  - Chapter 21 §5.5 records that Rust `PagedComposition` does not observe its
+    source (`COL-031`). Chapter 21 §2.10 says an empty Python slice mutation
+    emits nothing, matching TypeScript `splice`; the code now does so.
 - The Rust gaps stay open. Each is recorded, not closed; closing one changes the
   public Rust surface and needs its own decision and change.
 - The chapter 16 §8.1 recipe stays a composition pattern, not a new primitive.

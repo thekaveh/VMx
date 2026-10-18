@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `HierarchicalVM` reports invalid lazy children-factory output as a failure
+  instead of trapping (spec/18 §6). `addChild` returns `.failure`, reparenting
+  fails the same way, and `attachMany` records an `attachmentFailed` rejection
+  and continues the batch.
+
 - A user object whose `deinit` calls back into the VMx primitive that drops
   it no longer deadlocks or traps. `MessageHub` releases delivered and dropped
   messages after its gate unlocks (drain and `dispose()`, HUB-010/HUB-012).
