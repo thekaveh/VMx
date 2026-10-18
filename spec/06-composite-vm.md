@@ -376,9 +376,9 @@ Behavior:
   snapshot. The signal payload is ignored.
 
 Open Rust gap: Rust's `SearchableState` has no `SearchTermChanged` stream and no
-debounce. `set_search_term` sends one synchronous `Custom("filtered")`
-notification on the `filtered_changed()` hub, and consumers pull the result with
-`filtered()`. ADR-0099 §2.7 records this facade mapping.
+debounce. `set_search_term` and each explicit `search()` send one synchronous
+`Custom("filtered")` notification on the `filtered_changed()` hub, and consumers
+pull the result with `filtered()`. ADR-0099 §2.7 records this facade mapping.
 
 ### 8.1 Source-change timing and batching (spec v3.19)
 

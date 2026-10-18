@@ -127,7 +127,10 @@ The change is editorial. It adds no normative behavior and no conformance ID.
   `HierarchicalVm` and `ModeledCompositeVm` have no hook methods, and
   `ForwardingCompositeVm` reaches them only through `inner()`); chapter 06
   records the Rust `FilteredCompositeVm` `Changed` and `ModeledCrudCommands`
-  confirmation gaps; chapter 13 gives the Python helper types as the public
+  confirmation gaps; chapter 21 §2.10 says an empty Python slice mutation emits
+  nothing, matching TypeScript `splice` (the code now does so); and that Rust
+  `search()` notifies, as the other flavors'
+  explicit `Search()` does (SRCH-005); chapter 13 gives the Python helper types as the public
   `ComponentVMProto`, which the helpers now accept and return, instead of the
   private `_ComponentVMBase`; chapter 10 says the Rust builders default `Hint` to
   `Some("")` and records the `ModeledCompositeVm` hint and identity gap;
