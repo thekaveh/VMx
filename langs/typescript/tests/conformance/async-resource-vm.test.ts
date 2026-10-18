@@ -111,6 +111,21 @@ describe("AsyncResourceVM conformance", () => {
   });
 
   describe("ARES-003", () => {
+    it("treats a loader result that is not a promise as a failure", async () => {
+      const vm = new AsyncResourceVM<number>({
+        name: "resource",
+        hub: new MessageHub(),
+        dispatcher: NullDispatcher.INSTANCE,
+        loader: (() => undefined) as unknown as () => Promise<number>,
+      });
+      vm.construct();
+
+      await vm.load();
+
+      expect(vm.state.status).toBe(AsyncResourceStatus.Error);
+      vm.dispose();
+    });
+
     it("routes fire-and-forget loader failure only into error state", async () => {
       const failure = new Error("offline");
       const vm = new AsyncResourceVM<number>({

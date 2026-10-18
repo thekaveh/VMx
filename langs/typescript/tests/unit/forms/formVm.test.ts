@@ -886,6 +886,7 @@ describe("FormVM default equality – supported snapshot domain", () => {
     ["valid Date", new Date("2020-01-01T00:00:00.000Z")],
     ["invalid Date", new Date(Number.NaN)],
     ["RegExp", /ab+c/gi],
+    ["boxed Number", new Number(1)],
     ["ArrayBuffer", new Uint8Array([1, 2, 3]).buffer],
     ["typed array", new Float64Array([1.5, Number.NaN])],
     ["DataView", new DataView(new Uint8Array([4, 5]).buffer)],
@@ -947,6 +948,22 @@ describe("FormVM default equality – supported snapshot domain", () => {
     expect(sut.isDirty).toBe(true);
     sut.setModel({ when: new Date(Number.NaN) });
     expect(sut.isDirty).toBe(false);
+    sut.dispose();
+  });
+
+  it("compares boxed primitives by their value", () => {
+    const equalsCase = (x: unknown, y: unknown) => deepEquals({ value: x }, { value: y });
+
+    expect(equalsCase(new Number(1), new Number(1))).toBe(true);
+    expect(equalsCase(new Number(1), new Number(2))).toBe(false);
+    expect(equalsCase(new Boolean(true), new Boolean(false))).toBe(false);
+    expect(equalsCase(new String("a"), new String("b"))).toBe(false);
+    expect(equalsCase(Object(1n), Object(2n))).toBe(false);
+    expect(equalsCase(new Number(1), new String("1"))).toBe(false);
+
+    const sut = makeAny({ n: new Number(1) });
+    sut.setModel({ n: new Number(2) });
+    expect(sut.isDirty).toBe(true);
     sut.dispose();
   });
 

@@ -275,6 +275,17 @@ export function deepEquals(
     return aTime === bTime || (aTime !== aTime && bTime !== bTime);
   }
 
+  // Boxed primitives keep their value through structuredClone, so compare it.
+  for (const Box of [Number, Boolean, String, BigInt] as const) {
+    if (a instanceof Box || b instanceof Box) {
+      return (
+        a instanceof Box &&
+        b instanceof Box &&
+        Object.is((a as { valueOf(): unknown }).valueOf(), (b as { valueOf(): unknown }).valueOf())
+      );
+    }
+  }
+
   if (a instanceof RegExp || b instanceof RegExp) {
     return (
       a instanceof RegExp &&
