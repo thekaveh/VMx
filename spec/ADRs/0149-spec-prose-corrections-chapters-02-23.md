@@ -131,7 +131,9 @@ and the Python tree helpers use the public `ComponentVMProto` (chapter 13).
   `HierarchicalVm` and `ModeledCompositeVm` have no hook methods, and
   `ForwardingCompositeVm` reaches them only through `inner()`); chapter 06
   records the Rust `FilteredCompositeVm` `Changed` and `ModeledCrudCommands`
-  confirmation gaps, chapter 02 §6 (and chapter 06 by reference) says which
+  confirmation gaps, chapter 09 §2 records that the TypeScript and Rust
+  forwarding composites cannot be children of a container, chapter 02 §6 (and
+  chapter 06 by reference) says which
   flavors drive container children sequentially, chapter 11 says every flavor's containers wait for
   background children at the status level and that the Rust containers expose
   `background_errors()`, the Rust membership transaction held across publication

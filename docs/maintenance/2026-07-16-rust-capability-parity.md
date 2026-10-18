@@ -325,3 +325,10 @@ the container stays Constructed while the child ends Destructed. This is an open
 LIFE-014 gap for nodes that do not forward the hook. C# observes the child's
 status instead; Rust has no node-level hub accessor to do so without risking an
 unbounded wait on a child published elsewhere.
+
+## 12.8. Open Item: Forwarding Composite as a Child
+
+`ForwardingCompositeVm` does not implement `VmNode`, so it cannot be added to
+a composite, group, or aggregate. C#, Python, and Swift support a decorated
+composite as a child with one ownership identity (spec/09 §2). Adding the trait
+needs a forwarding `VmNode` implementation and its tests.

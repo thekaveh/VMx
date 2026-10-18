@@ -82,6 +82,13 @@ its own convention as long as the override surface is documented; Rust's
 Subclasses MUST forward `dispose()` to the wrapped instance unless they explicitly
 own the wrapped's lifetime.
 
+A forwarding composite used as a child of another container follows the §1
+ownership rules: one ownership identity with the wrapped composite, and
+transparent parent and current flags. Open gaps: the TypeScript
+`ForwardingCompositeVM` does not extend `ComponentVMBase`, and the Rust
+`ForwardingCompositeVm` does not implement `VmNode`, so neither can be added to
+a container; the type checker rejects the call.
+
 ## 3. Conformance
 
 `FWD-001` through `FWD-004` in `12-conformance.md` cover:
