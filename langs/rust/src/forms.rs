@@ -343,18 +343,28 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     }
 
     /// Adds a whole-model validator that returns an ordered error list.
+    ///
+    /// Each registration keys its errors `$model.<registration>.<index>`, so a
+    /// second validator adds to the errors of the first instead of replacing
+    /// them. A registration after dispose is inactive (see the type docs).
     pub fn with_validator<F>(self, validator: F) -> Self
     where
         F: Fn(&M) -> Vec<String> + Send + Sync + 'static,
     {
+        if *lock(&self.disposed) {
+            return self;
+        }
         let could_approve = self.can_approve();
-        lock(&self.model_validators).push(Arc::new(move |model| {
+        let mut validators = lock(&self.model_validators);
+        let registration = validators.len();
+        validators.push(Arc::new(move |model| {
             validator(model)
                 .into_iter()
                 .enumerate()
-                .map(|(index, error)| (index.to_string(), Some(error)))
+                .map(|(index, error)| (format!("$model.{registration:04}.{index:04}"), Some(error)))
                 .collect()
         }));
+        drop(validators);
         self.revalidate();
         self.publish_approve_state_change(could_approve);
         self

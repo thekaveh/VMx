@@ -1131,3 +1131,26 @@ fn builder_and_direct_configuration_express_the_same_clear() {
         assert_eq!(built.is_valid(), direct.is_valid());
     }
 }
+
+#[test]
+fn whole_model_validators_keep_each_others_errors() {
+    let form = FormVm::new("form", 0)
+        .with_validator(|_| vec!["first".to_string()])
+        .with_validator(|_| vec!["second".to_string()]);
+
+    assert_eq!(
+        form.errors(),
+        vec!["first".to_string(), "second".to_string()]
+    );
+}
+
+#[test]
+fn whole_model_validator_after_dispose_is_inactive() {
+    let form = FormVm::new("form", 0);
+    form.dispose();
+
+    let form = form.with_validator(|_| vec!["late".to_string()]);
+
+    assert!(form.is_valid());
+    assert!(form.errors().is_empty());
+}

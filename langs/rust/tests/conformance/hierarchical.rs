@@ -978,7 +978,7 @@ fn hierarchical_builder_defaults_are_lazy() {
         .build()
         .unwrap();
 
-    assert_eq!(node.hint(), None);
+    assert_eq!(node.hint(), Some(String::new()));
     assert_eq!(*calls.lock().unwrap(), 0);
     node.children();
     assert_eq!(*calls.lock().unwrap(), 1);

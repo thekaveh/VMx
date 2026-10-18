@@ -152,7 +152,8 @@ impl<T: Clone + Send + 'static> ValueStream<T> {
         lock(&self.inner).subscribers.len()
     }
 
-    /// Subscribes to the current value and all later values.
+    /// Subscribes to later values. A replaying stream ([`ValueStream::new`])
+    /// first delivers its current value; a [`ValueStream::hot`] stream does not.
     pub fn subscribe<F>(&self, handler: F) -> ValueSubscription
     where
         F: Fn(T) + Send + Sync + 'static,
@@ -162,8 +163,9 @@ impl<T: Clone + Send + 'static> ValueStream<T> {
 
     /// Subscribes to values and receives one callback when the stream completes.
     ///
-    /// A subscription made after disposal receives the retained current value
-    /// followed immediately by `completion`.
+    /// A subscription made after disposal receives `completion` at once. A
+    /// replaying stream delivers its retained current value first; a
+    /// [`ValueStream::hot`] stream does not.
     pub fn subscribe_with_completion<F, C>(&self, handler: F, completion: C) -> ValueSubscription
     where
         F: Fn(T) + Send + Sync + 'static,

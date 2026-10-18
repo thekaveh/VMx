@@ -44,6 +44,14 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `FormVm::with_validator` keys each registration's errors separately, so a
+  second whole-model validator no longer replaces the first one's errors, and
+  a registration after dispose is inactive (spec/20 §10).
+- `HierarchicalVmBuilder` defaults an unset hint to `Some("")`, like the other
+  builders (spec/10).
+- Rustdoc for `AsyncRelayCommand::with_can_execute` (it replaces the predicate)
+  and for `ValueStream` subscriptions on a hot stream (no replay) now matches
+  the behavior.
 - `CompositeVm` and `GroupVm` membership for `AggregateChangeStream` now comes
   from a local children stream that precedes the hub and is not deferred by a
   hub batch. Before, a member added and changed inside `hub.batch` lost its

@@ -212,9 +212,9 @@ public sealed class FormVM<TM> : IDisposable
 
     /// <summary>
     /// Invokes the persister delegate; on success advances <see cref="Snapshot"/> and fires <see cref="OnApproved"/>.
-    /// On failure, no state mutation occurs; the persister exception is observable
-    /// via <see cref="ApproveAsync"/> only — <c>ApproveCommand.Execute()</c>
-    /// dispatches the persist call fire-and-forget (per FORM-007 and chapter 20 §2).
+    /// On failure, no state mutation occurs. <see cref="ApproveAsync"/> rethrows the
+    /// persister exception; <c>ApproveCommand.Execute()</c> routes it to
+    /// <see cref="ApproveErrors"/> (FORM-015, chapter 20 §8.2).
     /// In strict mode, <c>CanExecute</c> is <c>false</c> when <see cref="IsDirty"/> is <c>false</c>.
     /// One approval runs at a time: <c>CanExecute</c> is <c>false</c> while an approval
     /// is in flight, and <c>CanExecuteChanged</c> fires once when an approval is

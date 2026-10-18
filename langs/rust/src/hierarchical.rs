@@ -960,7 +960,7 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> Default for HierarchicalVmBui
             model: None,
             children_factory: None,
             services: None,
-            hint: None,
+            hint: Some(String::new()),
             eager_children: false,
         }
     }

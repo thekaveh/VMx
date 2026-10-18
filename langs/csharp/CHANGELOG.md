@@ -8,6 +8,9 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
+- Fixed: `AsyncResourceVM` treats a loader that returns a null task as a failed
+  load: the state becomes `Error` and the load completes, instead of staying
+  in `Loading` and throwing `ArgumentNullException` (spec/23 §7, ARES-003).
 - Fixed: `TokenPagedComposition` stops auto-constructing page items once a
   hook disposes it or starts a newer operation (spec/21 §6).
 - Fixed: `ConfirmationDecoratorCommand.CanExecute` re-checks disposal after the inner

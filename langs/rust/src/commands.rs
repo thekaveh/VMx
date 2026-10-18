@@ -914,7 +914,8 @@ impl AsyncRelayCommand {
         command
     }
 
-    /// Returns this command with an additional execution predicate.
+    /// Returns this command with `predicate` as its execution predicate. It
+    /// replaces any predicate set on the builder.
     pub fn with_can_execute<F>(mut self, predicate: F) -> Self
     where
         F: Fn() -> bool + Send + Sync + 'static,

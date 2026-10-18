@@ -288,7 +288,9 @@ public sealed class AsyncResourceVM<T> : ComponentVMBase
         Task<T> loaderTask;
         try
         {
-            loaderTask = _loader(operation.Cancellation.Token);
+            // A null task is a loader failure, like a synchronous throw (ARES-003).
+            loaderTask = _loader(operation.Cancellation.Token)
+                ?? Task.FromException<T>(new InvalidOperationException("The loader returned a null task."));
         }
         catch (Exception error)
         {
