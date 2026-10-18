@@ -2011,6 +2011,17 @@ pub(crate) fn begin_parent_transfer<T: VmNode>(
     )))
 }
 
+fn child_settled_result<N: VmNode>(child: &N, expected: ConstructionStatus) -> VmxResult<()> {
+    let status = child.status();
+    if status == expected {
+        return Ok(());
+    }
+    Err(VmxError::Other(format!(
+        "child {} settled at {status:?} instead of {expected:?}",
+        child.id()
+    )))
+}
+
 /// Common identity, lifecycle, ownership, and selection contract for VM nodes.
 pub trait VmNode: Clone + PartialEq + Send + Sync + 'static {
     /// Returns the stable node identity.
@@ -2040,6 +2051,46 @@ pub trait VmNode: Clone + PartialEq + Send + Sync + 'static {
     /// Reports whether the node is current in its container.
     fn is_current(&self) -> bool {
         false
+    }
+    /// Registers `callback` to run once the node's in-flight construct or
+    /// destruct settles and its terminal status is published. Returns `false`
+    /// (dropping `callback`) when no transition is in flight.
+    #[doc(hidden)]
+    fn when_lifecycle_settled(&self, _callback: LifecycleSettleCallback) -> bool {
+        false
+    }
+}
+
+/// Continuation run after a node's in-flight lifecycle transition settles.
+#[doc(hidden)]
+pub type LifecycleSettleCallback = Box<dyn FnOnce() + Send + 'static>;
+
+type ChildStep = Box<dyn FnOnce() -> VmxResult<()> + Send + 'static>;
+
+/// A container transition waiting for children that settle asynchronously
+/// (spec/02 §6): later child steps queue behind the child being awaited, and
+/// the container publishes its terminal status only after the queue drains.
+struct ChildSettle {
+    generation: u64,
+    waiting: bool,
+    draining: bool,
+    armed: bool,
+    queue: VecDeque<ChildStep>,
+}
+
+impl ChildSettle {
+    fn new(generation: u64) -> Self {
+        Self {
+            generation,
+            waiting: false,
+            draining: false,
+            armed: false,
+            queue: VecDeque::new(),
+        }
+    }
+
+    fn busy(&self) -> bool {
+        self.waiting || self.draining || !self.queue.is_empty()
     }
 }
 
@@ -2090,6 +2141,8 @@ struct ComponentCoreInner<D: Dispatcher> {
     deferred_core_disposal: bool,
     selected: bool,
     expanded: bool,
+    child_settle: Option<ChildSettle>,
+    settle_waiters: Vec<LifecycleSettleCallback>,
 }
 
 impl<D: Dispatcher> ComponentCore<D> {
@@ -2119,6 +2172,8 @@ impl<D: Dispatcher> ComponentCore<D> {
                 deferred_core_disposal: false,
                 selected: false,
                 expanded: false,
+                child_settle: None,
+                settle_waiters: Vec::new(),
             })),
             hook_ready: Arc::new(Condvar::new()),
         }
@@ -2169,7 +2224,9 @@ impl<D: Dispatcher> ComponentCore<D> {
     }
 
     pub(crate) fn reconstruct(&self) -> VmxResult<()> {
-        self.reconstruct_sync()
+        let result = self.reconstruct_sync();
+        self.release_settle_waiters();
+        result
     }
 
     fn run_sync_hook(&self, hook: Option<Hook>) -> thread::Result<VmxResult<()>> {
@@ -2522,6 +2579,7 @@ impl<D: Dispatcher> ComponentCore<D> {
                     errors.send(error);
                 }
                 drop(emission);
+                publication_core.release_settle_waiters();
             });
             if catch_unwind(AssertUnwindSafe(|| {
                 action_dispatcher.dispatch(foreground_action)
@@ -2597,6 +2655,7 @@ impl<D: Dispatcher> ComponentCore<D> {
             }
         }
         drop(emission);
+        self.release_settle_waiters();
         recovered
     }
 
@@ -2605,6 +2664,15 @@ impl<D: Dispatcher> ComponentCore<D> {
         operation: LifecycleOperation,
         action: F,
     ) -> VmxResult<()>
+    where
+        F: FnOnce() -> VmxResult<()>,
+    {
+        let result = self.transition_with_body(operation, action);
+        self.release_settle_waiters();
+        result
+    }
+
+    fn transition_with_body<F>(&self, operation: LifecycleOperation, action: F) -> VmxResult<()>
     where
         F: FnOnce() -> VmxResult<()>,
     {
@@ -2646,6 +2714,7 @@ impl<D: Dispatcher> ComponentCore<D> {
                 let generation = inner.transition_generation;
                 inner.transitioning = true;
                 inner.status = transition_status;
+                inner.child_settle = None;
                 if operation != LifecycleOperation::Dispose {
                     inner.active_hook_owner = Some(thread::current().id());
                 }
@@ -2768,6 +2837,7 @@ impl<D: Dispatcher> ComponentCore<D> {
                 if inner.transition_generation == generation {
                     inner.status = rollback;
                     inner.transitioning = false;
+                    inner.child_settle = None;
                     true
                 } else {
                     false
@@ -2797,6 +2867,9 @@ impl<D: Dispatcher> ComponentCore<D> {
             return operation_result;
         }
 
+        if self.defer_until_children_settle(generation) {
+            return Ok(());
+        }
         let property_changed = {
             let mut inner = lock(&self.inner);
             if inner.transition_generation != generation {
@@ -2847,6 +2920,292 @@ impl<D: Dispatcher> ComponentCore<D> {
             Ok(result) => result,
             Err(payload) => resume_unwind(payload),
         }
+    }
+
+    /// Registers `callback` to run after the in-flight construct or destruct
+    /// publishes its terminal status; `false` when nothing is in flight.
+    pub(crate) fn when_settled(&self, callback: LifecycleSettleCallback) -> bool {
+        let mut inner = lock(&self.inner);
+        if !inner.transitioning || inner.status == ConstructionStatus::Disposed {
+            return false;
+        }
+        inner.settle_waiters.push(callback);
+        true
+    }
+
+    /// Runs `continuation` after the in-flight construct or destruct settles,
+    /// or immediately when nothing is in flight.
+    pub(crate) fn then_after_settle(&self, continuation: LifecycleSettleCallback) {
+        let continuation = {
+            let mut inner = lock(&self.inner);
+            if inner.transitioning && inner.status != ConstructionStatus::Disposed {
+                inner.settle_waiters.push(continuation);
+                None
+            } else {
+                Some(continuation)
+            }
+        };
+        if let Some(continuation) = continuation {
+            continuation();
+        }
+    }
+
+    /// Completes a container reconstruct after its destruct: constructs now
+    /// when the destruct settled synchronously, otherwise once the deferred
+    /// destruct reaches Destructed. A deferred construct failure that does
+    /// not surface through the settle path reaches `background_errors`.
+    pub(crate) fn construct_after_destruct<F>(&self, construct: F) -> VmxResult<()>
+    where
+        F: FnOnce() -> VmxResult<()> + Send + 'static,
+    {
+        if self.status() == ConstructionStatus::Destructed {
+            return construct();
+        }
+        let core = self.clone();
+        self.then_after_settle(Box::new(move || {
+            if core.status() == ConstructionStatus::Destructed {
+                if let Err(error) = construct() {
+                    let errors = core.background_errors();
+                    let emission = errors.begin_emission();
+                    errors.send(error);
+                    drop(emission);
+                }
+            }
+        }));
+        Ok(())
+    }
+
+    /// Abandons a construct/destruct waiting on children, so a container
+    /// disposing its children does not publish a rollback for the children
+    /// it is about to dispose itself; the container then settles at Disposed.
+    pub(crate) fn abandon_child_settle(&self) {
+        lock(&self.inner).child_settle = None;
+    }
+
+    /// Runs settle continuations once no construct or destruct is in flight.
+    /// Called after every terminal publication, outside every lock.
+    fn release_settle_waiters(&self) {
+        let waiters = {
+            let mut inner = lock(&self.inner);
+            if inner.transitioning && inner.status != ConstructionStatus::Disposed {
+                return;
+            }
+            std::mem::take(&mut inner.settle_waiters)
+        };
+        for waiter in waiters {
+            let _ = catch_unwind(AssertUnwindSafe(waiter));
+        }
+    }
+
+    /// Runs `step` now, or queues it behind a child this transition is still
+    /// waiting on so children keep transitioning in order (spec/02 §6).
+    pub(crate) fn child_step(&self, step: ChildStep) -> VmxResult<()> {
+        let step = {
+            let mut inner = lock(&self.inner);
+            let generation = inner.transition_generation;
+            match inner.child_settle.as_mut() {
+                Some(settle) if settle.generation == generation && settle.busy() => {
+                    settle.queue.push_back(step);
+                    None
+                }
+                _ => Some(step),
+            }
+        };
+        step.map_or(Ok(()), |step| step())
+    }
+
+    /// Constructs or destructs `child` as one step of this container's
+    /// transition. A child that is still Constructing/Destructing when its
+    /// call returns (background lifecycle) holds the container transient
+    /// until it settles; a child that settles at any other status fails the
+    /// container transition.
+    pub(crate) fn transition_child<N: VmNode>(
+        &self,
+        child: &N,
+        operation: LifecycleOperation,
+    ) -> VmxResult<()> {
+        let core = self.clone();
+        let child = child.clone();
+        self.child_step(Box::new(move || {
+            core.run_child_transition(&child, operation)
+        }))
+    }
+
+    fn run_child_transition<N: VmNode>(
+        &self,
+        child: &N,
+        operation: LifecycleOperation,
+    ) -> VmxResult<()> {
+        let expected = match operation {
+            LifecycleOperation::Construct => {
+                child.construct()?;
+                ConstructionStatus::Constructed
+            }
+            LifecycleOperation::Destruct => {
+                child.destruct()?;
+                ConstructionStatus::Destructed
+            }
+            LifecycleOperation::Dispose => return child.dispose(),
+        };
+        let generation = {
+            let mut inner = lock(&self.inner);
+            let generation = inner.transition_generation;
+            if !inner.transitioning || inner.status == ConstructionStatus::Disposed {
+                return Ok(());
+            }
+            let settle = inner
+                .child_settle
+                .get_or_insert_with(|| ChildSettle::new(generation));
+            if settle.generation != generation {
+                *settle = ChildSettle::new(generation);
+            }
+            settle.waiting = true;
+            generation
+        };
+        let core = self.clone();
+        let awaited = child.clone();
+        if child.when_lifecycle_settled(Box::new(move || {
+            core.child_settled(generation, &awaited, expected);
+        })) {
+            return Ok(());
+        }
+        {
+            let mut inner = lock(&self.inner);
+            if let Some(settle) = inner.child_settle.as_mut() {
+                if settle.generation == generation {
+                    settle.waiting = false;
+                }
+            }
+        }
+        child_settled_result(child, expected)
+    }
+
+    fn child_settled<N: VmNode>(&self, generation: u64, child: &N, expected: ConstructionStatus) {
+        {
+            let mut inner = lock(&self.inner);
+            if !self.settle_is_current(&inner, generation) {
+                return;
+            }
+            if let Some(settle) = inner.child_settle.as_mut() {
+                settle.waiting = false;
+            }
+        }
+        match child_settled_result(child, expected) {
+            Ok(()) => self.advance_children(generation, false),
+            Err(error) => self.settle_children(generation, Some(error)),
+        }
+    }
+
+    fn settle_is_current(&self, inner: &ComponentCoreInner<D>, generation: u64) -> bool {
+        inner.transition_generation == generation
+            && inner.transitioning
+            && inner.status != ConstructionStatus::Disposed
+            && inner
+                .child_settle
+                .as_ref()
+                .is_some_and(|settle| settle.generation == generation)
+    }
+
+    /// Runs queued child steps until one waits again; once the queue drains
+    /// after the container's own action returned, publishes the terminal
+    /// status. Only one thread drains at a time: a continuation arriving
+    /// while another drains leaves the queue to that drainer.
+    fn advance_children(&self, generation: u64, mut resuming: bool) {
+        loop {
+            let step = {
+                let mut inner = lock(&self.inner);
+                if !self.settle_is_current(&inner, generation) {
+                    return;
+                }
+                let Some(settle) = inner.child_settle.as_mut() else {
+                    return;
+                };
+                if settle.draining && !resuming {
+                    return;
+                }
+                settle.draining = false;
+                if settle.waiting {
+                    return;
+                }
+                match settle.queue.pop_front() {
+                    Some(step) => {
+                        settle.draining = true;
+                        step
+                    }
+                    None => {
+                        if settle.armed {
+                            break;
+                        }
+                        return;
+                    }
+                }
+            };
+            resuming = true;
+            let result = catch_unwind(AssertUnwindSafe(step)).unwrap_or_else(|_| {
+                Err(VmxError::Other("child lifecycle step panicked".to_string()))
+            });
+            if let Err(error) = result {
+                self.settle_children(generation, Some(error));
+                return;
+            }
+        }
+        self.settle_children(generation, None);
+    }
+
+    /// Hands the terminal publication to the settle continuation when a
+    /// child step is still pending after the container's action returned.
+    fn defer_until_children_settle(&self, generation: u64) -> bool {
+        let mut inner = lock(&self.inner);
+        let pending = self.settle_is_current(&inner, generation)
+            && inner.child_settle.as_ref().is_some_and(ChildSettle::busy);
+        match inner.child_settle.as_mut() {
+            Some(settle) if pending => settle.armed = true,
+            _ => inner.child_settle = None,
+        }
+        pending
+    }
+
+    /// Publishes a deferred container transition's terminal status: the
+    /// target on success, the rollback status after a child failure. The
+    /// failure reaches `background_errors`, as for a failing background
+    /// hook. Disposal or a newer transition suppresses both.
+    fn settle_children(&self, generation: u64, error: Option<VmxError>) {
+        let (hub, errors) = {
+            let inner = lock(&self.inner);
+            (inner.hub.clone(), inner.background_errors.clone())
+        };
+        let emission = error.as_ref().and_then(|_| errors.begin_emission());
+        let published = hub.send_prepared(|| {
+            let mut inner = lock(&self.inner);
+            if !self.settle_is_current(&inner, generation) {
+                return (false, None);
+            }
+            let settled = match (inner.status, error.is_some()) {
+                (ConstructionStatus::Constructing, false)
+                | (ConstructionStatus::Destructing, true) => ConstructionStatus::Constructed,
+                _ => ConstructionStatus::Destructed,
+            };
+            inner.child_settle = None;
+            inner.status = settled;
+            inner.transitioning = false;
+            (
+                true,
+                Some(Message::ConstructionStatusChanged(
+                    ConstructionStatusChangedMessage {
+                        sender_id: inner.id,
+                        sender_name: inner.name.clone(),
+                        status: settled,
+                    },
+                )),
+            )
+        });
+        if published {
+            if let Some(error) = error {
+                errors.send(error);
+            }
+        }
+        drop(emission);
+        self.release_settle_waiters();
     }
 
     fn publication_is_current(&self, generation: u64, status: ConstructionStatus) -> bool {

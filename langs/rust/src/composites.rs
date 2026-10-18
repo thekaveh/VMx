@@ -439,33 +439,44 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                         None,
                     );
                     for item in reconstruct_items.to_vec() {
-                        item.destruct()?;
+                        reconstruct_core.transition_child(&item, LifecycleOperation::Destruct)?;
                     }
                     Ok(())
                 })
                 .is_ok()
             {
-                let _ = reconstruct_core.transition_with(LifecycleOperation::Construct, || {
-                    for item in reconstruct_items.to_vec() {
-                        item.construct()?;
-                    }
-                    if let Some(selector) = lock(&reconstruct_selector).clone() {
-                        if let Some(selected) = selector(reconstruct_items.to_vec()) {
-                            if reconstruct_items
-                                .to_vec()
-                                .iter()
-                                .any(|candidate| same_node(candidate, &selected))
-                            {
-                                assign_current_state(
-                                    &reconstruct_core,
-                                    &reconstruct_current,
-                                    &reconstruct_callback,
-                                    Some(selected),
-                                );
-                            }
+                let core = reconstruct_core.clone();
+                let items = reconstruct_items.clone();
+                let selector_slot = Arc::clone(&reconstruct_selector);
+                let current = Arc::clone(&reconstruct_current);
+                let callback = Arc::clone(&reconstruct_callback);
+                let _ = reconstruct_core.construct_after_destruct(move || {
+                    core.transition_with(LifecycleOperation::Construct, || {
+                        for item in items.to_vec() {
+                            core.transition_child(&item, LifecycleOperation::Construct)?;
                         }
-                    }
-                    Ok(())
+                        let core = core.clone();
+                        let items = items.clone();
+                        core.clone().child_step(Box::new(move || {
+                            if let Some(selector) = lock(&selector_slot).clone() {
+                                if let Some(selected) = selector(items.to_vec()) {
+                                    if items
+                                        .to_vec()
+                                        .iter()
+                                        .any(|candidate| same_node(candidate, &selected))
+                                    {
+                                        assign_current_state(
+                                            &core,
+                                            &current,
+                                            &callback,
+                                            Some(selected),
+                                        );
+                                    }
+                                }
+                            }
+                            Ok(())
+                        }))
+                    })
                 });
             }
         });
@@ -514,6 +525,12 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
     /// Returns the injected message hub.
     pub fn hub(&self) -> MessageHub {
         self.core.hub()
+    }
+
+    /// Returns the hot error stream for child lifecycle failures that settle
+    /// after `construct`/`destruct` returned (background children).
+    pub fn background_errors(&self) -> crate::LifecycleErrorStream {
+        self.core.background_errors()
     }
 
     /// Registers cleanup work that runs on disposal.
@@ -1111,20 +1128,25 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         self.core
             .transition_with(LifecycleOperation::Construct, || {
                 for item in self.items() {
-                    item.construct()?;
+                    self.core
+                        .transition_child(&item, LifecycleOperation::Construct)?;
                 }
-                if let Some(selector) = lock(&self.current_selector).clone() {
-                    if let Some(selected) = selector(self.items()) {
-                        if self
-                            .items()
-                            .iter()
-                            .any(|candidate| same_node(candidate, &selected))
-                        {
-                            self.assign_current(selected.into());
+                // The selector runs after every child settled (spec/02 §6).
+                let composite = self.clone();
+                self.core.child_step(Box::new(move || {
+                    if let Some(selector) = lock(&composite.current_selector).clone() {
+                        if let Some(selected) = selector(composite.items()) {
+                            if composite
+                                .items()
+                                .iter()
+                                .any(|candidate| same_node(candidate, &selected))
+                            {
+                                composite.assign_current(selected.into());
+                            }
                         }
                     }
-                }
-                Ok(())
+                    Ok(())
+                }))
             })
     }
 
@@ -1133,7 +1155,8 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         self.core.transition_with(LifecycleOperation::Destruct, || {
             self.assign_current(None);
             for item in self.items() {
-                item.destruct()?;
+                self.core
+                    .transition_child(&item, LifecycleOperation::Destruct)?;
             }
             Ok(())
         })
@@ -1141,6 +1164,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
 
     /// Disposes all children and returns the first encountered error.
     pub fn dispose(&self) -> VmxResult<()> {
+        self.core.abandon_child_settle();
         let snapshot = loop {
             let _gate = lock(&self.membership_gate);
             match self.membership_transaction_control.dispose_disposition() {
@@ -1220,7 +1244,9 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             });
         }
         self.destruct()?;
-        self.construct()
+        let composite = self.clone();
+        self.core
+            .construct_after_destruct(move || composite.construct())
     }
 
     /// Reports whether the composite is constructed.
@@ -1431,6 +1457,10 @@ impl<T: VmNode, D: Dispatcher> VmNode for CompositeVm<T, D> {
 
     fn set_current_flag(&self, is_current: bool) {
         self.core.set_current_flag(is_current);
+    }
+
+    fn when_lifecycle_settled(&self, callback: crate::LifecycleSettleCallback) -> bool {
+        self.core.when_settled(callback)
     }
 
     fn is_current(&self) -> bool {
@@ -1945,6 +1975,12 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, T: VmNode, D: Dispatcher>
         self.inner.hub()
     }
 
+    /// Returns the hot error stream for child lifecycle failures that settle
+    /// after `construct`/`destruct` returned (background children).
+    pub fn background_errors(&self) -> crate::LifecycleErrorStream {
+        self.inner.background_errors()
+    }
+
     /// Registers cleanup work that runs on disposal.
     pub fn own<F>(&self, cleanup: F)
     where
@@ -2065,6 +2101,10 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, T: VmNode, D: Dispatcher> VmN
 
     fn set_current_flag(&self, is_current: bool) {
         self.inner.set_current_flag(is_current);
+    }
+
+    fn when_lifecycle_settled(&self, callback: crate::LifecycleSettleCallback) -> bool {
+        self.inner.core.when_settled(callback)
     }
 
     fn is_current(&self) -> bool {

@@ -624,6 +624,10 @@ where
         self.inner.component.core.set_current_flag(is_current);
     }
 
+    fn when_lifecycle_settled(&self, callback: crate::LifecycleSettleCallback) -> bool {
+        self.inner.component.core.when_settled(callback)
+    }
+
     fn is_current(&self) -> bool {
         self.inner.component.core.is_selected()
     }

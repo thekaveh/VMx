@@ -610,7 +610,10 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> HierarchicalVm<M> {
         // (spec/18 §3).
         self.inner.component.construct_with(|| {
             for child in self.try_children()? {
-                child.construct()?;
+                self.inner
+                    .component
+                    .core
+                    .transition_child(&child, crate::LifecycleOperation::Construct)?;
             }
             Ok(())
         })
@@ -939,6 +942,10 @@ impl<M: Clone + PartialEq + Send + Sync + 'static> PartialEq for HierarchicalVm<
 impl<M: Clone + PartialEq + Send + Sync + 'static> Eq for HierarchicalVm<M> {}
 
 impl<M: Clone + PartialEq + Send + Sync + 'static> VmNode for HierarchicalVm<M> {
+    fn when_lifecycle_settled(&self, callback: crate::LifecycleSettleCallback) -> bool {
+        self.inner.component.core.when_settled(callback)
+    }
+
     fn id(&self) -> usize {
         HierarchicalVm::id(self)
     }

@@ -411,7 +411,8 @@ impl<T1: VmNode, D: Dispatcher> AggregateVm1<T1, D> {
                         return Err(error);
                     }
                     self.core.notify_property_changed("component_1");
-                    next1.construct()?;
+                    self.core
+                        .transition_child(&next1, LifecycleOperation::Construct)?;
                     Ok(())
                 })
             })
@@ -421,7 +422,8 @@ impl<T1: VmNode, D: Dispatcher> AggregateVm1<T1, D> {
     pub fn destruct(&self) -> VmxResult<()> {
         self.core.transition_with(LifecycleOperation::Destruct, || {
             if let Some(component1) = self.component_1() {
-                component1.destruct()?;
+                self.core
+                    .transition_child(&component1, LifecycleOperation::Destruct)?;
             }
             Ok(())
         })
@@ -433,6 +435,7 @@ impl<T1: VmNode, D: Dispatcher> AggregateVm1<T1, D> {
         if !self.ownership.begin_dispose(move || deferred.dispose()) {
             return Ok(());
         }
+        self.core.abandon_child_settle();
         let mut first_failure = None;
         if let Some(component1) = self.component_1() {
             dispose_fixed_aggregate_child(&component1, &mut first_failure);
@@ -494,6 +497,10 @@ impl<T1: VmNode, D: Dispatcher> VmNode for AggregateVm1<T1, D> {
 
     fn set_current_flag(&self, is_current: bool) {
         self.core.set_current_flag(is_current);
+    }
+
+    fn when_lifecycle_settled(&self, callback: crate::LifecycleSettleCallback) -> bool {
+        self.core.when_settled(callback)
     }
 
     fn is_current(&self) -> bool {
@@ -775,8 +782,10 @@ impl<T1: VmNode, T2: VmNode, D: Dispatcher> AggregateVm2<T1, T2, D> {
                     }
                     self.core.notify_property_changed("component_1");
                     self.core.notify_property_changed("component_2");
-                    next1.construct()?;
-                    next2.construct()?;
+                    self.core
+                        .transition_child(&next1, LifecycleOperation::Construct)?;
+                    self.core
+                        .transition_child(&next2, LifecycleOperation::Construct)?;
                     Ok(())
                 })
             })
@@ -786,10 +795,12 @@ impl<T1: VmNode, T2: VmNode, D: Dispatcher> AggregateVm2<T1, T2, D> {
     pub fn destruct(&self) -> VmxResult<()> {
         self.core.transition_with(LifecycleOperation::Destruct, || {
             if let Some(component1) = self.component_1() {
-                component1.destruct()?;
+                self.core
+                    .transition_child(&component1, LifecycleOperation::Destruct)?;
             }
             if let Some(component2) = self.component_2() {
-                component2.destruct()?;
+                self.core
+                    .transition_child(&component2, LifecycleOperation::Destruct)?;
             }
             Ok(())
         })
@@ -801,6 +812,7 @@ impl<T1: VmNode, T2: VmNode, D: Dispatcher> AggregateVm2<T1, T2, D> {
         if !self.ownership.begin_dispose(move || deferred.dispose()) {
             return Ok(());
         }
+        self.core.abandon_child_settle();
         let mut first_failure = None;
         if let Some(component1) = self.component_1() {
             dispose_fixed_aggregate_child(&component1, &mut first_failure);
@@ -865,6 +877,10 @@ impl<T1: VmNode, T2: VmNode, D: Dispatcher> VmNode for AggregateVm2<T1, T2, D> {
 
     fn set_current_flag(&self, is_current: bool) {
         self.core.set_current_flag(is_current);
+    }
+
+    fn when_lifecycle_settled(&self, callback: crate::LifecycleSettleCallback) -> bool {
+        self.core.when_settled(callback)
     }
 
     fn is_current(&self) -> bool {
@@ -1120,9 +1136,12 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, D: Dispatcher> AggregateVm3<T1, T2, T3,
                     self.core.notify_property_changed("component_1");
                     self.core.notify_property_changed("component_2");
                     self.core.notify_property_changed("component_3");
-                    next1.construct()?;
-                    next2.construct()?;
-                    next3.construct()?;
+                    self.core
+                        .transition_child(&next1, LifecycleOperation::Construct)?;
+                    self.core
+                        .transition_child(&next2, LifecycleOperation::Construct)?;
+                    self.core
+                        .transition_child(&next3, LifecycleOperation::Construct)?;
                     Ok(())
                 })
             })
@@ -1132,13 +1151,16 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, D: Dispatcher> AggregateVm3<T1, T2, T3,
     pub fn destruct(&self) -> VmxResult<()> {
         self.core.transition_with(LifecycleOperation::Destruct, || {
             if let Some(component1) = self.component_1() {
-                component1.destruct()?;
+                self.core
+                    .transition_child(&component1, LifecycleOperation::Destruct)?;
             }
             if let Some(component2) = self.component_2() {
-                component2.destruct()?;
+                self.core
+                    .transition_child(&component2, LifecycleOperation::Destruct)?;
             }
             if let Some(component3) = self.component_3() {
-                component3.destruct()?;
+                self.core
+                    .transition_child(&component3, LifecycleOperation::Destruct)?;
             }
             Ok(())
         })
@@ -1150,6 +1172,7 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, D: Dispatcher> AggregateVm3<T1, T2, T3,
         if !self.ownership.begin_dispose(move || deferred.dispose()) {
             return Ok(());
         }
+        self.core.abandon_child_settle();
         let mut first_failure = None;
         if let Some(component1) = self.component_1() {
             dispose_fixed_aggregate_child(&component1, &mut first_failure);
@@ -1470,10 +1493,14 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, D: Dispatcher>
                     self.core.notify_property_changed("component_2");
                     self.core.notify_property_changed("component_3");
                     self.core.notify_property_changed("component_4");
-                    next1.construct()?;
-                    next2.construct()?;
-                    next3.construct()?;
-                    next4.construct()?;
+                    self.core
+                        .transition_child(&next1, LifecycleOperation::Construct)?;
+                    self.core
+                        .transition_child(&next2, LifecycleOperation::Construct)?;
+                    self.core
+                        .transition_child(&next3, LifecycleOperation::Construct)?;
+                    self.core
+                        .transition_child(&next4, LifecycleOperation::Construct)?;
                     Ok(())
                 })
             })
@@ -1483,16 +1510,20 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, D: Dispatcher>
     pub fn destruct(&self) -> VmxResult<()> {
         self.core.transition_with(LifecycleOperation::Destruct, || {
             if let Some(component1) = self.component_1() {
-                component1.destruct()?;
+                self.core
+                    .transition_child(&component1, LifecycleOperation::Destruct)?;
             }
             if let Some(component2) = self.component_2() {
-                component2.destruct()?;
+                self.core
+                    .transition_child(&component2, LifecycleOperation::Destruct)?;
             }
             if let Some(component3) = self.component_3() {
-                component3.destruct()?;
+                self.core
+                    .transition_child(&component3, LifecycleOperation::Destruct)?;
             }
             if let Some(component4) = self.component_4() {
-                component4.destruct()?;
+                self.core
+                    .transition_child(&component4, LifecycleOperation::Destruct)?;
             }
             Ok(())
         })
@@ -1504,6 +1535,7 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, D: Dispatcher>
         if !self.ownership.begin_dispose(move || deferred.dispose()) {
             return Ok(());
         }
+        self.core.abandon_child_settle();
         let mut first_failure = None;
         if let Some(component1) = self.component_1() {
             dispose_fixed_aggregate_child(&component1, &mut first_failure);
@@ -1867,11 +1899,16 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, D: Dispatcher>
                     self.core.notify_property_changed("component_3");
                     self.core.notify_property_changed("component_4");
                     self.core.notify_property_changed("component_5");
-                    next1.construct()?;
-                    next2.construct()?;
-                    next3.construct()?;
-                    next4.construct()?;
-                    next5.construct()?;
+                    self.core
+                        .transition_child(&next1, LifecycleOperation::Construct)?;
+                    self.core
+                        .transition_child(&next2, LifecycleOperation::Construct)?;
+                    self.core
+                        .transition_child(&next3, LifecycleOperation::Construct)?;
+                    self.core
+                        .transition_child(&next4, LifecycleOperation::Construct)?;
+                    self.core
+                        .transition_child(&next5, LifecycleOperation::Construct)?;
                     Ok(())
                 })
             })
@@ -1881,19 +1918,24 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, D: Dispatcher>
     pub fn destruct(&self) -> VmxResult<()> {
         self.core.transition_with(LifecycleOperation::Destruct, || {
             if let Some(component1) = self.component_1() {
-                component1.destruct()?;
+                self.core
+                    .transition_child(&component1, LifecycleOperation::Destruct)?;
             }
             if let Some(component2) = self.component_2() {
-                component2.destruct()?;
+                self.core
+                    .transition_child(&component2, LifecycleOperation::Destruct)?;
             }
             if let Some(component3) = self.component_3() {
-                component3.destruct()?;
+                self.core
+                    .transition_child(&component3, LifecycleOperation::Destruct)?;
             }
             if let Some(component4) = self.component_4() {
-                component4.destruct()?;
+                self.core
+                    .transition_child(&component4, LifecycleOperation::Destruct)?;
             }
             if let Some(component5) = self.component_5() {
-                component5.destruct()?;
+                self.core
+                    .transition_child(&component5, LifecycleOperation::Destruct)?;
             }
             Ok(())
         })
@@ -1905,6 +1947,7 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, D: Dispatcher>
         if !self.ownership.begin_dispose(move || deferred.dispose()) {
             return Ok(());
         }
+        self.core.abandon_child_settle();
         let mut first_failure = None;
         if let Some(component1) = self.component_1() {
             dispose_fixed_aggregate_child(&component1, &mut first_failure);
@@ -2310,12 +2353,18 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, T6: VmNode, D: 
                     self.core.notify_property_changed("component_4");
                     self.core.notify_property_changed("component_5");
                     self.core.notify_property_changed("component_6");
-                    next1.construct()?;
-                    next2.construct()?;
-                    next3.construct()?;
-                    next4.construct()?;
-                    next5.construct()?;
-                    next6.construct()?;
+                    self.core
+                        .transition_child(&next1, LifecycleOperation::Construct)?;
+                    self.core
+                        .transition_child(&next2, LifecycleOperation::Construct)?;
+                    self.core
+                        .transition_child(&next3, LifecycleOperation::Construct)?;
+                    self.core
+                        .transition_child(&next4, LifecycleOperation::Construct)?;
+                    self.core
+                        .transition_child(&next5, LifecycleOperation::Construct)?;
+                    self.core
+                        .transition_child(&next6, LifecycleOperation::Construct)?;
                     Ok(())
                 })
             })
@@ -2325,22 +2374,28 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, T6: VmNode, D: 
     pub fn destruct(&self) -> VmxResult<()> {
         self.core.transition_with(LifecycleOperation::Destruct, || {
             if let Some(component1) = self.component_1() {
-                component1.destruct()?;
+                self.core
+                    .transition_child(&component1, LifecycleOperation::Destruct)?;
             }
             if let Some(component2) = self.component_2() {
-                component2.destruct()?;
+                self.core
+                    .transition_child(&component2, LifecycleOperation::Destruct)?;
             }
             if let Some(component3) = self.component_3() {
-                component3.destruct()?;
+                self.core
+                    .transition_child(&component3, LifecycleOperation::Destruct)?;
             }
             if let Some(component4) = self.component_4() {
-                component4.destruct()?;
+                self.core
+                    .transition_child(&component4, LifecycleOperation::Destruct)?;
             }
             if let Some(component5) = self.component_5() {
-                component5.destruct()?;
+                self.core
+                    .transition_child(&component5, LifecycleOperation::Destruct)?;
             }
             if let Some(component6) = self.component_6() {
-                component6.destruct()?;
+                self.core
+                    .transition_child(&component6, LifecycleOperation::Destruct)?;
             }
             Ok(())
         })
@@ -2352,6 +2407,7 @@ impl<T1: VmNode, T2: VmNode, T3: VmNode, T4: VmNode, T5: VmNode, T6: VmNode, D: 
         if !self.ownership.begin_dispose(move || deferred.dispose()) {
             return Ok(());
         }
+        self.core.abandon_child_settle();
         let mut first_failure = None;
         if let Some(component1) = self.component_1() {
             dispose_fixed_aggregate_child(&component1, &mut first_failure);
@@ -2410,6 +2466,10 @@ macro_rules! impl_fixed_aggregate_vm_node {
             fn set_current_flag(&self, is_current: bool) {
                 self.core.set_current_flag(is_current);
             }
+            fn when_lifecycle_settled(&self, callback: crate::LifecycleSettleCallback) -> bool {
+                self.core.when_settled(callback)
+            }
+
             fn is_current(&self) -> bool { self.core.is_selected() }
         }
 
@@ -2568,21 +2628,31 @@ macro_rules! impl_fixed_aggregate_baseline {
                             if command_core
                                 .transition_with(LifecycleOperation::Destruct, || {
                                     $(if let Some(component) = $slot.value() {
-                                        component.destruct()?;
+                                        command_core.transition_child(
+                                            &component,
+                                            LifecycleOperation::Destruct,
+                                        )?;
                                     })+
                                     Ok(())
                                 })
                                 .is_ok()
                             {
-                                let _ = command_core.transition_with(
-                                    LifecycleOperation::Construct,
-                                    || {
-                                        $(if let Some(component) = $slot.value() {
-                                            component.construct()?;
-                                        })+
-                                        Ok(())
-                                    },
-                                );
+                                let construct_core = command_core.clone();
+                                $(let $slot = $slot.clone();)+
+                                let _ = command_core.construct_after_destruct(move || {
+                                    construct_core.transition_with(
+                                        LifecycleOperation::Construct,
+                                        || {
+                                            $(if let Some(component) = $slot.value() {
+                                                construct_core.transition_child(
+                                                    &component,
+                                                    LifecycleOperation::Construct,
+                                                )?;
+                                            })+
+                                            Ok(())
+                                        },
+                                    )
+                                });
                             }
                         })
                     })
@@ -2592,6 +2662,12 @@ macro_rules! impl_fixed_aggregate_baseline {
             /// Returns the aggregate name.
             pub fn name(&self) -> String {
                 self.core.name()
+            }
+
+            /// Returns the hot error stream for child lifecycle failures that settle
+            /// after `construct`/`destruct` returned (background children).
+            pub fn background_errors(&self) -> crate::LifecycleErrorStream {
+                self.core.background_errors()
             }
 
             /// Returns the canonical aggregate family discriminator.
@@ -2613,7 +2689,8 @@ macro_rules! impl_fixed_aggregate_baseline {
                     });
                 }
                 self.destruct()?;
-                self.construct()
+                let aggregate = self.clone();
+                self.core.construct_after_destruct(move || aggregate.construct())
             }
 
             /// Reports whether the aggregate is constructed.

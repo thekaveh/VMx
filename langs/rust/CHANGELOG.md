@@ -44,6 +44,16 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `CompositeVm`, `GroupVm`, and `AggregateVm1`..`AggregateVm6` now stay
+  Constructing/Destructing until every background child settles, then publish
+  their terminal status after the children's (spec/02 §6, LIFE-014). Children
+  still transition in order: later children wait behind a background child
+  being awaited, and the composite's current selector runs after the last.
+  A child that settles at any other status rolls the container back and
+  reports the failure on the container's new `background_errors()` stream.
+  Disposing a container while it waits publishes no rollback or terminal
+  status, and `reconstruct` constructs once a deferred destruct settles.
+  All-synchronous behavior and emission order are unchanged.
 - User `PartialEq` code no longer runs while a VMx mutex is held, so an
   `eq` that reads its owner returns instead of deadlocking.
   `ComponentVm::set_model`, `ServicedObservableCollection::remove`,
@@ -53,6 +63,14 @@ project adheres to [Semantic Versioning](https://semver.org/).
   commit only after a generation or revision check, searching again when the
   state changed meanwhile. Replaced and removed values are dropped after the
   lock is released. Semantics and emission order are unchanged.
+- User `Drop` code no longer runs while a VMx mutex is held, so a value whose
+  `drop` reads its owner returns instead of deadlocking.
+  `DiscriminatorVm::clear_modals` and `dispose` release saved modal keys, and
+  `ServicedObservableCollection::clear` and `replace_all`,
+  `KeyedServicedObservableCollection::clear`, `replace_all`, `upsert`,
+  `replace`, `remove_at`, and `remove_key`, and `ObservableList::clear` and
+  `replace_all` release old items and captured keys, only after the lock is
+  released. Emission order is unchanged.
 - `NotificationVm::advance_by_ms` and `ConfirmationVm::advance_by_ms`
   saturate the elapsed clock. A large advance used to overflow: a panic in
   debug builds, and in release builds a wrapped clock that left the

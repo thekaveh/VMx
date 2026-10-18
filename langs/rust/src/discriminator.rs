@@ -148,7 +148,10 @@ impl<K: Clone + PartialEq + Send + 'static> DiscriminatorVm<K> {
         if *lock(&self.disposed) {
             return;
         }
-        lock(&self.modal_stack).clear();
+        // Saved keys are dropped after the lock is released: a user `Drop`
+        // may read this discriminator.
+        let frames = std::mem::take(&mut *lock(&self.modal_stack));
+        drop(frames);
     }
 
     /// Completes the change stream and makes subsequent mutations inert.
@@ -165,7 +168,8 @@ impl<K: Clone + PartialEq + Send + 'static> DiscriminatorVm<K> {
         if !should_dispose {
             return;
         }
-        lock(&self.modal_stack).clear();
+        let frames = std::mem::take(&mut *lock(&self.modal_stack));
+        drop(frames);
         self.active_changed.dispose();
         self.active_key_changes.dispose();
     }

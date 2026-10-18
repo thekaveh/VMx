@@ -223,13 +223,16 @@ where
     {
         let snapshot = items.into_iter().collect::<Vec<_>>();
         let admission = ServicedCollectionAdmission::acquire(Arc::clone(&self.delivery));
-        {
+        // Old items are dropped after the lock is released: a user `Drop`
+        // may read this collection.
+        let previous = {
             let mut inner = lock(&self.inner);
             if inner.is_empty() && snapshot.is_empty() {
                 return;
             }
-            *inner = snapshot;
-        }
+            std::mem::replace(&mut *inner, snapshot)
+        };
+        drop(previous);
         self.publish(admission, CollectionChangeAction::Reset, None, None);
     }
 
@@ -261,13 +264,14 @@ where
     /// Clears a non-empty collection and publishes one reset change.
     pub fn clear(&self) {
         let admission = ServicedCollectionAdmission::acquire(Arc::clone(&self.delivery));
-        {
+        let previous = {
             let mut inner = lock(&self.inner);
             if inner.is_empty() {
                 return;
             }
-            inner.clear();
-        }
+            std::mem::take(&mut *inner)
+        };
+        drop(previous);
         self.publish(admission, CollectionChangeAction::Reset, None, None);
     }
 
@@ -535,6 +539,8 @@ where
             }
             Self::remove_membership(&mut inner, index)
         };
+        let (removed, old_key) = removed;
+        drop(old_key);
         self.publish(admission, CollectionChangeAction::Remove, Some(index), None);
         Ok(removed)
     }
@@ -548,6 +554,8 @@ where
             let removed = Self::remove_membership(&mut inner, position);
             (position, removed)
         };
+        let (removed, old_key) = removed;
+        drop(old_key);
         self.publish(
             admission,
             CollectionChangeAction::Remove,
@@ -561,7 +569,7 @@ where
     pub fn replace(&self, index: usize, item: T) -> VmxResult<T> {
         let key = Arc::new((self.key_of)(&item)?);
         let admission = ServicedCollectionAdmission::acquire(Arc::clone(&self.delivery));
-        let old = {
+        let (old, old_key) = {
             let mut inner = lock(&self.inner);
             if index >= inner.items.len() {
                 return Err(VmxError::InvalidArgument("index out of range".to_string()));
@@ -573,12 +581,13 @@ where
             {
                 return Err(Self::duplicate_key_error());
             }
-            let old_key = Arc::clone(&inner.keys[index]);
+            let old_key = std::mem::replace(&mut inner.keys[index], Arc::clone(&key));
             inner.index_by_key.remove(old_key.as_ref());
-            inner.keys[index] = Arc::clone(&key);
             inner.index_by_key.insert(key, index);
-            std::mem::replace(&mut inner.items[index], item)
+            (std::mem::replace(&mut inner.items[index], item), old_key)
         };
+        // The captured key is dropped after the lock is released.
+        drop(old_key);
         self.publish(
             admission,
             CollectionChangeAction::Replace,
@@ -604,15 +613,19 @@ where
             keys.push(key);
         }
         let admission = ServicedCollectionAdmission::acquire(Arc::clone(&self.delivery));
-        {
+        // Old memberships and keys are dropped after the lock is released.
+        let previous = {
             let mut inner = lock(&self.inner);
             if inner.items.is_empty() && snapshot.is_empty() {
                 return Ok(());
             }
-            inner.items = snapshot;
-            inner.keys = keys;
-            inner.index_by_key = index_by_key;
-        }
+            (
+                std::mem::replace(&mut inner.items, snapshot),
+                std::mem::replace(&mut inner.keys, keys),
+                std::mem::replace(&mut inner.index_by_key, index_by_key),
+            )
+        };
+        drop(previous);
         self.publish(admission, CollectionChangeAction::Reset, None, None);
         Ok(())
     }
@@ -623,23 +636,23 @@ where
     pub fn upsert(&self, item: T) -> VmxResult<bool> {
         let key = Arc::new((self.key_of)(&item)?);
         let admission = ServicedCollectionAdmission::acquire(Arc::clone(&self.delivery));
-        let (added, index) = {
+        let (added, index, replaced) = {
             let mut inner = lock(&self.inner);
             if let Some(index) = inner.index_by_key.get(key.as_ref()).copied() {
-                let old_key = Arc::clone(&inner.keys[index]);
+                let old_key = std::mem::replace(&mut inner.keys[index], Arc::clone(&key));
                 inner.index_by_key.remove(old_key.as_ref());
-                inner.keys[index] = Arc::clone(&key);
                 inner.index_by_key.insert(key, index);
-                inner.items[index] = item;
-                (false, index)
+                let old_item = std::mem::replace(&mut inner.items[index], item);
+                (false, index, Some((old_item, old_key)))
             } else {
                 let index = inner.items.len();
                 inner.items.push(item);
                 inner.keys.push(Arc::clone(&key));
                 inner.index_by_key.insert(key, index);
-                (true, index)
+                (true, index, None)
             }
         };
+        drop(replaced);
         if added {
             self.publish(admission, CollectionChangeAction::Add, None, Some(index));
             Ok(true)
@@ -685,15 +698,15 @@ where
     /// Clears every membership and captured key, publishing one reset.
     pub fn clear(&self) {
         let admission = ServicedCollectionAdmission::acquire(Arc::clone(&self.delivery));
-        {
+        // Memberships and keys are dropped after the lock is released.
+        let previous = {
             let mut inner = lock(&self.inner);
             if inner.items.is_empty() {
                 return;
             }
-            inner.items.clear();
-            inner.keys.clear();
-            inner.index_by_key.clear();
-        }
+            std::mem::take(&mut *inner)
+        };
+        drop(previous);
         self.publish(admission, CollectionChangeAction::Reset, None, None);
     }
 
@@ -701,12 +714,17 @@ where
         VmxError::InvalidArgument("duplicate key".to_string())
     }
 
-    fn remove_membership(inner: &mut KeyedServicedCollectionState<K, T>, index: usize) -> T {
+    /// Removes a membership, returning its item and captured key so the
+    /// caller drops both after releasing the lock.
+    fn remove_membership(
+        inner: &mut KeyedServicedCollectionState<K, T>,
+        index: usize,
+    ) -> (T, Arc<K>) {
         let removed = inner.items.remove(index);
         let old_key = inner.keys.remove(index);
         inner.index_by_key.remove(&old_key);
         Self::repair_indices(inner, index);
-        removed
+        (removed, old_key)
     }
 
     fn repair_indices(inner: &mut KeyedServicedCollectionState<K, T>, start: usize) {
@@ -959,15 +977,16 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
     {
         let snapshot: Vec<T> = items.into_iter().collect();
         let new_count = snapshot.len();
-        let old_count = {
+        let previous = {
             let mut inner = lock(&self.inner);
-            let old_count = inner.len();
-            if old_count == 0 && snapshot.is_empty() {
+            if inner.is_empty() && snapshot.is_empty() {
                 return;
             }
-            *inner = snapshot;
-            old_count
+            std::mem::replace(&mut *inner, snapshot)
         };
+        let old_count = previous.len();
+        // Old items are dropped after the lock is released.
+        drop(previous);
         self.publish(
             CollectionChangeAction::Reset,
             None,
@@ -1010,10 +1029,9 @@ impl<T: Clone + Send + 'static> ObservableList<T> {
     }
 
     pub(crate) fn clear_silent(&self) -> bool {
-        let mut inner = lock(&self.inner);
-        let changed = !inner.is_empty();
-        inner.clear();
-        changed
+        let previous = std::mem::take(&mut *lock(&self.inner));
+        // Items are dropped after the lock is released.
+        !previous.is_empty()
     }
 
     pub(crate) fn publish_reset(&self) {

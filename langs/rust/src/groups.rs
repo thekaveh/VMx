@@ -129,17 +129,22 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             if reconstruct_core
                 .transition_with(LifecycleOperation::Destruct, || {
                     for item in reconstruct_items.to_vec() {
-                        item.destruct()?;
+                        reconstruct_core.transition_child(&item, LifecycleOperation::Destruct)?;
                     }
                     Ok(())
                 })
                 .is_ok()
             {
-                let _ = reconstruct_core.transition_with(LifecycleOperation::Construct, || {
-                    for item in reconstruct_items.to_vec() {
-                        item.construct()?;
-                    }
-                    Ok(())
+                let construct_core = reconstruct_core.clone();
+                let construct_items = reconstruct_items.clone();
+                let _ = reconstruct_core.construct_after_destruct(move || {
+                    construct_core.transition_with(LifecycleOperation::Construct, || {
+                        for item in construct_items.to_vec() {
+                            construct_core
+                                .transition_child(&item, LifecycleOperation::Construct)?;
+                        }
+                        Ok(())
+                    })
                 });
             }
         });
@@ -164,6 +169,12 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
     /// Returns the message hub used by the group and its collection.
     pub fn hub(&self) -> MessageHub {
         self.core.hub()
+    }
+
+    /// Returns the hot error stream for child lifecycle failures that settle
+    /// after `construct`/`destruct` returned (background children).
+    pub fn background_errors(&self) -> crate::LifecycleErrorStream {
+        self.core.background_errors()
     }
 
     /// Registers cleanup work that runs when the group is disposed.
@@ -711,7 +722,8 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
         self.core
             .transition_with(LifecycleOperation::Construct, || {
                 for item in self.items() {
-                    item.construct()?;
+                    self.core
+                        .transition_child(&item, LifecycleOperation::Construct)?;
                 }
                 Ok(())
             })
@@ -721,7 +733,8 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
     pub fn destruct(&self) -> VmxResult<()> {
         self.core.transition_with(LifecycleOperation::Destruct, || {
             for item in self.items() {
-                item.destruct()?;
+                self.core
+                    .transition_child(&item, LifecycleOperation::Destruct)?;
             }
             Ok(())
         })
@@ -729,6 +742,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
 
     /// Disposes all children and the group, returning the first encountered error.
     pub fn dispose(&self) -> VmxResult<()> {
+        self.core.abandon_child_settle();
         let snapshot = loop {
             let _gate = lock(&self.membership_gate);
             match self.membership_transaction_control.dispose_disposition() {
@@ -808,7 +822,9 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             });
         }
         self.destruct()?;
-        self.construct()
+        let group = self.clone();
+        self.core
+            .construct_after_destruct(move || group.construct())
     }
 
     /// Reports whether the group is constructed.
@@ -978,6 +994,10 @@ impl<T: VmNode, D: Dispatcher> VmNode for GroupVm<T, D> {
 
     fn set_current_flag(&self, is_current: bool) {
         self.core.set_current_flag(is_current);
+    }
+
+    fn when_lifecycle_settled(&self, callback: crate::LifecycleSettleCallback) -> bool {
+        self.core.when_settled(callback)
     }
 
     fn is_current(&self) -> bool {
