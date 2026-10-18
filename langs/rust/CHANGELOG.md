@@ -64,8 +64,10 @@ project adheres to [Semantic Versioning](https://semver.org/).
   `GroupVm` while it is Constructing is no longer left Destructed while the
   container reaches Constructed (spec/02 §6). The add now constructs a
   Destructed child at once and leaves a Constructing or Constructed child
-  alone. The construct walk, including the one `reconstruct` runs, then joins
-  each member added during the walk without restarting it. The container stays
+  alone. The construct walk, including the one `reconstruct` runs, joins
+  without restarting it a member that is already Constructing, for example one
+  added by the container's construct hook. It also joins each member added
+  during the walk. The container stays
   Constructing until that child settles. If the child fails, the container
   rolls back once and reports the failure. A child added after the walk ends
   is constructed but not awaited. Nothing changes with auto-construct off.

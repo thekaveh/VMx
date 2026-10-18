@@ -121,13 +121,14 @@ internal static class ComponentVMExtensions
             : vm.ConstructAsync();
 
     // A custom IComponentVM exposes no join, so one still Constructing is
-    // driven through its own ConstructAsync.
+    // driven through its own ConstructAsync. Any other status is final: a
+    // joined child is never restarted.
     internal static Task JoinConstructAsync(this IComponentVM vm)
         => vm is IComponentVMInternals internals
             ? internals.JoinConstructAsync()
-            : vm.Status == ConstructionStatus.Constructed
-                ? Task.CompletedTask
-                : vm.ConstructAsync();
+            : vm.Status == ConstructionStatus.Constructing
+                ? vm.ConstructAsync()
+                : Task.CompletedTask;
 }
 
 /// <summary>Shared identity validation and old-parent staging for container mutations.</summary>

@@ -57,7 +57,7 @@ add or insert attach rollback:
 - Swift reports `.attachmentFailed(compensationError)` and Rust returns the
   compensation error. Both drop the original failure (for example
   `langs/swift/Sources/VMx/Composites/CompositeVM.swift:423-424` and
-  `langs/rust/src/groups.rs:323`).
+  `langs/rust/src/groups.rs:328`).
 
 On the ordinary construct path no flavor rolls back siblings that already
 constructed. The spec does not say whether it should.
@@ -121,6 +121,15 @@ With auto-construct on, a child added while a container is `Constructing` is
 joined by the construct walk (chapter 06 §5.1). C#, Python and TypeScript pass
 the live membership to the `Current(selector)` callback. Swift passes the
 membership taken before the walk, so the selector does not see a late child.
+
+### 2.8. Removing a child during the construct walk
+
+Every flavor walks a fixed snapshot of the members present when construct
+starts, then (with auto-construct on) members added later. A snapshot child
+removed during the walk is still constructed, and a removed background child
+is still awaited: if it then fails, the container rolls back although it no
+longer owns that child. A late child removed before the walk reaches it is
+skipped. The spec does not say which behavior is intended.
 
 ## 3. Swift signatures that cannot throw
 

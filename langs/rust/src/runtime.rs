@@ -3161,9 +3161,10 @@ impl<D: Dispatcher> ComponentCore<D> {
             }
     }
 
-    /// The construct walk of a container: constructs each current member,
-    /// then, when `join_late` (auto-construct-on-add) is set, joins each
-    /// member added while the walk runs until none remain, then runs `then`.
+    /// The construct walk of a container: constructs each current member
+    /// (joining one already Constructing), then, when `join_late`
+    /// (auto-construct-on-add) is set, joins each member added while the walk
+    /// runs until none remain, then runs `then`.
     /// A late member was already started by its add, so it is awaited, never
     /// restarted; one that is not Constructing or Constructed by then failed
     /// and rolls the container back (spec/02 §6).
@@ -3176,7 +3177,17 @@ impl<D: Dispatcher> ComponentCore<D> {
         let snapshot = members();
         let visited: HashSet<usize> = snapshot.iter().map(VmNode::id).collect();
         for child in snapshot {
-            self.transition_child(&child, LifecycleOperation::Construct)?;
+            // A member already Constructing (started by an auto-construct add
+            // before this walk began) is joined, not restarted; a Constructed
+            // one passes and a Destructed one is constructed (spec/02 §6).
+            let core = self.clone();
+            self.child_step(Box::new(move || {
+                if child.status() == ConstructionStatus::Constructing {
+                    core.await_child(&child, ConstructionStatus::Constructed)
+                } else {
+                    core.run_child_transition(&child, LifecycleOperation::Construct)
+                }
+            }))?;
         }
         if !join_late {
             return self.child_step(then);

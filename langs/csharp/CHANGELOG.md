@@ -43,10 +43,11 @@ All notable changes to the C# flavor are documented here. The format is based on
   child added while the container is still `Constructing` (waiting on a
   background child) and wait for it before reaching `Constructed` (spec/02 §6,
   spec/06 §5.1). The child walk joins such a child like a population child, so
-  one that fails rolls the container back and its hook runs once. Before, the
-  add skipped auto-construction until the container was `Constructed` and the
-  walk used a snapshot taken before the add, so the container reached
-  `Constructed` with the added child still `Destructed`.
+  one that fails while the walk waits on it rolls the container back and its
+  hook runs once. Before, the add skipped auto-construction until the
+  container was `Constructed` and the walk used a snapshot taken before the
+  add, so the container reached `Constructed` with the added child still
+  `Destructed`.
 - Fixed: a custom `IComponentVM` child that a children factory leaves
   `Constructing` is driven through its own `ConstructAsync()`. Before, the
   container's construct failed with "did not reach Constructed".

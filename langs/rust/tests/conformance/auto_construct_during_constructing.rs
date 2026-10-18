@@ -4,8 +4,9 @@
 
 use std::sync::{mpsc, Arc, Mutex};
 use vmx::{
-    CompositeVm, ConstructionStatus, GroupVm, LifecycleErrorStream, LifecycleSettleCallback,
-    Message, MessageHub, NullDispatcher, ParentHandle, Subscription, VmNode, VmxResult,
+    ComponentVm, CompositeVm, ConstructionStatus, GroupVm, LifecycleErrorStream,
+    LifecycleSettleCallback, ManualDispatcher, Message, MessageHub, NullDispatcher, ParentHandle,
+    Subscription, VmNode, VmxResult,
 };
 
 /// A node whose construct either completes at once (foreground) or stays
@@ -322,4 +323,86 @@ fn group_rolls_back_once_when_late_child_fails() {
 #[test]
 fn group_without_auto_construct_ignores_late_child() {
     auto_construct_off_leaves_late_child_alone::<GroupVm<Node>>();
+}
+
+type Leaf = ComponentVm<i32, ManualDispatcher>;
+
+/// Statuses `id` published on `hub`, in order.
+fn statuses(
+    log: &Arc<Mutex<Vec<(usize, ConstructionStatus)>>>,
+    id: usize,
+) -> Vec<ConstructionStatus> {
+    log.lock()
+        .unwrap()
+        .iter()
+        .filter(|(sender, _)| *sender == id)
+        .map(|(_, status)| *status)
+        .collect()
+}
+
+/// Adds a real background `ComponentVm` from the container's construct hook,
+/// i.e. while it is Constructing but before its walk takes the snapshot, and
+/// checks the walk joins that already-started child instead of restarting it.
+macro_rules! child_added_by_construct_hook_is_joined {
+    ($container:ident) => {{
+        let hub = MessageHub::new();
+        let dispatcher = ManualDispatcher::new();
+        let container: $container<Leaf, ManualDispatcher> =
+            $container::with_services("container", hub.clone(), dispatcher.clone());
+        container.set_auto_construct_on_add(true);
+        let child: Leaf = ComponentVm::builder()
+            .name("child")
+            .model(1)
+            .background(true)
+            .services(hub.clone(), dispatcher.clone())
+            .build()
+            .unwrap();
+        let target = container.clone();
+        let added = child.clone();
+        container.on_construct(move || target.add(added.clone()));
+        let log: Arc<Mutex<Vec<(usize, ConstructionStatus)>>> = Arc::default();
+        let sink = Arc::clone(&log);
+        let _subscription = hub.subscribe(move |message| {
+            if let Message::ConstructionStatusChanged(change) = message {
+                sink.lock().unwrap().push((change.sender_id, change.status));
+            }
+        });
+
+        assert_eq!(container.construct(), Ok(()));
+        assert_eq!(container.status(), ConstructionStatus::Constructing);
+        assert_eq!(child.status(), ConstructionStatus::Constructing);
+        dispatcher.drain();
+
+        assert_eq!(child.status(), ConstructionStatus::Constructed);
+        assert_eq!(container.status(), ConstructionStatus::Constructed);
+        assert_eq!(
+            statuses(&log, child.id()),
+            vec![
+                ConstructionStatus::Constructing,
+                ConstructionStatus::Constructed
+            ]
+        );
+        assert_eq!(
+            statuses(&log, container.id()),
+            vec![
+                ConstructionStatus::Constructing,
+                ConstructionStatus::Constructed
+            ]
+        );
+        container.on_construct(|| Ok(()));
+    }};
+}
+
+/// LIFE-014 — a background child that a composite's construct hook adds with
+/// auto-construct-on-add is joined by the walk, not constructed a second time.
+#[test]
+fn composite_joins_child_added_by_its_construct_hook() {
+    child_added_by_construct_hook_is_joined!(CompositeVm);
+}
+
+/// LIFE-014 — a background child that a group's construct hook adds with
+/// auto-construct-on-add is joined by the walk, not constructed a second time.
+#[test]
+fn group_joins_child_added_by_its_construct_hook() {
+    child_added_by_construct_hook_is_joined!(GroupVm);
 }

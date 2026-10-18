@@ -282,8 +282,9 @@ the composite reaches `Constructed`, completing the child's transition to
 With `AutoConstructOnAdd(true)`, a child added while the composite is still
 `Constructing` is also started, and the composite's construct walk joins it:
 the composite reaches `Constructed` only after that child does (chapter 02 §6).
-A late child whose construction fails rolls the composite back; it is never
-restarted.
+A late child is never restarted. If its construction fails during the add, the
+add fails and is undone. If it fails later, while the walk waits on it, the
+composite rolls back.
 
 ## 6. Modeled variant `CompositeVM<M, VM>`
 
