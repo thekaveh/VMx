@@ -155,7 +155,7 @@ final class HierarchicalCompositionTests: XCTestCase {
 
     /// HIER-014 — ModeledCrudCommands composition mutates the HierarchicalVM tree:
     /// createNewCommand appends a child node; deleteCurrentCommand removes it.
-    func testHier014ModeledCrudCommandsMutatesTree() {
+    func testHier014ModeledCrudCommandsMutatesTree() throws {
         let hub = MessageHub()
         let root = CrudHierNode(
             model: HierModel(value: "root"),
@@ -187,12 +187,25 @@ final class HierarchicalCompositionTests: XCTestCase {
             }
         )
 
+        var treeMsgs: [TreeStructureChangedMessage] = []
+        var bag = Set<AnyCancellable>()
+        hub.messages.sink { msg in
+            if let m = msg as? TreeStructureChangedMessage { treeMsgs.append(m) }
+        }.store(in: &bag)
+
         // Create: createNewCommand adds a child and sets current.
         crud.createNewCommand.execute()
         XCTAssertEqual(root.children.count, 1,
             "createNewCommand must append a child to root")
         XCTAssertNotNil(currentHolder.value,
             "current must be set after createNewCommand")
+        let created = try XCTUnwrap(currentHolder.value)
+        XCTAssertTrue(root.children[0] === created)
+        XCTAssertEqual(treeMsgs.map(\.change), [.added],
+            "createNewCommand must publish one TreeStructureChangedMessage(.added)")
+        XCTAssertTrue(treeMsgs.first?.sender === root)
+        XCTAssertTrue(treeMsgs.first?.affected === created)
+        treeMsgs.removeAll()
 
         // Delete: deleteCurrentCommand removes current child and clears selection.
         crud.deleteCurrentCommand.execute()
@@ -200,6 +213,11 @@ final class HierarchicalCompositionTests: XCTestCase {
             "deleteCurrentCommand must remove the child from root")
         XCTAssertNil(currentHolder.value,
             "current must be cleared after deleteCurrentCommand")
+        XCTAssertEqual(treeMsgs.map(\.change), [.removed],
+            "deleteCurrentCommand must publish one TreeStructureChangedMessage(.removed)")
+        XCTAssertTrue(treeMsgs.first?.sender === root)
+        XCTAssertTrue(treeMsgs.first?.affected === created)
+        bag.removeAll()
 
         crud.dispose()
     }

@@ -123,7 +123,8 @@ final class NotificationVMTests: XCTestCase {
         sut.dispose()
     }
 
-    /// NOTIF-012 — a disposed VM's expiry hook no longer resolves the hub.
+    /// Supplementary disposal check (not NOTIF-012 auto-dismiss): a disposed
+    /// VM's expiry hook no longer resolves the hub.
     func testNotif012ExpiryAfterDisposeIsInert() async {
         let scheduler = VirtualTimeScheduler()
         let hub = NotificationHub()

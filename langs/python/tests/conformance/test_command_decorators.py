@@ -190,34 +190,33 @@ def test_CMDD_008_confirmation_can_execute_delegates() -> None:
 
 
 @pytest.mark.conformance("CMDD-009")
-def test_CMDD_009_decorators_compose() -> None:
+async def test_CMDD_009_decorators_compose() -> None:
+    """CMDD-009: executing the OUTER decorator ``dec`` reaches ``relay``
+    exactly once through the confirmation layer."""
     log: list[str] = []
     relay = _recording_command(log, "relay", True)
+    confirm_calls = 0
 
     async def _confirm() -> bool:
+        nonlocal confirm_calls
+        confirm_calls += 1
         return True
 
     conf = ConfirmationDecoratorCommand(relay, confirm=_confirm)
     dec = DecoratorCommand(conf)
 
-    # dec.execute() kicks off async; we explicitly run the confirmation
-    async def _run() -> None:
-        await conf.execute_async()  # bypass dec.execute fire-and-forget for sync test
+    assert dec.can_execute()
+    dec.execute()  # dec → conf.execute (schedules confirm on this loop) → relay
 
-    # First verify the chain executes correctly via direct call
-    asyncio.run(_run())
-    assert log == ["relay"]
+    for _ in range(20):
+        if log:
+            break
+        await asyncio.sleep(0)
+    # Let any stray duplicate invocation surface before asserting "exactly one".
+    for _ in range(5):
+        await asyncio.sleep(0)
 
-    # And via dec which internally calls inner.execute (which fires-and-forgets)
-    log.clear()
-
-    # dec.execute() → conf.execute() → fire-and-forget asyncio task; need event loop
-    async def _via_dec() -> None:
-        # We use can_execute + manual execute_async to ensure we await
-        if dec.can_execute():
-            await conf.execute_async()
-
-    asyncio.run(_via_dec())
+    assert confirm_calls == 1
     assert log == ["relay"]
 
 

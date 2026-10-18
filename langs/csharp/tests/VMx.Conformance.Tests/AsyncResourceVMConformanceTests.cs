@@ -568,16 +568,56 @@ public sealed class AsyncResourceVMConformanceTests
             return ++attempt == 1 ? first.Task : second.Task;
         });
 
+        var notifications = new List<string>();
+        vm.PropertyChanged += (_, e) => notifications.Add($"property:{e.PropertyName}");
+        vm.LoadCommand.CanExecuteChanged += (_, _) => notifications.Add("command:load");
+        vm.ReloadCommand.CanExecuteChanged += (_, _) => notifications.Add("command:reload");
+        vm.CancelCommand.CanExecuteChanged += (_, _) => notifications.Add("command:cancel");
+
         var older = vm.LoadAsync();
         var newer = vm.ReloadAsync();
-        tokens[0].IsCancellationRequested.Should().BeTrue();
+        tokens.Should().HaveCount(2);
+        tokens[0].IsCancellationRequested.Should().BeTrue("the older loader receives cancellation");
+        tokens[1].IsCancellationRequested.Should().BeFalse();
+        var beforeOlderSettles = notifications.Count;
         first.SetResult(1);
         await older;
+        notifications.Should().HaveCount(beforeOlderSettles,
+            "the older completion causes no state or command notification");
         vm.State.Status.Should().Be(AsyncResourceStatus.Loading);
         second.SetResult(2);
         await newer;
         vm.State.Status.Should().Be(AsyncResourceStatus.Ready);
         vm.State.Value.Should().Be(2);
+    }
+
+    [Fact, Trait("Conformance", "ARES-008")]
+    public async Task ARES_008_Older_Failure_After_Newer_Success_Is_Silent()
+    {
+        using var hub = new MessageHub();
+        var first = NewSource<int>();
+        var second = NewSource<int>();
+        var attempt = 0;
+        var vm = Create(hub, _ => ++attempt == 1 ? first.Task : second.Task);
+        var notifications = new List<string>();
+        vm.PropertyChanged += (_, e) => notifications.Add($"property:{e.PropertyName}");
+        vm.LoadCommand.CanExecuteChanged += (_, _) => notifications.Add("command:load");
+        vm.ReloadCommand.CanExecuteChanged += (_, _) => notifications.Add("command:reload");
+        vm.CancelCommand.CanExecuteChanged += (_, _) => notifications.Add("command:cancel");
+
+        var older = vm.LoadAsync();
+        var newer = vm.ReloadAsync();
+        second.SetResult(2);
+        await newer;
+        var afterNewer = notifications.Count;
+        first.SetException(new InvalidOperationException("stale failure"));
+        await Record.ExceptionAsync(() => older);
+
+        notifications.Should().HaveCount(afterNewer,
+            "the older failure causes no state or command notification");
+        vm.State.Status.Should().Be(AsyncResourceStatus.Ready);
+        vm.State.Value.Should().Be(2);
+        vm.State.Error.Should().BeNull("only the newer outcome determines the final state");
     }
 
     [Fact, Trait("Conformance", "ARES-009")]
@@ -621,6 +661,39 @@ public sealed class AsyncResourceVMConformanceTests
         vm.Dispose();
         vm.Dispose();
         cleaned.Should().Equal(1, 2);
+    }
+
+    private sealed class DisposableValue : IDisposable
+    {
+        public int DisposeCalls;
+        public void Dispose() => DisposeCalls++;
+    }
+
+    [Fact, Trait("Conformance", "ARES-010")]
+    public async Task ARES_010_Without_Cleanup_No_Value_Is_Disposed()
+    {
+        using var hub = new MessageHub();
+        var values = new List<DisposableValue>();
+        var vm = new AsyncResourceVM<DisposableValue>(
+            "resource",
+            _ =>
+            {
+                var value = new DisposableValue();
+                values.Add(value);
+                return Task.FromResult(value);
+            },
+            hub,
+            new TestDispatcher(),
+            retention: AsyncResourceRetention.RetainPrevious);
+
+        await vm.LoadAsync();
+        await vm.ReloadAsync();
+        vm.Dispose();
+        vm.Dispose();
+
+        values.Should().HaveCount(2);
+        values.Should().OnlyContain(value => value.DisposeCalls == 0,
+            "without cleanup no value is reflectively or implicitly disposed");
     }
 
     [Fact, Trait("Conformance", "ARES-010")]

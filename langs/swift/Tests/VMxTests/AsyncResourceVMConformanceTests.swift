@@ -111,6 +111,19 @@ private final class LockedCount: @unchecked Sendable {
     }
 }
 
+/// Runs `body` inside a task-cancellation handler that counts every
+/// cancellation delivered to the calling loader task.
+private func recordingCancellation<Value>(
+    _ count: LockedCount,
+    _ body: () async throws -> Value
+) async rethrows -> Value {
+    try await withTaskCancellationHandler {
+        try await body()
+    } onCancel: {
+        count.increment()
+    }
+}
+
 private final class WeakAsyncResourceBox<Value>: @unchecked Sendable {
     weak var value: AsyncResourceVM<Value>?
 }
@@ -142,17 +155,53 @@ final class AsyncResourceVMConformanceTests: XCTestCase {
     }
 
     /// ARES-002 — successful load reaches Ready and notifies state.
+    /// Catalog clauses: Loading is observable before Ready(value), each
+    /// visible transition publishes exactly one local + one hub "state"
+    /// notification, and after success reload is enabled while load and
+    /// cancel are disabled.
     func testAres002SuccessfulLoadNotifies() async {
-        let vm = makeAsyncResourceVM { 7 }
-        let names = LockedValues<String>()
-        let cancellable = vm.propertyChanged.sink { names.append($0) }
+        let deferred = DeferredValue<Int>()
+        let hub = MessageHub()
+        let vm = AsyncResourceVM(
+            name: "resource",
+            loader: deferred.get,
+            hub: hub,
+            dispatcher: ImmediateDispatcher.INSTANCE
+        )
+        let localStatuses = LockedValues<AsyncResourceStatus>()
+        let localNames = LockedValues<String>()
+        let hubNames = LockedValues<String>()
+        let localCancellable = vm.propertyChanged.sink { name in
+            localNames.append(name)
+            localStatuses.append(vm.state.status)
+        }
+        let hubCancellable = hub.messages
+            .compactMap { $0 as? PropertyChangedMessage }
+            .filter { $0.sender === vm }
+            .sink { hubNames.append($0.propertyName) }
 
-        await vm.load()
+        let intent = Task { await vm.load() }
+        await fulfillment(of: [deferred.parked], timeout: signalTimeout)
+
+        // Loading snapshot: exactly one state pair so far.
+        XCTAssertEqual(vm.state.status, .loading)
+        XCTAssertNil(vm.state.value)
+        XCTAssertEqual(localNames.values, ["state"])
+        XCTAssertEqual(hubNames.values, ["state"])
+        XCTAssertEqual(localStatuses.values, [.loading])
+
+        deferred.resolve(7)
+        await intent.value
 
         XCTAssertEqual(vm.state.status, .ready)
         XCTAssertEqual(vm.state.value, 7)
-        XCTAssertEqual(names.values, ["state", "state"])
-        cancellable.cancel()
+        XCTAssertEqual(localNames.values, ["state", "state"])
+        XCTAssertEqual(hubNames.values, ["state", "state"])
+        XCTAssertEqual(localStatuses.values, [.loading, .ready])
+        XCTAssertTrue(vm.reloadCommand.canExecute())
+        XCTAssertFalse(vm.loadCommand.canExecute())
+        XCTAssertFalse(vm.cancelCommand.canExecute())
+        withExtendedLifetime((localCancellable, hubCancellable)) {}
     }
 
     /// ARES-003 — loader failure becomes Error without escaping the intent.
@@ -270,13 +319,20 @@ final class AsyncResourceVMConformanceTests: XCTestCase {
     }
 
     /// ARES-006 — retained reload exposes and restores the previous value.
+    /// Catalog clauses: Loading carries the old value, cancellation restores
+    /// Ready(old) without cleaning it, and a later failed reload is Error
+    /// carrying the old value and the current host error.
     func testAres006RetainedReloadRestoresValue() async {
         let deferred = DeferredValue<Int>()
         let queue = LoaderQueue<Int>([
             { 3 },
             { await deferred.get() },
+            { throw AsyncResourceTestError.failed },
         ])
-        let vm = makeAsyncResourceVM(loader: queue.load, retention: .retainPrevious)
+        let cleaned = LockedValues<Int>()
+        let vm = makeAsyncResourceVM(loader: queue.load, retention: .retainPrevious) {
+            cleaned.append($0)
+        }
         await vm.load()
         let intent = Task { await vm.reload() }
         await fulfillment(of: [deferred.parked], timeout: signalTimeout)
@@ -287,50 +343,147 @@ final class AsyncResourceVMConformanceTests: XCTestCase {
         await intent.value
         XCTAssertEqual(vm.state.status, .ready)
         XCTAssertEqual(vm.state.value, 3)
+        XCTAssertEqual(cleaned.values, [])
+
+        await vm.reload()
+        XCTAssertEqual(vm.state.status, .error)
+        XCTAssertEqual(vm.state.value, 3)
+        XCTAssertTrue(vm.state.error is AsyncResourceTestError)
+        XCTAssertEqual(cleaned.values, [])
         deferred.resolve(4)
     }
 
     /// ARES-007 — discard mode releases the accepted value before loading.
+    /// Catalog clauses: the old value is cleaned exactly once before the
+    /// value-less Loading notification, cancellation restores Idle, and a
+    /// later current failure is a value-less Error.
     func testAres007DiscardReleasesBeforeLoading() async {
         let deferred = DeferredValue<Int>()
         let queue = LoaderQueue<Int>([
             { 3 },
             { await deferred.get() },
+            { throw AsyncResourceTestError.failed },
         ])
         let cleaned = LockedValues<Int>()
         let vm = makeAsyncResourceVM(loader: queue.load) { cleaned.append($0) }
         await vm.load()
+        let cleanedAtLoading = LockedValues<[Int]>()
+        let subscription = vm.propertyChanged.sink { _ in
+            if vm.state.status == .loading {
+                cleanedAtLoading.append(cleaned.values)
+            }
+        }
         let intent = Task { await vm.reload() }
         await fulfillment(of: [deferred.parked], timeout: signalTimeout)
         XCTAssertEqual(vm.state.status, .loading)
 
         XCTAssertNil(vm.state.value)
         XCTAssertEqual(cleaned.values, [3])
+        XCTAssertEqual(cleanedAtLoading.values, [[3]])
+
         vm.cancel()
         await intent.value
+        XCTAssertEqual(vm.state.status, .idle)
+        XCTAssertNil(vm.state.value)
+
+        // From Idle the next current operation is a load; it fails value-less.
+        await vm.load()
+        XCTAssertEqual(vm.state.status, .error)
+        XCTAssertNil(vm.state.value)
+        XCTAssertTrue(vm.state.error is AsyncResourceTestError)
+        XCTAssertEqual(cleaned.values, [3])
+        withExtendedLifetime(subscription) {}
         deferred.resolve(4)
     }
 
     /// ARES-008 — overlapping operations use latest-start-wins ordering.
+    /// Catalog clauses: the older loader receives cancellation when the newer
+    /// operation is admitted; only the newer settlement determines the final
+    /// state; the older completion publishes no state or command notification.
+    /// Order covered here: newer succeeds, then the older loader succeeds.
     func testAres008LatestStartWins() async {
         let first = DeferredValue<Int>()
         let second = DeferredValue<Int>()
+        let olderCancellations = LockedCount()
         let queue = LoaderQueue<Int>([
-            { await first.get() },
+            { await recordingCancellation(olderCancellations) { await first.get() } },
             { await second.get() },
         ])
-        let vm = makeAsyncResourceVM(loader: queue.load)
+        let cleaned = LockedValues<Int>()
+        let vm = makeAsyncResourceVM(loader: queue.load) { cleaned.append($0) }
+        let notifications = LockedCount()
+        let cancellables = [vm.propertyChanged.sink { _ in notifications.increment() }]
+            + [vm.loadCommand.canExecuteChanged, vm.reloadCommand.canExecuteChanged,
+               vm.cancelCommand.canExecuteChanged]
+            .map { $0.sink { notifications.increment() } }
         let older = Task { await vm.load() }
         await fulfillment(of: [first.parked], timeout: signalTimeout)
         XCTAssertEqual(vm.state.status, .loading)
         let newer = Task { await vm.reload() }
+        await fulfillment(of: [second.parked], timeout: signalTimeout)
+        XCTAssertEqual(olderCancellations.value, 1)
+        XCTAssertEqual(vm.state.status, .loading)
         second.resolve(2)
         await newer.value
-        first.resolve(1)
-        await older.value
-
         XCTAssertEqual(vm.state.status, .ready)
         XCTAssertEqual(vm.state.value, 2)
+
+        let settledNotifications = notifications.value
+        // The stale success is cleaned (configured cleanup), which is the
+        // observable signal that the older completion was processed.
+        let staleProcessed = cleaned.expectation(forCount: 1, "older completion processed")
+        first.resolve(1)
+        await older.value
+        await fulfillment(of: [staleProcessed], timeout: signalTimeout)
+
+        XCTAssertEqual(notifications.value, settledNotifications)
+        XCTAssertEqual(vm.state.status, .ready)
+        XCTAssertEqual(vm.state.value, 2)
+        XCTAssertEqual(olderCancellations.value, 1)
+        withExtendedLifetime(cancellables) {}
+    }
+
+    /// ARES-008 — the older loader settles first; the newer failure decides.
+    func testAres008OlderSettlesFirstNewerFailureDecides() async {
+        let first = DeferredValue<Int>()
+        let second = DeferredValue<Int>()
+        let olderCancellations = LockedCount()
+        let queue = LoaderQueue<Int>([
+            { await recordingCancellation(olderCancellations) { await first.get() } },
+            {
+                _ = await second.get()
+                throw AsyncResourceTestError.failed
+            },
+        ])
+        let cleaned = LockedValues<Int>()
+        let vm = makeAsyncResourceVM(loader: queue.load) { cleaned.append($0) }
+        let notifications = LockedCount()
+        let cancellables = [vm.propertyChanged.sink { _ in notifications.increment() }]
+            + [vm.loadCommand.canExecuteChanged, vm.reloadCommand.canExecuteChanged,
+               vm.cancelCommand.canExecuteChanged]
+            .map { $0.sink { notifications.increment() } }
+        let older = Task { await vm.load() }
+        await fulfillment(of: [first.parked], timeout: signalTimeout)
+        let newer = Task { await vm.reload() }
+        await fulfillment(of: [second.parked], timeout: signalTimeout)
+        XCTAssertEqual(olderCancellations.value, 1)
+
+        let loadingNotifications = notifications.value
+        let staleProcessed = cleaned.expectation(forCount: 1, "older completion processed")
+        first.resolve(1)
+        await older.value
+        await fulfillment(of: [staleProcessed], timeout: signalTimeout)
+        XCTAssertEqual(notifications.value, loadingNotifications)
+        XCTAssertEqual(vm.state.status, .loading)
+        XCTAssertNil(vm.state.value)
+
+        second.resolve(0)
+        await newer.value
+        XCTAssertEqual(vm.state.status, .error)
+        XCTAssertNil(vm.state.value)
+        XCTAssertTrue(vm.state.error is AsyncResourceTestError)
+        XCTAssertEqual(cleaned.values, [1])
+        withExtendedLifetime(cancellables) {}
     }
 
     /// ARES-009 — stale success is cleaned without another state notification.
@@ -376,10 +529,35 @@ final class AsyncResourceVMConformanceTests: XCTestCase {
 
         await vm.load()
         await vm.reload()
+        XCTAssertEqual(cleaned.values, [1])
         vm.dispose()
         vm.dispose()
 
         XCTAssertEqual(cleaned.values, [1, 2])
+    }
+
+    /// ARES-010 — without cleanup, neither a replaced nor the current value is
+    /// implicitly disposed (values here are VMx view models).
+    func testAres010WithoutCleanupNoValueIsDisposed() async {
+        let hub = MessageHub()
+        let produced = LockedValues<ComponentVMBase>()
+        let vm = makeAsyncResourceVM(loader: {
+            let value = ComponentVMBase(
+                name: "value", hub: hub, dispatcher: ImmediateDispatcher.INSTANCE
+            )
+            produced.append(value)
+            return value
+        }, retention: .retainPrevious)
+
+        await vm.load()
+        await vm.reload()
+        vm.dispose()
+        vm.dispose()
+
+        XCTAssertEqual(produced.values.count, 2)
+        for value in produced.values {
+            XCTAssertNotEqual(value.status, .disposed)
+        }
     }
 
     func testReplacementCleanupThatStartsReloadSuppressesSupersededNotification() async {
@@ -419,10 +597,14 @@ final class AsyncResourceVMConformanceTests: XCTestCase {
     func testAres011DisposeMakesLateWorkInert() async {
         let deferred = DeferredValue<Int>()
         let cleaned = LockedValues<Int>()
-        let vm = makeAsyncResourceVM(loader: deferred.get) { cleaned.append($0) }
+        let cancellations = LockedCount()
+        let vm = makeAsyncResourceVM(loader: {
+            await recordingCancellation(cancellations) { await deferred.get() }
+        }) { cleaned.append($0) }
         let intent = Task { await vm.load() }
         await fulfillment(of: [deferred.parked], timeout: signalTimeout)
         XCTAssertEqual(vm.state.status, .loading)
+        XCTAssertEqual(cancellations.value, 0)
 
         let notifications = LockedCount()
         let stateCancellable = vm.propertyChanged.sink { _ in notifications.increment() }
@@ -434,6 +616,8 @@ final class AsyncResourceVMConformanceTests: XCTestCase {
 
         vm.dispose()
         vm.dispose()
+        // The current loader received cancellation exactly once.
+        XCTAssertEqual(cancellations.value, 1)
         await intent.value
         let statusAfterDispose = vm.state.status
         let notificationsAfterDispose = notifications.value
@@ -453,6 +637,7 @@ final class AsyncResourceVMConformanceTests: XCTestCase {
         XCTAssertNil(vm.state.value)
         XCTAssertEqual(notifications.value, notificationsAfterDispose)
         XCTAssertEqual(cleaned.values, [8])
+        XCTAssertEqual(cancellations.value, 1)
         withExtendedLifetime((stateCancellable, commandCancellables)) {}
     }
 

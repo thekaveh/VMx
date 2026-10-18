@@ -98,15 +98,28 @@ fn remove_emits_collection_changed_remove() {
 /// COMP-003 — select_component sets Current
 #[test]
 fn select_component_sets_current_and_child_current_flag() {
-    let composite = vmx::CompositeVm::new("root");
-    let item = child("a");
+    let hub = MessageHub::new();
+    let composite = vmx::CompositeVm::with_services("root", hub.clone(), NullDispatcher::new());
+    let item = Child::with_model("a", "a", hub.clone(), NullDispatcher::new());
     composite.add(item.clone()).unwrap();
     item.construct().unwrap();
+    assert_eq!(composite.current(), None);
+    let recorder = hub.record(1024);
 
     composite.select_component(&item).unwrap();
 
     assert_eq!(composite.current(), Some(item.clone()));
     assert!(item.is_current());
+    let changes = recorder
+        .messages()
+        .into_iter()
+        .filter_map(|message| match message {
+            Message::PropertyChanged(change) => Some((change.sender_id, change.property_name)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(changes.contains(&(composite.id(), "current".to_string())));
+    assert!(changes.contains(&(item.id(), "is_current".to_string())));
 }
 
 /// COMP-004 — Construct waits until all children reach Constructed
@@ -247,7 +260,14 @@ fn can_select_component_false_for_non_child() {
     let item = child("outside");
     item.construct().unwrap();
 
+    let member = child("inside");
+    composite.add(member.clone()).unwrap();
+    member.construct().unwrap();
+
     assert!(!composite.can_select_component(&item));
+    assert_eq!(composite.select_component(&item), Err(VmxError::NonChild));
+    assert_eq!(composite.current(), None);
+    assert!(!item.is_current());
 }
 
 /// COMP-009 — Current setter raises when assigned a non-child
@@ -371,6 +391,21 @@ fn auto_construct_on_add_constructs_late_child_before_event() {
     composite.set_auto_construct_on_add(true);
     composite.construct().unwrap();
     let item = child("late");
+    assert_eq!(item.status(), ConstructionStatus::Destructed);
+    let observed = Arc::new(Mutex::new(Vec::new()));
+    let observed_in_handler = Arc::clone(&observed);
+    let observed_item = item.clone();
+    let composite_id = composite.id();
+    let _subscription = hub.subscribe(move |message| {
+        if let Message::CollectionChanged(change) = message {
+            if change.sender_id == composite_id && change.action == CollectionChangeAction::Add {
+                observed_in_handler
+                    .lock()
+                    .unwrap()
+                    .push(observed_item.status());
+            }
+        }
+    });
 
     composite.add(item.clone()).unwrap();
 
@@ -378,6 +413,10 @@ fn auto_construct_on_add_constructs_late_child_before_event() {
     assert_eq!(
         collection_actions(&recorder).last(),
         Some(&CollectionChangeAction::Add)
+    );
+    assert_eq!(
+        *observed.lock().unwrap(),
+        vec![ConstructionStatus::Constructed]
     );
 }
 
@@ -546,25 +585,84 @@ fn membership_uses_node_identity_when_partial_eq_is_value_based() {
 /// COMP-038 — Adding an owned child transfers it between composite/group parents.
 #[test]
 fn adding_owned_child_transfers_membership() {
+    // Composite -> group: a constructed, selected child moves exclusively.
     let item = child("owned");
     let old_parent = vmx::CompositeVm::new("old");
     let destination = vmx::GroupVm::new("destination");
     old_parent.add(item.clone()).unwrap();
+    item.construct().unwrap();
+    assert!(item.can_select());
+    old_parent.select_component(&item).unwrap();
 
     destination.add(item.clone()).unwrap();
 
     assert!(old_parent.is_empty());
     assert_eq!(destination.items(), vec![item.clone()]);
     assert_eq!(item.parent_id(), Some(destination.id()));
+    assert_eq!(item.status(), ConstructionStatus::Constructed);
+    assert_eq!(old_parent.current(), None);
+    assert!(!item.is_current());
+    // Parent-derived selection now follows the (non-selecting) group parent.
+    assert!(!item.can_select());
+    item.select();
+    assert_eq!(old_parent.current(), None);
+    assert!(!item.is_current());
+    // A stale removal against the old parent cannot clear the new parent link.
+    assert_eq!(old_parent.remove(&item), Ok(()));
+    assert_eq!(item.parent_id(), Some(destination.id()));
+    assert_eq!(destination.items(), vec![item.clone()]);
+
+    // Group -> composite: selection now routes through the new composite.
+    let composite = vmx::CompositeVm::new("composite");
+    composite.add(item.clone()).unwrap();
+
+    assert!(destination.is_empty());
+    assert_eq!(composite.items(), vec![item.clone()]);
+    assert_eq!(item.parent_id(), Some(composite.id()));
+    assert_eq!(item.status(), ConstructionStatus::Constructed);
+    assert!(item.can_select());
+    item.select();
+    assert_eq!(composite.current(), Some(item.clone()));
+    assert!(item.is_current());
+    assert_eq!(destination.remove(&item), Ok(()));
+    assert_eq!(item.parent_id(), Some(composite.id()));
+    assert_eq!(composite.current(), Some(item.clone()));
 }
 
 /// COMP-039 — Duplicate ownership and ancestor cycles are rejected.
 #[test]
 fn duplicate_and_cycle_are_rejected() {
-    let item = child("duplicate");
-    let parent = vmx::CompositeVm::new("parent");
+    let hub = MessageHub::new();
+    let item = Child::with_model("duplicate", "duplicate", hub.clone(), NullDispatcher::new());
+    let parent = vmx::CompositeVm::with_services("parent", hub.clone(), NullDispatcher::new());
     parent.add(item.clone()).unwrap();
-    assert_eq!(parent.add(item), Err(VmxError::DuplicateChild));
+    item.construct().unwrap();
+    parent.select_component(&item).unwrap();
+    let recorder = hub.record(1024);
+    assert_eq!(parent.add(item.clone()), Err(VmxError::DuplicateChild));
+    assert_eq!(parent.items(), vec![item.clone()]);
+    assert_eq!(item.parent_id(), Some(parent.id()));
+    assert_eq!(parent.current(), Some(item.clone()));
+    assert!(item.is_current());
+    assert_eq!(item.status(), ConstructionStatus::Constructed);
+    assert!(collection_actions(&recorder).is_empty());
+
+    let group = vmx::GroupVm::with_services("group", hub.clone(), NullDispatcher::new());
+    let group_item = child("group-duplicate");
+    group.add(group_item.clone()).unwrap();
+    let before = recorder.messages().len();
+    assert_eq!(group.add(group_item.clone()), Err(VmxError::DuplicateChild));
+    assert_eq!(group.items(), vec![group_item.clone()]);
+    assert_eq!(group_item.parent_id(), Some(group.id()));
+    assert_eq!(recorder.messages().len(), before);
+
+    let lone = vmx::CompositeVm::<OwnershipNode>::new("self");
+    assert_eq!(
+        lone.add(OwnershipNode::Composite(lone.clone())),
+        Err(VmxError::OwnershipCycle)
+    );
+    assert!(lone.is_empty());
+    assert_eq!(lone.parent_id(), None);
 
     let ancestor = vmx::CompositeVm::<OwnershipNode>::new("ancestor");
     let descendant = vmx::CompositeVm::<OwnershipNode>::new("descendant");
@@ -578,6 +676,8 @@ fn duplicate_and_cycle_are_rejected() {
     );
     assert_eq!(ancestor.len(), 1);
     assert!(descendant.is_empty());
+    assert_eq!(descendant.parent_id(), Some(ancestor.id()));
+    assert_eq!(ancestor.parent_id(), None);
 }
 
 #[test]
@@ -1192,24 +1292,85 @@ fn transfer_publishes_remove_before_add() {
     let item = child("ordered");
     old_parent.add(item.clone()).unwrap();
     let order = Arc::new(Mutex::new(Vec::new()));
+    // Each callback records (event, old len, destination len, parent id).
+    let snapshots = Arc::new(Mutex::new(Vec::new()));
     let old_order = Arc::clone(&order);
+    let old_snapshots = Arc::clone(&snapshots);
+    let (old_view, destination_view, item_view) =
+        (old_parent.clone(), destination.clone(), item.clone());
     let _old_subscription = old_hub.subscribe(move |message| {
         if matches!(message, Message::CollectionChanged(change) if change.action == CollectionChangeAction::Remove)
         {
             old_order.lock().unwrap().push("remove");
+            old_snapshots.lock().unwrap().push((
+                "remove",
+                old_view.len(),
+                destination_view.len(),
+                item_view.parent_id(),
+            ));
         }
     });
     let destination_order = Arc::clone(&order);
+    let destination_snapshots = Arc::clone(&snapshots);
+    let (old_view, destination_view, item_view) =
+        (old_parent.clone(), destination.clone(), item.clone());
     let _destination_subscription = destination_hub.subscribe(move |message| {
         if matches!(message, Message::CollectionChanged(change) if change.action == CollectionChangeAction::Add)
         {
             destination_order.lock().unwrap().push("add");
+            destination_snapshots.lock().unwrap().push((
+                "add",
+                old_view.len(),
+                destination_view.len(),
+                item_view.parent_id(),
+            ));
         }
     });
 
     destination.add(item).unwrap();
 
     assert_eq!(*order.lock().unwrap(), vec!["remove", "add"]);
+    let destination_id = Some(destination.id());
+    assert_eq!(
+        *snapshots.lock().unwrap(),
+        vec![
+            ("remove", 0, 1, destination_id),
+            ("add", 0, 1, destination_id)
+        ]
+    );
+}
+
+/// COMP-041 — A failed destination construction publishes no membership event.
+#[test]
+fn failed_transfer_publishes_no_membership_event() {
+    let old_hub = MessageHub::new();
+    let destination_hub = MessageHub::new();
+    let old_recorder = old_hub.record(1024);
+    let destination_recorder = destination_hub.record(1024);
+    let old_parent = vmx::GroupVm::with_services("old", old_hub.clone(), NullDispatcher::new());
+    let destination = vmx::CompositeVm::with_services(
+        "destination",
+        destination_hub.clone(),
+        NullDispatcher::new(),
+    );
+    destination.set_auto_construct_on_add(true);
+    destination.construct().unwrap();
+    let item = child("failing");
+    old_parent.add(item.clone()).unwrap();
+    item.on_construct(|| Err(VmxError::Other("construct failed".to_string())));
+    let old_before = collection_actions(&old_recorder).len();
+    let destination_before = collection_actions(&destination_recorder).len();
+
+    assert!(destination.add(item.clone()).is_err());
+
+    assert_eq!(collection_actions(&old_recorder).len(), old_before);
+    assert_eq!(
+        collection_actions(&destination_recorder).len(),
+        destination_before
+    );
+    assert_eq!(old_parent.items(), vec![item.clone()]);
+    assert!(destination.is_empty());
+    assert_eq!(item.parent_id(), Some(old_parent.id()));
 }
 
 /// COMP-041 — A throwing old-current callback cannot suppress committed events.

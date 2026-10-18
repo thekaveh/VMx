@@ -424,9 +424,46 @@ fn single_type_may_implement_multiple_capabilities() {
     );
 }
 
+/// Compile-time trait-implementation probe usable as a `bool` in a test.
+///
+/// Rust has no runtime interface query. An inherent associated const whose
+/// impl is bounded on the trait shadows the blanket trait const only when the
+/// bound holds, so `implements!(T: Trait)` evaluates to whether `T: Trait`.
+macro_rules! implements {
+    ($ty:ty: $capability:path) => {{
+        struct Probe<T>(std::marker::PhantomData<T>);
+        #[allow(dead_code)]
+        trait Fallback {
+            const IMPLEMENTS: bool = false;
+        }
+        impl<T> Fallback for Probe<T> {}
+        #[allow(dead_code)]
+        impl<T: $capability> Probe<T> {
+            const IMPLEMENTS: bool = true;
+        }
+        <Probe<$ty>>::IMPLEMENTS
+    }};
+}
+
 /// CAP-020 — Core VM types do NOT implement non-baseline capabilities by default
+///
+/// The six non-baseline capabilities are checked with the `implements!`
+/// compile-time probe (positive controls prove the probe is not vacuous).
 #[test]
 fn core_vm_types_do_not_implement_non_baseline_capabilities_by_default() {
+    type Bare = vmx::ComponentVm;
+    assert!(!implements!(Bare: Selectable));
+    assert!(!implements!(Bare: Expandable));
+    assert!(!implements!(Bare: Closable));
+    assert!(!implements!(Bare: NewCreatable));
+    assert!(!implements!(Bare: CurrentDeletable));
+    assert!(!implements!(Bare: Searchable));
+    assert!(implements!(Bare: Constructable));
+    assert!(implements!(Bare: Destructable));
+    assert!(implements!(Bare: Reconstructable));
+    assert!(implements!(Fixture: Selectable));
+    assert!(implements!(SearchableState<String>: Searchable));
+
     let component = vmx::ComponentVm::new("bare");
     assert!(!component.is_selected());
 

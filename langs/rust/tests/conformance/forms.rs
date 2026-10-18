@@ -100,6 +100,22 @@ fn on_approved_fires_after_success_only() {
     form.approve().unwrap();
 
     assert_eq!(*approved.lock().unwrap(), vec![2]);
+
+    // A throwing persister must not fire OnApproved.
+    let failed_approved = Arc::new(Mutex::new(Vec::new()));
+    let failed_inner = failed_approved.clone();
+    let failing = FormVm::with_options(
+        "form",
+        1,
+        |_| Err(VmxError::Other("boom".to_string())),
+        false,
+        MessageHub::new(),
+    );
+    let _failed = failing.subscribe_approved(move |model| failed_inner.lock().unwrap().push(model));
+    failing.set_model(2);
+
+    assert!(failing.approve().is_err());
+    assert!(failed_approved.lock().unwrap().is_empty());
 }
 
 /// FORM-007 — Persist failure leaves state unchanged
@@ -209,11 +225,16 @@ fn confirm_decorator_can_guard_deny_command() {
 /// FORM-011 — FormVMBuilder<TM>.Build validates required Initial + Persister
 #[test]
 fn builder_validates_required_fields() {
-    assert!(FormVm::<i32>::builder().initial(1).build().is_err());
-    assert!(FormVm::<i32>::builder()
-        .persister(|_| Ok(()))
-        .build()
-        .is_err());
+    let missing_persister = FormVm::<i32>::builder().initial(1).build();
+    assert!(matches!(
+        &missing_persister,
+        Err(VmxError::BuilderValidation(message)) if message.contains("persister")
+    ));
+    let missing_initial = FormVm::<i32>::builder().persister(|_| Ok(())).build();
+    assert!(matches!(
+        &missing_initial,
+        Err(VmxError::BuilderValidation(message)) if message.contains("initial")
+    ));
 }
 
 /// FORM-012 — FormVMBuilder<TM> repeated identical Build calls
@@ -462,13 +483,26 @@ fn approve_command_surfaces_persister_failure_on_error_channel() {
         MessageHub::new(),
     );
     let form_approve_errors_record = form.approve_errors().record(1024);
+    let approved = Arc::new(AtomicUsize::new(0));
+    let approved_inner = approved.clone();
+    let _approved = form.subscribe_approved(move |_| {
+        approved_inner.fetch_add(1, Ordering::SeqCst);
+    });
     form.set_model(2);
 
     form.approve_command().execute();
 
-    assert_eq!(form_approve_errors_record.messages().len(), 1);
+    let errors = form_approve_errors_record.messages();
+    assert_eq!(errors.len(), 1);
+    // The emitted error is the persister's error `e`, not a substitute.
+    assert!(matches!(
+        &errors[0],
+        Message::Custom { name, .. }
+            if *name == VmxError::Other("boom".to_string()).to_string()
+    ));
     assert_eq!(form.snapshot(), 1);
     assert!(form.is_dirty());
+    assert_eq!(approved.load(Ordering::SeqCst), 0);
 }
 
 /// FORM-016 — Field validator populates field error
@@ -565,14 +599,22 @@ fn errors_changed_fires_only_on_effective_changes() {
     let form = FormVm::new("form", 0);
     let form_errors_changed_record = form.errors_changed().record(1024);
     form.with_field_validator("amount", |model| {
-        (*model == 0).then(|| "nonzero".to_string())
+        (*model > 0).then(|| "must be zero".to_string())
     });
     let initial = form_errors_changed_record.messages().len();
+    assert!(form.error_map().is_empty());
 
-    form.set_model(0);
-    assert_eq!(form_errors_changed_record.messages().len(), initial);
+    // Effective change: the error map gains "amount".
     form.set_model(1);
     assert_eq!(form_errors_changed_record.messages().len(), initial + 1);
+    let expected = BTreeMap::from([("amount".to_string(), "must be zero".to_string())]);
+    assert_eq!(form.error_map(), expected);
+
+    // The model changes but the effective error map is identical: no event.
+    form.set_model(2);
+    assert_eq!(form.model(), 2);
+    assert_eq!(form_errors_changed_record.messages().len(), initial + 1);
+    assert_eq!(form.error_map(), expected);
 }
 
 /// FORM-022 — FormVMBuilder<TM> registers validators immutably
@@ -766,11 +808,21 @@ fn reset_failure_is_atomic_and_singly_observed() {
         .build()
         .unwrap();
     let direct_approve_errors_record = direct.approve_errors().record(1024);
+    let direct_approved = Arc::new(AtomicUsize::new(0));
+    let direct_approved_inner = direct_approved.clone();
+    let _direct_approved = direct.subscribe_approved(move |_| {
+        direct_approved_inner.fetch_add(1, Ordering::SeqCst);
+    });
     direct.set_model("saved".to_string());
-    assert!(direct.approve().is_err());
+    // The awaiter receives the reset callback's own error `e`.
+    assert_eq!(
+        direct.approve(),
+        Err(VmxError::Other("reset failed".to_string()))
+    );
     assert_eq!(*persisted.lock().unwrap(), 1);
     assert_eq!(direct.model(), "saved");
     assert_eq!(direct.snapshot(), "initial");
+    assert_eq!(direct_approved.load(Ordering::SeqCst), 0);
     assert!(direct_approve_errors_record.messages().is_empty());
 
     let command = FormVm::builder()
@@ -781,8 +833,20 @@ fn reset_failure_is_atomic_and_singly_observed() {
         .unwrap();
     let command_approve_errors_record = command.approve_errors().record(1024);
     command.set_model("saved".to_string());
+    let command_approved = Arc::new(AtomicUsize::new(0));
+    let command_approved_inner = command_approved.clone();
+    let _command_approved = command.subscribe_approved(move |_| {
+        command_approved_inner.fetch_add(1, Ordering::SeqCst);
+    });
     command.approve_command().execute();
-    assert_eq!(command_approve_errors_record.messages().len(), 1);
+    let errors = command_approve_errors_record.messages();
+    assert_eq!(errors.len(), 1);
+    assert!(matches!(
+        &errors[0],
+        Message::Custom { name, .. }
+            if *name == VmxError::Other("reset failed".to_string()).to_string()
+    ));
+    assert_eq!(command_approved.load(Ordering::SeqCst), 0);
 }
 
 /// FORM-027 — Reset is skipped without successful approval

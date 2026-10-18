@@ -5,7 +5,7 @@ Per spec/18-hierarchical-vm.md and ADR-0028.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -418,42 +418,30 @@ def test_hier_011_tree_structure_changed_message() -> None:
 
 @pytest.mark.conformance("HIER-012")
 def test_hier_012_walk_expanded_honors_expandable_state() -> None:
-    """HIER-012: walk_expanded honors the lazy boundary when ExpandableState
-    is composed and the node is not expanded.
+    """HIER-012: walk_expanded honors the lazy boundary of a three-level
+    HierarchicalVM tree whose root composes ExpandableState.
 
-    Uses the same trick as EXP-005: skipping _ComponentVMBase.__init__ to
-    avoid the relay-command subscription that triggers a Python 3.10 ABC
-    recursion when combining HierarchicalVM (ABC) + IExpandable (ABC).
-    The conformance requirement is about walk_expanded behavior, not full VM
-    lifecycle — so the partial initialization is intentional and documented.
+    The node declares IExpandable through ABC virtual registration: a direct
+    ``(HierarchicalVM, IExpandable)`` mixin hits a Python 3.10 ABC recursion
+    (see EXP-005), and the capability is opt-in either way (ADR-0028 §3.6).
     """
-    from vmx.components.base import _ComponentVMBase
+    hub = make_hub()
+    dispatcher = make_dispatcher()
 
-    class ExpandableNode(_ComponentVMBase, IExpandable):
-        """Minimal IExpandable HierarchicalVM-like node for HIER-012 testing.
-
-        Does NOT call _ComponentVMBase.__init__ to avoid relay-command
-        subscription recursion in Python 3.10 (see EXP-005 for precedent).
-        """
-
+    class ExpandableNode(MyNode):
         def __init__(
             self,
-            children: list[ExpandableNode] | None = None,
-            collapsed: bool = True,
+            children: list[MyNode],
+            name: str,
+            collapsed: bool,
         ) -> None:
-            # Skip _ComponentVMBase.__init__ per EXP-005 pattern.
-            self._name = "expandable-node"
-            self._children: list[ExpandableNode] = children or []
+            super().__init__(
+                children_factory=lambda _: children,
+                hub=hub,
+                dispatcher=dispatcher,
+                name=name,
+            )
             self._expansion = ExpandableState(initially_expanded=not collapsed)
-
-        @property
-        def type(self) -> object:
-            from vmx.components.protocols import ViewModelType
-
-            return ViewModelType.COMPONENT
-
-        def __iter__(self) -> Any:
-            return iter(self._children)
 
         @property
         def is_expanded(self) -> bool:
@@ -465,18 +453,32 @@ def test_hier_012_walk_expanded_honors_expandable_state() -> None:
         def expand(self) -> None:
             self._expansion.expand()
 
-    child_leaf = ExpandableNode(children=[], collapsed=False)
-    root = ExpandableNode(children=[child_leaf], collapsed=True)
+    IExpandable.register(ExpandableNode)
+
+    grandchild = MyNode(hub=hub, dispatcher=dispatcher, name="grandchild")
+    child_a = MyNode(
+        children_factory=lambda _: [grandchild], hub=hub, dispatcher=dispatcher, name="child-a"
+    )
+    child_b = MyNode(hub=hub, dispatcher=dispatcher, name="child-b")
+    root = ExpandableNode(children=[child_a, child_b], name="root", collapsed=True)
+    assert isinstance(root, IExpandable)
+    assert root.is_expanded is False
 
     walked = list(walk_expanded(root))
-    # Collapsed root itself is yielded; its children are NOT.
-    assert len(walked) == 1
-    assert walked[0] is root
+    # Collapsed root itself is yielded; its children are NOT traversed.
+    assert walked == [root]
 
-    # Expand and walk again.
     root.expand()
-    walked_expanded_result = list(walk_expanded(root))
-    assert len(walked_expanded_result) == 2  # root + 1 child leaf
+    assert root.is_expanded is True
+    names = [node.name for node in walk_expanded(root)]
+    # Root plus its direct children (and the always-expanded plain subtree).
+    assert names[:2] == ["root", "child-a"]
+    assert "child-b" in names
+    assert set(names) == {"root", "child-a", "grandchild", "child-b"}
+
+    # HierarchicalVM does NOT auto-implement IExpandable (ADR-0028 §3.6).
+    assert not issubclass(HierarchicalVM, IExpandable)
+    assert not isinstance(child_a, IExpandable)
 
 
 # ---------------------------------------------------------------------------
@@ -504,19 +506,44 @@ def test_hier_013_searchable_state_composition() -> None:
         lazy_factory_calls += 1
         return [lazy_match]
 
+    class CollapsedNode(MyNode):
+        """A HierarchicalVM node whose expansion boundary is not yet crossed."""
+
+        def __init__(self, **kwargs: Any) -> None:
+            super().__init__(**kwargs)
+            self._expansion = ExpandableState(initially_expanded=False)
+
+        @property
+        def is_expanded(self) -> bool:
+            return self._expansion.is_expanded
+
+        def can_expand(self) -> bool:
+            return self._expansion.can_expand()
+
+        def expand(self) -> None:
+            self._expansion.expand()
+
+    IExpandable.register(CollapsedNode)
+
     apple = MyNode(model=MyModel("apple"), hub=hub, dispatcher=dispatcher)
     banana = MyNode(model=MyModel("banana"), hub=hub, dispatcher=dispatcher)
     mango = MyNode(model=MyModel("mango"), hub=hub, dispatcher=dispatcher)
-    # cherry has a lazy child that is never accessed.
-    cherry = MyNode(
+    # cherry has a lazy child behind a collapsed boundary that is never crossed.
+    cherry = CollapsedNode(
         model=MyModel("cherry"), children_factory=lazy_factory, hub=hub, dispatcher=dispatcher
     )
-    root = parent_node([apple, banana, mango, cherry], hub=hub)
+    root = MyNode(
+        model=MyModel("root"),
+        children_factory=lambda _: [apple, banana, mango, cherry],
+        hub=hub,
+        dispatcher=dispatcher,
+    )
 
     def materialized() -> list[MyNode]:
-        # Only the materialized portion: root's children (accessed) without
-        # touching any lazy node's ``children``.
-        return list(root.children)
+        # The materialized portion, produced by the LIBRARY's expand-aware walk:
+        # walk_expanded descends through root (not IExpandable → expanded) and
+        # stops at the collapsed cherry without touching its lazy children.
+        return [cast("MyNode", node) for node in walk_expanded(root) if node is not root]
 
     search: SearchableState[MyNode] = SearchableState(
         items=materialized,
@@ -544,8 +571,14 @@ def test_hier_013_searchable_state_composition() -> None:
     )
     assert lazy_match not in result, "un-materialized lazy child must not appear"
     assert lazy_factory_calls == 0, "searching must not materialize lazy children"
-    # Sanity: the lazy child would have matched if it were materialized.
+    # Non-vacuity: the library walk DID traverse the tree (materialized root's
+    # children) and the lazy child WOULD match once its node is materialized.
+    assert cherry in materialized()
+    assert lazy_factory_calls == 0
     assert lazy_match in list(walk(root))
+    assert lazy_factory_calls == 1
+    search.search()
+    assert lazy_match not in result, "a collapsed boundary still hides the lazy child"
 
 
 # ---------------------------------------------------------------------------
@@ -561,6 +594,10 @@ def test_hier_014_modeled_crud_commands_composition() -> None:
 
     root = MyNode(hub=hub, dispatcher=dispatcher)
     current: list[MyNode] = []  # mutable container
+    tree_msgs: list[TreeStructureChangedMessage] = []
+    hub.messages.subscribe(
+        lambda m: tree_msgs.append(m) if isinstance(m, TreeStructureChangedMessage) else None
+    )
 
     def create_new() -> None:
         child = MyNode(model=MyModel("created"), hub=hub, dispatcher=dispatcher)
@@ -586,8 +623,19 @@ def test_hier_014_modeled_crud_commands_composition() -> None:
     crud.create_new_command.execute(None)
     assert len(root.children) == 1, "create_new_command adds one child"
     assert len(current) == 1
+    created = current[0]
+    assert root.children[0] is created
+    assert [(m.change, m.affected) for m in tree_msgs] == [(TreeStructureChange.ADDED, created)], (
+        "an Added TreeStructureChangedMessage is published"
+    )
+    assert tree_msgs[0].sender is root
+    tree_msgs.clear()
 
     # Delete
     crud.delete_current_command.execute(None)
     assert len(root.children) == 0, "delete_current_command removes the child"
     assert len(current) == 0
+    assert [(m.change, m.affected) for m in tree_msgs] == [
+        (TreeStructureChange.REMOVED, created)
+    ], "a Removed TreeStructureChangedMessage is published"
+    assert tree_msgs[0].sender is root

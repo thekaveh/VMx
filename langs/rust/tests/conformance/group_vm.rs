@@ -122,12 +122,18 @@ fn parent_reaches_constructed_only_after_children() {
 fn destruct_destructs_all_children() {
     let group = vmx::GroupVm::new("group");
     let a = child("a");
+    let b = child("b");
     group.add(a.clone()).unwrap();
+    group.add(b.clone()).unwrap();
     group.construct().unwrap();
+    assert_eq!(a.status(), ConstructionStatus::Constructed);
+    assert_eq!(b.status(), ConstructionStatus::Constructed);
 
     group.destruct().unwrap();
 
     assert_eq!(a.status(), ConstructionStatus::Destructed);
+    assert_eq!(b.status(), ConstructionStatus::Destructed);
+    assert_eq!(group.status(), ConstructionStatus::Destructed);
 }
 
 /// GRP-005 — AutoConstructOnAdd(true) auto-constructs late children
@@ -191,8 +197,15 @@ fn group_child_remains_non_current_peer() {
     let group = vmx::GroupVm::new("group");
     let item = child("a");
     group.add(item.clone()).unwrap();
+    group.construct().unwrap();
+    assert_eq!(item.status(), ConstructionStatus::Constructed);
 
     assert_eq!(item.parent_id(), Some(group.id()));
+    assert!(!item.can_select());
+    assert!(!item.select_command().can_execute());
+
+    item.select();
+    item.select_command().execute();
     assert!(!item.is_current());
 }
 

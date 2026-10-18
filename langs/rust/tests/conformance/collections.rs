@@ -1067,10 +1067,60 @@ fn keyed_serviced_replace_all_preflights_and_accepts_self_input() {
     });
     list.replace_all([keyed_item("a", 1), keyed_item("b", 2)])
         .unwrap();
+
+    // New unique-key items: one Reset on each channel, and the new items and
+    // captured keys are already installed when the local handler runs.
+    let local_record = list.collection_changed().record(1024);
+    let observed = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let observed_inner = observed.clone();
+    let observed_list = list.clone();
+    let observer = list.collection_changed().subscribe(move |_| {
+        observed_inner.lock().unwrap().push((
+            observed_list.to_vec(),
+            observed_list.contains_key(&"a"),
+            observed_list.contains_key(&"c"),
+            observed_list.contains_key(&"d"),
+        ));
+    });
+    let before_new = collection_messages(&recorder).len();
+    list.replace_all([keyed_item("c", 3), keyed_item("d", 4)])
+        .unwrap();
+    let hub_new = collection_messages(&recorder);
+    assert_eq!(hub_new.len(), before_new + 1);
+    assert_eq!(hub_new[before_new].action, CollectionChangeAction::Reset);
+    let local_new = collection_messages(&local_record);
+    assert_eq!(local_new.len(), 1);
+    assert_eq!(local_new[0].action, CollectionChangeAction::Reset);
+    assert_eq!(
+        *observed.lock().unwrap(),
+        vec![(
+            vec![keyed_item("c", 3), keyed_item("d", 4)],
+            false,
+            true,
+            true
+        )]
+    );
+    drop(observer);
+    assert_eq!(list.get_by_key(&"c"), Some(keyed_item("c", 3)));
+    assert!(list.get_by_key(&"a").is_none());
+    list.replace_all([keyed_item("a", 1), keyed_item("b", 2)])
+        .unwrap();
+
     let before_self = collection_messages(&recorder).len();
+    let local_before_self = collection_messages(&local_record).len();
     list.replace_all(&list).unwrap();
     assert_eq!(collection_messages(&recorder).len(), before_self + 1);
+    assert_eq!(
+        collection_messages(&recorder)[before_self].action,
+        CollectionChangeAction::Reset
+    );
+    assert_eq!(
+        collection_messages(&local_record).len(),
+        local_before_self + 1
+    );
+    assert_eq!(list.to_vec(), vec![keyed_item("a", 1), keyed_item("b", 2)]);
     let before_failure = collection_messages(&recorder).len();
+    let local_before_failure = collection_messages(&local_record).len();
 
     assert!(matches!(
         list.replace_all([keyed_item("x", 1), keyed_item("x", 2)]),
@@ -1081,7 +1131,14 @@ fn keyed_serviced_replace_all_preflights_and_accepts_self_input() {
         Err(VmxError::Other("projection failed".to_string()))
     );
     assert_eq!(list.to_vec(), vec![keyed_item("a", 1), keyed_item("b", 2)]);
+    assert_eq!(list.get_by_key(&"a"), Some(keyed_item("a", 1)));
+    assert_eq!(list.get_by_key(&"b"), Some(keyed_item("b", 2)));
+    assert!(!list.contains_key(&"x"));
     assert_eq!(collection_messages(&recorder).len(), before_failure);
+    assert_eq!(
+        collection_messages(&local_record).len(),
+        local_before_failure
+    );
 
     let empty = KeyedServicedObservableCollection::new(28, |item: &KeyedItem| Ok(item.key));
     let empty_collection_changed_record = empty.collection_changed().record(1024);
@@ -1228,6 +1285,10 @@ fn keyed_serviced_move_clear_and_conveniences_preserve_keys_and_ownership() {
 }
 
 /// COL-063 — keyed delivery is local-before-hub and respects an existing hub transaction
+///
+/// "Exposes no independent collection batch scope" is an API-absence clause:
+/// `KeyedServicedObservableCollection` has no batch method, which a runtime
+/// test cannot assert beyond the code compiling without one.
 #[test]
 fn keyed_serviced_delivery_is_local_before_transactional_hub_delivery() {
     let hub = MessageHub::new();
@@ -1258,6 +1319,19 @@ fn keyed_serviced_delivery_is_local_before_transactional_hub_delivery() {
         }
     });
 
+    // Outside a hub transaction: state commits first, local precedes hub,
+    // and both observers see the committed key.
+    list.push(keyed_item("b", 2)).unwrap();
+    assert_eq!(
+        *trace.lock().unwrap(),
+        vec![
+            ("local", CollectionChangeAction::Add, true),
+            ("hub", CollectionChangeAction::Add, true),
+        ]
+    );
+    assert!(list.remove_key(&"b").is_some());
+    trace.lock().unwrap().clear();
+
     hub.batch(|| {
         list.push(keyed_item("a", 1)).unwrap();
         list.push(keyed_item("b", 2)).unwrap();
@@ -1280,6 +1354,16 @@ fn keyed_serviced_delivery_is_local_before_transactional_hub_delivery() {
             .map(|entry| entry.2)
             .collect::<Vec<_>>(),
         vec![false, true, true, true]
+    );
+    // Deferred hub delivery keeps the granular Adds; no collapse into Reset.
+    assert_eq!(
+        trace
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|entry| entry.1.clone())
+            .collect::<Vec<_>>(),
+        vec![CollectionChangeAction::Add; 4]
     );
 }
 
@@ -1659,6 +1743,18 @@ fn paged_composition_navigation_clamps_at_bounds() {
     pages.next_page();
     pages.next_page();
     assert_eq!(pages.current_page_index(), 1);
+
+    // Catalog scenario: PageSize 3 over 8 items gives PageCount 3.
+    let pages = PagedComposition::new((1..=8).collect::<Vec<_>>(), 3);
+    assert_eq!(pages.page_count(), 3);
+    assert_eq!(pages.current_page_index(), 0);
+    pages.move_to_first_page();
+    assert_eq!(pages.current_page_index(), 0);
+    pages.move_to_last_page();
+    assert_eq!(pages.current_page_index(), 2);
+    pages.move_to_last_page();
+    assert_eq!(pages.current_page_index(), 2);
+    assert_eq!(pages.current_page(), vec![7, 8]);
 }
 
 /// COL-019 — PagedComposition<TVM> PageSize == 0 passes through all items
@@ -1681,9 +1777,19 @@ fn page_size_zero_returns_all_items() {
 /// COL-020 — PagedComposition<TVM> empty-source behavior
 #[test]
 fn paged_composition_empty_source_has_zero_pages() {
-    let pages = PagedComposition::<i32>::new(Vec::new(), 2);
+    let pages = PagedComposition::<i32>::new(Vec::new(), 5);
 
     assert_eq!(pages.page_count(), 0);
+    assert_eq!(pages.current_page_index(), 0);
+    assert!(pages.current_page().is_empty());
+
+    // All four navigation verbs are no-ops on an empty source.
+    pages.move_to_first_page();
+    pages.move_to_previous_page();
+    pages.move_to_next_page();
+    pages.move_to_last_page();
+    assert_eq!(pages.page_count(), 0);
+    assert_eq!(pages.current_page_index(), 0);
     assert!(pages.current_page().is_empty());
 }
 

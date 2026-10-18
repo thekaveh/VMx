@@ -123,6 +123,9 @@ final class LifecycleRaceTests: XCTestCase {
         secondCancel.cancel()
     }
 
+    /// LIFE-015 — opposing admitted construct hooks that each dispose the other
+    /// VM (a foreign hook wait in both directions) complete without deadlock, and
+    /// each VM's terminal cleanup runs exactly once.
     func testOpposingActiveLifecycleHooksCrossDisposeWithoutDeadlock() throws {
         let rendezvous = DispatchGroup()
         rendezvous.enter()
@@ -145,6 +148,11 @@ final class LifecycleRaceTests: XCTestCase {
                 first.dispose()
             }
             .build()
+        let cleanupLock = NSLock()
+        var firstCleanups = 0
+        var secondCleanups = 0
+        first.own { cleanupLock.lock(); firstCleanups += 1; cleanupLock.unlock() }
+        second.own { cleanupLock.lock(); secondCleanups += 1; cleanupLock.unlock() }
         let firstDone = DispatchSemaphore(value: 0)
         let secondDone = DispatchSemaphore(value: 0)
 
@@ -153,8 +161,14 @@ final class LifecycleRaceTests: XCTestCase {
 
         XCTAssertEqual(firstDone.wait(timeout: .now() + 3), .success)
         XCTAssertEqual(secondDone.wait(timeout: .now() + 3), .success)
+        first.dispose()
+        second.dispose()
         XCTAssertEqual(first.status, .disposed)
         XCTAssertEqual(second.status, .disposed)
+        cleanupLock.lock()
+        XCTAssertEqual(firstCleanups, 1, "terminal cleanup must run exactly once")
+        XCTAssertEqual(secondCleanups, 1, "terminal cleanup must run exactly once")
+        cleanupLock.unlock()
     }
 
     func testConstructingSubscriberDisposePreventsForegroundHook() throws {
@@ -244,6 +258,9 @@ final class LifecycleRaceTests: XCTestCase {
         let reconstructDone = DispatchSemaphore(value: 0)
         let counterLock = NSLock()
         var constructCalls = 0
+        var hookActive = false
+        var cleanupCalls = 0
+        var cleanupOverlappedHook = false
         let vm = try ComponentVM.builder()
             .name("vm")
             .services(hub: hub, dispatcher: NullDispatcher.INSTANCE)
@@ -253,10 +270,22 @@ final class LifecycleRaceTests: XCTestCase {
                 counterLock.unlock()
             }
             .onDestruct {
+                counterLock.lock()
+                hookActive = true
+                counterLock.unlock()
                 destructEntered.signal()
                 releaseDestruct.wait()
+                counterLock.lock()
+                hookActive = false
+                counterLock.unlock()
             }
             .build()
+        vm.own {
+            counterLock.lock()
+            cleanupCalls += 1
+            if hookActive { cleanupOverlappedHook = true }
+            counterLock.unlock()
+        }
         try vm.construct()
 
         DispatchQueue.global().async {
@@ -265,24 +294,41 @@ final class LifecycleRaceTests: XCTestCase {
         }
         XCTAssertEqual(destructEntered.wait(timeout: .now() + 1), .success)
         let disposeDone = DispatchSemaphore(value: 0)
+        let secondDisposeDone = DispatchSemaphore(value: 0)
         DispatchQueue.global().async {
             vm.dispose()
             disposeDone.signal()
+        }
+        DispatchQueue.global().async {
+            vm.dispose()
+            secondDisposeDone.signal()
         }
         XCTAssertEqual(
             disposeDone.wait(timeout: .now() + 0.05),
             .timedOut,
             "dispose must wait for an admitted lifecycle hook before returning"
         )
+        counterLock.lock()
+        let cleanupsWhileHookHeld = cleanupCalls
+        counterLock.unlock()
+        XCTAssertEqual(cleanupsWhileHookHeld, 0,
+                       "terminal cleanup must not overlap the admitted hook")
         releaseDestruct.signal()
-        XCTAssertEqual(disposeDone.wait(timeout: .now() + 1), .success)
-        XCTAssertEqual(reconstructDone.wait(timeout: .now() + 1), .success)
+        XCTAssertEqual(disposeDone.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(secondDisposeDone.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(reconstructDone.wait(timeout: .now() + 2), .success)
+        vm.dispose()
 
         counterLock.lock()
         let calls = constructCalls
+        let cleanups = cleanupCalls
+        let overlapped = cleanupOverlappedHook
         counterLock.unlock()
         XCTAssertEqual(calls, 1,
                        "a disposed reconstruct must not enter its second construct phase")
+        XCTAssertEqual(cleanups, 1,
+                       "cleanup completes exactly once after the hook releases its lease")
+        XCTAssertFalse(overlapped, "terminal cleanup must not overlap the admitted hook")
         XCTAssertEqual(vm.status, .disposed)
     }
 

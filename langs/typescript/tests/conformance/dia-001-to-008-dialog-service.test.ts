@@ -235,21 +235,37 @@ describe("DIA-006", () => {
 // DIA-007 — Cancellation completes with safe default, does not throw
 // ---------------------------------------------------------------------------
 
-/** Cancellation-aware service: mirrors the behaviour described in spec §6. */
+/**
+ * Opt-in cancellable dialog: each call stays pending until the user answers
+ * (`answer*`) or the AbortSignal fires. An uncancelled answer is a real file
+ * path / `true`, so the cancelled safe defaults (`null` / `false`) are
+ * distinguishable from the non-cancelled results.
+ */
 class CancellationAwareDialogService implements IDialogService {
-  readonly #pendingResult: boolean;
+  #resolveFile: ((v: string | null) => void) | null = null;
+  #resolveConfirm: ((v: boolean) => void) | null = null;
 
-  constructor(pendingResult = false) {
-    this.#pendingResult = pendingResult;
+  answerFile(path: string): void {
+    this.#resolveFile?.(path);
+  }
+
+  answerConfirm(value: boolean): void {
+    this.#resolveConfirm?.(value);
   }
 
   pickFileToOpen(
     _filter?: FileFilter | null,
     _title?: string | null,
-    cancelled = false,
+    signal?: AbortSignal,
   ): Promise<string | null> {
-    if (cancelled) return Promise.resolve(null);
-    return Promise.resolve(this.#pendingResult ? "/some/path" : null);
+    return new Promise<string | null>((resolve) => {
+      if (signal?.aborted) {
+        resolve(null);
+        return;
+      }
+      this.#resolveFile = resolve;
+      signal?.addEventListener("abort", () => resolve(null), { once: true });
+    });
   }
 
   pickFileToSave(
@@ -263,10 +279,16 @@ class CancellationAwareDialogService implements IDialogService {
   confirm(
     _message: string,
     _title?: string | null,
-    cancelled = false,
+    signal?: AbortSignal,
   ): Promise<boolean> {
-    if (cancelled) return Promise.resolve(false);
-    return Promise.resolve(this.#pendingResult);
+    return new Promise<boolean>((resolve) => {
+      if (signal?.aborted) {
+        resolve(false);
+        return;
+      }
+      this.#resolveConfirm = resolve;
+      signal?.addEventListener("abort", () => resolve(false), { once: true });
+    });
   }
 
   notify(
@@ -281,14 +303,42 @@ class CancellationAwareDialogService implements IDialogService {
 describe("DIA-007", () => {
   it("Cancelled pickFileToOpen returns null without throwing", async () => {
     const svc = new CancellationAwareDialogService();
-    const path = await svc.pickFileToOpen(null, null, /* cancelled */ true);
-    expect(path).toBeNull();
+
+    // Control: an uncancelled pick yields a real path (non-null).
+    const uncancelled = svc.pickFileToOpen(null, null, new AbortController().signal);
+    svc.answerFile("/chosen/file.txt");
+    expect(await uncancelled).toBe("/chosen/file.txt");
+
+    // Cancelled before the dialog.
+    const before = new AbortController();
+    before.abort();
+    await expect(svc.pickFileToOpen(null, null, before.signal)).resolves.toBeNull();
+
+    // Cancelled during the dialog; a later answer is ignored.
+    const during = new AbortController();
+    const pending = svc.pickFileToOpen(null, null, during.signal);
+    during.abort();
+    svc.answerFile("/too/late.txt");
+    await expect(pending).resolves.toBeNull();
   });
 
   it("Cancelled confirm returns false without throwing", async () => {
     const svc = new CancellationAwareDialogService();
-    const confirmed = await svc.confirm("msg", null, /* cancelled */ true);
-    expect(confirmed).toBe(false);
+
+    // Control: an uncancelled confirm yields true.
+    const uncancelled = svc.confirm("msg", null, new AbortController().signal);
+    svc.answerConfirm(true);
+    expect(await uncancelled).toBe(true);
+
+    const before = new AbortController();
+    before.abort();
+    await expect(svc.confirm("msg", null, before.signal)).resolves.toBe(false);
+
+    const during = new AbortController();
+    const pending = svc.confirm("msg", null, during.signal);
+    during.abort();
+    svc.answerConfirm(true);
+    await expect(pending).resolves.toBe(false);
   });
 });
 

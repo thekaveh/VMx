@@ -536,6 +536,12 @@ describe("HIER-014", () => {
 
     const root = new MyNode({ hub, dispatcher });
     let current: MyNode | null = null;
+    const treeMsgs: TreeStructureChangedMessage<unknown, unknown>[] = [];
+    hub.messages.subscribe({
+      next: (m: unknown) => {
+        if (m instanceof TreeStructureChangedMessage) treeMsgs.push(m);
+      },
+    });
 
     const crud = new ModeledCrudCommands<MyModel, MyNode>({
       current: () => current,
@@ -561,11 +567,23 @@ describe("HIER-014", () => {
     crud.createNewCommand.execute();
     expect(root.children).toHaveLength(1);
     expect(current).not.toBeNull();
+    const created = current as MyNode | null;
+    expect(root.children[0]).toBe(created);
+    expect(treeMsgs).toHaveLength(1);
+    expect(treeMsgs[0]!.change).toBe("added");
+    expect(treeMsgs[0]!.sender).toBe(root);
+    expect(treeMsgs[0]!.affected).toBe(created);
+
+    treeMsgs.length = 0;
 
     // Delete
     crud.deleteCurrentCommand.execute();
     expect(root.children).toHaveLength(0);
     expect(current).toBeNull();
+    expect(treeMsgs).toHaveLength(1);
+    expect(treeMsgs[0]!.change).toBe("removed");
+    expect(treeMsgs[0]!.sender).toBe(root);
+    expect(treeMsgs[0]!.affected).toBe(created);
 
     crud.dispose();
   });

@@ -54,7 +54,8 @@ final class HierarchicalFactoryHydrationTests: XCTestCase {
         XCTAssertEqual(grandchild.path.map(\.model), ["root", "first", "grandchild"])
     }
 
-    /// HIER-031 — `removeChild` on an unloaded node runs the children
+    /// Supplementary lazy-materialization check (not HIER-031 hydration
+    /// atomicity): `removeChild` on an unloaded node runs the children
     /// factory first, matching the other flavors.
     func testHier031RemoveChildMaterializesLazyChildren() {
         let hub = MessageHub()

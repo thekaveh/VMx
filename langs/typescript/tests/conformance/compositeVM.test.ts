@@ -671,12 +671,17 @@ describe("COMP-025", () => {
     const children = ["a", "b", "c"].map((n) => makeChild(hub, n));
 
     let selectorCalls = 0;
-    const composite = CompositeVM.builder<ComponentVM>()
+    let childStatusesInSelector: ConstructionStatus[] = [];
+    let compositeStatusInSelector: ConstructionStatus | null = null;
+    let composite: CompositeVM<ComponentVM>;
+    composite = CompositeVM.builder<ComponentVM>()
       .name("composite")
       .services(hub, disp)
       .children(() => children)
       .current((xs) => {
         selectorCalls++;
+        childStatusesInSelector = children.map((c) => c.status);
+        compositeStatusInSelector = composite.status;
         return [...xs][1] ?? null;
       })
       .build();
@@ -684,6 +689,15 @@ describe("COMP-025", () => {
 
     expect(composite.current).toBe(children[1]);
     expect(selectorCalls, "the selector must run exactly once during construct").toBe(1);
+    // Ran after every child reached Constructed and before the composite did.
+    expect(childStatusesInSelector).toEqual([
+      ConstructionStatus.Constructed,
+      ConstructionStatus.Constructed,
+      ConstructionStatus.Constructed,
+    ]);
+    expect(compositeStatusInSelector).not.toBeNull();
+    expect(compositeStatusInSelector).not.toBe(ConstructionStatus.Constructed);
+    expect(compositeStatusInSelector).toBe(ConstructionStatus.Constructing);
 
     // A null-returning selector leaves current null and publishes no
     // PropertyChangedMessage("current").
@@ -932,6 +946,15 @@ describe("COMP-039", () => {
     expect(() => inner.add(outer)).toThrow(/parent cycle/);
     expect(outer.snapshot()).toEqual([inner]);
     expect(inner.snapshot()).toEqual([]);
+
+    // Attaching a container to itself is rejected with the same mutation-free guarantee.
+    const selfEvents: CollectionChangedEvent[] = [];
+    outer.collectionChanged.subscribe((event) => selfEvents.push(event));
+    expect(() => outer.add(outer)).toThrow();
+    expect(outer.snapshot()).toEqual([inner]);
+    expect(outer._parent).toBeNull();
+    expect(outer.status).toBe(ConstructionStatus.Destructed);
+    expect(selfEvents).toEqual([]);
   });
 });
 
@@ -1236,6 +1259,64 @@ describe("COMP-040", () => {
     batch.length = 0;
     destination.construct();
     expect(destination.snapshot()).toEqual([]);
+  });
+
+  it("rejects re-entrant structural mutation of the old parent before mutation", () => {
+    const hub = makeHub();
+    const dispatcher = makeDisp();
+    const oldParent = CompositeVM.builder<ComponentVM>()
+      .name("old").services(hub, dispatcher).children(() => []).build();
+    const destination = GroupVM.builder<ComponentVM>()
+      .name("destination").services(hub, dispatcher)
+      .children(() => []).autoConstructOnAdd(true).build();
+    const intruder = makeChild(hub, "intruder");
+    let reentrantError: unknown;
+    const child = ComponentVM.builder().name("child").services(hub, dispatcher)
+      .onConstruct(() => {
+        try {
+          oldParent.add(intruder);
+        } catch (error) {
+          reentrantError = error;
+        }
+      }).build();
+    oldParent.add(child);
+    destination.construct();
+
+    destination.add(child);
+
+    expect(reentrantError).toBeInstanceOf(Error);
+    expect(oldParent.snapshot()).toEqual([]);
+    expect(intruder._parent).toBeNull();
+    expect(destination.snapshot()).toEqual([child]);
+  });
+
+  it("restores a displaced member before deferred destination disposal snapshots", () => {
+    const hub = makeHub();
+    const dispatcher = makeDisp();
+    const destination = CompositeVM.builder<ComponentVM>()
+      .name("destination").services(hub, dispatcher)
+      .children(() => []).autoConstructOnAdd(true).build();
+    const displaced = makeChild(hub, "displaced");
+    destination.add(displaced);
+    destination.construct();
+    const replacement = ComponentVM.builder().name("replacement").services(hub, dispatcher)
+      .onConstruct(() => {
+        destination.dispose();
+        throw new Error("replacement failure");
+      }).build();
+    const events: CollectionChangedEvent[] = [];
+    destination.collectionChanged.subscribe((event) => events.push(event));
+
+    expect(() => destination.setAt(0, replacement)).toThrow("replacement failure");
+
+    expect(destination.status).toBe(ConstructionStatus.Disposed);
+    // The displaced member was restored first, so the terminal cascade included it.
+    expect(destination.snapshot()).toEqual([displaced]);
+    expect(displaced.status).toBe(ConstructionStatus.Disposed);
+    expect(displaced._parent?.owner).toBe(destination);
+    expect(replacement._parent).toBeNull();
+    expect(replacement.status).not.toBe(ConstructionStatus.Constructed);
+    expect(events).toEqual([]);
   });
 
   it("surfaces a lifecycle compensation failure after restoring membership", () => {

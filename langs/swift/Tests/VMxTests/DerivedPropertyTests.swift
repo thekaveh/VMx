@@ -225,7 +225,8 @@ final class DerivedPropertyTests: XCTestCase {
         return try JSONDecoder().decode(DerivedPropertiesFixture.self, from: data)
     }
 
-    /// DPROP-011 — a disposed property rejects writes.
+    /// Supplementary disposal check (not DPROP-011, which covers completion):
+    /// a disposed property rejects writes.
     func testDisposedPropertyRejectsWrites() {
         var writes: [Int] = []
         let source = CurrentValueSubject<Int, Never>(1)

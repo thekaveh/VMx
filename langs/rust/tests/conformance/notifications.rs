@@ -292,17 +292,25 @@ fn resolve_removes_notification_from_pending_snapshot() {
 /// NOTIF-004 — NotificationType has Error / Notification / Confirmation values
 #[test]
 fn notification_type_values_are_complete() {
+    // An exhaustive match without a wildcard arm fails to compile if a variant
+    // is added or removed, so this pins the set to exactly these three.
+    fn ordinal(kind: NotificationType) -> usize {
+        match kind {
+            NotificationType::Error => 0,
+            NotificationType::Notification => 1,
+            NotificationType::Confirmation => 2,
+        }
+    }
+    let all = [
+        NotificationType::Error,
+        NotificationType::Notification,
+        NotificationType::Confirmation,
+    ];
+
+    assert_eq!(all.map(ordinal), [0, 1, 2]);
     assert_eq!(
-        vec![
-            NotificationType::Error,
-            NotificationType::Notification,
-            NotificationType::Confirmation,
-        ],
-        vec![
-            NotificationType::Error,
-            NotificationType::Notification,
-            NotificationType::Confirmation,
-        ]
+        all.map(|kind| format!("{kind:?}")),
+        ["Error", "Notification", "Confirmation"]
     );
 }
 
@@ -682,13 +690,26 @@ fn concurrent_dispose_returns_after_queued_terminal_publication_and_completions(
 }
 
 /// DISP-003 — concurrent disposal of a thread-safe hub performs terminal work once
+///
+/// `dispose()` returns `()`, so "exactly one caller claims teardown" is observed
+/// through its single-shot effects: one terminal snapshot and one completion.
 #[test]
 fn concurrent_notification_hub_dispose_publishes_one_terminal_snapshot() {
-    use std::sync::{Arc, Barrier};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{mpsc, Arc, Barrier};
+    use std::time::Duration;
 
-    for _ in 0..100 {
+    for iteration in 0..100 {
         let hub = NotificationHub::new();
-        hub.post(NotificationType::Notification, "info");
+        let (_notification, waiter) = hub.post_with_waiter(NotificationType::Notification, "info");
+        let completions = Arc::new(AtomicUsize::new(0));
+        let completed = completions.clone();
+        let _subscription = hub.pending_stream().subscribe_with_completion(
+            |_| {},
+            move || {
+                completed.fetch_add(1, Ordering::SeqCst);
+            },
+        );
         let before = hub.pending_snapshots().len();
         let barrier = Arc::new(Barrier::new(32));
         let threads = (0..32)
@@ -707,6 +728,18 @@ fn concurrent_notification_hub_dispose_publishes_one_terminal_snapshot() {
         }
 
         assert_eq!(hub.pending_snapshots().len(), before + 1);
+        assert_eq!(
+            completions.load(Ordering::SeqCst),
+            1,
+            "iteration {iteration}: completion must publish exactly once"
+        );
+        let (reaction_tx, reaction_rx) = mpsc::channel();
+        std::thread::spawn(move || reaction_tx.send(waiter.wait()).unwrap());
+        assert_eq!(
+            reaction_rx.recv_timeout(Duration::from_secs(1)),
+            Ok(NotificationReaction::Pending),
+            "iteration {iteration}: the in-flight waiter must resolve with the safe result"
+        );
     }
 }
 

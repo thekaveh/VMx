@@ -31,8 +31,11 @@ def source(*names: str) -> CompositeVM[ComponentVM]:
 
 @pytest.mark.conformance("COMP-028")
 def test_COMP_028_filtered_visible_projection() -> None:
-    sut = FilteredCompositeVM(source("alpha", "beta"), predicate=lambda vm: "a" in vm.name)
-    assert [vm.name for vm in sut.visible] == ["alpha", "beta"]
+    src = source("alpha", "bee", "beta", "gamma")
+    sut = FilteredCompositeVM(src, predicate=lambda vm: "a" in vm.name)
+    # "bee" is excluded; source order of the accepted children is preserved.
+    assert [vm.name for vm in sut.visible] == ["alpha", "beta", "gamma"]
+    assert [id(vm) for vm in sut.visible] == [id(src[0]), id(src[2]), id(src[3])]
 
 
 @pytest.mark.conformance("COMP-029")
@@ -43,10 +46,13 @@ def test_COMP_029_visible_count() -> None:
 
 @pytest.mark.conformance("COMP-030")
 def test_COMP_030_current_maps_to_visible_domain() -> None:
-    src = source("alpha", "bee")
+    src = source("bee", "alpha", "cee", "gamma")
     sut = FilteredCompositeVM(src, predicate=lambda vm: "a" in vm.name)
+    # Non-first visible item whose visible index (1) differs from its source index (3).
+    sut.current = sut.visible[1]
+    assert sut.current is src[3]
     sut.current = sut.visible[0]
-    assert sut.current is src[0]
+    assert sut.current is src[1]
 
 
 @pytest.mark.conformance("COMP-031")
@@ -83,12 +89,18 @@ def test_COMP_033_cursor_policies() -> None:
 
 
 @pytest.mark.conformance("COMP-034")
-def test_COMP_034_visible_navigation_wraps() -> None:
+def test_COMP_034_visible_navigation_clamps() -> None:
     src = source("alpha", "bee", "gamma")
     sut = FilteredCompositeVM(src, predicate=lambda vm: "a" in vm.name)
     sut.current = sut.visible[0]
     sut.move_to_next_visible()
     assert sut.current is sut.visible[1]
+    # Clamps at the upper bound.
+    sut.move_to_next_visible()
+    assert sut.current is sut.visible[1]
+    sut.move_to_previous_visible()
+    assert sut.current is sut.visible[0]
+    # Clamps at the lower bound.
     sut.move_to_previous_visible()
     assert sut.current is sut.visible[0]
 

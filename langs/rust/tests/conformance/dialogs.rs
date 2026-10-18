@@ -119,6 +119,108 @@ fn immediate_rejecting_reentrant_service_returns_safe_default() {
     assert!(!service.confirm("second", None).wait());
 }
 
+/// Dialog service whose `confirm` either rejects reentrant calls immediately
+/// (`queueing == false`) or serialises them behind the pending one.
+#[derive(Clone)]
+struct ReentrantConfirmService {
+    queueing: bool,
+    pending: Arc<Mutex<Vec<AsyncValue<bool>>>>,
+}
+
+impl ReentrantConfirmService {
+    fn new(queueing: bool) -> Self {
+        Self {
+            queueing,
+            pending: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    /// Host resolves the oldest outstanding dialog.
+    fn resolve_next(&self, value: bool) {
+        let next = self.pending.lock().unwrap().remove(0);
+        assert!(next.resolve(value));
+    }
+}
+
+impl DialogService for ReentrantConfirmService {
+    fn pick_file_to_open(
+        &self,
+        _filter: Option<FileFilter>,
+        _title: Option<&str>,
+    ) -> AsyncValue<Option<String>> {
+        AsyncValue::ready(None)
+    }
+
+    fn pick_file_to_save(
+        &self,
+        _filter: Option<FileFilter>,
+        _title: Option<&str>,
+        _suggested_name: Option<&str>,
+    ) -> AsyncValue<Option<String>> {
+        AsyncValue::ready(None)
+    }
+
+    fn confirm(&self, _message: &str, _title: Option<&str>) -> AsyncValue<bool> {
+        let mut pending = self.pending.lock().unwrap();
+        if !self.queueing && !pending.is_empty() {
+            return AsyncValue::ready(false);
+        }
+        let decision = AsyncValue::pending();
+        pending.push(decision.clone());
+        decision
+    }
+
+    fn notify(
+        &self,
+        _message: &str,
+        _title: Option<&str>,
+        _severity: NotificationSeverity,
+    ) -> AsyncValue<()> {
+        AsyncValue::ready(())
+    }
+}
+
+/// DIA-006 — an immediate-rejecting service resolves a second `confirm` made
+/// while the first is pending with `false` at once, and the first call
+/// continues to completion unaffected.
+#[test]
+fn immediate_rejecting_service_rejects_second_while_first_pending() {
+    let service = ReentrantConfirmService::new(false);
+    let first = service.confirm("first", None);
+    assert_eq!(first.try_get(), None);
+
+    let second = service.confirm("second", None);
+    assert_eq!(second.try_get(), Some(false));
+    assert_eq!(first.try_get(), None);
+
+    service.resolve_next(true);
+    assert!(first.wait());
+}
+
+/// DIA-006 — a queueing service serialises concurrent `confirm` calls and
+/// both eventually resolve with valid values without raising.
+#[test]
+fn queueing_service_serialises_concurrent_confirms() {
+    let service = ReentrantConfirmService::new(true);
+    let callers = (0..2)
+        .map(|index| {
+            let service = service.clone();
+            std::thread::spawn(move || service.confirm(&format!("call-{index}"), None).wait())
+        })
+        .collect::<Vec<_>>();
+    while service.pending.lock().unwrap().len() < 2 {
+        std::thread::yield_now();
+    }
+    service.resolve_next(true);
+    service.resolve_next(false);
+    let mut results = callers
+        .into_iter()
+        .map(|caller| caller.join().expect("confirm must not panic"))
+        .collect::<Vec<_>>();
+    results.sort_unstable();
+    assert_eq!(results, vec![false, true]);
+}
+
 #[test]
 fn dialog_contract_can_remain_pending_until_host_resolution() {
     #[derive(Clone)]

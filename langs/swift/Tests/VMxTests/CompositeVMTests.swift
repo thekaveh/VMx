@@ -2,7 +2,7 @@
 // CompositeVM conformance tests.
 //
 // Claimed IDs: COMP-003 (select via child delegation), COMP-004,
-// COMP-005, COMP-025 (`current(selector)` builder hook), COMP-026
+// destruct cascade (COMP-005), COMP-025 (`current(selector)` builder hook), COMP-026
 // (`onCurrentChanged(callback)` builder hook). COMP-001/002
 // (CollectionChanged), COMP-006/010 (foreground dispatch), COMP-007
 // (modeled composite), COMP-008 are NOT claimed. COMP-009 (non-child
@@ -16,6 +16,7 @@
 //
 import XCTest
 import Combine
+import Foundation
 @testable import VMx
 
 final class CompositeVMTests: XCTestCase {
@@ -447,6 +448,101 @@ final class CompositeVMTests: XCTestCase {
 
         XCTAssertEqual(callbackStatus, .constructed)
         XCTAssertEqual(reentrant.status, .disposed)
+    }
+
+    /// COMP-026 — opposing `onCurrentChanged` callbacks that synchronously
+    /// select children in two composites complete without deadlock.
+    func testCOMP026OpposingCurrentCallbacksAcrossCompositesDoNotDeadlock() throws {
+        let leftChild = leaf("left-child")
+        let rightChild = leaf("right-child")
+        var left: CompositeVM<ComponentVM>!
+        var right: CompositeVM<ComponentVM>!
+        left = try CompositeVM<ComponentVM>.builder().name("left")
+            .withNullServices().children { [leftChild] }
+            .onCurrentChanged { _ in right.selectChild(rightChild) }.build()
+        right = try CompositeVM<ComponentVM>.builder().name("right")
+            .withNullServices().children { [rightChild] }
+            .onCurrentChanged { _ in left.selectChild(leftChild) }.build()
+        try left.construct()
+        try right.construct()
+
+        let start = DispatchSemaphore(value: 0)
+        let done = DispatchGroup()
+        done.enter()
+        DispatchQueue.global().async {
+            start.wait()
+            left.selectChild(leftChild)
+            done.leave()
+        }
+        done.enter()
+        DispatchQueue.global().async {
+            start.wait()
+            right.selectChild(rightChild)
+            done.leave()
+        }
+        start.signal()
+        start.signal()
+
+        XCTAssertEqual(done.wait(timeout: .now() + 10), .success,
+                       "opposing current callbacks must not deadlock")
+        XCTAssertTrue(left.current === leftChild)
+        XCTAssertTrue(right.current === rightChild)
+    }
+
+    /// COMP-026 — a collection-change callback that initiates a current change
+    /// while a current callback initiates collection work completes without
+    /// deadlock (consumer callbacks do not retain the shared coordinator).
+    func testCOMP026CollectionAndCurrentCallbacksCrossingDoNotDeadlock() throws {
+        let l1 = leaf("l1")
+        let l2 = leaf("l2")
+        let lock = NSLock()
+        var currentCallbackAdded = false
+        var collectionCallbackSelected = false
+        var bag = Set<AnyCancellable>()
+        var left: CompositeVM<ComponentVM>!
+        let right = try CompositeVM<ComponentVM>.builder().name("right")
+            .withNullServices().children { [] }.build()
+        left = try CompositeVM<ComponentVM>.builder().name("left")
+            .withNullServices().children { [l1, l2] }
+            .onCurrentChanged { _ in
+                lock.lock()
+                let go = !currentCallbackAdded
+                currentCallbackAdded = true
+                lock.unlock()
+                if go { right.add(self.leaf("from-current-callback")) }
+            }.build()
+        try left.construct()
+        try right.construct()
+        right.collectionChanged.sink { _ in
+            lock.lock()
+            let go = !collectionCallbackSelected
+            collectionCallbackSelected = true
+            lock.unlock()
+            if go { left.selectChild(l2) }
+        }.store(in: &bag)
+
+        let start = DispatchSemaphore(value: 0)
+        let done = DispatchGroup()
+        done.enter()
+        DispatchQueue.global().async {
+            start.wait()
+            left.selectChild(l1)
+            done.leave()
+        }
+        done.enter()
+        DispatchQueue.global().async {
+            start.wait()
+            right.add(self.leaf("from-thread"))
+            done.leave()
+        }
+        start.signal()
+        start.signal()
+
+        XCTAssertEqual(done.wait(timeout: .now() + 10), .success,
+                       "crossing collection/current callbacks must not deadlock")
+        XCTAssertNotNil(left.current)
+        XCTAssertEqual(right.count, 2)
+        bag.removeAll()
     }
 
     /// VMX-098 — `selectChild` gates on Constructed, mirroring C#

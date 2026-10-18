@@ -533,15 +533,27 @@ public class HIER_001_to_014_HierarchicalVM_Tests
                 current = null;
             });
 
+        var treeMessages = new List<TreeStructureChangedMessage>();
+        using var sub = hub.Messages.OfType<TreeStructureChangedMessage>()
+            .Where(m => ReferenceEquals(m.Source, root))
+            .Subscribe(treeMessages.Add);
+
         // Create
         crud.CreateNewCommand.Execute(null);
         root.Children.Should().ContainSingle("CreateNewCommand adds one child");
         current.Should().NotBeNull();
+        var created = current!;
+        treeMessages.Should().ContainSingle();
+        treeMessages[0].Change.Should().Be(TreeStructureChange.Added);
+        treeMessages[0].Affected.Should().BeSameAs(created);
 
         // Delete
         crud.DeleteCurrentCommand.Execute(null);
         root.Children.Should().BeEmpty("DeleteCurrentCommand removes the child");
         current.Should().BeNull();
+        treeMessages.Should().HaveCount(2);
+        treeMessages[1].Change.Should().Be(TreeStructureChange.Removed);
+        treeMessages[1].Affected.Should().BeSameAs(created);
 
         crud.Dispose();
     }

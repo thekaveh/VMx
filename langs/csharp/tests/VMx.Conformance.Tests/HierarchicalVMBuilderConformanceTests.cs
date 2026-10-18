@@ -2,6 +2,7 @@ using FluentAssertions;
 using VMx.Builders;
 using VMx.Components;
 using VMx.Hierarchical;
+using VMx.Lifecycle;
 using VMx.Services;
 using VMx.Tests.Helpers;
 using Xunit;
@@ -153,11 +154,17 @@ public class HierarchicalVMBuilderConformanceTests
     public void HIER_016_Repeated_Build_Calls_Produce_Equivalent_But_Distinct_Nodes()
     {
         var (hub, dispatcher) = MakeServices();
+        var materialized = new List<TestNode>();
         var builder = HierarchicalVMBuilder<string, TestNode>.Empty
             .Model("root-model")
             .Hint("the-hint")
-            .ChildrenFactory(_ => Array.Empty<TestNode>())
+            .ChildrenFactory(parent =>
+            {
+                materialized.Add(parent);
+                return new[] { new TestNode("leaf", _ => Array.Empty<TestNode>(), hub, dispatcher) };
+            })
             .Services(hub, dispatcher)
+            .EagerChildren(true)
             .VmFactory(TestNodeFactory);
 
         var nodeA = builder.Build();
@@ -171,6 +178,19 @@ public class HierarchicalVMBuilderConformanceTests
         nodeA.Hint.Should().Be("the-hint");
         nodeB.Hint.Should().Be("the-hint");
         nodeA.Hint.Should().Be(nodeB.Hint, "Hint must be equal across builds");
+
+        // EagerChildren(true): each node's subtree is materialized at construct
+        // time, before Children is ever read.
+        nodeA.Construct();
+        nodeB.Construct();
+        materialized.Should().HaveCount(2);
+        materialized[0].Should().BeSameAs(nodeA);
+        materialized[1].Should().BeSameAs(nodeB);
+        nodeA.Children.Should().ContainSingle()
+            .Which.Status.Should().Be(ConstructionStatus.Constructed);
+        nodeB.Children.Should().ContainSingle()
+            .Which.Status.Should().Be(ConstructionStatus.Constructed);
+        materialized.Should().HaveCount(2, "reading Children does not re-run the factory");
     }
 
     // ── HIER-017 — Field defaults applied when not set ───────────────────────

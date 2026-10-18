@@ -158,13 +158,20 @@ public class CommandDecoratorsConformanceTests
     public async Task CMDD_009_Decorators_Compose()
     {
         var log = new List<string>();
-        var relay = BuildRecording(log, "relay", true);
+        var invoked = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var relay = RelayCommand.Builder()
+            .Task(() => { lock (log) log.Add("relay"); invoked.TrySetResult(); })
+            .Build();
         using var conf = new ConfirmationDecoratorCommand(relay, () => Task.FromResult(true));
         using var dec = new DecoratorCommand(conf);
 
         dec.CanExecute(null).Should().BeTrue();
-        await conf.ExecuteAsync(null);
-        log.Should().Equal("relay");
+        // Execute through the OUTER decorator; the confirmation path is
+        // fire-and-forget, so await the relay's recorded invocation.
+        dec.Execute(null);
+        await invoked.Task.WaitAsync(VMx.Tests.Helpers.Liveness.HangGuard);
+        await Task.Delay(50);
+        lock (log) log.Should().Equal("relay");
     }
 
     // ── CMDD-010 ────────────────────────────────────────────────────────────

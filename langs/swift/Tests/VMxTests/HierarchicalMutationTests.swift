@@ -47,7 +47,8 @@ final class HierarchicalMutationTests: XCTestCase {
 
     // ── Tests ────────────────────────────────────────────────────────────
 
-    /// HIER-010 — a cached path does not keep its nodes alive.
+    /// Supplementary path-cache check (not HIER-010, which covers the parent
+    /// PropertyChangedMessage): a cached path does not keep its nodes alive.
     func testHier010CachedPathDoesNotRetainNodes() {
         let hub = MessageHub()
         weak var weakRoot: MyNode?

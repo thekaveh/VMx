@@ -25,7 +25,8 @@ final class CompositeCollectionChangedTests: XCTestCase {
 
     // ── COMP-001 ─────────────────────────────────────────────────────────
 
-    /// COMP-001 — disposing a composite or group completes collectionChanged.
+    /// Disposing a composite or group completes collectionChanged
+    /// (supplementary lifecycle check; not a COMP-001 assertion).
     func testCOMP001DisposeCompletesCollectionChanged() throws {
         let composite = try CompositeVM<ComponentVM>.builder()
             .name("c").withNullServices().children { [] }.build()

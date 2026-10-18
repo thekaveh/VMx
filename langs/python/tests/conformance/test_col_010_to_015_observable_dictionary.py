@@ -221,6 +221,17 @@ def test_COL_015_clear_empties_key_views() -> None:
     reset_fired: list[bool] = []
     sut.on_reset.subscribe(lambda _: reset_fired.append(True))
 
+    # Subscribers to the Keys1 / Keys2 views.
+    keys_events: dict[str, list[str]] = {"keys1": [], "keys2": []}
+    for label, view in (("keys1", sut.keys1), ("keys2", sut.keys2)):
+        log = keys_events[label]
+        view.on_item_added.subscribe(lambda _, log=log: log.append("added"))
+        view.on_item_removed.subscribe(lambda _, log=log: log.append("removed"))
+        view.on_reset.subscribe(lambda _, log=log: log.append("reset"))
+        view.on_property_changed.subscribe(lambda name, log=log: log.append(f"prop:{name}"))
+    assert list(sut.keys1) == ["alpha", "beta"]
+    assert list(sut.keys2) == [1, 2]
+
     sut.clear()
 
     # Count drops to zero
@@ -229,6 +240,13 @@ def test_COL_015_clear_empties_key_views() -> None:
     # Keys1 and Keys2 are empty
     assert sut.keys1.count == 0
     assert sut.keys2.count == 0
+    assert list(sut.keys1) == []
+    assert list(sut.keys2) == []
+
+    # Each key view emitted the bulk-removal event for a clear (one Reset,
+    # then Count), and nothing was added.
+    assert keys_events["keys1"] == ["reset", "prop:Count"]
+    assert keys_events["keys2"] == ["reset", "prop:Count"]
 
     # on_reset fired exactly once
     assert len(reset_fired) == 1

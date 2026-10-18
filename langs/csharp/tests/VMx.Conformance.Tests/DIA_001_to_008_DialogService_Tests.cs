@@ -164,7 +164,11 @@ public class DIA_001_to_008_DialogService_Tests
     [Trait("Conformance", "DIA-007")]
     public async Task DIA_007_Cancellation_Completes_With_Safe_Default()
     {
-        var svc = new CancellationAwareDialogService();
+        // The double's non-cancelled results differ from the safe defaults, so
+        // the cancelled assertions below are not vacuous.
+        var svc = new CancellationAwareDialogService(pendingResult: true);
+        (await svc.PickFileToOpen()).Should().Be("/some/path");
+        (await svc.Confirm("msg")).Should().BeTrue();
 
         // PickFileToOpen — cancelled token → null, no throw.
         using var cts1 = new CancellationTokenSource();

@@ -215,7 +215,17 @@ public class COL_010_to_015_ObservableDictionaryTests
         sut.ItemRemoved += (_, _) => granularEvents.Add("removed");
         sut.Reset += (_, _) => resetCount++;
 
+        // Subscribers to the Keys1 / Keys2 views.
+        var keys1Events = new List<System.Collections.Specialized.NotifyCollectionChangedAction>();
+        var keys2Events = new List<System.Collections.Specialized.NotifyCollectionChangedAction>();
+        sut.Keys1.CollectionChanged += (_, e) => keys1Events.Add(e.Action);
+        sut.Keys2.CollectionChanged += (_, e) => keys2Events.Add(e.Action);
+
         sut.Clear();
+
+        // Each key view emitted its removal (a single Reset for a clear).
+        keys1Events.Should().Equal(System.Collections.Specialized.NotifyCollectionChangedAction.Reset);
+        keys2Events.Should().Equal(System.Collections.Specialized.NotifyCollectionChangedAction.Reset);
 
         // Count drops to zero
         sut.Count.Should().Be(0);

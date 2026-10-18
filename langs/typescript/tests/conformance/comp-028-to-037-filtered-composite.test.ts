@@ -27,8 +27,11 @@ function source(...names: string[]): CompositeVM<ComponentVM> {
 
 describe("COMP-028", () => {
   it("filtered visible projection applies the predicate", () => {
-    const sut = new FilteredCompositeVM(source("alpha", "beta"), { predicate: (vm) => vm.name.includes("a") });
-    expect(sut.visible.map((vm) => vm.name)).toEqual(["alpha", "beta"]);
+    const src = source("alpha", "bee", "beta", "zzz", "gamma");
+    const sut = new FilteredCompositeVM(src, { predicate: (vm) => vm.name.includes("a") });
+    // Excluded items ("bee", "zzz") are absent; source order is preserved.
+    expect(sut.visible.map((vm) => vm.name)).toEqual(["alpha", "beta", "gamma"]);
+    expect(sut.visible).toEqual([src.at(0), src.at(2), src.at(4)]);
   });
 });
 
@@ -41,10 +44,13 @@ describe("COMP-029", () => {
 
 describe("COMP-030", () => {
   it("current maps to the visible domain", () => {
-    const src = source("alpha", "bee");
+    const src = source("alpha", "bee", "gamma");
     const sut = new FilteredCompositeVM(src, { predicate: (vm) => vm.name.includes("a") });
-    sut.current = sut.visible[0]!;
-    expect(sut.current).toBe(src.at(0));
+    // Non-first visible item, at a source index different from its visible index.
+    const target = sut.visible[1]!;
+    expect(target).toBe(src.at(2));
+    sut.current = target;
+    expect(sut.current).toBe(src.at(2));
   });
 });
 
@@ -84,6 +90,13 @@ describe("COMP-034", () => {
   it("visible navigation moves previous and next", () => {
     const sut = new FilteredCompositeVM(source("alpha", "bee", "gamma"), { predicate: (vm) => vm.name.includes("a") });
     sut.current = sut.visible[0]!;
+    // Clamps at the lower bound.
+    sut.moveToPreviousVisible();
+    expect(sut.current).toBe(sut.visible[0]);
+    sut.moveToNextVisible();
+    expect(sut.current).toBe(sut.visible[1]);
+    expect(sut.current?.name).toBe("gamma");
+    // Clamps at the upper bound.
     sut.moveToNextVisible();
     expect(sut.current).toBe(sut.visible[1]);
     sut.moveToPreviousVisible();

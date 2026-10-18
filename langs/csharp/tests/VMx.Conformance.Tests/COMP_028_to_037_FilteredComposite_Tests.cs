@@ -42,8 +42,12 @@ public class COMP_028_to_037_FilteredCompositeTests
     [Fact, Trait("Conformance", "COMP-028")]
     public void COMP_028_FilteredVisibleProjection()
     {
-        var sut = new FilteredCompositeVM<ComponentVM>(Source("alpha", "beta"), vm => vm.Name.Contains('a'));
-        sut.Visible.Select(vm => vm.Name).Should().Equal("alpha", "beta");
+        var src = Source("alpha", "bee", "beta", "gamma");
+        var sut = new FilteredCompositeVM<ComponentVM>(src, vm => vm.Name.Contains('a'));
+        sut.Visible.Select(vm => vm.Name).Should().Equal(["alpha", "beta", "gamma"],
+            "the excluded source child is omitted and source order is preserved");
+        sut.Visible.Should().NotContain(src[1]);
+        sut.Visible[1].Should().BeSameAs(src[2]);
     }
 
     [Fact, Trait("Conformance", "COMP-029")]
@@ -56,10 +60,11 @@ public class COMP_028_to_037_FilteredCompositeTests
     [Fact, Trait("Conformance", "COMP-030")]
     public void COMP_030_CurrentMapsToVisibleDomain()
     {
-        var src = Source("alpha", "bee");
+        var src = Source("alpha", "bee", "gamma");
         var sut = new FilteredCompositeVM<ComponentVM>(src, vm => vm.Name.Contains('a'));
-        sut.Current = sut.Visible[0];
-        sut.Current.Should().BeSameAs(src[0]);
+        // Select a non-first visible item that sits at a different source index.
+        sut.Current = sut.Visible[1];
+        sut.Current.Should().BeSameAs(src[2]);
     }
 
     [Fact, Trait("Conformance", "COMP-030")]
@@ -121,8 +126,13 @@ public class COMP_028_to_037_FilteredCompositeTests
     {
         var sut = new FilteredCompositeVM<ComponentVM>(Source("alpha", "bee", "gamma"), vm => vm.Name.Contains('a'));
         sut.Current = sut.Visible[0];
+        sut.MoveToPreviousVisible();
+        sut.Current.Should().BeSameAs(sut.Visible[0], "previous clamps at the first visible item");
         sut.MoveToNextVisible();
         sut.Current.Should().BeSameAs(sut.Visible[1]);
+        sut.Current!.Name.Should().Be("gamma", "navigation skips the hidden item");
+        sut.MoveToNextVisible();
+        sut.Current.Should().BeSameAs(sut.Visible[1], "next clamps at the last visible item");
         sut.MoveToPreviousVisible();
         sut.Current.Should().BeSameAs(sut.Visible[0]);
     }

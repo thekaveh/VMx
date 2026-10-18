@@ -56,15 +56,22 @@ fn filtered_visible_count_matches_projection_length() {
 /// COMP-030 — FilteredCompositeVM current maps to visible domain
 #[test]
 fn filtered_current_must_be_visible() {
-    let source = source_with(&[1, 2]);
-    let visible = source.items()[1].clone();
+    let source = source_with(&[1, 2, 3, 4]);
     let hidden = source.items()[0].clone();
-    let filtered = FilteredCompositeVm::new(source, |vm: &ComponentVm<i32>| vm.model() == 2);
+    let first_visible = source.items()[1].clone();
+    let visible = source.items()[3].clone();
+    let filtered =
+        FilteredCompositeVm::new(source.clone(), |vm: &ComponentVm<i32>| vm.model() % 2 == 0);
+    // Default snap-to-first lands on the first visible item; select a
+    // different (non-first) visible item so the assertion is not vacuous.
+    assert_eq!(filtered.current().unwrap().id(), first_visible.id());
 
     filtered.set_current(Some(visible.clone())).unwrap();
 
     assert_eq!(filtered.current().unwrap().id(), visible.id());
+    assert_ne!(visible.id(), first_visible.id());
     assert!(filtered.set_current(Some(hidden)).is_err());
+    assert_eq!(filtered.current().unwrap().id(), visible.id());
 }
 
 /// COMP-031 — predicate change recomputes projection

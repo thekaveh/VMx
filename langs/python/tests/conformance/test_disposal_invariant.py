@@ -11,8 +11,8 @@ from reactivex.subject import BehaviorSubject
 from vmx.capabilities import ExpandableState
 from vmx.collections import BatchUpdateHandle
 from vmx.commands import AsyncRelayCommand
-from vmx.components.builders import ComponentVMBuilder
-from vmx.composites.builders import CompositeVMBuilder
+from vmx.components.component_vm import ComponentVM
+from vmx.composites.composite_vm import CompositeVM
 from vmx.dialogs import ModalVM
 from vmx.forms import FormVM
 from vmx.lifecycle import ConstructionStatus
@@ -26,11 +26,22 @@ from vmx.services import MessageHub, RxDispatcher
 def test_disp_001_parent_cascade_is_observably_idempotent() -> None:
     hub: MessageHub[object] = MessageHub()
     dispatcher = RxDispatcher.immediate()
-    child = ComponentVMBuilder().name("child").services(hub, dispatcher).build()
-    parent = (
-        CompositeVMBuilder().name("parent").services(hub, dispatcher).children(lambda: ()).build()
-    )
+    hook_runs: list[str] = []
+
+    class OwningChild(ComponentVM):
+        def _on_dispose(self) -> None:
+            hook_runs.append(self.name)
+            super()._on_dispose()
+
+    class OwningParent(CompositeVM[ComponentVM]):
+        def _on_dispose(self) -> None:
+            hook_runs.append(self.name)
+            super()._on_dispose()
+
+    child = OwningChild(name="child", hint="", hub=hub, dispatcher=dispatcher)
+    parent = OwningParent(name="parent", hint="", hub=hub, dispatcher=dispatcher)
     parent.append(child)
+    parent.construct()
     disposed: list[str] = []
     hub.messages.subscribe(
         lambda message: (
@@ -44,8 +55,13 @@ def test_disp_001_parent_cascade_is_observably_idempotent() -> None:
     parent.dispose()
     parent.dispose()
 
+    assert parent.status is ConstructionStatus.DISPOSED
+    assert child.status is ConstructionStatus.DISPOSED
     assert disposed.count("child") == 1
     assert disposed.count("parent") == 1
+    # Each owned disposal hook runs at most once (here: exactly once).
+    assert hook_runs.count("child") == 1
+    assert hook_runs.count("parent") == 1
 
 
 @pytest.mark.conformance("DISP-002")
@@ -122,14 +138,31 @@ async def test_disp_003_concurrent_notification_hub_dispose_completes_once() -> 
 
 @pytest.mark.conformance("DISP-004")
 async def test_disp_004_interaction_owners_complete_once_and_keep_first_result() -> None:
-    async def persist(_: int) -> None:
-        return None
+    persisted: list[int] = []
+
+    async def persist(value: int) -> None:
+        persisted.append(value)
 
     form = FormVM(1, persist)
     completions: list[None] = []
-    form.on_approved.subscribe(on_completed=lambda: completions.append(None))
+    approvals: list[int] = []
+    form.on_approved.subscribe(
+        on_next=approvals.append, on_completed=lambda: completions.append(None)
+    )
+    form.set_model(2)
     form.dispose()
     form.dispose()
+    assert len(completions) == 1
+
+    # Documented inert post-dispose behavior: mutation, approve, and deny are
+    # no-ops — the persister is not invoked and nothing is emitted.
+    form.set_model(3)
+    assert form.model == 2
+    await form.approve_async()
+    form.deny_command.execute()
+    assert persisted == []
+    assert approvals == []
+    assert form.model == 2
     assert len(completions) == 1
 
     modal = ModalVM("cancel")

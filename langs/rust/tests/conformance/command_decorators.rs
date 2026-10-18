@@ -22,6 +22,13 @@ fn composite_command_can_execute_is_or() {
     let enabled = recording_command(log, "enabled", true);
 
     assert!(CompositeCommand::from_commands(vec![disabled, enabled]).can_execute());
+
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let both_disabled = CompositeCommand::from_commands(vec![
+        recording_command(log.clone(), "first", false),
+        recording_command(log, "second", false),
+    ]);
+    assert!(!both_disabled.can_execute());
 }
 
 /// CMDD-002 — CompositeCommand.Execute invokes only enabled inner commands
@@ -65,9 +72,27 @@ fn composite_command_propagates_inner_can_execute_changed() {
 fn decorator_command_can_execute_is_inner_and_extra_predicate() {
     let log = Arc::new(Mutex::new(Vec::new()));
     let inner = recording_command(log, "inner", true);
-    let decorated = DecoratorCommand::new(inner, Some(|| false), None::<fn()>, None::<fn()>);
-
+    let decorated =
+        DecoratorCommand::new(inner.clone(), Some(|| false), None::<fn()>, None::<fn()>);
     assert!(!decorated.can_execute());
+
+    let decorated = DecoratorCommand::new(inner, Some(|| true), None::<fn()>, None::<fn()>);
+    assert!(decorated.can_execute());
+
+    let log = Arc::new(Mutex::new(Vec::new()));
+    for extra in [true, false] {
+        let disabled_inner = recording_command(log.clone(), "disabled", false);
+        let decorated = DecoratorCommand::new(
+            disabled_inner,
+            Some(move || extra),
+            None::<fn()>,
+            None::<fn()>,
+        );
+        assert!(
+            !decorated.can_execute(),
+            "disabled inner blocks regardless of extra predicate ({extra})"
+        );
+    }
 }
 
 /// CMDD-005 — DecoratorCommand.Execute invokes pre, inner, post in order
@@ -408,6 +433,25 @@ fn confirm_fluent_matches_explicit_confirmation_decorator() {
     confirmed.execute();
     explicit.execute();
     assert_eq!(*called.lock().unwrap(), 2);
+
+    let declined = Arc::new(Mutex::new(0));
+    let declined_inner = declined.clone();
+    let command = RelayCommand::new(move || *declined_inner.lock().unwrap() += 1);
+    let confirmed = command.clone().confirm(|| AsyncValue::ready(false));
+    let explicit = ConfirmationDecoratorCommand::new(command, || AsyncValue::ready(false));
+    confirmed.execute();
+    explicit.execute();
+    assert_eq!(
+        *declined.lock().unwrap(),
+        0,
+        "confirm resolving false must not execute the inner command"
+    );
+
+    let disabled = RelayCommand::new(|| {}).with_can_execute(|| false);
+    let confirmed = disabled.clone().confirm(|| AsyncValue::ready(true));
+    let explicit = ConfirmationDecoratorCommand::new(disabled, || AsyncValue::ready(true));
+    assert!(!confirmed.can_execute());
+    assert_eq!(confirmed.can_execute(), explicit.can_execute());
 }
 
 /// CMD-009 — PrecedeWith(other) is equivalent to CompositeCommand(other, receiver)
@@ -456,6 +500,44 @@ fn wrap_with_runs_pre_inner_post_with_predicate() {
         .execute();
 
     assert_eq!(*order.lock().unwrap(), vec!["pre", "inner", "post"]);
+
+    let blocked_order = Arc::new(Mutex::new(Vec::new()));
+    let (inner_order, pre_order, post_order) = (
+        blocked_order.clone(),
+        blocked_order.clone(),
+        blocked_order.clone(),
+    );
+    let blocked = RelayCommand::new(move || inner_order.lock().unwrap().push("inner")).wrap_with(
+        Some(|| false),
+        Some(move || pre_order.lock().unwrap().push("pre")),
+        Some(move || post_order.lock().unwrap().push("post")),
+    );
+    assert!(!blocked.can_execute());
+    blocked.execute();
+    assert!(
+        blocked_order.lock().unwrap().is_empty(),
+        "a false predicate blocks pre, inner, and post"
+    );
+
+    let transparent_order = Arc::new(Mutex::new(Vec::new()));
+    for enabled in [true, false] {
+        let inner_order = transparent_order.clone();
+        let inner = RelayCommand::new(move || inner_order.lock().unwrap().push("inner"))
+            .with_can_execute(move || enabled);
+        let transparent = inner
+            .clone()
+            .wrap_with(None::<fn() -> bool>, None::<fn()>, None::<fn()>);
+        let explicit =
+            DecoratorCommand::new(inner, None::<fn() -> bool>, None::<fn()>, None::<fn()>);
+        assert_eq!(transparent.can_execute(), enabled);
+        assert_eq!(transparent.can_execute(), explicit.can_execute());
+        transparent.execute();
+    }
+    assert_eq!(
+        *transparent_order.lock().unwrap(),
+        vec!["inner"],
+        "an all-absent wrap is a transparent decorator"
+    );
 }
 
 /// CMDD-011 — Disposed composite and decorator commands are inert

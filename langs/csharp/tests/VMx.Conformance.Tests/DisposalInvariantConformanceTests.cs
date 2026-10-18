@@ -20,16 +20,31 @@ namespace VMx.Conformance.Tests;
 /// <summary>Cross-cutting disposal invariant (DISP-001..006).</summary>
 public class DisposalInvariantConformanceTests
 {
+    private sealed class OwnedHookVM : ComponentVMBase
+    {
+        public int OwnedCleanups;
+        public int DisposeHooks;
+
+        public OwnedHookVM(string name, TestHub hub, TestDispatcher dispatcher)
+            : base(name, "", hub, dispatcher, null, null)
+        {
+            Own(() => Interlocked.Increment(ref OwnedCleanups));
+        }
+
+        public override ViewModelType Type => ViewModelType.Component;
+
+        protected override void OnDispose() => Interlocked.Increment(ref DisposeHooks);
+    }
+
     [Fact, Trait("Conformance", "DISP-001")]
     public void DISP_001_Repeated_Parent_Dispose_Emits_One_Terminal_Transition_Per_Node()
     {
         var hub = new TestHub();
         var dispatcher = new TestDispatcher();
-        var child = ComponentVM<string>.Builder()
-            .Name("child").Services(hub, dispatcher).Model("m").Build();
-        var parent = CompositeVM<ComponentVM<string>>.Builder()
+        var child = new OwnedHookVM("child", hub, dispatcher);
+        var parent = CompositeVM<OwnedHookVM>.Builder()
             .Name("parent").Services(hub, dispatcher)
-            .Children(() => Array.Empty<ComponentVM<string>>()).Build();
+            .Children(() => Array.Empty<OwnedHookVM>()).Build();
         parent.Add(child);
         var disposed = new List<string>();
         hub.Messages.Subscribe(message =>
@@ -44,6 +59,13 @@ public class DisposalInvariantConformanceTests
 
         disposed.Count(name => name == "child").Should().Be(1);
         disposed.Count(name => name == "parent").Should().Be(1);
+        parent.Status.Should().Be(ConstructionStatus.Disposed);
+        child.Status.Should().Be(ConstructionStatus.Disposed);
+        child.OwnedCleanups.Should().Be(1, "an owned disposal hook runs at most once");
+        child.DisposeHooks.Should().Be(1, "the OnDispose hook runs at most once");
+        child.Dispose();
+        child.OwnedCleanups.Should().Be(1);
+        child.DisposeHooks.Should().Be(1);
     }
 
     [Fact, Trait("Conformance", "DISP-002")]
@@ -122,13 +144,30 @@ public class DisposalInvariantConformanceTests
     [Fact, Trait("Conformance", "DISP-004")]
     public async Task DISP_004_Interaction_Owners_Complete_Once_And_Preserve_First_Result()
     {
-        var form = new FormVM<int>(1, _ => Task.CompletedTask);
+        var persisted = new List<int>();
+        var form = new FormVM<int>(1, value => { persisted.Add(value); return Task.CompletedTask; });
         var formCompletions = 0;
+        var approvals = new List<int>();
         using var subscription = form.OnApproved.Subscribe(
-            _ => { },
+            approvals.Add,
             () => formCompletions++);
+        // The interaction resolves before disposal.
+        form.SetModel(2);
+        await form.ApproveAsync();
+        approvals.Should().Equal(2);
         form.Dispose();
         form.Dispose();
+        formCompletions.Should().Be(1);
+
+        // The disposed form keeps its documented inert behavior (spec/20 §10).
+        form.SetModel(3);
+        form.Model.Should().Be(2, "SetModel on a disposed form is a full no-op");
+        form.IsDirty.Should().BeFalse();
+        form.DenyCommand.Execute(null);
+        form.ApproveCommand.Execute(null);
+        await form.ApproveAsync();
+        persisted.Should().Equal([2], "a disposed form never invokes the persister");
+        approvals.Should().Equal(2);
         formCompletions.Should().Be(1);
 
         var modal = new ModalVM<string>("cancel");

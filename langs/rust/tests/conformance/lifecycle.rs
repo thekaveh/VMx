@@ -47,7 +47,7 @@ fn apply_fixture_operation(vm: &ComponentVm, operation: &str) -> vmx::VmxResult<
 fn foreign_disposal_waits_for_an_admitted_lifecycle_hook() {
     let (entered_tx, entered_rx) = mpsc::channel();
     let (release_tx, release_rx) = mpsc::channel();
-    let disposed = Arc::new(AtomicBool::new(false));
+    let disposed = Arc::new(AtomicUsize::new(0));
     let observed_disposed = Arc::clone(&disposed);
     let vm = ComponentVm::new("hook-wait");
     vm.on_construct(move || {
@@ -56,7 +56,7 @@ fn foreign_disposal_waits_for_an_admitted_lifecycle_hook() {
         Ok(())
     });
     vm.on_dispose(move || {
-        observed_disposed.store(true, Ordering::SeqCst);
+        observed_disposed.fetch_add(1, Ordering::SeqCst);
         Ok(())
     });
     let constructor = {
@@ -75,7 +75,7 @@ fn foreign_disposal_waits_for_an_admitted_lifecycle_hook() {
         early.is_err(),
         "disposal completed before hook release: {early:?}"
     );
-    assert!(!disposed.load(Ordering::SeqCst));
+    assert_eq!(disposed.load(Ordering::SeqCst), 0);
     release_tx.send(()).unwrap();
     assert_eq!(
         done_rx.recv_timeout(Duration::from_secs(2)).unwrap(),
@@ -83,7 +83,11 @@ fn foreign_disposal_waits_for_an_admitted_lifecycle_hook() {
     );
     assert_eq!(constructor.join().unwrap(), Ok(()));
     disposer.join().unwrap();
-    assert!(disposed.load(Ordering::SeqCst));
+    assert_eq!(
+        disposed.load(Ordering::SeqCst),
+        1,
+        "terminal cleanup must run exactly once after the hook releases"
+    );
     assert_eq!(vm.status(), ConstructionStatus::Disposed);
 }
 
@@ -174,6 +178,8 @@ fn concurrent_disposer_tears_down_commands_after_the_running_dispose_hook() {
     assert_eq!(teardowns.load(Ordering::SeqCst), 1);
 }
 
+/// LIFE-015 — terminal supersession during an admitted construct hook prevents
+/// any post-hook container lifecycle work (no child construction).
 #[test]
 fn disposed_parent_skips_post_hook_child_construction() {
     let child_constructs = Arc::new(AtomicUsize::new(0));
@@ -215,6 +221,8 @@ fn disposed_parent_skips_post_hook_child_construction() {
     assert_eq!(child_constructs.load(Ordering::SeqCst), 0);
 }
 
+/// LIFE-015 — opposing foreign hook waits (each admitted construct hook disposes
+/// the other VM) cannot deadlock.
 #[test]
 fn opposing_active_lifecycle_hooks_cross_dispose_without_deadlock() {
     let rendezvous = Arc::new(Barrier::new(2));
@@ -574,6 +582,7 @@ fn synchronous_terminal_publication_completes_before_return() {
     );
 }
 
+/// LIFE-015 — opposing foreign disposals from lifecycle callbacks cannot deadlock.
 #[test]
 fn opposing_lifecycle_callbacks_do_not_deadlock() {
     let left_hub = MessageHub::new();
@@ -797,18 +806,68 @@ fn dispose_from_disposed_emits_no_message() {
 /// LIFE-013 — dispose on a parent disposes every child depth-first
 #[test]
 fn dispose_on_parent_disposes_children_before_parent() {
-    let parent_hub = MessageHub::new();
-    let parent = CompositeVm::with_services("parent", parent_hub.clone(), NullDispatcher::new());
-    let child_a = ComponentVm::new("a");
-    let child_b = ComponentVm::new("b");
-    parent.add(child_a.clone()).unwrap();
-    parent.add(child_b.clone()).unwrap();
+    let hub = MessageHub::new();
+    let services = || (hub.clone(), NullDispatcher::new());
+    let parent = {
+        let (h, d) = services();
+        CompositeVm::with_services("parent", h, d)
+    };
+    let mut children = Vec::new();
+    let mut grandchildren = Vec::new();
+    for child_name in ["a", "b"] {
+        let (h, d) = services();
+        let child = CompositeVm::with_services(child_name, h, d);
+        for grandchild_name in ["1", "2"] {
+            let (h, d) = services();
+            let grandchild =
+                ComponentVm::with_services(format!("{child_name}{grandchild_name}"), h, d);
+            child.add(grandchild.clone()).unwrap();
+            grandchildren.push(grandchild);
+        }
+        parent.add(child.clone()).unwrap();
+        children.push(child);
+    }
+    parent.construct().unwrap();
+    assert_eq!(parent.status(), ConstructionStatus::Constructed);
+    assert!(children
+        .iter()
+        .all(|child| child.status() == ConstructionStatus::Constructed));
+    assert!(grandchildren
+        .iter()
+        .all(|grandchild| grandchild.status() == ConstructionStatus::Constructed));
+    let recorder = hub.record(1024);
 
     parent.dispose().unwrap();
 
-    assert_eq!(child_a.status(), ConstructionStatus::Disposed);
-    assert_eq!(child_b.status(), ConstructionStatus::Disposed);
+    assert!(children
+        .iter()
+        .all(|child| child.status() == ConstructionStatus::Disposed));
+    assert!(grandchildren
+        .iter()
+        .all(|grandchild| grandchild.status() == ConstructionStatus::Disposed));
     assert_eq!(parent.status(), ConstructionStatus::Disposed);
+    let disposed_order = recorder
+        .messages()
+        .into_iter()
+        .filter_map(|message| match message {
+            Message::ConstructionStatusChanged(change)
+                if change.status == ConstructionStatus::Disposed =>
+            {
+                Some(change.sender_id)
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let expected = vec![
+        grandchildren[0].id(),
+        grandchildren[1].id(),
+        children[0].id(),
+        grandchildren[2].id(),
+        grandchildren[3].id(),
+        children[1].id(),
+        parent.id(),
+    ];
+    assert_eq!(disposed_order, expected, "disposal must be depth-first");
 }
 
 #[test]
@@ -951,10 +1010,43 @@ fn repeated_parent_dispose_emits_one_terminal_transition_per_node() {
     let child = ComponentVm::with_services("child", hub.clone(), NullDispatcher::new());
     let parent_id = parent.id();
     let child_id = child.id();
-    parent.add(child).unwrap();
+    let hook_runs = Arc::new(AtomicUsize::new(0));
+    let owned_runs = Arc::new(AtomicUsize::new(0));
+    let counted = |counter: &Arc<AtomicUsize>| {
+        let counter = Arc::clone(counter);
+        move || {
+            counter.fetch_add(1, Ordering::SeqCst);
+        }
+    };
+    let parent_hook = counted(&hook_runs);
+    parent.on_dispose(move || {
+        parent_hook();
+        Ok(())
+    });
+    let child_hook = counted(&hook_runs);
+    child.on_dispose(move || {
+        child_hook();
+        Ok(())
+    });
+    parent.own(counted(&owned_runs));
+    child.own(counted(&owned_runs));
+    parent.add(child.clone()).unwrap();
 
     parent.dispose().unwrap();
     parent.dispose().unwrap();
+
+    assert_eq!(parent.status(), ConstructionStatus::Disposed);
+    assert_eq!(child.status(), ConstructionStatus::Disposed);
+    assert_eq!(
+        hook_runs.load(Ordering::SeqCst),
+        2,
+        "each dispose hook runs at most once"
+    );
+    assert_eq!(
+        owned_runs.load(Ordering::SeqCst),
+        2,
+        "each owned cleanup runs at most once"
+    );
 
     let disposed = recorder
         .messages()

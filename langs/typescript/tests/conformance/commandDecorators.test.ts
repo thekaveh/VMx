@@ -145,7 +145,10 @@ describe("CMDD-009", () => {
     const dec = new DecoratorCommand(conf);
 
     expect(dec.canExecute()).toBe(true);
-    await conf.executeAsync();
+    // DecoratorCommand exposes only execute(); the confirmation gate inside is
+    // async, so drain it before asserting.
+    dec.execute();
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(log).toEqual(["relay"]);
   });
 });

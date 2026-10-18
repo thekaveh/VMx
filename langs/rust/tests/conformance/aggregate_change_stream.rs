@@ -248,6 +248,45 @@ where
     AggregateChangeStream::new(source, |item| item.property_changed())
 }
 
+type SelectorHooks = Arc<Mutex<HashMap<usize, Arc<dyn Fn() + Send + Sync>>>>;
+
+/// Aggregate whose selector counts subscriptions per logical id and can run a
+/// one-shot hook while the selector is invoked for a given id.
+fn counting_aggregate<S>(source: S) -> CountingAggregate
+where
+    S: ObservableMembershipSource<TestNode>,
+{
+    counting_aggregate_with(source, Arc::new(Mutex::new(HashMap::new())))
+}
+
+type CountingAggregate = (
+    AggregateChangeStream<TestNode>,
+    Arc<Mutex<HashMap<usize, usize>>>,
+    SelectorHooks,
+);
+
+fn counting_aggregate_with<S>(source: S, hooks: SelectorHooks) -> CountingAggregate
+where
+    S: ObservableMembershipSource<TestNode>,
+{
+    let counts = Arc::new(Mutex::new(HashMap::new()));
+    let selector_counts = Arc::clone(&counts);
+    let selector_hooks = Arc::clone(&hooks);
+    let aggregate = AggregateChangeStream::new(source, move |item: &TestNode| {
+        *locked(&selector_counts).entry(item.id()).or_insert(0) += 1;
+        let hook = locked(&selector_hooks).remove(&item.id());
+        if let Some(hook) = hook {
+            hook();
+        }
+        item.property_changed()
+    });
+    (aggregate, counts, hooks)
+}
+
+fn subscriptions(counts: &Arc<Mutex<HashMap<usize, usize>>>, id: usize) -> usize {
+    locked(counts).get(&id).copied().unwrap_or(0)
+}
+
 fn reasons(changes: &Arc<Mutex<Vec<AggregateChange<TestNode>>>>) -> Vec<AggregateChangeReason> {
     locked(changes).iter().map(|change| change.reason).collect()
 }
@@ -393,6 +432,49 @@ fn aggregate_structural_reconciliation_orders_membership_before_item() {
     drop(blockers);
 }
 
+/// AGCH-002 — a synchronous item value staged during initial construction is
+/// discarded (no replayable `Membership` or `Item`), while one staged during a
+/// later reconciliation is queued behind that reconciliation's `Membership`.
+#[test]
+fn aggregate_construction_discards_staged_value_and_later_queues_it() {
+    let first = TestNode::new(67, "first");
+    let second = TestNode::new(68, "second");
+    let source = TestSource::new(Vec::new());
+    // Pre-load the source before the aggregate takes its first snapshot.
+    locked(&source.items).extend([first.clone(), second.clone()]);
+    let hooks: SelectorHooks = Arc::new(Mutex::new(HashMap::new()));
+    // Selector subscription order within one reconciliation is unspecified, so
+    // each selector emits on its sibling: whichever sibling was subscribed
+    // first receives a staged value during the reconciliation.
+    stage_on_siblings(&hooks, &first, &second);
+    let (aggregate, counts, hooks) = counting_aggregate_with(source.clone(), hooks);
+    assert_eq!(subscriptions(&counts, 67), 1);
+    assert_eq!(subscriptions(&counts, 68), 1);
+    let (changes, _subscription) = collect(&aggregate, AggregateObserveOptions::default());
+    assert!(reasons(&changes).is_empty());
+
+    let third = TestNode::new(69, "third");
+    let fourth = TestNode::new(70, "fourth");
+    stage_on_siblings(&hooks, &third, &fourth);
+    source.replace_all(vec![first, second, third, fourth]);
+
+    assert_eq!(
+        reasons(&changes),
+        vec![
+            AggregateChangeReason::Membership,
+            AggregateChangeReason::Item
+        ]
+    );
+    let staged_id = locked(&changes)[1].item.as_ref().map(VmNode::id);
+    assert!(matches!(staged_id, Some(69 | 70)), "{staged_id:?}");
+}
+
+fn stage_on_siblings(hooks: &SelectorHooks, a: &TestNode, b: &TestNode) {
+    let (emit_b, emit_a) = (b.clone(), a.clone());
+    locked(hooks).insert(a.id(), Arc::new(move || emit_b.emit()));
+    locked(hooks).insert(b.id(), Arc::new(move || emit_a.emit()));
+}
+
 /// AGCH-003 — selected changes carry the identical current member
 #[test]
 fn aggregate_item_change_carries_current_member() {
@@ -426,6 +508,58 @@ fn aggregate_terminal_epoch_stays_silent_until_remove_and_readd() {
     assert_eq!(reasons(&changes).last(), Some(&AggregateChangeReason::Item));
 }
 
+/// AGCH-004 — a zero-refcount item is detached before its `Membership`, and
+/// Move, identity-retaining Reset, retaining Replace, and duplicate add never
+/// resubscribe; only remove-then-re-add creates one fresh subscription.
+#[test]
+fn aggregate_zero_refcount_detaches_before_membership_without_resubscribe() {
+    let kept = TestNode::new(60, "kept");
+    let removed = TestNode::new(61, "removed");
+    let source = TestSource::new(vec![kept.clone(), removed.clone()]);
+    let (aggregate, counts, _hooks) = counting_aggregate(source.clone());
+    let changes = Arc::new(Mutex::new(Vec::new()));
+    let capture = Arc::clone(&changes);
+    let probe = removed.clone();
+    let _subscription = aggregate
+        .observe(AggregateObserveOptions::default())
+        .subscribe(move |change: AggregateChange<TestNode>| {
+            let membership = change.reason == AggregateChangeReason::Membership;
+            locked(&capture).push(change);
+            if membership {
+                // Already detached: an emission from the removed epoch is silent.
+                probe.emit();
+            }
+        });
+
+    source.remove_id(removed.id());
+    removed.emit();
+    assert_eq!(reasons(&changes), vec![AggregateChangeReason::Membership]);
+
+    // Move (reorder), identity-retaining Reset, retaining Replace, and
+    // duplicate add of `kept` must not resubscribe it.
+    let other = TestNode::new(62, "other");
+    source.add(other.clone());
+    source.replace_all(vec![other.clone(), kept.clone()]);
+    source.replace_all(vec![kept.clone(), other.clone()]);
+    source.add(kept.clone());
+    assert_eq!(subscriptions(&counts, kept.id()), 1);
+    assert_eq!(subscriptions(&counts, other.id()), 1);
+    let before = reasons(&changes).len();
+    kept.emit();
+    assert_eq!(reasons(&changes).len(), before + 1);
+
+    // Final removal then re-add creates exactly one fresh subscription.
+    source.replace_all(vec![other.clone()]);
+    source.add(kept.clone());
+    assert_eq!(subscriptions(&counts, kept.id()), 2);
+    let before = reasons(&changes).len();
+    kept.emit();
+    let after = reasons(&changes);
+    assert_eq!(after.len(), before + 1);
+    assert_eq!(after.last(), Some(&AggregateChangeReason::Item));
+    assert_eq!(subscriptions(&counts, removed.id()), 1);
+}
+
 /// AGCH-005 — Reset rebuilds membership transactionally
 #[test]
 fn aggregate_keyed_reset_retains_and_rebuilds_membership() {
@@ -452,6 +586,53 @@ fn aggregate_keyed_reset_retains_and_rebuilds_membership() {
     );
     first.emit();
     assert_eq!(reasons(&changes).len(), 2);
+    retained.emit();
+    assert_eq!(reasons(&changes).len(), 3);
+    assert_eq!(locked(&changes)[2].item.as_ref().map(VmNode::id), Some(7));
+}
+
+/// AGCH-005 — Reset keeps retained identities on their original subscription,
+/// subscribes new members before the one `Membership`, and detaches removed ones.
+#[test]
+fn aggregate_reset_retains_subscriptions_and_installs_new_members_first() {
+    let first = TestNode::new(63, "first");
+    let retained = TestNode::new(64, "retained");
+    let added = TestNode::new(65, "added");
+    let source = KeyedServicedObservableCollection::new(52, |item: &TestNode| Ok(item.id()));
+    source.push(first.clone()).unwrap();
+    source.push(retained.clone()).unwrap();
+    let (aggregate, counts, _hooks) = counting_aggregate(source.clone());
+    let changes = Arc::new(Mutex::new(Vec::new()));
+    let capture = Arc::clone(&changes);
+    let observed_at_membership = Arc::new(Mutex::new(None));
+    let observed_capture = Arc::clone(&observed_at_membership);
+    let probe_counts = Arc::clone(&counts);
+    let _subscription = aggregate
+        .observe(AggregateObserveOptions::default())
+        .subscribe(move |change: AggregateChange<TestNode>| {
+            if change.reason == AggregateChangeReason::Membership {
+                *locked(&observed_capture) = Some(subscriptions(&probe_counts, 65));
+            }
+            locked(&capture).push(change);
+        });
+
+    source
+        .replace_all([retained.clone(), added.clone()])
+        .unwrap();
+
+    assert_eq!(reasons(&changes), vec![AggregateChangeReason::Membership]);
+    assert_eq!(*locked(&observed_at_membership), Some(1));
+    assert_eq!(subscriptions(&counts, retained.id()), 1);
+    assert_eq!(subscriptions(&counts, first.id()), 1);
+    first.emit();
+    assert_eq!(reasons(&changes).len(), 1);
+    retained.emit();
+    added.emit();
+    let items = locked(&changes)[1..]
+        .iter()
+        .filter_map(|change| change.item.as_ref().map(VmNode::id))
+        .collect::<Vec<_>>();
+    assert_eq!(items, vec![64, 65]);
 }
 
 /// AGCH-006 — duplicate VM identities share one refcounted subscription
@@ -471,6 +652,47 @@ fn aggregate_duplicate_id_has_one_behavioral_subscription() {
     let before = reasons(&changes).len();
     item.emit();
     assert_eq!(reasons(&changes).len(), before);
+}
+
+/// AGCH-006 — the selector subscribes a duplicated identity exactly once and
+/// the final occurrence's removal detaches before `Membership`.
+#[test]
+fn aggregate_duplicate_identity_subscribes_once_and_detaches_before_membership() {
+    let item = TestNode::new(66, "duplicate");
+    let source = TestSource::new(vec![item.clone(), item.clone()]);
+    let (aggregate, counts, _hooks) = counting_aggregate(source.clone());
+    let changes = Arc::new(Mutex::new(Vec::new()));
+    let capture = Arc::clone(&changes);
+    let probe = item.clone();
+    let _subscription = aggregate
+        .observe(AggregateObserveOptions::default())
+        .subscribe(move |change: AggregateChange<TestNode>| {
+            let membership = change.reason == AggregateChangeReason::Membership;
+            locked(&capture).push(change);
+            if membership {
+                probe.emit();
+            }
+        });
+    assert_eq!(subscriptions(&counts, item.id()), 1);
+
+    item.emit();
+    assert_eq!(reasons(&changes), vec![AggregateChangeReason::Item]);
+    source.remove_id(item.id());
+    assert_eq!(subscriptions(&counts, item.id()), 1);
+    source.remove_id(item.id());
+    // The in-handler probe during the first removal's Membership is delivered
+    // (still positive refcount); the one during the final removal is silent.
+    let final_reasons = reasons(&changes);
+    assert_eq!(
+        final_reasons,
+        vec![
+            AggregateChangeReason::Item,
+            AggregateChangeReason::Membership,
+            AggregateChangeReason::Item,
+            AggregateChangeReason::Membership,
+        ]
+    );
+    assert_eq!(subscriptions(&counts, item.id()), 1);
 }
 
 /// AGCH-007 — nested exceptional batches emit once and preserve body panic

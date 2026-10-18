@@ -4,7 +4,8 @@ import { describe, expect, it } from "vitest";
 import {
   AsyncRelayCommand,
   BatchUpdateHandle,
-  ComponentVM,
+  ComponentVMBase,
+  ViewModelType,
   CompositeVM,
   ConstructionStatus,
   ConstructionStatusChangedMessage,
@@ -23,16 +24,36 @@ import {
   NotificationType,
 } from "../../src/notifications/index.js";
 
+class OwningChild extends ComponentVMBase {
+  readonly ownedRuns: { count: number } = { count: 0 };
+  constructor(hub: MessageHub) {
+    super({ name: "child", hint: "", hub, dispatcher: RxDispatcher.immediate() });
+    this.own(() => (this.ownedRuns.count += 1));
+  }
+  get type(): ViewModelType {
+    return ViewModelType.Component;
+  }
+}
+
+class OwningParent extends CompositeVM<OwningChild> {
+  readonly ownedRuns: { count: number } = { count: 0 };
+  constructor(hub: MessageHub, child: OwningChild) {
+    super({
+      name: "parent",
+      hint: "",
+      hub,
+      dispatcher: RxDispatcher.immediate(),
+      childrenFactory: () => [child],
+    });
+    this.own(() => (this.ownedRuns.count += 1));
+  }
+}
+
 describe("DISP-001", () => {
   it("makes repeated parent disposal observably idempotent", () => {
     const hub = new MessageHub();
-    const dispatcher = RxDispatcher.immediate();
-    const child = ComponentVM.builder().name("child").services(hub, dispatcher).build();
-    const parent = CompositeVM.builder<ComponentVM>()
-      .name("parent")
-      .services(hub, dispatcher)
-      .children(() => [child])
-      .build();
+    const child = new OwningChild(hub);
+    const parent = new OwningParent(hub, child);
     parent.construct();
     const disposed: string[] = [];
     hub.messages.subscribe((message) => {
@@ -49,6 +70,11 @@ describe("DISP-001", () => {
 
     expect(disposed.filter((name) => name === "child")).toHaveLength(1);
     expect(disposed.filter((name) => name === "parent")).toHaveLength(1);
+    expect(parent.status).toBe(ConstructionStatus.Disposed);
+    expect(child.status).toBe(ConstructionStatus.Disposed);
+    // Each owned disposal hook runs at most once (and, here, exactly once).
+    expect(parent.ownedRuns.count).toBe(1);
+    expect(child.ownedRuns.count).toBe(1);
   });
 });
 
@@ -134,12 +160,36 @@ describe("DISP-003", () => {
 
 describe("DISP-004", () => {
   it("completes interaction owners once and preserves the first result", async () => {
-    const form = new FormVM<number>({ initial: 1, persister: async () => {} });
+    let persisted = 0;
+    const form = new FormVM<number>({
+      initial: 1,
+      persister: () => {
+        persisted += 1;
+        return Promise.resolve();
+      },
+    });
     let completions = 0;
-    form.onApproved.subscribe({ complete: () => (completions += 1) });
+    const approvals: number[] = [];
+    form.onApproved.subscribe({
+      next: (v) => approvals.push(v),
+      complete: () => (completions += 1),
+    });
     form.dispose();
     form.dispose();
     expect(completions).toBe(1);
+
+    // A disposed form is inert: setModel, deny, and approve are full no-ops
+    // and the persister is never invoked.
+    form.setModel(2);
+    expect(form.model).toBe(1);
+    expect(form.isDirty).toBe(false);
+    form.denyCommand.execute();
+    await form.approveAsync();
+    form.approveCommand.execute();
+    await Promise.resolve();
+    expect(persisted).toBe(0);
+    expect(approvals).toEqual([]);
+    expect(form.model).toBe(1);
 
     const modal = new ModalVM("cancel");
     modal.dismiss("first");

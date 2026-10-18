@@ -341,17 +341,28 @@ fn search_after_disposal_is_inert_without_calling_user_code() {
     assert_eq!(predicate_calls.load(Ordering::SeqCst), 0);
 }
 
+/// A search item backed by a real VM whose dispose hook increments
+/// `dispose_count`, so ownership assertions observe actual disposal.
 #[derive(Clone)]
 struct OwnedSearchItem {
     value: &'static str,
+    vm: vmx::ComponentVm,
     dispose_count: Arc<AtomicUsize>,
 }
 
 impl OwnedSearchItem {
     fn new(value: &'static str) -> Self {
+        let dispose_count = Arc::new(AtomicUsize::new(0));
+        let vm = vmx::ComponentVm::new(value);
+        let hook_count = dispose_count.clone();
+        vm.on_dispose(move || {
+            hook_count.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        });
         Self {
             value,
-            dispose_count: Arc::new(AtomicUsize::new(0)),
+            vm,
+            dispose_count,
         }
     }
 }
@@ -383,7 +394,15 @@ fn omitted_signal_preserves_explicit_refresh_and_item_ownership() {
         vec!["one", "two"]
     );
     state.dispose();
+    drop(state);
 
-    assert_eq!(first.dispose_count.load(Ordering::SeqCst), 0);
-    assert_eq!(second.dispose_count.load(Ordering::SeqCst), 0);
+    // The helper owns neither the supplier collection nor its items.
+    assert_eq!(items.lock().unwrap().len(), 2);
+    for item in [&first, &second] {
+        assert_eq!(item.dispose_count.load(Ordering::SeqCst), 0);
+        assert_ne!(item.vm.status(), vmx::ConstructionStatus::Disposed);
+    }
+    // Control: the counter is wired to real disposal.
+    first.vm.dispose().unwrap();
+    assert_eq!(first.dispose_count.load(Ordering::SeqCst), 1);
 }
