@@ -43,7 +43,8 @@ Lifecycle orchestration matches `CompositeVM`:
 
 - construct waits for all children to reach `Constructed`
 - destruct waits for all children to reach `Destructed`
-- `AutoConstructOnAdd(true)` can opt into post-construct child auto-construct
+- `AutoConstructOnAdd(true)` constructs a child added after construct starts;
+  construct then also waits for that child
 - `BatchUpdate()` suppresses per-mutation collection events and emits one reset
 
 Rust background-child settling follows the shared container rule in

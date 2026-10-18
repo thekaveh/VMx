@@ -398,9 +398,33 @@ export class GroupVM<VM extends ComponentVMBase>
 
   private _maybeAutoConstruct(child: VM): void {
     if (!this.#autoConstructOnAdd) return;
+    if (this.status === ConstructionStatus.Constructing) {
+      // The construct walk joins a child added while it runs (#constructWalk).
+      if (child.status === ConstructionStatus.Destructed) child.construct();
+      return;
+    }
     if (this.status !== ConstructionStatus.Constructed) return;
     if (child.status === ConstructionStatus.Constructed) return;
     child.construct();
+  }
+
+  /**
+   * The construct walk's children: the membership snapshot, then (with
+   * auto-construct-on-add) each child added while the walk runs. A late child
+   * was already started by `_maybeAutoConstruct`, so it is joined like a
+   * population child and never restarted (spec/02 §6, spec/06 §5.1).
+   */
+  *#constructWalk(joined: Set<ComponentVMBase>): Generator<VM> {
+    const visited = new Set<VM>(this._children);
+    yield* [...visited];
+    if (!this.#autoConstructOnAdd) return;
+    for (;;) {
+      const late = this._children.find((child) => !visited.has(child));
+      if (late === undefined) return;
+      visited.add(late);
+      joined.add(late);
+      yield late;
+    }
   }
 
   private _validateMoveIndex(index: number): void {
@@ -425,7 +449,7 @@ export class GroupVM<VM extends ComponentVMBase>
     // lifecycle hook that mutates the group must not skip/repeat siblings.
     // spec/02 §6: the group settles only after every child has (a background
     // child defers the group's terminal status).
-    this._transitionChildren([...this._children], true, undefined, joined);
+    this._transitionChildren(this.#constructWalk(joined), true, undefined, joined);
   }
 
   protected override _onDestruct(): void {
@@ -520,13 +544,14 @@ export class GroupVM<VM extends ComponentVMBase>
       // Make the entire factory snapshot visible before any child hook runs,
       // matching composite population and the other flavors.
       for (const child of children) {
-        this._maybeAutoConstruct(child);
         if (
           this.status === ConstructionStatus.Constructing &&
           child.status !== ConstructionStatus.Constructed
         ) {
           child.construct();
           this.#joinIfPending(child);
+        } else {
+          this._maybeAutoConstruct(child);
         }
       }
       this.#requireTransactionCanContinue();

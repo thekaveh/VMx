@@ -15,6 +15,39 @@ internal static class CompositeCurrentChangeCoordinator
 }
 
 /// <summary>
+/// The construct walk shared by composites and groups: the membership
+/// snapshot, then (with auto-construct-on-add) each child added while the walk
+/// runs (spec/02 §6, spec/06 §5.1).
+/// </summary>
+internal static class ContainerConstructWalk
+{
+    /// <summary>
+    /// Enumerates lazily, so the walk sees children added while it waits on a
+    /// background child. A late child was already started by auto-construct,
+    /// so it is added to <paramref name="joined"/> and joined like a population
+    /// child: one whose construction failed rolls the container back instead
+    /// of being restarted.
+    /// </summary>
+    internal static IEnumerable<IComponentVM> Enumerate<VM>(
+        Func<VM[]> snapshot, bool includeLate, ISet<IComponentVM> joined)
+        where VM : class, IComponentVM
+    {
+        var initial = snapshot();
+        var visited = new HashSet<IComponentVM>(initial, ComponentVMBase.ChildReferenceComparer.Instance);
+        foreach (var child in initial) yield return child;
+        if (!includeLate) yield break;
+        while (true)
+        {
+            var late = snapshot().FirstOrDefault(child => !visited.Contains(child));
+            if (late is null) yield break;
+            visited.Add(late);
+            joined.Add(late);
+            yield return late;
+        }
+    }
+}
+
+/// <summary>
 /// Abstract base for all CompositeVM variants.  Implements <see cref="ICompositeVM{VM}"/>
 /// on top of <see cref="ComponentVMBase"/>: ordered child collection with
 /// <see cref="INotifyCollectionChanged"/> events, <see cref="Current"/> selection,
@@ -43,7 +76,7 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     private bool _batchDirty;
 
     // Collects the children population started constructing (see OnConstruct).
-    private List<IComponentVM>? _populationJoined;
+    private HashSet<IComponentVM>? _populationJoined;
     private int _disposeRequested;
     private bool _disposeDeferred;
     private int _activeCurrentPublications;
@@ -650,7 +683,14 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     private void MaybeAutoConstruct(VM item)
     {
         if (!_autoConstructOnAdd) return;
-        if (Status != ConstructionStatus.Constructed) return;
+        var status = Status;
+        if (status == ConstructionStatus.Constructing)
+        {
+            // The construct walk joins a child added while it runs.
+            if (item.Status == ConstructionStatus.Destructed) item.Construct();
+            return;
+        }
+        if (status != ConstructionStatus.Constructed) return;
         if (item.Status == ConstructionStatus.Constructed) return;
         item.Construct();
     }
@@ -714,12 +754,12 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         base.OnConstruct(); // invoke user's onConstruct callback if any
         // Populate children from factory (lazy: only on first construct).
         // Children whose construct population started are joined, not restarted.
-        var joined = new List<IComponentVM>();
+        var joined = new HashSet<IComponentVM>(ComponentVMBase.ChildReferenceComparer.Instance);
         _populationJoined = joined;
         try { PopulateChildren(); }
         finally { _populationJoined = null; }
         CompleteLifecycleHookAfter(TransitionChildrenAsync(
-            Snapshot().ToArray(),
+            ContainerConstructWalk.Enumerate(() => Snapshot().ToArray(), _autoConstructOnAdd, joined),
             construct: true,
             after: () =>
             {

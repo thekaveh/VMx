@@ -412,6 +412,13 @@ struct ChildTransitionError: Error, CustomStringConvertible {
 /// Walks a parent's children through one transition, waiting on each child
 /// left in its transient status (spec/02 §6). Cancellation never settles the
 /// deferral, so a disposed parent publishes nothing further.
+/// Supplies a child walk with children added while it runs (see
+/// `_transitionChildren`). A struct, not a bare closure, so trailing-closure
+/// matching of `after` stays unambiguous.
+struct LateChildSource {
+    let next: () -> ComponentVMBase?
+}
+
 final class ChildTransitionWalker {
     private let lock = NSLock()
     private var children: [ComponentVMBase]
@@ -419,9 +426,12 @@ final class ChildTransitionWalker {
     private var index = 0
     private var cancelled = false
     private var waiting: (child: ComponentVMBase, id: UInt64)?
-    /// Children that already started this transition (factory population):
-    /// joined, never restarted.
-    private let joined: Set<ObjectIdentifier>
+    /// Children that already started this transition (factory population or
+    /// a late auto-constructed child): joined, never restarted. Only the
+    /// sequential walk itself reads or extends it.
+    private var joined: Set<ObjectIdentifier>
+    /// Supplies children added while the walk runs; each is joined.
+    private let lateChild: LateChildSource?
     private let target: ConstructionStatus
     private let transient: ConstructionStatus
     let deferral = LifecycleDeferral()
@@ -430,11 +440,13 @@ final class ChildTransitionWalker {
         children: [ComponentVMBase],
         construct: Bool,
         after: (() throws -> Void)?,
-        joined: [ComponentVMBase] = []
+        joined: [ComponentVMBase] = [],
+        lateChild: LateChildSource? = nil
     ) {
         self.children = children
         self.after = after
         self.joined = Set(joined.map(ObjectIdentifier.init))
+        self.lateChild = lateChild
         self.target = construct ? .constructed : .destructed
         self.transient = construct ? .constructing : .destructing
     }
@@ -460,6 +472,31 @@ final class ChildTransitionWalker {
             guard !cancelled else {
                 lock.unlock()
                 return true
+            }
+            if index >= children.count, let lateChild {
+                // Pull a late child outside `lock`: the source takes the
+                // container's membership gate.
+                lock.unlock()
+                guard let late = lateChild.next() else {
+                    lock.lock()
+                    if cancelled {
+                        lock.unlock()
+                        return true
+                    }
+                    let after = self.after
+                    self.after = nil
+                    children = []
+                    lock.unlock()
+                    try after?()
+                    return false
+                }
+                lock.lock()
+                if !cancelled {
+                    joined.insert(ObjectIdentifier(late))
+                    children.append(late)
+                }
+                lock.unlock()
+                continue
             }
             guard index < children.count else {
                 let after = self.after
@@ -1172,18 +1209,22 @@ open class ComponentVMBase {
     /// anywhere else rolls this VM back (LIFE-014). A child already in its
     /// transient status is joined, not restarted. A child in `joined` already
     /// started this transition (factory population): it is joined and its
-    /// settled status is final, so it is never restarted.
+    /// settled status is final, so it is never restarted. After `children`,
+    /// the walk pulls each child `lateChild` returns (a child added while the
+    /// walk runs) and joins it, until `lateChild` returns `nil`.
     func _transitionChildren(
         _ children: [ComponentVMBase],
         construct: Bool,
         joined: [ComponentVMBase] = [],
+        lateChild: LateChildSource? = nil,
         after: (() throws -> Void)? = nil
     ) throws {
         let walker = ChildTransitionWalker(
             children: children,
             construct: construct,
             after: after,
-            joined: joined
+            joined: joined,
+            lateChild: lateChild
         )
         guard try walker.start() else { return }
         lifecycleLock.lock()

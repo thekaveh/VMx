@@ -41,6 +41,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   identity, so adding the wrapped composite to another container moves the
   decorator out of its old one (spec/09 §1-2, FWD-002/FWD-004).
 
+- `CompositeVM` and `GroupVM` with auto-construct-on-add construct a child
+  added while the container is still `Constructing` (waiting on a background
+  child) and wait for it before reaching `Constructed` (spec/02 §6, spec/06
+  §5.1). The child walk joins such a child like a population child, so one
+  that fails rolls the container back and its hook runs once. Before, the add
+  skipped auto-construction until the container was `Constructed` and the walk
+  used a snapshot taken before the add, so the container reached `Constructed`
+  with the added child still `Destructed`.
 - `CompositeVM` and `GroupVM` join the background children that factory
   population starts and never construct them again. A later child that fails
   while the container waits on an earlier one rolls the container back, and

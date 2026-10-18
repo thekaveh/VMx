@@ -227,7 +227,8 @@ marker. Without `--require`, the report still lists it for information.
 
 ## 10.7. Practical Reading Path
 
-1. Read `spec/README.md` for chapter ownership and release history.
+1. Read `spec/README.md` for chapter ownership and `spec/HISTORY.md` for release
+   history.
 1. Read the primitive pages on this site for a faster conceptual map.
 1. Use the flavor README when you need package details or host-specific
    examples.

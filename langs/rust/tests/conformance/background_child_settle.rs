@@ -395,3 +395,158 @@ fn reconstructable_trait_does_nothing_outside_constructed() {
 
     assert_eq!(child.status(), ConstructionStatus::Destructed);
 }
+
+/// A background node whose transition fails and settles on another thread
+/// before `when_lifecycle_settled` returns, i.e. while the container's own
+/// lifecycle action is still running.
+#[derive(Clone)]
+struct EarlyFailure {
+    id: usize,
+    status: Arc<Mutex<ConstructionStatus>>,
+    parent: Arc<Mutex<Option<usize>>>,
+    handle: Arc<Mutex<Option<ParentHandle>>>,
+    constructs: Arc<Mutex<usize>>,
+}
+
+impl EarlyFailure {
+    fn new() -> Self {
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(1 << 40);
+        Self {
+            id: NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
+            status: Arc::new(Mutex::new(ConstructionStatus::Destructed)),
+            parent: Arc::default(),
+            handle: Arc::default(),
+            constructs: Arc::default(),
+        }
+    }
+}
+
+impl PartialEq for EarlyFailure {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl VmNode for EarlyFailure {
+    fn id(&self) -> usize {
+        self.id
+    }
+    fn construct(&self) -> VmxResult<()> {
+        *self.constructs.lock().unwrap() += 1;
+        *self.status.lock().unwrap() = ConstructionStatus::Constructing;
+        Ok(())
+    }
+    fn destruct(&self) -> VmxResult<()> {
+        *self.status.lock().unwrap() = ConstructionStatus::Destructed;
+        Ok(())
+    }
+    fn dispose(&self) -> VmxResult<()> {
+        *self.status.lock().unwrap() = ConstructionStatus::Disposed;
+        Ok(())
+    }
+    fn status(&self) -> ConstructionStatus {
+        *self.status.lock().unwrap()
+    }
+    fn set_parent_id(&self, parent_id: Option<usize>) {
+        *self.parent.lock().unwrap() = parent_id;
+    }
+    fn parent_id(&self) -> Option<usize> {
+        *self.parent.lock().unwrap()
+    }
+    fn set_parent_handle(&self, parent: Option<ParentHandle>) {
+        *self.handle.lock().unwrap() = parent;
+    }
+    fn parent_handle(&self) -> Option<ParentHandle> {
+        self.handle.lock().unwrap().clone()
+    }
+    fn when_lifecycle_settled(&self, callback: LifecycleSettleCallback) -> bool {
+        let status = Arc::clone(&self.status);
+        std::thread::spawn(move || {
+            *status.lock().unwrap() = ConstructionStatus::Destructed;
+            callback();
+        })
+        .join()
+        .unwrap();
+        true
+    }
+}
+
+fn container_statuses(log: &Log, id: usize) -> Vec<ConstructionStatus> {
+    log.lock()
+        .unwrap()
+        .iter()
+        .filter(|(sender, _)| *sender == id)
+        .map(|(_, status)| *status)
+        .collect()
+}
+
+/// LIFE-014 — a background child that fails before the composite's own
+/// construct action returns rolls the composite back exactly once, as a
+/// failure after the action returns does: one terminal Destructed, no
+/// Constructed, the failure on the background error stream, and no later
+/// child constructed.
+#[test]
+fn child_failing_during_composite_action_rolls_back_once() {
+    let hub = MessageHub::new();
+    let dispatcher = ManualDispatcher::new();
+    let bad = EarlyFailure::new();
+    let later = EarlyFailure::new();
+    let composite = CompositeVm::with_services("composite", hub.clone(), dispatcher.clone());
+    composite.add(bad.clone()).unwrap();
+    composite.add(later.clone()).unwrap();
+    let (errors_send, errors) = mpsc::channel();
+    let _errors = composite.background_errors().subscribe(move |error| {
+        errors_send.send(error).unwrap();
+    });
+    let (log, _subscription) = record(&hub);
+
+    composite.construct().unwrap();
+    dispatcher.drain();
+
+    assert_eq!(bad.status(), ConstructionStatus::Destructed);
+    assert_eq!(*later.constructs.lock().unwrap(), 0);
+    assert_eq!(composite.status(), ConstructionStatus::Destructed);
+    assert_eq!(
+        container_statuses(&log, composite.id()),
+        vec![
+            ConstructionStatus::Constructing,
+            ConstructionStatus::Destructed
+        ]
+    );
+    assert!(matches!(errors.try_recv(), Ok(VmxError::Other(_))));
+    assert!(errors.try_recv().is_err());
+    assert!(!matches!(
+        composite.construct(),
+        Err(VmxError::ConcurrentOperation)
+    ));
+}
+
+/// LIFE-014 — an aggregate whose component fails before the aggregate's own
+/// construct action returns rolls back exactly once and reports the failure
+/// on its background error stream.
+#[test]
+fn component_failing_during_aggregate_action_rolls_back_once() {
+    let hub = MessageHub::new();
+    let dispatcher = ManualDispatcher::new();
+    let bad = EarlyFailure::new();
+    let aggregate = AggregateVm1::with_services("aggregate", hub.clone(), dispatcher, bad.clone());
+    let (errors_send, errors) = mpsc::channel();
+    let _errors = aggregate.background_errors().subscribe(move |error| {
+        errors_send.send(error).unwrap();
+    });
+    let (log, _subscription) = record(&hub);
+
+    aggregate.construct().unwrap();
+
+    assert_eq!(bad.status(), ConstructionStatus::Destructed);
+    assert_eq!(aggregate.status(), ConstructionStatus::Destructed);
+    assert_eq!(
+        container_statuses(&log, aggregate.id()),
+        vec![
+            ConstructionStatus::Constructing,
+            ConstructionStatus::Destructed
+        ]
+    );
+    assert!(matches!(errors.try_recv(), Ok(VmxError::Other(_))));
+    assert!(errors.try_recv().is_err());
+}

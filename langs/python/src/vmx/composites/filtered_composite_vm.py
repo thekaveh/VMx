@@ -68,14 +68,16 @@ class FilteredCompositeVM(Generic[VM]):
         if self._disposed:
             return
         # A throwing predicate leaves the previous predicate, projection, and
-        # current in place (the recompute computes before it assigns).
+        # current in place: the projection is computed before anything is
+        # assigned. A raising observer does not roll the predicate back.
         previous = self._predicate
         self._predicate = predicate
         try:
-            self._recompute()
+            visible = self._ordered_visible()
         except BaseException:
             self._predicate = previous
             raise
+        self._recompute(visible)
 
     def set_current(self, item: VM | None) -> None:
         if self._disposed:
@@ -114,10 +116,10 @@ class FilteredCompositeVM(Generic[VM]):
     def _ordered_visible(self) -> list[VM]:
         return [item for item in self._source if self._predicate(item)]
 
-    def _recompute(self) -> None:
+    def _recompute(self, visible: list[VM] | None = None) -> None:
         if self._disposed:
             return
-        self._visible = self._ordered_visible()
+        self._visible = self._ordered_visible() if visible is None else visible
         if self._current is None or self._visible_index(self._current) < 0:
             if self._cursor_policy in (
                 FilteredCursorPolicy.CLEAR,

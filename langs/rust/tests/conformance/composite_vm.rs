@@ -1682,7 +1682,7 @@ fn opposing_current_callbacks_across_composites_do_not_deadlock() {
 /// COMP-026 — a collection callback selecting in a composite whose disposal a
 /// current callback requested completes without deadlock.
 #[test]
-#[ignore = "Rust library gap: CompositeVm::add publishes CollectionChanged (src/composites.rs:646) before releasing its membership transaction (:647), and synchronous selection begins a non-reentrant membership transaction (:148), so select_component from a collection callback returns OwnershipTransactionInProgress"]
+#[ignore = "Rust library gap: CompositeVm::add publishes CollectionChanged (items.publish_add in src/composites.rs) before releasing its membership transaction (transaction.finish), and synchronous selection begins a non-reentrant membership transaction (begin_membership_transaction), so select_component from a collection callback returns OwnershipTransactionInProgress"]
 fn collection_and_current_callbacks_across_composites_do_not_deadlock() {
     let b_hub = MessageHub::new();
     let b = vmx::CompositeVm::with_services("b", b_hub.clone(), NullDispatcher::new());
@@ -1756,7 +1756,7 @@ fn collection_and_current_callbacks_across_composites_do_not_deadlock() {
 
 /// COMP-026 — a blocked current-flag notification does not stall a later assignment.
 #[test]
-#[ignore = "Rust library gap: synchronous selection holds its membership transaction (src/composites.rs:148-168) across child current-flag publication and the callback (assign_current_state, :60-67), so a concurrent selection returns OwnershipTransactionInProgress instead of completing"]
+#[ignore = "Rust library gap: synchronous selection holds its membership transaction (begin_membership_transaction in src/composites.rs) across child current-flag publication and the callback (assign_current_state), so a concurrent selection returns OwnershipTransactionInProgress instead of completing"]
 fn blocked_current_flag_notification_does_not_block_later_assignment() {
     let composite = vmx::CompositeVm::new("root");
     let (a, b) = (child("a"), child("b"));

@@ -148,8 +148,8 @@ Behavior changes start in `spec/`. The rules are:
 
 - A spec change requires a matching ADR in `spec/ADRs/`. This is enforced by the
   `spec-discipline` CI check.
-- Files exempt from the ADR requirement: `spec/README.md`, `spec/VERSION`,
-  `spec/ADRs/**`, `spec/fixtures/**`, `spec/12-conformance.md` (adding catalog
+- Files exempt from the ADR requirement: `spec/README.md`, `spec/HISTORY.md`,
+  `spec/VERSION`, `spec/ADRs/**`, `spec/fixtures/**`, `spec/12-conformance.md` (adding catalog
   IDs is governed by the conformance-stub rule below, not by ADRs), and
   `spec/proposals/**` (historical planning artifacts; landed proposals are
   already covered by the ADR they introduced).

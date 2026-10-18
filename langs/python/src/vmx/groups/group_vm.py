@@ -463,11 +463,37 @@ class GroupVM(Generic[VM], _ComponentVMBase):
     def _maybe_auto_construct(self, child: VM) -> None:
         if not self._auto_construct_on_add:
             return
+        if self._status is ConstructionStatus.CONSTRUCTING:
+            # The construct walk joins a child added while it runs.
+            if child.status is ConstructionStatus.DESTRUCTED:
+                child.construct()
+            return
         if self._status != ConstructionStatus.CONSTRUCTED:
             return
         if child.status == ConstructionStatus.CONSTRUCTED:
             return
         child.construct()
+
+    def _construct_walk(self, joined: list[VM]) -> Iterator[VM]:
+        """Yield the construct walk's children, extended by late additions.
+
+        The membership snapshot comes first. With auto-construct-on-add, each
+        child added while the walk runs follows; ``_maybe_auto_construct``
+        already started it, so it is joined like a population child and never
+        restarted (spec/02 §6, spec/06 §5.1).
+        """
+        snapshot = list(self.snapshot())
+        visited = {id(child) for child in snapshot}
+        yield from snapshot
+        if not self._auto_construct_on_add:
+            return
+        while True:
+            late = next((c for c in self.snapshot() if id(c) not in visited), None)
+            if late is None:
+                return
+            visited.add(id(late))
+            joined.append(late)
+            yield late
 
     def _validate_move_index(self, index: int) -> None:
         if isinstance(index, bool):
@@ -490,7 +516,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         finally:
             self._population_joined = None
         self._complete_lifecycle_hook_after(
-            self._transition_children(list(self.snapshot()), construct=True, joined=joined)
+            self._transition_children(self._construct_walk(joined), construct=True, joined=joined)
         )
 
     def _on_destruct(self) -> None:
@@ -589,7 +615,6 @@ class GroupVM(Generic[VM], _ComponentVMBase):
             # Make the entire factory snapshot visible before any child hook,
             # but do not run user lifecycle code while holding the gate.
             for child in children:
-                self._maybe_auto_construct(child)
                 if (
                     self.status is ConstructionStatus.CONSTRUCTING
                     and child.status is not ConstructionStatus.CONSTRUCTED
@@ -603,6 +628,8 @@ class GroupVM(Generic[VM], _ComponentVMBase):
                         joined = self._population_joined
                         if joined is not None:
                             joined.append(child)
+                else:
+                    self._maybe_auto_construct(child)
             with self._membership_gate:
                 self._require_transaction_can_continue_locked()
         except BaseException as original_error:

@@ -261,6 +261,65 @@ final class BackgroundChildLifecycleTests: XCTestCase {
         XCTAssertEqual(statuses(of: "agg"), ["agg:constructing", "agg:disposed"])
     }
 
+    // ── Auto-construct-on-add while the container is Constructing ──────
+
+    /// A child added while the container waits on a background child is
+    /// constructed at add time and joined by the walk (spec/02 §6), whether
+    /// it settles synchronously or on its own background dispatcher.
+    func testAutoConstructOnAddDuringBackgroundWaitIsJoined() throws {
+        for kind in ["composite", "group"] {
+            let first = background("first")
+            let lateDispatcher = ManualDispatcher()
+            let lateForeground = try ComponentVM.builder()
+                .name("lateForeground")
+                .services(hub: hub, dispatcher: dispatcher)
+                .build()
+            let lateBackground = try ComponentVM.builder()
+                .name("lateBackground")
+                .services(hub: hub, dispatcher: lateDispatcher)
+                .background(true)
+                .build()
+            let construct: () throws -> Void
+            let status: () -> ConstructionStatus
+            let add: (ComponentVM) -> Void
+            if kind == "composite" {
+                let root = CompositeVM<ComponentVM>(
+                    name: "root", hub: hub, dispatcher: dispatcher,
+                    childrenFactory: { [first] }, autoConstructOnAdd: true
+                )
+                construct = root.construct
+                status = { root.status }
+                add = { root.add($0) }
+            } else {
+                let root = GroupVM<ComponentVM>(
+                    name: "root", hub: hub, dispatcher: dispatcher,
+                    childrenFactory: { [first] }, autoConstructOnAdd: true
+                )
+                construct = root.construct
+                status = { root.status }
+                add = { root.add($0) }
+            }
+
+            try construct()
+            XCTAssertEqual(status(), .constructing, kind)
+            add(lateForeground)
+            XCTAssertEqual(lateForeground.status, .constructed, kind)
+            add(lateBackground)
+            XCTAssertEqual(lateBackground.status, .constructing, kind)
+
+            pump() // the original child settles; the late one has not
+            XCTAssertEqual(first.status, .constructed, kind)
+            XCTAssertEqual(lateBackground.status, .constructing, kind)
+            XCTAssertEqual(status(), .constructing, kind)
+
+            lateDispatcher.flushBackground()
+            lateDispatcher.flushForeground()
+            pump()
+            XCTAssertEqual(lateBackground.status, .constructed, kind)
+            XCTAssertEqual(status(), .constructed, kind)
+        }
+    }
+
     // ── Factory population joins background children ───────────────────
 
     /// Runs the newest background work first; foreground work runs inline.

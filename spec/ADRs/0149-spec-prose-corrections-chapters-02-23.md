@@ -112,11 +112,15 @@ Correct the prose as the code ships it:
   - The `HierarchicalVm` `TreeNode` implementation never reports collapse, so
     `walk_expanded` does not stop at a collapsed node (chapter 13 §6).
 
-The change adds no conformance ID. It is editorial except for three follow-up
-alignments, where a lone flavor was brought to the behavior the other flavors
-and the catalog already had, and the prose now states it: Python empty slice
-mutations emit nothing (chapter 21 §2.10), Rust `search()` notifies (SRCH-005),
-and the Python tree helpers use the public `ComponentVMProto` (chapter 13).
+The change adds no conformance ID. It is editorial except for these follow-up
+alignments, where code was brought to behavior the spec or the other flavors
+already required, and the prose now states it: Python empty slice mutations
+emit nothing (chapter 21 §2.10), Rust `search()` notifies (SRCH-005), and the
+Python tree helpers use the public `ComponentVMProto` (chapter 13). With
+auto-construct on, every flavor now constructs and joins a child added while
+its container is still `Constructing` (chapter 06 §5.1, chapter 07 §4), as
+chapter 02 §6 requires: before, the container reached `Constructed` with that
+child still `Destructed`.
 
 ## 3. Consequences
 

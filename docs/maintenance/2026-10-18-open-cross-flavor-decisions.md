@@ -28,8 +28,9 @@ state.
 ### 1.2. Failures inside derived streams
 
 The only consumer-isolation rule is for the hub (`spec/03-messages.md` §3.4,
-HUB-007). `spec/15-derived-properties.md` and the SRCH IDs have no rule for a
-throwing consumer, transform or source.
+HUB-007). `spec/15-derived-properties.md` has no rule for a throwing consumer,
+transform or source. For `SearchableState`, SRCH-005 covers only a failing
+source signal.
 
 | Flavor     | Throwing consumer                                                          | Throwing transform or failing source       |
 | ---------- | -------------------------------------------------------------------------- | ------------------------------------------ |
@@ -39,21 +40,24 @@ throwing consumer, transform or source.
 | Swift      | Not possible: sinks and transforms cannot throw                            | Not possible: sources are `Never`-failing  |
 | Rust       | Panic is caught per subscriber; the subscription stays                     | Panic is caught; the value does not update |
 
-The same C# behavior applies to `SearchableState` (built on `Merge`) and to
-command triggers built from Rx operators. The C# hub's isolating observer
-(`langs/csharp/src/VMx/Services/MessageHub.cs:388`) protects only raw
-`hub.Messages` subscribers.
+The C# consumer behavior also applies to a throwing `SearchableState` consumer
+or predicate (built on `Merge`) and to command triggers built from Rx operators.
+The C# hub's isolating observer (`langs/csharp/src/VMx/Services/MessageHub.cs:376`)
+protects only raw `hub.Messages` subscribers.
 
 ### 1.3. Rollback failure loses the original failure in Swift and Rust
 
 ADR-0123 §2 says the first operation failure stays the reported failure and a
-compensation failure is surfaced with it. On factory-population rollback:
+compensation failure is surfaced with it. On factory-population rollback and on
+add or insert attach rollback:
 
 - C# reports an `AggregateException` of both. TypeScript reports
   `ContainerRollbackError(original, compensation)`. Python raises the
   compensation error `from` the original.
 - Swift reports `.attachmentFailed(compensationError)` and Rust returns the
-  compensation error. Both drop the original failure.
+  compensation error. Both drop the original failure (for example
+  `langs/swift/Sources/VMx/Composites/CompositeVM.swift:423-424` and
+  `langs/rust/src/groups.rs:323`).
 
 On the ordinary construct path no flavor rolls back siblings that already
 constructed. The spec does not say whether it should.
@@ -87,7 +91,7 @@ exposes it. Rust is pull-based and does not emit it.
 | Rust       | `VmxError::InvalidArgument`              |
 
 The keyed serviced collection does name exact types (`spec/21-collections.md`
-§3), and there Python uses `ValueError`.
+§2.10), and there Python uses `ValueError`.
 
 ### 2.4. VM-collection `CollectionChanged` sender name
 
@@ -105,9 +109,18 @@ subscription order.
 ### 2.6. `SetModel` while approval publishes
 
 `spec/20-form-vm.md` and FORM-034 cover `SetModel` during approval, and all
-flavors pass. The spec does not describe the settlement window: every flavor
-queues a same-thread call and replays it, and C#, Python and Swift block a call
-from another thread while Rust only queues it.
+flavors pass. The spec does not describe the pre-publication window of a
+successful approval. There every flavor queues a `SetModel` call and replays
+it after publication. C#, Python and Swift queue only a call on the approving
+thread and block a call from another thread; Rust queues calls from any
+thread.
+
+### 2.7. Initial-current selector input after late adds
+
+With auto-construct on, a child added while a container is `Constructing` is
+joined by the construct walk (chapter 06 §5.1). C#, Python and TypeScript pass
+the live membership to the `Current(selector)` callback. Swift passes the
+membership taken before the walk, so the selector does not see a late child.
 
 ## 3. Swift signatures that cannot throw
 

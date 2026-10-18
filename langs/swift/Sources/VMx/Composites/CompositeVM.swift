@@ -388,7 +388,7 @@ open class CompositeVM<Child: ComponentVMBase>:
         // (COMP-012). `add` is non-throwing per the public API contract;
         // failures surface through assertionFailure in debug/test builds.
         // Divergence from TS (which throws on failure) is recorded in ADR-0060.
-        if _autoConstructOnAdd && isConstructed {
+        if shouldAutoConstruct(child) {
             do { try child.construct() } catch {
                 membershipGate.withLock {
                     if let attached = children.firstIndex(where: { $0 === child }) {
@@ -481,7 +481,7 @@ open class CompositeVM<Child: ComponentVMBase>:
         child._parent = self
         child._ownershipParent = self
         membershipGate.unlock()
-        if _autoConstructOnAdd && isConstructed {
+        if shouldAutoConstruct(child) {
             do { try child.construct() } catch {
                 membershipGate.withLock {
                     if let attached = children.firstIndex(where: { $0 === child }) {
@@ -604,7 +604,7 @@ open class CompositeVM<Child: ComponentVMBase>:
         child._parent = self
         child._ownershipParent = self
         membershipGate.unlock()
-        if _autoConstructOnAdd && isConstructed {
+        if shouldAutoConstruct(child) {
             do { try child.construct() } catch {
                 membershipGate.withLock {
                     if let attached = children.firstIndex(where: { $0 === child }) {
@@ -715,6 +715,28 @@ open class CompositeVM<Child: ComponentVMBase>:
 
     // ── Lifecycle overrides ─────────────────────────────────────────────
 
+    /// Supplies the construct walk with each child added while it runs.
+    /// Auto-construct-on-add already started such a child, so the walk joins
+    /// it rather than restarting it (spec/02 §6, spec/06 §5.1).
+    private func lateChildSource(after snapshot: [Child]) -> LateChildSource? {
+        guard _autoConstructOnAdd else { return nil }
+        var visited = Set(snapshot.map(ObjectIdentifier.init))
+        return LateChildSource { [weak self] in
+            guard let self else { return nil }
+            let late = self.snapshot().first { !visited.contains(ObjectIdentifier($0)) }
+            if let late { visited.insert(ObjectIdentifier(late)) }
+            return late
+        }
+    }
+
+    /// Auto-construct-on-add: a `Destructed` child added while this container
+    /// is still `Constructing` starts now and the construct walk joins it.
+    private func shouldAutoConstruct(_ child: Child) -> Bool {
+        guard _autoConstructOnAdd else { return false }
+        if isConstructed { return true }
+        return status == .constructing && child.status == .destructed
+    }
+
     open override func _onConstruct() throws {
         try super._onConstruct()
         // Children whose construct population started are joined, not restarted.
@@ -737,7 +759,12 @@ open class CompositeVM<Child: ComponentVMBase>:
         // A background child defers the composite's Constructed status (and the
         // selector) until every child has reached Constructed (spec/02 §6).
         let snapshot = snapshot()
-        try _transitionChildren(snapshot, construct: true, joined: joined) { [self] in
+        try _transitionChildren(
+            snapshot,
+            construct: true,
+            joined: joined,
+            lateChild: lateChildSource(after: snapshot)
+        ) { [self] in
             if let selector = currentSelector,
                let initial = selector(snapshot),
                snapshot.contains(where: { $0 === initial }) {

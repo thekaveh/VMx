@@ -123,6 +123,8 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
                 }
             },
         );
+        let auto_construct_on_add = Arc::new(Mutex::new(false));
+        let reconstruct_auto = Arc::clone(&auto_construct_on_add);
         let reconstruct_core = core.clone();
         let reconstruct_items = items.clone();
         let commands = ComponentCommands::new(&core, move || {
@@ -137,13 +139,15 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             {
                 let construct_core = reconstruct_core.clone();
                 let construct_items = reconstruct_items.clone();
+                let auto = Arc::clone(&reconstruct_auto);
                 let _ = reconstruct_core.construct_after_destruct(move || {
                     construct_core.transition_with(LifecycleOperation::Construct, || {
-                        for item in construct_items.to_vec() {
-                            construct_core
-                                .transition_child(&item, LifecycleOperation::Construct)?;
-                        }
-                        Ok(())
+                        let members = construct_items.clone();
+                        construct_core.construct_children(
+                            Arc::new(move || members.to_vec()),
+                            *lock(&auto),
+                            Box::new(|| Ok(())),
+                        )
                     })
                 });
             }
@@ -153,7 +157,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             commands,
             items,
             ownership,
-            auto_construct_on_add: Arc::new(Mutex::new(false)),
+            auto_construct_on_add,
             dispose_requested,
             membership_gate,
             membership_transaction_active,
@@ -281,8 +285,9 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             self.items.insert_silent(index, item.clone())?;
             index
         };
-        let should_construct =
-            *lock(&self.auto_construct_on_add) && self.status() == ConstructionStatus::Constructed;
+        let should_construct = self
+            .core
+            .auto_constructs_on_add(*lock(&self.auto_construct_on_add), item.status());
         let admission = (if should_construct {
             item.construct()
         } else {
@@ -463,8 +468,9 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             item.set_parent_handle(Some(self.ownership.handle()));
             self.items.insert_silent(index, item.clone())?;
         }
-        let should_construct =
-            *lock(&self.auto_construct_on_add) && self.status() == ConstructionStatus::Constructed;
+        let should_construct = self
+            .core
+            .auto_constructs_on_add(*lock(&self.auto_construct_on_add), item.status());
         let admission = (if should_construct {
             item.construct()
         } else {
@@ -602,8 +608,9 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
                 }
             }
         };
-        let should_construct =
-            *lock(&self.auto_construct_on_add) && self.status() == ConstructionStatus::Constructed;
+        let should_construct = self
+            .core
+            .auto_constructs_on_add(*lock(&self.auto_construct_on_add), item.status());
         let admission = (if should_construct {
             item.construct()
         } else {
@@ -724,11 +731,12 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
     pub fn construct(&self) -> VmxResult<()> {
         self.core
             .transition_with(LifecycleOperation::Construct, || {
-                for item in self.items() {
-                    self.core
-                        .transition_child(&item, LifecycleOperation::Construct)?;
-                }
-                Ok(())
+                let members = self.items.clone();
+                self.core.construct_children(
+                    Arc::new(move || members.to_vec()),
+                    *lock(&self.auto_construct_on_add),
+                    Box::new(|| Ok(())),
+                )
             })
     }
 

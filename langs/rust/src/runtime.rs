@@ -2136,6 +2136,12 @@ struct ChildSettle {
     waiting: bool,
     draining: bool,
     armed: bool,
+    /// A child failure that arrived while the container's own action was
+    /// still running; applied once the action returns.
+    failure: Option<VmxError>,
+    /// Set with `failure` and kept after the action takes it, so no other
+    /// settle path publishes the success status in the meantime.
+    failed: bool,
     queue: VecDeque<ChildStep>,
 }
 
@@ -2146,12 +2152,14 @@ impl ChildSettle {
             waiting: false,
             draining: false,
             armed: false,
+            failure: None,
+            failed: false,
             queue: VecDeque::new(),
         }
     }
 
     fn busy(&self) -> bool {
-        self.waiting || self.draining || !self.queue.is_empty()
+        self.failed || self.waiting || self.draining || !self.queue.is_empty()
     }
 }
 
@@ -3140,6 +3148,68 @@ impl<D: Dispatcher> ComponentCore<D> {
         }))
     }
 
+    /// Whether auto-construct-on-add constructs a child added now: always
+    /// while the container is Constructed; while it is Constructing only a
+    /// Destructed child, since the construct walk joins a child that is
+    /// already Constructing or Constructed (spec/02 §6).
+    pub(crate) fn auto_constructs_on_add(&self, enabled: bool, child: ConstructionStatus) -> bool {
+        enabled
+            && match self.status() {
+                ConstructionStatus::Constructed => true,
+                ConstructionStatus::Constructing => child == ConstructionStatus::Destructed,
+                _ => false,
+            }
+    }
+
+    /// The construct walk of a container: constructs each current member,
+    /// then, when `join_late` (auto-construct-on-add) is set, joins each
+    /// member added while the walk runs until none remain, then runs `then`.
+    /// A late member was already started by its add, so it is awaited, never
+    /// restarted; one that is not Constructing or Constructed by then failed
+    /// and rolls the container back (spec/02 §6).
+    pub(crate) fn construct_children<N: VmNode>(
+        &self,
+        members: Arc<dyn Fn() -> Vec<N> + Send + Sync>,
+        join_late: bool,
+        then: ChildStep,
+    ) -> VmxResult<()> {
+        let snapshot = members();
+        let visited: HashSet<usize> = snapshot.iter().map(VmNode::id).collect();
+        for child in snapshot {
+            self.transition_child(&child, LifecycleOperation::Construct)?;
+        }
+        if !join_late {
+            return self.child_step(then);
+        }
+        let core = self.clone();
+        self.child_step(Box::new(move || {
+            core.join_late_children(visited, members, then)
+        }))
+    }
+
+    fn join_late_children<N: VmNode>(
+        &self,
+        mut visited: HashSet<usize>,
+        members: Arc<dyn Fn() -> Vec<N> + Send + Sync>,
+        then: ChildStep,
+    ) -> VmxResult<()> {
+        let Some(child) = members()
+            .into_iter()
+            .find(|child| !visited.contains(&child.id()))
+        else {
+            return then();
+        };
+        visited.insert(child.id());
+        let core = self.clone();
+        self.child_step(Box::new(move || {
+            core.await_child(&child, ConstructionStatus::Constructed)
+        }))?;
+        let core = self.clone();
+        self.child_step(Box::new(move || {
+            core.join_late_children(visited, members, then)
+        }))
+    }
+
     fn run_child_transition<N: VmNode>(
         &self,
         child: &N,
@@ -3156,6 +3226,12 @@ impl<D: Dispatcher> ComponentCore<D> {
             }
             LifecycleOperation::Dispose => return child.dispose(),
         };
+        self.await_child(child, expected)
+    }
+
+    /// Holds the container transition until `child`, already started, settles
+    /// at `expected`; fails it when the child settled anywhere else.
+    fn await_child<N: VmNode>(&self, child: &N, expected: ConstructionStatus) -> VmxResult<()> {
         let generation = {
             let mut inner = lock(&self.inner);
             let generation = inner.transition_generation;
@@ -3212,7 +3288,7 @@ impl<D: Dispatcher> ComponentCore<D> {
         }
         match child_settled_result(child, expected) {
             Ok(()) => self.advance_children(generation, false),
-            Err(error) => self.settle_children(generation, Some(error)),
+            Err(error) => self.fail_children(generation, error),
         }
     }
 
@@ -3253,7 +3329,7 @@ impl<D: Dispatcher> ComponentCore<D> {
                         step
                     }
                     None => {
-                        if settle.armed {
+                        if settle.armed && !settle.failed {
                             break;
                         }
                         return;
@@ -3265,24 +3341,68 @@ impl<D: Dispatcher> ComponentCore<D> {
                 Err(VmxError::Other("child lifecycle step panicked".to_string()))
             });
             if let Err(error) = result {
-                self.settle_children(generation, Some(error));
+                self.fail_children(generation, error);
                 return;
             }
         }
         self.settle_children(generation, None);
     }
 
-    /// Hands the terminal publication to the settle continuation when a
-    /// child step is still pending after the container's action returned.
-    fn defer_until_children_settle(&self, generation: u64) -> bool {
-        let mut inner = lock(&self.inner);
-        let pending = self.settle_is_current(&inner, generation)
-            && inner.child_settle.as_ref().is_some_and(ChildSettle::busy);
-        match inner.child_settle.as_mut() {
-            Some(settle) if pending => settle.armed = true,
-            _ => inner.child_settle = None,
+    /// Records a child failure. Once the container's action has returned
+    /// (armed) it settles the transition now; while the action still runs it
+    /// is kept, and the remaining child steps dropped, until the action
+    /// returns, so the container publishes exactly one terminal status.
+    fn fail_children(&self, generation: u64, error: VmxError) {
+        let (error, dropped) = {
+            let mut inner = lock(&self.inner);
+            if !self.settle_is_current(&inner, generation) {
+                return;
+            }
+            let Some(settle) = inner.child_settle.as_mut() else {
+                return;
+            };
+            if settle.failed {
+                return;
+            }
+            if settle.armed {
+                (Some(error), VecDeque::new())
+            } else {
+                settle.failure = Some(error);
+                settle.failed = true;
+                settle.waiting = false;
+                settle.draining = false;
+                (None, std::mem::take(&mut settle.queue))
+            }
+        };
+        drop(dropped);
+        if let Some(error) = error {
+            self.settle_children(generation, Some(error));
         }
-        pending
+    }
+
+    /// Hands the terminal publication to the settle continuation when a
+    /// child step is still pending after the container's action returned,
+    /// or applies a child failure recorded while the action ran.
+    fn defer_until_children_settle(&self, generation: u64) -> bool {
+        let failure = {
+            let mut inner = lock(&self.inner);
+            let pending = self.settle_is_current(&inner, generation)
+                && inner.child_settle.as_ref().is_some_and(ChildSettle::busy);
+            match inner.child_settle.as_mut() {
+                Some(settle) if pending => {
+                    settle.armed = true;
+                    settle.failure.take()
+                }
+                _ => {
+                    inner.child_settle = None;
+                    return false;
+                }
+            }
+        };
+        if let Some(error) = failure {
+            self.settle_children(generation, Some(error));
+        }
+        true
     }
 
     /// Publishes a deferred container transition's terminal status: the

@@ -120,10 +120,14 @@ internal static class ComponentVMExtensions
             ? internals.ConstructOrJoinAsync()
             : vm.ConstructAsync();
 
+    // A custom IComponentVM exposes no join, so one still Constructing is
+    // driven through its own ConstructAsync.
     internal static Task JoinConstructAsync(this IComponentVM vm)
         => vm is IComponentVMInternals internals
             ? internals.JoinConstructAsync()
-            : Task.CompletedTask;
+            : vm.Status == ConstructionStatus.Constructed
+                ? Task.CompletedTask
+                : vm.ConstructAsync();
 }
 
 /// <summary>Shared identity validation and old-parent staging for container mutations.</summary>
@@ -408,7 +412,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         }
     }
 
-    private sealed class ChildReferenceComparer : IEqualityComparer<IComponentVM>
+    internal sealed class ChildReferenceComparer : IEqualityComparer<IComponentVM>
     {
         internal static ChildReferenceComparer Instance { get; } = new();
 
@@ -426,22 +430,21 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
 
     /// <summary>
     /// Transitions children sequentially. A child in <paramref name="joined"/>
-    /// already started this transition (factory population): it is joined and
-    /// its settled status is final, so it is never restarted.
+    /// already started this transition (factory population or a late
+    /// auto-constructed add): it is joined and its settled status is final, so
+    /// it is never restarted. The set is read live, so a lazy
+    /// <paramref name="children"/> walk may add to it.
     /// </summary>
     private protected static async Task TransitionChildrenAsync(
         IEnumerable<IComponentVM> children,
         bool construct,
         Action? after,
-        IReadOnlyCollection<IComponentVM>? joined)
+        ISet<IComponentVM>? joined)
     {
         // Captured synchronously while the owner's lifecycle hook runs, before
         // the first await, so a deferred `after` can return to its foreground.
         var scope = t_lifecycleHookScope;
         var yielded = false;
-        var joinedSet = joined is null || joined.Count == 0
-            ? null
-            : new HashSet<IComponentVM>(joined, ChildReferenceComparer.Instance);
         foreach (var child in children)
         {
             // An abandoned walk (its hook threw after deferring) drives no
@@ -449,7 +452,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             if (scope is not null && scope.Abandoned) return;
             if (construct)
             {
-                var join = joinedSet is not null && joinedSet.Contains(child);
+                var join = joined is not null && joined.Contains(child);
                 var pending = join ? child.JoinConstructAsync() : child.ConstructOrJoinAsync();
                 yielded |= !pending.IsCompleted;
                 await pending.ConfigureAwait(false);
@@ -533,6 +536,13 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         try
         {
             try { hook(); }
+            catch
+            {
+                // Mark the walk abandoned before the hook's lease is released,
+                // so a child settling on another thread drives no further child.
+                scope.Abandoned = true;
+                throw;
+            }
             finally
             {
                 t_lifecycleHookScope = previous;

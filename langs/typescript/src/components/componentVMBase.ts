@@ -805,9 +805,11 @@ export abstract class ComponentVMBase {
    * already in the transient status is joined, not restarted. A child in
    * `joined` already started this transition (factory population): it is
    * joined and its settled status is final, so it is never restarted.
+   * `children` is pulled lazily, one child at a time, and `joined` is read
+   * live, so a container can extend its walk while it runs.
    */
   protected _transitionChildren(
-    children: readonly ComponentVMBase[],
+    children: Iterable<ComponentVMBase>,
     construct: boolean,
     after?: () => void,
     joined?: ReadonlySet<ComponentVMBase>,
@@ -817,7 +819,7 @@ export abstract class ComponentVMBase {
       ? ConstructionStatus.Constructing
       : ConstructionStatus.Destructing;
     const targetName = construct ? "Constructed" : "Destructed";
-    let index = 0;
+    const iterator = children[Symbol.iterator]();
     let deferred: DeferredLifecycle | null = null;
 
     const settle = (result: DeferredLifecycleResult): void => {
@@ -863,7 +865,6 @@ export abstract class ComponentVMBase {
               });
               return;
             }
-            index += 1;
             let stillPending: boolean;
             try {
               stillPending = advance();
@@ -892,9 +893,8 @@ export abstract class ComponentVMBase {
 
     // Returns true when a child is pending and the rest continues on its settle.
     const advance = (): boolean => {
-      for (; index < children.length; index += 1) {
-        const child = children[index];
-        if (child === undefined) continue;
+      for (let next = iterator.next(); next.done !== true; next = iterator.next()) {
+        const child = next.value;
         if (
           child.status !== target &&
           child.status !== transient &&

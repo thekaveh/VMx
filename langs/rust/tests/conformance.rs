@@ -4,6 +4,7 @@ mod conformance {
     mod async_resource_completion;
     mod async_resource_vm;
     mod async_value;
+    mod auto_construct_during_constructing;
     mod background_child_settle;
     mod builders;
     mod capabilities;

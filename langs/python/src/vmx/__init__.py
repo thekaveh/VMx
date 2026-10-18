@@ -333,8 +333,9 @@ from vmx.components.base import _ComponentVMBase
 # Lifecycle capabilities are baseline: every core VM trivially satisfies them.
 # See spec/14-capabilities.md rule 2 and CAP-020.
 # Registering the shared base covers components, composites, groups,
-# aggregates, hierarchical, and async-resource VMs, and ForwardingComponentVM;
-# ForwardingCompositeVM does not derive from it, so it is registered itself.
+# aggregates, hierarchical, and async-resource VMs, and both forwarding VMs.
+# ForwardingCompositeVM is listed too; the second entry is redundant but keeps
+# mypy from narrowing the loop variable to the abstract base.
 for _lifecycle_vm in (_ComponentVMBase, ForwardingCompositeVM):
     IConstructable.register(_lifecycle_vm)
     IDestructable.register(_lifecycle_vm)

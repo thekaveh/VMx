@@ -1130,12 +1130,24 @@ class _ComponentVMBase(ABC):
 
         A child in ``joined`` already started this transition (factory
         population): it is joined and its settled status is final, so it is
-        never restarted.
+        never restarted. ``children`` is pulled lazily, one child at a time,
+        and a ``joined`` list is read live, so a container can extend its walk
+        while it runs.
         """
         result: Future[None] = Future()
         _CHILD_WALK_FUTURES.add(result)
         iterator = iter(children)
-        joined_ids = {id(child) for child in joined}
+        joined_live = joined if isinstance(joined, list) else list(joined)
+        joined_ids: set[int] = set()
+        joined_seen = 0
+
+        def is_joined(child: object) -> bool:
+            nonlocal joined_seen
+            for entry in joined_live[joined_seen:]:
+                joined_ids.add(id(entry))
+            joined_seen = len(joined_live)
+            return id(child) in joined_ids
+
         expected = ConstructionStatus.CONSTRUCTED if construct else ConstructionStatus.DESTRUCTED
         transient = ConstructionStatus.CONSTRUCTING if construct else ConstructionStatus.DESTRUCTING
 
@@ -1154,12 +1166,12 @@ class _ComponentVMBase(ABC):
                     return
 
                 try:
-                    is_joined = id(child) in joined_ids
-                    if is_joined and isinstance(child, _ComponentVMBase):
+                    child_joined = is_joined(child)
+                    if child_joined and isinstance(child, _ComponentVMBase):
                         # Check and join under the child's lifecycle lock so a
                         # child that settles meanwhile is never started again.
                         pending = child._join_transition_future(construct=construct)
-                    elif is_joined and child.status not in (expected, transient):
+                    elif child_joined and child.status not in (expected, transient):
                         raise RuntimeError(f"child '{child.name}' did not reach {expected.name}")
                     elif isinstance(child, _ComponentVMBase):
                         pending = (

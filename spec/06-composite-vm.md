@@ -279,6 +279,12 @@ the composite reaches `Constructed`, completing the child's transition to
 `Constructed` BEFORE the `CollectionChanged` event fires. Builds default to
 `false` for backwards compatibility.
 
+With `AutoConstructOnAdd(true)`, a child added while the composite is still
+`Constructing` is also started, and the composite's construct walk joins it:
+the composite reaches `Constructed` only after that child does (chapter 02 §6).
+A late child whose construction fails rolls the composite back; it is never
+restarted.
+
 ## 6. Modeled variant `CompositeVM<M, VM>`
 
 Identical to `CompositeVM<VM>` except the children come from a model factory:

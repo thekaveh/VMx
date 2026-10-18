@@ -52,6 +52,23 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A background child that fails before its `CompositeVm`, `GroupVm`, or
+  `AggregateVm1`–`AggregateVm6` container's own construct or destruct action
+  returns no longer leaves the container at its target status. The container
+  previously published the rollback status and then its target status (for
+  example `Constructing`, `Destructed`, `Constructed`). It now records the
+  failure, skips the remaining child steps, and publishes one rollback status
+  when the action returns. The failure goes to `background_errors()`, the same
+  as a child that fails after the action returns.
+- With `auto_construct_on_add(true)`, a child added to a `CompositeVm` or
+  `GroupVm` while it is Constructing is no longer left Destructed while the
+  container reaches Constructed (spec/02 §6). The add now constructs a
+  Destructed child at once and leaves a Constructing or Constructed child
+  alone. The construct walk, including the one `reconstruct` runs, then joins
+  each member added during the walk without restarting it. The container stays
+  Constructing until that child settles. If the child fails, the container
+  rolls back once and reports the failure. A child added after the walk ends
+  is constructed but not awaited. Nothing changes with auto-construct off.
 - Disposing a `MessageHub` subscription, dropping it, or disposing the hub no
   longer deadlocks when a subscriber's handler owns the last reference to
   another subscription on the same hub. Removed handlers, completions, and

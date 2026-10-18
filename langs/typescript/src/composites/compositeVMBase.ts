@@ -542,9 +542,33 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
 
   protected _maybeAutoConstruct(child: VM): void {
     if (!this.#autoConstructOnAdd) return;
+    if (this.status === ConstructionStatus.Constructing) {
+      // The construct walk joins a child added while it runs (#constructWalk).
+      if (child.status === ConstructionStatus.Destructed) child.construct();
+      return;
+    }
     if (this.status !== ConstructionStatus.Constructed) return;
     if (child.status === ConstructionStatus.Constructed) return;
     child.construct();
+  }
+
+  /**
+   * The construct walk's children: the membership snapshot, then (with
+   * auto-construct-on-add) each child added while the walk runs. A late child
+   * was already started by `_maybeAutoConstruct`, so it is joined like a
+   * population child and never restarted (spec/02 §6, spec/06 §5.1).
+   */
+  *#constructWalk(joined: Set<ComponentVMBase>): Generator<VM> {
+    const visited = new Set<VM>(this._children);
+    yield* [...visited];
+    if (!this.#autoConstructOnAdd) return;
+    for (;;) {
+      const late = this._children.find((child) => !visited.has(child));
+      if (late === undefined) return;
+      visited.add(late);
+      joined.add(late);
+      yield late;
+    }
   }
 
   private _validateMoveIndex(index: number): void {
@@ -571,7 +595,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     // spec/02 §6: the composite settles only after every child has (a
     // background child defers the composite's terminal status).
     this._transitionChildren(
-      [...this._children],
+      this.#constructWalk(joined),
       true,
       () => {
         // Apply the optional initial-current selector (spec/06 §3.2, ADR-0042).
@@ -689,13 +713,14 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
 
       // Make the entire snapshot visible before any child hook runs.
       for (const child of candidates) {
-        this._maybeAutoConstruct(child);
         if (
           this.status === ConstructionStatus.Constructing &&
           child.status !== ConstructionStatus.Constructed
         ) {
           child.construct();
           this.#joinIfPending(child);
+        } else {
+          this._maybeAutoConstruct(child);
         }
       }
       this.#requireTransactionCanContinue();

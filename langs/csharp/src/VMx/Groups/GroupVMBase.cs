@@ -3,6 +3,7 @@ using System.Collections.Specialized;
 using System.Reactive.Disposables;
 using VMx.Collections;
 using VMx.Components;
+using VMx.Composites;
 using VMx.Lifecycle;
 using VMx.Messages;
 using VMx.Services;
@@ -35,7 +36,7 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
     private bool _batchDirty;
 
     // Collects the children population started constructing (see OnConstruct).
-    private List<IComponentVM>? _populationJoined;
+    private HashSet<IComponentVM>? _populationJoined;
     private int _disposeRequested;
     private bool _disposeDeferred;
     private bool _membershipTransactionActive;
@@ -479,7 +480,14 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
     private void MaybeAutoConstruct(VM item)
     {
         if (!_autoConstructOnAdd) return;
-        if (Status != ConstructionStatus.Constructed) return;
+        var status = Status;
+        if (status == ConstructionStatus.Constructing)
+        {
+            // The construct walk joins a child added while it runs.
+            if (item.Status == ConstructionStatus.Destructed) item.Construct();
+            return;
+        }
+        if (status != ConstructionStatus.Constructed) return;
         if (item.Status == ConstructionStatus.Constructed) return;
         item.Construct();
     }
@@ -547,12 +555,12 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
     {
         base.OnConstruct(); // invoke user's onConstruct callback if any
         // Children whose construct population started are joined, not restarted.
-        var joined = new List<IComponentVM>();
+        var joined = new HashSet<IComponentVM>(ComponentVMBase.ChildReferenceComparer.Instance);
         _populationJoined = joined;
         try { PopulateChildren(); }
         finally { _populationJoined = null; }
         CompleteLifecycleHookAfter(TransitionChildrenAsync(
-            Snapshot().ToArray(),
+            ContainerConstructWalk.Enumerate(() => Snapshot().ToArray(), _autoConstructOnAdd, joined),
             construct: true,
             after: null,
             joined: joined));

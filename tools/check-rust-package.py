@@ -52,6 +52,7 @@ tests/conformance/aggregate_vm.rs
 tests/conformance/async_resource_completion.rs
 tests/conformance/async_resource_vm.rs
 tests/conformance/async_value.rs
+tests/conformance/auto_construct_during_constructing.rs
 tests/conformance/background_child_settle.rs
 tests/conformance/builders.rs
 tests/conformance/capabilities.rs

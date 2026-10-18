@@ -236,6 +236,7 @@ public final class AggregateChangeStream<Item: AnyObject> {
         var releasedMembership: AnyCancellable?
         var releasedEntries: [Entry] = []
         var releasedStaged: [(Entry, EmissionClassification)] = []
+        var releasedWork: [Work] = []
         gate.lock()
         if !completed {
             completed = true
@@ -249,6 +250,7 @@ public final class AggregateChangeStream<Item: AnyObject> {
             releasedStaged = stagedEmissions
             stagedEmissions.removeAll()
             stagingLock.unlock()
+            releasedWork = work
             work.removeAll()
             let recipients = Array(observers.values)
             observers.removeAll()
@@ -256,7 +258,9 @@ public final class AggregateChangeStream<Item: AnyObject> {
             shouldProcess = startProcessingLocked()
         }
         gate.unlock()
-        withExtendedLifetime((releasedMembership, releasedEntries, releasedStaged)) {}
+        withExtendedLifetime(
+            (releasedMembership, releasedEntries, releasedStaged, releasedWork)
+        ) {}
         if shouldProcess { processWork() }
     }
 

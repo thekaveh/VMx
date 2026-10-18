@@ -151,3 +151,23 @@ def test_throwing_predicate_leaves_the_previous_projection_in_place() -> None:
     assert sut.current is beta
     src.add(child("gamma"))  # the previous predicate still runs
     assert [vm.name for vm in sut.visible] == ["alpha", "beta", "gamma"]
+
+
+def test_raising_observer_keeps_the_new_predicate() -> None:
+    src = source("alpha", "beta")
+    sut = FilteredCompositeVM(src, predicate=lambda _vm: True)
+
+    raised: list[bool] = []
+
+    def boom_once(_: None) -> None:
+        if not raised:
+            raised.append(True)
+            raise RuntimeError("observer")
+
+    sut.on_changed.subscribe(boom_once)
+    with pytest.raises(RuntimeError):
+        sut.set_predicate(lambda vm: vm.name == "alpha")
+
+    assert [vm.name for vm in sut.visible] == ["alpha"]
+    src.add(child("gamma"))  # the new predicate runs, not the previous one
+    assert [vm.name for vm in sut.visible] == ["alpha"]

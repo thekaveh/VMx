@@ -425,6 +425,8 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                 }
             },
         );
+        let auto_construct_on_add = Arc::new(Mutex::new(false));
+        let reconstruct_auto = Arc::clone(&auto_construct_on_add);
         let reconstruct_core = core.clone();
         let reconstruct_items = items.clone();
         let reconstruct_current = Arc::clone(&current);
@@ -451,32 +453,36 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                 let selector_slot = Arc::clone(&reconstruct_selector);
                 let current = Arc::clone(&reconstruct_current);
                 let callback = Arc::clone(&reconstruct_callback);
+                let auto = Arc::clone(&reconstruct_auto);
                 let _ = reconstruct_core.construct_after_destruct(move || {
                     core.transition_with(LifecycleOperation::Construct, || {
-                        for item in items.to_vec() {
-                            core.transition_child(&item, LifecycleOperation::Construct)?;
-                        }
+                        let members = items.clone();
+                        let join_late = *lock(&auto);
                         let core = core.clone();
                         let items = items.clone();
-                        core.clone().child_step(Box::new(move || {
-                            if let Some(selector) = lock(&selector_slot).clone() {
-                                if let Some(selected) = selector(items.to_vec()) {
-                                    if items
-                                        .to_vec()
-                                        .iter()
-                                        .any(|candidate| same_node(candidate, &selected))
-                                    {
-                                        assign_current_state(
-                                            &core,
-                                            &current,
-                                            &callback,
-                                            Some(selected),
-                                        );
+                        core.clone().construct_children(
+                            Arc::new(move || members.to_vec()),
+                            join_late,
+                            Box::new(move || {
+                                if let Some(selector) = lock(&selector_slot).clone() {
+                                    if let Some(selected) = selector(items.to_vec()) {
+                                        if items
+                                            .to_vec()
+                                            .iter()
+                                            .any(|candidate| same_node(candidate, &selected))
+                                        {
+                                            assign_current_state(
+                                                &core,
+                                                &current,
+                                                &callback,
+                                                Some(selected),
+                                            );
+                                        }
                                     }
                                 }
-                            }
-                            Ok(())
-                        }))
+                                Ok(())
+                            }),
+                        )
                     })
                 });
             }
@@ -487,7 +493,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             items,
             ownership,
             current,
-            auto_construct_on_add: Arc::new(Mutex::new(false)),
+            auto_construct_on_add,
             async_selection,
             current_selector,
             on_current_changed,
@@ -615,8 +621,9 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             self.items.insert_silent(index, item.clone())?;
             index
         };
-        let should_construct =
-            *lock(&self.auto_construct_on_add) && self.status() == ConstructionStatus::Constructed;
+        let should_construct = self
+            .core
+            .auto_constructs_on_add(*lock(&self.auto_construct_on_add), item.status());
         let admission = (if should_construct {
             item.construct()
         } else {
@@ -797,8 +804,9 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             item.set_parent_handle(Some(self.ownership.handle()));
             self.items.insert_silent(index, item.clone())?;
         }
-        let should_construct =
-            *lock(&self.auto_construct_on_add) && self.status() == ConstructionStatus::Constructed;
+        let should_construct = self
+            .core
+            .auto_constructs_on_add(*lock(&self.auto_construct_on_add), item.status());
         let admission = (if should_construct {
             item.construct()
         } else {
@@ -946,8 +954,9 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                 }
             }
         };
-        let should_construct =
-            *lock(&self.auto_construct_on_add) && self.status() == ConstructionStatus::Constructed;
+        let should_construct = self
+            .core
+            .auto_constructs_on_add(*lock(&self.auto_construct_on_add), item.status());
         let admission = (if should_construct {
             item.construct()
         } else {
@@ -1131,26 +1140,28 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
     pub fn construct(&self) -> VmxResult<()> {
         self.core
             .transition_with(LifecycleOperation::Construct, || {
-                for item in self.items() {
-                    self.core
-                        .transition_child(&item, LifecycleOperation::Construct)?;
-                }
+                let members = self.items.clone();
+                let join_late = *lock(&self.auto_construct_on_add);
                 // The selector runs after every child settled (spec/02 §6).
                 let composite = self.clone();
-                self.core.child_step(Box::new(move || {
-                    if let Some(selector) = lock(&composite.current_selector).clone() {
-                        if let Some(selected) = selector(composite.items()) {
-                            if composite
-                                .items()
-                                .iter()
-                                .any(|candidate| same_node(candidate, &selected))
-                            {
-                                composite.assign_current(selected.into());
+                self.core.construct_children(
+                    Arc::new(move || members.to_vec()),
+                    join_late,
+                    Box::new(move || {
+                        if let Some(selector) = lock(&composite.current_selector).clone() {
+                            if let Some(selected) = selector(composite.items()) {
+                                if composite
+                                    .items()
+                                    .iter()
+                                    .any(|candidate| same_node(candidate, &selected))
+                                {
+                                    composite.assign_current(selected.into());
+                                }
                             }
                         }
-                    }
-                    Ok(())
-                }))
+                        Ok(())
+                    }),
+                )
             })
     }
 
