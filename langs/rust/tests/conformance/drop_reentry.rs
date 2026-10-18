@@ -424,7 +424,7 @@ fn probing_resource(hook: &Hook, retention: AsyncResourceRetention) -> AsyncReso
     AsyncResourceVm::with_options("resource", loader, retention, None)
 }
 
-/// ARES-004 — reload drops the replaced ready state after the machine lock.
+/// ARES-007 — a discard reload drops the replaced ready state after the machine lock.
 #[test]
 fn async_resource_reload_drop_may_read_the_resource() {
     let hook = Hook::default();
