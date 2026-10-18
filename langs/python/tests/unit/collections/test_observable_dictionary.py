@@ -447,3 +447,17 @@ def test_hub_add_index_is_captured_before_a_reentrant_add() -> None:
     d.add("a", "x", 1)
 
     assert indices == {("a", "x", 1): 0, ("b", "y", 2): 1}
+
+
+def test_nan_key_is_one_axis_key_like_a_dict_key() -> None:
+    sut: ObservableDictionary[float, str, int] = ObservableDictionary()
+    nan = float("nan")
+
+    sut.add(nan, "a", 1)
+    sut.add(nan, "b", 2)
+    assert sut.keys1.count == 1
+
+    sut.remove(nan, "a")
+    assert sut.keys1.count == 1
+    sut.remove(nan, "b")
+    assert sut.keys1.count == 0

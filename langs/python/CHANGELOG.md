@@ -23,6 +23,12 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ### Fixed
 
+- A slice delete or assignment that selects nothing and inserts nothing on
+  `ServicedObservableCollection` or `KeyedServicedObservableCollection` emits
+  nothing, instead of a Reset, as TypeScript `splice` does (spec/21 §2.10).
+- `ObservableDictionary` key views use dictionary-key equality (identity, then
+  `==`), so one `NaN` key object appears once in `keys1`/`keys2`
+  (spec/21 §4.1).
 - `walk`, `walk_expanded`, and `find` accept and return the public
   `ComponentVMProto` instead of the private `_ComponentVMBase`, so a caller
   typed against the public protocol passes `mypy --strict` (spec/13 §4).

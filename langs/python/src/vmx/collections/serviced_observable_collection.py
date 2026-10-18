@@ -94,7 +94,10 @@ class ServicedObservableCollection(MutableSequence[T], Generic[T]):
         if isinstance(index, slice):
             # Slice replacement: emit reset (coarse-grained)
             items: Iterable[T] = value  # type: ignore[assignment]
-            self._items[index] = list(items)
+            inserted = list(items)
+            if not inserted and not self._items[index]:
+                return  # An empty slice with nothing inserted changes nothing.
+            self._items[index] = inserted
             self._emit(CollectionChangedMessage.for_reset(self))
         else:
             new_item: T = value  # type: ignore[assignment]
@@ -102,6 +105,8 @@ class ServicedObservableCollection(MutableSequence[T], Generic[T]):
 
     def __delitem__(self, index: int | slice) -> None:
         if isinstance(index, slice):
+            if not self._items[index]:
+                return  # Deleting an empty slice changes nothing.
             del self._items[index]
             self._emit(CollectionChangedMessage.for_reset(self))
         else:

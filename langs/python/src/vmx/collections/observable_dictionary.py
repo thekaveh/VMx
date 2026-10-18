@@ -22,6 +22,15 @@ TKey2 = TypeVar("TKey2")
 TValue = TypeVar("TValue")
 
 
+def _same_key(a: object, b: object) -> bool:
+    """Dictionary-key equality: identity first, then ``==`` (spec/21 §4.1).
+
+    Python ``dict`` matches a key by identity before ``==``, so one ``NaN``
+    object is one key; the axis views use the same rule.
+    """
+    return a is b or a == b
+
+
 class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
     """A two-key observable dictionary with distinct-key observable views.
 
@@ -228,9 +237,9 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
         self._key_order.remove((key1, key2))
 
         # Update key-axis views: drop only when no other entry uses this key.
-        if not any(k[0] == key1 for k in self._data):
+        if not any(_same_key(k[0], key1) for k in self._data):
             self._keys1.remove(key1)
-        if not any(k[1] == key2 for k in self._data):
+        if not any(_same_key(k[1], key2) for k in self._data):
             self._keys2.remove(key2)
 
         self._on_removed(key1, key2, value)
@@ -303,10 +312,10 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
 
     def _keys1_contains(self, key1: TKey1) -> bool:
         # ObservableList does not expose __contains__; iterate to check.
-        return any(k == key1 for k in self._keys1)
+        return any(_same_key(k, key1) for k in self._keys1)
 
     def _keys2_contains(self, key2: TKey2) -> bool:
-        return any(k == key2 for k in self._keys2)
+        return any(_same_key(k, key2) for k in self._keys2)
 
     def _publish_to_hub(self, msg: CollectionChangedMessage[object]) -> None:
         """Send *msg* to the hub if one is wired (no-op otherwise)."""

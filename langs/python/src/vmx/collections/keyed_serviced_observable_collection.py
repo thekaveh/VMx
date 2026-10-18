@@ -84,6 +84,8 @@ class KeyedServicedObservableCollection(MutableSequence[T], Generic[TKey, T]):
 
         inserted: Iterable[T] = value  # type: ignore[assignment]
         inserted_items = list(inserted)
+        if not inserted_items and not self._items[index]:
+            return  # An empty slice with nothing inserted changes nothing.
         inserted_keys = [self._key_of(item) for item in inserted_items]
         candidate_items = self._items.copy()
         candidate_keys = self._keys.copy()
@@ -101,6 +103,8 @@ class KeyedServicedObservableCollection(MutableSequence[T], Generic[TKey, T]):
         if not isinstance(index, slice):
             self.remove_at(index)
             return
+        if not self._items[index]:
+            return  # Deleting an empty slice changes nothing.
 
         candidate_items = self._items.copy()
         candidate_keys = self._keys.copy()

@@ -23,6 +23,7 @@ on:
       - "langs/rust/Cargo.toml"
       - "langs/rust/src/lib.rs"
       - "langs/typescript/package.json"
+      - "langs/typescript/src/version.ts"
       - "langs/swift/Sources/VMx/Version.swift"
       - "langs/csharp/src/*/*.csproj"
       - "langs/python/src/vmx/__about__.py"
