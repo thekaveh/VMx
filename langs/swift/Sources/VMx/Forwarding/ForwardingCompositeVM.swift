@@ -82,12 +82,12 @@ open class ForwardingCompositeVM<Child: ComponentVMBase>: CompositeVM<Child> {
     }
 
     // ── Built-in commands (override the getters to delegate) ────────────
-    open override var selectCommand: RelayCommand {
-        _parent == nil ? _wrapped.selectCommand : super.selectCommand
-    }
-    open override var deselectCommand: RelayCommand {
-        _parent == nil ? _wrapped.deselectCommand : super.deselectCommand
-    }
+    // FWD-001: the decorator's commands ARE the wrapped VM's commands. When
+    // the decorator is parented, the wrapped VM's selection routes through
+    // the decorator's parent (ComponentVMBase._forwardingSelectionOwner), so
+    // executing them selects/deselects the decorator.
+    open override var selectCommand: RelayCommand { _wrapped.selectCommand }
+    open override var deselectCommand: RelayCommand { _wrapped.deselectCommand }
     open override var selectNextCommand: RelayCommand { _wrapped.selectNextCommand }
     open override var selectPreviousCommand: RelayCommand { _wrapped.selectPreviousCommand }
     open override var reconstructCommand: RelayCommand { _wrapped.reconstructCommand }

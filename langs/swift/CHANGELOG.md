@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A VM wrapped by a parented `ForwardingComponentVM` or
+  `ForwardingCompositeVM` now selects through the decorator's parent:
+  `canSelect()`, `select()`, `canDeselect()`, `deselect()`, and the select and
+  deselect commands on the wrapped VM select or deselect the decorator, also
+  through a decorator of a decorator. The decorator's `selectCommand` and
+  `deselectCommand` are now always the wrapped VM's commands (spec/09 §1,
+  FWD-001).
+
 - `ForwardingCompositeVM` held by a parent now reports `isCurrent` while it
   is the parent's current child, and selects and deselects through that
   parent. The decorator and its wrapped composite now share one ownership

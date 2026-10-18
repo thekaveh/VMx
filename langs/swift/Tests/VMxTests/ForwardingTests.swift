@@ -460,4 +460,83 @@ final class ForwardingTests: XCTestCase {
         XCTAssertEqual(inner.status, .disposed)
         XCTAssertEqual(cleanups, 1)
     }
+
+    // ── Wrapped VM selection through a parented decorator (spec/09 §1) ──
+
+    /// FWD-001 — the wrapped VM's own selection API and commands route through
+    /// the decorator's parent and select the decorator; the decorator's
+    /// commands are the wrapped VM's commands.
+    private func assertWrappedSelectionRoutes(
+        child: ComponentVMBase,
+        inner: ComponentVMBase,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) throws {
+        let parent = emptyParent("parent")
+        parent.add(child)
+        try parent.construct()
+
+        XCTAssertTrue(child.selectCommand === inner.selectCommand, file: file, line: line)
+        XCTAssertTrue(child.deselectCommand === inner.deselectCommand, file: file, line: line)
+        XCTAssertTrue(inner.canSelect(), file: file, line: line)
+        XCTAssertTrue(inner.selectCommand.canExecute(), file: file, line: line)
+
+        inner.select()
+        XCTAssertTrue(parent.current === child, file: file, line: line)
+        XCTAssertTrue(inner.isCurrent, file: file, line: line)
+        XCTAssertFalse(inner.canSelect(), file: file, line: line)
+        XCTAssertTrue(inner.canDeselect(), file: file, line: line)
+
+        inner.deselect()
+        XCTAssertNil(parent.current, file: file, line: line)
+        XCTAssertFalse(inner.isCurrent, file: file, line: line)
+
+        inner.selectCommand.execute()
+        XCTAssertTrue(parent.current === child, file: file, line: line)
+        inner.deselectCommand.execute()
+        XCTAssertNil(parent.current, file: file, line: line)
+    }
+
+    func testFWD001WrappedComponentSelectsThroughParentedDecorator() throws {
+        let inner = makeInner()
+        try assertWrappedSelectionRoutes(child: NoopForwardingComponent(inner), inner: inner)
+    }
+
+    func testFWD001WrappedCompositeSelectsThroughParentedDecorator() throws {
+        let inner = emptyComposite("inner")
+        try assertWrappedSelectionRoutes(child: NoopForwardingComposite(inner), inner: inner)
+    }
+
+    func testFWD001DecoratorOfDecoratorRoutesWrappedSelection() throws {
+        let inner = makeInner()
+        let middle = NoopForwardingComponent(inner)
+        let outer = ForwardingComponentVM<String>(middle)
+        try assertWrappedSelectionRoutes(child: outer, inner: inner)
+
+        let composite = emptyComposite("inner-composite")
+        let middleComposite = NoopForwardingComposite(composite)
+        let outerComposite = ForwardingCompositeVM<ComponentVM>(middleComposite)
+        try assertWrappedSelectionRoutes(child: outerComposite, inner: composite)
+    }
+
+    /// FWD-001 — under a group parent (no selection slot) the wrapped VM stays
+    /// unselectable, and an unparented decorator leaves the wrapped VM's own
+    /// (parentless) selection behavior unchanged.
+    func testFWD001WrappedSelectionUnderGroupAndUnparented() throws {
+        let inner = makeInner()
+        let decorator = NoopForwardingComponent(inner)
+        let group = try GroupVM<ComponentVMBase>.builder()
+            .name("group").withNullServices().children { [] }.build()
+        group.add(decorator)
+        try group.construct()
+        XCTAssertFalse(inner.canSelect())
+        inner.select()
+        XCTAssertFalse(inner.isCurrent)
+        XCTAssertFalse(inner.canDeselect())
+
+        _ = group.remove(decorator)
+        XCTAssertFalse(inner.canSelect())
+        XCTAssertFalse(decorator.canSelect())
+        XCTAssertTrue(decorator.selectCommand === inner.selectCommand)
+    }
 }

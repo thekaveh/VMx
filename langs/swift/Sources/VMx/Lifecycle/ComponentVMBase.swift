@@ -1261,10 +1261,26 @@ open class ComponentVMBase {
 
     // ── Selection ───────────────────────────────────────────────────────
 
+    /// spec/09 §1 (FWD-001): when this VM is wrapped by a forwarding
+    /// decorator that is itself some container's child, the decorator is the
+    /// child the parent holds. The wrapped VM's own selection API then routes
+    /// through that decorator, so selection stays transparent to the wrapped
+    /// component (the other flavors install a parent adapter on the wrapped
+    /// VM). Only an owner that is parented is returned, so an unparented
+    /// decorator chain never recurses back here.
+    private var _forwardingSelectionOwner: ComponentVMBase? {
+        guard _parent == nil,
+              let owner = _forwardingOwner,
+              owner !== self,
+              owner._parent != nil else { return nil }
+        return owner
+    }
+
     public func canSelect() -> Bool {
         // spec/05 §5 + spec/07: parent non-nil, parent owns a selection slot,
         // not already current, constructed.
         guard !_isDisposalRequested() else { return false }
+        if let owner = _forwardingSelectionOwner { return owner.canSelect() }
         guard let parent = _parent else { return false }
         return parent.supportsChildSelection &&
             parent.currentChild !== self &&
@@ -1273,17 +1289,20 @@ open class ComponentVMBase {
 
     public func select() {
         guard !_isDisposalRequested() else { return }
+        if let owner = _forwardingSelectionOwner { owner.select(); return }
         _parent?.selectChild(self)
     }
 
     public func canDeselect() -> Bool {
         guard !_isDisposalRequested() else { return false }
+        if let owner = _forwardingSelectionOwner { return owner.canDeselect() }
         guard let parent = _parent else { return false }
         return parent.currentChild === self
     }
 
     public func deselect() {
         guard !_isDisposalRequested() else { return }
+        if let owner = _forwardingSelectionOwner { owner.deselect(); return }
         _parent?.deselectChild(self)
     }
 
