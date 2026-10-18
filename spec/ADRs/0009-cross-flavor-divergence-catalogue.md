@@ -409,10 +409,11 @@ ADR-0006 and require no further action:
 - **Python / TypeScript**: no dedicated fluent hub-overload function ships in
   the notifications sub-package. The equivalent composition is the explicit
   two-step form using the bridge helper:
-  `command.confirm(make_confirm(hub, prompt))` (Python) /
-  `command.confirm(makeConfirm(hub, prompt))` (TypeScript). The bridge
+  `confirm(command, make_confirm(hub, prompt))` (Python) /
+  `confirm(command, makeConfirm(hub, prompt))` (TypeScript). Both `confirm`
+  helpers are free functions that take the command first. The bridge
   helpers (`make_confirm` / `makeConfirm`) are already exported from
-  `vmx.notifications` / `vmx/notifications`.
+  `vmx.notifications` / `@thekaveh/vmx/notifications`.
 - **Rationale**: C# method overloading lets the `INotificationHub` variant
   share the `Confirm` name without polluting the core command surface. In
   Python and TypeScript a single named composition (`confirm(make_confirm(…))`)

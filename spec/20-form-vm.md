@@ -16,10 +16,11 @@ Key properties:
 - **ORM-agnostic** — the persist step is a consumer-supplied delegate or
   `IFormPersister<TM>` collaborator.
 - **Snapshot at construct** — `Snapshot` is captured once and is immutable after
-  that (until a successful `ApproveCommand` updates it). C#, Python, and
-  TypeScript use deep-copy defaults; Swift uses identity copy for unconstrained
-  generic models and relies on value semantics for struct/enum models
-  (ADR-0077). The snapshot mechanism is injectable in every flavor.
+  that (until a successful `ApproveCommand` updates it). C#, Python,
+  TypeScript, and Rust use deep-copy defaults (Rust uses the model's `Clone`);
+  Swift uses identity copy for unconstrained generic models and relies on value
+  semantics for struct/enum models (ADR-0077). The snapshot mechanism is
+  injectable in every flavor (Rust: `FormVmBuilder::snapshotter`).
 - **`IsDirty`** is derived automatically from structural inequality of `Model` vs
   `Snapshot`, using an **injectable equality function** (default: a structural
   deep-equal — §4).
@@ -123,7 +124,10 @@ TypeScript additionally accepts an `equals?: (a, b) => boolean` option — the
 injectable dirty-tracking equality predicate (default: a structural deep-equal —
 §4). C# and Python derive dirty state from the model's own idiomatic value
 equality (`object.Equals` / `__eq__`), so the equality hook is the model type's
-own concern there rather than a separate constructor parameter.
+own concern there rather than a separate constructor parameter. Swift requires
+an `equals:` initializer argument, because its unconstrained generic `Model`
+has no default equality. Rust bounds the model type by `PartialEq` and uses it
+for dirty tracking, with no separate equality hook.
 
 ## 3. Snapshot policy
 

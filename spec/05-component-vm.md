@@ -276,8 +276,9 @@ so `Parent.Current != this` holds for every group child. (All five active flavor
 as `true` — so a group child's `can_select` is `false` in every flavor. That uniform
 guard is precisely why chapter 07 §1's requirement — a group child's inherited
 `can_select` MUST return `false` while the parent is the group — holds everywhere.
-Only Rust also applies the guard to `can_deselect`. The other flavors do not need
-it there: a group has no current child, so `Parent.Current == this` is false and a
+Rust's base component and Swift's `ForwardingComponentVM` also apply the guard
+to `can_deselect`. Other components do not need it there: a group has no
+current child, so `Parent.Current == this` is false and a
 group child's `can_deselect` is `false` in every flavor. The guard is unaffected by
 the `Parent` declaration here.)
 

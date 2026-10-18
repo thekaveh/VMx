@@ -34,6 +34,10 @@ DiscriminatorVM<TKey>:
 Per-flavor names follow ADR-0006 (`active_key` / `activeKey`,
 `set_active_key` / `setActiveKey`, etc.).
 
+Open Rust gap: Rust `active_changed()` returns a `MessageHub` whose messages
+carry no key. Rust consumers that need the new key subscribe to
+`active_key_changes()`, a typed `ValueStream<K>`.
+
 ## 3. Semantics
 
 - Construction sets the initial active key.

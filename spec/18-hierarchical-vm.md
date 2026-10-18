@@ -27,6 +27,12 @@ provides:
 
 `HierarchicalVM<TModel, TVM>` is a recursive generic type. `TVM` is the concrete
 subclass; the recursive constraint is enforced per flavor (ADR-0028 §3 item 2).
+Swift's compiler rejects the self-referential bound, so Swift binds only
+`TVM: AnyObject`.
+
+Open Rust gap: Rust `HierarchicalVm<M>` has no `TVM` parameter. Children and
+parent are the same `HierarchicalVm<M>` type, so a consumer cannot specialize
+the node type.
 
 ```
 HierarchicalVM<TModel, TVM>:
@@ -117,8 +123,9 @@ this validation result. Their existing `children` accessors delegate and fail
 fast on invalid factory output for source compatibility. C#, Python, and
 TypeScript use their ordinary invalid-operation errors.
 
-Constructor option `eagerChildren=true` (C# / TS) / `eager_children=True` (Python)
-flips to **eager**: the entire tree is materialized at construct time using
+Constructor option `eagerChildren=true` (C# / TS) / `eager_children=True`
+(Python) / `eagerChildren: true` (Swift) / builder method
+`eager_children(true)` (Rust) flips to **eager**: the entire tree is materialized at construct time using
 depth-first traversal. Eager mode is required if the consumer wants
 depth-first construction to apply to the whole tree at startup.
 
@@ -219,7 +226,9 @@ Two messages flow on `IMessageHub`:
 Structural mutators MUST reject operations that would corrupt the tree:
 reparenting a node under itself or under one of its own descendants (an
 ancestor cycle) raises the flavor's standard invalid-operation error
-(`InvalidOperationException` / `ValueError` / `Error`), leaves the tree
+(`InvalidOperationException` / `ValueError` / `Error`; Swift throws
+`HierarchyError.invalidReparent` and Rust returns
+`Err(VmxError::InvalidArgument)`), leaves the tree
 unchanged, and publishes no message (HIER-018; added in v2.5.0 via
 ADR-0037 — previously the cycle silently corrupted `Depth`/`Path`/`walk`).
 
@@ -275,8 +284,9 @@ TreeStructureChangedMessage:
 - `HIER-007` — Default lazy child loading: `Children` is not materialized until
   first access.
 - `HIER-008` — Eager child loading: `eagerChildren=true` (C# / TS) /
-  `eager_children=True` (Python) constructor option materializes the full
-  tree at construct.
+  `eager_children=True` (Python) / `eagerChildren: true` (Swift) constructor
+  option, or the Rust builder method `eager_children(true)`, materializes the
+  full tree at construct.
 - `HIER-009` — Depth-first construction: a parent reports `Constructed` only
   after every (eager) descendant.
 - `HIER-010` — `PropertyChangedMessage` on `Parent` change.
@@ -287,10 +297,13 @@ TreeStructureChangedMessage:
   portion.
 - `HIER-014` — Composition with `ModeledCrudCommands` mutates the tree.
 - `HIER-015` — `HierarchicalVMBuilder<M, VM>.Build()` validates the required
-  triple `Model` + `ChildrenFactory` + `Services(hub, dispatcher)`; missing
-  any one raises `BuilderValidationError` / `BuilderValidationException`
-  with a message identifying the missing field (added in v2.3 via
-  ADR-0035).
+  fields `Model`, `ChildrenFactory`, and `Services(hub, dispatcher)`. C#,
+  TypeScript, and Swift also require the VM factory (`VmFactory` /
+  `vmFactory`); Python's `vm_factory` is optional and defaults to
+  `HierarchicalVM`, and Rust has no VM factory. A missing field raises
+  `BuilderValidationException` (C#) / `BuilderValidationError` (Python,
+  TypeScript, Swift) / `VmxError::BuilderValidation` (Rust) with a message
+  identifying the missing field (added in v2.3 via ADR-0035).
 - `HIER-016` — `HierarchicalVMBuilder<M, VM>` repeated identical `Build()`
   calls produce independent root nodes that share the same configured
   `Model`, `Hint`, and eager / lazy children policy.
@@ -299,7 +312,8 @@ TreeStructureChangedMessage:
   equivalent), and `EagerChildren == false` (so the root's children
   materialize lazily on first access).
 - `HIER-018` — `ReparentChild` and `AddChild` reject self- and
-  ancestor-reparenting without mutation or messages; `AddChild` performs an
+  ancestor-reparenting without mutation or messages (Swift
+  `HierarchyError.invalidReparent`, Rust `VmxError::InvalidArgument`); `AddChild` performs an
   atomic identity-based transfer when the child already has another parent
   (extended in v3.20.1 via ADR-0105).
 - `HIER-019` — `InvalidateChildren` drops the cached child list; the next

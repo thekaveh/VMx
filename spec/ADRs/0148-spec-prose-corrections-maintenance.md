@@ -26,7 +26,8 @@ found three kinds of problems:
     All five flavors notify only when the recomputed hint differs.
   - Chapter 05 §6 omitted the not-disposed condition of `can_deselect`, which
     all five flavors apply. It also said that all five flavors apply the
-    "parent supports child selection" guard to `can_deselect`; only Rust does.
+    "parent supports child selection" guard to `can_deselect`; only Rust's base
+    component and Swift's `ForwardingComponentVM` do.
   - Chapter 06 §7 said Python and TypeScript compose the `ModeledCrudCommands`
     `current_changed` reactivity. Their helpers accept no trigger input.
   - Chapter 17 §2 said components resolve text through a framework-wired
@@ -47,9 +48,10 @@ Correct the prose as the code ships it:
 - Chapter 05 §3: `PropertyChangedMessage("ModeledHint")` is emitted only when the
   recomputed hint differs from the previous hint.
 - Chapter 05 §6: `can_deselect` lists `Status != Disposed`. The parenthetical
-  says all five flavors apply the selection guard to `can_select`, and only Rust
-  also applies it to `can_deselect`; the observable outcome is the same because a
-  group has no current child.
+  says all five flavors apply the selection guard to `can_select`, and that
+  Rust's base component and Swift's `ForwardingComponentVM` also apply it to
+  `can_deselect`; the observable outcome is the same because a group has no
+  current child.
 - Chapter 06 §7: C#, Swift, and Rust (`with_current_changed`) accept the
   `current_changed` trigger. The Python and TypeScript helpers accept none.
 - Chapter 17 §2: `ILocalizer` and `NullLocalizer` are application-level

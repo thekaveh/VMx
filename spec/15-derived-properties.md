@@ -45,7 +45,9 @@ A derived property is built from:
 A factory per flavor provides the canonical build entry point. The factory
 takes a sequence of sources and a transform; validator and write-back are
 passed as additional factory arguments (optional `canSet` / `setAction`
-parameters in C# / Python, an options-bag field in TS).
+parameters in C# / Python, an options-bag field in TS, and the optional
+`canSet:` / `setAction:` arguments in Swift). Rust supplies them through the
+separate `with_write_back` and `from_sources_with_write_back` constructors.
 
 ## 3. Source semantics
 

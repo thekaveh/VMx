@@ -96,8 +96,11 @@ when it does not.
 
 The canonical case is `ModeledCrudCommands` (chapter 06 §7): its
 `UpdateCurrentCommand` / `DeleteCurrentCommand` predicates read `current != null`,
-so they MUST be wired with a current-changed trigger derived from the owning
-composite's current-selection stream:
+so a reactive binding needs a current-changed trigger derived from the owning
+composite's current-selection stream. Chapter 06 §7 makes the trigger
+RECOMMENDED, not required: C#, Swift, and Rust accept it, and the Python and
+TypeScript helpers accept no trigger, so those two flavors build reactive
+commands directly with `Triggers`:
 
 ```
 # the composite's current-changed stream, projected to Unit, becomes the trigger
@@ -389,9 +392,11 @@ An optional second overload accepts an `INotificationHub` and constructs the
 delegate via the bridge helper in the notifications sub-package; that
 overload is defined in the sub-package, not in the core commands module.
 The overload is C#-only. Python, TypeScript, Swift, and Rust use explicit
-composition with their notification bridge: `command.confirm(make_confirm(...))`,
-`command.confirm(makeConfirm(...))`, `confirm(command, makeConfirm(...))`, and
-`command.confirm(make_confirm(...))`, respectively. See ADR-0009
+composition with their notification bridge: `confirm(command, make_confirm(...))`,
+`confirm(command, makeConfirm(...))`, `confirm(command, makeConfirm(...))`, and
+`command.confirm(make_confirm(...))`, respectively. Python, TypeScript, and Swift
+ship `confirm` as a free function that takes the command first; Rust ships it as
+a method. See ADR-0009
 §"Fluent `Confirm` overload with `INotificationHub`".
 
 ### 9.2 `PrecedeWith(other)`
@@ -420,9 +425,13 @@ cmd.WrapWith(predicate, pre, post)
 ```
 
 The shipped C# / Python `DecoratorCommand` constructor takes
-`(inner, preExecute, postExecute, extraPredicate)`; the fluent extension
-keeps the user-facing predicate-first ordering for ergonomic reasons and
-maps to the constructor's pre/post/predicate positions.
+`(inner, preExecute, postExecute, extraPredicate)`. Swift takes the same order
+as labeled arguments (`DecoratorCommand(inner, preExecute:, postExecute:, extraPredicate:)`). TypeScript takes `(inner, options)`, where the options
+object has the optional `preExecute`, `postExecute`, and `extraPredicate`
+fields. Rust takes `DecoratorCommand::new(inner, predicate, pre, post)`, with
+each hook an `Option`. The fluent extension keeps the user-facing
+predicate-first ordering for ergonomic reasons and maps to the constructor's
+argument positions.
 
 All three arguments are optional/nullable. Passing all defaults is valid and
 yields a semantically transparent decorator (no extra gate, no pre/post hooks).
@@ -479,8 +488,9 @@ caller-supplied token.
 `Cancel()` requests cancellation of the in-flight task. By default this is
 **non-throwing to the caller**, matching `IDialogService` cancellation
 (`DIA-007`, chapter 19 §7): the awaited `ExecuteAsync` **completes normally** on
-cancel rather than surfacing an `OperationCanceledException` /
-`asyncio.CancelledError` / `AbortError`. After a cancel the command returns to a
+cancel rather than surfacing an `OperationCanceledException` (C#) /
+`asyncio.CancelledError` (Python) / `AbortError` (TypeScript) /
+`CancellationError` (Swift) / `Err(VmxError::Cancelled)` (Rust). After a cancel the command returns to a
 non-executing state (`IsExecuting == false`, `CanExecute == true` once any
 predicate again permits it).
 
