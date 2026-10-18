@@ -78,7 +78,8 @@ graph TD
 every descendant has reached `Constructed`; this preserves the invariant
 "children exist before parent reports ready". This construction coordination
 does not imply ownership: disposing a hierarchical node does not dispose,
-destruct, detach, reparent, or otherwise manage its children. Consumers own
+destruct, detach, reparent, or otherwise manage its children. Destructing a
+node does not destruct its children either; only eager construction cascades. Consumers own
 child lifetimes unless they register cleanup explicitly through the ordinary
 owned-resource surface.
 
@@ -147,7 +148,10 @@ refresh a node's children explicitly call:
 Invalidation is a cache refresh operation, not a structural remove. It does not
 publish `TreeStructureChangedMessage`; instead it publishes
 `PropertyChangedMessage("Children")` (or the flavor-idiomatic property name) for
-the node whose cache was dropped so subscribers can re-read.
+the node whose cache was dropped so subscribers can re-read. The dropped
+children are detached silently: their parent becomes null, and no per-child
+`Parent` message is published. The §7 `Parent` message rule applies to
+structural mutations, not to invalidation.
 
 Time-to-live refresh is intentionally deferred. A TTL contract needs a
 cross-flavor clock/test-scheduler abstraction to be deterministic; explicit

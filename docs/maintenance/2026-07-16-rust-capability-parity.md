@@ -332,3 +332,11 @@ unbounded wait on a child published elsewhere.
 a composite, group, or aggregate. C#, Python, and Swift support a decorated
 composite as a child with one ownership identity (spec/09 §2). Adding the trait
 needs a forwarding `VmNode` implementation and its tests.
+
+`ForwardingCompositeVm` also forwards only part of the `CompositeVm` surface.
+It does not forward `is_current`, the selection methods and commands
+(`can_select`, `select`, `can_deselect`, `deselect`, `select_command`,
+`deselect_command`, `select_next_command`, `select_previous_command`,
+`reconstruct_command`), expansion (`expand`, `collapse`, `toggle_expansion`,
+`is_expanded`), the lifecycle hooks, `on_current_changed`, or
+`background_errors`. spec/09 §2 requires the same delegation as §1.
