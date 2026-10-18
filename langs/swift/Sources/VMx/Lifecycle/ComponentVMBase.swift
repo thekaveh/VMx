@@ -353,11 +353,12 @@ private final class VMxConcurrentSubject<Output, Failure: Error>: Subject {
 
     fileprivate func removeSubscriber(token: UUID) {
         lock.lock()
-        if let entry = entries[token] {
-            entry.cancelled = true
-        }
-        entries.removeValue(forKey: token)
+        let removed = entries.removeValue(forKey: token)
+        removed?.cancelled = true
         lock.unlock()
+        // The entry owns the subscriber; release it after `lock` (non-recursive)
+        // so a subscriber deinit can subscribe to or send on this subject.
+        withExtendedLifetime(removed) {}
     }
 }
 

@@ -238,9 +238,13 @@ public final class AggregateChangeStream<Item: AnyObject> {
             membershipSubscription = nil
             for entry in entries.values { entry.terminate() }
             entries.removeAll()
+            // Staged entries are released after `stagingLock` (non-recursive)
+            // so an entry's deinit cannot re-enter it.
             stagingLock.lock()
+            let releasedStaged = stagedEmissions
             stagedEmissions.removeAll()
             stagingLock.unlock()
+            withExtendedLifetime(releasedStaged) {}
             work.removeAll()
             let recipients = Array(observers.values)
             observers.removeAll()
@@ -546,14 +550,18 @@ public final class AggregateChangeStream<Item: AnyObject> {
 
     private func discardBufferedItems() {
         stagingLock.lock()
+        let released = stagedEmissions
         stagedEmissions.removeAll()
         stagingLock.unlock()
+        withExtendedLifetime(released) {}
     }
 
     private func purgeStagedEmissions(for entry: Entry) {
         stagingLock.lock()
+        let released = stagedEmissions
         stagedEmissions.removeAll { $0.0 === entry }
         stagingLock.unlock()
+        withExtendedLifetime(released) {}
     }
 
     private func prepend(

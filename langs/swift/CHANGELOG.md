@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A user object whose `deinit` calls back into the VMx primitive that drops
+  it no longer deadlocks or traps. `MessageHub` releases delivered and dropped
+  messages after its gate unlocks (drain and `dispose()`, HUB-010/HUB-012).
+  `propertyChanged` subscription cancellation releases the subscriber after the
+  subject's lock. `TokenPagedComposition` releases replaced items and tokens
+  after its state queue in `refresh()` and `loadMore()` (COL-065).
+  `AggregateChangeStream` releases discarded staged emissions after its staging
+  lock. Before, a message whose `deinit` sent on the hub, a subscriber whose
+  `deinit` subscribed again, or an item or token whose `deinit` read the
+  composition re-entered a non-recursive lock on the same thread.
+
 - A VM wrapped by a parented `ForwardingComponentVM` or
   `ForwardingCompositeVM` now selects through the decorator's parent:
   `canSelect()`, `select()`, `canDeselect()`, `deselect()`, and the select and

@@ -279,6 +279,9 @@ public final class MessageHub: TransactionalMessageHubProtocol {
                 gate.wait()
             }
             if disposed || pendingHead >= pending.count {
+                // Queued messages are released after `gate` unlocks: a
+                // message's deinit may send on this hub (non-recursive gate).
+                let released = pending
                 pending.removeAll(keepingCapacity: true)
                 pendingHead = 0
                 drainerThread = nil
@@ -288,18 +291,21 @@ public final class MessageHub: TransactionalMessageHubProtocol {
                 }
                 gate.broadcast()
                 gate.unlock()
+                withExtendedLifetime(released) {}
                 if shouldComplete {
                     completeSubject()
                 }
                 return
             }
-            let message = pending[pendingHead]
+            var message: (any Message)? = pending[pendingHead]
             pendingHead += 1
             gate.unlock()
 #if DEBUG
-            messageTypes.insert(String(describing: type(of: message)))
+            messageTypes.insert(String(describing: type(of: message!)))
 #endif
-            subject.send(message)
+            subject.send(message!)
+            // Drop the delivered message before re-taking `gate`.
+            message = nil
 #if DEBUG
             delivered += 1
             gate.lock()
@@ -307,11 +313,13 @@ public final class MessageHub: TransactionalMessageHubProtocol {
                 for queuedMessage in pending[pendingHead...] {
                     messageTypes.insert(String(describing: type(of: queuedMessage)))
                 }
+                let released = pending
                 pending.removeAll(keepingCapacity: true)
                 pendingHead = 0
                 drainerThread = nil
                 gate.broadcast()
                 gate.unlock()
+                withExtendedLifetime(released) {}
                 let diagnostic = MessageHubOverflowError(
                     limit: Self.developmentDrainLimit,
                     messageTypes: messageTypes.sorted()
@@ -355,11 +363,13 @@ public final class MessageHub: TransactionalMessageHubProtocol {
                 // caller. Mark the hub disposed and let that owner claim
                 // completion when it releases its batch/drain boundary.
                 disposed = true
+                let released = pending
                 pending.removeAll(keepingCapacity: false)
                 pendingHead = 0
                 completionRequested = true
                 gate.broadcast()
                 gate.unlock()
+                withExtendedLifetime(released) {}
                 return
             }
             onWaitRegisteredForTesting?()
@@ -371,6 +381,8 @@ public final class MessageHub: TransactionalMessageHubProtocol {
             return
         }
         disposed = true
+        // Dropped messages are released after `gate` unlocks (see drain()).
+        let released = pending
         pending.removeAll(keepingCapacity: false)
         pendingHead = 0
         if drainerThread == nil && batchOwnerThread == nil && borrowedBatchDepth == 0 {
@@ -381,6 +393,7 @@ public final class MessageHub: TransactionalMessageHubProtocol {
         }
         gate.broadcast()
         gate.unlock()
+        withExtendedLifetime(released) {}
 
         if shouldComplete {
             completeSubject()

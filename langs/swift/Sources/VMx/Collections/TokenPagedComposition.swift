@@ -76,14 +76,18 @@ public final class TokenPagedComposition<TVM, TToken> {
         }
         guard isCurrent else { return }
         try constructIfNeeded(page.0, generation: start.generation)
-        let committed = stateQueue.sync { () -> Bool in
-            guard !disposed, start.generation == operationGeneration else { return false }
+        // Replaced user values are released after the state queue returns: a
+        // deinit that reads this composition must not re-enter `stateQueue`.
+        let commit = stateQueue.sync { () -> (committed: Bool, released: TToken?) in
+            guard !disposed, start.generation == operationGeneration else { return (false, nil) }
             _items.append(contentsOf: page.0)
+            let released = _currentToken
             _currentToken = page.1
             loadedOnce = true
-            return true
+            return (true, released)
         }
-        guard committed else { return }
+        withExtendedLifetime(commit.released) {}
+        guard commit.committed else { return }
         notifyResetIfLive()
     }
 
@@ -110,18 +114,25 @@ public final class TokenPagedComposition<TVM, TToken> {
         if !retain {
             try constructIfNeeded(page.0, generation: generation)
         }
-        let committed = stateQueue.sync { () -> Bool in
-            guard !disposed, generation == operationGeneration else { return false }
+        // Replaced items and token are released after the state queue returns:
+        // a deinit that reads this composition must not re-enter `stateQueue`.
+        let commit = stateQueue.sync { () -> (committed: Bool, items: [TVM], token: TToken?) in
+            guard !disposed, generation == operationGeneration else { return (false, [], nil) }
+            var releasedItems: [TVM] = []
+            var releasedToken: TToken?
             if !retain {
+                releasedItems = _items
                 _items = page.0
             }
             if !retain || sameLength {
+                releasedToken = _currentToken
                 _currentToken = page.1
             }
             loadedOnce = true
-            return true
+            return (true, releasedItems, releasedToken)
         }
-        guard committed else { return }
+        withExtendedLifetime(commit) {}
+        guard commit.committed else { return }
         if retain {
             notifyPropertiesIfLive()
         } else {
