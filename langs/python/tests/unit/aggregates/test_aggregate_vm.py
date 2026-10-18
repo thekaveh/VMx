@@ -273,6 +273,25 @@ class TestAggregateVM1BuilderValidation:
 
 
 class TestAggregateVM2:
+    def test_factory_returning_none_is_rejected_before_any_slot_commits(self) -> None:
+        # spec/08 §2: an empty slot is invalid.
+        hub = _make_hub()
+        dispatcher = _make_dispatcher()
+        child = _make_child(hub, dispatcher, "c1")
+        agg = (
+            AggregateVM2Builder()
+            .name("agg2")
+            .services(hub, dispatcher)
+            .component_1(lambda: child)
+            .component_2(lambda: None)  # type: ignore[arg-type,return-value]
+            .build()
+        )
+        with pytest.raises(ValueError, match="returned None"):
+            agg.construct()
+        assert agg.status is ConstructionStatus.DESTRUCTED
+        assert agg.component_1 is None
+        assert child.status is ConstructionStatus.DESTRUCTED
+
     def test_component_1_and_2_populated_after_construct(self) -> None:
         hub = _make_hub()
         dispatcher = _make_dispatcher()

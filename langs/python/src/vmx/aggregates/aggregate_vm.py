@@ -94,6 +94,10 @@ class _AggregateVMBase(_ComponentVMBase):
     def _validate_new_slots(self, slots: tuple[ComponentVMProto, ...]) -> None:
         identities: set[int] = set()
         for child in slots:
+            if child is None:
+                # An empty slot is invalid (spec/08 §2); reject it before any
+                # slot is committed, as the other flavors' builders do.
+                raise ValueError("aggregate factory returned None")
             identity = child._ownership_identity if isinstance(child, _ComponentVMBase) else child
             if id(identity) in identities:
                 raise ValueError(

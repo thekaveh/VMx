@@ -23,6 +23,9 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ### Fixed
 
+- An aggregate slot factory that returns `None` makes `construct()` raise
+  `ValueError` before any slot is committed. Before, the aggregate constructed
+  with an empty slot, which spec/08 §2 calls invalid.
 - `AsyncRelayCommand.execute()` admits the run before it returns, so
   `is_executing` is `True` at once, the execution-started `can_execute_changed`
   fires at once, and a following `cancel()` cancels the run. The predicate now
