@@ -67,10 +67,10 @@ project adheres to [Semantic Versioning](https://semver.org/).
   alone. The construct walk, including the one `reconstruct` runs, joins
   without restarting it a member that is already Constructing, for example one
   added by the container's construct hook. It also joins each member added
-  during the walk. The container stays
-  Constructing until that child settles. If the child fails, the container
-  rolls back once and reports the failure. A child added after the walk ends
-  is constructed but not awaited. Nothing changes with auto-construct off.
+  during the walk. The container stays Constructing until that child settles.
+  If a child added during the walk fails, the container rolls back once and
+  reports the failure. A child added after the walk ends is constructed but
+  not awaited. Nothing changes with auto-construct off.
 - Disposing a `MessageHub` subscription, dropping it, or disposing the hub no
   longer deadlocks when a subscriber's handler owns the last reference to
   another subscription on the same hub. Removed handlers, completions, and

@@ -280,11 +280,13 @@ the composite reaches `Constructed`, completing the child's transition to
 `false` for backwards compatibility.
 
 With `AutoConstructOnAdd(true)`, a child added while the composite is still
-`Constructing` is also started, and the composite's construct walk joins it:
-the composite reaches `Constructed` only after that child does (chapter 02 §6).
-A late child is never restarted. If its construction fails during the add, the
-add fails and is undone. If it fails later, while the walk waits on it, the
-composite rolls back.
+`Constructing` is also started, and the composite reaches `Constructed` only
+after that child does (chapter 02 §6). If its construction fails during the
+add, the add fails and is undone. A child added before the construct walk
+takes its membership snapshot (for example by the construct hook) is walked
+like any other member. A child added after the snapshot is a late child: the
+walk joins it and never restarts it, and if it fails while the walk waits on
+it, the composite rolls back.
 
 ## 6. Modeled variant `CompositeVM<M, VM>`
 
