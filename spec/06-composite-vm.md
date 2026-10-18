@@ -359,8 +359,8 @@ helper, which implements `ISearchable` from chapter 14 (designed in ADR-0014):
 
 ```
 SearchableState<TItem>:
-    SearchTerm : string                          # read/write
-    SearchTermChanged : Observable<string>        # debounced (default 1s, configurable)
+    SearchTerm : string                          # read/write; debounced
+                                                 # (default 1s, configurable)
     Predicate : (TItem, string) -> bool           # user-supplied
     Items : Iterable<TItem>                       # current source set
     SourceChanged : Observable<void>?             # optional invalidation signal
@@ -373,9 +373,10 @@ SearchableState<TItem>:
 
 Behavior:
 
-- Setting `SearchTerm` to a new value triggers a debounced emission on
-  `SearchTermChanged`. The default debounce is **1 second**; consumers may
-  override via builder/constructor.
+- Setting `SearchTerm` to a new value starts an internal debounce. The default
+  debounce is **1 second**; consumers may override via builder/constructor. No
+  flavor exposes the debounced term as a public stream; consumers observe
+  `Filtered`.
 - After the debounce, the helper recomputes `Filtered` by applying
   `Predicate(item, search_term)` to each item in `Items` and emitting the
   list of matches.
@@ -388,8 +389,7 @@ Behavior:
   re-reads `Items`, applies the current `SearchTerm`, and emits one filtered
   snapshot. The signal payload is ignored.
 
-Open Rust gap: Rust's `SearchableState` has no `SearchTermChanged` stream and no
-debounce. `set_search_term` and each explicit `search()` send one synchronous
+Open Rust gap: Rust's `SearchableState` has no debounce. `set_search_term` and each explicit `search()` send one synchronous
 `Custom("filtered")` notification on the `filtered_changed()` hub, and consumers
 pull the result with `filtered()`. ADR-0099 §2.7 records this facade mapping.
 

@@ -157,7 +157,10 @@ and the Python tree helpers use the public `ComponentVMProto` (chapter 13).
   private `_ComponentVMBase`; chapter 10 says the Rust builders default `Hint` to
   `Some("")` and records the `ModeledCompositeVm` hint and identity gap;
   chapter 16 §8.1 states Rust's `NotificationVm`
-  construction.
+  construction; chapter 06 §8 drops `SearchTermChanged` from the
+  `SearchableState` shape, because no flavor exposes the debounced term as a
+  public stream (the debounce is internal and consumers observe `Filtered`);
+  chapter 13 records that Rust `walk` does not descend into a `CompositeVm`.
 - The Rust gaps stay open. Each is recorded, not closed; closing one changes the
   public Rust surface and needs its own decision and change.
 - The chapter 16 §8.1 recipe stays a composition pattern, not a new primitive.

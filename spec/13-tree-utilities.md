@@ -118,6 +118,9 @@ When applied to a `HierarchicalVM<TModel, TVM>` instance:
 Open Rust gap: the `TreeNode` implementation for `HierarchicalVm` keeps the
 default `expandable()`, which returns `None`. `walk_expanded` therefore treats
 every Rust hierarchical node as expanded and never stops at a collapsed node.
+Rust `TreeNode::children_nodes` returns `Vec<Self>`, so a node can only list
+children of its own type. `CompositeVm` implements `TreeNode` with no children,
+and `walk` over a Rust composite visits only the composite itself.
 
 See [chapter 18](18-hierarchical-vm.md) for HierarchicalVM details.
 

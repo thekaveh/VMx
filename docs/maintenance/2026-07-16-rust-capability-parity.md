@@ -361,3 +361,11 @@ Rust `PagedComposition` raises no property notifications. C#, Python,
 TypeScript, and Swift publish `CurrentPageIndex`, `Items`, `PageCount`, and the
 other paging properties on every change. Rust consumers read the state after
 each call.
+
+## 12.12. Open Item: FilteredCompositeVm Initial Cursor Policy
+
+Rust `FilteredCompositeVm::new` always reconciles under `SnapToFirst`. A caller
+sets `Clear` or `PreserveIfVisible` with `set_cursor_policy` after construction,
+and that call does not reconcile again. C#, Python, TypeScript, and Swift take
+the policy at construction, so a `Clear` or `PreserveIfVisible` view starts
+with no current item; the same Rust view starts on the first visible item.
