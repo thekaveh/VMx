@@ -23,6 +23,9 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ### Fixed
 
+- `walk`, `walk_expanded`, and `find` accept and return the public
+  `ComponentVMProto` instead of the private `_ComponentVMBase`, so a caller
+  typed against the public protocol passes `mypy --strict` (spec/13 §4).
 - `CompositeVM.create()` and `GroupVM.create()` without `children` raise
   `BuilderValidationError`, as `build()` does, instead of a `TypeError`
   (BLD-006, ADR-0055).

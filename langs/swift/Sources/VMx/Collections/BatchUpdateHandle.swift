@@ -35,6 +35,8 @@ public final class BatchUpdateHandle {
 
     /// Creates a handle that runs `endBatch` once, on the first `dispose()` or
     /// on deallocation. A custom `VMCollection` returns one from `batchUpdate()`.
+    /// The handle holds `endBatch` strongly, so capture the collection weakly
+    /// (`[weak self]`) when the collection also keeps the handle.
     public init(endBatch: @escaping () -> Void) {
         self.endBatch = endBatch
     }

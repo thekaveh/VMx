@@ -242,6 +242,7 @@ export class NoteFormVM extends ComponentVMBase {
     if (this.#tagDraft === value) return;
     this.#tagDraft = value;
     this._notifyPropertyChanged("tagDraft");
+    this.#addTagCommand.raiseCanExecuteChanged();
     this.#tagSearch.searchTerm = value;
     this.#tagSearch.search();
   }
@@ -431,6 +432,12 @@ export class NoteFormVM extends ComponentVMBase {
     ]) {
       this._notifyPropertyChanged(name);
     }
+    // These predicates read the draft and the bound note, so a command-only
+    // binding (such as the Mod+S hotkey) needs canExecuteChanged to see the
+    // new state, as the triggers do in the other flavors.
+    this.#approveCommand.raiseCanExecuteChanged();
+    this.#addTagCommand.raiseCanExecuteChanged();
+    this.#removeTagCommand.raiseCanExecuteChanged();
   }
 
   #emitTagSuggestionChanges(): void {

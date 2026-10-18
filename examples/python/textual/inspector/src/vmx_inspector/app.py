@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, ClassVar, cast
+from typing import ClassVar
 
 from reactivex.abc import DisposableBase
 from textual.app import App, ComposeResult
@@ -25,9 +25,7 @@ from vmx_inspector.tree_view import populate_tree, refresh_node_label
 def _build_parent_map(root: ComponentVMProto) -> dict[int, str]:
     """Return ``{id(child): parent.name}`` for every node reachable from *root*."""
     result: dict[int, str] = {}
-    # walk() expects the internal _ComponentVMBase; the inspector deliberately
-    # operates against the public ComponentVMProto, so cast at the boundary.
-    for node in walk(cast(Any, root)):
+    for node in walk(root):
         if hasattr(node, "__iter__"):
             try:
                 for child in node:

@@ -130,6 +130,21 @@ describe("NoteFormVM", () => {
     expect(vm.isDirty).toBe(true);
   });
 
+  it("approveCommand raises canExecuteChanged when an edit makes it executable", () => {
+    const { vm } = makeForm();
+    vm.bindTo(aNote());
+    let raised = 0;
+    const sub = vm.approveCommand.canExecuteChanged.subscribe(() => {
+      raised += 1;
+    });
+
+    vm.draft = { ...vm.draft, title: "Updated" };
+
+    expect(raised).toBeGreaterThan(0);
+    expect(vm.approveCommand.canExecute()).toBe(true);
+    sub.unsubscribe();
+  });
+
   it("approve persists, clears isDirty, and re-snapshots", async () => {
     const { vm, repo } = makeForm();
     vm.bindTo(aNote({ title: "Original" }));
