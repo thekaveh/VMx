@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `BatchUpdateHandle` has a public `init(endBatch:)`, so a `VMCollection`
+  implemented outside the module can return one from `batchUpdate()`, as the
+  public protocol requires (spec/01 §1.4).
 - Code outside the module can now create an `ObservableList` (`public init()`),
   call `dismiss()` and `resolveWith(_:)` on a `NotificationVM` (they are
   `public`, because Swift has no `protected`; C# and TypeScript keep them
