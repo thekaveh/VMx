@@ -986,8 +986,9 @@ public class CompositeVMConformanceTests
     /// </summary>
     [Fact(Skip = "Library defect: CompositeVMBase.Dispose cascades children before " +
                  "publishing Disposed or waiting for the admitted construct hook " +
-                 "(src/VMx/Composites/CompositeVMBase.cs:864-884); children are cleaned " +
-                 "while the hook runs and post-hook child construction still proceeds.")]
+                 "(src/VMx/Composites/CompositeVMBase.cs:864-884), so children are cleaned " +
+                 "while the hook runs: the log is hook-enter, cleanup:first, " +
+                 "cleanup:second, hook-exit instead of cleanup after hook-exit.")]
     [Trait("Conformance", "LIFE-015")]
     public async Task LIFE_015_Child_Cascade_Waits_For_Admitted_Container_Hook()
     {

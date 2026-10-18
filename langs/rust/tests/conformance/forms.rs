@@ -266,6 +266,31 @@ fn builder_defaults_are_applied() {
 
     assert_eq!(form.snapshot(), 1);
     assert!(form.approve_command().can_execute());
+
+    // The default hub is the null hub (`NullMessageHub::hub()`): an
+    // already-disposed, inert hub. Subscribing completes immediately and no
+    // message, the form's own or a direct send, ever reaches a handler.
+    let hub = form.hub();
+    let completed = Arc::new(AtomicBool::new(false));
+    let received = Arc::new(AtomicUsize::new(0));
+    let (completed_flag, received_count) = (completed.clone(), received.clone());
+    let _subscription = hub.subscribe_with_completion(
+        move |_| {
+            received_count.fetch_add(1, Ordering::SeqCst);
+        },
+        move || completed_flag.store(true, Ordering::SeqCst),
+    );
+    assert!(
+        completed.load(Ordering::SeqCst),
+        "the default hub is already disposed"
+    );
+    form.set_model(2);
+    hub.send(Message::Custom {
+        sender_id: 0,
+        sender_name: "probe".to_string(),
+        name: "probe".to_string(),
+    });
+    assert_eq!(received.load(Ordering::SeqCst), 0);
 }
 
 /// FORM-014 — Disposed form is inert

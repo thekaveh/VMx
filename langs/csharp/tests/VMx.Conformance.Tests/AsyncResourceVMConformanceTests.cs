@@ -558,15 +558,19 @@ public sealed class AsyncResourceVMConformanceTests
     public async Task ARES_008_Latest_Start_Wins()
     {
         using var hub = new MessageHub();
-        var first = NewSource<int>();
+        // `first` runs continuations synchronously, so the library's late-result
+        // continuation (ExecuteSynchronously) has finished by the time both
+        // `first.SetResult` and `await older` return: no race with the count.
+        var first = new TaskCompletionSource<int>();
         var second = NewSource<int>();
         var tokens = new List<CancellationToken>();
+        var cleaned = new List<int>();
         var attempt = 0;
         var vm = Create(hub, token =>
         {
             tokens.Add(token);
             return ++attempt == 1 ? first.Task : second.Task;
-        });
+        }, cleanup: cleaned.Add);
 
         var notifications = new List<string>();
         vm.PropertyChanged += (_, e) => notifications.Add($"property:{e.PropertyName}");
@@ -582,6 +586,7 @@ public sealed class AsyncResourceVMConformanceTests
         var beforeOlderSettles = notifications.Count;
         first.SetResult(1);
         await older;
+        cleaned.Should().Equal([1], "the late continuation has run and cleaned the stale value");
         notifications.Should().HaveCount(beforeOlderSettles,
             "the older completion causes no state or command notification");
         vm.State.Status.Should().Be(AsyncResourceStatus.Loading);

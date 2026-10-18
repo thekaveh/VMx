@@ -161,16 +161,22 @@ public sealed class AggregateChangeStreamConformanceTests
     {
         var first = new TestItem("first");
         var second = new TestItem("second");
-        var source = new ServicedObservableCollection<TestItem> { first, second };
+        // `live` is never terminal, so its zero-refcount removal is the only
+        // thing that can detach it: a deferred detach is observable.
+        var live = new TestItem("live");
+        var source = new ServicedObservableCollection<TestItem> { first, second, live };
         using var aggregate = CreateAggregate(source);
         var observed = new List<AggregateChange<TestItem>>();
         // Record (outside the aggregate's delivery path) the detach count seen
-        // at each Membership delivery while `first` is absent from the source.
+        // at each Membership delivery while a member is absent from the source.
         var disposeCountsAtMembership = new List<int>();
+        var liveDisposeCountsAtMembership = new List<int>();
         using var subscription = aggregate.Observe().Subscribe(change =>
         {
             if (change.Reason == AggregateChangeReason.Membership && !source.Contains(first))
                 disposeCountsAtMembership.Add(first.Changes.DisposeCount);
+            if (change.Reason == AggregateChangeReason.Membership && !source.Contains(live))
+                liveDisposeCountsAtMembership.Add(live.Changes.DisposeCount);
             observed.Add(change);
         });
 
@@ -181,17 +187,17 @@ public sealed class AggregateChangeStreamConformanceTests
         Assert.Empty(observed);
 
         source.Move(0, 1);
-        source.ReplaceAll(new[] { second, first });
+        source.ReplaceAll(new[] { second, first, live });
         source.Add(first);
         Assert.Equal(1, first.Changes.SubscribeCount);
         Assert.Equal(1, second.Changes.SubscribeCount);
+        Assert.Equal(1, live.Changes.SubscribeCount);
 
         source.Remove(first);
         Assert.Equal(1, first.Changes.DisposeCount);
         Assert.Empty(disposeCountsAtMembership);
         source.Remove(first);
         Assert.Equal(1, first.Changes.DisposeCount);
-        // The zero-refcount detach happened before that Membership was delivered.
         Assert.Equal([1], disposeCountsAtMembership);
         Assert.Equal(AggregateChangeReason.Membership, observed.Last().Reason);
         first.Changes.EmitStale();
@@ -199,6 +205,16 @@ public sealed class AggregateChangeStreamConformanceTests
         Assert.Equal(2, first.Changes.SubscribeCount);
         first.Changes.Emit();
         Assert.Same(first, observed.Last().Item);
+
+        // A live (non-terminal) member's zero-refcount removal detaches it
+        // before that Membership is delivered.
+        Assert.Equal(0, live.Changes.DisposeCount);
+        source.Remove(live);
+        Assert.Equal([1], liveDisposeCountsAtMembership);
+        Assert.Equal(1, live.Changes.DisposeCount);
+        Assert.Equal(AggregateChangeReason.Membership, observed.Last().Reason);
+        live.Changes.EmitStale();
+        Assert.Equal(AggregateChangeReason.Membership, observed.Last().Reason);
     }
 
     [Fact, Trait("Conformance", "AGCH-004")]
