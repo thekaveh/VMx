@@ -182,6 +182,8 @@ export abstract class ComponentVMBase {
 
   #status: ConstructionStatus = ConstructionStatus.Destructed;
   #inFlight = false;
+  /** Waiting-parent continuations that run once the in-flight guard is released. */
+  #afterRelease: Array<() => void> = [];
   #isCurrent = false;
   /** @internal Set by CompositeVMBase / GroupVM to wire parent-child selection delegation. */
   #parent: IOwningParentVM | null = null;
@@ -422,7 +424,7 @@ export abstract class ComponentVMBase {
         this._setStatus(ConstructionStatus.Constructing);
       } catch (error) {
         this.#restoreStatusAfterPublicationFailure(ConstructionStatus.Destructed);
-        this.#inFlight = false;
+        this.#releaseInFlight();
         throw error;
       }
       this.#dispatcher.background.schedule(() => {
@@ -430,7 +432,7 @@ export abstract class ComponentVMBase {
         // terminal (spec/02 invariant 3), so skip the work and the marshalled
         // emission.
         if (this.#status === ConstructionStatus.Disposed) {
-          this.#inFlight = false;
+          this.#releaseInFlight();
           return;
         }
         let deferred: DeferredLifecycle | null;
@@ -448,7 +450,7 @@ export abstract class ComponentVMBase {
             try {
               this._setStatus(ConstructionStatus.Destructed);
             } finally {
-              this.#inFlight = false;
+              this.#releaseInFlight();
             }
           });
           throw e;
@@ -493,7 +495,7 @@ export abstract class ComponentVMBase {
           false,
         );
       } finally {
-        if (!pending) this.#inFlight = false;
+        if (!pending) this.#releaseInFlight();
       }
     }
   }
@@ -513,7 +515,7 @@ export abstract class ComponentVMBase {
         this._setStatus(ConstructionStatus.Destructing);
       } catch (error) {
         this.#restoreStatusAfterPublicationFailure(ConstructionStatus.Constructed);
-        this.#inFlight = false;
+        this.#releaseInFlight();
         throw error;
       }
       this.#dispatcher.background.schedule(() => {
@@ -521,7 +523,7 @@ export abstract class ComponentVMBase {
         // terminal (spec/02 invariant 3), so skip the work and the marshalled
         // emission.
         if (this.#status === ConstructionStatus.Disposed) {
-          this.#inFlight = false;
+          this.#releaseInFlight();
           return;
         }
         let deferred: DeferredLifecycle | null;
@@ -537,7 +539,7 @@ export abstract class ComponentVMBase {
             try {
               this._setStatus(ConstructionStatus.Constructed);
             } finally {
-              this.#inFlight = false;
+              this.#releaseInFlight();
             }
           });
           throw e;
@@ -581,7 +583,7 @@ export abstract class ComponentVMBase {
           false,
         );
       } finally {
-        if (!pending) this.#inFlight = false;
+        if (!pending) this.#releaseInFlight();
       }
     }
   }
@@ -621,7 +623,7 @@ export abstract class ComponentVMBase {
             try {
               this._setStatus(ConstructionStatus.Constructed);
             } finally {
-              this.#inFlight = false;
+              this.#releaseInFlight();
             }
             if (rethrow) throw error;
             return;
@@ -630,14 +632,14 @@ export abstract class ComponentVMBase {
           try {
             stillPending = this.#reconstructConstructPhase();
           } finally {
-            if (!stillPending) this.#inFlight = false;
+            if (!stillPending) this.#releaseInFlight();
           }
         });
         return;
       }
       pending = this.#reconstructConstructPhase();
     } finally {
-      if (!pending) this.#inFlight = false;
+      if (!pending) this.#releaseInFlight();
     }
   }
 
@@ -687,12 +689,17 @@ export abstract class ComponentVMBase {
     rollback: ConstructionStatus,
     foreground: boolean,
   ): boolean {
-    // The status is settled before it is published, so the in-flight guard is
-    // released first: a parent waiting on this VM continues from inside this
-    // emission and may legally start this VM's next transition (reconstruct).
+    // Publish, then release the in-flight guard (as the synchronous path and
+    // the C#/Python flavors do), so an observer of the terminal status cannot
+    // start a reentrant transition. A parent waiting on this VM continues only
+    // after the release (see #runWhenReleased), so it may legally start this
+    // VM's next transition (reconstruct).
     const finish = (status: ConstructionStatus): void => {
-      this.#inFlight = false;
-      this._setStatus(status);
+      try {
+        this._setStatus(status);
+      } finally {
+        this.#releaseInFlight();
+      }
     };
     if (deferred === null) {
       if (foreground) this._scheduleForeground(() => { finish(success); });
@@ -706,6 +713,48 @@ export abstract class ComponentVMBase {
       if (failed && rethrow) throw error;
     });
     return true;
+  }
+
+  /**
+   * Clear the in-flight guard, then run the continuations of parents that
+   * observed this VM settle during the transition that just ended. A
+   * continuation failure is rethrown after every continuation has run, so it
+   * surfaces from the work that published this VM's terminal status — for a
+   * background VM, the dispatcher's scheduled work, as a throwing background
+   * hook does (VMX-049) — instead of from inside a propertyChanged subscriber,
+   * where rxjs would report it as an unhandled error.
+   */
+  #releaseInFlight(): void {
+    this.#inFlight = false;
+    if (this.#afterRelease.length === 0) return;
+    const continuations = this.#afterRelease;
+    this.#afterRelease = [];
+    let failed = false;
+    let failure: unknown;
+    for (const continuation of continuations) {
+      try {
+        continuation();
+      } catch (error) {
+        if (!failed) {
+          failed = true;
+          failure = error;
+        }
+      }
+    }
+    if (failed) throw failure;
+  }
+
+  /**
+   * Run `continuation` once this VM is no longer in flight: immediately when it
+   * is idle or Disposed, otherwise right after its current transition releases
+   * the guard.
+   */
+  #runWhenReleased(continuation: () => void): void {
+    if (this.#inFlight && this.#status !== ConstructionStatus.Disposed) {
+      this.#afterRelease.push(continuation);
+    } else {
+      continuation();
+    }
   }
 
   /** Run a lifecycle hook and return its deferred completion, if it registered one. */
@@ -779,12 +828,12 @@ export abstract class ComponentVMBase {
         this.#deferredLifecycle = deferred;
       }
       let done = false;
+      let cancelled = false;
       let subscription: Subscription | undefined;
       const stopWaiting = (): boolean => {
         if (done) return false;
         done = true;
         subscription?.unsubscribe();
-        this.#cancelChildWait = null;
         return true;
       };
       subscription = child.propertyChanged.subscribe({
@@ -792,24 +841,32 @@ export abstract class ComponentVMBase {
           // "isConstructed" is the last per-status notification _setStatus raises.
           if (name !== "isConstructed" || child.status === transient) return;
           if (!stopWaiting()) return;
-          if (child.status !== target) {
-            // The child rolled back (and surfaced its own failure) or was disposed.
-            settle({
-              failed: true,
-              error: new Error(`Child '${child.name}' did not reach ${targetName}`),
-              rethrow: false,
-            });
-            return;
-          }
-          index += 1;
-          let stillPending: boolean;
-          try {
-            stillPending = advance();
-          } catch (error) {
-            settle({ failed: true, error, rethrow: true });
-            return;
-          }
-          if (!stillPending) settle({ failed: false, error: undefined, rethrow: false });
+          const settled = child.status;
+          // Continue only after the child finished publishing and released its
+          // in-flight guard, so this VM may start the child's next transition
+          // and a failure here does not escape from the child's subscriber.
+          child._ownershipIdentity.#runWhenReleased(() => {
+            // This VM was disposed (or abandoned the wait) in the meantime.
+            if (cancelled) return;
+            if (settled !== target) {
+              // The child rolled back (and surfaced its own failure) or was disposed.
+              settle({
+                failed: true,
+                error: new Error(`Child '${child.name}' did not reach ${targetName}`),
+                rethrow: false,
+              });
+              return;
+            }
+            index += 1;
+            let stillPending: boolean;
+            try {
+              stillPending = advance();
+            } catch (error) {
+              settle({ failed: true, error, rethrow: true });
+              return;
+            }
+            if (!stillPending) settle({ failed: false, error: undefined, rethrow: false });
+          });
         },
         complete: () => {
           if (!stopWaiting()) return;
@@ -821,7 +878,10 @@ export abstract class ComponentVMBase {
         },
       });
       // propertyChanged does not replay, so no settle can have arrived yet.
-      this.#cancelChildWait = () => { stopWaiting(); };
+      this.#cancelChildWait = () => {
+        cancelled = true;
+        stopWaiting();
+      };
     };
 
     // Returns true when a child is pending and the rest continues on its settle.

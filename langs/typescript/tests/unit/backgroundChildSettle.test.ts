@@ -12,9 +12,11 @@ import {
   ComponentVMBase,
   CompositeVM,
   ConstructionStatus as S,
+  ConstructionStatusChangedMessage,
   GroupVM,
   MessageHub,
   RxDispatcher,
+  StatusTransitionError,
 } from "../../src/index.js";
 
 class DeferredScheduler {
@@ -239,5 +241,118 @@ describe("nested containers – background grandchild settle", () => {
     expect(s.vm("leaf").status).toBe(S.Constructed);
     expect(group.status).toBe(S.Constructed);
     expect(root.status).toBe(S.Constructed);
+  });
+});
+
+describe("background VM – terminal publication holds the in-flight guard", () => {
+  it.each([false, true])(
+    "background=%s: a reentrant destruct from a Constructed observer is rejected",
+    (background) => {
+      const s = setup();
+      const vm = ComponentVM.builder()
+        .name("vm")
+        .services(s.hub, s.dispatcher)
+        .background(background)
+        .build();
+      const seen: string[] = [];
+      vm.propertyChanged.subscribe((name) => {
+        if (name === "status" || name === "isConstructed") {
+          seen.push(`${name}:${String(vm.status)}`);
+        }
+      });
+      let reentrant: unknown = null;
+      s.hub.messages.subscribe((m) => {
+        if (
+          m instanceof ConstructionStatusChangedMessage &&
+          m.sender === vm &&
+          m.status === S.Constructed &&
+          reentrant === null
+        ) {
+          try {
+            vm.destruct();
+            reentrant = "accepted";
+          } catch (error) {
+            reentrant = error;
+          }
+        }
+      });
+
+      vm.construct();
+      s.bg.runAll();
+
+      expect(reentrant).toBeInstanceOf(StatusTransitionError);
+      expect(vm.status).toBe(S.Constructed);
+      expect(seen).toEqual([
+        `status:${String(S.Constructing)}`,
+        `isConstructed:${String(S.Constructing)}`,
+        `status:${String(S.Constructed)}`,
+        `isConstructed:${String(S.Constructed)}`,
+      ]);
+    },
+  );
+});
+
+describe("deferred container continuation failures", () => {
+  it("a throwing composite current selector surfaces from the background work and rolls back", () => {
+    // No allowRxUnhandledErrors(): tests/setup.ts fails the test if the error
+    // escapes through rxjs reportUnhandledError (a throwing subscriber).
+    const s = setup();
+    const child = s.child("child")();
+    const composite = CompositeVM.builder<ComponentVM>()
+      .name("root")
+      .services(s.hub, s.dispatcher)
+      .children(() => [child])
+      .current(() => {
+        throw new Error("selector boom");
+      })
+      .build();
+
+    composite.construct();
+    expect(composite.status).toBe(S.Constructing);
+    expect(() => s.bg.runAll()).toThrow("selector boom");
+
+    expect(child.status).toBe(S.Constructed);
+    expect(composite.status).toBe(S.Destructed);
+    expect(composite.canConstruct()).toBe(true);
+  });
+
+  it("a sync sibling whose construct throws after a background child surfaces from the background work", () => {
+    const s = setup();
+    const aggregate = AggregateVM2.builder<ComponentVM, ComponentVM>()
+      .name("agg")
+      .services(s.hub, s.dispatcher)
+      .component1(s.child("a"))
+      .component2(() =>
+        ComponentVM.builder()
+          .name("b")
+          .services(s.hub, s.dispatcher)
+          .onConstruct(() => {
+            throw new Error("b failed");
+          })
+          .build(),
+      )
+      .build();
+
+    aggregate.construct();
+    expect(aggregate.status).toBe(S.Constructing);
+    expect(() => s.bg.runAll()).toThrow("b failed");
+
+    expect(aggregate.component2?.status).toBe(S.Destructed);
+    expect(aggregate.status).toBe(S.Destructed);
+  });
+
+  it("an all-synchronous container still throws from construct()", () => {
+    const s = setup();
+    const composite = CompositeVM.builder<ComponentVM>()
+      .name("root")
+      .services(s.hub, s.dispatcher)
+      .children(() => [ComponentVM.builder().name("c").services(s.hub, s.dispatcher).build()])
+      .current(() => {
+        throw new Error("selector boom");
+      })
+      .build();
+
+    expect(() => composite.construct()).toThrow("selector boom");
+    expect(composite.status).toBe(S.Destructed);
   });
 });

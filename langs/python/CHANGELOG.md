@@ -38,10 +38,11 @@ All notable changes to the Python flavor are documented here. The format is base
   `supports_child_selection`. A forwarder can now be the source of an
   `AggregateChangeStream`, as in TypeScript (spec/09 §0/§2, FWD-001).
 - A `bool` index raises `TypeError` instead of being taken as `0`/`1` by the
-  index-taking mutators (`insert`, item assignment, `move`, `remove_at`/`del`,
-  and `replace` where present) of `CompositeVM`, `GroupVM`,
-  `ServicedObservableCollection`, `KeyedServicedObservableCollection`, and
-  `ObservableList`. The rejection happens before any mutation, so `True`/`False`
+  index-taking mutators of `CompositeVM`, `GroupVM`,
+  `ServicedObservableCollection`, and `KeyedServicedObservableCollection`
+  (`insert`, item assignment, `move`, `remove_at`/`del`, and `replace` on the
+  serviced collections) and of `ObservableList` (`insert`, `remove_at`,
+  `replace`). The rejection happens before any mutation, so `True`/`False`
   no longer appears as an index in collection-changed payloads.
 - A slice delete or assignment that selects nothing and inserts nothing on
   `ServicedObservableCollection` or `KeyedServicedObservableCollection` emits

@@ -17,7 +17,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   rolls back or is disposed, the container rolls back too. The composite's
   initial-current selector and the composite and group `onDestruct` callbacks
   run after the children settle. Children that settle synchronously still
-  complete the whole transition synchronously.
+  complete the whole transition synchronously. A waiting container continues
+  only after the child has published its terminal status and released its
+  in-flight guard. So a background VM, like a synchronous one, rejects a
+  reentrant transition from an observer of its terminal status with
+  `StatusTransitionError`. When the container's deferred continuation fails
+  (for example, a throwing composite `current` selector, or a synchronous
+  sibling whose construct throws after a background child), the container
+  rolls back. The error is then thrown from the dispatcher work that settled
+  the child, as for a throwing background hook (VMX-049). It is no longer
+  reported as an rxjs unhandled subscriber error that no caller can catch. A
+  container whose children are all synchronous still throws from
+  `construct()`.
 - `FilteredCompositeVM.setPredicate` restores the previous predicate when the
   new one throws, so later source changes keep using the working predicate.
 - `CompositeVM` and `GroupVM` `insert`/`removeAt`/`setAt` reject a
