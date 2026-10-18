@@ -14,7 +14,7 @@ namespace VMx.Commands;
 /// </summary>
 public sealed class CompositeCommand : ICommand, IDisposable
 {
-    private readonly IReadOnlyList<ICommand> _inner;
+    private readonly ICommand[] _inner;
     private readonly List<EventHandler> _innerHandlers = new();
     private int _disposed;
 
@@ -27,7 +27,17 @@ public sealed class CompositeCommand : ICommand, IDisposable
     /// <summary>Creates a new <see cref="CompositeCommand"/> over the given inner commands.</summary>
     public CompositeCommand(IReadOnlyList<ICommand> inner)
     {
-        _inner = inner ?? throw new ArgumentNullException(nameof(inner));
+#if NET8_0_OR_GREATER
+        ArgumentNullException.ThrowIfNull(inner);
+#else
+        if (inner is null) throw new ArgumentNullException(nameof(inner));
+#endif
+        // Copy, so later changes to the caller's list cannot desynchronise
+        // execution and unsubscription, and validate before subscribing.
+        var commands = inner.ToArray();
+        if (Array.IndexOf(commands, null) >= 0)
+            throw new ArgumentException("Inner commands must not be null.", nameof(inner));
+        _inner = commands;
         foreach (var c in _inner)
         {
             EventHandler handler = (sender, args) => CanExecuteChanged?.Invoke(this, args);
@@ -72,7 +82,7 @@ public sealed class CompositeCommand : ICommand, IDisposable
     public void Dispose()
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
-        for (var i = 0; i < _inner.Count; i++)
+        for (var i = 0; i < _inner.Length; i++)
             _inner[i].CanExecuteChanged -= _innerHandlers[i];
     }
 }

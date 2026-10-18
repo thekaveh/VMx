@@ -229,7 +229,7 @@ export class GroupVM<VM extends ComponentVMBase>
 
   removeAt(index: number): void {
     this.#requireChildAdmission();
-    const item = this._children[index];
+    const item = Number.isInteger(index) ? this._children[index] : undefined;
     if (item === undefined) throw new RangeError(`Index ${String(index)} out of range`);
     this._children.splice(index, 1);
     if (item._parent === this.#groupParent) item._parent = null;
@@ -241,7 +241,7 @@ export class GroupVM<VM extends ComponentVMBase>
   /** Replace the child at *index*. Emits a Remove followed by an Add (per spec). */
   setAt(index: number, value: VM): void {
     this.#beginMembershipTransaction();
-    const old = this._children[index];
+    const old = Number.isInteger(index) ? this._children[index] : undefined;
     if (old === undefined) {
       this.#endMembershipTransaction();
       throw new RangeError(`Index ${String(index)} out of range`);

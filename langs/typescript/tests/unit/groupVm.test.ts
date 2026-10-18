@@ -78,6 +78,9 @@ describe("GroupVM – non-integer insert index", () => {
 
     expect(() => group.insert(0.5, x)).toThrow(RangeError);
     expect(() => group.insert(Number.NaN, x)).toThrow(RangeError);
+    expect(() => group.removeAt("0" as unknown as number)).toThrow(RangeError);
+    expect(() => group.setAt(0.5, x)).toThrow(RangeError);
+    expect(() => group.setAt("0" as unknown as number, x)).toThrow(RangeError);
     expect(group.count).toBe(1);
     group.add(x);
     expect(group.count).toBe(2);

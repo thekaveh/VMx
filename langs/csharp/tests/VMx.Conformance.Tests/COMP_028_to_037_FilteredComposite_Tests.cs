@@ -198,4 +198,19 @@ public class COMP_028_to_037_FilteredCompositeTests
         sut.RefreshScores();
         sut.Visible.Select(vm => vm.Name).Should().Equal("alpha", "bee");
     }
+
+    [Fact]
+    public void A_throwing_predicate_leaves_the_previous_projection_in_place()
+    {
+        var sut = new FilteredCompositeVM<ComponentVM>(Source("alpha", "beta"), _ => true);
+        var beta = sut.Visible[1];
+        sut.SetCurrent(beta);
+
+        var act = () => sut.SetPredicate(_ => throw new InvalidOperationException("boom"));
+
+        act.Should().Throw<InvalidOperationException>();
+        sut.Visible.Select(vm => vm.Name).Should().Equal("alpha", "beta");
+        sut.Current.Should().BeSameAs(beta);
+        sut.Invoking(s => s.SetCurrent(beta)).Should().NotThrow();
+    }
 }
