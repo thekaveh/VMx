@@ -38,6 +38,9 @@ public class DeferredLifecycleHookTests
 
         public static Task Children(IComponentVM child, Action after)
             => TransitionChildrenAsync([child], construct: true, after);
+
+        public static Task Children(IComponentVM first, IComponentVM second, Action after)
+            => TransitionChildrenAsync([first, second], construct: true, after);
     }
 
     private static DeferThenThrowVM FailedAfterDeferring(Func<Task?> deferral)
@@ -100,6 +103,32 @@ public class DeferredLifecycleHookTests
 
         child.Status.Should().Be(ConstructionStatus.Constructed);
         Volatile.Read(ref afterRan).Should().Be(0);
+        vm.Status.Should().Be(ConstructionStatus.Destructed);
+    }
+
+    [Fact]
+    public async Task ThrowingHook_AbandonedChildTransition_DrivesNoFurtherChildren()
+    {
+        var childDispatcher = new TestDispatcher();
+        var first = ComponentVM.Builder()
+            .Name("first")
+            .Services(new TestHub(), childDispatcher)
+            .Background(true)
+            .Build();
+        var second = ComponentVM.Builder()
+            .Name("second")
+            .Services(new TestHub(), NullDispatcher.Instance)
+            .Build();
+        var vm = FailedAfterDeferring(
+            () => DeferThenThrowVM.Children(first, second, () => { }));
+        var abandoned = vm.LastDeferral!;
+
+        childDispatcher.BackgroundScheduler.AdvanceBy(1);
+        childDispatcher.ForegroundScheduler.AdvanceBy(1);
+        await abandoned.WaitAsync(TimeSpan.FromSeconds(5));
+
+        first.Status.Should().Be(ConstructionStatus.Constructed);
+        second.Status.Should().Be(ConstructionStatus.Destructed);
         vm.Status.Should().Be(ConstructionStatus.Destructed);
     }
 

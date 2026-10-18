@@ -45,9 +45,16 @@ def _failed_vm() -> DeferThenRaiseVM:
     return vm
 
 
-def test_abandoned_deferral_is_cancelled() -> None:
+def test_abandoned_caller_future_is_dropped_not_cancelled() -> None:
+    # The subclass owns this future: VMx drops it but does not cancel it, so a
+    # worker that resolves it later does not fail, and the VM is unaffected.
     vm = _failed_vm()
-    assert vm.deferrals[0].cancelled()
+    deferral = vm.deferrals[0]
+    assert not deferral.cancelled()
+
+    deferral.set_result(None)
+
+    assert vm.status is ConstructionStatus.DESTRUCTED
 
 
 def test_next_plain_construct_is_not_captured_by_stale_deferral() -> None:

@@ -13,6 +13,7 @@ See spec/05-component-vm.md and spec/02-lifecycle.md.
 from __future__ import annotations
 
 import threading
+import weakref
 from abc import ABC, abstractmethod
 from collections import deque
 from collections.abc import Callable, Iterable, Iterator
@@ -101,6 +102,11 @@ def _exclusive_ownership_reservation_batch(
             identity._ownership_in_progress = False
         for identity in reversed(identities):
             identity._ownership_lock.release()
+
+
+# Child-walk futures that ``_transition_children`` creates. Only these are
+# cancelled when a hook abandons its deferral.
+_CHILD_WALK_FUTURES: weakref.WeakSet[Future[None]] = weakref.WeakSet()
 
 
 class _Disposable(Protocol):
@@ -1060,10 +1066,12 @@ class _ComponentVMBase(ABC):
             hook()
         except BaseException:
             # A hook that raises after deferring completion abandons the
-            # deferral: cancelling the pending future stops the child walk
-            # before ``after`` runs, and the next transition starts clean.
+            # deferral, so the next transition starts clean. A child walk this
+            # VM created is cancelled, which stops it before ``after`` runs.
+            # A future the subclass supplied is only dropped, not cancelled,
+            # because its owner may still resolve it.
             abandoned = self._take_deferred_lifecycle_future()
-            if abandoned is not None:
+            if abandoned is not None and abandoned in _CHILD_WALK_FUTURES:
                 abandoned.cancel()
             raise
         finally:
@@ -1125,6 +1133,7 @@ class _ComponentVMBase(ABC):
         never restarted.
         """
         result: Future[None] = Future()
+        _CHILD_WALK_FUTURES.add(result)
         iterator = iter(children)
         joined_ids = {id(child) for child in joined}
         expected = ConstructionStatus.CONSTRUCTED if construct else ConstructionStatus.DESTRUCTED

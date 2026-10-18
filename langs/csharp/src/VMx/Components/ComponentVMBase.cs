@@ -432,6 +432,9 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         var yielded = false;
         foreach (var child in children)
         {
+            // An abandoned walk (its hook threw after deferring) drives no
+            // further children, matching Python and TypeScript.
+            if (scope is not null && scope.Abandoned) return;
             if (construct)
             {
                 var join = joined is not null &&

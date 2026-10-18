@@ -23,6 +23,18 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ### Fixed
 
+- A `ForwardingComponentVM` around a background component can be a
+  factory-populated child: the composite joins it through the wrapped VM.
+  Before, construct raised `AttributeError`.
+- A lifecycle hook that defers on its own future and then raises leaves that
+  future alone; VMx cancels only the child walks it created.
+- A `ForwardingCompositeVM` can now be added to a composite or group. Before
+  this fix, `add` raised `AttributeError: _ownership_identity`. The decorator
+  now shares one ownership identity and its parent link with the composite it
+  wraps, as `ForwardingComponentVM` does. Selecting it sets `is_current`, and
+  adding either the decorator or the wrapped composite to another container
+  moves it out of the old one (spec/09 §1-2, FWD-002/FWD-004).
+
 - A lifecycle hook that defers completion and then raises abandons that
   deferral. The next transition starts clean instead of staying in the
   transient state or raising "a lifecycle hook already deferred completion",

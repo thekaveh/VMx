@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `ForwardingCompositeVM` held by a parent now reports `isCurrent` while it
+  is the parent's current child, and selects and deselects through that
+  parent. The decorator and its wrapped composite now share one ownership
+  identity, so adding the wrapped composite to another container moves the
+  decorator out of its old one (spec/09 §1-2, FWD-002/FWD-004).
+
 - `CompositeVM` and `GroupVM` join the background children that factory
   population starts and never construct them again. A later child that fails
   while the container waits on an earlier one rolls the container back, and

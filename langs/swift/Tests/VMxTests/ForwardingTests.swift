@@ -375,4 +375,89 @@ final class ForwardingTests: XCTestCase {
         XCTAssertNil(parent.current)
         XCTAssertFalse(wrapper.canDeselect())
     }
+
+    // ── Forwarding composite membership (spec/09 §1-2, FWD-002/FWD-004) ──
+
+    private func emptyComposite(_ name: String) -> CompositeVM<ComponentVM> {
+        try! CompositeVM<ComponentVM>.builder()
+            .name(name).withNullServices().children { [] }.build()
+    }
+
+    private func emptyParent(_ name: String) -> CompositeVM<ComponentVMBase> {
+        try! CompositeVM<ComponentVMBase>.builder()
+            .name(name).withNullServices().children { [] }.build()
+    }
+
+    /// FWD-004 — a parent selecting a forwarding composite marks the decorator
+    /// current, and deselecting clears it.
+    func testForwardingCompositeSelectedByParentIsCurrent() throws {
+        let parent = emptyParent("parent")
+        let decorator = NoopForwardingComposite(emptyComposite("inner"))
+        try parent.construct()
+        parent.add(decorator)
+        try decorator.construct()
+
+        parent.current = decorator
+
+        XCTAssertTrue(parent.current === decorator)
+        XCTAssertTrue(decorator.isCurrent)
+        XCTAssertTrue(decorator.canDeselect())
+
+        parent.current = nil
+        XCTAssertFalse(decorator.isCurrent)
+        XCTAssertTrue(decorator.canSelect())
+
+        decorator.selectCommand.execute()
+        XCTAssertTrue(parent.current === decorator)
+        XCTAssertTrue(decorator.isCurrent)
+    }
+
+    /// FWD-004 — adding a forwarding composite to a second parent moves it.
+    func testForwardingCompositeAddedToSecondParentMoves() throws {
+        let first = emptyParent("first")
+        let second = emptyParent("second")
+        let decorator = NoopForwardingComposite(emptyComposite("inner"))
+
+        first.add(decorator)
+        second.add(decorator)
+
+        XCTAssertEqual(first.count, 0)
+        XCTAssertEqual(second.count, 1)
+    }
+
+    /// FWD-004 — the decorator and its wrapped composite are one ownership
+    /// identity: adding the wrapped composite elsewhere moves the decorator out.
+    func testForwardingCompositeAndWrappedAreOneOwnershipIdentity() throws {
+        let first = emptyParent("first")
+        let second = emptyParent("second")
+        let inner = emptyComposite("inner")
+        let decorator = NoopForwardingComposite(inner)
+
+        first.add(decorator)
+        second.add(inner)
+
+        XCTAssertEqual(first.count, 0)
+        XCTAssertEqual(second.count, 1)
+        XCTAssertTrue(second.at(0) === inner)
+    }
+
+    /// FWD-001 — destructing and disposing a parent cascade once through the
+    /// forwarding composite to the wrapped composite.
+    func testForwardingCompositeParentCascadesOnce() throws {
+        let parent = emptyParent("parent")
+        let inner = emptyComposite("inner")
+        let decorator = NoopForwardingComposite(inner)
+        var cleanups = 0
+        inner.own { cleanups += 1 }
+        parent.add(decorator)
+        try parent.construct()
+        XCTAssertEqual(inner.status, .constructed)
+
+        try parent.destruct()
+        XCTAssertEqual(inner.status, .destructed)
+
+        parent.dispose()
+        XCTAssertEqual(inner.status, .disposed)
+        XCTAssertEqual(cleanups, 1)
+    }
 }

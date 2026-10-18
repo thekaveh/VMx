@@ -37,6 +37,25 @@ open class ForwardingCompositeVM<Child: ComponentVMBase>: CompositeVM<Child> {
         )
     }
 
+    // spec/09 §1-2 (FWD-002/FWD-004): the decorator and the wrapped composite
+    // are one ownership identity, so a parent holding either one owns both and
+    // single-parent transfer moves the decorator too. Mirrors
+    // ForwardingComponentVM.
+    override var _ownershipIdentity: ComponentVMBase { _wrapped._ownershipIdentity }
+
+    override var _transferOwnershipParent: OwnershipParentVM? {
+        _ownershipParent ?? _ownershipIdentity._transferOwnershipParent
+    }
+
+    override func _ownershipParentDidChange() {
+        let identity = _ownershipIdentity
+        if _ownershipParent != nil {
+            identity._forwardingOwner = self
+        } else if identity._forwardingOwner === self {
+            identity._forwardingOwner = nil
+        }
+    }
+
     // ── Identity / kind ─────────────────────────────────────────────────
     open override var type: ViewModelType { _wrapped.type }
 
@@ -48,9 +67,27 @@ open class ForwardingCompositeVM<Child: ComponentVMBase>: CompositeVM<Child> {
         _wrapped.propertyChanged
     }
 
+    // The parent flips the flag on the decorator it holds; route it to the
+    // wrapped composite so `isCurrent` (which reads `_wrapped`) stays truthful.
+    override func _setIsCurrent(_ value: Bool) {
+        _wrapped._setIsCurrent(value)
+    }
+
+    override func _commitIsCurrent(_ value: Bool) -> Bool {
+        _wrapped._commitIsCurrent(value)
+    }
+
+    override func _publishIsCurrent() {
+        _wrapped._publishIsCurrent()
+    }
+
     // ── Built-in commands (override the getters to delegate) ────────────
-    open override var selectCommand: RelayCommand { _wrapped.selectCommand }
-    open override var deselectCommand: RelayCommand { _wrapped.deselectCommand }
+    open override var selectCommand: RelayCommand {
+        _parent == nil ? _wrapped.selectCommand : super.selectCommand
+    }
+    open override var deselectCommand: RelayCommand {
+        _parent == nil ? _wrapped.deselectCommand : super.deselectCommand
+    }
     open override var selectNextCommand: RelayCommand { _wrapped.selectNextCommand }
     open override var selectPreviousCommand: RelayCommand { _wrapped.selectPreviousCommand }
     open override var reconstructCommand: RelayCommand { _wrapped.reconstructCommand }
@@ -76,10 +113,28 @@ open class ForwardingCompositeVM<Child: ComponentVMBase>: CompositeVM<Child> {
     override func _cancelSettleWait(_ id: UInt64) { _wrapped._cancelSettleWait(id) }
 
     // ── Selection (ComponentVMBase) ─────────────────────────────────────
-    open override func canSelect() -> Bool { _wrapped.canSelect() }
-    open override func select() { _wrapped.select() }
-    open override func canDeselect() -> Bool { _wrapped.canDeselect() }
-    open override func deselect() { _wrapped.deselect() }
+    // Parented, the decorator is the child its parent holds: select through
+    // the parent with the decorator itself (mirrors ForwardingComponentVM).
+    open override func canSelect() -> Bool {
+        guard status != .disposed else { return false }
+        guard let parent = _parent else { return _wrapped.canSelect() }
+        return _wrapped.status == .constructed
+            && parent.supportsChildSelection
+            && parent.currentChild !== self
+    }
+    open override func select() {
+        guard status != .disposed else { return }
+        if let parent = _parent { parent.selectChild(self) } else { _wrapped.select() }
+    }
+    open override func canDeselect() -> Bool {
+        guard status != .disposed else { return false }
+        guard let parent = _parent else { return _wrapped.canDeselect() }
+        return parent.supportsChildSelection && parent.currentChild === self
+    }
+    open override func deselect() {
+        guard status != .disposed else { return }
+        if let parent = _parent { parent.deselectChild(self) } else { _wrapped.deselect() }
+    }
 
     // ── ParentVM ────────────────────────────────────────────────────────
     open override var supportsChildSelection: Bool { _wrapped.supportsChildSelection }
