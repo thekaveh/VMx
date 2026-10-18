@@ -3249,6 +3249,12 @@ impl<D: Dispatcher> ComponentCore<D> {
         lock(&self.inner).hub.clone()
     }
 
+    /// Detaches the core from its injected hub, so later lifecycle and
+    /// property publications go to a disposed no-op hub instead.
+    pub(crate) fn detach_hub(&self) {
+        lock(&self.inner).hub = NullMessageHub::hub();
+    }
+
     pub(crate) fn own<F>(&self, cleanup: F)
     where
         F: FnOnce() + Send + 'static,

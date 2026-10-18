@@ -366,6 +366,12 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
         self.core.reconstruct()
     }
 
+    /// Stops publishing on the injected hub. A wrapper whose hub contract
+    /// excludes lifecycle messages calls this before disposing.
+    pub(crate) fn detach_hub(&self) {
+        self.core.detach_hub();
+    }
+
     /// Transitions the component to its terminal disposed state.
     pub fn dispose(&self) -> VmxResult<()> {
         let commands = self.commands.clone();

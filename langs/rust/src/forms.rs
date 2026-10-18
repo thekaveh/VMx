@@ -975,6 +975,10 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         drop(released);
         lock(&self.field_validators).clear();
         lock(&self.model_validators).clear();
+        // The form's hub carries only the spec/20 §8 messages (model and
+        // FormReverted). The wrapped component's ConstructionStatusChanged
+        // (Disposed) is not one, and no other flavor publishes it.
+        self.component.detach_hub();
         let _ = self.component.dispose();
     }
 

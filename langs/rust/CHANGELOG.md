@@ -52,6 +52,11 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `FormVm::dispose` no longer publishes `ConstructionStatusChanged`
+  (`Disposed`) on the form's hub. The hub carries only the spec/20 §8
+  messages, the model `PropertyChanged` and `FormReverted`, as in the other
+  flavors.
+
 - `Reconstructable::reconstruct` does nothing outside Constructed, as the
   lifecycle rule and `can_reconstruct()` say. Before, it constructed a
   Destructed node (spec/14 §2.3).

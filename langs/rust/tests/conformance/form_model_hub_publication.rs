@@ -140,3 +140,50 @@ fn set_model_publishes_one_settled_hub_message() {
             )
         }));
 }
+
+/// FORM-030 — disposing a form publishes nothing on its hub. The hub carries
+/// only the spec/20 §8 messages (model `PropertyChanged` and `FormReverted`),
+/// so the wrapped component's `ConstructionStatusChanged(Disposed)` stays off
+/// it, as in C#, Python, TypeScript, and Swift.
+#[test]
+fn dispose_publishes_no_lifecycle_message_on_form_hub() {
+    for with_builder in [true, false] {
+        let hub = MessageHub::new();
+        let form = if with_builder {
+            FormVm::builder()
+                .initial(0)
+                .persister(|_| Ok(()))
+                .hub(hub.clone())
+                .build()
+                .unwrap()
+        } else {
+            FormVm::with_options("Form", 0, |_| Ok(()), false, hub.clone())
+        };
+        let messages = Arc::new(Mutex::new(Vec::<Message>::new()));
+        let recorded = messages.clone();
+        let _subscription = hub.subscribe(move |message| {
+            recorded.lock().unwrap().push(message.clone());
+        });
+
+        form.set_model(1);
+        form.deny_command().execute();
+        form.dispose();
+        form.set_model(2);
+
+        let messages = messages.lock().unwrap();
+        assert!(
+            messages.iter().all(|message| matches!(
+                message,
+                Message::PropertyChanged(change) if change.property_name == "model"
+            ) || matches!(message, Message::FormReverted(_))),
+            "form hub carried a non-§8 message: {messages:?}"
+        );
+        assert!(
+            !messages
+                .iter()
+                .any(|message| matches!(message, Message::ConstructionStatusChanged(_))),
+            "dispose published a lifecycle message on the form hub"
+        );
+        assert_eq!(messages.len(), 3, "{messages:?}");
+    }
+}

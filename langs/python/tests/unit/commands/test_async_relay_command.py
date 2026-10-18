@@ -479,3 +479,29 @@ async def test_same_loop_cancel_remains_deferred_until_next_loop_turn(
     assert cancellation_loops == [owner]
     assert inner.cancelled()
     command.dispose()
+
+
+@pytest.mark.asyncio
+async def test_execute_admits_before_returning_so_cancel_applies() -> None:
+    import asyncio
+
+    from vmx.commands.async_relay_command import AsyncRelayCommand
+
+    log: list[str] = []
+
+    async def task() -> None:
+        log.append("start")
+        await asyncio.sleep(0.05)
+        log.append("end")
+
+    command = AsyncRelayCommand.builder().task(task).build()
+    command.execute()
+
+    assert command.is_executing
+    assert not command.can_execute()
+    command.cancel()
+    await asyncio.sleep(0.1)
+
+    assert "end" not in log
+    assert not command.is_executing
+    command.dispose()

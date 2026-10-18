@@ -143,12 +143,23 @@ class AsyncRelayCommand:
         returns normally; with ``throw_on_cancel=True`` the ``CancelledError`` is
         re-raised to the awaiter.
         """
-        task_factory = self._task
+        task_factory = self._admit()
         if task_factory is None:
             return
+        await self._run_admitted(task_factory)
+
+    def _admit(self) -> Callable[[], Awaitable[None]] | None:
+        """Admit one run: evaluate the predicate and mark the command executing.
+
+        Returns the task factory when admitted, or ``None`` when gated out. Runs
+        synchronously, so ``execute()`` admits before it returns (spec/04 §10.2).
+        """
+        task_factory = self._task
+        if task_factory is None:
+            return None
         with self._gate:
             if self._disposed or self._is_executing:
-                return
+                return None
             admission_epoch = self._admission_epoch
         allowed = True
         if self._predicate is not None:
@@ -163,10 +174,14 @@ class AsyncRelayCommand:
                 or self._is_executing
                 or self._admission_epoch != admission_epoch
             ):
-                return
+                return None
             self._cancellation_origin = None
             self._is_executing = True
             self._admission_epoch += 1
+        return task_factory
+
+    async def _run_admitted(self, task_factory: Callable[[], Awaitable[None]]) -> None:
+        """Run a task that :meth:`_admit` accepted."""
         first_error: tuple[BaseException, TracebackType | None] | None = None
         try:
             self.raise_can_execute_changed()
@@ -210,13 +225,18 @@ class AsyncRelayCommand:
         A faulting task is routed to the :attr:`errors` channel instead of being
         swallowed; a cancellation is already swallowed by the non-throwing default.
         """
+        # Admit before returning, so is_executing is already True and a second
+        # execute() or a cancel() acts on this run (spec/04 §10.2).
+        task_factory = self._admit()
+        if task_factory is None:
+            return
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
-            future = submit_background(self.execute_async(parameter))
+            future = submit_background(self._run_admitted(task_factory))
             future.add_done_callback(self._on_done)
             return
-        task = loop.create_task(self.execute_async(parameter))
+        task = loop.create_task(self._run_admitted(task_factory))
         task.add_done_callback(self._on_done)
 
     def cancel(self) -> None:
