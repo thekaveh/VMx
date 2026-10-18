@@ -133,6 +133,37 @@ describe("real wiring", () => {
     );
   });
 
+  it("Next / Last / Previous / First clicks update the rendered page label", async () => {
+    const { workspace, dialog } = buildWorkspace();
+    await workspace.constructAsync();
+    render(<App workspace={workspace} dialog={dialog} />);
+
+    const tree = await screen.findByRole("tree", { name: /notebooks/i });
+    fireEvent.click(within(tree).getByText("Reviews"));
+    await waitFor(() => {
+      expect(workspace.notesView.boundNotebookId).toBe("nb-reviews");
+    });
+    await screen.findByText("Page 1 of 2");
+
+    const next = screen.getByRole("button", { name: "Next page" });
+    const prev = screen.getByRole("button", { name: "Previous page" });
+    await waitFor(() => expect((next as HTMLButtonElement).disabled).toBe(false));
+
+    // Assert synchronously after each click: a delayed search-debounce
+    // recompute would otherwise mask a stale label by refreshing it later.
+    fireEvent.click(next);
+    expect(screen.getByText("Page 2 of 2")).toBeTruthy();
+    expect((next as HTMLButtonElement).disabled).toBe(true);
+    expect((prev as HTMLButtonElement).disabled).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "First page" }));
+    expect(screen.getByText("Page 1 of 2")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Last page" }));
+    expect(screen.getByText("Page 2 of 2")).toBeTruthy();
+    fireEvent.click(prev);
+    expect(screen.getByText("Page 1 of 2")).toBeTruthy();
+  });
+
   it("pagination buttons disable on the only page", async () => {
     const { workspace, dialog } = buildWorkspace();
     await workspace.constructAsync();

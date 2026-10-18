@@ -70,10 +70,17 @@ def _notes_pane(workspace: WorkspaceVM) -> list[DisposableBase]:
         ui.label("Notes").classes("text-subtitle1")
         search = ui.input("Search notes").mark("search")
         notes()
+        with ui.row().classes("items-center"):
+            previous_page = ui.button("Prev").props("flat dense").mark("page-prev")
+            page_label = ui.label().mark("page-label")
+            next_page = ui.button("Next").props("flat dense").mark("page-next")
         new_note = ui.button("New note").mark("new-note")
     return [
         bind_property_two_way(search, notes_view, "search_term", text),
         bind_refreshable(notes, vm_property_changes(notes_view, ROW_SIGNALS)),
+        bind_command(previous_page, notes_view.move_to_previous_page_command),
+        bind_command(next_page, notes_view.move_to_next_page_command),
+        bind_derived_property(page_label, "text", notes_view.page_label),
         bind_command(new_note, workspace.new_note_command),
     ]
 

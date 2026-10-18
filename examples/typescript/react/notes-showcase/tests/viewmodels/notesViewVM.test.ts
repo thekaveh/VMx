@@ -208,6 +208,30 @@ describe("NotesViewVM", () => {
     expect(vm.pageLabel).toBe("Page 2 of 2");
   });
 
+  it("pageLabelDerived and paging command canExecute track every page move", async () => {
+    const { vm } = makeVM({ pageSize: 5 });
+    await vm.bindToAsync("nb-reviews"); // 7 items → 2 pages
+    const labels: string[] = [];
+    const sub = vm.pageLabelDerived.valueChanged.subscribe((v) => labels.push(v));
+    const nextChanges: number[] = [];
+    const sub2 = vm.moveToNextPageCommand.canExecuteChanged.subscribe(() => nextChanges.push(1));
+
+    vm.moveToNextPageCommand.execute();
+    expect(vm.pageLabelDerived.value).toBe("Page 2 of 2");
+    expect(vm.moveToNextPageCommand.canExecute()).toBe(false);
+    expect(vm.moveToPreviousPageCommand.canExecute()).toBe(true);
+    expect(nextChanges.length).toBeGreaterThan(0);
+    vm.moveToFirstPageCommand.execute();
+    expect(vm.pageLabelDerived.value).toBe("Page 1 of 2");
+    vm.moveToLastPageCommand.execute();
+    expect(vm.pageLabelDerived.value).toBe("Page 2 of 2");
+    vm.moveToPreviousPageCommand.execute();
+    expect(vm.pageLabelDerived.value).toBe("Page 1 of 2");
+    expect(labels).toEqual(["Page 2 of 2", "Page 1 of 2", "Page 2 of 2", "Page 1 of 2"]);
+    sub.unsubscribe();
+    sub2.unsubscribe();
+  });
+
   it("setting current emits PropertyChangedMessage and equality-guards", async () => {
     const { vm } = makeVM();
     await vm.bindToAsync("nb-personal");

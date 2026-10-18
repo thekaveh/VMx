@@ -106,6 +106,10 @@ export class NotesViewVM extends ComponentVMBase {
       if (name === "currentPageIndex" || name === "pageCount" || name === "pageSize") {
         this._notifyPropertyChanged("pageLabel");
         this._notifyPropertyChanged("visibleItems");
+        // pageLabelDerived and the four paging commands' canExecute triggers
+        // read #stateSubject, not propertyChanged; without this push a plain
+        // page move left "Page 1 of 2" and stale button enablement on screen.
+        this.#stateSubject.next();
       }
     });
 

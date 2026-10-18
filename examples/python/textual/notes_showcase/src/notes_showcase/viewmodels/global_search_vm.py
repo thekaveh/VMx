@@ -6,7 +6,6 @@ import dataclasses
 import threading
 
 from reactivex.abc import SchedulerBase
-from reactivex.scheduler import ImmediateScheduler
 from vmx import (
     AsyncRelayCommand,
     ComponentVM,
@@ -21,6 +20,7 @@ from vmx.services.dispatcher import Dispatcher
 
 from notes_showcase.models.note_repository import INoteRepository
 from notes_showcase.viewmodels.note_vm import NoteVM
+from notes_showcase.viewmodels.notes_view_vm import default_search_scheduler
 
 _DEFAULT_PAGE_SIZE = 5
 _DEFAULT_SEARCH_DEBOUNCE_S = 0.150
@@ -48,7 +48,8 @@ class GlobalSearchVM(ComponentVM):
             items=lambda: ["global-search"],
             predicate=lambda _item, _term: True,
             debounce_seconds=search_debounce_seconds,
-            scheduler=search_scheduler or ImmediateScheduler(),
+            scheduler=search_scheduler
+            or default_search_scheduler(dispatcher, search_debounce_seconds),
         )
         self._owned_results_lock = threading.Lock()
         self._owned_results: dict[int, NoteVM] = {}

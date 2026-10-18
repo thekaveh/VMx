@@ -228,6 +228,44 @@ impl NotesViewVm {
             .collect()
     }
 
+    /// The visible page as `(title, is_selected)` rows, so a view can mark
+    /// the note that commands such as delete act on.
+    pub fn visible_rows(&self) -> Vec<(String, bool)> {
+        self.refresh_page();
+        let current = self.source.current().map(|note| note.id());
+        self.pager
+            .current_page()
+            .into_iter()
+            .map(|note| {
+                let selected = current.as_deref() == Some(note.id().as_str());
+                (note.title(), selected)
+            })
+            .collect()
+    }
+
+    /// Keeps the selection on the visible page: when the current note is not
+    /// shown, the first visible note becomes current; when nothing is shown,
+    /// the selection is cleared. Returns the selected note.
+    pub fn sync_selection_to_page(&self) -> Option<NoteModel> {
+        self.refresh_page();
+        let page = self.pager.current_page();
+        if let Some(current) = self.source.current() {
+            if page.iter().any(|note| note.id() == current.id()) {
+                return Some(current.model());
+            }
+        }
+        match page.first().cloned() {
+            Some(first) => {
+                let _ = self.source.set_current(Some(first.clone()));
+                Some(first.model())
+            }
+            None => {
+                let _ = self.source.set_current(None);
+                None
+            }
+        }
+    }
+
     pub fn page_summary(&self) -> String {
         self.refresh_page();
         let total = self.filtered.visible_count();
@@ -331,6 +369,29 @@ impl NoteFormVm {
         }
     }
 
+    /// Leaves the editor empty when no note is selected (for example after
+    /// the last note is deleted), so it never shows or saves a stale note.
+    pub fn clear(&self) {
+        let form = build_form(
+            self.repository.clone(),
+            "",
+            NoteDraft {
+                title: String::new(),
+                body: String::new(),
+                tags: Vec::new(),
+            },
+            self.core.hub(),
+        );
+        lock(&self.current_note_id).clear();
+        let previous = std::mem::replace(&mut *lock(&self.form), form);
+        previous.dispose();
+    }
+
+    /// Whether the editor holds a note.
+    pub fn has_note(&self) -> bool {
+        !lock(&self.current_note_id).is_empty()
+    }
+
     pub fn load_note(&self, note: NoteModel) {
         let note_id = note.id.clone();
         let form = build_form(
@@ -390,6 +451,10 @@ impl NoteFormVm {
         // Release the slot before persisting: a second save while this one is
         // pending must reach the form's single-flight rule instead of
         // waiting on this lock and saving again.
+        if !self.has_note() {
+            // Nothing is selected: there is no note to persist.
+            return Ok(());
+        }
         let form = lock(&self.form).clone();
         form.approve()
     }
@@ -750,10 +815,40 @@ impl WorkspaceVm {
     pub fn select_notebook(&self, notebook_id: &str) -> VmxResult<()> {
         self.notebooks.select(notebook_id)?;
         self.notes.set_notebook(notebook_id);
-        if let Some(note) = self.notes.select_first_visible() {
-            self.form.load_note(note);
+        match self.notes.select_first_visible() {
+            Some(note) => self.form.load_note(note),
+            None => self.form.clear(),
         }
         Ok(())
+    }
+
+    pub fn next_page(&self) {
+        self.notes.next_page();
+        self.sync_form_to_page();
+    }
+
+    pub fn previous_page(&self) {
+        self.notes.previous_page();
+        self.sync_form_to_page();
+    }
+
+    pub fn set_search_term(&self, term: &str) {
+        self.notes.set_search_term(term);
+        self.sync_form_to_page();
+    }
+
+    /// The selection follows the visible page, and the editor follows the
+    /// selection, so delete never targets a note that is not on screen.
+    fn sync_form_to_page(&self) {
+        let selected = self.notes.current_note().map(|note| note.id);
+        match self.notes.sync_selection_to_page() {
+            Some(note) => {
+                if selected.as_deref() != Some(note.id.as_str()) || !self.form.has_note() {
+                    self.form.load_note(note);
+                }
+            }
+            None => self.form.clear(),
+        }
     }
 
     pub fn select_note(&self, note_id: &str) -> VmxResult<()> {
@@ -782,8 +877,9 @@ impl WorkspaceVm {
             .resolve(notification_id, NotificationReaction::Approve);
         if self.repository.delete_note(&note_id).is_some() {
             self.notes.reload();
-            if let Some(note) = self.notes.select_first_visible() {
-                self.form.load_note(note);
+            match self.notes.sync_selection_to_page() {
+                Some(note) => self.form.load_note(note),
+                None => self.form.clear(),
             }
             self.notifications
                 .post(NotificationType::Notification, format!("Deleted '{title}'"));

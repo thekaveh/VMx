@@ -14,12 +14,14 @@ subclass-able VM. Composition instead:
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 from collections.abc import Callable
 from typing import cast
 
 from reactivex.abc import SchedulerBase
-from reactivex.scheduler import ImmediateScheduler
+from reactivex.scheduler import ImmediateScheduler, TimeoutScheduler
+from reactivex.scheduler.eventloop import AsyncIOThreadSafeScheduler
 from vmx import (
     ComponentVM,
     ConstructionStatus,
@@ -50,6 +52,34 @@ _DEFAULT_PAGE_SIZE = 5
 _DEFAULT_SEARCH_DEBOUNCE_S = 0.150
 
 
+def default_search_scheduler(dispatcher: Dispatcher, debounce_seconds: float) -> SchedulerBase:
+    """Pick a scheduler that can actually run a ``debounce_seconds`` timer.
+
+    ``ImmediateScheduler`` cannot wait: a positive debounce on it raises
+    ``WouldBlockException``, which silently terminates the search pipeline
+    (search then never filters). Resolution order:
+
+    1. no debounce → ``ImmediateScheduler`` (the timer is never used);
+    2. a timer-capable dispatcher foreground (e.g. ``RxDispatcher.asyncio``
+       in the NiceGUI host) → that scheduler, so results land on the UI loop;
+    3. a running asyncio loop (the Textual host builds the workspace inside
+       ``asyncio.run``) → a scheduler bound to that loop;
+    4. otherwise → ``TimeoutScheduler`` (threaded timer, loop-less hosts).
+
+    Tests that need deterministic timing inject a ``TestScheduler`` instead.
+    """
+    if debounce_seconds <= 0:
+        return ImmediateScheduler()
+    foreground = dispatcher.foreground
+    if not isinstance(foreground, ImmediateScheduler):
+        return foreground
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return TimeoutScheduler()
+    return AsyncIOThreadSafeScheduler(loop)
+
+
 class NotesViewVM(
     ComponentVM,
     Pageable,
@@ -76,7 +106,9 @@ class NotesViewVM(
         self._repo = repository
         self._dialog_service = dialog_service
         self._notification_hub = notification_hub
-        self._search_scheduler = search_scheduler or ImmediateScheduler()
+        self._search_scheduler = search_scheduler or default_search_scheduler(
+            dispatcher, search_debounce_seconds
+        )
 
         self._inner: ObservableList[NoteVM] = ObservableList()
         self._filtered: list[NoteVM] = []

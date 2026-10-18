@@ -38,23 +38,31 @@ fn run_loop(
             continue;
         }
         if let Event::Key(key) = event::read().map_err(to_vmx_error)? {
-            match key.code {
-                KeyCode::Char('q') => break,
-                KeyCode::Char('/') => workspace.notes().set_search_term("vmx"),
-                KeyCode::Char('x') => workspace.notes().set_search_term(""),
-                KeyCode::Char('n') => workspace.notes().next_page(),
-                KeyCode::Char('p') => workspace.notes().previous_page(),
-                KeyCode::Char('m') => {
-                    workspace.editor().toggle();
-                }
-                KeyCode::Char('d') => workspace.request_delete_current(),
-                KeyCode::Char('y') => workspace.approve_delete_current(),
-                KeyCode::Char('r') => workspace.reject_delete_current(),
-                _ => {}
+            if !handle_key(workspace, key.code) {
+                break;
             }
         }
     }
     Ok(())
+}
+
+/// Dispatches one key to the workspace. Returns `false` when the app should
+/// quit. Kept separate from the terminal loop so tests can drive the app
+/// through the same key bindings.
+pub fn handle_key(workspace: &WorkspaceVm, code: KeyCode) -> bool {
+    match code {
+        KeyCode::Char('q') => return false,
+        KeyCode::Char('/') => workspace.set_search_term("vmx"),
+        KeyCode::Char('x') => workspace.set_search_term(""),
+        KeyCode::Char('n') => workspace.next_page(),
+        KeyCode::Char('p') => workspace.previous_page(),
+        KeyCode::Char('m') => workspace.editor().toggle(),
+        KeyCode::Char('d') => workspace.request_delete_current(),
+        KeyCode::Char('y') => workspace.approve_delete_current(),
+        KeyCode::Char('r') => workspace.reject_delete_current(),
+        _ => {}
+    }
+    true
 }
 
 fn to_vmx_error(error: io::Error) -> VmxError {
