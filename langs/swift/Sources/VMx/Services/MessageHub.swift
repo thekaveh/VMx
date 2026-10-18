@@ -297,15 +297,15 @@ public final class MessageHub: TransactionalMessageHubProtocol {
                 }
                 return
             }
-            var message: (any Message)? = pending[pendingHead]
+            // `pending` keeps the delivered message alive until the drain ends;
+            // the end-of-drain copy releases it after `gate` unlocks.
+            let message = pending[pendingHead]
             pendingHead += 1
             gate.unlock()
 #if DEBUG
-            messageTypes.insert(String(describing: type(of: message!)))
+            messageTypes.insert(String(describing: type(of: message)))
 #endif
-            subject.send(message!)
-            // Drop the delivered message before re-taking `gate`.
-            message = nil
+            subject.send(message)
 #if DEBUG
             delivered += 1
             gate.lock()
