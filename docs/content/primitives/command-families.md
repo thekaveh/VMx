@@ -83,7 +83,7 @@ Commands become interesting when triggers are involved:
 
 - predicates are pure gates for `CanExecute`
 - tasks run only when predicates allow execution
-- trigger emissions force re-evaluation and raise `CanExecuteChanged`
+- trigger emissions raise `CanExecuteChanged`, so bindings re-read `CanExecute`
 - imperative raise methods notify bindings when a predicate depends on
   non-observable host state
 - disposed commands, including composite, decorator, and confirmation wrappers,

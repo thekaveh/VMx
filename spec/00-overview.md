@@ -92,7 +92,7 @@ in multiple language flavors with semantically equivalent behavior.
 | **parent**         | the composite that owns a VM (a child can have at most one parent).                                                                                                          |
 | **current**        | the child currently selected within a composite (at most one per composite).                                                                                                 |
 | **predicate**      | a `() -> bool` (or `(T) -> bool`) function deciding whether a command can execute.                                                                                           |
-| **trigger**        | an `IObservable<Unit>` whose emissions cause a command's `CanExecute` to be re-evaluated and `CanExecuteChanged` to be raised.                                               |
+| **trigger**        | an `IObservable<Unit>` whose emissions raise a command's `CanExecuteChanged`, so consumers re-read `CanExecute`.                                                             |
 | **hub**            | the `IMessageHub` instance every VM publishes to and any subscriber can observe.                                                                                             |
 | **builder**        | an immutable fluent object that accumulates configuration and produces a VM (or command) via `Build()`.                                                                      |
 | **dispatcher**     | `IDispatcher` exposes a foreground and a background Rx scheduler; VMs use them to dispatch property-change events and lifecycle work.                                        |

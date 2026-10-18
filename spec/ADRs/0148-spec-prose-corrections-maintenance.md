@@ -98,3 +98,6 @@ The change is editorial. It adds no normative behavior and no conformance ID.
 - Follow-up correction: chapter 01 says the Rust builders default an unset hint
   to `Some("")` and only the direct constructors leave it `None`, as chapter 10
   says (ADR-0149).
+- Follow-up correction: the chapter 00 glossary says a trigger raises
+  `CanExecuteChanged` and consumers re-read `CanExecute`, as chapter 04 §4 says
+  (ADR-0149). No flavor evaluates the predicate on a trigger.

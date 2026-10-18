@@ -348,3 +348,16 @@ It does not forward `is_current`, the selection methods and commands
 subscriber is not told when the form is disposed. The other flavors complete
 `OnApproved` on dispose (spec/20 §10). `errors_changed` and `approve_errors`
 do complete in Rust.
+
+## 12.10. Recorded Difference: Notification Hub Disposal Snapshot
+
+When `NotificationHub` is disposed, Rust emits a final empty `pending` snapshot
+before completion. C#, Python, TypeScript, and Swift complete without a final
+snapshot. Waiters resolve to `Pending` in every flavor (NOTIF-017).
+
+## 12.11. Open Item: PagedComposition Notifications
+
+Rust `PagedComposition` raises no property notifications. C#, Python,
+TypeScript, and Swift publish `CurrentPageIndex`, `Items`, `PageCount`, and the
+other paging properties on every change. Rust consumers read the state after
+each call.
