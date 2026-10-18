@@ -102,5 +102,7 @@ examples/rust/
         │   ├── models.rs
         │   ├── viewmodels.rs
         │   └── views.rs
-        └── tests/viewmodels.rs
+        └── tests/
+            ├── key_dispatch.rs
+            └── viewmodels.rs
 ```

@@ -399,15 +399,15 @@ for teardown guidance.
 
 ### 3.3.7.1. Start And Cancel An Async Resource From Synchronous Code
 
-`load_command.execute()` may be called when no asyncio loop is running on the
-caller. VMx starts the resource operation on its shared daemon loop. A later
-`cancel()` invalidates the resource state synchronously and posts native
-task/future work to that operation loop, so command settlement may follow the
-state change:
+You can call `load_command.execute()` when no asyncio loop runs on the
+caller's thread. In that case, VMx starts the resource operation on its shared
+daemon loop. A later `cancel()` call invalidates the resource state
+synchronously. It then posts native task and future work to that operation
+loop. Thus the command can settle after the state changes.
 
-This recipe requires the unreleased Python 3.29.0 source installed from a
-checkout. The current PyPI 3.23.0 package does not contain this operation-loop
-repair.
+This recipe requires the unreleased Python 3.29.0 source. Install that source
+from a checkout. The current PyPI 3.23.0 package does not contain this
+operation-loop repair.
 
 ```python
 import asyncio

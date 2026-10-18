@@ -71,6 +71,18 @@ The composite owns both child lifecycle and selection messaging:
 - a non-batched move emits one move event with both indices; a batched move is
   represented by the outer reset
 
+In Rust, a composite with background children stays Constructing until those
+children settle. Thus `construct()` can return `Ok` while the composite is still
+transient. A background child failure rolls the composite back. The failure
+arrives on the composite's `background_errors()` stream (spec/11 §2).
+
+Rust has one open selection gap (spec/06 §3.2). A Rust composite keeps its
+membership transaction open while it publishes `CollectionChanged` from `add`.
+It also keeps the transaction open while it publishes the current-flag changes
+and runs the current-changed callback. A selection that starts from one of
+these callbacks returns `OwnershipTransactionInProgress`. A concurrent
+selection gets the same error.
+
 ## 6.2.5.4. Cross-Language Surface
 
 | Concept               | C#                      | Python                 | TypeScript             | Swift                  | Rust                        |

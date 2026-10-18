@@ -1,6 +1,7 @@
 # 12. Rust Parity Status
 
-Filed: **2026-07-16**. Closed: **2026-07-26**.
+Filed: **2026-07-16**. Original scope closed: **2026-07-26**. Open items found
+after closure: §12.7.
 
 This record began as the evidence ledger for capability-surface and observable-
 behavior differences between Rust and the four other flavors. The Rust 0.27.0
@@ -296,14 +297,14 @@ The ADR-0120 sender representation in §12.2.1 remains the sole intentional
 flavor-specific shape in this ledger. The §12.5 editorial note applies to all
 five flavors and is not a parity backlog. §12.7 records open items found after
 closure. Future differences still require
-spec/ADR review; this completed record is evidence of the 0.27.0 convergence,
-not permission to add undocumented divergence.
+spec/ADR review. This record is evidence of the 0.27.0 convergence for the
+original scope. It is not permission to add undocumented divergence.
 
 ## 12.7. Open Items: Background Child Settle
 
-Containers (`CompositeVm`, `GroupVm`, the fixed aggregates, and
-`HierarchicalVm`) now stay transient until background children settle
-(spec/02 §6, LIFE-014). Two Rust-specific shapes remain open:
+Containers (`CompositeVm`, `GroupVm`, the modeled composite, and the fixed
+aggregates) now stay transient until background children settle (spec/02 §6,
+LIFE-014). `HierarchicalVm` has no background option, so it never waits. Two Rust-specific shapes remain open:
 
 - **Container `background_errors()`.** A background child failure that rolls a
   container back is reported on the container's `background_errors()` stream.
@@ -318,5 +319,7 @@ Settle notification uses the documented `VmNode::when_lifecycle_settled` hook,
 which wrapper nodes should forward to the wrapped VM. A third-party node that
 keeps the default (`false`) is accepted while still Constructing/Destructing,
 matching the pre-settle-tracking behavior, so the container does not wait for
-it. C# observes the child's status instead; Rust has no node-level hub accessor
+it. A later failure of such a node therefore does not roll the container back:
+the container stays Constructed while the child ends Destructed. This is an
+open LIFE-014 gap for nodes that do not forward the hook. C# observes the child's status instead; Rust has no node-level hub accessor
 to do so without risking an unbounded wait on a child published elsewhere.

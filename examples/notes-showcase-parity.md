@@ -28,8 +28,8 @@ separate checks back it:
 
   Each file lists the only normalized differences, all idiomatic per ADR-0006
   or preset palette values; event order is never normalized. The reduced Rust
-  companion runs neither, because its scope omits the theme VM and the delete
-  confirmation dialog that they exercise.
+  companion runs neither. Its scope omits the theme VM. It also has no modal
+  delete dialog; it uses an inline delete confirmation instead.
 
 Published walkthroughs:
 [Notes Workspace](../docs/content/examples/notes-workspace.md),
@@ -130,15 +130,17 @@ lifecycle-bearing search-result ownership obligation.
     the notebook read-only flag, with seed coverage and VM tests so the command
     disables consistently when the focused notebook is read-only.
 
-[^current]: The four flagships store their notes list differently and drive
-    selection through an app-owned `current` slot rather than literally through
-    `CompositeVM.Current`: C# and Swift keep notes in a `CompositeVM<NoteVM>`
-    used as storage, Python over an `ObservableList`, TypeScript over a plain
-    array; each exposes its own `current`/`Current` property plus a selection
-    command. The observable selection contract (single current, change
-    notification, clear-on-delete) is identical across flavors and covered by the
-    `tests/viewmodels/` suites; the `CompositeVM.Current` primitive itself is
-    exercised directly by the library conformance corpus (COMP-006/010/025).
+[^current]: The four flagships store their notes list in different ways. All
+    four drive selection through an app-owned `current` slot, not through
+    `CompositeVM.Current`. C# and Swift keep the notes in a
+    `CompositeVM<NoteVM>` that they use only as storage. Python keeps them in
+    an `ObservableList`. TypeScript keeps them in a plain array. Each flagship
+    exposes its own `current`/`Current` property and a selection command. The
+    observable selection contract is the same in all flavors: one current
+    note, a change notification, and a clear on delete. The
+    `tests/viewmodels/` suites cover this contract. The library conformance
+    corpus tests the `CompositeVM.Current` primitive directly
+    (COMP-006/010/025).
 
 [^dispatcher]: The async-`construct()` marshalling half of this row is wired to a
     live UI dispatcher only in C# (`AvaloniaDispatcher`, Avalonia's global UI
@@ -179,17 +181,16 @@ lifecycle-bearing search-result ownership obligation.
   captured they will live under `assets/notes-showcase/` — one PNG per
   flavor, captured manually from each running app.
 
-[^hier]: All four UI-backed examples implement an equivalent flat-collection +
-    parent-id navigation pattern instead of subclassing
-    `HierarchicalVM<TModel, TVM>` directly, because the canonical class
-    sources each node's children from a per-node factory (materialized
-    lazily on first access, not eagerly) — an awkward fit for a flat,
-    freely-mutated `parent_id` collection. The observable contract —
-    `TreeStructureChangedMessage` emission on add/remove, `current`
-    selection, and `walk()` / `childrenOf()` accessors — is preserved
-    identically across all four UI-backed examples, so capability dispatch and
-    spec-level tree messaging behave the same way as a canonical
-    `HierarchicalVM`. Per-flavor source notes:
+[^hier]: The four UI-backed examples do not subclass
+    `HierarchicalVM<TModel, TVM>` directly. Each uses an equivalent pattern: a
+    flat collection with parent-id navigation. The canonical class gets the
+    children of each node from a per-node factory. By default, it materializes
+    them lazily on first access. This design does not fit a flat `parent_id`
+    collection that changes freely. All four examples keep the same observable
+    contract: they send `TreeStructureChangedMessage` on add and remove, keep a
+    `current` selection, and provide `walk()` and `childrenOf()` accessors.
+    Thus capability dispatch and spec-level tree messages behave as they do
+    with a canonical `HierarchicalVM`. Per-flavor source notes:
     `examples/csharp/avalonia/NotesShowcase/ViewModels/NotebooksRootVM.cs`,
     `examples/python/textual/notes_showcase/src/notes_showcase/viewmodels/notebooks_root_vm.py`,
     `examples/typescript/react/notes-showcase/src/viewmodels/notebooksRootVM.ts`,

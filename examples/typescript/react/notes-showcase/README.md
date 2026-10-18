@@ -52,7 +52,8 @@ npm run typecheck   # builds local VMx first
 examples/typescript/react/notes-showcase/
 ├── package.json, vite.config.ts, tsconfig.json, index.html, eslint.config.js
 ├── src/
-│   ├── main.tsx                     ← composition root
+│   ├── main.tsx                     ← composition root; calls createWorkspace()
+│   ├── composition.ts               ← createWorkspace(): VM tree wiring
 │   ├── messages/themeChanged.ts     ← ThemeChangedMessage (row 16)
 │   ├── models/
 │   │   ├── notebookModel.ts, noteModel.ts
@@ -74,7 +75,8 @@ examples/typescript/react/notes-showcase/
 │       ├── adapter/                 ← application-specific React host services
 │       │   ├── useDialogOverlay.ts
 │       │   ├── ReactDispatcher.ts, ReactDialogService.tsx
-│       │   ├── themeAdapter.ts      ← ThemeVM → CSS variables
+│       │   ├── downloadExporter.ts  ← saves Export… as a browser download
+│       │   └── themeAdapter.ts      ← ThemeVM → CSS variables
 │       ├── components/
 │       │   ├── Layout.tsx, NotebooksTree.tsx, NotesList.tsx,
 │       │   │   NoteForm.tsx, StatusBar.tsx, Notifications.tsx,
@@ -89,7 +91,7 @@ examples/typescript/react/notes-showcase/
 | #   | Feature                                                  | Where                                                                                                                                                                                                                                                           |
 | --- | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1   | Notebook tree projection                                 | `viewmodels/notebooksRootVM.ts`, `viewmodels/notebookVM.ts` (flat `ComponentVM`-based adapters representing the `HierarchicalVM` capability and emitting `TreeStructureChangedMessage`)                                                                         |
-| 2   | `CompositeVM.current`                                    | `viewmodels/notesViewVM.ts` (`current` two-way binding)                                                                                                                                                                                                         |
+| 2   | `CompositeVM.current`                                    | `viewmodels/notesViewVM.ts` (app-owned `current` slot)                                                                                                                                                                                                          |
 | 3   | `ComponentVMOf<M>` modeled                               | `viewmodels/noteVM.ts`, `viewmodels/notebookVM.ts`                                                                                                                                                                                                              |
 | 4   | `FormVM` snapshot / revert / validation                  | `viewmodels/noteFormVM.ts` (owns a strict `FormVM<NoteModel>`)                                                                                                                                                                                                  |
 | 5   | `DerivedProperty`                                        | `viewmodels/statusBarVM.ts`, `capabilityActionsVM.actions`                                                                                                                                                                                                      |
@@ -100,7 +102,7 @@ examples/typescript/react/notes-showcase/
 | 10  | Async `construct()` + dispatcher                         | `viewmodels/workspaceVM.ts` (`constructAsync()`), `views/adapter/ReactDispatcher.ts`                                                                                                                                                                            |
 | 11  | `TreeStructureChangedMessage`                            | `viewmodels/notebooksRootVM.ts` (`addNotebookAsync` / `populateAsync`)                                                                                                                                                                                          |
 | 12  | `ConfirmationDecoratorCommand`                           | `viewmodels/noteVM.ts` (`deleteCommand` wraps inner delete)                                                                                                                                                                                                     |
-| 13  | `IDialogService`                                         | `viewmodels/dialogService.ts`; implemented by `views/adapter/ReactDialogService.tsx` + `views/components/modals/`                                                                                                                                               |
+| 13  | `IDialogService`                                         | `viewmodels/dialogService.ts`; implemented by `views/adapter/ReactDialogService.tsx` + `views/components/modals/`. Export saves a browser download through `views/adapter/downloadExporter.ts`                                                                  |
 | 14  | Capability-aware UI                                      | `viewmodels/capabilityActionsVM.ts` + `views/components/CapabilityActions.tsx`                                                                                                                                                                                  |
 | 15  | `AggregateVM6` (spec 2.2.0)                              | `viewmodels/workspaceVM.ts` (wraps an `AggregateVM6<…>` of the six children)                                                                                                                                                                                    |
 | 16  | `ThemeVM` scenario contract (spec 2.4.0, THEME-001..005) | `models/themeModel.ts`, `viewmodels/themeVM.ts`, `messages/themeChanged.ts`, `views/adapter/themeAdapter.ts` (workspace-owned `ThemeVM` sibling bound through the React adapter; still outside the `AggregateVM6` child list pending any future `AggregateVM7`) |

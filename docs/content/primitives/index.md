@@ -45,9 +45,10 @@ invent surface APIs that belong on the concrete primitive pages.
 ## 6.1.4. Cross-Language Surface
 
 The normative concepts are shared across C#, Python, TypeScript, Swift, and
-Rust. The completed
+Rust. The
 [Rust parity ledger](../../maintenance/2026-07-16-rust-capability-parity.md)
-records the focused 0.27.0 member and behavior convergence evidence.
+records the 0.27.0 member and behavior convergence evidence. That work closed
+the original scope. The ledger lists later open Rust items in its §12.7.
 The surface idiom changes:
 
 | Concept            | C#                        | Python             | TypeScript                | Swift                     | Rust                    |

@@ -27,8 +27,9 @@ A hierarchical node owns:
 - its recursive `Children`
 - structural metadata such as `Parent`, `Depth`, `Path`, `IsRoot`, and `IsLeaf`
 
-Children are lazy by default and can be materialized eagerly where the host
-needs the whole tree available during construct.
+Children are lazy by default. Eager mode applies per node. An eager node
+constructs its children depth-first. The whole tree is eager only when every
+node is eager.
 
 The structural root also owns a small pending set for `attachMany` batch
 hydration. Pending nodes are not part of `Children` until their selected parent
@@ -38,7 +39,8 @@ is materialized.
 
 The important differences from manual recursive composites are:
 
-- eager trees construct depth-first across the full subtree
+- an eager node constructs its children depth-first; the whole subtree is
+  eager only when every node in it is eager
 - lazy children do not participate until materialized
 - structural mutations publish `TreeStructureChangedMessage`
 - cache invalidation publishes property-changed for the children property

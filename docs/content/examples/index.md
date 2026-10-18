@@ -21,7 +21,7 @@ Workspace portfolio.
 | Flavor     | Small demos                                          | Scenario role                               |
 | ---------- | ---------------------------------------------------- | ------------------------------------------- |
 | C#         | Console `HelloVMx`, WPF Todo                         | Avalonia flagship                           |
-| Python     | Console `hello-vmx`, tkinter Todo, Textual Inspector | Textual flagship, NiceGUI host over its VMs |
+| Python     | Console `hello_vmx`, tkinter Todo, Textual Inspector | Textual flagship, NiceGUI host over its VMs |
 | TypeScript | Console `hello-vmx`                                  | React flagship                              |
 | Swift      | none beyond the flagship today                       | SwiftUI flagship                            |
 | Rust       | Console `hello-vmx`                                  | Reduced Ratatui companion                   |

@@ -58,6 +58,11 @@ Lifecycle orchestration matches `CompositeVM`:
 - `AutoConstructOnAdd(true)` can opt into post-construct child auto-construct
 - `BatchUpdate()` suppresses per-mutation collection events and emits one reset
 
+In Rust, a group with background children stays Constructing until those
+children settle. Thus `construct()` can return `Ok` while the group is still
+transient. A background child failure rolls the group back. The failure
+arrives on the group's `background_errors()` stream (spec/11 §2).
+
 Group children are peers. Their inherited select command must stay disabled
 while the group is their parent.
 

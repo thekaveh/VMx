@@ -38,13 +38,14 @@ Rust is the fifth VMx source flavor. It lives under `langs/rust/` as the
 - Async resources: `AsyncResourceVm<T, D>` accepts the shared hub and dispatcher,
   implements the ordinary component/node contract, and keeps resource phase in
   `resource_status()` / `state().status()` independently of lifecycle status
-- Threading: `Dispatcher` has paired foreground/background closure channels;
-  component and read-only builders opt into background lifecycle work with
-  `.background(true)`, and `background_errors()` reports fire-and-forget failures;
-  containers stay transient until background children settle (their
-  `construct`/`destruct`/`reconstruct` can return `Ok` while still
-  Constructing/Destructing), and wrapper nodes should forward
-  `VmNode::when_lifecycle_settled` so containers can wait for them
+- Threading: `Dispatcher` has paired foreground and background closure
+  channels. Component and read-only builders opt into background lifecycle work
+  with `.background(true)`. The `background_errors()` stream reports
+  fire-and-forget failures. Containers stay transient until their background
+  children settle. Thus a container `construct`, `destruct`, or `reconstruct`
+  call can return `Ok` while the container is still Constructing or
+  Destructing. Wrapper nodes should forward `VmNode::when_lifecycle_settled`,
+  so that containers can wait for them
 
 ## 7.6.2. Fixed Aggregates
 

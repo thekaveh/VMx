@@ -12,11 +12,12 @@ post-dispose behavior.
 
 ## 6.8.1. Modeled Assignment After Disposal
 
-Modeled assignment has one portable terminal rule across all five flavors. If
-an assignment begins after the VM is disposed, it returns before candidate
-equality, retained-model or snapshot mutation, modeled-hint work, validation,
-command-state recomputation, consumer callbacks, local notifications, or hub
-messages. The last accepted model and every derived state value remain
+Modeled assignment has one portable terminal rule in all five flavors. An
+assignment that starts after disposal returns immediately. It does not compare
+the candidate for equality. It does not change the retained model or the
+snapshot. It does no modeled-hint work, validation, or command-state
+recomputation. It calls no consumer callbacks. It sends no local notifications
+and no hub messages. The last accepted model and all derived state values stay
 readable and unchanged.
 
 This admission guard covers modeled components and `FormVM`. Swift's internal
@@ -42,9 +43,10 @@ resource cancellation.
 | Collection/projection helpers | Batch handles, paging, filtered projections, disposable collections | `DISP-006`       | `COMP-013`, `COMP-035`, `GRP-006`, `COL-024..031` |
 | Async resource owners         | AsyncResourceVM loader, commands, and accepted value                | `ARES-010..011`  | `ARES-005`, `ARES-008`, `ARES-009`                |
 
-Only types already documented as thread-safe promise racing disposal. Those
-types atomically claim terminal work. Single-threaded flavors and helpers still
-guarantee repeated and re-entrant disposal on their supported execution model.
+Only types that are documented as thread-safe support disposal that races other
+calls. These types claim terminal work atomically. Single-threaded flavors and
+helpers still support repeated and re-entrant disposal on their execution
+model.
 
 ## 6.8.3. Ownership Rules
 
@@ -59,9 +61,10 @@ guarantee repeated and re-entrant disposal on their supported execution model.
   Per-construct resources remain explicit in `OnConstruct`/`OnDestruct`.
 - Parent VMs dispose owned children depth-first. A child reached through
   several teardown paths has one observable terminal transition.
-- Terminal cascades do not stop at a failing child or subclass hook. Every
-  sibling and the parent's base teardown still run; throwing/result-based
-  flavors propagate the first failure only after mandatory cleanup completes.
+- A terminal cascade does not stop at a failing child or subclass hook. The
+  teardown of every sibling still runs. The base teardown of the parent also
+  runs. Flavors that throw or return results report the first failure only
+  after all mandatory cleanup completes.
 - Disposal deferred by an ownership transfer runs after commit or rollback. A
   committed transfer publishes both membership events before propagating a
   disposal failure; an earlier attachment failure stays first if rollback also

@@ -264,9 +264,11 @@ respect to other lifecycle operations on the same VM.
 - A composite/group/aggregate's `destruct()` completes only when every child has
   reached `Destructed`.
 - The order in which children are constructed/destructed is unspecified.
-  Implementations MAY drive them sequentially or concurrently; the reference
-  implementations in all five active flavors drive
-  them sequentially. The parent observes its children's
+  Implementations MAY drive them sequentially or concurrently. The reference
+  implementations drive aggregates and the Swift and Rust composites and
+  groups sequentially. The C#, Python, and TypeScript composites and groups
+  start factory-populated children during population, so background children
+  in those containers can run concurrently. The parent observes its children's
   `ConstructionStatusChangedMessage` emissions to know when to finalize its own
   state. Because the order is unspecified, subscribers MUST NOT rely on a
   particular child visitation order; no conformance ID constrains it (VMX-046).

@@ -43,7 +43,7 @@ idiomatic hosts, and one shared VM contract.
 The portfolio is the working example for the four current UI-backed flagship hosts:
 
 - notebook tree projection representing the `HierarchicalVM` capability
-- selectable notes list through `CompositeVM.current`
+- selectable notes list through an app-owned `current` slot
 - strict `FormVM` editing and validation
 - `DerivedProperty` status and enablement
 - `SearchableState`, paged notes, and token-paged global search

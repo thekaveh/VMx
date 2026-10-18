@@ -37,10 +37,15 @@ Important runtime rules from the spec:
   messages are preserved and drained FIFO rather than merged
 - subscriber-generated messages append to the current iterative drain instead
   of recursively re-entering the Rx subject
-- property-changed and collection-changed emissions are foreground-dispatched by
-  contract when the implementation marshals them that way
-- background lifecycle work publishes intermediate state immediately and
-  foreground-marshals terminal completion
+- property-changed and collection-changed emissions go to the foreground. An
+  implementation either sends them on the foreground dispatcher, or lets
+  subscribers observe them on the foreground (spec/11 §3)
+- background lifecycle work publishes intermediate state immediately. It sends
+  the terminal completion on the foreground
+- in Rust, a container with background children stays transient until those
+  children settle. Thus `construct()` can return `Ok` while the container is
+  still transient. Rust containers report background child failures on
+  `background_errors()`
 
 Thread-safe hubs atomically claim teardown, so racing callers still complete
 and clear owned state once. See the [Disposal Contract](disposal-contract.md).

@@ -7,11 +7,11 @@ Global all-notes search is the scenario path that demonstrates
 
 - forward-only token paging through repository-backed search
 - search results that are independent of the currently focused notebook
-- source-change refresh with an unchanged search term before token paging reads
-  the new filtered projection
-- a refresh whose first page is unchanged keeps every loaded result and its
-  continuation, so Load More continues after the last visible result instead
-  of fetching page two again (spec 21 §6.2, ADR-0136)
+- a refresh after a source change, with an unchanged search term. The refresh
+  occurs before token paging reads the new filtered projection
+- a refresh that does not change the first page. This refresh keeps every
+  loaded result and its continuation. Thus Load More continues after the last
+  visible result. It does not fetch page two again (spec 21 §6.2, ADR-0136)
 - explicit ownership of every lifecycle-bearing result VM created by a search,
   including results later replaced, equality-suppressed, or returned by stale
   asynchronous work
