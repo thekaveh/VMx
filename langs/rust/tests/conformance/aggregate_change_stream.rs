@@ -585,15 +585,29 @@ fn aggregate_reentrant_removal_is_fifo_and_stale_safe() {
     let changes_capture = Arc::clone(&changes);
     let source_capture = source.clone();
     let item_capture = item.clone();
+    let membership_seen = Arc::new(Mutex::new(0usize));
+    let membership_capture = Arc::clone(&membership_seen);
     let subscription = aggregate
         .observe(AggregateObserveOptions::default())
         .subscribe(move |change| {
-            let should_remove = change.reason == AggregateChangeReason::Item
-                && locked(&source_capture.items).len() == 1;
+            let reason = change.reason;
+            let should_remove = reason == AggregateChangeReason::Item
+                && locked(&source_capture.items).len() == 1
+                && *locked(&membership_capture) == 0;
             locked(&changes_capture).push(change);
             if should_remove {
+                // Remove to zero refcount, then queue an item callback from the
+                // removed epoch.
                 source_capture.remove_id(item_capture.id());
                 item_capture.emit();
+            } else if reason == AggregateChangeReason::Membership {
+                let mut seen = locked(&membership_capture);
+                *seen += 1;
+                if *seen == 1 {
+                    drop(seen);
+                    // Reentrant re-add of the same identity: a fresh epoch.
+                    source_capture.add(item_capture.clone());
+                }
             }
         });
 
@@ -603,9 +617,27 @@ fn aggregate_reentrant_removal_is_fifo_and_stale_safe() {
         reasons(&changes),
         vec![
             AggregateChangeReason::Item,
+            AggregateChangeReason::Membership,
             AggregateChangeReason::Membership
+        ],
+        "the removed-epoch callback is discarded; reentrant work is FIFO"
+    );
+
+    // The re-added membership observes item work under its new epoch exactly once.
+    item.emit();
+    assert_eq!(
+        reasons(&changes),
+        vec![
+            AggregateChangeReason::Item,
+            AggregateChangeReason::Membership,
+            AggregateChangeReason::Membership,
+            AggregateChangeReason::Item
         ]
     );
+    let last = locked(&changes)
+        .last()
+        .and_then(|change| change.item.clone());
+    assert_eq!(last.map(|node| node.id()), Some(14));
     drop(subscription);
 }
 

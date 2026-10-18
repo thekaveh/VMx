@@ -1664,10 +1664,12 @@ fn paged_composition_navigation_clamps_at_bounds() {
 /// COL-019 — PagedComposition<TVM> PageSize == 0 passes through all items
 #[test]
 fn page_size_zero_returns_all_items() {
-    let pages = PagedComposition::new(vec![1, 2, 3], 0);
+    let pages = PagedComposition::new(vec![1, 2, 3, 4, 5, 6, 7], 0);
 
-    assert_eq!(pages.current_page(), vec![1, 2, 3]);
+    assert!(!pages.is_paging_enabled());
     assert_eq!(pages.page_count(), 1);
+    assert_eq!(pages.current_page_index(), 0);
+    assert_eq!(pages.current_page(), vec![1, 2, 3, 4, 5, 6, 7]);
 
     // Pass-through mode always has exactly one page, even for an empty source
     // (spec/21-collections.md §5.3); only PageSize > 0 yields zero pages (§5.4).

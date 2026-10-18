@@ -146,14 +146,14 @@ public sealed class AggregateChangeStreamConformanceTests
         var item = new TestItem("nested");
         var source = new TestSource<TestItem>(item);
         using var aggregate = CreateAggregate(source);
-        AggregateChange<TestItem>? observed = null;
-        using var subscription = aggregate.Observe().Subscribe(change => observed = change);
+        var observed = new List<AggregateChange<TestItem>>();
+        using var subscription = aggregate.Observe().Subscribe(observed.Add);
 
         item.Changes.Emit();
 
-        Assert.NotNull(observed);
-        Assert.Equal(AggregateChangeReason.Item, observed!.Reason);
-        Assert.Same(item, observed.Item);
+        var envelope = Assert.Single(observed);
+        Assert.Equal(AggregateChangeReason.Item, envelope.Reason);
+        Assert.Same(item, envelope.Item);
     }
 
     [Fact, Trait("Conformance", "AGCH-004")]

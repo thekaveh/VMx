@@ -67,6 +67,8 @@ fn field_defaults_are_applied() {
         .unwrap();
 
     assert_eq!(vm.hint(), Some(String::new()));
+    assert_eq!(vm.parent_id(), None);
+    assert_eq!(vm.view_model_type(), ViewModelType::Component);
     assert_eq!(vm.modeled_hint(), Some("modeled:model".to_string()));
 }
 

@@ -197,22 +197,44 @@ final class CompositeVMTests: XCTestCase {
     // ── onCurrentChanged(_:) builder hook (COMP-026) ────────────────────
 
     func testOnCurrentChangedFiresAfterEachCurrentChange() throws {
-        let a = leaf("a"); let b = leaf("b")
+        let hub1 = MessageHub()
+        let a = try ComponentVM.builder()
+            .name("a").services(hub: hub1, dispatcher: ImmediateDispatcher.INSTANCE).build()
+        let b = try ComponentVM.builder()
+            .name("b").services(hub: hub1, dispatcher: ImmediateDispatcher.INSTANCE).build()
+        let c = try ComponentVM.builder()
+            .name("c").services(hub: hub1, dispatcher: ImmediateDispatcher.INSTANCE).build()
         var observed: [ComponentVM?] = []
+        // Shared event log: each callback must be recorded after the matching
+        // PropertyChangedMessage("current") from the composite on the hub.
+        var events: [String] = []
+        var compositeRef: CompositeVM<ComponentVM>?
 
         let composite = try CompositeVM<ComponentVM>.builder()
             .name("composite")
-            .withNullServices()
-            .children { [a, b] }
-            .onCurrentChanged { vm in observed.append(vm) }
+            .services(hub: hub1, dispatcher: ImmediateDispatcher.INSTANCE)
+            .children { [a, b, c] }
+            .onCurrentChanged { vm in
+                observed.append(vm)
+                events.append("callback:\(vm?.name ?? "nil")")
+            }
             .build()
+        compositeRef = composite
+        let currentSub = hub1.messages
+            .compactMap { $0 as? PropertyChangedMessage }
+            .filter { $0.propertyName == "current" && $0.senderObject === compositeRef }
+            .sink { _ in events.append("message") }
         try composite.construct()
+        XCTAssertNil(composite.current)
         composite.selectChild(b)
         composite.deselectChild(b)
 
         XCTAssertEqual(observed.count, 2)
         XCTAssertTrue(observed[0] === b)
         XCTAssertNil(observed[1])
+        XCTAssertEqual(events, ["message", "callback:b", "message", "callback:nil"],
+                       "each callback must run after its PropertyChangedMessage(\"current\")")
+        currentSub.cancel()
     }
 
     func testOnCurrentChangedFiresOnceForInitialSelector() throws {
@@ -342,22 +364,44 @@ final class CompositeVMTests: XCTestCase {
     /// child-to-parent selection path converge at the same current-change
     /// transaction, so callback ordering is identical.
     func testCOMP026OnCurrentChangedFiresAfterEachChange() throws {
-        let a = leaf("a"); let b = leaf("b")
+        let hub1 = MessageHub()
+        let a = try ComponentVM.builder()
+            .name("a").services(hub: hub1, dispatcher: ImmediateDispatcher.INSTANCE).build()
+        let b = try ComponentVM.builder()
+            .name("b").services(hub: hub1, dispatcher: ImmediateDispatcher.INSTANCE).build()
+        let c = try ComponentVM.builder()
+            .name("c").services(hub: hub1, dispatcher: ImmediateDispatcher.INSTANCE).build()
         var observed: [ComponentVM?] = []
+        // Shared event log: each callback must be recorded after the matching
+        // PropertyChangedMessage("current") from the composite on the hub.
+        var events: [String] = []
+        var compositeRef: CompositeVM<ComponentVM>?
 
         let composite = try CompositeVM<ComponentVM>.builder()
             .name("composite")
-            .withNullServices()
-            .children { [a, b] }
-            .onCurrentChanged { vm in observed.append(vm) }
+            .services(hub: hub1, dispatcher: ImmediateDispatcher.INSTANCE)
+            .children { [a, b, c] }
+            .onCurrentChanged { vm in
+                observed.append(vm)
+                events.append("callback:\(vm?.name ?? "nil")")
+            }
             .build()
+        compositeRef = composite
+        let currentSub = hub1.messages
+            .compactMap { $0 as? PropertyChangedMessage }
+            .filter { $0.propertyName == "current" && $0.senderObject === compositeRef }
+            .sink { _ in events.append("message") }
         try composite.construct()
+        XCTAssertNil(composite.current)
         composite.selectChild(b)
         composite.deselectChild(b)
 
         XCTAssertEqual(observed.count, 2)
         XCTAssertTrue(observed[0] === b)
         XCTAssertNil(observed[1])
+        XCTAssertEqual(events, ["message", "callback:b", "message", "callback:nil"],
+                       "each callback must run after its PropertyChangedMessage(\"current\")")
+        currentSub.cancel()
 
         // Combined current(first) + onCurrentChanged: the initial-selector
         // assignment fires the hook exactly once with the first child during

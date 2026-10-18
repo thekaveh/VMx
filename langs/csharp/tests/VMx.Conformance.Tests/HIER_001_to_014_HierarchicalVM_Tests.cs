@@ -248,26 +248,51 @@ public class HIER_001_to_014_HierarchicalVM_Tests
     [Trait("Conformance", "HIER-008")]
     public void HIER_008_Eager_Child_Loading_Via_Constructor_Option()
     {
-        var factoryInvoked = false;
+        // Two-level tree: root -> {a, b}; a -> {a1}; b -> {b1}. Every node is
+        // built with eagerChildren=true and its factory records the invocation.
+        var invocations = new List<string>();
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
 
-        var leaf = LeafNode();
-        var root = new MyNode(
-            new MyModel(),
-            _ =>
-            {
-                factoryInvoked = true;
-                return [leaf];
-            },
-            eagerChildren: true);
+        MyNode Eager(string name, Func<IEnumerable<MyNode>> kids) =>
+            new(
+                new MyModel(name),
+                _ =>
+                {
+                    invocations.Add(name);
+                    return kids();
+                },
+                hub,
+                dispatcher,
+                name,
+                eagerChildren: true);
 
-        // Before Construct, factory still not called.
-        factoryInvoked.Should().BeFalse("eager mode: factory not called before Construct()");
+        var a1 = Eager("a1", () => []);
+        var b1 = Eager("b1", () => []);
+        var a = Eager("a", () => [a1]);
+        var b = Eager("b", () => [b1]);
+        var root = Eager("root", () => [a, b]);
+
+        // Before Construct, no factory has run.
+        invocations.Should().BeEmpty("eager mode: factory not called before Construct()");
 
         root.Construct();
 
-        // After Construct, factory must have been invoked (eager).
-        factoryInvoked.Should().BeTrue("eager mode: factory invoked during Construct()");
-        root.Children.Should().ContainSingle().Which.Should().BeSameAs(leaf);
+        // After Construct, the factory has run for every node in the tree,
+        // without any explicit Children access by the test.
+        invocations.Should().BeEquivalentTo(
+            ["root", "a", "b", "a1", "b1"],
+            "eager mode: children factory invoked for every descendant during Construct()");
+        invocations.Should().OnlyHaveUniqueItems("each node's factory runs exactly once");
+        foreach (var node in new[] { root, a, b, a1, b1 })
+        {
+            node.Status.Should().Be(VMx.Lifecycle.ConstructionStatus.Constructed, $"{node.Model.Value} is materialized and constructed");
+        }
+
+        root.Children.Should().Equal(a, b);
+        a.Children.Should().ContainSingle().Which.Should().BeSameAs(a1);
+        b.Children.Should().ContainSingle().Which.Should().BeSameAs(b1);
+        invocations.Should().HaveCount(5, "accessing Children afterwards does not re-run any factory");
     }
 
     // ── HIER-009 ──────────────────────────────────────────────────────────────
@@ -437,12 +462,25 @@ public class HIER_001_to_014_HierarchicalVM_Tests
         var hub = new TestHub();
         var dispatcher = new TestDispatcher();
 
+        // "banana" owns a lazy child "mango" (which would also match "an") that
+        // is never accessed, so it stays un-materialized.
+        var lazyFactoryCalls = 0;
+        var mango = new MyNode(new MyModel("mango"), _ => [], hub, dispatcher);
         var apple = new MyNode(new MyModel("apple"), _ => [], hub, dispatcher);
-        var banana = new MyNode(new MyModel("banana"), _ => [], hub, dispatcher);
+        var banana = new MyNode(
+            new MyModel("banana"),
+            _ =>
+            {
+                lazyFactoryCalls++;
+                return [mango];
+            },
+            hub,
+            dispatcher);
         var cherry = new MyNode(new MyModel("cherry"), _ => [], hub, dispatcher);
         var root = NodeWithChildren([apple, banana, cherry], hub, dispatcher);
 
-        // Compose SearchableState filtering by model value.
+        // Compose SearchableState filtering by model value over the materialized
+        // portion of the tree (the root's accessed children).
         var search = new SearchableState<MyNode>(
             items: () => root.Children.Cast<MyNode>(),
             predicate: (node, term) => node.Model.Value.Contains(term, StringComparison.OrdinalIgnoreCase),
@@ -454,7 +492,15 @@ public class HIER_001_to_014_HierarchicalVM_Tests
         search.SearchTerm = "an";
         search.Search(); // force immediate apply
 
-        result.Should().ContainSingle(n => n.Model.Value == "banana");
+        result.Should().HaveCount(1, "only one materialized leaf matches 'an'");
+        result.Single().Should().BeSameAs(banana);
+        result.Should().NotContain(mango, "un-materialized lazy children are not included in results");
+        lazyFactoryCalls.Should().Be(0, "searching does not materialize lazy children");
+
+        search.SearchTerm = "e";
+        search.Search();
+        result.Should().Equal(apple, cherry);
+        lazyFactoryCalls.Should().Be(0);
     }
 
     // ── HIER-014 ──────────────────────────────────────────────────────────────

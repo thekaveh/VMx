@@ -62,14 +62,16 @@ fn source_change_recomputes_value() {
 /// DPROP-003 — Two-source derived value
 #[test]
 fn two_source_value_can_be_modeled_by_transform() {
-    let left = ValueStream::new(2);
-    let right = ValueStream::new(3);
+    let left = ValueStream::new(3);
+    let right = ValueStream::new(4);
     let property =
         DerivedProperty::from_two(left.clone(), right.clone(), |left, right| left + right);
 
-    right.send(5);
-
     assert_eq!(property.value(), 7);
+
+    right.send(6);
+
+    assert_eq!(property.value(), 9);
 }
 
 /// DPROP-004 — Five-source derived value (spec minimum)
@@ -205,17 +207,29 @@ fn value_changed_emits_on_recompute() {
 /// DPROP-010 — ValueChanged does not emit when transform output is unchanged
 #[test]
 fn value_changed_does_not_emit_when_value_is_unchanged() {
-    let source = ValueStream::new(1);
-    let property = DerivedProperty::from_one(source.clone(), |_| 1);
-    let hits = Arc::new(Mutex::new(0));
-    let seen = hits.clone();
-    let _subscription = property.value_changes().subscribe(move |_| {
-        *seen.lock().unwrap() += 1;
-    });
+    let s1 = ValueStream::new(5);
+    let s2 = ValueStream::new(5);
+    let property = DerivedProperty::from_two(s1.clone(), s2.clone(), |a, b| a + b);
+    assert_eq!(property.value(), 10);
+    let values = Arc::new(Mutex::new(Vec::new()));
+    let seen = values.clone();
+    let _subscription = property
+        .value_changes()
+        .subscribe(move |value| seen.lock().unwrap().push(value));
 
-    source.send(2);
+    s1.send(3);
+    s2.send(7);
 
-    assert_eq!(*hits.lock().unwrap(), 0);
+    assert_eq!(*values.lock().unwrap(), vec![8, 10]);
+
+    s1.send(3);
+
+    assert_eq!(property.value(), 10);
+    assert_eq!(
+        *values.lock().unwrap(),
+        vec![8, 10],
+        "an unchanged transform output must not emit"
+    );
 }
 
 /// DPROP-011 — Dispose ends subscriptions and ValueChanged completes

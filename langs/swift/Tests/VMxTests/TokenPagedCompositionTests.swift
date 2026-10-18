@@ -257,16 +257,30 @@ final class TokenPagedCompositionTests: XCTestCase {
     }
 
     /// COL-030 — autoConstructOnAdd constructs component VMs added by a page.
+    /// Catalog: the added VMs are constructed BEFORE subscribers observe the
+    /// reset, so construction is checked inside the observer.
     func testCOL030AutoConstructsAddedComponentVMs() async throws {
-        let child = try ComponentVM.builder().name("child").withNullServices().build()
+        let first = try ComponentVM.builder().name("first").withNullServices().build()
+        let second = try ComponentVM.builder().name("second").withNullServices().build()
         let sut = TokenPagedComposition<ComponentVM, String>(
-            fetchNext: { _ in ([child], nil) },
+            fetchNext: { _ in ([first, second], nil) },
             autoConstructOnAdd: true
         )
+        var resetsObserved = 0
+        var constructedAtReset: [Bool] = []
+        sut.collectionChanged.sink { event in
+            guard event.action == .reset else { return }
+            resetsObserved += 1
+            constructedAtReset = [first.isConstructed, second.isConstructed]
+        }.store(in: &cancellables)
 
         try await sut.loadMoreCommand.executeAsync()
 
-        XCTAssertTrue(child.isConstructed)
+        XCTAssertEqual(resetsObserved, 1)
+        XCTAssertEqual(constructedAtReset, [true, true],
+            "children must be Constructed before subscribers see the Reset")
+        XCTAssertTrue(first.isConstructed)
+        XCTAssertTrue(second.isConstructed)
     }
 
     /// COL-031 — PagedComposition observes CompositeVM collection changes.

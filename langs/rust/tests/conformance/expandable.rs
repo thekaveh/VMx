@@ -25,10 +25,29 @@ fn expand_flips_state_and_emits_once() {
     let state_expanded_changed_record = state.expanded_changed().record(1024);
 
     state.expand();
+
+    assert!(state.is_expanded());
+    // The emission's payload is the new value, carried as the message name.
+    let values = || {
+        state_expanded_changed_record
+            .messages()
+            .into_iter()
+            .map(|message| match message {
+                Message::Custom { name, .. } => name,
+                other => panic!("unexpected expansion message {other:?}"),
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(values(), vec!["true".to_string()]);
+
     state.expand();
 
     assert!(state.is_expanded());
-    assert_eq!(state_expanded_changed_record.messages().len(), 1);
+    assert_eq!(
+        values(),
+        vec!["true".to_string()],
+        "repeat expand is a no-op"
+    );
 }
 
 /// EXP-003 — Collapse flips state back

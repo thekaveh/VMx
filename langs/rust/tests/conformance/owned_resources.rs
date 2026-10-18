@@ -67,8 +67,13 @@ fn post_dispose_registration_cleans_immediately() {
     vm.dispose().unwrap();
     let observed = calls.clone();
     vm.own(move || *observed.lock().unwrap() += 1);
+    assert_eq!(
+        *calls.lock().unwrap(),
+        1,
+        "cleanup runs immediately on registration after disposal"
+    );
     vm.dispose().unwrap();
-    assert_eq!(*calls.lock().unwrap(), 1);
+    assert_eq!(*calls.lock().unwrap(), 1, "no second cleanup");
 }
 
 /// DISP-011 — disposal-lifetime resources survive reconstruct.

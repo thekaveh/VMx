@@ -104,9 +104,12 @@ def test_COMP_035_dispose_stops_source_subscription() -> None:
 
 @pytest.mark.conformance("COMP-036")
 def test_COMP_036_scored_filter_sorts_by_score_with_stable_ties() -> None:
-    src = source("alpha", "bee", "ax")
-    sut = ScoredFilteredCompositeVM(src, scorer=lambda vm: 1 if vm.name.startswith("a") else None)
-    assert [vm.name for vm in sut.visible] == ["alpha", "ax"]
+    # Distinct scores exercise descending order; "alpha"/"ab" tie (source order
+    # kept); "bee" scores None and is excluded.
+    scores: dict[str, int | None] = {"alpha": 1, "bee": None, "ax": 3, "ab": 1, "az": 2}
+    src = source("alpha", "bee", "ax", "ab", "az")
+    sut = ScoredFilteredCompositeVM(src, scorer=lambda vm: scores[vm.name])
+    assert [vm.name for vm in sut.visible] == ["ax", "az", "alpha", "ab"]
 
 
 @pytest.mark.conformance("COMP-037")

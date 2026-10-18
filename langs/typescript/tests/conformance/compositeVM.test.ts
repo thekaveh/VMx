@@ -714,20 +714,36 @@ describe("COMP-026", () => {
   it("OnCurrentChanged(callback) fires synchronously after each Current change", () => {
     const hub = makeHub();
     const disp = makeDisp();
-    const children = ["a", "b"].map((n) => makeChild(hub, n));
+    const children = ["a", "b", "c"].map((n) => makeChild(hub, n));
     const observed: (ComponentVM | null)[] = [];
+    const order: string[] = [];
 
     const composite = CompositeVM.builder<ComponentVM>()
       .name("composite")
       .services(hub, disp)
       .children(() => children)
-      .onCurrentChanged((vm) => observed.push(vm))
+      .onCurrentChanged((vm) => {
+        observed.push(vm);
+        order.push(`callback:${vm?.name ?? "null"}`);
+      })
       .build();
+    hub.messages.subscribe((m) => {
+      if (
+        m instanceof PropertyChangedMessage &&
+        m.propertyName === "current" &&
+        m.sender === composite
+      ) {
+        order.push(`message:${composite.current?.name ?? "null"}`);
+      }
+    });
     composite.construct();
+    expect(composite.current).toBeNull();
     composite.selectComponent(children[1]!);
     composite.deselectComponent(children[1]!);
 
     expect(observed).toEqual([children[1], null]);
+    // Each callback runs after its PropertyChangedMessage("current").
+    expect(order).toEqual(["message:b", "callback:b", "message:null", "callback:null"]);
 
     // Combined current(first) + onCurrentChanged: the initial-selector
     // assignment fires the hook exactly once with the first child.

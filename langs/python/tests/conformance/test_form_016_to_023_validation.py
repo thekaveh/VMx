@@ -49,7 +49,13 @@ def test_FORM_017_model_validator_populates_errors() -> None:
 @pytest.mark.conformance("FORM-018")
 def test_FORM_018_is_valid_reflects_errors() -> None:
     sut = FormVM(Model("", 1), persist, validators={"name": lambda m: "required"})
+    assert sut.errors != {}
     assert sut.is_valid is False
+
+    # Effective Errors map empty => is_valid True (validator returns None).
+    clean = FormVM(Model("ok", 1), persist, validators={"name": lambda m: None})
+    assert clean.errors == {}
+    assert clean.is_valid is True
 
 
 @pytest.mark.conformance("FORM-019")
@@ -97,6 +103,10 @@ def test_FORM_022_builder_registers_validators_immutably() -> None:
     with_validator = base.validator("name", lambda m: "required")
     assert base is not with_validator
     assert with_validator.build().field_error("name") == "required"
+    # The original builder is unchanged: it still builds a validator-free form.
+    original = base.build()
+    assert original.field_error("name") is None
+    assert original.errors == {}
 
 
 @pytest.mark.conformance("FORM-023")

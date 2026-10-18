@@ -160,10 +160,20 @@ public class COMP_028_to_037_FilteredCompositeTests
     [Fact, Trait("Conformance", "COMP-036")]
     public void COMP_036_ScoredFilterSortsByScoreWithStableTies()
     {
+        // Distinct scores ascending in source order (so descending is observable),
+        // a null-scored item, and a tie (b1/b2 share score 2) in source order.
+        var scores = new Dictionary<string, int?>
+        {
+            ["low"] = 1,
+            ["b1"] = 2,
+            ["none"] = null,
+            ["b2"] = 2,
+            ["high"] = 5,
+        };
         var sut = new ScoredFilteredCompositeVM<ComponentVM>(
-            Source("alpha", "bee", "ax"),
-            vm => vm.Name.StartsWith('a') ? 1 : null);
-        sut.Visible.Select(vm => vm.Name).Should().Equal("alpha", "ax");
+            Source("low", "b1", "none", "b2", "high"),
+            vm => scores[vm.Name]);
+        sut.Visible.Select(vm => vm.Name).Should().Equal("high", "b1", "b2", "low");
     }
 
     [Fact, Trait("Conformance", "COMP-037")]

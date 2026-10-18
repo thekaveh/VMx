@@ -99,8 +99,19 @@ final class HierarchicalCompositionTests: XCTestCase {
         let apple  = SearchHierNode(model: HierModel(value: "apple"),
                                     childrenFactory: { _ in [] }, hub: hub,
                                     dispatcher: ImmediateDispatcher.INSTANCE)
+        // banana owns a lazy grandchild whose name also matches the search
+        // term; it is never accessed, so it must not appear in the results
+        // and its factory must not run (catalog: un-materialized children
+        // are excluded).
+        var lazyFactoryCalls = 0
         let banana = SearchHierNode(model: HierModel(value: "banana"),
-                                    childrenFactory: { _ in [] }, hub: hub,
+                                    childrenFactory: { _ in
+                                        lazyFactoryCalls += 1
+                                        return [SearchHierNode(
+                                            model: HierModel(value: "bandana"),
+                                            childrenFactory: { _ in [] }, hub: hub,
+                                            dispatcher: ImmediateDispatcher.INSTANCE)]
+                                    }, hub: hub,
                                     dispatcher: ImmediateDispatcher.INSTANCE)
         let cherry = SearchHierNode(model: HierModel(value: "cherry"),
                                     childrenFactory: { _ in [] }, hub: hub,
@@ -128,6 +139,16 @@ final class HierarchicalCompositionTests: XCTestCase {
 
         XCTAssertEqual(result.count, 1, "Only 'banana' should match 'an'")
         XCTAssertEqual(result.first?.model.value, "banana")
+        XCTAssertTrue(result.first === banana)
+        XCTAssertFalse(result.contains(where: { $0.model.value == "bandana" }),
+            "Un-materialized lazy grandchild must not be included")
+        XCTAssertEqual(lazyFactoryCalls, 0,
+            "Searching must not materialize banana's lazy children")
+
+        search.searchTerm = "e"
+        search.search()
+        XCTAssertEqual(result.map { $0.model.value }, ["apple", "cherry"])
+        XCTAssertEqual(lazyFactoryCalls, 0)
 
         search.dispose()
     }

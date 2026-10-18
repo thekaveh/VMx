@@ -12,6 +12,7 @@ use vmx::{
 #[derive(Default)]
 struct Fixture {
     expanded: Cell<bool>,
+    selected: Cell<bool>,
     calls: RefCell<Vec<String>>,
 }
 
@@ -29,21 +30,27 @@ impl Selectable for Fixture {
     fn can_select(&self) -> bool {
         true
     }
-    fn select(&self) {}
+    fn select(&self) {
+        self.record("select");
+    }
 }
 
 impl Deselectable for Fixture {
     fn can_deselect(&self) -> bool {
         true
     }
-    fn deselect(&self) {}
+    fn deselect(&self) {
+        self.record("deselect");
+    }
 }
 
 impl SelectionTogglable for Fixture {
     fn can_toggle_selection(&self) -> bool {
         true
     }
-    fn toggle_selection(&self) {}
+    fn toggle_selection(&self) {
+        self.selected.set(!self.selected.get());
+    }
 }
 
 impl Expandable for Fixture {
@@ -55,6 +62,7 @@ impl Expandable for Fixture {
     }
     fn expand(&self) {
         self.expanded.set(true);
+        self.record("expand");
     }
 }
 
@@ -62,21 +70,27 @@ impl Collapsible for Fixture {
     fn can_collapse(&self) -> bool {
         true
     }
-    fn collapse(&self) {}
+    fn collapse(&self) {
+        self.record("collapse");
+    }
 }
 
 impl ExpansionTogglable for Fixture {
     fn can_toggle_expansion(&self) -> bool {
         true
     }
-    fn toggle_expansion(&self) {}
+    fn toggle_expansion(&self) {
+        self.expanded.set(!self.expanded.get());
+    }
 }
 
 impl Closable for Fixture {
     fn can_close(&self) -> bool {
         true
     }
-    fn close(&self) {}
+    fn close(&self) {
+        self.record("close");
+    }
 }
 
 impl Approvable for Fixture {
@@ -206,6 +220,7 @@ fn selectable_contract() {
     let fixture = Fixture::default();
     assert!(fixture.can_select());
     fixture.select();
+    assert_eq!(fixture.calls(), ["select"]);
 }
 
 /// CAP-002 — IDeselectable contract
@@ -214,14 +229,20 @@ fn deselectable_contract() {
     let fixture = Fixture::default();
     assert!(fixture.can_deselect());
     fixture.deselect();
+    assert_eq!(fixture.calls(), ["deselect"]);
 }
 
 /// CAP-003 — ISelectionTogglable contract
 #[test]
 fn selection_togglable_contract() {
     let fixture = Fixture::default();
+    let initial = fixture.selected.get();
     assert!(fixture.can_toggle_selection());
     fixture.toggle_selection();
+    assert_ne!(fixture.selected.get(), initial);
+    assert!(fixture.can_toggle_selection());
+    fixture.toggle_selection();
+    assert_eq!(fixture.selected.get(), initial);
 }
 
 /// CAP-004 — IExpandable contract
@@ -240,14 +261,20 @@ fn collapsible_contract() {
     let fixture = Fixture::default();
     assert!(fixture.can_collapse());
     fixture.collapse();
+    assert_eq!(fixture.calls(), ["collapse"]);
 }
 
 /// CAP-006 — IExpansionTogglable contract
 #[test]
 fn expansion_togglable_contract() {
     let fixture = Fixture::default();
+    let initial = fixture.is_expanded();
     assert!(fixture.can_toggle_expansion());
     fixture.toggle_expansion();
+    assert_ne!(fixture.is_expanded(), initial);
+    assert!(fixture.can_toggle_expansion());
+    fixture.toggle_expansion();
+    assert_eq!(fixture.is_expanded(), initial);
 }
 
 /// CAP-007 — IClosable contract
@@ -256,6 +283,7 @@ fn closable_contract() {
     let fixture = Fixture::default();
     assert!(fixture.can_close());
     fixture.close();
+    assert_eq!(fixture.calls(), ["close"]);
 }
 
 /// CAP-008 — ISearchable contract
@@ -369,12 +397,31 @@ fn lifecycle_capability_set() {
 /// CAP-019 — A single VM may implement multiple capabilities
 #[test]
 fn single_type_may_implement_multiple_capabilities() {
+    // Rust has no runtime interface query; the trait-bound function below is
+    // the compile-time equivalent of "the type answers true for all five".
+    fn requires_all<T: Selectable + Expandable + Closable + Approvable + Cancelable>(_: &T) {}
     let fixture = Fixture::default();
+    requires_all(&fixture);
+
     assert!(fixture.can_select());
+    fixture.select();
+    assert_eq!(fixture.calls(), ["select"]);
     assert!(fixture.can_expand());
+    fixture.expand();
+    assert!(fixture.is_expanded());
+    assert_eq!(fixture.calls(), ["select", "expand"]);
     assert!(fixture.can_close());
+    fixture.close();
+    assert_eq!(fixture.calls(), ["select", "expand", "close"]);
     assert!(fixture.can_approve());
+    fixture.approve();
+    assert_eq!(fixture.calls(), ["select", "expand", "close", "approve"]);
     assert!(fixture.can_cancel());
+    fixture.cancel();
+    assert_eq!(
+        fixture.calls(),
+        ["select", "expand", "close", "approve", "cancel"]
+    );
 }
 
 /// CAP-020 — Core VM types do NOT implement non-baseline capabilities by default

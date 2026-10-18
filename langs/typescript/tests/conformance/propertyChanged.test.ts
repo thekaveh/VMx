@@ -65,7 +65,8 @@ describe("PROP-002", () => {
 
     vm.model = m1; // same reference
 
-    expect(received.filter((m) => m.propertyName === "model")).toHaveLength(0);
+    // Zero PropertyChangedMessage emissions of any name.
+    expect(received).toHaveLength(0);
   });
 });
 

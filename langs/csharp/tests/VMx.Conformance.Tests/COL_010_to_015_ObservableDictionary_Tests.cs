@@ -1,3 +1,4 @@
+using System.Reactive.Linq;
 using FluentAssertions;
 using VMx.Collections;
 using VMx.Messages;
@@ -295,6 +296,36 @@ public class COL_010_to_015_ObservableDictionaryTests
         resetMsg.OldItems.Should().BeEmpty();
     }
 
+    /// <summary>
+    /// COL-022: each mutation (insert, remove a different entry, replace, Clear)
+    /// publishes exactly one hub message after the local CollectionChanged fires.
+    /// </summary>
+    [Fact, Trait("Conformance", "COL-022")]
+    public void COL_022_Hub_Publication_Follows_Local_CollectionChanged()
+    {
+        using var hub = new MessageHub();
+        var sut = new ObservableDictionary<string, int, double>(hub);
+        sut.Add("keep", 0, 0.5);
+        sut.Add("drop", 9, 9.5);
+
+        var log = new List<string>();
+        sut.CollectionChanged += (_, e) => log.Add($"local:{e.Action}");
+        hub.Messages
+            .OfType<ICollectionChangedMessage<KeyValuePair<(string, int), double>>>()
+            .Subscribe(m => log.Add($"hub:{m.Action}"));
+
+        sut.Add("alpha", 1, 1.0);   // insert
+        sut.Remove("drop", 9);      // remove a different entry
+        sut["keep", 0] = 2.0;       // replace an existing entry
+        sut.Clear();                // reset
+
+        log.Should().Equal(
+            "local:Add", "hub:Add",
+            "local:Remove", "hub:Remove",
+            "local:Replace", "hub:Replace",
+            "local:Reset", "hub:Reset");
+    }
+
     /// <summary>COL-022 (no-hub path): ObservableDictionary with null hub does not throw and does not publish.</summary>
     [Fact, Trait("Conformance", "COL-022")]
     public void COL_022_NoHub_NoPublicationNoErrors()
@@ -312,5 +343,17 @@ public class COL_010_to_015_ObservableDictionaryTests
         };
 
         act.Should().NotThrow();
+
+        // An explicit null hub behaves the same.
+        var nullHub = new ObservableDictionary<string, int, double>(null);
+        var actNull = () =>
+        {
+            nullHub.Add("x", 1, 1.0);
+            nullHub.Remove("x", 1);
+            nullHub.Add("y", 2, 3.0);
+            nullHub["y", 2] = 4.0;
+            nullHub.Clear();
+        };
+        actNull.Should().NotThrow();
     }
 }

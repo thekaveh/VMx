@@ -95,10 +95,29 @@ fn group_context_search_forces_immediate_projection() {
 /// GRP-010 — Predicate is user-supplied (group context)
 #[test]
 fn group_context_predicate_is_user_supplied() {
-    let state = SearchableState::new(vec!["a", "bbb"], |item, term| item.len() == term.len());
-    state.set_search_term("xx");
+    // Prefix match on the term's reversal: no substring filter would select
+    // "cba" for "abc" while rejecting "abc" itself.
+    let custom = |item: &&'static str, term: &str| {
+        let reversed = term.chars().rev().collect::<String>();
+        !term.is_empty() && item.starts_with(&reversed)
+    };
+    let items = vec!["abc", "cba", "cbazz", "xabc"];
+    let state = SearchableState::new(items.clone(), custom);
+    state.set_search_term("abc");
 
-    assert_eq!(state.filtered(), Vec::<&str>::new());
+    let searched = state.search();
+    let substring = items
+        .iter()
+        .copied()
+        .filter(|item| contains(item, "abc"))
+        .collect::<Vec<_>>();
+
+    assert_eq!(searched, vec!["cba", "cbazz"]);
+    assert_eq!(state.filtered(), vec!["cba", "cbazz"]);
+    assert_ne!(
+        searched, substring,
+        "the custom rule must not equal a substring filter"
+    );
 }
 
 fn pulse(hub: &MessageHub) {

@@ -3,7 +3,7 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 use vmx::{
     AsyncRelayCommand, AsyncValue, Command, CompositeCommand, ConfirmationDecoratorCommand,
-    DecoratorCommand, Message, RelayCommand, VmxError,
+    DecoratorCommand, Message, MessageHub, RelayCommand, VmxError,
 };
 
 fn recording_command(
@@ -41,15 +41,21 @@ fn composite_command_execute_invokes_only_enabled() {
 /// CMDD-003 — CompositeCommand propagates inner CanExecuteChanged
 #[test]
 fn composite_command_propagates_inner_can_execute_changed() {
-    let inner = RelayCommand::noop();
-    let composite = CompositeCommand::from_commands(vec![inner.clone()]);
+    let trigger = MessageHub::new();
+    let inner = RelayCommand::builder().trigger(trigger.clone()).build();
+    let composite = CompositeCommand::from_commands(vec![inner]);
     let fired = Arc::new(AtomicUsize::new(0));
     let fired_clone = fired.clone();
     let _subscription = composite.can_execute_changed().subscribe(move |_| {
         fired_clone.fetch_add(1, Ordering::SeqCst);
     });
 
-    inner.trigger_can_execute_changed();
+    assert_eq!(fired.load(Ordering::SeqCst), 0);
+    trigger.send(Message::Custom {
+        sender_id: 0,
+        sender_name: "trigger".to_string(),
+        name: "fire".to_string(),
+    });
 
     assert_eq!(fired.load(Ordering::SeqCst), 1);
 }

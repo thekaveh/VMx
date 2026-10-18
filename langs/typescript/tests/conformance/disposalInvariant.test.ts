@@ -59,10 +59,12 @@ describe("DISP-002", () => {
       startedResolve = resolve;
     });
     let cancellations = 0;
+    let runs = 0;
     const command = AsyncRelayCommand.builder()
       .task(
         (signal) =>
           new Promise<void>((_, reject) => {
+            runs += 1;
             startedResolve();
             signal.addEventListener(
               "abort",
@@ -76,14 +78,37 @@ describe("DISP-002", () => {
       )
       .build();
 
+    let errorCompletions = 0;
+    let canExecuteCompletions = 0;
+    const errors: unknown[] = [];
+    command.errors.subscribe({
+      next: (e) => errors.push(e),
+      complete: () => (errorCompletions += 1),
+    });
+    command.canExecuteChanged.subscribe({ complete: () => (canExecuteCompletions += 1) });
+
     const run = command.executeAsync();
     await started;
+    expect(command.isExecuting).toBe(true);
     command.dispose();
     command.dispose();
     await expect(run).resolves.toBeUndefined();
 
     expect(cancellations).toBe(1);
+    // Non-executing terminal state.
+    expect(command.isExecuting).toBe(false);
     expect(command.canExecute()).toBe(false);
+
+    // Later execution attempts are inert.
+    command.execute();
+    await command.executeAsync();
+    expect(runs).toBe(1);
+    expect(command.isExecuting).toBe(false);
+
+    // Terminal channels complete at most once.
+    expect(errorCompletions).toBeLessThanOrEqual(1);
+    expect(canExecuteCompletions).toBeLessThanOrEqual(1);
+    expect(errors).toEqual([]);
   });
 });
 

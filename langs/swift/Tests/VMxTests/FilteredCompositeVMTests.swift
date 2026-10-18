@@ -109,10 +109,13 @@ final class FilteredCompositeVMTests: XCTestCase {
 
     /// COMP-036 — scored filter sorts by score with stable ties.
     func testCOMP036ScoredFilterSortsByScoreWithStableTies() throws {
-        let sut = try ScoredFilteredCompositeVM(source("alpha", "bee", "ax")) {
-            $0.name.hasPrefix("a") ? 1 : nil
+        // Distinct scores test descending order; "c1"/"c2" tie to test stable
+        // source order; "bee" has a nil score and is excluded.
+        let scores: [String: Double] = ["low": 1, "c1": 2, "high": 3, "c2": 2]
+        let sut = try ScoredFilteredCompositeVM(source("low", "c1", "bee", "high", "c2")) {
+            scores[$0.name]
         }
-        XCTAssertEqual(sut.visible.map(\.name), ["alpha", "ax"])
+        XCTAssertEqual(sut.visible.map(\.name), ["high", "c1", "c2", "low"])
     }
 
     /// COMP-037 — scored filter recomputes order when scores change.

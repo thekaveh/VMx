@@ -51,10 +51,12 @@ public class DisposalInvariantConformanceTests
     {
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var cancellations = 0;
+        var invocations = 0;
         var command = AsyncRelayCommand.Builder()
             .Task(async token =>
             {
-                started.SetResult();
+                Interlocked.Increment(ref invocations);
+                started.TrySetResult();
                 try
                 {
                     await Task.Delay(Timeout.Infinite, token);
@@ -67,14 +69,38 @@ public class DisposalInvariantConformanceTests
             })
             .Build();
 
+        var errorCompletions = 0;
+        var errorTerminations = 0;
+        var errorValues = 0;
+        using var errorsSub = command.Errors.Subscribe(
+            _ => errorValues++,
+            _ => errorTerminations++,
+            () => errorCompletions++);
+
         var run = command.ExecuteAsync();
         await started.Task;
+        command.IsExecuting.Should().BeTrue();
         command.Dispose();
         command.Dispose();
         await run;
 
-        cancellations.Should().Be(1);
+        cancellations.Should().Be(1, "the in-flight operation observes exactly one cancellation");
+        command.IsExecuting.Should().BeFalse("the command returns to a non-executing terminal state");
         command.CanExecute(null).Should().BeFalse();
+
+        // Later execution attempts are inert.
+        command.Execute(null);
+        await command.ExecuteAsync();
+        invocations.Should().Be(1, "post-dispose execution never starts the operation");
+        cancellations.Should().Be(1);
+        command.IsExecuting.Should().BeFalse();
+
+        // No terminal/error channel completes more than once (and the
+        // cancellation is not reported as an error).
+        command.Dispose();
+        errorCompletions.Should().BeLessThanOrEqualTo(1);
+        errorTerminations.Should().Be(0);
+        errorValues.Should().Be(0);
     }
 
     [Fact, Trait("Conformance", "DISP-003")]

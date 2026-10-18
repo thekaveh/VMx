@@ -343,8 +343,42 @@ describe("COL-022", () => {
     expect(received[0]?.oldItems).toHaveLength(0);
   });
 
+  it("each mutation publishes exactly one hub message after the local event fires", () => {
+    const hub = new MessageHub();
+    const sut = new ObservableDictionary<string, number, number>(hub);
+    const log: string[] = [];
+    sut.itemAdded.subscribe(() => log.push("local:add"));
+    sut.itemRemoved.subscribe(() => log.push("local:remove"));
+    sut.itemReplaced.subscribe(() => log.push("local:replace"));
+    sut.reset.subscribe(() => log.push("local:reset"));
+    hub.messages.subscribe((m) => {
+      if (m instanceof CollectionChangedMessage) log.push(`hub:${m.action}`);
+    });
+
+    // insert, remove a different entry, replace an existing entry, clear
+    sut.set("a", 1, 1.0);
+    sut.set("b", 2, 2.0);
+    log.length = 0;
+    sut.delete("b", 2);
+    sut.set("a", 1, 1.5);
+    sut.clear();
+
+    expect(log).toEqual([
+      "local:remove", "hub:remove",
+      "local:replace", "hub:replace",
+      "local:reset", "hub:reset",
+    ]);
+
+    log.length = 0;
+    sut.set("c", 3, 3.0);
+    expect(log).toEqual(["local:add", "hub:add"]);
+  });
+
   it("no-hub construction: no errors and no publication", () => {
     // Construct without hub — must not throw on any mutation.
+    const unrelatedHub = new MessageHub();
+    const published: unknown[] = [];
+    unrelatedHub.messages.subscribe((m) => published.push(m));
     const sut = new ObservableDictionary<string, number, number>();
     expect(() => {
       sut.set("x", 1, 1.0);
@@ -353,5 +387,6 @@ describe("COL-022", () => {
       sut.set("y", 2, 3.0);
       sut.clear();
     }).not.toThrow();
+    expect(published).toHaveLength(0);
   });
 });

@@ -238,25 +238,46 @@ def test_hier_007_default_lazy_child_loading() -> None:
 
 @pytest.mark.conformance("HIER-008")
 def test_hier_008_eager_child_loading_via_constructor_option() -> None:
-    """HIER-008: passing eager_children=True materializes the full subtree at
-    construct() time.
+    """HIER-008: a tree whose nodes are built with eager_children=True
+    materializes the full (multi-level) subtree at root construct() time,
+    invoking the factory for every node without any explicit ``children``
+    access. (The option is per-node in every flavor, so each node of the tree
+    is constructed with it.)
     """
-    factory_invoked = False
-    leaf = leaf_node()
+    invocations: list[str] = []
 
-    def factory(_: MyNode) -> list[MyNode]:
-        nonlocal factory_invoked
-        factory_invoked = True
-        return [leaf]
+    # Tree shape: root -> (a -> (aa, ab), b -> (ba)); leaves have no children.
+    shape: dict[str, list[str]] = {
+        "root": ["a", "b"],
+        "a": ["aa", "ab"],
+        "b": ["ba"],
+        "aa": [],
+        "ab": [],
+        "ba": [],
+    }
 
-    root = MyNode(children_factory=factory, eager_children=True)
+    def factory(node: MyNode) -> list[MyNode]:
+        invocations.append(node.model.value)
+        return [
+            MyNode(model=MyModel(name), children_factory=factory, eager_children=True)
+            for name in shape[node.model.value]
+        ]
 
-    assert not factory_invoked, "eager mode: factory not called before construct()"
+    root = MyNode(model=MyModel("root"), children_factory=factory, eager_children=True)
+
+    assert invocations == [], "eager mode: factory not called before construct()"
 
     root.construct()
 
-    assert factory_invoked, "eager mode: factory invoked during construct()"
-    assert root.children == [leaf]
+    assert sorted(invocations) == sorted(shape), (
+        "factory must be invoked exactly once for every node in the tree"
+    )
+    # Every descendant is materialized and was constructed (no extra factory calls on access).
+    before = len(invocations)
+    a, b = root.children
+    assert [c.model.value for c in a.children] == ["aa", "ab"]
+    assert [c.model.value for c in b.children] == ["ba"]
+    assert len(invocations) == before, "descendants were already materialized"
 
 
 # ---------------------------------------------------------------------------
@@ -465,26 +486,50 @@ def test_hier_012_walk_expanded_honors_expandable_state() -> None:
 
 @pytest.mark.conformance("HIER-013")
 def test_hier_013_searchable_state_composition() -> None:
-    """HIER-013: SearchableState composition filters the materialized portion."""
+    """HIER-013: SearchableState composition filters the materialized portion;
+    lazy (un-accessed) children are not included in results.
+    """
     from vmx.capabilities.searchable_state import SearchableState
+    from vmx.tree import walk
 
     hub = make_hub()
     dispatcher = make_dispatcher()
 
+    lazy_factory_calls = 0
+    # A lazy grandchild that WOULD match the term if it were materialized.
+    lazy_match = MyNode(model=MyModel("bandana"), hub=hub, dispatcher=dispatcher)
+
+    def lazy_factory(_: MyNode) -> list[MyNode]:
+        nonlocal lazy_factory_calls
+        lazy_factory_calls += 1
+        return [lazy_match]
+
     apple = MyNode(model=MyModel("apple"), hub=hub, dispatcher=dispatcher)
     banana = MyNode(model=MyModel("banana"), hub=hub, dispatcher=dispatcher)
-    cherry = MyNode(model=MyModel("cherry"), hub=hub, dispatcher=dispatcher)
-    root = parent_node([apple, banana, cherry], hub=hub)
+    mango = MyNode(model=MyModel("mango"), hub=hub, dispatcher=dispatcher)
+    # cherry has a lazy child that is never accessed.
+    cherry = MyNode(
+        model=MyModel("cherry"), children_factory=lazy_factory, hub=hub, dispatcher=dispatcher
+    )
+    root = parent_node([apple, banana, mango, cherry], hub=hub)
+
+    def materialized() -> list[MyNode]:
+        # Only the materialized portion: root's children (accessed) without
+        # touching any lazy node's ``children``.
+        return list(root.children)
 
     search: SearchableState[MyNode] = SearchableState(
-        items=lambda: root.children,
+        items=materialized,
         predicate=lambda node, term: term.lower() in node.model.value.lower(),
         debounce_seconds=0,
     )
 
     result: list[MyNode] = []
+    emissions = 0
 
     def on_filtered(items: list[MyNode]) -> None:
+        nonlocal emissions
+        emissions += 1
         result.clear()
         result.extend(items)
 
@@ -493,8 +538,14 @@ def test_hier_013_searchable_state_composition() -> None:
     search.search_term = "an"
     search.search()
 
-    assert len(result) == 1
-    assert result[0].model.value == "banana"
+    assert emissions >= 1
+    assert [n.model.value for n in result] == ["banana", "mango"], (
+        "exactly the matching materialized leaves, in source order"
+    )
+    assert lazy_match not in result, "un-materialized lazy child must not appear"
+    assert lazy_factory_calls == 0, "searching must not materialize lazy children"
+    # Sanity: the lazy child would have matched if it were materialized.
+    assert lazy_match in list(walk(root))
 
 
 # ---------------------------------------------------------------------------

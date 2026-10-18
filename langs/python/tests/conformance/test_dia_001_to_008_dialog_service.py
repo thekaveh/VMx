@@ -84,6 +84,46 @@ async def test_dia_003_confirm_contract() -> None:
     assert r1 is False
     assert r2 is False
 
+    # A test double scripted with the user's answer: confirm resolves True,
+    # cancel/dismiss resolves False; title is optional.
+    class ScriptedDialogService(DialogService):
+        def __init__(self, answer: bool) -> None:
+            self.answer = answer
+            self.calls: list[tuple[str, str | None]] = []
+
+        async def pick_file_to_open(
+            self, filter: FileFilter | None = None, title: str | None = None
+        ) -> str | None:
+            return None
+
+        async def pick_file_to_save(
+            self,
+            filter: FileFilter | None = None,
+            title: str | None = None,
+            suggested_name: str | None = None,
+        ) -> str | None:
+            return None
+
+        async def confirm(self, message: str, title: str | None = None) -> bool:
+            self.calls.append((message, title))
+            return self.answer
+
+        async def notify(
+            self,
+            message: str,
+            title: str | None = None,
+            severity: NotificationSeverity = NotificationSeverity.INFO,
+        ) -> None:
+            return None
+
+    confirming = ScriptedDialogService(answer=True)
+    assert await confirming.confirm("Proceed?") is True
+    assert await confirming.confirm("Proceed?", title="Confirm") is True
+    assert confirming.calls == [("Proceed?", None), ("Proceed?", "Confirm")]
+
+    cancelling = ScriptedDialogService(answer=False)
+    assert await cancelling.confirm("Proceed?") is False
+
 
 # ---------------------------------------------------------------------------
 # DIA-004 — Notify contract

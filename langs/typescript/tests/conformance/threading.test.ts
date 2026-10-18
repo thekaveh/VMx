@@ -69,32 +69,49 @@ describe("THR-001", () => {
 describe("THR-002", () => {
   it("Background construct dispatches OnConstruct on the background scheduler", () => {
     const hub = makeHub();
+    // Distinct virtual-time schedulers: the construction work (OnConstruct)
+    // must be queued on dispatcher.background, and only the terminal
+    // Constructed emission is marshalled back onto dispatcher.foreground.
+    const foreground = makeTestScheduler();
     const background = makeTestScheduler();
-    // Foreground synchronous, background controllable: construct() must emit
-    // Constructing synchronously and defer the Constructed transition until
-    // the background scheduler advances.
-    const disp = new RxDispatcher(background, background);
+    const disp = new RxDispatcher(foreground, background);
 
+    let constructRuns = 0;
     const vm = ComponentVMOf.builder<string>()
       .name("v")
       .model("m")
       .services(hub, disp)
       .background(true)
+      .onConstruct(() => { constructRuns++; })
       .build();
 
     vm.construct();
 
-    // construct() returns immediately; the VM is mid-transition (Constructing),
-    // NOT yet in the terminal Constructed state.
+    // construct() returns immediately with only Constructing emitted; the
+    // construction work has not run because neither scheduler has advanced.
     expect(vm.status, "Background(true) emits only Constructing synchronously").toBe(
       ConstructionStatus.Constructing,
     );
+    expect(constructRuns, "OnConstruct must be deferred to the background scheduler").toBe(0);
 
+    // Advancing ONLY the foreground must not run the construction work.
+    foreground.flush();
+    expect(constructRuns, "advancing the foreground alone must not run OnConstruct").toBe(0);
+    expect(vm.status).toBe(ConstructionStatus.Constructing);
+
+    // Advancing the background runs the construction work; the terminal
+    // Constructed transition is still pending on the foreground.
     background.flush();
+    expect(constructRuns, "advancing the background scheduler runs OnConstruct exactly once").toBe(1);
+    expect(vm.status, "still Constructing after only background advances").toBe(
+      ConstructionStatus.Constructing,
+    );
 
-    expect(vm.status, "after the background scheduler advances the transition completes").toBe(
+    foreground.flush();
+    expect(vm.status, "after the foreground advances the transition completes").toBe(
       ConstructionStatus.Constructed,
     );
+    expect(constructRuns).toBe(1);
   });
 });
 

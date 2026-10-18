@@ -663,6 +663,37 @@ fn destruct_from_destructed_is_noop() {
     assert_eq!(vm.status(), ConstructionStatus::Destructed);
 }
 
+/// Legal rows must succeed; illegal rows must fail with the Rust
+/// `StatusTransitionError` equivalent. Per `02-lifecycle.md` (documented open
+/// Rust gap), a call from `Disposed` returns `VmxError::Disposed` and a call
+/// during another transition returns `VmxError::ConcurrentOperation`; every
+/// other illegal row returns `InvalidLifecycleTransition` naming state and
+/// operation.
+fn assert_fixture_result(result: &vmx::VmxResult<()>, row: &LifecycleRow) {
+    if row.legal {
+        assert!(result.is_ok(), "{} via {}: {result:?}", row.from, row.via);
+        return;
+    }
+    match (row.from.as_str(), result) {
+        ("Disposed", Err(VmxError::Disposed)) => {}
+        ("Constructing" | "Destructing", Err(VmxError::ConcurrentOperation)) => {}
+        (_, Err(VmxError::InvalidLifecycleTransition { from, operation })) => {
+            assert_eq!(
+                *from,
+                fixture_status(&row.from),
+                "{} via {}",
+                row.from,
+                row.via
+            );
+            assert_eq!(*operation, row.via, "{} via {}", row.from, row.via);
+        }
+        (_, other) => panic!(
+            "{} via {} must raise the lifecycle transition error, got {other:?}",
+            row.from, row.via
+        ),
+    }
+}
+
 /// LIFE-011 — Lifecycle transition table matches fixture
 #[test]
 fn lifecycle_transition_fixture_contains_required_transitions() {
@@ -721,12 +752,12 @@ fn lifecycle_transition_fixture_contains_required_transitions() {
                 assert_eq!(vm.status(), ConstructionStatus::Disposed);
                 release_send.send(()).unwrap();
                 let result = operation.join().unwrap();
-                assert_eq!(result.is_ok(), row.legal, "{} via {}", row.from, row.via);
+                assert_fixture_result(&result, &row);
                 let _ = worker.join().unwrap();
                 continue;
             }
             let result = apply_fixture_operation(&vm, &row.via);
-            assert_eq!(result.is_ok(), row.legal, "{} via {}", row.from, row.via);
+            assert_fixture_result(&result, &row);
             if let Some(final_state) = &row.to_final {
                 assert_eq!(vm.status(), fixture_status(final_state));
             }
@@ -737,7 +768,7 @@ fn lifecycle_transition_fixture_contains_required_transitions() {
 
         let observed = statuses(&hub);
         let result = apply_fixture_operation(&vm, &row.via);
-        assert_eq!(result.is_ok(), row.legal, "{} via {}", row.from, row.via);
+        assert_fixture_result(&result, &row);
         if let Some(intermediate) = &row.to_intermediate {
             assert_eq!(
                 observed.lock().unwrap().first(),
@@ -947,9 +978,13 @@ fn throwing_lifecycle_hook_rolls_status_back() {
     let hub = MessageHub::new();
     let vm = ComponentVm::with_services("vm", hub.clone(), NullDispatcher::new());
     let observed = statuses(&hub);
-    vm.on_construct(|| Err(VmxError::Other("boom".to_string())));
+    vm.on_construct(|| Err(VmxError::Other("construct boom".to_string())));
 
-    assert!(vm.construct().is_err());
+    assert_eq!(
+        vm.construct(),
+        Err(VmxError::Other("construct boom".to_string())),
+        "construct propagates the hook's own error"
+    );
 
     assert_eq!(vm.status(), ConstructionStatus::Destructed);
     assert_eq!(
@@ -959,6 +994,30 @@ fn throwing_lifecycle_hook_rolls_status_back() {
             ConstructionStatus::Destructed
         ]
     );
+
+    vm.on_construct(|| Ok(()));
+    vm.construct().unwrap();
+    assert_eq!(vm.status(), ConstructionStatus::Constructed);
+
+    observed.lock().unwrap().clear();
+    vm.on_destruct(|| Err(VmxError::Other("destruct boom".to_string())));
+    assert_eq!(
+        vm.destruct(),
+        Err(VmxError::Other("destruct boom".to_string())),
+        "destruct propagates the hook's own error"
+    );
+    assert_eq!(vm.status(), ConstructionStatus::Constructed);
+    assert_eq!(
+        *observed.lock().unwrap(),
+        vec![
+            ConstructionStatus::Destructing,
+            ConstructionStatus::Constructed
+        ]
+    );
+
+    vm.on_destruct(|| Ok(()));
+    vm.destruct().unwrap();
+    assert_eq!(vm.status(), ConstructionStatus::Destructed);
 }
 
 #[test]

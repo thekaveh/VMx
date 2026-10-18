@@ -52,9 +52,11 @@ def test_disp_001_parent_cascade_is_observably_idempotent() -> None:
 async def test_disp_002_repeated_async_command_dispose_cancels_one_inflight_run() -> None:
     started = asyncio.Event()
     cancellations = 0
+    runs = 0
 
     async def task() -> None:
-        nonlocal cancellations
+        nonlocal cancellations, runs
+        runs += 1
         started.set()
         try:
             await asyncio.sleep(3600)
@@ -63,14 +65,37 @@ async def test_disp_002_repeated_async_command_dispose_cancels_one_inflight_run(
             raise
 
     command = AsyncRelayCommand.builder().task(task).build()
+    completions = {"errors": 0, "can_execute_changed": 0}
+    errors: list[BaseException] = []
+
+    def done(key: str) -> None:
+        completions[key] += 1
+
+    command.errors.subscribe(on_next=errors.append, on_completed=lambda: done("errors"))
+    command.can_execute_changed.subscribe(on_completed=lambda: done("can_execute_changed"))
+
     run = asyncio.create_task(command.execute_async())
     await started.wait()
+    assert command.is_executing is True
     command.dispose()
     command.dispose()
     await run
 
     assert cancellations == 1
+    # Non-executing terminal state.
+    assert command.is_executing is False
     assert command.can_execute() is False
+
+    # Later execution attempts are inert.
+    command.execute()
+    await command.execute_async()
+    await asyncio.sleep(0)
+    assert runs == 1
+    assert command.is_executing is False
+
+    # No terminal/error channel completes more than once; no error emitted.
+    assert all(count <= 1 for count in completions.values()), completions
+    assert errors == []
 
 
 @pytest.mark.conformance("DISP-003")

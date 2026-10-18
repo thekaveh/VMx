@@ -244,51 +244,64 @@ def test_COL_015_clear_empties_key_views() -> None:
 
 @pytest.mark.conformance("COL-022")
 def test_COL_022_hub_publication_mutations_publish_to_hub() -> None:
-    """COL-022: ObservableDictionary mutations publish CollectionChangedMessage to hub."""
+    """COL-022: each mutation publishes exactly one CollectionChangedMessage to
+    the hub, after the local collection-changed event fires.
+    """
     hub: MessageHub[CollectionChangedMessage[object]] = MessageHub()
     sut: ObservableDictionary[str, int, float] = ObservableDictionary(hub=hub)
 
+    log: list[str] = []
     received: list[CollectionChangedMessage[object]] = []
-    hub.messages.subscribe(lambda m: received.append(m))  # type: ignore[arg-type]
 
-    # Add — publishes an "add" message
+    def on_hub(m: object) -> None:
+        if isinstance(m, CollectionChangedMessage):
+            received.append(m)
+            log.append(f"hub:{m.action}")
+
+    hub.messages.subscribe(on_hub)
+    sut.on_item_added.subscribe(lambda _: log.append("local:add"))
+    sut.on_item_removed.subscribe(lambda _: log.append("local:remove"))
+    sut.on_item_replaced.subscribe(lambda _: log.append("local:replace"))
+    sut.on_reset.subscribe(lambda _: log.append("local:reset"))
+
+    # Seed a second entry so "remove a different entry" has a target.
+    sut.add("beta", 2, 2.72)
+    log.clear()
+    received.clear()
+
+    # Insert
     sut.add("alpha", 1, 3.14)
+    assert log == ["local:add", "hub:add"]
     assert len(received) == 1
     msg = received[0]
-    assert isinstance(msg, CollectionChangedMessage)
-    assert msg.action == "add"
     assert msg.sender_object is sut
-    # new_items carries the full entry (key1, key2, value); old_items empty.
     assert msg.new_items == (("alpha", 1, 3.14),)
     assert msg.old_items == ()
-
+    log.clear()
     received.clear()
 
-    # Replace via __setitem__ — publishes a "replace" message; new_items carries
-    # the new value and old_items the prior value, both with the keys.
-    sut["alpha", 1] = 9.99
+    # Remove a different entry
+    sut.remove("beta", 2)
+    assert log == ["local:remove", "hub:remove"]
     assert len(received) == 1
-    assert received[0].action == "replace"
+    assert received[0].new_items == ()
+    assert received[0].old_items == (("beta", 2, 2.72),)
+    log.clear()
+    received.clear()
+
+    # Replace an existing entry
+    sut["alpha", 1] = 9.99
+    assert log == ["local:replace", "hub:replace"]
+    assert len(received) == 1
     assert received[0].new_items == (("alpha", 1, 9.99),)
     assert received[0].old_items == (("alpha", 1, 3.14),)
-
+    log.clear()
     received.clear()
 
-    # Remove — publishes a "remove" message; old_items carries the removed entry.
-    sut.remove("alpha", 1)
-    assert len(received) == 1
-    assert received[0].action == "remove"
-    assert received[0].new_items == ()
-    assert received[0].old_items == (("alpha", 1, 9.99),)
-
-    received.clear()
-
-    # Clear — publishes a "reset" message with empty new_items/old_items.
-    sut.add("beta", 2, 2.72)
-    received.clear()  # discard the Add from above
+    # Clear
     sut.clear()
+    assert log == ["local:reset", "hub:reset"]
     assert len(received) == 1
-    assert received[0].action == "reset"
     assert received[0].new_items == ()
     assert received[0].old_items == ()
 

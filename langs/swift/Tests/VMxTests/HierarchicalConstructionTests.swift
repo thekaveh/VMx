@@ -64,37 +64,61 @@ final class HierarchicalConstructionTests: XCTestCase {
     }
 
     /// HIER-008 — eager child loading via eagerChildren constructor option:
-    /// factory is not invoked until construct() is called, at which point the
-    /// children are materialized and the tree is available.
+    /// a three-level tree (root → 2 children → 2 grandchildren each) built
+    /// with eagerChildren on every node. The factory is not invoked before
+    /// construct(); after root.construct() completes, the factory has run
+    /// exactly once for every node in the tree and every descendant is
+    /// materialized and Constructed without any explicit `children` access.
     func testHier008EagerChildLoading() throws {
         let hub = MessageHub()
-        var factoryInvoked = false
-        let leaf = MyNode(
-            model: MyModel(value: "leaf"),
-            childrenFactory: { _ in [] },
-            hub: hub,
-            dispatcher: ImmediateDispatcher.INSTANCE
-        )
+        var invocations: [String: Int] = [:]
+        var all: [MyNode] = []
 
-        let root = MyNode(
-            model: MyModel(value: "root"),
-            childrenFactory: { _ in
-                factoryInvoked = true
-                return [leaf]
-            },
-            hub: hub,
-            dispatcher: ImmediateDispatcher.INSTANCE,
-            eagerChildren: true
-        )
+        func makeNode(_ value: String, depth: Int) -> MyNode {
+            let node = MyNode(
+                model: MyModel(value: value),
+                childrenFactory: { parent in
+                    invocations[parent.model.value, default: 0] += 1
+                    guard depth < 2 else { return [] }
+                    return [
+                        makeNode("\(value).0", depth: depth + 1),
+                        makeNode("\(value).1", depth: depth + 1),
+                    ]
+                },
+                hub: hub,
+                dispatcher: ImmediateDispatcher.INSTANCE,
+                eagerChildren: true
+            )
+            all.append(node)
+            return node
+        }
 
-        // eagerChildren does NOT trigger factory before construct().
-        XCTAssertFalse(factoryInvoked)
+        let root = makeNode("root", depth: 0)
+
+        // eagerChildren does NOT trigger the factory before construct().
+        XCTAssertTrue(invocations.isEmpty)
 
         try root.construct()
 
-        // After construct(), factory has run and children contains the leaf.
-        XCTAssertTrue(factoryInvoked)
-        XCTAssertTrue(root.children.contains(where: { $0 === leaf }))
+        // root + 2 children + 4 grandchildren = 7 nodes, each factory ran once.
+        XCTAssertEqual(all.count, 7)
+        XCTAssertEqual(invocations.count, 7)
+        for node in all {
+            XCTAssertEqual(invocations[node.model.value], 1,
+                "factory must run exactly once for \(node.model.value)")
+            XCTAssertEqual(node.status, .constructed,
+                "\(node.model.value) must be Constructed")
+        }
+        let expected: Set<String> = [
+            "root", "root.0", "root.1",
+            "root.0.0", "root.0.1", "root.1.0", "root.1.1",
+        ]
+        XCTAssertEqual(Set(invocations.keys), expected)
+
+        // Accessing children afterwards returns the cached materialization.
+        XCTAssertEqual(root.children.count, 2)
+        XCTAssertEqual(root.children[0].children.count, 2)
+        XCTAssertEqual(invocations.values.reduce(0, +), 7)
     }
 
     /// Eager construct reports invalid factory output as a thrown error and

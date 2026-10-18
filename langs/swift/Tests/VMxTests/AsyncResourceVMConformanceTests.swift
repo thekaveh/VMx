@@ -206,6 +206,54 @@ final class AsyncResourceVMConformanceTests: XCTestCase {
     }
 
     /// ARES-005 — cancellation restores the prior stable state without Error.
+    /// Catalog clauses: the loader observes cancellation, cancellation via the
+    /// cancel command restores Idle without error state or async-command
+    /// error, and repeated cancel while Idle is inert.
+    func testAres005CancelCommandIsObservedAndIdleCancelIsInert() async {
+        let parked = expectation(description: "loader started")
+        let observedCancellation = expectation(description: "loader observed cancellation")
+        let vm: AsyncResourceVM<Int> = makeAsyncResourceVM {
+            parked.fulfill()
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 1_000_000)
+            }
+            observedCancellation.fulfill()
+            throw CancellationError()
+        }
+        let commandErrors = LockedCount()
+        let errorsCancellable = vm.loadCommand.errors.sink { _ in commandErrors.increment() }
+
+        vm.loadCommand.execute()
+        await fulfillment(of: [parked], timeout: signalTimeout)
+        XCTAssertEqual(vm.state.status, .loading)
+        XCTAssertTrue(vm.cancelCommand.canExecute())
+
+        vm.cancelCommand.execute()
+        await fulfillment(of: [observedCancellation], timeout: signalTimeout)
+
+        XCTAssertEqual(vm.state.status, .idle)
+        XCTAssertNil(vm.state.error)
+        XCTAssertNil(vm.state.value)
+        // Let the command body settle before checking the error channel.
+        try? await Task.sleep(nanoseconds: 20_000_000)
+        XCTAssertEqual(commandErrors.value, 0)
+        XCTAssertEqual(vm.state.status, .idle)
+        XCTAssertFalse(vm.cancelCommand.canExecute())
+
+        // Repeated cancel while Idle is inert: no state notification, no error.
+        let notifications = LockedCount()
+        let stateCancellable = vm.propertyChanged.sink { _ in notifications.increment() }
+        vm.cancel()
+        vm.cancelCommand.execute()
+        vm.cancel()
+        XCTAssertEqual(notifications.value, 0)
+        XCTAssertEqual(vm.state.status, .idle)
+        XCTAssertNil(vm.state.error)
+        XCTAssertEqual(commandErrors.value, 0)
+        withExtendedLifetime((errorsCancellable, stateCancellable)) {}
+    }
+
+    /// ARES-005 — direct `cancel()` restores Idle without Error.
     func testAres005CancellationRestoresIdle() async {
         let deferred = DeferredValue<Int>()
         let vm = makeAsyncResourceVM(loader: deferred.get)
@@ -311,6 +359,9 @@ final class AsyncResourceVMConformanceTests: XCTestCase {
 
         XCTAssertEqual(cleaned.values, [1])
         XCTAssertEqual(notifications.value, acceptedNotifications)
+        // The stale value is never exposed or installed: the state still holds 2.
+        XCTAssertEqual(vm.state.status, .ready)
+        XCTAssertEqual(vm.state.value, 2)
         cancellable.cancel()
     }
 

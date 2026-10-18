@@ -488,13 +488,32 @@ fn arity6_constructs_and_destructs_all_components() {
         .build()
         .unwrap();
 
+    let components = [&a, &b, &c, &d, &e, &f];
+    assert_eq!(aggregate.status(), ConstructionStatus::Destructed);
+
     aggregate.construct().unwrap();
-    assert_eq!(f.status(), ConstructionStatus::Constructed);
+    for (index, component) in components.iter().enumerate() {
+        assert_eq!(
+            component.status(),
+            ConstructionStatus::Constructed,
+            "component_{}",
+            index + 1
+        );
+    }
+    assert_eq!(aggregate.status(), ConstructionStatus::Constructed);
+    assert_eq!(aggregate.component_1(), Some(a.clone()));
     assert_eq!(aggregate.component_6(), Some(f.clone()));
 
     aggregate.destruct().unwrap();
-    assert_eq!(a.status(), ConstructionStatus::Destructed);
-    assert_eq!(f.status(), ConstructionStatus::Destructed);
+    for (index, component) in components.iter().enumerate() {
+        assert_eq!(
+            component.status(),
+            ConstructionStatus::Destructed,
+            "component_{}",
+            index + 1
+        );
+    }
+    assert_eq!(aggregate.status(), ConstructionStatus::Destructed);
 }
 
 #[test]

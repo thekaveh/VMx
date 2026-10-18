@@ -361,10 +361,15 @@ fn confirmation_notifications_resolve_approve_and_reject() {
 #[test]
 fn resolving_unknown_notification_is_noop() {
     let hub = NotificationHub::new();
+    let posted = hub.post(NotificationType::Confirmation, "posted");
+    let before = hub.pending();
+    assert_eq!(before, vec![posted.clone()]);
+    let never_posted = Notification::new(NotificationType::Confirmation, "fresh");
+    assert_ne!(never_posted.id, posted.id);
 
-    hub.resolve(999, NotificationReaction::Approve);
+    hub.resolve(never_posted.id, NotificationReaction::Approve);
 
-    assert!(hub.pending().is_empty());
+    assert_eq!(hub.pending(), before, "Pending is unchanged");
 }
 
 /// NOTIF-009 — NullNotificationHub.Post resolves to Approve immediately

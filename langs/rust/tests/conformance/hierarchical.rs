@@ -658,24 +658,50 @@ fn concurrent_reparenting_keeps_one_parent_child_pair() {
 /// HIER-008 — Eager child loading via constructor option
 #[test]
 fn eager_construct_materializes_descendants() {
-    let calls = Arc::new(Mutex::new(0));
-    let seen = calls.clone();
-    let hub = MessageHub::new();
-    let root = HierarchicalVm::with_children_factory(
-        "root",
-        "root".to_string(),
-        move |_| {
-            *seen.lock().unwrap() += 1;
-            vec![leaf("child")]
-        },
-        true,
-        hub,
-    );
+    // root -> {a -> {a1 -> {a1x}}, b}: three levels below the root.
+    fn eager_node(name: &str, calls: Arc<Mutex<Vec<String>>>) -> HierarchicalVm<String> {
+        HierarchicalVm::with_children_factory(
+            name,
+            name.to_string(),
+            move |node| {
+                let model = node.model();
+                calls.lock().unwrap().push(model.clone());
+                let children: &[&str] = match model.as_str() {
+                    "root" => &["a", "b"],
+                    "a" => &["a1"],
+                    "a1" => &["a1x"],
+                    _ => &[],
+                };
+                children
+                    .iter()
+                    .map(|child| eager_node(child, calls.clone()))
+                    .collect()
+            },
+            true,
+            MessageHub::new(),
+        )
+    }
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let root = eager_node("root", calls.clone());
+    assert!(calls.lock().unwrap().is_empty());
 
     root.construct().unwrap();
 
-    assert_eq!(*calls.lock().unwrap(), 1);
-    assert!(root.is_children_materialized());
+    let mut invoked = calls.lock().unwrap().clone();
+    invoked.sort();
+    assert_eq!(invoked, vec!["a", "a1", "a1x", "b", "root"]);
+
+    // Every descendant is materialized before any explicit children access.
+    let mut stack = vec![root.clone()];
+    let mut visited = Vec::new();
+    while let Some(node) = stack.pop() {
+        assert!(node.is_children_materialized(), "{}", node.model());
+        visited.push(node.model());
+        stack.extend(node.children());
+    }
+    visited.sort();
+    assert_eq!(visited, vec!["a", "a1", "a1x", "b", "root"]);
+    assert_eq!(calls.lock().unwrap().len(), 5, "no factory re-invocation");
 }
 
 /// HIER-009 — Depth-first construction order (eager mode)
@@ -928,10 +954,51 @@ fn searchable_state_filters_materialized_nodes() {
     let root = leaf("root");
     root.add_child(leaf("alpha")).unwrap();
     root.add_child(leaf("beta")).unwrap();
-    let state = SearchableState::new(root.children(), |node, term| node.model().contains(term));
+    root.add_child(leaf("alps")).unwrap();
+    let lazy_calls = Arc::new(AtomicUsize::new(0));
+    let lazy_seen = lazy_calls.clone();
+    // A lazy node whose un-materialized child would match the term.
+    let lazy = HierarchicalVm::with_children_factory(
+        "lazy",
+        "lazy".to_string(),
+        move |_| {
+            lazy_seen.fetch_add(1, Ordering::SeqCst);
+            vec![leaf("alpine")]
+        },
+        false,
+        MessageHub::new(),
+    );
+    root.add_child(lazy.clone()).unwrap();
+    assert!(!lazy.is_children_materialized());
+
+    // Search the materialized portion only: never force a lazy factory.
+    let tree = root.clone();
+    let state = SearchableState::from_items(
+        move || {
+            let mut nodes = Vec::new();
+            let mut stack = vec![tree.clone()];
+            while let Some(node) = stack.pop() {
+                if node.is_children_materialized() {
+                    let mut children = node.children();
+                    children.reverse();
+                    stack.extend(children);
+                }
+                nodes.push(node);
+            }
+            nodes
+        },
+        |node: &HierarchicalVm<String>, term: &str| node.model().contains(term),
+    );
     state.set_search_term("alp");
 
-    assert_eq!(state.filtered()[0].model(), "alpha");
+    let filtered = state.filtered();
+    assert_eq!(filtered.len(), 2);
+    assert_eq!(
+        filtered.iter().map(|node| node.model()).collect::<Vec<_>>(),
+        vec!["alpha", "alps"]
+    );
+    assert_eq!(lazy_calls.load(Ordering::SeqCst), 0);
+    assert!(!lazy.is_children_materialized());
 }
 
 /// HIER-014 — Composition with ModeledCrudCommands mutates the tree

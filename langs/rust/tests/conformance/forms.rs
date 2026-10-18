@@ -876,9 +876,12 @@ fn reset_wins_racing_model_mutation() {
     let persist_release = release.clone();
     let reset_inputs = Arc::new(Mutex::new(Vec::new()));
     let reset_inputs_inner = reset_inputs.clone();
+    let persisted = Arc::new(Mutex::new(Vec::new()));
+    let persisted_inner = persisted.clone();
     let form = FormVm::builder()
         .initial("initial".to_string())
-        .persister(move |_| {
+        .persister(move |model: &String| {
+            persisted_inner.lock().unwrap().push(model.clone());
             persist_entered.wait();
             persist_release.wait();
             Ok(())
@@ -895,15 +898,22 @@ fn reset_wins_racing_model_mutation() {
     let approve_command = form.approve_command();
     let approve_command_can_execute_changed_record =
         approve_command.can_execute_changed().record(1024);
+    let approved = Arc::new(Mutex::new(Vec::new()));
+    let approved_inner = approved.clone();
+    let _approved =
+        form.subscribe_approved(move |model| approved_inner.lock().unwrap().push(model));
     form.set_model("saved".to_string());
     let worker_form = form.clone();
     let worker = std::thread::spawn(move || worker_form.approve());
     entered.wait();
-    form.set_model(String::new());
+    form.set_model("racing".to_string());
     release.wait();
     worker.join().unwrap().unwrap();
 
+    // m1 == "saved"; m2 == "racing".
+    assert_eq!(*persisted.lock().unwrap(), vec!["saved"]);
     assert_eq!(*reset_inputs.lock().unwrap(), vec!["saved"]);
+    assert_eq!(*approved.lock().unwrap(), vec!["saved"]);
     assert_eq!(form.model(), "reset:saved");
     assert_eq!(form.snapshot(), "reset:saved");
     assert!(!form.is_dirty());

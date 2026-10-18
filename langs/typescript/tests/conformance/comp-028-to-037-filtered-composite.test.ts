@@ -121,10 +121,15 @@ describe("COMP-035", () => {
 
 describe("COMP-036", () => {
   it("scored filter sorts by score with stable ties", () => {
-    const sut = new ScoredFilteredCompositeVM(source("alpha", "bee", "ax"), {
-      scorer: (vm) => vm.name.startsWith("a") ? 1 : null,
+    // Distinct scores test descending order; "ax"/"arc" tie (stable source
+    // order); "bee" has a null score and is excluded.
+    const scores = new Map<string, number | null>([
+      ["alpha", 1], ["bee", null], ["ax", 2], ["arc", 2], ["zed", 5],
+    ]);
+    const sut = new ScoredFilteredCompositeVM(source("alpha", "bee", "ax", "arc", "zed"), {
+      scorer: (vm) => scores.get(vm.name) ?? null,
     });
-    expect(sut.visible.map((vm) => vm.name)).toEqual(["alpha", "ax"]);
+    expect(sut.visible.map((vm) => vm.name)).toEqual(["zed", "ax", "arc", "alpha"]);
   });
 });
 

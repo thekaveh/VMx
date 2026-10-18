@@ -539,20 +539,40 @@ public class CompositeVMConformanceTests
         var dispatcher = new TestDispatcher();
         var a = BuildChild(hub, dispatcher, "a");
         var b = BuildChild(hub, dispatcher, "b");
+        var c = BuildChild(hub, dispatcher, "c");
         var observed = new List<ComponentVM<string>?>();
+        var order = new List<string>();
+        CompositeVM<ComponentVM<string>>? composite = null;
 
-        var composite = CompositeVM<ComponentVM<string>>.Builder()
+        composite = CompositeVM<ComponentVM<string>>.Builder()
             .Name("composite")
             .Services(hub, dispatcher)
-            .Children(() => new[] { a, b })
-            .OnCurrentChanged(vm => observed.Add(vm))
+            .Children(() => new[] { a, b, c })
+            .OnCurrentChanged(vm =>
+            {
+                observed.Add(vm);
+                order.Add($"callback:{vm?.Name ?? "null"}");
+            })
             .Build();
+        hub.Messages.Subscribe(m =>
+        {
+            if (m is IPropertyChangedMessage<IComponentVM> pcm
+                && pcm.PropertyName == "Current"
+                && ReferenceEquals(pcm.SenderObject, composite))
+            {
+                order.Add($"message:{composite!.Current?.Name ?? "null"}");
+            }
+        });
 
         composite.Construct();
+        composite.Current.Should().BeNull();
         composite.SelectComponent(b);
         composite.DeselectComponent(b);
 
         observed.Should().Equal(b, null);
+        order.Should().Equal(
+            ["message:b", "callback:b", "message:null", "callback:null"],
+            "each callback runs after its PropertyChangedMessage(\"Current\") is published");
 
         // Combined Current(first) + OnCurrentChanged: the initial-selector
         // assignment fires the hook exactly once with the first child.

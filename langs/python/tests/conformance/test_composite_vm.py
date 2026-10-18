@@ -718,23 +718,45 @@ def test_COMP_026_on_current_changed_fires_after_each_change() -> None:
     """
     hub = _hub()
     disp = _dispatcher()
-    children = [_build_child(name, hub=hub, dispatcher=disp) for name in ("a", "b")]
+    children = [_build_child(name, hub=hub, dispatcher=disp) for name in ("a", "b", "c")]
     observed: list[ComponentVM | None] = []
+    order: list[str] = []
+    composite_ref: list[CompositeVM[ComponentVM]] = []
+
+    def on_current(vm: ComponentVM | None) -> None:
+        observed.append(vm)
+        order.append(f"callback:{vm.name if vm is not None else None}")
+
+    def on_hub(m: object) -> None:
+        if (
+            isinstance(m, PropertyChangedMessage)
+            and m.property_name == "current"
+            and composite_ref
+            and m.sender_object is composite_ref[0]
+        ):
+            cur = composite_ref[0].current
+            order.append(f"message:{cur.name if cur is not None else None}")
+
+    hub.messages.subscribe(on_hub)
 
     composite: CompositeVM[ComponentVM] = (
         CompositeVMBuilder()
         .name("composite")
         .services(hub, disp)
         .children(lambda: children)
-        .on_current_changed(observed.append)
+        .on_current_changed(on_current)
         .build()
     )
+    composite_ref.append(composite)
 
     composite.construct()
+    assert composite.current is None
     composite.select_component(children[1])
     composite.deselect_component(children[1])
 
     assert observed == [children[1], None]
+    # Each callback runs after its PropertyChangedMessage("current").
+    assert order == ["message:b", "callback:b", "message:None", "callback:None"]
 
     # Combined current(first) + on_current_changed: the initial-selector
     # assignment fires the hook exactly once with the first child.
