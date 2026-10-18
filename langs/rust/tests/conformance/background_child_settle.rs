@@ -3,7 +3,8 @@
 use std::sync::{mpsc, Arc, Mutex};
 use vmx::{
     AggregateVm1, AggregateVm3, ComponentVm, CompositeVm, ConstructionStatus, GroupVm,
-    ManualDispatcher, Message, MessageHub, Subscription, VmxError,
+    LifecycleSettleCallback, ManualDispatcher, Message, MessageHub, ParentHandle, Subscription,
+    VmNode, VmxError, VmxResult,
 };
 
 type Child = ComponentVm<i32, ManualDispatcher>;
@@ -266,5 +267,98 @@ fn nested_containers_and_reconstruct_wait_for_background_leaves() {
     assert_eq!(composite.status(), ConstructionStatus::Destructing);
     dispatcher.drain();
     assert_eq!(leaf.status(), ConstructionStatus::Constructed);
+    assert_eq!(composite.status(), ConstructionStatus::Constructed);
+}
+
+/// A user-written wrapper node; `forward_settle` selects whether it forwards
+/// the settle hook or only the required trait methods.
+#[derive(Clone)]
+struct Wrapper {
+    inner: Child,
+    forward_settle: bool,
+}
+
+impl PartialEq for Wrapper {
+    fn eq(&self, other: &Self) -> bool {
+        self.inner.id() == other.inner.id()
+    }
+}
+
+impl VmNode for Wrapper {
+    fn id(&self) -> usize {
+        self.inner.id()
+    }
+    fn construct(&self) -> VmxResult<()> {
+        self.inner.construct()
+    }
+    fn destruct(&self) -> VmxResult<()> {
+        self.inner.destruct()
+    }
+    fn dispose(&self) -> VmxResult<()> {
+        self.inner.dispose()
+    }
+    fn status(&self) -> ConstructionStatus {
+        self.inner.status()
+    }
+    fn set_parent_id(&self, parent_id: Option<usize>) {
+        self.inner.set_parent_id(parent_id);
+    }
+    fn parent_id(&self) -> Option<usize> {
+        self.inner.parent_id()
+    }
+    fn set_parent_handle(&self, parent: Option<ParentHandle>) {
+        self.inner.set_parent_handle(parent);
+    }
+    fn parent_handle(&self) -> Option<ParentHandle> {
+        self.inner.parent_handle()
+    }
+    fn when_lifecycle_settled(&self, callback: LifecycleSettleCallback) -> bool {
+        self.forward_settle && self.inner.when_lifecycle_settled(callback)
+    }
+}
+
+/// LIFE-014 — a third-party node that does not forward the settle hook is
+/// accepted while its background transition is in flight instead of failing
+/// the container.
+#[test]
+fn wrapper_without_settle_hook_does_not_fail_container() {
+    let hub = MessageHub::new();
+    let dispatcher = ManualDispatcher::new();
+    let child = Wrapper {
+        inner: background_child(&hub, &dispatcher, "wrapped"),
+        forward_settle: false,
+    };
+    let composite = CompositeVm::with_services("composite", hub.clone(), dispatcher.clone());
+    composite.add(child.clone()).unwrap();
+
+    composite.construct().unwrap();
+    assert_eq!(composite.status(), ConstructionStatus::Constructed);
+    dispatcher.drain();
+    assert_eq!(child.status(), ConstructionStatus::Constructed);
+    assert_eq!(composite.status(), ConstructionStatus::Constructed);
+
+    composite.destruct().unwrap();
+    dispatcher.drain();
+    assert_eq!(child.status(), ConstructionStatus::Destructed);
+    assert_eq!(composite.status(), ConstructionStatus::Destructed);
+}
+
+/// LIFE-014 — a wrapper that forwards the settle hook holds the container
+/// transient until the wrapped background child settles.
+#[test]
+fn wrapper_forwarding_settle_hook_makes_container_wait() {
+    let hub = MessageHub::new();
+    let dispatcher = ManualDispatcher::new();
+    let child = Wrapper {
+        inner: background_child(&hub, &dispatcher, "wrapped"),
+        forward_settle: true,
+    };
+    let composite = CompositeVm::with_services("composite", hub.clone(), dispatcher.clone());
+    composite.add(child.clone()).unwrap();
+
+    composite.construct().unwrap();
+    assert_eq!(composite.status(), ConstructionStatus::Constructing);
+    dispatcher.drain();
+    assert_eq!(child.status(), ConstructionStatus::Constructed);
     assert_eq!(composite.status(), ConstructionStatus::Constructed);
 }

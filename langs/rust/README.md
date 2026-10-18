@@ -27,8 +27,14 @@ This crate implements the VMx spec with idiomatic Rust naming and error handling
 - component and read-only component builders opt into background lifecycle with
   `.background(true)`; terminal state/publication returns to foreground and hook
   failures arrive on the event-only hot `background_errors()` stream;
-- reconstruct remains a synchronous atomic destruct/construct operation, and
-  rejected background or foreground scheduling restores lifecycle admission;
+- containers stay Constructing/Destructing until background children settle,
+  so a container `construct`, `destruct`, or `reconstruct` can return `Ok` while
+  the container is still transient; child failures roll the container back and
+  arrive on its `background_errors()`. Wrapper nodes should forward
+  `VmNode::when_lifecycle_settled`; a node that does not is accepted while still
+  in flight. Without background children, reconstruct remains a synchronous
+  destruct/construct operation, and rejected background or foreground
+  scheduling restores lifecycle admission;
 - relay commands expose `raise_can_execute_changed` for precise binding
   invalidation without predicate polling;
 - async relay commands provide an immutable builder, cooperative cancellation,

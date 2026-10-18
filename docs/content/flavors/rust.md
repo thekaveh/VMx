@@ -40,7 +40,11 @@ Rust is the fifth VMx source flavor. It lives under `langs/rust/` as the
   `resource_status()` / `state().status()` independently of lifecycle status
 - Threading: `Dispatcher` has paired foreground/background closure channels;
   component and read-only builders opt into background lifecycle work with
-  `.background(true)`, and `background_errors()` reports fire-and-forget failures
+  `.background(true)`, and `background_errors()` reports fire-and-forget failures;
+  containers stay transient until background children settle (their
+  `construct`/`destruct`/`reconstruct` can return `Ok` while still
+  Constructing/Destructing), and wrapper nodes should forward
+  `VmNode::when_lifecycle_settled` so containers can wait for them
 
 ## 7.6.2. Fixed Aggregates
 

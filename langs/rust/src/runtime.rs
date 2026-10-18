@@ -2055,14 +2055,18 @@ pub trait VmNode: Clone + PartialEq + Send + Sync + 'static {
     /// Registers `callback` to run once the node's in-flight construct or
     /// destruct settles and its terminal status is published. Returns `false`
     /// (dropping `callback`) when no transition is in flight.
-    #[doc(hidden)]
+    ///
+    /// Containers use this hook to stay transient until a background child
+    /// settles (spec/02 §6). Wrapper nodes should forward it to the wrapped
+    /// VM. The default returns `false`; a container whose child does not
+    /// support settle notification accepts that child while it is still
+    /// Constructing/Destructing instead of waiting for it.
     fn when_lifecycle_settled(&self, _callback: LifecycleSettleCallback) -> bool {
         false
     }
 }
 
 /// Continuation run after a node's in-flight lifecycle transition settles.
-#[doc(hidden)]
 pub type LifecycleSettleCallback = Box<dyn FnOnce() + Send + 'static>;
 
 type ChildStep = Box<dyn FnOnce() -> VmxResult<()> + Send + 'static>;
@@ -3076,6 +3080,17 @@ impl<D: Dispatcher> ComponentCore<D> {
                     settle.waiting = false;
                 }
             }
+        }
+        // A third-party node that does not forward `when_lifecycle_settled`
+        // cannot notify the container when its background transition
+        // settles; keep the pre-settle-tracking behavior and accept it while
+        // it is still in flight rather than failing the container.
+        let in_flight = match expected {
+            ConstructionStatus::Constructed => ConstructionStatus::Constructing,
+            _ => ConstructionStatus::Destructing,
+        };
+        if child.status() == in_flight {
+            return Ok(());
         }
         child_settled_result(child, expected)
     }

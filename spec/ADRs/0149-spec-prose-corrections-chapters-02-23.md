@@ -131,7 +131,9 @@ and the Python tree helpers use the public `ComponentVMProto` (chapter 13).
   `HierarchicalVm` and `ModeledCompositeVm` have no hook methods, and
   `ForwardingCompositeVm` reaches them only through `inner()`); chapter 06
   records the Rust `FilteredCompositeVm` `Changed` and `ModeledCrudCommands`
-  confirmation gaps, the Rust membership transaction held across publication
+  confirmation gaps, chapter 11 says every flavor's containers wait for
+  background children at the status level and that the Rust containers expose
+  `background_errors()`, the Rust membership transaction held across publication
   (`COMP-026`), and the missing Rust local collection-change stream
   (`COMP-041`/`COMP-042`); chapter 21 §5.5 records that Rust `PagedComposition`
   does not observe its source (`COL-031`); the catalog scopes `COL-031` and

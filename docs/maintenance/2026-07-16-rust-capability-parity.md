@@ -294,6 +294,29 @@ observable behavior covered by this review.
 
 The ADR-0120 sender representation in §12.2.1 remains the sole intentional
 flavor-specific shape in this ledger. The §12.5 editorial note applies to all
-five flavors and is not a parity backlog. Future differences still require
+five flavors and is not a parity backlog. §12.7 records open items found after
+closure. Future differences still require
 spec/ADR review; this completed record is evidence of the 0.27.0 convergence,
 not permission to add undocumented divergence.
+
+## 12.7. Open Items: Background Child Settle
+
+Containers (`CompositeVm`, `GroupVm`, the fixed aggregates, and
+`HierarchicalVm`) now stay transient until background children settle
+(spec/02 §6, LIFE-014). Two Rust-specific shapes remain open:
+
+- **Container `background_errors()`.** A background child failure that rolls a
+  container back is reported on the container's `background_errors()` stream.
+  This is a Rust-only container surface; the other flavors route the same
+  failure through their background-hook error path.
+- **No join of an in-flight child.** When a container constructs a child that
+  is already Constructing in the background, Rust returns
+  `ConcurrentOperation`. C# (`ConstructOrJoinAsync`) and TypeScript join the
+  in-flight transition instead.
+
+Settle notification uses the documented `VmNode::when_lifecycle_settled` hook,
+which wrapper nodes should forward to the wrapped VM. A third-party node that
+keeps the default (`false`) is accepted while still Constructing/Destructing,
+matching the pre-settle-tracking behavior, so the container does not wait for
+it. C# observes the child's status instead; Rust has no node-level hub accessor
+to do so without risking an unbounded wait on a child published elsewhere.

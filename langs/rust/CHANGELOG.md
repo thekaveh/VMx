@@ -10,6 +10,14 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `CompositeVm`, `GroupVm`, `ModeledCompositeVm`, and `AggregateVm1` to
+  `AggregateVm6` expose `background_errors()`, like `ComponentVm`. The stream
+  reports a background child failure that rolls the container back
+  (spec/11 §2, ADR-0130).
+- `VmNode::when_lifecycle_settled` and `LifecycleSettleCallback` are
+  documented. A user `VmNode` wrapper can forward the hook so its container
+  waits for a background child. A wrapper that does not forward it still works:
+  the container accepts the child while it is in flight, as before.
 - `DiscriminatorVm::active_key_changes()`, a `ValueStream<K>` that carries the
   new active key with each effective change, as DISC-002 requires. The
   existing `active_changed()` hub still signals changes but carries no key.
@@ -44,25 +52,26 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
-- `CompositeVm`, `GroupVm`, and `AggregateVm1`..`AggregateVm6` now stay
-  Constructing/Destructing until every background child settles, then publish
-  their terminal status after the children's (spec/02 §6, LIFE-014). Children
-  still transition in order: later children wait behind a background child
-  being awaited, and the composite's current selector runs after the last.
-  A child that settles at any other status rolls the container back and
-  reports the failure on the container's new `background_errors()` stream.
-  Disposing a container while it waits publishes no rollback or terminal
-  status, and `reconstruct` constructs once a deferred destruct settles.
-  All-synchronous behavior and emission order are unchanged.
-- User `PartialEq` code no longer runs while a VMx mutex is held, so an
-  `eq` that reads its owner returns instead of deadlocking.
-  `ComponentVm::set_model`, `ServicedObservableCollection::remove`,
-  `KeyedServicedObservableCollection::remove`, `ObservableDictionary` and
-  `ObservableMultiDictionary` key lookups, `DiscriminatorVm` key changes and
-  `is_active`, and `TokenPagedComposition` refresh now compare copies and
-  commit only after a generation or revision check, searching again when the
-  state changed meanwhile. Replaced and removed values are dropped after the
-  lock is released. Semantics and emission order are unchanged.
+- `CompositeVm`, `GroupVm`, `ModeledCompositeVm`, and `AggregateVm1` to
+  `AggregateVm6` stay Constructing or Destructing until every background child
+  settles. Then they publish their own terminal status (spec/02 §6). Children
+  still transition in order. The composite's current selector runs after the
+  last child. A child that settles at any other status rolls the container
+  back (LIFE-014). Disposing a container while it waits publishes no rollback
+  and no terminal status. `reconstruct` constructs after a deferred destruct
+  settles. All-synchronous emission order does not change. A synchronous child
+  that returns `Ok` but is not at the target status now fails the container,
+  as in C# and TypeScript (for example, an observer that destructs the child
+  from its Constructed message).
+- User `PartialEq` code no longer runs while a VMx mutex is held, so an `eq`
+  that reads its owner returns instead of deadlocking. These operations now
+  compare copies outside the lock: `ComponentVm::set_model`, serviced and keyed
+  collection `remove`, `ObservableDictionary` and `ObservableMultiDictionary`
+  key lookups, `DiscriminatorVm` key changes and `is_active`, and
+  `TokenPagedComposition` refresh. Each commit checks a generation or revision
+  and searches again if the state changed. Replaced and removed values are
+  dropped after the lock is released. Semantics and emission order do not
+  change.
 - User `Drop` code no longer runs while a VMx mutex is held, so a value whose
   `drop` reads its owner returns instead of deadlocking.
   `DiscriminatorVm::clear_modals` and `dispose` release saved modal keys, and
