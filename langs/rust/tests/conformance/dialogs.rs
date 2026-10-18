@@ -178,21 +178,100 @@ fn cancellation_style_defaults_are_safe() {
 }
 
 /// DIA-008 — ConfirmationDecoratorCommand integration
+///
+/// Rust has no `confirm(dialog_service, message)` overload; the delegate form
+/// `inner.confirm(|| dialog.confirm("Proceed?", None))` is the integration.
 #[test]
 fn confirmation_decorator_uses_dialog_confirm_gate() {
+    struct ScriptedDialog {
+        prompts: Mutex<Vec<String>>,
+        decision: Mutex<Option<AsyncValue<bool>>>,
+    }
+
+    impl DialogService for ScriptedDialog {
+        fn pick_file_to_open(
+            &self,
+            _filter: Option<FileFilter>,
+            _title: Option<&str>,
+        ) -> AsyncValue<Option<String>> {
+            AsyncValue::ready(None)
+        }
+
+        fn pick_file_to_save(
+            &self,
+            _filter: Option<FileFilter>,
+            _title: Option<&str>,
+            _suggested_name: Option<&str>,
+        ) -> AsyncValue<Option<String>> {
+            AsyncValue::ready(None)
+        }
+
+        fn confirm(&self, message: &str, _title: Option<&str>) -> AsyncValue<bool> {
+            self.prompts.lock().unwrap().push(message.to_string());
+            let decision = AsyncValue::pending();
+            *self.decision.lock().unwrap() = Some(decision.clone());
+            decision
+        }
+
+        fn notify(
+            &self,
+            _message: &str,
+            _title: Option<&str>,
+            _severity: NotificationSeverity,
+        ) -> AsyncValue<()> {
+            AsyncValue::ready(())
+        }
+    }
+
     let called = Arc::new(Mutex::new(0));
     let called_inner = called.clone();
-    let inner = RelayCommand::new(move || *called_inner.lock().unwrap() += 1);
+    let enabled = Arc::new(Mutex::new(true));
+    let enabled_inner = enabled.clone();
+    let inner = RelayCommand::new(move || *called_inner.lock().unwrap() += 1)
+        .with_can_execute(move || *enabled_inner.lock().unwrap());
+    let dialog = Arc::new(ScriptedDialog {
+        prompts: Mutex::new(Vec::new()),
+        decision: Mutex::new(None),
+    });
+    let service = dialog.clone();
+    let confirmed = inner.confirm(move || service.confirm("Proceed?", None));
 
-    let blocked = inner
-        .clone()
+    // CanExecute delegates to the inner command.
+    assert!(confirmed.can_execute());
+    *enabled.lock().unwrap() = false;
+    assert!(!confirmed.can_execute());
+    *enabled.lock().unwrap() = true;
+    assert!(confirmed.can_execute());
+
+    for (answer, expected_calls) in [(true, 1), (false, 1), (true, 2)] {
+        let execution = confirmed.execute_async();
+        // Execute first awaits the dialog's Confirm result.
+        assert_eq!(
+            *called.lock().unwrap(),
+            expected_calls - usize::from(answer)
+        );
+        let decision = dialog
+            .decision
+            .lock()
+            .unwrap()
+            .take()
+            .expect("dialog asked");
+        decision.resolve(answer);
+        execution.join().unwrap();
+        assert_eq!(*called.lock().unwrap(), expected_calls, "answer = {answer}");
+    }
+    assert_eq!(
+        *dialog.prompts.lock().unwrap(),
+        vec!["Proceed?", "Proceed?", "Proceed?"]
+    );
+
+    // The null dialog's safe `false` never runs the inner command.
+    let blocked_calls = Arc::new(Mutex::new(0));
+    let blocked_inner = blocked_calls.clone();
+    let blocked = RelayCommand::new(move || *blocked_inner.lock().unwrap() += 1)
         .confirm(|| NullDialogService.confirm("Proceed?", None));
     blocked.execute();
-    assert_eq!(*called.lock().unwrap(), 0);
-
-    let allowed = inner.confirm(|| AsyncValue::ready(true));
-    allowed.execute();
-    assert_eq!(*called.lock().unwrap(), 1);
+    assert_eq!(*blocked_calls.lock().unwrap(), 0);
 }
 
 /// DIA-009 — VM-backed modal presentation returns the modal result

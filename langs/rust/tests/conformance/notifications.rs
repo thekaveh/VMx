@@ -309,17 +309,25 @@ fn notification_type_values_are_complete() {
 /// NOTIF-005 — NotificationReaction has Pending / Approve / Reject values
 #[test]
 fn notification_reaction_values_are_complete() {
+    // An exhaustive match without a wildcard arm fails to compile if a variant
+    // is added or removed, so this pins the set to exactly these three.
+    fn ordinal(reaction: NotificationReaction) -> usize {
+        match reaction {
+            NotificationReaction::Pending => 0,
+            NotificationReaction::Approve => 1,
+            NotificationReaction::Reject => 2,
+        }
+    }
+    let all = [
+        NotificationReaction::Pending,
+        NotificationReaction::Approve,
+        NotificationReaction::Reject,
+    ];
+
+    assert_eq!(all.map(ordinal), [0, 1, 2]);
     assert_eq!(
-        vec![
-            NotificationReaction::Pending,
-            NotificationReaction::Approve,
-            NotificationReaction::Reject,
-        ],
-        vec![
-            NotificationReaction::Pending,
-            NotificationReaction::Approve,
-            NotificationReaction::Reject,
-        ]
+        all.map(|reaction| format!("{reaction:?}")),
+        ["Pending", "Approve", "Reject"]
     );
 }
 
@@ -399,6 +407,14 @@ fn make_confirm_style_flow_maps_approve_to_true() {
 
     assert!(completed.wait());
     assert_eq!(*continuation_thread.lock().unwrap(), Some(resolving_thread));
+
+    let rejected = confirm();
+    let notification = hub.pending().into_iter().next().unwrap();
+    assert_eq!(rejected.try_get(), None);
+
+    hub.resolve(notification.id, NotificationReaction::Reject);
+
+    assert!(!rejected.wait());
 }
 
 /// NOTIF-011 — NotificationVM opacity decays linearly from 1.0 to 0.0 over Lifespan
@@ -537,15 +553,43 @@ fn external_pending_resolve_marks_notification_vm_resolved() {
 #[test]
 fn manual_clock_expiry_is_deterministic() {
     let hub = NotificationHub::new();
-    let notification = hub.post(NotificationType::Notification, "info");
+    let (notification, waiter) = hub.post_with_waiter(NotificationType::Notification, "info");
     let vm = NotificationVm::with_hub(notification.clone(), hub.clone(), 10_000);
+    let snapshots = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let observed = snapshots.clone();
+    let _subscription = hub
+        .pending_stream()
+        .subscribe(move |pending| observed.lock().unwrap().push(pending.len()));
+    let baseline = snapshots.lock().unwrap().len();
 
-    vm.advance_by_ms(10_000);
+    vm.advance_by_ms(9_999);
+    assert_eq!(vm.remaining_time_ms(), 1);
+    assert!(!vm.is_resolved());
+    assert_eq!(snapshots.lock().unwrap().len(), baseline);
+
+    vm.advance_by_ms(1);
+
+    assert_eq!(vm.remaining_time_ms(), 0);
+    assert_eq!(vm.opacity(), 0.0);
+    assert!(vm.is_resolved());
+    assert_eq!(hub.reaction(notification.id), NotificationReaction::Approve);
+    assert_eq!(waiter.wait(), NotificationReaction::Approve);
+    assert_eq!(
+        snapshots.lock().unwrap()[baseline..],
+        [0],
+        "auto-dismiss fires exactly once at the lifespan"
+    );
+
     vm.advance_by_ms(10_000);
 
     assert_eq!(vm.remaining_time_ms(), 0);
     assert_eq!(vm.opacity(), 0.0);
     assert_eq!(hub.reaction(notification.id), NotificationReaction::Approve);
+    assert_eq!(
+        snapshots.lock().unwrap().len(),
+        baseline + 1,
+        "no further effects after the lifespan"
+    );
 }
 
 /// NOTIF-017 — Hub dispose resolves in-flight waiters with Pending

@@ -72,6 +72,12 @@ describe("COL-065", () => {
 
     expect(sut.items).toEqual([1, 2, 3, 4]);
     expect(sut.currentToken).toBe("t3");
+
+    await sut.loadMoreCommand.executeAsync();
+
+    expect(sut.items).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(api.requested).toEqual([null, "t2", null, "t3"]);
+    expect(sut.currentToken).toBe("t4");
   });
 
   it("an unchanged single loaded page adopts a changed opaque token without mutating items", async () => {
@@ -219,8 +225,14 @@ describe("COL-065", () => {
 
     const refresh = sut.refreshCommand.executeAsync();
     const load = sut.loadMoreCommand.executeAsync();
+    const trace = recordTrace(sut);
     resolvers[1]!({ items: [9], nextToken: "stale" });
     await refresh;
+
+    expect(trace).toEqual([]);
+    expect(sut.items).toEqual([1, 2]);
+    expect(sut.currentToken).toBe("t2");
+    expect(sut.hasMore).toBe(true);
     resolvers[2]!({ items: [3, 4], nextToken: "t3" });
     await load;
 

@@ -990,6 +990,50 @@ fn keyed_serviced_removals_and_explicit_rekeys_keep_the_index_synchronized() {
     assert!(!list.contains_key(&"c"));
     assert_eq!(list.get_by_key(&"renamed"), Some(keyed_item("renamed", 30)));
 
+    // Explicit rekey: the same instance's key-like property changes, then
+    // indexed replacement installs that same instance at its own position.
+    type Shared = std::sync::Arc<std::sync::Mutex<KeyedItem>>;
+    let hub = MessageHub::new();
+    let recorder = hub.record(1024);
+    let rekeyed = KeyedServicedObservableCollection::with_hub(31, hub.clone(), |item: &Shared| {
+        Ok(item.lock().unwrap().key)
+    });
+    let first: Shared = std::sync::Arc::new(std::sync::Mutex::new(keyed_item("first", 1)));
+    let second: Shared = std::sync::Arc::new(std::sync::Mutex::new(keyed_item("second", 2)));
+    rekeyed.push(first.clone()).unwrap();
+    rekeyed.push(second.clone()).unwrap();
+    let before = collection_messages(&recorder).len();
+    second.lock().unwrap().key = "moved";
+    assert!(std::sync::Arc::ptr_eq(
+        &rekeyed.replace(1, second.clone()).unwrap(),
+        &second
+    ));
+    assert!(!rekeyed.contains_key(&"second"));
+    assert!(std::sync::Arc::ptr_eq(
+        &rekeyed.get_by_key(&"moved").unwrap(),
+        &second
+    ));
+    assert!(std::sync::Arc::ptr_eq(&rekeyed.get(1).unwrap(), &second));
+    let changes = &collection_messages(&recorder)[before..];
+    assert_eq!(changes.len(), 1, "exactly one Replace for the rekey");
+    assert_eq!(changes[0].action, CollectionChangeAction::Replace);
+
+    // Rekeying to a key owned by another position fails atomically.
+    let before = collection_messages(&recorder).len();
+    second.lock().unwrap().key = "first";
+    assert!(rekeyed.replace(1, second.clone()).is_err());
+    second.lock().unwrap().key = "moved";
+    assert!(std::sync::Arc::ptr_eq(
+        &rekeyed.get_by_key(&"first").unwrap(),
+        &first
+    ));
+    assert!(std::sync::Arc::ptr_eq(
+        &rekeyed.get_by_key(&"moved").unwrap(),
+        &second
+    ));
+    assert_eq!(rekeyed.len(), 2);
+    assert_eq!(collection_messages(&recorder).len(), before);
+
     let mutable = KeyedServicedObservableCollection::new(
         26,
         |item: &std::sync::Arc<std::sync::Mutex<KeyedItem>>| Ok(item.lock().unwrap().key),
@@ -1385,13 +1429,26 @@ fn observable_list_add_emits_add() {
 #[test]
 fn observable_list_remove_emits_remove() {
     let hub = MessageHub::new();
-    let recorder = hub.record(1024);
     let list = ObservableList::new(1, hub.clone());
     list.push("a");
+    list.push("b");
+    list.push("c");
+    let recorder = hub.record(1024);
 
-    assert_eq!(list.remove_at(0).unwrap(), "a");
+    // Rust has no typed ItemRemoved stream: the removed item is the return
+    // value and the position is the Remove message's `old_index`.
+    assert_eq!(list.remove_at(1).unwrap(), "b");
 
-    assert!(collection_actions(&recorder).contains(&CollectionChangeAction::Remove));
+    let removals = recorder
+        .messages()
+        .into_iter()
+        .filter_map(|message| match message {
+            Message::CollectionChanged(change) => Some((change.action, change.old_index)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(removals, vec![(CollectionChangeAction::Remove, Some(1))]);
+    assert_eq!(list.to_vec(), vec!["a", "c"]);
 }
 
 #[test]

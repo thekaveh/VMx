@@ -74,10 +74,24 @@ fn remove_emits_collection_changed_remove() {
     let composite = vmx::CompositeVm::with_services("root", hub.clone(), NullDispatcher::new());
     let item = child("a");
     composite.add(item.clone()).unwrap();
+    let composite_id = composite.id();
+    let before = recorder.messages().len();
 
     composite.remove(&item).unwrap();
 
-    assert!(collection_actions(&recorder).contains(&CollectionChangeAction::Remove));
+    // Rust's CollectionChangedMessage carries no item payload; the removed
+    // identity is observed through membership and the parent link.
+    let changes = recorder.messages()[before..]
+        .iter()
+        .filter_map(|message| match message {
+            Message::CollectionChanged(change) if change.sender_id == composite_id => {
+                Some((change.action.clone(), change.old_index))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(changes, vec![(CollectionChangeAction::Remove, Some(0))]);
+    assert!(composite.is_empty());
     assert_eq!(item.parent_id(), None);
 }
 

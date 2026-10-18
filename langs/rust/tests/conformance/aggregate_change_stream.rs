@@ -543,7 +543,36 @@ fn aggregate_empty_batch_and_serviced_move_are_stable() {
         Some(&AggregateChangeReason::Batch)
     );
     assert!(locked(&late).is_empty());
+
     drop(late_subscription);
+
+    // Another change admitted after a late subscriber joins the same batch:
+    // both still-active subscribers receive the one final Batch.
+    let joined = Arc::new(Mutex::new(Vec::new()));
+    let joined_capture = Arc::clone(&joined);
+    let mut joined_subscription = None;
+    let early_before = locked(&changes).len();
+    aggregate.batch(|| {
+        first.emit();
+        joined_subscription = Some(
+            aggregate
+                .observe(AggregateObserveOptions::default())
+                .subscribe(move |change| locked(&joined_capture).push(change)),
+        );
+        first.emit();
+    });
+    assert_eq!(
+        reasons(&changes)[early_before..],
+        [AggregateChangeReason::Batch]
+    );
+    assert_eq!(
+        locked(&joined)
+            .iter()
+            .map(|change| change.reason)
+            .collect::<Vec<_>>(),
+        vec![AggregateChangeReason::Batch]
+    );
+    drop(joined_subscription);
 }
 
 /// AGCH-009 — reentrant FIFO delivery rejects removed-epoch callbacks

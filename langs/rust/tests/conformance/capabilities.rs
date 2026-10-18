@@ -1,4 +1,4 @@
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::sync::{Arc, Mutex};
 
 use vmx::{
@@ -12,6 +12,17 @@ use vmx::{
 #[derive(Default)]
 struct Fixture {
     expanded: Cell<bool>,
+    calls: RefCell<Vec<String>>,
+}
+
+impl Fixture {
+    fn record(&self, call: impl Into<String>) {
+        self.calls.borrow_mut().push(call.into());
+    }
+
+    fn calls(&self) -> Vec<String> {
+        self.calls.borrow().clone()
+    }
 }
 
 impl Selectable for Fixture {
@@ -72,63 +83,81 @@ impl Approvable for Fixture {
     fn can_approve(&self) -> bool {
         true
     }
-    fn approve(&self) {}
+    fn approve(&self) {
+        self.record("approve");
+    }
 }
 
 impl Cancelable for Fixture {
     fn can_cancel(&self) -> bool {
         true
     }
-    fn cancel(&self) {}
+    fn cancel(&self) {
+        self.record("cancel");
+    }
 }
 
 impl Savable<&'static str> for Fixture {
     fn can_save(&self, _item: &&'static str) -> bool {
         true
     }
-    fn save(&self, _item: &'static str) {}
+    fn save(&self, item: &'static str) {
+        self.record(format!("save:{item}"));
+    }
 }
 
 impl Managable<&'static str> for Fixture {
     fn can_manage(&self, _item: &&'static str) -> bool {
         true
     }
-    fn manage(&self, _item: &'static str) {}
+    fn manage(&self, item: &'static str) {
+        self.record(format!("manage:{item}"));
+    }
 }
 
 impl NewCreatable for Fixture {
     fn can_create_new(&self) -> bool {
         true
     }
-    fn create_new(&self) {}
+    fn create_new(&self) {
+        self.record("create_new");
+    }
 }
 
 impl Deletable<&'static str> for Fixture {
     fn can_delete(&self, _item: &&'static str) -> bool {
         true
     }
-    fn delete(&self, _item: &'static str) {}
+    fn delete(&self, item: &'static str) {
+        self.record(format!("delete:{item}"));
+    }
 }
 
 impl Updatable<&'static str> for Fixture {
     fn can_update(&self, _item: &&'static str) -> bool {
         true
     }
-    fn update(&self, _item: &'static str) {}
+    fn update(&self, item: &'static str) {
+        self.record(format!("update:{item}"));
+    }
 }
 
 impl CurrentDeletable for Fixture {
     fn can_delete_current(&self) -> bool {
         true
     }
-    fn delete_current(&self) {}
+    fn delete_current(&self) {
+        self.record("delete_current");
+    }
 }
 
 impl CurrentUpdatable for Fixture {
     fn can_update_current(&self) -> bool {
         true
     }
-    fn update_current(&self) {}
+    fn update_current(&self) {
+        self.record("update_current");
+    }
 }
 
 impl Constructable for Fixture {
@@ -253,6 +282,7 @@ fn approvable_contract() {
     let fixture = Fixture::default();
     assert!(fixture.can_approve());
     fixture.approve();
+    assert_eq!(fixture.calls(), ["approve"]);
 }
 
 /// CAP-010 — ICancelable contract
@@ -261,6 +291,7 @@ fn cancelable_contract() {
     let fixture = Fixture::default();
     assert!(fixture.can_cancel());
     fixture.cancel();
+    assert_eq!(fixture.calls(), ["cancel"]);
 }
 
 /// CAP-011 — ISavable<T> contract
@@ -269,6 +300,7 @@ fn savable_contract() {
     let fixture = Fixture::default();
     assert!(fixture.can_save(&"a"));
     fixture.save("a");
+    assert_eq!(fixture.calls(), ["save:a"]);
 }
 
 /// CAP-012 — IManagable<T> contract
@@ -277,6 +309,7 @@ fn managable_contract() {
     let fixture = Fixture::default();
     assert!(fixture.can_manage(&"x"));
     fixture.manage("x");
+    assert_eq!(fixture.calls(), ["manage:x"]);
 }
 
 /// CAP-013 — INewCreatable contract
@@ -285,6 +318,7 @@ fn new_creatable_contract() {
     let fixture = Fixture::default();
     assert!(fixture.can_create_new());
     fixture.create_new();
+    assert_eq!(fixture.calls(), ["create_new"]);
 }
 
 /// CAP-014 — IDeletable<T> contract
@@ -293,6 +327,7 @@ fn deletable_contract() {
     let fixture = Fixture::default();
     assert!(fixture.can_delete(&"a"));
     fixture.delete("a");
+    assert_eq!(fixture.calls(), ["delete:a"]);
 }
 
 /// CAP-015 — IUpdatable<T> contract
@@ -301,6 +336,7 @@ fn updatable_contract() {
     let fixture = Fixture::default();
     assert!(fixture.can_update(&"a"));
     fixture.update("a");
+    assert_eq!(fixture.calls(), ["update:a"]);
 }
 
 /// CAP-016 — ICurrentDeletable contract
@@ -309,6 +345,7 @@ fn current_deletable_contract() {
     let fixture = Fixture::default();
     assert!(fixture.can_delete_current());
     fixture.delete_current();
+    assert_eq!(fixture.calls(), ["delete_current"]);
 }
 
 /// CAP-017 — ICurrentUpdatable contract
@@ -317,6 +354,7 @@ fn current_updatable_contract() {
     let fixture = Fixture::default();
     assert!(fixture.can_update_current());
     fixture.update_current();
+    assert_eq!(fixture.calls(), ["update_current"]);
 }
 
 /// CAP-018 — Lifecycle capability set

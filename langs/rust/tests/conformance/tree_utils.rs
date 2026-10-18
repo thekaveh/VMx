@@ -33,8 +33,43 @@ fn walk_yields_depth_first_preorder() {
 }
 
 /// UTIL-002 — walk skips empty aggregate slots
+///
+/// Rust gap: `AggregateVm3` does not implement `TreeNode`, and `walk` is
+/// homogeneous (`Vec<T>`), so an aggregate cannot be walked at all. Every
+/// slot is also required by the builder, so a constructed aggregate has no
+/// empty slot to skip. This test pins that actual behavior and the tree-walk
+/// guarantee that `walk` never yields an entry for an absent child.
 #[test]
 fn walk_skips_empty_child_slots_by_construction() {
+    let missing_slot = vmx::AggregateVm3::<
+        vmx::ComponentVm<i32>,
+        vmx::ComponentVm<i32>,
+        vmx::ComponentVm<i32>,
+    >::builder()
+    .name("aggregate")
+    .services(vmx::MessageHub::new(), vmx::NullDispatcher::new())
+    .component_1(|| {
+        vmx::ComponentVm::<i32>::with_model(
+            "one",
+            1,
+            vmx::MessageHub::new(),
+            vmx::NullDispatcher::new(),
+        )
+    })
+    .component_3(|| {
+        vmx::ComponentVm::<i32>::with_model(
+            "three",
+            3,
+            vmx::MessageHub::new(),
+            vmx::NullDispatcher::new(),
+        )
+    })
+    .build();
+    assert!(
+        matches!(&missing_slot, Err(vmx::VmxError::BuilderValidation(message)) if message.contains("component_2")),
+        "an aggregate cannot be built with an empty Component2 slot"
+    );
+
     let root = leaf("root");
     root.add_child(leaf("a")).unwrap();
     root.add_child(leaf("c")).unwrap();

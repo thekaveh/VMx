@@ -81,6 +81,12 @@ public class COL_065_TokenRefreshCursorTests
 
         sut.Items.Should().Equal(1, 2, 3, 4);
         sut.CurrentToken.Should().Be("t3");
+
+        await sut.LoadMoreCommand.ExecuteAsync();
+
+        sut.Items.Should().Equal(1, 2, 3, 4, 5, 6);
+        api.Requested.Should().Equal(null, "t2", null, "t3");
+        sut.CurrentToken.Should().Be("t4");
     }
 
     [Fact, Trait("Conformance", "COL-065")]
@@ -231,7 +237,7 @@ public class COL_065_TokenRefreshCursorTests
             "LoadMore:CanExecuteChanged");
     }
 
-    [Fact]
+    [Fact, Trait("Conformance", "COL-065")]
     public async Task LoadStartedDuringRefresh_MakesTheRefreshResultStale()
     {
         var pages = Enumerable.Range(0, 3)
@@ -251,8 +257,14 @@ public class COL_065_TokenRefreshCursorTests
 
         var refresh = sut.RefreshCommand.ExecuteAsync();
         var load = sut.LoadMoreCommand.ExecuteAsync();
+        var trace = Trace(sut);
         pages[1].SetResult(new([9], "stale"));
         await refresh;
+
+        trace.Should().BeEmpty();
+        sut.Items.Should().Equal(1, 2);
+        sut.CurrentToken.Should().Be("t2");
+        sut.HasMore.Should().BeTrue();
         pages[2].SetResult(new([3, 4], "t3"));
         await load;
 

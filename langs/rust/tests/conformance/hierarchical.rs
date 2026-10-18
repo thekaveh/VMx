@@ -30,12 +30,14 @@ fn factory_hydration_is_atomic_and_retryable() {
     );
     let snapshot = Arc::new(Mutex::new(vec![first.clone(), first.clone()]));
     let captured = Arc::clone(&snapshot);
+    let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let root = HierarchicalVm::with_children_factory(
         "root",
         "root".to_string(),
         move |_| captured.lock().unwrap().clone(),
         false,
-        MessageHub::new(),
+        hub.clone(),
     );
 
     assert!(matches!(
@@ -43,6 +45,7 @@ fn factory_hydration_is_atomic_and_retryable() {
         Err(VmxError::InvalidArgument(message)) if message.contains("factory")
     ));
     assert!(first.parent().is_none());
+    assert!(recorder.messages().is_empty(), "no message on rejection");
 
     *snapshot.lock().unwrap() = vec![first.clone(), second.clone()];
     assert!(root.try_children().unwrap() == vec![first.clone(), second.clone()]);
@@ -74,17 +77,52 @@ fn factory_hydration_rejects_invalid_topology() {
     assert!(self_node.try_children().is_err());
     assert!(self_node.parent().is_none());
 
+    // An ancestor in the snapshot is rejected without any hub publication.
+    let hub = MessageHub::new();
+    let recorder = hub.record(1024);
+    let ancestor = HierarchicalVm::with_children_factory(
+        "ancestor",
+        "ancestor".to_string(),
+        |_| Vec::new(),
+        false,
+        hub.clone(),
+    );
+    let fresh = leaf("fresh");
+    let ancestor_slot = Arc::new(Mutex::new(vec![ancestor.clone()]));
+    let captured = Arc::clone(&ancestor_slot);
+    let descendant = HierarchicalVm::with_children_factory(
+        "descendant",
+        "descendant".to_string(),
+        move |_| captured.lock().unwrap().clone(),
+        false,
+        hub.clone(),
+    );
+    ancestor.add_child(descendant.clone()).unwrap();
+    let before = recorder.messages().len();
+    assert!(descendant.try_children().is_err());
+    assert_eq!(recorder.messages().len(), before, "no message on rejection");
+    assert!(ancestor.parent().is_none());
+    assert!(descendant.parent().as_ref() == Some(&ancestor));
+    assert!(ancestor.children() == vec![descendant.clone()]);
+    // A later access retries the factory.
+    *ancestor_slot.lock().unwrap() = vec![fresh.clone()];
+    assert!(descendant.try_children().unwrap() == vec![fresh.clone()]);
+    assert!(fresh.parent().as_ref() == Some(&descendant));
+
     let old_parent = leaf("old");
     let attached = leaf("attached");
     old_parent.add_child(attached.clone()).unwrap();
+    let captured_attached = attached.clone();
     let new_parent = HierarchicalVm::with_children_factory(
         "new",
         "new".to_string(),
-        move |_| vec![attached.clone()],
+        move |_| vec![captured_attached.clone()],
         false,
         MessageHub::new(),
     );
     assert!(new_parent.try_children().is_err());
+    assert!(attached.parent().as_ref() == Some(&old_parent));
+    assert!(old_parent.children() == vec![attached.clone()]);
 }
 
 /// HIER-032 — structural factory reentry rejects atomically and remains retryable.

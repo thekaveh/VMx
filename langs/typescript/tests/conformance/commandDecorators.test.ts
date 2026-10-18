@@ -207,22 +207,6 @@ function deferred(): {
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe("CMDD-011", () => {
-  it("confirmation canExecute rechecks disposal after the inner predicate", () => {
-    let wrapper: ConfirmationDecoratorCommand | null = null;
-    const inner = RelayCommand.builder()
-      .predicate(() => {
-        wrapper?.dispose();
-        return true;
-      })
-      .task(() => {})
-      .build();
-    wrapper = new ConfirmationDecoratorCommand(inner, () => Promise.resolve(true));
-
-    expect(wrapper.canExecute()).toBe(false);
-  });
-});
-
-describe("CMDD-011", () => {
   it("disposed composite and decorator commands are inert and leave inner commands usable", () => {
     const log: string[] = [];
     const a = buildRecording(log, "a", true);
@@ -251,10 +235,12 @@ describe("CMDD-011", () => {
     decorator.execute();
     expect(log).toEqual([]);
 
-    // The inner commands were not disposed.
+    // The inner commands were not disposed and still execute directly.
+    expect([a, b, inner].map((command) => command.canExecute())).toEqual([true, true, true]);
     a.execute();
+    b.execute();
     inner.execute();
-    expect(log).toEqual(["a", "inner"]);
+    expect(log).toEqual(["a", "b", "inner"]);
   });
 
   it("wrapper disposal leaves the inner canExecuteChanged stream to its owner", () => {
@@ -283,6 +269,20 @@ describe("CMDD-011", () => {
 });
 
 describe("CMDD-012", () => {
+  it("a confirmation disposed by its inner predicate reports canExecute false", () => {
+    let wrapper: ConfirmationDecoratorCommand | null = null;
+    const inner = RelayCommand.builder()
+      .predicate(() => {
+        wrapper?.dispose();
+        return true;
+      })
+      .task(() => {})
+      .build();
+    wrapper = new ConfirmationDecoratorCommand(inner, () => Promise.resolve(true));
+
+    expect(wrapper.canExecute()).toBe(false);
+  });
+
   it("a disposed confirmation decorator never consults confirm", async () => {
     const log: string[] = [];
     let confirms = 0;

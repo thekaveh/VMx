@@ -44,12 +44,13 @@ fn search_returns_current_filtered_projection() {
 /// COMP-017 — Predicate is user-supplied
 #[test]
 fn predicate_is_user_supplied() {
-    let state = SearchableState::new(vec![1, 2, 3, 4], |item, term| {
-        term == "even" && item % 2 == 0
+    let state = SearchableState::new(vec!["a", "bb", "ccc"], |item: &&'static str, term| {
+        item.len() > term.len()
     });
-    state.set_search_term("even");
+    state.set_search_term("bb");
 
-    assert_eq!(state.filtered(), vec![2, 4]);
+    assert_eq!(state.search(), vec!["ccc"]);
+    assert_eq!(state.filtered(), vec!["ccc"]);
 }
 
 /// COMP-018 — Filtered recomputes when Items source changes

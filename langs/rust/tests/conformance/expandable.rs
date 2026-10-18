@@ -34,13 +34,23 @@ fn expand_flips_state_and_emits_once() {
 /// EXP-003 — Collapse flips state back
 #[test]
 fn collapse_flips_state_back() {
-    let state = ExpandableState::new();
+    let state = ExpandableState::new_expanded();
+    assert!(state.is_expanded());
     let state_expanded_changed_record = state.expanded_changed().record(1024);
-    state.expand();
+
     state.collapse();
 
     assert!(!state.is_expanded());
-    assert_eq!(state_expanded_changed_record.messages().len(), 2);
+    // The emission's payload is the new value, carried as the message name.
+    let values = state_expanded_changed_record
+        .messages()
+        .into_iter()
+        .map(|message| match message {
+            vmx::Message::Custom { name, .. } => name,
+            other => panic!("unexpected expansion message {other:?}"),
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(values, vec!["false"]);
 }
 
 /// EXP-004 — ToggleExpansion alternates state

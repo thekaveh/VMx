@@ -64,27 +64,12 @@ final class CommandWrapperDisposalTests: XCTestCase {
 
     // MARK: - CMDD-011
 
-    /// CMDD-011 — the confirmation wrapper re-checks disposal after the inner
-    /// predicate, which may dispose it.
-    func testCMDD011ConfirmationCanExecuteRechecksDisposal() {
-        var wrapper: ConfirmationDecoratorCommand?
-        let inner = RelayCommand.builder()
-            .predicate {
-                wrapper?.dispose()
-                return true
-            }
-            .task {}
-            .build()
-        wrapper = ConfirmationDecoratorCommand(inner) { true }
-
-        XCTAssertFalse(wrapper!.canExecute())
-    }
-
     /// CMDD-011 — disposed composite and decorator commands are inert and leave their inner commands usable.
     func testCmdd011DisposedCompositeAndDecoratorAreInert() {
         let recorder = Recorder()
         let a = makeCommand(label: "a", into: recorder)
-        let composite = CompositeCommand(a, makeCommand(label: "b", into: recorder))
+        let b = makeCommand(label: "b", into: recorder)
+        let composite = CompositeCommand(a, b)
         composite.dispose()
         composite.dispose()
 
@@ -109,13 +94,33 @@ final class CommandWrapperDisposalTests: XCTestCase {
         decorator.execute()
         XCTAssertEqual(recorder.entries, [])
 
-        // The inner commands were not disposed.
+        // The inner commands were not disposed and still execute directly.
+        XCTAssertTrue(a.canExecute())
+        XCTAssertTrue(b.canExecute())
+        XCTAssertTrue(inner.canExecute())
         a.execute()
+        b.execute()
         inner.execute()
-        XCTAssertEqual(recorder.entries, ["a", "inner"])
+        XCTAssertEqual(recorder.entries, ["a", "b", "inner"])
     }
 
     // MARK: - CMDD-012
+
+    /// CMDD-012 — the confirmation wrapper re-checks disposal after the inner
+    /// predicate, which may dispose it.
+    func testCmdd012ConfirmationCanExecuteRechecksDisposal() {
+        var wrapper: ConfirmationDecoratorCommand?
+        let inner = RelayCommand.builder()
+            .predicate {
+                wrapper?.dispose()
+                return true
+            }
+            .task {}
+            .build()
+        wrapper = ConfirmationDecoratorCommand(inner) { true }
+
+        XCTAssertFalse(wrapper!.canExecute())
+    }
 
     /// CMDD-012 — a disposed confirmation decorator never consults its confirm delegate.
     func testCmdd012DisposedConfirmationNeverConsultsConfirm() async throws {

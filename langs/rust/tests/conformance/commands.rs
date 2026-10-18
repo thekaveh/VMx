@@ -72,14 +72,22 @@ fn command_predicate_panics_map_to_not_executable() {
 /// CMD-004 — Trigger emission fires CanExecuteChanged
 #[test]
 fn relay_command_trigger_can_execute_changed_fires() {
-    let command = RelayCommand::noop();
+    let trigger = MessageHub::new();
+    let command = RelayCommand::builder()
+        .action(|| {})
+        .trigger(trigger.clone())
+        .build();
     let fired = Arc::new(AtomicUsize::new(0));
     let fired_clone = fired.clone();
     let _subscription = command.can_execute_changed().subscribe(move |_| {
         fired_clone.fetch_add(1, Ordering::SeqCst);
     });
 
-    command.trigger_can_execute_changed();
+    trigger.send(Message::Custom {
+        sender_id: 0,
+        sender_name: "trigger".to_string(),
+        name: "unit".to_string(),
+    });
 
     assert_eq!(fired.load(Ordering::SeqCst), 1);
 }

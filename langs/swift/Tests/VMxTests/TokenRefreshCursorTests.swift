@@ -117,6 +117,12 @@ final class TokenRefreshCursorTests: XCTestCase {
 
         XCTAssertEqual(sut.items, [1, 2, 3, 4])
         XCTAssertEqual(sut.currentToken, "t3")
+
+        try await sut.loadMoreCommand.executeAsync()
+
+        XCTAssertEqual(sut.items, [1, 2, 3, 4, 5, 6])
+        XCTAssertEqual(backend.requested, [nil, "t2", nil, "t3"])
+        XCTAssertEqual(sut.currentToken, "t4")
     }
 
     /// COL-065 — an unchanged single page adopts a changed opaque token.
@@ -260,6 +266,7 @@ final class TokenRefreshCursorTests: XCTestCase {
         ])
     }
 
+    /// COL-065 — a refresh that completes after a later load started commits and publishes nothing.
     func testLoadStartedDuringRefreshMakesTheRefreshResultStale() async throws {
         let gate = NSLock()
         var requested: [String?] = []
@@ -288,8 +295,14 @@ final class TokenRefreshCursorTests: XCTestCase {
         await fulfillment(of: [refreshStarted], timeout: 2.0)
         let load = Task { try await sut.loadMoreCommand.executeAsync() }
         await fulfillment(of: [loadStarted], timeout: 2.0)
+        let trace = record(sut)
         gate.withLock { continuations[0] }.resume(returning: ([9], "stale"))
         try await refresh.value
+
+        XCTAssertEqual(trace.entries, [])
+        XCTAssertEqual(sut.items, [1, 2])
+        XCTAssertEqual(sut.currentToken, "t2")
+        XCTAssertTrue(sut.hasMore)
         gate.withLock { continuations[1] }.resume(returning: ([3, 4], "t3"))
         try await load.value
 

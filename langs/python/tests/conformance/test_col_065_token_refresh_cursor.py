@@ -91,6 +91,12 @@ async def test_shorter_matching_non_terminal_head_keeps_accumulator_and_cursor()
     assert sut.items == [1, 2, 3, 4]
     assert sut.current_token == "t3"
 
+    await sut.load_more_command.execute_async()
+
+    assert sut.items == [1, 2, 3, 4, 5, 6]
+    assert api.requested == [None, "t2", None, "t3"]
+    assert sut.current_token == "t4"
+
 
 @pytest.mark.conformance("COL-065")
 async def test_unchanged_single_page_adopts_a_changed_opaque_token_without_reset() -> None:
@@ -233,6 +239,7 @@ async def test_replacement_branch_publishes_reset_properties_then_command_signal
     ]
 
 
+@pytest.mark.conformance("COL-065")
 async def test_load_started_during_refresh_makes_the_refresh_result_stale() -> None:
     loop = asyncio.get_running_loop()
     pending: list[asyncio.Future[Page]] = []
@@ -254,8 +261,15 @@ async def test_load_started_during_refresh_makes_the_refresh_result_stale() -> N
     await _until_pending(pending, 2)
     load = asyncio.ensure_future(sut.load_more_command.execute_async())
     await _until_pending(pending, 3)
+    trace = _trace(sut)
     pending[1].set_result(([9], "stale"))
     await refresh
+
+    assert trace == []
+    assert sut.items == [1, 2]
+    assert sut.current_token == "t2"
+    assert sut.has_more is True
+
     pending[2].set_result(([3, 4], "t3"))
     await load
 

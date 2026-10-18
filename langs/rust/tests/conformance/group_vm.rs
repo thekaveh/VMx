@@ -133,13 +133,37 @@ fn destruct_destructs_all_children() {
 /// GRP-005 — AutoConstructOnAdd(true) auto-constructs late children
 #[test]
 fn auto_construct_on_add_constructs_late_children() {
-    let group = vmx::GroupVm::new("group");
-    group.set_auto_construct_on_add(true);
+    let hub = MessageHub::new();
+    let group = vmx::GroupVm::<Child>::builder()
+        .name("group")
+        .services(hub.clone(), NullDispatcher::new())
+        .children(Vec::new)
+        .auto_construct_on_add(true)
+        .build()
+        .unwrap();
     group.construct().unwrap();
     let item = child("late");
+    assert_eq!(item.status(), ConstructionStatus::Destructed);
+    let group_id = group.id();
+    let observed = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let observed_inner = observed.clone();
+    let probe = item.clone();
+    let _subscription = hub.subscribe(move |message| {
+        if let Message::CollectionChanged(change) = message {
+            if change.sender_id == group_id && change.action == CollectionChangeAction::Add {
+                // Child status as seen inside the Add handler.
+                observed_inner.lock().unwrap().push(probe.status());
+            }
+        }
+    });
 
     group.add(item.clone()).unwrap();
 
+    assert_eq!(
+        *observed.lock().unwrap(),
+        vec![ConstructionStatus::Constructed],
+        "the child is Constructed before the one Add event is observed"
+    );
     assert_eq!(item.status(), ConstructionStatus::Constructed);
 }
 

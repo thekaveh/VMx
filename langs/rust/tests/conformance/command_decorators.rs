@@ -537,11 +537,15 @@ fn disposed_confirmation_decorator_is_inert_including_pending_confirmations() {
     disposed_first.execute_async().join().unwrap();
     assert_eq!(confirms.load(Ordering::SeqCst), 0);
 
-    // Rust confirmations are `AsyncValue<bool>`, which has no faulted state;
-    // a panicking delegate is covered by CMDD-010.
-    for confirmed in [true, false] {
+    // A Rust confirmation settles faulted when the mapper producing it
+    // panics (ADR-0138); `None` below drives that faulted case.
+    for outcome in [Some(true), Some(false), None] {
         let inner = recording_command(log.clone(), "inner", true);
-        let decision = AsyncValue::pending();
+        let gate = AsyncValue::<()>::pending();
+        let decision: AsyncValue<bool> = gate.map(move |()| match outcome {
+            Some(confirmed) => confirmed,
+            None => panic!("confirm faulted"),
+        });
         let pending = decision.clone();
         let confirming = ConfirmationDecoratorCommand::new(inner.clone(), move || pending.clone());
         let deliveries = Arc::new(AtomicUsize::new(0));
@@ -554,13 +558,25 @@ fn disposed_confirmation_decorator_is_inert_including_pending_confirmations() {
         confirming.clone().dispose();
         // Resolve on another thread after dispose() has returned.
         std::thread::spawn(move || {
-            decision.resolve(confirmed);
+            gate.resolve(());
         })
         .join()
         .unwrap();
+        if outcome.is_none() {
+            assert!(
+                decision.try_result().is_some_and(|result| result.is_err()),
+                "the faulted case settled as panicked"
+            );
+        }
 
-        assert!(log.lock().unwrap().is_empty(), "confirmed = {confirmed}");
-        assert_eq!(deliveries.load(Ordering::SeqCst), 0);
+        assert!(log.lock().unwrap().is_empty(), "outcome = {outcome:?}");
+        assert_eq!(
+            deliveries.load(Ordering::SeqCst),
+            0,
+            "outcome = {outcome:?}"
+        );
+        // The inner command was not disposed.
+        assert!(inner.can_execute(), "outcome = {outcome:?}");
         inner.execute();
         assert_eq!(
             log.lock().unwrap().drain(..).collect::<Vec<_>>(),
