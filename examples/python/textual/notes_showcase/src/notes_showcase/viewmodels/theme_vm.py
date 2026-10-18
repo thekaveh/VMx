@@ -272,6 +272,18 @@ class ThemeVM(ComponentVMOf[ThemeModel]):
         self._apply_model(dataclasses.replace(host, follows_system=True))
 
     # ── Internal apply pipeline ─────────────────────────────────────────────
+    @property
+    def model(self) -> ThemeModel:
+        """The current theme model."""
+        return self._model
+
+    @model.setter
+    def model(self, value: ThemeModel) -> None:
+        # Route outside writes through the single emit path, as the C# and
+        # TypeScript ThemeVMs do, so current_theme and ThemeChangedMessage
+        # stay in step with the model.
+        self._apply_model(value)
+
     def _apply_model(self, new_model: ThemeModel) -> None:
         """Adopt ``new_model`` if it differs from the current; emit on success.
 

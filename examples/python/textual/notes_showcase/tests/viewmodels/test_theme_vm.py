@@ -371,3 +371,13 @@ def test_dispose_releases_commands_and_subjects() -> None:
     from vmx import ConstructionStatus
 
     assert vm.status == ConstructionStatus.DISPOSED
+
+
+def test_model_assignment_goes_through_the_theme_emit_path() -> None:
+    vm = _build(DARK_PRESET)
+    messages = _capture_theme_messages(vm)
+
+    vm.model = LIGHT_PRESET
+
+    assert vm.current_theme.value is LIGHT_PRESET
+    assert len(messages) == 1

@@ -348,7 +348,7 @@ class NotesViewVM(
                     .name(f"note:{n.id}")
                     .services(self.hub, self._dispatcher)
                     .model(n)
-                    .on_close(lambda _vm: self._clear_current())
+                    .on_close(self._close_note)
                     .on_delete(self._delete_note)
                     .on_save(self._save_note)
                 )
@@ -417,6 +417,12 @@ class NotesViewVM(
     async def _save_note(self, note: NoteVM) -> None:
         """Persist ``note`` and surface repository failure through the command."""
         await self._repo.save_note(note.model)
+
+    def _close_note(self, closed: NoteVM) -> None:
+        # Closing a note clears the selection only when that note is current,
+        # as in the other flavors.
+        if self._current is closed:
+            self._clear_current()
 
     # ── Combined filter pipeline ───────────────────────────────────────────
     def _recompute_filtered(self) -> None:

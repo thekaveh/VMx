@@ -504,6 +504,7 @@ public final class NotesViewVM: ComponentVMBase, Searchable, Pageable, Filterabl
         releaseChildren()
         _pagedChangedCancellable?.cancel()
         _pagedChangedCancellable = nil
+        _paged.dispose()
         _searchCancellable?.cancel()
         _searchCancellable = nil
         _search.dispose()

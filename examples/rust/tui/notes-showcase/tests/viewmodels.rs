@@ -1,5 +1,5 @@
 use notes_showcase::viewmodels::NoteFormVm;
-use notes_showcase::{InMemoryNoteRepository, WorkspaceVm};
+use notes_showcase::{InMemoryNoteRepository, NoteModel, NotebookModel, WorkspaceVm};
 use pretty_assertions::assert_eq;
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
@@ -251,4 +251,49 @@ fn notifications_over_the_cap_are_dismissed() {
     let messages = notifications.messages();
     assert_eq!(messages.len(), 5);
     assert_eq!(messages.last().map(String::as_str), Some("n7"));
+}
+
+#[test]
+fn switching_notebooks_starts_on_the_first_page() {
+    let note = |id: &str, notebook: &str| NoteModel {
+        id: id.to_string(),
+        notebook_id: notebook.to_string(),
+        title: id.to_string(),
+        body: String::new(),
+        tags: Vec::new(),
+        starred: false,
+    };
+    let repository = InMemoryNoteRepository::new(
+        vec![
+            NotebookModel {
+                id: "a".to_string(),
+                title: "A".to_string(),
+            },
+            NotebookModel {
+                id: "b".to_string(),
+                title: "B".to_string(),
+            },
+        ],
+        vec![
+            note("a1", "a"),
+            note("a2", "a"),
+            note("a3", "a"),
+            note("b1", "b"),
+            note("b2", "b"),
+            note("b3", "b"),
+        ],
+    );
+    let workspace = WorkspaceVm::new(repository).expect("workspace builds");
+    let notes = workspace.notes();
+    notes.set_notebook("a");
+    notes.next_page();
+    assert!(notes.page_summary().starts_with("3-"));
+
+    notes.set_notebook("b");
+
+    assert!(
+        notes.page_summary().starts_with("1-"),
+        "{}",
+        notes.page_summary()
+    );
 }

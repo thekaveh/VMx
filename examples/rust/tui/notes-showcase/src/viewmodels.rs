@@ -205,6 +205,9 @@ impl NotesViewVm {
     pub fn set_notebook(&self, notebook_id: &str) {
         *lock(&self.notebook_id) = notebook_id.to_string();
         self.reload();
+        // A different notebook starts on its first page, as in the other
+        // flavors; set_source alone only clamps the old index.
+        self.pager.move_to_first_page();
     }
 
     pub fn set_search_term(&self, term: &str) {

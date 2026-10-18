@@ -573,3 +573,15 @@ async def test_page_is_clamped_when_the_filtered_list_shrinks() -> None:
     assert notes.current_page_index == 0
     assert notes.page_label.value == "Page 1 of 1"
     assert notes.visible_items
+
+
+async def test_closing_a_note_that_is_not_current_keeps_the_selection() -> None:
+    vm = _build()
+    vm.construct()
+    await vm.bind_to_async("nb-reviews")
+    first, second = vm.inner[0], vm.inner[1]
+    vm.current = first
+
+    second.close_command.execute()
+
+    assert vm.current is first

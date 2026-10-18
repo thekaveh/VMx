@@ -185,7 +185,7 @@ export class ThemeVM extends ComponentVMOf<ThemeModel> {
   /** Replaces `this.model` and publishes `ThemeChangedMessage(prev, curr)`. */
   #commit(next: ThemeModel): void {
     const prev = this.model;
-    if (prev === next) return;
+    if (sameTheme(prev, next)) return;
     // _setModel (inherited from ComponentVMOf) emits the "model"
     // PropertyChangedMessage and updates the modeledHint. Our override
     // (below) additionally publishes ThemeChangedMessage and ticks the
@@ -201,7 +201,7 @@ export class ThemeVM extends ComponentVMOf<ThemeModel> {
    */
   protected override _setModel(value: ThemeModel): void {
     const prev = this.model;
-    if (prev === value) return;
+    if (sameTheme(prev, value)) return;
     super._setModel(value);
     // After super: model is now `value`. Notify derived-prop subscribers
     // and publish the theme-changed message for hub listeners.
@@ -299,4 +299,19 @@ export class ThemeVM extends ComponentVMOf<ThemeModel> {
     this.#followSystemCommand.dispose();
     super._onDispose();
   }
+}
+
+/**
+ * Value equality for theme models, matching the record/dataclass/struct
+ * equality the other flavors use: a change that alters no field publishes
+ * nothing.
+ */
+function sameTheme(left: ThemeModel, right: ThemeModel): boolean {
+  return (
+    left.name === right.name &&
+    left.accentColor === right.accentColor &&
+    left.fontScaleFactor === right.fontScaleFactor &&
+    left.highContrast === right.highContrast &&
+    left.followsSystem === right.followsSystem
+  );
 }

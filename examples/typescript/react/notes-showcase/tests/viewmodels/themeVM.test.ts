@@ -107,6 +107,19 @@ describe("ThemeVM — surface shape", () => {
   });
 });
 
+describe("ThemeVM value equality", () => {
+  it("publishes nothing for a change that alters no field", () => {
+    const { vm, hub } = makeVM();
+    const msgs = captureMessages(hub);
+
+    vm.setThemeCommand.execute("dark");
+    vm.followSystemCommand.execute();
+    vm.followSystemCommand.execute();
+
+    expect(msgs).toHaveLength(1);
+  });
+});
+
 describe("THEME-001 — setThemeCommand publishes ThemeChangedMessage", () => {
   it("publishes a single ThemeChangedMessage with prev=dark, curr=light", () => {
     const { vm, hub } = makeVM();
