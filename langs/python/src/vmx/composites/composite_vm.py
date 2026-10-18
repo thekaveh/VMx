@@ -1077,7 +1077,7 @@ class CompositeVM(Generic[VM], _CompositeVMBase[VM]):
         name: str | None = None,
         hub: MessageHubProto[Message] | None = None,
         dispatcher: Dispatcher | None = None,
-        children: Callable[[], Iterable[VM]],
+        children: Callable[[], Iterable[VM]] | None = None,
         hint: str = "",
         async_selection: bool = False,
         auto_construct_on_add: bool = False,
@@ -1090,17 +1090,19 @@ class CompositeVM(Generic[VM], _CompositeVMBase[VM]):
 
         An additive alternative to :meth:`builder` (ADR-0055 / VMX-020).
         Delegates to :class:`CompositeVMBuilder`, so required-field validation
-        (``BuilderValidationError`` on a missing ``name``/``hub``/``dispatcher``)
-        and the resulting VM are identical to the fluent path. ``children`` is a
-        required keyword (pass ``lambda: ()`` for an initially empty composite).
+        (``BuilderValidationError`` on a missing ``name``/``hub``/``dispatcher``/
+        ``children``)
+        and the resulting VM are identical to the fluent path. ``children`` is
+        required (pass ``lambda: ()`` for an initially empty composite).
         """
         builder: CompositeVMBuilder[VM] = CompositeVMBuilder()
         builder = (
             builder.hint(hint)
             .async_selection(async_selection)
             .auto_construct_on_add(auto_construct_on_add)
-            .children(children)
         )
+        if children is not None:
+            builder = builder.children(children)
         if name is not None:
             builder = builder.name(name)
         if hub is not None:

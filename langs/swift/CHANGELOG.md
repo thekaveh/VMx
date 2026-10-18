@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `AsyncRelayCommand.execute()` admits the run before it returns, so
+  `isExecuting` is true and `canExecute()` is false straight after the call,
+  as in the other flavors (spec/04 §10.2).
+- An eager `HierarchicalVM.construct()` throws
+  `HierarchyError.invalidFactoryOutput` and rolls back when the children
+  factory returns invalid output. Before, it trapped (LIFE-014, ADR-0053).
 - `TokenPagedComposition` stops auto-constructing page items once a hook
   disposes it or starts a newer operation (spec/21 §6).
 - `ConfirmationDecoratorCommand.canExecute` re-checks disposal after the inner

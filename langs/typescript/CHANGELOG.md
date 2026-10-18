@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `PagedComposition` declares the `IPageable` capability, so
+  `hasCapability(paged, "IPageable")` returns true, as for the other
+  capability types (spec/14 §2.10).
 - `ConfirmationDecoratorCommand.canExecute` re-checks disposal after the inner
   predicate, which may dispose the wrapper, as the other wrappers do
   (spec/04 §8.4).

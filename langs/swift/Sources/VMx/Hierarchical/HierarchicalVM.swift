@@ -301,7 +301,8 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
     open override func _onConstruct() throws {
         try super._onConstruct()
         guard eagerChildren else { return }
-        for child in children {
+        // Invalid factory output is a catchable construct failure, not a trap.
+        for child in try tryChildren().get() {
             try node(child).construct()
         }
     }

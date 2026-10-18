@@ -97,6 +97,30 @@ final class HierarchicalConstructionTests: XCTestCase {
         XCTAssertTrue(root.children.contains(where: { $0 === leaf }))
     }
 
+    /// Eager construct reports invalid factory output as a thrown error and
+    /// rolls the parent back (LIFE-014), instead of trapping.
+    func testEagerConstructThrowsOnInvalidFactoryOutput() throws {
+        let hub = MessageHub()
+        let shared = MyNode(
+            model: MyModel(value: "shared"),
+            childrenFactory: { _ in [] },
+            hub: hub,
+            dispatcher: ImmediateDispatcher.INSTANCE
+        )
+        let root = MyNode(
+            model: MyModel(value: "root"),
+            childrenFactory: { _ in [shared, shared] },
+            hub: hub,
+            dispatcher: ImmediateDispatcher.INSTANCE,
+            eagerChildren: true
+        )
+
+        XCTAssertThrowsError(try root.construct()) { error in
+            XCTAssertEqual(error as? HierarchyError, .invalidFactoryOutput)
+        }
+        XCTAssertNotEqual(root.status, .constructed)
+    }
+
     /// HIER-009 — depth-first construction order: deepest node reaches
     /// Constructed first. Subscribes to the hub before constructing a three-level
     /// eager tree (root → child → grandchild) and asserts the order in which

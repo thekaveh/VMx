@@ -23,6 +23,9 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ### Fixed
 
+- `CompositeVM.create()` and `GroupVM.create()` without `children` raise
+  `BuilderValidationError`, as `build()` does, instead of a `TypeError`
+  (BLD-006, ADR-0055).
 - `ConfirmationDecoratorCommand.can_execute` re-checks disposal after the inner
   predicate, which may dispose the wrapper, as the other wrappers do
   (spec/04 §8.4).

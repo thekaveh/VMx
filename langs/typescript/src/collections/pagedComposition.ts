@@ -25,6 +25,7 @@
 
 import { Observable, Subject, Subscription } from "rxjs";
 import type { IPageable } from "../capabilities/pageable.js";
+import { declareCapabilities } from "../capabilities/registry.js";
 
 // Source type: an array, an iterable, or a zero-arg factory.
 export type PagedCompositionSource<T> =
@@ -74,6 +75,7 @@ export class PagedComposition<TVM> implements IPageable {
     if (source == null) throw new TypeError("source must not be null/undefined");
     this.#rawSource = source;
     this.#pageSize = Math.max(0, requireFiniteInteger(pageSize, "pageSize"));
+    declareCapabilities(this, "IPageable");
 
     // Normalise source into a zero-arg factory for uniform access. A one-shot
     // iterator is materialized first, so a throwing enumeration fails the

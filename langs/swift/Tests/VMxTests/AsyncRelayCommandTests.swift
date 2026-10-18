@@ -157,6 +157,22 @@ final class AsyncRelayCommandTests: XCTestCase {
         command.dispose()
     }
 
+    /// Fire-and-forget `execute()` admits before it returns (spec §10.2).
+    func testExecuteAdmitsBeforeReturning() async throws {
+        let release = AsyncStream<Void>.makeStream()
+        let command = AsyncRelayCommand.builder()
+            .task { for await _ in release.stream { break } }
+            .build()
+
+        command.execute()
+
+        XCTAssertTrue(command.isExecuting)
+        XCTAssertFalse(command.canExecute())
+        release.continuation.yield(())
+        release.continuation.finish()
+        command.dispose()
+    }
+
     /// CMD-018 — async imperative raise while idle emits exactly once.
     func testCmd018ImperativeRaiseWhileIdleEmitsOnce() {
         let cmd = AsyncRelayCommand.builder().build()
