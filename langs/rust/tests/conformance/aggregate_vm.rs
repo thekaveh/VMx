@@ -1200,3 +1200,171 @@ fn failed_reconstruction_preserves_all_previous_slots_and_parent_links() {
     assert_eq!(replacement.parent_id(), None);
     assert_eq!(foreign.parent_id(), Some(foreign_parent.id()));
 }
+
+/// AGG-007 — `reconstruct_command()` runs the full fixed-slot reconstruction:
+/// every factory re-runs and each replaced child is disposed, for all arities.
+#[test]
+fn reconstruct_command_reruns_factories_and_disposes_replaced_children() {
+    macro_rules! assert_command_reconstructs {
+        ($builder:expr, $($slot:ident),+) => {{
+            let calls = Arc::new(AtomicUsize::new(0));
+            let builder = $builder.name("aggregate").services(MessageHub::new(), NullDispatcher::new());
+            $(
+                let slot_calls = Arc::clone(&calls);
+                let builder = builder.$slot(move || {
+                    slot_calls.fetch_add(1, Ordering::SeqCst);
+                    text(stringify!($slot))
+                });
+            )+
+            let aggregate = builder.build().unwrap();
+            aggregate.construct().unwrap();
+            let before = vec![$(aggregate.$slot().unwrap()),+];
+            let factory_calls = calls.load(Ordering::SeqCst);
+
+            aggregate.reconstruct_command().execute();
+
+            assert_eq!(aggregate.status(), ConstructionStatus::Constructed);
+            assert_eq!(calls.load(Ordering::SeqCst), factory_calls * 2);
+            for old in &before {
+                assert_eq!(old.status(), ConstructionStatus::Disposed);
+            }
+            let after = vec![$(aggregate.$slot().unwrap()),+];
+            for (old, new) in before.iter().zip(&after) {
+                assert_ne!(old.id(), new.id());
+                assert_eq!(new.status(), ConstructionStatus::Constructed);
+            }
+        }};
+    }
+
+    assert_command_reconstructs!(vmx::AggregateVm1::builder(), component_1);
+    assert_command_reconstructs!(vmx::AggregateVm2::builder(), component_1, component_2);
+    assert_command_reconstructs!(
+        vmx::AggregateVm3::builder(),
+        component_1,
+        component_2,
+        component_3
+    );
+    assert_command_reconstructs!(
+        vmx::AggregateVm4::builder(),
+        component_1,
+        component_2,
+        component_3,
+        component_4
+    );
+    assert_command_reconstructs!(
+        vmx::AggregateVm5::builder(),
+        component_1,
+        component_2,
+        component_3,
+        component_4,
+        component_5
+    );
+    assert_command_reconstructs!(
+        vmx::AggregateVm6::builder(),
+        component_1,
+        component_2,
+        component_3,
+        component_4,
+        component_5,
+        component_6
+    );
+}
+
+#[derive(Clone)]
+enum CycleNode {
+    Leaf(Box<TextVm>),
+    Aggregate(Box<vmx::AggregateVm2<CycleNode, CycleNode>>),
+}
+
+impl PartialEq for CycleNode {
+    fn eq(&self, other: &Self) -> bool {
+        self.id() == other.id()
+    }
+}
+
+macro_rules! delegate_cycle_node {
+    ($node:expr, $method:ident $(, $arg:expr)*) => {
+        match $node {
+            CycleNode::Leaf(node) => VmNode::$method(&**node $(, $arg)*),
+            CycleNode::Aggregate(node) => VmNode::$method(&**node $(, $arg)*),
+        }
+    };
+}
+
+impl VmNode for CycleNode {
+    fn id(&self) -> usize {
+        delegate_cycle_node!(self, id)
+    }
+    fn construct(&self) -> vmx::VmxResult<()> {
+        delegate_cycle_node!(self, construct)
+    }
+    fn destruct(&self) -> vmx::VmxResult<()> {
+        delegate_cycle_node!(self, destruct)
+    }
+    fn dispose(&self) -> vmx::VmxResult<()> {
+        delegate_cycle_node!(self, dispose)
+    }
+    fn status(&self) -> ConstructionStatus {
+        delegate_cycle_node!(self, status)
+    }
+    fn set_parent_id(&self, parent_id: Option<usize>) {
+        delegate_cycle_node!(self, set_parent_id, parent_id)
+    }
+    fn parent_id(&self) -> Option<usize> {
+        delegate_cycle_node!(self, parent_id)
+    }
+    fn set_parent_handle(&self, parent: Option<ParentHandle>) {
+        delegate_cycle_node!(self, set_parent_handle, parent)
+    }
+    fn parent_handle(&self) -> Option<ParentHandle> {
+        delegate_cycle_node!(self, parent_handle)
+    }
+}
+
+/// AGG-007 — a candidate that is the aggregate itself fails cycle preflight
+/// before any slot commits: no slot notification, no slot or parent change,
+/// and a later construct with a valid factory succeeds.
+#[test]
+fn aggregate_factory_returning_the_aggregate_fails_cycle_preflight() {
+    let hub = MessageHub::new();
+    let recorder = hub.record(1024);
+    let own = Arc::new(Mutex::new(None::<vmx::AggregateVm2<CycleNode, CycleNode>>));
+    let return_self = Arc::new(AtomicBool::new(true));
+    let factory_own = Arc::clone(&own);
+    let factory_flag = Arc::clone(&return_self);
+    let aggregate = vmx::AggregateVm2::<CycleNode, CycleNode>::builder()
+        .name("cyclic")
+        .services(hub.clone(), NullDispatcher::new())
+        .component_1(move || {
+            if factory_flag.load(Ordering::SeqCst) {
+                CycleNode::Aggregate(Box::new(factory_own.lock().unwrap().clone().unwrap()))
+            } else {
+                CycleNode::Leaf(Box::new(text("first")))
+            }
+        })
+        .component_2(|| CycleNode::Leaf(Box::new(text("second"))))
+        .build()
+        .unwrap();
+    *own.lock().unwrap() = Some(aggregate.clone());
+
+    assert_eq!(aggregate.construct(), Err(VmxError::OwnershipCycle));
+
+    assert_eq!(aggregate.status(), ConstructionStatus::Destructed);
+    assert!(aggregate.component_1().is_none());
+    assert!(aggregate.component_2().is_none());
+    assert_eq!(VmNode::parent_id(&aggregate), None);
+    assert!(VmNode::parent_handle(&aggregate).is_none());
+    assert!(!recorder.messages().iter().any(|message| matches!(
+        message,
+        Message::PropertyChanged(change) if change.sender_id == aggregate.id()
+    )));
+
+    return_self.store(false, Ordering::SeqCst);
+    aggregate.construct().unwrap();
+    assert_eq!(aggregate.status(), ConstructionStatus::Constructed);
+    assert_eq!(
+        aggregate.component_1().map(|node| node.status()),
+        Some(ConstructionStatus::Constructed)
+    );
+    *own.lock().unwrap() = None;
+}

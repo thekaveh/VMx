@@ -52,6 +52,21 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Every published lifecycle status change (construct, destruct, reconstruct,
+  dispose, and rollbacks) now raises the local `status` and then
+  `is_constructed` notifications on `property_changed()` after the hub
+  `ConstructionStatusChanged`, as the other flavors do (spec/01 §1, spec/02
+  §6). They are local only; no hub `PropertyChanged` is sent for them.
+  Before, Rust raised neither.
+- `AggregateVm1` to `AggregateVm6` `reconstruct_command()` runs
+  `reconstruct()`, so slot factories re-run and replaced children are
+  disposed (spec/05 §5, spec/08 §4). Before, the command destructed and
+  constructed the current slots in place.
+- Fixed aggregates reject a factory candidate that is the aggregate itself or
+  one of its ancestors with `VmxError::OwnershipCycle` before any slot commits
+  (spec/08 §2, §4). Before, the aggregate became its own slot and parent,
+  failed with `ConcurrentOperation`, and every later construct failed with
+  `InconsistentParent`.
 - `ObservableDictionary` and `ObservableMultiDictionary` hub `Add` messages
   carry the insertion index in `new_index`, as the other flavors do
   (spec/21 §2.4). Before, every action sent `None`.

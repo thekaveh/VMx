@@ -2274,6 +2274,37 @@ impl<D: Dispatcher> ComponentCore<D> {
         }
     }
 
+    /// Publishes one hub `ConstructionStatusChanged` prepared by `prepare`,
+    /// then — when a status message was produced — the VM-local `status` and
+    /// `is_constructed` notifications (spec/01 §1, spec/02 §6). Computed
+    /// lifecycle properties raise only the local notification, never a hub
+    /// `PropertyChanged`.
+    fn send_status<R, F>(&self, hub: &MessageHub, prepare: F) -> R
+    where
+        F: FnOnce() -> (R, Option<Message>),
+    {
+        let mut published = false;
+        let result = hub.send_prepared(|| {
+            let (result, message) = prepare();
+            published = message.is_some();
+            (result, message)
+        });
+        if published {
+            self.raise_status_properties();
+        }
+        result
+    }
+
+    fn raise_status_properties(&self) {
+        let local = lock(&self.inner).property_changed.clone();
+        if !local.begin_notification() {
+            return;
+        }
+        local.send_admitted("status");
+        local.send_admitted("is_constructed");
+        local.end_notification();
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn publish_reconstruct_status(
         &self,
@@ -2285,7 +2316,7 @@ impl<D: Dispatcher> ComponentCore<D> {
         transitioning: bool,
         claim_hook: bool,
     ) -> bool {
-        hub.send_prepared(|| {
+        self.send_status(hub, || {
             let mut inner = lock(&self.inner);
             if inner.transition_generation != generation
                 || inner.status == ConstructionStatus::Disposed
@@ -2312,8 +2343,8 @@ impl<D: Dispatcher> ComponentCore<D> {
 
     fn reconstruct_sync(&self) -> VmxResult<()> {
         let hub = lock(&self.inner).hub.clone();
-        let (sender_id, sender_name, destruct_hook, construct_hook, generation) = hub
-            .send_prepared(|| {
+        let (sender_id, sender_name, destruct_hook, construct_hook, generation) = self
+            .send_status(&hub, || {
                 let mut inner = lock(&self.inner);
                 if inner.status == ConstructionStatus::Disposed {
                     return (Err(VmxError::Disposed), None);
@@ -2498,7 +2529,7 @@ impl<D: Dispatcher> ComponentCore<D> {
 
     fn transition_background(&self, operation: LifecycleOperation) -> VmxResult<()> {
         let hub = lock(&self.inner).hub.clone();
-        let started = hub.send_prepared(|| {
+        let started = self.send_status(&hub, || {
             let mut inner = lock(&self.inner);
             match (inner.status, operation) {
                 (ConstructionStatus::Disposed, _) => return (Err(VmxError::Disposed), None),
@@ -2576,7 +2607,7 @@ impl<D: Dispatcher> ComponentCore<D> {
             let fallback_name = sender_name.clone();
             let foreground_action = Box::new(move || {
                 let emission = error.as_ref().and_then(|_| errors.begin_emission());
-                hub.send_prepared(|| {
+                publication_core.send_status(&hub, || {
                     let mut inner = lock(&publication_core.inner);
                     if inner.transition_generation != generation
                         || inner.status == ConstructionStatus::Disposed
@@ -2649,7 +2680,7 @@ impl<D: Dispatcher> ComponentCore<D> {
     ) -> bool {
         let errors = self.background_errors();
         let emission = error.as_ref().and_then(|_| errors.begin_emission());
-        let recovered = hub.send_prepared(|| {
+        let recovered = self.send_status(hub, || {
             let mut inner = lock(&self.inner);
             if inner.transition_generation != generation
                 || inner.status == ConstructionStatus::Disposed
@@ -2698,7 +2729,7 @@ impl<D: Dispatcher> ComponentCore<D> {
         F: FnOnce() -> VmxResult<()>,
     {
         let hub = lock(&self.inner).hub.clone();
-        let started = hub.send_prepared(|| {
+        let started = self.send_status(&hub, || {
             let (sender_id, sender_name, hook, transition_status, target, generation) = {
                 let mut inner = lock(&self.inner);
                 match (inner.status, operation) {
@@ -2870,7 +2901,7 @@ impl<D: Dispatcher> ComponentCore<D> {
                 }
                 return operation_result;
             }
-            hub.send_prepared(|| {
+            self.send_status(&hub, || {
                 let message = self
                     .publication_is_current(generation, rollback)
                     .then_some({
@@ -2907,7 +2938,7 @@ impl<D: Dispatcher> ComponentCore<D> {
         // above is already the terminal Disposed transition. Publishing the
         // same state again would make one dispose observably execute twice.
         if operation != LifecycleOperation::Dispose {
-            hub.send_prepared(|| {
+            self.send_status(&hub, || {
                 let message = self.publication_is_current(generation, target).then_some({
                     Message::ConstructionStatusChanged(ConstructionStatusChangedMessage {
                         sender_id,
@@ -3207,7 +3238,7 @@ impl<D: Dispatcher> ComponentCore<D> {
             (inner.hub.clone(), inner.background_errors.clone())
         };
         let emission = error.as_ref().and_then(|_| errors.begin_emission());
-        let published = hub.send_prepared(|| {
+        let published = self.send_status(&hub, || {
             let mut inner = lock(&self.inner);
             if !self.settle_is_current(&inner, generation) {
                 return (false, None);

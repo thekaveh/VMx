@@ -526,3 +526,30 @@ async def test_execute_raises_the_start_notification_before_returning() -> None:
     await asyncio.sleep(0.01)
     assert events == [True, False]
     command.dispose()
+
+
+@pytest.mark.asyncio
+async def test_throwing_start_observer_releases_the_admission() -> None:
+    import asyncio
+
+    from vmx.commands.async_relay_command import AsyncRelayCommand
+
+    async def task() -> None:
+        await asyncio.sleep(0)
+
+    command = AsyncRelayCommand.builder().task(task).build()
+    failing = [True]
+
+    def observer(_: object) -> None:
+        if failing[0]:
+            failing[0] = False
+            raise RuntimeError("observer failed")
+
+    command.can_execute_changed.subscribe(observer)
+
+    with pytest.raises(RuntimeError):
+        command.execute()
+
+    assert not command.is_executing
+    assert command.can_execute()
+    command.dispose()

@@ -468,6 +468,94 @@ fn is_constructed_matches_constructed_status() {
     );
 }
 
+/// LIFE-007 — every published status change raises the local `status` and
+/// `is_constructed` notifications after its hub `ConstructionStatusChanged`,
+/// including a rollback and the terminal Disposed publication.
+#[test]
+fn status_changes_raise_local_status_and_is_constructed_after_hub() {
+    fn trace_of(
+        hub: &MessageHub,
+        local: vmx::PropertyChangedStream,
+        sender_id: usize,
+    ) -> (Arc<Mutex<Vec<String>>>, impl Sized) {
+        let trace = Arc::new(Mutex::new(Vec::new()));
+        let hub_trace = trace.clone();
+        let hub_subscription = hub.subscribe(move |message| {
+            if let Message::ConstructionStatusChanged(change) = message {
+                if change.sender_id == sender_id {
+                    hub_trace
+                        .lock()
+                        .unwrap()
+                        .push(format!("hub:{:?}", change.status));
+                }
+            }
+        });
+        let local_trace = trace.clone();
+        let local_subscription =
+            local.subscribe(move |name| local_trace.lock().unwrap().push(name.to_string()));
+        (trace, (hub_subscription, local_subscription))
+    }
+    fn step(status: &str) -> Vec<String> {
+        vec![
+            format!("hub:{status}"),
+            "status".to_string(),
+            "is_constructed".to_string(),
+        ]
+    }
+
+    let vm = ComponentVm::new("vm");
+    let (trace, _subscriptions) = trace_of(&vm.hub(), vm.property_changed(), vm.id());
+    let fail = Arc::new(AtomicBool::new(false));
+    let hook_fail = fail.clone();
+    vm.on_construct(move || {
+        if hook_fail.load(Ordering::SeqCst) {
+            Err(VmxError::Other("boom".to_string()))
+        } else {
+            Ok(())
+        }
+    });
+
+    vm.construct().unwrap();
+    vm.reconstruct().unwrap();
+    vm.destruct().unwrap();
+    fail.store(true, Ordering::SeqCst);
+    assert!(vm.construct().is_err());
+    vm.dispose().unwrap();
+
+    let expected = [
+        "Constructing",
+        "Constructed",
+        "Destructing",
+        "Destructed",
+        "Constructing",
+        "Constructed",
+        "Destructing",
+        "Destructed",
+        "Constructing",
+        "Destructed",
+        "Disposed",
+    ]
+    .iter()
+    .flat_map(|status| step(status))
+    .collect::<Vec<_>>();
+    assert_eq!(*trace.lock().unwrap(), expected);
+
+    let composite = CompositeVm::<ComponentVm>::new("composite");
+    let (composite_trace, _composite_subscriptions) = trace_of(
+        &composite.hub(),
+        composite.property_changed(),
+        composite.id(),
+    );
+    composite.construct().unwrap();
+    assert_eq!(
+        *composite_trace.lock().unwrap(),
+        ["Constructing", "Constructed"]
+            .iter()
+            .flat_map(|status| step(status))
+            .collect::<Vec<_>>()
+    );
+}
+
 /// LIFE-008 — Concurrent operation while transitioning raises
 #[test]
 fn concurrent_operation_while_transitioning_raises() {

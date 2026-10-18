@@ -83,6 +83,19 @@ fn validate_fixed_aggregate_candidate<T: VmNode>(
     if !seen.insert(child.id()) {
         return Err(VmxError::DuplicateChild);
     }
+    // Ancestor-cycle preflight (spec/08 §2, §4): a candidate may be neither
+    // the aggregate itself nor any of its ancestors.
+    let mut cursor = Some(owner.clone());
+    let mut visited = HashSet::new();
+    while let Some(parent) = cursor {
+        let Some(parent_id) = parent.id() else {
+            break;
+        };
+        if parent_id == child.id() || !visited.insert(parent_id) {
+            return Err(VmxError::OwnershipCycle);
+        }
+        cursor = parent.parent();
+    }
     let claim = begin_ownership_claim(child.id())?;
     if reject_current_owner && owner.contains(child.id()) {
         return Err(VmxError::InconsistentParent);
@@ -2622,38 +2635,26 @@ macro_rules! impl_fixed_aggregate_baseline {
             fn baseline_commands(&self) -> ComponentCommands {
                 self.commands
                     .get_or_init(|| {
-                        let command_core = self.core.clone();
+                        // The command runs the full `reconstruct()` (spec/05
+                        // §5, spec/08 §4): factories re-run and replaced
+                        // children are disposed. The command table is held
+                        // weakly so the stored command cannot keep its own
+                        // aggregate alive.
+                        let core = self.core.clone();
+                        let commands = Arc::downgrade(&self.commands);
+                        let ownership = self.ownership.clone();
                         $(let $slot = self.$slot.clone();)+
                         ComponentCommands::new(&self.core, move || {
-                            if command_core
-                                .transition_with(LifecycleOperation::Destruct, || {
-                                    $(if let Some(component) = $slot.value() {
-                                        command_core.transition_child(
-                                            &component,
-                                            LifecycleOperation::Destruct,
-                                        )?;
-                                    })+
-                                    Ok(())
-                                })
-                                .is_ok()
-                            {
-                                let construct_core = command_core.clone();
-                                $(let $slot = $slot.clone();)+
-                                let _ = command_core.construct_after_destruct(move || {
-                                    construct_core.transition_with(
-                                        LifecycleOperation::Construct,
-                                        || {
-                                            $(if let Some(component) = $slot.value() {
-                                                construct_core.transition_child(
-                                                    &component,
-                                                    LifecycleOperation::Construct,
-                                                )?;
-                                            })+
-                                            Ok(())
-                                        },
-                                    )
-                                });
-                            }
+                            let Some(commands) = commands.upgrade() else {
+                                return;
+                            };
+                            let aggregate = $name {
+                                core: core.clone(),
+                                commands,
+                                ownership: ownership.clone(),
+                                $($slot: $slot.clone(),)+
+                            };
+                            let _ = aggregate.reconstruct();
                         })
                     })
                     .clone()

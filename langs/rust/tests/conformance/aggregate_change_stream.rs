@@ -497,6 +497,13 @@ fn aggregate_terminal_epoch_stays_silent_until_remove_and_readd() {
     let (changes, _subscription) = collect(&aggregate, AggregateObserveOptions::default());
 
     item.dispose().unwrap();
+    // Disposal itself raises the local `status` and `is_constructed`
+    // notifications before the stream completes; they belong to the live epoch.
+    assert_eq!(
+        reasons(&changes),
+        vec![AggregateChangeReason::Item, AggregateChangeReason::Item]
+    );
+    locked(&changes).clear();
     item.emit();
     source.pulse();
     assert_eq!(reasons(&changes), vec![AggregateChangeReason::Membership]);

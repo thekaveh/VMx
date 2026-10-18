@@ -873,16 +873,17 @@ fn discard_cleanup_disposal_prevents_notification_and_loader_start() {
     );
     *owner.lock().unwrap() = Some(vm.clone());
     vm.load_async().join().unwrap().unwrap();
-    let changes = Arc::new(AtomicUsize::new(0));
+    let changes = Arc::new(Mutex::new(Vec::new()));
     let observed = Arc::clone(&changes);
-    let _subscription = vm.property_changed().subscribe(move |_| {
-        observed.fetch_add(1, Ordering::SeqCst);
+    let _subscription = vm.property_changed().subscribe(move |name| {
+        observed.lock().unwrap().push(name.to_string());
     });
 
     vm.reload_async().join().unwrap().unwrap();
 
     assert_eq!(calls.load(Ordering::SeqCst), 1);
-    assert_eq!(changes.load(Ordering::SeqCst), 0);
+    // Only the disposal's own lifecycle notifications; no resource property.
+    assert_eq!(*changes.lock().unwrap(), vec!["status", "is_constructed"]);
     assert!(!vm.load_command().can_execute());
 }
 

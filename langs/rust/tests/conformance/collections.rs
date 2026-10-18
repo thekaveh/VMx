@@ -2270,6 +2270,28 @@ fn paged_composition_can_recompute_after_source_collection_changes() {
 #[test]
 fn observable_dictionary_add_publishes_its_insertion_index() {
     let hub = MessageHub::new();
+    let dictionary = ObservableDictionary::new(1, hub.clone());
+    let recorder = hub.record(1024);
+
+    dictionary.insert("a", 1);
+    dictionary.insert("b", 2);
+    dictionary.insert("a", 3);
+
+    let indices: Vec<Option<usize>> = recorder
+        .messages()
+        .into_iter()
+        .filter_map(|message| match message {
+            Message::CollectionChanged(change) => Some(change.new_index),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(indices, vec![Some(0), Some(1), None]);
+}
+
+/// COL-010 — ObservableMultiDictionary Add carries its insertion position
+#[test]
+fn observable_multi_dictionary_add_publishes_its_insertion_index() {
+    let hub = MessageHub::new();
     let dictionary = ObservableMultiDictionary::new(1, hub.clone());
     let recorder = hub.record(1024);
 

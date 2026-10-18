@@ -242,7 +242,15 @@ class AsyncRelayCommand:
             return
         # The start notification goes out with the flag flip, before the task
         # is scheduled, so observers see is_executing and the event together.
-        self.raise_can_execute_changed()
+        try:
+            self.raise_can_execute_changed()
+        except BaseException:
+            # No run was scheduled: release the admission so the command is
+            # not left executing with nothing to clear it.
+            with self._gate:
+                self._is_executing = False
+                self._cancellation_origin = None
+            raise
         run = self._run_admitted(task_factory, start_notified=True)
         try:
             loop = asyncio.get_running_loop()
