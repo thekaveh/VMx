@@ -125,9 +125,12 @@ TypeScript use their ordinary invalid-operation errors.
 
 Constructor option `eagerChildren=true` (C# / TS) / `eager_children=True`
 (Python) / `eagerChildren: true` (Swift) / builder method
-`eager_children(true)` (Rust) flips to **eager**: the entire tree is materialized at construct time using
-depth-first traversal. Eager mode is required if the consumer wants
-depth-first construction to apply to the whole tree at startup.
+`eager_children(true)` (Rust) flips a node to **eager**: its `construct()`
+materializes and constructs its children, depth first. The option applies to
+each node separately, so the entire tree is materialized at construct time when
+every node is eager; a children factory usually passes the option on to the
+nodes it creates. Eager mode is required if the consumer wants depth-first
+construction to apply to the whole tree at startup.
 
 ## 5. Child-cache invalidation
 

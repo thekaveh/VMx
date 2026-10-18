@@ -109,6 +109,13 @@ holds and delegates to.
 - `Current(selector)` — `selector: Iterable<VM> -> VM | None`. Invoked once during the composite's construct phase, **after** all children have transitioned to `Constructed` and **before** the composite reaches `Constructed`. The composite assigns `Current` to the selector's return value through an internal **non-raising validated assignment** — NOT the guarded `select_component` path, which raises on a non-child (§3.1, `COMP-009`). If the selector returns a contained child, the normal `Current` transition fires (`PropertyChangedMessage("Current")` plus the `IsCurrent` updates of §3). If the selector returns `null` or a value not contained in the composite, the assignment is a **silent no-op**: `Current` stays at its prior value (initially `null`) and no notification fires. (ADR-0042 §5.1 phrased this as "the `SelectComponent` path"; ADR-0050 corrects the wording to the non-raising assignment that the reference implementations and `COMP-025` actually exercise, reconciling it with §5.4's no-op rule.)
 - `OnCurrentChanged(callback)` — `callback: (VM | None) -> void`. Invoked synchronously after every `Current` transition, **after** the state is updated and the hub publishes `PropertyChangedMessage("Current")`. Receives the new `Current` value (which may be `null`). Re-entrant disposal from this callback is deferred through the active membership transaction and completes after publication without deadlocking selection. The shared cross-composite coordinator protects validation and the committed state update only; hub publication and consumer callbacks execute after it is released.
 
+Open Rust gap: Rust `CompositeVm` keeps its membership transaction open while
+it publishes `CollectionChanged` from `add` and while it publishes the
+current-flag changes and runs the current-changed callback. A selection started
+from those callbacks, or concurrently, returns `OwnershipTransactionInProgress`
+instead of completing. The `COMP-026` Rust tests for these two cases are
+ignored until the transaction is released before publication.
+
 Both hooks are optional; absent calls yield v2.5.0 behavior. The hooks compose: if both are present, the initial selector's assignment triggers the callback exactly once.
 
 Conformance: `COMP-025` (initial-current selector), `COMP-026` (`OnCurrentChanged` callback fires on `Current` change).

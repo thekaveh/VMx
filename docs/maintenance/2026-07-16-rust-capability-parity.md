@@ -232,7 +232,10 @@ callbacks directly and assert value-before-completion ordering.
 
 Still open (recorded in spec chapter 06): `FilteredCompositeVm` has no
 `Changed` stream, and `ModeledCrudCommands` has no `confirm_update` and a
-synchronous, non-reactive `with_confirm_delete`.
+synchronous, non-reactive `with_confirm_delete`. `CompositeVm` holds its
+membership transaction across `CollectionChanged` and current-change
+publication, so a selection from those callbacks or a concurrent selection
+fails with `OwnershipTransactionInProgress` (two `COMP-026` tests are ignored).
 
 ### 12.4.8. Hot-Stream Completion And Notification Replay
 

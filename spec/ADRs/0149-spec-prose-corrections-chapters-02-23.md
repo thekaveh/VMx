@@ -127,7 +127,10 @@ The change is editorial. It adds no normative behavior and no conformance ID.
   `HierarchicalVm` and `ModeledCompositeVm` have no hook methods, and
   `ForwardingCompositeVm` reaches them only through `inner()`); chapter 06
   records the Rust `FilteredCompositeVm` `Changed` and `ModeledCrudCommands`
-  confirmation gaps; chapter 21 §2.10 says an empty Python slice mutation emits
+  confirmation gaps and the Rust membership transaction held across publication
+  (`COMP-026`); chapter 18 §4 says the eager option applies per node, as
+  every flavor implements it, so the whole tree is eager when every node is;
+  chapter 21 §2.10 says an empty Python slice mutation emits
   nothing, matching TypeScript `splice` (the code now does so); and that Rust
   `search()` notifies, as the other flavors'
   explicit `Search()` does (SRCH-005); chapter 13 gives the Python helper types as the public
