@@ -95,3 +95,6 @@ The change is editorial. It adds no normative behavior and no conformance ID.
   public Rust surface and needs its own decision and change.
 - Python and TypeScript `ModeledCrudCommands` stay non-reactive. Adding a trigger
   input to them needs its own change.
+- Follow-up correction: chapter 01 says the Rust builders default an unset hint
+  to `Some("")` and only the direct constructors leave it `None`, as chapter 10
+  says (ADR-0149).
