@@ -493,4 +493,17 @@ public class MessageHubTests
             .WithMessage("*possible publish cycle involving: Stub*");
 #endif
     }
+
+    [Fact]
+    public void LateSubscribeAfterDispose_DeliversObjectDisposedToOnError()
+    {
+        var hub = new MessageHub();
+        hub.Dispose();
+        Exception? error = null;
+
+        var act = () => hub.Messages.Subscribe(_ => { }, e => error = e, () => { });
+
+        act.Should().NotThrow();
+        error.Should().BeOfType<ObjectDisposedException>();
+    }
 }

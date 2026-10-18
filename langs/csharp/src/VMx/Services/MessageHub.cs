@@ -371,7 +371,17 @@ public sealed class MessageHub : ITransactionalMessageHub, IDisposable
         public IDisposable Subscribe(IObserver<IMessage> observer)
         {
             ThrowHelper.ThrowIfNull(observer, nameof(observer));
-            return subject.Subscribe(new IsolatingObserver(observer));
+            try
+            {
+                return subject.Subscribe(new IsolatingObserver(observer));
+            }
+            catch (ObjectDisposedException error)
+            {
+                // A late subscriber after Dispose gets OnError, as Rx
+                // Observable.Create delivered it, instead of a caller throw.
+                observer.OnError(error);
+                return System.Reactive.Disposables.Disposable.Empty;
+            }
         }
     }
 

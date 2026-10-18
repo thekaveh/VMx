@@ -17,7 +17,10 @@ All notable changes to the C# flavor are documented here. The format is based on
 - Fixed: A raw `MessageHub.Messages` subscriber whose handler throws keeps its
   subscription. Rx's auto-detach safeguard used to dispose it on the first
   throw; the hub now attaches observers through an isolating observer that
-  swallows the exception (spec/03 §3.4, HUB-007) and keeps delivering.
+  swallows the exception (spec/03 §3.4, HUB-007) and keeps delivering. A
+  handler behind an Rx operator chain (`Where`, `OfType`) is still detached by
+  Rx on its first throw. A late subscriber after `Dispose` still receives
+  `ObjectDisposedException` through `OnError`.
 - Fixed: an abandoned child walk (its hook threw after deferring) constructs
   no further children, as in Python and TypeScript.
 - Fixed: A lifecycle hook that defers completion and then throws abandons that
