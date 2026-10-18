@@ -265,8 +265,8 @@ respect to other lifecycle operations on the same VM.
   reached `Destructed`.
 - The order in which children are constructed/destructed is unspecified.
   Implementations MAY drive them sequentially or concurrently. The reference
-  implementations drive aggregates and the Swift and Rust composites and
-  groups sequentially. The C#, Python, and TypeScript composites and groups
+  implementations drive aggregates and the Rust composites and groups
+  sequentially. The C#, Python, TypeScript, and Swift composites and groups
   start factory-populated children during population, so background children
   in those containers can run concurrently. The parent observes its children's
   `ConstructionStatusChangedMessage` emissions to know when to finalize its own

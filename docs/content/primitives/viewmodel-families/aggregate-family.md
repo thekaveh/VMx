@@ -45,7 +45,7 @@ Construction and destruction cascade through the slot children:
 1. each populated child is constructed
 1. the aggregate reaches `Constructed` only after every child does
 
-In Rust, a aggregate with background children stays Constructing until those
+In Rust, an aggregate with background children stays Constructing until those
 children settle. Thus `construct()` can return `Ok` while the aggregate is still
 transient. A background child failure rolls the aggregate back. The failure
 arrives on the aggregate's `background_errors()` stream (spec/11 §2).

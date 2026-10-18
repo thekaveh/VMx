@@ -264,9 +264,9 @@ children:
   child; each call returns once that child reaches `Destructed`. Once every
   child is `Destructed`, the composite transitions to `Destructed`.
 
-The order in which children are visited is unspecified. The reference
-implementations in all five active flavors
-drive them sequentially.
+The order in which children are visited is unspecified. Chapter 02 §6 says which
+reference implementations drive container children sequentially and which start
+factory-populated children during population.
 
 ### 5.1 Add after Constructed
 

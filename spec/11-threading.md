@@ -149,13 +149,13 @@ requirement; Python and TypeScript scheduler exceptions and Swift's nonthrowing
 scheduler closure remain governed by their ecosystem APIs.
 
 The await primitive for a consumer-defined background wrapper is the
-terminal-status subscription above; the hub does not replay the last status to
-a late subscriber. Every flavor's containers wait at the status level for
-background children to settle (chapter 02 §6). In Rust, a container waits for
-a child node that forwards `VmNode::when_lifecycle_settled`; a third-party node
-that does not forward it is accepted while still in flight. C# alone ships first-class
-outcome tasks for it (`ConstructAsync` / `DestructAsync`); those tasks preserve
-hook and child-cascade failures per ADR-0109. Equivalent async
+terminal-status subscription above; the hub does not replay the last status to a
+late subscriber. Every flavor's containers wait at the status level for
+background children to settle (chapter 02 §6). In Rust, a container waits for a
+child node that forwards `VmNode::when_lifecycle_settled`; a third-party node
+that does not forward it is accepted while still in flight. C# alone ships
+first-class outcome tasks for it (`ConstructAsync` / `DestructAsync`); those
+tasks preserve hook and child-cascade failures per ADR-0109. Equivalent async
 lifecycle entry points remain deliberately absent from the other flavors under
 ADR-0008/ADR-0009 rather than an active parity requirement.
 

@@ -304,7 +304,8 @@ original scope. It is not permission to add undocumented divergence.
 
 Containers (`CompositeVm`, `GroupVm`, the modeled composite, and the fixed
 aggregates) now stay transient until background children settle (spec/02 §6,
-LIFE-014). `HierarchicalVm` has no background option, so it never waits. Two Rust-specific shapes remain open:
+LIFE-014). `HierarchicalVm` has no background option, so it never waits. Two
+Rust-specific shapes remain open:
 
 - **Container `background_errors()`.** A background child failure that rolls a
   container back is reported on the container's `background_errors()` stream.
@@ -320,6 +321,7 @@ which wrapper nodes should forward to the wrapped VM. A third-party node that
 keeps the default (`false`) is accepted while still Constructing/Destructing,
 matching the pre-settle-tracking behavior, so the container does not wait for
 it. A later failure of such a node therefore does not roll the container back:
-the container stays Constructed while the child ends Destructed. This is an
-open LIFE-014 gap for nodes that do not forward the hook. C# observes the child's status instead; Rust has no node-level hub accessor
-to do so without risking an unbounded wait on a child published elsewhere.
+the container stays Constructed while the child ends Destructed. This is an open
+LIFE-014 gap for nodes that do not forward the hook. C# observes the child's
+status instead; Rust has no node-level hub accessor to do so without risking an
+unbounded wait on a child published elsewhere.
