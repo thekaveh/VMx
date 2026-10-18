@@ -381,3 +381,14 @@ def test_model_assignment_goes_through_the_theme_emit_path() -> None:
 
     assert vm.current_theme.value is LIGHT_PRESET
     assert len(messages) == 1
+
+
+def test_model_assignment_after_dispose_is_inert() -> None:
+    vm = _build(DARK_PRESET)
+    messages = _capture_theme_messages(vm)
+    vm.dispose()
+
+    vm.model = LIGHT_PRESET
+
+    assert vm.model is DARK_PRESET
+    assert messages == []

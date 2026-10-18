@@ -107,6 +107,19 @@ describe("ThemeVM — surface shape", () => {
   });
 });
 
+describe("ThemeVM after dispose", () => {
+  it("ignores a model assignment and publishes nothing", () => {
+    const { vm, hub } = makeVM();
+    const msgs = captureMessages(hub);
+    vm.dispose();
+
+    vm.model = LIGHT_PRESET;
+
+    expect(vm.model.name).toBe("dark");
+    expect(msgs).toHaveLength(0);
+  });
+});
+
 describe("ThemeVM value equality", () => {
   it("publishes nothing for a change that alters no field", () => {
     const { vm, hub } = makeVM();

@@ -40,6 +40,7 @@
 import { BehaviorSubject, map } from "rxjs";
 import {
   ComponentVMOf,
+  ConstructionStatus,
   DerivedProperty,
   RelayCommand,
   RelayCommandOf,
@@ -200,6 +201,8 @@ export class ThemeVM extends ComponentVMOf<ThemeModel> {
    * publishes ThemeChangedMessage and ticks the subject.
    */
   protected override _setModel(value: ThemeModel): void {
+    // A disposed theme is inert (DISP-014): no model change, no message.
+    if (this.status === ConstructionStatus.Disposed) return;
     const prev = this.model;
     if (sameTheme(prev, value)) return;
     super._setModel(value);

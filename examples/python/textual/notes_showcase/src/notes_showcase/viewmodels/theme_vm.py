@@ -292,6 +292,9 @@ class ThemeVM(ComponentVMOf[ThemeModel]):
         publishes a :class:`ThemeChangedMessage` carrying both halves. The
         ``BehaviorSubject`` is re-nudged so DerivedProperty subscribers fire.
         """
+        # A disposed theme is inert (DISP-014): its subject is already gone.
+        if self._is_disposed():
+            return
         prev = self._model
         if prev == new_model:
             return
