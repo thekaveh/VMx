@@ -8,6 +8,16 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
+- Fixed: `PropertyValueChangedMessagesFor(source, x => x.Prop)` now emits for
+  real viewmodel property changes. It matched only
+  `IPropertyChangedMessage<TSource>` for the inferred concrete type, while VMs
+  publish `PropertyChangedMessage<IComponentVM>`, so it never fired; it now
+  matches by reference-equal sender (spec/03 §7.1), as TypeScript, Python, and
+  Swift do.
+- Fixed: A raw `MessageHub.Messages` subscriber whose handler throws keeps its
+  subscription. Rx's auto-detach safeguard used to dispose it on the first
+  throw; the hub now attaches observers through an isolating observer that
+  swallows the exception (spec/03 §3.4, HUB-007) and keeps delivering.
 - Fixed: an abandoned child walk (its hook threw after deferring) constructs
   no further children, as in Python and TypeScript.
 - Fixed: A lifecycle hook that defers completion and then throws abandons that

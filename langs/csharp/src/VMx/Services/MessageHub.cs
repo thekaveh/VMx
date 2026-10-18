@@ -1,4 +1,3 @@
-using System.Reactive.Linq;
 using System.Reactive.Subjects;
 using System.Runtime.ExceptionServices;
 using VMx.Internal;
@@ -22,6 +21,7 @@ public sealed class MessageHub : ITransactionalMessageHub, IDisposable
     private readonly object _gate = new();
     private readonly Queue<IMessage> _pending = new();
     private readonly Subject<IMessage> _subject = new();
+    private IObservable<IMessage>? _messages;
     private bool _disposeRequested;
     private bool _disposed;
     private bool _subjectTerminationClaimed;
@@ -31,16 +31,14 @@ public sealed class MessageHub : ITransactionalMessageHub, IDisposable
     private int _borrowedBatchDepth;
 
     /// <inheritdoc/>
-    public IObservable<IMessage> Messages =>
-        Observable.Create<IMessage>(observer =>
-            _subject.Subscribe(
-                onNext: message =>
-                {
-                    try { observer.OnNext(message); }
-                    catch { /* isolate the failing subscriber per HUB-007 */ }
-                },
-                onError: observer.OnError,
-                onCompleted: observer.OnCompleted));
+    /// <remarks>
+    /// Subscribing attaches the caller's observer directly to the hub subject
+    /// through an isolating observer rather than through
+    /// <c>Observable.Create</c>: Rx's auto-detach safeguard would otherwise
+    /// dispose a raw subscriber the first time its handler threw, before the
+    /// hub could swallow the exception (spec/03 §3.4, HUB-007).
+    /// </remarks>
+    public IObservable<IMessage> Messages => _messages ??= new IsolatedMessages(_subject);
 
     /// <inheritdoc/>
     public void Send<TMessage>(TMessage message) where TMessage : IMessage
@@ -367,5 +365,26 @@ public sealed class MessageHub : ITransactionalMessageHub, IDisposable
 
         _subjectTerminationClaimed = true;
         return true;
+    }
+    private sealed class IsolatedMessages(Subject<IMessage> subject) : IObservable<IMessage>
+    {
+        public IDisposable Subscribe(IObserver<IMessage> observer)
+        {
+            ThrowHelper.ThrowIfNull(observer, nameof(observer));
+            return subject.Subscribe(new IsolatingObserver(observer));
+        }
+    }
+
+    private sealed class IsolatingObserver(IObserver<IMessage> inner) : IObserver<IMessage>
+    {
+        public void OnNext(IMessage value)
+        {
+            try { inner.OnNext(value); }
+            catch { /* isolate the failing subscriber per HUB-007; keep it attached */ }
+        }
+
+        public void OnError(Exception error) => inner.OnError(error);
+
+        public void OnCompleted() => inner.OnCompleted();
     }
 }

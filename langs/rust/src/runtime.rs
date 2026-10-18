@@ -580,6 +580,13 @@ struct MessageHubShared {
     ready: Condvar,
 }
 
+/// Hub state taken out under the lock by disposal, released after it.
+#[derive(Default)]
+struct HubTeardown {
+    completions: Vec<MessageHubCompletion>,
+    released: Option<(BTreeMap<usize, Subscriber>, VecDeque<Message>)>,
+}
+
 #[derive(Default)]
 struct MessageHubInner {
     next_subscription_id: usize,
@@ -945,7 +952,7 @@ impl MessageHub {
         let completions = if outermost && inner.dispose_requested {
             Self::finish_dispose(&mut inner)
         } else {
-            Vec::new()
+            HubTeardown::default()
         };
         let should_drain = outermost
             && !inner.disposed
@@ -979,9 +986,12 @@ impl MessageHub {
         }
     }
 
-    fn finish_dispose(inner: &mut MessageHubInner) -> Vec<MessageHubCompletion> {
-        inner.subscribers.clear();
-        inner.pending.clear();
+    fn finish_dispose(inner: &mut MessageHubInner) -> HubTeardown {
+        // Subscriber closures and queued messages may own other subscriptions
+        // on this hub, whose Drop re-enters this hub's lock: hand them to the
+        // caller to drop after the lock is released.
+        let subscribers = std::mem::take(&mut inner.subscribers);
+        let pending = std::mem::take(&mut inner.pending);
         for recorder in std::mem::take(&mut inner.recorders).into_values() {
             if let Some(recorder) = recorder.upgrade() {
                 lock(&recorder).active = false;
@@ -989,12 +999,22 @@ impl MessageHub {
         }
         inner.dispose_requested = false;
         inner.disposed = true;
-        std::mem::take(&mut inner.completion_subscribers)
-            .into_values()
-            .collect()
+        HubTeardown {
+            completions: std::mem::take(&mut inner.completion_subscribers)
+                .into_values()
+                .collect(),
+            released: Some((subscribers, pending)),
+        }
     }
 
-    fn notify_completions(completions: Vec<MessageHubCompletion>) {
+    /// Drops the released subscribers and messages, then runs completions.
+    /// Callers invoke this only after releasing the hub's state lock.
+    fn notify_completions(teardown: HubTeardown) {
+        let HubTeardown {
+            completions,
+            released,
+        } = teardown;
+        drop(released);
         for completion in completions {
             let _ = catch_unwind(AssertUnwindSafe(|| completion()));
         }
@@ -1014,7 +1034,7 @@ impl MessageHub {
             let completions = if inner.dispose_requested {
                 Self::finish_dispose(&mut inner)
             } else {
-                Vec::new()
+                HubTeardown::default()
             };
             if inner.disposed || inner.pending.is_empty() {
                 inner.draining_owner = None;
@@ -1025,13 +1045,23 @@ impl MessageHub {
             }
             debug_assert_eq!(inner.draining_owner, Some(current));
             let message = inner.pending.pop_front().expect("queue checked non-empty");
-            let subscribers = inner.subscribers.values().cloned().collect::<Vec<_>>();
+            let subscribers = inner
+                .subscribers
+                .iter()
+                .map(|(id, subscriber)| (*id, Arc::clone(subscriber)))
+                .collect::<Vec<_>>();
             drop(inner);
             Self::notify_completions(completions);
 
             #[cfg(debug_assertions)]
             message_types.insert(message.type_name());
-            for subscriber in subscribers {
+            for (id, subscriber) in subscribers {
+                // A subscriber detached by an earlier handler of this same
+                // message is skipped; a handler that detaches itself still
+                // finishes the message it is handling.
+                if !lock(&self.inner.state).subscribers.contains_key(&id) {
+                    continue;
+                }
                 let _delivery = MessageHubDeliveryGuard::enter(
                     Arc::as_ptr(&self.inner) as usize,
                     message.sender_id(),
@@ -1258,9 +1288,16 @@ impl Subscription {
     /// Detaches the subscriber; repeated calls are inert.
     pub fn dispose(&self) {
         if let Some(hub) = self.hub.upgrade() {
-            let mut state = lock(&hub.state);
-            state.subscribers.remove(&self.id);
-            state.completion_subscribers.remove(&self.id);
+            // The removed closures may own other subscriptions on this hub;
+            // drop them only after the hub's lock is released.
+            let removed = {
+                let mut state = lock(&hub.state);
+                (
+                    state.subscribers.remove(&self.id),
+                    state.completion_subscribers.remove(&self.id),
+                )
+            };
+            drop(removed);
         }
     }
 }
@@ -1356,16 +1393,21 @@ impl PropertyChangedStream {
     }
 
     fn end_notification(&self) {
-        let mut inner = lock(&self.inner);
-        inner.active_notifications -= 1;
-        if inner.active_notifications == 0 && inner.teardown_pending {
-            inner.teardown_pending = false;
-            inner.subscribers.clear();
-        }
+        let released = {
+            let mut inner = lock(&self.inner);
+            inner.active_notifications -= 1;
+            if inner.active_notifications == 0 && inner.teardown_pending {
+                inner.teardown_pending = false;
+                std::mem::take(&mut inner.subscribers)
+            } else {
+                BTreeMap::new()
+            }
+        };
+        drop(released);
     }
 
     fn dispose(&self) {
-        let completions = {
+        let (completions, released) = {
             let mut inner = lock(&self.inner);
             if inner.disposed {
                 return;
@@ -1374,13 +1416,15 @@ impl PropertyChangedStream {
             let completions = std::mem::take(&mut inner.completion_subscribers)
                 .into_values()
                 .collect::<Vec<_>>();
-            if inner.active_notifications == 0 {
-                inner.subscribers.clear();
+            let released = if inner.active_notifications == 0 {
+                std::mem::take(&mut inner.subscribers)
             } else {
                 inner.teardown_pending = true;
-            }
-            completions
+                BTreeMap::new()
+            };
+            (completions, released)
         };
+        drop(released);
         for completion in completions {
             let _ = catch_unwind(AssertUnwindSafe(|| completion()));
         }
@@ -1404,9 +1448,14 @@ impl PropertyChangedSubscription {
     /// Detaches both change and completion callbacks.
     pub fn dispose(&self) {
         if let Some(stream) = self.stream.upgrade() {
-            let mut stream = lock(&stream);
-            stream.subscribers.remove(&self.id);
-            stream.completion_subscribers.remove(&self.id);
+            let removed = {
+                let mut stream = lock(&stream);
+                (
+                    stream.subscribers.remove(&self.id),
+                    stream.completion_subscribers.remove(&self.id),
+                )
+            };
+            drop(removed);
         }
     }
 }

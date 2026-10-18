@@ -43,9 +43,14 @@ public static class PropertyValueChangedExtensions
         var propertyName = ExtractPropertyName(propertyExpression);
         var getter = propertyExpression.Compile();
 
+        // Match by reference-equal sender (spec/03 §7.1 step 1), not by the
+        // message's generic sender type: real VMs publish
+        // PropertyChangedMessage<IComponentVM>, which is not an
+        // IPropertyChangedMessage<TSource> for a concrete TSource.
         return hub.Messages
-            .OfType<IPropertyChangedMessage<TSource>>()
-            .Where(m => ReferenceEquals(m.Sender, source) && m.PropertyName == propertyName)
+            .Where(m => m is IPropertyChangedMessage<object> propertyChanged
+                && ReferenceEquals(propertyChanged.SenderObject, source)
+                && propertyChanged.PropertyName == propertyName)
             .Select(_ => getter(source));
     }
 

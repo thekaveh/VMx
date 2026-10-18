@@ -52,6 +52,16 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Disposing a `MessageHub` subscription, dropping it, or disposing the hub no
+  longer deadlocks when a subscriber's handler owns the last reference to
+  another subscription on the same hub. Removed handlers, completions, and
+  queued messages are now dropped after the hub's lock is released. The same
+  applies to `ValueStream` subscriptions and disposal, and to the
+  `property_changed()` stream.
+- A hub subscriber disposed by an earlier subscriber while a message is being
+  delivered no longer receives that message, as in C#, Python, and
+  TypeScript. A subscriber that disposes itself still finishes the message it
+  is handling.
 - Every published lifecycle status change (construct, destruct, reconstruct,
   dispose, and rollbacks) now raises the local `status` and then
   `is_constructed` notifications on `property_changed()` after the hub

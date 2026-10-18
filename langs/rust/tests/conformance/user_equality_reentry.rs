@@ -744,3 +744,139 @@ fn auto_construct_token_paged_refresh_yields_to_an_operation_started_by_eq() {
     *probe.lock().unwrap() = None;
     assert_eq!(ids, [1, 2, 9]);
 }
+
+fn custom(name: &str) -> Message {
+    Message::Custom {
+        sender_id: 1,
+        sender_name: "sender".to_string(),
+        name: name.to_string(),
+    }
+}
+
+/// Subscribes an outer handler whose closure owns the only reference to an
+/// inner subscription on the same hub, so releasing the outer handler drops
+/// the inner subscription.
+fn nested_hub_subscriptions(hub: &MessageHub) -> vmx::Subscription {
+    let inner = hub.subscribe(|_| {});
+    hub.subscribe(move |_| {
+        let _ = &inner;
+    })
+}
+
+#[test]
+fn hub_subscription_dispose_may_drop_a_subscription_on_the_same_hub() {
+    within_timeout("Subscription::dispose", || {
+        let hub = MessageHub::new();
+        let outer = nested_hub_subscriptions(&hub);
+        outer.dispose();
+        hub.send(custom("after"));
+    });
+}
+
+#[test]
+fn hub_subscription_drop_may_drop_a_subscription_on_the_same_hub() {
+    within_timeout("Subscription drop", || {
+        let hub = MessageHub::new();
+        drop(nested_hub_subscriptions(&hub));
+        hub.send(custom("after"));
+    });
+}
+
+#[test]
+fn hub_dispose_may_drop_a_subscription_on_the_same_hub() {
+    within_timeout("MessageHub::dispose", || {
+        let hub = MessageHub::new();
+        let _outer = nested_hub_subscriptions(&hub);
+        hub.dispose();
+    });
+}
+
+#[test]
+fn hub_dispose_during_delivery_may_drop_a_subscription_on_the_same_hub() {
+    within_timeout("MessageHub::dispose during delivery", || {
+        let hub = MessageHub::new();
+        let _outer = nested_hub_subscriptions(&hub);
+        let disposer = hub.clone();
+        let _trigger = hub.subscribe(move |_| disposer.dispose());
+        hub.send(custom("dispose"));
+    });
+}
+
+#[test]
+fn value_stream_teardown_may_drop_a_subscription_on_the_same_stream() {
+    within_timeout("ValueStream dispose", || {
+        let stream = vmx::ValueStream::hot(0_u8);
+        let nested = |stream: &vmx::ValueStream<u8>| {
+            let inner = stream.subscribe(|_| {});
+            stream.subscribe(move |_| {
+                let _ = &inner;
+            })
+        };
+        nested(&stream).dispose();
+        drop(nested(&stream));
+        let _outer = nested(&stream);
+        stream.dispose();
+    });
+}
+
+#[test]
+fn hub_skips_a_subscriber_disposed_by_an_earlier_subscriber_of_the_same_message() {
+    let hub = MessageHub::new();
+    let log = Arc::new(Mutex::new(Vec::<String>::new()));
+    let target = Arc::new(Mutex::new(None::<vmx::Subscription>));
+    let _a = hub.subscribe({
+        let log = Arc::clone(&log);
+        let target = Arc::clone(&target);
+        move |message| {
+            if let Message::Custom { name, .. } = message {
+                log.lock().unwrap().push(format!("A:{name}"));
+            }
+            if let Some(b) = target.lock().unwrap().as_ref() {
+                b.dispose();
+            }
+        }
+    });
+    let b = hub.subscribe({
+        let log = Arc::clone(&log);
+        move |message| {
+            if let Message::Custom { name, .. } = message {
+                log.lock().unwrap().push(format!("B:{name}"));
+            }
+        }
+    });
+    *target.lock().unwrap() = Some(b);
+    hub.send(custom("1"));
+    hub.send(custom("2"));
+    assert_eq!(*log.lock().unwrap(), ["A:1", "A:2"]);
+}
+
+#[test]
+fn hub_self_disposing_subscriber_finishes_its_message_and_later_ones_still_run() {
+    let hub = MessageHub::new();
+    let log = Arc::new(Mutex::new(Vec::<String>::new()));
+    let own = Arc::new(Mutex::new(None::<vmx::Subscription>));
+    let a = hub.subscribe({
+        let log = Arc::clone(&log);
+        let own = Arc::clone(&own);
+        move |message| {
+            if let Some(me) = own.lock().unwrap().as_ref() {
+                me.dispose();
+            }
+            if let Message::Custom { name, .. } = message {
+                log.lock().unwrap().push(format!("A:{name}"));
+            }
+        }
+    });
+    *own.lock().unwrap() = Some(a);
+    let _b = hub.subscribe({
+        let log = Arc::clone(&log);
+        move |message| {
+            if let Message::Custom { name, .. } = message {
+                log.lock().unwrap().push(format!("B:{name}"));
+            }
+        }
+    });
+    hub.send(custom("1"));
+    hub.send(custom("2"));
+    assert_eq!(*log.lock().unwrap(), ["A:1", "B:1", "B:2"]);
+}

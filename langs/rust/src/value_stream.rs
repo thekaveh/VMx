@@ -329,6 +329,9 @@ impl<T: Clone + Send + 'static> ValueStream<T> {
     /// Completes the stream once and makes later sends inert.
     pub fn dispose(&self) {
         let current = thread::current().id();
+        // Subscriber closures may own other subscriptions on this stream;
+        // they are dropped after the state lock is released.
+        let mut released = Vec::new();
         let (completion, should_drain, reentrant) = {
             let mut state = lock(&self.inner);
             if state.disposed {
@@ -351,10 +354,11 @@ impl<T: Clone + Send + 'static> ValueStream<T> {
                 }
                 return;
             }
-            let completions = std::mem::take(&mut state.subscribers)
-                .into_values()
-                .filter_map(|subscriber| subscriber.completion)
-                .collect();
+            let mut completions = Vec::new();
+            for subscriber in std::mem::take(&mut state.subscribers).into_values() {
+                completions.extend(subscriber.completion.clone());
+                released.push(subscriber);
+            }
             let completion = Arc::new(DeliveryCompletion::default());
             state.pending_terminal = Some(PendingTerminal { completions });
             state.dispose_requested = true;
@@ -366,6 +370,7 @@ impl<T: Clone + Send + 'static> ValueStream<T> {
             }
             (completion, should_drain, reentrant)
         };
+        drop(released);
         if should_drain {
             self.drain(current);
         } else if !reentrant && !ValueStreamDrainContext::is_active() {
@@ -392,7 +397,10 @@ impl ValueSubscription {
             active: AtomicBool::new(true),
             dispose_action: Arc::new(move || {
                 if let Some(stream) = stream.upgrade() {
-                    lock(&stream).subscribers.remove(&id);
+                    // Drop the removed closures after releasing the lock: they
+                    // may own other subscriptions on this stream.
+                    let removed = lock(&stream).subscribers.remove(&id);
+                    drop(removed);
                 }
             }),
         }
