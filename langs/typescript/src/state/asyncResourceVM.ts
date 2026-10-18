@@ -257,7 +257,8 @@ export class AsyncResourceVM<T> extends ComponentVMBase {
       if (typeof (result as { then?: unknown } | null)?.then !== "function") {
         throw new TypeError("The loader did not return a promise.");
       }
-      loaderPromise = result as Promise<T>;
+      // Adopt any thenable, so a non-native `then` cannot leave the load pending.
+      loaderPromise = Promise.resolve(result as PromiseLike<T>);
     } catch (error: unknown) {
       loaderPromise = Promise.resolve().then(() => {
         throw error;

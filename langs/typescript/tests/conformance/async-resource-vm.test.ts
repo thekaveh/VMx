@@ -126,6 +126,36 @@ describe("AsyncResourceVM conformance", () => {
       vm.dispose();
     });
 
+    it("adopts a non-native thenable and fails a thenable whose then throws", async () => {
+      const make = (loader: () => PromiseLike<number>) =>
+        new AsyncResourceVM<number>({
+          name: "resource",
+          hub: new MessageHub(),
+          dispatcher: NullDispatcher.INSTANCE,
+          loader: loader as unknown as () => Promise<number>,
+        });
+      const adopted = make(() => ({
+        then(resolve?: ((value: number) => unknown) | null) {
+          resolve?.(7);
+          return undefined as unknown as PromiseLike<never>;
+        },
+      }));
+      adopted.construct();
+      await adopted.load();
+      expect(adopted.state.status).toBe(AsyncResourceStatus.Ready);
+      adopted.dispose();
+
+      const throwing = make(() => ({
+        then(): PromiseLike<never> {
+          throw new Error("boom");
+        },
+      }));
+      throwing.construct();
+      await throwing.load();
+      expect(throwing.state.status).toBe(AsyncResourceStatus.Error);
+      throwing.dispose();
+    });
+
     it("routes fire-and-forget loader failure only into error state", async () => {
       const failure = new Error("offline");
       const vm = new AsyncResourceVM<number>({

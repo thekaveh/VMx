@@ -960,6 +960,8 @@ describe("FormVM default equality – supported snapshot domain", () => {
     expect(equalsCase(new String("a"), new String("b"))).toBe(false);
     expect(equalsCase(Object(1n), Object(2n))).toBe(false);
     expect(equalsCase(new Number(1), new String("1"))).toBe(false);
+    expect(equalsCase(new Number(0), new Number(-0))).toBe(true);
+    expect(equalsCase(new Number(Number.NaN), new Number(Number.NaN))).toBe(true);
 
     const sut = makeAny({ n: new Number(1) });
     sut.setModel({ n: new Number(2) });

@@ -9,8 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Fixed
 
 - Code outside the module can now create an `ObservableList` (`public init()`),
-  call `dismiss()` and `resolveWith(_:)` from a `NotificationVM` subclass, and
-  create `CollectionChangedEvent` values for its own `VMCollection`. Before,
+  call `dismiss()` and `resolveWith(_:)` on a `NotificationVM` (they are
+  `public`, because Swift has no `protected`; C# and TypeScript keep them
+  protected), and create `CollectionChangedEvent` values for its own
+  `VMCollection`. Before,
   these were internal, unlike C#, Python, and TypeScript (spec/21 §3.1, spec/16).
 - `AsyncRelayCommand.execute()` admits the run before it returns, so
   `isExecuting` is true and `canExecute()` is false straight after the call,

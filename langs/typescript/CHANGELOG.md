@@ -9,11 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Fixed
 
 - `FormVM`'s default deep equality compares boxed `Number`, `Boolean`,
-  `String`, and `BigInt` values by value, so `setModel` no longer drops a
-  change to one of them (spec/20 §4).
+  `String`, and `BigInt` values by value (with `+0` equal to `-0` and `NaN`
+  equal to `NaN`, as for primitives), so `setModel` no longer drops a change to
+  one of them (spec/20 §4).
 - `AsyncResourceVM` treats a loader result that is not a promise as a failed
   load: the state becomes `Error` and `load()` completes, instead of staying
-  in `Loading` and rejecting with a `TypeError` (spec/23 §7, ARES-003).
+  in `Loading` and rejecting with a `TypeError` (spec/23 §7, ARES-003). A
+  non-native thenable is adopted, and one whose `then` throws fails the load.
 - `PagedComposition` declares the `IPageable` capability, so
   `hasCapability(paged, "IPageable")` returns true, as for the other
   capability types (spec/14 §2.10).

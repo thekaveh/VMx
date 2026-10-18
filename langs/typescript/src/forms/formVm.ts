@@ -275,14 +275,14 @@ export function deepEquals(
     return aTime === bTime || (aTime !== aTime && bTime !== bTime);
   }
 
-  // Boxed primitives keep their value through structuredClone, so compare it.
+  // Boxed primitives keep their value through structuredClone, so compare it
+  // with the same rules as primitives: NaN equals NaN, and +0 equals -0.
   for (const Box of [Number, Boolean, String, BigInt] as const) {
     if (a instanceof Box || b instanceof Box) {
-      return (
-        a instanceof Box &&
-        b instanceof Box &&
-        Object.is((a as { valueOf(): unknown }).valueOf(), (b as { valueOf(): unknown }).valueOf())
-      );
+      if (!(a instanceof Box) || !(b instanceof Box)) return false;
+      const x: unknown = (a as { valueOf(): unknown }).valueOf();
+      const y: unknown = (b as { valueOf(): unknown }).valueOf();
+      return x === y || (x !== x && y !== y);
     }
   }
 
