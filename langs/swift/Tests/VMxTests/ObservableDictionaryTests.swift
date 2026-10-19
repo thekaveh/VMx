@@ -19,6 +19,28 @@ final class ObservableDictionaryTests: XCTestCase {
         super.tearDown()
     }
 
+    /// COL-022 — the hub add index is captured before a reentrant add.
+    func testCOL022HubAddIndexIsCapturedBeforeAReentrantAdd() {
+        let hub = MessageHub()
+        let sut = ObservableDictionary<String, String, Int>(hub: hub)
+        var indices: [String: Int] = [:]
+        hub.messages
+            .compactMap { $0 as? CollectionChangedMessage<DictionaryEntry<String, String, Int>> }
+            .sink { message in
+                for item in message.newItems { indices[item.key1] = message.index }
+            }
+            .store(in: &cancellables)
+        sut.itemAdded
+            .sink { event in
+                if event.key1 == "a" { sut.set("b", "y", 2) }
+            }
+            .store(in: &cancellables)
+
+        sut.set("a", "x", 1)
+
+        XCTAssertEqual(indices, ["a": 0, "b": 1])
+    }
+
     // ── COL-010 ──────────────────────────────────────────────────────────────
 
     /// COL-010 — ObservableDictionary insert sets has() and get() returns value.
@@ -223,6 +245,16 @@ final class ObservableDictionaryTests: XCTestCase {
         sut.itemRemoved.sink { _ in granular.append("removed") }.store(in: &cancellables)
         sut.reset.sink { resetFired.append(true) }.store(in: &cancellables)
 
+        // Subscribers on the keys1 / keys2 views record their removal events.
+        var keys1Events: [String] = []
+        var keys2Events: [String] = []
+        sut.keys1.reset.sink { keys1Events.append("reset") }.store(in: &cancellables)
+        sut.keys1.itemRemoved.sink { _ in keys1Events.append("removed") }.store(in: &cancellables)
+        sut.keys1.propertyChanged.sink { keys1Events.append("pc:\($0)") }.store(in: &cancellables)
+        sut.keys2.reset.sink { keys2Events.append("reset") }.store(in: &cancellables)
+        sut.keys2.itemRemoved.sink { _ in keys2Events.append("removed") }.store(in: &cancellables)
+        sut.keys2.propertyChanged.sink { keys2Events.append("pc:\($0)") }.store(in: &cancellables)
+
         sut.clear()
 
         // Size drops to zero
@@ -231,6 +263,11 @@ final class ObservableDictionaryTests: XCTestCase {
         // keys1 and keys2 are empty
         XCTAssertEqual(sut.keys1.count, 0)
         XCTAssertEqual(sut.keys2.count, 0)
+
+        // Each key view emitted exactly one bulk removal (Reset) plus its Count
+        // change — clear is a whole-list removal, not per-key removals.
+        XCTAssertEqual(keys1Events, ["reset", "pc:Count"], "keys1 must emit one Reset removal")
+        XCTAssertEqual(keys2Events, ["reset", "pc:Count"], "keys2 must emit one Reset removal")
 
         // reset fired exactly once
         XCTAssertEqual(resetFired.count, 1)

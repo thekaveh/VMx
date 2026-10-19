@@ -14,12 +14,14 @@ subclass-able VM. Composition instead:
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 from collections.abc import Callable
 from typing import cast
 
 from reactivex.abc import SchedulerBase
-from reactivex.scheduler import ImmediateScheduler
+from reactivex.scheduler import ImmediateScheduler, TimeoutScheduler
+from reactivex.scheduler.eventloop import AsyncIOThreadSafeScheduler
 from vmx import (
     ComponentVM,
     ConstructionStatus,
@@ -50,6 +52,34 @@ _DEFAULT_PAGE_SIZE = 5
 _DEFAULT_SEARCH_DEBOUNCE_S = 0.150
 
 
+def default_search_scheduler(dispatcher: Dispatcher, debounce_seconds: float) -> SchedulerBase:
+    """Pick a scheduler that can actually run a ``debounce_seconds`` timer.
+
+    ``ImmediateScheduler`` cannot wait: a positive debounce on it raises
+    ``WouldBlockException``, which silently terminates the search pipeline
+    (search then never filters). Resolution order:
+
+    1. no debounce → ``ImmediateScheduler`` (the timer is never used);
+    2. a timer-capable dispatcher foreground (e.g. ``RxDispatcher.asyncio``
+       in the NiceGUI host) → that scheduler, so results land on the UI loop;
+    3. a running asyncio loop (the Textual host builds the workspace inside
+       ``asyncio.run``) → a scheduler bound to that loop;
+    4. otherwise → ``TimeoutScheduler`` (threaded timer, loop-less hosts).
+
+    Tests that need deterministic timing inject a ``TestScheduler`` instead.
+    """
+    if debounce_seconds <= 0:
+        return ImmediateScheduler()
+    foreground = dispatcher.foreground
+    if not isinstance(foreground, ImmediateScheduler):
+        return foreground
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return TimeoutScheduler()
+    return AsyncIOThreadSafeScheduler(loop)
+
+
 class NotesViewVM(
     ComponentVM,
     Pageable,
@@ -76,7 +106,9 @@ class NotesViewVM(
         self._repo = repository
         self._dialog_service = dialog_service
         self._notification_hub = notification_hub
-        self._search_scheduler = search_scheduler or ImmediateScheduler()
+        self._search_scheduler = search_scheduler or default_search_scheduler(
+            dispatcher, search_debounce_seconds
+        )
 
         self._inner: ObservableList[NoteVM] = ObservableList()
         self._filtered: list[NoteVM] = []
@@ -348,7 +380,7 @@ class NotesViewVM(
                     .name(f"note:{n.id}")
                     .services(self.hub, self._dispatcher)
                     .model(n)
-                    .on_close(lambda _vm: self._clear_current())
+                    .on_close(self._close_note)
                     .on_delete(self._delete_note)
                     .on_save(self._save_note)
                 )
@@ -418,6 +450,12 @@ class NotesViewVM(
         """Persist ``note`` and surface repository failure through the command."""
         await self._repo.save_note(note.model)
 
+    def _close_note(self, closed: NoteVM) -> None:
+        # Closing a note clears the selection only when that note is current,
+        # as in the other flavors.
+        if self._current is closed:
+            self._clear_current()
+
     # ── Combined filter pipeline ───────────────────────────────────────────
     def _recompute_filtered(self) -> None:
         term = self._search.search_term.lower()
@@ -433,6 +471,10 @@ class NotesViewVM(
                     continue
             result.append(n)
         self._filtered = result
+        # The paged view reads ``_filtered`` through a factory, so it gets no
+        # mutation signal; re-clamp the page so a shrunken list never shows
+        # "Page 2 of 1" (spec/21 §5.2).
+        self._paged.current_page_index = self._paged.current_page_index
         # Re-push self into the subject so DerivedProperties recompute.
         self._self_subject.on_next(self)
         self._notify_property_changed("filtered_items")
@@ -462,10 +504,14 @@ class NotesViewVM(
         self._bound_notebook_id = None
 
     def _on_destruct(self) -> None:
+        # Invalidate a load still in flight so it cannot repopulate this VM.
+        self._active_binding_token += 1
         self._release_children()
         super()._on_destruct()
 
     def _on_dispose(self) -> None:
+        # Invalidate a load still in flight so it cannot repopulate this VM.
+        self._active_binding_token += 1
         self._release_children()
         self._paged.dispose()
         self._search.dispose()

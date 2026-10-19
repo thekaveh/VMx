@@ -34,6 +34,20 @@ def _delivery_depth() -> int:
     return cast(int, getattr(_delivery_context, "depth", 0))
 
 
+def _complete_waiter(
+    future: asyncio.Future[NotificationReaction], reaction: NotificationReaction
+) -> None:
+    """Complete ``future`` on its owning loop; ``set_result`` is not thread-safe."""
+    if future.done():
+        return
+    try:
+        future.get_loop().call_soon_threadsafe(_complete_future_if_pending, future, reaction)
+    except RuntimeError:
+        # The waiter's loop is already closed (typical shutdown ordering); the
+        # C# parity model (TrySetResult) never throws here either.
+        pass
+
+
 def _complete_future_if_pending(
     future: asyncio.Future[NotificationReaction],
     reaction: NotificationReaction,
@@ -127,15 +141,12 @@ class NotificationHub:
             emission, should_emit, should_wait = self._queue_emission_locked(
                 _PendingEmission(snapshot=list(self._pending))
             )
-        self._publish_emission(emission, should_emit, should_wait)
-        if future.done():
-            return
-        # asyncio.Future.set_result is not thread-safe — route through the
-        # future's owning loop so resolve() may be invoked from any thread.
-        # (The hub is typically shared between the UI/event-loop thread and
-        # background-worker threads that complete the underlying interaction.)
-        loop = future.get_loop()
-        loop.call_soon_threadsafe(_complete_future_if_pending, future, reaction)
+        # The waiter completes even when a pending subscriber raises: it has
+        # already left _waiters, so nothing else could ever complete it.
+        try:
+            self._publish_emission(emission, should_emit, should_wait)
+        finally:
+            _complete_waiter(future, reaction)
 
     def dispose(self) -> None:
         """Resolve in-flight waiters with ``PENDING`` and complete ``pending``.
@@ -154,17 +165,11 @@ class NotificationHub:
             emission, should_emit, should_wait = self._queue_emission_locked(
                 _PendingEmission(complete=True)
             )
-        self._publish_emission(emission, should_emit, should_wait)
-        for future in waiters:
-            try:
-                future.get_loop().call_soon_threadsafe(
-                    _complete_future_if_pending, future, NotificationReaction.PENDING
-                )
-            except RuntimeError:
-                # The waiter's loop is already closed (typical shutdown
-                # ordering); keep resolving the remaining waiters — the C#
-                # parity model (TrySetResult) never throws here either.
-                continue
+        try:
+            self._publish_emission(emission, should_emit, should_wait)
+        finally:
+            for future in waiters:
+                _complete_waiter(future, NotificationReaction.PENDING)
 
     def _queue_emission_locked(
         self, emission: _PendingEmission
@@ -186,6 +191,17 @@ class NotificationHub:
             emission.completed.wait()
         if emission.error is not None:
             raise emission.error
+
+    def _complete_pending_after_failure(self, *, completion_started: bool) -> None:
+        # The delivery failure that abandoned the queue is the one the caller
+        # sees; a completion observer failure must not replace it.
+        try:
+            if not completion_started:
+                self._pending_subject.on_completed()
+        except Exception:
+            pass
+        finally:
+            self._pending_subject.dispose()
 
     def _drain_emissions(self) -> None:
         while True:
@@ -211,9 +227,17 @@ class NotificationHub:
                     self._emissions.clear()
                     self._emitter_thread = None
                     self._lock.notify_all()
-                for item in abandoned:
-                    item.error = error
-                    item.completed.set()
+                # A dispose queued behind the failed delivery cannot retry: it
+                # has returned, or it is waiting, and it is idempotent. Finish
+                # the terminal step before waking any waiter, so ``pending``
+                # completes once and no waiter sees it still open.
+                try:
+                    if emission.complete or any(item.complete for item in abandoned):
+                        self._complete_pending_after_failure(completion_started=emission.complete)
+                finally:
+                    for item in abandoned:
+                        item.error = error
+                        item.completed.set()
                 raise
             finally:
                 _delivery_context.depth = depth

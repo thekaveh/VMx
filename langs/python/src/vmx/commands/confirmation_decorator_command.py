@@ -17,8 +17,8 @@ from reactivex.internal.exceptions import DisposedException
 from reactivex.subject import Subject
 
 from vmx._asyncio_runner import submit_background
+from vmx._disposal import _run_disposal_steps
 from vmx.commands.protocols import Command, _AsyncCommand
-from vmx.commands.relay_command import _run_disposal_steps
 
 
 class ConfirmationDecoratorCommand:
@@ -63,7 +63,9 @@ class ConfirmationDecoratorCommand:
         return self._errors.pipe(ops.as_observable())
 
     def can_execute(self, parameter: Any = None) -> bool:
-        return not self._disposed and self._inner.can_execute(parameter)
+        # Re-check after the call-out: the inner predicate may dispose this
+        # wrapper (spec/04 §8.4).
+        return not self._disposed and self._inner.can_execute(parameter) and not self._disposed
 
     def execute(self, parameter: Any = None) -> None:
         """Fire-and-forget. Schedules the confirm flow on the current event loop.
@@ -105,7 +107,9 @@ class ConfirmationDecoratorCommand:
         await self._run(parameter, await_inner=True)
 
     async def _run(self, parameter: Any, *, await_inner: bool) -> None:
-        if not self.can_execute(parameter):
+        # The inner predicate may dispose this wrapper; confirm is never consulted
+        # after disposal (spec §8.4).
+        if not self.can_execute(parameter) or self._disposed:
             return
         # A confirmation that resolves after disposal runs nothing (spec §8.4).
         if not await self._confirm() or self._disposed:

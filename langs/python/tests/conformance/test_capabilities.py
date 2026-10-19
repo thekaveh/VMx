@@ -578,3 +578,32 @@ def test_CAP_020_bare_componentvm_opt_in_only() -> None:
     # Lifecycle capabilities — must be True per spec rule 2
     for cap in (IConstructable, IDestructable, IReconstructable):
         assert isinstance(vm, cap), f"bare ComponentVM should satisfy {cap.__name__}"
+
+
+@pytest.mark.conformance("CAP-020")
+def test_CAP_020_container_vms_satisfy_lifecycle_capabilities() -> None:
+    from vmx import (
+        AggregateVM1Builder,
+        ComponentVMOf,
+        CompositeVM,
+        ForwardingCompositeVM,
+        GroupVMBuilder,
+    )
+
+    hub, dispatcher = MessageHub(), RxDispatcher.immediate()
+    child = ComponentVMOf.builder().name("child").model(1).services(hub, dispatcher).build()
+    containers = (
+        CompositeVM.builder().name("composite").services(hub, dispatcher).children(list).build(),
+        GroupVMBuilder().name("group").services(hub, dispatcher).children(list).build(),
+        AggregateVM1Builder()
+        .name("aggregate")
+        .services(hub, dispatcher)
+        .component_1(lambda: child)
+        .build(),
+        ForwardingCompositeVM(
+            CompositeVM.builder().name("inner").services(hub, dispatcher).children(list).build()
+        ),
+    )
+    for vm in containers:
+        for cap in (IConstructable, IDestructable, IReconstructable):
+            assert isinstance(vm, cap), f"{type(vm).__name__} should satisfy {cap.__name__}"

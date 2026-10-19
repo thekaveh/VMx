@@ -46,7 +46,17 @@ public class FORM_016_to_023_ValidationTests
             new Model("", 1),
             _ => Task.CompletedTask,
             validators: new Dictionary<string, Func<Model, string?>> { ["Name"] = _ => "required" });
+        sut.Errors.Should().NotBeEmpty();
         sut.IsValid.Should().BeFalse();
+
+        using var clean = new FormVM<Model>(
+            new Model("", 1),
+            _ => Task.CompletedTask,
+            validators: new Dictionary<string, Func<Model, string?>> { ["Name"] = m => m.Name == "" ? "required" : null });
+        clean.IsValid.Should().BeFalse();
+        clean.SetModel(new Model("ok", 1));
+        clean.Errors.Should().BeEmpty();
+        clean.IsValid.Should().BeTrue("an empty effective Errors map means IsValid");
     }
 
     [Fact, Trait("Conformance", "FORM-019")]
@@ -98,6 +108,12 @@ public class FORM_016_to_023_ValidationTests
         withValidator.Should().NotBeSameAs(baseBuilder);
         using var sut = withValidator.Build();
         sut.FieldError("Name").Should().Be("required");
+
+        // The original builder is unchanged: it still builds a form without the validator.
+        using var original = baseBuilder.Build();
+        original.FieldError("Name").Should().BeNull();
+        original.Errors.Should().BeEmpty();
+        original.IsValid.Should().BeTrue();
     }
 
     [Fact, Trait("Conformance", "FORM-023")]

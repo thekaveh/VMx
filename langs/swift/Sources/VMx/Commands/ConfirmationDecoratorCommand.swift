@@ -23,9 +23,11 @@
 //   (CMDD-016, CMDD-017).
 // - errors: AnyPublisher<Error, Never> backed by a PassthroughSubject that is
 //   completed on dispose() (Combine; mirrors rxjs Subject in TS flavour).
-// - canExecuteChanged delegates to inner.
-// - dispose() makes the decorator inert and completes the errors subject;
-//   idempotent. A confirmation resolving after dispose runs nothing and
+// - canExecuteChanged forwards the inner's emissions through the decorator's
+//   own stream.
+// - dispose() makes the decorator inert, releases the inner subscription,
+//   notifies canExecuteChanged once and completes it, and completes the errors
+//   subject; idempotent. A confirmation resolving after dispose runs nothing and
 //   emits nothing (spec §8.4, ADR-0134).
 //
 // Note: Command.execute() is non-throwing in the Swift protocol surface, so a
@@ -43,6 +45,7 @@ public final class ConfirmationDecoratorCommand: Command {
     private let errorsSubject = PassthroughSubject<Error, Never>()
     private let disposalLock = NSLock()
     private var disposed = false
+    private let changes: WrapperChangeStream
 
     /// Re-reads disposal after a call-out that may have disposed this wrapper.
     private var isDisposed: Bool {
@@ -53,13 +56,16 @@ public final class ConfirmationDecoratorCommand: Command {
 
     public init(_ inner: Command, confirm: @escaping () async throws -> Bool) {
         self.inner = inner
+        self.changes = WrapperChangeStream(forwarding: [inner.canExecuteChanged])
         self.confirm = confirm
     }
 
     // MARK: - Command
 
     public func canExecute() -> Bool {
-        !isDisposed && inner.canExecute()
+        // Re-check after the call-out: the inner predicate may dispose this
+        // wrapper (spec/04 §8.4).
+        !isDisposed && inner.canExecute() && !isDisposed
     }
 
     /// Fire-and-forget. Awaits the confirm gate on a Swift Task and, when it
@@ -108,8 +114,10 @@ public final class ConfirmationDecoratorCommand: Command {
         }
     }
 
+    /// Forwards the inner command's emissions until disposal, which notifies
+    /// once and completes this stream (spec §8.4). The inner stream stays open.
     public var canExecuteChanged: AnyPublisher<Void, Never> {
-        inner.canExecuteChanged
+        changes.publisher
     }
 
     // MARK: - Errors channel
@@ -125,7 +133,8 @@ public final class ConfirmationDecoratorCommand: Command {
 
     // MARK: - Lifecycle
 
-    /// Makes the decorator inert and completes the errors subject (spec §8.4,
+    /// Makes the decorator inert, completes `canExecuteChanged` after one final
+    /// notification, and completes the errors subject (spec §8.4,
     /// ADR-0134). Idempotent. The inner command stays owned by its creator: it
     /// is neither cancelled nor disposed, and an inner operation already
     /// running keeps running to completion.
@@ -135,6 +144,7 @@ public final class ConfirmationDecoratorCommand: Command {
         disposed = true
         disposalLock.unlock()
         guard first else { return }
+        changes.close()
         errorsSubject.send(completion: .finished)
     }
 

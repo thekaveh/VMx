@@ -47,7 +47,7 @@ fn apply_fixture_operation(vm: &ComponentVm, operation: &str) -> vmx::VmxResult<
 fn foreign_disposal_waits_for_an_admitted_lifecycle_hook() {
     let (entered_tx, entered_rx) = mpsc::channel();
     let (release_tx, release_rx) = mpsc::channel();
-    let disposed = Arc::new(AtomicBool::new(false));
+    let disposed = Arc::new(AtomicUsize::new(0));
     let observed_disposed = Arc::clone(&disposed);
     let vm = ComponentVm::new("hook-wait");
     vm.on_construct(move || {
@@ -56,7 +56,7 @@ fn foreign_disposal_waits_for_an_admitted_lifecycle_hook() {
         Ok(())
     });
     vm.on_dispose(move || {
-        observed_disposed.store(true, Ordering::SeqCst);
+        observed_disposed.fetch_add(1, Ordering::SeqCst);
         Ok(())
     });
     let constructor = {
@@ -75,7 +75,7 @@ fn foreign_disposal_waits_for_an_admitted_lifecycle_hook() {
         early.is_err(),
         "disposal completed before hook release: {early:?}"
     );
-    assert!(!disposed.load(Ordering::SeqCst));
+    assert_eq!(disposed.load(Ordering::SeqCst), 0);
     release_tx.send(()).unwrap();
     assert_eq!(
         done_rx.recv_timeout(Duration::from_secs(2)).unwrap(),
@@ -83,10 +83,103 @@ fn foreign_disposal_waits_for_an_admitted_lifecycle_hook() {
     );
     assert_eq!(constructor.join().unwrap(), Ok(()));
     disposer.join().unwrap();
-    assert!(disposed.load(Ordering::SeqCst));
+    assert_eq!(
+        disposed.load(Ordering::SeqCst),
+        1,
+        "terminal cleanup must run exactly once after the hook releases"
+    );
     assert_eq!(vm.status(), ConstructionStatus::Disposed);
 }
 
+/// LIFE-015 — a disposal deferred behind the caller's own admitted hook keeps
+/// the commands live until the hook returns (spec/02 §2.4, §7).
+#[test]
+fn deferred_self_disposal_tears_down_commands_after_the_hook() {
+    let vm = ComponentVm::new("self-dispose");
+    let teardowns = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::clone(&teardowns);
+    let _subscription = vm
+        .reconstruct_command()
+        .can_execute_changed()
+        .subscribe_with_completion(
+            |_| {},
+            move || {
+                observed.fetch_add(1, Ordering::SeqCst);
+            },
+        );
+    let during_hook = Arc::new(AtomicUsize::new(usize::MAX));
+    {
+        let vm_in_hook = vm.clone();
+        let teardowns = Arc::clone(&teardowns);
+        let during_hook = Arc::clone(&during_hook);
+        vm.on_construct(move || {
+            vm_in_hook.dispose()?;
+            during_hook.store(teardowns.load(Ordering::SeqCst), Ordering::SeqCst);
+            Ok(())
+        });
+    }
+
+    vm.construct().unwrap();
+
+    assert_eq!(
+        during_hook.load(Ordering::SeqCst),
+        0,
+        "commands were torn down while the admitted hook still ran"
+    );
+    assert_eq!(teardowns.load(Ordering::SeqCst), 1);
+    assert_eq!(vm.status(), ConstructionStatus::Disposed);
+}
+
+/// LIFE-015 — a second, concurrent disposer leaves the commands live until the
+/// first disposer's dispose hook finishes (spec/02 §7).
+#[test]
+fn concurrent_disposer_tears_down_commands_after_the_running_dispose_hook() {
+    let vm = ComponentVm::new("concurrent-dispose");
+    let teardowns = Arc::new(AtomicUsize::new(0));
+    let observed = Arc::clone(&teardowns);
+    let _subscription = vm
+        .reconstruct_command()
+        .can_execute_changed()
+        .subscribe_with_completion(
+            |_| {},
+            move || {
+                observed.fetch_add(1, Ordering::SeqCst);
+            },
+        );
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel::<()>();
+    let during_hook = Arc::new(AtomicUsize::new(usize::MAX));
+    {
+        let teardowns = Arc::clone(&teardowns);
+        let during_hook = Arc::clone(&during_hook);
+        vm.on_dispose(move || {
+            entered_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+            during_hook.store(teardowns.load(Ordering::SeqCst), Ordering::SeqCst);
+            Ok(())
+        });
+    }
+    let first = {
+        let vm = vm.clone();
+        std::thread::spawn(move || vm.dispose())
+    };
+    entered_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+
+    let second = vm.dispose();
+    release_tx.send(()).unwrap();
+
+    assert_eq!(second, Ok(()));
+    assert_eq!(first.join().unwrap(), Ok(()));
+    assert_eq!(
+        during_hook.load(Ordering::SeqCst),
+        0,
+        "commands were torn down while the first disposer's hook still ran"
+    );
+    assert_eq!(teardowns.load(Ordering::SeqCst), 1);
+}
+
+/// LIFE-015 — terminal supersession during an admitted construct hook prevents
+/// any post-hook container lifecycle work (no child construction).
 #[test]
 fn disposed_parent_skips_post_hook_child_construction() {
     let child_constructs = Arc::new(AtomicUsize::new(0));
@@ -128,6 +221,8 @@ fn disposed_parent_skips_post_hook_child_construction() {
     assert_eq!(child_constructs.load(Ordering::SeqCst), 0);
 }
 
+/// LIFE-015 — opposing foreign hook waits (each admitted construct hook disposes
+/// the other VM) cannot deadlock.
 #[test]
 fn opposing_active_lifecycle_hooks_cross_dispose_without_deadlock() {
     let rendezvous = Arc::new(Barrier::new(2));
@@ -373,6 +468,94 @@ fn is_constructed_matches_constructed_status() {
     );
 }
 
+/// LIFE-007 — every published status change raises the local `status` and
+/// `is_constructed` notifications after its hub `ConstructionStatusChanged`,
+/// including a rollback and the terminal Disposed publication.
+#[test]
+fn status_changes_raise_local_status_and_is_constructed_after_hub() {
+    fn trace_of(
+        hub: &MessageHub,
+        local: vmx::PropertyChangedStream,
+        sender_id: usize,
+    ) -> (Arc<Mutex<Vec<String>>>, impl Sized) {
+        let trace = Arc::new(Mutex::new(Vec::new()));
+        let hub_trace = trace.clone();
+        let hub_subscription = hub.subscribe(move |message| {
+            if let Message::ConstructionStatusChanged(change) = message {
+                if change.sender_id == sender_id {
+                    hub_trace
+                        .lock()
+                        .unwrap()
+                        .push(format!("hub:{:?}", change.status));
+                }
+            }
+        });
+        let local_trace = trace.clone();
+        let local_subscription =
+            local.subscribe(move |name| local_trace.lock().unwrap().push(name.to_string()));
+        (trace, (hub_subscription, local_subscription))
+    }
+    fn step(status: &str) -> Vec<String> {
+        vec![
+            format!("hub:{status}"),
+            "status".to_string(),
+            "is_constructed".to_string(),
+        ]
+    }
+
+    let vm = ComponentVm::new("vm");
+    let (trace, _subscriptions) = trace_of(&vm.hub(), vm.property_changed(), vm.id());
+    let fail = Arc::new(AtomicBool::new(false));
+    let hook_fail = fail.clone();
+    vm.on_construct(move || {
+        if hook_fail.load(Ordering::SeqCst) {
+            Err(VmxError::Other("boom".to_string()))
+        } else {
+            Ok(())
+        }
+    });
+
+    vm.construct().unwrap();
+    vm.reconstruct().unwrap();
+    vm.destruct().unwrap();
+    fail.store(true, Ordering::SeqCst);
+    assert!(vm.construct().is_err());
+    vm.dispose().unwrap();
+
+    let expected = [
+        "Constructing",
+        "Constructed",
+        "Destructing",
+        "Destructed",
+        "Constructing",
+        "Constructed",
+        "Destructing",
+        "Destructed",
+        "Constructing",
+        "Destructed",
+        "Disposed",
+    ]
+    .iter()
+    .flat_map(|status| step(status))
+    .collect::<Vec<_>>();
+    assert_eq!(*trace.lock().unwrap(), expected);
+
+    let composite = CompositeVm::<ComponentVm>::new("composite");
+    let (composite_trace, _composite_subscriptions) = trace_of(
+        &composite.hub(),
+        composite.property_changed(),
+        composite.id(),
+    );
+    composite.construct().unwrap();
+    assert_eq!(
+        *composite_trace.lock().unwrap(),
+        ["Constructing", "Constructed"]
+            .iter()
+            .flat_map(|status| step(status))
+            .collect::<Vec<_>>()
+    );
+}
+
 /// LIFE-008 — Concurrent operation while transitioning raises
 #[test]
 fn concurrent_operation_while_transitioning_raises() {
@@ -487,6 +670,7 @@ fn synchronous_terminal_publication_completes_before_return() {
     );
 }
 
+/// LIFE-015 — opposing foreign disposals from lifecycle callbacks cannot deadlock.
 #[test]
 fn opposing_lifecycle_callbacks_do_not_deadlock() {
     let left_hub = MessageHub::new();
@@ -576,6 +760,37 @@ fn destruct_from_destructed_is_noop() {
     assert_eq!(vm.status(), ConstructionStatus::Destructed);
 }
 
+/// Legal rows must succeed; illegal rows must fail with the Rust
+/// `StatusTransitionError` equivalent. Per `02-lifecycle.md` (documented open
+/// Rust gap), a call from `Disposed` returns `VmxError::Disposed` and a call
+/// during another transition returns `VmxError::ConcurrentOperation`; every
+/// other illegal row returns `InvalidLifecycleTransition` naming state and
+/// operation.
+fn assert_fixture_result(result: &vmx::VmxResult<()>, row: &LifecycleRow) {
+    if row.legal {
+        assert!(result.is_ok(), "{} via {}: {result:?}", row.from, row.via);
+        return;
+    }
+    match (row.from.as_str(), result) {
+        ("Disposed", Err(VmxError::Disposed)) => {}
+        ("Constructing" | "Destructing", Err(VmxError::ConcurrentOperation)) => {}
+        (_, Err(VmxError::InvalidLifecycleTransition { from, operation })) => {
+            assert_eq!(
+                *from,
+                fixture_status(&row.from),
+                "{} via {}",
+                row.from,
+                row.via
+            );
+            assert_eq!(*operation, row.via, "{} via {}", row.from, row.via);
+        }
+        (_, other) => panic!(
+            "{} via {} must raise the lifecycle transition error, got {other:?}",
+            row.from, row.via
+        ),
+    }
+}
+
 /// LIFE-011 — Lifecycle transition table matches fixture
 #[test]
 fn lifecycle_transition_fixture_contains_required_transitions() {
@@ -634,12 +849,12 @@ fn lifecycle_transition_fixture_contains_required_transitions() {
                 assert_eq!(vm.status(), ConstructionStatus::Disposed);
                 release_send.send(()).unwrap();
                 let result = operation.join().unwrap();
-                assert_eq!(result.is_ok(), row.legal, "{} via {}", row.from, row.via);
+                assert_fixture_result(&result, &row);
                 let _ = worker.join().unwrap();
                 continue;
             }
             let result = apply_fixture_operation(&vm, &row.via);
-            assert_eq!(result.is_ok(), row.legal, "{} via {}", row.from, row.via);
+            assert_fixture_result(&result, &row);
             if let Some(final_state) = &row.to_final {
                 assert_eq!(vm.status(), fixture_status(final_state));
             }
@@ -650,7 +865,7 @@ fn lifecycle_transition_fixture_contains_required_transitions() {
 
         let observed = statuses(&hub);
         let result = apply_fixture_operation(&vm, &row.via);
-        assert_eq!(result.is_ok(), row.legal, "{} via {}", row.from, row.via);
+        assert_fixture_result(&result, &row);
         if let Some(intermediate) = &row.to_intermediate {
             assert_eq!(
                 observed.lock().unwrap().first(),
@@ -679,18 +894,68 @@ fn dispose_from_disposed_emits_no_message() {
 /// LIFE-013 — dispose on a parent disposes every child depth-first
 #[test]
 fn dispose_on_parent_disposes_children_before_parent() {
-    let parent_hub = MessageHub::new();
-    let parent = CompositeVm::with_services("parent", parent_hub.clone(), NullDispatcher::new());
-    let child_a = ComponentVm::new("a");
-    let child_b = ComponentVm::new("b");
-    parent.add(child_a.clone()).unwrap();
-    parent.add(child_b.clone()).unwrap();
+    let hub = MessageHub::new();
+    let services = || (hub.clone(), NullDispatcher::new());
+    let parent = {
+        let (h, d) = services();
+        CompositeVm::with_services("parent", h, d)
+    };
+    let mut children = Vec::new();
+    let mut grandchildren = Vec::new();
+    for child_name in ["a", "b"] {
+        let (h, d) = services();
+        let child = CompositeVm::with_services(child_name, h, d);
+        for grandchild_name in ["1", "2"] {
+            let (h, d) = services();
+            let grandchild =
+                ComponentVm::with_services(format!("{child_name}{grandchild_name}"), h, d);
+            child.add(grandchild.clone()).unwrap();
+            grandchildren.push(grandchild);
+        }
+        parent.add(child.clone()).unwrap();
+        children.push(child);
+    }
+    parent.construct().unwrap();
+    assert_eq!(parent.status(), ConstructionStatus::Constructed);
+    assert!(children
+        .iter()
+        .all(|child| child.status() == ConstructionStatus::Constructed));
+    assert!(grandchildren
+        .iter()
+        .all(|grandchild| grandchild.status() == ConstructionStatus::Constructed));
+    let recorder = hub.record(1024);
 
     parent.dispose().unwrap();
 
-    assert_eq!(child_a.status(), ConstructionStatus::Disposed);
-    assert_eq!(child_b.status(), ConstructionStatus::Disposed);
+    assert!(children
+        .iter()
+        .all(|child| child.status() == ConstructionStatus::Disposed));
+    assert!(grandchildren
+        .iter()
+        .all(|grandchild| grandchild.status() == ConstructionStatus::Disposed));
     assert_eq!(parent.status(), ConstructionStatus::Disposed);
+    let disposed_order = recorder
+        .messages()
+        .into_iter()
+        .filter_map(|message| match message {
+            Message::ConstructionStatusChanged(change)
+                if change.status == ConstructionStatus::Disposed =>
+            {
+                Some(change.sender_id)
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let expected = vec![
+        grandchildren[0].id(),
+        grandchildren[1].id(),
+        children[0].id(),
+        grandchildren[2].id(),
+        grandchildren[3].id(),
+        children[1].id(),
+        parent.id(),
+    ];
+    assert_eq!(disposed_order, expected, "disposal must be depth-first");
 }
 
 #[test]
@@ -833,10 +1098,43 @@ fn repeated_parent_dispose_emits_one_terminal_transition_per_node() {
     let child = ComponentVm::with_services("child", hub.clone(), NullDispatcher::new());
     let parent_id = parent.id();
     let child_id = child.id();
-    parent.add(child).unwrap();
+    let hook_runs = Arc::new(AtomicUsize::new(0));
+    let owned_runs = Arc::new(AtomicUsize::new(0));
+    let counted = |counter: &Arc<AtomicUsize>| {
+        let counter = Arc::clone(counter);
+        move || {
+            counter.fetch_add(1, Ordering::SeqCst);
+        }
+    };
+    let parent_hook = counted(&hook_runs);
+    parent.on_dispose(move || {
+        parent_hook();
+        Ok(())
+    });
+    let child_hook = counted(&hook_runs);
+    child.on_dispose(move || {
+        child_hook();
+        Ok(())
+    });
+    parent.own(counted(&owned_runs));
+    child.own(counted(&owned_runs));
+    parent.add(child.clone()).unwrap();
 
     parent.dispose().unwrap();
     parent.dispose().unwrap();
+
+    assert_eq!(parent.status(), ConstructionStatus::Disposed);
+    assert_eq!(child.status(), ConstructionStatus::Disposed);
+    assert_eq!(
+        hook_runs.load(Ordering::SeqCst),
+        2,
+        "each dispose hook runs at most once"
+    );
+    assert_eq!(
+        owned_runs.load(Ordering::SeqCst),
+        2,
+        "each owned cleanup runs at most once"
+    );
 
     let disposed = recorder
         .messages()
@@ -860,9 +1158,13 @@ fn throwing_lifecycle_hook_rolls_status_back() {
     let hub = MessageHub::new();
     let vm = ComponentVm::with_services("vm", hub.clone(), NullDispatcher::new());
     let observed = statuses(&hub);
-    vm.on_construct(|| Err(VmxError::Other("boom".to_string())));
+    vm.on_construct(|| Err(VmxError::Other("construct boom".to_string())));
 
-    assert!(vm.construct().is_err());
+    assert_eq!(
+        vm.construct(),
+        Err(VmxError::Other("construct boom".to_string())),
+        "construct propagates the hook's own error"
+    );
 
     assert_eq!(vm.status(), ConstructionStatus::Destructed);
     assert_eq!(
@@ -872,6 +1174,30 @@ fn throwing_lifecycle_hook_rolls_status_back() {
             ConstructionStatus::Destructed
         ]
     );
+
+    vm.on_construct(|| Ok(()));
+    vm.construct().unwrap();
+    assert_eq!(vm.status(), ConstructionStatus::Constructed);
+
+    observed.lock().unwrap().clear();
+    vm.on_destruct(|| Err(VmxError::Other("destruct boom".to_string())));
+    assert_eq!(
+        vm.destruct(),
+        Err(VmxError::Other("destruct boom".to_string())),
+        "destruct propagates the hook's own error"
+    );
+    assert_eq!(vm.status(), ConstructionStatus::Constructed);
+    assert_eq!(
+        *observed.lock().unwrap(),
+        vec![
+            ConstructionStatus::Destructing,
+            ConstructionStatus::Constructed
+        ]
+    );
+
+    vm.on_destruct(|| Ok(()));
+    vm.destruct().unwrap();
+    assert_eq!(vm.status(), ConstructionStatus::Destructed);
 }
 
 #[test]

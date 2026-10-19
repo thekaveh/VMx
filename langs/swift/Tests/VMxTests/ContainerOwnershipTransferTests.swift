@@ -11,6 +11,7 @@ import XCTest
 private enum OwnershipTestError: Error, Equatable {
     case constructFailed
     case destructFailed
+    case disposeFailed
 }
 
 private final class ThrowingOwnershipChild: ComponentVMBase {
@@ -409,32 +410,144 @@ final class ContainerOwnershipTransferTests: XCTestCase {
     }
 
     /// COMP-038 — Adding an owned child transfers it between composite/group parents.
+    ///
+    /// Covers both directions (composite→group, group→composite): the
+    /// `Constructed` child keeps its status, its parent link (and therefore
+    /// parent-derived selection) denotes only the destination, and a stale
+    /// removal against the old parent cannot clear the new link.
     func testCOMP038AddingOwnedChildTransfersMembership() throws {
+        // Composite source → group destination.
         let child = try leaf("child")
+        try child.construct()
         let oldParent = try CompositeVM<ComponentVM>.builder()
             .name("old").withNullServices().children { [] }.build()
         let newParent = try GroupVM<ComponentVM>.builder()
             .name("new").withNullServices().children { [] }.build()
-
         try oldParent.addResult(child).get()
+        oldParent.current = child
+        XCTAssertTrue(child.isCurrent)
+
         try newParent.addResult(child).get()
 
         XCTAssertEqual(oldParent.count, 0)
         XCTAssertEqual(newParent.count, 1)
         XCTAssertTrue(newParent.at(0) === child)
+        XCTAssertEqual(child.status, .constructed)
+        XCTAssertTrue(child._ownershipParent?.ownershipOwner === newParent)
+        XCTAssertNil(oldParent.current)
+        XCTAssertFalse(child.isCurrent)
+        XCTAssertFalse(child.canSelect(), "a group parent exposes no selection slot")
+        XCTAssertFalse(child.canDeselect())
+        XCTAssertFalse(oldParent.remove(child), "stale removal against old must be a no-op")
+        XCTAssertEqual(newParent.count, 1)
+        XCTAssertTrue(newParent.at(0) === child)
+        XCTAssertTrue(child._ownershipParent?.ownershipOwner === newParent)
+
+        // Group source → composite destination.
+        let moving = try leaf("moving")
+        try moving.construct()
+        let groupOld = try GroupVM<ComponentVM>.builder()
+            .name("group-old").withNullServices().children { [] }.build()
+        let compositeNew = try CompositeVM<ComponentVM>.builder()
+            .name("composite-new").withNullServices().children { [] }.build()
+        try groupOld.addResult(moving).get()
+
+        try compositeNew.addResult(moving).get()
+
+        XCTAssertEqual(groupOld.count, 0)
+        XCTAssertEqual(compositeNew.count, 1)
+        XCTAssertTrue(compositeNew.at(0) === moving)
+        XCTAssertEqual(moving.status, .constructed)
+        XCTAssertTrue(moving._ownershipParent?.ownershipOwner === compositeNew)
+        XCTAssertTrue(moving.canSelect(), "selection now delegates to the composite parent")
+        moving.select()
+        XCTAssertTrue(compositeNew.current === moving)
+        XCTAssertTrue(moving.isCurrent)
+        XCTAssertFalse(groupOld.remove(moving), "stale removal against old must be a no-op")
+        XCTAssertEqual(compositeNew.count, 1)
+        XCTAssertTrue(compositeNew.current === moving)
+        XCTAssertTrue(moving.isCurrent)
+        XCTAssertTrue(moving._ownershipParent?.ownershipOwner === compositeNew)
     }
 
     /// COMP-039 — Duplicate ownership and ancestor cycles are rejected.
+    ///
+    /// Every rejection (duplicate, self-attach, cycle beneath a descendant)
+    /// leaves membership, parent link, selection, lifecycle state, and
+    /// collection notifications unchanged.
     func testCOMP039DuplicateAndCycleAreRejected() throws {
         let child = try leaf("child")
+        try child.construct()
         let parent = try CompositeVM<ComponentVM>.builder()
             .name("parent").withNullServices().children { [] }.build()
         try parent.addResult(child).get()
+        parent.current = child
+        var parentEvents = 0
+        parent.collectionChanged
+            .sink { _ in parentEvents += 1 }
+            .store(in: &cancellables)
         if case .failure(.duplicate) = parent.addResult(child) {
             // Expected.
         } else {
             XCTFail("adding the same child twice must report duplicate")
         }
+        XCTAssertEqual(parent.count, 1)
+        XCTAssertTrue(parent.at(0) === child)
+        XCTAssertTrue(child._ownershipParent?.ownershipOwner === parent)
+        XCTAssertTrue(parent.current === child)
+        XCTAssertTrue(child.isCurrent)
+        XCTAssertEqual(child.status, .constructed)
+        XCTAssertEqual(parentEvents, 0)
+
+        let group = try GroupVM<ComponentVM>.builder()
+            .name("group").withNullServices().children { [] }.build()
+        let member = try leaf("member")
+        try group.addResult(member).get()
+        var groupEvents = 0
+        group.collectionChanged
+            .sink { _ in groupEvents += 1 }
+            .store(in: &cancellables)
+        if case .failure(.duplicate) = group.addResult(member) {
+            // Expected.
+        } else {
+            XCTFail("adding the same group child twice must report duplicate")
+        }
+        XCTAssertEqual(group.count, 1)
+        XCTAssertTrue(group.at(0) === member)
+        XCTAssertTrue(member._ownershipParent?.ownershipOwner === group)
+        XCTAssertEqual(groupEvents, 0)
+
+        // Self-attach is a cycle for both container kinds.
+        let selfComposite = CompositeVM<ComponentVMBase>(
+            name: "self-composite",
+            hub: NullMessageHub.INSTANCE,
+            dispatcher: NullDispatcher.INSTANCE
+        )
+        var selfEvents = 0
+        selfComposite.collectionChanged
+            .sink { _ in selfEvents += 1 }
+            .store(in: &cancellables)
+        if case .failure(.cycle) = selfComposite.addResult(selfComposite) {
+            // Expected.
+        } else {
+            XCTFail("attaching a composite to itself must report cycle")
+        }
+        XCTAssertEqual(selfComposite.count, 0)
+        XCTAssertNil(selfComposite._ownershipParent)
+        XCTAssertEqual(selfComposite.status, .destructed)
+        XCTAssertEqual(selfEvents, 0)
+        let selfGroup = GroupVM<ComponentVMBase>(
+            name: "self-group",
+            hub: NullMessageHub.INSTANCE,
+            dispatcher: NullDispatcher.INSTANCE
+        )
+        if case .failure(.cycle) = selfGroup.addResult(selfGroup) {
+            // Expected.
+        } else {
+            XCTFail("attaching a group to itself must report cycle")
+        }
+        XCTAssertEqual(selfGroup.count, 0)
+        XCTAssertNil(selfGroup._ownershipParent)
 
         let ancestor = CompositeVM<ComponentVMBase>(
             name: "ancestor",
@@ -447,13 +560,24 @@ final class ContainerOwnershipTransferTests: XCTestCase {
             dispatcher: NullDispatcher.INSTANCE
         )
         try ancestor.addResult(descendant).get()
+        var cycleEvents = 0
+        ancestor.collectionChanged
+            .sink { _ in cycleEvents += 1 }
+            .store(in: &cancellables)
+        descendant.collectionChanged
+            .sink { _ in cycleEvents += 1 }
+            .store(in: &cancellables)
         if case .failure(.cycle) = descendant.addResult(ancestor) {
             // Expected.
         } else {
             XCTFail("adding an ancestor beneath its descendant must report cycle")
         }
+        XCTAssertEqual(ancestor.count, 1)
         XCTAssertTrue(ancestor.at(0) === descendant)
+        XCTAssertTrue(descendant._ownershipParent === ancestor)
+        XCTAssertNil(ancestor._ownershipParent)
         XCTAssertEqual(descendant.count, 0)
+        XCTAssertEqual(cycleEvents, 0)
     }
 
     /// COMP-040 — A failed destination attach restores exact old membership/current state.
@@ -679,7 +803,159 @@ final class ContainerOwnershipTransferTests: XCTestCase {
         XCTAssertTrue(groupOld.at(0) === groupMoving)
     }
 
+    /// COMP-040 — a deferred old-parent disposal whose cleanup fails runs only
+    /// after the committed `old:Remove(c)`; the transfer result stays success.
+    ///
+    /// Swift disposal is infallible (`dispose()` does not throw and owned
+    /// cleanups are best-effort), so the failure has no surfacing channel; the
+    /// observable guarantee is that the failing disposal neither precedes the
+    /// committed removal nor turns the committed transfer into a failure.
+    func testCOMP040DeferredDisposalFailureFollowsCommittedTransfer() throws {
+        var oldParent: CompositeVM<ThrowingOwnershipChild>!
+        var log: [String] = []
+        let child = ThrowingOwnershipChild("child", shouldFail: {
+            oldParent.dispose()
+            log.append("dispose-requested")
+            return false
+        })
+        oldParent = CompositeVM<ThrowingOwnershipChild>(
+            name: "old",
+            hub: NullMessageHub.INSTANCE,
+            dispatcher: NullDispatcher.INSTANCE
+        )
+        oldParent.own {
+            log.append("cleanup")
+            throw OwnershipTestError.disposeFailed
+        }
+        let destination = GroupVM<ThrowingOwnershipChild>(
+            name: "destination",
+            hub: NullMessageHub.INSTANCE,
+            dispatcher: NullDispatcher.INSTANCE,
+            autoConstructOnAdd: true
+        )
+        try oldParent.addResult(child).get()
+        try destination.construct()
+        oldParent.collectionChanged
+            .sink { event in
+                if event.action == .remove {
+                    log.append("old:remove old=\(oldParent.count) new=\(destination.count)")
+                }
+            }
+            .store(in: &cancellables)
+        destination.collectionChanged
+            .sink { event in
+                if event.action == .add {
+                    log.append("new:add old=\(oldParent.count) new=\(destination.count)")
+                }
+            }
+            .store(in: &cancellables)
+
+        try destination.addResult(child).get()
+
+        XCTAssertEqual(log.first, "dispose-requested")
+        XCTAssertTrue(log.contains("old:remove old=0 new=1"))
+        XCTAssertTrue(log.contains("new:add old=0 new=1"))
+        XCTAssertEqual(log.filter { $0 == "cleanup" }.count, 1)
+        let removeIndex = try XCTUnwrap(log.firstIndex(of: "old:remove old=0 new=1"))
+        let cleanupIndex = try XCTUnwrap(log.firstIndex(of: "cleanup"))
+        XCTAssertLessThan(removeIndex, cleanupIndex, "disposal must wait for committed removal")
+        XCTAssertEqual(oldParent.status, .disposed)
+        XCTAssertEqual(oldParent.count, 0)
+        XCTAssertEqual(destination.count, 1)
+        XCTAssertTrue(destination.at(0) === child)
+        XCTAssertEqual(child.status, .constructed)
+        XCTAssertTrue(child._ownershipParent?.ownershipOwner === destination)
+    }
+
+    /// COMP-040 — a committed lazy population stays materialized and is not
+    /// evaluated again after a deferred old-parent disposal (with a failing
+    /// cleanup) requested from the transfer hook.
+    func testCOMP040CommittedPopulationIsNotReevaluatedAfterDeferredDisposal() throws {
+        var oldParent: CompositeVM<ThrowingOwnershipChild>!
+        var hookCalls = 0
+        let child = ThrowingOwnershipChild("child", shouldFail: {
+            hookCalls += 1
+            if hookCalls == 1 { oldParent.dispose() }
+            return false
+        })
+        oldParent = CompositeVM<ThrowingOwnershipChild>(
+            name: "old",
+            hub: NullMessageHub.INSTANCE,
+            dispatcher: NullDispatcher.INSTANCE
+        )
+        oldParent.own { throw OwnershipTestError.disposeFailed }
+        try oldParent.addResult(child).get()
+        var factoryCalls = 0
+        let destination = CompositeVM<ThrowingOwnershipChild>(
+            name: "destination",
+            hub: NullMessageHub.INSTANCE,
+            dispatcher: NullDispatcher.INSTANCE,
+            childrenFactory: {
+                factoryCalls += 1
+                return [child]
+            }
+        )
+
+        try destination.construct()
+
+        XCTAssertEqual(factoryCalls, 1)
+        XCTAssertEqual(destination.count, 1)
+        XCTAssertTrue(destination.at(0) === child)
+        XCTAssertEqual(oldParent.status, .disposed)
+        XCTAssertEqual(oldParent.count, 0)
+        XCTAssertEqual(child.status, .constructed)
+        try destination.destruct()
+        try destination.construct()
+        XCTAssertEqual(factoryCalls, 1, "a committed population is never re-evaluated")
+        XCTAssertEqual(destination.count, 1)
+        XCTAssertTrue(destination.at(0) === child)
+    }
+
+    /// COMP-040 — when attachment has already failed, that original
+    /// construction error is retained after the deferred old-parent disposal
+    /// completes, even though the disposal's cleanup also fails.
+    func testCOMP040AttachFailureTakesPrecedenceOverDeferredDisposalFailure() throws {
+        var oldParent: GroupVM<ThrowingOwnershipChild>!
+        let child = ThrowingOwnershipChild("child", shouldFail: {
+            oldParent.dispose()
+            return true
+        })
+        oldParent = GroupVM<ThrowingOwnershipChild>(
+            name: "old",
+            hub: NullMessageHub.INSTANCE,
+            dispatcher: NullDispatcher.INSTANCE
+        )
+        var cleanups = 0
+        oldParent.own {
+            cleanups += 1
+            throw OwnershipTestError.disposeFailed
+        }
+        let destination = CompositeVM<ThrowingOwnershipChild>(
+            name: "destination",
+            hub: NullMessageHub.INSTANCE,
+            dispatcher: NullDispatcher.INSTANCE,
+            autoConstructOnAdd: true
+        )
+        try oldParent.addResult(child).get()
+        try destination.construct()
+
+        let result = destination.addResult(child)
+
+        guard case .failure(.attachmentFailed(let inner)) = result else {
+            return XCTFail("expected attachmentFailed, got \(result)")
+        }
+        XCTAssertEqual(inner as? OwnershipTestError, .constructFailed)
+        XCTAssertEqual(cleanups, 1)
+        XCTAssertEqual(oldParent.status, .disposed)
+        XCTAssertEqual(oldParent.count, 1)
+        XCTAssertTrue(oldParent.at(0) === child)
+        XCTAssertEqual(destination.count, 0)
+    }
+
     /// COMP-041 — Successful transfer publishes old remove before destination add.
+    ///
+    /// Each callback observes committed membership and the new parent link; a
+    /// failed destination construction publishes no membership event at all.
     func testCOMP041TransferPublishesRemoveBeforeAdd() throws {
         let child = try leaf("child")
         let oldParent = try GroupVM<ComponentVM>.builder()
@@ -689,20 +965,57 @@ final class ContainerOwnershipTransferTests: XCTestCase {
         try oldParent.addResult(child).get()
 
         var order: [String] = []
+        func committed() -> Bool {
+            oldParent.count == 0 &&
+                destination.count == 1 &&
+                destination.at(0) === child &&
+                child._ownershipParent?.ownershipOwner === destination
+        }
         oldParent.collectionChanged
             .sink { event in
-                if event.action == .remove { order.append("remove") }
+                if event.action == .remove { order.append("remove:\(committed())") }
             }
             .store(in: &cancellables)
         destination.collectionChanged
             .sink { event in
-                if event.action == .add { order.append("add") }
+                if event.action == .add { order.append("add:\(committed())") }
             }
             .store(in: &cancellables)
 
         try destination.addResult(child).get()
 
-        XCTAssertEqual(order, ["remove", "add"])
+        XCTAssertEqual(order, ["remove:true", "add:true"])
+
+        let failing = ThrowingOwnershipChild("failing")
+        let failingOld = CompositeVM<ThrowingOwnershipChild>(
+            name: "failing-old",
+            hub: NullMessageHub.INSTANCE,
+            dispatcher: NullDispatcher.INSTANCE
+        )
+        let failingDestination = GroupVM<ThrowingOwnershipChild>(
+            name: "failing-destination",
+            hub: NullMessageHub.INSTANCE,
+            dispatcher: NullDispatcher.INSTANCE,
+            autoConstructOnAdd: true
+        )
+        try failingOld.addResult(failing).get()
+        try failingDestination.construct()
+        var failureEvents: [String] = []
+        failingOld.collectionChanged
+            .sink { _ in failureEvents.append("old") }
+            .store(in: &cancellables)
+        failingDestination.collectionChanged
+            .sink { _ in failureEvents.append("new") }
+            .store(in: &cancellables)
+
+        if case .failure(.attachmentFailed) = failingDestination.addResult(failing) {
+            // Expected.
+        } else {
+            XCTFail("failed child construction must report attachmentFailed")
+        }
+        XCTAssertEqual(failureEvents, [])
+        XCTAssertEqual(failingOld.count, 1)
+        XCTAssertEqual(failingDestination.count, 0)
     }
 
     func testBulkTransferRemoveCallbackDoesNotRetainOwnershipCoordinator() throws {

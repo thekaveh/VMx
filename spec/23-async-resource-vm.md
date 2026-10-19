@@ -41,8 +41,11 @@ resource event or mutable status/value/error channel.
 
 ## 3. Construction and loader mapping
 
-Construction requires a component name, hub, dispatcher, and loader. Retention
-defaults to `DiscardPrevious`; cleanup is absent by default.
+Construction requires a component name, hub, dispatcher, and loader. Rust
+`AsyncResourceVm::new(name, loader)` and `with_options` supply a new
+`MessageHub` and the `NullDispatcher` by default; `with_services` takes them
+explicitly. Retention defaults to `DiscardPrevious`; cleanup is absent by
+default.
 
 | Flavor     | Loader shape                                            |
 | ---------- | ------------------------------------------------------- |

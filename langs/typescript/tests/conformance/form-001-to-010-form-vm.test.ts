@@ -112,17 +112,27 @@ describe("FORM-003", () => {
 // ---------------------------------------------------------------------------
 
 describe("FORM-004", () => {
-  it("DenyCommand reverts model to snapshot; isDirty == false after revert", () => {
+  it("DenyCommand reverts model to snapshot; isDirty == false after revert", async () => {
     const initial = makeModel("Alice", 1);
-    const sut = makeFormVM(initial);
+    let persisterCalls = 0;
+    const sut = new FormVM<IModel>({
+      initial,
+      persister: () => {
+        persisterCalls += 1;
+        return Promise.resolve();
+      },
+    });
 
     sut.setModel(makeModel("Bob", 2));
     expect(sut.isDirty).toBe(true);
 
     sut.denyCommand.execute();
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(sut.model).toEqual(initial);
+    expect(sut.model).toEqual(sut.snapshot);
     expect(sut.isDirty).toBe(false);
+    expect(persisterCalls, "deny must not invoke the persister").toBe(0);
   });
 });
 
@@ -179,6 +189,18 @@ describe("FORM-006", () => {
     expect(approved[0]).toEqual(makeModel("Bob", 2));
 
     sub.unsubscribe();
+
+    // A throwing persister: onApproved does NOT fire.
+    const failedApprovals: IModel[] = [];
+    const failing = new FormVM<IModel>({
+      initial,
+      persister: () => Promise.reject(new Error("persist failed")),
+    });
+    const failSub = failing.onApproved.subscribe((m) => failedApprovals.push(m));
+    failing.setModel(makeModel("Carol", 3));
+    await expect(failing.approveAsync()).rejects.toThrow("persist failed");
+    expect(failedApprovals).toEqual([]);
+    failSub.unsubscribe();
   });
 });
 

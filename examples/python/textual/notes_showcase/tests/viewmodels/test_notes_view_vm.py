@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 from reactivex.scheduler import ImmediateScheduler
 from reactivex.testing import TestScheduler
@@ -64,6 +66,19 @@ async def test_bind_to_async_loads_notes_for_notebook() -> None:
     assert vm.bound_notebook_id == "nb-reviews"
     assert vm.inner.count == 7
     assert vm.visible_items[0].model.notebook_id == "nb-reviews"
+
+
+async def test_load_in_flight_at_dispose_leaves_no_children() -> None:
+    vm = _build()
+    vm.construct()
+    load = asyncio.ensure_future(vm.bind_to_async("nb-reviews"))
+    await asyncio.sleep(0)  # the load is now awaiting the repository
+
+    vm.dispose()
+    await load
+
+    assert vm.inner.count == 0
+    assert vm.bound_notebook_id is None
 
 
 async def test_show_starred_only_filters_to_starred_notes() -> None:
@@ -510,3 +525,63 @@ async def test_global_search_vm_keeps_loaded_results_across_unchanged_term_refre
     assert len(ids) == 3
     assert len(set(ids)) == len(ids)
     vm.dispose()
+
+
+async def test_page_is_clamped_when_the_filtered_list_shrinks() -> None:
+    import asyncio
+
+    from reactivex.scheduler import ImmediateScheduler
+    from vmx import MessageHub, RxDispatcher
+
+    from notes_showcase.models.in_memory_repository import InMemoryNoteRepository
+    from notes_showcase.models.seed import build_seed
+    from notes_showcase.viewmodels.workspace_vm import WorkspaceVM
+
+    class _Approve:
+        async def confirm(self, message: str, title: str | None = None) -> bool:
+            return True
+
+    repo = InMemoryNoteRepository(
+        build_seed(),
+        load_all_delay=0.0,
+        load_notes_delay=0.0,
+        save_note_delay=0.0,
+        add_notebook_delay=0.0,
+        export_delay=0.0,
+        delete_note_delay=0.0,
+    )
+    workspace = (
+        WorkspaceVM.builder()
+        .name("w")
+        .repository(repo)
+        .message_hub(MessageHub())
+        .dispatcher(RxDispatcher(foreground=ImmediateScheduler(), background=ImmediateScheduler()))
+        .build()
+    )
+    await workspace.construct_async()
+    notes = workspace.notes_view
+    notes.dialog_service = _Approve()  # type: ignore[assignment]
+    reviews = next(n for n in workspace.notebooks_root.roots if n.model.id == "nb-reviews")
+    workspace.notebooks_root.current = reviews
+    await asyncio.sleep(0.05)
+    notes.move_to_last_page()
+    assert notes.current_page_index == 1
+
+    for note in list(notes.visible_items):
+        await note.delete_command.execute_async()
+
+    assert notes.current_page_index == 0
+    assert notes.page_label.value == "Page 1 of 1"
+    assert notes.visible_items
+
+
+async def test_closing_a_note_that_is_not_current_keeps_the_selection() -> None:
+    vm = _build()
+    vm.construct()
+    await vm.bind_to_async("nb-reviews")
+    first, second = vm.inner[0], vm.inner[1]
+    vm.current = first
+
+    second.close_command.execute()
+
+    assert vm.current is first

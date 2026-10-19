@@ -64,6 +64,11 @@ produce a state change".
 
 Calling an operation when its predicate returns `false` MUST raise
 `StatusTransitionError` (Python / TS / Swift) / `StatusTransitionException` (C#).
+Rust returns an `Err`: `VmxError::InvalidLifecycleTransition` names the state
+and the operation for an illegal call from a live state, but a call from
+`Disposed` returns `VmxError::Disposed` and a call during another transition
+returns `VmxError::ConcurrentOperation`. Those two variants do not name the
+state and operation; this is an open Rust gap against this rule.
 The exception's message MUST include the current state and the attempted
 operation. As of v3 the Swift flavor **throws** a catchable
 `StatusTransitionError` here — the same recoverable contract as the other
@@ -83,7 +88,12 @@ ADR-0053.
 `ComponentVMBase` exposes three protected, overridable hooks so subclasses can
 attach per-phase logic without reimplementing the status state machine. Names
 follow the flavor idiom (`OnConstruct` C# / `_on_construct` Python /
-`_onConstruct` TypeScript and Swift):
+`_onConstruct` TypeScript and Swift). Rust has no subclassing: its component,
+forwarding, composite, group, aggregate, and async-resource VM types expose
+public `on_construct`, `on_destruct`, and `on_dispose` methods that replace the
+hook with a closure returning `VmxResult<()>`. Open Rust gap: `HierarchicalVm`
+and `ModeledCompositeVm` have the lifecycle but no hook methods, and
+`ForwardingCompositeVm` reaches them only through `inner()`:
 
 - `OnConstruct` — invoked during `construct()` (and the construct phase of
   `reconstruct()`), after the VM enters `Constructing` and before it reaches
@@ -254,9 +264,11 @@ respect to other lifecycle operations on the same VM.
 - A composite/group/aggregate's `destruct()` completes only when every child has
   reached `Destructed`.
 - The order in which children are constructed/destructed is unspecified.
-  Implementations MAY drive them sequentially or concurrently; the reference
-  implementations in all five active flavors drive
-  them sequentially. The parent observes its children's
+  Implementations MAY drive them sequentially or concurrently. The reference
+  implementations drive aggregates and the Rust composites and groups
+  sequentially. The C#, Python, TypeScript, and Swift composites and groups
+  start factory-populated children during population, so background children
+  in those containers can run concurrently. The parent observes its children's
   `ConstructionStatusChangedMessage` emissions to know when to finalize its own
   state. Because the order is unspecified, subscribers MUST NOT rely on a
   particular child visitation order; no conformance ID constrains it (VMX-046).
@@ -309,7 +321,8 @@ directly.
 `LIFE-001` through `LIFE-015` in `12-conformance.md` cover:
 
 - legal state transitions (construct / destruct / reconstruct / dispose)
-- predicates raising `StatusTransitionError` / `StatusTransitionException` on illegal calls
+- predicates raising `StatusTransitionError` / `StatusTransitionException` (or
+  returning a `VmxError` in Rust) on illegal calls
 - idempotency from `Constructed`/`Destructed`/`Disposed` states
 - the `IsConstructed == Status == Constructed` invariant
 - concurrent re-invocation during `Constructing` / `Destructing` raises (enforced by the

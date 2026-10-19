@@ -251,7 +251,14 @@ export class AsyncResourceVM<T> extends ComponentVMBase {
 
     let loaderPromise: Promise<T>;
     try {
-      loaderPromise = this.#loader(controller.signal);
+      const result: unknown = this.#loader(controller.signal);
+      // A result that is not a promise is a loader failure (ARES-003), as in
+      // the other flavors.
+      if (typeof (result as { then?: unknown } | null)?.then !== "function") {
+        throw new TypeError("The loader did not return a promise.");
+      }
+      // Adopt any thenable, so a non-native `then` cannot leave the load pending.
+      loaderPromise = Promise.resolve(result as PromiseLike<T>);
     } catch (error: unknown) {
       loaderPromise = Promise.resolve().then(() => {
         throw error;

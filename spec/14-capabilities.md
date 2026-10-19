@@ -161,8 +161,10 @@ IFilterable<TItem>:
 
 The capability says nothing about _how_ the filtered view is exposed (an
 observable, a paged slice, a snapshot) — that is the concrete collection's
-responsibility. `SearchableState<TItem>` (per ADR-0014) provides a
-string-debounced predicate builder over this capability.
+responsibility. `SearchableState<TItem>` (per ADR-0014) is a separate helper,
+not an `IFilterable` implementation and not a builder over it. It takes a
+search term and an `(item, term)` predicate and publishes the filtered items of
+its source (chapter 06 §8).
 
 See ADR-0022.
 
@@ -284,8 +286,9 @@ See ADR-0023.
    contract, so every call is legal. (Scoped in v2.5.0 via ADR-0038.)
 1. **Per-language idiom.** Capability interfaces follow the per-language
    identifier convention from ADR-0006 (PascalCase members in C#, snake_case
-   members in Python and Rust, and camelCase members in TypeScript and Swift;
-   Rust capability types use UpperCamelCase without an `I` prefix). The
+   members in Python and Rust, and camelCase members in TypeScript and Swift).
+   Swift protocols and Rust traits drop the `I` prefix (`Filterable`,
+   `Expandable`; ADR-0006, and ADR-0059 §2.4 for Swift). The
    conceptual surface is identical.
 1. **Capabilities do not subscribe to the hub on their own.** Capability
    interfaces define member contracts only. Any change-notification side

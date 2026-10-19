@@ -73,13 +73,34 @@ public class FilteredCompositeVM<VM> : IDisposable
     /// <summary>Replace the predicate and recompute the projection.</summary>
     public void SetPredicate(Func<VM, bool> predicate)
     {
-        _predicate = predicate ?? throw new ArgumentNullException(nameof(predicate));
-        Recompute();
+#if NET8_0_OR_GREATER
+        ArgumentNullException.ThrowIfNull(predicate);
+#else
+        if (predicate is null) throw new ArgumentNullException(nameof(predicate));
+#endif
+        // A disposed projection stays frozen (disposal contract, DISP-006).
+        if (_disposed) return;
+        // Compute with the new predicate first: a throwing predicate leaves the
+        // previous predicate, projection, and current in place.
+        var previous = _predicate;
+        _predicate = predicate;
+        IReadOnlyList<VM> next;
+        try
+        {
+            next = OrderedVisible();
+        }
+        catch
+        {
+            _predicate = previous;
+            throw;
+        }
+        Commit(next);
     }
 
     /// <summary>Set current to null or a currently visible item.</summary>
     public void SetCurrent(VM? item)
     {
+        if (_disposed) return;
         if (item is not null && VisibleIndexOf(item) < 0)
             throw new InvalidOperationException("Current must be null or a visible item.");
         if (ReferenceEquals(_current, item)) return;
@@ -90,6 +111,7 @@ public class FilteredCompositeVM<VM> : IDisposable
     /// <summary>Move to the next visible item, clamped at the last item.</summary>
     public void MoveToNextVisible()
     {
+        if (_disposed) return;
         if (_visible.Count == 0)
         {
             SetCurrent(null);
@@ -112,6 +134,7 @@ public class FilteredCompositeVM<VM> : IDisposable
     /// <summary>Move to the previous visible item, clamped at the first item.</summary>
     public void MoveToPreviousVisible()
     {
+        if (_disposed) return;
         if (_visible.Count == 0)
         {
             SetCurrent(null);
@@ -138,8 +161,16 @@ public class FilteredCompositeVM<VM> : IDisposable
     /// <summary>Recompute projection and reconcile current.</summary>
     protected void Recompute()
     {
+        if (_disposed) return;
+        Commit(OrderedVisible());
+    }
+
+    // Installs a computed projection and reconciles current. Computing happens
+    // before this call, so a throwing predicate changes nothing.
+    private void Commit(IReadOnlyList<VM> next)
+    {
         _visible.Clear();
-        _visible.AddRange(OrderedVisible());
+        _visible.AddRange(next);
         if (_current is not null && VisibleIndexOf(_current) < 0)
         {
             _current = _cursorPolicy == FilteredCursorPolicy.SnapToFirst

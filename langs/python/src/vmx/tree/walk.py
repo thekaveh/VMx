@@ -5,8 +5,8 @@ See spec/13-tree-utilities.md (UTIL-001..003).
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator, Sequence
-from typing import Protocol, runtime_checkable
+from collections.abc import Callable, Iterable, Iterator, Sequence
+from typing import Protocol, cast, runtime_checkable
 
 from vmx.capabilities.expansion import IExpandable
 from vmx.components.base import _ComponentVMBase
@@ -26,7 +26,7 @@ class _AggregateComponents(Protocol):
     def components(self) -> Sequence[ComponentVMProto]: ...
 
 
-def walk(root: _ComponentVMBase) -> Iterator[_ComponentVMBase]:
+def walk(root: ComponentVMProto) -> Iterator[ComponentVMProto]:
     """Yield ``root`` then every descendant in depth-first pre-order.
 
     A descendant of a ``CompositeVM`` or ``GroupVM`` is each item in its
@@ -39,9 +39,9 @@ def walk(root: _ComponentVMBase) -> Iterator[_ComponentVMBase]:
 
 
 def find(
-    root: _ComponentVMBase,
-    predicate: Callable[[_ComponentVMBase], bool],
-) -> _ComponentVMBase | None:
+    root: ComponentVMProto,
+    predicate: Callable[[ComponentVMProto], bool],
+) -> ComponentVMProto | None:
     """Return the first node in ``walk(root)`` for which ``predicate`` is truthy."""
     for node in walk(root):
         if predicate(node):
@@ -49,7 +49,7 @@ def find(
     return None
 
 
-def walk_expanded(root: _ComponentVMBase) -> Iterator[_ComponentVMBase]:
+def walk_expanded(root: ComponentVMProto) -> Iterator[ComponentVMProto]:
     """Yield ``root`` then descend only into children whose parent reports as
     expanded. A node that does NOT implement IExpandable is treated as
     always-expanded. See spec/13-tree-utilities.md §Expand-aware traversal.
@@ -61,10 +61,10 @@ def walk_expanded(root: _ComponentVMBase) -> Iterator[_ComponentVMBase]:
         yield from walk_expanded(child)
 
 
-def _children(node: _ComponentVMBase) -> Iterator[_ComponentVMBase]:
+def _children(node: ComponentVMProto) -> Iterator[ComponentVMProto]:
     if hasattr(node, "__iter__"):
         try:
-            iterator = iter(node)
+            iterator = iter(cast(Iterable[object], node))
         except TypeError:
             # A guarded proxy may advertise __iter__ but reject iterator
             # acquisition. Fall through to aggregate slot probing below.

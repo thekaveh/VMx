@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from reactivex import operators as ops
 from reactivex.abc import DisposableBase
 from reactivex.scheduler import TimeoutScheduler
+from reactivex.subject import Subject
 from vmx import (
     AggregateVM6,
     AsyncRelayCommand,
@@ -30,7 +31,7 @@ from vmx import (
     when_property_changed,
 )
 from vmx.messages.protocols import Message
-from vmx.notifications import INotificationHub, NotificationHub
+from vmx.notifications import INotificationHub, Notification, NotificationHub, NotificationType
 from vmx.services.dispatcher import Dispatcher
 
 from notes_showcase.models.note_model import NoteModel
@@ -77,6 +78,12 @@ class WorkspaceVM:
         self._hub = hub
         self._dispatcher = dispatcher
         self._focused: object | None = None
+        # Re-evaluation trigger for the toolbar commands (parity with the C#
+        # WorkspaceVM ``_commandTrigger``): fired on construction, focus and
+        # notebook-selection changes so ``can_execute`` (e.g. *New note* on a
+        # readonly notebook) is re-published to bound buttons.
+        self._command_trigger: Subject[None] = Subject()
+        self._disposed = False
 
         # Pre-build children so the status bar and capability bar can wire
         # to live references via lazy factories.
@@ -231,6 +238,7 @@ class WorkspaceVM:
                 return
             self.set_focus(nb)
             notes_view.current_notebook_is_readonly = nb.model.is_readonly
+            self._fire_command_trigger()
             self._fire_bind_notes(nb.model.id)
 
         self._notebook_subscription: DisposableBase = (
@@ -252,18 +260,27 @@ class WorkspaceVM:
             AsyncRelayCommand.builder()
             .predicate(lambda: self.is_constructed)
             .task(self._add_new_notebook)
+            .triggers(self._command_trigger)
             .build()
         )
         self._new_note_command = (
             AsyncRelayCommand.builder()
-            .predicate(lambda: self.is_constructed and self.notebooks_root.current is not None)
+            .predicate(
+                lambda: (
+                    self.is_constructed
+                    and self.notebooks_root.current is not None
+                    and not self.notes_view.current_notebook_is_readonly
+                )
+            )
             .task(self._add_new_note_to_current)
+            .triggers(self._command_trigger)
             .build()
         )
         self._export_command = (
             AsyncRelayCommand.builder()
             .predicate(lambda: self.is_constructed)
             .task(self._export_internal)
+            .triggers(self._command_trigger)
             .build()
         )
 
@@ -346,12 +363,18 @@ class WorkspaceVM:
     def focused_vm(self) -> object | None:
         return self._focused
 
+    def _fire_command_trigger(self) -> None:
+        # reactivex Subjects raise on post-dispose use (ADR-0009 divergence).
+        if not self._disposed:
+            self._command_trigger.on_next(None)
+
     def set_focus(self, focused: object | None) -> None:
         """Set the currently-focused VM and refresh the capability bar."""
         if self._focused is focused:
             return
         self._focused = focused
         self.capability_actions.recompute_actions()
+        self._fire_command_trigger()
 
     @property
     def new_notebook_command(self) -> AsyncRelayCommand:
@@ -371,6 +394,7 @@ class WorkspaceVM:
         self._agg.construct()
         self._theme.construct()
         self._global_search.construct()
+        self._fire_command_trigger()
 
     async def construct_async(self) -> None:
         """Async construct: build aggregate, populate notebooks, bind notes view."""
@@ -393,19 +417,24 @@ class WorkspaceVM:
             await self.note_form.refresh_tag_suggestions_async()
             self.notebooks_root.current = first
             self.set_focus(first)
+        self._fire_command_trigger()
 
     def destruct(self) -> None:
         self._theme.destruct()
         self._global_search.destruct()
         self._agg.destruct()
+        self._fire_command_trigger()
 
     def dispose(self) -> None:
+        self._disposed = True
         self._current_note_subscription.dispose()
         self._notebook_subscription.dispose()
         self._saved_note_subscription.dispose()
         self._new_notebook_command.dispose()
         self._new_note_command.dispose()
         self._export_command.dispose()
+        self._command_trigger.on_completed()
+        self._command_trigger.dispose()
         self._theme.dispose()
         self._global_search.dispose()
         self._agg.dispose()
@@ -479,8 +508,15 @@ class WorkspaceVM:
         )
         if not path:
             return
-        notebooks, notes = await self._repo.load_all()
-        await self._repo.export(notebooks, notes, path)
+        try:
+            notebooks, notes = await self._repo.load_all()
+            await self._repo.export(notebooks, notes, path)
+        except Exception as error:
+            # Surface the failure (e.g. a missing directory) instead of
+            # leaving it on the command's unobserved error channel.
+            self._notification_hub.post(
+                Notification(NotificationType.ERROR, f"Export failed: {error}")
+            )
 
     # ── Builder entry-point ────────────────────────────────────────────────
     @staticmethod

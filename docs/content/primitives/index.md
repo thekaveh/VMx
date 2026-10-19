@@ -34,31 +34,24 @@ layers.
 
 ## 6.1.3. Lifecycle And Messaging
 
-Lifecycle and messaging rules are described on the family pages, but they follow
-one common pattern here: choose the primitive family first, then confirm how it
-constructs, destructs, publishes property changes, and participates in hub or
-dispatcher wiring.
-
-The overview pages deliberately stay at that routing level so they do not
-invent surface APIs that belong on the concrete primitive pages.
+Each family page states how its primitive constructs, destructs, publishes
+property changes, and joins hub or dispatcher wiring. Choose the family first,
+then confirm those rules on its page.
 
 ## 6.1.4. Cross-Language Surface
 
 The normative concepts are shared across C#, Python, TypeScript, Swift, and
-Rust. The completed
+Rust. The
 [Rust parity ledger](../../maintenance/2026-07-16-rust-capability-parity.md)
-records the focused 0.27.0 member and behavior convergence evidence.
-The surface idiom changes:
+records the closed original Rust scope, the open Rust items, and the recorded
+differences (§12.4.7 and §12.7–§12.12).
+Surface spellings follow each language idiom:
 
 | Concept            | C#                        | Python             | TypeScript                | Swift                     | Rust                    |
 | ------------------ | ------------------------- | ------------------ | ------------------------- | ------------------------- | ----------------------- |
 | Casing             | PascalCase                | snake_case         | camelCase                 | camelCase                 | snake_case methods      |
 | Modeled leaf       | `ComponentVM<M>`          | `ComponentVMOf[M]` | `ComponentVMOf<M>`        | `ComponentVMOf<M>`        | `ComponentVm<M>`        |
 | Null hub singleton | `NullMessageHub.Instance` | `NULL_MESSAGE_HUB` | `NullMessageHub.INSTANCE` | `NullMessageHub.INSTANCE` | `NullMessageHub::hub()` |
-
-The goal of these pages is not to restate the spec chapter by chapter. The goal
-is to help you pick the right primitive quickly and then follow through with the
-correct lifecycle, services, and related helpers.
 
 ## 6.1.5. Example
 

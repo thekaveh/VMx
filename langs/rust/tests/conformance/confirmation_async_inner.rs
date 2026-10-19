@@ -491,6 +491,36 @@ fn busy_async_inner_drops_the_confirmed_call_and_the_awaiter_completes() {
     );
 }
 
+/// CMDD-016 — An inner already executing before the call disables the
+/// decorator, so neither entry point invokes confirm
+#[test]
+fn inner_executing_before_the_call_disables_the_decorator_and_skips_confirm() {
+    let inner = GatedInner::new();
+    let confirms = Arc::new(AtomicUsize::new(0));
+    let decorator = ConfirmationDecoratorCommand::new(inner.command.clone(), {
+        let confirms = Arc::clone(&confirms);
+        move || {
+            confirms.fetch_add(1, Ordering::SeqCst);
+            AsyncValue::ready(true)
+        }
+    });
+
+    let running = inner.command.execute_async();
+    inner.await_start();
+    assert!(!decorator.can_execute());
+
+    join_within(decorator.execute_async()).expect("the refused call completed the awaiter");
+    decorator.execute();
+
+    assert_eq!(confirms.load(Ordering::SeqCst), 0);
+    inner.release(Ok(()));
+    running
+        .join()
+        .unwrap()
+        .expect("the inner's own call succeeded");
+    assert_eq!(inner.runs(), 1);
+}
+
 /// An async command whose body reports its start and then waits for its
 /// cancellation token.
 fn cancellable_inner(throw_on_cancel: bool) -> (AsyncRelayCommand, mpsc::Receiver<()>) {

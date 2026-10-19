@@ -25,6 +25,9 @@ on:
       - "tools/check-showcase-parity.py"
       - "tools/tests/test_example_accessibility.py"
       - ".github/workflows/examples-contract-checks.yml"
+      - "tools/check-python-interpreter.py"
+      - "langs/typescript/**"
+      - "packages/react/**"
   pull_request:
     branches: [main, develop]
   workflow_dispatch:

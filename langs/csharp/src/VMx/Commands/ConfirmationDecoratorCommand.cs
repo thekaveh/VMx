@@ -59,7 +59,10 @@ public sealed class ConfirmationDecoratorCommand : ICommand, IDisposable
     public IObservable<Exception> Errors => _errors.AsObservable();
 
     /// <inheritdoc/>
-    public bool CanExecute(object? parameter) => !_disposed && _inner.CanExecute(parameter);
+    /// <remarks>Re-checks disposal after the call-out, because the inner predicate
+    /// may dispose this wrapper (spec/04 §8.4).</remarks>
+    public bool CanExecute(object? parameter) =>
+        !_disposed && _inner.CanExecute(parameter) && !_disposed;
 
     /// <inheritdoc/>
     /// <remarks>

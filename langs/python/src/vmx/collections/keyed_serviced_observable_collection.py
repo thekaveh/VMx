@@ -77,6 +77,8 @@ class KeyedServicedObservableCollection(MutableSequence[T], Generic[TKey, T]):
     def __setitem__(self, index: slice, value: Iterable[T]) -> None: ...
 
     def __setitem__(self, index: int | slice, value: T | Iterable[T]) -> None:
+        if isinstance(index, bool):
+            raise TypeError("index must be an int, not bool")
         if not isinstance(index, slice):
             new_item: T = value  # type: ignore[assignment]
             self.replace(index, new_item)
@@ -84,6 +86,8 @@ class KeyedServicedObservableCollection(MutableSequence[T], Generic[TKey, T]):
 
         inserted: Iterable[T] = value  # type: ignore[assignment]
         inserted_items = list(inserted)
+        if not inserted_items and not self._items[index]:
+            return  # An empty slice with nothing inserted changes nothing.
         inserted_keys = [self._key_of(item) for item in inserted_items]
         candidate_items = self._items.copy()
         candidate_keys = self._keys.copy()
@@ -101,6 +105,8 @@ class KeyedServicedObservableCollection(MutableSequence[T], Generic[TKey, T]):
         if not isinstance(index, slice):
             self.remove_at(index)
             return
+        if not self._items[index]:
+            return  # Deleting an empty slice changes nothing.
 
         candidate_items = self._items.copy()
         candidate_keys = self._keys.copy()
@@ -122,6 +128,8 @@ class KeyedServicedObservableCollection(MutableSequence[T], Generic[TKey, T]):
 
     def insert(self, index: int, value: T) -> None:
         """Insert using native ``list.insert`` index normalization."""
+        if isinstance(index, bool):
+            raise TypeError("index must be an int, not bool")
         resolved_index = self._normalize_insert_index(index)
         key = self._key_of(value)
         candidate_items = self._items.copy()
@@ -191,6 +199,8 @@ class KeyedServicedObservableCollection(MutableSequence[T], Generic[TKey, T]):
 
     def move(self, from_index: int, to_index: int) -> None:
         """Move one item between strict, non-negative pre-move indices."""
+        if isinstance(from_index, bool) or isinstance(to_index, bool):
+            raise TypeError("index must be an int, not bool")
         count = len(self._items)
         if from_index < 0 or from_index >= count or to_index < 0 or to_index >= count:
             raise IndexError("collection move index out of range")
@@ -257,6 +267,8 @@ class KeyedServicedObservableCollection(MutableSequence[T], Generic[TKey, T]):
     def _resolve_index(self, index: int) -> int:
         # Indexing first preserves Python's exact bounds behavior and ensures an
         # invalid target never invokes the user projector.
+        if isinstance(index, bool):
+            raise TypeError("index must be an int, not bool")
         self._items[index]
         return index + len(self._items) if index < 0 else index
 

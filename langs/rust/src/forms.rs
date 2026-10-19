@@ -343,18 +343,28 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     }
 
     /// Adds a whole-model validator that returns an ordered error list.
+    ///
+    /// Each registration keys its errors `$model.<registration>.<index>`, so a
+    /// second validator adds to the errors of the first instead of replacing
+    /// them. A registration after dispose is inactive (see the type docs).
     pub fn with_validator<F>(self, validator: F) -> Self
     where
         F: Fn(&M) -> Vec<String> + Send + Sync + 'static,
     {
+        if *lock(&self.disposed) {
+            return self;
+        }
         let could_approve = self.can_approve();
-        lock(&self.model_validators).push(Arc::new(move |model| {
+        let mut validators = lock(&self.model_validators);
+        let registration = validators.len();
+        validators.push(Arc::new(move |model| {
             validator(model)
                 .into_iter()
                 .enumerate()
-                .map(|(index, error)| (index.to_string(), Some(error)))
+                .map(|(index, error)| (format!("$model.{registration:04}.{index:04}"), Some(error)))
                 .collect()
         }));
+        drop(validators);
         self.revalidate();
         self.publish_approve_state_change(could_approve);
         self
@@ -365,8 +375,14 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     where
         F: Fn(&M) -> Option<String> + Send + Sync + 'static,
     {
+        // A registration after dispose is inactive (see the type docs).
+        if *lock(&self.disposed) {
+            return;
+        }
         let could_approve = self.can_approve();
-        lock(&self.field_validators).insert(field.into(), Arc::new(validator));
+        let replaced = lock(&self.field_validators).insert(field.into(), Arc::new(validator));
+        // A replaced validator is dropped after the lock is released.
+        drop(replaced);
         self.revalidate();
         self.publish_approve_state_change(could_approve);
     }
@@ -393,6 +409,10 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     where
         F: Fn(&M) -> BTreeMap<String, Option<String>> + Send + Sync + 'static,
     {
+        // A registration after dispose is inactive (see the type docs).
+        if *lock(&self.disposed) {
+            return;
+        }
         let could_approve = self.can_approve();
         lock(&self.model_validators).push(Arc::new(validator));
         self.revalidate();
@@ -618,6 +638,11 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         }
         let model = self.model();
         self.raise_approve_can_execute_changed();
+        // An admission observer that disposes the form prevents the persister
+        // call (spec/20 §5.3). Dropping the flight clears the in-flight mark.
+        if *lock(&self.disposed) {
+            return None;
+        }
         Some((flight, model))
     }
 
@@ -695,14 +720,23 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             // validity change made by the commit.
             self.raise_approve_can_execute_changed();
         }
-        let callbacks = lock(&self.approved_callbacks).entries.clone();
-        for (id, callback) in callbacks {
-            // A callback detached, or a form disposed, during this emission
-            // before the callback's turn does not receive it (ADR-0139).
-            if !lock(&self.approved_callbacks).is_registered(id) {
-                continue;
+        // Snapshot only the identities: each callback is looked up when its
+        // turn comes, so a callback detached (or a form disposed) earlier in
+        // this emission neither runs nor stays alive until it ends (ADR-0139).
+        let ids: Vec<u64> = lock(&self.approved_callbacks)
+            .entries
+            .iter()
+            .map(|(id, _)| *id)
+            .collect();
+        for id in ids {
+            let callback = lock(&self.approved_callbacks)
+                .entries
+                .iter()
+                .find(|(entry_id, _)| *entry_id == id)
+                .map(|(_, callback)| Arc::clone(callback));
+            if let Some(callback) = callback {
+                callback(model.clone());
             }
-            callback(model.clone());
         }
         let deferred_models = {
             let mut publication = lock(&self.approval_publication);
@@ -941,8 +975,14 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             std::mem::take(&mut registry.entries)
         };
         drop(released);
-        lock(&self.field_validators).clear();
-        lock(&self.model_validators).clear();
+        let field_validators = std::mem::take(&mut *lock(&self.field_validators));
+        let model_validators = std::mem::take(&mut *lock(&self.model_validators));
+        drop(field_validators);
+        drop(model_validators);
+        // The form's hub carries only the spec/20 §8 messages (model and
+        // FormReverted). The wrapped component's ConstructionStatusChanged
+        // (Disposed) is not one, and no other flavor publishes it.
+        self.component.detach_hub();
         let _ = self.component.dispose();
     }
 

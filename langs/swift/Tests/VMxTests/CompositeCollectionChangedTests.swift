@@ -25,6 +25,27 @@ final class CompositeCollectionChangedTests: XCTestCase {
 
     // ── COMP-001 ─────────────────────────────────────────────────────────
 
+    /// Disposing a composite or group completes collectionChanged
+    /// (supplementary lifecycle check; not a COMP-001 assertion).
+    func testCOMP001DisposeCompletesCollectionChanged() throws {
+        let composite = try CompositeVM<ComponentVM>.builder()
+            .name("c").withNullServices().children { [] }.build()
+        let group = try GroupVM<ComponentVM>.builder()
+            .name("g").withNullServices().children { [] }.build()
+        var completed: [String] = []
+        var bag = Set<AnyCancellable>()
+        composite.collectionChanged
+            .sink(receiveCompletion: { _ in completed.append("composite") }, receiveValue: { _ in })
+            .store(in: &bag)
+        group.collectionChanged
+            .sink(receiveCompletion: { _ in completed.append("group") }, receiveValue: { _ in })
+            .store(in: &bag)
+
+        composite.dispose()
+        group.dispose()
+
+        XCTAssertEqual(completed, ["composite", "group"])
+    }
     /// COMP-001 — Add emits CollectionChanged(action=.add) with correct payload.
     func testCOMP001CompositeAddEmitsCollectionChangedAdd() throws {
         let composite = try CompositeVM<ComponentVM>.builder()

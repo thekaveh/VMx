@@ -18,76 +18,14 @@ public abstract class ForwardingComponentVM<M> : IComponentVM<M>, IComponentVMIn
 {
     /// <summary>The wrapped instance that all members delegate to by default.</summary>
     protected readonly IComponentVM<M> _wrapped;
-    private IParentCompositeVM? _parent;
-
-    private sealed class ParentAdapter(
-        IParentCompositeVM parent,
-        ForwardingComponentVM<M> wrapper) : IParentCompositeVM
-    {
-        internal IParentCompositeVM Parent => parent;
-        internal ForwardingComponentVM<M> RetainedWrapper => wrapper;
-        public IComponentVM? Owner => parent.Owner;
-        public IParentCompositeVM? OwnerParent => parent.OwnerParent;
-        public bool SupportsChildSelection => parent.SupportsChildSelection;
-        public IComponentVM? CurrentChild =>
-            ReferenceEquals(parent.CurrentChild, wrapper) ? wrapper._wrapped : parent.CurrentChild;
-        public void SelectChild(IComponentVM vm) => parent.SelectChild(wrapper);
-        public void DeselectChild(IComponentVM vm) => parent.DeselectChild(wrapper);
-        public bool ContainsChild(IComponentVM vm) => parent.ContainsChild(wrapper);
-        public ParentTransferToken DetachForTransfer(IComponentVM vm)
-        {
-            var staged = parent.DetachForTransfer(wrapper);
-            return new ParentTransferToken(
-                commit: () =>
-                {
-                    try { staged.Commit(); }
-                    finally { wrapper.ClearDirectParent(); }
-                },
-                rollback: staged.Rollback);
-        }
-    }
-
-    private sealed class WrappedParentAdapter(
-        IParentCompositeVM parent,
-        ForwardingComponentVM<M> wrapper,
-        IComponentVM wrapped) : IParentCompositeVM
-    {
-        public IComponentVM? Owner => parent.Owner;
-        public IParentCompositeVM? OwnerParent => parent.OwnerParent;
-        public bool SupportsChildSelection => parent.SupportsChildSelection;
-        public IComponentVM? CurrentChild =>
-            ReferenceEquals(parent.CurrentChild, wrapped) ? wrapper : parent.CurrentChild;
-        public void SelectChild(IComponentVM vm) => parent.SelectChild(wrapped);
-        public void DeselectChild(IComponentVM vm) => parent.DeselectChild(wrapped);
-        public bool ContainsChild(IComponentVM vm) => parent.ContainsChild(wrapped);
-        public ParentTransferToken DetachForTransfer(IComponentVM vm)
-        {
-            var retainedWrappers = new List<ForwardingComponentVM<M>>();
-            for (var cursor = parent as ParentAdapter;
-                 cursor is not null;
-                 cursor = cursor.Parent as ParentAdapter)
-                retainedWrappers.Add(cursor.RetainedWrapper);
-            var staged = parent.DetachForTransfer(wrapped);
-            return new ParentTransferToken(
-                commit: () =>
-                {
-                    try { staged.Commit(); }
-                    finally
-                    {
-                        foreach (var retainedWrapper in retainedWrappers)
-                            if (!ReferenceEquals(retainedWrapper, wrapper))
-                                retainedWrapper.ClearDirectParent();
-                    }
-                },
-                rollback: staged.Rollback);
-        }
-    }
+    private readonly ForwardingMembership _membership;
 
     /// <summary>Initialises the decorator with the instance to wrap.</summary>
     protected ForwardingComponentVM(IComponentVM<M> wrapped)
-        => _wrapped = wrapped ?? throw new ArgumentNullException(nameof(wrapped));
-
-    private void ClearDirectParent() => _parent = null;
+    {
+        _wrapped = wrapped ?? throw new ArgumentNullException(nameof(wrapped));
+        _membership = new ForwardingMembership(this, wrapped);
+    }
 
     // ── IComponentVM: identity ─────────────────────────────────────────────
 
@@ -206,32 +144,20 @@ public abstract class ForwardingComponentVM<M> : IComponentVM<M>, IComponentVMIn
         _wrapped.Dispose();
     }
 
-    IParentCompositeVM? IComponentVMInternals.Parent
-    {
-        get
-        {
-            if (_parent is not null) return _parent;
-            var wrappedParent = _wrapped.GetParent();
-            return wrappedParent is null
-                ? null
-                : new WrappedParentAdapter(wrappedParent, this, _wrapped);
-        }
-    }
+    IParentCompositeVM? IComponentVMInternals.Parent => _membership.Parent;
 
-    IComponentVM IComponentVMInternals.OwnershipIdentity => _wrapped.GetOwnershipIdentity();
+    IComponentVM IComponentVMInternals.OwnershipIdentity => _membership.OwnershipIdentity;
 
-    void IComponentVMInternals.SetParent(IParentCompositeVM? parent)
-    {
-        _parent = parent;
-        _wrapped.SetParent(parent is null ? null : new ParentAdapter(parent, this));
-    }
+    void IComponentVMInternals.SetParent(IParentCompositeVM? parent) => _membership.SetParent(parent);
 
-    void IComponentVMInternals.SetIsCurrent(bool value) => _wrapped.SetIsCurrent(value);
+    void IComponentVMInternals.SetIsCurrent(bool value) => _membership.SetIsCurrent(value);
 
-    bool IComponentVMInternals.CommitIsCurrent(bool value) => _wrapped.CommitIsCurrent(value);
+    bool IComponentVMInternals.CommitIsCurrent(bool value) => _membership.CommitIsCurrent(value);
 
-    void IComponentVMInternals.PublishIsCurrent() => _wrapped.PublishIsCurrent();
+    void IComponentVMInternals.PublishIsCurrent() => _membership.PublishIsCurrent();
 
-    Task IComponentVMInternals.ConstructOrJoinAsync() => _wrapped.ConstructOrJoinAsync();
+    Task IComponentVMInternals.ConstructOrJoinAsync() => _membership.ConstructOrJoinAsync();
+
+    Task IComponentVMInternals.JoinConstructAsync() => _membership.JoinConstructAsync();
 }
 #pragma warning restore CA1051

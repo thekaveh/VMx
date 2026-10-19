@@ -54,14 +54,18 @@ export const NotesList: React.FC<NotesListProps> = ({ ws }) => {
   };
   const onListKeyDown = (e: React.KeyboardEvent<HTMLUListElement>): void => {
     if (notesView.visibleItems.length === 0) return;
-    const currentIndex = Math.max(0, notesView.visibleItems.indexOf(notesView.current as NoteVM));
+    // -1 when nothing on this page is current (no selection, or the
+    // current note is on another page): the first ArrowDown / ArrowUp lands
+    // on row 1 instead of skipping it.
+    const currentIndex = notesView.visibleItems.indexOf(notesView.current as NoteVM);
+    const hasCurrent = currentIndex >= 0;
     let index: number;
     switch (e.key) {
       case "ArrowDown":
-        index = Math.min(currentIndex + 1, notesView.visibleItems.length - 1);
+        index = hasCurrent ? Math.min(currentIndex + 1, notesView.visibleItems.length - 1) : 0;
         break;
       case "ArrowUp":
-        index = Math.max(currentIndex - 1, 0);
+        index = hasCurrent ? Math.max(currentIndex - 1, 0) : 0;
         break;
       case "Home":
         index = 0;
@@ -71,7 +75,7 @@ export const NotesList: React.FC<NotesListProps> = ({ ws }) => {
         break;
       case "Enter":
       case " ":
-        index = currentIndex;
+        index = hasCurrent ? currentIndex : 0;
         break;
       default:
         return;
@@ -81,6 +85,14 @@ export const NotesList: React.FC<NotesListProps> = ({ ws }) => {
     e.preventDefault();
     onSelect(note);
   };
+
+  // Only reference a row that is rendered: the current note may sit on
+  // another page, and an id that is not in the DOM breaks the listbox's
+  // active-descendant relationship for assistive technology.
+  const activeDescendant =
+    notesView.current !== null && notesView.visibleItems.includes(notesView.current)
+      ? `note-${notesView.current.noteId}`
+      : undefined;
 
   return (
     <div>
@@ -105,7 +117,7 @@ export const NotesList: React.FC<NotesListProps> = ({ ws }) => {
         className="notes-list"
         role="listbox"
         aria-label="Notes"
-        aria-activedescendant={notesView.current === null ? undefined : `note-${notesView.current.noteId}`}
+        aria-activedescendant={activeDescendant}
         tabIndex={0}
         onKeyDown={onListKeyDown}
       >

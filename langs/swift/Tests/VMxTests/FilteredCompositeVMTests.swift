@@ -20,9 +20,15 @@ final class FilteredCompositeVMTests: XCTestCase {
     }
 
     /// COMP-028 — filtered visible projection.
+    ///
+    /// The source includes an excluded item ("bee") between accepted ones so
+    /// the test proves both filtering and source-order preservation.
     func testCOMP028FilteredVisibleProjection() throws {
-        let sut = try FilteredCompositeVM(source("alpha", "beta")) { $0.name.contains("a") }
-        XCTAssertEqual(sut.visible.map(\.name), ["alpha", "beta"])
+        let src = try source("alpha", "bee", "gamma")
+        let sut = FilteredCompositeVM(src) { $0.name.contains("a") }
+        XCTAssertEqual(sut.visible.map(\.name), ["alpha", "gamma"])
+        XCTAssertTrue(sut.visible[0] === src.at(0))
+        XCTAssertTrue(sut.visible[1] === src.at(2))
     }
 
     /// COMP-029 — visible count.
@@ -33,10 +39,12 @@ final class FilteredCompositeVMTests: XCTestCase {
 
     /// COMP-030 — current maps to visible domain.
     func testCOMP030CurrentMapsToVisibleDomain() throws {
-        let src = try source("alpha", "bee")
+        // A non-first visible item whose visible index (1) differs from its
+        // source index (2) — the mapping cannot pass by index coincidence.
+        let src = try source("alpha", "bee", "gamma")
         let sut = FilteredCompositeVM(src) { $0.name.contains("a") }
-        sut.current = sut.visible[0]
-        XCTAssertTrue(sut.current === src.at(0))
+        sut.current = sut.visible[1]
+        XCTAssertTrue(sut.current === src.at(2))
     }
 
     /// COMP-031 — predicate change recomputes projection.
@@ -70,12 +78,19 @@ final class FilteredCompositeVMTests: XCTestCase {
 
     /// COMP-034 — visible navigation.
     func testCOMP034VisibleNavigation() throws {
-        let sut = try FilteredCompositeVM(source("alpha", "bee", "gamma")) { $0.name.contains("a") }
+        let src = try source("alpha", "bee", "gamma", "delta")
+        let sut = FilteredCompositeVM(src) { $0.name.contains("a") }
         sut.current = sut.visible[0]
-        sut.moveToNextVisible()
-        XCTAssertTrue(sut.current === sut.visible[1])
         sut.moveToPreviousVisible()
-        XCTAssertTrue(sut.current === sut.visible[0])
+        XCTAssertTrue(sut.current === src.at(0), "previous clamps at the first visible item")
+        sut.moveToNextVisible()
+        XCTAssertTrue(sut.current === src.at(2), "next skips the hidden source item")
+        sut.moveToNextVisible()
+        XCTAssertTrue(sut.current === src.at(3))
+        sut.moveToNextVisible()
+        XCTAssertTrue(sut.current === src.at(3), "next clamps at the last visible item")
+        sut.moveToPreviousVisible()
+        XCTAssertTrue(sut.current === src.at(2))
     }
 
     /// COMP-035 — dispose stops source subscription.
@@ -87,12 +102,35 @@ final class FilteredCompositeVMTests: XCTestCase {
         XCTAssertEqual(sut.visible.map(\.name), ["alpha"])
     }
 
+    /// COMP-035 — a disposed projection ignores its mutators.
+    func testCOMP035DisposedProjectionIgnoresItsMutators() throws {
+        let src = try source("alpha", "bee", "cat")
+        let sut = FilteredCompositeVM(src) { _ in true }
+        sut.setCurrent(sut.visible[0])
+        sut.dispose()
+        var changes = 0
+        let subscription = sut.changed.sink { changes += 1 }
+
+        sut.setPredicate { $0.name == "cat" }
+        sut.setCurrent(nil)
+        sut.moveToNextVisible()
+        sut.moveToPreviousVisible()
+
+        XCTAssertEqual(sut.visible.map(\.name), ["alpha", "bee", "cat"])
+        XCTAssertEqual(sut.current?.name, "alpha")
+        XCTAssertEqual(changes, 0)
+        subscription.cancel()
+    }
+
     /// COMP-036 — scored filter sorts by score with stable ties.
     func testCOMP036ScoredFilterSortsByScoreWithStableTies() throws {
-        let sut = try ScoredFilteredCompositeVM(source("alpha", "bee", "ax")) {
-            $0.name.hasPrefix("a") ? 1 : nil
+        // Distinct scores test descending order; "c1"/"c2" tie to test stable
+        // source order; "bee" has a nil score and is excluded.
+        let scores: [String: Double] = ["low": 1, "c1": 2, "high": 3, "c2": 2]
+        let sut = try ScoredFilteredCompositeVM(source("low", "c1", "bee", "high", "c2")) {
+            scores[$0.name]
         }
-        XCTAssertEqual(sut.visible.map(\.name), ["alpha", "ax"])
+        XCTAssertEqual(sut.visible.map(\.name), ["high", "c1", "c2", "low"])
     }
 
     /// COMP-037 — scored filter recomputes order when scores change.

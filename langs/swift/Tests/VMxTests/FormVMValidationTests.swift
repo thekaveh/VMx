@@ -56,6 +56,16 @@ final class FormVMValidationTests: XCTestCase {
             validators: ["name": { _ in "required" }]
         )
         XCTAssertFalse(sut.isValid)
+        XCTAssertFalse(sut.errors.isEmpty)
+
+        // Empty effective Errors map ⇒ isValid == true.
+        let valid = FormVM(
+            initial: ValidationModel(name: "ok", value: 1),
+            persister: { _ in },
+            validators: ["name": { $0.name.isEmpty ? "required" : nil }]
+        )
+        XCTAssertTrue(valid.errors.isEmpty)
+        XCTAssertTrue(valid.isValid)
     }
 
     /// FORM-019 — invalid form blocks approval.

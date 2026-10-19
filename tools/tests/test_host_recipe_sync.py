@@ -28,13 +28,21 @@ def _checked_fences(guide: str, heading: str, language: str) -> list[str]:
     return fences
 
 
+def test_wpf_guide_holds_the_shared_xaml_adapter_and_its_usage() -> None:
+    assert _checked_fences("wpf.md", "## 9.3.3. XAML adapter", "csharp") == [
+        XAML_ADAPTER,
+        "examples/csharp/wpf/RecipeHostCheck/Program.cs#wpf-create-adapter",
+    ]
+
+
 @pytest.mark.parametrize(
     ("guide", "heading", "usage"),
     [
         (
-            "wpf.md",
-            "## 9.3.3. Adapter skeleton",
-            "examples/csharp/wpf/RecipeHostCheck/Program.cs#wpf-create-adapter",
+            "avalonia.md",
+            "## 9.2.3. Adapter skeleton",
+            "examples/csharp/avalonia/NotesShowcase.Tests/Views/AvaloniaRecipeTests.cs"
+            "#avalonia-create-adapter",
         ),
         (
             "maui.md",
@@ -43,10 +51,11 @@ def _checked_fences(guide: str, heading: str, language: str) -> list[str]:
         ),
     ],
 )
-def test_xaml_recipe_fences_are_checked_against_executed_code(
+def test_other_xaml_guides_check_their_usage_and_link_the_shared_adapter(
     guide: str, heading: str, usage: str
 ) -> None:
-    assert _checked_fences(guide, heading, "csharp") == [XAML_ADAPTER, usage]
+    assert _checked_fences(guide, heading, "csharp") == [usage]
+    assert "wpf.md#933-xaml-adapter" in (INTEGRATION / guide).read_text(encoding="utf-8")
 
 
 def test_textual_recipe_is_checked_against_the_executed_widget() -> None:

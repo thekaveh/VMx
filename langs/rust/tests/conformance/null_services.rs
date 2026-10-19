@@ -47,14 +47,26 @@ fn null_message_hub_is_safe_noop() {
 #[test]
 fn null_dispatcher_schedules_synchronously() {
     let dispatcher = NullDispatcher::new();
-    let ran = std::sync::Arc::new(AtomicBool::new(false));
-    let ran_clone = ran.clone();
+    let caller = std::thread::current().id();
 
-    dispatcher.dispatch(Box::new(move || {
-        ran_clone.store(true, Ordering::SeqCst);
-    }));
+    for background in [false, true] {
+        let ran_on = std::sync::Arc::new(std::sync::Mutex::new(None));
+        let ran_clone = ran_on.clone();
+        let action: Box<dyn FnOnce() + Send> = Box::new(move || {
+            *ran_clone.lock().unwrap() = Some(std::thread::current().id());
+        });
+        if background {
+            dispatcher.dispatch_background(action);
+        } else {
+            dispatcher.dispatch(action);
+        }
 
-    assert!(ran.load(Ordering::SeqCst));
+        assert_eq!(
+            *ran_on.lock().unwrap(),
+            Some(caller),
+            "background={background}: the action completes on the calling thread before return"
+        );
+    }
 }
 
 /// NULL-003 — Null-object convention is satisfied for the base core service contracts

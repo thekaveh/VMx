@@ -1,17 +1,9 @@
 # 8.3. Notes Workspace
 
 Notes Workspace is the flagship VMx example portfolio: one scenario, four
-idiomatic hosts, and one shared VM contract.
-
-<img src="../../assets/diagrams/examples-vm-layer.svg" alt="Examples VM Layer Map" class="vmx-diagram" />
-
-<p>
-  <a href="notes-workspace-vm-layer.md">Open the VM layer walkthrough</a>
-  &middot;
-  <a href="../../assets/diagrams/examples-vm-layer.svg">SVG</a>
-  &middot;
-  <a href="../../assets/diagrams/examples-vm-layer.png">PNG</a>
-</p>
+idiomatic hosts, and one shared VM contract. The
+[VM Layer Map](notes-workspace-vm-layer.md) shows how the scenario composes VMx
+primitives.
 
 ## 8.3.1. Canonical Sources
 
@@ -40,10 +32,10 @@ idiomatic hosts, and one shared VM contract.
 
 ## 8.3.3. What It Exercises
 
-The portfolio is the working example for the four current UI-backed flagship hosts:
+The portfolio is the working example for the four UI-backed flagship hosts:
 
 - notebook tree projection representing the `HierarchicalVM` capability
-- selectable notes list through `CompositeVM.current`
+- selectable notes list through an app-owned `current` slot
 - strict `FormVM` editing and validation
 - `DerivedProperty` status and enablement
 - `SearchableState`, paged notes, and token-paged global search
@@ -52,13 +44,12 @@ The portfolio is the working example for the four current UI-backed flagship hos
 
 ## 8.3.4. Important Modeling Note
 
-The notebooks tree in the current flagship apps is not built from direct
-`HierarchicalVM` subclasses. All four UI-backed examples use flat `ComponentVM`-based
-adapters that represent the `HierarchicalVM` capability and preserve the same
-tree messaging contract.
+The flagship notebooks tree does not subclass `HierarchicalVM`. All four
+UI-backed examples use flat `ComponentVM`-based adapters. These adapters
+represent the `HierarchicalVM` capability and keep its tree messaging contract.
 
-Use the parity matrix for the exact row-by-row feature coverage, then drill into
-the flavor README you care about for project layout and run commands.
+Use the parity matrix for row-by-row feature coverage. Use each flavor README
+for project layout and run commands.
 
 ## 8.3.5. Swift Foreground Contract
 
@@ -71,10 +62,9 @@ package and the full SwiftUI flagship.
 
 ## 8.3.6. Locale Scope
 
-Notes Workspace is intentionally an en-US reference scenario. All hosts use
-the same English labels, seed content, validation messages, and notifications;
-the parity matrix therefore makes no translated-catalog claim. VMx still
-provides the injectable localization hook described in
-[spec chapter 17](../../../spec/17-localization.md), with behavior verified by
-the library conformance suites. Applications that need multiple locales supply
-their own host-native catalog adapter.
+Notes Workspace is an en-US reference scenario. All hosts use the same English
+labels, seed content, validation messages, and notifications, so the parity
+matrix makes no translated-catalog claim. VMx provides an injectable
+localization hook ([spec chapter 17](../../../spec/17-localization.md)), which
+the library conformance suites verify. Applications that need multiple locales
+supply their own host-native catalog adapter.

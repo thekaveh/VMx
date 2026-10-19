@@ -7,7 +7,10 @@ Per spec §6.1 the widget class only owns ``compose()`` / ``on_mount()`` /
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 from textual.app import ComposeResult
+from textual.binding import BindingType
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, Label
@@ -15,6 +18,8 @@ from textual.widgets import Button, Label
 
 class ConfirmModal(ModalScreen[bool]):
     """Confirmation dialog presented by :class:`TextualDialogService`."""
+
+    BINDINGS: ClassVar[list[BindingType]] = [("escape", "cancel", "Cancel")]
 
     DEFAULT_CSS = """
     ConfirmModal {
@@ -53,3 +58,6 @@ class ConfirmModal(ModalScreen[bool]):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         self.dismiss(event.button.id == "yes")
+
+    def action_cancel(self) -> None:
+        self.dismiss(False)

@@ -6,7 +6,10 @@ dismisses with the entered string (or ``None`` on Cancel).
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 from textual.app import ComposeResult
+from textual.binding import BindingType
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Label
@@ -14,6 +17,8 @@ from textual.widgets import Button, Input, Label
 
 class SaveFileModal(ModalScreen[str | None]):
     """File-save prompt presented by :class:`TextualDialogService`."""
+
+    BINDINGS: ClassVar[list[BindingType]] = [("escape", "cancel", "Cancel")]
 
     DEFAULT_CSS = """
     SaveFileModal {
@@ -64,3 +69,10 @@ class SaveFileModal(ModalScreen[str | None]):
             if event.button.id == "save"
             else None
         )
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        # Enter in the path field submits, like the Save button.
+        self.dismiss(event.value.strip() or None)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)

@@ -15,6 +15,7 @@ import type { Subscription } from "rxjs";
 import type { IMessageHub } from "../services/messageHub.js";
 import { CollectionChangedMessage } from "../messages/collectionChanged.js";
 import type { ObservableMembershipSource } from "./observableMembership.js";
+import { resolveSpliceStart } from "./spliceStart.js";
 
 export { CollectionChangedMessage };
 
@@ -118,10 +119,7 @@ export class ServicedObservableCollection<T>
       // (negatives count from the end, out-of-range clamps) so the emitted
       // Remove carries the actual removal position (spec/21 line 148,
       // "indexBeforeRemoval"), not a raw negative/out-of-range argument.
-      const resolvedStart =
-        start < 0
-          ? Math.max(lengthBeforeSplice + start, 0)
-          : Math.min(start, lengthBeforeSplice);
+      const resolvedStart = resolveSpliceStart(start, lengthBeforeSplice);
       this.#emit(
         CollectionChangedMessage.forRemove(this, removed[0] as T, resolvedStart),
       );

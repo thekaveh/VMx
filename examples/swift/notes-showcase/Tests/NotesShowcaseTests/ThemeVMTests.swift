@@ -55,6 +55,18 @@ final class ThemeVMTests: XCTestCase {
         return recorder
     }
 
+    /// A disposed ThemeVM ignores preset changes and publishes nothing.
+    func testApplyPresetAfterDisposeIsInert() throws {
+        let (vm, hub) = try build(initial: ThemeModel.LIGHT_PRESET)
+        let recorder = capture(hub)
+        vm.dispose()
+
+        try vm.applyPreset("dark")
+
+        XCTAssertEqual(try vm.currentTheme.value, ThemeModel.LIGHT_PRESET)
+        XCTAssertTrue(recorder.messages.isEmpty)
+    }
+
     // MARK: - THEME-001
 
     /// THEME-001 — `setThemeCommand.execute("dark")` publishes exactly one

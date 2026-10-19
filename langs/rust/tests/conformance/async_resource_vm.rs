@@ -52,6 +52,79 @@ fn controlled_vm(
     )
 }
 
+type CapturedTokens = Arc<Mutex<Vec<vmx::CancellationToken>>>;
+
+/// Like `controlled_vm`, but records each loader's cancellation token.
+fn token_vm(
+    receivers: Vec<Receiver<VmxResult<i32>>>,
+    cleaned: Option<Arc<Mutex<Vec<i32>>>>,
+) -> (AsyncResourceVm<i32>, Arc<AtomicUsize>, CapturedTokens) {
+    let queue = Arc::new(Mutex::new(VecDeque::from(receivers)));
+    let starts = Arc::new(AtomicUsize::new(0));
+    let tokens: CapturedTokens = Arc::new(Mutex::new(Vec::new()));
+    let loader_starts = starts.clone();
+    let loader_tokens = tokens.clone();
+    let cleanup = cleaned.map(|values| {
+        Arc::new(move |value| values.lock().unwrap().push(value)) as Arc<dyn Fn(i32) + Send + Sync>
+    });
+    (
+        AsyncResourceVm::with_options(
+            "resource",
+            move |token| {
+                let receiver = queue.lock().unwrap().pop_front().unwrap();
+                loader_tokens.lock().unwrap().push(token);
+                loader_starts.fetch_add(1, Ordering::SeqCst);
+                receiver
+                    .recv()
+                    .unwrap_or_else(|_| Err(VmxError::Other("loader channel closed".into())))
+            },
+            AsyncResourceRetention::DiscardPrevious,
+            cleanup,
+        ),
+        starts,
+        tokens,
+    )
+}
+
+/// Counts property and command (`can_execute_changed`) notifications.
+struct NotificationCounter {
+    count: Arc<AtomicUsize>,
+    _property: vmx::PropertyChangedSubscription,
+    _commands: Vec<vmx::Subscription>,
+}
+
+impl NotificationCounter {
+    fn new(vm: &AsyncResourceVm<i32>) -> Self {
+        let count = Arc::new(AtomicUsize::new(0));
+        let property = count.clone();
+        let _property = vm.property_changed().subscribe(move |_| {
+            property.fetch_add(1, Ordering::SeqCst);
+        });
+        let _commands = [
+            vm.load_command().can_execute_changed(),
+            vm.reload_command().can_execute_changed(),
+            vm.cancel_command().can_execute_changed(),
+        ]
+        .into_iter()
+        .map(|hub| {
+            let counter = count.clone();
+            hub.subscribe(move |_| {
+                counter.fetch_add(1, Ordering::SeqCst);
+            })
+        })
+        .collect();
+        Self {
+            count,
+            _property,
+            _commands,
+        }
+    }
+
+    fn get(&self) -> usize {
+        self.count.load(Ordering::SeqCst)
+    }
+}
+
 /// ARES-001 — Initial state and command eligibility
 #[test]
 fn async_resource_initial_state_and_commands() {
@@ -191,6 +264,32 @@ fn async_resource_failure_becomes_state() {
         vm.state(),
         AsyncResourceState::Error { previous: None, .. }
     ));
+    assert!(vm.reload_command().can_execute());
+}
+
+/// ARES-003 — the fire-and-forget load reports the failure only as state.
+#[test]
+fn async_resource_command_failure_becomes_state_not_command_error() {
+    let vm: AsyncResourceVm<i32> =
+        AsyncResourceVm::new("resource", |_| Err(VmxError::Other("offline".into())));
+    let command_errors = Arc::new(AtomicUsize::new(0));
+    let observed = command_errors.clone();
+    let _subscription = vm.load_command().error_stream().subscribe(move |_| {
+        observed.fetch_add(1, Ordering::SeqCst);
+    });
+
+    vm.load_command().execute();
+    wait_until(|| vm.resource_status() == AsyncResourceStatus::Error);
+
+    match vm.state() {
+        AsyncResourceState::Error {
+            previous: None,
+            error,
+        } => assert_eq!(error.to_string(), "offline"),
+        other => panic!("expected Error with no value, got {other:?}"),
+    }
+    wait_until(|| vm.load_command().can_execute() || vm.reload_command().can_execute());
+    assert_eq!(command_errors.load(Ordering::SeqCst), 0);
     assert!(vm.reload_command().can_execute());
 }
 
@@ -384,6 +483,49 @@ fn async_resource_latest_start_wins() {
     assert_eq!(vm.state(), AsyncResourceState::Ready { value: 2 });
 }
 
+/// ARES-008 — the older loader is cancelled when the newer one is admitted,
+/// and in either settle order only the newer outcome is visible; the older
+/// completion produces no state or command notification.
+#[test]
+fn async_resource_older_loader_cancelled_and_its_completion_is_silent() {
+    for newer_first in [false, true] {
+        let (send1, receive1) = channel();
+        let (send2, receive2) = channel();
+        let (vm, starts, tokens) = token_vm(vec![receive1, receive2], None);
+        let older = vm.load_async();
+        wait_until(|| starts.load(Ordering::SeqCst) == 1);
+        assert!(!tokens.lock().unwrap()[0].is_cancelled());
+        let newer = vm.reload_async();
+        wait_until(|| starts.load(Ordering::SeqCst) == 2);
+        assert!(tokens.lock().unwrap()[0].is_cancelled());
+        assert!(!tokens.lock().unwrap()[1].is_cancelled());
+        older.join().unwrap().unwrap();
+        let counter = NotificationCounter::new(&vm);
+
+        if newer_first {
+            send2
+                .send(Err(VmxError::Other("newer failed".into())))
+                .unwrap();
+            newer.join().unwrap().unwrap();
+            let settled = counter.get();
+            send1.send(Ok(1)).unwrap();
+            thread::sleep(Duration::from_millis(10));
+            assert_eq!(counter.get(), settled);
+            assert_eq!(vm.resource_status(), AsyncResourceStatus::Error);
+        } else {
+            send1
+                .send(Err(VmxError::Other("older failed".into())))
+                .unwrap();
+            thread::sleep(Duration::from_millis(10));
+            assert_eq!(counter.get(), 0, "older completion notified");
+            assert_eq!(vm.resource_status(), AsyncResourceStatus::Loading);
+            send2.send(Ok(2)).unwrap();
+            newer.join().unwrap().unwrap();
+            assert_eq!(vm.state(), AsyncResourceState::Ready { value: 2 });
+        }
+    }
+}
+
 /// ARES-009 — Stale success is cleaned without notification
 #[test]
 fn async_resource_stale_success_cleans_silently() {
@@ -435,6 +577,35 @@ fn async_resource_replacement_and_dispose_cleanup_once() {
     vm.dispose().unwrap();
     vm.dispose().unwrap();
     assert_eq!(*cleaned.lock().unwrap(), vec![1, 2]);
+}
+
+/// ARES-010 — without cleanup, neither a replaced nor the final value is
+/// implicitly disposed (VM values stay in their own lifecycle state).
+#[test]
+fn async_resource_without_cleanup_disposes_no_value() {
+    let produced = Arc::new(Mutex::new(Vec::<vmx::ComponentVm>::new()));
+    let loader_produced = produced.clone();
+    let vm = AsyncResourceVm::with_options(
+        "resource",
+        move |_| {
+            let value = vmx::ComponentVm::new("value");
+            value.construct()?;
+            loader_produced.lock().unwrap().push(value.clone());
+            Ok(value)
+        },
+        AsyncResourceRetention::RetainPrevious,
+        None,
+    );
+    vm.load_async().join().unwrap().unwrap();
+    vm.reload_async().join().unwrap().unwrap();
+    vm.dispose().unwrap();
+    vm.dispose().unwrap();
+
+    let produced = produced.lock().unwrap();
+    assert_eq!(produced.len(), 2);
+    for value in produced.iter() {
+        assert_eq!(value.status(), ConstructionStatus::Constructed);
+    }
 }
 
 #[test]
@@ -587,6 +758,39 @@ fn async_resource_dispose_cancels_and_late_completion_is_inert() {
     assert_eq!(changes.load(Ordering::SeqCst), notifications);
 }
 
+/// ARES-011 — the current loader's token is cancelled by disposal, and a late
+/// success or failure produces no state, property, or command notification;
+/// a late success is cleaned exactly once.
+#[test]
+fn async_resource_dispose_cancels_current_loader_token() {
+    for late_success in [true, false] {
+        let (send, receive) = channel();
+        let cleaned = Arc::new(Mutex::new(Vec::new()));
+        let (vm, starts, tokens) = token_vm(vec![receive], Some(cleaned.clone()));
+        let load = vm.load_async();
+        wait_until(|| starts.load(Ordering::SeqCst) == 1);
+        let counter = NotificationCounter::new(&vm);
+        assert!(!tokens.lock().unwrap()[0].is_cancelled());
+        vm.dispose().unwrap();
+        vm.dispose().unwrap();
+        assert!(tokens.lock().unwrap()[0].is_cancelled());
+        let state = vm.state();
+        let notifications = counter.get();
+        load.join().unwrap().unwrap();
+        if late_success {
+            send.send(Ok(9)).unwrap();
+            wait_until(|| cleaned.lock().unwrap().as_slice() == [9]);
+        } else {
+            send.send(Err(VmxError::Other("late".into()))).unwrap();
+        }
+        thread::sleep(Duration::from_millis(10));
+        assert_eq!(counter.get(), notifications);
+        assert_eq!(vm.state(), state);
+        let expected: &[i32] = if late_success { &[9] } else { &[] };
+        assert_eq!(cleaned.lock().unwrap().as_slice(), expected);
+    }
+}
+
 #[test]
 fn reentrant_disposal_during_loading_notification_prevents_loader_start() {
     let calls = Arc::new(AtomicUsize::new(0));
@@ -669,16 +873,17 @@ fn discard_cleanup_disposal_prevents_notification_and_loader_start() {
     );
     *owner.lock().unwrap() = Some(vm.clone());
     vm.load_async().join().unwrap().unwrap();
-    let changes = Arc::new(AtomicUsize::new(0));
+    let changes = Arc::new(Mutex::new(Vec::new()));
     let observed = Arc::clone(&changes);
-    let _subscription = vm.property_changed().subscribe(move |_| {
-        observed.fetch_add(1, Ordering::SeqCst);
+    let _subscription = vm.property_changed().subscribe(move |name| {
+        observed.lock().unwrap().push(name.to_string());
     });
 
     vm.reload_async().join().unwrap().unwrap();
 
     assert_eq!(calls.load(Ordering::SeqCst), 1);
-    assert_eq!(changes.load(Ordering::SeqCst), 0);
+    // Only the disposal's own lifecycle notifications; no resource property.
+    assert_eq!(*changes.lock().unwrap(), vec!["status", "is_constructed"]);
     assert!(!vm.load_command().can_execute());
 }
 

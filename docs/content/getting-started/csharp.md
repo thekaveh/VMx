@@ -14,21 +14,10 @@ ______________________________________________________________________
 
 ## 3.2.1. Install
 
-The source tree currently implements v3.29.0. The NuGet package is not published
-yet; use the package command after a `csharp-v*` release publishes it.
-
-```bash
-dotnet add package VMx
-```
-
-For local development from a checked-out clone, reference the project directly:
-
-```xml
-<!-- In your .csproj -->
-<ItemGroup>
-  <ProjectReference Include="path/to/langs/csharp/src/VMx/VMx.csproj" />
-</ItemGroup>
-```
+Add VMx as described in [Installation](../installation.md). The NuGet package
+is not published, so the C# tab there references the VMx project from a
+checkout. This tutorial needs only the core `VMx` project; section 3.2.2.2 adds
+the optional dependency-injection project.
 
 ______________________________________________________________________
 
@@ -51,30 +40,41 @@ IMessageHub hub = new MessageHub();
 
 ### 3.2.2.2. Option B — dependency injection (`VMx.Extensions.DependencyInjection`)
 
-Add the optional DI package:
+Add the optional DI project:
 
 ```xml
-<ProjectReference Include="path/to/langs/csharp/src/VMx.Extensions.DependencyInjection/
-    VMx.Extensions.DependencyInjection.csproj" />
+<ProjectReference Include="../VMx/langs/csharp/src/VMx.Extensions.DependencyInjection/VMx.Extensions.DependencyInjection.csproj" />
 ```
 
-Then register in your host startup (WPF, MAUI, ASP.NET, etc.):
+The DI package references only the service-collection abstractions. A host
+such as WPF, MAUI, or ASP.NET Core already supplies the container. A console
+app that calls `BuildServiceProvider()` itself also needs the
+`Microsoft.Extensions.DependencyInjection` package.
+
+The default `AddVMx()` dispatcher binds to the `SynchronizationContext` that
+is current when `AddVMx()` runs, so call it on the UI thread of a WPF,
+WinForms, MAUI, or Avalonia app. If there is no context at that time, the
+first resolution of `IDispatcher` tries the context of the resolving thread.
+ASP.NET Core and console hosts have no `SynchronizationContext`, so the default
+throws `InvalidOperationException` there; supply a dispatcher factory instead,
+for example `RxDispatcher.Immediate()`.
+
+Register VMx in your host startup:
 
 ```csharp
 using Microsoft.Extensions.DependencyInjection;
 using VMx.Extensions.DependencyInjection;
+using VMx.Services;
 
 var services = new ServiceCollection();
 
-// IMessageHub → singleton MessageHub
+// UI host: IMessageHub → singleton MessageHub,
 // IDispatcher → singleton RxDispatcher bound to SynchronizationContext.Current
 services.AddVMx();
 
-// Or supply your own dispatcher factory:
-services.AddVMx(opts =>
-    opts.UseDispatcher(_ => new RxDispatcher(
-        foreground: new SynchronizationContextScheduler(SynchronizationContext.Current!),
-        background: TaskPoolScheduler.Default)));
+// Host without a SynchronizationContext (ASP.NET Core, console, tests):
+// supply your own dispatcher factory instead.
+// services.AddVMx(opts => opts.UseDispatcher(_ => RxDispatcher.Immediate()));
 
 var provider = services.BuildServiceProvider();
 var hub        = provider.GetRequiredService<IMessageHub>();
@@ -87,16 +87,14 @@ ______________________________________________________________________
 
 `ComponentVM<M>` is the primary leaf viewmodel. It holds a typed model,
 fires `IPropertyChangedMessage` on the hub when the model changes, and
-participates in the five-state lifecycle (Destructed, Constructing,
-Constructed, Destructing) plus terminal Disposed.
+participates in the lifecycle: four reversible states (Destructed,
+Constructing, Constructed, Destructing) and the terminal Disposed state.
 
 ```csharp
+using System.Reactive.Linq;
 using VMx.Components;
 using VMx.Messages;
 using VMx.Services;
-
-// A simple domain model — use your own real types here.
-public record UserModel(string Name, string Email);
 
 // Build the viewmodel — builder is immutable; every setter returns a new instance.
 ComponentVM<UserModel> userVM =
@@ -128,6 +126,10 @@ userVM.Construct();
 userVM.Model = new UserModel("Alice Smith", "asmith@example.com");
 
 Console.WriteLine(userVM.ModeledHint);  // "Alice Smith"  (ModeledHinter result)
+
+// A simple domain model — use your own real types here. In a file with
+// top-level statements, type declarations come after the statements.
+public record UserModel(string Name, string Email);
 ```
 
 > See the [component family](../primitives/viewmodel-families/component-family.md)
@@ -181,8 +183,8 @@ Console.WriteLine(saveCommand.CanExecute(null));   // False again
 ```
 
 > See [command families](../primitives/command-families.md) for the full command
-> contract including
-> the "predicate-false gates Execute" rule (CMD-003).
+> contract, including
+> the "predicate-false gates Execute" rule (CMD-007).
 
 ______________________________________________________________________
 
@@ -193,12 +195,10 @@ Children are built ahead of time and handed in via a factory; the factory runs
 lazily on the first `Construct`.
 
 ```csharp
+using System.Reactive.Linq;
 using VMx.Components;
 using VMx.Composites;
 using VMx.Messages;
-
-// A tab viewmodel — a ComponentVM wrapping a tab model.
-public record TabModel(string Title);
 
 // Build two tab children. They share the same hub and dispatcher.
 ComponentVM<TabModel> tab1 =
@@ -239,6 +239,9 @@ tabs.Construct();
 // Select a tab — publishes PropertyChangedMessage for Current, sets child.IsCurrent.
 tabs.Current = tab2;  // prints "Selected tab: Settings"
 tabs.Current = tab1;  // prints "Selected tab: Home"
+
+// A tab viewmodel — a ComponentVM wrapping a tab model.
+public record TabModel(string Title);
 ```
 
 > See the [composite family](../primitives/viewmodel-families/composite-family.md)
@@ -249,7 +252,7 @@ ______________________________________________________________________
 
 ## 3.2.6. Lifecycle and cleanup
 
-Every VM follows a five-state lifecycle: `Destructed → Constructing → Constructed → Destructing → Destructed`, plus the terminal `Disposed`.
+Every VM has five lifecycle states. Four of them form a reversible cycle, `Destructed → Constructing → Constructed → Destructing → Destructed`. The fifth state, `Disposed`, is terminal.
 
 ```csharp
 // States are exposed via IComponentVM.Status (a ConstructionStatus enum).
@@ -272,10 +275,11 @@ Console.WriteLine(userVM.Status);  // Disposed
 
 // CompositeVM.Dispose() disposes children then itself.
 tabs.Dispose();
-
-// MessageHub.Dispose() completes the underlying Rx Subject.
-((IDisposable)hub).Dispose();
 ```
+
+Dispose the hub last, after every viewmodel that uses it. `MessageHub.Dispose()`
+completes the underlying Rx subject. The threading examples below still use the
+hub, so the full shutdown sequence appears at the end of section 3.2.7.
 
 The C#-specific `ConstructAsync()`, `DestructAsync()`, and
 `ReconstructAsync()` methods complete after terminal lifecycle publication. If
@@ -304,23 +308,43 @@ All hub observations delivered on `Foreground` are safe to bind directly to UI
 controls. Use `ObserveOn` to marshal:
 
 ```csharp
+using System.Reactive.Linq;
+
 hub.Messages
    .OfType<IPropertyChangedMessage<IComponentVM>>()
    .ObserveOn(dispatcher.Foreground)     // marshal to UI thread
    .Subscribe(msg => UpdateLabel(msg));  // safe to touch UI here
 ```
 
-For background work (e.g. loading data before a Construct):
+The next example loads data in the background before `Construct`. It builds a
+new viewmodel because section 3.2.6 disposed `userVM`.
 
 ```csharp
+using System.Reactive.Linq;
+using VMx.Components;
+
+ComponentVM<UserModel> profileVM =
+    ComponentVM<UserModel>.Builder()
+        .Name("profile")
+        .Model(new UserModel("", ""))
+        .Services(hub, dispatcher)
+        .Build();
+
 Observable
     .Start(() => LoadFromDatabase(), dispatcher.Background)
     .ObserveOn(dispatcher.Foreground)
     .Subscribe(data =>
     {
-        userVM.Model = data;
-        userVM.Construct();
+        profileVM.Model = data;
+        profileVM.Construct();
     });
+```
+
+At shutdown, dispose the viewmodels first and the hub last:
+
+```csharp
+profileVM.Dispose();
+((IDisposable)hub).Dispose();
 ```
 
 > See [Services, Messages &

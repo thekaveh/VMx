@@ -1,13 +1,14 @@
 # 9.9. Vue 3 Integration
 
-Wire a `ComponentVMOf<M>` to a Vue 3 component via the Composition API
-`reactive()` / `ref()` primitives.
+Wire a `ComponentVMOf<M>` to a Vue 3 component through the Composition API
+`shallowRef` and `triggerRef` primitives.
 
 ## 9.9.1. Reactivity primitive
 
-Vue 3's reactivity tracks reads and writes to `reactive(obj)` and
-`ref()` values; templates re-render automatically when tracked
-values change. Bridge VMx by syncing a local `ref` from VMx hub events.
+Vue 3 tracks reads of a `shallowRef` value and re-renders the template when
+that value changes. `triggerRef` forces the same re-render when the value keeps
+its reference. The adapter updates a `shallowRef` from VMx hub messages and
+calls `triggerRef` on each one.
 
 ## 9.9.2. Mapping
 
@@ -18,12 +19,9 @@ values change. Bridge VMx by syncing a local `ref` from VMx hub events.
 | `computed(() => ...)`             | `DerivedProperty<T>` / `fromSources` |
 | `onUnmounted(() => cleanup)`      | dispose the subscription             |
 
-`republishModel()` announces a model that was mutated in place, so the
-announced value is the same object the binding already holds. A plain `ref`
-ignores assigning the same reference, so the composable stores the value in a
-`shallowRef` and calls `triggerRef` on every matching message. A replacement
-object or a scalar value re-renders the same way, and messages for another VM
-or another property are filtered out.
+A [`republishModel()` announcement keeps the same reference](index.md#914-republished-models-keep-their-reference),
+so the composable calls `triggerRef` on every matching message. Messages for
+another VM or another property are filtered out.
 
 ## 9.9.3. Adapter skeleton
 
@@ -95,6 +93,6 @@ re-create the component with a `:key` that identifies the VM, such as
 
 ## 9.9.4. Fuller example
 
-No worked Vue Notes-Showcase ships yet. The React recipe
-([react.md](react.md)) uses the same hub-subscription shape (just with
-`useSyncExternalStore` instead of `ref`) and is a good reference.
+There is no Vue Notes-Showcase. The runnable reference is
+`examples/typescript/integration-recipes`. For a packaged adapter, see the
+React recipe ([react.md](react.md)).

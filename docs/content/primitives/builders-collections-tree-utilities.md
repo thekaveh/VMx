@@ -7,13 +7,14 @@ observable collections, or how to traverse an existing VM tree.
 
 ## 6.7.2. Shape And Ownership
 
-Three groups live here:
+Four groups live here:
 
 - immutable fluent builders and additive `create` helpers
 - opt-in collection primitives such as `ServicedObservableCollection`,
   `KeyedServicedObservableCollection`, `ObservableList`,
   `ObservableDictionary`, `PagedComposition`, and
   `TokenPagedComposition`
+- the read-only `AggregateChangeStream` fan-in helper for dynamic membership
 - traversal helpers such as `walk`, `find`, and `walk_expanded`
 
 These pieces are deliberately separate from the core hierarchy so you can opt
@@ -30,8 +31,8 @@ The main operational rules:
 - builders are immutable and reusable
 - required fields validate on `Build()`
 - `ObservableList` and VM container batching are independent scopes
-- `ObservableList.replaceAll` / `replace_all` / `ReplaceAll` snapshots input
-  before mutation and emits one Reset instead of clear-plus-N-add churn
+- `ObservableList` whole-list replacement emits one Reset; see
+  [ObservableList Whole-List Refresh](#679-observablelist-whole-list-refresh)
 - `ServicedObservableCollection` publishes local collection events before hub
   messages
 - `KeyedServicedObservableCollection` adds a captured-key index without
@@ -40,10 +41,12 @@ The main operational rules:
   value cursor is `int?` rather than `int`; a non-nullable value token is
   rejected at construction
 - `TokenPagedComposition` keeps its loaded items and continuation token
-  describing one prefix: a refresh whose first page matches a longer
+  describing one prefix
+- a `TokenPagedComposition` refresh whose first page matches a longer
   accumulator keeps the prior token, so the next load continues after the last
-  loaded item; an empty or terminal first page that is shorter replaces the
-  accumulator; and a load or refresh superseded by a later one commits nothing
+  loaded item
+- a shorter empty or terminal first page replaces the accumulator; a load or
+  refresh superseded by a later one commits nothing
 - tree utilities are pure reads; they do not trigger lifecycle transitions
 
 Batch handles, paging helpers, disposable collections, and frozen projections
@@ -205,6 +208,7 @@ contained values are children rather than caller-owned data.
 | `ObservableList<T>`                                            | granular events plus atomic whole-list replace   |
 | `ObservableDictionary<K1, K2, V>`                              | dual-key observable lookup plus live key views   |
 | `PagedComposition<TVM>` / `TokenPagedComposition<TVM, TToken>` | paging helpers                                   |
+| `AggregateChangeStream<T>`                                     | membership plus member-stream fan-in             |
 | `walk`, `find`, `walk_expanded`                                | tree traversal helpers                           |
 
 Paging sizes and indexes are integer state. TypeScript rejects `NaN`, infinities,
@@ -212,18 +216,7 @@ and fractional candidates atomically with `RangeError`; negative finite integers
 keep the documented zero-clamping behavior. Invalid input leaves retained page
 state and property observers unchanged.
 
-## 6.7.7. Example
-
-Representative traversal contract:
-
-- `walk(root)` yields root first, then descendants in depth-first pre-order
-- `find(root, predicate)` returns the first match in walk order
-- `walk_expanded(root)` respects `IExpandable` boundaries
-
-On the collection side, the Notes Workspace note lists and notifications layers
-are practical references for observable-list and paging composition.
-
-### 6.7.7.1. Serviced mutation contract
+## 6.7.7. Serviced Mutation Contract
 
 The complete mutation surface is add, remove by value, remove by index,
 replace, replace all, move, and clear. See
@@ -236,11 +229,11 @@ replace, replace all, move, and clear. See
   accepts normal negative list indices and reports the resolved nonnegative
   position. Swift's nonthrowing indexed mutators use array preconditions. Rust
   uses `usize`, so negative indices are not representable. Python and Rust
-  return the removed or old item from their newly named indexed methods;
-  established returns in the other flavors are unchanged.
-- `ReplaceAll` first snapshots its input. Iteration failure therefore leaves
-  state and streams unchanged. Empty-to-empty is its only no-op; even identical
-  non-empty contents produce one Reset.
+  indexed remove/replace return the removed or old item; other flavors keep
+  their native return types.
+- `ReplaceAll` follows the snapshot and one-Reset rule in
+  [ObservableList Whole-List Refresh](#679-observablelist-whole-list-refresh).
+  Iteration failure therefore leaves state and streams unchanged.
 - `Move` treats both arguments as strict pre-move positions in
   `[0, count)`. Equal positions do nothing; a real move preserves identity and
   emits one Move. Python does not accept negative move indices, and Swift move
@@ -263,10 +256,9 @@ add explicit old/new positions:
 | Reset   | `-1`        | `-1`         | `-1`         | none                      |
 
 The member names follow each language's casing idiom (`OldIndex`,
-`old_index`, or `oldIndex`). Rust intentionally keeps its existing non-generic
-hub payload: `action`, `old_index: Option<usize>`, and
-`new_index: Option<usize>` plus sender/property identity. It has no legacy
-`index` field and no item payload.
+`old_index`, or `oldIndex`). Rust uses a non-generic hub payload: `action`,
+`old_index: Option<usize>`, and `new_index: Option<usize>` plus
+sender/property identity. It has no `index` field and no item payload.
 
 Every effective mutation changes state first, notifies the local stream second,
 and publishes to the optional external hub third. Both observer classes can
@@ -274,7 +266,7 @@ read the final state. Delivery is immediate and non-batched. Removing,
 replacing, resetting, moving, or clearing never disposes or reparents an item;
 the caller keeps lifecycle ownership.
 
-### 6.7.7.2. Keyed serviced mutation contract
+## 6.7.8. Keyed Serviced Mutation Contract
 
 `KeyedServicedObservableCollection` preserves the complete ordered mutation
 surface above and adds one projected, unique key per membership. Construction
@@ -335,7 +327,7 @@ ordered positions still makes middle insertion, deletion, movement, and the
 associated index repair O(n); keyed deletion removes the caller's extra scan,
 not the ordered-store shift.
 
-### 6.7.7.3. ObservableList whole-list refresh
+## 6.7.9. ObservableList Whole-List Refresh
 
 Use the flavor-idiomatic `replaceAll` / `replace_all` / `ReplaceAll` when one
 semantic refresh supplies a complete snapshot. VMx materializes the input
@@ -344,22 +336,12 @@ Empty-to-empty does nothing; every other call emits exactly one Reset, including
 identical non-empty contents. `Count` follows Reset only when cardinality
 changes, and both observers see the final snapshot.
 
-Inside an existing list batch, replacement emits nothing immediately and folds
+Inside an open list batch, replacement emits nothing immediately and folds
 into the outermost Reset. If the batch body fails after replacement, the scope
 still closes, publishes that completed mutation once, and rethrows the original
 failure. This is list-local batching; it does not suppress VM container events.
 
-### 6.7.7.4. NNx Studio pilot result
-
-A temporary pilot against NNx Studio commit
-`d304336799d4f377c9dd34a465072dd697a8fd7b` replaced the run-history refresh's
-four-line clear-plus-push loop with `items.replaceAll(runs)`. The package
-typecheck and all 322 viewmodel tests passed. A focused 13-to-13 refresh test
-observed one Reset instead of the former Reset plus 13 add events: 14
-adapter-visible collection notifications became one. The pilot was validation
-only and was not pushed to NNx Studio.
-
-### 6.7.7.5. Paging a one-shot source
+## 6.7.10. Paging A One-Shot Source
 
 `PagedComposition` decorates a live source: arrays, `ObservableList`, other
 repeatable iterables, and factories are enumerated again on every read, so
@@ -386,7 +368,18 @@ exists. A factory that throws fails only that read; the page index is
 unchanged. Snapshots hold item references only; the pager never disposes the
 items it pages.
 
-## 6.7.8. Common Pitfalls
+## 6.7.11. Example
+
+Representative traversal contract:
+
+- `walk(root)` yields root first, then descendants in depth-first pre-order
+- `find(root, predicate)` returns the first match in walk order
+- `walk_expanded(root)` respects `IExpandable` boundaries
+
+On the collection side, the Notes Workspace note lists and notifications layers
+are practical references for observable-list and paging composition.
+
+## 6.7.12. Common Pitfalls
 
 - Mutating a builder and expecting in-place changes. Builder setters return new
   instances.
@@ -401,11 +394,12 @@ items it pages.
 - Treating expected O(1) keyed target discovery as an O(1) middle deletion.
   Ordered positions still require O(n) shifting and index repair.
 - Rebuilding a complete list with `clear` plus repeated adds. That produces
-  O(n) adapter notifications; use whole-list replacement for one Reset.
+  O(n) adapter notifications; use
+  [whole-list replacement](#679-observablelist-whole-list-refresh) instead.
 - Rewriting custom tree walkers when the built-in helpers already express the
   intended traversal semantics.
 
-## 6.7.9. Related Primitives
+## 6.7.13. Related Primitives
 
 - [Composite Family](viewmodel-families/composite-family.md)
 - [Hierarchical Family](viewmodel-families/hierarchical-family.md)

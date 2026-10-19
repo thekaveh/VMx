@@ -10,6 +10,13 @@ wrapped instance by default. Subclasses override individual members to customize
 behavior. Use cases: lightweight proxies, caching wrappers, instrumentation,
 logging.
 
+Only the C# decorators are `abstract` classes. Python and TypeScript ship
+concrete classes that a consumer can instantiate directly or subclass. Swift ships
+`open class` decorators that subclass `ComponentVMOf` / `CompositeVM`. Rust has no
+subclass overrides: `ForwardingComponentVm` exposes the builder-style
+customization methods `with_hint_override` and `with_model_hint`, and
+`ForwardingCompositeVm` exposes no override hooks.
+
 The generic `IComponentVM<M>` extends `IComponentVM` with a `Model : M` property (settable
 on the modeled component, read-only on the readonly component — see `05-component-vm.md`).
 The generic `ICompositeVM<VM>` is declared canonically in `06-composite-vm.md` §2.1: it
@@ -44,7 +51,8 @@ abstract ForwardingComponentVM<M> : IComponentVM<M>:
     can_*() => _wrapped.can_*()
 ```
 
-A subclass overrides any subset of these.
+A subclass overrides any subset of these. (The `abstract` keyword above
+describes the C# shape; see the flavor note at the top of this chapter.)
 
 The decorator MAY be added to a composite or group anywhere its component type
 is accepted. The wrapped component and every forwarding decorator around it
@@ -62,7 +70,8 @@ Same pattern, but additionally forwards the `IList<VM>` surface (Add, Remove,
 indexer, iterator, Count, …), the `Current` property, and the selection methods.
 
 Commonly-overridden hooks (these names are illustrative; each language flavor MAY adopt
-its own convention as long as the override surface is documented):
+its own convention as long as the override surface is documented; Rust's
+`ForwardingCompositeVm` has none of these hooks):
 
 - `DoGetType()` → override to return a different `ViewModelType`.
 - `DoGetCurrent()` → override to alter selection semantics.
@@ -72,6 +81,13 @@ its own convention as long as the override surface is documented):
 
 Subclasses MUST forward `dispose()` to the wrapped instance unless they explicitly
 own the wrapped's lifetime.
+
+A forwarding composite used as a child of another container follows the §1
+ownership rules: one ownership identity with the wrapped composite, and
+transparent parent and current flags. Open gaps: the TypeScript
+`ForwardingCompositeVM` does not extend `ComponentVMBase`, and the Rust
+`ForwardingCompositeVm` does not implement `VmNode`, so neither can be added to
+a container; the type checker rejects the call.
 
 ## 3. Conformance
 

@@ -5,64 +5,30 @@ This runbook documents the tag-driven npm release channel. A
 The workflow publishes only after the package and tag versions match and every
 release gate passes.
 
+Every release follows the shared
+[release invariants](../../CONTRIBUTING.md#43-release-invariants): protected
+environment, trusted publisher, annotated immutable tags, fix-forward patches,
+and documentation updates. This runbook adds only the TypeScript steps.
+
 ## 1. One-time owner setup
 
 ### 1.1 Protected GitHub environment
 
-Create the `npm-typescript` environment in the `thekaveh/VMx` repository:
+Create the `npm-typescript` environment as the release invariants describe.
+Restrict its deployment refs to `typescript-v*` tags.
 
-- restrict deployment refs to `typescript-v*` tags;
-- require a maintainer approval, and leave "Prevent self-review" off while a
-  single maintainer holds the reviewer role, or that maintainer cannot approve
-  their own release run; and
-- do not permit administrators to bypass the protection; with bypass allowed,
-  an administrator's tag push publishes without waiting for approval.
+### 1.2 npm trusted publishing
 
-The release job has `id-token: write`. Keep credentials on this environment,
-not as repository-wide secrets.
+The npm trusted publisher is configured; the bootstrap procedure is in git
+history. It uses the shared trusted-publisher fields with provider GitHub
+Actions and environment `npm-typescript`. Its permission must be publish
+("Allow npm publish"); without it the publisher may only stage, and the
+workflow's public-install checks time out.
 
-### 1.2 First publication bootstrap
-
-Completed on 2026-10-16: `typescript-v3.30.0` published `@thekaveh/vmx` 3.30.0
-with the bootstrap token. Later releases use trusted publishing (§1.3); these
-steps remain for reference.
-
-npm trusted publishing can be configured only after the package exists. The
-first publication therefore needs an authenticated owner of the `@thekaveh`
-scope and a narrowly scoped, short-lived granular access token:
-
-1. Confirm that `@thekaveh/vmx` is available and that the authenticated account
-   may create packages in the `@thekaveh` scope.
-2. Create a granular token with publish access limited to `@thekaveh/vmx`.
-3. Add it temporarily to the `npm-typescript` environment as `NPM_TOKEN`.
-4. Approve and run the first immutable release. The token is mapped to
-   `NODE_AUTH_TOKEN` only for the bootstrap publish step, which uses
-   `npm publish --access public --provenance`.
-5. Do not reuse a version after npm has accepted it. If verification fails
-   after publication, fix the cause and release a new patch version.
-
-Never create the first tag until scope ownership, the intended version, and the
-protected environment are confirmed.
-
-### 1.3 Switch to npm trusted publishing
-
-After the first package is visible on npm, configure a trusted publisher in the
-package settings with these exact values:
-
-- provider: GitHub Actions;
-- organization or user: `thekaveh`;
-- repository: `VMx`;
-- workflow filename: `release.yml`;
-- environment: `npm-typescript`;
-- permission: publish (tick "Allow npm publish"; without it the publisher may
-  only stage, and the workflow's public-install checks time out).
-
-Then delete the `NPM_TOKEN` environment secret and revoke the bootstrap token.
-This was done on 2026-10-16, after the 3.30.0 bootstrap release.
-The workflow detects the absent secret and uses OIDC. Trusted publishing
-requires Node.js 22.14 or newer and npm CLI 11.18.0 or newer; the publish job pins
-Node 24 and npm 11.18.0. npm automatically attaches provenance for an eligible
-GitHub-hosted trusted-publishing run.
+The workflow uses OIDC when the environment has no `NPM_TOKEN` secret.
+Trusted publishing requires Node.js 22.14 or newer and npm CLI 11.5.1 or newer;
+the publish job pins Node 24 and npm 11.18.0. npm automatically attaches
+provenance for an eligible GitHub-hosted trusted-publishing run.
 
 ## 2. Cutting a release
 
@@ -89,7 +55,7 @@ GitHub-hosted trusted-publishing run.
    ```
 
 6. Approve the `npm-typescript` environment deployment and watch the Release
-   workflow. Do not move, delete, or recreate a published release tag.
+   workflow.
 
 ### 2.1 Release gates
 
@@ -107,7 +73,7 @@ changelog section.
 
 ### 2.2 Pre-releases
 
-The workflow currently publishes to npm's default `latest` dist-tag, so it is
+The workflow publishes to npm's default `latest` dist-tag, so it is
 for stable releases only. Before cutting an alpha, beta, or release candidate,
 change and test the workflow to pass an explicit non-latest dist-tag such as
 `--tag next`; do not use a pre-release version with the stable workflow.
@@ -129,16 +95,14 @@ from a fresh network request before changing the issue or roadmap item to Done.
 
 ### 4.1 Failure before publish
 
-Fix the cause through the normal PR flow. Tags are immutable even before npm
-accepts a version: land the fix on `main`, bump to a new patch version, and
-create a new tag. Never move, delete, or recreate the failed tag.
+Apply the immutability invariant: land the fix on `main`, bump to a new patch
+version, and create a new tag.
 
 ### 4.2 Authentication or trusted-publisher failure
 
 Confirm that the environment approval completed and that the trusted publisher
 matches `thekaveh/VMx`, `release.yml`, and `npm-typescript` exactly. Do not add a
-long-lived token as a shortcut. During the one-time bootstrap only, replace an
-expired granular token with another narrowly scoped, short-lived token.
+long-lived token as a shortcut.
 
 ### 4.3 Publish succeeded but verification failed
 
@@ -153,13 +117,9 @@ npm deprecate @thekaveh/vmx@X.Y.Z "broken release; use A.B.C"
 Unpublish only when npm policy and a security incident require it; document the
 decision publicly. Never silently replace or retag an accepted version.
 
-## 5. Compatibility and multi-flavor tags
+## 5. Compatibility
 
-TypeScript uses `typescript-v<X.Y.Z>`. Other flavors use independent tag
-prefixes, so one flavor's tag does not publish another flavor. The package's
-`__minSpecVersion__` declares its minimum compatible VMx specification. A spec
-major bump requires a corresponding flavor major bump under `README.md` §6.1.
-
-After public verification, update the canonical in-repository documentation,
-regenerate the MkDocs `.io` site and GitHub wiki, and merge those publication
-claims through develop and main before completing the release ticket.
+TypeScript uses `typescript-v<X.Y.Z>`. The package's `__minSpecVersion__`
+declares its minimum compatible VMx specification. After public verification,
+update the documentation as the release invariants describe before completing
+the release ticket.

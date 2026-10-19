@@ -12,6 +12,7 @@ import reactivex as rx
 from reactivex import operators as ops
 from reactivex.subject import Subject
 
+from vmx._disposal import _run_disposal_steps
 from vmx.collections.observable_list import ObservableList, ReadOnlyObservableList
 from vmx.messages.collection_changed import CollectionChangedMessage
 from vmx.services.message_hub import MessageHubProto
@@ -19,6 +20,15 @@ from vmx.services.message_hub import MessageHubProto
 TKey1 = TypeVar("TKey1")
 TKey2 = TypeVar("TKey2")
 TValue = TypeVar("TValue")
+
+
+def _same_key(a: object, b: object) -> bool:
+    """Dictionary-key equality: identity first, then ``==`` (spec/21 §4.1).
+
+    Python ``dict`` matches a key by identity before ``==``, so one ``NaN``
+    object is one key; the axis views use the same rule.
+    """
+    return a is b or a == b
 
 
 class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
@@ -141,6 +151,10 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
         if not isinstance(key, tuple) or len(key) != 2:
             return False
         k1, k2 = key
+        if k1 is None:
+            raise TypeError("key1 must not be None")
+        if k2 is None:
+            raise TypeError("key2 must not be None")
         return (k1, k2) in self._data
 
     # ── Item access ───────────────────────────────────────────────────────────
@@ -173,6 +187,10 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
 
     def __getitem__(self, key: tuple[TKey1, TKey2]) -> TValue:
         k1, k2 = key
+        if k1 is None:
+            raise TypeError("key1 must not be None")
+        if k2 is None:
+            raise TypeError("key2 must not be None")
         return self._data[(k1, k2)]
 
     def __setitem__(self, key: tuple[TKey1, TKey2], value: TValue) -> None:
@@ -219,9 +237,9 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
         self._key_order.remove((key1, key2))
 
         # Update key-axis views: drop only when no other entry uses this key.
-        if not any(k[0] == key1 for k in self._data):
+        if not any(_same_key(k[0], key1) for k in self._data):
             self._keys1.remove(key1)
-        if not any(k[1] == key2 for k in self._data):
+        if not any(_same_key(k[1], key2) for k in self._data):
             self._keys2.remove(key2)
 
         self._on_removed(key1, key2, value)
@@ -261,16 +279,22 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
         if self._disposed:
             return
         self._disposed = True
-        for subject in (
-            self._added_subject,
-            self._removed_subject,
-            self._replaced_subject,
-            self._reset_subject,
-        ):
-            subject.on_completed()
-            subject.dispose()
-        self._keys1.dispose()
-        self._keys2.dispose()
+        # Every subject and key view is released even when an observer
+        # raises; the first failure is re-raised afterwards.
+        _run_disposal_steps(
+            *(
+                step
+                for subject in (
+                    self._added_subject,
+                    self._removed_subject,
+                    self._replaced_subject,
+                    self._reset_subject,
+                )
+                for step in (subject.on_completed, subject.dispose)
+            ),
+            self._keys1.dispose,
+            self._keys2.dispose,
+        )
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
@@ -288,10 +312,10 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
 
     def _keys1_contains(self, key1: TKey1) -> bool:
         # ObservableList does not expose __contains__; iterate to check.
-        return any(k == key1 for k in self._keys1)
+        return any(_same_key(k, key1) for k in self._keys1)
 
     def _keys2_contains(self, key2: TKey2) -> bool:
-        return any(k == key2 for k in self._keys2)
+        return any(_same_key(k, key2) for k in self._keys2)
 
     def _publish_to_hub(self, msg: CollectionChangedMessage[object]) -> None:
         """Send *msg* to the hub if one is wired (no-op otherwise)."""
@@ -301,12 +325,12 @@ class ObservableDictionary(Generic[TKey1, TKey2, TValue]):
     def _on_added(self, key1: TKey1, key2: TKey2, value: TValue) -> None:
         if self._disposed:
             return
+        # Capture the position now: a local subscriber may add another entry.
+        index = len(self._key_order) - 1
         # 1. Local granular event first.
         self._added_subject.on_next((key1, key2, value))
         # 2. Publish to hub (if present).
-        self._publish_to_hub(
-            CollectionChangedMessage.for_add(self, (key1, key2, value), len(self._key_order) - 1)
-        )
+        self._publish_to_hub(CollectionChangedMessage.for_add(self, (key1, key2, value), index))
 
     def _on_removed(self, key1: TKey1, key2: TKey2, value: TValue) -> None:
         if self._disposed:

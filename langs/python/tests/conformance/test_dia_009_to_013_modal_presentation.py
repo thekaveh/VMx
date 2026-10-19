@@ -29,6 +29,15 @@ async def test_DIA_010_null_present_uses_cancellation_result() -> None:
     assert modal.result == "cancel"
 
 
+@pytest.mark.conformance("DIA-012")
+async def test_DIA_012_null_present_keeps_an_earlier_result() -> None:
+    modal = ModalVM("cancel")
+    modal.dismiss("chosen")
+
+    assert await NullDialogService().present(modal) == "chosen"
+    assert modal.result == "chosen"
+
+
 @pytest.mark.conformance("DIA-011")
 async def test_DIA_011_modal_dispose_completes_with_cancellation_result() -> None:
     modal = ModalVM("cancel")

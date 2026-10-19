@@ -369,6 +369,11 @@ impl<T: Clone + PartialEq + Send + 'static> DerivedProperty<T> {
     }
 
     /// Creates a derived property from an arbitrary number of same-typed sources.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `sources` is empty, since there is nothing to derive from.
+    /// C# throws `ArgumentException` and Swift traps for the same input.
     pub fn from_sources<S, F>(sources: Vec<ValueStream<S>>, transform: F) -> Self
     where
         S: Clone + Send + 'static,
@@ -414,6 +419,11 @@ impl<T: Clone + PartialEq + Send + 'static> DerivedProperty<T> {
     }
 
     /// Creates a writable derived property from same-typed replaying sources.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `sources` is empty, since there is nothing to derive from.
+    /// C# throws `ArgumentException` and Swift traps for the same input.
     pub fn from_sources_with_write_back<S, F, Validate, WriteBack>(
         sources: Vec<ValueStream<S>>,
         transform: F,
@@ -482,7 +492,10 @@ impl<T: Clone + PartialEq + Send + 'static> DerivedProperty<T> {
         if *lock(&self.disposed) {
             return;
         }
-        let next = transform(&lock(&self.value));
+        // Release the value lock before the user transform runs: a transform
+        // that reads `value()` would otherwise deadlock on this mutex.
+        let current = lock(&self.value).clone();
+        let next = transform(&current);
         self.set_computed(next);
     }
 
@@ -490,15 +503,17 @@ impl<T: Clone + PartialEq + Send + 'static> DerivedProperty<T> {
         if *lock(&self.disposed) {
             return;
         }
-        let changed = {
+        let replaced = {
             let mut value = lock(&self.value);
             if *value == next {
-                false
+                None
             } else {
-                *value = next.clone();
-                true
+                Some(std::mem::replace(&mut *value, next.clone()))
             }
         };
+        // The replaced value is dropped after the value lock is released.
+        let changed = replaced.is_some();
+        drop(replaced);
         if changed {
             self.value_changes.send(next);
             self.value_changed
@@ -531,17 +546,19 @@ impl<T: Clone + PartialEq + Send + 'static> DerivedProperty<T> {
         if *lock(&self.disposed) {
             return;
         }
-        let changed = {
+        let replaced = {
             let mut value = lock(&self.value);
             if source_revision.load(Ordering::Acquire) != computed.revision
                 || *value == computed.value
             {
-                false
+                None
             } else {
-                *value = computed.value.clone();
-                true
+                Some(std::mem::replace(&mut *value, computed.value.clone()))
             }
         };
+        // The replaced value is dropped after the value lock is released.
+        let changed = replaced.is_some();
+        drop(replaced);
         if changed {
             #[cfg(test)]
             let commit_hook = lock(&self.revisioned_commit_hook).clone();
@@ -579,9 +596,14 @@ impl<T: Clone + PartialEq + Send + 'static> DerivedProperty<T> {
     /// Returns [`VmxError::InvalidArgument`] when the property is read-only,
     /// disposed, or the configured validator rejects the candidate.
     pub fn set_value(&self, value: T) -> VmxResult<()> {
-        if !self.can_set(&value) {
+        if *lock(&self.disposed) {
             return Err(VmxError::InvalidArgument(
-                "derived property is read-only".to_string(),
+                "derived property is disposed".to_string(),
+            ));
+        }
+        if !(self.validator)(&value) {
+            return Err(VmxError::InvalidArgument(
+                "derived property rejected the value (read-only or invalid)".to_string(),
             ));
         }
         (self.write_back)(value);

@@ -109,3 +109,19 @@ async def test_confirmation_vm_forwards_tick_interval() -> None:
 
     assert saw_opacity
     vm.dispose()
+
+
+async def test_external_resolve_after_dispose_is_inert() -> None:
+    scheduler = TestScheduler()
+    hub = NotificationHub()
+    notif = Notification(NotificationType.NOTIFICATION, "late")
+    hub.post(notif)
+    vm = NotificationVM(notif, hub, scheduler, lifespan=timedelta(seconds=10))
+    changed: list[str] = []
+    vm.property_changed.subscribe(on_next=changed.append)
+    vm.dispose()
+
+    vm.notify_external_resolve()
+
+    assert vm.is_resolved is False
+    assert changed == []

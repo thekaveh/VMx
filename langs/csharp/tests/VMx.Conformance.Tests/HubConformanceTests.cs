@@ -148,13 +148,30 @@ public class HubConformanceTests
         var badSub = hub.Messages.OfType<Stub>().Subscribe(_ => throw new InvalidOperationException("bad"));
         var goodSub = hub.Messages.OfType<Stub>().Subscribe(m => goodSeen.Add(m.Tag));
 
+        // A raw hub subscriber that throws keeps its subscription: the hub
+        // swallows the exception (spec/03 §3.4) without detaching the observer.
+        var trace = new List<string>();
+        var rawThrowing = hub.Messages.Subscribe(m =>
+        {
+            if (m is not Stub stub) return;
+            trace.Add($"A:{stub.Tag}");
+            throw new InvalidOperationException("raw bad");
+        });
+        var rawGood = hub.Messages.Subscribe(m =>
+        {
+            if (m is Stub stub) trace.Add($"B:{stub.Tag}");
+        });
+
         hub.Send(new Stub("A"));
         hub.Send(new Stub("B"));
 
         goodSeen.Should().Equal("A", "B");
+        trace.Should().Equal("A:A", "B:A", "A:B", "B:B");
 
         badSub.Dispose();
         goodSub.Dispose();
+        rawThrowing.Dispose();
+        rawGood.Dispose();
     }
 
     [Fact, Trait("Conformance", "HUB-008")]

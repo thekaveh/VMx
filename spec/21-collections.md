@@ -136,8 +136,12 @@ notification channels unchanged.
 
 Empty-to-empty is the only replacement no-op. Every other call, including
 element-for-element identical non-empty contents, emits exactly one Reset and no
-granular messages. A serviced collection has no `Count` property-change
-channel; Reset is its sole bulk notification.
+granular messages. Reset is the sole bulk hub notification. Python,
+TypeScript, Swift, and Rust serviced collections have no `Count`
+property-change channel. The C# collection derives from
+`ObservableCollection<T>`, so its local `PropertyChanged` event also raises
+`Count` and `Item[]` on whole-list replacement, and the base class raises them
+on add and remove. These local events are not hub messages.
 
 Clearing an empty collection is a true no-op. Clearing a non-empty collection
 emits exactly one Reset. Serviced collections have no batch mechanism: every
@@ -208,6 +212,7 @@ Rust preserves its established non-generic, hub-oriented message shape:
 ```
 CollectionChangedMessage:
     sender_id    : usize
+    sender_name  : String
     property_name: String
     action       : CollectionChangeAction
     old_index    : Option<usize>
@@ -423,7 +428,9 @@ TypeScript's normalized `start` / `deleteCount` behavior remain native.
 Only after successful final-result validation does the operation atomically
 commit items, captured keys, and the index. Duplicate, projection, input
 iteration, or native slice-shape failure changes nothing and emits nothing.
-On success, Python slice mutation emits its established Reset. TypeScript
+On success, Python slice mutation emits its established Reset. On both the
+keyed and the unkeyed Python collection, a slice that selects nothing and
+inserts nothing emits nothing, as TypeScript `splice` does. TypeScript
 `splice` returns the removed items and preserves the unkeyed notification
 rule: a removal of exactly one item with no inserts emits Remove, any other
 effective splice emits Reset, and removal/insertion of nothing emits nothing.
@@ -541,6 +548,11 @@ Each mutation raises exactly one granular event:
 described by a single-item event (e.g., range insertion if a flavor provides
 one).
 
+Open Rust gap: Rust `ObservableList<T>` has no public `ItemAdded`,
+`ItemRemoved`, `ItemReplaced`, or `Reset` stream and no value `remove(item)`.
+Its constructor requires a `MessageHub`, and it publishes each mutation only as
+a hub `CollectionChangedMessage` and the `Count` property change.
+
 ### 3.3 `PropertyChanged("Count")`
 
 After every mutation that changes `Count` (adds and removes, not replace), the
@@ -561,8 +573,8 @@ Where the host platform defines `INotifyCollectionChanged` (C# / WPF / .NET),
 binding frameworks (e.g., WPF `ItemsControl`) continue to work without
 modification.
 
-Python and TypeScript have no platform standard for collection-changed
-notification; they omit the compatibility event. This is a flavor-idiomatic
+Python, TypeScript, Swift, and Rust have no platform standard for
+collection-changed notification; they omit the compatibility event. This is a flavor-idiomatic
 deviation per ADR-0006 and is catalogued in ADR-0009.
 
 ### 3.5 Batch interaction
@@ -602,8 +614,9 @@ and exception model.
 
 ### 3.6 Whole-list replacement
 
-`ObservableList<T>` exposes flavor-idiomatic `ReplaceAll(items)` /
-`replace_all(items)` / `replaceAll(items)`. It MUST fully materialize the input
+`ObservableList<T>` exposes flavor-idiomatic `ReplaceAll(items)` (C#) /
+`replace_all(items)` (Python and Rust) / `replaceAll(items)` (TypeScript and
+Swift). It MUST fully materialize the input
 before mutating the backing list. Passing the list itself or a view over it is
 therefore safe. In flavors where input iteration can fail, materialization
 failure MUST propagate without changing contents or emitting an event.
@@ -636,8 +649,10 @@ Per ADR-0025.
 The documented common case is `ObservableDictionary<TKey1, TKey2, TValue>` (the
 two-key form). Each flavor implements it as a standalone class over a
 compound-key backing store — `ValueTuple` keys in C#, `tuple` keys in Python,
-an internal `CompositeKey` value in Swift, and nested native `Map` instances in
-TypeScript (the entry type exposed to consumers remains `DictionaryEntry`). Each
+an internal `CompositeKey` value in Swift, nested native `Map` instances in
+TypeScript (the entry type exposed to consumers remains `DictionaryEntry`), and
+an insertion-ordered `Vec` of `(K1, K2, V)` entries in Rust, where the two-key
+type is `ObservableMultiDictionary<K1, K2, V>`. Each
 axis uses the host language's standard dictionary-key equality; in TypeScript
 that is `Map`'s SameValueZero primitive equality and reference identity for
 objects. There is no single-key base type. (Corrected in v2.5.0 via ADR-0038
@@ -647,7 +662,8 @@ and in v3.22.0 via ADR-0111.)
 ObservableDictionary<TKey1, TKey2, TValue>:
     constructor(hub?: IMessageHub)              # hub is optional; absence is a safe no-op
     this[key1: TKey1, key2: TKey2] : TValue    # per-flavor indexer
-    TryGetValue(key1, key2) : (found, value)   # per-flavor shape (C# out-param, Python tuple, TS object)
+    TryGetValue(key1, key2) : (found, value)   # per-flavor shape (C# out-param, Python tuple, TS object,
+                                               # Swift get -> TValue?, Rust get -> Option<V>)
     Add(key1: TKey1, key2: TKey2, value: TValue) : void
     Remove(key1: TKey1, key2: TKey2) : bool
     ContainsKey(key1, key2) : bool
@@ -675,6 +691,12 @@ mutations:
 Consumers can bind to `Keys1` or `Keys2` independently to build category-view
 or identifier-view UIs without walking the full dictionary.
 
+Open Rust gap: Rust `ObservableMultiDictionary` requires a `MessageHub` at
+construction. `keys1()` and `keys2()` return `Vec` snapshots, not live
+`ObservableList` views. The type has no local collection-changed event, no
+indexer, and no `TryGetValue`; `get` returns `Option<V>`, and mutations are
+observable only through the hub.
+
 ### 4.3 No cascading insertion
 
 Adding an entry with a new Key1 does **not** automatically create entries for
@@ -689,6 +711,10 @@ Null / `None` keys are not permitted. Passing a null key raises:
 - Python: `TypeError`
 - TypeScript: `Error`
 
+Swift and Rust keys are statically typed and have no runtime null check. A
+non-optional key type cannot hold a null key; a caller-chosen optional key type
+(`String?`, `Option<String>`) is accepted as is.
+
 ### 4.5 Enumeration order
 
 Enumeration yields entries in insertion order. Flavors that cannot guarantee
@@ -700,7 +726,8 @@ insertion order must document the deviation in
 If a hub is provided at construction time (following the same pattern as
 `ServicedObservableCollection<T>` §2.2), mutations publish a
 `CollectionChangedMessage` to the hub after the local `CollectionChanged` event.
-Null-hub fallback applies.
+Null-hub fallback applies. Open Rust gap: the Rust dictionary has no local
+event and requires a hub (§4.2).
 
 ### 4.7 Hub message element shape
 
@@ -713,6 +740,10 @@ flavor-idiomatic per ADR-0006:
 - **Python**: `(key1, key2, value)` tuple.
 - **TypeScript**: `{ key1: TKey1; key2: TKey2; value: TValue }` object
   (`DictionaryEntry<TKey1, TKey2, TValue>`).
+- **Swift**: `DictionaryEntry<TKey1, TKey2, TValue>` struct — both keys + value.
+- **Rust**: the non-generic hub `CollectionChangedMessage` carries the action
+  and no entry payload; subscribers read `ObservableMultiDictionary::entries()`. See
+  ADR-0009 §2.15.
 
 For `Clear()`, the hub message uses action `Reset` with empty `NewItems` and
 `OldItems` arrays (no entry data is needed because the entire collection is
@@ -733,7 +764,8 @@ PagedComposition<TVM>:
     constructor(source)                     # iterable composition source — per-flavor
                                             # idiom: IEnumerable<TVM> (C#),
                                             # Iterable[TVM] or factory callable (Python),
-                                            # PagedCompositionSource<TVM> (TS)
+                                            # PagedCompositionSource<TVM> (TS),
+                                            # [TVM] (Swift), Vec<T> (Rust)
     implements IPageable                     # per 14-capabilities.md §2.10
 
     PageSize         : int     # mutable; 0 = all items on one page
@@ -820,6 +852,11 @@ them. Observable-list split streams (`ItemAdded` / `ItemRemoved` /
 `ItemReplaced` / `Reset`, with per-flavor casing) and composite-style
 `CollectionChanged` streams are both valid source shapes.
 
+Open Rust gap: Rust `PagedComposition` takes a `Vec` snapshot source and does
+not observe it, so `COL-031` (observing a composite source) does not apply to
+Rust; a caller updates the source through the composition's own `Vec`
+mutators or replaces it to recompute pages.
+
 ### 5.6 Conformance
 
 `COL-016` through `COL-021` and `COL-031` in `12-conformance.md`.
@@ -901,9 +938,12 @@ operation that completes after a later load or refresh started is stale: it
 MUST return without mutating state or publishing notifications, and it skips
 auto-construction when it detects that it is stale before constructing.
 
-When `auto_construct_on_add` / `autoConstructOnAdd` / `AutoConstructOnAdd` is
-enabled and returned items are VMx component VMs, they are constructed before
-the reset event is emitted.
+When auto-construction is enabled and returned items are VMx component VMs,
+they are constructed before the reset event is emitted. C# enables it with the
+`autoConstructOnAdd` constructor parameter, Python with
+`auto_construct_on_add`, TypeScript with the `autoConstructOnAdd` option,
+Swift with the `autoConstructOnAdd:` initializer argument, and Rust with the
+`TokenPagedComposition::with_auto_construct_loader` constructor.
 
 Disposal is terminal for suspended load/refresh completions. If `dispose()` wins
 the race while a fetch is in flight, the resumed operation MUST return without
@@ -960,7 +1000,7 @@ list-compatible keyed-collection mutation before any downstream view logic.
 
 ## 8. Conformance
 
-`COL-001` through `COL-064` and `AGCH-001` through `AGCH-010` in
+`COL-001` through `COL-065` and `AGCH-001` through `AGCH-010` in
 `12-conformance.md`. Applicable ADRs:
 ADR-0024, ADR-0096, and ADR-0097 (§2), ADR-0026 and ADR-0089 (§3),
 ADR-0025 (§4), ADR-0023 (§5), ADR-0069 (§6), and ADR-0085 (shared Move

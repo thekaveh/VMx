@@ -71,6 +71,16 @@ describe("COL-045", () => {
     });
     expect(events).toEqual(["reset", "property:Count"]);
   });
+
+  it("equal-cardinality nested replacement emits Reset without Count", () => {
+    const [sut, events] = observed(1, 2);
+    sut.withBatch(() => {
+      sut.replaceAll([3, 4]);
+      expect(events).toEqual([]);
+    });
+    expect(events).toEqual(["reset"]);
+    expect(sut.toArray()).toEqual([3, 4]);
+  });
 });
 
 describe("COL-046", () => {

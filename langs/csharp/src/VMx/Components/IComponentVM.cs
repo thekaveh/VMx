@@ -45,10 +45,18 @@ public interface IComponentVM
     /// <summary>Deselects this VM in its parent composite.</summary>
     ICommand DeselectCommand { get; }
 
-    /// <summary>Moves the parent's current selection to the next sibling.</summary>
+    /// <summary>
+    /// Uniform-surface command for selecting the next sibling. A leaf does not
+    /// enumerate its parent's children: this command is never executable and
+    /// does nothing; a container drives sibling navigation (spec/05 §5).
+    /// </summary>
     ICommand SelectNextCommand { get; }
 
-    /// <summary>Moves the parent's current selection to the previous sibling.</summary>
+    /// <summary>
+    /// Uniform-surface command for selecting the previous sibling. A leaf does not
+    /// enumerate its parent's children: this command is never executable and
+    /// does nothing; a container drives sibling navigation (spec/05 §5).
+    /// </summary>
     ICommand SelectPreviousCommand { get; }
 
     /// <summary>Destructs then re-constructs this VM.</summary>

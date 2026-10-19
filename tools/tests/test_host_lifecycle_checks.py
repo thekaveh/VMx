@@ -43,7 +43,7 @@ def test_the_showcase_suite_hosts_the_swiftui_bridge_in_an_appkit_window() -> No
 
 def test_the_integration_guide_lists_every_host_check() -> None:
     guide = _read("docs/content/integration/index.md")
-    section = guide.split("## 9.1.7. Host Coverage", 1)[1]
+    section = guide.split("## 9.1.9. Host Coverage", 1)[1]
 
     for check in ("todo_app.host_check", "TodoAppHostCheck", "HostLifecycleTests"):
         assert check in section

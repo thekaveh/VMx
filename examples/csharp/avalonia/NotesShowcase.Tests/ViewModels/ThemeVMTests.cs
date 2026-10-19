@@ -45,6 +45,19 @@ public sealed class ThemeVMTests
         return observed;
     }
 
+    [Fact]
+    public void Model_assignment_after_dispose_is_inert()
+    {
+        var (vm, hub) = Build(initial: ThemeModel.LIGHT_PRESET);
+        var observed = Capture(hub);
+        vm.Dispose();
+
+        vm.Model = ThemeModel.DARK_PRESET;
+
+        Assert.Equal(ThemeModel.LIGHT_PRESET, vm.Model);
+        Assert.Empty(observed);
+    }
+
     // ── THEME-001 ──────────────────────────────────────────────────────────
 
     [Fact]

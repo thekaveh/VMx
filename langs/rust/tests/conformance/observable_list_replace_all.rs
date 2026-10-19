@@ -80,6 +80,22 @@ fn replace_all_snapshots_input() {
     list.replace_all(list.to_vec());
     assert_eq!(list.to_vec(), vec![1, 2, 3]);
     assert_eq!(changes_since(&recorder, start), vec!["reset"]);
+
+    // A lazily evaluated live view over the list itself: every element is
+    // read from the list while replace_all consumes the iterator, so any
+    // mutation before materialization would surface as partial state.
+    let (list, recorder, start) = populated(&[1, 2, 3]);
+    let observed_lengths = std::cell::RefCell::new(Vec::new());
+    let live_view = (0..3).map(|index| {
+        observed_lengths.borrow_mut().push(list.len());
+        list.get(index)
+            .expect("input must read pre-mutation contents")
+            * 10
+    });
+    list.replace_all(live_view);
+    assert_eq!(*observed_lengths.borrow(), vec![3, 3, 3]);
+    assert_eq!(list.to_vec(), vec![10, 20, 30]);
+    assert_eq!(changes_since(&recorder, start), vec!["reset"]);
 }
 
 /// COL-045 — nested replacement emits only the outermost Reset.
@@ -115,10 +131,37 @@ fn replace_all_panic_exit_restores_batch() {
 /// COL-047 — Reset precedes Count and both observe final state.
 #[test]
 fn replace_all_ordering_and_final_state() {
-    let (list, recorder, start) = populated(&[1]);
+    let hub = MessageHub::new();
+    let recorder = hub.record(1024);
+    let list = ObservableList::new(1, hub.clone());
+    list.push(1);
+    let start = recorder.messages().len();
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let seen_inner = seen.clone();
+    let reader = list.clone();
+    let _observer = hub.subscribe(move |message| {
+        let label = match message {
+            Message::CollectionChanged(change)
+                if change.action == CollectionChangeAction::Reset =>
+            {
+                "reset"
+            }
+            Message::PropertyChanged(change) if change.property_name == "Count" => "Count",
+            _ => return,
+        };
+        seen_inner
+            .lock()
+            .unwrap()
+            .push((label, reader.to_vec(), reader.len()));
+    });
     list.replace_all([7, 8]);
     assert_eq!(list.to_vec(), vec![7, 8]);
     assert_eq!(changes_since(&recorder, start), vec!["reset", "Count"]);
+    // Both handlers read the complete final snapshot.
+    assert_eq!(
+        *seen.lock().unwrap(),
+        vec![("reset", vec![7, 8], 2), ("Count", vec![7, 8], 2)]
+    );
 }
 
 #[test]

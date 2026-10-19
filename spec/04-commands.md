@@ -44,10 +44,9 @@ A command is built with an optional `task` (`() -> void` / `Action` or `(T) -> v
 ## 4. Triggers
 
 A command MAY be built with one or more `triggers` (`IObservable<Unit>`). On each
-emission of any trigger, the command:
-
-1. Re-evaluates `CanExecute`.
-1. Fires `CanExecuteChanged` (the consumer-facing event/observable).
+emission of any trigger, the command fires `CanExecuteChanged` (the
+consumer-facing event/observable). The command does not evaluate its predicate
+itself; consumers re-read `CanExecute` when they receive the event.
 
 Triggers do NOT carry data — only the fact that re-evaluation should happen. The
 typical pattern: derive a trigger from a property's change stream
@@ -60,9 +59,10 @@ property changes. Compose the hub's `Messages` stream (or the per-flavor
 `PropertyValueChangedMessagesFor` convenience helper) as the trigger:
 
 ```
-# C# — filter the hub stream and project to Unit
+# C# — filter the hub stream and project to Unit. VMs publish
+# PropertyChangedMessage<IComponentVM>, so match the covariant interface.
 hub.Messages
-   .OfType<PropertyChangedMessage<TSource>>()
+   .OfType<IPropertyChangedMessage<IComponentVM>>()
    .Where(m => ReferenceEquals(m.Sender, this) && m.PropertyName == nameof(IsValid))
    .Select(_ => Unit.Default)
 
@@ -96,8 +96,11 @@ when it does not.
 
 The canonical case is `ModeledCrudCommands` (chapter 06 §7): its
 `UpdateCurrentCommand` / `DeleteCurrentCommand` predicates read `current != null`,
-so they MUST be wired with a current-changed trigger derived from the owning
-composite's current-selection stream:
+so a reactive binding needs a current-changed trigger derived from the owning
+composite's current-selection stream. Chapter 06 §7 makes the trigger
+RECOMMENDED, not required: C#, Swift, and Rust accept it, and the Python and
+TypeScript helpers accept no trigger, so those two flavors build reactive
+commands directly with `Triggers`:
 
 ```
 # the composite's current-changed stream, projected to Unit, becomes the trigger
@@ -373,7 +376,9 @@ active flavor. All four are pure convenience — they produce exactly the same
 object graph as the equivalent explicit constructor call.
 
 Per-flavor surface (ADR-0006): C# exposes them as static extension methods on
-`ICommand`; Python as module-level functions; TypeScript as named exports.
+`ICommand`; Python as module-level functions; TypeScript as named exports;
+Swift as free functions that take the command first; Rust as methods of the
+`CommandExt` trait, implemented for every cloneable `Command` (ADR-0146).
 
 ### 9.1 `Confirm(confirm)`
 
@@ -387,9 +392,11 @@ An optional second overload accepts an `INotificationHub` and constructs the
 delegate via the bridge helper in the notifications sub-package; that
 overload is defined in the sub-package, not in the core commands module.
 The overload is C#-only. Python, TypeScript, Swift, and Rust use explicit
-composition with their notification bridge: `command.confirm(make_confirm(...))`,
-`command.confirm(makeConfirm(...))`, `confirm(command, makeConfirm(...))`, and
-`command.confirm(make_confirm(...))`, respectively. See ADR-0009
+composition with their notification bridge: `confirm(command, make_confirm(...))`,
+`confirm(command, makeConfirm(...))`, `confirm(command, makeConfirm(...))`, and
+`command.confirm(make_confirm(...))`, respectively. Python, TypeScript, and Swift
+ship `confirm` as a free function that takes the command first; Rust ships it as
+a method. See ADR-0009
 §"Fluent `Confirm` overload with `INotificationHub`".
 
 ### 9.2 `PrecedeWith(other)`
@@ -418,9 +425,13 @@ cmd.WrapWith(predicate, pre, post)
 ```
 
 The shipped C# / Python `DecoratorCommand` constructor takes
-`(inner, preExecute, postExecute, extraPredicate)`; the fluent extension
-keeps the user-facing predicate-first ordering for ergonomic reasons and
-maps to the constructor's pre/post/predicate positions.
+`(inner, preExecute, postExecute, extraPredicate)`. Swift takes the same order
+as labeled arguments (`DecoratorCommand(inner, preExecute:, postExecute:, extraPredicate:)`). TypeScript takes `(inner, options)`, where the options
+object has the optional `preExecute`, `postExecute`, and `extraPredicate`
+fields. Rust takes `DecoratorCommand::new(inner, predicate, pre, post)`, with
+each hook an `Option`. The fluent extension keeps the user-facing
+predicate-first ordering for ergonomic reasons and maps to the constructor's
+argument positions.
 
 All three arguments are optional/nullable. Passing all defaults is valid and
 yields a semantically transparent decorator (no extra gate, no pre/post hooks).
@@ -477,8 +488,9 @@ caller-supplied token.
 `Cancel()` requests cancellation of the in-flight task. By default this is
 **non-throwing to the caller**, matching `IDialogService` cancellation
 (`DIA-007`, chapter 19 §7): the awaited `ExecuteAsync` **completes normally** on
-cancel rather than surfacing an `OperationCanceledException` /
-`asyncio.CancelledError` / `AbortError`. After a cancel the command returns to a
+cancel rather than surfacing an `OperationCanceledException` (C#) /
+`asyncio.CancelledError` (Python) / `AbortError` (TypeScript) /
+`CancellationError` (Swift) / `Err(VmxError::Cancelled)` (Rust). After a cancel the command returns to a
 non-executing state (`IsExecuting == false`, `CanExecute == true` once any
 predicate again permits it).
 

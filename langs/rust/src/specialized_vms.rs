@@ -10,26 +10,28 @@ use super::{
 /// A modal interaction with one first-wins result and a cancellation fallback.
 pub struct ModalVm<T: Clone + Send + 'static> {
     cancellation_result: T,
+    // One lock owns the first-wins claim and the stored result, so a reader
+    // never sees a dismissed modal without its result.
     result: Arc<Mutex<Option<T>>>,
-    dismissed: Arc<Mutex<bool>>,
     completion: AsyncValue<T>,
 }
 
 impl<T: Clone + Send + 'static> ModalVm<T> {
-    /// Creates a closed modal with the result used by cancellation and disposal.
+    /// Creates an open, unresolved modal with the result used by cancellation and disposal.
     pub fn new(cancellation_result: T) -> Self {
         Self {
             cancellation_result,
             result: Arc::new(Mutex::new(None)),
-            dismissed: Arc::new(Mutex::new(false)),
             completion: AsyncValue::pending(),
         }
     }
 
     /// Marks the modal as open for presentation.
-    pub fn open(&self) {
-        *lock(&self.dismissed) = false;
-    }
+    ///
+    /// A modal is open from construction until its first dismissal, so this
+    /// does nothing: a dismissed modal is never reopened and its first result
+    /// stays authoritative (spec/19 §3).
+    pub fn open(&self) {}
 
     /// Closes the modal with `result` or the configured cancellation result.
     pub fn close(&self, result: Option<T>) {
@@ -48,22 +50,21 @@ impl<T: Clone + Send + 'static> ModalVm<T> {
 
     /// Reports whether a result has been accepted.
     pub fn is_dismissed(&self) -> bool {
-        *lock(&self.dismissed)
+        lock(&self.result).is_some()
     }
 
     /// Accepts the first dismissal result and resolves all completion waiters.
     pub fn dismiss(&self, result: T) {
-        let should_set = {
-            let mut dismissed = lock(&self.dismissed);
-            if *dismissed {
+        let accepted = {
+            let mut stored = lock(&self.result);
+            if stored.is_some() {
                 false
             } else {
-                *dismissed = true;
+                *stored = Some(result.clone());
                 true
             }
         };
-        if should_set {
-            *lock(&self.result) = Some(result.clone());
+        if accepted {
             self.completion.resolve(result);
         }
     }
@@ -130,8 +131,9 @@ impl NotificationVm {
 
     /// Reports whether local or hub state has resolved the notification.
     pub fn is_resolved(&self) -> bool {
-        *lock(&self.resolved)
-            || self.hub.reaction(self.notification.id) != NotificationReaction::Pending
+        // Removal from the pending list, not the reaction, marks an external
+        // resolution: a hub may resolve with `Pending` (NOTIF-015).
+        *lock(&self.resolved) || self.hub.was_resolved(self.notification.id)
     }
 
     /// Returns the remaining lifespan in milliseconds.
@@ -154,7 +156,7 @@ impl NotificationVm {
         }
         let remaining = {
             let mut elapsed = lock(&self.elapsed_ms);
-            *elapsed = (*elapsed + millis).min(self.lifespan_ms);
+            *elapsed = elapsed.saturating_add(millis).min(self.lifespan_ms);
             self.lifespan_ms.saturating_sub(*elapsed)
         };
         if remaining == 0 {
@@ -220,6 +222,44 @@ impl ConfirmationVm {
     pub fn reject_command(&self) -> RelayCommand {
         let vm = self.clone();
         RelayCommand::new_shared(move || vm.reject())
+    }
+
+    /// Returns the confirmation being presented.
+    pub fn notification(&self) -> Notification {
+        self.notification_vm.notification()
+    }
+
+    /// Dismisses the confirmation, which resolves it with
+    /// [`NotificationReaction::Approve`] (spec/16 §7).
+    pub fn dismiss(&self) {
+        self.approve();
+    }
+
+    /// Creates a command that dismisses this confirmation.
+    pub fn dismiss_command(&self) -> RelayCommand {
+        let vm = self.clone();
+        RelayCommand::new_shared(move || vm.dismiss())
+    }
+
+    /// Returns the remaining lifespan in milliseconds.
+    pub fn remaining_time_ms(&self) -> u64 {
+        self.notification_vm.remaining_time_ms()
+    }
+
+    /// Returns the linear remaining-lifetime opacity in the range `0.0..=1.0`.
+    pub fn opacity(&self) -> f64 {
+        self.notification_vm.opacity()
+    }
+
+    /// Advances the deterministic clock. Unlike a plain notification, a
+    /// confirmation stays pending when its lifespan expires (spec/16 §7).
+    pub fn advance_by_ms(&self, millis: u64) {
+        if self.is_resolved() {
+            return;
+        }
+        let vm = &self.notification_vm;
+        let mut elapsed = lock(&vm.elapsed_ms);
+        *elapsed = elapsed.saturating_add(millis).min(vm.lifespan_ms);
     }
 
     fn resolve(&self, reaction: NotificationReaction) {

@@ -537,3 +537,20 @@ def test_insert_out_of_range_clamps_and_emits_effective_index() -> None:
 
     assert events == [("tail", 2), ("head", 0)]
     assert list(sut) == ["head", "x", "y", "tail"]
+
+
+def test_dispose_completes_every_stream_when_an_observer_raises() -> None:
+    items: ObservableList[int] = ObservableList()
+    completed: list[str] = []
+
+    def raise_on_completed() -> None:
+        raise RuntimeError("observer")
+
+    items.on_item_added.subscribe(on_completed=raise_on_completed)
+    items.on_item_removed.subscribe(on_completed=lambda: completed.append("removed"))
+    items.on_property_changed.subscribe(on_completed=lambda: completed.append("property"))
+
+    with pytest.raises(RuntimeError, match="observer"):
+        items.dispose()
+
+    assert completed == ["removed", "property"]

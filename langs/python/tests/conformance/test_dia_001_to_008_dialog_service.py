@@ -7,6 +7,7 @@ I-prefix per ADR-0009. See spec/19-dialogs.md and ADR-0029.
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 
 import pytest
 
@@ -83,6 +84,46 @@ async def test_dia_003_confirm_contract() -> None:
     # NullDialogService always returns False (safest default).
     assert r1 is False
     assert r2 is False
+
+    # A test double scripted with the user's answer: confirm resolves True,
+    # cancel/dismiss resolves False; title is optional.
+    class ScriptedDialogService(DialogService):
+        def __init__(self, answer: bool) -> None:
+            self.answer = answer
+            self.calls: list[tuple[str, str | None]] = []
+
+        async def pick_file_to_open(
+            self, filter: FileFilter | None = None, title: str | None = None
+        ) -> str | None:
+            return None
+
+        async def pick_file_to_save(
+            self,
+            filter: FileFilter | None = None,
+            title: str | None = None,
+            suggested_name: str | None = None,
+        ) -> str | None:
+            return None
+
+        async def confirm(self, message: str, title: str | None = None) -> bool:
+            self.calls.append((message, title))
+            return self.answer
+
+        async def notify(
+            self,
+            message: str,
+            title: str | None = None,
+            severity: NotificationSeverity = NotificationSeverity.INFO,
+        ) -> None:
+            return None
+
+    confirming = ScriptedDialogService(answer=True)
+    assert await confirming.confirm("Proceed?") is True
+    assert await confirming.confirm("Proceed?", title="Confirm") is True
+    assert confirming.calls == [("Proceed?", None), ("Proceed?", "Confirm")]
+
+    cancelling = ScriptedDialogService(answer=False)
+    assert await cancelling.confirm("Proceed?") is False
 
 
 # ---------------------------------------------------------------------------
@@ -246,9 +287,18 @@ async def test_dia_006_reentrancy_implementation_defined() -> None:
 
 
 class _CancellationAwareDialogService(DialogService):
-    """Demonstrates DIA-007: cancel via asyncio.CancelledError is caught and
-    mapped to the safe default rather than propagated.
+    """Opt-in cancellable dialog double for DIA-007.
+
+    Each ``*_cancellable`` overload awaits a host answer (a future the test
+    resolves) raced against a cancellation signal (an ``asyncio.Event``). A
+    cancellation that fires before or during the dialog completes the awaitable
+    with the safe default; an answered dialog returns the real (different)
+    result, so the cancelled path is observably distinct.
     """
+
+    def __init__(self) -> None:
+        self.file_answer: asyncio.Future[str | None] | None = None
+        self.confirm_answer: asyncio.Future[bool] | None = None
 
     async def pick_file_to_open(
         self, filter: FileFilter | None = None, title: str | None = None
@@ -274,17 +324,28 @@ class _CancellationAwareDialogService(DialogService):
     ) -> None:
         return None
 
-    async def pick_file_to_open_with_cancel(self, *, cancelled: bool = False) -> str | None:
-        """Variant that simulates cancellation: returns None without raising."""
-        if cancelled:
-            return None
-        return None  # pragma: no cover
+    @staticmethod
+    async def _race(answer: asyncio.Future[Any], cancel: asyncio.Event, default: Any) -> Any:
+        if cancel.is_set():
+            return default
+        waiter = asyncio.ensure_future(cancel.wait())
+        try:
+            done, _ = await asyncio.wait({answer, waiter}, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            waiter.cancel()
+        if answer in done and not cancel.is_set():
+            return answer.result()
+        return default
 
-    async def confirm_with_cancel(self, message: str, *, cancelled: bool = False) -> bool:
-        """Variant that simulates cancellation: returns False without raising."""
-        if cancelled:
-            return False
-        return False  # pragma: no cover
+    async def pick_file_to_open_cancellable(self, cancel: asyncio.Event) -> str | None:
+        self.file_answer = asyncio.get_running_loop().create_future()
+        result: str | None = await self._race(self.file_answer, cancel, None)
+        return result
+
+    async def confirm_cancellable(self, message: str, cancel: asyncio.Event) -> bool:
+        self.confirm_answer = asyncio.get_running_loop().create_future()
+        result: bool = await self._race(self.confirm_answer, cancel, False)
+        return result
 
 
 @pytest.mark.conformance("DIA-007")
@@ -292,13 +353,38 @@ async def test_dia_007_cancellation_completes_with_safe_default() -> None:
     """Cancellation completes awaitable with safe default (None/False); no throw."""
     svc = _CancellationAwareDialogService()
 
-    # PickFileToOpen — cancelled → None, no raise.
-    path = await svc.pick_file_to_open_with_cancel(cancelled=True)
-    assert path is None, "cancelled pick_file_to_open returns None"
+    # Baseline (non-vacuity): an answered, non-cancelled dialog returns the real
+    # result, which differs from the cancelled default.
+    never = asyncio.Event()
+    pick = asyncio.create_task(svc.pick_file_to_open_cancellable(never))
+    await asyncio.sleep(0)
+    assert svc.file_answer is not None
+    svc.file_answer.set_result("/chosen.txt")
+    assert await pick == "/chosen.txt"
+    ask = asyncio.create_task(svc.confirm_cancellable("msg", never))
+    await asyncio.sleep(0)
+    assert svc.confirm_answer is not None
+    svc.confirm_answer.set_result(True)
+    assert await ask is True
 
-    # Confirm — cancelled → False, no raise.
-    confirmed = await svc.confirm_with_cancel("msg", cancelled=True)
-    assert confirmed is False, "cancelled confirm returns False"
+    # Cancelled BEFORE the dialog → safe default, no raise.
+    fired = asyncio.Event()
+    fired.set()
+    assert await svc.pick_file_to_open_cancellable(fired) is None
+    assert await svc.confirm_cancellable("msg", fired) is False
+
+    # Cancelled DURING the dialog → safe default, no raise.
+    cancel_pick = asyncio.Event()
+    pending_pick = asyncio.create_task(svc.pick_file_to_open_cancellable(cancel_pick))
+    await asyncio.sleep(0)
+    cancel_pick.set()
+    assert await pending_pick is None, "cancelled pick_file_to_open returns None"
+
+    cancel_confirm = asyncio.Event()
+    pending_confirm = asyncio.create_task(svc.confirm_cancellable("msg", cancel_confirm))
+    await asyncio.sleep(0)
+    cancel_confirm.set()
+    assert await pending_confirm is False, "cancelled confirm returns False"
 
 
 # ---------------------------------------------------------------------------

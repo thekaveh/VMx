@@ -28,8 +28,9 @@ walk(root) =
 
 Properties:
 
-- The iteration is lazy. Consumers MAY stop iterating early without traversing
-  the rest of the tree.
+- The iteration is lazy in C#, Python, and TypeScript. Consumers MAY stop
+  iterating early without traversing the rest of the tree. Swift and Rust
+  return a materialized array or `Vec` (§4).
 - The order is deterministic given a stable children sequence. For
   `AggregateVMN`, slots are visited in `Component1, Component2, …` order;
   empty slots (`null` / `None`) are skipped.
@@ -51,12 +52,13 @@ Properties:
 
 ## 4. Idiomatic surface
 
-| Flavor     | Module     | Walk / WalkExpanded return           | Find return            |
-| ---------- | ---------- | ------------------------------------ | ---------------------- |
-| C#         | `VMx.Tree` | `IEnumerable<IComponentVM>` (lazy)   | `IComponentVM?`        |
-| Python     | `vmx.tree` | `Iterator[IComponentVM]` (generator) | `IComponentVM \| None` |
-| TypeScript | `vmx/tree` | `Iterable<IComponentVM>` (generator) | `IComponentVM \| null` |
-| Swift      | `VMx`      | `[ComponentVMBase]` (materialized)   | `ComponentVMBase?`     |
+| Flavor     | Module          | Walk / WalkExpanded return                | Find return                |
+| ---------- | --------------- | ----------------------------------------- | -------------------------- |
+| C#         | `VMx.Tree`      | `IEnumerable<IComponentVM>` (lazy)        | `IComponentVM?`            |
+| Python     | `vmx.tree`      | `Iterator[ComponentVMProto]` (generator)  | `ComponentVMProto \| None` |
+| TypeScript | `@thekaveh/vmx` | `Iterable<ComponentVMBase>` (generator)   | `ComponentVMBase \| null`  |
+| Swift      | `VMx`           | `[ComponentVMBase]` (materialized)        | `ComponentVMBase?`         |
+| Rust       | `vmx`           | `Vec<T>` for `T: TreeNode` (materialized) | `Option<T>`                |
 
 `walk_expanded` (spec v2.0) shares the same return shape as `walk` per flavor.
 Swift returns materialized `[ComponentVMBase]` arrays rather than lazy sequences
@@ -96,8 +98,9 @@ Properties:
 - A node that DOES implement `IExpandable` gates descent on `IsExpanded`:
   collapsed nodes contribute themselves to the iteration but contribute none
   of their descendants.
-- Like `walk`, the iteration is lazy and deterministic, and triggers no
-  lifecycle transitions.
+- Like `walk`, the iteration is deterministic and triggers no lifecycle
+  transitions. It is lazy in C#, Python, and TypeScript; Swift and Rust return
+  a materialized array or `Vec`.
 
 This helper enables tree-view consumers to render only the visible portion
 of the VM tree without writing their own descent logic.
@@ -111,6 +114,13 @@ When applied to a `HierarchicalVM<TModel, TVM>` instance:
 - `walk_expanded(node)` honors the lazy boundary: an `ExpandableState`-composed
   node whose `IsExpanded == false` does NOT yield its children. Useful for
   tree-view rendering that should only show expanded branches.
+
+Open Rust gap: the `TreeNode` implementation for `HierarchicalVm` keeps the
+default `expandable()`, which returns `None`. `walk_expanded` therefore treats
+every Rust hierarchical node as expanded and never stops at a collapsed node.
+Rust `TreeNode::children_nodes` returns `Vec<Self>`, so a node can only list
+children of its own type. `CompositeVm` implements `TreeNode` with no children,
+and `walk` over a Rust composite visits only the composite itself.
 
 See [chapter 18](18-hierarchical-vm.md) for HierarchicalVM details.
 

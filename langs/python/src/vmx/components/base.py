@@ -13,6 +13,7 @@ See spec/05-component-vm.md and spec/02-lifecycle.md.
 from __future__ import annotations
 
 import threading
+import weakref
 from abc import ABC, abstractmethod
 from collections import deque
 from collections.abc import Callable, Iterable, Iterator
@@ -101,6 +102,11 @@ def _exclusive_ownership_reservation_batch(
             identity._ownership_in_progress = False
         for identity in reversed(identities):
             identity._ownership_lock.release()
+
+
+# Child-walk futures that ``_transition_children`` creates. Only these are
+# cancelled when a hook abandons its deferral.
+_CHILD_WALK_FUTURES: weakref.WeakSet[Future[None]] = weakref.WeakSet()
 
 
 class _Disposable(Protocol):
@@ -1021,16 +1027,24 @@ class _ComponentVMBase(ABC):
         )
 
     def select(self) -> None:
-        """Select this VM in its parent composite."""
+        """Select this VM in its parent composite (a no-op once disposed)."""
+        if self._status is ConstructionStatus.DISPOSED:
+            return
         if self._parent is not None:
             self._parent.select_child(self)
 
     def can_deselect(self) -> bool:
-        """True iff parent is not None and this VM is the current child."""
-        return self._parent is not None and self._parent.current_child is self
+        """True iff not disposed, parent is not None, and this VM is current."""
+        return (
+            self._status is not ConstructionStatus.DISPOSED
+            and self._parent is not None
+            and self._parent.current_child is self
+        )
 
     def deselect(self) -> None:
-        """Deselect this VM in its parent composite."""
+        """Deselect this VM in its parent composite (a no-op once disposed)."""
+        if self._status is ConstructionStatus.DISPOSED:
+            return
         if self._parent is not None:
             self._parent.deselect_child(self)
 
@@ -1046,8 +1060,20 @@ class _ComponentVMBase(ABC):
                 return False
             lease = _LifecycleHookLease()
             self._active_hook_lease = lease
+            # Each hook starts with a fresh deferral slot.
+            self._deferred_lifecycle_future = None
         try:
             hook()
+        except BaseException:
+            # A hook that raises after deferring completion abandons the
+            # deferral, so the next transition starts clean. A child walk this
+            # VM created is cancelled, which stops it before ``after`` runs.
+            # A future the subclass supplied is only dropped, not cancelled,
+            # because its owner may still resolve it.
+            abandoned = self._take_deferred_lifecycle_future()
+            if abandoned is not None and abandoned in _CHILD_WALK_FUTURES:
+                abandoned.cancel()
+            raise
         finally:
             with self._lifecycle_lock:
                 if self._active_hook_lease is lease:
@@ -1098,10 +1124,32 @@ class _ComponentVMBase(ABC):
         *,
         construct: bool,
         after: Callable[[], None] | None = None,
+        joined: Iterable[object] = (),
     ) -> Future[None]:
-        """Transition children sequentially and validate each settled state."""
+        """Transition children sequentially and validate each settled state.
+
+        A child in ``joined`` already started this transition (factory
+        population): it is joined and its settled status is final, so it is
+        never restarted. ``children`` is pulled lazily, one child at a time,
+        and a ``joined`` list is read live, so a container can extend its walk
+        while it runs.
+        """
         result: Future[None] = Future()
+        _CHILD_WALK_FUTURES.add(result)
         iterator = iter(children)
+        joined_live = joined if isinstance(joined, list) else list(joined)
+        joined_ids: set[int] = set()
+        joined_seen = 0
+
+        def is_joined(child: object) -> bool:
+            nonlocal joined_seen
+            for entry in joined_live[joined_seen:]:
+                joined_ids.add(id(entry))
+            joined_seen = len(joined_live)
+            return id(child) in joined_ids
+
+        expected = ConstructionStatus.CONSTRUCTED if construct else ConstructionStatus.DESTRUCTED
+        transient = ConstructionStatus.CONSTRUCTING if construct else ConstructionStatus.DESTRUCTING
 
         def advance() -> None:
             while not result.done():
@@ -1118,7 +1166,14 @@ class _ComponentVMBase(ABC):
                     return
 
                 try:
-                    if isinstance(child, _ComponentVMBase):
+                    child_joined = is_joined(child)
+                    if child_joined and isinstance(child, _ComponentVMBase):
+                        # Check and join under the child's lifecycle lock so a
+                        # child that settles meanwhile is never started again.
+                        pending = child._join_transition_future(construct=construct)
+                    elif child_joined and child.status not in (expected, transient):
+                        raise RuntimeError(f"child '{child.name}' did not reach {expected.name}")
+                    elif isinstance(child, _ComponentVMBase):
                         pending = (
                             child._construct_future() if construct else child._destruct_future()
                         )
@@ -1133,17 +1188,12 @@ class _ComponentVMBase(ABC):
                     result.set_exception(error)
                     return
 
-                def child_settled(
+                def child_reached_expected(
                     completed: Future[None],
                     current: ComponentVMProto = child,
-                ) -> None:
+                ) -> bool:
                     try:
                         completed.result()
-                        expected = (
-                            ConstructionStatus.CONSTRUCTED
-                            if construct
-                            else ConstructionStatus.DESTRUCTED
-                        )
                         if current.status is not expected:
                             raise RuntimeError(
                                 f"child '{current.name}' did not reach {expected.name}"
@@ -1151,14 +1201,20 @@ class _ComponentVMBase(ABC):
                     except BaseException as error:
                         if not result.done():
                             result.set_exception(error)
-                    else:
-                        advance()
+                        return False
+                    return True
 
                 if pending.done():
-                    child_settled(pending)
-                    if result.done():
+                    # Settle inline and keep this loop as the only walker. A
+                    # nested advance() here would walk the remaining children
+                    # and then let this loop complete the result early.
+                    if not child_reached_expected(pending):
                         return
                     continue
+
+                def child_settled(completed: Future[None]) -> None:
+                    if child_reached_expected(completed):
+                        advance()
 
                 pending.add_done_callback(child_settled)
                 return
@@ -1259,6 +1315,27 @@ class _ComponentVMBase(ABC):
                 self._lifecycle_waiters.append(waiter)
                 return waiter
         return self._start_lifecycle_future(self.construct)
+
+    def _join_transition_future(self, *, construct: bool) -> Future[None]:
+        """Join an already-started transition without ever starting a new one.
+
+        Reads the status and registers the waiter under the lifecycle lock. A
+        child that already settled at the target completes at once; any other
+        settled status fails the join.
+        """
+        expected = ConstructionStatus.CONSTRUCTED if construct else ConstructionStatus.DESTRUCTED
+        transient = ConstructionStatus.CONSTRUCTING if construct else ConstructionStatus.DESTRUCTING
+        joined: Future[None] = Future()
+        with self._lifecycle_lock:
+            status = self._status
+            if status is transient:
+                self._lifecycle_waiters.append(joined)
+                return joined
+        if status is expected:
+            joined.set_result(None)
+        else:
+            joined.set_exception(RuntimeError(f"child '{self.name}' did not reach {expected.name}"))
+        return joined
 
     def _destruct_future(self) -> Future[None]:
         with self._lifecycle_lock:

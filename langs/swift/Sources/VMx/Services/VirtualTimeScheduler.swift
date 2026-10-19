@@ -189,8 +189,8 @@ public final class VirtualTimeScheduler: Combine.Scheduler {
     /// Schedule `action` at the absolute virtual instant `date`, returning a
     /// cancellation token. Distinct from the protocol `schedule(after:…)`
     /// overloads (which return `Void`) so callers — e.g. the notification VMs'
-    /// lifespan-expiry timer — can cancel a pending action.
-    @discardableResult
+    /// lifespan-expiry timer — can cancel a pending action. Keep the token:
+    /// releasing it cancels the action, so the result is not discardable.
     public func schedule(
         at date: SchedulerTimeType,
         _ action: @escaping () -> Void

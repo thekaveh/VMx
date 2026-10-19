@@ -316,3 +316,6 @@ class ForwardingComponentVM(_ComponentVMBase, Generic[M]):
 
     def _destruct_future(self) -> Future[None]:
         return cast(_ComponentVMBase, self._wrapped)._destruct_future()
+
+    def _join_transition_future(self, *, construct: bool) -> Future[None]:
+        return cast(_ComponentVMBase, self._wrapped)._join_transition_future(construct=construct)

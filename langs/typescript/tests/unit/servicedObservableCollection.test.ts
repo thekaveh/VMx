@@ -248,3 +248,25 @@ describe("ServicedObservableCollection – negative-index splice", () => {
     expect(events[0]?.index).toBe(2);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Fractional and NaN splice starts resolve like Array.prototype.splice
+// ---------------------------------------------------------------------------
+
+describe("ServicedObservableCollection – splice start resolution", () => {
+  it.each([
+    [-0.5, "a", 0],
+    [Number.NaN, "a", 0],
+    [1.5, "b", 1],
+  ])("splice(%s, 1) removes %s and reports index %s", (start, item, index) => {
+    const sut = new ServicedObservableCollection<string>();
+    for (const value of ["a", "b", "c"]) sut.push(value);
+    const events: CollectionChangedMessage<string>[] = [];
+    sut.collectionChanged.subscribe((e) => events.push(e));
+
+    expect(sut.splice(start, 1)).toEqual([item]);
+
+    expect(events).toHaveLength(1);
+    expect(events[0]!.index).toBe(index);
+  });
+});

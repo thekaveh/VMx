@@ -70,8 +70,16 @@ public sealed class NotificationHub : INotificationHub, IDisposable
             _pending.Remove(notification);
             (emission, shouldEmit, shouldWait) = QueueEmissionLocked(new(_pending.ToArray()));
         }
-        PublishEmission(emission, shouldEmit, shouldWait);
-        tcs.TrySetResult(reaction);
+        // The waiter completes even when a Pending subscriber throws: it has
+        // already left _waiters, so nothing else could ever complete it.
+        try
+        {
+            PublishEmission(emission, shouldEmit, shouldWait);
+        }
+        finally
+        {
+            tcs.TrySetResult(reaction);
+        }
     }
 
     /// <summary>
@@ -93,9 +101,15 @@ public sealed class NotificationHub : INotificationHub, IDisposable
             _pending.Clear();
             (emission, shouldEmit, shouldWait) = QueueEmissionLocked(new(complete: true));
         }
-        PublishEmission(emission, shouldEmit, shouldWait);
-        foreach (var waiter in waiters)
-            waiter.TrySetResult(NotificationReaction.Pending);
+        try
+        {
+            PublishEmission(emission, shouldEmit, shouldWait);
+        }
+        finally
+        {
+            foreach (var waiter in waiters)
+                waiter.TrySetResult(NotificationReaction.Pending);
+        }
     }
 
     private (PendingEmission Emission, bool ShouldEmit, bool ShouldWait) QueueEmissionLocked(
@@ -120,6 +134,24 @@ public sealed class NotificationHub : INotificationHub, IDisposable
         if (emission.Error is not null)
             ExceptionDispatchInfo.Capture(emission.Error).Throw();
         emission.Completed.Dispose();
+    }
+
+    private void CompletePendingAfterFailure(bool completionAlreadyStarted)
+    {
+        try
+        {
+            if (!completionAlreadyStarted)
+                _pendingSubject.OnCompleted();
+        }
+        catch (Exception)
+        {
+            // The delivery failure that abandoned the queue is the one the
+            // caller sees; a completion observer failure must not replace it.
+        }
+        finally
+        {
+            _pendingSubject.Dispose();
+        }
     }
 
     private void DrainEmissions()
@@ -161,6 +193,12 @@ public sealed class NotificationHub : INotificationHub, IDisposable
                     _emitterThreadId = 0;
                     Monitor.PulseAll(_lock);
                 }
+                // A Dispose queued behind the failed delivery cannot retry: it
+                // has returned, or it is waiting, and it is idempotent. Finish
+                // the terminal step before waking any waiter, so Pending
+                // completes exactly once and no waiter sees it still open.
+                if (emission.Complete || Array.Exists(abandoned, item => item.Complete))
+                    CompletePendingAfterFailure(completionAlreadyStarted: emission.Complete);
                 foreach (var item in abandoned)
                 {
                     item.Error = error;

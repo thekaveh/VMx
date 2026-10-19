@@ -250,9 +250,11 @@ async def test_double_save_while_repository_save_is_pending_persists_once() -> N
     assert vm.is_dirty.value is False
 
 
-async def test_rebinding_while_a_save_is_pending_posts_no_saved_for_either_note() -> None:
-    """Rebinding disposes the pending save's form, which then publishes no
-    approval (spec/20 §5.3), so the save runs no post-save step."""
+async def test_rebinding_while_a_save_is_pending_still_completes_that_save() -> None:
+    """Rebinding retires the pending save's form instead of disposing it
+    (disposal would suppress its settlement, spec/20 §5.3): the save still
+    publishes ``on_saved`` and its "Saved" toast, the next note binds at once
+    and stays clean, and the retired form is disposed once the save settles."""
     form = _build_pending_save_form()
     vm, repo = form.vm, form.repo
     vm.bind_to(_sample_note())
@@ -266,10 +268,12 @@ async def test_rebinding_while_a_save_is_pending_posts_no_saved_for_either_note(
     await asyncio.wait_for(pending, timeout=1)
 
     assert repo.saves == [edited]
-    assert form.saved == []
-    assert form.notifications == []
-    assert repo.load_all_calls == 0
+    assert form.saved == [edited]
+    assert form.notifications == ["Saved “Edited”"]
+    assert repo.load_all_calls == 1
     assert vm.snapshot.title == "Next note"
+    assert vm.is_dirty.value is False
+    assert vm._retired_forms == set()
 
 
 def test_deny_restores_snapshot() -> None:
@@ -500,3 +504,55 @@ def test_after_bind_to_deny_command_property_changed_fires() -> None:
     vm.bind_to(_sample_note())
     assert "deny_command" in observed
     assert "approve_command" in observed
+
+
+class _HeldTagRefreshRepository(InMemoryNoteRepository):
+    """Repository whose ``load_all`` (the post-save tag refresh) stays pending
+    until the test releases it; saves complete immediately."""
+
+    def __init__(self) -> None:
+        super().__init__(build_seed(), load_all_delay=0.0, save_note_delay=0.0)
+        self.saves: list[str] = []
+        self.load_all_started = asyncio.Event()
+        self.release_load_all = asyncio.Event()
+
+    async def load_all(self) -> tuple[list[NotebookModel], list[NoteModel]]:
+        self.load_all_started.set()
+        await self.release_load_all.wait()
+        return await super().load_all()
+
+    async def save_note(self, note: NoteModel) -> None:
+        self.saves.append(note.title)
+        await super().save_note(note)
+
+
+async def test_rebinding_during_post_save_tag_refresh_saves_the_new_note_next() -> None:
+    """The Save command is still executing while its post-save tag refresh is
+    pending, but the save itself already ran. A rebind in that window must
+    dispose the replaced form, not hand it to the next Save as if its run had
+    not started — otherwise the next Save re-saves the old note and the newly
+    bound note is never persisted."""
+    repo = _HeldTagRefreshRepository()
+    hub = MessageHub[Message]()
+    dispatcher = RxDispatcher(foreground=ImmediateScheduler(), background=ImmediateScheduler())
+    vm = NoteFormVM.builder().name("form").services(hub, dispatcher).repository(repo).build()
+
+    vm.bind_to(_sample_note(title="A"))
+    vm.draft = _sample_note(title="A edited")
+    first = asyncio.create_task(vm.approve_command.execute_async())
+    await asyncio.wait_for(repo.load_all_started.wait(), timeout=1)
+    assert repo.saves == ["A edited"]
+    assert vm.approve_command.is_executing
+
+    note_b = dataclasses.replace(_sample_note(title="B"), id="note-b")
+    vm.bind_to(note_b)
+    vm.draft = dataclasses.replace(note_b, title="B edited")
+    assert vm._handoff_form is None
+
+    repo.release_load_all.set()
+    await asyncio.wait_for(first, timeout=1)
+    await asyncio.wait_for(vm.approve_command.execute_async(), timeout=1)
+
+    assert repo.saves == ["A edited", "B edited"]
+    assert vm.snapshot.title == "B edited"
+    assert vm._retired_forms == set()

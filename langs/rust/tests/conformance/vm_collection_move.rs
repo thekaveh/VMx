@@ -82,6 +82,7 @@ fn backward_move_works_for_group() {
 
     assert_eq!(group.items(), vec![c, a, b]);
     let events = move_events(&recorder);
+    assert_eq!(events.len(), 1);
     assert_eq!(
         (events[0].old_index, events[0].new_index),
         (Some(2), Some(0))
@@ -197,4 +198,79 @@ fn move_does_not_reconstruct_auto_constructed_child() {
 
     assert_eq!(composite.get(1), Some(moved));
     assert_eq!(constructs.load(Ordering::SeqCst), 1);
+}
+
+/// COL-033 — a disposed container rejects a move and keeps its order.
+#[test]
+fn move_after_dispose_is_rejected() {
+    let composite = vmx::CompositeVm::<Child>::new("composite");
+    let group = vmx::GroupVm::<Child>::new("group");
+    let (a, b) = (child("a"), child("b"));
+    let (c, d) = (child("c"), child("d"));
+    composite.add(a.clone()).unwrap();
+    composite.add(b.clone()).unwrap();
+    group.add(c.clone()).unwrap();
+    group.add(d.clone()).unwrap();
+    composite.dispose().unwrap();
+    group.dispose().unwrap();
+
+    assert!(matches!(composite.move_item(0, 1), Err(VmxError::Disposed)));
+    assert!(matches!(group.move_item(0, 1), Err(VmxError::Disposed)));
+    assert_eq!(composite.items(), vec![a, b]);
+    assert_eq!(group.items(), vec![c, d]);
+}
+
+/// PROP-004 — container collection messages carry the container's name.
+#[test]
+fn container_collection_messages_carry_the_container_name() {
+    let hub = MessageHub::new();
+    let recorder = hub.record(64);
+    let composite = vmx::CompositeVm::with_services("notes", hub.clone(), NullDispatcher::new());
+    let group = vmx::GroupVm::with_services("actions", hub.clone(), NullDispatcher::new());
+
+    composite.add(child("a")).unwrap();
+    group.add(child("b")).unwrap();
+
+    let names = recorder
+        .messages()
+        .into_iter()
+        .filter_map(|message| match message {
+            Message::CollectionChanged(change) => Some(change.sender_name),
+            Message::PropertyChanged(change) if change.property_name == "Count" => {
+                Some(change.sender_name)
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(names, vec!["notes", "notes", "actions", "actions"]);
+}
+
+/// COL-033 — a disposed container rejects removal, clear, and selection.
+#[test]
+fn disposed_containers_reject_removal_clear_and_selection() {
+    let composite = vmx::CompositeVm::<Child>::new("composite");
+    let group = vmx::GroupVm::<Child>::new("group");
+    let (a, b) = (child("a"), child("b"));
+    let (x, y) = (child("x"), child("y"));
+    composite.add(a.clone()).unwrap();
+    composite.add(b.clone()).unwrap();
+    group.add(x.clone()).unwrap();
+    group.add(y.clone()).unwrap();
+    composite.dispose().unwrap();
+    group.dispose().unwrap();
+
+    assert!(matches!(composite.remove(&a), Err(VmxError::Disposed)));
+    assert!(matches!(composite.remove_at(0), Err(VmxError::Disposed)));
+    assert!(matches!(
+        composite.set_current(Some(a.clone())),
+        Err(VmxError::Disposed)
+    ));
+    composite.clear();
+    assert!(matches!(group.remove(&x), Err(VmxError::Disposed)));
+    assert!(matches!(group.remove_at(0), Err(VmxError::Disposed)));
+    group.clear();
+
+    assert_eq!(composite.items(), vec![a, b]);
+    assert!(composite.current().is_none());
+    assert_eq!(group.items(), vec![x, y]);
 }

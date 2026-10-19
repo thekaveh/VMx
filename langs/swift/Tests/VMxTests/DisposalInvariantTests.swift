@@ -220,8 +220,10 @@ final class DisposalInvariantTests: XCTestCase {
     func testDisp002RepeatedAsyncCommandDisposeCancelsOneInFlightRun() async {
         let started = expectation(description: "command started")
         let cancellations = LockedCounter()
+        let bodyRuns = LockedCounter()
         let command = AsyncRelayCommand.builder()
             .task {
+                bodyRuns.increment()
                 started.fulfill()
                 while !Task.isCancelled {
                     try? await Task.sleep(nanoseconds: 1_000_000)
@@ -230,6 +232,17 @@ final class DisposalInvariantTests: XCTestCase {
                 try Task.checkCancellation()
             }
             .build()
+        let errorsCompleted = LockedCounter()
+        let canExecuteChangedCompleted = LockedCounter()
+        var cancellables = Set<AnyCancellable>()
+        command.errors.sink(
+            receiveCompletion: { _ in errorsCompleted.increment() },
+            receiveValue: { _ in }
+        ).store(in: &cancellables)
+        command.canExecuteChanged.sink(
+            receiveCompletion: { _ in canExecuteChangedCompleted.increment() },
+            receiveValue: { _ in }
+        ).store(in: &cancellables)
         let run = Task<Void, Error> { try await command.executeAsync() }
         await fulfillment(of: [started], timeout: 2.0)
 
@@ -242,7 +255,21 @@ final class DisposalInvariantTests: XCTestCase {
         }
 
         XCTAssertEqual(cancellations.value, 1)
+        // Non-executing terminal state.
+        XCTAssertFalse(command.isExecuting)
         XCTAssertFalse(command.canExecute())
+
+        // Later execution attempts are inert.
+        try? await command.executeAsync()
+        command.execute()
+        try? await Task.sleep(nanoseconds: 10_000_000)
+        XCTAssertEqual(bodyRuns.value, 1, "post-dispose executions must not run the body")
+        XCTAssertFalse(command.isExecuting)
+
+        // Terminal channels complete at most once.
+        command.dispose()
+        XCTAssertEqual(errorsCompleted.value, 1)
+        XCTAssertEqual(canExecuteChangedCompleted.value, 1)
     }
 
     /// DISP-003 — concurrent disposal of a thread-safe hub performs terminal work once.

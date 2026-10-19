@@ -149,3 +149,5 @@ one explicit reconstruction scenario. Focused aggregate regression tests in
 all five flavors cover factory preflight rollback, candidate commit, and
 concurrent terminal abort. Throwing/result-based flavors additionally cover
 first-error propagation; Swift's disposal surface is intentionally nonthrowing.
+Swift slot factories (`() -> C`) cannot throw, so the factory-failure branch of
+§4 does not occur in Swift; preflight failures behave as in the other flavors.

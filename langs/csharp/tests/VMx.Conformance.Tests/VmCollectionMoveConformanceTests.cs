@@ -73,13 +73,14 @@ public class VmCollectionMoveConformanceTests
     {
         var (_, group, a, b, c) = Build();
         group.Construct();
-        NotifyCollectionChangedEventArgs? observed = null;
-        group.CollectionChanged += (_, e) => observed = e;
+        var events = new List<NotifyCollectionChangedEventArgs>();
+        group.CollectionChanged += (_, e) => events.Add(e);
 
         group.Move(2, 0);
 
         group.Should().Equal(c, a, b);
-        observed!.Action.Should().Be(NotifyCollectionChangedAction.Move);
+        var observed = events.Should().ContainSingle().Subject;
+        observed.Action.Should().Be(NotifyCollectionChangedAction.Move);
         observed.OldStartingIndex.Should().Be(2);
         observed.NewStartingIndex.Should().Be(0);
     }

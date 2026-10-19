@@ -190,34 +190,33 @@ def test_CMDD_008_confirmation_can_execute_delegates() -> None:
 
 
 @pytest.mark.conformance("CMDD-009")
-def test_CMDD_009_decorators_compose() -> None:
+async def test_CMDD_009_decorators_compose() -> None:
+    """CMDD-009: executing the OUTER decorator ``dec`` reaches ``relay``
+    exactly once through the confirmation layer."""
     log: list[str] = []
     relay = _recording_command(log, "relay", True)
+    confirm_calls = 0
 
     async def _confirm() -> bool:
+        nonlocal confirm_calls
+        confirm_calls += 1
         return True
 
     conf = ConfirmationDecoratorCommand(relay, confirm=_confirm)
     dec = DecoratorCommand(conf)
 
-    # dec.execute() kicks off async; we explicitly run the confirmation
-    async def _run() -> None:
-        await conf.execute_async()  # bypass dec.execute fire-and-forget for sync test
+    assert dec.can_execute()
+    dec.execute()  # dec → conf.execute (schedules confirm on this loop) → relay
 
-    # First verify the chain executes correctly via direct call
-    asyncio.run(_run())
-    assert log == ["relay"]
+    for _ in range(20):
+        if log:
+            break
+        await asyncio.sleep(0)
+    # Let any stray duplicate invocation surface before asserting "exactly one".
+    for _ in range(5):
+        await asyncio.sleep(0)
 
-    # And via dec which internally calls inner.execute (which fires-and-forgets)
-    log.clear()
-
-    # dec.execute() → conf.execute() → fire-and-forget asyncio task; need event loop
-    async def _via_dec() -> None:
-        # We use can_execute + manual execute_async to ensure we await
-        if dec.can_execute():
-            await conf.execute_async()
-
-    asyncio.run(_via_dec())
+    assert confirm_calls == 1
     assert log == ["relay"]
 
 
@@ -317,10 +316,30 @@ def test_CMDD_011_disposed_composite_and_decorator_are_inert() -> None:
     decorator.execute()
     assert log == []
 
-    # The inner commands were not disposed.
+    # The inner commands were not disposed and still execute directly.
+    assert [a.can_execute(), b.can_execute(), inner.can_execute()] == [True, True, True]
     a.execute()
+    b.execute()
     inner.execute()
-    assert log == ["a", "inner"]
+    assert log == ["a", "b", "inner"]
+
+
+@pytest.mark.conformance("CMDD-012")
+def test_CMDD_012_confirmation_disposed_by_its_inner_predicate_cannot_execute() -> None:
+    wrapper: ConfirmationDecoratorCommand | None = None
+
+    def predicate() -> bool:
+        assert wrapper is not None
+        wrapper.dispose()
+        return True
+
+    async def confirm() -> bool:
+        return True
+
+    inner = RelayCommand.builder().task(lambda: None).predicate(predicate).build()
+    wrapper = ConfirmationDecoratorCommand(inner, confirm)
+
+    assert wrapper.can_execute() is False
 
 
 @pytest.mark.conformance("CMDD-012")
@@ -464,6 +483,36 @@ def test_CMDD_013_composite_runs_no_child_after_disposal_by_an_earlier_child() -
     composite.execute()
 
     assert log == ["first"]
+
+
+@pytest.mark.conformance("CMDD-013")
+@pytest.mark.parametrize("entry", ["execute", "execute_async"])
+async def test_CMDD_013_confirmation_disposed_by_inner_predicate_never_confirms(
+    entry: str,
+) -> None:
+    log: list[str] = []
+    confirms: list[None] = []
+    holder: list[ConfirmationDecoratorCommand] = []
+
+    def _predicate() -> bool:
+        holder[0].dispose()
+        return True
+
+    async def _confirm() -> bool:
+        confirms.append(None)
+        return True
+
+    inner = RelayCommand.builder().task(lambda: log.append("inner")).predicate(_predicate).build()
+    holder.append(ConfirmationDecoratorCommand(inner, _confirm))
+
+    if entry == "execute":
+        holder[0].execute()
+    else:
+        await holder[0].execute_async()
+    await _drain_other_tasks()
+
+    assert confirms == []
+    assert log == []
 
 
 @pytest.mark.conformance("CMDD-013")

@@ -38,10 +38,14 @@ Per the convention from ADR-0017, `NullLocalizer` is the null-object variant:
 - `Localize(key)` returns `key` verbatim.
 - `Localize(key, args)` returns `key` verbatim (no formatting applied).
 
-`NullLocalizer` is the default when no consumer-supplied localizer is wired
-into the framework. Components that emit user-visible text (notification
-messages, default command labels) should resolve via the configured
-`ILocalizer`.
+`ILocalizer` and `NullLocalizer` are application-level services. The framework
+does not inject a localizer, and no VMx component consumes one. An application
+that needs localized user-visible text (notification messages, command labels)
+supplies its own `ILocalizer` to its own viewmodels and resolves the text there.
+`NullLocalizer` is the null-object choice when the application has no localizer.
+
+Open Rust gap: Rust's `Localizer` trait has only `localize(key)`. It has no
+overload that takes positional args.
 
 ## 3. Per-flavor distribution
 

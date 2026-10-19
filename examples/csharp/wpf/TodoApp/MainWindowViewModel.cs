@@ -77,7 +77,7 @@ public sealed class MainWindowViewModel : INotifyPropertyChanged
     /// <summary>
     /// Creates and constructs a new <see cref="TodoItemVM"/> for <paramref name="title"/>
     /// and appends it to <see cref="Items"/>.
-    /// Called by the Add button's Click handler.
+    /// Called by the task of <see cref="AddCommand"/> and by the constructor's seed items.
     /// </summary>
     public void AddItem(string title)
     {

@@ -304,11 +304,7 @@ sections:
     number: "12"
     title: Rust Parity Status
     source: docs/maintenance/2026-07-16-rust-capability-parity.md
-  - id: concurrency-test-audit
-    number: "13"
-    title: Concurrency Test Audit
-    source: docs/maintenance/2026-09-24-controlled-interleavings-audit.md
   - id: performance-methodology
-    number: "14"
+    number: "13"
     title: Performance Methodology
     source: docs/content/performance-methodology.md

@@ -7,6 +7,7 @@ using NotesShowcase.Models;
 using VMx.Builders;
 using VMx.Commands;
 using VMx.Components;
+using VMx.Lifecycle;
 using VMx.Messages;
 using VMx.Properties;
 using VMx.Services;
@@ -209,6 +210,8 @@ public sealed class ThemeVM : ComponentVMBase
 
     private void SetModel(ThemeModel value)
     {
+        // A disposed theme is inert (DISP-014): its subject is already disposed.
+        if (Status == ConstructionStatus.Disposed) return;
         if (EqualityComparer<ThemeModel>.Default.Equals(_model, value)) return;
         var previous = _model;
         _model = value;

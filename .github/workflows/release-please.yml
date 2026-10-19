@@ -20,10 +20,10 @@ on:
 # release-please needs to push commits to its release branch and open PRs
 # against main. A repository secret backed by a fine-grained PAT or GitHub App
 # token is required because PRs created with the default GITHUB_TOKEN do not
-# trigger the required pull_request workflows.
+# trigger the required pull_request workflows. Every write uses that secret,
+# so the default token only reads the repository.
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 # Serialize release-PR maintenance: concurrent runs both push to the release
 # branch / update the release PR and can conflict (the action recommends a

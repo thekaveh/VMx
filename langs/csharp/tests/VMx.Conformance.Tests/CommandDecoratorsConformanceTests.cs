@@ -158,13 +158,20 @@ public class CommandDecoratorsConformanceTests
     public async Task CMDD_009_Decorators_Compose()
     {
         var log = new List<string>();
-        var relay = BuildRecording(log, "relay", true);
+        var invoked = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var relay = RelayCommand.Builder()
+            .Task(() => { lock (log) log.Add("relay"); invoked.TrySetResult(); })
+            .Build();
         using var conf = new ConfirmationDecoratorCommand(relay, () => Task.FromResult(true));
         using var dec = new DecoratorCommand(conf);
 
         dec.CanExecute(null).Should().BeTrue();
-        await conf.ExecuteAsync(null);
-        log.Should().Equal("relay");
+        // Execute through the OUTER decorator; the confirmation path is
+        // fire-and-forget, so await the relay's recorded invocation.
+        dec.Execute(null);
+        await invoked.Task.WaitAsync(VMx.Tests.Helpers.Liveness.HangGuard);
+        await Task.Delay(50);
+        lock (log) log.Should().Equal("relay");
     }
 
     // ── CMDD-010 ────────────────────────────────────────────────────────────
@@ -239,13 +246,36 @@ public class CommandDecoratorsConformanceTests
         decorator.Execute(null);
         log.Should().BeEmpty();
 
-        // The inner commands were not disposed.
+        // The inner commands were not disposed and still execute directly.
+        a.CanExecute(null).Should().BeTrue();
+        b.CanExecute(null).Should().BeTrue();
+        inner.CanExecute(null).Should().BeTrue();
         a.Execute(null);
+        b.Execute(null);
         inner.Execute(null);
-        log.Should().Equal("a", "inner");
+        log.Should().Equal("a", "b", "inner");
     }
 
     // ── CMDD-012 ────────────────────────────────────────────────────────────
+
+    /// <summary>CMDD-012: the confirmation wrapper re-checks disposal after the
+    /// inner predicate, which may dispose it.</summary>
+    [Fact, Trait("Conformance", "CMDD-012")]
+    public void CMDD_012_Confirmation_CanExecute_Rechecks_Disposal_After_Inner_Predicate()
+    {
+        ConfirmationDecoratorCommand? wrapper = null;
+        var inner = RelayCommand.Builder()
+            .Predicate(() =>
+            {
+                wrapper?.Dispose();
+                return true;
+            })
+            .Task(() => { })
+            .Build();
+        wrapper = new ConfirmationDecoratorCommand(inner, () => Task.FromResult(true));
+
+        wrapper.CanExecute(null).Should().BeFalse();
+    }
 
     /// <summary>CMDD-012: a disposed confirmation decorator never consults its
     /// confirm delegate.</summary>

@@ -4,10 +4,17 @@
 import { describe, expect, it } from "vitest";
 import { ObservableList } from "../../src/collections/observableList.js";
 import { PagedComposition } from "../../src/collections/pagedComposition.js";
+import { hasCapability } from "../../src/capabilities/registry.js";
 
 // ── Construction ──────────────────────────────────────────────────────────────
 
 describe("PagedComposition – construction", () => {
+  it("declares the IPageable capability at runtime", () => {
+    const sut = new PagedComposition(new ObservableList<number>(), 2);
+    expect(hasCapability(sut, "IPageable")).toBe(true);
+    sut.dispose();
+  });
+
   it("defaults pageSize to 0", () => {
     const source = new ObservableList<number>();
     const sut = new PagedComposition(source);

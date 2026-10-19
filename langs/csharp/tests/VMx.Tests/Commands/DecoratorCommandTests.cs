@@ -33,4 +33,21 @@ public class DecoratorCommandTests
         act.Should().Throw<InvalidOperationException>();
         log.Should().Equal("pre", "post");
     }
+
+    [Fact]
+    public void CompositeCommand_copies_its_inner_list_and_rejects_null_entries()
+    {
+        var log = new List<string>();
+        var a = RelayCommand.Builder().Task(() => log.Add("a")).Build();
+        var b = RelayCommand.Builder().Task(() => log.Add("b")).Build();
+        var inner = new System.Windows.Input.ICommand[] { a };
+        var composite = new CompositeCommand(inner);
+
+        inner[0] = b;
+        composite.Execute(null);
+
+        log.Should().Equal("a");
+        var act = () => new CompositeCommand(a, null!);
+        act.Should().Throw<ArgumentException>();
+    }
 }

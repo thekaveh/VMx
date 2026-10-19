@@ -11,7 +11,7 @@ the view/adapter wiring fails here even when every VM-level test stays green.
 from __future__ import annotations
 
 import pytest
-from textual.widgets import Button, Input, ListItem, Static, Tree
+from textual.widgets import Button, Input, Label, ListItem, Static, Tree
 
 from notes_showcase.models.in_memory_repository import InMemoryNoteRepository
 from notes_showcase.models.seed import build_seed
@@ -283,3 +283,55 @@ async def test_bound_button_press_reaches_a_command() -> None:
 
         assert workspace.notes_view.current_page_index == 1
         assert _rendered(app.query_one("#page_label", Static)).startswith("Page 2")
+
+
+@pytest.mark.asyncio
+async def test_typing_in_search_filters_the_list_after_the_debounce() -> None:
+    """Search input → debounced search_term → filtered rows + status count.
+
+    Regression: the NotesViewVM search debounce ran on an ImmediateScheduler,
+    which raises WouldBlockException for a positive debounce and silently
+    ended the search pipeline, so typing never filtered the list.
+    """
+    workspace, _repo = _build_workspace()
+    await workspace.construct_async()
+    app = NotesShowcaseApp(workspace)
+    async with app.run_test(size=(160, 50)) as pilot:
+        await _settle(pilot)
+        assert len(app.query(ListItem)) == 2  # Work: Standup notes, Roadmap snapshot
+        assert _rendered(app.query_one("#status_note_count", Static)) == "2 notes"
+
+        await pilot.click("#search_input")
+        await pilot.press(*"roadmap")
+        await pilot.pause(0.5)  # past the 150 ms debounce
+        await _settle(pilot)
+
+        rows = list(app.query(ListItem))
+        assert len(rows) == 1, "search never filtered the rendered list"
+        assert "Roadmap snapshot" in _rendered(rows[0].query_one(Label))
+        assert _rendered(app.query_one("#status_note_count", Static)) == "1 note"
+    workspace.dispose()
+
+
+@pytest.mark.asyncio
+async def test_new_note_command_disables_on_a_readonly_notebook() -> None:
+    """Notebook selection → toolbar *New note* can_execute re-evaluated."""
+    workspace, _repo = _build_workspace()
+    await workspace.construct_async()
+    app = NotesShowcaseApp(workspace)
+    async with app.run_test(size=(160, 50)) as pilot:
+        await _settle(pilot)
+        changes: list[object] = []
+        sub = workspace.new_note_command.can_execute_changed.subscribe(on_next=changes.append)
+        assert workspace.new_note_command.can_execute() is True
+
+        tree = app.query_one(Tree)
+        archive = next(n for n in tree.root.children if str(n.label) == "Archive")
+        tree.select_node(archive)
+        await _settle(pilot, ticks=8)
+
+        assert workspace.notes_view.current_notebook_is_readonly is True
+        assert workspace.new_note_command.can_execute() is False
+        assert changes, "new_note_command never re-published can_execute"
+        sub.dispose()
+    workspace.dispose()

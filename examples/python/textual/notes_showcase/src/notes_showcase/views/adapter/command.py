@@ -28,10 +28,14 @@ from __future__ import annotations
 from typing import Any
 
 from reactivex.abc import DisposableBase
-from vmx.commands.protocols import Command
+from vmx.commands.protocols import Command, ParameterizedCommand
 
 
-def bind_command(button: Any, command: Command) -> DisposableBase:
+def bind_command(
+    button: Any,
+    command: Command | ParameterizedCommand[Any],
+    parameter: Any = None,
+) -> DisposableBase:
     """Bind ``button`` to ``command``.
 
     Initialises ``button.disabled = not command.can_execute()``, redirects
@@ -42,19 +46,21 @@ def bind_command(button: Any, command: Command) -> DisposableBase:
     Returns a :class:`~reactivex.abc.DisposableBase` for the
     ``can_execute_changed`` subscription. Accepts any :class:`Command`
     (including decorated ones such as ``ConfirmationDecoratorCommand``) —
-    shared delete-command behavior.
+    shared delete-command behavior. ``parameter`` is passed to
+    ``can_execute`` and ``execute`` (for parameterised commands such as
+    ``RelayCommandOf``).
     """
-    button.disabled = not command.can_execute()
+    button.disabled = not command.can_execute(parameter)
 
     def _press() -> None:
         # Mirror Button.press()'s own disabled guard.
         if not button.disabled:
-            command.execute()
+            command.execute(parameter)
 
     button.press = _press
 
     def _on_can_execute_changed(_value: object) -> None:
-        button.disabled = not command.can_execute()
+        button.disabled = not command.can_execute(parameter)
 
     subscription = command.can_execute_changed.subscribe(on_next=_on_can_execute_changed)
     return subscription

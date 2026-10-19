@@ -1,14 +1,13 @@
 # 9.11. SolidJS Integration
 
-Wire a `ComponentVMOf<M>` to a Solid component via `createSignal` and
-`createEffect` — Solid's fine-grained reactivity primitives.
+Wire a `ComponentVMOf<M>` to a Solid component through `createSignal` and
+`onCleanup`, Solid's fine-grained reactivity primitives.
 
 ## 9.11.1. Reactivity primitive
 
 - `createSignal(initial)` returns a `[get, set]` pair. Reads are tracked
   inside JSX and reactive scopes; writes trigger re-renders for any
   subscriber.
-- `createEffect(fn)` runs `fn` on every change to signals it reads.
 - `onCleanup(fn)` registers teardown.
 
 ## 9.11.2. Mapping
@@ -20,11 +19,10 @@ Wire a `ComponentVMOf<M>` to a Solid component via `createSignal` and
 | `createMemo(() => ...)`              | `DerivedProperty<T>` / `fromSources` |
 | `onCleanup(() => cleanup)`           | dispose the subscription             |
 
-`republishModel()` announces a model that was mutated in place, so the
-announced value is the same object the signal already holds. A signal created
-with the default `===` equality skips that update, so the hook creates it with
-`equals: false`. Replacement objects and scalar values update the same way, and
-messages for another VM or another property are filtered out.
+A [`republishModel()` announcement keeps the same reference](index.md#914-republished-models-keep-their-reference),
+and a signal with the default `===` equality skips it. The hook creates the
+signal with `equals: false`. Messages for another VM or another property are
+filtered out.
 
 ## 9.11.3. Adapter skeleton
 
@@ -91,5 +89,6 @@ keyed `<Show>`.
 
 ## 9.11.4. Fuller example
 
-No worked Solid Notes-Showcase ships yet. The React recipe
-([react.md](react.md)) shares the same hub-subscription shape.
+There is no Solid Notes-Showcase. The runnable reference is
+`examples/typescript/integration-recipes`. For a packaged adapter, see the
+React recipe ([react.md](react.md)).

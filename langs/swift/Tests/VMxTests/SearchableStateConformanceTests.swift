@@ -1,10 +1,12 @@
 // SearchableState conformance tests — COMP-014..018 + GRP-007..010.
 // See spec/06-composite-vm.md, spec/07-group-vm.md, ADR-0014.
 //
-// All tests drive debounce deterministically via search() (the force-immediate
+// Most tests drive debounce deterministically via search() (the force-immediate
 // path through PassthroughSubject → Publishers.Merge → filteredSubject.send)
 // which is synchronous — no XCTestExpectation needed.  This mirrors the
 // strategy used for HIER-013 in HierarchicalCompositionTests.swift.
+// GRP-008 is the exception: it sets the term alone and waits for the
+// debounced (main-scheduler) recompute.
 
 import Combine
 import XCTest
@@ -149,9 +151,21 @@ final class SearchableStateConformanceTests: XCTestCase {
         var snap: [[String]] = []
         sut.filtered.sink { snap.append($0) }.store(in: &cancellables)
 
-        sut.searchTerm = "x"
-        sut.search()
+        // Setting the term alone must drive the recompute through the
+        // debounce path — no explicit search(). Debounce 0 still hops the
+        // main scheduler, so wait (generously) for the snapshot.
+        let recomputed = expectation(description: "debounced recompute")
+        var fulfilled = false
+        sut.filtered.sink { value in
+            if value == ["x", "yx"], !fulfilled {
+                fulfilled = true
+                recomputed.fulfill()
+            }
+        }.store(in: &cancellables)
 
+        sut.searchTerm = "x"
+
+        wait(for: [recomputed], timeout: 5)
         XCTAssertEqual(snap.last, ["x", "yx"])
 
         sut.dispose()

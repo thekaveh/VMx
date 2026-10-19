@@ -581,6 +581,81 @@ def test_LIFE_013_dispose_cascades_depth_first() -> None:
     )
 
 
+class _NamedDisposeFailingComponent(ComponentVM):
+    def _on_dispose(self) -> None:
+        raise RuntimeError(f"dispose failure {self.name}")
+
+
+@pytest.mark.parametrize("kind", ["composite", "group", "aggregate"])
+@pytest.mark.conformance("LIFE-013")
+def test_LIFE_013_failing_child_hooks_finish_siblings_and_parent_first(kind: str) -> None:
+    """LIFE-013: when child disposal hooks throw, every later sibling and the
+    parent's mandatory teardown still complete before the FIRST failure is
+    propagated."""
+    from vmx.aggregates.builders import AggregateVM2Builder
+
+    hub = _hub()
+    disp = _dispatcher()
+    first = _NamedDisposeFailingComponent(name="first", hint="", hub=hub, dispatcher=disp)
+    second = _NamedDisposeFailingComponent(name="second", hint="", hub=hub, dispatcher=disp)
+    parent: object
+    if kind == "composite":
+        parent = (
+            CompositeVMBuilder()
+            .name("parent")
+            .services(hub, disp)
+            .children(lambda: [first, second])
+            .build()
+        )
+    elif kind == "group":
+        parent = (
+            GroupVMBuilder()
+            .name("parent")
+            .services(hub, disp)
+            .children(lambda: [first, second])
+            .build()
+        )
+    else:
+        parent = (
+            AggregateVM2Builder()
+            .name("parent")
+            .services(hub, disp)
+            .component_1(lambda: first)
+            .component_2(lambda: second)
+            .build()
+        )
+    parent.construct()  # type: ignore[attr-defined]
+
+    with pytest.raises(RuntimeError) as excinfo:
+        parent.dispose()  # type: ignore[attr-defined]
+
+    assert str(excinfo.value) == "dispose failure first"
+    assert first.status is ConstructionStatus.DISPOSED
+    assert second.status is ConstructionStatus.DISPOSED
+    assert parent.status is ConstructionStatus.DISPOSED  # type: ignore[attr-defined]
+
+
+@pytest.mark.conformance("LIFE-013")
+def test_LIFE_013_failing_parent_hook_still_disposes_children() -> None:
+    """LIFE-013: a failing parent disposal hook still lets every child finish
+    and the parent reach Disposed before the failure propagates."""
+    hub = _hub()
+    disp = _dispatcher()
+    a = _build_child("a", hub=hub, dispatcher=disp)
+    b = _build_child("b", hub=hub, dispatcher=disp)
+    parent = _DisposeFailingComposite(name="parent", hint="", hub=hub, dispatcher=disp)
+    parent.add(a)
+    parent.add(b)
+    parent.construct()
+
+    with pytest.raises(RuntimeError, match="destination dispose failure"):
+        parent.dispose()
+
+    assert a.status is ConstructionStatus.DISPOSED
+    assert b.status is ConstructionStatus.DISPOSED
+    assert parent.status is ConstructionStatus.DISPOSED
+
+
 # ===========================================================================
 # COMP-012 — AutoConstructOnAdd(true) auto-constructs late children (spec v1.1)
 # ===========================================================================
@@ -664,10 +739,14 @@ def test_COMP_025_current_selector_drives_initial_selection() -> None:
     children = [_build_child(name, hub=hub, dispatcher=disp) for name in ("a", "b", "c")]
 
     selector_calls = 0
+    seen_child_statuses: list[list[ConstructionStatus]] = []
+    seen_composite_status: list[ConstructionStatus] = []
 
     def selector(xs: object) -> ComponentVM:
         nonlocal selector_calls
         selector_calls += 1
+        seen_child_statuses.append([child.status for child in children])
+        seen_composite_status.append(composite.status)
         return list(xs)[1]  # type: ignore[call-overload]
 
     composite: CompositeVM[ComponentVM] = (
@@ -683,6 +762,12 @@ def test_COMP_025_current_selector_drives_initial_selection() -> None:
 
     assert composite.current is children[1]
     assert selector_calls == 1, "the selector must run exactly once during construct"
+    assert seen_child_statuses == [[ConstructionStatus.CONSTRUCTED] * 3], (
+        "the selector must run after every child reached Constructed"
+    )
+    assert seen_composite_status == [ConstructionStatus.CONSTRUCTING], (
+        "the selector must run before the composite reached Constructed"
+    )
 
     # A null-returning selector leaves current None and publishes no
     # PropertyChangedMessage('current').
@@ -718,23 +803,45 @@ def test_COMP_026_on_current_changed_fires_after_each_change() -> None:
     """
     hub = _hub()
     disp = _dispatcher()
-    children = [_build_child(name, hub=hub, dispatcher=disp) for name in ("a", "b")]
+    children = [_build_child(name, hub=hub, dispatcher=disp) for name in ("a", "b", "c")]
     observed: list[ComponentVM | None] = []
+    order: list[str] = []
+    composite_ref: list[CompositeVM[ComponentVM]] = []
+
+    def on_current(vm: ComponentVM | None) -> None:
+        observed.append(vm)
+        order.append(f"callback:{vm.name if vm is not None else None}")
+
+    def on_hub(m: object) -> None:
+        if (
+            isinstance(m, PropertyChangedMessage)
+            and m.property_name == "current"
+            and composite_ref
+            and m.sender_object is composite_ref[0]
+        ):
+            cur = composite_ref[0].current
+            order.append(f"message:{cur.name if cur is not None else None}")
+
+    hub.messages.subscribe(on_hub)
 
     composite: CompositeVM[ComponentVM] = (
         CompositeVMBuilder()
         .name("composite")
         .services(hub, disp)
         .children(lambda: children)
-        .on_current_changed(observed.append)
+        .on_current_changed(on_current)
         .build()
     )
+    composite_ref.append(composite)
 
     composite.construct()
+    assert composite.current is None
     composite.select_component(children[1])
     composite.deselect_component(children[1])
 
     assert observed == [children[1], None]
+    # Each callback runs after its PropertyChangedMessage("current").
+    assert order == ["message:b", "callback:b", "message:None", "callback:None"]
 
     # Combined current(first) + on_current_changed: the initial-selector
     # assignment fires the hook exactly once with the first child.
@@ -780,6 +887,45 @@ def test_COMP_026_on_current_changed_fires_after_each_change() -> None:
 
     assert callback_statuses == [ConstructionStatus.CONSTRUCTED]
     assert reentrant.status is ConstructionStatus.DISPOSED
+
+
+@pytest.mark.conformance("COMP-026")
+def test_COMP_026_blocked_current_flag_notification_leaves_final_current_flag() -> None:
+    """COMP-026: while one child's current-flag notification is blocked, another
+    thread selecting a different child completes, and exactly the final current
+    child has its current flag set."""
+    composite, _ = _build_composite()
+    first = _build_child("first")
+    second = _build_child("second")
+    third = _build_child("third")
+    composite.append(first)
+    composite.append(second)
+    composite.append(third)
+    composite.current = first
+    entered = Event()
+    release = Event()
+
+    def block_first_publication(property_name: str) -> None:
+        if property_name == "is_current" and not first.is_current:
+            entered.set()
+            assert release.wait(timeout=2)
+
+    subscription = first.property_changed.subscribe(block_first_publication)
+    first_thread = Thread(target=lambda: setattr(composite, "current", second), daemon=True)
+    second_thread = Thread(target=lambda: setattr(composite, "current", third), daemon=True)
+    first_thread.start()
+    assert entered.wait(timeout=2)
+    second_thread.start()
+    second_thread.join(timeout=2)
+    later_completed_while_blocked = not second_thread.is_alive()
+    release.set()
+    first_thread.join(timeout=2)
+    subscription.dispose()
+
+    assert later_completed_while_blocked, "the later assignment must not wait on the blocked one"
+    assert not first_thread.is_alive()
+    assert composite.current is third
+    assert [c.is_current for c in (first, second, third)] == [False, False, True]
 
 
 @pytest.mark.conformance("COMP-026")
@@ -956,6 +1102,7 @@ def test_current_callback_disposal_preserves_remove_and_reset_events() -> None:
     assert exercise(clear=True) == ["reset"]
 
 
+@pytest.mark.conformance("COMP-040")
 def test_auto_construct_rollback_destructs_child_after_destination_disposal() -> None:
     destination_ref: list[CompositeVM[ComponentVM]] = []
     hub, dispatcher = _hub(), _dispatcher()
@@ -1116,19 +1263,49 @@ def test_COMP_039_duplicate_and_cycle_rejection_is_mutation_free() -> None:
     events: list[CollectionChangedEvent] = []
     parent.on_collection_changed.subscribe(events.append)
 
+    parent.construct()
+    parent.current = child
+    parent_link = child._parent
+
     with pytest.raises(ValueError):
         parent.add(child)
 
     assert list(parent) == [child]
     assert events == []
+    assert child._parent is parent_link
+    assert parent.current is child
+    assert child.is_current is True
+    assert child.status is ConstructionStatus.CONSTRUCTED
 
     outer, _ = _build_composite("outer", hub=hub)
     inner, _ = _build_composite("inner", hub=hub)
     outer.add(inner)  # type: ignore[arg-type]
+    outer_events: list[CollectionChangedEvent] = []
+    inner_events: list[CollectionChangedEvent] = []
+    outer.on_collection_changed.subscribe(outer_events.append)
+    inner.on_collection_changed.subscribe(inner_events.append)
     with pytest.raises(ValueError):
         inner.add(outer)  # type: ignore[arg-type]
     assert list(outer) == [inner]
     assert list(inner) == []
+    assert outer._parent is None
+
+    # Self-attach is rejected with the same mutation-free guarantee.
+    with pytest.raises(ValueError):
+        outer.add(outer)  # type: ignore[arg-type]
+    assert list(outer) == [inner]
+    assert outer._parent is None
+    assert outer.status is ConstructionStatus.DESTRUCTED
+    assert outer_events == []
+    assert inner_events == []
+
+    group: GroupVM[ComponentVM] = (
+        GroupVMBuilder().name("group").services(hub, _dispatcher()).children(lambda: ()).build()
+    )
+    with pytest.raises(ValueError):
+        group.add(group)  # type: ignore[arg-type]
+    assert list(group) == []
+    assert group._parent is None
 
 
 @pytest.mark.conformance("COMP-039")
@@ -1332,6 +1509,149 @@ def test_COMP_040_rolls_back_before_deferred_old_group_disposal() -> None:
 
 
 @pytest.mark.conformance("COMP-040")
+def test_COMP_040_reentrant_structural_mutation_is_rejected_before_mutation() -> None:
+    """COMP-040: re-entrant structural mutation of either protected container
+    from the transfer hook is rejected before any mutation."""
+    hub = _hub()
+    dispatcher = _dispatcher()
+    old_parent, _ = _build_composite("old", hub=hub, dispatcher=dispatcher)
+    destination: CompositeVM[ComponentVM] = (
+        CompositeVMBuilder()
+        .name("destination")
+        .services(hub, dispatcher)
+        .children(lambda: ())
+        .auto_construct_on_add(True)
+        .build()
+    )
+    sibling = _build_child("sibling", hub=hub, dispatcher=dispatcher)
+    intruder_old = _build_child("intruder-old", hub=hub, dispatcher=dispatcher)
+    intruder_new = _build_child("intruder-new", hub=hub, dispatcher=dispatcher)
+    rejections: list[BaseException] = []
+    observed: list[tuple[list[str], list[str]]] = []
+
+    def reenter() -> None:
+        for container, intruder in ((old_parent, intruder_old), (destination, intruder_new)):
+            try:
+                container.add(intruder)
+            except Exception as error:
+                rejections.append(error)
+        observed.append(([c.name for c in old_parent], [c.name for c in destination]))
+
+    child = (
+        ComponentVMBuilder().name("child").services(hub, dispatcher).on_construct(reenter).build()
+    )
+    old_parent.add(sibling)
+    old_parent.add(child)
+    destination.construct()
+    events: list[str] = []
+    old_parent.on_collection_changed.subscribe(lambda e: events.append(f"old:{e.action}"))
+    destination.on_collection_changed.subscribe(lambda e: events.append(f"new:{e.action}"))
+
+    destination.add(child)
+
+    assert len(rejections) == 2
+    assert all(isinstance(error, RuntimeError) for error in rejections)
+    # Neither intruder was attached; no partial mutation leaked from the hook.
+    assert intruder_old._parent is None
+    assert intruder_new._parent is None
+    assert all("intruder-old" not in old and "intruder-new" not in new for old, new in observed)
+    assert list(old_parent) == [sibling]
+    assert list(destination) == [child]
+    assert events == ["old:remove", "new:add"]
+
+
+@pytest.mark.conformance("COMP-040")
+def test_COMP_040_replacement_rollback_precedes_deferred_destination_disposal() -> None:
+    """COMP-040: replacement rollback restores the displaced member before a
+    deferred destination disposal takes its terminal membership snapshot."""
+    hub = _hub()
+    dispatcher = _dispatcher()
+    old_parent: GroupVM[ComponentVM] = (
+        GroupVMBuilder().name("old").services(hub, dispatcher).children(lambda: ()).build()
+    )
+    destination: CompositeVM[ComponentVM] = (
+        CompositeVMBuilder()
+        .name("destination")
+        .services(hub, dispatcher)
+        .children(lambda: ())
+        .auto_construct_on_add(True)
+        .build()
+    )
+    displaced = _build_child("displaced", hub=hub, dispatcher=dispatcher)
+    destination.add(displaced)
+    destination.construct()
+
+    def dispose_destination_then_fail() -> None:
+        destination.dispose()
+        raise RuntimeError("boom")
+
+    child = (
+        ComponentVMBuilder()
+        .name("child")
+        .services(hub, dispatcher)
+        .on_construct(dispose_destination_then_fail)
+        .build()
+    )
+    old_parent.add(child)
+
+    with pytest.raises(RuntimeError, match="boom"):
+        destination[0] = child
+
+    # The displaced member was restored before the terminal snapshot, so the
+    # deferred disposal cascaded into it; the transferred child went home.
+    assert destination.status is ConstructionStatus.DISPOSED
+    assert list(destination) == [displaced]
+    assert displaced.status is ConstructionStatus.DISPOSED
+    assert displaced._parent is not None and displaced._parent.owner is destination
+    assert list(old_parent) == [child]
+    assert child._parent is not None and child._parent.owner is old_parent
+    assert child.status is ConstructionStatus.DESTRUCTED
+
+
+@pytest.mark.conformance("COMP-040")
+def test_COMP_040_lifecycle_compensation_failure_is_surfaced() -> None:
+    """COMP-040: when required lifecycle compensation itself raises, the
+    rollback failure is surfaced rather than swallowed."""
+    hub = _hub()
+    dispatcher = _dispatcher()
+
+    def fail_compensation() -> None:
+        raise RuntimeError("compensation failed")
+
+    def fail_population() -> None:
+        raise RuntimeError("population failed")
+
+    compensated = (
+        ComponentVMBuilder()
+        .name("compensated")
+        .services(hub, dispatcher)
+        .on_destruct(fail_compensation)
+        .build()
+    )
+    blocker = (
+        ComponentVMBuilder()
+        .name("blocker")
+        .services(hub, dispatcher)
+        .on_construct(fail_population)
+        .build()
+    )
+    composite: CompositeVM[ComponentVM] = (
+        CompositeVMBuilder()
+        .name("composite")
+        .services(hub, dispatcher)
+        .children(lambda: [compensated, blocker])
+        .build()
+    )
+
+    with pytest.raises(RuntimeError, match="compensation failed") as failure:
+        composite.construct()
+
+    assert isinstance(failure.value.__cause__, RuntimeError)
+    assert str(failure.value.__cause__) == "population failed"
+    assert composite.snapshot() == ()
+
+
+@pytest.mark.conformance("COMP-040")
 def test_COMP_040_deferred_disposal_failure_follows_committed_transfer_events() -> None:
     hub = _hub()
     dispatcher = _dispatcher()
@@ -1527,6 +1847,142 @@ def test_COMP_040_concurrent_old_parent_disposal_waits_for_transfer_commit() -> 
     assert list(old_parent) == []
     assert list(destination) == [child]
     assert child.status is ConstructionStatus.CONSTRUCTED
+
+
+@pytest.mark.conformance("LIFE-015")
+def test_LIFE_015_dispose_during_admitted_hook_defers_cleanup_once() -> None:
+    """LIFE-015: dispose requested while an admitted construct hook runs does
+    not overlap the hook, cleans up exactly once after the hook releases, and
+    terminal supersession skips the post-hook child population/construction."""
+    hook_entered = Event()
+    release_hook = Event()
+    hook_active = Event()
+    overlaps: list[str] = []
+    cleanups: list[str] = []
+    factory_calls = 0
+    hub = _hub()
+    dispatcher = _dispatcher()
+    child = _build_child("child", hub=hub, dispatcher=dispatcher)
+
+    def block_construct() -> None:
+        hook_active.set()
+        hook_entered.set()
+        assert release_hook.wait(2)
+        hook_active.clear()
+
+    def children() -> list[ComponentVM]:
+        nonlocal factory_calls
+        factory_calls += 1
+        return [child]
+
+    composite: CompositeVM[ComponentVM] = (
+        CompositeVMBuilder()
+        .name("comp")
+        .services(hub, dispatcher)
+        .on_construct(block_construct)
+        .children(children)
+        .build()
+    )
+    original_on_dispose = composite._on_dispose
+
+    def counting_on_dispose() -> None:
+        if hook_active.is_set():
+            overlaps.append("cleanup overlapped admitted hook")
+        cleanups.append("comp")
+        original_on_dispose()
+
+    composite._on_dispose = counting_on_dispose  # type: ignore[method-assign]
+    statuses: list[ConstructionStatus] = []
+    hub.messages.subscribe(
+        lambda m: (
+            statuses.append(m.status)
+            if isinstance(m, ConstructionStatusChangedMessage) and m.sender is composite
+            else None
+        )
+    )
+    construct_errors: list[BaseException] = []
+
+    def construct() -> None:
+        try:
+            composite.construct()
+        except BaseException as error:
+            construct_errors.append(error)
+
+    constructor = Thread(target=construct, daemon=True)
+    constructor.start()
+    assert hook_entered.wait(2)
+    disposer = Thread(target=composite.dispose, daemon=True)
+    disposer.start()
+    disposer.join(0.05)
+    assert cleanups == [], "terminal cleanup must not run while the hook holds its lease"
+
+    release_hook.set()
+    constructor.join(2)
+    disposer.join(2)
+    assert not constructor.is_alive()
+    assert not disposer.is_alive()
+    composite.dispose()
+
+    assert overlaps == []
+    assert cleanups == ["comp"]
+    assert composite.status is ConstructionStatus.DISPOSED
+    assert ConstructionStatus.CONSTRUCTED not in statuses
+    assert statuses.count(ConstructionStatus.DISPOSED) == 1
+    # Terminal supersession: post-hook population is refused admission, so no
+    # child is attached or constructed by the superseded construct.
+    assert list(composite) == []
+    assert child._parent is None
+    assert child.status is ConstructionStatus.DESTRUCTED
+    assert all("disposing" in str(error) for error in construct_errors)
+
+
+@pytest.mark.conformance("LIFE-015")
+def test_LIFE_015_opposing_hook_disposals_do_not_deadlock() -> None:
+    """LIFE-015: two admitted hooks that each dispose the other's container
+    complete without deadlock and both containers reach Disposed once."""
+    barrier = Barrier(2)
+    composites: list[CompositeVM[ComponentVM]] = []
+    disposed_counts = [0, 0]
+
+    def hook(index: int) -> None:
+        barrier.wait(timeout=2)
+        composites[1 - index].dispose()
+
+    for index in range(2):
+        hub = _hub()
+        composite: CompositeVM[ComponentVM] = (
+            CompositeVMBuilder()
+            .name(f"comp-{index}")
+            .services(hub, _dispatcher())
+            .on_construct(lambda index=index: hook(index))
+            .children(lambda: ())
+            .build()
+        )
+        hub.messages.subscribe(
+            lambda m, index=index: (
+                disposed_counts.__setitem__(index, disposed_counts[index] + 1)
+                if isinstance(m, ConstructionStatusChangedMessage)
+                and m.status is ConstructionStatus.DISPOSED
+                else None
+            )
+        )
+        composites.append(composite)
+
+    def construct(vm: CompositeVM[ComponentVM]) -> None:
+        try:
+            vm.construct()
+        except BaseException:
+            pass
+
+    threads = [Thread(target=construct, args=(vm,), daemon=True) for vm in composites]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(3)
+
+    assert all(not thread.is_alive() for thread in threads)
+    assert all(vm.status is ConstructionStatus.DISPOSED for vm in composites)
+    assert disposed_counts == [1, 1]
 
 
 @pytest.mark.conformance("COMP-041")

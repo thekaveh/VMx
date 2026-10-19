@@ -37,11 +37,14 @@ once under the [Disposal Contract](../../disposal-contract.md).
 
 ## 6.2.8.4.4. Cross-Language Surface
 
-| Concept          | C#               | Python            | TypeScript       | Swift            |
-| ---------------- | ---------------- | ----------------- | ---------------- | ---------------- |
-| Type             | `NotificationVM` | `NotificationVM`  | `NotificationVM` | `NotificationVM` |
-| Lifespan default | 60 s             | 60 s              | 60 s             | 60 s             |
-| Dismiss command  | `DismissCommand` | `dismiss_command` | `dismissCommand` | `dismissCommand` |
+| Concept          | C#               | Python            | TypeScript       | Swift            | Rust                |
+| ---------------- | ---------------- | ----------------- | ---------------- | ---------------- | ------------------- |
+| Type             | `NotificationVM` | `NotificationVM`  | `NotificationVM` | `NotificationVM` | `NotificationVm`    |
+| Lifespan default | 60 s             | 60 s              | 60 s             | 60 s             | 60 s                |
+| Dismiss command  | `DismissCommand` | `dismiss_command` | `dismissCommand` | `dismissCommand` | `dismiss_command()` |
+
+Rust's `NotificationVm` has no injected scheduler: its lifespan advances only
+through `advance_by_ms`, so a host drives the clock itself.
 
 ## 6.2.8.4.5. Example
 

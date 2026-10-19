@@ -145,7 +145,10 @@ describe("CMDD-009", () => {
     const dec = new DecoratorCommand(conf);
 
     expect(dec.canExecute()).toBe(true);
-    await conf.executeAsync();
+    // DecoratorCommand exposes only execute(); the confirmation gate inside is
+    // async, so drain it before asserting.
+    dec.execute();
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(log).toEqual(["relay"]);
   });
 });
@@ -235,10 +238,12 @@ describe("CMDD-011", () => {
     decorator.execute();
     expect(log).toEqual([]);
 
-    // The inner commands were not disposed.
+    // The inner commands were not disposed and still execute directly.
+    expect([a, b, inner].map((command) => command.canExecute())).toEqual([true, true, true]);
     a.execute();
+    b.execute();
     inner.execute();
-    expect(log).toEqual(["a", "inner"]);
+    expect(log).toEqual(["a", "b", "inner"]);
   });
 
   it("wrapper disposal leaves the inner canExecuteChanged stream to its owner", () => {
@@ -267,6 +272,20 @@ describe("CMDD-011", () => {
 });
 
 describe("CMDD-012", () => {
+  it("a confirmation disposed by its inner predicate reports canExecute false", () => {
+    let wrapper: ConfirmationDecoratorCommand | null = null;
+    const inner = RelayCommand.builder()
+      .predicate(() => {
+        wrapper?.dispose();
+        return true;
+      })
+      .task(() => {})
+      .build();
+    wrapper = new ConfirmationDecoratorCommand(inner, () => Promise.resolve(true));
+
+    expect(wrapper.canExecute()).toBe(false);
+  });
+
   it("a disposed confirmation decorator never consults confirm", async () => {
     const log: string[] = [];
     let confirms = 0;
@@ -334,6 +353,38 @@ describe("CMDD-013", () => {
 
     expect(log).toEqual(["first"]);
   });
+
+  it.each([
+    ["execute", (d: ConfirmationDecoratorCommand) => {
+      d.execute();
+      return Promise.resolve();
+    }],
+    ["executeAsync", (d: ConfirmationDecoratorCommand) => d.executeAsync()],
+  ])(
+    "a confirmation decorator disposed by its inner predicate never consults confirm (%s)",
+    async (_, run) => {
+      const log: string[] = [];
+      let confirms = 0;
+      let decorator: ConfirmationDecoratorCommand | null = null;
+      const inner = RelayCommand.builder()
+        .predicate(() => {
+          decorator?.dispose();
+          return true;
+        })
+        .task(() => log.push("inner"))
+        .build();
+      decorator = new ConfirmationDecoratorCommand(inner, () => {
+        confirms += 1;
+        return Promise.resolve(true);
+      });
+
+      await run(decorator);
+      await settle();
+
+      expect(confirms).toBe(0);
+      expect(log).toEqual([]);
+    },
+  );
 
   it("a decorator disposed by its extra predicate runs neither hook nor inner", () => {
     const log: string[] = [];

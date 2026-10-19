@@ -44,7 +44,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
     /// Creates an empty group with explicit message and dispatch services.
     pub fn with_services(name: impl Into<String>, hub: MessageHub, dispatcher: D) -> Self {
         let core = ComponentCore::new(name, hub.clone(), dispatcher);
-        let items: ObservableList<T> = ObservableList::new(core.id(), hub);
+        let items: ObservableList<T> = ObservableList::with_owner_name(core.id(), core.name(), hub);
         let dispose_requested = Arc::new(AtomicBool::new(false));
         let membership_gate = Arc::new(Mutex::new(()));
         let membership_transaction_active = Arc::new(AtomicBool::new(false));
@@ -123,23 +123,32 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
                 }
             },
         );
+        let auto_construct_on_add = Arc::new(Mutex::new(false));
+        let reconstruct_auto = Arc::clone(&auto_construct_on_add);
         let reconstruct_core = core.clone();
         let reconstruct_items = items.clone();
         let commands = ComponentCommands::new(&core, move || {
             if reconstruct_core
                 .transition_with(LifecycleOperation::Destruct, || {
                     for item in reconstruct_items.to_vec() {
-                        item.destruct()?;
+                        reconstruct_core.transition_child(&item, LifecycleOperation::Destruct)?;
                     }
                     Ok(())
                 })
                 .is_ok()
             {
-                let _ = reconstruct_core.transition_with(LifecycleOperation::Construct, || {
-                    for item in reconstruct_items.to_vec() {
-                        item.construct()?;
-                    }
-                    Ok(())
+                let construct_core = reconstruct_core.clone();
+                let construct_items = reconstruct_items.clone();
+                let auto = Arc::clone(&reconstruct_auto);
+                let _ = reconstruct_core.construct_after_destruct(move || {
+                    construct_core.transition_with(LifecycleOperation::Construct, || {
+                        let members = construct_items.clone();
+                        construct_core.construct_children(
+                            Arc::new(move || members.to_vec()),
+                            *lock(&auto),
+                            Box::new(|| Ok(())),
+                        )
+                    })
                 });
             }
         });
@@ -148,7 +157,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             commands,
             items,
             ownership,
-            auto_construct_on_add: Arc::new(Mutex::new(false)),
+            auto_construct_on_add,
             dispose_requested,
             membership_gate,
             membership_transaction_active,
@@ -164,6 +173,12 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
     /// Returns the message hub used by the group and its collection.
     pub fn hub(&self) -> MessageHub {
         self.core.hub()
+    }
+
+    /// Returns the hot error stream for child lifecycle failures that settle
+    /// after `construct`/`destruct` returned (background children).
+    pub fn background_errors(&self) -> crate::LifecycleErrorStream {
+        self.core.background_errors()
     }
 
     /// Registers cleanup work that runs when the group is disposed.
@@ -270,8 +285,9 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             self.items.insert_silent(index, item.clone())?;
             index
         };
-        let should_construct =
-            *lock(&self.auto_construct_on_add) && self.status() == ConstructionStatus::Constructed;
+        let should_construct = self
+            .core
+            .auto_constructs_on_add(*lock(&self.auto_construct_on_add), item.status());
         let admission = (if should_construct {
             item.construct()
         } else {
@@ -452,8 +468,9 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             item.set_parent_handle(Some(self.ownership.handle()));
             self.items.insert_silent(index, item.clone())?;
         }
-        let should_construct =
-            *lock(&self.auto_construct_on_add) && self.status() == ConstructionStatus::Constructed;
+        let should_construct = self
+            .core
+            .auto_constructs_on_add(*lock(&self.auto_construct_on_add), item.status());
         let admission = (if should_construct {
             item.construct()
         } else {
@@ -510,6 +527,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
     ///
     /// Removing an item that is not a member is a no-op.
     pub fn remove(&self, item: &T) -> VmxResult<()> {
+        self.reject_if_disposed()?;
         let transaction = begin_membership_transaction(
             &self.membership_transaction_active,
             &self.membership_transaction_control,
@@ -539,6 +557,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
 
     /// Removes and returns the child at `index`, clearing its parent link.
     pub fn remove_at(&self, index: usize) -> VmxResult<T> {
+        self.reject_if_disposed()?;
         let transaction = begin_membership_transaction(
             &self.membership_transaction_active,
             &self.membership_transaction_control,
@@ -589,8 +608,9 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
                 }
             }
         };
-        let should_construct =
-            *lock(&self.auto_construct_on_add) && self.status() == ConstructionStatus::Constructed;
+        let should_construct = self
+            .core
+            .auto_constructs_on_add(*lock(&self.auto_construct_on_add), item.status());
         let admission = (if should_construct {
             item.construct()
         } else {
@@ -652,6 +672,9 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
         )?;
         let changed = {
             let _gate = lock(&self.membership_gate);
+            if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
+                return Err(VmxError::Disposed);
+            }
             self.items.move_item_silent(from_index, to_index)?
         };
         if changed {
@@ -662,13 +685,16 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
 
     /// Removes all children and clears their links to this parent.
     pub fn clear(&self) {
+        if self.reject_if_disposed().is_err() {
+            return;
+        }
         let Ok(_transaction) = begin_membership_transaction(
             &self.membership_transaction_active,
             &self.membership_transaction_control,
         ) else {
             return;
         };
-        let changed = {
+        let removed = {
             let _gate = lock(&self.membership_gate);
             for item in self.items() {
                 if item
@@ -678,8 +704,11 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
                     item.set_parent_handle(None);
                 }
             }
-            self.items.clear_silent()
+            self.items.take_silent()
         };
+        // Removed children are dropped after the membership gate is released.
+        let changed = !removed.is_empty();
+        drop(removed);
         if changed {
             self.items.publish_reset();
         }
@@ -702,10 +731,12 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
     pub fn construct(&self) -> VmxResult<()> {
         self.core
             .transition_with(LifecycleOperation::Construct, || {
-                for item in self.items() {
-                    item.construct()?;
-                }
-                Ok(())
+                let members = self.items.clone();
+                self.core.construct_children(
+                    Arc::new(move || members.to_vec()),
+                    *lock(&self.auto_construct_on_add),
+                    Box::new(|| Ok(())),
+                )
             })
     }
 
@@ -713,7 +744,8 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
     pub fn destruct(&self) -> VmxResult<()> {
         self.core.transition_with(LifecycleOperation::Destruct, || {
             for item in self.items() {
-                item.destruct()?;
+                self.core
+                    .transition_child(&item, LifecycleOperation::Destruct)?;
             }
             Ok(())
         })
@@ -721,6 +753,7 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
 
     /// Disposes all children and the group, returning the first encountered error.
     pub fn dispose(&self) -> VmxResult<()> {
+        self.core.abandon_child_settle();
         let snapshot = loop {
             let _gate = lock(&self.membership_gate);
             match self.membership_transaction_control.dispose_disposition() {
@@ -749,9 +782,9 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
         let Some(snapshot) = snapshot else {
             let mut first_failure = None;
             retain_first_failure(&mut first_failure, || {
-                self.core.transition(LifecycleOperation::Dispose)
+                let commands = self.commands.clone();
+                self.core.dispose_then(move || commands.dispose())
             });
-            self.commands.dispose();
             return finish_with_first_failure(first_failure);
         };
         let mut first_failure = None;
@@ -759,10 +792,26 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
             retain_first_failure(&mut first_failure, || item.dispose());
         }
         retain_first_failure(&mut first_failure, || {
-            self.core.transition(LifecycleOperation::Dispose)
+            let commands = self.commands.clone();
+            self.core.dispose_then(move || commands.dispose())
         });
-        self.commands.dispose();
         finish_with_first_failure(first_failure)
+    }
+
+    /// Local collection-change stream of the children (see
+    /// `ObservableList::local_changes`).
+    pub(crate) fn membership_changes(&self) -> MessageHub {
+        self.items.local_changes()
+    }
+
+    /// Rejects a membership or selection change after disposal, as `add`,
+    /// `insert`, `replace`, and `move_item` do (disposal contract).
+    fn reject_if_disposed(&self) -> VmxResult<()> {
+        if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
+            Err(VmxError::Disposed)
+        } else {
+            Ok(())
+        }
     }
 
     fn disposal_pending(&self) -> bool {
@@ -777,14 +826,11 @@ impl<T: VmNode, D: Dispatcher> GroupVm<T, D> {
 
     /// Destructs and then constructs the group.
     pub fn reconstruct(&self) -> VmxResult<()> {
-        if self.status() != ConstructionStatus::Constructed {
-            return Err(VmxError::InvalidLifecycleTransition {
-                from: self.status(),
-                operation: "reconstruct",
-            });
-        }
+        crate::runtime::reconstruct_admission(self.status())?;
         self.destruct()?;
-        self.construct()
+        let group = self.clone();
+        self.core
+            .construct_after_destruct(move || group.construct())
     }
 
     /// Reports whether the group is constructed.
@@ -954,6 +1000,10 @@ impl<T: VmNode, D: Dispatcher> VmNode for GroupVm<T, D> {
 
     fn set_current_flag(&self, is_current: bool) {
         self.core.set_current_flag(is_current);
+    }
+
+    fn when_lifecycle_settled(&self, callback: crate::LifecycleSettleCallback) -> bool {
+        self.core.when_settled(callback)
     }
 
     fn is_current(&self) -> bool {

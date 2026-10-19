@@ -3,6 +3,7 @@ using System.Collections.Specialized;
 using System.Reactive.Disposables;
 using VMx.Collections;
 using VMx.Components;
+using VMx.Composites;
 using VMx.Lifecycle;
 using VMx.Messages;
 using VMx.Services;
@@ -33,6 +34,9 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
     // ── Batch-update state (spec v1.1) ────────────────────────────────────────
     private int _batchDepth;
     private bool _batchDirty;
+
+    // Collects the children population started constructing (see OnConstruct).
+    private HashSet<IComponentVM>? _populationJoined;
     private int _disposeRequested;
     private bool _disposeDeferred;
     private bool _membershipTransactionActive;
@@ -476,7 +480,14 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
     private void MaybeAutoConstruct(VM item)
     {
         if (!_autoConstructOnAdd) return;
-        if (Status != ConstructionStatus.Constructed) return;
+        var status = Status;
+        if (status == ConstructionStatus.Constructing)
+        {
+            // The construct walk joins a child added while it runs.
+            if (item.Status == ConstructionStatus.Destructed) item.Construct();
+            return;
+        }
+        if (status != ConstructionStatus.Constructed) return;
         if (item.Status == ConstructionStatus.Constructed) return;
         item.Construct();
     }
@@ -543,10 +554,16 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
     protected override void OnConstruct()
     {
         base.OnConstruct(); // invoke user's onConstruct callback if any
-        PopulateChildren();
+        // Children whose construct population started are joined, not restarted.
+        var joined = new HashSet<IComponentVM>(ComponentVMBase.ChildReferenceComparer.Instance);
+        _populationJoined = joined;
+        try { PopulateChildren(); }
+        finally { _populationJoined = null; }
         CompleteLifecycleHookAfter(TransitionChildrenAsync(
-            Snapshot().ToArray(),
-            construct: true));
+            ContainerConstructWalk.Enumerate(() => Snapshot().ToArray(), _autoConstructOnAdd, joined),
+            construct: true,
+            after: null,
+            joined: joined));
     }
 
     /// <summary>
@@ -594,7 +611,13 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
             foreach (var child in candidates)
             {
                 if (Status == ConstructionStatus.Constructing)
+                {
                     child.Construct();
+                    // A child population left pending is joined, never restarted.
+                    if (child.Status is not ConstructionStatus.Constructed
+                        and not ConstructionStatus.Disposed)
+                        _populationJoined?.Add(child);
+                }
                 else
                     MaybeAutoConstruct(child);
             }

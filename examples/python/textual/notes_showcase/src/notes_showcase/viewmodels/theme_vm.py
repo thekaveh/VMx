@@ -272,6 +272,18 @@ class ThemeVM(ComponentVMOf[ThemeModel]):
         self._apply_model(dataclasses.replace(host, follows_system=True))
 
     # ── Internal apply pipeline ─────────────────────────────────────────────
+    @property
+    def model(self) -> ThemeModel:
+        """The current theme model."""
+        return self._model
+
+    @model.setter
+    def model(self, value: ThemeModel) -> None:
+        # Route outside writes through the single emit path, as the C# and
+        # TypeScript ThemeVMs do, so current_theme and ThemeChangedMessage
+        # stay in step with the model.
+        self._apply_model(value)
+
     def _apply_model(self, new_model: ThemeModel) -> None:
         """Adopt ``new_model`` if it differs from the current; emit on success.
 
@@ -280,6 +292,9 @@ class ThemeVM(ComponentVMOf[ThemeModel]):
         publishes a :class:`ThemeChangedMessage` carrying both halves. The
         ``BehaviorSubject`` is re-nudged so DerivedProperty subscribers fire.
         """
+        # A disposed theme is inert (DISP-014): its subject is already gone.
+        if self._is_disposed():
+            return
         prev = self._model
         if prev == new_model:
             return

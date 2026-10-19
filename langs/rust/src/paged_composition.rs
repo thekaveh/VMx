@@ -2,7 +2,7 @@
 //!
 //! Spec: `spec/21-collections.md`.
 
-use super::{lock, Arc, Mutex, Pageable};
+use super::{lock, replace_locked, Arc, Mutex, Pageable};
 
 /// A mutable in-memory collection exposed as fixed-size indexed pages.
 ///
@@ -39,7 +39,7 @@ impl<T: Clone + Send + 'static> PagedComposition<T> {
 
     /// Replaces the complete source and clamps the current page.
     pub fn set_source(&self, source: Vec<T>) {
-        *lock(&self.source) = source;
+        replace_locked(&self.source, source);
         self.clamp();
     }
 

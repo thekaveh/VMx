@@ -265,3 +265,16 @@ def test_collection_changed_message_direct_construction_keeps_old_defaults() -> 
     assert message.index == 3
     assert message.old_index == -1
     assert message.new_index == -1
+
+
+def test_empty_slice_delete_and_assign_emit_nothing() -> None:
+    sut: ServicedObservableCollection[int] = ServicedObservableCollection()
+    sut.extend([1, 2, 3])
+    events: list[CollectionChangedMessage[int]] = []
+    sut.on_collection_changed.subscribe(events.append)
+
+    del sut[1:1]
+    sut[1:1] = []
+
+    assert events == []
+    assert list(sut) == [1, 2, 3]

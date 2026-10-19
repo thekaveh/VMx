@@ -11,8 +11,9 @@ the host (OS, UI framework) to block until the user responds. It lives in core �
 in an opt-in sub-package — because the contract surface is small and
 the null implementation is always needed in tests.
 
-Contrast with `INotificationHub` (chapter 16), which is fire-and-forget. See §5 for
-the responsibility-split diagram.
+Contrast with `INotificationHub` (chapter 16), which shows non-modal in-app
+notifications and confirmations that the user may answer later. See §5 for the
+responsibility-split diagram.
 
 ## 2. Contract surface
 
@@ -48,10 +49,21 @@ NotificationSeverity:
   the notification is acknowledged or dismissed. Severity defaults to `Info`.
 - **`Present`** — presents a VM-backed modal and returns its typed result. Host
   services can use a registry or framework-specific adapter to map the modal VM to
-  a widget/window. Languages that cannot add this method source-compatibly expose
-  it as a modal-capable service capability plus a fallback helper.
+  a widget/window. Python and Swift put `present` on the dialog service with a
+  default that dismisses the modal with its cancellation result. C# and
+  TypeScript cannot add the method source-compatibly, so they expose the
+  modal-capable `IModalDialogService` extension interface. C# also ships the
+  `DialogServiceModalExtensions.Present` fallback helper, which delegates to
+  `IModalDialogService` when the service implements it and otherwise dismisses
+  with the cancellation result. TypeScript ships no fallback helper; a caller
+  checks for `IModalDialogService` itself.
 
-All four methods are `async` (return an awaitable). Callers must `await` them.
+Open Rust gap: the Rust `DialogService` trait has no `present` method and Rust
+has no modal-capable service trait. Only `NullDialogService` has an inherent
+`present`, so a host dialog adapter cannot present a `ModalVm` through the
+trait.
+
+All five methods are `async` (return an awaitable). Callers must `await` them.
 Rust maps these awaitables to the executor-neutral `AsyncValue<T>` facade. It
 implements `Future` and supports blocking `wait()` for non-async hosts; a custom
 dialog adapter can return a pending handle and resolve it later without choosing
@@ -104,19 +116,22 @@ for tests and headless environments:
 graph TB
     subgraph "Host-side services"
         D["IDialogService (modal)"]
-        N["INotificationHub (toast/banner)"]
+        N["INotificationHub (in-app toast, banner, or confirmation)"]
     end
     subgraph "User interaction model"
         D -->|"blocks until user responds (request/response)"| User
-        N -->|"fire-and-forget — user may dismiss later"| User
+        N -->|"non-modal — user may respond or dismiss later"| User
     end
     User[User]
 ```
 
 The rule of thumb:
 
-- **Awaiting a decision?** Use `IDialogService` (`Confirm`, `PickFile*`).
-- **Informing without waiting?** Use `INotificationHub` (`Post`).
+- **Awaiting a decision in a host modal dialog?** Use `IDialogService`
+  (`Confirm`, `PickFile*`).
+- **Asking in the application's own non-modal UI, or informing without
+  waiting?** Use `INotificationHub` (`Post`, or `make_confirm` for a
+  confirmation gate; chapter 16 §5).
 - **Both can be injected** into the same ViewModel; they are orthogonal.
 
 See also `spec/16-notifications.md §5` for the companion distinction paragraph.

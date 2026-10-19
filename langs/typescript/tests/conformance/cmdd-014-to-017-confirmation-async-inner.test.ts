@@ -224,6 +224,28 @@ describe("CMDD-015", () => {
 });
 
 describe("CMDD-016", () => {
+  it("an inner already executing before the call disables the decorator, so confirm is not invoked", async () => {
+    const inner = blockingAsyncCommand();
+    let confirms = 0;
+    const decorator = new ConfirmationDecoratorCommand(inner.command, () => {
+      confirms += 1;
+      return Promise.resolve(true);
+    });
+
+    const direct = inner.command.executeAsync();
+    expect(inner.command.isExecuting).toBe(true);
+    expect(decorator.canExecute()).toBe(false);
+
+    await decorator.executeAsync();
+    decorator.execute();
+    await drainMicrotasks();
+
+    expect(confirms).toBe(0);
+    expect(inner.probe.runs).toBe(1);
+    inner.release();
+    await direct;
+  });
+
   it("an inner already executing when the confirmation resolves drops the call and the awaiter completes", async () => {
     const inner = blockingAsyncCommand();
     const confirmation = gate<boolean>();

@@ -18,7 +18,8 @@ from reactivex import operators as ops
 from reactivex.subject import Subject
 
 from vmx._asyncio_runner import submit_background
-from vmx.commands.relay_command import RelayCommand, _run_disposal_steps
+from vmx._disposal import _run_disposal_steps
+from vmx.commands.relay_command import RelayCommand
 from vmx.forms.builders import FormVMBuilder
 from vmx.messages.form_reverted import FormRevertedMessage
 from vmx.messages.property_changed import PropertyChangedMessage
@@ -238,13 +239,14 @@ class FormVM(Generic[TM]):
                     self._state_changed.wait()
                 if self._disposed:
                     return
+                if model is None:
+                    # Reject before any deferral, so the caller sees the error.
+                    raise ValueError("model must not be None")
                 if self._approval_publishing and self._approval_pre_publishing:
                     self._deferred_approval_models.append(model)
                     return
                 self._active_mutations += 1
                 admitted = True
-                if model is None:
-                    raise ValueError("model must not be None")
                 # Prepare (spec/20 §5.4) without touching form state. Callbacks
                 # run under the re-entrant state lock: one may re-enter
                 # set_model, deny, or dispose on this thread, while another
@@ -668,12 +670,13 @@ class FormVM(Generic[TM]):
             self._settle_failed_approval()
             raise
         # Mirror the C# continuation: surface the persister failure on the error
-        # channel. Skip cancelled tasks — Task.exception() raises CancelledError
-        # for those, which would error the loop's callback.
+        # channel. A cancelled approval is also a non-success outcome (spec/20
+        # §5.3); Task.exception() raises for it, so it is reported explicitly.
         scheduled.add_done_callback(self._on_approve_done)
 
     def _on_approve_done(self, task: asyncio.Future[None] | Future[None]) -> None:
         if task.cancelled():
+            self._emit_approve_error(asyncio.CancelledError())
             return
         exc = task.exception()
         if exc is not None:

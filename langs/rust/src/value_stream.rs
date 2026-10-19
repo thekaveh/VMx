@@ -152,7 +152,8 @@ impl<T: Clone + Send + 'static> ValueStream<T> {
         lock(&self.inner).subscribers.len()
     }
 
-    /// Subscribes to the current value and all later values.
+    /// Subscribes to later values. A replaying stream ([`ValueStream::new`])
+    /// first delivers its current value; a [`ValueStream::hot`] stream does not.
     pub fn subscribe<F>(&self, handler: F) -> ValueSubscription
     where
         F: Fn(T) + Send + Sync + 'static,
@@ -162,8 +163,9 @@ impl<T: Clone + Send + 'static> ValueStream<T> {
 
     /// Subscribes to values and receives one callback when the stream completes.
     ///
-    /// A subscription made after disposal receives the retained current value
-    /// followed immediately by `completion`.
+    /// A subscription made after disposal receives `completion` at once. A
+    /// replaying stream delivers its retained current value first; a
+    /// [`ValueStream::hot`] stream does not.
     pub fn subscribe_with_completion<F, C>(&self, handler: F, completion: C) -> ValueSubscription
     where
         F: Fn(T) + Send + Sync + 'static,
@@ -247,12 +249,12 @@ impl<T: Clone + Send + 'static> ValueStream<T> {
     /// Publishes `value` to current subscribers unless the stream is disposed.
     pub fn send(&self, value: T) {
         let current = thread::current().id();
-        let (completion, should_drain, reentrant) = {
+        let (completion, should_drain, reentrant, replaced) = {
             let mut state = lock(&self.inner);
             if state.disposed || state.dispose_requested {
                 return;
             }
-            state.current = value.clone();
+            let replaced = std::mem::replace(&mut state.current, value.clone());
             state.revision = state.revision.wrapping_add(1);
             let subscribers = state
                 .subscribers
@@ -270,8 +272,10 @@ impl<T: Clone + Send + 'static> ValueStream<T> {
             if should_drain {
                 state.draining_owner = Some(current);
             }
-            (completion, should_drain, reentrant)
+            (completion, should_drain, reentrant, replaced)
         };
+        // The replaced value is dropped after the stream lock is released.
+        drop(replaced);
         if should_drain {
             self.drain(current);
         } else if !reentrant && !ValueStreamDrainContext::is_active() {
@@ -327,6 +331,9 @@ impl<T: Clone + Send + 'static> ValueStream<T> {
     /// Completes the stream once and makes later sends inert.
     pub fn dispose(&self) {
         let current = thread::current().id();
+        // Subscriber closures may own other subscriptions on this stream;
+        // they are dropped after the state lock is released.
+        let mut released = Vec::new();
         let (completion, should_drain, reentrant) = {
             let mut state = lock(&self.inner);
             if state.disposed {
@@ -349,10 +356,11 @@ impl<T: Clone + Send + 'static> ValueStream<T> {
                 }
                 return;
             }
-            let completions = std::mem::take(&mut state.subscribers)
-                .into_values()
-                .filter_map(|subscriber| subscriber.completion)
-                .collect();
+            let mut completions = Vec::new();
+            for subscriber in std::mem::take(&mut state.subscribers).into_values() {
+                completions.extend(subscriber.completion.clone());
+                released.push(subscriber);
+            }
             let completion = Arc::new(DeliveryCompletion::default());
             state.pending_terminal = Some(PendingTerminal { completions });
             state.dispose_requested = true;
@@ -364,6 +372,7 @@ impl<T: Clone + Send + 'static> ValueStream<T> {
             }
             (completion, should_drain, reentrant)
         };
+        drop(released);
         if should_drain {
             self.drain(current);
         } else if !reentrant && !ValueStreamDrainContext::is_active() {
@@ -390,7 +399,10 @@ impl ValueSubscription {
             active: AtomicBool::new(true),
             dispose_action: Arc::new(move || {
                 if let Some(stream) = stream.upgrade() {
-                    lock(&stream).subscribers.remove(&id);
+                    // Drop the removed closures after releasing the lock: they
+                    // may own other subscriptions on this stream.
+                    let removed = lock(&stream).subscribers.remove(&id);
+                    drop(removed);
                 }
             }),
         }

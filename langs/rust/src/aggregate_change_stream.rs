@@ -249,45 +249,67 @@ impl<T: VmNode> AggregateChangeStream<T> {
 
     /// Detaches membership and item subscriptions and completes observers.
     pub fn dispose(&self) {
-        let process = {
+        let (process, released) = {
             let mut inner = lock(&self.shared.inner);
             if inner.disposed {
                 return;
             }
             inner.disposed = true;
             inner.setting_up = false;
-            inner.membership_subscription.take();
+            let membership_subscription = inner.membership_subscription.take();
             let entries = std::mem::take(&mut inner.entries);
-            for entry in entries.into_values() {
-                let mut entry = lock(&entry);
+            let mut subscriptions = Vec::with_capacity(entries.len());
+            for entry in entries.values() {
+                let mut entry = lock(entry);
                 entry.admitted = false;
                 entry.refcount = 0;
-                entry.subscription.take();
+                subscriptions.push(entry.subscription.take());
             }
-            inner.staged_items.clear();
-            inner.batch_recipients.clear();
-            inner.work.clear();
-            let recipients = inner.registrations.values().cloned().collect::<Vec<_>>();
-            inner.registrations.clear();
+            let staged_items = std::mem::take(&mut inner.staged_items);
+            let batch_recipients = std::mem::take(&mut inner.batch_recipients);
+            let work = std::mem::take(&mut inner.work);
+            let registrations = std::mem::take(&mut inner.registrations);
+            let recipients = registrations.values().cloned().collect::<Vec<_>>();
             if !recipients.is_empty() {
                 inner.work.push_back(Work::Completion { recipients });
             }
-            Self::start_processing(&mut inner)
+            (
+                Self::start_processing(&mut inner),
+                (
+                    membership_subscription,
+                    entries,
+                    subscriptions,
+                    staged_items,
+                    batch_recipients,
+                    work,
+                    registrations,
+                ),
+            )
         };
+        // Released entries, items, and handlers are dropped after the stream
+        // lock is released.
+        drop(released);
         if process {
             Self::process_work(&self.shared);
         }
     }
 
     fn cleanup_without_completion(&self) {
-        let mut inner = lock(&self.shared.inner);
-        inner.disposed = true;
-        inner.membership_subscription.take();
-        inner.entries.clear();
-        inner.staged_items.clear();
-        inner.registrations.clear();
-        inner.batch_recipients.clear();
-        inner.work.clear();
+        let released = {
+            let mut inner = lock(&self.shared.inner);
+            inner.disposed = true;
+            (
+                inner.membership_subscription.take(),
+                std::mem::take(&mut inner.entries),
+                std::mem::take(&mut inner.staged_items),
+                std::mem::take(&mut inner.registrations),
+                std::mem::take(&mut inner.batch_recipients),
+                std::mem::take(&mut inner.work),
+            )
+        };
+        // Released entries, items, and handlers are dropped after the stream
+        // lock is released.
+        drop(released);
     }
 
     fn membership_changed(shared: &Arc<Shared<T>>) {
@@ -498,6 +520,7 @@ impl<T: VmNode> AggregateChangeStream<T> {
                 drop(state);
                 staged.push((id, entry));
             }
+            let mut released = Vec::new();
             let committed = {
                 let mut inner = lock(&shared.inner);
                 if inner.disposed {
@@ -514,10 +537,13 @@ impl<T: VmNode> AggregateChangeStream<T> {
                         .collect::<Vec<_>>();
                     for id in removed {
                         if let Some(entry) = inner.entries.remove(&id) {
-                            let mut entry = lock(&entry);
-                            entry.admitted = false;
-                            entry.refcount = 0;
-                            entry.subscription.take();
+                            let subscription = {
+                                let mut state = lock(&entry);
+                                state.admitted = false;
+                                state.refcount = 0;
+                                state.subscription.take()
+                            };
+                            released.push((entry, subscription));
                         }
                     }
                     for (id, (_, refcount)) in &counts {
@@ -539,27 +565,31 @@ impl<T: VmNode> AggregateChangeStream<T> {
             if inner.structural_version != version {
                 continue;
             }
+            // Staged entries are dropped after the stream lock is released.
+            let staged_items = std::mem::take(&mut inner.staged_items);
             if initial {
-                inner.staged_items.clear();
                 inner.setting_up = false;
+                drop(inner);
+                drop(staged_items);
                 return;
             }
             let recipients = recipients.clone().unwrap_or_default();
             if coalesced {
-                inner.staged_items.clear();
+                drop(inner);
+                drop(staged_items);
                 return;
             }
             let mut notifications = vec![(
                 AggregateChange::plain(AggregateChangeReason::Membership),
                 None,
             )];
-            let staged_items = std::mem::take(&mut inner.staged_items);
-            for (entry, epoch) in staged_items {
-                let state = lock(&entry);
-                if state.admitted && !state.terminal && state.refcount > 0 && state.epoch == epoch {
+            for (entry, epoch) in &staged_items {
+                let state = lock(entry);
+                if state.admitted && !state.terminal && state.refcount > 0 && state.epoch == *epoch
+                {
                     notifications.push((
                         AggregateChange::item(state.item.clone()),
-                        Some((Arc::clone(&entry), epoch)),
+                        Some((Arc::clone(entry), *epoch)),
                     ));
                 }
             }
@@ -570,6 +600,8 @@ impl<T: VmNode> AggregateChangeStream<T> {
                     recipients: recipients.clone(),
                 });
             }
+            drop(inner);
+            drop(staged_items);
             return;
         }
     }
@@ -792,7 +824,7 @@ impl<T: VmNode, D: Dispatcher> ObservableMembershipSource<T> for CompositeVm<T, 
         F: Fn() + Send + Sync + 'static,
     {
         let owner_id = self.id();
-        self.hub().subscribe(move |message| {
+        self.membership_changes().subscribe(move |message| {
             if membership_message(message, owner_id) {
                 handler();
             }
@@ -810,7 +842,7 @@ impl<T: VmNode, D: Dispatcher> ObservableMembershipSource<T> for GroupVm<T, D> {
         F: Fn() + Send + Sync + 'static,
     {
         let owner_id = self.id();
-        self.hub().subscribe(move |message| {
+        self.membership_changes().subscribe(move |message| {
             if membership_message(message, owner_id) {
                 handler();
             }

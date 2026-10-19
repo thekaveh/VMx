@@ -69,6 +69,9 @@ The builder accepts:
 
 - `children : () -> Iterable<VM>` (factory, evaluated on `construct()`).
 
+Open Rust gap: Rust's `GroupVmBuilder::build()` evaluates the `children` factory
+and attaches the initial population at build time, not on `construct()`.
+
 The modeled variant (if needed) follows the same pattern as `CompositeVM<M, VM>`.
 Only the non-modeled variant currently ships.
 
@@ -81,7 +84,9 @@ fields (`name`, services, `children`) and produces an identical VM.
 A group built with `AutoConstructOnAdd(true)` MUST automatically call
 `construct()` on any child added via `Add` / `Insert` after the group reaches
 `Constructed`, completing the child's transition BEFORE the `CollectionChanged`
-event fires. The default is `false`.
+event fires. The default is `false`. A child added while the group is still
+`Constructing` is started and joined by the construct walk, as in chapter 06
+§5.1.
 
 ## 5. Batch updates (spec v1.1)
 

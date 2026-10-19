@@ -84,6 +84,19 @@ public class ObservableListReplaceAllConformanceTests
             events.Should().BeEmpty();
         }
         events.Should().Equal("reset", "property:Count");
+
+        // Equal cardinality: exactly one Reset and no Count publication.
+        var (same, sameEvents) = Observed(1, 2);
+        using (same.BatchUpdate())
+        {
+            using (same.BatchUpdate())
+            {
+                same.ReplaceAll([3, 4]);
+            }
+            sameEvents.Should().BeEmpty("nothing is emitted before the outermost batch exits");
+        }
+        same.Should().Equal(3, 4);
+        sameEvents.Should().Equal("reset");
     }
 
     [Fact, Trait("Conformance", "COL-046")]

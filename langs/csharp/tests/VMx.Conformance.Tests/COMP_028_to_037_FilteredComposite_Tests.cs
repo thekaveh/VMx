@@ -42,8 +42,12 @@ public class COMP_028_to_037_FilteredCompositeTests
     [Fact, Trait("Conformance", "COMP-028")]
     public void COMP_028_FilteredVisibleProjection()
     {
-        var sut = new FilteredCompositeVM<ComponentVM>(Source("alpha", "beta"), vm => vm.Name.Contains('a'));
-        sut.Visible.Select(vm => vm.Name).Should().Equal("alpha", "beta");
+        var src = Source("alpha", "bee", "beta", "gamma");
+        var sut = new FilteredCompositeVM<ComponentVM>(src, vm => vm.Name.Contains('a'));
+        sut.Visible.Select(vm => vm.Name).Should().Equal(["alpha", "beta", "gamma"],
+            "the excluded source child is omitted and source order is preserved");
+        sut.Visible.Should().NotContain(src[1]);
+        sut.Visible[1].Should().BeSameAs(src[2]);
     }
 
     [Fact, Trait("Conformance", "COMP-029")]
@@ -56,10 +60,11 @@ public class COMP_028_to_037_FilteredCompositeTests
     [Fact, Trait("Conformance", "COMP-030")]
     public void COMP_030_CurrentMapsToVisibleDomain()
     {
-        var src = Source("alpha", "bee");
+        var src = Source("alpha", "bee", "gamma");
         var sut = new FilteredCompositeVM<ComponentVM>(src, vm => vm.Name.Contains('a'));
-        sut.Current = sut.Visible[0];
-        sut.Current.Should().BeSameAs(src[0]);
+        // Select a non-first visible item that sits at a different source index.
+        sut.Current = sut.Visible[1];
+        sut.Current.Should().BeSameAs(src[2]);
     }
 
     [Fact, Trait("Conformance", "COMP-030")]
@@ -121,8 +126,13 @@ public class COMP_028_to_037_FilteredCompositeTests
     {
         var sut = new FilteredCompositeVM<ComponentVM>(Source("alpha", "bee", "gamma"), vm => vm.Name.Contains('a'));
         sut.Current = sut.Visible[0];
+        sut.MoveToPreviousVisible();
+        sut.Current.Should().BeSameAs(sut.Visible[0], "previous clamps at the first visible item");
         sut.MoveToNextVisible();
         sut.Current.Should().BeSameAs(sut.Visible[1]);
+        sut.Current!.Name.Should().Be("gamma", "navigation skips the hidden item");
+        sut.MoveToNextVisible();
+        sut.Current.Should().BeSameAs(sut.Visible[1], "next clamps at the last visible item");
         sut.MoveToPreviousVisible();
         sut.Current.Should().BeSameAs(sut.Visible[0]);
     }
@@ -137,13 +147,43 @@ public class COMP_028_to_037_FilteredCompositeTests
         sut.Visible.Select(vm => vm.Name).Should().Equal("alpha");
     }
 
+    [Fact, Trait("Conformance", "COMP-035")]
+    public void COMP_035_DisposedProjectionIgnoresItsMutators()
+    {
+        var src = Source("alpha", "bee", "cat");
+        var sut = new FilteredCompositeVM<ComponentVM>(src, _ => true);
+        sut.Current = sut.Visible[0];
+        sut.Dispose();
+        var changes = 0;
+        sut.Changed += (_, _) => changes++;
+
+        sut.SetPredicate(vm => vm.Name == "cat");
+        sut.SetCurrent(null);
+        sut.MoveToNextVisible();
+        sut.MoveToPreviousVisible();
+
+        sut.Visible.Select(vm => vm.Name).Should().Equal("alpha", "bee", "cat");
+        sut.Current!.Name.Should().Be("alpha");
+        changes.Should().Be(0);
+    }
+
     [Fact, Trait("Conformance", "COMP-036")]
     public void COMP_036_ScoredFilterSortsByScoreWithStableTies()
     {
+        // Distinct scores ascending in source order (so descending is observable),
+        // a null-scored item, and a tie (b1/b2 share score 2) in source order.
+        var scores = new Dictionary<string, int?>
+        {
+            ["low"] = 1,
+            ["b1"] = 2,
+            ["none"] = null,
+            ["b2"] = 2,
+            ["high"] = 5,
+        };
         var sut = new ScoredFilteredCompositeVM<ComponentVM>(
-            Source("alpha", "bee", "ax"),
-            vm => vm.Name.StartsWith('a') ? 1 : null);
-        sut.Visible.Select(vm => vm.Name).Should().Equal("alpha", "ax");
+            Source("low", "b1", "none", "b2", "high"),
+            vm => scores[vm.Name]);
+        sut.Visible.Select(vm => vm.Name).Should().Equal("high", "b1", "b2", "low");
     }
 
     [Fact, Trait("Conformance", "COMP-037")]
@@ -157,5 +197,20 @@ public class COMP_028_to_037_FilteredCompositeTests
         weights["alpha"] = 3;
         sut.RefreshScores();
         sut.Visible.Select(vm => vm.Name).Should().Equal("alpha", "bee");
+    }
+
+    [Fact]
+    public void A_throwing_predicate_leaves_the_previous_projection_in_place()
+    {
+        var sut = new FilteredCompositeVM<ComponentVM>(Source("alpha", "beta"), _ => true);
+        var beta = sut.Visible[1];
+        sut.SetCurrent(beta);
+
+        var act = () => sut.SetPredicate(_ => throw new InvalidOperationException("boom"));
+
+        act.Should().Throw<InvalidOperationException>();
+        sut.Visible.Select(vm => vm.Name).Should().Equal("alpha", "beta");
+        sut.Current.Should().BeSameAs(beta);
+        sut.Invoking(s => s.SetCurrent(beta)).Should().NotThrow();
     }
 }

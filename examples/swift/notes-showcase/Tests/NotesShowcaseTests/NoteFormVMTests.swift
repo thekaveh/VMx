@@ -308,12 +308,19 @@ final class NoteFormVMTests: XCTestCase {
         XCTAssertEqual(notifications.messages, [savedMessage], "only the admitted save posts")
     }
 
-    func testRebindingWhileASaveIsPending_postsNoSavedForEitherNote() async throws {
-        // Rebinding disposes the pending save's form, which then publishes no
-        // approval (spec/20-form-vm.md §5.3), so the save runs no post-save step.
+    func testRebindingWhileASaveIsPending_stillCompletesThatSave() async throws {
+        // Rebinding retires the pending save's form without disposing it (a
+        // disposed form publishes no approval, spec/20-form-vm.md §5.3), so the
+        // save still emits `onSaved` for the saved note (the workspace's list
+        // row refresh) and toasts it, while the form already shows the next note.
         let repo = PendingSaveRepository()
         let notifications = NotificationMessageRecorder()
         let form = try buildPendingSaveForm(repo, notifications: notifications)
+        var savedTitles: [String] = []
+        let savedLock = NSLock()
+        let savedSubscription = form.onSaved
+            .sink { model in savedLock.withLock { savedTitles.append(model.title) } }
+        defer { savedSubscription.cancel() }
         form.bindTo(sampleNote(title: "Original"))
         form.title = "Edited"
 
@@ -327,12 +334,17 @@ final class NoteFormVMTests: XCTestCase {
         await repo.releasePendingSave()
         try await pendingSave.value
 
-        let savedTitles = await repo.savedTitles
-        XCTAssertEqual(savedTitles, ["Edited"])
+        let persistedTitles = await repo.savedTitles
+        XCTAssertEqual(persistedTitles, ["Edited"])
+        XCTAssertEqual(savedLock.withLock { savedTitles }, ["Edited"], "the save emitted no onSaved")
         let refreshes = await repo.loadAllCalls
-        XCTAssertEqual(refreshes, 0, "the disposed save refreshed tag suggestions")
+        XCTAssertEqual(refreshes, 1, "the save refreshed no tag suggestions")
         XCTAssertEqual("Next note", form.snapshot.title)
-        XCTAssertEqual(notifications.messages, [], "the disposed save posted a notification")
+        XCTAssertFalse(form.isDirty)
+        // "Saved …" posts from a detached Task: wait for it.
+        let savedMessage = "Saved \u{201C}Edited\u{201D}"
+        await waitUntil { notifications.messages.contains(savedMessage) }
+        XCTAssertEqual(notifications.messages, [savedMessage], "the save posted no toast")
     }
 
     // MARK: - Deny

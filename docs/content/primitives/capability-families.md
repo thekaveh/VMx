@@ -41,9 +41,9 @@ Representative families:
 | Paging    | `IPageable`                                                      |
 
 All five flavors expose this conceptual set, with identifier casing and
-ownership adapted to each language. The completed
+ownership adapted to each language. The
 [Rust parity ledger](../../maintenance/2026-07-16-rust-capability-parity.md)
-records the focused trait and reusable-state evidence.
+records the Rust trait and reusable-state evidence.
 
 ## 6.4.5. Example
 

@@ -2,15 +2,14 @@
 
 ## 7.3.1. Snapshot
 
-- Install: `pip install vmx` or `uv add vmx`
-- Publication status: `vmx` 3.23.0 is published on PyPI; the current Python
-  source line is the unreleased 3.29.0.
+- Install and package status: see [Installation](../installation.md) and
+  [Availability](../index.md#11-availability).
 - Supported Python: 3.10 through 3.14; the package is `mypy --strict` clean
 - Notifications: the opt-in `vmx.notifications` subpackage
 - Reactive primitive: `reactivex`
 - Naming idiom: snake_case
-- Hub concurrency: ordinary producers retain synchronous calling-thread
-  delivery while nested cross-hub callbacks enqueue without a wait cycle
+- Hub delivery: see
+  [Callback-Safe Transition Ordering](../architecture/lifecycle-messaging.md#541-callback-safe-transition-ordering)
 
 ## 7.3.2. What To Reach For
 
@@ -35,11 +34,15 @@ notes.move(0, len(notes) - 1)      # move indices are strict and nonnegative
 notes.replace_all(server_snapshot) # one Reset
 ```
 
-List-style `remove(value)` returns `None` and raises `ValueError` when missing.
-`remove_at` and `replace` accept normal negative indices, return the removed or
-old item, and report a resolved nonnegative message position. `move` rejects
-negative and out-of-range positions with `IndexError`. Empty Clear is a no-op,
-and the caller retains item lifecycle ownership.
+List-style `remove(value)` removes the first match, returns `None`, and raises
+`ValueError` when missing. `remove_at` and `replace` accept normal negative
+indices, return the removed or old item, and report a resolved nonnegative
+message position. `move` rejects negative and out-of-range positions with
+`IndexError`. Empty Clear and empty-to-empty replacement are no-ops.
+
+Messages expose `index`, `old_index`, and `new_index`. The collection does not
+batch, and the caller retains item lifecycle ownership. Use `ObservableList[T]`
+when you need batch scopes and the `Count` channel.
 
 Use `KeyedServicedObservableCollection[TKey, T]` when the same sequence needs
 captured-key lookup and upsert without snapshot scans:
@@ -57,7 +60,9 @@ removed = notes_by_id.delete(first.id)
 
 `contains_key` tests membership. The type retains the full `MutableSequence`
 integer and slice surface; slice assignment/deletion and `reverse()` validate
-and commit atomically. A key is captured per membership, so mutating `id` does
+and commit atomically.
+
+A key is captured per membership, so mutating `id` does
 not silently rekey it; indexed replacement or delete-then-add is explicit.
 Duplicate keys, projector failures, and invalid slice shapes preserve state and
 emit nothing. A same mutated instance can occupy both its old and newly
@@ -93,9 +98,9 @@ exposure_subscription.dispose()
 ```
 
 The callback receives `(current, previous)`; immediate delivery uses the
-initial value for both. The host adapter owns the handle, and the selector
-reevaluates after every property message from this fixed VM rather than on
-every engine frame.
+initial value for both. The selector reevaluates after every property message
+from this fixed VM rather than on every engine frame. The host adapter owns the
+handle; VMx does not attach it to the observed VM's lifetime.
 
 ## 7.3.5. Async Resource Operation Loops
 
@@ -107,8 +112,9 @@ native asyncio signalling and callback registration run on that recorded loop.
 Command settlement may follow the state change.
 
 This loop-affinity bridge does not move state or cleanup notifications to a UI
-scheduler. Application-owned loops must remain runnable until admitted resource
-work is cancelled and drained; VMx cannot finish pending tasks or force their
+scheduler; they keep their ordinary calling-context rules. For an
+application-owned loop, stop admissions, cancel, and drain while the loop can
+still run, then close it. VMx cannot finish pending tasks or force their
 `finally` blocks after the loop is closed. Applications do not own or close the
 VMx shared daemon loop. See the
 [central scheduling and shutdown guidance](../primitives/services-messages-dispatching.md#669-python-asyncio-dispatcher-ownership)
@@ -139,7 +145,6 @@ and the [disposal contract](../primitives/disposal-contract.md).
 The flagship and inspector are the fastest way to see the hub, lifecycle, and
 tree helpers under a real host.
 
-None of these sample applications currently calls Python `AsyncResourceVM`.
-The tracked
-[`langs/python/tests/unit/state/test_async_resource_threading.py`](https://github.com/thekaveh/VMx/blob/main/langs/python/tests/unit/state/test_async_resource_threading.py)
+None of these sample applications calls Python `AsyncResourceVM`. The tracked
+[`langs/python/tests/unit/state/test_async_resource_threading.py`](../../../langs/python/tests/unit/state/test_async_resource_threading.py)
 is the runnable coverage for caller-thread cancellation and disposal.

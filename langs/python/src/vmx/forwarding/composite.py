@@ -1,7 +1,10 @@
 """ForwardingCompositeVM — forwarding decorator for CompositeVMProto[VM].
 
 Every public member — including the MutableSequence-like surface, ``current``,
-``select_component`` / ``deselect_component`` / ``can_select_component``, and
+``select_component`` / ``deselect_component`` / ``can_select_component``,
+the parent-composite child-selection surface (``current_child``,
+``select_child``, ``deselect_child``, ``supports_child_selection``), the
+membership-source surface (``snapshot`` / ``subscribe_membership``), and
 ``on_collection_changed`` — delegates to ``_wrapped`` by default. Subclasses
 override individual members to customise behaviour.
 
@@ -11,16 +14,21 @@ spec/12-conformance.md.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
+from concurrent.futures import Future
+from threading import RLock
 from typing import Any, Generic, TypeVar, cast
 
 import reactivex as rx
+from reactivex.abc import DisposableBase
 
 from vmx.collections import BatchUpdateHandle
 from vmx.commands.relay_command import RelayCommand
+from vmx.components.base import _ComponentVMBase, _ParentCompositeVM
 from vmx.components.protocols import ViewModelType
 from vmx.composites.composite_vm import _CompositeVMBase
 from vmx.composites.protocols import CompositeVMProto
+from vmx.forwarding.component import ForwardingComponentVM, _ForwardingParent, _WrappedParent
 from vmx.lifecycle.status import ConstructionStatus
 from vmx.messages.protocols import Message
 from vmx.services.message_hub import MessageHubProto
@@ -28,7 +36,7 @@ from vmx.services.message_hub import MessageHubProto
 VM = TypeVar("VM")
 
 
-class ForwardingCompositeVM(Generic[VM]):
+class ForwardingCompositeVM(_ComponentVMBase, Generic[VM]):
     """Forwarding decorator for :class:`~vmx.composites.protocols.CompositeVMProto`.
 
     Every member delegates to the wrapped composite by default. Subclasses
@@ -48,6 +56,12 @@ class ForwardingCompositeVM(Generic[VM]):
         # wrapper's own ``VM`` is unbounded) so the per-call ``type: ignore``
         # masks are unnecessary (VMX-074).
         self._wrapped: _CompositeVMBase[Any] = cast("_CompositeVMBase[Any]", wrapped)
+        # Membership state shared with ForwardingComponentVM (spec/09 §1-2,
+        # FWD-002/FWD-004): the decorator and the wrapped composite are one
+        # ownership identity, so a parent holding either one owns both.
+        self._parent: _ParentCompositeVM | None = None
+        self._ownership_lock = RLock()
+        self._ownership_in_progress = False
 
     # ── Identity ─────────────────────────────────────────────────────────────
 
@@ -84,7 +98,7 @@ class ForwardingCompositeVM(Generic[VM]):
     # ── Observable property changes ───────────────────────────────────────────
 
     @property
-    def property_changed(self) -> rx.Observable[object]:
+    def property_changed(self) -> rx.Observable[str]:
         return self._wrapped.property_changed
 
     # ── Built-in commands ─────────────────────────────────────────────────────
@@ -146,6 +160,66 @@ class ForwardingCompositeVM(Generic[VM]):
     def deselect(self) -> None:
         self._wrapped.deselect()
 
+    # ── Container membership (mirrors ForwardingComponentVM) ────────────────
+
+    def _as_forwarder(self) -> ForwardingComponentVM[object]:
+        # The parent adapters only touch ``_wrapped`` / ``_parent``, which this
+        # decorator shares with ForwardingComponentVM.
+        return cast("ForwardingComponentVM[object]", self)
+
+    def _set_parent(self, parent: _ParentCompositeVM | None) -> None:
+        self._parent = parent
+        self._wrapped._set_parent(
+            None if parent is None else _ForwardingParent(parent, self._as_forwarder())
+        )
+
+    @property
+    def _ownership_identity(self) -> _ComponentVMBase:
+        return self._wrapped._ownership_identity
+
+    @property
+    def _ownership_parent(self) -> _ParentCompositeVM | None:
+        if self._parent is not None:
+            return self._parent
+        wrapped_parent = self._wrapped._ownership_parent
+        if wrapped_parent is None:
+            return None
+        return _WrappedParent(wrapped_parent, self._as_forwarder(), self._wrapped)
+
+    def _set_is_current(self, value: bool) -> None:
+        self._wrapped._set_is_current(value)
+
+    def _commit_is_current(self, value: bool) -> bool:
+        return self._wrapped._commit_is_current(value)
+
+    def _publish_is_current(self) -> None:
+        self._wrapped._publish_is_current()
+
+    def _construct_future(self) -> Future[None]:
+        return self._wrapped._construct_future()
+
+    def _destruct_future(self) -> Future[None]:
+        return self._wrapped._destruct_future()
+
+    def _join_transition_future(self, *, construct: bool) -> Future[None]:
+        return self._wrapped._join_transition_future(construct=construct)
+
+    # ── Parent-composite surface (child selection on the wrapped composite) ──
+
+    @property
+    def supports_child_selection(self) -> bool:
+        return self._wrapped.supports_child_selection
+
+    @property
+    def current_child(self) -> object | None:
+        return self._wrapped.current_child
+
+    def select_child(self, vm: _ComponentVMBase) -> None:
+        self._wrapped.select_child(vm)
+
+    def deselect_child(self, vm: _ComponentVMBase) -> None:
+        self._wrapped.deselect_child(vm)
+
     # ── CompositeVM: current and child selection ──────────────────────────────
 
     @property
@@ -180,6 +254,14 @@ class ForwardingCompositeVM(Generic[VM]):
     def __len__(self) -> int:
         return self._wrapped.count
 
+    # ── CompositeVM: membership source (AggregateChangeStream) ────────────────
+
+    def snapshot(self) -> tuple[VM, ...]:
+        return cast("tuple[VM, ...]", self._wrapped.snapshot())
+
+    def subscribe_membership(self, callback: Callable[[], None]) -> DisposableBase:
+        return self._wrapped.subscribe_membership(callback)
+
     # ── CompositeVM: collection query ─────────────────────────────────────────
     # ``_wrapped`` is narrowed to the concrete ``_CompositeVMBase`` in __init__,
     # so the full MutableSequence surface is statically available here (VMX-074).
@@ -193,8 +275,14 @@ class ForwardingCompositeVM(Generic[VM]):
     def __setitem__(self, index: int, value: VM) -> None:
         self._wrapped[index] = value
 
+    def __delitem__(self, index: int) -> None:
+        del self._wrapped[index]
+
     def __contains__(self, item: object) -> bool:
         return item in self._wrapped
+
+    def index(self, value: VM, start: int = 0, stop: int | None = None) -> int:
+        return self._wrapped.index(value, start, stop)
 
     def index_of(self, item: VM) -> int:
         # CompositeVM exposes the standard MutableSequence `index()` which
@@ -211,6 +299,9 @@ class ForwardingCompositeVM(Generic[VM]):
     def add(self, item: VM) -> None:
         self._wrapped.add(item)
 
+    def append(self, item: VM) -> None:
+        self._wrapped.append(item)
+
     def remove(self, item: VM) -> bool:
         return self._wrapped.remove(item)
 
@@ -225,6 +316,9 @@ class ForwardingCompositeVM(Generic[VM]):
 
     def move(self, from_index: int, to_index: int) -> None:
         self._wrapped.move(from_index, to_index)
+
+    def copy_to(self, target: list[VM], array_index: int) -> None:
+        self._wrapped.copy_to(target, array_index)
 
     def batch_update(self) -> BatchUpdateHandle:
         return self._wrapped.batch_update()

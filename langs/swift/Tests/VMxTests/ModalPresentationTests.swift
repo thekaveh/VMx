@@ -24,6 +24,17 @@ final class ModalPresentationTests: XCTestCase {
         XCTAssertEqual(modal.result, "cancel")
     }
 
+    /// DIA-012 — null present keeps an earlier result.
+    func testDIA012NullPresentKeepsAnEarlierResult() async {
+        let modal = BasicModalVM(cancellationResult: "cancel")
+        modal.dismiss("chosen")
+
+        let result = await NullDialogService.INSTANCE.present(modal)
+
+        XCTAssertEqual(result, "chosen")
+        XCTAssertEqual(modal.result, "chosen")
+    }
+
     /// DIA-011 — modal dispose completes with cancellation result.
     func testDIA011ModalDisposeCompletesWithCancellationResult() async {
         let modal = BasicModalVM(cancellationResult: "cancel")

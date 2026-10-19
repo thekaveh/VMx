@@ -25,6 +25,10 @@
     <p class="vmx-card-title"><a href="architecture/index.md">Architecture Map</a></p>
     <p>Walk the system, class, and lifecycle diagrams, then browse the full gallery.</p>
   </div>
+  <div class="vmx-card">
+    <p class="vmx-card-title"><a href="core-concepts.md">Core Concepts</a></p>
+    <p>Learn the lifecycle, ownership, messaging, and the complete framework surface.</p>
+  </div>
 </div>
 
 ## 1.1. Availability
@@ -43,7 +47,8 @@ them from a VMx checkout.
 | Rust          | Not yet published to crates.io     | 0.35.0      |
 
 A source line can be ahead of its public package.
-[Installation](installation.md) shows how to use each flavor today.
+[Installation](installation.md) shows how to install each flavor from a package
+or from a VMx checkout.
 
 ## 1.2. Why VMx
 
@@ -56,14 +61,3 @@ A source line can be ahead of its public package.
 - The core makes no UI assumption; the
   [integration recipes](integration/index.md) bind it to desktop, terminal, and
   web hosts.
-
-## 1.3. Start Here
-
-- [Installation](installation.md) — install a public package or reference a
-  VMx checkout.
-- [Quickstart](getting-started/index.md) — build the same small viewmodel tree
-  in each flavor.
-- [Core Concepts](core-concepts.md) — lifecycle, ownership, messaging, and the
-  complete framework surface.
-- [Architecture Map](architecture/index.md) — the system, class, and lifecycle
-  diagrams.

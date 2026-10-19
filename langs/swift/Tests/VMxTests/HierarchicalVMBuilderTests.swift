@@ -120,9 +120,23 @@ final class HierarchicalVMBuilderTests: XCTestCase {
 
     /// HIER-016 — repeated build() calls produce distinct-but-equivalent nodes.
     func testHier016RepeatedBuildDistinctEquivalent() throws {
+        // The factory records each parent it hydrates and returns one fresh,
+        // detached child per call (a child cannot belong to two parents).
+        final class Calls { var parents: [ObjectIdentifier] = [] }
+        let calls = Calls()
+        let hub = MessageHub()
+        let factory: (TestNode) -> [TestNode] = { parent in
+            calls.parents.append(ObjectIdentifier(parent))
+            return [TestNode(
+                model: "child",
+                childrenFactory: { _ in [] },
+                hub: hub,
+                dispatcher: ImmediateDispatcher.INSTANCE
+            )]
+        }
         let b = baseBuilder()
             .model("root")
-            .childrenFactory(emptyFactory())
+            .childrenFactory(factory)
             .services(hub: MessageHub(), dispatcher: ImmediateDispatcher.INSTANCE)
             .hint("h")
             .eagerChildren(true)
@@ -140,6 +154,22 @@ final class HierarchicalVMBuilderTests: XCTestCase {
         XCTAssertEqual(n1.hint, "h")
         XCTAssertEqual(n2.hint, "h")
         XCTAssertEqual(n1.hint, n2.hint)
+
+        // EagerChildren(true): each node's subtree is materialized (and
+        // constructed) during construction, not on first `children` access.
+        XCTAssertTrue(calls.parents.isEmpty, "build() alone must not hydrate children")
+        try n1.construct()
+        try n2.construct()
+        XCTAssertEqual(calls.parents, [ObjectIdentifier(n1), ObjectIdentifier(n2)],
+                       "construct() must hydrate each node's subtree exactly once")
+        XCTAssertEqual(n1.children.count, 1)
+        XCTAssertEqual(n2.children.count, 1)
+        XCTAssertFalse(n1.children[0] === n2.children[0])
+        XCTAssertTrue(n1.children[0].isConstructed, "eager child must be constructed with its parent")
+        XCTAssertTrue(n2.children[0].isConstructed, "eager child must be constructed with its parent")
+        XCTAssertEqual(calls.parents.count, 2, "children access must reuse the eager materialization")
+        n1.dispose()
+        n2.dispose()
     }
 
     // ── HIER-017 — field defaults ─────────────────────────────────────────

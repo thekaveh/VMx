@@ -4,7 +4,7 @@
 // See spec/19-dialogs.md §6/§7/§8 and ADR-0056.
 // Ports langs/typescript/tests/conformance/dia-001-to-008-dialog-service.test.ts (DIA-006..008).
 //
-// DIA-006 and DIA-007 helpers are test-only DialogService implementations.
+// The helpers for DIA-006 and DIA-007 are test-only DialogService implementations.
 // Mutable state captured across async Tasks is held in reference-type boxes.
 // Async Tasks are drained via XCTestExpectation + fulfillment(of:timeout:).
 //

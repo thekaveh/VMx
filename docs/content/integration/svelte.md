@@ -1,8 +1,8 @@
 # 9.10. Svelte Integration
 
-Wire a `ComponentVMOf<M>` to a Svelte component through a custom store, which
-works on Svelte 4 and 5, or through Svelte 5 runes (`$props`, `$derived`,
-`$effect`).
+Wire a `ComponentVMOf<M>` to a Svelte component through a custom store or
+through Svelte 5 runes (`$props`, `$derived`, `$effect`). The store uses only
+the `svelte/store` contract shared with Svelte 4; it is tested on Svelte 5.
 
 ## 9.10.1. Reactivity primitive
 
@@ -29,16 +29,15 @@ disposes it; neither adapter changes the VM's lifecycle. Both adapters observe
 properties announced with `PropertyChangedMessage`. Lifecycle status arrives as
 `ConstructionStatusChangedMessage` and needs its own filter.
 
-`republishModel()` announces a model that was mutated in place, so the
-announced value is the same object the view already holds. A store's `set`
-always notifies for objects, and the runes component wraps each value in a new
-object, so both render the mutation.
+A [`republishModel()` announcement keeps the same reference](index.md#914-republished-models-keep-their-reference).
+A store's `set` always notifies for objects, and the runes component wraps
+each value in a new object, so both render the mutation.
 
-## 9.10.3. Adapter skeleton — store (Svelte 4 and 5)
+## 9.10.3. Adapter skeleton — store
 
 The store and component below are the exact files run by
 `examples/typescript/integration-recipes` against `svelte` 5.57.1. The store
-uses only the `svelte/store` contract that Svelte 4 shares.
+uses only the `svelte/store` contract shared with Svelte 4.
 
 <!-- checked-snippet: examples/typescript/integration-recipes/src/svelte/vmStore.ts -->
 
@@ -187,5 +186,6 @@ the render and the subscription.
 
 ## 9.10.6. Fuller example
 
-No worked Svelte Notes-Showcase ships yet. The React and Vue recipes
-share the same hub-subscription shape.
+There is no Svelte Notes-Showcase. The runnable reference is
+`examples/typescript/integration-recipes`. For a packaged adapter, see the
+React recipe ([react.md](react.md)).

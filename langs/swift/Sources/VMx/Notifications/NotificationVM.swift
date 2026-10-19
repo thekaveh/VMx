@@ -159,14 +159,14 @@ open class NotificationVM {
     /// `.approve`. `ConfirmationVM` overrides to a no-op.
     open func onExpire() { dismiss() }
 
-    // ── Internal resolution helpers (callable by subclasses) ─────────────────
+    // ── Resolution helpers (callable by subclasses) ──────────────────────────
 
     /// Resolves the hub with `.approve` and cancels the timer. Idempotent.
-    func dismiss() { markResolved(reaction: .approve, notifyHub: true) }
+    public func dismiss() { markResolved(reaction: .approve, notifyHub: true) }
 
     /// Resolves the hub with `reaction` and cancels the timer. Idempotent.
     /// Used by `ConfirmationVM`'s approve/reject commands.
-    func resolveWith(_ reaction: NotificationReaction) {
+    public func resolveWith(_ reaction: NotificationReaction) {
         markResolved(reaction: reaction, notifyHub: true)
     }
 
@@ -183,7 +183,8 @@ open class NotificationVM {
     /// firing after a manual dismiss, or the pending-stream echo of the VM's own
     /// `hub.resolve`, is a no-op.
     private func markResolved(reaction: NotificationReaction?, notifyHub: Bool) {
-        if resolved { return }
+        // A disposed VM's later resolution paths are inert (DISP-004).
+        if resolved || disposed { return }
         resolved = true
         timerCancellable?.cancel(); timerCancellable = nil
         tickCancellable?.cancel(); tickCancellable = nil

@@ -444,6 +444,10 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> VmNode for Forwarding
         self.inner().set_current_flag(is_current);
     }
 
+    fn when_lifecycle_settled(&self, callback: crate::LifecycleSettleCallback) -> bool {
+        self.inner().core.when_settled(callback)
+    }
+
     fn is_current(&self) -> bool {
         self.is_current()
     }

@@ -15,6 +15,39 @@ internal static class CompositeCurrentChangeCoordinator
 }
 
 /// <summary>
+/// The construct walk shared by composites and groups: the membership
+/// snapshot, then (with auto-construct-on-add) each child added while the walk
+/// runs (spec/02 §6, spec/06 §5.1).
+/// </summary>
+internal static class ContainerConstructWalk
+{
+    /// <summary>
+    /// Enumerates lazily, so the walk sees children added while it waits on a
+    /// background child. A late child was already started by auto-construct,
+    /// so it is added to <paramref name="joined"/> and joined like a population
+    /// child: one whose construction failed rolls the container back instead
+    /// of being restarted.
+    /// </summary>
+    internal static IEnumerable<IComponentVM> Enumerate<VM>(
+        Func<VM[]> snapshot, bool includeLate, ISet<IComponentVM> joined)
+        where VM : class, IComponentVM
+    {
+        var initial = snapshot();
+        var visited = new HashSet<IComponentVM>(initial, ComponentVMBase.ChildReferenceComparer.Instance);
+        foreach (var child in initial) yield return child;
+        if (!includeLate) yield break;
+        while (true)
+        {
+            var late = snapshot().FirstOrDefault(child => !visited.Contains(child));
+            if (late is null) yield break;
+            visited.Add(late);
+            joined.Add(late);
+            yield return late;
+        }
+    }
+}
+
+/// <summary>
 /// Abstract base for all CompositeVM variants.  Implements <see cref="ICompositeVM{VM}"/>
 /// on top of <see cref="ComponentVMBase"/>: ordered child collection with
 /// <see cref="INotifyCollectionChanged"/> events, <see cref="Current"/> selection,
@@ -41,6 +74,9 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     // ── Batch-update state (spec v1.1) ────────────────────────────────────────
     private int _batchDepth;
     private bool _batchDirty;
+
+    // Collects the children population started constructing (see OnConstruct).
+    private HashSet<IComponentVM>? _populationJoined;
     private int _disposeRequested;
     private bool _disposeDeferred;
     private int _activeCurrentPublications;
@@ -120,12 +156,17 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                 admissionComplete = true;
                 ComponentOwnership.CommitThenPublish(transfer, () =>
                 {
-                    if (ReferenceEquals(Current, old))
-                        ApplyCurrentChange(null, internalTransaction: true);
-                    RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
-                        NotifyCollectionChangedAction.Remove, old, index));
-                    RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
-                        NotifyCollectionChangedAction.Add, value, index));
+                    var wasCurrent = ReferenceEquals(Current, old);
+                    PublishEvery(
+                        () =>
+                        {
+                            if (wasCurrent)
+                                ApplyCurrentChange(null, internalTransaction: true);
+                        },
+                        () => RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+                            NotifyCollectionChangedAction.Remove, old, index)),
+                        () => RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+                            NotifyCollectionChangedAction.Add, value, index)));
                 });
             }
             catch (Exception originalError) when (!admissionComplete)
@@ -400,10 +441,14 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                     (removed, wasCurrent) = RemoveAtLocked(idx);
                 if (wasCurrent) previousFlagChanged = removed.CommitIsCurrent(false);
             }
-            if (wasCurrent)
-                FinishCurrentChange(removed, null, previousFlagChanged, false);
-            RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
-                NotifyCollectionChangedAction.Remove, removed, idx));
+            PublishEvery(
+                () =>
+                {
+                    if (wasCurrent)
+                        FinishCurrentChange(removed, null, previousFlagChanged, false);
+                },
+                () => RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+                    NotifyCollectionChangedAction.Remove, removed, idx)));
         }
         catch
         {
@@ -497,6 +542,25 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
             NotifyCollectionChangedAction.Move, item, toIndex, fromIndex));
     }
 
+    /// <summary>
+    /// Publishes a committed membership change. Every step runs even when an
+    /// earlier one throws (for example a throwing <c>OnCurrentChanged</c>), so
+    /// the collection event is never lost; the first failure is rethrown.
+    /// </summary>
+    private static void PublishEvery(params Action[] steps)
+    {
+        System.Runtime.ExceptionServices.ExceptionDispatchInfo? firstError = null;
+        foreach (var step in steps)
+        {
+            try { step(); }
+            catch (Exception error)
+            {
+                firstError ??= System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(error);
+            }
+        }
+        firstError?.Throw();
+    }
+
     /// <inheritdoc/>
     public void RemoveAt(int index)
     {
@@ -512,10 +576,14 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                     (item, wasCurrent) = RemoveAtLocked(index);
                 if (wasCurrent) previousFlagChanged = item.CommitIsCurrent(false);
             }
-            if (wasCurrent)
-                FinishCurrentChange(item, null, previousFlagChanged, false);
-            RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
-                NotifyCollectionChangedAction.Remove, item, index));
+            PublishEvery(
+                () =>
+                {
+                    if (wasCurrent)
+                        FinishCurrentChange(item, null, previousFlagChanged, false);
+                },
+                () => RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+                    NotifyCollectionChangedAction.Remove, item, index)));
         }
         catch
         {
@@ -547,10 +615,14 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                 if (previous is not null)
                     previousFlagChanged = previous.CommitIsCurrent(false);
             }
-            if (previous is not null)
-                FinishCurrentChange(previous, null, previousFlagChanged, false);
-            RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
-                NotifyCollectionChangedAction.Reset));
+            PublishEvery(
+                () =>
+                {
+                    if (previous is not null)
+                        FinishCurrentChange(previous, null, previousFlagChanged, false);
+                },
+                () => RaiseCollectionChanged(new NotifyCollectionChangedEventArgs(
+                    NotifyCollectionChangedAction.Reset)));
         }
         catch
         {
@@ -611,7 +683,14 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     private void MaybeAutoConstruct(VM item)
     {
         if (!_autoConstructOnAdd) return;
-        if (Status != ConstructionStatus.Constructed) return;
+        var status = Status;
+        if (status == ConstructionStatus.Constructing)
+        {
+            // The construct walk joins a child added while it runs.
+            if (item.Status == ConstructionStatus.Destructed) item.Construct();
+            return;
+        }
+        if (status != ConstructionStatus.Constructed) return;
         if (item.Status == ConstructionStatus.Constructed) return;
         item.Construct();
     }
@@ -674,9 +753,13 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
     {
         base.OnConstruct(); // invoke user's onConstruct callback if any
         // Populate children from factory (lazy: only on first construct).
-        PopulateChildren();
+        // Children whose construct population started are joined, not restarted.
+        var joined = new HashSet<IComponentVM>(ComponentVMBase.ChildReferenceComparer.Instance);
+        _populationJoined = joined;
+        try { PopulateChildren(); }
+        finally { _populationJoined = null; }
         CompleteLifecycleHookAfter(TransitionChildrenAsync(
-            Snapshot().ToArray(),
+            ContainerConstructWalk.Enumerate(() => Snapshot().ToArray(), _autoConstructOnAdd, joined),
             construct: true,
             after: () =>
             {
@@ -685,7 +768,8 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
                 var initial = _currentSelector(this);
                 if (initial is not null && IndexOfIdentity(initial) >= 0)
                     SetCurrent(initial, async: false);
-            }));
+            },
+            joined: joined));
     }
 
     /// <summary>Constructs all current children sequentially.</summary>
@@ -743,7 +827,13 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
             foreach (var child in candidates)
             {
                 if (Status == ConstructionStatus.Constructing)
+                {
                     child.Construct();
+                    // A child population left pending is joined, never restarted.
+                    if (child.Status is not ConstructionStatus.Constructed
+                        and not ConstructionStatus.Disposed)
+                        _populationJoined?.Add(child);
+                }
                 else
                     MaybeAutoConstruct(child);
             }

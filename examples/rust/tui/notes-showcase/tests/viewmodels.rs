@@ -1,9 +1,10 @@
 use notes_showcase::viewmodels::NoteFormVm;
-use notes_showcase::{InMemoryNoteRepository, WorkspaceVm};
+use notes_showcase::{InMemoryNoteRepository, NoteModel, NotebookModel, WorkspaceVm};
 use pretty_assertions::assert_eq;
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+use vmx::{ConstructionStatus, NotificationType, VmNode};
 
 const TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -51,7 +52,7 @@ fn form_validation_save_and_revert_use_form_vm_contracts() {
 
     form.set_title("");
     assert!(!form.is_valid());
-    assert_eq!(form.title_error(), Some("Title is required".to_string()));
+    assert_eq!(form.title_error(), Some("Title is required.".to_string()));
     form.save().expect("invalid direct save is a no-op");
     assert_eq!(
         repository.note("rust-parity").expect("original note").title,
@@ -183,6 +184,23 @@ fn global_search_refresh_after_the_last_page_keeps_results_without_duplicates() 
 }
 
 #[test]
+fn a_repeated_delete_request_keeps_one_resolvable_confirmation() {
+    let repository = InMemoryNoteRepository::seeded();
+    let workspace = WorkspaceVm::new(repository.clone()).expect("workspace builds");
+
+    workspace.request_delete_current();
+    workspace.request_delete_current();
+    assert_eq!(
+        workspace.notifications().messages(),
+        vec!["Delete note 'Rust flavor parity'?"]
+    );
+
+    workspace.reject_delete_current();
+    assert!(workspace.notifications().messages().is_empty());
+    assert!(repository.note("rust-parity").is_some());
+}
+
+#[test]
 fn editor_mode_and_delete_confirmation_are_vm_commands() {
     let repository = InMemoryNoteRepository::seeded();
     let workspace = WorkspaceVm::new(repository.clone()).expect("workspace builds");
@@ -209,4 +227,144 @@ fn editor_mode_and_delete_confirmation_are_vm_commands() {
         workspace.notifications().messages(),
         vec!["Deleted 'Rust flavor parity'"]
     );
+}
+
+#[test]
+fn workspace_dispose_disposes_the_tree() {
+    let workspace = WorkspaceVm::seeded().unwrap();
+    let notifications = workspace.notifications();
+
+    workspace.dispose().unwrap();
+
+    assert_eq!(notifications.status(), ConstructionStatus::Disposed);
+}
+
+#[test]
+fn notifications_over_the_cap_are_dismissed() {
+    let workspace = WorkspaceVm::seeded().unwrap();
+    let notifications = workspace.notifications();
+
+    for index in 0..8 {
+        notifications.post(NotificationType::Notification, format!("n{index}"));
+    }
+
+    let messages = notifications.messages();
+    assert_eq!(messages.len(), 5);
+    assert_eq!(messages.last().map(String::as_str), Some("n7"));
+}
+
+#[test]
+fn switching_notebooks_starts_on_the_first_page() {
+    let note = |id: &str, notebook: &str| NoteModel {
+        id: id.to_string(),
+        notebook_id: notebook.to_string(),
+        title: id.to_string(),
+        body: String::new(),
+        tags: Vec::new(),
+        starred: false,
+    };
+    let repository = InMemoryNoteRepository::new(
+        vec![
+            NotebookModel {
+                id: "a".to_string(),
+                title: "A".to_string(),
+            },
+            NotebookModel {
+                id: "b".to_string(),
+                title: "B".to_string(),
+            },
+        ],
+        vec![
+            note("a1", "a"),
+            note("a2", "a"),
+            note("a3", "a"),
+            note("b1", "b"),
+            note("b2", "b"),
+            note("b3", "b"),
+        ],
+    );
+    let workspace = WorkspaceVm::new(repository).expect("workspace builds");
+    let notes = workspace.notes();
+    notes.set_notebook("a");
+    notes.next_page();
+    assert!(notes.page_summary().starts_with("3-"));
+
+    notes.set_notebook("b");
+
+    assert!(
+        notes.page_summary().starts_with("1-"),
+        "{}",
+        notes.page_summary()
+    );
+}
+
+#[test]
+fn a_saved_note_updates_its_row_search_delete_prompt_and_later_loads() {
+    let repository = InMemoryNoteRepository::seeded();
+    let workspace = WorkspaceVm::new(repository.clone()).expect("workspace builds");
+    let form = workspace.form();
+
+    form.set_title("Rust VMx showcase");
+    form.save().expect("valid draft persists");
+
+    // The list row and local search see the saved title.
+    assert_eq!(
+        workspace.notes().visible_titles(),
+        vec!["Rust VMx showcase", "Release channels"]
+    );
+    workspace.set_search_term("showcase");
+    assert_eq!(
+        workspace.notes().visible_titles(),
+        vec!["Rust VMx showcase"]
+    );
+    workspace.set_search_term("");
+
+    // Paging away and back reloads the editor from the saved row.
+    workspace.next_page();
+    workspace.previous_page();
+    assert_eq!(form.title(), "Rust VMx showcase");
+
+    // The delete prompt names the saved title.
+    workspace.request_delete_current();
+    assert_eq!(
+        workspace.notifications().messages(),
+        vec!["Delete note 'Rust VMx showcase'?"]
+    );
+    workspace.reject_delete_current();
+
+    // A later save keeps the saved title instead of writing the old one back.
+    form.set_body("Edited later.");
+    form.save().expect("later save persists");
+    let saved = repository.note("rust-parity").expect("saved note");
+    assert_eq!(saved.title, "Rust VMx showcase");
+    assert_eq!(saved.body, "Edited later.");
+}
+
+#[test]
+fn paging_searching_or_switching_notebooks_cancels_a_pending_delete() {
+    type Change = fn(&WorkspaceVm);
+    let changes: [(&str, Change); 4] = [
+        ("next page", |workspace| workspace.next_page()),
+        ("previous page", |workspace| workspace.previous_page()),
+        ("search", |workspace| workspace.set_search_term("docs")),
+        ("notebook", |workspace| {
+            workspace.select_notebook("engineering").unwrap()
+        }),
+    ];
+    for (name, change) in changes {
+        let repository = InMemoryNoteRepository::seeded();
+        let workspace = WorkspaceVm::new(repository.clone()).expect("workspace builds");
+
+        workspace.request_delete_current();
+        change(&workspace);
+        assert!(
+            workspace.notifications().messages().is_empty(),
+            "{name}: the delete prompt is still pending"
+        );
+        workspace.approve_delete_current();
+        assert!(
+            repository.note("rust-parity").is_some(),
+            "{name}: `y` deleted a note that left the screen"
+        );
+    }
 }

@@ -78,6 +78,16 @@ class NoteFormVM(ComponentVM, IReconstructable):
         self._bind_subscription: DisposableBase | None = None
         # Inner approvals admitted so far; see ``_approve_form_async``.
         self._admissions = 0
+        # Forms with an approval running, and forms already replaced by a
+        # rebind whose disposal waits for that approval to settle. Disposing a
+        # form mid-save suppresses its settlement (spec/20 §5.3), which would
+        # drop the saved-row refresh and the "Saved" toast.
+        self._approving_forms: set[FormVM[NoteModel]] = set()
+        self._retired_forms: set[FormVM[NoteModel]] = set()
+        # The approve command admits a run before its body starts; a rebind in
+        # that gap hands the form the user saved to the pending run here.
+        self._approval_started = False
+        self._handoff_form: FormVM[NoteModel] | None = None
 
         from reactivex.subject import BehaviorSubject
 
@@ -379,9 +389,15 @@ class NoteFormVM(ComponentVM, IReconstructable):
 
     # ── Bind / approve ─────────────────────────────────────────────────────
     def bind_to(self, note: NoteModel) -> None:
-        """Replace the inner :class:`FormVM` with one bound to *note*."""
+        """Replace the inner :class:`FormVM` with one bound to *note*.
+
+        A replaced form whose save is still in flight is retired rather than
+        disposed: the new note binds immediately, and the old approval still
+        publishes its effects (list-row refresh, "Saved" toast) before the
+        retired form is disposed.
+        """
         if self._form is not None:
-            self._form.dispose()
+            self._retire_form(self._form)
         # hub-subscription ownership: dispose any prior hub subscription before
         # re-subscribing below so the closure for the old form doesn't leak
         # (each bind_to used to leave the previous one alive forever).
@@ -428,7 +444,7 @@ class NoteFormVM(ComponentVM, IReconstructable):
         if self._form is None and self._bind_subscription is None and not had_tag_draft:
             return
         if self._form is not None:
-            self._form.dispose()
+            self._retire_form(self._form)
             self._form = None
         if self._bind_subscription is not None:
             self._bind_subscription.dispose()
@@ -441,20 +457,50 @@ class NoteFormVM(ComponentVM, IReconstructable):
     async def approve_async(self) -> None:
         """Awaitable approve cycle: persist, then, only when this call saved,
         publish a "Saved" notification and refresh tag suggestions."""
-        form = self._form
+        form, self._handoff_form = self._handoff_form or self._form, None
         if form is None:
             return
-        if not await self._approve_form_async(form):
-            return
-        self._emit_draft_changes()
-        if self._notification_hub is not None:
-            self._notification_hub.post(
-                Notification(
-                    NotificationType.NOTIFICATION,
-                    f"Saved “{form.snapshot.title}”",
-                )
-            )
-        await self.refresh_tag_suggestions_async()
+        self._approving_forms.add(form)
+        # Cleared only when this run ends: the command stays executing through
+        # the post-save tag refresh, and a rebind in that window must not take
+        # the replaced form for a run that has not started yet.
+        self._approval_started = True
+        try:
+            try:
+                if not await self._approve_form_async(form):
+                    return
+                self._emit_draft_changes()
+                if self._notification_hub is not None:
+                    self._notification_hub.post(
+                        Notification(
+                            NotificationType.NOTIFICATION,
+                            f"Saved “{form.snapshot.title}”",
+                        )
+                    )
+            finally:
+                self._approving_forms.discard(form)
+                if form in self._retired_forms:
+                    self._retired_forms.discard(form)
+                    form.dispose()
+            await self.refresh_tag_suggestions_async()
+        finally:
+            self._approval_started = False
+
+    def _retire_form(self, form: FormVM[NoteModel]) -> None:
+        """Dispose *form* now, or once its in-flight approval settles."""
+        if (
+            self._approve_command.is_executing
+            and not self._approval_started
+            and self._handoff_form is None
+        ):
+            # Save was pressed but its run has not started yet: that run saves
+            # this form, not the one about to be bound.
+            self._handoff_form = form
+            self._retired_forms.add(form)
+        elif form in self._approving_forms:
+            self._retired_forms.add(form)
+        else:
+            form.dispose()
 
     async def _approve_form_async(self, form: FormVM[NoteModel]) -> bool:
         """Run one inner approval and return ``True`` only when it saved.
@@ -565,6 +611,10 @@ class NoteFormVM(ComponentVM, IReconstructable):
     def _on_dispose(self) -> None:
         if self._form is not None:
             self._form.dispose()
+        for retired in tuple(self._retired_forms):
+            retired.dispose()
+        self._retired_forms.clear()
+        self._handoff_form = None
         self._approve_command.dispose()
         self._add_tag_command.dispose()
         self._remove_tag_command.dispose()

@@ -380,8 +380,14 @@ impl<T: Clone + PartialEq + Send + 'static, Token: Clone + Send + 'static>
                 if !commit.is_allowed() || !is_current_operation(&refresh_generation, operation) {
                     return Ok(());
                 }
-                let plan = RefreshPlan::new(&lock(&refresh_items), &page, next.is_some());
-                if !commit.is_allowed() {
+                // Compare a copy, so no lock is held while `PartialEq` runs.
+                // Every item write happens inside a commit, and this thread
+                // owns it, so only a re-entrant operation started by `eq`
+                // can change the items; the operation check rejects that.
+                let current = lock(&refresh_items).clone();
+                let plan = RefreshPlan::new(&current, &page, next.is_some());
+                drop(current);
+                if !commit.is_allowed() || !is_current_operation(&refresh_generation, operation) {
                     return Ok(());
                 }
                 let displaced = plan.apply(
@@ -619,8 +625,14 @@ impl<T: VmNode, Token: Clone + Send + 'static> TokenPagedComposition<T, Token> {
                 if !is_current_operation(&refresh_generation, operation) {
                     return Ok(());
                 }
-                let plan = RefreshPlan::new(&lock(&refresh_items), &page, next.is_some());
-                if !commit.is_allowed() {
+                // Compare a copy, so no lock is held while `PartialEq` runs.
+                // Every item write happens inside a commit, and this thread
+                // owns it, so only a re-entrant operation started by `eq`
+                // can change the items; the operation check rejects that.
+                let current = lock(&refresh_items).clone();
+                let plan = RefreshPlan::new(&current, &page, next.is_some());
+                drop(current);
+                if !commit.is_allowed() || !is_current_operation(&refresh_generation, operation) {
                     return Ok(());
                 }
                 if plan.replace_items {

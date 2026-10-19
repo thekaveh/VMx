@@ -12,14 +12,12 @@ Two companion assemblies ship: `VMx.Extensions.DependencyInjection`
 `INotificationHub`) at `1.2.0` (min spec 2.6.0). Each is independently
 versioned per ADR-0009 / ADR-0013 and stays on its own release line
 (the DI companion does not pull the core bump); see
-`../../compatibility-matrix.md`. The Swift flavor is at total parity; see
-`../swift/README.md` §5 for the current conformance matrix.
+[`compatibility-matrix.md`](../../compatibility-matrix.md).
 
 ## 2. Install
 
-The source tree currently implements v3.29.0. The NuGet package has not been
-published yet; use a project reference for local development until a `csharp-v*`
-release tag publishes it.
+The source tree implements v3.29.0. The NuGet package is not published. Use a
+project reference until a `csharp-v*` release tag publishes it.
 
 ```bash
 # After the first NuGet publication
@@ -28,7 +26,7 @@ dotnet add package VMx
 # Optional DI integration (Microsoft.Extensions.DependencyInjection)
 dotnet add package VMx.Extensions.DependencyInjection
 
-# Source checkout today (VMx cloned beside the consumer)
+# Source checkout (VMx cloned beside the consumer)
 dotnet add MyApp.csproj reference ../VMx/langs/csharp/src/VMx/VMx.csproj
 ```
 
@@ -43,10 +41,8 @@ using VMx.Composites;
 using VMx.Lifecycle;
 using VMx.Services;
 
-public record TabModel(string Title);
-
 // 1. Services (a hub + a dispatcher). Production code injects real services;
-//    tests and samples can use .WithNullServices() instead (see below).
+//    component-builder tests and samples can use .WithNullServices() instead (see below).
 var hub = new MessageHub();
 var dispatcher = RxDispatcher.Immediate();  // both schedulers = ImmediateScheduler.Instance
 
@@ -73,14 +69,18 @@ tabs.Construct();
 Console.WriteLine(tabs.Status);  // Constructed
 
 tabs.Current = settings;
-Console.WriteLine(tabs.Current?.Model.Title);  // "Settings"
+Console.WriteLine(tabs.Current?.Model.Title);  // Settings
 
 tabs.Dispose();
 hub.Dispose();
+
+// Type declarations follow the top-level statements in Program.cs.
+public record TabModel(string Title);
 ```
 
-> **Tip — test/sample VMs:** every builder also has a one-line
-> `.WithNullServices()` extension that wires
+> **Tip — test/sample VMs:** the `ComponentVMBuilder`,
+> `ComponentVMBuilder<M>`, and `ReadonlyComponentVMBuilder<M>` builders have a
+> one-line `.WithNullServices()` extension. It wires
 > `NullMessageHub.Instance` + `NullDispatcher.Instance`, so you can write
 > `ComponentVM<M>.Builder().Name("x").Model(m).WithNullServices().Build()`
 > in tests, samples, and exploration without constructing real services.
@@ -97,28 +97,14 @@ for the full walkthrough.
 
 ### 3.1 Cross-language naming
 
-The conceptual surface is identical across the five flavors; identifier
-casing follows the per-language idiom (see ADR-0006).
-
-| Concept             | C#                        | Python             | TypeScript               | Swift                     | Rust                     |
-| ------------------- | ------------------------- | ------------------ | ------------------------ | ------------------------- | ------------------------ |
-| Unmodeled VM        | `ComponentVM`             | `ComponentVM`      | `ComponentVM`            | `ComponentVM`             | `ComponentVm<()>`        |
-| Modeled VM          | `ComponentVM<M>`          | `ComponentVMOf[M]` | `ComponentVMOf<M>`       | `ComponentVMOf<M>`        | `ComponentVm<M>`         |
-| Status property     | `Status`                  | `status`           | `status`                 | `status`                  | `status()`               |
-| Builder entrypoint  | `Builder()`               | `builder()`        | `builder()`              | `builder()`               | `builder()`              |
-| Null hub singleton  | `NullMessageHub.Instance` | `NULL_MESSAGE_HUB` | `NullMessageHub.INSTANCE` | `NullMessageHub.INSTANCE` | `NullMessageHub::hub()`  |
-
-C# uses PascalCase, Python and Rust use snake_case, TypeScript and Swift use
-camelCase. C# and Rust retain the same public type name for modeled and
-unmodeled components (`ComponentVM<M>` / `ComponentVm<M>`), while Python,
-TypeScript, and Swift use a separate `ComponentVMOf` type because their
-generics syntax cannot overload an unparameterised name.
+The concepts are identical across the five flavors; identifier casing follows
+each language idiom (ADR-0006). See the
+[cross-language naming table](../../docs/content/flavors/cross-language-naming.md).
 
 ### 3.2 Subclassing & composition
 
 `ComponentVM<M>`, `ComponentVM`, and `ReadonlyComponentVM<M>` are all
-declared `sealed` by design (ADR-0018 — the post-2012 flat hierarchy avoids
-the inheritance fragility of the legacy chained-base VMx). Downstream code
+declared `sealed` by design (ADR-0018). Downstream code
 that wants to extend a VM with domain-specific operations should use
 **composition** rather than subclassing:
 
@@ -135,10 +121,14 @@ public sealed class NoteVM
             .ModeledHinter(n => n.Title)
             .Services(hub, dispatcher)
             .Build();
+        SaveCommand = RelayCommand.Builder()
+            .Task(Save)
+            .Predicate(() => Inner.IsConstructed)
+            .Build();
     }
 
     public string Title => Inner.Model.Title;
-    public RelayCommand SaveCommand => new(_ => Save(), _ => Inner.IsConstructed);
+    public RelayCommand SaveCommand { get; }
 
     private void Save() { /* domain operation */ }
 }
@@ -172,11 +162,11 @@ The public API lives under the `VMx.*` namespaces:
 | `GroupVM<VM>`                   | Collection without current selection              |
 | `IVmCollection<VM>`            | Shared group/composite collection + atomic move   |
 | `ISelectableVmCollection<VM>`  | Composite-only current-selection extension        |
-| `AggregateVM1..6<…>`            | Fixed-arity named component slots (arity 6 new in 2.2.0; see ADR-0034) |
+| `AggregateVM1..6<…>`            | Fixed-arity named component slots (ADR-0034) |
 | `ForwardingComponentVM<M>`      | Decorator for `IComponentVM<M>`                   |
 | `ForwardingCompositeVM<VM>`     | Decorator for composites                          |
 | `RelayCommand` / `<T>`          | Executable command with `CanExecute` predicate    |
-| `CompositeCommand`              | Aggregate N inner commands (spec v2.0)            |
+| `CompositeCommand`              | Aggregate N inner commands            |
 | `DecoratorCommand`              | Wrap a command with pre/post + can-execute gate   |
 | `ConfirmationDecoratorCommand`  | Wrap a command with an async confirm delegate     |
 | `ModeledCrudCommands<M,VM>`     | Create / UpdateCurrent / DeleteCurrent helper     |
@@ -188,147 +178,70 @@ The public API lives under the `VMx.*` namespaces:
 | `StatusTransitionException`     | Thrown on illegal lifecycle operations            |
 | `BuilderValidationException`    | Thrown when a builder is missing required fields  |
 | `Tree.Walk(root)`               | DFS pre-order tree traversal                      |
-| `Tree.WalkExpanded(root)`       | DFS walk gated on `IExpandable.IsExpanded` (v2.0) |
+| `Tree.WalkExpanded(root)`       | DFS walk gated on `IExpandable.IsExpanded` |
 | `Tree.Find(root, predicate)`    | Short-circuit tree search                         |
-| `DerivedProperty<TValue>`       | N-source computed value (spec v2.0)               |
-| `ExpandableState`               | `IExpandable`+`ICollapsible` helper (spec v2.0)   |
-| `SearchableState<TItem>`        | Debounced filter + optional source signal (v3.19) |
-| `AsyncResourceVM<T>`            | Cancellable latest-wins async value state (v3.20) |
-| `ILocalizer` / `NullLocalizer`  | i18n hook + null-default (spec v2.0)              |
-| 22× capability interfaces       | `VMx.Capabilities.*` — opt-in (spec v2.0+)        |
+| `DerivedProperty<TValue>`       | N-source computed value               |
+| `ExpandableState`               | `IExpandable`+`ICollapsible` helper   |
+| `SearchableState<TItem>`        | Debounced filter + optional source signal |
+| `AsyncResourceVM<T>`            | Cancellable latest-wins async value state |
+| `ILocalizer` / `NullLocalizer`  | i18n hook + null-default              |
+| 22× capability interfaces       | `VMx.Capabilities.*` — opt-in        |
 | `HierarchicalVM<TModel, TVM>`   | Recursive tree VM with key-aware `AttachMany`     |
-| `TreeStructureChangedMessage`   | Tree-structural-change notification (spec v2.1)   |
-| `FormVM<TM>` / `IFormPersister<TM>` | Snapshot/revert form lifecycle (spec v2.1)    |
-| `IDialogService` / `NullDialogService` | File/confirm/notify dialogs + null (spec v2.1) |
-| `ServicedObservableCollection<T>` | Complete local-before-hub mutation surface (spec v3.16) |
-| `KeyedServicedObservableCollection<TKey, TItem>` | Ordered serviced surface plus captured-key index (spec v3.17) |
-| `IObservableMembershipSource<T>` / `AggregateChangeStream<T>` | Dynamic membership-and-item fan-in with provenance (spec v3.18) |
+| `TreeStructureChangedMessage`   | Tree-structural-change notification   |
+| `FormVM<TM>` / `IFormPersister<TM>` | Snapshot/revert form lifecycle    |
+| `IDialogService` / `NullDialogService` | File/confirm/notify dialogs + null |
+| `ServicedObservableCollection<T>` | Complete local-before-hub mutation surface |
+| `KeyedServicedObservableCollection<TKey, TItem>` | Ordered serviced surface plus captured-key index |
+| `IObservableMembershipSource<T>` / `AggregateChangeStream<T>` | Dynamic membership-and-item fan-in with provenance |
 | `ObservableList<T>`             | Granular events + atomic `ReplaceAll`             |
-| `ObservableDictionary<K1, K2, V>` | Multi-key observable dictionary (spec v2.1)     |
-| `PagedComposition<TVM>`         | Pageable iterable decorator (spec v2.1)           |
-| Fluent command extensions       | `Confirm` / `PrecedeWith` / `SucceedWith` / `WrapWith` on `ICommand` (spec v2.1) |
-| `PropertyValueChangedMessagesFor` | Hub extension yielding `IObservable<TProperty>` of property-value snapshots (spec v2.1) |
-| `SubscribeValue`                | Fixed-VM selected-state bridge returning `IDisposable` (spec v3.15) |
+| `ObservableDictionary<K1, K2, V>` | Multi-key observable dictionary     |
+| `PagedComposition<TVM>`         | Pageable iterable decorator           |
+| Fluent command extensions       | `Confirm` / `PrecedeWith` / `SucceedWith` / `WrapWith` on `ICommand` |
+| `PropertyValueChangedMessagesFor` | Hub extension yielding `IObservable<TProperty>` of property-value snapshots |
+| `SubscribeValue`                | Fixed-VM selected-state bridge returning `IDisposable` |
 
 ### 4.1 Serviced collections
 
-Use `ServicedObservableCollection<T>` when an ordered, caller-owned collection
-needs normal local `CollectionChanged` events plus equivalent messages on an
-optional hub. It supports inherited `Add`, first-match `Remove`, `RemoveAt`,
-the indexer, `Move`, and `Clear`, plus named `Replace` and snapshot-based
-`ReplaceAll`:
+`ServicedObservableCollection<T>` is an ordered, caller-owned collection with
+local `CollectionChanged` events and equivalent messages on an optional hub.
+`KeyedServicedObservableCollection<TKey,TItem>` adds a captured stable-key
+index (`TryGetValue`, `Upsert`, `RemoveKey`, `ContainsKey`).
 
-```csharp
-var notes = new ServicedObservableCollection<Note>(hub);
-notes.Add(first);
-notes.Add(second);
-notes.Replace(0, revised);
-notes.Move(0, notes.Count - 1);    // one Move locally, then on the hub
-notes.ReplaceAll(serverSnapshot); // one Reset, even for identical non-empty input
-```
-
-Indexed failures are atomic. Equal-index Move, empty Clear, and empty-to-empty
-ReplaceAll are no-ops. Messages retain `Index` and add `OldIndex` / `NewIndex`;
-the collection never disposes or reparents its items. Choose `ObservableList<T>`
-instead for list-local batching and the `Count` channel, or a Group/Composite
-child collection for VM lifecycle ownership.
-
-Choose `KeyedServicedObservableCollection<TKey,TItem>` when that same ordered
-surface needs one stable domain-key index:
-
-```csharp
-var notesById = new KeyedServicedObservableCollection<Guid, Note>(
-    note => note.Id, hub);
-notesById.Add(first);
-notesById.TryGetValue(first.Id, out Note? note);
-bool added = notesById.Upsert(revised); // false: Replace at stable position
-bool removed = notesById.RemoveKey(first.Id);
-```
-
-`ContainsKey` tests membership. Keys are captured until indexed replacement or
-delete-then-add; mutating an item does not silently rekey it. Duplicate and
-projector failures are atomic. Lookup/target discovery are expected O(1), while
-ordered middle shifts remain O(n). Local delivery remains immediate before
-optional hub delivery, and the collection never batches or owns item lifecycle.
+Empty-to-empty `ReplaceAll` is a no-op; any other `ReplaceAll` emits one Reset,
+even for identical input. Messages keep `Index` and add `OldIndex` /
+`NewIndex`. Use `ObservableList<T>` for list-local batching and the `Count`
+channel. Use a Group/Composite child collection for VM lifecycle ownership.
+See [C# serviced collections](../../docs/content/flavors/csharp.md#723-serviced-collections).
 
 ### 4.2 Imperative engine bridge
 
-Use `SubscribeValue` to push selected VM state into a renderer or other
-imperative host without polling it every frame:
+`SubscribeValue` pushes a selected value from one fixed VM into an imperative
+host as `(current, previous)` and returns an `IDisposable` that the host owns.
+VMx does not attach that handle to the observed VM's lifetime. See
+[C# imperative engine bridge](../../docs/content/flavors/csharp.md#724-imperative-engine-bridge).
 
-```csharp
-using VMx.Messages;
+## 5. Companion packages
 
-IDisposable exposureSubscription = cameraVm.SubscribeValue(
-    vm => vm.Model.Exposure,
-    (exposure, _) => material.Uniforms.Exposure.Value = exposure,
-    fireImmediately: true);
-
-// When the host adapter is disposed:
-exposureSubscription.Dispose();
-```
-
-The callback receives `(current, previous)`; immediate delivery passes the
-initial value for both. The selector runs after every property message from
-this fixed VM, and `EqualityComparer<TValue>.Default` suppresses unchanged
-selections. Pass `equalityComparer:` for custom equality. The host owns the
-returned `IDisposable`; VMx does not attach it to the observed VM's lifetime.
-
-The companion package `VMx.Extensions.DependencyInjection` adds:
+`VMx.Extensions.DependencyInjection` adds:
 
 | Export                         | Description                                       |
 | ------------------------------ | ------------------------------------------------- |
 | `services.AddVMx(…)`           | Registers `IMessageHub` and `IDispatcher`         |
 
-The companion package `VMx.Notifications` (spec v2.1+) adds:
+`VMx.Notifications` adds:
 
 | Export                                                   | Description                            |
 | -------------------------------------------------------- | -------------------------------------- |
 | `Notification` / `NotificationType` / `NotificationReaction` | Notification primitives            |
 | `INotificationHub` / `NotificationHub` / `NullNotificationHub` | Async notification hub + null variant |
 | `ConfirmHelper.MakeConfirm(hub, prompt)`                 | Bridge to `ConfirmationDecoratorCommand` |
-| `NotificationVM`                                         | Render-side VM for `Notification` (spec v2.1) |
-| `ConfirmationVM`                                         | Render-side VM with Approve/Reject (spec v2.1) |
+| `NotificationVM`                                         | Render-side VM for `Notification`      |
+| `ConfirmationVM`                                         | Render-side VM with Approve/Reject     |
 
-## 5. Conformance
+## 6. Conformance
 
-All 425 library conformance IDs from `spec/12-conformance.md` are covered (the 5 THEME scenario IDs live in the flagship example apps — see CONTRIBUTING §2.5).
-
-```
-v1.x   LIFE-001..013  HUB-001..007  PROP-001..004  CMD-001..007
-       CVM-001..010   COMP-001..013 GRP-001..006   AGG-001..005
-       FWD-001..004   BLD-001..004  THR-001..004   UTIL-001..003
-v2.0   CAP-001..020   NULL-001..003 DPROP-001..012 CMDD-001..009
-       NOTIF-001..010 COMP-014..024 GRP-007..010   EXP-001..005
-       LOC-001..003
-v2.1   HIER-001..014  DIA-001..008  FORM-001..010  NOTIF-011..016
-       COL-001..023   CMD-008..011  CAP-021..022
-v2.2   AGG-006
-v2.3   BLD-005        FORM-011..013 HIER-015..017
-v2.4   THEME-001..005
-v2.5   HIER-018       NOTIF-017     FORM-014
-v2.6   COMP-025..026
-v3.0   LIFE-014       FORM-015      CMDD-010      COMP-027      CMD-012
-v3.1   CMD-013        COL-024..031  COMP-028..037 FORM-016..023
-       DIA-009..013   HIER-019..022 DISC-001..006 BLD-006 GRP-011
-v3.2   HUB-008..013
-v3.3   CVM-007..009
-v3.4   DISP-001..006
-v3.5   COL-032..039
-v3.6   CMD-014..019
-v3.7   FORM-024..029
-v3.8   HIER-023..030
-v3.9   COL-040..047
-v3.10  DISP-007..013
-v3.11  DISP-014
-v3.12  FORM-030
-v3.15  SUBV-001..004
-v3.16  COL-048..055
-v3.17  COL-056..064
-v3.18  AGCH-001..010
-v3.19  SRCH-001..007
-v3.20  ARES-001..011
-```
+Implements all 425 library conformance IDs; THEME scenario IDs live in the
+example apps. See [`spec/12-conformance.md`](../../spec/12-conformance.md).
 
 Run the suite:
 
@@ -336,7 +249,7 @@ Run the suite:
 dotnet test
 ```
 
-## 6. Development
+## 7. Development
 
 ```bash
 # From this directory
@@ -354,6 +267,6 @@ The `lifecycle-transitions.json` fixture from `spec/fixtures/` is embedded as
 a resource via `<EmbeddedResource>` in `VMx.csproj` and consumed at runtime
 by `LifecycleTransitionValidator`.
 
-## 7. License
+## 8. License
 
 Apache-2.0 — see [`LICENSE`](../../LICENSE) and [`NOTICE`](../../NOTICE).

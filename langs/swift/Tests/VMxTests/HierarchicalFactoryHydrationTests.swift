@@ -54,6 +54,36 @@ final class HierarchicalFactoryHydrationTests: XCTestCase {
         XCTAssertEqual(grandchild.path.map(\.model), ["root", "first", "grandchild"])
     }
 
+    /// Supplementary lazy-materialization check (not HIER-031 hydration
+    /// atomicity): `removeChild` on an unloaded node runs the children
+    /// factory first, matching the other flavors.
+    func testHier031RemoveChildMaterializesLazyChildren() {
+        let hub = MessageHub()
+        var factoryCalls = 0
+        let child = HydrationNode(
+            model: "child",
+            childrenFactory: { _ in [] },
+            hub: hub,
+            dispatcher: ImmediateDispatcher.INSTANCE
+        )
+        let root = HydrationNode(
+            model: "root",
+            childrenFactory: { _ in
+                factoryCalls += 1
+                return [child]
+            },
+            hub: hub,
+            dispatcher: ImmediateDispatcher.INSTANCE
+        )
+
+        root.removeChild(child)
+
+        XCTAssertEqual(factoryCalls, 1)
+        XCTAssertNil(child.parent)
+        XCTAssertTrue(root.children.isEmpty)
+        XCTAssertEqual(factoryCalls, 1, "the cached result is reused")
+    }
+
     /// HIER-031 — self, ancestor, and already-parented results are rejected.
     func testHier031RejectsInvalidTopology() {
         let hub = MessageHub()

@@ -26,6 +26,18 @@ VMx ships two forwarding families:
 By default every property, method, command, and iterator call delegates to the
 wrapped instance. You override only the members you need to change.
 
+Flavor limits (spec/09 introduction and §2):
+
+- Rust has no subclass overrides. `ForwardingComponentVm` offers
+  `with_hint_override` and `with_model_hint`; `ForwardingCompositeVm` offers no
+  override hooks.
+- TypeScript `ForwardingCompositeVM` and Rust `ForwardingCompositeVm` cannot be
+  container children; the type checker rejects the add.
+- Rust `ForwardingCompositeVm` forwards only part of the `CompositeVm` surface,
+  for example not the selection commands or `background_errors`. The
+  [Rust parity ledger](../../../maintenance/2026-07-16-rust-capability-parity.md)
+  lists the gaps in §12.8.
+
 The wrapped component and every decorator around it have one canonical
 ownership identity. Adding a decorator to a composite or group first removes
 the wrapped identity from its previous container, even when that container
@@ -41,7 +53,7 @@ inner VM's behavior unless an override changes it. In practice this means:
 
 - property-changed and status behavior still originate from the wrapped VM
 - iteration over forwarded composites still reflects the wrapped child list
-- `dispose()` should usually forward so lifetime ownership remains explicit
+- the wrapper must forward `dispose()` unless it owns the wrapped lifetime
 
 ## 6.2.7.4. Cross-Language Surface
 
@@ -49,7 +61,7 @@ inner VM's behavior unless an override changes it. In practice this means:
 | -------------------------- | -------------------------------------- | ----------------------------- | ------------------------------- | -------------------------------- | ----------------------------------------- |
 | Component wrapper          | `ForwardingComponentVM<M>`             | `ForwardingComponentVM[M]`    | `ForwardingComponentVM<M>`      | `ForwardingComponentVM<Model>`   | `ForwardingComponentVm<M>`                |
 | Composite wrapper          | `ForwardingCompositeVM<VM>`            | `ForwardingCompositeVM[VM]`   | `ForwardingCompositeVM<VM>`     | `ForwardingCompositeVM<Child>`   | `ForwardingCompositeVm<VM>`               |
-| Canonical wrapped contract | `IComponentVM<M>` / `ICompositeVM<VM>` | component/composite protocols | component/composite base shapes | component/composite base classes | component/composite traits and stable IDs |
+| Canonical wrapped contract | `IComponentVM<M>` / `ICompositeVM<VM>` | component/composite protocols | component/composite base shapes | component/composite base classes | `ComponentVm<M>` / `CompositeVm<VM>`      |
 
 ## 6.2.7.5. Example
 
@@ -117,8 +129,8 @@ properties on `ComponentVMBase`, so the nearest overridable analog is
 
 - Re-implementing the entire VM instead of forwarding and overriding the one
   member that actually differs.
-- Forgetting to forward disposal when the wrapper does not own an independent
-  lifetime.
+- Not forwarding `dispose()`. The wrapper must forward it unless the wrapper
+  owns the wrapped lifetime.
 - Treating two decorators around one component as independent children. Adding
   the later decorator transfers the one canonical wrapped identity.
 - Treating forwarding as a new hierarchy root. It is a wrapper around an

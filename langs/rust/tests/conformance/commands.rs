@@ -72,14 +72,22 @@ fn command_predicate_panics_map_to_not_executable() {
 /// CMD-004 — Trigger emission fires CanExecuteChanged
 #[test]
 fn relay_command_trigger_can_execute_changed_fires() {
-    let command = RelayCommand::noop();
+    let trigger = MessageHub::new();
+    let command = RelayCommand::builder()
+        .action(|| {})
+        .trigger(trigger.clone())
+        .build();
     let fired = Arc::new(AtomicUsize::new(0));
     let fired_clone = fired.clone();
     let _subscription = command.can_execute_changed().subscribe(move |_| {
         fired_clone.fetch_add(1, Ordering::SeqCst);
     });
 
-    command.trigger_can_execute_changed();
+    trigger.send(Message::Custom {
+        sender_id: 0,
+        sender_name: "trigger".to_string(),
+        name: "unit".to_string(),
+    });
 
     assert_eq!(fired.load(Ordering::SeqCst), 1);
 }
@@ -121,22 +129,29 @@ fn relay_command_matches_truth_table_fixture() {
         );
         let calls = Arc::new(AtomicUsize::new(0));
         let observed_calls = calls.clone();
-        let mut command = match case.task {
-            Some(_) => RelayCommand::new(move || {
+        // Every row gets a real builder trigger; only `trigger_emits` rows emit on it.
+        let trigger = MessageHub::new();
+        let mut builder = RelayCommand::builder().trigger(trigger.clone());
+        if case.task.is_some() {
+            builder = builder.action(move || {
                 observed_calls.fetch_add(1, Ordering::SeqCst);
-            }),
-            None => RelayCommand::noop(),
-        };
-        if let Some(predicate) = case.predicate {
-            command = command.with_can_execute(move || predicate);
+            });
         }
+        if let Some(predicate) = case.predicate {
+            builder = builder.can_execute(move || predicate);
+        }
+        let command = builder.build();
         let events = Arc::new(AtomicUsize::new(0));
         let observed_events = events.clone();
         let _subscription = command.can_execute_changed().subscribe(move |_| {
             observed_events.fetch_add(1, Ordering::SeqCst);
         });
         if case.trigger_emits {
-            command.trigger_can_execute_changed();
+            trigger.send(Message::Custom {
+                sender_id: 0,
+                sender_name: "fixture".to_string(),
+                name: "trigger".to_string(),
+            });
         }
         assert_eq!(command.can_execute(), case.can_execute, "{}", case.id);
         command.execute();
@@ -210,9 +225,8 @@ fn imperative_raise_after_disposal_is_noop() {
     let relay = RelayCommand::noop();
     let parameterized = RelayCommandOf::<i32>::noop();
     let async_command = AsyncRelayCommand::noop();
-    relay.dispose();
-    parameterized.dispose();
-    async_command.dispose();
+    // Subscribe before disposal: after disposal the eligibility hub hands out
+    // no-op subscriptions, so a later subscriber could never fail the check.
     let fired = Arc::new(AtomicUsize::new(0));
     let subscriptions = [
         relay.can_execute_changed(),
@@ -227,6 +241,11 @@ fn imperative_raise_after_disposal_is_noop() {
         })
     })
     .collect::<Vec<_>>();
+    relay.dispose();
+    parameterized.dispose();
+    async_command.dispose();
+    // Disposal itself may emit one final notification; count only later raises.
+    fired.store(0, Ordering::SeqCst);
 
     relay.raise_can_execute_changed();
     parameterized.raise_can_execute_changed();
@@ -431,7 +450,9 @@ fn async_relay_command_cancel_cancels_in_flight_task() {
             std::thread::sleep(Duration::from_millis(1));
         }
         observed_cancel_clone.store(true, Ordering::SeqCst);
-        Ok(())
+        // A cancellable task reports cancellation as an error; the default
+        // (non-throwing) command must swallow it.
+        Err(VmxError::Cancelled)
     });
 
     assert!(command.can_execute());
@@ -442,7 +463,11 @@ fn async_relay_command_cancel_cancels_in_flight_task() {
     assert!(!command.can_execute());
 
     command.cancel();
-    run.join().unwrap().unwrap();
+    assert_eq!(
+        run.join().unwrap(),
+        Ok(()),
+        "the swallowed cancellation must not surface from the awaited execution"
+    );
 
     assert!(observed_cancel.load(Ordering::SeqCst));
     assert!(!command.is_executing());
@@ -730,6 +755,22 @@ fn an_error_observer_may_unsubscribe_itself_during_delivery() {
 }
 
 #[test]
+fn a_panicking_fire_and_forget_run_reaches_the_error_stream() {
+    let command = AsyncRelayCommand::new(|_| panic!("relay boom"));
+    let (errors, deliveries, _subscription) = record_errors(&command);
+
+    command.execute();
+    deliveries.recv_timeout(ERROR_TIMEOUT).unwrap();
+    wait_until_idle(&command);
+
+    assert_eq!(
+        *errors.lock().unwrap(),
+        vec![VmxError::Other("command panicked: relay boom".into())]
+    );
+    assert!(command.can_execute());
+}
+
+#[test]
 fn a_failed_fire_and_forget_run_releases_admission_and_signals_eligibility() {
     let command = AsyncRelayCommand::new(|_| Err(VmxError::Other("boom".into())));
     let (signalled, signals) = mpsc::channel();
@@ -877,13 +918,36 @@ fn async_relay_command_clears_execution_state_after_action_panic() {
 fn repeated_async_command_dispose_cancels_one_in_flight_execution() {
     let observed_cancel = Arc::new(AtomicUsize::new(0));
     let observed_cancel_clone = observed_cancel.clone();
+    let runs = Arc::new(AtomicUsize::new(0));
+    let runs_clone = runs.clone();
     let command = AsyncRelayCommand::new(move |token| {
+        runs_clone.fetch_add(1, Ordering::SeqCst);
         while !token.is_cancelled() {
             std::thread::sleep(Duration::from_millis(1));
         }
         observed_cancel_clone.fetch_add(1, Ordering::SeqCst);
         Ok(())
     });
+    let can_execute_completions = Arc::new(AtomicUsize::new(0));
+    let can_execute_completed = can_execute_completions.clone();
+    let _can_execute_subscription = command.can_execute_changed().subscribe_with_completion(
+        |_| {},
+        move || {
+            can_execute_completed.fetch_add(1, Ordering::SeqCst);
+        },
+    );
+    let error_completions = Arc::new(AtomicUsize::new(0));
+    let errors_completed = error_completions.clone();
+    let error_values = Arc::new(AtomicUsize::new(0));
+    let errors_seen = error_values.clone();
+    let _error_subscription = command.error_stream().subscribe_with_completion(
+        move |_| {
+            errors_seen.fetch_add(1, Ordering::SeqCst);
+        },
+        move || {
+            errors_completed.fetch_add(1, Ordering::SeqCst);
+        },
+    );
 
     let run = command.execute_async();
     while !command.is_executing() {
@@ -894,7 +958,19 @@ fn repeated_async_command_dispose_cancels_one_in_flight_execution() {
     run.join().unwrap().unwrap();
 
     assert_eq!(observed_cancel.load(Ordering::SeqCst), 1);
+    assert!(!command.is_executing());
     assert!(!command.can_execute());
+
+    // Later execution attempts are inert.
+    command.execute();
+    let _ = command.execute_async().join().unwrap();
+    assert_eq!(runs.load(Ordering::SeqCst), 1);
+    assert!(!command.is_executing());
+
+    // Terminal channels complete exactly once (never twice) and publish no error.
+    assert_eq!(can_execute_completions.load(Ordering::SeqCst), 1);
+    assert_eq!(error_completions.load(Ordering::SeqCst), 1);
+    assert_eq!(error_values.load(Ordering::SeqCst), 0);
 }
 
 /// CMD-013 — disposed relay commands are inert
@@ -1271,4 +1347,44 @@ fn wrappers_re_entered_from_their_inner_action_do_not_deadlock() {
     assert_eq!(composite_runs, 2);
     // Each admitted pre/post pair stays balanced around its inner execute.
     assert_eq!(decorator_log, ["pre", "run", "pre", "post", "run", "post"]);
+}
+
+#[test]
+fn a_dropped_async_command_with_a_trigger_is_released() {
+    let trigger = MessageHub::new();
+    let marker = Arc::new(());
+    let captured = marker.clone();
+    let command = AsyncRelayCommand::builder()
+        .task(move |_| {
+            let _ = &captured;
+            Ok(())
+        })
+        .trigger(trigger.clone())
+        .build();
+
+    drop(command);
+    trigger.send(Message::Custom {
+        sender_id: 0,
+        sender_name: "test".to_string(),
+        name: "changed".to_string(),
+    });
+
+    assert_eq!(Arc::strong_count(&marker), 1, "the command was freed");
+}
+
+#[test]
+fn a_dropped_token_pager_is_released() {
+    let marker = Arc::new(());
+    let captured = marker.clone();
+    let pager = vmx::TokenPagedComposition::<vmx::ComponentVm, String>::with_loader(
+        None,
+        move |_token: Option<String>| {
+            let _ = &captured;
+            (Vec::new(), None)
+        },
+    );
+
+    drop(pager);
+
+    assert_eq!(Arc::strong_count(&marker), 1, "the pager was freed");
 }

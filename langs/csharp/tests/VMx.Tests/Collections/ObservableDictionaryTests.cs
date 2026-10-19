@@ -120,6 +120,27 @@ public class ObservableDictionaryTests
     }
 
     [Fact]
+    public void Hub_Add_Index_Is_Captured_Before_A_Reentrant_Add()
+    {
+        using var hub = new MessageHub();
+        var sut = new ObservableDictionary<string, int, double>(hub);
+        var indices = new Dictionary<string, int>();
+        hub.Messages.Subscribe(m =>
+        {
+            var change = (ICollectionChangedMessage<KeyValuePair<(string, int), double>>)m;
+            foreach (var item in change.NewItems) indices[item.Key.Item1] = change.Index;
+        });
+        sut.ItemAdded += (_, e) =>
+        {
+            if (e.Key1 == "a") sut.Add("b", 2, 2.0);
+        };
+
+        sut.Add("a", 1, 1.0);
+
+        indices.Should().BeEquivalentTo(new Dictionary<string, int> { ["a"] = 0, ["b"] = 1 });
+    }
+
+    [Fact]
     public void Hub_Injection_PublishesRemoveMessageOnRemove()
     {
         using var hub = new MessageHub();

@@ -94,7 +94,8 @@ public extension DialogService {
     /// Default modal presentation preserves null-object safety. Host services
     /// override this method to bridge a modal VM to native UI.
     func present<M: ModalVM>(_ modalVM: M) async -> M.Result {
+        // First result wins: an already-dismissed modal keeps its result.
         modalVM.dismiss(modalVM.cancellationResult)
-        return modalVM.cancellationResult
+        return await modalVM.waitResult()
     }
 }

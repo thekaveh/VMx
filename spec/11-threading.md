@@ -47,7 +47,9 @@ Each flavor ships an idiomatic default dispatcher whose channels are:
 > `NullDispatcher` and `ImmediateDispatcher` run both inline;
 > `ManualDispatcher` provides independently drainable queues for tests. A
 > failed fire-and-forget background hook is emitted on the component's hot
-> `background_errors()` stream after foreground rollback; hook panics use a
+> `background_errors()` stream after foreground rollback. Composite, group,
+> modeled-composite, and aggregate containers expose the same stream for a
+> background child failure that rolls the container back; hook panics use a
 > `VmxError::Other` diagnostic because Rust panic payloads are not constrained
 > to the error type.
 
@@ -147,9 +149,12 @@ requirement; Python and TypeScript scheduler exceptions and Swift's nonthrowing
 scheduler closure remain governed by their ecosystem APIs.
 
 The await primitive for a consumer-defined background wrapper is the
-terminal-status subscription above; the hub does not replay the last status to
-a late subscriber. C# alone ships first-class outcome tasks and composite
-"await all children" orchestration (`ConstructAsync` / `DestructAsync`); those
+terminal-status subscription above; the hub does not replay the last status to a
+late subscriber. Every flavor's containers wait at the status level for
+background children to settle (chapter 02 §6). In Rust, a container waits for a
+child node that forwards `VmNode::when_lifecycle_settled`; a third-party node
+that does not forward it is accepted while still in flight. C# alone ships
+first-class outcome tasks for it (`ConstructAsync` / `DestructAsync`); those
 tasks preserve hook and child-cascade failures per ADR-0109. Equivalent async
 lifecycle entry points remain deliberately absent from the other flavors under
 ADR-0008/ADR-0009 rather than an active parity requirement.

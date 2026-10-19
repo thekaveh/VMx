@@ -11,6 +11,10 @@ selected one.
 | `CompositeVM<VM>` (non-modeled) | builder factory `() -> Iterable<VM>`                 | yes       |
 | `CompositeVM<M, VM>` (modeled)  | model factory `() -> Iterable<M>` + mapper `M -> VM` | yes       |
 
+The non-modeled builder factory is evaluated on `construct()`, as for `GroupVM`
+(chapter 07 §3). Open Rust gap: Rust's `CompositeVmBuilder::build()` evaluates
+the factory and attaches the initial population at build time.
+
 For domains that are natively recursive (trees), use `HierarchicalVM<TModel, TVM>` (chapter 18) instead of
 recursively nesting `CompositeVM<M, VM>`. `HierarchicalVM` provides built-in parent / depth / path semantics
 plus depth-first construction order.
@@ -71,7 +75,10 @@ language-neutral contract name; each flavor realizes it per the ADR-0006 idiom:
 C# ships the literal `ICompositeVM<VM>` interface, Python the structural
 `CompositeVMProto` (the `…Proto` convention catalogued in ADR-0009), and
 TypeScript the structural `CompositeVMBase<VM>` shape the forwarding decorator
-wraps.
+wraps. Swift realizes it as the `open class CompositeVM<Child>`, which
+`ForwardingCompositeVM` subclasses and wraps. Rust has no separate interface: the
+concrete `CompositeVm<T, D>` struct is the surface that `ForwardingCompositeVm`
+holds and delegates to.
 
 ## 3. `Current` contract
 
@@ -102,6 +109,13 @@ wraps.
 - `Current(selector)` — `selector: Iterable<VM> -> VM | None`. Invoked once during the composite's construct phase, **after** all children have transitioned to `Constructed` and **before** the composite reaches `Constructed`. The composite assigns `Current` to the selector's return value through an internal **non-raising validated assignment** — NOT the guarded `select_component` path, which raises on a non-child (§3.1, `COMP-009`). If the selector returns a contained child, the normal `Current` transition fires (`PropertyChangedMessage("Current")` plus the `IsCurrent` updates of §3). If the selector returns `null` or a value not contained in the composite, the assignment is a **silent no-op**: `Current` stays at its prior value (initially `null`) and no notification fires. (ADR-0042 §5.1 phrased this as "the `SelectComponent` path"; ADR-0050 corrects the wording to the non-raising assignment that the reference implementations and `COMP-025` actually exercise, reconciling it with §5.4's no-op rule.)
 - `OnCurrentChanged(callback)` — `callback: (VM | None) -> void`. Invoked synchronously after every `Current` transition, **after** the state is updated and the hub publishes `PropertyChangedMessage("Current")`. Receives the new `Current` value (which may be `null`). Re-entrant disposal from this callback is deferred through the active membership transaction and completes after publication without deadlocking selection. The shared cross-composite coordinator protects validation and the committed state update only; hub publication and consumer callbacks execute after it is released.
 
+Open Rust gap: Rust `CompositeVm` keeps its membership transaction open while
+it publishes `CollectionChanged` from `add` and while it publishes the
+current-flag changes and runs the current-changed callback. A selection started
+from those callbacks, or concurrently, returns `OwnershipTransactionInProgress`
+instead of completing. The `COMP-026` Rust tests for these two cases are
+ignored until the transaction is released before publication.
+
 Both hooks are optional; absent calls yield v2.5.0 behavior. The hooks compose: if both are present, the initial selector's assignment triggers the callback exactly once.
 
 Conformance: `COMP-025` (initial-current selector), `COMP-026` (`OnCurrentChanged` callback fires on `Current` change).
@@ -124,6 +138,11 @@ parent, lifecycle, subscriptions, and `Current`.
 After each local event, the composite publishes the equivalent
 `CollectionChangedMessage` to its hub, sending it as itself (chapter 01 §1.4,
 ADR-0142, `COMP-042`).
+
+Open Rust gap: Rust `CompositeVm` and `GroupVm` have no public local
+collection-change stream; consumers observe membership through the hub
+`CollectionChanged` messages. The local-recorder clauses of `COMP-041` and
+`COMP-042` apply to Rust through the hub messages only.
 
 ### 4.1 Batch updates (spec v1.1)
 
@@ -245,9 +264,9 @@ children:
   child; each call returns once that child reaches `Destructed`. Once every
   child is `Destructed`, the composite transitions to `Destructed`.
 
-The order in which children are visited is unspecified. The reference
-implementations in all five active flavors
-drive them sequentially.
+The order in which children are visited is unspecified. Chapter 02 §6 says which
+reference implementations drive container children sequentially and which start
+factory-populated children during population.
 
 ### 5.1 Add after Constructed
 
@@ -259,6 +278,15 @@ automatically call `construct()` on any child added via `Add` / `Insert` after
 the composite reaches `Constructed`, completing the child's transition to
 `Constructed` BEFORE the `CollectionChanged` event fires. Builds default to
 `false` for backwards compatibility.
+
+With `AutoConstructOnAdd(true)`, a child added while the composite is still
+`Constructing` is also started, and the composite reaches `Constructed` only
+after that child does (chapter 02 §6). If its construction fails during the
+add, the add fails and is undone. A child added before the construct walk
+takes its membership snapshot (for example by the construct hook) is walked
+like any other member. A child added after the snapshot is a late child: the
+walk joins it and never restarts it, and if it fails while the walk waits on
+it, the composite rolls back.
 
 ## 6. Modeled variant `CompositeVM<M, VM>`
 
@@ -317,9 +345,19 @@ Behavior:
   RECOMMENDED whenever the commands are bound to UI; omitting it leaves
   `CanExecute` correct on demand but non-reactive. Exposing the optional
   `current_changed` parameter is, per ADR-0049, a clarification first realized in
-  C# (VMX-011) and also exposed by Swift's `ModeledCrudCommands`; Python and
-  TypeScript compose the same reactivity through the base `Triggers` mechanism
+  C# (VMX-011). C# (`currentChanged`), Swift (`currentChanged`), and Rust
+  (`ModeledCrudCommands::with_current_changed`) accept the trigger. The Python and
+  TypeScript helpers accept no trigger input, so their Update and Delete commands
+  stay correct on demand but non-reactive. To get reactive commands in these two
+  flavors, build the commands directly with the base `Triggers` mechanism
   (chapter 04 §4.2).
+
+Open Rust gap: Rust has no `confirm_update` delegate. Its
+`ModeledCrudCommands::with_confirm_delete` takes a synchronous `Fn() -> bool`
+inside a plain `RelayCommand`, not an async delegate wrapped in a
+`ConfirmationDecoratorCommand`. The `with_confirm_delete` constructor also
+takes no `current_changed` trigger, so that Delete command is not reactive; the
+`with_current_changed` constructor accepts the trigger but has no confirmation.
 
 The helper is opt-in; the base `CompositeVM<M, VM>` retains its current shape.
 
@@ -330,8 +368,8 @@ helper, which implements `ISearchable` from chapter 14 (designed in ADR-0014):
 
 ```
 SearchableState<TItem>:
-    SearchTerm : string                          # read/write
-    SearchTermChanged : Observable<string>        # debounced (default 1s, configurable)
+    SearchTerm : string                          # read/write; debounced
+                                                 # (default 1s, configurable)
     Predicate : (TItem, string) -> bool           # user-supplied
     Items : Iterable<TItem>                       # current source set
     SourceChanged : Observable<void>?             # optional invalidation signal
@@ -344,9 +382,10 @@ SearchableState<TItem>:
 
 Behavior:
 
-- Setting `SearchTerm` to a new value triggers a debounced emission on
-  `SearchTermChanged`. The default debounce is **1 second**; consumers may
-  override via builder/constructor.
+- Setting `SearchTerm` to a new value starts an internal debounce. The default
+  debounce is **1 second**; consumers may override via builder/constructor. No
+  flavor exposes the debounced term as a public stream; consumers observe
+  `Filtered`.
 - After the debounce, the helper recomputes `Filtered` by applying
   `Predicate(item, search_term)` to each item in `Items` and emitting the
   list of matches.
@@ -358,6 +397,10 @@ Behavior:
 - When an optional `SourceChanged` signal is supplied, every signal immediately
   re-reads `Items`, applies the current `SearchTerm`, and emits one filtered
   snapshot. The signal payload is ignored.
+
+Open Rust gap: Rust's `SearchableState` has no debounce. `set_search_term` and each explicit `search()` send one synchronous
+`Custom("filtered")` notification on the `filtered_changed()` hub, and consumers
+pull the result with `filtered()`. ADR-0099 §2.7 records this facade mapping.
 
 ### 8.1 Source-change timing and batching (spec v3.19)
 
@@ -424,6 +467,9 @@ FilteredCompositeVM<VM>:
     MoveToPreviousVisible()
     Dispose()
 ```
+
+Open Rust gap: Rust's `FilteredCompositeVm` has no `Changed` stream, so a view
+reads `visible()` and `current()` on demand.
 
 The source composite remains the owner of child membership and lifecycle. The
 filtered view owns the visible projection and its own current slot in the visible

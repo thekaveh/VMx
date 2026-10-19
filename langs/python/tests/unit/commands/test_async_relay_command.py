@@ -479,3 +479,80 @@ async def test_same_loop_cancel_remains_deferred_until_next_loop_turn(
     assert cancellation_loops == [owner]
     assert inner.cancelled()
     command.dispose()
+
+
+@pytest.mark.asyncio
+async def test_execute_admits_before_returning_so_cancel_applies() -> None:
+    import asyncio
+
+    from vmx.commands.async_relay_command import AsyncRelayCommand
+
+    log: list[str] = []
+
+    async def task() -> None:
+        log.append("start")
+        await asyncio.sleep(0.05)
+        log.append("end")
+
+    command = AsyncRelayCommand.builder().task(task).build()
+    command.execute()
+
+    assert command.is_executing
+    assert not command.can_execute()
+    command.cancel()
+    await asyncio.sleep(0.1)
+
+    assert "end" not in log
+    assert not command.is_executing
+    command.dispose()
+
+
+@pytest.mark.asyncio
+async def test_execute_raises_the_start_notification_before_returning() -> None:
+    import asyncio
+
+    from vmx.commands.async_relay_command import AsyncRelayCommand
+
+    async def task() -> None:
+        await asyncio.sleep(0)
+
+    command = AsyncRelayCommand.builder().task(task).build()
+    events: list[bool] = []
+    command.can_execute_changed.subscribe(lambda _: events.append(command.is_executing))
+
+    command.execute()
+
+    assert events == [True]
+    for _ in range(200):
+        if len(events) == 2:
+            break
+        await asyncio.sleep(0.01)
+    assert events == [True, False]
+    command.dispose()
+
+
+@pytest.mark.asyncio
+async def test_throwing_start_observer_releases_the_admission() -> None:
+    import asyncio
+
+    from vmx.commands.async_relay_command import AsyncRelayCommand
+
+    async def task() -> None:
+        await asyncio.sleep(0)
+
+    command = AsyncRelayCommand.builder().task(task).build()
+    failing = [True]
+
+    def observer(_: object) -> None:
+        if failing[0]:
+            failing[0] = False
+            raise RuntimeError("observer failed")
+
+    command.can_execute_changed.subscribe(observer)
+
+    with pytest.raises(RuntimeError):
+        command.execute()
+
+    assert not command.is_executing
+    assert command.can_execute()
+    command.dispose()

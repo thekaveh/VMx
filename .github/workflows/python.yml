@@ -16,6 +16,9 @@ on:
       - "tools/check-python-interpreter.py"
       - "tools/tests/test_check_python_interpreter.py"
       - "tools/tests/test_python_release_workflow.py"
+      - "tools/check-conformance-coverage.py"
+      - "tools/check-conformance-execution.py"
+      - "tools/check-python-package.py"
   pull_request:
     branches: [main, develop]
   workflow_dispatch:

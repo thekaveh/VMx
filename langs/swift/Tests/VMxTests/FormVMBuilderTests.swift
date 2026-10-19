@@ -183,7 +183,8 @@ final class FormVMBuilderTests: XCTestCase {
     // ── FORM-013 ──────────────────────────────────────────────────────────────
 
     /// FORM-013 — builder defaults: hub is NullMessageHub (no-op, does not throw);
-    /// strict defaults to false (approveCommand.canExecute true when not dirty).
+    /// snapshot == m0 via the default snapshotter; strict defaults to false
+    /// (approveCommand.canExecute true regardless of isDirty).
     func testForm013_builderDefaults() throws {
         let initial = TestModel(name: "Alice", value: 1)
         let vm = try FormVM<TestModel>.builder()
@@ -191,9 +192,16 @@ final class FormVMBuilderTests: XCTestCase {
             .persister({ (_: TestModel) in })
             .build()
 
-        // hub default is NullMessageHub: a deny round-trip must not throw.
+        // Default snapshotter is applied: snapshot == m0 right after build.
+        XCTAssertEqual(vm.snapshot, initial, "default snapshotter must yield snapshot == m0")
+        XCTAssertEqual(vm.model, initial)
+
+        // hub default is NullMessageHub (the hub field is private, so this is
+        // checked behaviourally): a deny round-trip must not throw.
         vm.setModel(TestModel(name: "Bob", value: 2))
         XCTAssertTrue(vm.isDirty, "form should be dirty after setModel")
+        XCTAssertTrue(vm.approveCommand.canExecute(),
+                      "strict defaults to false: approveCommand.canExecute must be true when dirty")
         vm.denyCommand.execute()
         XCTAssertFalse(vm.isDirty,
                        "hub default (NullMessageHub) must allow deny without crashing")

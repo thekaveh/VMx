@@ -1,11 +1,9 @@
 # 3.7. Upgrading TypeScript and React Consumers
 
-This page collects the upgrade work that real React consumers hit when they
-moved an older VMx line onto the current TypeScript source and the official
-React adapter. It turns the
-[2026-08-10 consumer pilot ledger](../../maintenance/2026-08-10-vmx-react-consumer-pilots.md)
-into recipes. The ledger stays the evidence; its counts are historical pilot
-results, not current consumer numbers.
+This page gives recipes for moving a React application from an older VMx line
+onto the current TypeScript package and the official React adapter. The
+[consumer pilot record](../../maintenance/2026-08-10-vmx-react-consumer-pilots.md)
+holds the evidence behind the recipes.
 
 Every example below compiles and runs in the React adapter's test suite
 (`packages/react/tests/migration.test.tsx`). A "before" shape that no longer
@@ -14,23 +12,22 @@ if the core changes again.
 
 ## 3.7.1. Versions
 
-| Package               | Source line in the pilots                    | Target | Target availability |
-| --------------------- | -------------------------------------------- | ------ | ------------------- |
-| `@thekaveh/vmx`       | 3.1.0 (vendored by NNx); 3.24.0 pilot builds | 3.30.0 | Published on npm    |
-| `@thekaveh/vmx-react` | none: each consumer had local hooks          | 0.1.1  | Published on npm    |
+| Package               | Target | Target availability |
+| --------------------- | ------ | ------------------- |
+| `@thekaveh/vmx`       | 3.30.0 | Published on npm    |
+| `@thekaveh/vmx-react` | 0.1.1  | Published on npm    |
 
-The targets match the [installation table](../installation.md). Install them
-from npm; section 3.7.6 covers consuming an unreleased source line from packed
-tarballs. Each recipe repeats the versions it applies to.
+Install the targets from npm as the [installation page](../installation.md)
+shows. To consume an unreleased source line, use packed tarballs (section
+3.7.6). Each recipe states the versions it applies to.
 
 ## 3.7.2. Remove redundant `hub` members
 
 **From** core before 3.10.0 **to** core 3.30.0.
 
-Core 3.10.0 added a public read-only `hub` accessor to every component VM
-(`IComponentVM.hub`). Consumer classes written against older lines often stored
-and exposed the injected hub themselves. NNx had 24 such getters and DayDreams
-six fields. After the upgrade:
+Core 3.10.0 and later give every component VM a public read-only `hub`
+accessor (`IComponentVM.hub`). Consumer classes written against older lines
+often store and expose the injected hub themselves. After the upgrade:
 
 - a redundant `hub` **field** no longer compiles (TS2610: the base defines `hub`
   as an accessor);
@@ -72,9 +69,9 @@ returns the injected hub is redundant.
 **From** consumer-local binding hooks **to** `@thekaveh/vmx-react` 0.1.1 over
 core 3.24.1 or later.
 
-NNx bound components through a local hook that took a list of property names.
-The official `useVm(vm, selector, equality)` renders only when the selected
-value changes. A local hook that subscribes to the whole VM and copies fields
+Some consumers bind components through a local hook that takes a list of
+property names. The official `useVm(vm, selector, equality)` renders only when
+the selected value changes. A local hook that subscribes to the whole VM and copies fields
 re-renders on every property change, including ones the component never reads:
 
 <!-- checked-snippet: packages/react/tests/migration.test.tsx#upgrade-selector-before -->
@@ -132,16 +129,15 @@ const sorted = [...items].sort((left, right) => left - right);
 
 ## 3.7.5. Keep consumer-specific wrappers local
 
-The pilots kept these wrappers in the consumer on purpose. They encode product
-rules, so VMx does not ship them; each is marked **consumer-local**.
+Some wrappers encode product rules, so VMx does not ship them. Keep them in
+the consumer:
 
-- **NNx `useVmList`** (consumer-local): a list helper over the official hooks.
-- **Tableau's refresh store** (consumer-local): a synchronous recomputation
-  store with its own invalidation input. `createVmxStore` has no pre-invalidation
-  transform, so it cannot replace this store without changing timing.
-- **DayDreams' hub-first store cache** (consumer-local): it shares one store,
-  and so one hub subscription, per hub for call sites that start from a hub
-  rather than a VM:
+- **A list helper** over the official hooks.
+- **A refresh store**: a synchronous recomputation store with its own
+  invalidation input. `createVmxStore` has no pre-invalidation transform, so it
+  cannot replace such a store without changing timing.
+- **A hub-first store cache**: it shares one store, and so one hub
+  subscription, per hub for call sites that start from a hub rather than a VM:
 
 <!-- checked-snippet: packages/react/tests/migration.test.tsx#upgrade-hub-first-store -->
 
@@ -166,44 +162,28 @@ binding releases its subscription on unmount.
 **From** a directory link to a VMx checkout **to** packed tarballs of core
 and adapter, when consuming an unreleased source line.
 
-Linking the adapter directory into a React 18 application resolved the
-adapter's React 19 development dependency beside the application's React and
-failed with an invalid hook call. A packed tarball has the same shape npm
+A linked adapter directory can resolve the adapter's React 19 development
+dependency beside the application's React. In a React 18 application, this
+fails with an invalid hook call. A packed tarball has the same shape npm
 publishes and carries no development dependencies.
 
-```bash
-# Before: a live link pulls the adapter checkout's own React
-bun add ../VMx/packages/react
-```
-
-```bash
-# After: pack, then install the tarballs (full steps in the installation page)
-rm -rf /tmp/vmx-packs && mkdir -p /tmp/vmx-packs
-npm pack ../VMx/langs/typescript --pack-destination /tmp/vmx-packs
-npm pack ../VMx/packages/react --pack-destination /tmp/vmx-packs
-npm install /tmp/vmx-packs/thekaveh-vmx-[0-9]*.tgz \
-  /tmp/vmx-packs/thekaveh-vmx-react-[0-9]*.tgz
-npm ls react   # one React version
-```
-
-The complete build-and-pack sequence is in the
-[installation page](../installation.md). For published versions, use plain
-`npm install`.
+The TypeScript tab of the [installation page](../installation.md) gives the
+complete build, pack, and install sequence, including the peer packages. For
+published versions, use plain `npm install`.
 
 ## 3.7.7. Codemods
 
-No codemod ships. One would first need defined syntax boundaries, idempotent
-output, a dry-run review mode, and at least two validated consumer migrations.
-The pilots changed few enough lines (+13/-6 in NNx's migrated component) that
-the recipes above are the supported path.
+No codemod ships. A codemod needs defined syntax boundaries, idempotent output,
+a dry-run review mode, and at least two validated consumer migrations. The
+recipes above are the supported migration path.
 
 ## 3.7.8. Other flavors
 
-The pilots were TypeScript and React only; they do not show that other flavors
-break in the same way. Each flavor records its own migration notes in its
-changelog:
-[C#](https://github.com/thekaveh/VMx/blob/main/langs/csharp/CHANGELOG.md),
-[Python](https://github.com/thekaveh/VMx/blob/main/langs/python/CHANGELOG.md),
-[TypeScript](https://github.com/thekaveh/VMx/blob/main/langs/typescript/CHANGELOG.md),
-[Swift](https://github.com/thekaveh/VMx/blob/main/langs/swift/CHANGELOG.md), and
-[Rust](https://github.com/thekaveh/VMx/blob/main/langs/rust/CHANGELOG.md).
+These recipes cover TypeScript and React only. Other flavors do not
+necessarily break in the same way. Each flavor records its own migration notes
+in its changelog:
+[C#](../../../langs/csharp/CHANGELOG.md),
+[Python](../../../langs/python/CHANGELOG.md),
+[TypeScript](../../../langs/typescript/CHANGELOG.md),
+[Swift](../../../langs/swift/CHANGELOG.md), and
+[Rust](../../../langs/rust/CHANGELOG.md).

@@ -130,6 +130,21 @@ describe("NoteFormVM", () => {
     expect(vm.isDirty).toBe(true);
   });
 
+  it("approveCommand raises canExecuteChanged when an edit makes it executable", () => {
+    const { vm } = makeForm();
+    vm.bindTo(aNote());
+    let raised = 0;
+    const sub = vm.approveCommand.canExecuteChanged.subscribe(() => {
+      raised += 1;
+    });
+
+    vm.draft = { ...vm.draft, title: "Updated" };
+
+    expect(raised).toBeGreaterThan(0);
+    expect(vm.approveCommand.canExecute()).toBe(true);
+    sub.unsubscribe();
+  });
+
   it("approve persists, clears isDirty, and re-snapshots", async () => {
     const { vm, repo } = makeForm();
     vm.bindTo(aNote({ title: "Original" }));
@@ -230,9 +245,10 @@ describe("NoteFormVM", () => {
     expect(admittedAfterSettle).toBeGreaterThan(0);
   });
 
-  it("rebinding while a save is pending posts no 'Saved' for either note", async () => {
-    // Rebinding disposes the pending save's form, which then publishes no
-    // approval (spec 20 §5.3), so the save runs no post-save step.
+  it("rebinding while a save is pending still completes that save's effects", async () => {
+    // The repository already holds the edit, so the retired form must settle:
+    // onSaved refreshes the saved note's row and "Saved" names that note. The
+    // editor itself stays on the note bound after it.
     const { vm, repo, notifications } = makeGatedForm();
     vm.bindTo(aNote({ title: "Original" }));
     vm.draft = { ...vm.draft, title: "Edited" };
@@ -241,14 +257,16 @@ describe("NoteFormVM", () => {
 
     const pending = vm.approveAsync();
     vm.bindTo(aNote({ id: "note-98", title: "Next note" }));
+    expect(vm.snapshot.title).toBe("Next note");
     repo.releaseSaves();
     await pending;
 
     expect(repo.saveCalls.map((note) => note.title)).toEqual(["Edited"]);
-    expect(saved).toEqual([]);
-    expect(notifications).toEqual([]);
-    expect(repo.loadAllCalls).toBe(0);
+    expect(saved.map((note) => note.title)).toEqual(["Edited"]);
+    expect(notifications).toEqual(["Saved “Edited”"]);
     expect(vm.snapshot.title).toBe("Next note");
+    expect(vm.draft.title).toBe("Next note");
+    expect(vm.isDirty).toBe(false);
     vm.dispose();
   });
 

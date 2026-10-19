@@ -22,7 +22,7 @@ from vmx.components.protocols import ComponentVMProto, ViewModelType
 from vmx.lifecycle.status import ConstructionStatus
 from vmx.messages.protocols import Message
 from vmx.services.dispatcher import Dispatcher
-from vmx.services.message_hub import MessageHub
+from vmx.services.message_hub import MessageHubProto
 
 V1 = TypeVar("V1", bound=ComponentVMProto)
 V2 = TypeVar("V2", bound=ComponentVMProto)
@@ -81,7 +81,7 @@ class _AggregateVMBase(_ComponentVMBase):
         *,
         name: str,
         hint: str,
-        hub: MessageHub[Message],
+        hub: MessageHubProto[Message],
         dispatcher: Dispatcher,
     ) -> None:
         super().__init__(name=name, hint=hint, hub=hub, dispatcher=dispatcher)
@@ -94,6 +94,10 @@ class _AggregateVMBase(_ComponentVMBase):
     def _validate_new_slots(self, slots: tuple[ComponentVMProto, ...]) -> None:
         identities: set[int] = set()
         for child in slots:
+            if child is None:
+                # An empty slot is invalid (spec/08 §2); reject it before any
+                # slot is committed, as the other flavors' preflight does.
+                raise ValueError("aggregate factory returned None")
             identity = child._ownership_identity if isinstance(child, _ComponentVMBase) else child
             if id(identity) in identities:
                 raise ValueError(
@@ -194,7 +198,7 @@ class AggregateVM1(Generic[V1], _AggregateVMBase):
         *,
         name: str,
         hint: str,
-        hub: MessageHub[Message],
+        hub: MessageHubProto[Message],
         dispatcher: Dispatcher,
         factory1: Callable[[], V1],
     ) -> None:
@@ -266,7 +270,7 @@ class AggregateVM2(Generic[V1, V2], _AggregateVMBase):
         *,
         name: str,
         hint: str,
-        hub: MessageHub[Message],
+        hub: MessageHubProto[Message],
         dispatcher: Dispatcher,
         factory1: Callable[[], V1],
         factory2: Callable[[], V2],
@@ -344,7 +348,7 @@ class AggregateVM3(Generic[V1, V2, V3], _AggregateVMBase):
         *,
         name: str,
         hint: str,
-        hub: MessageHub[Message],
+        hub: MessageHubProto[Message],
         dispatcher: Dispatcher,
         factory1: Callable[[], V1],
         factory2: Callable[[], V2],
@@ -434,7 +438,7 @@ class AggregateVM4(Generic[V1, V2, V3, V4], _AggregateVMBase):
         *,
         name: str,
         hint: str,
-        hub: MessageHub[Message],
+        hub: MessageHubProto[Message],
         dispatcher: Dispatcher,
         factory1: Callable[[], V1],
         factory2: Callable[[], V2],
@@ -535,7 +539,7 @@ class AggregateVM5(Generic[V1, V2, V3, V4, V5], _AggregateVMBase):
         *,
         name: str,
         hint: str,
-        hub: MessageHub[Message],
+        hub: MessageHubProto[Message],
         dispatcher: Dispatcher,
         factory1: Callable[[], V1],
         factory2: Callable[[], V2],
@@ -657,7 +661,7 @@ class AggregateVM6(Generic[V1, V2, V3, V4, V5, V6], _AggregateVMBase):
         *,
         name: str,
         hint: str,
-        hub: MessageHub[Message],
+        hub: MessageHubProto[Message],
         dispatcher: Dispatcher,
         factory1: Callable[[], V1],
         factory2: Callable[[], V2],

@@ -173,6 +173,34 @@ def test_hier_029_item_rejections_are_structured_and_leave_parent_links_atomic()
     assert selector_failure.rejections[0].reason is BatchAttachRejectionReason.SELECTOR_FAILED
 
 
+class FaultyFactoryNode(HierarchicalVM[Model, "FaultyFactoryNode"]):
+    def __init__(self, key: str) -> None:
+        def factory(_: object) -> list[FaultyFactoryNode]:
+            raise RuntimeError("children factory failed")
+
+        super().__init__(
+            model=Model(key, None),
+            children_factory=factory,
+            hub=MessageHub(),
+            dispatcher=RxDispatcher.immediate(),
+            name=key,
+        )
+
+
+@pytest.mark.conformance("HIER-029")
+def test_hier_029_attachment_failure_is_reported_and_does_not_abort_the_batch() -> None:
+    root = FaultyFactoryNode("root")
+    first, second = Node("first"), Node("second")
+
+    result = attach(root, [first, second])  # type: ignore[arg-type]
+
+    assert result.added == []
+    assert [r.item for r in result.rejections] == [first, second]
+    assert all(r.reason is BatchAttachRejectionReason.ATTACHMENT_FAILED for r in result.rejections)
+    assert first.parent is None
+    assert second.parent is None
+
+
 @pytest.mark.conformance("HIER-030")
 def test_hier_030_dispose_clears_root_owned_parked_items() -> None:
     root = Node("root")

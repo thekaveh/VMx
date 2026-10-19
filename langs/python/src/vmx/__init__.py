@@ -328,14 +328,16 @@ __all__ = [
     "wrap_with",
 ]
 
+from vmx.components.base import _ComponentVMBase
+
 # Lifecycle capabilities are baseline: every core VM trivially satisfies them.
 # See spec/14-capabilities.md rule 2 and CAP-020.
-IConstructable.register(ComponentVM)
-IConstructable.register(ComponentVMOf)
-IConstructable.register(ReadonlyComponentVMOf)
-IDestructable.register(ComponentVM)
-IDestructable.register(ComponentVMOf)
-IDestructable.register(ReadonlyComponentVMOf)
-IReconstructable.register(ComponentVM)
-IReconstructable.register(ComponentVMOf)
-IReconstructable.register(ReadonlyComponentVMOf)
+# Registering the shared base covers components, composites, groups,
+# aggregates, hierarchical, and async-resource VMs, and both forwarding VMs.
+# ForwardingCompositeVM is listed too; the second entry is redundant but keeps
+# mypy from narrowing the loop variable to the abstract base.
+for _lifecycle_vm in (_ComponentVMBase, ForwardingCompositeVM):
+    IConstructable.register(_lifecycle_vm)
+    IDestructable.register(_lifecycle_vm)
+    IReconstructable.register(_lifecycle_vm)
+del _lifecycle_vm

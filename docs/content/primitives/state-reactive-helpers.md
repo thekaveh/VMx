@@ -23,11 +23,15 @@ is itself a component VM and may be the outer binding boundary for one remote
 or otherwise expensive value.
 
 The table and examples below describe the canonical cross-flavor concepts.
-Rust's `DerivedProperty` automatically recomputes from one through five owned
-`ValueStream` sources, and `ExpandableState` supports explicit initial state,
-the full capability triple, and owned disposal. The completed
+Rust's `DerivedProperty` recomputes from one through five owned `ValueStream`
+sources (`from_one` … `from_five`). It also accepts N same-typed sources
+through `from_sources` and `from_sources_with_write_back`, which panic on an
+empty list.
+
+Rust's `ExpandableState` supports explicit initial state, the full capability
+triple, and owned disposal. The
 [Rust parity ledger](../../maintenance/2026-07-16-rust-capability-parity.md#1236-expandablestate-construction-and-disposal)
-records the focused helper evidence.
+records the helper evidence.
 
 ## 6.5.3. Async Resource State
 
@@ -75,17 +79,24 @@ VM thread-safety promise. See
 [Python asyncio dispatcher ownership](services-messages-dispatching.md#669-python-asyncio-dispatcher-ownership)
 for the supported synchronous-command sequence and shutdown order.
 
-A loader can also end the current operation by cancelling itself. In Python, a
-loader task that finishes with `asyncio.CancelledError` (raised directly, from
-cancelling its own task, or from a cancelled operation it awaited) restores the
-saved stable state exactly like `Cancel`, as Swift does for a loader's
-`CancellationError`: awaiters and commands complete, nothing enters Error or a
-command error channel, and a superseded loader's cancellation never rolls back
-newer work. C# and TypeScript treat cancellation they did not request (an
-`OperationCanceledException` from another token, a rejection while the
-operation's signal is not aborted) as an ordinary loader fault, and Rust loaders
-report outcomes through `VmxResult`, so every flavor leaves Loading with a
-visible terminal state.
+A loader can also end the current operation by cancelling itself. The flavors
+handle this case differently:
+
+- Python: a loader task that finishes with `asyncio.CancelledError` restores
+  the saved stable state, exactly like `Cancel`. The error can be raised
+  directly, come from cancelling the loader's own task, or come from a
+  cancelled operation that the loader awaited.
+- Swift: a loader that throws `CancellationError` restores the saved stable
+  state in the same way.
+- C# and TypeScript: cancellation that the VM did not request is an ordinary
+  loader fault. Examples are an `OperationCanceledException` from another
+  token, or a rejection while the operation's signal is not aborted.
+- Rust: loaders report outcomes through `VmxResult`, so an error is a fault.
+
+When Python or Swift restores the stable state, awaiters and commands
+complete, and nothing enters Error or a command error channel. The
+cancellation of a superseded loader never rolls back newer work. In every
+flavor, the VM leaves Loading with a visible terminal state.
 
 <!-- checked-snippet: langs/python/tests/unit/state/test_async_resource_cancellation_recipe.py#loader-cancellation -->
 
@@ -134,94 +145,8 @@ Use `PagedComposition` or `TokenPagedComposition` when the domain is a page or
 cursor sequence. Keep product-specific client construction and caching outside
 this primitive and inject them through the loader closure.
 
-### 6.5.3.1. Connection State
-
-`AsyncResourceVM` models one value the UI requests and waits for. A long-lived
-connection that drops and re-establishes itself, such as a frame stream, a
-socket, or a server subscription, has a different shape: nothing requests it,
-it can retry many times, and it ends. Model its state as a `ComponentVMOf` over
-an immutable value with three states, and pass every report through one
-function that enforces the rules:
-
-- Connected and Reconnecting can follow each other any number of times.
-  Reconnecting carries the reason the transport gave.
-- Disconnected is terminal. Once the feed reaches it, later reports are ignored.
-- A report equal to the current state publishes nothing, so a retry loop does
-  not make the published state flicker at backoff frequency. A changed reason is
-  a new state and publishes once.
-
-<!-- checked-snippet: langs/python/tests/unit/state/test_connection_state_recipe.py#connection-state -->
-
-```python
-class Feed(Enum):
-    CONNECTED = "connected"
-    RECONNECTING = "reconnecting"
-    DISCONNECTED = "disconnected"
-
-
-@dataclass(frozen=True)
-class FeedState:
-    status: Feed
-    reason: str | None = None
-
-
-def advance(current: FeedState, reported: FeedState) -> FeedState:
-    """Disconnected is terminal: no later report moves the feed out of it."""
-    return current if current.status is Feed.DISCONNECTED else reported
-```
-
-The transport adapter reports each event through `advance`, and the view binds
-to the VM's `model`:
-
-<!-- checked-snippet: langs/python/tests/unit/state/test_connection_state_recipe.py#connection-state-retries -->
-
-```python
-def report(state: FeedState) -> None:
-    feed.model = advance(feed.model, state)
-
-for _attempt in range(5):
-    report(FeedState(Feed.RECONNECTING, "server restarting"))
-# Equal frozen dataclasses compare equal, so only the first retry publishes.
-```
-
-The suppression comes from `ComponentVMOf`, which publishes nothing when the
-new model equals the current one. Python compares with `==`, C# with
-`EqualityComparer<M>.Default`, Swift with `==` for an `Equatable` model, and
-Rust with `PartialEq`, so a frozen dataclass, `record`, `Equatable` struct, or
-`PartialEq` enum works as shown. TypeScript compares with `===`, so a fresh
-object for every retry would publish every time. Its `advance` keeps the
-current instance when the status and reason are unchanged:
-
-<!-- checked-snippet: langs/typescript/tests/unit/connectionStateRecipe.test.ts#connection-state -->
-
-```typescript
-type FeedState =
-  | { readonly status: "connected" }
-  | { readonly status: "reconnecting"; readonly reason: string }
-  | { readonly status: "disconnected"; readonly reason?: string };
-
-const reasonOf = (state: FeedState) => ("reason" in state ? state.reason : undefined);
-
-function advance(current: FeedState, reported: FeedState): FeedState {
-  // Disconnected is terminal: no later report moves the feed out of it.
-  if (current.status === "disconnected") return current;
-  // ComponentVMOf compares models with ===, so a fresh but equal object would
-  // publish again. Keep the current instance when nothing changed.
-  const unchanged = reported.status === current.status && reasonOf(reported) === reasonOf(current);
-  return unchanged ? current : reported;
-}
-```
-
-The recipe runs as
-`langs/python/tests/unit/state/test_connection_state_recipe.py` and
-`langs/typescript/tests/unit/connectionStateRecipe.test.ts`. Both drive five
-retries with one reason, a changed reason, and a reconnect after Disconnected,
-and count the hub's `PropertyChangedMessage`s for `model`.
-
-Use `AsyncResourceVM` when the UI asks for a value and may reload or cancel it.
-Use this recipe when a transport pushes a connection's state over time. The
-stream that produces the reports, retry backoff, and offline presentation stay
-outside it.
+For a pushed connection state that reconnects over time, use the connection
+state recipe in [Integration](../integration/index.md) instead.
 
 ## 6.5.4. Reactive Search Sources
 
@@ -264,13 +189,12 @@ aggregate.dispose();
 ```
 
 Membership-only consumers can map their collection's structural event directly.
-When no signal is supplied, mutation remains intentionally explicit: call
-`search()` to refresh, preserving compatibility with earlier releases.
+When no signal is supplied, call `search()` to refresh after a mutation.
 
 ## 6.5.5. Lifecycle And Messaging
 
 The lifecycle rule is simple: if a helper owns subscriptions, dispose it with
-its owner. That matters especially for `DerivedProperty`, `SearchableState`, and
+its owner. That matters especially for `DerivedProperty`, `SearchableState`,
 `DiscriminatorVM`, and `AsyncResourceVM`.
 
 `DerivedProperty` is also the standard replacement for older ad hoc

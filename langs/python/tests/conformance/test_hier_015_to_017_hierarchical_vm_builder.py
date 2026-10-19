@@ -63,19 +63,50 @@ def test_HIER_015_missing_services_raises() -> None:
 def test_HIER_016_repeated_build_produces_distinct_equivalent_nodes() -> None:
     h = _hub()
     d = _dispatcher()
+    factory_calls: list[str] = []
+    builder_ref: list[Any] = []
+
+    def factory(parent: Any) -> list[Any]:
+        # root → two children → one grandchild each → leaves (three levels).
+        factory_calls.append(parent.model)
+        depth = parent.model.count("/")
+        if depth >= 2:
+            return []
+        return [builder_ref[0].model(f"{parent.model}/{i}").build() for i in range(2 - depth)]
+
     b = (
         HierarchicalVMBuilder()
         .model("root")
-        .children_factory(lambda _parent: [])
+        .children_factory(factory)
         .services(h, d)
         .hint("h")
         .eager_children(True)
     )
+    builder_ref.append(b)
     n1 = b.build()
     n2 = b.build()
     assert n1 is not n2
     assert n1.model == n2.model == "root"
     assert n1.hint == n2.hint == "h"
+
+    for node in (n1, n2):
+        node.construct()
+
+    for node in (n1, n2):
+        # Both subtrees were materialized at construction time (EagerChildren):
+        # every level's child list is populated and constructed without any
+        # caller access to ``children``.
+        assert node._children_list is not None
+        assert len(node._children_list) == 2
+        for child in node._children_list:
+            assert child._children_list is not None
+            assert len(child._children_list) == 1
+            assert child.is_constructed
+            for grandchild in child._children_list:
+                assert grandchild._children_list == []
+                assert grandchild.is_constructed
+    assert factory_calls.count("root") == 2
+    assert len(factory_calls) == 2 * (1 + 2 + 2)
 
 
 # ---------------------------------------------------------------------------
@@ -87,17 +118,32 @@ def test_HIER_016_repeated_build_produces_distinct_equivalent_nodes() -> None:
 def test_HIER_017_defaults_applied_when_not_set() -> None:
     h = _hub()
     d = _dispatcher()
-    node = (
+    factory_calls = 0
+    child = (
         HierarchicalVMBuilder()
-        .model("root")
-        .children_factory(lambda _parent: [])
+        .model("child")
+        .children_factory(lambda _p: [])
         .services(h, d)
         .build()
     )
+
+    def factory(_parent: Any) -> list[Any]:
+        nonlocal factory_calls
+        factory_calls += 1
+        return [child]
+
+    node = HierarchicalVMBuilder().model("root").children_factory(factory).services(h, d).build()
     assert node.hint == ""
     assert node.name == HierarchicalVM.__name__  # default to class name
-    # eager_children defaults to False: children are not materialized at build time
-    assert node._children_list is None  # pragma: no cover — private check
+    # eager_children defaults to False: children stay unmaterialized through
+    # construct and materialize lazily on first access.
+    node.construct()
+    assert node.is_constructed
+    assert node._children_list is None
+    assert factory_calls == 0
+    assert list(node.children) == [child]
+    assert factory_calls == 1
+    assert node._children_list is not None
 
 
 # ---------------------------------------------------------------------------

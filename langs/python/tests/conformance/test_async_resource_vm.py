@@ -559,32 +559,78 @@ async def test_ares_007_base_exception_cleanup_is_isolated() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.conformance("ARES-008")
-async def test_ares_008_latest_start_wins() -> None:
+@pytest.mark.parametrize("older_first", [True, False], ids=["older-first", "newer-first"])
+@pytest.mark.parametrize("newer_fails", [False, True], ids=["newer-success", "newer-failure"])
+async def test_ares_008_latest_start_wins(older_first: bool, newer_fails: bool) -> None:
     first: asyncio.Future[int] = asyncio.get_running_loop().create_future()
     second: asyncio.Future[int] = asyncio.get_running_loop().create_future()
     attempts = 0
+    cancelled: list[int] = []
 
     async def loader() -> int:
         nonlocal attempts
         attempts += 1
-        target = first if attempts == 1 else second
+        attempt = attempts
+        target = first if attempt == 1 else second
         try:
             return await asyncio.shield(target)
         except asyncio.CancelledError:
+            cancelled.append(attempt)
             return await asyncio.shield(target)
 
-    vm = _vm(loader)
+    hub: MessageHub[Message] = MessageHub()
+    vm = _vm(loader, hub=hub)
+    notifications: list[str] = []
+    vm.property_changed.subscribe(lambda name: notifications.append(f"prop:{name}"))
+    hub.messages.subscribe(lambda m: notifications.append(f"hub:{type(m).__name__}"))
+    for label, command in (
+        ("load", vm.load_command),
+        ("reload", vm.reload_command),
+        ("cancel", vm.cancel_command),
+    ):
+        command.can_execute_changed.subscribe(
+            lambda _, label=label: notifications.append(f"cmd:{label}")
+        )
+
     older = asyncio.create_task(vm.load())
     await _wait_until(lambda: attempts == 1)
     newer = asyncio.create_task(vm.reload())
     await _wait_until(lambda: attempts == 2)
-    first.set_result(1)
-    await asyncio.wait_for(older, timeout=1)
+    # The older loader received cancellation when the newer start was admitted.
+    await _wait_until(lambda: 1 in cancelled)
+    assert cancelled == [1]
     assert vm.state.status is AsyncResourceStatus.LOADING
-    second.set_result(2)
-    await asyncio.wait_for(newer, timeout=1)
-    assert vm.state.status is AsyncResourceStatus.READY
-    assert vm.state.value == 2
+
+    def settle_newer() -> None:
+        if newer_fails:
+            second.set_exception(RuntimeError("newer failed"))
+        else:
+            second.set_result(2)
+
+    if older_first:
+        before = list(notifications)
+        first.set_result(1)
+        await asyncio.wait_for(older, timeout=1)
+        await _flush()
+        assert notifications == before, "older completion must not notify"
+        assert vm.state.status is AsyncResourceStatus.LOADING
+        settle_newer()
+        await asyncio.wait_for(newer, timeout=1)
+    else:
+        settle_newer()
+        await asyncio.wait_for(newer, timeout=1)
+        await _flush()
+        before = list(notifications)
+        first.set_result(1)
+        await asyncio.wait_for(older, timeout=1)
+        await _flush()
+        assert notifications == before, "older completion must not notify"
+
+    if newer_fails:
+        assert vm.state.status is AsyncResourceStatus.ERROR
+    else:
+        assert vm.state.status is AsyncResourceStatus.READY
+        assert vm.state.value == 2
 
 
 @pytest.mark.asyncio
@@ -651,6 +697,52 @@ async def test_ares_010_replacement_and_disposal_cleanup_once(same_value: bool) 
     vm.dispose()
     vm.dispose()
     assert cleaned == [1, 1 if same_value else 2]
+
+
+class _DisposableValue:
+    def __init__(self, n: int) -> None:
+        self.n = n
+        self.dispose_count = 0
+
+    def dispose(self) -> None:
+        self.dispose_count += 1
+
+    def close(self) -> None:
+        self.dispose_count += 1
+
+    def __enter__(self) -> _DisposableValue:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self.dispose_count += 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.conformance("ARES-010")
+async def test_ares_010_without_cleanup_no_value_is_disposed() -> None:
+    produced: list[_DisposableValue] = []
+
+    async def loader() -> _DisposableValue:
+        value = _DisposableValue(len(produced) + 1)
+        produced.append(value)
+        return value
+
+    vm: AsyncResourceVM[_DisposableValue] = AsyncResourceVM(
+        name="resource",
+        loader=loader,
+        hub=MessageHub(),
+        dispatcher=NULL_DISPATCHER,
+        retention=AsyncResourceRetention.RETAIN_PREVIOUS,
+    )
+    await asyncio.wait_for(vm.load(), timeout=1)
+    await asyncio.wait_for(vm.reload(), timeout=1)
+    vm.dispose()
+    vm.dispose()
+
+    assert len(produced) == 2
+    assert [value.dispose_count for value in produced] == [0, 0], (
+        "without cleanup, no value is reflectively or implicitly disposed"
+    )
 
 
 @pytest.mark.asyncio

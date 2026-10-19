@@ -232,6 +232,27 @@ fn a_second_approval_during_an_in_flight_approval_is_refused() {
     assert!(approve_errors.is_empty());
 }
 
+/// FORM-031 — an admission observer that disposes the form prevents the persister call
+#[test]
+fn an_admission_observer_that_disposes_the_form_prevents_the_persister_call() {
+    let persister = GatedPersister::default();
+    let form = persister.form(1);
+    let (approved, _approved) = approvals(&form);
+    let approve_errors = form.approve_errors().record(64);
+    let _handler = form.approve_command().can_execute_changed().subscribe({
+        let form = form.clone();
+        move |_| form.dispose()
+    });
+    form.set_model(2);
+
+    assert_eq!(form.approve(), Ok(()));
+
+    assert!(persister.calls().is_empty());
+    assert!(approved.lock().unwrap().is_empty());
+    assert!(approve_errors.is_empty());
+    assert_eq!(form.snapshot(), 1);
+}
+
 /// FORM-031 — an approval admitted through the command refuses the other entry point
 #[test]
 fn an_approval_admitted_through_the_command_refuses_every_other_approval() {

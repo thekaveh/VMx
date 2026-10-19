@@ -9,12 +9,17 @@ on:
     paths:
       - "langs/rust/**"
       - "examples/rust/**"
+      - "benchmarks/rust/**"
       - "spec/**"
       - ".github/workflows/rust.yml"
       - "tools/check-rust-package.py"
       - "tools/check-rust-doc-snippets.py"
       - "tools/smoke-rust-consumer.py"
       - "docs/content/getting-started/rust.md"
+      - "tools/check-conformance-coverage.py"
+      - "tools/check-conformance-execution.py"
+      - "tools/check-coverage-floor.py"
+      - "tools/coverage-floors.json"
   pull_request:
     branches: [main, develop]
   workflow_dispatch:
@@ -138,6 +143,9 @@ jobs:
 
       - name: Compile public getting-started snippets
         run: python3 tools/check-rust-doc-snippets.py
+
+      - name: Check benchmark harness
+        run: cargo check --locked --all-targets --manifest-path benchmarks/rust/Cargo.toml
 
   package:
     timeout-minutes: 15

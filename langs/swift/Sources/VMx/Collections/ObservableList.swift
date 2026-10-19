@@ -54,6 +54,9 @@ public struct ItemReplacedEvent<T> {
 /// exception per spec/21 §3.3.
 public final class ObservableList<T> {
 
+    /// Creates an empty list.
+    public init() {}
+
     // MARK: - Private state
 
     private var items: [T] = []

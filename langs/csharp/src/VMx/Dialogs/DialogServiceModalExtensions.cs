@@ -16,7 +16,8 @@ public static class DialogServiceModalExtensions
         if (dialogService is IModalDialogService modalDialogService)
             return modalDialogService.Present(modal, cancellationToken);
 
+        // First result wins: an already-dismissed modal keeps its result.
         modal.Dismiss(modal.CancellationResult);
-        return Task.FromResult(modal.CancellationResult);
+        return modal.Completion;
     }
 }

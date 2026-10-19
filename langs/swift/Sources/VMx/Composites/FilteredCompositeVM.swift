@@ -60,11 +60,14 @@ open class FilteredCompositeVM<Child: ComponentVMBase> {
     }
 
     public func setPredicate(_ predicate: @escaping (Child) -> Bool) {
+        // A disposed projection stays frozen (disposal contract, DISP-006).
+        guard !disposed else { return }
         self.predicate = predicate
         recompute()
     }
 
     public func setCurrent(_ item: Child?) {
+        guard !disposed else { return }
         if let item, !visibleStorage.contains(where: { $0 === item }) {
             preconditionFailure("current must be nil or a visible item")
         }
@@ -74,6 +77,7 @@ open class FilteredCompositeVM<Child: ComponentVMBase> {
     }
 
     public func moveToNextVisible() {
+        guard !disposed else { return }
         guard !visibleStorage.isEmpty else {
             setCurrent(nil)
             return
@@ -86,6 +90,7 @@ open class FilteredCompositeVM<Child: ComponentVMBase> {
     }
 
     public func moveToPreviousVisible() {
+        guard !disposed else { return }
         guard !visibleStorage.isEmpty else {
             setCurrent(nil)
             return
@@ -102,6 +107,7 @@ open class FilteredCompositeVM<Child: ComponentVMBase> {
     }
 
     func recompute() {
+        guard !disposed else { return }
         visibleStorage = orderedVisible()
         if let currentStorage, !visibleStorage.contains(where: { $0 === currentStorage }) {
             self.currentStorage = cursorPolicy == .snapToFirst ? visibleStorage.first : nil

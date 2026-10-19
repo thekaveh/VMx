@@ -69,20 +69,25 @@ open class AggregateVM6<
         _notifyPropertyChanged("component5")
         _notifyPropertyChanged("component6")
 
-        try c1.construct(); try c2.construct(); try c3.construct()
-        try c4.construct(); try c5.construct(); try c6.construct()
+        // Background components defer Constructed until each is (spec/02 §6).
+        try _transitionChildren([c1, c2, c3, c4, c5, c6] as [ComponentVMBase], construct: true)
         }
     }
 
     open override func _onDestruct() throws {
-        try component1?.destruct(); try component2?.destruct()
-        try component3?.destruct(); try component4?.destruct()
-        try component5?.destruct(); try component6?.destruct()
-        try super._onDestruct()
+        let slots: [ComponentVMBase?] = [
+            component1, component2, component3,
+            component4, component5, component6
+        ]
+        let components = slots.compactMap { $0 }
+        try _transitionChildren(components, construct: false) {
+            try super._onDestruct()
+        }
     }
 
     open override func dispose() {
         aggregateParent.withTransaction {
+        _abandonChildTransition()
         component1?.dispose(); component2?.dispose()
         component3?.dispose(); component4?.dispose()
         component5?.dispose(); component6?.dispose()

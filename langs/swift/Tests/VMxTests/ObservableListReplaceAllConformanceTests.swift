@@ -79,6 +79,15 @@ final class ObservableListReplaceAllConformanceTests: XCTestCase {
             XCTAssertEqual(events(), [])
         }
         XCTAssertEqual(events(), ["reset", "property:Count"])
+
+        // Equal cardinality: exactly one Reset and no Count.
+        let (same, sameEvents) = observed([1, 2])
+        same.withBatch {
+            same.replaceAll([3, 4])
+            XCTAssertEqual(sameEvents(), [])
+        }
+        XCTAssertEqual(sameEvents(), ["reset"])
+        XCTAssertEqual(same.toArray(), [3, 4])
     }
 
     /// COL-046 — throwing batch exit restores depth and publishes the mutation.

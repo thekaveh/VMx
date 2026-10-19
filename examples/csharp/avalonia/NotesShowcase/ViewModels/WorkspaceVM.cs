@@ -267,7 +267,7 @@ public sealed class WorkspaceVM : IDisposable
             .Triggers(_commandTrigger)
             .Build();
         NewNoteCommand = AsyncRelayCommand.Builder()
-            .Predicate(() => IsConstructed && NotebooksRoot.Current is not null)
+            .Predicate(() => IsConstructed && NotebooksRoot.Current is not null && !NotesView.CurrentNotebookIsReadOnly)
             .Task(_ => AddNewNoteToCurrentAsync())
             .Triggers(_commandTrigger)
             .Build();
@@ -344,7 +344,9 @@ public sealed class WorkspaceVM : IDisposable
         _theme.Construct();
         _globalSearch.Construct();
         await NotebooksRoot.PopulateAsync().ConfigureAwait(false);
-        var first = NotebooksRoot.Roots.FirstOrDefault();
+        // Read the first root from the flat list: Roots is the UI-bound
+        // projection, refreshed on the foreground after PopulateAsync.
+        var first = NotebooksRoot.All.FirstOrDefault(nb => nb.Model.ParentId is null);
         if (first is not null)
         {
             // Bind BEFORE assigning Current (the notebook subscription

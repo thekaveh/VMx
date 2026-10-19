@@ -139,7 +139,7 @@ public sealed class TokenPagedComposition<TVM, TToken> :
         {
             if (_disposed || generation != _operationGeneration) return;
         }
-        ConstructIfNeeded(additions);
+        ConstructIfNeeded(additions, generation);
         lock (_gate)
         {
             if (_disposed || generation != _operationGeneration) return;
@@ -177,7 +177,7 @@ public sealed class TokenPagedComposition<TVM, TToken> :
         var sameLength = fresh.Length == retainedCount;
         var retain = headMatches && (sameLength || (fresh.Length > 0 && page.NextToken is not null));
         if (!retain)
-            ConstructIfNeeded(fresh);
+            ConstructIfNeeded(fresh, generation);
 
         lock (_gate)
         {
@@ -198,11 +198,18 @@ public sealed class TokenPagedComposition<TVM, TToken> :
             NotifyResetIfLive();
     }
 
-    private void ConstructIfNeeded(IReadOnlyList<TVM> items)
+    private void ConstructIfNeeded(IReadOnlyList<TVM> items, long generation)
     {
         if (!_autoConstructOnAdd) return;
         foreach (var item in items)
         {
+            // A hook (PagesEqual or an item's construct) may dispose this
+            // composition or start a newer operation; stale work stops before
+            // it constructs anything else (spec/21 §6).
+            lock (_gate)
+            {
+                if (_disposed || generation != _operationGeneration) return;
+            }
             if (item is ComponentVMBase vm && !vm.IsConstructed)
                 vm.Construct();
         }

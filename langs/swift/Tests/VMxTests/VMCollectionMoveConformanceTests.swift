@@ -26,11 +26,49 @@ final class VMCollectionMoveConformanceTests: XCTestCase {
         value.current
     }
 
+    /// Drives every shared VMCollection operation through the protocol only.
+    private func exerciseShared<C: VMCollection>(_ value: C, _ a: C.Child, _ b: C.Child) throws
+        -> [CollectionChangedAction] {
+        var actions: [CollectionChangedAction] = []
+        let cancel = value.collectionChanged.sink { actions.append($0.action) }
+        defer { cancel.cancel() }
+
+        value.add(a)
+        value.insert(b, at: 0)
+        XCTAssertEqual(value.count, 2)
+        XCTAssertTrue(value.at(0) === b && value.at(1) === a)
+        XCTAssertEqual(value.map { ObjectIdentifier($0) }, [ObjectIdentifier(b), ObjectIdentifier(a)])
+        try value.move(from: 0, to: 1)
+        XCTAssertTrue(value.at(0) === a && value.at(1) === b)
+        let batch = value.batchUpdate()
+        XCTAssertTrue(value.remove(b))
+        value.removeAt(0)
+        batch.dispose()
+        XCTAssertEqual(value.count, 0)
+        return actions
+    }
+
     /// COL-032 — composites and groups share VMCollection while selection remains composite-only.
-    func testCOL032SharedContractSeparatesSelection() {
-        XCTAssertEqual(acceptsCollection(composite()), 0)
-        XCTAssertEqual(acceptsCollection(group()), 0)
-        XCTAssertNil(acceptsSelectable(composite()))
+    func testCOL032SharedContractSeparatesSelection() throws {
+        let c = composite()
+        let g = group()
+        XCTAssertEqual(acceptsCollection(c), 0)
+        XCTAssertEqual(acceptsCollection(g), 0)
+        XCTAssertNil(acceptsSelectable(c))
+
+        // Both satisfy the full shared capability: count, indexed/iterable
+        // reads, observation, mutation, move, and batching.
+        let expected: [CollectionChangedAction] = [.add, .add, .move, .reset]
+        XCTAssertEqual(try exerciseShared(c, leaf("a"), leaf("b")), expected)
+        XCTAssertEqual(try exerciseShared(g, leaf("a"), leaf("b")), expected)
+
+        // Only the composite satisfies the selectable capability; the group
+        // exposes no current-child slot.
+        XCTAssertTrue((c as AnyObject) is any SelectableVMCollection)
+        XCTAssertFalse((g as AnyObject) is any SelectableVMCollection,
+                       "GroupVM must not satisfy SelectableVMCollection")
+        XCTAssertFalse(Mirror(reflecting: g).children.contains { $0.label == "current" },
+                       "GroupVM must expose no current slot")
     }
 
     /// COL-033 — forward move emits one Move event with both indices and the same item.
@@ -146,5 +184,28 @@ final class VMCollectionMoveConformanceTests: XCTestCase {
 
         XCTAssertTrue(value.at(1) === moved)
         XCTAssertEqual(constructs, 1)
+    }
+
+    /// Supplementary disposal check (not COL-033, which covers a forward move):
+    /// a disposed container rejects move, and a disposed group ignores removal
+    /// and clear.
+    func testCOL033DisposedContainersAreInert() {
+        let c = composite()
+        let g = group()
+        for name in ["a", "b", "c"] {
+            c.add(leaf(name))
+            g.add(leaf(name))
+        }
+        c.dispose()
+        g.dispose()
+
+        XCTAssertThrowsError(try c.move(from: 0, to: 1))
+        XCTAssertThrowsError(try g.move(from: 0, to: 1))
+        XCTAssertFalse(g.remove(g.at(0)))
+        g.removeAt(0)
+        g.clear()
+
+        XCTAssertEqual(c.count, 3)
+        XCTAssertEqual(g.count, 3)
     }
 }

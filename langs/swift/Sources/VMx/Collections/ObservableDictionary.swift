@@ -334,6 +334,8 @@ public final class ObservableDictionary<TKey1: Hashable, TKey2: Hashable, TValue
         key2Counts[key2] = key2Count + 1
         if key2Count == 0 { keys2View.append(key2) }
 
+        // Capture the position now: a local subscriber may add another entry.
+        let index = keyOrder.count - 1
         // 1. Local granular event first (COL-022 ordering).
         itemAddedSubject.send(
             DictionaryItemAddedEvent(key1: key1, key2: key2, value: value))
@@ -343,7 +345,7 @@ public final class ObservableDictionary<TKey1: Hashable, TKey2: Hashable, TValue
             CollectionChangedMessage.forAdd(
                 sender: self, senderName: typeName,
                 item: DictionaryEntry(key1: key1, key2: key2, value: value),
-                index: keyOrder.count - 1))
+                index: index))
     }
 
     /// Remove the first occurrence of `key` from a live key view (by value).

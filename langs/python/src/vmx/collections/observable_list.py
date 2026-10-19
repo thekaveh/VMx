@@ -13,6 +13,8 @@ import reactivex as rx
 from reactivex import operators as ops
 from reactivex.subject import Subject
 
+from vmx._disposal import _run_disposal_steps
+
 T = TypeVar("T")
 
 
@@ -122,6 +124,8 @@ class ObservableList(Generic[T]):
         """Insert *item* at *index* (stdlib semantics: negative indexes count
         from the end; out-of-range indexes clamp like :meth:`list.insert`).
         """
+        if isinstance(index, bool):
+            raise TypeError("index must be an int, not bool")
         # Normalize before emitting: spec/21 §3.2 mandates the payload carry
         # the actual insertion index — a raw -1 (or an out-of-range 99 that
         # stdlib silently clamps to len) violates the contract.
@@ -144,6 +148,8 @@ class ObservableList(Generic[T]):
 
     def remove_at(self, index: int) -> None:
         """Remove the item at *index* (negative indexes count from the end)."""
+        if isinstance(index, bool):
+            raise TypeError("index must be an int, not bool")
         # Normalize before emitting: spec/21 §3.2 mandates the payload carry
         # the index *before removal* — a raw -1 violates the contract even
         # though negative indexing itself is Python-idiomatic (ADR-0006).
@@ -157,6 +163,8 @@ class ObservableList(Generic[T]):
 
     def replace(self, index: int, new_item: T) -> None:
         """Replace the item at *index* (negative indexes count from the end)."""
+        if isinstance(index, bool):
+            raise TypeError("index must be an int, not bool")
         if index < 0:
             index += len(self._items)
             if index < 0:
@@ -231,15 +239,21 @@ class ObservableList(Generic[T]):
         if self._disposed:
             return
         self._disposed = True
-        for subject in (
-            self._added_subject,
-            self._removed_subject,
-            self._replaced_subject,
-            self._reset_subject,
-            self._prop_changed_subject,
-        ):
-            subject.on_completed()
-            subject.dispose()
+        # Every subject completes and disposes even when an observer raises;
+        # the first failure is re-raised afterwards.
+        _run_disposal_steps(
+            *(
+                step
+                for subject in (
+                    self._added_subject,
+                    self._removed_subject,
+                    self._replaced_subject,
+                    self._reset_subject,
+                    self._prop_changed_subject,
+                )
+                for step in (subject.on_completed, subject.dispose)
+            )
+        )
 
     # ── Internal helpers ──────────────────────────────────────────────────────
 
@@ -318,7 +332,8 @@ class ReadOnlyObservableList(Generic[T]):
         return self._source[index]
 
     def __contains__(self, item: object) -> bool:
-        return any(item == existing for existing in self._source)
+        # Identity first, then ==, like dict keys (a NaN key is found).
+        return any(item is existing or item == existing for existing in self._source)
 
     # ── Observable surface (delegated; already sealed by the source) ───────────
 

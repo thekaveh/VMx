@@ -68,17 +68,18 @@ not offer that guarantee.
 
 ## 6.9.5. TypeScript React Adapter
 
-The Notes Showcase `useVmCollection` bridge accepts `IVmCollection<VM>` and can
-therefore render either family without casts:
+The `useVmCollection` hook in `@thekaveh/vmx-react` accepts `IVmCollection<VM>`
+and can therefore render either family without casts:
 
 ```ts
 function useVmCollection<VM extends ComponentVMBase>(
   collection: IVmCollection<VM>,
-): VM[];
+): readonly VM[];
 ```
 
-Subscribe to `collectionChanged`, then take a fresh `Array.from(collection)`
-snapshot. A `Move` notification causes one render with the final order.
+The hook subscribes to `collectionChanged` and returns a cached snapshot that
+changes identity only after a collection change. A `Move` notification causes
+one render with the final order.
 
 ## 6.9.6. Common Pitfalls
 

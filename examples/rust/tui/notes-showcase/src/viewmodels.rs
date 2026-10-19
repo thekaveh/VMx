@@ -1,5 +1,4 @@
 use crate::models::{InMemoryNoteRepository, NoteDraft, NoteModel, NotebookModel};
-use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, MutexGuard};
 use vmx::{
     AggregateVm6, Command, ComponentVm, CompositeVm, DecoratorCommand, DiscriminatorVm,
@@ -10,6 +9,11 @@ use vmx::{
 
 const PAGE_SIZE: usize = 2;
 const SEARCH_PAGE_SIZE: usize = 2;
+/// At most this many notifications stay pending, as in every flavor.
+const NOTIFICATION_CAP: usize = 5;
+
+/// Observer told about each note a save persisted.
+type SavedHook = Arc<Mutex<Option<Arc<dyn Fn(&NoteModel) + Send + Sync>>>>;
 
 #[derive(Clone)]
 pub struct NoteVm {
@@ -33,6 +37,10 @@ impl NoteVm {
 
     pub fn title(&self) -> String {
         self.model().title
+    }
+
+    fn set_model(&self, note: NoteModel) {
+        self.component.set_model(note);
     }
 
     fn matches(&self, term: &str) -> bool {
@@ -158,6 +166,11 @@ impl NotebooksVm {
     }
 }
 
+impl NotebooksVm {
+    /// Owns no disposable primitives beyond its core.
+    fn release_owned(&self) {}
+}
+
 impl_node!(NotebooksVm);
 
 #[derive(Clone)]
@@ -199,6 +212,9 @@ impl NotesViewVm {
     pub fn set_notebook(&self, notebook_id: &str) {
         *lock(&self.notebook_id) = notebook_id.to_string();
         self.reload();
+        // A different notebook starts on its first page, as in the other
+        // flavors; set_source alone only clamps the old index.
+        self.pager.move_to_first_page();
     }
 
     pub fn set_search_term(&self, term: &str) {
@@ -217,6 +233,44 @@ impl NotesViewVm {
             .into_iter()
             .map(|note| note.title())
             .collect()
+    }
+
+    /// The visible page as `(title, is_selected)` rows, so a view can mark
+    /// the note that commands such as delete act on.
+    pub fn visible_rows(&self) -> Vec<(String, bool)> {
+        self.refresh_page();
+        let current = self.source.current().map(|note| note.id());
+        self.pager
+            .current_page()
+            .into_iter()
+            .map(|note| {
+                let selected = current.as_deref() == Some(note.id().as_str());
+                (note.title(), selected)
+            })
+            .collect()
+    }
+
+    /// Keeps the selection on the visible page: when the current note is not
+    /// shown, the first visible note becomes current; when nothing is shown,
+    /// the selection is cleared. Returns the selected note.
+    pub fn sync_selection_to_page(&self) -> Option<NoteModel> {
+        self.refresh_page();
+        let page = self.pager.current_page();
+        if let Some(current) = self.source.current() {
+            if page.iter().any(|note| note.id() == current.id()) {
+                return Some(current.model());
+            }
+        }
+        match page.first().cloned() {
+            Some(first) => {
+                let _ = self.source.set_current(Some(first.clone()));
+                Some(first.model())
+            }
+            None => {
+                let _ = self.source.set_current(None);
+                None
+            }
+        }
     }
 
     pub fn page_summary(&self) -> String {
@@ -269,11 +323,26 @@ impl NotesViewVm {
         Some(note.model())
     }
 
+    /// Reseats a saved note into its row, so the list, local search, delete
+    /// prompt, and a later editor load see the persisted values.
+    pub fn refresh_note(&self, note: &NoteModel) {
+        let Some(row) = self
+            .source
+            .items()
+            .into_iter()
+            .find(|row| row.id() == note.id)
+        else {
+            return;
+        };
+        row.set_model(note.clone());
+        self.refresh_page();
+    }
+
     pub fn reload(&self) {
         self.source.clear();
         let notebook_id = lock(&self.notebook_id).clone();
         for note in self.repository.notes_for_notebook(&notebook_id) {
-            let _ = self.source.add(NoteVm::new(note, MessageHub::new()));
+            let _ = self.source.add(NoteVm::new(note, self.core.hub()));
         }
         if let Some(first) = self.source.items().first().cloned() {
             let _ = self.source.set_current(Some(first));
@@ -287,6 +356,14 @@ impl NotesViewVm {
     }
 }
 
+impl NotesViewVm {
+    /// Releases the primitives this view-model owns once its core is disposed.
+    fn release_owned(&self) {
+        self.filtered.dispose();
+        let _ = self.source.dispose();
+    }
+}
+
 impl_node!(NotesViewVm);
 
 #[derive(Clone)]
@@ -295,23 +372,57 @@ pub struct NoteFormVm {
     repository: InMemoryNoteRepository,
     current_note_id: Arc<Mutex<String>>,
     form: Arc<Mutex<FormVm<NoteDraft>>>,
+    on_saved: SavedHook,
 }
 
 impl NoteFormVm {
     fn new(repository: InMemoryNoteRepository, note: NoteModel, hub: MessageHub) -> Self {
         let note_id = note.id.clone();
+        let on_saved: SavedHook = Arc::new(Mutex::new(None));
         let form = build_form(
             repository.clone(),
             &note_id,
             NoteDraft::from_note(&note),
             hub.clone(),
+            on_saved.clone(),
         );
         Self {
             core: ComponentVm::with_model("note-form", (), hub, NullDispatcher::new()),
             repository,
             current_note_id: Arc::new(Mutex::new(note_id)),
             form: Arc::new(Mutex::new(form)),
+            on_saved,
         }
+    }
+
+    /// Calls `hook` with each note a save persisted (the workspace reseats
+    /// it into the notes list).
+    pub fn set_on_saved(&self, hook: impl Fn(&NoteModel) + Send + Sync + 'static) {
+        *lock(&self.on_saved) = Some(Arc::new(hook));
+    }
+
+    /// Leaves the editor empty when no note is selected (for example after
+    /// the last note is deleted), so it never shows or saves a stale note.
+    pub fn clear(&self) {
+        let form = build_form(
+            self.repository.clone(),
+            "",
+            NoteDraft {
+                title: String::new(),
+                body: String::new(),
+                tags: Vec::new(),
+            },
+            self.core.hub(),
+            self.on_saved.clone(),
+        );
+        lock(&self.current_note_id).clear();
+        let previous = std::mem::replace(&mut *lock(&self.form), form);
+        previous.dispose();
+    }
+
+    /// Whether the editor holds a note.
+    pub fn has_note(&self) -> bool {
+        !lock(&self.current_note_id).is_empty()
     }
 
     pub fn load_note(&self, note: NoteModel) {
@@ -320,10 +431,12 @@ impl NoteFormVm {
             self.repository.clone(),
             &note_id,
             NoteDraft::from_note(&note),
-            MessageHub::new(),
+            self.core.hub(),
+            self.on_saved.clone(),
         );
         *lock(&self.current_note_id) = note_id;
-        *lock(&self.form) = form;
+        let previous = std::mem::replace(&mut *lock(&self.form), form);
+        previous.dispose();
     }
 
     pub fn title(&self) -> String {
@@ -372,12 +485,23 @@ impl NoteFormVm {
         // Release the slot before persisting: a second save while this one is
         // pending must reach the form's single-flight rule instead of
         // waiting on this lock and saving again.
+        if !self.has_note() {
+            // Nothing is selected: there is no note to persist.
+            return Ok(());
+        }
         let form = lock(&self.form).clone();
         form.approve()
     }
 
     pub fn revert(&self) {
         lock(&self.form).revert();
+    }
+}
+
+impl NoteFormVm {
+    /// Releases the primitives this view-model owns once its core is disposed.
+    fn release_owned(&self) {
+        lock(&self.form).dispose();
     }
 }
 
@@ -388,6 +512,7 @@ fn build_form(
     note_id: &str,
     draft: NoteDraft,
     hub: MessageHub,
+    on_saved: SavedHook,
 ) -> FormVm<NoteDraft> {
     let note_id = note_id.to_string();
     FormVm::builder()
@@ -396,23 +521,23 @@ fn build_form(
         .strict(true)
         .validator("title", |draft: &NoteDraft| {
             if draft.title.trim().is_empty() {
-                Some("Title is required".to_string())
+                Some("Title is required.".to_string())
             } else {
                 None
             }
         })
-        .model_validator(|draft: &NoteDraft| {
-            let mut errors = BTreeMap::new();
-            if draft.body.trim().is_empty() {
-                errors.insert("body".to_string(), "Body is required".to_string());
-            }
-            errors
-        })
         .persister(move |draft| {
-            repository
+            let saved = repository
                 .save_draft(&note_id, draft)
-                .map(|_| ())
-                .ok_or_else(|| VmxError::InvalidArgument("note not found".to_string()))
+                .ok_or_else(|| VmxError::InvalidArgument("note not found".to_string()))?;
+            // The repository alone holds the saved note until it is reseated
+            // into its NoteVm; otherwise the list and later editor loads use
+            // the old model and a later save writes it back.
+            let hook = lock(&on_saved).clone();
+            if let Some(hook) = hook {
+                hook(&saved);
+            }
+            Ok(())
         })
         .build()
         .expect("form builder is complete")
@@ -429,24 +554,18 @@ pub struct GlobalSearchVm {
 impl GlobalSearchVm {
     fn new(repository: InMemoryNoteRepository, hub: MessageHub) -> Self {
         let query = Arc::new(Mutex::new(String::new()));
-        let state_query = query.clone();
+        // The searchable state owns the term and the matching rule; the token
+        // pager pages over its filtered projection.
         let state = SearchableState::from_items(
-            {
-                let repository = repository.clone();
-                move || repository.notes()
-            },
-            move |note: &NoteModel, _term: &str| note_matches(note, &lock(&state_query)),
+            move || repository.notes(),
+            |note: &NoteModel, term: &str| note_matches(note, term),
         );
-        let loader_query = query.clone();
+        let loader_state = state.clone();
         let pages = TokenPagedComposition::with_loader_and_hub(
             Some(0usize),
             move |token| {
                 let offset = token.unwrap_or(0);
-                let matches = repository
-                    .notes()
-                    .into_iter()
-                    .filter(|note| note_matches(note, &lock(&loader_query)))
-                    .collect::<Vec<_>>();
+                let matches = loader_state.filtered();
                 let page = matches
                     .iter()
                     .skip(offset)
@@ -497,6 +616,14 @@ impl GlobalSearchVm {
     }
 }
 
+impl GlobalSearchVm {
+    /// Releases the primitives this view-model owns once its core is disposed.
+    fn release_owned(&self) {
+        self.state.dispose();
+        self.pages.dispose();
+    }
+}
+
 impl_node!(GlobalSearchVm);
 
 #[derive(Clone)]
@@ -517,11 +644,24 @@ impl NotificationsVm {
 
     pub fn post(&self, kind: NotificationType, message: impl Into<String>) -> u64 {
         let notification = self.hub.post(kind, message);
-        lock(&self.active_vms).push(NotificationVm::with_hub(
-            notification.clone(),
-            self.hub.clone(),
-            60_000,
-        ));
+        let dropped = {
+            let mut active = lock(&self.active_vms);
+            // Entries resolved through the hub must not hold a cap slot.
+            active.retain(|vm| !vm.is_resolved());
+            active.push(NotificationVm::with_hub(
+                notification.clone(),
+                self.hub.clone(),
+                60_000,
+            ));
+            let excess = active.len().saturating_sub(NOTIFICATION_CAP);
+            active.drain(..excess).collect::<Vec<_>>()
+        };
+        // Over the cap, the oldest are dismissed, not just hidden, so the
+        // hub's pending list stays bounded too.
+        for vm in dropped {
+            self.hub
+                .resolve(vm.notification().id, NotificationReaction::Approve);
+        }
         notification.id
     }
 
@@ -536,6 +676,14 @@ impl NotificationsVm {
             .into_iter()
             .map(|notification| notification.message)
             .collect()
+    }
+}
+
+impl NotificationsVm {
+    /// Releases the primitives this view-model owns once its core is disposed.
+    fn release_owned(&self) {
+        lock(&self.active_vms).clear();
+        self.hub.dispose();
     }
 }
 
@@ -573,6 +721,13 @@ impl EditorModeVm {
         } else {
             self.show_edit();
         }
+    }
+}
+
+impl EditorModeVm {
+    /// Releases the primitives this view-model owns once its core is disposed.
+    fn release_owned(&self) {
+        self.discriminator.dispose();
     }
 }
 
@@ -631,12 +786,22 @@ impl WorkspaceVm {
             editor.clone(),
         );
         aggregate.construct()?;
+        form.set_on_saved({
+            let notes = notes.clone();
+            move |note| notes.refresh_note(note)
+        });
         let pending_delete = Arc::new(Mutex::new(None));
         let delete_command = RelayCommand::new({
             let notes = notes.clone();
             let notifications = notifications.clone();
             let pending_delete = pending_delete.clone();
             move || {
+                // One delete confirmation at a time: a second request would
+                // replace the only slot that `y`/`r` resolve and strand the
+                // first confirmation.
+                if lock(&pending_delete).is_some() {
+                    return;
+                }
                 if let Some(note) = notes.current_note() {
                     let message = format!("Delete note '{}'?", note.title);
                     let notification_id =
@@ -695,11 +860,49 @@ impl WorkspaceVm {
 
     pub fn select_notebook(&self, notebook_id: &str) -> VmxResult<()> {
         self.notebooks.select(notebook_id)?;
+        self.reject_delete_current();
         self.notes.set_notebook(notebook_id);
-        if let Some(note) = self.notes.select_first_visible() {
-            self.form.load_note(note);
+        match self.notes.select_first_visible() {
+            Some(note) => self.form.load_note(note),
+            None => self.form.clear(),
         }
         Ok(())
+    }
+
+    // Paging, searching, and switching notebooks cancel a pending delete:
+    // its note may leave the screen, and `y` must never delete a note the
+    // user no longer sees.
+
+    pub fn next_page(&self) {
+        self.reject_delete_current();
+        self.notes.next_page();
+        self.sync_form_to_page();
+    }
+
+    pub fn previous_page(&self) {
+        self.reject_delete_current();
+        self.notes.previous_page();
+        self.sync_form_to_page();
+    }
+
+    pub fn set_search_term(&self, term: &str) {
+        self.reject_delete_current();
+        self.notes.set_search_term(term);
+        self.sync_form_to_page();
+    }
+
+    /// The selection follows the visible page, and the editor follows the
+    /// selection, so delete never targets a note that is not on screen.
+    fn sync_form_to_page(&self) {
+        let selected = self.notes.current_note().map(|note| note.id);
+        match self.notes.sync_selection_to_page() {
+            Some(note) => {
+                if selected.as_deref() != Some(note.id.as_str()) || !self.form.has_note() {
+                    self.form.load_note(note);
+                }
+            }
+            None => self.form.clear(),
+        }
     }
 
     pub fn select_note(&self, note_id: &str) -> VmxResult<()> {
@@ -728,8 +931,9 @@ impl WorkspaceVm {
             .resolve(notification_id, NotificationReaction::Approve);
         if self.repository.delete_note(&note_id).is_some() {
             self.notes.reload();
-            if let Some(note) = self.notes.select_first_visible() {
-                self.form.load_note(note);
+            match self.notes.sync_selection_to_page() {
+                Some(note) => self.form.load_note(note),
+                None => self.form.clear(),
             }
             self.notifications
                 .post(NotificationType::Notification, format!("Deleted '{title}'"));
@@ -748,7 +952,7 @@ impl WorkspaceVm {
     }
 
     pub fn dispose(&self) -> VmxResult<()> {
-        self.aggregate.destruct()
+        self.aggregate.dispose()
     }
 }
 
@@ -795,7 +999,9 @@ macro_rules! impl_node {
             }
 
             fn dispose(&self) -> VmxResult<()> {
-                self.core.dispose()
+                let result = self.core.dispose();
+                self.release_owned();
+                result
             }
 
             fn status(&self) -> vmx::ConstructionStatus {

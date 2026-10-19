@@ -102,11 +102,12 @@ jobs:
         with:
           toolchain: stable
       - run: cargo install cargo-audit --version 0.22.2 --locked
-      - name: Audit every committed Cargo lock
+      - name: Audit the library, example, and benchmark Cargo locks
         run: |
           cargo audit --file langs/rust/Cargo.lock --deny warnings
           cargo audit --file examples/rust/console/hello-vmx/Cargo.lock --deny warnings
           cargo audit --file examples/rust/tui/notes-showcase/Cargo.lock --deny warnings
+          cargo audit --file benchmarks/rust/Cargo.lock --deny warnings
 
   python:
     timeout-minutes: 15

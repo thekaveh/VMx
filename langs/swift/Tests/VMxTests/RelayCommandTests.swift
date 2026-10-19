@@ -105,9 +105,12 @@ final class RelayCommandTests: XCTestCase {
     /// CMD-016 — imperative raise after disposal is a no-op.
     func testCmd016ImperativeRaiseAfterDisposalIsNoOp() {
         let cmd = RelayCommand.builder().build()
-        cmd.dispose()
+        // Subscribe before disposal: a later subscriber could never observe a
+        // stray emission, so the assertion below could not fail.
         var fires = 0
         let cancel = cmd.canExecuteChanged.sink { fires += 1 }
+        cmd.dispose()
+        fires = 0
 
         cmd.raiseCanExecuteChanged()
 

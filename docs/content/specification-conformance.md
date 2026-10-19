@@ -21,7 +21,7 @@ implementation.
 
 ## 10.3. Conformance Model
 
-The current catalog contains:
+The catalog contains:
 
 - 425 library IDs implemented by all five catalog-complete source flavors
 - 5 `THEME-00x` scenario IDs exercised by the flagship example apps
@@ -32,29 +32,12 @@ The source overview is here:
 
 Catalog completeness is a source statement: every library ID has a marked
 test in every flavor. Executed evidence, below, shows that each marked test ran
-and passed. The completed
+and passed. The
 [Rust parity ledger](../maintenance/2026-07-16-rust-capability-parity.md)
-supplements both with focused member and edge-behavior evidence for Rust 0.27.0.
+(open items and recorded differences in §12.4.7 and §12.7–§12.12) adds focused member and
+edge-behavior evidence for Rust.
 
-### 10.3.1. Ownership Assertions And Catalog Coverage
-
-A conformance marker proves that a test is assigned to a catalog entry; its
-assertions must still detect a violation of that entry's behavior. Rust's
-`COL-055` and `COL-062` check caller-owned item lifecycle after every exercised
-mutation, including failed keyed preflight and empty operations. A retained
-caller `Arc` always has at least one strong reference, so `strong_count >= 1`
-cannot prove that a collection released its item handles.
-
-The Rust tests count known membership, snapshot, lookup and returned-value
-handles separately from VM lifecycle hooks. They assert no collection-driven
-construct, destruct or dispose hook, then exactly one explicit caller disposal
-and one final native release per item. Retained Rust change histories contain
-metadata rather than item payloads. A temporary mutation that leaks the items
-inside both `clear` implementations fails both tests while the unmodified
-implementations pass. This strengthens existing IDs; the catalog remains 403
-library IDs. See [Rust ownership-test conventions](flavors/rust.md#7631-ownership-test-conventions).
-
-### 10.3.2. Catalog, Execution, And Behavioral Evidence
+### 10.3.1. Catalog, Execution, And Behavioral Evidence
 
 Three separate statements describe a flavor's conformance:
 
@@ -68,7 +51,8 @@ Three separate statements describe a flavor's conformance:
    behavior its ID names. Reviewers judge this; no tool proves it.
 
 Neither of the first two implies the third, and none of them is member-level
-parity between flavors.
+parity between flavors. For Rust ownership-assertion conventions, see
+[Rust Ownership-Test Conventions](contributing-releases.md#1135-rust-ownership-test-conventions).
 
 The execution check maps each executed case to its IDs. Python records each
 `conformance` marker as a JUnit property, and TypeScript uses a `describe`
@@ -111,11 +95,10 @@ report does not mark XCTest skips. The Swift conformance suite uses no
   C#, Python, TypeScript, Swift, and Rust.
 - `tools/check-conformance-execution.py` requires a passing executed case for
   every library ID in each flavor workflow.
-- The examples workflows enforce the separate flagship scenario contract. The
-  `THEME-00x` scenario IDs and two shared scenarios run in all four flagship
-  suites: a Notes workspace lifecycle
-  (`examples/notes-showcase-scenario.json`) and the five THEME scenarios in
-  order (`examples/notes-showcase-theme-scenario.json`). The shared scenarios
+- The examples workflows enforce the separate flagship scenario contract. Two
+  shared scenario files run in all four flagship suites: a Notes workspace
+  lifecycle (`examples/notes-showcase-scenario.json`) and the five `THEME-00x`
+  scenarios in order (`examples/notes-showcase-theme-scenario.json`). The shared scenarios
   compare semantic outcomes, not just test names, and add no catalog IDs.
 
 Coverage floors, catalog markers, and assertion strength are separate evidence.
@@ -126,57 +109,16 @@ No one of them implies the others. See
 
 ## 10.5. Consumer Adapter Suites
 
-VMx TypeScript 3.21.0 introduced the optional
-`@thekaveh/vmx/conformance` entry point. It validates and executes
-consumer-owned operation/assertion suites without making those suites part of
-the normative VMx behavior catalog. The root `@thekaveh/vmx` entry does not
+The optional TypeScript entry point `@thekaveh/vmx/conformance` validates and
+executes consumer-owned operation/assertion suites. Those suites do not become
+part of the normative VMx behavior catalog. The root `@thekaveh/vmx` entry does not
 export this tooling or load its Ajv validator.
 
 The canonical schema is
 `spec/schemas/consumer-conformance-v1.schema.json`. It is a non-normative,
 independently versioned adapter contract governed by ADR-0102.
 
-### 10.5.1. Discovery And Gap Table
-
-VMx's fixtures, the conformance catalog, and DayDreams' consumer files have
-different responsibilities. Adapter v1 standardizes only their executable
-boundary.
-
-| Concern           | VMx fixtures/catalog                                              | DayDreams YAML/JSON                                                                                | Adapter v1 decision                                                    |
-| ----------------- | ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| Version           | `$schema-version` on four JSON fixtures                           | YAML `version`; JSON fixtures unversioned                                                          | Require `$schema-version: "1.0.0"` on executable suites                |
-| Identity          | Fixture-specific `id`/`name`; catalog headings hold normative IDs | JSON cases hold AVM/GVM/WVM IDs                                                                    | Require a unique stable case `id`; IDs remain consumer-owned           |
-| Description       | Free text on some scenarios                                       | YAML and JSON descriptions                                                                         | Optional suite/case descriptions                                       |
-| Setup             | Fixture-specific roots such as states, transforms, or scene paths | `initialRoute`, entries/scene fixtures, streaming setup                                            | Opaque JSON suite/case `fixture` values passed to the factory          |
-| Operations        | `via`, mutation tuples, producer sends, predicate/task flags      | YAML `operations`; JSON `when.op` with bespoke payloads                                            | Ordered `invoke` steps with a name and JSON argument array             |
-| State             | Fixture-specific expected fields                                  | Bespoke `then` keys                                                                                | `assert-state` with RFC 6901 JSON Pointer and structural JSON equality |
-| Messages          | Message-ordering arrays and conformance prose                     | Encoded trace strings such as `PropertyChangedMessage:model@appVm`                                 | Exact ordered JSON records consumed by `assert-messages`               |
-| Async             | No shared execution shape                                         | No generic async contract                                                                          | Await factory, every `invoke`, and `dispose` before continuing         |
-| Errors            | Lifecycle `legal`; test code owns exceptions                      | Bespoke harness branches                                                                           | Validation/execution errors retain suite, case, step, and JSON paths   |
-| Teardown          | Each flavor test owns cleanup                                     | Each test calls `dispose()`                                                                        | Runner calls adapter `dispose` exactly once after factory success      |
-| YAML model fields | None                                                              | `vm`, `model`, `types`, `children`, `state`, `dependencies`, `derived`, `lifecycle`, `conformance` | Discovery input only; not adapter-schema fields                        |
-| Code generation   | None                                                              | Swift generation described as a future goal                                                        | Out of scope                                                           |
-
-### 10.5.2. Artifact Field Inventory
-
-The discovery used the following concrete fields. DayDreams fields are pinned
-to consumer commit `8d314dd`; they are evidence, not VMx-owned names.
-
-| Artifact                         | Fields observed                                                                                                                                       | Adapter status                                                                                                  |
-| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| VMx `command-truthtable.json`    | `$schema-version`; `cases[]` with `id`, `predicate`, `task`, `trigger_emits`, `can_execute`, `execute_invokes_task`, `can_execute_changed_fires`      | Shipped adapter keeps each row as `case.fixture`, invokes `evaluate`, and asserts the three result fields       |
-| VMx `derived-properties.json`    | `$schema-version`, `transforms`; `scenarios[]` with `name`, `sources_initial`, `transform`, `mutations`, `expected_values`                            | Could map mutations to `invoke` and values to state assertions; no adapter is shipped in v1                     |
-| VMx `lifecycle-transitions.json` | `$schema-version`, `states`, `initial_state`, `terminal_states`, `notes`; `transitions[]` with `from`, `via`, `legal`, `to_intermediate`, `to_final`  | Requires a factory operation per transition and explicit legal/error normalization; no adapter is shipped in v1 |
-| VMx `message-ordering.json`      | `$schema-version`; `scenarios[]` with `id`, `description`, producer-send variants, subscriber count, unsubscribe flag, and expected-observed variants | Can map producer actions to `invoke` and expected arrays to `assert-messages`; no adapter is shipped in v1      |
-| VMx conformance catalog          | Prefix-to-chapter table; stable `XXX-NNN` heading IDs; Given/When/Then prose; source-chapter conformance ranges                                       | Normative metadata remains Markdown and marker-tool input; adapter case IDs do not become catalog IDs           |
-| DayDreams `app.vm.yaml`          | `vm`, `version`, `description`, `model`, `types`, `operations`, `derived`, `lifecycle`, `conformance`                                                 | YAML remains descriptive; only its linked JSON was translated in the pilot                                      |
-| DayDreams `gallery.vm.yaml`      | `vm`, `version`, `description`, `model`, `children`, `state`, `types`, `dependencies`, `operations`, `lifecycle`, `conformance`                       | Not parsed or standardized                                                                                      |
-| DayDreams `world.vm.yaml`        | `vm`, `version`, `description`, `model`, `children`, `registry`, `heightfields`, `types`, `operations`, `scene_bridge`, `lifecycle`, `conformance`    | Not parsed or standardized                                                                                      |
-| DayDreams AppVM JSON             | `initialRoute`; `cases[]` with `id`, `description`, bespoke `when`, and bespoke `then` fields                                                         | AVM-001/002 were translated to suite fixture plus ordered invoke/state/message steps in the no-push pilot       |
-| DayDreams GalleryVM JSON         | `entriesFixture`; `cases[]` with `id`, `description`, `when.op`, `when.args`, and domain-specific `then` fields                                       | Factory/fixture adaptation is feasible but not included                                                         |
-| DayDreams WorldVM JSON           | `sceneFixture`, `cases`, `streamingCases`; cases use `id`, optional `description`, `assert`/`equals` or domain-specific `world`, `when`, and `then`   | Multiple setup modes and domain serializers remain consumer-owned; not included                                 |
-
-### 10.5.3. Suite Shape
+### 10.5.1. Suite Shape
 
 Unknown structural fields fail validation. Fixtures, invocation arguments,
 expected state, and normalized messages accept arbitrary JSON values.
@@ -216,7 +158,7 @@ expected state, and normalized messages accept arbitrary JSON values.
 present `null`. Object key order is irrelevant; array and message order are
 exact. `assert-messages` drains the adapter once for each assertion.
 
-### 10.5.4. Factory And Runner
+### 10.5.2. Factory And Runner
 
 The runner owns sequencing and teardown; the consumer owns construction,
 operation dispatch, JSON snapshots, and message normalization.
@@ -251,11 +193,11 @@ instance paths. Disposal runs exactly once in `finally`; if execution and
 disposal both fail, the execution error stays primary and retains the teardown
 cause.
 
-`adaptCommandTruthTableFixture` demonstrates adapting every unchanged VMx
-command fixture row. The existing CMD-007 test and all five-flavor conformance
-coverage remain in place.
+`adaptCommandTruthTableFixture` adapts every row of the VMx command truth-table
+fixture without changing it. The adapter does not replace the `CMD-007` test or
+the five-flavor conformance suites.
 
-### 10.5.5. Non-Goals And Follow-Up Gate
+### 10.5.3. Non-Goals And Follow-Up Gate
 
 Adapter v1 does not parse YAML, define a VMx viewmodel dialect, generate tests,
 or generate Swift. A Swift or code-generation proposal needs a separate ADR,
@@ -275,12 +217,8 @@ The coverage checker recognizes one intentional marker form per flavor:
 | Swift      | `// LIFE-001 — description` or `/// LIFE-001 — description`, attached to a test function |
 | Rust       | `/// LIFE-001 — description` attached through `#[test]` to a test function               |
 
-For Rust, the ID must be the first token after `///` and an em dash must follow
-it on the same line. Only doc-comment and attribute lines may separate the
-marker from `#[test]` and its function. Ordinary comments, file summaries,
-unattached markers, and markers in block-commented tests are ignored. Duplicate
-markers are one set-based coverage claim. In required mode, a missing Rust ID is
-listed under `MISSING` and fails the coverage command.
+The Rust attachment rules, including which comments the checker ignores, are in
+[tools/README.md](../../tools/README.md).
 
 In required mode, a marker for an ID the catalog does not define is listed under
 `ORPHAN` and fails the coverage command for that flavor. It claims coverage of
@@ -289,7 +227,8 @@ marker. Without `--require`, the report still lists it for information.
 
 ## 10.7. Practical Reading Path
 
-1. Read `spec/README.md` for chapter ownership and release history.
+1. Read `spec/README.md` for chapter ownership and `spec/HISTORY.md` for release
+   history.
 1. Read the primitive pages on this site for a faster conceptual map.
 1. Use the flavor README when you need package details or host-specific
    examples.
@@ -298,53 +237,9 @@ marker. Without `--require`, the report still lists it for information.
 
 ## 10.8. Controlled Concurrency Interleavings
 
-Concurrency regressions must acknowledge the boundary that creates the tested
-ordering. A worker-start signal only proves that a worker began; elapsed time
-only proves that a deadline passed. Neither proves that VMx entered a specific
-wait. The selected lifecycle and notification regressions instead acknowledge
-the exact per-instance wait, then inspect the protected state while that wait
-is active. The Swift command regression uses the synchronous executing
-notification to cancel inside the admission window, before the body task's
-cancellation handle is installed.
-
-The test owns every participant and error channel. It releases gates in cleanup,
-joins workers, awaits task results, and reports callback failures to the
-coordinator. The forbidden outcomes are premature completion before the
-acknowledged boundary is released, missing terminal delivery, a swallowed
-worker or subscriber error, and cleanup that leaves work running. Diagnostic
-timeouts fail a test; they never count as evidence that an operation was
-correctly blocked.
-
-Negative controls mutate the actual production boundary exercised by the test,
-run in a subprocess group with a watchdog, and restore the original source
-bytes in `finally`. A valid control either reaches the selected assertion or is
-terminated as a demonstrated deadlock mutant. Compilation failure, zero matched
-tests, an unrelated assertion, crash, or watchdog expiry cannot be reported as
-the selected assertion proof. CI repeats the restored Linux checks normally and
-with one CPU from the runner's allowed affinity set. The Swift lane records five
-normal selected passes, five failures from removing admission-cancellation
-forwarding, and a rebuilt restored pass.
-
-Order test infrastructure as carefully as runtime participants. A package
-build that rewrites imported fixtures or schemas must finish before workers
-read them. TypeScript uses global setup and an awaited rerun hook for this
-boundary; generated outputs are excluded from watch triggers and explicitly
-invalidated after rebuilding. A filesystem error alone does not identify the
-process holding a lock: trace the actual writer and reader before assigning a
-cause.
-
-These techniques answer different questions:
-
-- controlled thread interleavings force and acknowledge a particular runtime
-  boundary;
-- stress tests sample many schedules and remain useful supplementary evidence;
-- event-loop drains allow already-queued continuations to run but do not prove
-  that a foreign thread reached a boundary;
-- virtual schedulers deterministically advance modeled time and do not establish
-  native-thread scheduling behavior.
-
-The controls establish the named paths, not exhaustive freedom from races.
-Linux CPU affinity does not represent macOS scheduling, and an external
-watchdog contains a stuck process without proving in-process cleanup. The
-maintained scope and follow-up dispositions are recorded in the
-[Concurrency Test Audit](../maintenance/2026-09-24-controlled-interleavings-audit.md).
+Concurrency regressions acknowledge the exact runtime boundary that creates the
+tested ordering; a worker-start signal or an elapsed timeout is not evidence.
+See
+[Reproduce Controlled Interleavings](contributing-releases.md#1131-reproduce-controlled-interleavings)
+for commands and `docs/maintenance/2026-09-24-controlled-interleavings-audit.md`
+for scope and limitations.

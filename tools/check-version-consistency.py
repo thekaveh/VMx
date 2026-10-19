@@ -73,10 +73,15 @@ FLAVORS: tuple[str, ...] = ("csharp", "python", "typescript", "swift", "rust")
 TYPESCRIPT_EXAMPLE_LOCKS: tuple[Path, ...] = (
     Path("examples/typescript/console/hello-vmx/package-lock.json"),
     Path("examples/typescript/react/notes-showcase/package-lock.json"),
+    Path("examples/typescript/integration-recipes/package-lock.json"),
+)
+REACT_EXAMPLE_LOCKS: tuple[Path, ...] = (
+    Path("examples/typescript/react/notes-showcase/package-lock.json"),
 )
 RUST_EXAMPLE_LOCKS: tuple[Path, ...] = (
     Path("examples/rust/console/hello-vmx/Cargo.lock"),
     Path("examples/rust/tui/notes-showcase/Cargo.lock"),
+    Path("benchmarks/rust/Cargo.lock"),
 )
 CSHARP_TAG_PREFIXES: dict[str, str] = {
     "VMx": "csharp",
@@ -205,8 +210,23 @@ def parse_typescript_versions(pkg_path: Path, src_dir: Path) -> dict[str, str]:
 
 def check_typescript_example_locks(repo_root: Path, expected_version: str) -> list[str]:
     """Report stale local VMx metadata in tracked TypeScript example lockfiles."""
+    return _check_local_npm_package_locks(
+        repo_root, TYPESCRIPT_EXAMPLE_LOCKS, "@thekaveh/vmx", expected_version
+    )
+
+
+def check_react_example_locks(repo_root: Path, expected_version: str) -> list[str]:
+    """Report stale local React adapter metadata in tracked example lockfiles."""
+    return _check_local_npm_package_locks(
+        repo_root, REACT_EXAMPLE_LOCKS, "@thekaveh/vmx-react", expected_version
+    )
+
+
+def _check_local_npm_package_locks(
+    repo_root: Path, locks: tuple[Path, ...], package_name: str, expected_version: str
+) -> list[str]:
     issues: list[str] = []
-    for relative_path in TYPESCRIPT_EXAMPLE_LOCKS:
+    for relative_path in locks:
         lock_path = repo_root / relative_path
         if not lock_path.is_file():
             continue
@@ -217,17 +237,16 @@ def check_typescript_example_locks(repo_root: Path, expected_version: str) -> li
             for package_key, package in packages.items()
             if isinstance(package, dict)
             and (
-                package.get("name") == "@thekaveh/vmx"
-                or package_key == "node_modules/@thekaveh/vmx"
+                package.get("name") == package_name or package_key == f"node_modules/{package_name}"
             )
         ]
         if not local_entries:
-            issues.append(f"  {relative_path}: local @thekaveh/vmx package metadata is missing")
+            issues.append(f"  {relative_path}: local {package_name} package metadata is missing")
             continue
         actual_version = local_entries[0].get("version", "")
         if actual_version != expected_version:
             issues.append(
-                f"  {relative_path}: local @thekaveh/vmx version {actual_version!r} "
+                f"  {relative_path}: local {package_name} version {actual_version!r} "
                 f"!= manifest version {expected_version!r}"
             )
     return issues
@@ -457,6 +476,32 @@ def check_changelog_sections(repo_root: Path, manifests: dict[str, dict[str, str
                 f"  {flavor}: CHANGELOG section {heading!r} has no substantive release notes"
             )
     return issues
+
+
+def check_react_changelog_section(repo_root: Path) -> list[str]:
+    """Require a substantive section for the React adapter's current version.
+
+    The adapter is versioned independently of the core TypeScript package and
+    is not part of the flavor manifests, so it gets its own check: a release
+    tag must never publish a version whose notes are missing.
+    """
+    package_json = repo_root / "packages" / "react" / "package.json"
+    if not package_json.is_file():
+        return []
+    version = str(json.loads(package_json.read_text(encoding="utf-8")).get("version", ""))
+    if not version:
+        return ["  react: packages/react/package.json has no version"]
+    changelog = repo_root / "packages" / "react" / "CHANGELOG.md"
+    if not changelog.is_file():
+        return [f"  react: missing {changelog.relative_to(repo_root)}"]
+    sections, parse_errors = _parse_changelog_sections(changelog, ())
+    if parse_errors:
+        return parse_errors
+    if version not in sections:
+        return [f"  react: CHANGELOG section {version!r} is missing for current version"]
+    if not _has_substantive_markdown(sections[version]):
+        return [f"  react: CHANGELOG section {version!r} has no substantive release notes"]
+    return []
 
 
 def check_release_unreleased(changelog: Path, package: str = "") -> list[str]:
@@ -1001,7 +1046,10 @@ def render_report(
         return "\n".join(lines)
 
     if msv_issues:
-        lines.append("minSpecVersion mismatches (all must equal spec/VERSION):")
+        lines.append(
+            "Version issues (minSpecVersion must equal spec/VERSION; every current"
+            " version needs a substantive CHANGELOG section):"
+        )
         lines.extend(msv_issues)
         lines.append("")
 
@@ -1067,6 +1115,7 @@ def main(argv: Iterable[str] | None = None) -> int:
     msv_issues = validate_semver_values(spec_version, manifests, matrix_rows)
     msv_issues.extend(check_min_spec_versions(spec_version, manifests))
     msv_issues.extend(check_changelog_sections(repo_root, manifests))
+    msv_issues.extend(check_react_changelog_section(repo_root))
     if any(
         flavor in manifests
         for flavor in (
@@ -1092,6 +1141,13 @@ def main(argv: Iterable[str] | None = None) -> int:
     typescript_version = manifests.get("typescript", {}).get("version", "")
     if typescript_version:
         msv_issues.extend(check_typescript_example_locks(repo_root, typescript_version))
+    react_package_json = repo_root / "packages" / "react" / "package.json"
+    if react_package_json.is_file():
+        react_version = str(
+            json.loads(react_package_json.read_text(encoding="utf-8")).get("version", "")
+        )
+        if react_version:
+            msv_issues.extend(check_react_example_locks(repo_root, react_version))
     rust_version = manifests.get("rust", {}).get("version", "")
     if rust_version:
         msv_issues.extend(check_rust_example_locks(repo_root, rust_version))

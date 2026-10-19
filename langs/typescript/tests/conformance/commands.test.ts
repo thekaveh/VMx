@@ -199,13 +199,16 @@ describe("CMD-016", () => {
     const relay = RelayCommand.builder().build();
     const parameterized = RelayCommandOf.builder<number>().build();
     const asyncCommand = AsyncRelayCommand.builder().build();
-    relay.dispose();
-    parameterized.dispose();
-    asyncCommand.dispose();
+    // Subscribe before disposal: a subscription made afterwards could never
+    // observe a stray emission, so the assertion below could not fail.
     let fired = 0;
     relay.canExecuteChanged.subscribe(() => fired++);
     parameterized.canExecuteChanged.subscribe(() => fired++);
     asyncCommand.canExecuteChanged.subscribe(() => fired++);
+    relay.dispose();
+    parameterized.dispose();
+    asyncCommand.dispose();
+    fired = 0;
 
     relay.raiseCanExecuteChanged();
     parameterized.raiseCanExecuteChanged();

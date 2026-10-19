@@ -5,6 +5,22 @@ uses independent [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `useVm` re-renders for every hub message the VM sends: property, lifecycle
+  status, collection, and tree-structure changes, as "whole-VM invalidation"
+  promises. Before, it reacted only to property changes, so a component
+  rendering `vm.status`, or a `children.length` selector after `addChild`,
+  stayed stale.
+- `useCommand` re-reads `canExecute` when the command's `canExecuteChanged`
+  stream completes, so a disposed `AsyncRelayCommand` renders as disabled.
+- `shallowEqual` compares only plain objects by their keys. A `Date`, `Map`,
+  `Set`, or class instance now compares by identity; before, two different
+  instances compared equal and a selector returning them never re-rendered.
+- `createVmxStore` advances its snapshot on every hub message, not only the
+  first one of a synchronous drain, so a render between two messages of the
+  same drain cannot miss the second change.
+
 ## [0.1.1] - 2026-10-16
 
 First version published to npm. It also contains everything listed under

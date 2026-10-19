@@ -315,6 +315,30 @@ final class AggregateChangeStreamConformanceTests: XCTestCase {
         )
         releaseHook.signal()
         XCTAssertEqual(constructionFinished.wait(timeout: .now() + 2), .success)
+
+        // A synchronous value staged during initial construction is pre-existing
+        // state: it is discarded, and construction emits no replayable Membership.
+        let eager = AggregateTestItem("eager")
+        eager.changes.emitOnSubscribe = true
+        let eagerSource = AggregateTestSource([eager])
+        let eagerAggregate = aggregate(eagerSource)
+        XCTAssertEqual(eager.changes.subscribeCount, 1)
+        var plain: [AggregateChange<AggregateTestItem>] = []
+        var seeded: [AggregateChange<AggregateTestItem>] = []
+        observe(eagerAggregate) { plain.append($0) }
+        observe(eagerAggregate, emitInitial: true) { seeded.append($0) }
+        XCTAssertTrue(plain.isEmpty, "construction must not replay Membership or a staged Item")
+        XCTAssertEqual(seeded.map(\.reason), [.initial])
+        eagerSource.add(AggregateTestItem("later"))
+        XCTAssertEqual(
+            plain.map(\.reason),
+            [.membership],
+            "the construction-time staged value must not be queued behind a later Membership"
+        )
+        eager.changes.emit()
+        XCTAssertEqual(plain.map(\.reason), [.membership, .item])
+        XCTAssertTrue(plain.last?.item === eager)
+        eagerAggregate.dispose()
     }
 
     /// AGCH-003 — selected changes identify the identical current member.
@@ -345,6 +369,31 @@ final class AggregateChangeStreamConformanceTests: XCTestCase {
         first.changes.complete()
         first.changes.emit()
         XCTAssertTrue(observed.isEmpty)
+
+        // Zero-refcount removal detaches the item subscription before the
+        // corresponding Membership, and later callbacks from that epoch are silent.
+        let removed = AggregateTestItem("removed")
+        source.append(removed)
+        observed.removeAll()
+        var cancelAtMembership: [Int] = []
+        sut.observe().sink { change in
+            if change.reason == .membership {
+                cancelAtMembership.append(removed.changes.cancelCount)
+            }
+        }.store(in: &cancellables)
+        source.removeAt(2)
+        XCTAssertEqual(cancelAtMembership, [1])
+        removed.changes.emit()
+        XCTAssertEqual(observed.map(\.reason), [.membership])
+        observed.removeAll()
+
+        // Identity retained at positive refcount keeps its existing epoch.
+        source.replaceAll([first, second])
+        XCTAssertEqual(second.changes.subscribeCount, 1)
+        XCTAssertEqual(second.changes.cancelCount, 0)
+        second.changes.emit()
+        XCTAssertEqual(observed.map(\.reason), [.membership, .item])
+        XCTAssertTrue(observed.last?.item === second)
 
         try source.move(from: 0, to: 1)
         source.replaceAll([second, first])
@@ -389,7 +438,13 @@ final class AggregateChangeStreamConformanceTests: XCTestCase {
         let source = AggregateTestSource([item, item])
         let sut = aggregate(source)
         var observed: [AggregateChange<AggregateTestItem>] = []
-        observe(sut) { observed.append($0) }
+        var cancelAtMembership: [Int] = []
+        observe(sut) { change in
+            observed.append(change)
+            if change.reason == .membership {
+                cancelAtMembership.append(item.changes.cancelCount)
+            }
+        }
 
         XCTAssertEqual(item.changes.subscribeCount, 1)
         item.changes.emit()
@@ -398,6 +453,11 @@ final class AggregateChangeStreamConformanceTests: XCTestCase {
         XCTAssertEqual(item.changes.cancelCount, 0)
         source.remove(item)
         XCTAssertEqual(item.changes.cancelCount, 1)
+        XCTAssertEqual(
+            cancelAtMembership,
+            [0, 1],
+            "the shared subscription stays active until the final occurrence and is detached before that Membership"
+        )
         sut.dispose()
     }
 

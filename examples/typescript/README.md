@@ -22,12 +22,12 @@ Minimal console demo. Demonstrates:
 4. The equality guard: setting the same model value emits **no** hub
    message.
 
-**Run against the local source build (from a clone of this repo):**
-
 Diagram:
 [`typescript-console-hello-vmx.svg`](../../docs/assets/diagrams/typescript-console-hello-vmx.svg)
 ([HTML](../../docs/assets/diagrams/typescript-console-hello-vmx.html),
 [PNG](../../docs/assets/diagrams/typescript-console-hello-vmx.png)).
+
+**Run against the local source build (from a clone of this repo):**
 
 ```bash
 cd examples/typescript/console/hello-vmx
@@ -39,41 +39,34 @@ npm start          # runs the local VMx build first
 
 ## 3. Example 2 — `react/notes-showcase/` (React 19 + Vite, flagship)
 
-The Notes Workspace flagship app — a single-page web app on React 19 + Vite
-that exercises **19 distinct VMx features** in one cohesive scenario
-(notebooks tree, paged + filterable notes list, FormVM editor,
-capability-aware action bar, notifications, async lifecycle, dialogs,
-token-paged global search, edit/preview state, tag autocomplete,
-`AggregateVM6` root, and the v2.4.0 `ThemeVM` scenario contract).
-Pure-VM contract enforced via ESLint's
-`no-restricted-imports` rule — view components never call `useState` /
-`useReducer`.
-
-**Run (dev server):**
+The Notes Workspace flagship app is a single-page web app on React 19 + Vite
+that exercises 19 VMx features in one scenario. The
+[parity matrix](../notes-showcase-parity.md) lists them. ESLint's
+`no-restricted-imports` rule enforces the Pure-VM contract: view components
+never call `useState` or `useReducer`.
 
 Diagram:
 [`typescript-react-notes-showcase.svg`](../../docs/assets/diagrams/typescript-react-notes-showcase.svg)
 ([HTML](../../docs/assets/diagrams/typescript-react-notes-showcase.html),
 [PNG](../../docs/assets/diagrams/typescript-react-notes-showcase.png)).
 
+**Run (dev server):**
+
 ```bash
-cd react/notes-showcase
+cd examples/typescript/react/notes-showcase
 npm ci
 npm run dev         # builds local VMx, then serves http://localhost:5173
 ```
 
-**Production build:**
+**Production build** (from the same directory):
 
 ```bash
-cd react/notes-showcase
 npm run build       # builds local VMx, then writes static bundle to dist/
 ```
 
 See [`react/notes-showcase/README.md`](react/notes-showcase/README.md) for
-the project layout, feature-traceability, and keybindings (`Mod+N`, `Mod+S`,
-etc.). Cross-flavor parity is documented in
-[`../notes-showcase-parity.md`](../notes-showcase-parity.md); the canonical
-scenario contract lives at
+the project layout, feature traceability, and keybindings (`Mod+N`, `Mod+S`,
+and others). The canonical scenario contract is at
 [`../../spec/proposals/2026-05-29-notes-showcase-scenario.md`](../../spec/proposals/2026-05-29-notes-showcase-scenario.md).
 
 ---
@@ -86,9 +79,10 @@ examples/typescript/
 ├── console/
 │   └── hello-vmx/
 │       └── index.ts       # entry point
+├── integration-recipes/   # Vue, Svelte, and Solid recipes checked in CI
 └── react/
     └── notes-showcase/
         ├── package.json, vite.config.ts, tsconfig.json
-        ├── src/{models,viewmodels,views}/
-        └── tests/{models,viewmodels,views}/
+        ├── src/{messages,models,viewmodels,views}/
+        └── tests/{models,recipes,viewmodels,views}/
 ```

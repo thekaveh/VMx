@@ -394,10 +394,12 @@ public sealed class NoteFormVMTests
     }
 
     [Fact]
-    public async Task Rebinding_while_a_save_is_pending_posts_no_Saved_for_either_note()
+    public async Task Rebinding_while_a_save_is_pending_still_completes_that_save()
     {
-        // Rebinding disposes the pending save's form, which then publishes no
-        // approval (spec/20 §5.3), so the save runs no post-save step.
+        // Rebinding retires the pending save's form without disposing it (a
+        // disposed form publishes no approval, spec/20 §5.3), so the save
+        // still publishes OnSaved for the saved note and toasts it, while the
+        // form is already bound to the next note.
         var timeout = TimeSpan.FromSeconds(30);
         var gated = await BuildWithGatedSaves();
         var (form, repo) = (gated.Form, gated.Repo);
@@ -412,10 +414,12 @@ public sealed class NoteFormVMTests
         await pending.WaitAsync(timeout);
 
         Assert.Equal(1, repo.SaveCalls);
-        Assert.Empty(gated.Saved);
-        Assert.Empty(gated.Notifications);
-        Assert.Equal(loadsBeforeSave, repo.LoadAllCalls);
+        Assert.Equal(new[] { "Edited" }, gated.Saved.Select(n => n.Title));
+        await TestWait.WaitUntilAsync(() => gated.Notifications.Count > 0);
+        Assert.Equal(new[] { "Saved “Edited”" }, gated.Notifications);
+        Assert.Equal(loadsBeforeSave + 1, repo.LoadAllCalls);
         Assert.Equal(next.Title, form.Snapshot.Title);
+        Assert.False(form.IsDirty);
     }
 
     [Fact]

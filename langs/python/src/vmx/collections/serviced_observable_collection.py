@@ -91,10 +91,15 @@ class ServicedObservableCollection(MutableSequence[T], Generic[T]):
     def __setitem__(self, index: slice, value: Iterable[T]) -> None: ...
 
     def __setitem__(self, index: int | slice, value: T | Iterable[T]) -> None:
+        if isinstance(index, bool):
+            raise TypeError("index must be an int, not bool")
         if isinstance(index, slice):
             # Slice replacement: emit reset (coarse-grained)
             items: Iterable[T] = value  # type: ignore[assignment]
-            self._items[index] = list(items)
+            inserted = list(items)
+            if not inserted and not self._items[index]:
+                return  # An empty slice with nothing inserted changes nothing.
+            self._items[index] = inserted
             self._emit(CollectionChangedMessage.for_reset(self))
         else:
             new_item: T = value  # type: ignore[assignment]
@@ -102,6 +107,8 @@ class ServicedObservableCollection(MutableSequence[T], Generic[T]):
 
     def __delitem__(self, index: int | slice) -> None:
         if isinstance(index, slice):
+            if not self._items[index]:
+                return  # Deleting an empty slice changes nothing.
             del self._items[index]
             self._emit(CollectionChangedMessage.for_reset(self))
         else:
@@ -113,6 +120,8 @@ class ServicedObservableCollection(MutableSequence[T], Generic[T]):
         :meth:`list.insert`). The emitted payload carries the actual
         insertion index (spec/21 §3.2).
         """
+        if isinstance(index, bool):
+            raise TypeError("index must be an int, not bool")
         if index < 0:
             index = max(index + len(self._items), 0)
         elif index > len(self._items):
@@ -144,6 +153,8 @@ class ServicedObservableCollection(MutableSequence[T], Generic[T]):
 
     def remove_at(self, index: int) -> T:
         """Remove and return the item at *index* using Python index semantics."""
+        if isinstance(index, bool):
+            raise TypeError("index must be an int, not bool")
         item = self._items[index]
         resolved_index = index + len(self._items) if index < 0 else index
         del self._items[index]
@@ -152,6 +163,8 @@ class ServicedObservableCollection(MutableSequence[T], Generic[T]):
 
     def replace(self, index: int, new_item: T) -> T:
         """Replace the item at *index* and return the former item."""
+        if isinstance(index, bool):
+            raise TypeError("index must be an int, not bool")
         old_item = self._items[index]
         resolved_index = index + len(self._items) if index < 0 else index
         self._items[index] = new_item
@@ -168,6 +181,8 @@ class ServicedObservableCollection(MutableSequence[T], Generic[T]):
 
     def move(self, from_index: int, to_index: int) -> None:
         """Move one item between strict pre-move indices."""
+        if isinstance(from_index, bool) or isinstance(to_index, bool):
+            raise TypeError("index must be an int, not bool")
         count = len(self._items)
         if from_index < 0 or from_index >= count or to_index < 0 or to_index >= count:
             raise IndexError("collection move index out of range")

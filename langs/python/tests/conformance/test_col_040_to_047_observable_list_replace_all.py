@@ -81,6 +81,15 @@ def test_COL_045_nested_replacement_emits_only_outermost_reset() -> None:
         assert events == []
     assert events == ["reset", "property:Count"]
 
+    # Equal cardinality: exactly one Reset and no Count.
+    same, same_events = observed(1, 2)
+    with same.batch_update():
+        with same.batch_update():
+            same.replace_all([3, 4])
+        assert same_events == [], "nothing emitted before the outermost batch exits"
+    assert list(same) == [3, 4]
+    assert same_events == ["reset"]
+
 
 @pytest.mark.conformance("COL-046")
 def test_COL_046_exceptional_batch_exit_restores_scope() -> None:

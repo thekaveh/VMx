@@ -470,6 +470,31 @@ public class CapabilitiesConformanceTests
 
         sut.Filter = null;
         sut.Filter.Should().BeNull();
+
+        // A minimal CompositeVM wrapper opts in by declaring the capability.
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var optIn = new FilterableComposite(hub, dispatcher);
+        (optIn is IFilterable<IComponentVM>).Should().BeTrue();
+        optIn.CanFilter().Should().BeTrue();
+
+        // A VM that does NOT opt in reports false for IFilterable<TItem>.
+        var plain = VMx.Composites.CompositeVM<IComponentVM>.Builder()
+            .Name("plain").Services(hub, dispatcher)
+            .Children(() => Array.Empty<IComponentVM>()).Build();
+        ((object)plain is IFilterable<IComponentVM>).Should().BeFalse();
+        var leaf = ComponentVM<string>.Builder()
+            .Name("leaf").Services(hub, dispatcher).Model("m").Build();
+        ((object)leaf is IFilterable<string>).Should().BeFalse();
+    }
+
+    private sealed class FilterableComposite(TestHub hub, TestDispatcher dispatcher)
+        : VMx.Composites.CompositeVMBase<IComponentVM>(
+            "filterable", "", hub, dispatcher, false, false, null, null, null, null),
+          IFilterable<IComponentVM>
+    {
+        public Predicate<IComponentVM>? Filter { get; set; }
+        public bool CanFilter() => true;
     }
 
     private sealed class FilterableFixture<TItem> : IFilterable<TItem>

@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   BuilderValidationError,
+  ConstructionStatus,
   HierarchicalVM,
   HierarchicalVMBuilder,
   MessageHub,
@@ -42,6 +43,11 @@ function makeDispatcher(): IDispatcher {
 
 function emptyChildren(): (parent: TestNode) => Iterable<TestNode> {
   return () => [];
+}
+
+function isDescendant(node: TestNode, root: TestNode): boolean {
+  for (let p = node.parent; p !== null; p = p.parent) if (p === root) return true;
+  return false;
 }
 
 function builder(): HierarchicalVMBuilder<string, TestNode> {
@@ -126,19 +132,40 @@ describe("HIER-015", () => {
 
 describe("HIER-016", () => {
   it("repeated build() calls produce distinct-but-equivalent nodes", () => {
+    const hub = makeHub();
+    const dispatcher = makeDispatcher();
+    // Records every node whose children were materialized by the library.
+    const materialized: TestNode[] = [];
+    const factory = (parent: TestNode): Iterable<TestNode> => {
+      materialized.push(parent);
+      // Two levels below the built root: root -> root/c -> root/c/c (leaf).
+      if (parent.model.split("/").length >= 3) return [];
+      return [
+        new TestNode({
+          model: `${parent.model}/c`,
+          childrenFactory: factory,
+          hub,
+          dispatcher,
+          eagerChildren: true,
+          hint: "",
+        }),
+      ];
+    };
     const b = builder()
       .model("root")
-      .childrenFactory(emptyChildren())
-      .services(makeHub(), makeDispatcher())
+      .childrenFactory(factory)
+      .services(hub, dispatcher)
       .hint("h")
       .eagerChildren(true)
       .vmFactory((ctx) => new TestNode(ctx));
 
     const n1 = b.build();
     const n2 = b.build();
+    // Building alone does not materialize anything.
+    expect(materialized.length).toBe(0);
 
     // Distinct instances.
-    expect(n1).not.toBe(n2);
+    expect(n1 === n2).toBe(false);
     // Equivalent observable state.
     expect(n1.model).toBe("root");
     expect(n2.model).toBe("root");
@@ -146,6 +173,22 @@ describe("HIER-016", () => {
     expect(n1.hint).toBe("h");
     expect(n2.hint).toBe("h");
     expect(n1.hint).toBe(n2.hint);
+
+    // Both subtrees are materialized at construction time (EagerChildren),
+    // without any caller touching `children`.
+    n1.construct();
+    n2.construct();
+    const materializedModels = (root: TestNode) =>
+      materialized.filter((n) => n === root || isDescendant(n, root)).map((n) => n.model);
+    expect(materializedModels(n1)).toEqual(["root", "root/c", "root/c/c"]);
+    expect(materializedModels(n2)).toEqual(["root", "root/c", "root/c/c"]);
+    for (const root of [n1, n2]) {
+      const child = root.children[0]!;
+      const grandchild = child.children[0]!;
+      expect(child.status).toBe(ConstructionStatus.Constructed);
+      expect(grandchild.status).toBe(ConstructionStatus.Constructed);
+    }
+    expect(n1.children[0]).not.toBe(n2.children[0]);
   });
 });
 

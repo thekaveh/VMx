@@ -30,6 +30,7 @@ def test_dependabot_covers_every_committed_dependency_ecosystem() -> None:
             "/langs/rust",
             "/examples/rust/console/hello-vmx",
             "/examples/rust/tui/notes-showcase",
+            "/benchmarks/rust",
         },
         "uv": {
             "/langs/python",

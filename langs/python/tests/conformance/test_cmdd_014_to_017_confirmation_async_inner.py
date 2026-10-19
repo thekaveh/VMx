@@ -324,13 +324,25 @@ async def test_CMDD_016_inner_busy_when_confirmation_resolves_drops_the_call() -
 async def test_CMDD_016_inner_already_executing_at_call_time_runs_no_second_body() -> None:
     gate = _Gate()
     inner = _SpyAsyncCommand(gate.body)
-    decorator = ConfirmationDecoratorCommand(inner, _yes)
+    confirms: list[None] = []
+
+    async def _counting_confirm() -> bool:
+        confirms.append(None)
+        return True
+
+    decorator = ConfirmationDecoratorCommand(inner, _counting_confirm)
 
     first_run = asyncio.ensure_future(inner.execute_async())
     await _wait(gate.started.wait())
+    assert decorator.can_execute() is False
 
     await _wait(decorator.execute_async())
+    decorator.execute()
+    # first_run is still gated, so drain the loop without awaiting it.
+    for _ in range(10):
+        await asyncio.sleep(0)
 
+    assert confirms == [], "a busy inner disables the decorator, so confirm is not invoked"
     assert not first_run.done()
     assert gate.runs == 1
     gate.release()

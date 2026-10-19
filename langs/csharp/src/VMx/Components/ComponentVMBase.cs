@@ -88,6 +88,7 @@ internal interface IComponentVMInternals
     bool CommitIsCurrent(bool value);
     void PublishIsCurrent();
     Task ConstructOrJoinAsync();
+    Task JoinConstructAsync();
 }
 
 /// <summary>
@@ -118,6 +119,16 @@ internal static class ComponentVMExtensions
         => vm is IComponentVMInternals internals
             ? internals.ConstructOrJoinAsync()
             : vm.ConstructAsync();
+
+    // A custom IComponentVM exposes no join, so one still Constructing is
+    // driven through its own ConstructAsync. Any other status is final: a
+    // joined child is never restarted.
+    internal static Task JoinConstructAsync(this IComponentVM vm)
+        => vm is IComponentVMInternals internals
+            ? internals.JoinConstructAsync()
+            : vm.Status == ConstructionStatus.Constructing
+                ? vm.ConstructAsync()
+                : Task.CompletedTask;
 }
 
 /// <summary>Shared identity validation and old-parent staging for container mutations.</summary>
@@ -402,31 +413,154 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         }
     }
 
+    internal sealed class ChildReferenceComparer : IEqualityComparer<IComponentVM>
+    {
+        internal static ChildReferenceComparer Instance { get; } = new();
+
+        public bool Equals(IComponentVM? x, IComponentVM? y) => ReferenceEquals(x, y);
+
+        public int GetHashCode(IComponentVM obj) => RuntimeHelpers.GetHashCode(obj);
+    }
+
     /// <summary>Transitions children sequentially and validates their settled state.</summary>
-    protected static async Task TransitionChildrenAsync(
+    protected static Task TransitionChildrenAsync(
         IEnumerable<IComponentVM> children,
         bool construct,
         Action? after = null)
+        => TransitionChildrenAsync(children, construct, after, joined: null);
+
+    /// <summary>
+    /// Transitions children sequentially. A child in <paramref name="joined"/>
+    /// already started this transition (factory population or a late
+    /// auto-constructed add): it is joined and its settled status is final, so
+    /// it is never restarted. The set is read live, so a lazy
+    /// <paramref name="children"/> walk may add to it.
+    /// </summary>
+    private protected static async Task TransitionChildrenAsync(
+        IEnumerable<IComponentVM> children,
+        bool construct,
+        Action? after,
+        ISet<IComponentVM>? joined)
     {
+        // Captured synchronously while the owner's lifecycle hook runs, before
+        // the first await, so a deferred `after` can return to its foreground.
+        var scope = t_lifecycleHookScope;
+        var yielded = false;
         foreach (var child in children)
         {
+            // An abandoned walk (its hook threw after deferring) drives no
+            // further children, matching Python and TypeScript.
+            if (scope is not null && scope.Abandoned) return;
             if (construct)
             {
-                await child.ConstructOrJoinAsync().ConfigureAwait(false);
+                var join = joined is not null && joined.Contains(child);
+                var pending = join ? child.JoinConstructAsync() : child.ConstructOrJoinAsync();
+                yielded |= !pending.IsCompleted;
+                await pending.ConfigureAwait(false);
                 if (child.Status != ConstructionStatus.Constructed)
                     throw new InvalidOperationException(
                         $"Child '{child.Name}' did not reach Constructed.");
             }
             else
             {
-                await child.DestructAsync().ConfigureAwait(false);
+                var pending = child.DestructAsync();
+                yielded |= !pending.IsCompleted;
+                await pending.ConfigureAwait(false);
                 if (child.Status != ConstructionStatus.Destructed)
                     throw new InvalidOperationException(
                         $"Child '{child.Name}' did not reach Destructed.");
             }
         }
 
-        after?.Invoke();
+        if (after is null) return;
+        if (!yielded || scope is null)
+        {
+            // All children settled synchronously: still inside the hook, inline.
+            after();
+            return;
+        }
+
+        // spec/11 §3: the continuation selects Current / runs user hooks, so it
+        // publishes on the owner's foreground dispatcher, like the terminal status.
+        await scope.Owner.RunDeferredOnForeground(after, scope).ConfigureAwait(false);
+    }
+
+    /// <summary>The lifecycle hook currently running on this thread, if any.</summary>
+    [ThreadStatic]
+    private static LifecycleHookScope? t_lifecycleHookScope;
+
+    private sealed class LifecycleHookScope(ComponentVMBase owner)
+    {
+        internal ComponentVMBase Owner { get; } = owner;
+        internal volatile bool Abandoned;
+    }
+
+    private Task<bool> RunDeferredOnForeground(Action action, LifecycleHookScope scope)
+    {
+        var done = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _dispatcher.Foreground.Schedule(Unit.Default, (_, _) =>
+        {
+            if (scope.Abandoned)
+            {
+                done.TrySetResult(false);
+                return Disposable.Empty;
+            }
+            try
+            {
+                action();
+                done.TrySetResult(true);
+            }
+            catch (Exception error)
+            {
+                done.TrySetException(error);
+            }
+            return Disposable.Empty;
+        });
+        return done.Task;
+    }
+
+    /// <summary>
+    /// Runs one lifecycle hook with a fresh deferral slot. A hook that throws
+    /// after deferring completion abandons that deferral: its continuation never
+    /// runs and its eventual fault is observed (ADR-0109), so the next transition
+    /// starts clean.
+    /// </summary>
+    private void RunLifecycleHook(Action hook, LifecycleHookLease lease)
+    {
+        var scope = new LifecycleHookScope(this);
+        lock (_gate)
+        {
+            _deferredLifecycleTask = null;
+        }
+        var previous = t_lifecycleHookScope;
+        t_lifecycleHookScope = scope;
+        try
+        {
+            try { hook(); }
+            catch
+            {
+                // Mark the walk abandoned before the hook's lease is released,
+                // so a child settling on another thread drives no further child.
+                scope.Abandoned = true;
+                throw;
+            }
+            finally
+            {
+                t_lifecycleHookScope = previous;
+                FinishLifecycleHook(lease);
+            }
+        }
+        catch
+        {
+            scope.Abandoned = true;
+            var abandoned = TakeDeferredLifecycleTask();
+            _ = abandoned?.ContinueWith(
+                static completed => _ = completed.Exception,
+                CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+            throw;
+        }
     }
 
     /// <summary>
@@ -447,6 +581,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     bool IComponentVMInternals.CommitIsCurrent(bool value) => CommitIsCurrent(value);
     void IComponentVMInternals.PublishIsCurrent() => NotifyPropertyChanged(nameof(IsCurrent));
     Task IComponentVMInternals.ConstructOrJoinAsync() => ConstructOrJoinAsync();
+    Task IComponentVMInternals.JoinConstructAsync() => JoinConstructAsync();
 
     // ── IComponentVM: identity ──────────────────────────────────────────────
     /// <inheritdoc/>
@@ -627,8 +762,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
 
                     try
                     {
-                        try { OnConstruct(); }
-                        finally { FinishLifecycleHook(hookLease); }
+                        RunLifecycleHook(OnConstruct, hookLease);
                     }
                     catch (Exception error)
                     {
@@ -706,8 +840,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                     return;
                 try
                 {
-                    try { OnConstruct(); }
-                    finally { FinishLifecycleHook(hookLease); }
+                    RunLifecycleHook(OnConstruct, hookLease);
                 }
                 catch
                 {
@@ -761,6 +894,17 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
 
         CompleteWaiterIfSettled(tcs);
         return tcs.Task;
+    }
+
+    /// <summary>Waits for an in-flight construct without ever starting one.</summary>
+    private Task JoinConstructAsync()
+    {
+        lock (_gate)
+        {
+            return _status == ConstructionStatus.Constructing && _inFlight
+                ? RegisterLifecycleWaiter().Task
+                : Task.CompletedTask;
+        }
     }
 
     private Task ConstructOrJoinAsync()
@@ -826,8 +970,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
 
                     try
                     {
-                        try { OnDestruct(); }
-                        finally { FinishLifecycleHook(hookLease); }
+                        RunLifecycleHook(OnDestruct, hookLease);
                     }
                     catch (Exception error)
                     {
@@ -902,8 +1045,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                     return;
                 try
                 {
-                    try { OnDestruct(); }
-                    finally { FinishLifecycleHook(hookLease); }
+                    RunLifecycleHook(OnDestruct, hookLease);
                 }
                 catch
                 {
@@ -994,8 +1136,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
                 return;
             try
             {
-                try { OnDestruct(); }
-                finally { FinishLifecycleHook(hookLease); }
+                RunLifecycleHook(OnDestruct, hookLease);
             }
             catch
             {
@@ -1059,8 +1200,7 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
             return false;
         try
         {
-            try { OnConstruct(); }
-            finally { FinishLifecycleHook(hookLease); }
+            RunLifecycleHook(OnConstruct, hookLease);
         }
         catch
         {
@@ -1283,15 +1423,25 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
         _status == ConstructionStatus.Constructed;
 
     /// <inheritdoc/>
-    public void Select() => Parent?.SelectChild(this);
+    public void Select()
+    {
+        // A disposed VM's selection calls are silent no-ops (spec/02 §3).
+        if (_status == ConstructionStatus.Disposed) return;
+        Parent?.SelectChild(this);
+    }
 
     /// <inheritdoc/>
     public bool CanDeselect() =>
+        _status != ConstructionStatus.Disposed &&
         Parent is not null &&
         ReferenceEquals(Parent.CurrentChild, this);
 
     /// <inheritdoc/>
-    public void Deselect() => Parent?.DeselectChild(this);
+    public void Deselect()
+    {
+        if (_status == ConstructionStatus.Disposed) return;
+        Parent?.DeselectChild(this);
+    }
 
     private bool CanSelectNext() => false; // requires parent enumeration
     private void SelectNext() { }

@@ -204,6 +204,41 @@ fn rejections_are_structured_and_atomic() {
     );
 }
 
+/// HIER-029 — an attachment failure is reported without aborting the batch.
+#[test]
+fn attachment_failure_is_reported_without_aborting_the_batch() {
+    // A lazy factory that returns the same child twice is structurally invalid,
+    // so materializing the root's children fails inside the attach path.
+    let duplicate = node("duplicate", None);
+    let root = HierarchicalVm::with_children_factory(
+        "root",
+        Model {
+            key: "root".to_string(),
+            parent_key: None,
+        },
+        move |_| vec![duplicate.clone(), duplicate.clone()],
+        false,
+        vmx::MessageHub::new(),
+    );
+    let first = node("first", None);
+    let second = node("second", None);
+
+    let result = attach(
+        &root,
+        vec![first.clone(), second.clone()],
+        MissingParentPolicy::Park,
+    );
+
+    assert!(result.added.is_empty());
+    assert_eq!(result.rejections.len(), 2);
+    assert!(result
+        .rejections
+        .iter()
+        .all(|rejection| rejection.reason == BatchAttachRejectionReason::AttachmentFailed));
+    assert!(first.parent().is_none());
+    assert!(second.parent().is_none());
+}
+
 /// HIER-030 — disposal clears root-owned parked state.
 #[test]
 fn disposal_clears_parked_items() -> VmxResult<()> {

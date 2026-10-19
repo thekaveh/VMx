@@ -11,6 +11,7 @@ import type { Subscription } from "rxjs";
 import type { IMessageHub } from "../services/messageHub.js";
 import { CollectionChangedMessage } from "../messages/collectionChanged.js";
 import type { ObservableMembershipSource } from "./observableMembership.js";
+import { resolveSpliceStart } from "./spliceStart.js";
 
 export interface KeyedServicedObservableCollectionOptions<TKey, TItem> {
   readonly keyOf: (item: TItem) => TKey;
@@ -268,16 +269,4 @@ export class KeyedServicedObservableCollection<TKey, TItem>
       throw new RangeError(`Index ${String(index)} out of bounds`);
     }
   }
-}
-
-function resolveSpliceStart(start: number, length: number): number {
-  const integer = toIntegerOrInfinity(start);
-  if (integer < 0) return Math.max(length + integer, 0);
-  return Math.min(integer, length);
-}
-
-function toIntegerOrInfinity(value: number): number {
-  if (Number.isNaN(value) || value === 0) return 0;
-  if (!Number.isFinite(value)) return value;
-  return Math.trunc(value);
 }

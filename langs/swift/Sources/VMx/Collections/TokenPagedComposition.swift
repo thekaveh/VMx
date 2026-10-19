@@ -75,15 +75,19 @@ public final class TokenPagedComposition<TVM, TToken> {
             !disposed && start.generation == operationGeneration
         }
         guard isCurrent else { return }
-        try constructIfNeeded(page.0)
-        let committed = stateQueue.sync { () -> Bool in
-            guard !disposed, start.generation == operationGeneration else { return false }
+        try constructIfNeeded(page.0, generation: start.generation)
+        // Replaced user values are released after the state queue returns: a
+        // deinit that reads this composition must not re-enter `stateQueue`.
+        let commit = stateQueue.sync { () -> (committed: Bool, released: TToken?) in
+            guard !disposed, start.generation == operationGeneration else { return (false, nil) }
             _items.append(contentsOf: page.0)
+            let released = _currentToken
             _currentToken = page.1
             loadedOnce = true
-            return true
+            return (true, released)
         }
-        guard committed else { return }
+        withExtendedLifetime(commit.released) {}
+        guard commit.committed else { return }
         notifyResetIfLive()
     }
 
@@ -108,20 +112,27 @@ public final class TokenPagedComposition<TVM, TToken> {
         let sameLength = page.0.count == snapshot.count
         let retain = headMatches && (sameLength || (!page.0.isEmpty && page.1 != nil))
         if !retain {
-            try constructIfNeeded(page.0)
+            try constructIfNeeded(page.0, generation: generation)
         }
-        let committed = stateQueue.sync { () -> Bool in
-            guard !disposed, generation == operationGeneration else { return false }
+        // Replaced items and token are released after the state queue returns:
+        // a deinit that reads this composition must not re-enter `stateQueue`.
+        let commit = stateQueue.sync { () -> (committed: Bool, items: [TVM], token: TToken?) in
+            guard !disposed, generation == operationGeneration else { return (false, [], nil) }
+            var releasedItems: [TVM] = []
+            var releasedToken: TToken?
             if !retain {
+                releasedItems = _items
                 _items = page.0
             }
             if !retain || sameLength {
+                releasedToken = _currentToken
                 _currentToken = page.1
             }
             loadedOnce = true
-            return true
+            return (true, releasedItems, releasedToken)
         }
-        guard committed else { return }
+        withExtendedLifetime(commit) {}
+        guard commit.committed else { return }
         if retain {
             notifyPropertiesIfLive()
         } else {
@@ -129,9 +140,14 @@ public final class TokenPagedComposition<TVM, TToken> {
         }
     }
 
-    private func constructIfNeeded(_ items: [TVM]) throws {
+    private func constructIfNeeded(_ items: [TVM], generation: Int) throws {
         guard autoConstructOnAdd else { return }
         for item in items {
+            // A hook (pagesEqual or an item's construct) may dispose this
+            // composition or start a newer operation; stale work stops before
+            // it constructs anything else (spec/21 §6).
+            let isCurrent = stateQueue.sync { !disposed && generation == operationGeneration }
+            guard isCurrent else { return }
             if let vm = item as? ComponentVMBase, !vm.isConstructed {
                 try vm.construct()
             }

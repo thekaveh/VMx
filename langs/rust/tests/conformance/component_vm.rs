@@ -406,9 +406,11 @@ fn deferred_delivery_and_reentrant_disposal_complete_pair() {
         }
     });
     let local_trace = disposing_trace.clone();
-    let _disposing_local_subscription = disposing_vm
-        .property_changed()
-        .subscribe(move |_| local_trace.lock().unwrap().push("local"));
+    let _disposing_local_subscription = disposing_vm.property_changed().subscribe(move |name| {
+        if name == "value" {
+            local_trace.lock().unwrap().push("local");
+        }
+    });
 
     disposing_vm.notify_property_changed("value");
 
@@ -460,6 +462,7 @@ fn notification_helper_is_inert_after_disposal() {
         .property_changed()
         .subscribe(move |name| local_names_clone.lock().unwrap().push(name.to_string()));
     vm.dispose().unwrap();
+    local_names.lock().unwrap().clear();
     let hub_before = recorder.messages().len();
 
     vm.notify_property_changed("value");
@@ -639,6 +642,7 @@ fn modeled_components_explicitly_republish_the_retained_model() {
             .push(name.to_string());
     });
     disposed_vm.dispose().unwrap();
+    disposed_local.lock().unwrap().clear();
     let disposed_history_before = disposed_recorder.messages().len();
 
     disposed_vm.republish_model();
@@ -680,4 +684,20 @@ fn modeled_components_explicitly_republish_the_retained_model() {
         *reentrant_trace.lock().unwrap(),
         vec!["hub:model", "local:model", "hub:model", "local:model"]
     );
+}
+
+#[test]
+fn a_disposed_view_model_ignores_expansion() {
+    let vm = vmx::ComponentVm::<i32>::with_model(
+        "vm",
+        1,
+        vmx::MessageHub::new(),
+        vmx::NullDispatcher::new(),
+    );
+    vm.dispose().unwrap();
+
+    vm.expand();
+    assert!(!vm.is_expanded());
+    vm.toggle_expansion();
+    assert!(!vm.is_expanded());
 }

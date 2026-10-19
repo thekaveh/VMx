@@ -1,8 +1,10 @@
 # 03 — Messages and the message hub
 
 VMx uses a single hot pub/sub stream — the message hub — to convey property changes,
-lifecycle status changes, and any future event types. Subscribers observe via an Rx
-`IObservable<IMessage>`.
+lifecycle status changes, and any future event types. In C#, Python, and
+TypeScript, subscribers observe an Rx `IObservable<IMessage>`. Swift exposes a
+Combine `AnyPublisher<any Message, Never>`, and Rust registers closures with
+`MessageHub::subscribe` on its VMx-owned hot stream.
 
 ## 1. `IMessage` shape
 
@@ -57,11 +59,14 @@ PropertyChangedMessage<TSender> : IMessage<TSender>:
     PropertyName : string
 ```
 
-A factory `Create(sender, senderName, propertyName)` exists per language.
+C#, Python, and TypeScript ship a factory `Create(sender, senderName, propertyName)` (`create` in Python and TypeScript). Swift uses the initializer
+`PropertyChangedMessage(sender:senderName:propertyName:)`. Rust uses a plain
+struct with public `sender_id`, `sender_name`, and `property_name` fields,
+wrapped in `Message::PropertyChanged`.
 
 The `PropertyName` payload follows the emitting flavor's naming idiom per
-ADR-0006 — `"IsValid"` (C#), `"is_valid"` (Python), `"isValid"` (TypeScript /
-Swift). Subscribers filter with the idiomatic string of the flavor they are
+ADR-0006 — `"IsValid"` (C#), `"is_valid"` (Python / Rust), `"isValid"`
+(TypeScript / Swift). Subscribers filter with the idiomatic string of the flavor they are
 written in (clarified in v2.5.0 via ADR-0037 after the TS and Swift flavors
 were found emitting mixed casings).
 
@@ -74,7 +79,11 @@ ConstructionStatusChangedMessage : IMessage:
     Status : ConstructionStatus
 ```
 
-A factory `Create(sender, senderName, status)` exists per language.
+C#, Python, and TypeScript ship a factory `Create(sender, senderName, status)`
+(`create` in Python and TypeScript). Swift uses the initializer
+`ConstructionStatusChangedMessage(sender:senderName:status:)`. Rust uses a
+plain struct with public `sender_id`, `sender_name`, and `status` fields,
+wrapped in `Message::ConstructionStatusChanged`.
 
 ## 3. The hub contract
 
@@ -82,7 +91,7 @@ A factory `Create(sender, senderName, status)` exists per language.
 
 ```
 IMessageHub:
-    Messages : IObservable<IMessage>
+    Messages : IObservable<IMessage>   # Swift: Combine publisher; Rust: subscribe(closure)
     Send<TMessage : IMessage>(message: TMessage) : void
 
 ITransactionalMessageHub : IMessageHub:
@@ -91,7 +100,8 @@ ITransactionalMessageHub : IMessageHub:
 
 ### 3.1 Hot stream semantics
 
-The hub is a **hot** Rx stream:
+The hub is a **hot** stream (Rx in C#, Python, and TypeScript; Combine in
+Swift; the VMx-owned stream in Rust):
 
 - `Send` delivers to every current subscriber synchronously.
 - A subscriber added after a `Send` call does NOT observe that message.
@@ -180,7 +190,9 @@ across the whole app are also valid.
 ## 4. Threading
 
 `Send` runs on the calling thread. Subscribers wishing to observe on a specific
-thread/scheduler MUST apply `.ObserveOn(scheduler)` themselves. VMx does not impose
+thread/scheduler MUST apply `.ObserveOn(scheduler)` themselves (Swift:
+`receive(on:)`; Rust: hand the work to a `Dispatcher` from the subscriber
+closure). VMx does not impose
 a scheduler choice on the hub.
 
 The real hubs serialize a transaction and its drain. A producer on another
@@ -229,7 +241,9 @@ Every service contract in VMx has a **null-object** variant per ADR-0017. For
 - `Messages` returns the empty observable (`Observable.Empty<IMessage>()` in
   C#, `reactivex.empty()` in Python, `EMPTY` in TypeScript,
   `Empty<...>(completeImmediately: true).eraseToAnyPublisher()` in Swift).
-  It completes immediately upon subscription and emits no values.
+  It completes immediately upon subscription and emits no values. Rust
+  `NullMessageHub::hub()` returns a new, already-disposed `MessageHub` on each
+  call; sends to it are no-ops and it delivers nothing.
 
 `NullMessageHub` is safe to share across consumers; it holds no state. Typical
 uses: a default for a VM whose hub is genuinely irrelevant; a placeholder in
@@ -266,7 +280,9 @@ Per-flavor names and shapes:
 | TypeScript | `propertyValueChangedMessagesFor`     | Named export from `src/messages`        |
 | Swift      | `propertyValueChangedMessagesFor`     | Method on `MessageHubProtocol`          |
 
-See ADR-0032 for the rationale and full per-flavor signature table.
+Rust ships no message-stream helper; consumers use `MessageHub::subscribe_value`
+for a selected value, or `MessageHub::subscribe` with the
+`Message::PropertyChanged` variant. See ADR-0032 for the rationale and full per-flavor signature table.
 
 ### 7.2 `whenPropertyChanged` — observe the message (spec v3)
 

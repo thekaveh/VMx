@@ -6,9 +6,9 @@ Generated architecture diagrams for all examples live in
 
 ## 1. Setup
 
-Each project carries its own `.csproj` and currently resolves `VMx` from the
-local source build. After the first NuGet publication, a copied template may
-replace that project reference with the `VMx` package name.
+Each project carries its own `.csproj` and resolves `VMx` from the local
+source build. After `VMx` is published to NuGet, a copied template can replace
+that project reference with the `VMx` package name.
 
 ```bash
 dotnet restore
@@ -27,12 +27,12 @@ Minimal console demo. Demonstrates:
 4. The equality guard: setting the same model value emits **no** hub
    message.
 
-**Run:**
-
 Diagram:
 [`csharp-console-hello-vmx.svg`](../../docs/assets/diagrams/csharp-console-hello-vmx.svg)
 ([HTML](../../docs/assets/diagrams/csharp-console-hello-vmx.html),
 [PNG](../../docs/assets/diagrams/csharp-console-hello-vmx.png)).
+
+**Run:**
 
 ```bash
 cd console/HelloVMx
@@ -68,7 +68,7 @@ A todo app that wires VMx into a WPF view. Demonstrates:
   view-only properties that aren't part of the model.
 - `MainWindowViewModel` holding an `ObservableCollection<TodoItemVM>`
   bound to the ListBox plus a VMx `RelayCommand` (`AddCommand`) whose task
-  calls the internal `AddItem(string)`; the Add button binds
+  calls the public `AddItem(string)`; the Add button binds
   `Command="{Binding AddCommand}"`. (The Python `tk/todo_app` example uses a
   `CompositeVM<TodoItemVM>` for its collection — both flavors drive the add
   through a VMx `RelayCommand`, each idiomatic for its UI toolkit.)
@@ -78,20 +78,17 @@ A todo app that wires VMx into a WPF view. Demonstrates:
   `PropertyChangedMessage("Model")` to standard INPC for `Title` /
   `Done`) plus the `ICommand`-exposing `ToggleDoneCommand`.
 
-**Run (Windows only):**
-
 Diagram:
 [`csharp-wpf-todo-app.svg`](../../docs/assets/diagrams/csharp-wpf-todo-app.svg)
 ([HTML](../../docs/assets/diagrams/csharp-wpf-todo-app.html),
 [PNG](../../docs/assets/diagrams/csharp-wpf-todo-app.png)).
 
+**Run (Windows only):**
+
 ```bash
 cd wpf/TodoApp
 dotnet run
 ```
-
-`dotnet restore` and `dotnet build` succeed cross-platform; the app only
-launches on Windows because of the WPF target.
 
 `wpf/RecipeHostCheck/` is not an app. It runs the XAML adapter from the
 [WPF integration guide](../../docs/content/integration/wpf.md) against real WPF
@@ -108,21 +105,18 @@ disposed and collectable. The same Windows job runs it with
 
 ## 4. Example 3 — `avalonia/NotesShowcase/` (Avalonia + MVVM, flagship)
 
-The Notes Workspace flagship app — a cross-platform XAML editor on
-Avalonia 12 + .NET 8 that exercises **19 distinct VMx features** in one
-cohesive scenario (notebooks tree, paged + filterable notes list, FormVM
-editor, capability-aware action bar, notifications, async lifecycle,
-dialogs, token-paged global search, edit/preview state, tag autocomplete,
-`AggregateVM6` root, and the v2.4.0 `ThemeVM` scenario contract).
-Pure-VM contract enforced; every `*.axaml.cs` code-behind is
-limited to the view constructor's `AvaloniaXamlLoader.Load(this)` call.
-
-**Run (macOS / Linux / Windows):**
+The Notes Workspace flagship app is a cross-platform XAML editor on
+Avalonia 12 + .NET 8 that exercises 19 VMx features in one scenario. The
+[parity matrix](../notes-showcase-parity.md) lists them. Every `*.axaml.cs`
+code-behind is limited to the view constructor's
+`AvaloniaXamlLoader.Load(this)` call.
 
 Diagram:
 [`csharp-avalonia-notes-showcase.svg`](../../docs/assets/diagrams/csharp-avalonia-notes-showcase.svg)
 ([HTML](../../docs/assets/diagrams/csharp-avalonia-notes-showcase.html),
 [PNG](../../docs/assets/diagrams/csharp-avalonia-notes-showcase.png)).
+
+**Run (macOS / Linux / Windows):**
 
 ```bash
 cd ../../    # repo root
@@ -131,9 +125,7 @@ dotnet run --project examples/csharp/avalonia/NotesShowcase
 
 See [`avalonia/NotesShowcase/README.md`](avalonia/NotesShowcase/README.md)
 for the project layout, feature-traceability table, and keyboard shortcuts.
-Cross-flavor parity is documented in
-[`../notes-showcase-parity.md`](../notes-showcase-parity.md); the canonical
-scenario contract lives at
+The canonical scenario contract is at
 [`../../spec/proposals/2026-05-29-notes-showcase-scenario.md`](../../spec/proposals/2026-05-29-notes-showcase-scenario.md).
 
 ---

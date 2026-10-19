@@ -77,10 +77,9 @@ def test_PROP_002_no_message_on_same_value() -> None:
     """PROP-002: setting model to the same value publishes no PropertyChangedMessage."""
     vm, hub = _build_vm_of(model="m1")
     msgs = _prop_messages(hub)
-    vm.model = "m1"  # same value
+    vm.model = vm.model  # same instance
 
-    model_msgs = [m for m in msgs if m.property_name == "model"]
-    assert len(model_msgs) == 0
+    assert msgs == [], "no PropertyChangedMessage of any name may be published"
 
 
 # ---------------------------------------------------------------------------
