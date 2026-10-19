@@ -37,7 +37,7 @@ from vmx.components.protocols import ViewModelType
 from vmx.lifecycle.status import ConstructionStatus
 from vmx.messages.protocols import Message
 from vmx.services.dispatcher import Dispatcher
-from vmx.services.message_hub import MessageHub
+from vmx.services.message_hub import MessageHubProto
 
 VM = TypeVar("VM", bound=_ComponentVMBase)
 
@@ -78,7 +78,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         *,
         name: str,
         hint: str,
-        hub: MessageHub[Message],
+        hub: MessageHubProto[Message],
         dispatcher: Dispatcher,
         auto_construct_on_add: bool = False,
         children_factory: Callable[[], Iterable[VM]] | None = None,
@@ -97,6 +97,8 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         self._children: list[VM] = []
         self._children_factory: Callable[[], Iterable[VM]] | None = children_factory
         self._populated: bool = False
+        # Collects the children population started constructing (see _on_construct).
+        self._population_joined: list[VM] | None = None
         self._batch_depth: int = 0
         self._batch_dirty: bool = False
         self._dispose_requested: bool = False
@@ -159,6 +161,8 @@ class GroupVM(Generic[VM], _ComponentVMBase):
             return self._children[index]
 
     def __setitem__(self, index: int, value: VM) -> None:
+        if isinstance(index, bool):
+            raise TypeError("index must be an int, not bool")
         # Emit the actual position; a negative index counts from the end
         # (mirrors insert/remove_at and ObservableList).
         parent = self._as_parent()
@@ -230,6 +234,8 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         The emitted ``new_index`` is the actual insertion position (stdlib
         semantics: negatives count from the end, out-of-range clamps).
         """
+        if isinstance(index, bool):
+            raise TypeError("index must be an int, not bool")
         parent = self._as_parent()
         self._begin_membership_transaction()
         transfer: _ParentTransfer | None = None
@@ -348,6 +354,8 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         index counts from the end (mirrors :meth:`insert` and
         ``ObservableList.remove_at``).
         """
+        if isinstance(index, bool):
+            raise TypeError("index must be an int, not bool")
         with self._membership_gate:
             resolved_index = index + len(self._children) if index < 0 else index
             self._require_child_admission()
@@ -455,13 +463,41 @@ class GroupVM(Generic[VM], _ComponentVMBase):
     def _maybe_auto_construct(self, child: VM) -> None:
         if not self._auto_construct_on_add:
             return
+        if self._status is ConstructionStatus.CONSTRUCTING:
+            # The construct walk joins a child added while it runs.
+            if child.status is ConstructionStatus.DESTRUCTED:
+                child.construct()
+            return
         if self._status != ConstructionStatus.CONSTRUCTED:
             return
         if child.status == ConstructionStatus.CONSTRUCTED:
             return
         child.construct()
 
+    def _construct_walk(self, joined: list[VM]) -> Iterator[VM]:
+        """Yield the construct walk's children, extended by late additions.
+
+        The membership snapshot comes first. With auto-construct-on-add, each
+        child added while the walk runs follows; ``_maybe_auto_construct``
+        already started it, so it is joined like a population child and never
+        restarted (spec/02 §6, spec/06 §5.1).
+        """
+        snapshot = list(self.snapshot())
+        visited = {id(child) for child in snapshot}
+        yield from snapshot
+        if not self._auto_construct_on_add:
+            return
+        while True:
+            late = next((c for c in self.snapshot() if id(c) not in visited), None)
+            if late is None:
+                return
+            visited.add(id(late))
+            joined.append(late)
+            yield late
+
     def _validate_move_index(self, index: int) -> None:
+        if isinstance(index, bool):
+            raise TypeError("index must be an int, not bool")
         if index < 0 or index >= len(self._children):
             raise IndexError(f"move index {index} out of range for {len(self._children)} children")
 
@@ -472,9 +508,15 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         # Invoke the builder's on_construct callback first.
         if self._on_construct_cb is not None:
             self._on_construct_cb()
-        self._populate_children()
+        # Children whose construct population started are joined, not restarted.
+        joined: list[VM] = []
+        self._population_joined = joined
+        try:
+            self._populate_children()
+        finally:
+            self._population_joined = None
         self._complete_lifecycle_hook_after(
-            self._transition_children(list(self.snapshot()), construct=True)
+            self._transition_children(self._construct_walk(joined), construct=True, joined=joined)
         )
 
     def _on_destruct(self) -> None:
@@ -573,12 +615,21 @@ class GroupVM(Generic[VM], _ComponentVMBase):
             # Make the entire factory snapshot visible before any child hook,
             # but do not run user lifecycle code while holding the gate.
             for child in children:
-                self._maybe_auto_construct(child)
                 if (
                     self.status is ConstructionStatus.CONSTRUCTING
                     and child.status is not ConstructionStatus.CONSTRUCTED
                 ):
                     child.construct()
+                    # A child population left pending is joined, never restarted.
+                    if child.status not in (
+                        ConstructionStatus.CONSTRUCTED,
+                        ConstructionStatus.DISPOSED,
+                    ):
+                        joined = self._population_joined
+                        if joined is not None:
+                            joined.append(child)
+                else:
+                    self._maybe_auto_construct(child)
             with self._membership_gate:
                 self._require_transaction_can_continue_locked()
         except BaseException as original_error:
@@ -643,9 +694,9 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         cls,
         *,
         name: str | None = None,
-        hub: MessageHub[Message] | None = None,
+        hub: MessageHubProto[Message] | None = None,
         dispatcher: Dispatcher | None = None,
-        children: Callable[[], Iterable[VM]],
+        children: Callable[[], Iterable[VM]] | None = None,
         hint: str = "",
         auto_construct_on_add: bool = False,
         on_construct: Callable[[], None] | None = None,
@@ -656,14 +707,16 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         An additive alternative to :class:`~vmx.groups.builders.GroupVMBuilder`
         (ADR-0055 / VMX-020). Delegates to that builder, so required-field
         validation (``BuilderValidationError`` on a missing
-        ``name``/``hub``/``dispatcher``) and the resulting VM are identical to
-        the fluent path. ``children`` is a required keyword (pass ``lambda: ()``
-        for an initially empty group).
+        ``name``/``hub``/``dispatcher``/``children``) and the resulting VM are identical to
+        the fluent path. ``children`` is required (pass ``lambda: ()`` for an
+        initially empty group).
         """
         from vmx.groups.builders import GroupVMBuilder
 
         builder: GroupVMBuilder[VM] = GroupVMBuilder()
-        builder = builder.hint(hint).auto_construct_on_add(auto_construct_on_add).children(children)
+        builder = builder.hint(hint).auto_construct_on_add(auto_construct_on_add)
+        if children is not None:
+            builder = builder.children(children)
         if name is not None:
             builder = builder.name(name)
         if hub is not None:

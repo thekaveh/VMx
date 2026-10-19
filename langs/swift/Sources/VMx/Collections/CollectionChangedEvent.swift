@@ -36,23 +36,38 @@ public struct CollectionChangedEvent {
     public let oldItems: [ComponentVMBase]
     public let newIndex: Int
     public let oldIndex: Int
+
+    /// Creates an event. Use `-1` for an index that does not apply.
+    public init(
+        action: CollectionChangedAction,
+        newItems: [ComponentVMBase],
+        oldItems: [ComponentVMBase],
+        newIndex: Int,
+        oldIndex: Int
+    ) {
+        self.action = action
+        self.newItems = newItems
+        self.oldItems = oldItems
+        self.newIndex = newIndex
+        self.oldIndex = oldIndex
+    }
 }
 
 // MARK: — Convenience factories
 
 extension CollectionChangedEvent {
     /// An Add event for a single item inserted at `index`.
-    static func added(_ item: ComponentVMBase, at index: Int) -> CollectionChangedEvent {
+    public static func added(_ item: ComponentVMBase, at index: Int) -> CollectionChangedEvent {
         .init(action: .add, newItems: [item], oldItems: [], newIndex: index, oldIndex: -1)
     }
 
     /// A Remove event for a single item that was at `index` before removal.
-    static func removed(_ item: ComponentVMBase, at index: Int) -> CollectionChangedEvent {
+    public static func removed(_ item: ComponentVMBase, at index: Int) -> CollectionChangedEvent {
         .init(action: .remove, newItems: [], oldItems: [item], newIndex: -1, oldIndex: index)
     }
 
     /// A Move event for an existing item relocated without replacement.
-    static func moved(_ item: ComponentVMBase, from oldIndex: Int, to newIndex: Int)
+    public static func moved(_ item: ComponentVMBase, from oldIndex: Int, to newIndex: Int)
         -> CollectionChangedEvent {
         .init(
             action: .move,
@@ -64,7 +79,7 @@ extension CollectionChangedEvent {
     }
 
     /// A Reset event (batch clear or batch update completion).
-    static func reset() -> CollectionChangedEvent {
+    public static func reset() -> CollectionChangedEvent {
         .init(action: .reset, newItems: [], oldItems: [], newIndex: -1, oldIndex: -1)
     }
 }

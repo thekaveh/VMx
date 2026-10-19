@@ -514,6 +514,47 @@ final class ConfirmationAsyncInnerTests: XCTestCase {
         XCTAssertFalse(inner.isExecuting)
     }
 
+    /// CMDD-016 — an inner already executing before the call disables the decorator, so neither entry point invokes `confirm`.
+    func testCmdd016InnerExecutingBeforeTheCallDisablesTheDecorator() async throws {
+        let log = Log()
+        let gate = Gate()
+        let entered = expectation(description: "body entered")
+        entered.assertForOverFulfill = false
+        let inner = AsyncRelayCommand.builder()
+            .task {
+                log.append("body")
+                entered.fulfill()
+                await gate.wait()
+            }
+            .build()
+        defer {
+            gate.release()
+            inner.dispose()
+        }
+        let decorator = ConfirmationDecoratorCommand(inner) {
+            log.append("confirm")
+            return true
+        }
+
+        let directFinished = expectation(description: "direct execution finished")
+        Task {
+            try? await inner.executeAsync()
+            directFinished.fulfill()
+        }
+        await fulfillment(of: [entered], timeout: timeout)
+        XCTAssertFalse(decorator.canExecute())
+
+        try await decorator.executeAsync()
+        decorator.execute()
+        await settle()
+
+        XCTAssertEqual(log.count(of: "confirm"), 0, "a busy inner disables the decorator")
+        XCTAssertEqual(log.count(of: "body"), 1)
+
+        gate.release()
+        await fulfillment(of: [directFinished], timeout: timeout)
+    }
+
     /// CMDD-016 — cancelling the inner completes the awaiter with the inner's default non-throwing cancellation outcome.
     func testCmdd016InnerCancellationCompletesTheAwaiterNormallyByDefault() async {
         let gate = Gate()

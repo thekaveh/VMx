@@ -97,9 +97,15 @@ def test_form_003_is_dirty_structural_inequality() -> None:
 
 @pytest.mark.conformance("FORM-004")
 def test_form_004_deny_command_reverts_to_snapshot() -> None:
-    """DenyCommand reverts model to snapshot; is_dirty == False after revert."""
+    """DenyCommand reverts model to snapshot; is_dirty == False after revert;
+    the persister is NOT invoked."""
     initial = _Model("Alice", 1)
-    sut = _make_form_vm(initial)
+    persisted: list[_Model] = []
+
+    async def recording_persister(m: _Model) -> None:
+        persisted.append(m)
+
+    sut: FormVM[_Model] = FormVM(initial, recording_persister)
 
     sut.set_model(_Model("Bob", 2))
     assert sut.is_dirty is True
@@ -107,7 +113,9 @@ def test_form_004_deny_command_reverts_to_snapshot() -> None:
     sut.deny_command.execute()
 
     assert sut.model == initial, "model reverted to snapshot value"
+    assert sut.model == sut.snapshot, "model structurally equals snapshot"
     assert sut.is_dirty is False, "no longer dirty after revert"
+    assert persisted == [], "deny must not invoke the persister"
 
 
 # ---------------------------------------------------------------------------
@@ -162,6 +170,22 @@ async def test_form_006_on_approved_fires_only_after_success() -> None:
     assert approved[0] == _Model("Bob", 2)
 
     sub.dispose()
+
+    # A persister that throws: on_approved does NOT fire.
+    failed_approvals: list[_Model] = []
+
+    async def failing_persister(m: _Model) -> None:
+        raise RuntimeError("persist failed")
+
+    failing: FormVM[_Model] = FormVM(initial, failing_persister)
+    failing_sub = failing.on_approved.subscribe(failed_approvals.append)
+    failing.set_model(_Model("Carol", 3))
+
+    with pytest.raises(RuntimeError, match="persist failed"):
+        await failing.approve_async()
+
+    assert failed_approvals == [], "on_approved must stay silent when the persister throws"
+    failing_sub.dispose()
 
 
 # ---------------------------------------------------------------------------

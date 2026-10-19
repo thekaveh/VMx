@@ -61,6 +61,8 @@ open class CompositeVM<Child: ComponentVMBase>:
     private let currentSelector: (([Child]) -> Child?)?
     private let onCurrentChanged: ((Child?) -> Void)?
     private var populated = false
+    /// Collects the children population started constructing (see `_onConstruct`).
+    private var populationJoined: [ComponentVMBase]?
     private let _autoConstructOnAdd: Bool
     private let _asyncSelection: Bool
     private var disposeRequested = false
@@ -152,7 +154,7 @@ open class CompositeVM<Child: ComponentVMBase>:
         // trap-vs-throw recoverability gap is tracked separately (ADR-0037).
         guard vm.status == .constructed else { return }
         membershipGate.lock()
-        guard !membershipTransactionActive,
+        guard !membershipTransactionHeldByCallerLocked,
               let child = children.first(where: { $0 === vm }) else {
             membershipGate.unlock()
             return
@@ -163,7 +165,7 @@ open class CompositeVM<Child: ComponentVMBase>:
 
     public func deselectChild(_ vm: ComponentVMBase) {
         membershipGate.lock()
-        let child = !membershipTransactionActive ? _current : nil
+        let child = !membershipTransactionHeldByCallerLocked ? _current : nil
         membershipGate.unlock()
         if let child, child === vm { _requestDeselect(child) }
     }
@@ -271,7 +273,7 @@ open class CompositeVM<Child: ComponentVMBase>:
     /// §3.1).
     public func canSetCurrent(_ value: Child?) -> Bool {
         membershipGate.withLock {
-            guard !membershipTransactionActive else { return false }
+            guard !membershipTransactionHeldByCallerLocked else { return false }
             guard let value else { return true }
             return children.contains(where: { $0 === value })
         }
@@ -283,7 +285,7 @@ open class CompositeVM<Child: ComponentVMBase>:
     /// or member assignment behaves exactly like `current = value`.
     public func setCurrent(_ value: Child?) throws {
         membershipGate.lock()
-        guard !membershipTransactionActive,
+        guard !membershipTransactionHeldByCallerLocked,
               value == nil || children.contains(where: { $0 === value }) else {
             membershipGate.unlock()
             throw CompositeMembershipError(
@@ -303,7 +305,7 @@ open class CompositeVM<Child: ComponentVMBase>:
     public func canSelectComponent(_ vm: Child) -> Bool {
         guard vm.status == .constructed else { return false }
         return membershipGate.withLock {
-            !membershipTransactionActive
+            !membershipTransactionHeldByCallerLocked
                 && children.contains(where: { $0 === vm })
         }
     }
@@ -320,7 +322,7 @@ open class CompositeVM<Child: ComponentVMBase>:
             throw CompositeMembershipError(memberName: vm.name, compositeName: name)
         }
         membershipGate.lock()
-        guard !membershipTransactionActive,
+        guard !membershipTransactionHeldByCallerLocked,
               children.contains(where: { $0 === vm }) else {
             membershipGate.unlock()
             throw CompositeMembershipError(memberName: vm.name, compositeName: name)
@@ -337,7 +339,7 @@ open class CompositeVM<Child: ComponentVMBase>:
     /// (ADR-0053): catchable throw rather than a trap.
     public func deselectComponent(_ vm: Child) throws {
         membershipGate.lock()
-        guard !membershipTransactionActive, _current === vm else {
+        guard !membershipTransactionHeldByCallerLocked, _current === vm else {
             membershipGate.unlock()
             throw CompositeMembershipError(memberName: vm.name, compositeName: name)
         }
@@ -386,7 +388,7 @@ open class CompositeVM<Child: ComponentVMBase>:
         // (COMP-012). `add` is non-throwing per the public API contract;
         // failures surface through assertionFailure in debug/test builds.
         // Divergence from TS (which throws on failure) is recorded in ADR-0060.
-        if _autoConstructOnAdd && isConstructed {
+        if shouldAutoConstruct(child) {
             do { try child.construct() } catch {
                 membershipGate.withLock {
                     if let attached = children.firstIndex(where: { $0 === child }) {
@@ -479,7 +481,7 @@ open class CompositeVM<Child: ComponentVMBase>:
         child._parent = self
         child._ownershipParent = self
         membershipGate.unlock()
-        if _autoConstructOnAdd && isConstructed {
+        if shouldAutoConstruct(child) {
             do { try child.construct() } catch {
                 membershipGate.withLock {
                     if let attached = children.firstIndex(where: { $0 === child }) {
@@ -602,7 +604,7 @@ open class CompositeVM<Child: ComponentVMBase>:
         child._parent = self
         child._ownershipParent = self
         membershipGate.unlock()
-        if _autoConstructOnAdd && isConstructed {
+        if shouldAutoConstruct(child) {
             do { try child.construct() } catch {
                 membershipGate.withLock {
                     if let attached = children.firstIndex(where: { $0 === child }) {
@@ -669,6 +671,9 @@ open class CompositeVM<Child: ComponentVMBase>:
 
     public func move(from fromIndex: Int, to toIndex: Int) throws {
         let child: Child? = try membershipGate.withLock {
+            guard !disposeRequested && !disposeDeferred else {
+                throw ContainerOwnershipError.attachmentFailed(ContainerDisposalAdmissionError())
+            }
             guard !membershipTransactionActive else {
                 throw ContainerOwnershipError.attachmentFailed(ContainerMembershipTransactionError())
             }
@@ -710,10 +715,39 @@ open class CompositeVM<Child: ComponentVMBase>:
 
     // ── Lifecycle overrides ─────────────────────────────────────────────
 
+    /// Supplies the construct walk with each child added while it runs.
+    /// Auto-construct-on-add already started such a child, so the walk joins
+    /// it rather than restarting it (spec/02 §6, spec/06 §5.1).
+    private func lateChildSource(after snapshot: [Child]) -> LateChildSource? {
+        guard _autoConstructOnAdd else { return nil }
+        var visited = Set(snapshot.map(ObjectIdentifier.init))
+        return LateChildSource { [weak self] in
+            guard let self else { return nil }
+            let late = self.snapshot().first { !visited.contains(ObjectIdentifier($0)) }
+            if let late { visited.insert(ObjectIdentifier(late)) }
+            return late
+        }
+    }
+
+    /// Auto-construct-on-add: a `Destructed` child added while this container
+    /// is still `Constructing` starts now and the construct walk joins it.
+    private func shouldAutoConstruct(_ child: Child) -> Bool {
+        guard _autoConstructOnAdd else { return false }
+        if isConstructed { return true }
+        return status == .constructing && child.status == .destructed
+    }
+
     open override func _onConstruct() throws {
         try super._onConstruct()
+        // Children whose construct population started are joined, not restarted.
+        var joined: [ComponentVMBase] = []
         if !populated {
             if let factory = childrenFactory {
+                populationJoined = []
+                defer {
+                    joined = populationJoined ?? []
+                    populationJoined = nil
+                }
                 try attachPopulation(factory()).get()
             }
             populated = true
@@ -722,15 +756,23 @@ open class CompositeVM<Child: ComponentVMBase>:
         // hook to the composite's originating `construct()` call. Snapshot first
         // so the lifecycle iteration is stable; membership mutations attempted
         // from population hooks are rejected until the transaction completes.
+        // A background child defers the composite's Constructed status (and the
+        // selector) until every child has reached Constructed (spec/02 §6).
         let snapshot = snapshot()
-        for child in snapshot { try child.construct() }
-        if let selector = currentSelector,
-           let initial = selector(snapshot),
-           snapshot.contains(where: { $0 === initial }) {
-            // Non-raising validated assignment (spec/06 §3.1 / COMP-025): the
-            // membership is already checked above, so the internal setter never
-            // hits its non-child trap here.
-            _setCurrent(initial)
+        try _transitionChildren(
+            snapshot,
+            construct: true,
+            joined: joined,
+            lateChild: lateChildSource(after: snapshot)
+        ) { [self] in
+            if let selector = currentSelector,
+               let initial = selector(snapshot),
+               snapshot.contains(where: { $0 === initial }) {
+                // Non-raising validated assignment (spec/06 §3.1 / COMP-025):
+                // the membership is already checked above, so the internal
+                // setter never hits its non-child trap here.
+                _setCurrent(initial)
+            }
         }
     }
 
@@ -781,6 +823,10 @@ open class CompositeVM<Child: ComponentVMBase>:
                 if _autoConstructOnAdd && isConstructed { try child.construct() }
                 if status == .constructing && child.status != .constructed {
                     try child.construct()
+                    // A child population left pending is joined, never restarted.
+                    if child.status != .constructed && child.status != .disposed {
+                        populationJoined?.append(child)
+                    }
                 }
             }
             try membershipGate.withLock { try requireTransactionCanContinueLocked() }
@@ -830,8 +876,16 @@ open class CompositeVM<Child: ComponentVMBase>:
         // clear the current slot before children are destructed.
         if membershipGate.withLock({ _current != nil }) { _applyCurrentChange(nil) }
         let snapshot = snapshot()
-        for child in snapshot { try child.destruct() }
-        try super._onDestruct()
+        try _transitionChildren(snapshot, construct: false) {
+            try super._onDestruct()
+        }
+    }
+
+    /// Completes `collectionChanged` once the container is disposed, as the
+    /// other flavors do, so derived views and sinks observe termination.
+    open override func _onDispose() {
+        super._onDispose()
+        collectionChangedSubject.send(completion: .finished)
     }
 
     open override func dispose() {
@@ -862,6 +916,8 @@ open class CompositeVM<Child: ComponentVMBase>:
                 continue
             }
             guard let snapshot else { return }
+            // A disposed child must not roll back a pending transition.
+            _abandonChildTransition()
             // LIFE-013: depth-first dispose children, then self.
             for child in snapshot { child.dispose() }
             super.dispose()
@@ -936,27 +992,49 @@ open class CompositeVM<Child: ComponentVMBase>:
         _ transaction: ContainerOwnershipTransaction,
         allowJoin: Bool
     ) throws {
-        let caller = ObjectIdentifier(Thread.current)
-        while true {
-            let blocker = try membershipGate.withLock { () -> (ObjectIdentifier, DispatchGroup)? in
-                if membershipTransactionActive,
-                   !(allowJoin && membershipTransactionToken === transaction),
-                   let owner = membershipTransactionOwner, owner != caller,
-                   let completion = membershipTransactionCompletion {
-                    return (owner, completion)
-                }
-                try beginMembershipTransactionLocked(transaction, allowJoin: allowJoin)
-                return nil
-            }
-            guard let blocker else { return }
-            let (owner, completion) = blocker
-            let coordinator = MembershipTransactionWaitCoordinator.shared
-            guard coordinator.beginWait(caller: caller, owner: owner) else {
-                throw ContainerOwnershipError.attachmentFailed(ContainerMembershipTransactionError())
-            }
-            completion.wait()
-            coordinator.endWait(caller: caller)
+        while let blocker = try tryEnterMembershipTransaction(transaction, allowJoin: allowJoin) {
+            try waitForMembershipTransaction(blocker)
         }
+    }
+
+    /// Opens or joins the transaction, or returns another thread's open
+    /// transaction to wait for. Throws on a same-thread conflict (ADR-0118).
+    private func tryEnterMembershipTransaction(
+        _ transaction: ContainerOwnershipTransaction,
+        allowJoin: Bool
+    ) throws -> MembershipTransactionBlocker? {
+        let caller = ObjectIdentifier(Thread.current)
+        return try membershipGate.withLock { () -> MembershipTransactionBlocker? in
+            if membershipTransactionActive,
+               !(allowJoin && membershipTransactionToken === transaction),
+               let owner = membershipTransactionOwner, owner != caller,
+               let completion = membershipTransactionCompletion {
+                return MembershipTransactionBlocker(owner: owner, completion: completion)
+            }
+            try beginMembershipTransactionLocked(transaction, allowJoin: allowJoin)
+            return nil
+        }
+    }
+
+    /// Waits for another thread's transaction to end, unless the wait would
+    /// close a cycle (#551).
+    private func waitForMembershipTransaction(_ blocker: MembershipTransactionBlocker) throws {
+        let caller = ObjectIdentifier(Thread.current)
+        let coordinator = MembershipTransactionWaitCoordinator.shared
+        guard coordinator.beginWait(caller: caller, owner: blocker.owner) else {
+            throw ContainerOwnershipError.attachmentFailed(ContainerMembershipTransactionError())
+        }
+        blocker.completion.wait()
+        coordinator.endWait(caller: caller)
+    }
+
+    /// True while the calling thread itself has this composite's membership
+    /// transaction open. Selection is rejected only in that re-entrant case
+    /// (ADR-0118); a transaction on another thread is waited for by
+    /// `_applyCurrentChange`, so a concurrent selection is not dropped.
+    private var membershipTransactionHeldByCallerLocked: Bool {
+        membershipTransactionActive
+            && membershipTransactionOwner == ObjectIdentifier(Thread.current)
     }
 
     private func requireTransactionCanContinueLocked() throws {
@@ -992,7 +1070,7 @@ open class CompositeVM<Child: ComponentVMBase>:
         // reaching here (VMX-026 / ADR-0053). The trap remains for the property
         // setter, which Swift cannot make `throws`.
         let allowed = membershipGate.withLock {
-            !membershipTransactionActive
+            !membershipTransactionHeldByCallerLocked
                 && (value == nil || children.contains(where: { $0 === value }))
         }
         if !allowed {
@@ -1052,8 +1130,17 @@ open class CompositeVM<Child: ComponentVMBase>:
         compositeCurrentChangeCoordinator.lock()
         var ownsTransaction = false
         if !internalTransaction {
+            let transaction = ContainerOwnershipTransaction()
             do {
-                _ = try beginMembershipTransaction()
+                // Wait for another thread's transaction without retaining the
+                // shared coordinator: that thread's hooks and callbacks may
+                // need it to select (spec/06 §4, COMP-026).
+                while let blocker = try tryEnterMembershipTransaction(transaction, allowJoin: false) {
+                    compositeCurrentChangeCoordinator.unlock()
+                    let waited = Result { try waitForMembershipTransaction(blocker) }
+                    compositeCurrentChangeCoordinator.lock()
+                    try waited.get()
+                }
                 ownsTransaction = true
             } catch {
                 compositeCurrentChangeCoordinator.unlock()
@@ -1119,6 +1206,12 @@ open class CompositeVM<Child: ComponentVMBase>:
 }
 
 private struct ContainerMembershipTransactionError: Error {}
+
+/// Another thread's open membership transaction and its completion signal.
+private struct MembershipTransactionBlocker {
+    let owner: ObjectIdentifier
+    let completion: DispatchGroup
+}
 
 /// Thrown by `CompositeVM.setCurrent(_:)` when the argument is not a member of
 /// the composite's children (spec/06 §3.1 — `Current` must be a member; cf.

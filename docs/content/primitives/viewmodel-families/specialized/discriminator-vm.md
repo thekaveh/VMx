@@ -39,13 +39,17 @@ The behavior is straightforward and important:
 
 ## 6.2.8.3.4. Cross-Language Surface
 
-| Concept       | C#               | Python            | TypeScript       | Swift            | Rust              |
-| ------------- | ---------------- | ----------------- | ---------------- | ---------------- | ----------------- |
-| Active key    | `ActiveKey`      | `active_key`      | `activeKey`      | `activeKey`      | `active_key()`    |
-| Change stream | `ActiveChanged`  | `active_changed`  | `activeChanged`  | `activeChanged`  | `active_changed()` |
-| Modal depth   | `ModalDepth`     | `modal_depth`     | `modalDepth`     | `modalDepth`     | `modal_depth()`   |
-| Open modal    | `ModalOpen(...)` | `modal_open(...)` | `modalOpen(...)` | `modalOpen(...)` | `modal_open(...)` |
-| Clear history | `ClearModals()`  | `clear_modals()`  | `clearModals()`  | `clearModals()`  | `clear_modals()`  |
+| Concept       | C#               | Python            | TypeScript       | Swift            | Rust                   |
+| ------------- | ---------------- | ----------------- | ---------------- | ---------------- | ---------------------- |
+| Active key    | `ActiveKey`      | `active_key`      | `activeKey`      | `activeKey`      | `active_key()`         |
+| Change stream | `ActiveChanged`  | `active_changed`  | `activeChanged`  | `activeChanged`  | `active_key_changes()` |
+| Modal depth   | `ModalDepth`     | `modal_depth`     | `modalDepth`     | `modalDepth`     | `modal_depth()`        |
+| Open modal    | `ModalOpen(...)` | `modal_open(...)` | `modalOpen(...)` | `modalOpen(...)` | `modal_open(...)`      |
+| Clear history | `ClearModals()`  | `clear_modals()`  | `clearModals()`  | `clearModals()`  | `clear_modals()`       |
+
+Rust's `active_key_changes()` is a `ValueStream<K>` that carries each new key.
+Its `active_changed()` hub still signals each change, but its messages carry no
+key.
 
 ## 6.2.8.3.5. Example
 
@@ -55,6 +59,7 @@ The Notes Workspace editor mode is the concrete showcase feature:
 - Python: [note_form_vm.py](../../../../../examples/python/textual/notes_showcase/src/notes_showcase/viewmodels/note_form_vm.py)
 - TypeScript: [noteFormVM.ts](../../../../../examples/typescript/react/notes-showcase/src/viewmodels/noteFormVM.ts)
 - Swift: [NoteFormVM.swift](../../../../../examples/swift/notes-showcase/Sources/NotesShowcaseCore/ViewModels/NoteFormVM.swift)
+- Rust: `EditorModeVm` in [viewmodels.rs](../../../../../examples/rust/tui/notes-showcase/src/viewmodels.rs)
 
 Each editor keeps `"edit"` and `"preview"` in a `DiscriminatorVM` instead of
 spreading active-mode booleans across unrelated properties.
@@ -94,6 +99,16 @@ spreading active-mode booleans across unrelated properties.
 
     public var isPreviewMode: Bool {
         _editorMode.isActive("preview")
+    }
+    ```
+
+=== "Rust"
+
+    ```rust
+    discriminator: DiscriminatorVm::new("edit".to_string()),
+
+    pub fn mode(&self) -> String {
+        self.discriminator.active_key()
     }
     ```
 

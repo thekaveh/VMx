@@ -245,7 +245,12 @@ export class WorkspaceVM {
       .triggers(this.#commandTrigger)
       .build();
     this.#newNoteCommand = AsyncRelayCommand.builder()
-      .predicate(() => this.isConstructed && this.#notebooks.current !== null)
+      .predicate(
+        () =>
+          this.isConstructed &&
+          this.#notebooks.current !== null &&
+          !this.#notesView.currentNotebookIsReadonly,
+      )
       .task(async () => { await this.#addNewNoteToCurrentAsync(); })
       .triggers(this.#commandTrigger)
       .build();
@@ -265,8 +270,10 @@ export class WorkspaceVM {
    */
   selectNotebook(nb: NotebookVM): void {
     this.#notebooks.current = nb;
-    this.setFocus(nb);
+    // Set the readonly mirror before setFocus fires the command trigger, so
+    // the re-evaluated predicates see the new notebook (as in C# and Swift).
     this.#notesView.currentNotebookIsReadonly = nb.model.isReadonly ?? false;
+    this.setFocus(nb);
     void this.#bindNotesObservedAsync(nb.model.id);
   }
 

@@ -2,7 +2,7 @@
 // CompositeCrudParentTests.swift
 //
 // Conformance IDs: COMP-019, COMP-020, COMP-021, COMP-022, COMP-023,
-//                  COMP-024, COMP-027.
+//                  and also COMP-024, COMP-027.
 // See spec/06-composite-vm.md §7 (Modeled CRUD + parent reference) and ADR-0016.
 //
 // NOTE: `swift test` cannot run on a CommandLineTools-only host (no XCTest

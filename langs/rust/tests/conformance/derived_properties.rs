@@ -62,14 +62,16 @@ fn source_change_recomputes_value() {
 /// DPROP-003 — Two-source derived value
 #[test]
 fn two_source_value_can_be_modeled_by_transform() {
-    let left = ValueStream::new(2);
-    let right = ValueStream::new(3);
+    let left = ValueStream::new(3);
+    let right = ValueStream::new(4);
     let property =
         DerivedProperty::from_two(left.clone(), right.clone(), |left, right| left + right);
 
-    right.send(5);
-
     assert_eq!(property.value(), 7);
+
+    right.send(6);
+
+    assert_eq!(property.value(), 9);
 }
 
 /// DPROP-004 — Five-source derived value (spec minimum)
@@ -143,20 +145,27 @@ fn default_derived_property_is_read_only() {
 #[test]
 fn validator_and_write_back_enable_set_value() {
     let source = ValueStream::new(1);
-    let written = Arc::new(Mutex::new(None));
+    let written = Arc::new(Mutex::new(Vec::new()));
     let seen = written.clone();
     let property = DerivedProperty::from_sources_with_write_back(
         vec![source],
         |values| values[0],
         |value| *value > 0,
         move |value| {
-            *seen.lock().unwrap() = Some(value);
+            seen.lock().unwrap().push(value);
         },
     );
 
-    property.set_value(3).unwrap();
+    property.set_value(5).unwrap();
+    assert_eq!(*written.lock().unwrap(), vec![5]);
 
-    assert_eq!(*written.lock().unwrap(), Some(3));
+    assert!(!property.can_set(&-1));
+    assert!(property.set_value(-1).is_err());
+    assert_eq!(
+        *written.lock().unwrap(),
+        vec![5],
+        "a rejected value is not written back"
+    );
 }
 
 /// DPROP-008 — Write-back action receives the value
@@ -198,17 +207,29 @@ fn value_changed_emits_on_recompute() {
 /// DPROP-010 — ValueChanged does not emit when transform output is unchanged
 #[test]
 fn value_changed_does_not_emit_when_value_is_unchanged() {
-    let source = ValueStream::new(1);
-    let property = DerivedProperty::from_one(source.clone(), |_| 1);
-    let hits = Arc::new(Mutex::new(0));
-    let seen = hits.clone();
-    let _subscription = property.value_changes().subscribe(move |_| {
-        *seen.lock().unwrap() += 1;
-    });
+    let s1 = ValueStream::new(5);
+    let s2 = ValueStream::new(5);
+    let property = DerivedProperty::from_two(s1.clone(), s2.clone(), |a, b| a + b);
+    assert_eq!(property.value(), 10);
+    let values = Arc::new(Mutex::new(Vec::new()));
+    let seen = values.clone();
+    let _subscription = property
+        .value_changes()
+        .subscribe(move |value| seen.lock().unwrap().push(value));
 
-    source.send(2);
+    s1.send(3);
+    s2.send(7);
 
-    assert_eq!(*hits.lock().unwrap(), 0);
+    assert_eq!(*values.lock().unwrap(), vec![8, 10]);
+
+    s1.send(3);
+
+    assert_eq!(property.value(), 10);
+    assert_eq!(
+        *values.lock().unwrap(),
+        vec![8, 10],
+        "an unchanged transform output must not emit"
+    );
 }
 
 /// DPROP-011 — Dispose ends subscriptions and ValueChanged completes
@@ -233,18 +254,38 @@ fn dispose_stops_recompute_emissions() {
 fn repeated_derived_property_dispose_is_inert_and_retains_value() {
     let source = ValueStream::new(7);
     let property = DerivedProperty::from_one(source.clone(), |value| value);
+    let values = Arc::new(Mutex::new(Vec::new()));
+    let completions = Arc::new(Mutex::new(0));
+    let seen_values = values.clone();
+    let seen_completions = completions.clone();
+    let _subscription = property.value_changes().subscribe_with_completion(
+        move |value| seen_values.lock().unwrap().push(value),
+        move || *seen_completions.lock().unwrap() += 1,
+    );
     property.dispose();
     property.dispose();
     source.send(8);
 
+    assert_eq!(*completions.lock().unwrap(), 1, "completes at most once");
+    assert!(
+        values.lock().unwrap().is_empty(),
+        "no post-dispose value is emitted"
+    );
     assert_eq!(property.value(), 7);
 
     let expansion = ExpandableState::new();
     expansion.dispose();
     expansion.expand();
-    expansion.collapse();
+    assert!(!expansion.is_expanded());
     expansion.toggle_expansion();
     assert!(!expansion.is_expanded());
+
+    let expanded = ExpandableState::new_expanded();
+    expanded.dispose();
+    expanded.collapse();
+    assert!(expanded.is_expanded());
+    expanded.toggle_expansion();
+    assert!(expanded.is_expanded());
 }
 
 /// DPROP-012 — Derived-property scenarios match fixture
@@ -295,4 +336,22 @@ fn all_fixture_scenarios_match_expected_values() {
             );
         }
     }
+}
+
+#[test]
+fn a_recompute_transform_may_read_the_property() {
+    let property = Arc::new(vmx::DerivedProperty::new(2));
+    let reader = property.clone();
+    let (done, finished) = std::sync::mpsc::channel();
+
+    std::thread::spawn(move || {
+        property.recompute(move |value| reader.value() + *value);
+        let _ = done.send(property.value());
+    });
+
+    assert_eq!(
+        finished.recv_timeout(std::time::Duration::from_secs(3)),
+        Ok(4),
+        "recompute must not hold the value lock while the transform runs"
+    );
 }

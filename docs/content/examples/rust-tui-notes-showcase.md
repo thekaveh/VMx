@@ -19,9 +19,10 @@ state, lifecycle, filtering, paging, commands, notifications, and editor mode.
 - `WorkspaceVm` composes six child surfaces through `AggregateVm6`.
 - `NotesViewVm` uses `CompositeVm`, `FilteredCompositeVm`, and
   `PagedComposition`.
-- `NoteFormVm` uses strict `FormVm<NoteDraft>` validation and save/revert
-  commands.
-- `GlobalSearchVm` combines `SearchableState` with `TokenPagedComposition`.
+- `NoteFormVm` uses strict `FormVm<NoteDraft>` validation with `save()` and
+  `revert()` methods. The terminal app does not bind keys to them.
+- `GlobalSearchVm` pages the filtered projection of a `SearchableState` with
+  `TokenPagedComposition`.
 - `NotificationsVm` uses `NotificationHub` and `NotificationVm` wrappers.
 - `EditorModeVm` uses `DiscriminatorVm` for edit/preview switching.
 
@@ -31,8 +32,9 @@ This is a **reduced companion**, not a fifth canonical Notes Workspace
 flagship. It proves Rust-native MVVM composition, but it intentionally omits
 `THEME-001..005`, `IDialogService` export, the capability action bar, the async
 dispatcher scenario, and tag autocomplete. Consequently,
-`tools/check-showcase-parity.py` continues to enforce the complete 19-feature
-scenario across C#, Python, TypeScript, and Swift only.
+`tools/check-showcase-parity.py` checks the shared test-file names,
+`THEME-001..005` markers, and the two shared scenarios across C#, Python,
+TypeScript, and Swift only.
 
 ## 8.5.3. Run It
 

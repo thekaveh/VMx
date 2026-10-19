@@ -224,7 +224,8 @@ public final class ThemeVM: ComponentVMBase {
     /// sends `ThemeChangedMessage`. Equality-guarded: an equal value is a
     /// no-op (no emission).
     private func setModel(_ newModel: ThemeModel) {
-        guard _model != newModel else { return }
+        // A disposed theme is inert (DISP-014), as in the other flavors.
+        guard status != .disposed, _model != newModel else { return }
         let previous = _model
         _model = newModel
         _modelSubject.send(newModel)

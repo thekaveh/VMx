@@ -230,8 +230,19 @@ describe("COL-030", () => {
       { autoConstructOnAdd: true },
     );
 
+    const constructedAtReset: boolean[] = [];
+    const actions: string[] = [];
+    sut.collectionChanged.subscribe((event) => {
+      actions.push(event.action);
+      constructedAtReset.push(child.isConstructed);
+    });
+
     await sut.loadMoreCommand.executeAsync();
 
+    // The child must already be constructed when the subscriber observes
+    // the reset event, not merely by the time the load completes.
+    expect(actions).toEqual(["reset"]);
+    expect(constructedAtReset).toEqual([true]);
     expect(child.isConstructed).toBe(true);
   });
 });

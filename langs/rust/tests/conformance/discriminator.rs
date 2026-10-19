@@ -22,6 +22,49 @@ fn changing_active_key_emits_once() {
     assert_eq!(vm_active_changed_record.messages().len(), 1);
 }
 
+/// DISC-002 — The change stream carries the new active key
+#[test]
+fn active_key_changes_carry_the_new_key() {
+    let vm = DiscriminatorVm::new("home");
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let _subscription = vm.active_key_changes().subscribe({
+        let seen = std::sync::Arc::clone(&seen);
+        move |key| seen.lock().unwrap().push(key)
+    });
+
+    vm.set_active_key("detail");
+    vm.set_active_key("detail");
+    vm.modal_open("modal");
+    vm.modal_close();
+
+    assert_eq!(*seen.lock().unwrap(), vec!["detail", "modal", "detail"]);
+}
+
+/// DISC-002 — a hub subscriber that changes the key again leaves the stream on
+/// the active key.
+#[test]
+fn active_key_changes_end_on_the_active_key_after_a_reentrant_change() {
+    let vm = DiscriminatorVm::new("home");
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let _keys = vm.active_key_changes().subscribe({
+        let seen = std::sync::Arc::clone(&seen);
+        move |key| seen.lock().unwrap().push(key)
+    });
+    let _redirect = vm.active_changed().subscribe({
+        let vm = vm.clone();
+        move |_| {
+            if vm.active_key() == "detail" {
+                vm.set_active_key("settings");
+            }
+        }
+    });
+
+    vm.set_active_key("detail");
+
+    assert_eq!(vm.active_key(), "settings");
+    assert_eq!(*seen.lock().unwrap(), vec!["detail", "settings"]);
+}
+
 /// DISC-003 — Setting the same key is a no-op
 #[test]
 fn setting_same_key_is_noop() {

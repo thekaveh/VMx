@@ -45,6 +45,14 @@ describe("FORM-018", () => {
       validators: { name: () => "required" },
     });
     expect(sut.isValid).toBe(false);
+
+    const clean = new FormVM<Model>({
+      initial: model("ok", 1),
+      persister: async () => {},
+      validators: { name: (m) => m.name === "" ? "required" : null },
+    });
+    expect(clean.errors).toEqual({});
+    expect(clean.isValid).toBe(true);
   });
 });
 
@@ -96,6 +104,11 @@ describe("FORM-022", () => {
     const withValidator = base.validator("name", () => "required");
     expect(withValidator).not.toBe(base);
     expect(withValidator.build().fieldError("name")).toBe("required");
+    // The original builder is unchanged: it still builds a validator-free form.
+    const fromBase = base.build();
+    expect(fromBase.fieldError("name")).toBeUndefined();
+    expect(fromBase.errors).toEqual({});
+    expect(fromBase.isValid).toBe(true);
   });
 });
 

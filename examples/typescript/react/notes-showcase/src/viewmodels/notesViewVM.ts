@@ -106,6 +106,10 @@ export class NotesViewVM extends ComponentVMBase {
       if (name === "currentPageIndex" || name === "pageCount" || name === "pageSize") {
         this._notifyPropertyChanged("pageLabel");
         this._notifyPropertyChanged("visibleItems");
+        // pageLabelDerived and the four paging commands' canExecute triggers
+        // read #stateSubject, not propertyChanged; without this push a plain
+        // page move left "Page 1 of 2" and stale button enablement on screen.
+        this.#stateSubject.next();
       }
     });
 
@@ -428,6 +432,11 @@ export class NotesViewVM extends ComponentVMBase {
       }
       this.#filtered.push(n);
     }
+    // The paged view reads #filtered through a factory, so it gets no mutation
+    // signal; re-clamp the page so a shrunken list never shows "Page 2 of 1"
+    // (spec/21 §5.2).
+    const pageIndex = this.#paged.currentPageIndex;
+    this.#paged.currentPageIndex = pageIndex;
     for (const name of ["filteredItems", "isEmpty", "visibleItems", "pageLabel", "count"]) {
       this._notifyPropertyChanged(name);
     }
@@ -443,11 +452,15 @@ export class NotesViewVM extends ComponentVMBase {
   }
 
   protected override _onDestruct(): void {
+    // Invalidate a load still in flight so it cannot repopulate this VM.
+    this.#activeBindingToken += 1;
     this.#releaseChildren();
     super._onDestruct();
   }
 
   protected override _onDispose(): void {
+    // Invalidate a load still in flight so it cannot repopulate this VM.
+    this.#activeBindingToken += 1;
     this.#releaseChildren();
     this.#paged.dispose();
     this.#search.dispose();

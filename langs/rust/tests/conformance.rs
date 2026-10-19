@@ -4,6 +4,8 @@ mod conformance {
     mod async_resource_completion;
     mod async_resource_vm;
     mod async_value;
+    mod auto_construct_during_constructing;
+    mod background_child_settle;
     mod builders;
     mod capabilities;
     mod collections;
@@ -16,6 +18,7 @@ mod conformance {
     mod derived_properties;
     mod dialogs;
     mod discriminator;
+    mod drop_reentry;
     mod expandable;
     mod expandable_support;
     mod filtered_composite;
@@ -45,6 +48,7 @@ mod conformance {
     mod threading;
     mod token_refresh_cursor;
     mod tree_utils;
+    mod user_equality_reentry;
     mod value_stream;
     mod vm_collection_move;
 }

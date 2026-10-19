@@ -18,6 +18,7 @@ from reactivex.abc import DisposableBase
 from nicegui_notes.adapter import (
     bind_command,
     bind_derived_property,
+    bind_property,
     bind_property_two_way,
     bind_refreshable,
     release_on_delete,
@@ -40,6 +41,10 @@ def _select_note(notes: NotesViewVM, note: NoteVM) -> None:
 
 def _dirty_text(is_dirty: object) -> str:
     return "Unsaved changes" if is_dirty else "Saved"
+
+
+def _error_text(error: object) -> str:
+    return str(error) if error else ""
 
 
 def _notebooks_pane(workspace: WorkspaceVM) -> DisposableBase:
@@ -70,10 +75,17 @@ def _notes_pane(workspace: WorkspaceVM) -> list[DisposableBase]:
         ui.label("Notes").classes("text-subtitle1")
         search = ui.input("Search notes").mark("search")
         notes()
+        with ui.row().classes("items-center"):
+            previous_page = ui.button("Prev").props("flat dense").mark("page-prev")
+            page_label = ui.label().mark("page-label")
+            next_page = ui.button("Next").props("flat dense").mark("page-next")
         new_note = ui.button("New note").mark("new-note")
     return [
         bind_property_two_way(search, notes_view, "search_term", text),
         bind_refreshable(notes, vm_property_changes(notes_view, ROW_SIGNALS)),
+        bind_command(previous_page, notes_view.move_to_previous_page_command),
+        bind_command(next_page, notes_view.move_to_next_page_command),
+        bind_derived_property(page_label, "text", notes_view.page_label),
         bind_command(new_note, workspace.new_note_command),
     ]
 
@@ -83,6 +95,7 @@ def _editor_pane(workspace: WorkspaceVM) -> list[DisposableBase]:
     form = workspace.note_form
     with ui.column().classes("grow"):
         title = ui.input("Title").classes("w-full").mark("note-title")
+        title_error = ui.label().classes("text-negative").mark("title-error")
         body = ui.textarea("Body").classes("w-full").mark("note-body")
         with ui.row():
             save = ui.button("Save").mark("save")
@@ -90,6 +103,7 @@ def _editor_pane(workspace: WorkspaceVM) -> list[DisposableBase]:
             dirty = ui.label().mark("dirty")
     return [
         bind_property_two_way(title, form, "title", text),
+        bind_property(title_error, "text", form, "title_error", _error_text),
         bind_property_two_way(body, form, "body", text),
         bind_command(save, form.approve_command),
         bind_command(revert, form.deny_command),

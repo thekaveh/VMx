@@ -188,15 +188,16 @@ public sealed class AsyncRelayCommand : IAsyncCommand, IDisposable
         lock (_gate)
         {
             cts = _cts;
+            // Tag the origin under the gate that swaps executions, so a cancel
+            // racing completion cannot tag the next execution.
+            if (cts is not null)
+                Interlocked.CompareExchange(
+                    ref _cancellationOrigin,
+                    CommandCancellation,
+                    NoCancellation);
         }
         if (cts is not null)
-        {
-            Interlocked.CompareExchange(
-                ref _cancellationOrigin,
-                CommandCancellation,
-                NoCancellation);
             CancelIgnoringDisposed(cts);
-        }
     }
 
     // ExecuteAsync's finally disposes the CTS off-gate right after nulling _cts.
@@ -223,16 +224,15 @@ public sealed class AsyncRelayCommand : IAsyncCommand, IDisposable
             if (_disposed) return;
             _disposed = true;
             cts = _cts;
+            if (cts is not null)
+                Interlocked.CompareExchange(
+                    ref _cancellationOrigin,
+                    CommandCancellation,
+                    NoCancellation);
         }
         ExceptionDispatchInfo? firstError = null;
         if (cts is not null)
-        {
-            Interlocked.CompareExchange(
-                ref _cancellationOrigin,
-                CommandCancellation,
-                NoCancellation);
             CaptureFailure(ref firstError, () => CancelIgnoringDisposed(cts));
-        }
         foreach (var subscription in _triggerSubscriptions)
             CaptureFailure(ref firstError, subscription.Dispose);
         CaptureFailure(ref firstError, _errors.OnCompleted);

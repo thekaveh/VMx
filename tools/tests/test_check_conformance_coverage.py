@@ -703,3 +703,13 @@ def test_required_rust_missing_id_fails_with_actionable_report(
     assert "rust: 1/2 covered" in captured.out
     assert "MISSING (1): LIFE-002" in captured.out
     assert "required languages have conformance gaps: ['rust']" in captured.err
+
+
+def test_duplicate_catalog_headings_are_reported(tmp_path: Path) -> None:
+    catalog = tmp_path / "catalog.md"
+    catalog.write_text(
+        "### LIFE-001 — first\n\n### LIFE-002 — second\n\n### LIFE-001 — again\n",
+        encoding="utf-8",
+    )
+
+    assert ccc.find_duplicate_catalog_ids(catalog) == ["LIFE-001"]

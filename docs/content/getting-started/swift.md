@@ -4,10 +4,10 @@ This tutorial walks you through building viewmodels with the VMx Swift
 package. You will build a `ComponentVMOf<UserModel>`, a `RelayCommand`, and a
 `CompositeVM<TabVM>` with tab selection — all in a Swift Package or playground.
 
-> The Swift flavor is at full parity on the v3.30.0 source line: 425/425 library
-> conformance IDs plus the 5 `THEME-00x` scenario IDs covered by the SwiftUI
-> Notes Workspace flagship. See the [Swift flavor](../flavors/swift.md) page for
-> the current matrix and documented Swift-specific divergences.
+> The Swift source line 3.30.0 covers all 425 library conformance IDs. The
+> SwiftUI Notes Workspace flagship covers the 5 `THEME-00x` scenario IDs. The
+> [Swift flavor](../flavors/swift.md) page lists the documented Swift-specific
+> divergences.
 >
 > For the contracts behind each type, see the [component
 > family](../primitives/viewmodel-families/component-family.md), [command
@@ -18,46 +18,10 @@ ______________________________________________________________________
 
 ## 3.5.1. Install
 
-VMx Swift 3.24.0 is publicly installable from the repository root. SwiftPM
-resolves the immutable semantic tag `v3.24.0`; `swift-v3.24.0` is the matching
-operational tag and GitHub Release.
-
-Add VMx as a Swift Package dependency in `Package.swift`:
-
-```swift
-// swift-tools-version: 5.9
-import PackageDescription
-
-let package = Package(
-    name: "MyApp",
-    platforms: [
-        .iOS(.v16), .macOS(.v13), .tvOS(.v16), .watchOS(.v9),
-    ],
-    dependencies: [
-        .package(url: "https://github.com/thekaveh/VMx.git", from: "3.24.0"),
-    ],
-    targets: [
-        .target(name: "MyApp", dependencies: [
-            .product(name: "VMx", package: "vmx"),
-        ]),
-    ]
-)
-```
-
-Or in Xcode: **File → Add Package Dependencies → enter
-`https://github.com/thekaveh/VMx.git`**.
-
-The lowercase `package: "vmx"` value is SwiftPM's canonical repository
-identity. The library product and imported module remain uppercase `VMx`.
-
-For local development from a checked-out clone, use a path dependency:
-
-```swift
-.package(path: "/path/to/VMx")
-```
-
-The Swift package uses Combine for reactive primitives and Dispatch for
-scheduling. No additional dependencies are required.
+Add VMx as described in [Installation](../installation.md). The SwiftPM tag
+3.24.0 implements spec 3.23.x. Behavior from later spec versions needs the
+source checkout, added as a path dependency. The package uses Combine and
+Dispatch and has no third-party dependencies.
 
 ______________________________________________________________________
 
@@ -215,10 +179,10 @@ let tabs = try CompositeVM<ComponentVMOf<TabModel>>.builder()
 try tabs.construct()
 
 tabs.current = tab2
-print(tabs.current?.model.title ?? "(none)")  // "Settings"
+print(tabs.current?.model.title ?? "(none)")  // Settings
 
 tabs.current = tab1
-print(tabs.current?.model.title ?? "(none)")  // "Home"
+print(tabs.current?.model.title ?? "(none)")  // Home
 
 print((0..<tabs.count).compactMap { tabs.at($0).name })  // ["home-tab", "settings-tab"]
 ```
@@ -230,35 +194,41 @@ ______________________________________________________________________
 
 ## 3.5.6. Lifecycle and cleanup
 
-Every VM follows a five-state lifecycle:
-`destructed → constructing → constructed → destructing → destructed`,
-plus the terminal `disposed`.
+Every VM has five lifecycle states. Four of them form a reversible cycle,
+`destructed → constructing → constructed → destructing → destructed`. The fifth
+state, `disposed`, is terminal.
 
 ```swift
-print(userVM.status)            // ConstructionStatus.constructed
+print(userVM.status)            // constructed
 
-try userVM.reconstruct()            // destruct + construct in one call — only valid
-                                // from .constructed; round-trips back to it
-print(userVM.status)            // ConstructionStatus.constructed
+try userVM.reconstruct()        // destruct + construct in one call; only valid
+                                // from .constructed, and returns to it
+print(userVM.status)            // constructed
 
 try userVM.destruct()
-print(userVM.status)            // ConstructionStatus.destructed
+print(userVM.status)            // destructed
 
 userVM.dispose()                // idempotent + terminal
-print(userVM.status)            // ConstructionStatus.disposed
+print(userVM.status)            // disposed
 
 tabs.dispose()                  // disposes children, then itself
-hub.dispose()
 ```
 
-An illegal transition (e.g. calling `construct()` on a disposed VM) surfaces a
-**catchable** `StatusTransitionError` under the v3 lifecycle convergence
-(ADR-0053) — `construct()` / `destruct()` / `reconstruct()` are `throws` (hence
-the `try` above), so wrap them in `do`/`catch`, or gate with `canConstruct()` /
-`canDestruct()` if a state is uncertain. (Swift still **traps** only where a
-setter cannot throw — e.g. assigning a non-child to `CompositeVM.current`; see
-ADR-0009/ADR-0037.) A `BuilderValidationError` is likewise thrown when a builder
-is missing a required field at `build()` time.
+Dispose the hub last, after every viewmodel that uses it. The threading
+examples below still use the hub, so the full shutdown sequence appears at the
+end of section 3.5.7.
+
+An illegal transition, such as `construct()` on a disposed VM, throws a
+catchable `StatusTransitionError`. The `construct()`, `destruct()`, and
+`reconstruct()` methods are `throws`, so call them with `try` inside
+`do`/`catch`. If the state is uncertain, check `canConstruct()` or
+`canDestruct()` first.
+
+Swift traps only where a setter cannot throw (ADR-0009, ADR-0037). For example,
+assigning a non-child to the `CompositeVM.current` setter traps. Call
+`setCurrent(_:)` instead: it throws a catchable `CompositeMembershipError` for
+a non-child. A builder throws `BuilderValidationError` from `build()` when a
+required field is missing.
 
 > See [Lifecycle & Messaging](../architecture/lifecycle-messaging.md) for the
 > full lifecycle contract (`LIFE-001..015`),
@@ -277,15 +247,27 @@ hop work between queues:
 | `dispatcher.scheduleForeground { ... }` | `DispatchQueue.main` (sync if already on main) |
 | `dispatcher.scheduleBackground { ... }` | `DispatchQueue.global(qos: .userInitiated)`    |
 
-Use it for imperative marshaling — e.g., load data on a background queue
-then apply the result on main:
+Use it for imperative marshaling. For example, load data on a background
+queue, then apply the result on main. This example builds a new viewmodel
+because section 3.5.6 disposed `userVM`.
 
 ```swift
+let profileVM = try ComponentVMOf<UserModel>.builder()
+    .name("profile")
+    .model(UserModel(name: "", email: ""))
+    .services(hub: hub, dispatcher: dispatcher)
+    .build()
+
 dispatcher.scheduleBackground {
     let data = loadFromDatabase()
     dispatcher.scheduleForeground {
-        userVM.model = data
-        userVM.construct()
+        profileVM.model = data
+        // scheduleForeground takes a non-throwing closure; handle the error here.
+        do {
+            try profileVM.construct()
+        } catch {
+            print("construct failed: \(error)")
+        }
     }
 }
 ```
@@ -296,6 +278,7 @@ idiomatic Scheduler for SwiftUI / UIKit binding:
 
 ```swift
 import Combine
+import Foundation
 import VMx
 
 let cancellable = hub.messages
@@ -304,6 +287,14 @@ let cancellable = hub.messages
     .sink { msg in
         // updateLabel(msg) — safe to touch UIKit / SwiftUI state here
     }
+```
+
+At shutdown, cancel subscriptions, then dispose the viewmodels and the hub last:
+
+```swift
+cancellable.cancel()
+profileVM.dispose()
+hub.dispose()
 ```
 
 > See [Services, Messages &

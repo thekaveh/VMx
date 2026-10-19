@@ -3,11 +3,11 @@
 //! Spec: `spec/05-component-vm.md`.
 
 use super::{
-    catch_unwind, clone_locked, fmt, lock, resume_unwind, Arc, AssertUnwindSafe, ComponentCore,
-    ConstructionStatus, Dispatcher, LifecycleOperation, Message, MessageHub, ModelHint, Mutex,
-    NullDispatcher, ParentHandle, PropertyChangedStream, RelayCommand, Subscription, TreeNode,
-    VmNode, VmxError, VmxResult,
+    clone_locked, fmt, lock, Arc, ComponentCore, ConstructionStatus, Dispatcher,
+    LifecycleOperation, Message, MessageHub, ModelHint, Mutex, NullDispatcher, ParentHandle,
+    PropertyChangedStream, RelayCommand, Subscription, TreeNode, VmNode, VmxError, VmxResult,
 };
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Identifies the role a view model plays in the VM hierarchy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -141,6 +141,8 @@ impl ComponentCommands {
 pub struct ComponentVm<M = (), D: Dispatcher = NullDispatcher> {
     pub(crate) core: ComponentCore<D>,
     model: Arc<Mutex<M>>,
+    /// Counts model replacements; only changed while the model lock is held.
+    model_generation: Arc<AtomicU64>,
     model_hint: ModelHint<M>,
     view_model_type: ViewModelType,
     commands: ComponentCommands,
@@ -171,6 +173,7 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
         Self {
             core,
             model: Arc::new(Mutex::new(model)),
+            model_generation: Arc::new(AtomicU64::new(0)),
             model_hint: Arc::new(|_| None),
             view_model_type: ViewModelType::Component,
             commands,
@@ -269,13 +272,34 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
         }
     }
 
+    /// Installs `model` unless it equals the live model. `PartialEq` runs on
+    /// a copy with no lock held, so an `eq` may read this component; the
+    /// install re-checks the model generation under the lock and compares
+    /// again when another writer got there first. The replaced model is
+    /// dropped after the lock is released.
     pub(crate) fn replace_model(&self, model: M) -> bool {
-        let mut current = lock(&self.model);
-        if *current == model {
-            false
-        } else {
-            *current = model;
-            true
+        loop {
+            let (generation, live) = {
+                let current = lock(&self.model);
+                (
+                    self.model_generation.load(Ordering::SeqCst),
+                    current.clone(),
+                )
+            };
+            if live == model {
+                return false;
+            }
+            drop(live);
+            let replaced = {
+                let mut current = lock(&self.model);
+                if self.model_generation.load(Ordering::SeqCst) != generation {
+                    continue;
+                }
+                self.model_generation.fetch_add(1, Ordering::SeqCst);
+                std::mem::replace(&mut *current, model)
+            };
+            drop(replaced);
+            return true;
         }
     }
 
@@ -283,7 +307,9 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
     /// replaced, so the caller can drop that value after releasing its own
     /// locks. No model code runs while the model lock is held.
     pub(crate) fn store_model(&self, model: M) -> M {
-        std::mem::replace(&mut *lock(&self.model), model)
+        let mut current = lock(&self.model);
+        self.model_generation.fetch_add(1, Ordering::SeqCst);
+        std::mem::replace(&mut *current, model)
     }
 
     /// Replaces the hook invoked during construction.
@@ -318,6 +344,17 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
         self.core.transition(LifecycleOperation::Construct)
     }
 
+    /// Constructs the component and runs `action` while it is Constructing,
+    /// so a container can cascade into its children inside its own legal
+    /// transition. A rejected transition runs nothing.
+    pub(crate) fn construct_with<F>(&self, action: F) -> VmxResult<()>
+    where
+        F: FnOnce() -> VmxResult<()>,
+    {
+        self.core
+            .transition_with(LifecycleOperation::Construct, action)
+    }
+
     /// Transitions the component to destructed state.
     pub fn destruct(&self) -> VmxResult<()> {
         self.core.transition(LifecycleOperation::Destruct)
@@ -325,25 +362,20 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> ComponentVm<M, D> {
 
     /// Destructs and then constructs the component.
     pub fn reconstruct(&self) -> VmxResult<()> {
-        if self.status() != ConstructionStatus::Constructed {
-            return Err(VmxError::InvalidLifecycleTransition {
-                from: self.status(),
-                operation: "reconstruct",
-            });
-        }
+        crate::runtime::reconstruct_admission(self.status())?;
         self.core.reconstruct()
+    }
+
+    /// Stops publishing on the injected hub. A wrapper whose hub contract
+    /// excludes lifecycle messages calls this before disposing.
+    pub(crate) fn detach_hub(&self) {
+        self.core.detach_hub();
     }
 
     /// Transitions the component to its terminal disposed state.
     pub fn dispose(&self) -> VmxResult<()> {
-        let result = catch_unwind(AssertUnwindSafe(|| {
-            self.core.transition(LifecycleOperation::Dispose)
-        }));
-        self.commands.dispose();
-        match result {
-            Ok(result) => result,
-            Err(payload) => resume_unwind(payload),
-        }
+        let commands = self.commands.clone();
+        self.core.dispose_then(move || commands.dispose())
     }
 
     /// Returns the current lifecycle status.
@@ -476,6 +508,10 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> VmNode for ComponentV
 
     fn set_current_flag(&self, is_current: bool) {
         self.core.set_current_flag(is_current);
+    }
+
+    fn when_lifecycle_settled(&self, callback: crate::LifecycleSettleCallback) -> bool {
+        self.core.when_settled(callback)
     }
 
     fn is_current(&self) -> bool {
@@ -776,6 +812,10 @@ impl<M: Clone + PartialEq + Send + 'static, D: Dispatcher> VmNode for ReadonlyCo
 
     fn set_current_flag(&self, is_current: bool) {
         self.inner.core.set_current_flag(is_current);
+    }
+
+    fn when_lifecycle_settled(&self, callback: crate::LifecycleSettleCallback) -> bool {
+        self.inner.core.when_settled(callback)
     }
 
     fn is_current(&self) -> bool {

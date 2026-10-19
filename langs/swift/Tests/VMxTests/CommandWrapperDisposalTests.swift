@@ -68,7 +68,8 @@ final class CommandWrapperDisposalTests: XCTestCase {
     func testCmdd011DisposedCompositeAndDecoratorAreInert() {
         let recorder = Recorder()
         let a = makeCommand(label: "a", into: recorder)
-        let composite = CompositeCommand(a, makeCommand(label: "b", into: recorder))
+        let b = makeCommand(label: "b", into: recorder)
+        let composite = CompositeCommand(a, b)
         composite.dispose()
         composite.dispose()
 
@@ -93,13 +94,33 @@ final class CommandWrapperDisposalTests: XCTestCase {
         decorator.execute()
         XCTAssertEqual(recorder.entries, [])
 
-        // The inner commands were not disposed.
+        // The inner commands were not disposed and still execute directly.
+        XCTAssertTrue(a.canExecute())
+        XCTAssertTrue(b.canExecute())
+        XCTAssertTrue(inner.canExecute())
         a.execute()
+        b.execute()
         inner.execute()
-        XCTAssertEqual(recorder.entries, ["a", "inner"])
+        XCTAssertEqual(recorder.entries, ["a", "b", "inner"])
     }
 
     // MARK: - CMDD-012
+
+    /// CMDD-012 — the confirmation wrapper re-checks disposal after the inner
+    /// predicate, which may dispose it.
+    func testCmdd012ConfirmationCanExecuteRechecksDisposal() {
+        var wrapper: ConfirmationDecoratorCommand?
+        let inner = RelayCommand.builder()
+            .predicate {
+                wrapper?.dispose()
+                return true
+            }
+            .task {}
+            .build()
+        wrapper = ConfirmationDecoratorCommand(inner) { true }
+
+        XCTAssertFalse(wrapper!.canExecute())
+    }
 
     /// CMDD-012 — a disposed confirmation decorator never consults its confirm delegate.
     func testCmdd012DisposedConfirmationNeverConsultsConfirm() async throws {
@@ -204,6 +225,47 @@ final class CommandWrapperDisposalTests: XCTestCase {
         XCTAssertEqual(notifications, 1)
         XCTAssertFalse(completed)
         subscription.cancel()
+    }
+
+    /// CMDD-011 — a disposed wrapper's own `canExecuteChanged` notifies once,
+    /// completes, and forwards no later inner emission, as a disposed
+    /// `RelayCommand` does (spec §8.4).
+    func testCmdd011DisposedWrapperChangeStreamStopsAndCompletes() {
+        let wrappers: [(String, (Command) -> (Command, () -> Void))] = [
+            ("composite", { let c = CompositeCommand($0); return (c, c.dispose) }),
+            ("decorator", { let d = DecoratorCommand($0); return (d, d.dispose) }),
+            ("confirmation", { let d = ConfirmationDecoratorCommand($0) { true }; return (d, d.dispose) }),
+        ]
+        for (label, make) in wrappers {
+            let inner = RelayCommand.builder().task {}.build()
+            let (wrapper, dispose) = make(inner)
+            var values = 0
+            var completed = false
+            let early = wrapper.canExecuteChanged.sink(
+                receiveCompletion: { _ in completed = true },
+                receiveValue: { values += 1 }
+            )
+            inner.raiseCanExecuteChanged()
+            XCTAssertEqual(values, 1, "\(label) forwards before disposal")
+
+            dispose()
+            XCTAssertEqual(values, 2, "\(label) notifies once at disposal")
+            XCTAssertTrue(completed, "\(label) completes at disposal")
+
+            var lateValues = 0
+            var lateCompleted = false
+            let late = wrapper.canExecuteChanged.sink(
+                receiveCompletion: { _ in lateCompleted = true },
+                receiveValue: { lateValues += 1 }
+            )
+            inner.raiseCanExecuteChanged()
+            dispose()
+            XCTAssertEqual(values, 2, "\(label) forwards nothing after disposal")
+            XCTAssertEqual(lateValues, 0, "\(label) late subscriber receives no value")
+            XCTAssertTrue(lateCompleted, "\(label) late subscriber receives completion")
+            early.cancel()
+            late.cancel()
+        }
     }
 
     // MARK: - CMDD-013

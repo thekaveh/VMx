@@ -13,7 +13,8 @@ from reactivex import operators as ops
 from reactivex.abc import DisposableBase, SchedulerBase
 from reactivex.subject import Subject
 
-from vmx.commands.relay_command import RelayCommand, _run_disposal_steps
+from vmx._disposal import _run_disposal_steps
+from vmx.commands.relay_command import RelayCommand
 from vmx.notifications.notification import Notification
 from vmx.notifications.notification_hub import INotificationHub
 from vmx.notifications.notification_reaction import NotificationReaction
@@ -274,7 +275,7 @@ class NotificationVM:
 
     def _notify_external_resolve(self) -> None:
         """Handle external hub resolution: set is_resolved + cancel timer."""
-        if self._is_resolved:
+        if self._disposed or self._is_resolved:
             return
         self._is_resolved = True
         self._cancel_timers()

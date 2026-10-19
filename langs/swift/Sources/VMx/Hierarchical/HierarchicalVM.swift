@@ -106,8 +106,9 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
     /// `eagerChildren` is set).
     private let childrenFactory: (TVM) -> [TVM]
 
-    /// When `true`, the full subtree is materialized at construct() time
-    /// (depth-first), as required by HIER-008/009.
+    /// When `true`, this node materializes and constructs its children at
+    /// construct() time (depth-first, HIER-008/009). The option applies per
+    /// node (spec/18 §4).
     private let eagerChildren: Bool
 
     // ── Tree links / caches ─────────────────────────────────────────────
@@ -125,7 +126,10 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
 
     /// Cached root→self path. `nil` until first access. (Invalidation on
     /// reparent keeps the cached path consistent with structural mutation.)
-    private var _pathCache: [TVM]?
+    /// The cache holds weak references: a strong array would contain `self`
+    /// and its ancestors and keep the node alive (the `parent` link is weak
+    /// for the same reason).
+    private var _pathCache: [WeakPathNode<TVM>]?
     private var materializingChildren = false
     private var materializationReentered = false
 
@@ -275,9 +279,12 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
     /// Cached root-first path `[root, …, self]`. Built by walking up the
     /// `parent` chain on first access, then cached.
     public var path: [TVM] {
-        if let cached = _pathCache { return cached }
+        if let cached = _pathCache {
+            let nodes = cached.compactMap(\.value)
+            if nodes.count == cached.count { return nodes }
+        }
         let built = buildPath()
-        _pathCache = built
+        _pathCache = built.map(WeakPathNode.init)
         return built
     }
 
@@ -295,7 +302,8 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
     open override func _onConstruct() throws {
         try super._onConstruct()
         guard eagerChildren else { return }
-        for child in children {
+        // Invalid factory output is a catchable construct failure, not a trap.
+        for child in try tryChildren().get() {
             try node(child).construct()
         }
     }
@@ -317,7 +325,9 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
     /// path caches, and publishes `TreeStructureChangedMessage(.removed, …)` (HIER-011).
     public func removeChild(_ child: TVM) {
         if rejectStructuralReentry() { return }
-        guard let idx = _children?.firstIndex(where: { $0 === child }) else { return }
+        // Materialize lazy children first, as every other flavor does. Invalid
+        // factory output traps here, as it does in the `children` accessor.
+        guard let idx = children.firstIndex(where: { $0 === child }) else { return }
         _children!.remove(at: idx)
         setHierarchicalParent(of: child, to: nil) // → PropertyChangedMessage
         hub.send(TreeStructureChangedMessage(
@@ -359,10 +369,15 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
 
         // Materialize both lists before mutation so a factory failure cannot
         // leave the child detached from its original parent.
-        if _children == nil { _ = children }
+        // Report invalid lazy factory output as a failure rather than trapping
+        // in the fail-fast `children` accessor (spec/18 §6).
+        if _children == nil, case .failure(let error) = tryChildren() {
+            return .failure(error)
+        }
         let oldParent = node(child).parent
-        if let oldParent, node(oldParent)._children == nil {
-            _ = node(oldParent).children
+        if let oldParent, node(oldParent)._children == nil,
+           case .failure(let error) = node(oldParent).tryChildren() {
+            return .failure(error)
         }
         let oldIndex = oldParent.flatMap { parent in
             node(parent)._children?.firstIndex(where: { $0 === child })
@@ -502,9 +517,16 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
                     continue
                 }
 
-                // After selector evaluation, Swift's addChild path is
-                // non-throwing; fallible flavors wrap and roll back this step.
-                node(parent).addChild(candidate.item)
+                // addChild validates before mutating, so a failure leaves the
+                // links unchanged; record it and continue the batch (spec/18 §6).
+                if case .failure = node(parent).addChild(candidate.item) {
+                    rejections.append(BatchAttachRejection(
+                        item: candidate.item,
+                        reason: .attachmentFailed
+                    ))
+                    progressed = true
+                    continue
+                }
                 existing[candidate.key] = candidate.item
                 added.append(candidate.item)
                 progressed = true
@@ -653,5 +675,14 @@ open class HierarchicalVM<TModel, TVM: AnyObject>: ComponentVMBase {
             node(kid)._pathCache = nil
             invalidatePathCacheDescendants(of: kid)
         }
+    }
+}
+
+/// A weak reference to one node of a cached hierarchical path.
+struct WeakPathNode<Node: AnyObject> {
+    weak var value: Node?
+
+    init(_ value: Node) {
+        self.value = value
     }
 }

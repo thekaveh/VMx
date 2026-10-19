@@ -61,6 +61,9 @@ paging, and notifications, which applications cannot reach. The public
 - `history()` callers see a deprecation warning and an empty result. The crate
   is unpublished (#67) and the change ships in the unreleased 0.31.0, as its
   changelog records.
+- Before this change, the benchmark memory probe measured growth of 1,648,354
+  bytes and a history of 15,005 messages on a Rust hub, and failed. After it,
+  the probe requires a history size of zero.
 
 ## 4. Rejected alternatives
 

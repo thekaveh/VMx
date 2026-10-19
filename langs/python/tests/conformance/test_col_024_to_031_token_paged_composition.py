@@ -264,9 +264,17 @@ async def test_COL_030_token_paged_auto_constructs_added_component_vms() -> None
         return ([child], None)
 
     sut = TokenPagedComposition(fetch_next=fetch, auto_construct_on_add=True)
+    constructed_at_reset: list[bool] = []
+    sut.on_collection_changed.subscribe(
+        lambda e: constructed_at_reset.append(child.is_constructed) if e.action == "reset" else None
+    )
 
     await sut.load_more_command.execute_async()
 
+    assert constructed_at_reset, "subscribers must observe the reset event"
+    assert constructed_at_reset == [True] * len(constructed_at_reset), (
+        "added component VMs are constructed before subscribers observe the reset"
+    )
     assert child.is_constructed is True
 
 

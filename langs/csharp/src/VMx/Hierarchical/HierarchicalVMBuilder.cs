@@ -17,7 +17,7 @@ namespace VMx.Hierarchical;
 /// <param name="Dispatcher">Dispatcher for async/background work.</param>
 /// <param name="Name">Optional VM name (defaults to <c>typeof(TVM).Name</c> when null).</param>
 /// <param name="Hint">Optional display hint string (defaults to empty).</param>
-/// <param name="EagerChildren">When true, the full subtree is materialized at construct time.</param>
+/// <param name="EagerChildren">When true, this node materializes and constructs its children at construct time (per node, spec/18 §4).</param>
 public sealed record HierarchicalVMConstructionContext<TModel, TVM>(
     TModel Model,
     Func<TVM, IEnumerable<TVM>> ChildrenFactory,

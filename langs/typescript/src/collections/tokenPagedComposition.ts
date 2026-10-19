@@ -87,7 +87,7 @@ export class TokenPagedComposition<TVM, TToken> {
     const generation = ++this.#operationGeneration;
     const page = await this.#fetchNext(this.#currentToken);
     if (!this.#isOperationCurrent(generation)) return;
-    this.#constructIfNeeded(page.items);
+    this.#constructIfNeeded(page.items, generation);
     if (!this.#isOperationCurrent(generation)) return;
     this.#items.push(...page.items);
     this.#currentToken = page.nextToken;
@@ -108,7 +108,7 @@ export class TokenPagedComposition<TVM, TToken> {
     // because its token addresses items the accumulator already holds.
     const sameLength = page.items.length === this.#items.length;
     const retain = headMatches && (sameLength || (page.items.length > 0 && page.nextToken !== null));
-    if (!retain) this.#constructIfNeeded(page.items);
+    if (!retain) this.#constructIfNeeded(page.items, generation);
     if (!this.#isOperationCurrent(generation)) return;
     if (!retain) this.#items = [...page.items];
     if (!retain || sameLength) this.#currentToken = page.nextToken;
@@ -121,9 +121,13 @@ export class TokenPagedComposition<TVM, TToken> {
     return !this.#disposed && generation === this.#operationGeneration;
   }
 
-  #constructIfNeeded(items: readonly TVM[]): void {
+  #constructIfNeeded(items: readonly TVM[], generation: number): void {
     if (!this.#autoConstructOnAdd) return;
     for (const item of items) {
+      // A hook (pagesEqual or an item's construct) may dispose this
+      // composition or start a newer operation; stale work stops before it
+      // constructs anything else (spec/21 §6).
+      if (!this.#isOperationCurrent(generation)) return;
       if (item instanceof ComponentVMBase && !item.isConstructed) {
         item.construct();
       }

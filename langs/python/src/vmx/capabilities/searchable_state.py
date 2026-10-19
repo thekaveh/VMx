@@ -16,8 +16,8 @@ from reactivex.internal.exceptions import DisposedException
 from reactivex.scheduler import TimeoutScheduler
 from reactivex.subject import BehaviorSubject, Subject
 
+from vmx._disposal import _run_disposal_steps
 from vmx.capabilities.search import ISearchable
-from vmx.commands.relay_command import _run_disposal_steps
 
 T = TypeVar("T")
 

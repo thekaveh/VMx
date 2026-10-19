@@ -12,7 +12,7 @@ UI-backed flagship examples. CI verifies library coverage via
 | Prefix      | Area                                                 | File                                          |
 | ----------- | ---------------------------------------------------- | --------------------------------------------- |
 | `LIFE-NNN`  | Lifecycle state machine                              | `02-lifecycle.md`                             |
-| `DISP-NNN`  | Cross-cutting disposal invariant                     | `01-concepts.md`                              |
+| `DISP-NNN`  | Cross-cutting disposal invariant                     | `01-concepts.md` and the owning chapters      |
 | `HUB-NNN`   | Message hub                                          | `03-messages.md`                              |
 | `PROP-NNN`  | Property change notifications                        | `03-messages.md`                              |
 | `SUBV-NNN`  | SubscribeValue selected-state subscription           | `03-messages.md`                              |
@@ -313,6 +313,9 @@ outer transaction then sends `C`
 preserves the same synchronous guarantee
 **And** opposing cross-hub send, disposal, or batch callbacks complete without
 deadlock by escaping only the actual wait cycle
+
+The two cross-hub clauses apply to the multi-threaded flavors (C#, Python,
+Swift, Rust). TypeScript runs on one thread, so only the same-hub clauses apply.
 
 ______________________________________________________________________
 
@@ -1470,7 +1473,8 @@ delegate that resolves `true`
 **Given** a `RelayCommand` `relay` (records) wrapped by `ConfirmationDecoratorCommand`
 `conf` (confirm returns `true`) wrapped by `DecoratorCommand` `dec` (no pre/post,
 no extra predicate)
-**When** `dec.Execute()` is called and awaited
+**When** `dec.Execute()` is called (and its completion awaited where the
+flavor's confirmation runs asynchronously)
 **Then** `relay` records exactly one invocation
 
 ### CMDD-010 — ConfirmationDecoratorCommand surfaces fire-and-forget errors on `errors`
@@ -2550,6 +2554,9 @@ refreshed next token (COL-065 covers the branches that retain it)
 
 ### COL-031 — `PagedComposition<TVM>` observes composite collection changes
 
+Applies to C#, Python, TypeScript, and Swift. Rust `PagedComposition` takes a
+`Vec` source and does not observe it (chapter 21 §5.5).
+
 **Given** a finite `PagedComposition<TVM>` wrapping a `CompositeVM<TVM>` source
 **And** a property-changed subscriber
 **When** the composite source is mutated
@@ -3550,7 +3557,10 @@ optional `Strict(true)`, `Hub(hub)`, `Snapshotter(s)`
 
 **Given** a `FormVMBuilder<TM>` configured with only `Initial(m0)` + `Persister(p)`
 **When** `.Build()` is called
-**Then** `form.Hub == NullMessageHub` (singleton equivalent for the flavor)
+**Then** the form uses the flavor's null message hub. A flavor that exposes the
+form's hub (Python, Rust) checks it against the null hub; a flavor that keeps it
+private (C#, TypeScript, Swift) cannot observe the default and checks only that
+the form builds and runs without a supplied hub
 **And** `form.Snapshot == m0` (the flavor default snapshotter is applied — chapter 20 §3)
 **And** `form.ApproveCommand.CanExecute() == true` regardless of `IsDirty`
 (strict defaults to `false`)

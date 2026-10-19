@@ -13,22 +13,24 @@ example that `make docs-check` compares with the source.
 
 NiceGUI elements have bindable properties. `bind_text_from` and its siblings
 follow a `BindableProperty` or `bindable_dataclass` attribute directly and fall
-back to a polling refresh loop for plain attributes. VMx view-models already
-publish each change on their hub, so the adapter subscribes there and pushes the
-change into the element: nothing polls, and the view-model stays the only
-source of the value.
+back to a polling refresh loop for plain attributes. VMx view-models
+publish each property change on their hub, so the adapter subscribes there and
+pushes the change into the element. Nothing polls, and the view-model stays the
+only source of the value. The hub never carries lifecycle `status` as a
+`PropertyChangedMessage`, so this path cannot observe `status`. Use the VM-local
+`property_changed` stream for status, as the [Textual recipe](textual.md) does.
 
 ## 9.6.2. Mapping
 
-| NiceGUI                                       | VMx                                                             |
-| --------------------------------------------- | --------------------------------------------------------------- |
-| element attribute (`label.text`, …)           | `bind_property`: a hub `PropertyChangedMessage` re-reads the VM |
-| `ui.input` value + `on_value_change`          | `bind_property_two_way`, without echoes                         |
-| `ui.button(on_click=…)` + `set_enabled`       | `bind_command`: `execute()`, enabled follows `can_execute()`    |
-| page-local `@ui.refreshable` builder          | `bind_refreshable` on a collection's change stream              |
-| `app.on_startup` (async handlers not awaited) | capture the running loop: `RxDispatcher.asyncio(loop)`          |
-| `client.on_delete`                            | release the page's bindings                                     |
-| `app.on_shutdown` (awaited)                   | release pages, dispose the VMs, shut down the dispatcher pool   |
+| NiceGUI                                       | VMx                                                                             |
+| --------------------------------------------- | ------------------------------------------------------------------------------- |
+| element attribute (`label.text`, …)           | `bind_property`: a hub `PropertyChangedMessage` re-reads the VM; never `status` |
+| `ui.input` value + `on_value_change`          | `bind_property_two_way`, without echoes                                         |
+| `ui.button(on_click=…)` + `set_enabled`       | `bind_command`: `execute()`, enabled follows `can_execute()`                    |
+| page-local `@ui.refreshable` builder          | `bind_refreshable` on a collection's change stream                              |
+| `app.on_startup` (async handlers not awaited) | capture the running loop: `RxDispatcher.asyncio(loop)`                          |
+| `client.on_delete`                            | release the page's bindings                                                     |
+| `app.on_shutdown` (awaited)                   | release pages, dispose the VMs, shut down the dispatcher pool                   |
 
 ## 9.6.3. Adapter skeleton
 
@@ -197,6 +199,7 @@ def _editor_pane(workspace: WorkspaceVM) -> list[DisposableBase]:
     form = workspace.note_form
     with ui.column().classes("grow"):
         title = ui.input("Title").classes("w-full").mark("note-title")
+        title_error = ui.label().classes("text-negative").mark("title-error")
         body = ui.textarea("Body").classes("w-full").mark("note-body")
         with ui.row():
             save = ui.button("Save").mark("save")
@@ -204,6 +207,7 @@ def _editor_pane(workspace: WorkspaceVM) -> list[DisposableBase]:
             dirty = ui.label().mark("dirty")
     return [
         bind_property_two_way(title, form, "title", text),
+        bind_property(title_error, "text", form, "title_error", _error_text),
         bind_property_two_way(body, form, "body", text),
         bind_command(save, form.approve_command),
         bind_command(revert, form.deny_command),

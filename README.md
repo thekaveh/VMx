@@ -113,17 +113,11 @@ pip install vmx
 uv add vmx
 ```
 
-**Swift** (SwiftPM) — add the package to `Package.swift`:
+**Swift** (SwiftPM) — add the package to `Package.swift` and depend on
+`.product(name: "VMx", package: "vmx")`:
 
 ```swift
-dependencies: [
-    .package(url: "https://github.com/thekaveh/VMx.git", from: "3.24.0")
-],
-targets: [
-    .target(name: "MyApp", dependencies: [
-        .product(name: "VMx", package: "vmx")
-    ])
-]
+.package(url: "https://github.com/thekaveh/VMx.git", from: "3.24.0")
 ```
 
 **C#** (source checkout; `dotnet add package VMx` applies after the first
@@ -149,8 +143,8 @@ To try an unreleased TypeScript source line, pack the sources as described in
 cargo add vmx-rs --path ../VMx/langs/rust
 ```
 
-[Installation](docs/content/installation.md) repeats these steps per flavor,
-with platform floors and upgrade notes.
+[Installation](docs/content/installation.md) lists every install option per
+flavor, including source checkouts, with minimum runtimes and upgrade notes.
 
 ### 3.2 First steps
 
@@ -188,8 +182,8 @@ own smaller scenario.
 - [React](examples/typescript/react/notes-showcase/) (React 19 + Vite):
   `npm --prefix examples/typescript/react/notes-showcase ci`, then
   `npm --prefix examples/typescript/react/notes-showcase run dev`
-- [SwiftUI](examples/swift/notes-showcase/) (macOS with Xcode):
-  `swift test --package-path examples/swift/notes-showcase`
+- [SwiftUI](examples/swift/notes-showcase/) (macOS with Xcode), scenario
+  tests: `swift test --package-path examples/swift/notes-showcase`
 - [Ratatui](examples/rust/tui/notes-showcase/) (Rust terminal UI):
   `cargo run --locked --manifest-path examples/rust/tui/notes-showcase/Cargo.toml -- --smoke`
 
@@ -266,50 +260,17 @@ implements (`MinSpecVersion` in C#, `__min_spec_version__` in Python,
 `__minSpecVersion__` in TypeScript, `VMxVersion.minSpecVersion` in Swift,
 `MIN_SPEC_VERSION` in Rust). A
 spec major bump triggers a major bump in every active flavor; a spec minor bump
-(like v2.1.0) is fully backwards compatible and ships in flavors as a minor
-bump.
+is fully backwards compatible and ships in flavors as a minor bump.
 
 ### 6.2 Spec and flavor compatibility
 
-This summary preserves source-line history, including lines that were never
-published; a row does not by itself claim that packages or tags were
-published. The published packages are Python 3.23.0, Swift 3.24.0,
-TypeScript 3.30.0, and React adapter 0.1.1 ([§2](#2-availability)). The
-[`compatibility-matrix.md`](compatibility-matrix.md) ledger is canonical for
-released compatibility plus the current in-development line.
-
-| spec   | csharp        | python        | typescript    | swift          | rust          |
-| ------ | ------------- | ------------- | ------------- | -------------- | ------------- |
-| 3.29.x | 3.29.0        | 3.29.0        | 3.30.0        | 3.30.0         | 0.35.0        |
-| 3.28.x | 3.28.0        | 3.28.0        | 3.29.0        | 3.29.0         | 0.34.0        |
-| 3.27.x | 3.27.0        | 3.27.0        | 3.28.0        | 3.28.0         | 0.33.0        |
-| 3.26.x | 3.26.0        | 3.26.0        | 3.27.0        | 3.27.0         | 0.32.0        |
-| 3.25.x | 3.25.0        | 3.25.0        | 3.26.0        | 3.26.0         | 0.31.0        |
-| 3.24.x | 3.24.0        | 3.24.0        | 3.25.0        | 3.25.0         | 0.30.0        |
-| 3.23.x | 3.23.0        | 3.23.0–3.23.3 | 3.24.0–3.24.1 | 3.24.0         | 0.29.0        |
-| 3.22.x | 3.22.0–3.22.1 | 3.22.0–3.22.1 | 3.23.0–3.23.1 | 3.22.0–3.23.0  | 0.25.0–0.26.0 |
-| 3.20.x | 3.20.0–3.20.1 | 3.20.0–3.20.1 | 3.20.0–3.21.1 | 3.20.0–3.20.1  | 0.20.0–0.22.0 |
-| 3.19.x | 3.19.0        | 3.19.0        | 3.19.0        | 3.19.0         | 0.19.0        |
-| 3.18.x | 3.18.0        | 3.18.0        | 3.18.0        | 3.18.0         | 0.18.0        |
-| 3.17.x | 3.17.0        | 3.17.0        | 3.17.0        | 3.17.0         | 0.17.0        |
-| 3.16.x | 3.16.0        | 3.16.0        | 3.16.0        | 3.16.0         | 0.16.0        |
-| 3.15.x | 3.15.0        | 3.15.0        | 3.15.0        | 3.15.0         | 0.15.0        |
-| 3.14.x | 3.14.0        | 3.14.0        | 3.14.0        | 3.14.0         | 0.14.0        |
-| 3.13.x | 3.13.0        | 3.13.0        | 3.13.0        | 3.13.0         | 0.13.0        |
-| 3.3.x  | 3.3.0         | 3.3.0         | 3.3.0         | 3.3.0          | 0.3.0         |
-| 3.2.x  | 3.2.0         | 3.2.0         | 3.2.0         | 3.2.0          | 0.2.0         |
-| 3.1.x  | 3.1.0         | 3.1.0         | 3.1.0         | 3.1.0          | 0.1.0         |
-| 2.6.x  | 2.6.0         | 2.6.1         | 2.6.0         | 2.6.0 (subset) | —             |
-| 2.4.x  | 2.4.0         | 2.4.0         | 2.4.0         | 2.4.0 (subset) | —             |
-| 2.3.x  | 2.3.0         | 2.3.0         | 2.3.0         | —              | —             |
-| 2.2.x  | 2.2.0         | 2.2.0         | 2.2.0         | —              | —             |
-| 2.1.x  | 2.1.0         | 2.1.0         | 2.1.0         | —              | —             |
-| 2.0.x  | 2.0.0         | 2.0.0         | 2.0.0         | —              | —             |
-| 1.0.x  | 1.0.0         | 1.0.0         | —             | —              | —             |
+Every flavor's source line implements spec 3.29.0.
+[`compatibility-matrix.md`](compatibility-matrix.md) is the canonical ledger of
+released versions and the spec version each implements.
 
 ### 6.3 Conformance catalog
 
-`spec/` holds 24 chapters, 145 ADRs, 4 JSON fixtures, and the conformance
+`spec/` holds 24 chapters, 149 ADRs, 4 JSON fixtures, and the conformance
 catalog in `spec/12-conformance.md`. All five flavors implement its
 425 library conformance IDs, and the four UI-backed flagship apps cover
 5 additional THEME scenario IDs, for **430 total**. Rust has no UI scenario
@@ -335,7 +296,7 @@ python3 tools/check-conformance-coverage.py
 .
 ├── spec/                  language-neutral specification (source of truth)
 │   ├── 00-overview.md ... 23-async-resource-vm.md  (24 chapters)
-│   ├── ADRs/              architecture decision records (0001..0145)
+│   ├── ADRs/              architecture decision records (0001..0149)
 │   ├── fixtures/          JSON test inputs shared across flavors
 │   ├── schemas/           versioned supporting machine contracts
 │   ├── proposals/         mostly historical; scenario contracts may be normative
@@ -346,11 +307,16 @@ python3 tools/check-conformance-coverage.py
 │   ├── typescript/        @thekaveh/vmx (npm)
 │   ├── swift/             VMx Swift package (SwiftPM)
 │   └── rust/              vmx-rs crate
+├── packages/
+│   └── react/             @thekaveh/vmx-react React adapter (npm)
 ├── examples/              runnable example apps per flavor
+├── benchmarks/            benchmark harnesses and committed baselines
 ├── docs/content/getting-started/  per-flavor quickstart tutorials
 ├── docs/content/integration/      one-page UI-framework integration recipes
 ├── docs/maintenance/      maintenance run ledgers and audit records
 ├── tools/                 cross-cutting scripts (conformance coverage)
+├── scripts/docs/          documentation build and check scripts
+├── tests/docs/            documentation contract tests
 ├── assets/                architecture + class diagrams, notes-showcase assets
 ├── .github/               issue/PR templates + CI workflows
 └── compatibility-matrix.md
@@ -380,7 +346,7 @@ This README is the entry point; the documents below add focused detail.
   community guidelines.
 - [`compatibility-matrix.md`](compatibility-matrix.md) — spec ↔ flavor
   version pairing.
-- [`spec/README.md`](spec/README.md) — index of the 24 chapters, 145 ADRs,
+- [`spec/README.md`](spec/README.md) — index of the 24 chapters, 149 ADRs,
   4 fixtures, and the 430-ID conformance catalog.
 - [`spec/ADRs/README.md`](spec/ADRs/README.md) — ADR catalogue index.
 - [`docs/audit/README.md`](docs/audit/README.md) — index of historical
@@ -397,6 +363,13 @@ This README is the entry point; the documents below add focused detail.
   [`langs/typescript/README.md`](langs/typescript/README.md),
   [`langs/swift/README.md`](langs/swift/README.md),
   [`langs/rust/README.md`](langs/rust/README.md).
+- React adapter: [`packages/react/README.md`](packages/react/README.md)
+  (usage), [`packages/react/CHANGELOG.md`](packages/react/CHANGELOG.md)
+  (release history), and
+  [`packages/react/RELEASING.md`](packages/react/RELEASING.md) (npm release
+  runbook).
+- [`benchmarks/README.md`](benchmarks/README.md) — benchmark method, commands,
+  and baselines.
 - Per-flavor CHANGELOGs (release history):
   [`langs/csharp/CHANGELOG.md`](langs/csharp/CHANGELOG.md),
   [`langs/python/CHANGELOG.md`](langs/python/CHANGELOG.md),

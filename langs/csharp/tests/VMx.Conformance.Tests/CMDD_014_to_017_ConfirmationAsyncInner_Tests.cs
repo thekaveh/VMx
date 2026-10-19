@@ -346,6 +346,33 @@ public sealed class CMDD_014_to_017_ConfirmationAsyncInner_Tests
         relay.Runs.Should().Be(1);
     }
 
+    /// <summary>CMDD-016: an inner already executing before the call disables the
+    /// decorator through <c>CanExecute</c>, so neither entry point invokes
+    /// <c>confirm</c>.</summary>
+    [Fact, Trait("Conformance", "CMDD-016")]
+    public async Task CMDD_016_Inner_Executing_Before_The_Call_Disables_The_Decorator()
+    {
+        var relay = new GatedRelay();
+        var confirms = 0;
+        using var decorator = new ConfirmationDecoratorCommand(relay.Command, () =>
+        {
+            Interlocked.Increment(ref confirms);
+            return Task.FromResult(true);
+        });
+
+        var direct = relay.Command.ExecuteAsync();
+        await relay.Entered;
+        decorator.CanExecute(null).Should().BeFalse();
+
+        await decorator.ExecuteAsync(null).WaitAsync(HangGuard);
+        decorator.Execute(null);
+
+        Volatile.Read(ref confirms).Should().Be(0);
+        relay.Runs.Should().Be(1);
+        relay.Release.SetResult();
+        await direct.WaitAsync(HangGuard);
+    }
+
     /// <summary>CMDD-016: cancelling the inner while an awaited decorator call is in
     /// flight gives the awaiter the inner's own outcome: normal completion by
     /// default, or the inner's cancellation exception, the same instance, under

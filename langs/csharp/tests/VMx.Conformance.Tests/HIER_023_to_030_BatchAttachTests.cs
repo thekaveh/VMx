@@ -14,15 +14,18 @@ public class HIER_023_to_030_BatchAttachTests
         public string? ParentKey { get; } = parentKey;
     }
 
-    private sealed class Node(string key, string? parentKey = null)
+    private sealed class Node(string key, string? parentKey = null, bool faultyFactory = false)
         : HierarchicalVM<Model, Node>(
             new Model(key, parentKey),
-            _ => [],
+            ChildrenFactory(faultyFactory),
             new TestHub(),
             new TestDispatcher(),
             key)
     {
         public override ViewModelType Type => ViewModelType.Component;
+
+        private static Func<Node, IEnumerable<Node>> ChildrenFactory(bool faulty) =>
+            faulty ? _ => throw new InvalidOperationException("children factory failed") : _ => [];
     }
 
     private static BatchAttachResult<Node> Attach(
@@ -166,6 +169,26 @@ public class HIER_023_to_030_BatchAttachTests
             _ => throw new InvalidOperationException("bad key"),
             _ => BatchParentKey<string>.Root);
         failed.Rejections.Single().Reason.Should().Be(BatchAttachRejectionReason.SelectorFailed);
+    }
+
+    [Fact]
+    [Trait("Conformance", "HIER-029")]
+    public void HIER_029_Attachment_Failure_Is_Reported_Without_Aborting_The_Batch()
+    {
+        var root = new Node("root", faultyFactory: true);
+        var first = new Node("first");
+        var second = new Node("second");
+
+        var result = root.AttachMany(
+            [first, second],
+            node => node.Model.Key,
+            _ => BatchParentKey<string>.Root);
+
+        result.Added.Should().BeEmpty();
+        result.Rejections.Select(r => r.Item).Should().Equal(first, second);
+        result.Rejections.Should().OnlyContain(r => r.Reason == BatchAttachRejectionReason.AttachmentFailed);
+        first.HierarchicalParent.Should().BeNull();
+        second.HierarchicalParent.Should().BeNull();
     }
 
     [Fact]

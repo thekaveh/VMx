@@ -1,4 +1,4 @@
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::sync::{Arc, Mutex};
 
 use vmx::{
@@ -12,27 +12,45 @@ use vmx::{
 #[derive(Default)]
 struct Fixture {
     expanded: Cell<bool>,
+    selected: Cell<bool>,
+    calls: RefCell<Vec<String>>,
+}
+
+impl Fixture {
+    fn record(&self, call: impl Into<String>) {
+        self.calls.borrow_mut().push(call.into());
+    }
+
+    fn calls(&self) -> Vec<String> {
+        self.calls.borrow().clone()
+    }
 }
 
 impl Selectable for Fixture {
     fn can_select(&self) -> bool {
         true
     }
-    fn select(&self) {}
+    fn select(&self) {
+        self.record("select");
+    }
 }
 
 impl Deselectable for Fixture {
     fn can_deselect(&self) -> bool {
         true
     }
-    fn deselect(&self) {}
+    fn deselect(&self) {
+        self.record("deselect");
+    }
 }
 
 impl SelectionTogglable for Fixture {
     fn can_toggle_selection(&self) -> bool {
         true
     }
-    fn toggle_selection(&self) {}
+    fn toggle_selection(&self) {
+        self.selected.set(!self.selected.get());
+    }
 }
 
 impl Expandable for Fixture {
@@ -44,6 +62,7 @@ impl Expandable for Fixture {
     }
     fn expand(&self) {
         self.expanded.set(true);
+        self.record("expand");
     }
 }
 
@@ -51,84 +70,108 @@ impl Collapsible for Fixture {
     fn can_collapse(&self) -> bool {
         true
     }
-    fn collapse(&self) {}
+    fn collapse(&self) {
+        self.record("collapse");
+    }
 }
 
 impl ExpansionTogglable for Fixture {
     fn can_toggle_expansion(&self) -> bool {
         true
     }
-    fn toggle_expansion(&self) {}
+    fn toggle_expansion(&self) {
+        self.expanded.set(!self.expanded.get());
+    }
 }
 
 impl Closable for Fixture {
     fn can_close(&self) -> bool {
         true
     }
-    fn close(&self) {}
+    fn close(&self) {
+        self.record("close");
+    }
 }
 
 impl Approvable for Fixture {
     fn can_approve(&self) -> bool {
         true
     }
-    fn approve(&self) {}
+    fn approve(&self) {
+        self.record("approve");
+    }
 }
 
 impl Cancelable for Fixture {
     fn can_cancel(&self) -> bool {
         true
     }
-    fn cancel(&self) {}
+    fn cancel(&self) {
+        self.record("cancel");
+    }
 }
 
 impl Savable<&'static str> for Fixture {
     fn can_save(&self, _item: &&'static str) -> bool {
         true
     }
-    fn save(&self, _item: &'static str) {}
+    fn save(&self, item: &'static str) {
+        self.record(format!("save:{item}"));
+    }
 }
 
 impl Managable<&'static str> for Fixture {
     fn can_manage(&self, _item: &&'static str) -> bool {
         true
     }
-    fn manage(&self, _item: &'static str) {}
+    fn manage(&self, item: &'static str) {
+        self.record(format!("manage:{item}"));
+    }
 }
 
 impl NewCreatable for Fixture {
     fn can_create_new(&self) -> bool {
         true
     }
-    fn create_new(&self) {}
+    fn create_new(&self) {
+        self.record("create_new");
+    }
 }
 
 impl Deletable<&'static str> for Fixture {
     fn can_delete(&self, _item: &&'static str) -> bool {
         true
     }
-    fn delete(&self, _item: &'static str) {}
+    fn delete(&self, item: &'static str) {
+        self.record(format!("delete:{item}"));
+    }
 }
 
 impl Updatable<&'static str> for Fixture {
     fn can_update(&self, _item: &&'static str) -> bool {
         true
     }
-    fn update(&self, _item: &'static str) {}
+    fn update(&self, item: &'static str) {
+        self.record(format!("update:{item}"));
+    }
 }
 
 impl CurrentDeletable for Fixture {
     fn can_delete_current(&self) -> bool {
         true
     }
-    fn delete_current(&self) {}
+    fn delete_current(&self) {
+        self.record("delete_current");
+    }
 }
 
 impl CurrentUpdatable for Fixture {
     fn can_update_current(&self) -> bool {
         true
     }
-    fn update_current(&self) {}
+    fn update_current(&self) {
+        self.record("update_current");
+    }
 }
 
 impl Constructable for Fixture {
@@ -177,6 +220,7 @@ fn selectable_contract() {
     let fixture = Fixture::default();
     assert!(fixture.can_select());
     fixture.select();
+    assert_eq!(fixture.calls(), ["select"]);
 }
 
 /// CAP-002 — IDeselectable contract
@@ -185,14 +229,20 @@ fn deselectable_contract() {
     let fixture = Fixture::default();
     assert!(fixture.can_deselect());
     fixture.deselect();
+    assert_eq!(fixture.calls(), ["deselect"]);
 }
 
 /// CAP-003 — ISelectionTogglable contract
 #[test]
 fn selection_togglable_contract() {
     let fixture = Fixture::default();
+    let initial = fixture.selected.get();
     assert!(fixture.can_toggle_selection());
     fixture.toggle_selection();
+    assert_ne!(fixture.selected.get(), initial);
+    assert!(fixture.can_toggle_selection());
+    fixture.toggle_selection();
+    assert_eq!(fixture.selected.get(), initial);
 }
 
 /// CAP-004 — IExpandable contract
@@ -211,14 +261,20 @@ fn collapsible_contract() {
     let fixture = Fixture::default();
     assert!(fixture.can_collapse());
     fixture.collapse();
+    assert_eq!(fixture.calls(), ["collapse"]);
 }
 
 /// CAP-006 — IExpansionTogglable contract
 #[test]
 fn expansion_togglable_contract() {
     let fixture = Fixture::default();
+    let initial = fixture.is_expanded();
     assert!(fixture.can_toggle_expansion());
     fixture.toggle_expansion();
+    assert_ne!(fixture.is_expanded(), initial);
+    assert!(fixture.can_toggle_expansion());
+    fixture.toggle_expansion();
+    assert_eq!(fixture.is_expanded(), initial);
 }
 
 /// CAP-007 — IClosable contract
@@ -227,6 +283,7 @@ fn closable_contract() {
     let fixture = Fixture::default();
     assert!(fixture.can_close());
     fixture.close();
+    assert_eq!(fixture.calls(), ["close"]);
 }
 
 /// CAP-008 — ISearchable contract
@@ -253,6 +310,7 @@ fn approvable_contract() {
     let fixture = Fixture::default();
     assert!(fixture.can_approve());
     fixture.approve();
+    assert_eq!(fixture.calls(), ["approve"]);
 }
 
 /// CAP-010 — ICancelable contract
@@ -261,6 +319,7 @@ fn cancelable_contract() {
     let fixture = Fixture::default();
     assert!(fixture.can_cancel());
     fixture.cancel();
+    assert_eq!(fixture.calls(), ["cancel"]);
 }
 
 /// CAP-011 — ISavable<T> contract
@@ -269,6 +328,7 @@ fn savable_contract() {
     let fixture = Fixture::default();
     assert!(fixture.can_save(&"a"));
     fixture.save("a");
+    assert_eq!(fixture.calls(), ["save:a"]);
 }
 
 /// CAP-012 — IManagable<T> contract
@@ -277,6 +337,7 @@ fn managable_contract() {
     let fixture = Fixture::default();
     assert!(fixture.can_manage(&"x"));
     fixture.manage("x");
+    assert_eq!(fixture.calls(), ["manage:x"]);
 }
 
 /// CAP-013 — INewCreatable contract
@@ -285,6 +346,7 @@ fn new_creatable_contract() {
     let fixture = Fixture::default();
     assert!(fixture.can_create_new());
     fixture.create_new();
+    assert_eq!(fixture.calls(), ["create_new"]);
 }
 
 /// CAP-014 — IDeletable<T> contract
@@ -293,6 +355,7 @@ fn deletable_contract() {
     let fixture = Fixture::default();
     assert!(fixture.can_delete(&"a"));
     fixture.delete("a");
+    assert_eq!(fixture.calls(), ["delete:a"]);
 }
 
 /// CAP-015 — IUpdatable<T> contract
@@ -301,6 +364,7 @@ fn updatable_contract() {
     let fixture = Fixture::default();
     assert!(fixture.can_update(&"a"));
     fixture.update("a");
+    assert_eq!(fixture.calls(), ["update:a"]);
 }
 
 /// CAP-016 — ICurrentDeletable contract
@@ -309,6 +373,7 @@ fn current_deletable_contract() {
     let fixture = Fixture::default();
     assert!(fixture.can_delete_current());
     fixture.delete_current();
+    assert_eq!(fixture.calls(), ["delete_current"]);
 }
 
 /// CAP-017 — ICurrentUpdatable contract
@@ -317,6 +382,7 @@ fn current_updatable_contract() {
     let fixture = Fixture::default();
     assert!(fixture.can_update_current());
     fixture.update_current();
+    assert_eq!(fixture.calls(), ["update_current"]);
 }
 
 /// CAP-018 — Lifecycle capability set
@@ -331,17 +397,73 @@ fn lifecycle_capability_set() {
 /// CAP-019 — A single VM may implement multiple capabilities
 #[test]
 fn single_type_may_implement_multiple_capabilities() {
+    // Rust has no runtime interface query; the trait-bound function below is
+    // the compile-time equivalent of "the type answers true for all five".
+    fn requires_all<T: Selectable + Expandable + Closable + Approvable + Cancelable>(_: &T) {}
     let fixture = Fixture::default();
+    requires_all(&fixture);
+
     assert!(fixture.can_select());
+    fixture.select();
+    assert_eq!(fixture.calls(), ["select"]);
     assert!(fixture.can_expand());
+    fixture.expand();
+    assert!(fixture.is_expanded());
+    assert_eq!(fixture.calls(), ["select", "expand"]);
     assert!(fixture.can_close());
+    fixture.close();
+    assert_eq!(fixture.calls(), ["select", "expand", "close"]);
     assert!(fixture.can_approve());
+    fixture.approve();
+    assert_eq!(fixture.calls(), ["select", "expand", "close", "approve"]);
     assert!(fixture.can_cancel());
+    fixture.cancel();
+    assert_eq!(
+        fixture.calls(),
+        ["select", "expand", "close", "approve", "cancel"]
+    );
+}
+
+/// Compile-time trait-implementation probe usable as a `bool` in a test.
+///
+/// Rust has no runtime interface query. An inherent associated const whose
+/// impl is bounded on the trait shadows the blanket trait const only when the
+/// bound holds, so `implements!(T: Trait)` evaluates to whether `T: Trait`.
+macro_rules! implements {
+    ($ty:ty: $capability:path) => {{
+        struct Probe<T>(std::marker::PhantomData<T>);
+        #[allow(dead_code)]
+        trait Fallback {
+            const IMPLEMENTS: bool = false;
+        }
+        impl<T> Fallback for Probe<T> {}
+        #[allow(dead_code)]
+        impl<T: $capability> Probe<T> {
+            const IMPLEMENTS: bool = true;
+        }
+        <Probe<$ty>>::IMPLEMENTS
+    }};
 }
 
 /// CAP-020 — Core VM types do NOT implement non-baseline capabilities by default
+///
+/// The six non-baseline capabilities are checked with the `implements!`
+/// compile-time probe (positive controls prove the probe is not vacuous).
 #[test]
 fn core_vm_types_do_not_implement_non_baseline_capabilities_by_default() {
+    type Bare = vmx::ComponentVm;
+    assert!(!implements!(Bare: Selectable));
+    assert!(!implements!(Bare: Expandable));
+    assert!(!implements!(Bare: Closable));
+    assert!(!implements!(Bare: NewCreatable));
+    assert!(!implements!(Bare: CurrentDeletable));
+    assert!(!implements!(Bare: Searchable));
+    assert!(implements!(Bare: Constructable));
+    assert!(implements!(Bare: Destructable));
+    assert!(implements!(Bare: Reconstructable));
+    assert!(implements!(Fixture: Selectable));
+    assert!(implements!(SearchableState<String>: Searchable));
+
     let component = vmx::ComponentVm::new("bare");
     assert!(!component.is_selected());
 

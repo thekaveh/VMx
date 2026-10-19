@@ -99,8 +99,19 @@ final class HierarchicalCompositionTests: XCTestCase {
         let apple  = SearchHierNode(model: HierModel(value: "apple"),
                                     childrenFactory: { _ in [] }, hub: hub,
                                     dispatcher: ImmediateDispatcher.INSTANCE)
+        // banana owns a lazy grandchild whose name also matches the search
+        // term; it is never accessed, so it must not appear in the results
+        // and its factory must not run (catalog: un-materialized children
+        // are excluded).
+        var lazyFactoryCalls = 0
         let banana = SearchHierNode(model: HierModel(value: "banana"),
-                                    childrenFactory: { _ in [] }, hub: hub,
+                                    childrenFactory: { _ in
+                                        lazyFactoryCalls += 1
+                                        return [SearchHierNode(
+                                            model: HierModel(value: "bandana"),
+                                            childrenFactory: { _ in [] }, hub: hub,
+                                            dispatcher: ImmediateDispatcher.INSTANCE)]
+                                    }, hub: hub,
                                     dispatcher: ImmediateDispatcher.INSTANCE)
         let cherry = SearchHierNode(model: HierModel(value: "cherry"),
                                     childrenFactory: { _ in [] }, hub: hub,
@@ -128,13 +139,23 @@ final class HierarchicalCompositionTests: XCTestCase {
 
         XCTAssertEqual(result.count, 1, "Only 'banana' should match 'an'")
         XCTAssertEqual(result.first?.model.value, "banana")
+        XCTAssertTrue(result.first === banana)
+        XCTAssertFalse(result.contains(where: { $0.model.value == "bandana" }),
+            "Un-materialized lazy grandchild must not be included")
+        XCTAssertEqual(lazyFactoryCalls, 0,
+            "Searching must not materialize banana's lazy children")
+
+        search.searchTerm = "e"
+        search.search()
+        XCTAssertEqual(result.map { $0.model.value }, ["apple", "cherry"])
+        XCTAssertEqual(lazyFactoryCalls, 0)
 
         search.dispose()
     }
 
     /// HIER-014 — ModeledCrudCommands composition mutates the HierarchicalVM tree:
     /// createNewCommand appends a child node; deleteCurrentCommand removes it.
-    func testHier014ModeledCrudCommandsMutatesTree() {
+    func testHier014ModeledCrudCommandsMutatesTree() throws {
         let hub = MessageHub()
         let root = CrudHierNode(
             model: HierModel(value: "root"),
@@ -166,12 +187,25 @@ final class HierarchicalCompositionTests: XCTestCase {
             }
         )
 
+        var treeMsgs: [TreeStructureChangedMessage] = []
+        var bag = Set<AnyCancellable>()
+        hub.messages.sink { msg in
+            if let m = msg as? TreeStructureChangedMessage { treeMsgs.append(m) }
+        }.store(in: &bag)
+
         // Create: createNewCommand adds a child and sets current.
         crud.createNewCommand.execute()
         XCTAssertEqual(root.children.count, 1,
             "createNewCommand must append a child to root")
         XCTAssertNotNil(currentHolder.value,
             "current must be set after createNewCommand")
+        let created = try XCTUnwrap(currentHolder.value)
+        XCTAssertTrue(root.children[0] === created)
+        XCTAssertEqual(treeMsgs.map(\.change), [.added],
+            "createNewCommand must publish one TreeStructureChangedMessage(.added)")
+        XCTAssertTrue(treeMsgs.first?.sender === root)
+        XCTAssertTrue(treeMsgs.first?.affected === created)
+        treeMsgs.removeAll()
 
         // Delete: deleteCurrentCommand removes current child and clears selection.
         crud.deleteCurrentCommand.execute()
@@ -179,6 +213,11 @@ final class HierarchicalCompositionTests: XCTestCase {
             "deleteCurrentCommand must remove the child from root")
         XCTAssertNil(currentHolder.value,
             "current must be cleared after deleteCurrentCommand")
+        XCTAssertEqual(treeMsgs.map(\.change), [.removed],
+            "deleteCurrentCommand must publish one TreeStructureChangedMessage(.removed)")
+        XCTAssertTrue(treeMsgs.first?.sender === root)
+        XCTAssertTrue(treeMsgs.first?.affected === created)
+        bag.removeAll()
 
         crud.dispose()
     }

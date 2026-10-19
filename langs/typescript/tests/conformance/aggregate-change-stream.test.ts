@@ -26,6 +26,9 @@ class CountedChanges {
   subscribeCount = 0;
   unsubscribeCount = 0;
   emitOnSubscribe = false;
+  /** Optional shared event log; records `detach:<label>` on unsubscribe. */
+  log: string[] | null = null;
+  label = "";
   readonly #subscribers: Subscriber<void>[] = [];
 
   readonly observable = new Observable<void>((subscriber) => {
@@ -36,6 +39,7 @@ class CountedChanges {
       const index = this.#subscribers.indexOf(subscriber);
       if (index >= 0) this.#subscribers.splice(index, 1);
       this.unsubscribeCount++;
+      this.log?.push(`detach:${this.label}`);
     };
   });
 
@@ -174,6 +178,30 @@ describe("AGCH-002", () => {
     expect(observed[1]?.item).toBe(synchronous);
     sut.dispose();
   });
+
+  it("discards a staged synchronous value emitted during initial construction", () => {
+    const eager = new Item("eager");
+    eager.changes.emitOnSubscribe = true;
+    const source = new TestSource(eager);
+
+    const sut = aggregate(source);
+    // The initial-construction value was observed by the aggregate's own
+    // subscription but is pre-existing state: nothing is replayed.
+    expect(eager.changes.subscribeCount).toBe(1);
+    const plain: AggregateChange<Item>[] = [];
+    const seeded: AggregateChange<Item>[] = [];
+    sut.observe().subscribe((change) => plain.push(change));
+    sut.observe({ emitInitial: true }).subscribe((change) => seeded.push(change));
+
+    expect(plain).toEqual([]);
+    // No replayable Membership; only the subscriber-local Initial readiness.
+    expect(reasons(seeded)).toEqual([AggregateChangeReason.Initial]);
+
+    // A later live value from the same epoch is delivered normally.
+    eager.changes.emit();
+    expect(plain).toEqual([{ reason: AggregateChangeReason.Item, item: eager }]);
+    sut.dispose();
+  });
 });
 
 describe("AGCH-003", () => {
@@ -225,6 +253,53 @@ describe("AGCH-004", () => {
   });
 });
 
+describe("AGCH-004", () => {
+  it("detaches a live zero-refcount identity before Membership; positive-refcount Replace keeps it", () => {
+    const log: string[] = [];
+    const live = new Item("live");
+    const kept = new Item("kept");
+    const other = new Item("other");
+    for (const item of [live, kept, other]) {
+      item.changes.log = log;
+      item.changes.label = item.name;
+    }
+    const source = new ServicedObservableCollection<Item>();
+    source.push(live);
+    source.push(kept);
+    source.push(kept);
+    const sut = aggregate(source);
+    const observed: AggregateChange<Item>[] = [];
+    sut.observe().subscribe((change) => {
+      observed.push(change);
+      log.push(change.reason);
+    });
+
+    // Replace one occurrence of `kept` (refcount 2 -> 1): epoch stays active.
+    source.replace(2, other);
+    expect(kept.changes.unsubscribeCount).toBe(0);
+    expect(kept.changes.subscribeCount).toBe(1);
+    expect(log).toEqual([AggregateChangeReason.Membership]);
+    log.length = 0;
+
+    // Remove the live (never-completed) identity: refcount reaches zero, so
+    // its subscription is detached BEFORE the Membership event.
+    const captured = live.changes;
+    source.remove(live);
+    expect(log).toEqual(["detach:live", AggregateChangeReason.Membership]);
+    log.length = 0;
+
+    // Later callbacks from that epoch produce no Item.
+    const before = observed.length;
+    captured.emit();
+    expect(observed.length).toBe(before);
+
+    // The retained `kept` epoch still delivers.
+    kept.changes.emit();
+    expect(observed.at(-1)).toEqual({ reason: AggregateChangeReason.Item, item: kept });
+    sut.dispose();
+  });
+});
+
 describe("AGCH-005", () => {
   it("transactionally rebuilds keyed Reset membership while retaining identity", () => {
     const first = new Item("first");
@@ -259,13 +334,23 @@ describe("AGCH-006", () => {
     const observed: AggregateChange<Item>[] = [];
     sut.observe().subscribe((change) => observed.push(change));
 
+    const log: string[] = [];
+    item.changes.log = log;
+    item.changes.label = "duplicate";
+    sut.observe().subscribe((change) => log.push(change.reason));
+
     expect(item.changes.subscribeCount).toBe(1);
     item.changes.emit();
     expect(reasons(observed)).toEqual([AggregateChangeReason.Item]);
+    log.length = 0;
     source.remove(item);
     expect(item.changes.unsubscribeCount).toBe(0);
+    expect(log).toEqual([AggregateChangeReason.Membership]);
+    log.length = 0;
     source.remove(item);
     expect(item.changes.unsubscribeCount).toBe(1);
+    // The one subscription is detached before Membership is delivered.
+    expect(log).toEqual(["detach:duplicate", AggregateChangeReason.Membership]);
     sut.dispose();
   });
 });

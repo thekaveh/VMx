@@ -235,7 +235,8 @@ export class NotificationVM {
   }
 
   #dismiss(): void {
-    if (this.#isResolved) return;
+    // A disposed VM's later resolution paths are inert (DISP-004).
+    if (this.#disposed || this.#isResolved) return;
     this.#isResolved = true;
     this.#timerHandle?.unsubscribe();
     this.#timerHandle = null;
@@ -246,7 +247,7 @@ export class NotificationVM {
   }
 
   #resolveWith(reaction: NotificationReaction): void {
-    if (this.#isResolved) return;
+    if (this.#disposed || this.#isResolved) return;
     this.#isResolved = true;
     this.#timerHandle?.unsubscribe();
     this.#timerHandle = null;

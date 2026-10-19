@@ -23,7 +23,7 @@ def build_seed() -> tuple[list[NotebookModel], list[NoteModel]]:
         NotebookModel(id="nb-specs", name="Specs", parent_id="nb-work"),
         NotebookModel(id="nb-reviews", name="Reviews", parent_id=None),
         NotebookModel(id="nb-personal", name="Personal", parent_id=None),
-        NotebookModel(id="nb-archive", name="Archive", parent_id=None),
+        NotebookModel(id="nb-archive", name="Archive", parent_id=None, is_readonly=True),
     ]
 
     notes: list[NoteModel] = []

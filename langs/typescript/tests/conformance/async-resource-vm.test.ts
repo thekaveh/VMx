@@ -111,6 +111,51 @@ describe("AsyncResourceVM conformance", () => {
   });
 
   describe("ARES-003", () => {
+    it("treats a loader result that is not a promise as a failure", async () => {
+      const vm = new AsyncResourceVM<number>({
+        name: "resource",
+        hub: new MessageHub(),
+        dispatcher: NullDispatcher.INSTANCE,
+        loader: (() => undefined) as unknown as () => Promise<number>,
+      });
+      vm.construct();
+
+      await vm.load();
+
+      expect(vm.state.status).toBe(AsyncResourceStatus.Error);
+      vm.dispose();
+    });
+
+    it("adopts a non-native thenable and fails a thenable whose then throws", async () => {
+      const make = (loader: () => PromiseLike<number>) =>
+        new AsyncResourceVM<number>({
+          name: "resource",
+          hub: new MessageHub(),
+          dispatcher: NullDispatcher.INSTANCE,
+          loader: loader as unknown as () => Promise<number>,
+        });
+      const adopted = make(() => ({
+        then(resolve?: ((value: number) => unknown) | null) {
+          resolve?.(7);
+          return undefined as unknown as PromiseLike<never>;
+        },
+      }));
+      adopted.construct();
+      await adopted.load();
+      expect(adopted.state.status).toBe(AsyncResourceStatus.Ready);
+      adopted.dispose();
+
+      const throwing = make(() => ({
+        then(): PromiseLike<never> {
+          throw new Error("boom");
+        },
+      }));
+      throwing.construct();
+      await throwing.load();
+      expect(throwing.state.status).toBe(AsyncResourceStatus.Error);
+      throwing.dispose();
+    });
+
     it("routes fire-and-forget loader failure only into error state", async () => {
       const failure = new Error("offline");
       const vm = new AsyncResourceVM<number>({
@@ -272,14 +317,62 @@ describe("AsyncResourceVM conformance", () => {
         },
       });
 
+      const notifications: string[] = [];
+      vm.propertyChanged.subscribe((name) => notifications.push(`prop:${name}`));
+      for (const [label, command] of [
+        ["load", vm.loadCommand],
+        ["reload", vm.reloadCommand],
+        ["cancel", vm.cancelCommand],
+      ] as const) {
+        command.canExecuteChanged.subscribe(() => notifications.push(`cmd:${label}`));
+      }
+
       const older = vm.load();
       const newer = vm.reload();
       expect(signals[0]?.aborted).toBe(true);
+      expect(signals[1]?.aborted).toBe(false);
+      const beforeOlder = notifications.length;
       first.resolve(1);
       await older;
+      await flush();
+      // The older completion causes no state or command notification.
+      expect(notifications.length).toBe(beforeOlder);
       expect(vm.state.status).toBe(AsyncResourceStatus.Loading);
       second.resolve(2);
       await newer;
+      expect(vm.state).toEqual({ status: AsyncResourceStatus.Ready, value: 2 });
+    });
+
+    it("ignores an older failure settling after the newer success", async () => {
+      const first = deferred<number>();
+      const second = deferred<number>();
+      let attempt = 0;
+      const vm = new AsyncResourceVM<number>({
+        name: "resource",
+        hub: new MessageHub(),
+        dispatcher: NullDispatcher.INSTANCE,
+        loader: () => {
+          attempt += 1;
+          return attempt === 1 ? first.promise : second.promise;
+        },
+      });
+      const notifications: string[] = [];
+      vm.propertyChanged.subscribe((name) => notifications.push(`prop:${name}`));
+      for (const command of [vm.loadCommand, vm.reloadCommand, vm.cancelCommand]) {
+        command.canExecuteChanged.subscribe(() => notifications.push("cmd"));
+      }
+
+      const older = vm.load();
+      const newer = vm.reload();
+      second.resolve(2);
+      await newer;
+      await flush();
+      const afterNewer = notifications.length;
+      first.reject(new Error("older failure"));
+      await older;
+      await flush();
+
+      expect(notifications.length).toBe(afterNewer);
       expect(vm.state).toEqual({ status: AsyncResourceStatus.Ready, value: 2 });
     });
   });
@@ -336,6 +429,36 @@ describe("AsyncResourceVM conformance", () => {
       vm.dispose();
       vm.dispose();
       expect(cleaned).toEqual([1, 2]);
+    });
+
+    it("without cleanup never implicitly disposes a value", async () => {
+      class Owned {
+        disposeCount = 0;
+        constructor(readonly id: number) {}
+        dispose(): void {
+          this.disposeCount += 1;
+        }
+      }
+      const produced: Owned[] = [];
+      const vm = new AsyncResourceVM<Owned>({
+        name: "resource",
+        hub: new MessageHub(),
+        dispatcher: NullDispatcher.INSTANCE,
+        retention: AsyncResourceRetention.RetainPrevious,
+        loader: () => {
+          const owned = new Owned(produced.length + 1);
+          produced.push(owned);
+          return Promise.resolve(owned);
+        },
+      });
+
+      await vm.load();
+      await vm.reload();
+      vm.dispose();
+      vm.dispose();
+
+      expect(produced).toHaveLength(2);
+      expect(produced.map((o) => o.disposeCount)).toEqual([0, 0]);
     });
   });
 

@@ -74,25 +74,52 @@ fn remove_emits_collection_changed_remove() {
     let composite = vmx::CompositeVm::with_services("root", hub.clone(), NullDispatcher::new());
     let item = child("a");
     composite.add(item.clone()).unwrap();
+    let composite_id = composite.id();
+    let before = recorder.messages().len();
 
     composite.remove(&item).unwrap();
 
-    assert!(collection_actions(&recorder).contains(&CollectionChangeAction::Remove));
+    // Rust's CollectionChangedMessage carries no item payload; the removed
+    // identity is observed through membership and the parent link.
+    let changes = recorder.messages()[before..]
+        .iter()
+        .filter_map(|message| match message {
+            Message::CollectionChanged(change) if change.sender_id == composite_id => {
+                Some((change.action.clone(), change.old_index))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(changes, vec![(CollectionChangeAction::Remove, Some(0))]);
+    assert!(composite.is_empty());
     assert_eq!(item.parent_id(), None);
 }
 
 /// COMP-003 — select_component sets Current
 #[test]
 fn select_component_sets_current_and_child_current_flag() {
-    let composite = vmx::CompositeVm::new("root");
-    let item = child("a");
+    let hub = MessageHub::new();
+    let composite = vmx::CompositeVm::with_services("root", hub.clone(), NullDispatcher::new());
+    let item = Child::with_model("a", "a", hub.clone(), NullDispatcher::new());
     composite.add(item.clone()).unwrap();
     item.construct().unwrap();
+    assert_eq!(composite.current(), None);
+    let recorder = hub.record(1024);
 
     composite.select_component(&item).unwrap();
 
     assert_eq!(composite.current(), Some(item.clone()));
     assert!(item.is_current());
+    let changes = recorder
+        .messages()
+        .into_iter()
+        .filter_map(|message| match message {
+            Message::PropertyChanged(change) => Some((change.sender_id, change.property_name)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(changes.contains(&(composite.id(), "current".to_string())));
+    assert!(changes.contains(&(item.id(), "is_current".to_string())));
 }
 
 /// COMP-004 — Construct waits until all children reach Constructed
@@ -144,15 +171,21 @@ fn parent_reaches_constructed_only_after_children() {
 fn destruct_clears_current_and_destructs_children() {
     let composite = vmx::CompositeVm::new("root");
     let item = child("a");
+    let sibling = child("b");
     composite.add(item.clone()).unwrap();
+    composite.add(sibling.clone()).unwrap();
     composite.construct().unwrap();
     composite.select_component(&item).unwrap();
+    assert_eq!(item.status(), ConstructionStatus::Constructed);
+    assert_eq!(sibling.status(), ConstructionStatus::Constructed);
 
     composite.destruct().unwrap();
 
     assert_eq!(composite.current(), None);
     assert_eq!(item.status(), ConstructionStatus::Destructed);
+    assert_eq!(sibling.status(), ConstructionStatus::Destructed);
     assert!(!item.is_current());
+    assert_eq!(composite.status(), ConstructionStatus::Destructed);
 }
 
 /// COMP-006 — IsCurrent change on the previously-Current child dispatches on foreground
@@ -227,7 +260,14 @@ fn can_select_component_false_for_non_child() {
     let item = child("outside");
     item.construct().unwrap();
 
+    let member = child("inside");
+    composite.add(member.clone()).unwrap();
+    member.construct().unwrap();
+
     assert!(!composite.can_select_component(&item));
+    assert_eq!(composite.select_component(&item), Err(VmxError::NonChild));
+    assert_eq!(composite.current(), None);
+    assert!(!item.is_current());
 }
 
 /// COMP-009 — Current setter raises when assigned a non-child
@@ -351,6 +391,21 @@ fn auto_construct_on_add_constructs_late_child_before_event() {
     composite.set_auto_construct_on_add(true);
     composite.construct().unwrap();
     let item = child("late");
+    assert_eq!(item.status(), ConstructionStatus::Destructed);
+    let observed = Arc::new(Mutex::new(Vec::new()));
+    let observed_in_handler = Arc::clone(&observed);
+    let observed_item = item.clone();
+    let composite_id = composite.id();
+    let _subscription = hub.subscribe(move |message| {
+        if let Message::CollectionChanged(change) = message {
+            if change.sender_id == composite_id && change.action == CollectionChangeAction::Add {
+                observed_in_handler
+                    .lock()
+                    .unwrap()
+                    .push(observed_item.status());
+            }
+        }
+    });
 
     composite.add(item.clone()).unwrap();
 
@@ -358,6 +413,10 @@ fn auto_construct_on_add_constructs_late_child_before_event() {
     assert_eq!(
         collection_actions(&recorder).last(),
         Some(&CollectionChangeAction::Add)
+    );
+    assert_eq!(
+        *observed.lock().unwrap(),
+        vec![ConstructionStatus::Constructed]
     );
 }
 
@@ -526,25 +585,84 @@ fn membership_uses_node_identity_when_partial_eq_is_value_based() {
 /// COMP-038 — Adding an owned child transfers it between composite/group parents.
 #[test]
 fn adding_owned_child_transfers_membership() {
+    // Composite -> group: a constructed, selected child moves exclusively.
     let item = child("owned");
     let old_parent = vmx::CompositeVm::new("old");
     let destination = vmx::GroupVm::new("destination");
     old_parent.add(item.clone()).unwrap();
+    item.construct().unwrap();
+    assert!(item.can_select());
+    old_parent.select_component(&item).unwrap();
 
     destination.add(item.clone()).unwrap();
 
     assert!(old_parent.is_empty());
     assert_eq!(destination.items(), vec![item.clone()]);
     assert_eq!(item.parent_id(), Some(destination.id()));
+    assert_eq!(item.status(), ConstructionStatus::Constructed);
+    assert_eq!(old_parent.current(), None);
+    assert!(!item.is_current());
+    // Parent-derived selection now follows the (non-selecting) group parent.
+    assert!(!item.can_select());
+    item.select();
+    assert_eq!(old_parent.current(), None);
+    assert!(!item.is_current());
+    // A stale removal against the old parent cannot clear the new parent link.
+    assert_eq!(old_parent.remove(&item), Ok(()));
+    assert_eq!(item.parent_id(), Some(destination.id()));
+    assert_eq!(destination.items(), vec![item.clone()]);
+
+    // Group -> composite: selection now routes through the new composite.
+    let composite = vmx::CompositeVm::new("composite");
+    composite.add(item.clone()).unwrap();
+
+    assert!(destination.is_empty());
+    assert_eq!(composite.items(), vec![item.clone()]);
+    assert_eq!(item.parent_id(), Some(composite.id()));
+    assert_eq!(item.status(), ConstructionStatus::Constructed);
+    assert!(item.can_select());
+    item.select();
+    assert_eq!(composite.current(), Some(item.clone()));
+    assert!(item.is_current());
+    assert_eq!(destination.remove(&item), Ok(()));
+    assert_eq!(item.parent_id(), Some(composite.id()));
+    assert_eq!(composite.current(), Some(item.clone()));
 }
 
 /// COMP-039 — Duplicate ownership and ancestor cycles are rejected.
 #[test]
 fn duplicate_and_cycle_are_rejected() {
-    let item = child("duplicate");
-    let parent = vmx::CompositeVm::new("parent");
+    let hub = MessageHub::new();
+    let item = Child::with_model("duplicate", "duplicate", hub.clone(), NullDispatcher::new());
+    let parent = vmx::CompositeVm::with_services("parent", hub.clone(), NullDispatcher::new());
     parent.add(item.clone()).unwrap();
-    assert_eq!(parent.add(item), Err(VmxError::DuplicateChild));
+    item.construct().unwrap();
+    parent.select_component(&item).unwrap();
+    let recorder = hub.record(1024);
+    assert_eq!(parent.add(item.clone()), Err(VmxError::DuplicateChild));
+    assert_eq!(parent.items(), vec![item.clone()]);
+    assert_eq!(item.parent_id(), Some(parent.id()));
+    assert_eq!(parent.current(), Some(item.clone()));
+    assert!(item.is_current());
+    assert_eq!(item.status(), ConstructionStatus::Constructed);
+    assert!(collection_actions(&recorder).is_empty());
+
+    let group = vmx::GroupVm::with_services("group", hub.clone(), NullDispatcher::new());
+    let group_item = child("group-duplicate");
+    group.add(group_item.clone()).unwrap();
+    let before = recorder.messages().len();
+    assert_eq!(group.add(group_item.clone()), Err(VmxError::DuplicateChild));
+    assert_eq!(group.items(), vec![group_item.clone()]);
+    assert_eq!(group_item.parent_id(), Some(group.id()));
+    assert_eq!(recorder.messages().len(), before);
+
+    let lone = vmx::CompositeVm::<OwnershipNode>::new("self");
+    assert_eq!(
+        lone.add(OwnershipNode::Composite(lone.clone())),
+        Err(VmxError::OwnershipCycle)
+    );
+    assert!(lone.is_empty());
+    assert_eq!(lone.parent_id(), None);
 
     let ancestor = vmx::CompositeVm::<OwnershipNode>::new("ancestor");
     let descendant = vmx::CompositeVm::<OwnershipNode>::new("descendant");
@@ -558,6 +676,8 @@ fn duplicate_and_cycle_are_rejected() {
     );
     assert_eq!(ancestor.len(), 1);
     assert!(descendant.is_empty());
+    assert_eq!(descendant.parent_id(), Some(ancestor.id()));
+    assert_eq!(ancestor.parent_id(), None);
 }
 
 #[test]
@@ -713,21 +833,40 @@ fn transfer_hook_cannot_mutate_old_parent_before_rollback() {
 fn failed_attach_rolls_back_old_parent_state() {
     let item = child("rollback");
     item.on_construct(|| Err(VmxError::Other("boom".to_string())));
+    let before = child("before");
+    let after = child("after");
     let old_parent = vmx::CompositeVm::new("old");
+    old_parent.add(before.clone()).unwrap();
     old_parent.add(item.clone()).unwrap();
+    old_parent.add(after.clone()).unwrap();
     old_parent.set_current(Some(item.clone())).unwrap();
     let destination = vmx::CompositeVm::new("destination");
     destination.set_auto_construct_on_add(true);
     destination.construct().unwrap();
+    let existing = child("existing");
+    destination.add(existing.clone()).unwrap();
+    destination.set_current(Some(existing.clone())).unwrap();
+    assert_eq!(item.status(), ConstructionStatus::Destructed);
+    let original_parent = item.parent_id();
+    assert_eq!(original_parent, Some(old_parent.id()));
 
     assert_eq!(
         destination.add(item.clone()),
         Err(VmxError::Other("boom".to_string()))
     );
 
-    assert_eq!(old_parent.items(), vec![item.clone()]);
-    assert_eq!(old_parent.current(), Some(item));
-    assert!(destination.is_empty());
+    assert_eq!(
+        old_parent.items(),
+        vec![before.clone(), item.clone(), after.clone()],
+        "restored at its original index"
+    );
+    assert_eq!(item.parent_id(), original_parent);
+    assert_eq!(old_parent.current(), Some(item.clone()));
+    assert!(item.is_current());
+    assert_eq!(item.status(), ConstructionStatus::Destructed);
+    assert_eq!(destination.items(), vec![existing.clone()]);
+    assert_eq!(destination.current(), Some(existing.clone()));
+    assert!(existing.is_current());
 }
 
 /// COMP-040 — old-parent disposal waits until successful transfer commit.
@@ -1153,24 +1292,85 @@ fn transfer_publishes_remove_before_add() {
     let item = child("ordered");
     old_parent.add(item.clone()).unwrap();
     let order = Arc::new(Mutex::new(Vec::new()));
+    // Each callback records (event, old len, destination len, parent id).
+    let snapshots = Arc::new(Mutex::new(Vec::new()));
     let old_order = Arc::clone(&order);
+    let old_snapshots = Arc::clone(&snapshots);
+    let (old_view, destination_view, item_view) =
+        (old_parent.clone(), destination.clone(), item.clone());
     let _old_subscription = old_hub.subscribe(move |message| {
         if matches!(message, Message::CollectionChanged(change) if change.action == CollectionChangeAction::Remove)
         {
             old_order.lock().unwrap().push("remove");
+            old_snapshots.lock().unwrap().push((
+                "remove",
+                old_view.len(),
+                destination_view.len(),
+                item_view.parent_id(),
+            ));
         }
     });
     let destination_order = Arc::clone(&order);
+    let destination_snapshots = Arc::clone(&snapshots);
+    let (old_view, destination_view, item_view) =
+        (old_parent.clone(), destination.clone(), item.clone());
     let _destination_subscription = destination_hub.subscribe(move |message| {
         if matches!(message, Message::CollectionChanged(change) if change.action == CollectionChangeAction::Add)
         {
             destination_order.lock().unwrap().push("add");
+            destination_snapshots.lock().unwrap().push((
+                "add",
+                old_view.len(),
+                destination_view.len(),
+                item_view.parent_id(),
+            ));
         }
     });
 
     destination.add(item).unwrap();
 
     assert_eq!(*order.lock().unwrap(), vec!["remove", "add"]);
+    let destination_id = Some(destination.id());
+    assert_eq!(
+        *snapshots.lock().unwrap(),
+        vec![
+            ("remove", 0, 1, destination_id),
+            ("add", 0, 1, destination_id)
+        ]
+    );
+}
+
+/// COMP-041 — A failed destination construction publishes no membership event.
+#[test]
+fn failed_transfer_publishes_no_membership_event() {
+    let old_hub = MessageHub::new();
+    let destination_hub = MessageHub::new();
+    let old_recorder = old_hub.record(1024);
+    let destination_recorder = destination_hub.record(1024);
+    let old_parent = vmx::GroupVm::with_services("old", old_hub.clone(), NullDispatcher::new());
+    let destination = vmx::CompositeVm::with_services(
+        "destination",
+        destination_hub.clone(),
+        NullDispatcher::new(),
+    );
+    destination.set_auto_construct_on_add(true);
+    destination.construct().unwrap();
+    let item = child("failing");
+    old_parent.add(item.clone()).unwrap();
+    item.on_construct(|| Err(VmxError::Other("construct failed".to_string())));
+    let old_before = collection_actions(&old_recorder).len();
+    let destination_before = collection_actions(&destination_recorder).len();
+
+    assert!(destination.add(item.clone()).is_err());
+
+    assert_eq!(collection_actions(&old_recorder).len(), old_before);
+    assert_eq!(
+        collection_actions(&destination_recorder).len(),
+        destination_before
+    );
+    assert_eq!(old_parent.items(), vec![item.clone()]);
+    assert!(destination.is_empty());
+    assert_eq!(item.parent_id(), Some(old_parent.id()));
 }
 
 /// COMP-041 — A throwing old-current callback cannot suppress committed events.
@@ -1345,25 +1545,264 @@ fn current_selector_builder_hook_drives_initial_selection_during_construct() {
 /// COMP-026 — OnCurrentChanged(callback) fires synchronously after each Current change
 #[test]
 fn on_current_changed_fires_after_current_changes() {
-    let composite = vmx::CompositeVm::new("root");
-    let item = child("a");
-    composite.add(item.clone()).unwrap();
-    item.construct().unwrap();
+    let hub = MessageHub::new();
+    let composite = vmx::CompositeVm::with_services("root", hub.clone(), NullDispatcher::new());
+    let (a, b, c) = (child("a"), child("b"), child("c"));
+    for item in [&a, &b, &c] {
+        composite.add(item.clone()).unwrap();
+    }
+    composite.construct().unwrap();
+    assert_eq!(composite.current(), None);
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let hub_log = log.clone();
+    let composite_id = composite.id();
+    let _subscription = hub.subscribe(move |message| {
+        if let Message::PropertyChanged(change) = message {
+            if change.sender_id == composite_id && change.property_name == "current" {
+                hub_log
+                    .lock()
+                    .unwrap()
+                    .push("published:current".to_string());
+            }
+        }
+    });
+    let seen = log.clone();
+    composite.on_current_changed(move |current| {
+        seen.lock().unwrap().push(format!(
+            "callback:{}",
+            current
+                .map(|vm| vm.name())
+                .unwrap_or_else(|| "null".to_string())
+        ));
+    });
+
+    composite.select_component(&b).unwrap();
+    composite.deselect_component(&b).unwrap();
+
+    assert_eq!(
+        log.lock().unwrap().clone(),
+        vec![
+            "published:current",
+            "callback:b",
+            "published:current",
+            "callback:null"
+        ],
+        "exactly two invocations, each after its Current publication"
+    );
+}
+
+/// COMP-026 — the initial `current` selector invokes the callback exactly once.
+#[test]
+fn initial_current_selector_invokes_on_current_changed_once() {
+    let (a, b, c) = (child("a"), child("b"), child("c"));
+    let children = vec![a.clone(), b, c];
+    let composite = vmx::CompositeVm::builder()
+        .name("root")
+        .services(MessageHub::new(), NullDispatcher::new())
+        .children(move || children.clone())
+        .current(|items: Vec<Child>| items.first().cloned())
+        .build()
+        .unwrap();
+    // Rust's builder has no `on_current_changed`; registering on the built,
+    // still-Destructed composite is the equivalent configuration point.
     let observed = Arc::new(Mutex::new(Vec::new()));
     let seen = observed.clone();
     composite.on_current_changed(move |current| {
-        seen.lock()
-            .unwrap()
-            .push(current.map(|vm| vm.name()).unwrap_or_default());
+        seen.lock().unwrap().push(current.map(|vm| vm.name()));
     });
 
-    composite.select_component(&item).unwrap();
-    composite.deselect_component(&item).unwrap();
+    composite.construct().unwrap();
 
     assert_eq!(
         observed.lock().unwrap().clone(),
-        vec!["a".to_string(), String::new()]
+        vec![Some("a".to_string())]
     );
+    assert_eq!(composite.current(), Some(a));
+}
+
+/// COMP-026 — opposing callbacks selecting across two composites do not deadlock.
+#[test]
+fn opposing_current_callbacks_across_composites_do_not_deadlock() {
+    let left = vmx::CompositeVm::new("left");
+    let right = vmx::CompositeVm::new("right");
+    let (left_child, right_child) = (child("left-child"), child("right-child"));
+    left.add(left_child.clone()).unwrap();
+    right.add(right_child.clone()).unwrap();
+    left.construct().unwrap();
+    right.construct().unwrap();
+    let barrier = Arc::new(std::sync::Barrier::new(2));
+    let errors = Arc::new(Mutex::new(Vec::new()));
+    let cross = |target: vmx::CompositeVm<Child>, target_child: Child| {
+        let first = Arc::new(AtomicBool::new(true));
+        let barrier = barrier.clone();
+        let errors = errors.clone();
+        move |_: Option<Child>| {
+            if !first.swap(false, Ordering::SeqCst) {
+                return;
+            }
+            // Both callbacks are in flight before either crosses over.
+            barrier.wait();
+            if target.current().as_ref() != Some(&target_child) {
+                if let Err(error) = target.select_component(&target_child) {
+                    errors.lock().unwrap().push(error);
+                }
+            }
+        }
+    };
+    left.on_current_changed(cross(right.clone(), right_child.clone()));
+    right.on_current_changed(cross(left.clone(), left_child.clone()));
+
+    let (done_tx, done_rx) = mpsc::channel();
+    let (left_worker, left_item, left_done) = (left.clone(), left_child.clone(), done_tx.clone());
+    std::thread::spawn(move || {
+        left_done
+            .send(left_worker.select_component(&left_item))
+            .unwrap();
+    });
+    let (right_worker, right_item) = (right.clone(), right_child.clone());
+    std::thread::spawn(move || {
+        done_tx
+            .send(right_worker.select_component(&right_item))
+            .unwrap();
+    });
+
+    for _ in 0..2 {
+        assert_eq!(
+            done_rx
+                .recv_timeout(Duration::from_secs(2))
+                .expect("opposing current callbacks must not deadlock"),
+            Ok(())
+        );
+    }
+    assert_eq!(*errors.lock().unwrap(), Vec::<VmxError>::new());
+    assert_eq!(left.current(), Some(left_child));
+    assert_eq!(right.current(), Some(right_child));
+}
+
+/// COMP-026 — a collection callback selecting in a composite whose disposal a
+/// current callback requested completes without deadlock.
+#[test]
+#[ignore = "Rust library gap: CompositeVm::add publishes CollectionChanged (items.publish_add in src/composites.rs) before releasing its membership transaction (transaction.finish), and synchronous selection begins a non-reentrant membership transaction (begin_membership_transaction), so select_component from a collection callback returns OwnershipTransactionInProgress"]
+fn collection_and_current_callbacks_across_composites_do_not_deadlock() {
+    let b_hub = MessageHub::new();
+    let b = vmx::CompositeVm::with_services("b", b_hub.clone(), NullDispatcher::new());
+    let a = vmx::CompositeVm::new("a");
+    let (b_entered_tx, b_entered_rx) = mpsc::channel::<()>();
+    let (a_entered_tx, a_entered_rx) = mpsc::channel::<()>();
+    let b_entered_rx = Arc::new(Mutex::new(b_entered_rx));
+    let errors = Arc::new(Mutex::new(Vec::new()));
+    let b_from_a = b.clone();
+    let a_errors = errors.clone();
+    a.on_current_changed(move |_| {
+        a_entered_tx.send(()).unwrap();
+        b_entered_rx
+            .lock()
+            .unwrap()
+            .recv_timeout(Duration::from_secs(1))
+            .expect("b's collection transaction is entered");
+        if let Err(error) = b_from_a.dispose() {
+            a_errors.lock().unwrap().push(error);
+        }
+    });
+    let a_item = child("a-item");
+    a_item.construct().unwrap();
+    a.add(a_item.clone()).unwrap();
+    a.construct().unwrap();
+    b.construct().unwrap();
+    let b_item = child("b-item");
+    b_item.construct().unwrap();
+    let b_from_collection = b.clone();
+    let b_selected = b_item.clone();
+    let b_errors = errors.clone();
+    let b_entered_tx = Mutex::new(Some(b_entered_tx));
+    let b_id = b.id();
+    let _collection = b_hub.subscribe(move |message| {
+        if let Message::CollectionChanged(change) = message {
+            if change.sender_id != b_id {
+                return;
+            }
+            if let Some(entered) = b_entered_tx.lock().unwrap().take() {
+                entered.send(()).unwrap();
+            }
+            if let Err(error) = b_from_collection.select_component(&b_selected) {
+                b_errors.lock().unwrap().push(error);
+            }
+        }
+    });
+
+    let (done_tx, done_rx) = mpsc::channel();
+    let (a_worker, a_done) = (a.clone(), done_tx.clone());
+    std::thread::spawn(move || {
+        a_done.send(a_worker.select_component(&a_item)).unwrap();
+    });
+    a_entered_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+    let (b_worker, b_added) = (b.clone(), b_item.clone());
+    std::thread::spawn(move || {
+        done_tx.send(b_worker.add(b_added)).unwrap();
+    });
+
+    for _ in 0..2 {
+        assert_eq!(
+            done_rx
+                .recv_timeout(Duration::from_secs(2))
+                .expect("collection/current callbacks must not deadlock"),
+            Ok(())
+        );
+    }
+    assert_eq!(*errors.lock().unwrap(), Vec::<VmxError>::new());
+    assert_eq!(b.status(), ConstructionStatus::Disposed);
+    assert_eq!(b_item.status(), ConstructionStatus::Disposed);
+}
+
+/// COMP-026 — a blocked current-flag notification does not stall a later assignment.
+#[test]
+#[ignore = "Rust library gap: synchronous selection holds its membership transaction (begin_membership_transaction in src/composites.rs) across child current-flag publication and the callback (assign_current_state), so a concurrent selection returns OwnershipTransactionInProgress instead of completing"]
+fn blocked_current_flag_notification_does_not_block_later_assignment() {
+    let composite = vmx::CompositeVm::new("root");
+    let (a, b) = (child("a"), child("b"));
+    composite.add(a.clone()).unwrap();
+    composite.add(b.clone()).unwrap();
+    composite.construct().unwrap();
+    let (entered_tx, entered_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel::<()>();
+    let release_rx = Arc::new(Mutex::new(release_rx));
+    let blocked_once = Arc::new(AtomicBool::new(false));
+    let _blocker = a.hub().subscribe(move |message| {
+        if let Message::PropertyChanged(change) = message {
+            if change.property_name == "is_current" && !blocked_once.swap(true, Ordering::SeqCst) {
+                entered_tx.send(()).unwrap();
+                let _ = release_rx
+                    .lock()
+                    .unwrap()
+                    .recv_timeout(Duration::from_secs(2));
+            }
+        }
+    });
+
+    let first = composite.clone();
+    let first_item = a.clone();
+    let first_run = std::thread::spawn(move || first.set_current(Some(first_item)));
+    entered_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+
+    let second = composite.clone();
+    let second_item = b.clone();
+    let (second_tx, second_rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        second_tx
+            .send(second.set_current(Some(second_item)))
+            .unwrap();
+    });
+    let second_result = second_rx.recv_timeout(Duration::from_secs(1));
+    release_tx.send(()).unwrap();
+    assert_eq!(
+        second_result.expect("the later assignment completes while a's flag is blocked"),
+        Ok(())
+    );
+    first_run.join().unwrap().unwrap();
+
+    assert_eq!(composite.current(), Some(b.clone()));
+    assert!(b.is_current());
+    assert!(!a.is_current());
 }
 
 /// COMP-026 — a current-change callback may dispose the same composite.
@@ -1537,4 +1976,26 @@ fn removing_a_sibling_keeps_current() {
         .is_some_and(|current| current.model() == "a"));
     assert!(a.is_current());
     assert_eq!(current_announcements(&recorder, composite.id()), before);
+}
+
+/// COMP-010 — a queued async selection does not change a disposed composite.
+#[test]
+fn queued_async_selection_is_inert_after_dispose() {
+    let hub = MessageHub::new();
+    let dispatcher = ManualDispatcher::new();
+    let composite =
+        vmx::CompositeVm::<vmx::ComponentVm<&'static str>, ManualDispatcher>::with_services(
+            "root",
+            hub.clone(),
+            dispatcher.clone(),
+        );
+    let a = vmx::ComponentVm::with_model("a", "a", hub, NullDispatcher::new());
+    composite.add(a.clone()).unwrap();
+    composite.set_async_selection(true);
+    composite.set_current(Some(a)).unwrap();
+
+    composite.dispose().unwrap();
+    dispatcher.drain();
+
+    assert!(composite.current().is_none());
 }

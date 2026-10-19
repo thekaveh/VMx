@@ -9,17 +9,18 @@ spec-compatible with the C# / Python / TypeScript / Rust flavors.
 all **425 of 425** library conformance IDs. The SwiftUI notes-showcase exercises
 the five additional `THEME-00x` scenarios, for **430 total**, matching the other
 UI-backed flavors; Rust covers the 425 library IDs and has no UI scenario suite.
-The detailed capability and conformance history lives in the
-[changelog](CHANGELOG.md) and the specification ADRs rather than in this opener.
+See [CHANGELOG.md](CHANGELOG.md) for history.
 
-The package requires Swift 5.9+, Combine, iOS 16, macOS 13, tvOS 16, or watchOS
-9. The macOS SwiftUI flagship is at `examples/swift/notes-showcase/`; see §5.
+The package requires Combine and iOS 16, macOS 13, tvOS 16, or watchOS 9. The
+manifest declares Swift tools 5.9, but CI builds and tests only with Swift 6.0
+(Xcode 16.0) and later, so earlier compilers are untested. The macOS SwiftUI
+flagship is at `examples/swift/notes-showcase/`; see §5.
 
 ## 2. Install
 
-VMx Swift 3.24.0 is publicly installable from the repository root. SwiftPM
-resolves the immutable semantic tag `v3.24.0`; the matching operational tag
-`swift-v3.24.0` provides the
+VMx Swift 3.24.0 (implements spec 3.23.x) is publicly installable from the
+repository root. SwiftPM resolves the immutable semantic tag `v3.24.0`; the
+matching operational tag `swift-v3.24.0` provides the
 [GitHub Release](https://github.com/thekaveh/VMx/releases/tag/swift-v3.24.0).
 
 Add VMx as a Swift Package dependency in `Package.swift`:
@@ -83,11 +84,11 @@ let tabs = try CompositeVM<ComponentVMOf<TabModel>>.builder()
 //    Lifecycle ops are throwing in v3 (ADR-0053): an illegal transition raises
 //    a catchable `StatusTransitionError` instead of trapping.
 try tabs.construct()
-print(tabs.status)              // ConstructionStatus.constructed
+print(tabs.status)              // constructed
 
 tabs.current = tab2             // setter traps on a non-child; use
                                // try tabs.setCurrent(tab2) for a catchable check
-print(tabs.current?.model.title) // "Settings"
+print(tabs.current?.model.title ?? "(none)") // Settings
 
 tabs.dispose()                  // dispose() is terminal/idempotent — never throws
 hub.dispose()
@@ -102,13 +103,9 @@ a one-page SwiftUI integration recipe.
 
 ### 3.1 Cross-language naming
 
-| Concept             | C#                        | Python             | TypeScript               | Swift                     | Rust                    |
-| ------------------- | ------------------------- | ------------------ | ------------------------ | ------------------------- | ----------------------- |
-| Unmodeled VM        | `ComponentVM`             | `ComponentVM`      | `ComponentVM`            | `ComponentVM`             | `ComponentVm<()>`       |
-| Modeled VM          | `ComponentVM<M>`          | `ComponentVMOf[M]` | `ComponentVMOf<M>`       | `ComponentVMOf<M>`        | `ComponentVm<M>`        |
-| Status property     | `Status`                  | `status`           | `status`                  | `status`                  | `status()`              |
-| Builder entrypoint  | `Builder()`               | `builder()`        | `builder()`               | `builder()`               | `builder()`             |
-| Null hub singleton  | `NullMessageHub.Instance` | `NULL_MESSAGE_HUB` | `NullMessageHub.INSTANCE` | `NullMessageHub.INSTANCE` | `NullMessageHub::hub()` |
+The concepts are identical across the five flavors; identifier casing follows
+each language idiom (ADR-0006). See the
+[cross-language naming table](../../docs/content/flavors/cross-language-naming.md).
 
 ## 4. API surface
 
@@ -138,318 +135,50 @@ Key exports:
 | `StatusTransitionError`         | Thrown on an illegal lifecycle op / `LIFE-008` guard (catchable — ADR-0053) |
 | `CompositeMembershipError`      | Thrown by `CompositeVM.setCurrent(_:)` on a non-child (ADR-0053) |
 | `BuilderValidationError`        | Thrown when a builder is missing a required field |
-| `ServicedObservableCollection<T>` | Complete local-before-hub mutation surface (spec v3.16) |
-| `KeyedServicedObservableCollection<Key, T>` | Ordered serviced surface plus captured-key index (spec v3.17) |
-| `ObservableMembershipSource` / `AggregateChangeStream<Item>` | Dynamic membership-and-item fan-in with provenance (spec v3.18) |
+| `ServicedObservableCollection<T>` | Complete local-before-hub mutation surface |
+| `KeyedServicedObservableCollection<Key, T>` | Ordered serviced surface plus captured-key index |
+| `ObservableMembershipSource` / `AggregateChangeStream<Item>` | Dynamic membership-and-item fan-in with provenance |
 | `ObservableList<T>`             | Granular events, batch scopes, and atomic `replaceAll` |
-| `subscribeValue`                | Fixed-VM selected-state bridge returning `AnyCancellable` (spec v3.15) |
+| `subscribeValue`                | Fixed-VM selected-state bridge returning `AnyCancellable` |
 
 ### 4.1 Serviced collections
 
-Use `ServicedObservableCollection<T>` for a caller-owned sequence whose
-changes publish through Combine locally and then through an optional hub:
-
-```swift
-let notes = ServicedObservableCollection<Note>(hub: hub)
-let changes = notes.collectionChanged.sink { message in render(message) }
-
-notes.append(first)
-notes.append(second)
-notes.replace(at: 0, with: revised) // setAt remains available
-try notes.move(from: 0, to: notes.count - 1)
-notes.replaceAll(serverSnapshot)    // one Reset
-```
-
-Equatable value removal targets the first match and returns `false` when
-absent. `removeAt` / `replace` retain array-precondition bounds behavior;
-`move` throws `VMCollectionIndexError`. Same-index move, empty clear, and
-empty-to-empty replacement are no-ops. Messages expose `index`, `oldIndex`,
-and `newIndex`; the collection never owns items. Use `ObservableList<T>` for
-batching and `Count` notifications.
-
-Choose `KeyedServicedObservableCollection<Key,T>` for stable-key access while
-retaining the ordered message contract:
-
-```swift
-let notesByID = KeyedServicedObservableCollection<String, Note>(
-    keyOf: { $0.id }, hub: hub)
-try notesByID.append(first)
-let note = notesByID.get(first.id)
-let added = try notesByID.upsert(revised) // false: Replace at stable position
-let removed = notesByID.delete(first.id)
-```
-
-`containsKey` tests membership. Projecting mutations throw and commit
-atomically. Keys are captured until indexed replacement or delete-then-add.
-Lookup/target discovery are expected O(1), while ordered middle shifts remain
-O(n). Local Combine delivery stays immediate before optional hub publication;
-the collection never batches or owns item lifecycle.
+`ServicedObservableCollection<T>` is a caller-owned sequence that publishes
+through Combine locally and then through an optional hub.
+`KeyedServicedObservableCollection<Key,T>` adds a captured stable-key index
+(`get`, `upsert`, `delete`, `containsKey`) with throwing, atomic projecting
+mutations. `move` throws `VMCollectionIndexError`; `removeAt` / `replace` keep
+array-precondition bounds behavior. Use `ObservableList<T>` for batching and
+`Count` notifications. See
+[Swift serviced collections](../../docs/content/flavors/swift.md#753-serviced-collections).
 
 ### 4.2 Imperative engine bridge
 
-Use `subscribeValue` to push selected VM state into a renderer or other
-imperative host without polling it every frame:
+`subscribeValue` pushes a selected value from one fixed VM into an imperative
+host as `(current, previous)`. It returns an `AnyCancellable` that the host
+owns; VMx does not attach it to the observed VM's lifetime. See
+[Swift imperative engine bridge](../../docs/content/flavors/swift.md#754-imperative-engine-bridge).
 
-```swift
-import Combine
-import VMx
+## 5. Conformance
 
-let exposureSubscription: AnyCancellable = try subscribeValue(
-    cameraVM,
-    selector: { $0.model.exposure },
-    callback: { exposure, _ in
-        material.uniforms.exposure.value = exposure
-    },
-    fireImmediately: true
-)
+Swift implements all 425 library conformance IDs. The
+`examples/swift/notes-showcase/` flagship covers `THEME-001..005` in
+`ThemeVMTests.swift`, validated by the `examples (notes-showcase)` job in
+`.github/workflows/swift.yml`. See
+[`spec/12-conformance.md`](../../spec/12-conformance.md) for the catalog and
+[`spec/HISTORY.md`](../../spec/HISTORY.md) for the release that added each
+group of IDs.
 
-// When the host adapter is disposed:
-exposureSubscription.cancel()
-```
+Known Swift divergences:
 
-The callback receives `(current, previous)`; immediate delivery passes the
-initial value for both. The selector runs after every property message from
-this fixed VM. The `Equatable` overload uses `==`; use the `isEqual:` overload
-for custom equality. The host owns the returned `AnyCancellable`; VMx does not
-attach it to the observed VM's lifetime.
-
-## 5. Conformance — total parity (430)
-
-This flavor implements **all 425 library conformance IDs** from the
-cross-language conformance catalog (Inc-0: 44 base IDs per ADR-0037/ADR-0053;
-Inc-1: +50 leaf-area IDs per ADR-0059; Inc-2: +30 collections IDs per ADR-0060;
-Inc-3: +29 hierarchical/threading/expand-collapse IDs per ADR-0061;
-Inc-4: +40 forms/commands/hub IDs per ADR-0062;
-Inc-5: +25 notifications/dialogs IDs per ADR-0063;
-Inc-6: +19 composite/group IDs per ADR-0064;
-Inc-7: +44 v3.1 upstream-consumer IDs per ADR-0068..ADR-0079;
-Inc-8: +6 transactional-hub IDs per ADR-0082;
-Inc-9: +3 dual-channel property-notification IDs per ADR-0083;
-Inc-10: +6 cross-cutting disposal IDs per ADR-0084; subsequent increments
-through ADR-0099 bring the catalog to 380; Inc-28: +11 async-resource IDs per
-ADR-0100). The covered IDs are:
-
-```
-LIFE-001..015   lifecycle state machine, transition table, and disposal coordination
-                (LIFE-005/006/008 assert catchable throws — ADR-0053;
-                LIFE-011 fixture-backed table now covered via Bundle.module)
-CVM-001..010    ComponentVM / ComponentVMOf identity + model, explicit
-                retained-model republish, and ordered exactly-once
-                dual-channel property notification
-                (CVM-003: read-only model setter still traps —
-                Swift setters cannot throw — per ADR-0053)
-COMP-001/002,   CollectionChanged events on CompositeVM (Inc-2 — ADR-0060)
-COMP-003..005,  select-through-child + lifecycle cascades +
-COMP-025/026    builder `current(selector)` / `onCurrentChanged(callback)` hooks
-COMP-012/013    autoConstructOnAdd + BatchUpdateHandle (Inc-2 — ADR-0060;
-                assertionFailure on construct failure; explicit dispose() safety net)
-GRP-001..004    group surface contract + lifecycle cascades + CollectionChanged (Inc-2)
-GRP-005/006     autoConstructOnAdd + BatchUpdateHandle on GroupVM (Inc-2 — ADR-0060)
-GRP-011         group children are non-selectable peers (ADR-0079)
-AGG-001..006    AggregateVM1..AggregateVM6 parametric coverage
-CMD-001..004, 006   RelayCommand task + predicate + triggers (Inc-0)
-BLD-001..006    builders immutable + validation + defaults + options factories
-PROP-001..004   hub property-change accessors
-NULL-001..003   NullMessageHub + NullDispatcher null-object contracts
-LOC-001..003    Localizer protocol + NullLocalizer null-object (no I-prefix — ADR-0006)
-UTIL-001..003   walk (DFS, nil-slot skip) + find (short-circuit) tree utilities
-                (materialized arrays)
-FWD-001..004    ForwardingComponentVM + ForwardingCompositeVM decorators
-                (name/hint copied at super.init — non-overridable let — ADR-0059;
-                composite surface mirrors real CompositeVM)
-DPROP-001..012  DerivedProperty<T> — setValue(_:) throws / value is a throwing property;
-                distinct-until-changed via valueEquals closure (ADR-0059)
-CAP-001..022    22 capability micro-interfaces — generic verbs use associatedtype
-                Item (PAT); opt-in by structural conformance (as?/is); reactive
-                state via Combine publishers (ADR-0059)
-COL-001..023    ObservableList, ObservableDictionary, ServicedObservableCollection,
-                PagedComposition (Inc-2 — ADR-0060):
-                "Count" channel is spec-literal (not Swift-idiomatic "count");
-                ObservableDictionary null-key enforcement is structural
-                (non-optional generic key + struct CompositeKey: Hashable);
-                PagedComposition uses setSource(_:) (value-semantics);
-                CollectionChangedEvent/Message are value-type structs with
-                CollectionChangedAction enum + named-struct per-mutation payloads
-EXP-001..005    ExpandableState machine (isExpanded / toggle / expand / collapse)
-                + walkExpanded DFS expansion-gated traversal (Inc-3)
-HIER-001..009   HierarchicalVM tree identity — recursive CRTP constraint,
-                parent/depth/path/isLeaf/isRoot/isFirst/isLast, lazy + eager
-                child construction, depth-first ordering (Inc-3)
-HIER-010/011    addChild/removeChild/reparentChild hub notifications —
-                PropertyChangedMessage("parent") + TreeStructureChangedMessage
-                (added/removed/reparented shapes) (Inc-3)
-HIER-012        walkExpanded honors ExpandableState gate: collapsed node pruned,
-                expanded node descends; HierarchicalVM conforms to _TreeContainer
-                (Inc-3 capability composition)
-HIER-013        SearchableState composed over materialized children filters by
-                search term (Inc-3 capability composition)
-HIER-015        HierarchicalVMBuilder<M, VM>.build() validates required fields —
-                model / childrenFactory / services / vmFactory (vmFactory required
-                because TVM: AnyObject has no init surface — ADR-0061 §2.2) (Inc-3)
-HIER-016        HierarchicalVMBuilder repeated identical build() calls each return
-                a fresh TVM instance (Inc-3)
-HIER-017        HierarchicalVMBuilder field defaults — name defaults to
-                String(describing: TVM.self); eagerChildren defaults to false (Inc-3)
-HIER-018        reparentChild self/ancestor guard — throws HierarchyError,
-                tree unchanged, no message published on rejection (Inc-3)
-THR-001..004    Threading contracts — PropertyChanged foreground scheduling,
-                background construct deferral, CollectionChanged foreground
-                scheduling, ObserveOn subscriber scheduling; tested via
-                hand-rolled ManualScheduler + ManualDispatcher (no Combine
-                TestScheduler — ADR-0061 §2.7) (Inc-3)
-COMP-006        Previous child's isCurrent flip dispatched through foreground
-                target (dispatcher.scheduleForeground) — ManualDispatcher test
-                confirms 0 emissions before flush, 1 after (Inc-3)
-COMP-009        setCurrent(_:) throws CompositeMembershipError on a non-child;
-                canSetCurrent(_:) pre-flight predicate (ADR-0053) (Inc-3)
-COMP-010        asyncSelection opt-in builder flag — defers the full current-change
-                through foreground target; TOCTOU guard drops stale selection if
-                child removed before flush (Inc-3 — ADR-0061 §2.8)
-CMD-005         RelayCommandOf<T> — parameterized relay command; canExecute/execute
-                take a T parameter; does NOT conform to Command (mirrors TS's distinct
-                ICommandOf<T> surface); canonical name RelayCommandOf<T> — no OfT
-                alias (ADR-0052) (Inc-4 — ADR-0062 §2.5)
-CMD-007         truth-table fixture verification — loads command-truthtable.json
-                from Bundle.module (Inc-4 — ADR-0062 §2.5)
-CMD-008..011    fluent command helpers — confirm, precedeWith, succeedWith, wrapWith
-                (Inc-4)
-CMD-012         AsyncRelayCommand — Task-based cancellable body + Combine channels
-                (canExecuteChanged, errors); cooperative Task.isCancelled /
-                checkCancellation; default cancel completes normally; throwOnCancel()
-                opt-in rethrows; fire-and-forget execute() routes CancellationError
-                to errors when throwOnCancel (Inc-4 — ADR-0062 §2.1)
-CMDD-001..003   CompositeCommand — canExecute OR-gate, execute skips disabled
-                inners, canExecuteChanged merges inners (Publishers.MergeMany)
-                (Inc-4)
-CMDD-004..006   DecoratorCommand — canExecute AND-gate, pre→defer(post)→inner
-                execution order, no-op when disabled; postExecute guaranteed via
-                defer (ADR-0062 §2.5) (Inc-4)
-CMDD-007..010   ConfirmationDecoratorCommand — confirm typed () async throws -> Bool;
-                execute() fire-and-forget via Task; failures route to Combine errors
-                channel (CMDD-010 — ADR-0062 §2.2); CMDD-009 composition with
-                DecoratorCommand (Inc-4)
-HIER-014        ModeledCrudCommands compose onto HierarchicalVM and mutate the tree
-                (Inc-4)
-HUB-001..006    MessageHub synchronous delivery, hot (no replay), FIFO ordering,
-                cancel-in-handler safe, multiple-subscriber fan-out,
-                message-ordering fixture (HUB-006 from Bundle.module) (Inc-4)
-HUB-007         subscribe(_:) opt-in isolation — catchable errors path; raw messages
-                Combine-sink divergence documented (non-throwing sinks / trapping
-                handlers uncatchable on the raw path — ADR-0062 §2.4) (Inc-4)
-FORM-001..015   FormVM<Model> standalone final class (NOT ComponentVMOf subclass —
-                ADR-0030; FormVM has no lifecycle); isDirty via injectable equals
-                closure (Equatable-default convenience init); snapshotter identity-
-                default for value types, injectable for reference members;
-                approveAsync captures model snapshot before await, mutates only on
-                success; onApproved / approveErrors sealed Combine channels;
-                approveCommand fire-and-forget surfaces failures on approveErrors
-                (FORM-015); strict canExecute gating via isDirty transition triggers;
-                FormVMBuilder with validation, hub / strict / snapshotter / equals
-                overrides (Inc-4 — ADR-0062 §2.3)
-DIA-001..008    DialogService protocol — methods are async, NOT throws (DIA-007
-                non-throwing safe-default alignment — ADR-0063 §2.1); file-picker
-                methods return String? (cross-flavor fixture parity, not URL?);
-                NullDialogService returns nil/false/no-op with INSTANCE singleton;
-                confirmWithDialogService fluent overload wraps ConfirmationDecoratorCommand
-                with a dialog-confirm gate (DIA-008); no Combine publishers on the
-                dialog surface (request/response async — deliberate counterpart to
-                the stream-based notification hub) (Inc-5 — ADR-0063)
-NOTIF-001..008  Notification final class (identity-distinct, ObjectIdentifier-keyed
-                waiters — struct rejected, ADR-0063 §2.3); post suspends via
-                withCheckedContinuation, store-then-emit ordering guarantees
-                waiter registered before pending snapshot emitted; pending via
-                Combine CurrentValueSubject (replay-latest); snapshots and
-                continuation resumes emitted outside NSLock (re-entrancy safety
-                — ADR-0063 §2.3); NotificationHubProtocol + NotificationHub
-                (Inc-5 — ADR-0063)
-NOTIF-009       NullNotificationHub — INSTANCE singleton; pending via
-                Just([]).eraseToAnyPublisher() (synchronous, always-empty);
-                post returns .approve immediately (no suspension) (Inc-5)
-NOTIF-010       makeConfirm bridge — free function wrapping hub.post/resolve into
-                an async Bool gate (Inc-5)
-NOTIF-011..016  NotificationVM (open class) + ConfirmationVM (final class :
-                NotificationVM) — opacity/remaining decay driven by hand-rolled
-                VirtualTimeScheduler (Combine has no framework virtual-time
-                scheduler — ADR-0063 §2.4); time in TimeInterval seconds (ADR-0009
-                time divergence vs TS lifespanMs); single-resolution guard
-                (isResolved flag) across dismiss/command/timer/external-resolve
-                paths; ConfirmationVM.armsExpiryTimer() overridden false (no
-                auto-dismiss); propertyChanged emits Swift-idiomatic names
-                ("isResolved" / "remaining" / "opacity") (Inc-5 — ADR-0063 §2.4)
-NOTIF-017       NotificationHub dispose — in-flight post waiters resume .pending;
-                pending completes via subject.send(completion: .finished);
-                post-after-dispose returns .pending without enqueuing (double-check
-                inside withCheckedContinuation closes the dispose-races-post race);
-                idempotent; dispose() on concrete class only (not on protocol —
-                matches TS shape; NullNotificationHub unaffected) (Inc-5 —
-                ADR-0063 §2.5)
-COMP-007        CompositeVMOf<Model, VM: ComponentVMBase> — modeled composite;
-                non-recursive generic (VM: ComponentVMBase, no CRTP relaxation
-                needed — unlike HierarchicalVM in ADR-0061); childrenFactory route
-                to super.init; CompositeVMOfBuilder with copy-on-write validation
-                (name → services → childrenModels → childModelToChildViewModel);
-                children are typically ComponentVMOf<Model> exposing .model (Inc-6
-                — ADR-0064 §2.1)
-COMP-008        selectComponent(_:) throws CompositeMembershipError when vm is not
-                a member or status != .constructed; canSelectComponent(_:) = member
-                AND status == .constructed (distinct from canSetCurrent — membership
-                only) (Inc-6 — ADR-0064 §2.2)
-COMP-011        deselectComponent(_:) throws CompositeMembershipError when vm is not
-                the current selection; current unchanged on throw; calls _setCurrent(nil)
-                on success (Inc-6 — ADR-0064 §2.2)
-COMP-014..018   SearchableState<T> composite context — filtered items by search term;
-                CurrentValueSubject backing + PassthroughSubject force-immediate
-                merge; synchronous search() bypass; lazy items closure re-reads on
-                recompute (Inc-6 — ADR-0064 §2.3)
-COMP-019..024   ModeledCrudCommands<VM> — createNewCommand, updateCurrentCommand,
-                deleteCurrentCommand (canExecute false when current nil);
-                ConfirmationDecoratorCommand wrapping for COMP-024; no phantom M
-                parameter (ADR-0006) (Inc-6 — ADR-0064 §2.4)
-COMP-027        add/remove parent-link wiring — add(child) sets child.parent;
-                remove(child) clears it; canSelect/select composition enabled by
-                parent reference (Inc-6 — ADR-0064 §2.4)
-GRP-007..010    SearchableState<T> group context — same Combine-native implementation
-                as COMP-014..018; GRP-010 uses Int(t) ?? 0 numeric-term predicate
-                (Swift equivalent of TS Number(t) || 0) (Inc-6 — ADR-0064 §2.3)
-CMD-013         disposed RelayCommand / RelayCommandOf<T> are inert (ADR-0068)
-CMD-014..019    imperative relay-command requery notification (ADR-0086)
-COL-024..031    TokenPagedComposition cursor flow and source observation (ADR-0069)
-COL-032..039    shared VM collection move semantics (ADR-0085)
-COL-040..047    ObservableList atomic replaceAll semantics (ADR-0089)
-COL-048..055    complete serviced collection mutation parity (ADR-0096)
-COL-056..064    keyed serviced collection identity and mutation (ADR-0097)
-COMP-028..037   FilteredCompositeVM and ScoredFilteredCompositeVM (ADR-0070)
-FORM-016..023   declarative FormVM field/model validation (ADR-0071)
-FORM-024..029   declarative post-persist FormVM reset (ADR-0087)
-DIA-009..013    ModalVM / BasicModalVM presentation lifecycle (ADR-0072)
-HIER-019..022   explicit child-cache invalidation (ADR-0073)
-HIER-023..030   key-aware batch attachment, stable fixpoint resolution,
-                dedupe, orphan policy, typed rejection, and disposal (ADR-0088)
-DISC-001..006   DiscriminatorVM active key + modal stack coordinator (ADR-0075)
-DISP-001..006   cross-cutting idempotent disposal across VM cascades, commands,
-                hubs, interaction owners, reactive helpers, and collections
-DISP-007..013   disposal-lifetime ownership and public non-owned hub baseline
-                (ADR-0084)
-DISP-014        inert modeled assignment after disposal (ADR-0091)
-FORM-030        settled FormVM model hub publication (ADR-0092)
-SUBV-001..004   fixed-source selected-state subscription (ADR-0095)
-AGCH-001..010   dynamic aggregate membership-and-item change stream (ADR-0098)
-SRCH-001..007   source-reactive SearchableState refresh (ADR-0099)
-ARES-001..011   cancellable latest-wins AsyncResourceVM (ADR-0100)
-COMP-042..045,  CompositeVM and GroupVM collection changes published on the hub
-GRP-012..013    (ADR-0142)
-FORM-031..034   one approval at a time (ADR-0143)
-FORM-035..038   failure-atomic model updates (ADR-0144)
-CMDD-014..017   awaited confirmation over an async inner (ADR-0145)
-```
-
-**THEME scenario IDs (example app — not scraped by the library coverage gate):**
-
-- `THEME-001..005` — covered by `ThemeVMTests.swift` in
-  `examples/swift/notes-showcase/NotesShowcaseTests/`; validated by the
-  `examples (notes-showcase)` CI job in `.github/workflows/swift.yml`.
-
-**All 425 library conformance IDs are covered, and the 5 `THEME-00x` scenario IDs are covered by the `examples/swift/notes-showcase/` flagship. Swift is at total parity (430) with the C#, Python, and TypeScript UI-backed flavors. Rust has full library parity but no UI scenario suite.**
+- The read-only model setter traps because Swift setters cannot throw
+  (ADR-0053).
+- The `CompositeVM.current` setter traps on a non-child; use
+  `try setCurrent(_:)` for a catchable `CompositeMembershipError` (ADR-0053).
+- Hub handler traps are uncatchable on every path. `subscribe(_:)` isolates
+  thrown errors per subscriber; raw `messages` Combine sinks cannot throw
+  (ADR-0062 §2.4).
+- `NotificationVM` time values are `TimeInterval` seconds (ADR-0063 §2.4).
 
 Run the suite:
 

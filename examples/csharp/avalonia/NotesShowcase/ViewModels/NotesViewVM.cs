@@ -52,6 +52,14 @@ public sealed class NotesViewVM
     private readonly CompositeVM<NoteVM> _inner;
     private readonly System.Collections.ObjectModel.ObservableCollection<NoteVM> _filtered = new();
     private readonly PagedComposition<NoteVM> _paged;
+    // Stable, in-place-synced page slice bound by the ListBox. Re-publishing a
+    // fresh list per recompute made the ListBox reset its items and write
+    // SelectedItem = null back through the TwoWay Current binding, unbinding
+    // the editor and discarding its draft on every refilter.
+    private readonly System.Collections.ObjectModel.ObservableCollection<NoteVM> _visible = new();
+    private readonly System.Collections.ObjectModel.ReadOnlyObservableCollection<NoteVM> _visibleView;
+    private bool _syncingVisible;
+    private bool _recomputing;
 
     private readonly BehaviorSubject<bool> _showStarredOnly = new(false);
     private readonly BehaviorSubject<Unit> _stateSubject = new(Unit.Default);
@@ -76,8 +84,12 @@ public sealed class NotesViewVM
     /// <summary>Filtered + searched items (paged source). Mirrored read-only.</summary>
     public IReadOnlyList<NoteVM> FilteredItems => _filtered;
 
-    /// <summary>Items on the current page (decoded slice over <see cref="FilteredItems"/>).</summary>
-    public IReadOnlyList<NoteVM> VisibleItems => _paged.Items.ToList();
+    /// <summary>
+    /// Items on the current page (decoded slice over <see cref="FilteredItems"/>).
+    /// A stable collection instance updated in place, so a bound selector keeps
+    /// its selection across refilters.
+    /// </summary>
+    public IReadOnlyList<NoteVM> VisibleItems => _visibleView;
 
     // ── ISearchable (debounced 150 ms via SearchableState) ────────────────
 
@@ -198,6 +210,10 @@ public sealed class NotesViewVM
         set
         {
             if (ReferenceEquals(_current, value)) return;
+            // A refilter never changes the selection (same as the other
+            // flavors): ignore the null a bound selector writes back while the
+            // visible slice is being synced and the current note drops out.
+            if (_syncingVisible && value is null) return;
             _current = value;
             NotifyPropertyChanged(nameof(Current));
         }
@@ -350,20 +366,34 @@ public sealed class NotesViewVM
         // teardown, and Hub.Send / _stateSubject.OnNext on disposed subjects throw.
         if (_ownDisposed) return;
         var term = _search.SearchTerm;
-        _filtered.Clear();
-        foreach (var n in _inner)
+        // Clear() resets the paged view to page 0; keep the reader's page and
+        // re-clamp it after the refill, as the other flavors do.
+        var pageIndex = _paged.CurrentPageIndex;
+        // Defer the visible-slice sync to the end: syncing against the
+        // transiently empty filtered list would drop the selected row.
+        _recomputing = true;
+        try
         {
-            if (_showStarredOnlyField && !n.Model.Starred) continue;
-            if (_filter is not null && !_filter(n)) continue;
-            if (!string.IsNullOrEmpty(term)
-                && !n.Title.Contains(term, StringComparison.OrdinalIgnoreCase)
-                && !n.Body.Contains(term, StringComparison.OrdinalIgnoreCase)
-                && !n.Tags.Any(t => t.Contains(term, StringComparison.OrdinalIgnoreCase))) continue;
-            _filtered.Add(n);
+            _filtered.Clear();
+            foreach (var n in _inner)
+            {
+                if (_showStarredOnlyField && !n.Model.Starred) continue;
+                if (_filter is not null && !_filter(n)) continue;
+                if (!string.IsNullOrEmpty(term)
+                    && !n.Title.Contains(term, StringComparison.OrdinalIgnoreCase)
+                    && !n.Body.Contains(term, StringComparison.OrdinalIgnoreCase)
+                    && !n.Tags.Any(t => t.Contains(term, StringComparison.OrdinalIgnoreCase))) continue;
+                _filtered.Add(n);
+            }
+            _paged.CurrentPageIndex = pageIndex;
+        }
+        finally
+        {
+            _recomputing = false;
         }
         NotifyPropertyChanged(nameof(FilteredItems));
         NotifyPropertyChanged(nameof(IsEmpty));
-        NotifyPropertyChanged(nameof(VisibleItems));
+        SyncVisible();
         NotifyPropertyChanged(nameof(PageLabel));
         _stateSubject.OnNext(Unit.Default);
     }
@@ -395,6 +425,7 @@ public sealed class NotesViewVM
             .Build();
 
         _paged = new PagedComposition<NoteVM>(_filtered, pageSize);
+        _visibleView = new System.Collections.ObjectModel.ReadOnlyObservableCollection<NoteVM>(_visible);
         _paged.PropertyChanged += OnPagedPropertyChanged;
 
         _search = new SearchableState<NoteVM>(
@@ -458,9 +489,38 @@ public sealed class NotesViewVM
         if (e.PropertyName is nameof(CurrentPageIndex) or nameof(PageCount) or nameof(PageSize))
         {
             NotifyPropertyChanged(nameof(PageLabel));
-            NotifyPropertyChanged(nameof(VisibleItems));
+            if (!_recomputing) SyncVisible();
             _stateSubject.OnNext(Unit.Default);
         }
+    }
+
+    private void SyncVisible()
+    {
+        // Diff the page slice into the stable collection: remove items that
+        // left the page, then insert/reorder so an item that stays on the page
+        // is never removed (a bound selector keeps it selected).
+        var target = _paged.Items.ToList();
+        var keep = new HashSet<NoteVM>(target, ReferenceEqualityComparer.Instance);
+        _syncingVisible = true;
+        try
+        {
+            for (var i = _visible.Count - 1; i >= 0; i--)
+            {
+                if (!keep.Contains(_visible[i])) _visible.RemoveAt(i);
+            }
+            for (var i = 0; i < target.Count; i++)
+            {
+                if (i < _visible.Count && ReferenceEquals(_visible[i], target[i])) continue;
+                var existing = _visible.IndexOf(target[i]);
+                if (existing >= 0) _visible.Move(existing, i);
+                else _visible.Insert(i, target[i]);
+            }
+        }
+        finally
+        {
+            _syncingVisible = false;
+        }
+        NotifyPropertyChanged(nameof(VisibleItems));
     }
 
     private void ReleaseChildren()
@@ -472,6 +532,7 @@ public sealed class NotesViewVM
             prev.Dispose();
         }
         _filtered.Clear();
+        _visible.Clear();
         _current = null;
         BoundNotebookId = null;
     }

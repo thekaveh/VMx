@@ -403,6 +403,26 @@ async def test_form_032_cancelled_approval_settles_once_and_readmits() -> None:
 
 
 @pytest.mark.conformance("FORM-032")
+async def test_form_032_cancelled_command_approval_is_routed_to_approve_errors() -> None:
+    persister = GatedPersister()
+    form = FormVM(Model("initial"), persister)
+    form.set_model(Model("edited"))
+    signals = Signals(form)
+
+    form.approve_command.execute()
+    await persister.wait_entered(1)
+    persister.release(0, asyncio.CancelledError())
+    await _command_approvals()
+
+    assert len(signals.approve_errors) == 1
+    assert isinstance(signals.approve_errors[0], asyncio.CancelledError)
+    assert signals.approved == []
+    assert signals.can_execute_changed == 2
+    assert form.approve_command.can_execute()
+    assert form.snapshot == Model("initial")
+
+
+@pytest.mark.conformance("FORM-032")
 async def test_form_032_settlement_notifies_once_in_order_when_errors_change() -> None:
     persister = GatedPersister()
     form = FormVM(

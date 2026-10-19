@@ -29,6 +29,9 @@ export class NotificationsVM extends ComponentVMBase {
   readonly #cap: number;
   readonly #visible: NotificationVM[] = [];
   readonly #map = new Map<Notification, NotificationVM>();
+  // Notifications this VM dropped over the cap and is dismissing; a sync that
+  // re-enters while they are still pending must not rebuild them.
+  readonly #dismissed = new Set<Notification>();
   #pendingSub: { unsubscribe(): void } | null = null;
 
   constructor(opts: {
@@ -86,8 +89,9 @@ export class NotificationsVM extends ComponentVMBase {
 
   #syncFromPending(pending: Notification[]): void {
     // Add VMs for new pending notifications, respecting the cap.
+    const evicted: NotificationVM[] = [];
     for (const n of pending) {
-      if (this.#map.has(n)) continue;
+      if (this.#map.has(n) || this.#dismissed.has(n)) continue;
       const vm = new NotificationVM(
         n,
         this.#notificationHub,
@@ -105,7 +109,8 @@ export class NotificationsVM extends ComponentVMBase {
             break;
           }
         }
-        oldest.dispose();
+        this.#dismissed.add(oldest.notification);
+        evicted.push(oldest);
       }
     }
     // Remove VMs whose notifications are no longer pending.
@@ -118,13 +123,23 @@ export class NotificationsVM extends ComponentVMBase {
         v.dispose();
       }
     }
+    for (const n of [...this.#dismissed]) {
+      if (!stillPending.has(n)) this.#dismissed.delete(n);
+    }
     this._notifyPropertyChanged("visible");
+    // A dropped notification is dismissed, not just hidden: left pending in
+    // the hub, the next sync would rebuild it and evict another one.
+    for (const vm of evicted) {
+      vm.dismissCommand.execute();
+      vm.dispose();
+    }
   }
 
   #clearVisible(): void {
     for (const v of this.#visible) v.dispose();
     this.#visible.length = 0;
     this.#map.clear();
+    this.#dismissed.clear();
   }
 
   protected override _onDispose(): void {

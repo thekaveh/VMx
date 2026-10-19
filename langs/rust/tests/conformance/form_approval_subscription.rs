@@ -254,3 +254,46 @@ fn legacy_on_approved_callbacks_keep_firing_in_registration_order() {
         vec![("legacy", 2), ("subscribed", 2)]
     );
 }
+
+#[test]
+fn validators_registered_after_dispose_are_inactive() {
+    let form = FormVm::new("form", 1);
+    form.dispose();
+
+    form.with_field_validator("value", |_| Some("bad".to_string()));
+    form.with_model_validator(|_| {
+        std::collections::BTreeMap::from([("value".to_string(), "bad".to_string())])
+    });
+
+    assert!(form.errors().is_empty());
+}
+
+#[test]
+fn a_subscription_detached_mid_emission_releases_its_captures_at_once() {
+    let form = FormVm::new("form", 1);
+    let captured = Arc::new(());
+    let weak: Weak<()> = Arc::downgrade(&captured);
+    let slot: Arc<Mutex<Option<ApprovalSubscription>>> = Arc::new(Mutex::new(None));
+    let alive_after_detach = Arc::new(Mutex::new(None));
+    let (slot_in_first, weak_in_first, alive) =
+        (slot.clone(), weak.clone(), alive_after_detach.clone());
+    let _first = form.subscribe_approved(move |_| {
+        if let Some(subscription) = slot_in_first.lock().unwrap().take() {
+            subscription.dispose();
+        }
+        *alive.lock().unwrap() = Some(weak_in_first.upgrade().is_some());
+    });
+    let held = captured.clone();
+    let second = form.subscribe_approved(move |_| {
+        let _ = &held;
+        panic!("a detached subscription must not run");
+    });
+    *slot.lock().unwrap() = Some(second);
+    drop(captured);
+
+    form.set_model(2);
+    form.approve().unwrap();
+
+    assert_eq!(*alive_after_detach.lock().unwrap(), Some(false));
+    assert!(weak.upgrade().is_none());
+}

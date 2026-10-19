@@ -990,6 +990,50 @@ fn keyed_serviced_removals_and_explicit_rekeys_keep_the_index_synchronized() {
     assert!(!list.contains_key(&"c"));
     assert_eq!(list.get_by_key(&"renamed"), Some(keyed_item("renamed", 30)));
 
+    // Explicit rekey: the same instance's key-like property changes, then
+    // indexed replacement installs that same instance at its own position.
+    type Shared = std::sync::Arc<std::sync::Mutex<KeyedItem>>;
+    let hub = MessageHub::new();
+    let recorder = hub.record(1024);
+    let rekeyed = KeyedServicedObservableCollection::with_hub(31, hub.clone(), |item: &Shared| {
+        Ok(item.lock().unwrap().key)
+    });
+    let first: Shared = std::sync::Arc::new(std::sync::Mutex::new(keyed_item("first", 1)));
+    let second: Shared = std::sync::Arc::new(std::sync::Mutex::new(keyed_item("second", 2)));
+    rekeyed.push(first.clone()).unwrap();
+    rekeyed.push(second.clone()).unwrap();
+    let before = collection_messages(&recorder).len();
+    second.lock().unwrap().key = "moved";
+    assert!(std::sync::Arc::ptr_eq(
+        &rekeyed.replace(1, second.clone()).unwrap(),
+        &second
+    ));
+    assert!(!rekeyed.contains_key(&"second"));
+    assert!(std::sync::Arc::ptr_eq(
+        &rekeyed.get_by_key(&"moved").unwrap(),
+        &second
+    ));
+    assert!(std::sync::Arc::ptr_eq(&rekeyed.get(1).unwrap(), &second));
+    let changes = &collection_messages(&recorder)[before..];
+    assert_eq!(changes.len(), 1, "exactly one Replace for the rekey");
+    assert_eq!(changes[0].action, CollectionChangeAction::Replace);
+
+    // Rekeying to a key owned by another position fails atomically.
+    let before = collection_messages(&recorder).len();
+    second.lock().unwrap().key = "first";
+    assert!(rekeyed.replace(1, second.clone()).is_err());
+    second.lock().unwrap().key = "moved";
+    assert!(std::sync::Arc::ptr_eq(
+        &rekeyed.get_by_key(&"first").unwrap(),
+        &first
+    ));
+    assert!(std::sync::Arc::ptr_eq(
+        &rekeyed.get_by_key(&"moved").unwrap(),
+        &second
+    ));
+    assert_eq!(rekeyed.len(), 2);
+    assert_eq!(collection_messages(&recorder).len(), before);
+
     let mutable = KeyedServicedObservableCollection::new(
         26,
         |item: &std::sync::Arc<std::sync::Mutex<KeyedItem>>| Ok(item.lock().unwrap().key),
@@ -1023,10 +1067,60 @@ fn keyed_serviced_replace_all_preflights_and_accepts_self_input() {
     });
     list.replace_all([keyed_item("a", 1), keyed_item("b", 2)])
         .unwrap();
+
+    // New unique-key items: one Reset on each channel, and the new items and
+    // captured keys are already installed when the local handler runs.
+    let local_record = list.collection_changed().record(1024);
+    let observed = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let observed_inner = observed.clone();
+    let observed_list = list.clone();
+    let observer = list.collection_changed().subscribe(move |_| {
+        observed_inner.lock().unwrap().push((
+            observed_list.to_vec(),
+            observed_list.contains_key(&"a"),
+            observed_list.contains_key(&"c"),
+            observed_list.contains_key(&"d"),
+        ));
+    });
+    let before_new = collection_messages(&recorder).len();
+    list.replace_all([keyed_item("c", 3), keyed_item("d", 4)])
+        .unwrap();
+    let hub_new = collection_messages(&recorder);
+    assert_eq!(hub_new.len(), before_new + 1);
+    assert_eq!(hub_new[before_new].action, CollectionChangeAction::Reset);
+    let local_new = collection_messages(&local_record);
+    assert_eq!(local_new.len(), 1);
+    assert_eq!(local_new[0].action, CollectionChangeAction::Reset);
+    assert_eq!(
+        *observed.lock().unwrap(),
+        vec![(
+            vec![keyed_item("c", 3), keyed_item("d", 4)],
+            false,
+            true,
+            true
+        )]
+    );
+    drop(observer);
+    assert_eq!(list.get_by_key(&"c"), Some(keyed_item("c", 3)));
+    assert!(list.get_by_key(&"a").is_none());
+    list.replace_all([keyed_item("a", 1), keyed_item("b", 2)])
+        .unwrap();
+
     let before_self = collection_messages(&recorder).len();
+    let local_before_self = collection_messages(&local_record).len();
     list.replace_all(&list).unwrap();
     assert_eq!(collection_messages(&recorder).len(), before_self + 1);
+    assert_eq!(
+        collection_messages(&recorder)[before_self].action,
+        CollectionChangeAction::Reset
+    );
+    assert_eq!(
+        collection_messages(&local_record).len(),
+        local_before_self + 1
+    );
+    assert_eq!(list.to_vec(), vec![keyed_item("a", 1), keyed_item("b", 2)]);
     let before_failure = collection_messages(&recorder).len();
+    let local_before_failure = collection_messages(&local_record).len();
 
     assert!(matches!(
         list.replace_all([keyed_item("x", 1), keyed_item("x", 2)]),
@@ -1037,7 +1131,14 @@ fn keyed_serviced_replace_all_preflights_and_accepts_self_input() {
         Err(VmxError::Other("projection failed".to_string()))
     );
     assert_eq!(list.to_vec(), vec![keyed_item("a", 1), keyed_item("b", 2)]);
+    assert_eq!(list.get_by_key(&"a"), Some(keyed_item("a", 1)));
+    assert_eq!(list.get_by_key(&"b"), Some(keyed_item("b", 2)));
+    assert!(!list.contains_key(&"x"));
     assert_eq!(collection_messages(&recorder).len(), before_failure);
+    assert_eq!(
+        collection_messages(&local_record).len(),
+        local_before_failure
+    );
 
     let empty = KeyedServicedObservableCollection::new(28, |item: &KeyedItem| Ok(item.key));
     let empty_collection_changed_record = empty.collection_changed().record(1024);
@@ -1184,6 +1285,10 @@ fn keyed_serviced_move_clear_and_conveniences_preserve_keys_and_ownership() {
 }
 
 /// COL-063 — keyed delivery is local-before-hub and respects an existing hub transaction
+///
+/// "Exposes no independent collection batch scope" is an API-absence clause:
+/// `KeyedServicedObservableCollection` has no batch method, which a runtime
+/// test cannot assert beyond the code compiling without one.
 #[test]
 fn keyed_serviced_delivery_is_local_before_transactional_hub_delivery() {
     let hub = MessageHub::new();
@@ -1214,6 +1319,19 @@ fn keyed_serviced_delivery_is_local_before_transactional_hub_delivery() {
         }
     });
 
+    // Outside a hub transaction: state commits first, local precedes hub,
+    // and both observers see the committed key.
+    list.push(keyed_item("b", 2)).unwrap();
+    assert_eq!(
+        *trace.lock().unwrap(),
+        vec![
+            ("local", CollectionChangeAction::Add, true),
+            ("hub", CollectionChangeAction::Add, true),
+        ]
+    );
+    assert!(list.remove_key(&"b").is_some());
+    trace.lock().unwrap().clear();
+
     hub.batch(|| {
         list.push(keyed_item("a", 1)).unwrap();
         list.push(keyed_item("b", 2)).unwrap();
@@ -1236,6 +1354,16 @@ fn keyed_serviced_delivery_is_local_before_transactional_hub_delivery() {
             .map(|entry| entry.2)
             .collect::<Vec<_>>(),
         vec![false, true, true, true]
+    );
+    // Deferred hub delivery keeps the granular Adds; no collapse into Reset.
+    assert_eq!(
+        trace
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|entry| entry.1.clone())
+            .collect::<Vec<_>>(),
+        vec![CollectionChangeAction::Add; 4]
     );
 }
 
@@ -1385,13 +1513,26 @@ fn observable_list_add_emits_add() {
 #[test]
 fn observable_list_remove_emits_remove() {
     let hub = MessageHub::new();
-    let recorder = hub.record(1024);
     let list = ObservableList::new(1, hub.clone());
     list.push("a");
+    list.push("b");
+    list.push("c");
+    let recorder = hub.record(1024);
 
-    assert_eq!(list.remove_at(0).unwrap(), "a");
+    // Rust has no typed ItemRemoved stream: the removed item is the return
+    // value and the position is the Remove message's `old_index`.
+    assert_eq!(list.remove_at(1).unwrap(), "b");
 
-    assert!(collection_actions(&recorder).contains(&CollectionChangeAction::Remove));
+    let removals = recorder
+        .messages()
+        .into_iter()
+        .filter_map(|message| match message {
+            Message::CollectionChanged(change) => Some((change.action, change.old_index)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(removals, vec![(CollectionChangeAction::Remove, Some(1))]);
+    assert_eq!(list.to_vec(), vec!["a", "c"]);
 }
 
 #[test]
@@ -1458,31 +1599,48 @@ fn observable_list_batch_emits_single_reset() {
 /// COL-010 — ObservableDictionary insert and retrieve
 #[test]
 fn observable_dictionary_insert_and_get() {
-    let dictionary = ObservableDictionary::new(1, MessageHub::new());
+    let dictionary = ObservableMultiDictionary::new(1, MessageHub::new());
 
-    dictionary.insert("a", 1);
+    dictionary.add("a", 1, "x").unwrap();
 
-    assert_eq!(dictionary.get(&"a"), Some(1));
+    assert_eq!(dictionary.get(&"a", &1), Some("x"));
+    assert!(dictionary.contains_key(&"a", &1));
+    assert_eq!(dictionary.count(), 1);
+    assert!(
+        dictionary.add("a", 1, "y").is_err(),
+        "add rejects an existing key pair"
+    );
+    assert_eq!(dictionary.get(&"a", &1), Some("x"));
 }
 
 /// COL-011 — ObservableDictionary remove
 #[test]
 fn observable_dictionary_remove() {
-    let dictionary = ObservableDictionary::new(1, MessageHub::new());
-    dictionary.insert("a", 1);
+    let dictionary = ObservableMultiDictionary::new(1, MessageHub::new());
+    dictionary.add("a", 1, "x").unwrap();
 
-    assert_eq!(dictionary.remove(&"a"), Some(1));
-    assert_eq!(dictionary.get(&"a"), None);
+    assert_eq!(dictionary.remove(&"a", &1), Some("x"));
+    assert_eq!(dictionary.get(&"a", &1), None);
+    assert_eq!(dictionary.remove(&"a", &1), None);
+    assert_eq!(dictionary.count(), 0);
 }
 
 /// COL-012 — ObservableDictionary replace
 #[test]
 fn observable_dictionary_replace_existing_key() {
-    let dictionary = ObservableDictionary::new(1, MessageHub::new());
-    dictionary.insert("a", 1);
-    dictionary.insert("a", 2);
+    let hub = MessageHub::new();
+    let dictionary = ObservableMultiDictionary::new(1, hub.clone());
+    dictionary.add("a", 1, "x").unwrap();
+    let recorder = hub.record(1024);
 
-    assert_eq!(dictionary.get(&"a"), Some(2));
+    dictionary.insert("a", 1, "y");
+
+    assert_eq!(dictionary.get(&"a", &1), Some("y"));
+    assert_eq!(dictionary.count(), 1);
+    assert_eq!(
+        collection_actions(&recorder),
+        vec![CollectionChangeAction::Replace]
+    );
 }
 
 /// COL-013 — ObservableDictionary distinct-key observable views stay in sync
@@ -1502,22 +1660,53 @@ fn observable_multi_dictionary_distinct_key_views_stay_in_sync() {
 /// COL-014 — ObservableDictionary enumeration order is insertion order
 #[test]
 fn observable_dictionary_keys_are_in_insertion_order() {
-    let dictionary = ObservableDictionary::new(1, MessageHub::new());
-    dictionary.insert("b", 2);
-    dictionary.insert("a", 1);
+    let dictionary = ObservableMultiDictionary::new(1, MessageHub::new());
+    dictionary.add("b", 2, "first").unwrap();
+    dictionary.add("a", 1, "second").unwrap();
+    dictionary.add("b", 3, "third").unwrap();
 
-    assert_eq!(dictionary.keys(), vec!["b", "a"]);
+    assert_eq!(
+        dictionary.entries(),
+        vec![("b", 2, "first"), ("a", 1, "second"), ("b", 3, "third")]
+    );
 }
 
 /// COL-015 — ObservableDictionary clear empties keys views
 #[test]
 fn observable_dictionary_clear_empties_keys() {
-    let dictionary = ObservableDictionary::new(1, MessageHub::new());
-    dictionary.insert("a", 1);
+    let dictionary = ObservableMultiDictionary::new(1, MessageHub::new());
+    dictionary.add("a", 1, "x").unwrap();
+    dictionary.add("b", 2, "y").unwrap();
 
     dictionary.clear();
 
+    assert_eq!(dictionary.count(), 0);
+    assert!(dictionary.keys1().is_empty());
+    assert!(dictionary.keys2().is_empty());
+    assert!(dictionary.entries().is_empty());
+}
+
+// The single-key `ObservableDictionary` is a Rust-only convenience outside the
+// two-key catalog contract; this keeps its behavior covered.
+#[test]
+fn single_key_observable_dictionary_round_trip() {
+    let hub = MessageHub::new();
+    let recorder = hub.record(1024);
+    let dictionary = ObservableDictionary::new(1, hub.clone());
+
+    dictionary.insert("b", 2);
+    dictionary.insert("a", 1);
+    dictionary.insert("a", 3);
+    assert_eq!(dictionary.get(&"a"), Some(3));
+    assert_eq!(dictionary.keys(), vec!["b", "a"]);
+    assert_eq!(dictionary.remove(&"b"), Some(2));
+    dictionary.clear();
+
     assert!(dictionary.keys().is_empty());
+    assert_eq!(
+        collection_actions(&recorder).first(),
+        Some(&CollectionChangeAction::Add)
+    );
 }
 
 /// COL-016 — PagedComposition<TVM> clamps CurrentPageIndex when source shrinks
@@ -1554,15 +1743,29 @@ fn paged_composition_navigation_clamps_at_bounds() {
     pages.next_page();
     pages.next_page();
     assert_eq!(pages.current_page_index(), 1);
+
+    // Catalog scenario: PageSize 3 over 8 items gives PageCount 3.
+    let pages = PagedComposition::new((1..=8).collect::<Vec<_>>(), 3);
+    assert_eq!(pages.page_count(), 3);
+    assert_eq!(pages.current_page_index(), 0);
+    pages.move_to_first_page();
+    assert_eq!(pages.current_page_index(), 0);
+    pages.move_to_last_page();
+    assert_eq!(pages.current_page_index(), 2);
+    pages.move_to_last_page();
+    assert_eq!(pages.current_page_index(), 2);
+    assert_eq!(pages.current_page(), vec![7, 8]);
 }
 
 /// COL-019 — PagedComposition<TVM> PageSize == 0 passes through all items
 #[test]
 fn page_size_zero_returns_all_items() {
-    let pages = PagedComposition::new(vec![1, 2, 3], 0);
+    let pages = PagedComposition::new(vec![1, 2, 3, 4, 5, 6, 7], 0);
 
-    assert_eq!(pages.current_page(), vec![1, 2, 3]);
+    assert!(!pages.is_paging_enabled());
     assert_eq!(pages.page_count(), 1);
+    assert_eq!(pages.current_page_index(), 0);
+    assert_eq!(pages.current_page(), vec![1, 2, 3, 4, 5, 6, 7]);
 
     // Pass-through mode always has exactly one page, even for an empty source
     // (spec/21-collections.md §5.3); only PageSize > 0 yields zero pages (§5.4).
@@ -1574,9 +1777,19 @@ fn page_size_zero_returns_all_items() {
 /// COL-020 — PagedComposition<TVM> empty-source behavior
 #[test]
 fn paged_composition_empty_source_has_zero_pages() {
-    let pages = PagedComposition::<i32>::new(Vec::new(), 2);
+    let pages = PagedComposition::<i32>::new(Vec::new(), 5);
 
     assert_eq!(pages.page_count(), 0);
+    assert_eq!(pages.current_page_index(), 0);
+    assert!(pages.current_page().is_empty());
+
+    // All four navigation verbs are no-ops on an empty source.
+    pages.move_to_first_page();
+    pages.move_to_previous_page();
+    pages.move_to_next_page();
+    pages.move_to_last_page();
+    assert_eq!(pages.page_count(), 0);
+    assert_eq!(pages.current_page_index(), 0);
     assert!(pages.current_page().is_empty());
 }
 
@@ -1598,13 +1811,25 @@ fn paged_composition_composes_with_searchable_state() {
 fn observable_dictionary_publishes_to_hub() {
     let hub = MessageHub::new();
     let recorder = hub.record(1024);
-    let dictionary = ObservableDictionary::new(1, hub.clone());
+    let dictionary = ObservableMultiDictionary::new(1, hub.clone());
 
-    dictionary.insert("a", 1);
+    dictionary.add("a", 1, "x").unwrap();
+    dictionary.insert("a", 1, "y");
+    dictionary.remove(&"a", &1);
+    dictionary.add("b", 2, "z").unwrap();
+    dictionary.clear();
+    dictionary.clear();
 
     assert_eq!(
         collection_actions(&recorder),
-        vec![CollectionChangeAction::Add]
+        vec![
+            CollectionChangeAction::Add,
+            CollectionChangeAction::Replace,
+            CollectionChangeAction::Remove,
+            CollectionChangeAction::Add,
+            CollectionChangeAction::Reset,
+            CollectionChangeAction::Reset,
+        ]
     );
 }
 
@@ -1618,6 +1843,69 @@ fn observable_list_batch_end_count_notification() {
     list.batch_update(|| list.push("a"));
 
     assert_eq!(count_notifications(&recorder), 1);
+}
+
+/// Lists hub events as "reset" or "count" in delivery order.
+fn reset_and_count_events(recorder: &vmx::MessageRecorder) -> Vec<&'static str> {
+    recorder
+        .messages()
+        .into_iter()
+        .filter_map(|message| match message {
+            Message::CollectionChanged(change)
+                if change.action == CollectionChangeAction::Reset =>
+            {
+                Some("reset")
+            }
+            Message::PropertyChanged(change) if change.property_name == "Count" => Some("count"),
+            _ => None,
+        })
+        .collect()
+}
+
+/// COL-023 — a count-changing batch emits Reset before Count
+#[test]
+fn observable_list_batch_emits_reset_before_count() {
+    let hub = MessageHub::new();
+    let list = ObservableList::new(1, hub.clone());
+    list.push(10);
+    let recorder = hub.record(1024);
+
+    list.batch_update(|| {
+        list.push(20);
+        list.push(30);
+    });
+
+    assert_eq!(reset_and_count_events(&recorder), vec!["reset", "count"]);
+    assert_eq!(list.len(), 3);
+}
+
+/// COL-023 — an empty batch emits nothing
+#[test]
+fn observable_list_empty_batch_emits_nothing() {
+    let hub = MessageHub::new();
+    let list = ObservableList::new(1, hub.clone());
+    list.push(1);
+    let recorder = hub.record(1024);
+
+    list.batch_update(|| {});
+
+    assert!(reset_and_count_events(&recorder).is_empty());
+}
+
+/// COL-023 — a count-preserving batch emits Reset but no Count
+#[test]
+fn observable_list_replace_only_batch_emits_reset_without_count() {
+    let hub = MessageHub::new();
+    let list = ObservableList::new(1, hub.clone());
+    list.push(1);
+    list.push(2);
+    let recorder = hub.record(1024);
+
+    list.batch_update(|| {
+        list.replace(0, 99).unwrap();
+    });
+
+    assert_eq!(reset_and_count_events(&recorder), vec!["reset"]);
 }
 
 /// COL-024 — TokenPagedComposition<TVM,TToken> initial state
@@ -1976,4 +2264,47 @@ fn paged_composition_can_recompute_after_source_collection_changes() {
 
     assert_eq!(pages.page_count(), 2);
     assert_eq!(pages.current_page(), vec![1, 2]);
+}
+
+/// COL-010 — ObservableDictionary Add carries its insertion position
+#[test]
+fn observable_dictionary_add_publishes_its_insertion_index() {
+    let hub = MessageHub::new();
+    let dictionary = ObservableDictionary::new(1, hub.clone());
+    let recorder = hub.record(1024);
+
+    dictionary.insert("a", 1);
+    dictionary.insert("b", 2);
+    dictionary.insert("a", 3);
+
+    let indices: Vec<Option<usize>> = recorder
+        .messages()
+        .into_iter()
+        .filter_map(|message| match message {
+            Message::CollectionChanged(change) => Some(change.new_index),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(indices, vec![Some(0), Some(1), None]);
+}
+
+/// COL-010 — ObservableMultiDictionary Add carries its insertion position
+#[test]
+fn observable_multi_dictionary_add_publishes_its_insertion_index() {
+    let hub = MessageHub::new();
+    let dictionary = ObservableMultiDictionary::new(1, hub.clone());
+    let recorder = hub.record(1024);
+
+    dictionary.add("a", 1, "x").unwrap();
+    dictionary.insert("b", 2, "y");
+
+    let indices: Vec<Option<usize>> = recorder
+        .messages()
+        .into_iter()
+        .filter_map(|message| match message {
+            Message::CollectionChanged(change) => Some(change.new_index),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(indices, vec![Some(0), Some(1)]);
 }

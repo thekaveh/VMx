@@ -25,16 +25,18 @@ has been released. This preserves terminal `Disposed` ordering without letting
 two VMs deadlock when concurrent observers call lifecycle operations on one
 another. An ordinary foreign lifecycle call still waits for its publication;
 only a wait that would close an actual cross-VM cycle may defer to the target's
-existing drainer. See ADR-0117 and specification chapter 02 §2.4.
+running drainer. See ADR-0117 and specification chapter 02 §2.4.
 
 The same principle applies to MessageHub delivery: callbacks run from an
 ordered drain, not while a hub's state lock is held. Subscriber code should
 still avoid unbounded publish cycles; development diagnostics identify those
 cycles without truncating finite production delivery.
 
-Concurrent hubs preserve synchronous delivery when a callback targets an
-unrelated busy hub. A small wait-for graph changes behavior only when waiting
-would close an actual cross-hub cycle: sends defer to the target drain,
-disposal leaves terminal intent, and a cyclic batch temporarily borrows the
-target queue until its body exits. This is the narrow liveness rule in
-ADR-0119, not a general callback-mode relaxation.
+Concurrent hubs keep synchronous delivery, also from a callback, unless waiting
+would close an actual cross-hub wait cycle (ADR-0119). See
+[Hub Transactions](../primitives/services-messages-dispatching.md#667-hub-transactions)
+for the full rule.
+
+Swift notification replay also avoids lock cycles. The hub registers a pending
+subscriber atomically, then attaches it outside the hub lock before
+`CurrentValueSubject` replays the pending list.

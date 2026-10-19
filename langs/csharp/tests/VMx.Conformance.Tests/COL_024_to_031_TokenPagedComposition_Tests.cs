@@ -306,9 +306,19 @@ public class COL_024_to_031_TokenPagedCompositionTests
         var sut = new TokenPagedComposition<ComponentVM, string>(
             _ => Task.FromResult(new TokenPage<ComponentVM, string>([child], null)),
             autoConstructOnAdd: true);
+        var observedAtReset = new List<bool>();
+        sut.CollectionChanged += (_, e) =>
+        {
+            e.Action.Should().Be(System.Collections.Specialized.NotifyCollectionChangedAction.Reset);
+            observedAtReset.Add(child.IsConstructed);
+        };
 
+        child.IsConstructed.Should().BeFalse();
         await sut.LoadMoreCommand.ExecuteAsync();
 
+        observedAtReset.Should().Equal(
+            [true],
+            "the added component VM is constructed before subscribers observe the Reset");
         child.IsConstructed.Should().BeTrue();
     }
 

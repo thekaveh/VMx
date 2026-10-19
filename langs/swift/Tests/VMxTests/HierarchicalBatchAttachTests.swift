@@ -138,6 +138,30 @@ final class HierarchicalBatchAttachTests: XCTestCase {
         XCTAssertEqual(failed.rejections.first?.reason, .selectorFailed)
     }
 
+    /// HIER-029 — an attachment failure is reported without aborting the batch.
+    func testHier029AttachmentFailureDoesNotAbortTheBatch() {
+        // A lazy factory that returns the same child twice is structurally
+        // invalid, so materializing the root's children fails while attaching.
+        let duplicate = node("duplicate")
+        let root = BatchNode(
+            model: BatchModel(key: "root", parentKey: nil),
+            childrenFactory: { _ in [duplicate, duplicate] },
+            hub: MessageHub(),
+            dispatcher: ImmediateDispatcher.INSTANCE,
+            name: "root"
+        )
+        let first = node("first")
+        let second = node("second")
+
+        let result = attach(root, [first, second])
+
+        XCTAssertTrue(result.added.isEmpty)
+        XCTAssertEqual(result.rejections.count, 2)
+        XCTAssertTrue(result.rejections.allSatisfy { $0.reason == .attachmentFailed })
+        XCTAssertNil(first.parent)
+        XCTAssertNil(second.parent)
+    }
+
     /// HIER-030 — disposal clears root-owned parked state.
     func testHier030DisposeClearsParkedItems() {
         let root = node("root")

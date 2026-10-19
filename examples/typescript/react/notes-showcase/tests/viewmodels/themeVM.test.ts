@@ -107,6 +107,32 @@ describe("ThemeVM — surface shape", () => {
   });
 });
 
+describe("ThemeVM after dispose", () => {
+  it("ignores a model assignment and publishes nothing", () => {
+    const { vm, hub } = makeVM();
+    const msgs = captureMessages(hub);
+    vm.dispose();
+
+    vm.model = LIGHT_PRESET;
+
+    expect(vm.model.name).toBe("dark");
+    expect(msgs).toHaveLength(0);
+  });
+});
+
+describe("ThemeVM value equality", () => {
+  it("publishes nothing for a change that alters no field", () => {
+    const { vm, hub } = makeVM();
+    const msgs = captureMessages(hub);
+
+    vm.setThemeCommand.execute("dark");
+    vm.followSystemCommand.execute();
+    vm.followSystemCommand.execute();
+
+    expect(msgs).toHaveLength(1);
+  });
+});
+
 describe("THEME-001 — setThemeCommand publishes ThemeChangedMessage", () => {
   it("publishes a single ThemeChangedMessage with prev=dark, curr=light", () => {
     const { vm, hub } = makeVM();

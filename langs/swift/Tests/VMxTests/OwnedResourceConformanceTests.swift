@@ -73,8 +73,9 @@ final class OwnedResourceConformanceTests: XCTestCase {
         let vm = OwnedProbeVM(hub: MessageHub())
         vm.dispose()
         vm.register { calls += 1 }
+        XCTAssertEqual(calls, 1, "cleanup must run immediately on registration")
         vm.dispose()
-        XCTAssertEqual(calls, 1)
+        XCTAssertEqual(calls, 1, "repeated disposal must not clean up again")
     }
 
     /// DISP-011 — disposal-lifetime resources survive reconstruct.

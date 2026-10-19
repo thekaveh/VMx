@@ -44,12 +44,13 @@ fn search_returns_current_filtered_projection() {
 /// COMP-017 — Predicate is user-supplied
 #[test]
 fn predicate_is_user_supplied() {
-    let state = SearchableState::new(vec![1, 2, 3, 4], |item, term| {
-        term == "even" && item % 2 == 0
+    let state = SearchableState::new(vec!["a", "bb", "ccc"], |item: &&'static str, term| {
+        item.len() > term.len()
     });
-    state.set_search_term("even");
+    state.set_search_term("bb");
 
-    assert_eq!(state.filtered(), vec![2, 4]);
+    assert_eq!(state.search(), vec!["ccc"]);
+    assert_eq!(state.filtered(), vec!["ccc"]);
 }
 
 /// COMP-018 — Filtered recomputes when Items source changes
@@ -94,10 +95,29 @@ fn group_context_search_forces_immediate_projection() {
 /// GRP-010 — Predicate is user-supplied (group context)
 #[test]
 fn group_context_predicate_is_user_supplied() {
-    let state = SearchableState::new(vec!["a", "bbb"], |item, term| item.len() == term.len());
-    state.set_search_term("xx");
+    // Prefix match on the term's reversal: no substring filter would select
+    // "cba" for "abc" while rejecting "abc" itself.
+    let custom = |item: &&'static str, term: &str| {
+        let reversed = term.chars().rev().collect::<String>();
+        !term.is_empty() && item.starts_with(&reversed)
+    };
+    let items = vec!["abc", "cba", "cbazz", "xabc"];
+    let state = SearchableState::new(items.clone(), custom);
+    state.set_search_term("abc");
 
-    assert_eq!(state.filtered(), Vec::<&str>::new());
+    let searched = state.search();
+    let substring = items
+        .iter()
+        .copied()
+        .filter(|item| contains(item, "abc"))
+        .collect::<Vec<_>>();
+
+    assert_eq!(searched, vec!["cba", "cbazz"]);
+    assert_eq!(state.filtered(), vec!["cba", "cbazz"]);
+    assert_ne!(
+        searched, substring,
+        "the custom rule must not equal a substring filter"
+    );
 }
 
 fn pulse(hub: &MessageHub) {
@@ -253,7 +273,7 @@ fn source_disposal_is_isolated_from_manual_search() {
     items.lock().unwrap().push("two");
 
     assert_eq!(state.search(), vec!["one", "two"]);
-    assert_eq!(hits.load(Ordering::SeqCst), 0);
+    assert_eq!(hits.load(Ordering::SeqCst), 1);
 }
 
 /// SRCH-006 — disposal cancels source observation once without owning the source
@@ -321,17 +341,28 @@ fn search_after_disposal_is_inert_without_calling_user_code() {
     assert_eq!(predicate_calls.load(Ordering::SeqCst), 0);
 }
 
+/// A search item backed by a real VM whose dispose hook increments
+/// `dispose_count`, so ownership assertions observe actual disposal.
 #[derive(Clone)]
 struct OwnedSearchItem {
     value: &'static str,
+    vm: vmx::ComponentVm,
     dispose_count: Arc<AtomicUsize>,
 }
 
 impl OwnedSearchItem {
     fn new(value: &'static str) -> Self {
+        let dispose_count = Arc::new(AtomicUsize::new(0));
+        let vm = vmx::ComponentVm::new(value);
+        let hook_count = dispose_count.clone();
+        vm.on_dispose(move || {
+            hook_count.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        });
         Self {
             value,
-            dispose_count: Arc::new(AtomicUsize::new(0)),
+            vm,
+            dispose_count,
         }
     }
 }
@@ -363,7 +394,15 @@ fn omitted_signal_preserves_explicit_refresh_and_item_ownership() {
         vec!["one", "two"]
     );
     state.dispose();
+    drop(state);
 
-    assert_eq!(first.dispose_count.load(Ordering::SeqCst), 0);
-    assert_eq!(second.dispose_count.load(Ordering::SeqCst), 0);
+    // The helper owns neither the supplier collection nor its items.
+    assert_eq!(items.lock().unwrap().len(), 2);
+    for item in [&first, &second] {
+        assert_eq!(item.dispose_count.load(Ordering::SeqCst), 0);
+        assert_ne!(item.vm.status(), vmx::ConstructionStatus::Disposed);
+    }
+    // Control: the counter is wired to real disposal.
+    first.vm.dispose().unwrap();
+    assert_eq!(first.dispose_count.load(Ordering::SeqCst), 1);
 }

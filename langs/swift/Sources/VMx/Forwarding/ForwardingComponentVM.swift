@@ -87,12 +87,12 @@ open class ForwardingComponentVM<Model>: ComponentVMOf<Model> {
     open override func republishModel() { _wrapped.republishModel() }
 
     // ── Built-in commands (override the getters to delegate) ────────────
-    open override var selectCommand: RelayCommand {
-        _parent == nil ? _wrapped.selectCommand : super.selectCommand
-    }
-    open override var deselectCommand: RelayCommand {
-        _parent == nil ? _wrapped.deselectCommand : super.deselectCommand
-    }
+    // FWD-001: the decorator's commands ARE the wrapped VM's commands. When
+    // the decorator is parented, the wrapped VM's selection routes through
+    // the decorator's parent (ComponentVMBase._forwardingSelectionOwner), so
+    // executing them selects/deselects the decorator.
+    open override var selectCommand: RelayCommand { _wrapped.selectCommand }
+    open override var deselectCommand: RelayCommand { _wrapped.deselectCommand }
     open override var selectNextCommand: RelayCommand { _wrapped.selectNextCommand }
     open override var selectPreviousCommand: RelayCommand { _wrapped.selectPreviousCommand }
     open override var reconstructCommand: RelayCommand { _wrapped.reconstructCommand }
@@ -108,23 +108,36 @@ open class ForwardingComponentVM<Model>: ComponentVMOf<Model> {
     open override func own(_ cancellable: any Cancellable) { _wrapped.own(cancellable) }
     open override func dispose() { _wrapped.dispose() }
 
+    // A parent waits on the wrapped instance's in-flight transition.
+    override func _awaitSettle(
+        from transient: ConstructionStatus,
+        _ callback: @escaping () -> Void
+    ) -> UInt64? {
+        _wrapped._awaitSettle(from: transient, callback)
+    }
+    override func _cancelSettleWait(_ id: UInt64) { _wrapped._cancelSettleWait(id) }
+
     // ── Selection ───────────────────────────────────────────────────────
     open override func canSelect() -> Bool {
+        // A disposed wrapper is inert, like the base (spec/02 §3).
+        guard status != .disposed else { return false }
         guard let parent = _parent else { return _wrapped.canSelect() }
         return _wrapped.status == .constructed
             && parent.supportsChildSelection
             && parent.currentChild !== self
     }
     open override func select() {
+        guard status != .disposed else { return }
         if let parent = _parent { parent.selectChild(self) } else { _wrapped.select() }
     }
     open override func canDeselect() -> Bool {
+        guard status != .disposed else { return false }
         guard let parent = _parent else { return _wrapped.canDeselect() }
-        return _wrapped.status == .constructed
-            && parent.supportsChildSelection
-            && parent.currentChild === self
+        // spec/05 §6: not disposed, parented, and the parent's current child.
+        return parent.supportsChildSelection && parent.currentChild === self
     }
     open override func deselect() {
+        guard status != .disposed else { return }
         if let parent = _parent { parent.deselectChild(self) } else { _wrapped.deselect() }
     }
 }

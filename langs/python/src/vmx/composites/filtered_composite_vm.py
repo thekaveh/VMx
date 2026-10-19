@@ -10,7 +10,7 @@ import reactivex as rx
 from reactivex import operators as ops
 from reactivex.subject import Subject
 
-from vmx.commands.relay_command import _run_disposal_steps
+from vmx._disposal import _run_disposal_steps
 from vmx.components.base import _ComponentVMBase
 from vmx.composites.composite_vm import CompositeVM
 
@@ -64,8 +64,20 @@ class FilteredCompositeVM(Generic[VM]):
         return self._changed.pipe(ops.as_observable())
 
     def set_predicate(self, predicate: Callable[[VM], bool]) -> None:
+        # A disposed projection stays frozen (disposal contract, DISP-006).
+        if self._disposed:
+            return
+        # A throwing predicate leaves the previous predicate, projection, and
+        # current in place: the projection is computed before anything is
+        # assigned. A raising observer does not roll the predicate back.
+        previous = self._predicate
         self._predicate = predicate
-        self._recompute()
+        try:
+            visible = self._ordered_visible()
+        except BaseException:
+            self._predicate = previous
+            raise
+        self._recompute(visible)
 
     def set_current(self, item: VM | None) -> None:
         if self._disposed:
@@ -78,6 +90,8 @@ class FilteredCompositeVM(Generic[VM]):
         self._changed.on_next(None)
 
     def move_to_next_visible(self) -> None:
+        if self._disposed:
+            return
         if not self._visible:
             self.set_current(None)
             return
@@ -88,6 +102,8 @@ class FilteredCompositeVM(Generic[VM]):
         self.set_current(self._visible[min(index + 1, len(self._visible) - 1)])
 
     def move_to_previous_visible(self) -> None:
+        if self._disposed:
+            return
         if not self._visible:
             self.set_current(None)
             return
@@ -100,10 +116,10 @@ class FilteredCompositeVM(Generic[VM]):
     def _ordered_visible(self) -> list[VM]:
         return [item for item in self._source if self._predicate(item)]
 
-    def _recompute(self) -> None:
+    def _recompute(self, visible: list[VM] | None = None) -> None:
         if self._disposed:
             return
-        self._visible = self._ordered_visible()
+        self._visible = self._ordered_visible() if visible is None else visible
         if self._current is None or self._visible_index(self._current) < 0:
             if self._cursor_policy in (
                 FilteredCursorPolicy.CLEAR,

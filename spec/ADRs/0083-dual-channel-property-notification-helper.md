@@ -65,6 +65,10 @@ visibility, caller-owned equality gating, and post-dispose behavior.
   properties should prefer the helper.
 - The specification advances to 3.3.0. C#, Python, TypeScript, and Swift advance
   to 3.3.0; pre-1.0 Rust advances to 0.3.0.
+- Consumer evidence: a pilot against NNx Studio's `ConsoleVM` collapsed two
+  hand-written hub-plus-local emission sequences to the helper call. The
+  viewmodel package stayed type-clean, and its focused suite passed all 7
+  tests, including an assertion that the hub event precedes the local event.
 
 ## 4. Rejected alternatives
 

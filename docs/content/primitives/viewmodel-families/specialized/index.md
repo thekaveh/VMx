@@ -44,22 +44,15 @@ or message flow:
 - notification and confirmation VMs mirror host notification streams
 - modal VMs bridge VM state with dialog completion
 
-The dedicated pages cover the exact hooks and host seams each workflow uses.
-
 ## 6.2.8.1.4. Cross-Language Surface
 
-All five source flavors ship the same conceptual set of specialized primitives, with
-idiomatic naming differences only. The dedicated pages call out where example
-apps currently exercise them and where a flavor surfaces helper APIs
-idiomatically.
+All five source flavors ship the same conceptual set of specialized primitives,
+with idiomatic naming differences only.
 
 ## 6.2.8.1.5. Example
 
-In the Notes Workspace examples, the editor flow composes `FormVM` with
-`DiscriminatorVM`, while notifications and dialogs use the render-oriented
-primitives instead of growing ad hoc state on unrelated container VMs.
-
-The flagship examples are especially useful here:
+The Notes Workspace flagships use specialized primitives instead of ad
+hoc state on unrelated container VMs:
 
 - the editor pane composes `FormVM` and `DiscriminatorVM`
 - the notifications pane projects `INotificationHub.Pending` into
@@ -67,7 +60,8 @@ The flagship examples are especially useful here:
 - the dialog adapters show where `ModalVM` fits when `IDialogService.Present`
   is the right host seam
 
-The dedicated pages below call out the relevant example files directly.
+The dedicated pages cover each workflow's hooks, host seams, and flavor-specific
+helper APIs, and link the relevant example files.
 
 ## 6.2.8.1.6. Common Pitfalls
 

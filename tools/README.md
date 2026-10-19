@@ -8,6 +8,10 @@ Cross-cutting scripts that operate across `spec/` and `langs/`.
   HTML/SVG/PNG triplets from repository facts. Run it without arguments to
   regenerate or with `--check` to verify byte-for-byte drift.
 
+- `docs/validate_diagrams.py` — validates the diagram registry and every
+  diagram link and PNG asset that the documentation references. Run it with
+  `python -m scripts.docs.validate_diagrams`; `make docs-check` includes it.
+
 - `check-conformance-coverage.py` — parses `spec/12-conformance.md` for the catalog
   of `XXX-NNN` conformance IDs and walks each active language's registered conformance
   test directory for matching tests. The exact directories are registered in the
@@ -57,8 +61,8 @@ Cross-cutting scripts that operate across `spec/` and `langs/`.
   sources. The packaged-consumer smoke then runs the extracted crate's own tests.
 
 - `check-release-please-state.py` — compares the Python source version with the
-  truthful last-published release-please manifest. The release workflow uses its
-  output to pause automation when a bootstrap release is pending, preventing a
+  truthful last-published release-please manifest. The `release-please` workflow uses
+  its output to pause automation when a bootstrap release is pending, preventing a
   generated version downgrade.
 
 - `check-swift-fixture-sync.py` — verifies Swift's four bundled JSON resources
@@ -75,10 +79,40 @@ Cross-cutting scripts that operate across `spec/` and `langs/`.
   namespaces to exactly one package ID, verifies that package's project version,
   and writes the single-entry artifact manifest consumed by `release.yml`.
 
-## 2. Pure-VM contract checks (notes-showcase, Phase 6)
+### 1.1 Release, package, and coverage checks
 
-Four lint-style scripts that lock in the §6.1 Pure-VM contract and the
-cross-flavor parity of the `examples/notes-showcase` apps. Each is
+- `check-cobertura-threshold.py` — Fails when aggregate Cobertura line or branch coverage drops below a floor (C# coverage gate).
+- `check-conformance-execution.py` — Checks that every library conformance ID has a passing executed test case, not only a marker.
+- `check-coverage-floor.py` — Checks an llvm-cov coverage export against a flavor's recorded floor in `coverage-floors.json` (Rust and Swift).
+- `check-fixture-contracts.py` — Validates the canonical fixture inventories and their structural contracts.
+- `check-nuget-package.py` — Validates the VMx NuGet main and symbol packages against an exact contract.
+- `check-python-interpreter.py` — Asserts the interpreter identity, then runs Python arguments with that executable.
+- `check-python-package.py` — Validates the exact VMx Python wheel and sdist contents before publication.
+- `check-react-package.py` — Fails when the React adapter's npm payload drifts from its allowlist.
+- `check-rust-doc-snippets.py` — Compiles every Rust fence in the public Rust getting-started guide.
+- `check-rust-package.py` — Verifies the exact allowlisted contents of the Rust crate package.
+- `check-swift-package-sync.py` — Verifies that the root and nested SwiftPM manifests stay equivalent.
+- `check-typescript-package.py` — Verifies the exact allowlisted contents of the TypeScript npm package.
+- `check-typescript-schema-sync.py` — Asserts that TypeScript's tracked conformance schema copies match the spec.
+- `check-version-consistency.py` — Cross-checks manifest versions, the compatibility matrix, changelog sections, and git tags; `--release-tag` adds the release preflight.
+- `check-workflow-pins.py` — Verifies immutable GitHub Action pins and their maintenance-ledger inventory.
+- `compare-benchmarks.py` — Compares two benchmark reports and flags cases outside the noise band.
+- `compare-coverage-runs.py` — Compares llvm-cov exports of repeated runs and lists where their coverage differs.
+- `coverage-floors.json` — Recorded Rust and Swift coverage floors read by `check-coverage-floor.py`.
+- `ensure-release-changelog-unreleased.py` — Restores the canonical Unreleased section after Release Please runs.
+- `extract-react-release-notes.awk` — Extracts one React adapter changelog section for its GitHub Release.
+- `render-csharp-release-notes.py` — Renders C# GitHub Release notes from a selected-package manifest.
+- `smoke-npm-consumer.py` — Installs and verifies `@thekaveh/vmx` from a local tarball or the public npm registry.
+- `smoke-nuget-consumer.py` — Builds clean VMx consumers from local packages or the public NuGet feed.
+- `smoke-react-consumer.py` — Packs core and the React adapter and verifies a fresh ESM/CJS SSR consumer.
+- `smoke-rust-consumer.py` — Builds and runs VMx from a local `.crate` or the public crates.io registry.
+- `smoke-swiftpm-consumer.py` — Resolves and runs VMx from a fresh public SwiftPM consumer package.
+
+## 2. Pure-VM contract checks (notes-showcase)
+
+Four lint-style scripts that lock in the Pure-VM contract and the
+cross-flavor parity of the flagship notes-showcase apps under
+`examples/<lang>/`. Each is
 self-contained, runs from the repo root with no required arguments, and
 exits 0 on success / non-zero with a per-line violation report on failure.
 
@@ -112,7 +146,7 @@ exits 0 on success / non-zero with a per-line violation report on failure.
   scenario markers.
 
 A fifth check is the React ESLint rule under
-`examples/typescript/react/notes-showcase/.eslintrc.cjs` —
+`examples/typescript/react/notes-showcase/eslint.config.js` —
 `no-restricted-imports` on `src/views/components/**/*.{ts,tsx}` blocks
 `useState` and `useReducer`, steering authors to the adapter hooks
 (`useVm`, `useCommand`, `useDerivedProperty`).

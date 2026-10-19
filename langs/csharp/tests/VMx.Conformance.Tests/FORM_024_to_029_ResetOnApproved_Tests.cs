@@ -153,9 +153,12 @@ public class FORM_024_to_029_ResetOnApproved_Tests
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         Model? resetInput = null;
+        Model? persisted = null;
         using var form = FormVM<Model>.Builder().Initial(new("initial"))
-            .Persister(async _ => { entered.SetResult(); await release.Task; })
+            .Persister(async model => { persisted = model; entered.SetResult(); await release.Task; })
             .ResetOnApproved(model => { resetInput = model; return new($"reset:{model.Value}"); }).Build();
+        var approved = new List<Model>();
+        using var approvedSub = form.OnApproved.Subscribe(approved.Add);
         form.SetModel(new("saved"));
 
         var approval = form.ApproveAsync();
@@ -164,7 +167,9 @@ public class FORM_024_to_029_ResetOnApproved_Tests
         release.SetResult();
         await approval;
 
+        persisted.Should().Be(new Model("saved"), "the persister receives the captured m1");
         resetInput.Should().Be(new Model("saved"));
+        approved.Should().Equal([new Model("saved")], "OnApproved carries the captured m1, not the racing m2");
         form.Model.Should().Be(new Model("reset:saved"));
         form.Snapshot.Should().Be(new Model("reset:saved"));
         form.IsDirty.Should().BeFalse();
@@ -224,6 +229,27 @@ public class FORM_024_to_029_ResetOnApproved_Tests
         form.Model.Should().Be(new Model("reentrant"));
         form.Snapshot.Should().Be(new Model(""));
         form.IsDirty.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task SetModel_Null_During_Approval_Throws_To_The_Caller()
+    {
+        using var form = FormVM<Model>.Builder()
+            .Initial(new("saved"))
+            .Persister(_ => Task.CompletedTask)
+            .Validator("value", model => model.Value.Length == 0 ? "required" : null)
+            .ResetOnApproved(_ => new(""))
+            .Build();
+        var raised = new List<Type>();
+        using var errorsSubscription = form.ErrorsChanged.Subscribe(_ =>
+        {
+            try { form.SetModel(null!); }
+            catch (ArgumentNullException error) { raised.Add(error.GetType()); }
+        });
+
+        await form.ApproveAsync();
+
+        raised.Should().Equal(typeof(ArgumentNullException));
     }
 
     [Fact]

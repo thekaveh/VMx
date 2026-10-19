@@ -344,6 +344,43 @@ def test_AGCH_004_terminal_epoch_stays_silent_until_final_remove_and_readd() -> 
     sut.dispose()
 
 
+@pytest.mark.conformance("AGCH-004")
+def test_AGCH_004_zero_refcount_detaches_before_membership_and_replace_retains_epoch() -> None:
+    first, second, third = Item("first"), Item("second"), Item("third")
+    source = ServicedObservableCollection[Item]()
+    source.extend((first, second))
+    sut = aggregate(source)
+    observed: list[AggregateChange[Item]] = []
+    detached_at_membership: list[int] = []
+
+    def record(change: AggregateChange[Item]) -> None:
+        observed.append(change)
+        if change.reason is AggregateChangeReason.MEMBERSHIP:
+            detached_at_membership.append(first.changes.dispose_count)
+
+    sut.observe().subscribe(record)
+    assert first.changes.dispose_count == 0
+
+    # Zero refcount: the subscription is detached BEFORE Membership is delivered.
+    source.remove(first)
+    assert [change.reason for change in observed] == [AggregateChangeReason.MEMBERSHIP]
+    assert detached_at_membership == [1], "detach must precede the Membership event"
+    # Later callbacks from the detached epoch produce no Item.
+    first.changes.emit()
+    assert [change.reason for change in observed] == [AggregateChangeReason.MEMBERSHIP]
+
+    # Replace retaining `second` at positive refcount keeps its epoch active.
+    source.replace_all((second, third))
+    assert second.changes.subscribe_count == 1
+    assert second.changes.dispose_count == 0
+    observed.clear()
+    second.changes.emit()
+    assert [(change.reason, change.item) for change in observed] == [
+        (AggregateChangeReason.ITEM, second)
+    ]
+    sut.dispose()
+
+
 @pytest.mark.conformance("AGCH-005")
 def test_AGCH_005_keyed_reset_rebuilds_transactionally_and_retains_identity() -> None:
     first, retained, added = Item("first"), Item("retained"), Item("added")
@@ -372,10 +409,21 @@ def test_AGCH_006_equal_distinct_items_and_duplicate_identity_use_reference_rule
     sut.observe().subscribe(observed.append)
     duplicate.changes.emit()
     assert sum(change.reason is AggregateChangeReason.ITEM for change in observed) == 1
+    detached_at_membership: list[int] = []
+    sut.observe().subscribe(
+        lambda change: (
+            detached_at_membership.append(duplicate.changes.dispose_count)
+            if change.reason is AggregateChangeReason.MEMBERSHIP
+            else None
+        )
+    )
     source.remove(duplicate)
     assert duplicate.changes.dispose_count == 0
+    assert detached_at_membership == [0], "one occurrence removed: subscription stays active"
     source.remove(duplicate)
     assert duplicate.changes.dispose_count == 1
+    assert detached_at_membership == [0, 1], "final removal detaches before Membership"
+    assert duplicate.changes.subscribe_count == 1
     sut.dispose()
 
 

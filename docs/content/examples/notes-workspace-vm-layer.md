@@ -26,8 +26,8 @@ Rust-specific adapter rather than one of the four UI-backed flagship hosts:
 
 ## 8.4.2. Layer Walk
 
-- `WorkspaceVM` is the composition root. In the current flagship apps it wraps
-  an `AggregateVM6` over the six primary children.
+- `WorkspaceVM` is the composition root. It wraps an `AggregateVM6` over the
+  six primary children.
 - `NotebooksRootVM` and `NotebookVM` project the notebook tree through flat
   `ComponentVM`-based adapters that preserve `TreeStructureChangedMessage`
   behavior.

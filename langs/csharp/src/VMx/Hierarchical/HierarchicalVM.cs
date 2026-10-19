@@ -14,9 +14,10 @@ namespace VMx.Hierarchical;
 /// Children are <b>lazy by default</b>: the children factory is not invoked
 /// until <see cref="Children"/> is first accessed. Eager materialization can be
 /// requested by passing <see langword="true"/> for the <c>eagerChildren</c>
-/// constructor parameter — this causes the full subtree to be materialized and
-/// each child node constructed during
-/// <see cref="ComponentVMBase.OnConstruct"/>, in depth-first order.
+/// constructor parameter — this node then materializes its children and
+/// constructs each of them during <see cref="ComponentVMBase.OnConstruct"/>,
+/// in depth-first order. The option applies per node (spec/18 §4): the whole
+/// subtree is eager when the children factory creates eager nodes.
 ///
 /// See spec/18-hierarchical-vm.md and ADR-0028.
 /// </summary>

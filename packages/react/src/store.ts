@@ -30,11 +30,13 @@ export function createVmxStore(hub: IMessageHub): VmxStore {
   };
 
   const scheduleInvalidation = (): void => {
-    if (invalidationPending || disposed) return;
-    // The snapshot must change synchronously with the external store so React
-    // can detect an interleaved mutation during concurrent rendering. Listener
-    // delivery remains coalesced to one microtask per synchronous hub drain.
+    if (disposed) return;
+    // The snapshot must change synchronously with every external-store change
+    // so React can detect an interleaved mutation, even one that arrives after
+    // a synchronous render in the same drain. Listener delivery remains
+    // coalesced to one microtask per synchronous hub drain.
     snapshot += 1;
+    if (invalidationPending) return;
     invalidationPending = true;
     queueMicrotask(flush);
   };

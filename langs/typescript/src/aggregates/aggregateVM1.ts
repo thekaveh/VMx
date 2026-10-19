@@ -59,11 +59,11 @@ export class AggregateVM1<VM1 extends ComponentVMBase> extends ComponentVMBase {
       this.#component1 = next1;
     }, () => this._notifyPropertyChanged("component1"))) return;
     this._notifyPropertyChanged("component1");
-    next1.construct();
+    this._transitionChildren([next1], true);
   }
 
   protected override _onDestruct(): void {
-    this.#component1?.destruct();
+    this._transitionChildren(this.components(), false);
   }
 
   override dispose(): void {
@@ -73,6 +73,7 @@ export class AggregateVM1<VM1 extends ComponentVMBase> extends ComponentVMBase {
     // own Disposed transition — a single dispose-ordering rule across all
     // container VM kinds.
     disposeBestEffort([
+      () => this._abandonChildTransition(),
       () => this.#component1?.dispose(),
       () => super.dispose(),
     ]);

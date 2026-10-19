@@ -1,6 +1,7 @@
 // Conformance tests: COL-010..COL-015 + COL-022 — ObservableDictionary (multi-key).
 // See spec/21-collections.md §4 and ADR-0025.
 
+import type { Observable } from "rxjs";
 import { describe, expect, it } from "vitest";
 import {
   type DictionaryEntry,
@@ -260,6 +261,23 @@ describe("COL-015", () => {
     sut.itemRemoved.subscribe(() => granular.push("removed"));
     sut.reset.subscribe(() => resetFired.push(true));
 
+    // Subscribers to the Keys1 / Keys2 views: a clear is a Reset-shaped
+    // removal on each list view (ObservableList.clear emits Reset + "Count").
+    const keyEvents: Record<"keys1" | "keys2", string[]> = { keys1: [], keys2: [] };
+    const watch = (
+      label: "keys1" | "keys2",
+      view: { itemAdded: Observable<unknown>; itemRemoved: Observable<unknown>; reset: Observable<void>; propertyChanged: Observable<string> },
+    ): void => {
+      view.itemAdded.subscribe(() => keyEvents[label].push("added"));
+      view.itemRemoved.subscribe(() => keyEvents[label].push("removed"));
+      view.reset.subscribe(() => keyEvents[label].push("reset"));
+      view.propertyChanged.subscribe((name) => keyEvents[label].push(`prop:${name}`));
+    };
+    watch("keys1", sut.keys1);
+    watch("keys2", sut.keys2);
+    expect(sut.keys1.length).toBe(2);
+    expect(sut.keys2.length).toBe(2);
+
     sut.clear();
 
     // Size drops to zero
@@ -274,6 +292,10 @@ describe("COL-015", () => {
 
     // No individual itemAdded/Removed events fired during clear
     expect(granular).toHaveLength(0); // Clear must NOT fire per-entry events
+
+    // Each keys view emitted exactly one removal (Reset) and its Count change.
+    expect(keyEvents.keys1).toEqual(["reset", "prop:Count"]);
+    expect(keyEvents.keys2).toEqual(["reset", "prop:Count"]);
   });
 });
 
@@ -343,8 +365,42 @@ describe("COL-022", () => {
     expect(received[0]?.oldItems).toHaveLength(0);
   });
 
+  it("each mutation publishes exactly one hub message after the local event fires", () => {
+    const hub = new MessageHub();
+    const sut = new ObservableDictionary<string, number, number>(hub);
+    const log: string[] = [];
+    sut.itemAdded.subscribe(() => log.push("local:add"));
+    sut.itemRemoved.subscribe(() => log.push("local:remove"));
+    sut.itemReplaced.subscribe(() => log.push("local:replace"));
+    sut.reset.subscribe(() => log.push("local:reset"));
+    hub.messages.subscribe((m) => {
+      if (m instanceof CollectionChangedMessage) log.push(`hub:${m.action}`);
+    });
+
+    // insert, remove a different entry, replace an existing entry, clear
+    sut.set("a", 1, 1.0);
+    sut.set("b", 2, 2.0);
+    log.length = 0;
+    sut.delete("b", 2);
+    sut.set("a", 1, 1.5);
+    sut.clear();
+
+    expect(log).toEqual([
+      "local:remove", "hub:remove",
+      "local:replace", "hub:replace",
+      "local:reset", "hub:reset",
+    ]);
+
+    log.length = 0;
+    sut.set("c", 3, 3.0);
+    expect(log).toEqual(["local:add", "hub:add"]);
+  });
+
   it("no-hub construction: no errors and no publication", () => {
     // Construct without hub — must not throw on any mutation.
+    const unrelatedHub = new MessageHub();
+    const published: unknown[] = [];
+    unrelatedHub.messages.subscribe((m) => published.push(m));
     const sut = new ObservableDictionary<string, number, number>();
     expect(() => {
       sut.set("x", 1, 1.0);
@@ -353,5 +409,6 @@ describe("COL-022", () => {
       sut.set("y", 2, 3.0);
       sut.clear();
     }).not.toThrow();
+    expect(published).toHaveLength(0);
   });
 });

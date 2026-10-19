@@ -6,8 +6,8 @@ use std::sync::{
     mpsc, Arc, Mutex,
 };
 use vmx::{
-    CollectionChangeAction, ComponentVm, ConstructionStatus, Message, MessageHub, Subscription,
-    TokenPagedComposition,
+    AsyncRelayCommand, CollectionChangeAction, ComponentVm, ConstructionStatus, Message,
+    MessageHub, Subscription, TokenPagedComposition,
 };
 
 type Page = (Vec<i32>, Option<&'static str>);
@@ -148,6 +148,15 @@ fn shorter_matching_non_terminal_head_keeps_accumulator_and_cursor() {
 
     assert_eq!(pages.items(), vec![1, 2, 3, 4]);
     assert_eq!(pages.current_token(), Some("t3"));
+
+    pages.load_next();
+
+    assert_eq!(pages.items(), vec![1, 2, 3, 4, 5, 6]);
+    assert_eq!(
+        backend.requested(),
+        vec![None, Some("t2"), None, Some("t3")]
+    );
+    assert_eq!(pages.current_token(), Some("t4"));
 }
 
 /// COL-065 — an unchanged single page adopts a changed opaque token
@@ -339,6 +348,42 @@ fn pager_with_blocked_call(
     (pages, started_rx, release_tx)
 }
 
+/// Counts every hub message plus the pager's command re-signals as seen by
+/// `observed` (the command that is not the stale one, so its own executing
+/// transition is not mistaken for a pager publication).
+struct Publications {
+    count: Arc<Mutex<usize>>,
+    _hub: Subscription,
+    _command: Subscription,
+}
+
+impl Publications {
+    fn count(&self) -> usize {
+        *self.count.lock().unwrap()
+    }
+}
+
+fn publications(
+    pages: &TokenPagedComposition<i32, &'static str>,
+    observed: &AsyncRelayCommand,
+) -> Publications {
+    let count = Arc::new(Mutex::new(0));
+    let hub_count = count.clone();
+    let hub = pages
+        .hub()
+        .subscribe(move |_| *hub_count.lock().unwrap() += 1);
+    let command_count = count.clone();
+    let command = observed
+        .can_execute_changed()
+        .subscribe(move |_| *command_count.lock().unwrap() += 1);
+    Publications {
+        count,
+        _hub: hub,
+        _command: command,
+    }
+}
+
+/// COL-065 — a refresh that completes after a later load started commits and publishes nothing
 #[test]
 fn load_started_during_refresh_makes_the_refresh_result_stale() {
     let backend = Backend::new();
@@ -349,14 +394,17 @@ fn load_started_during_refresh_makes_the_refresh_result_stale() {
     started.recv().unwrap();
 
     pages.load_next();
+    let published = publications(&pages, &pages.load_more_command());
     release.send(()).unwrap();
     refresh.join().unwrap();
 
+    assert_eq!(published.count(), 0);
     assert_eq!(backend.requested(), vec![None, None, Some("t2")]);
     assert_eq!(pages.items(), vec![1, 2, 3, 4]);
     assert_eq!(pages.current_token(), Some("t3"));
 }
 
+/// COL-065 — a load that completes after a later refresh started commits and publishes nothing
 #[test]
 fn load_finishing_after_a_later_refresh_is_stale() {
     let backend = Backend::new();
@@ -368,9 +416,11 @@ fn load_finishing_after_a_later_refresh_is_stale() {
     backend.set_first_page((vec![8, 9], Some("u2")));
 
     pages.refresh();
+    let published = publications(&pages, &pages.refresh_command());
     release.send(()).unwrap();
     load.join().unwrap();
 
+    assert_eq!(published.count(), 0);
     assert_eq!(pages.items(), vec![8, 9]);
     assert_eq!(pages.current_token(), Some("u2"));
 }

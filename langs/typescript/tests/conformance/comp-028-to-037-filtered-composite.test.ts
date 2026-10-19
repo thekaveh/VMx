@@ -27,8 +27,11 @@ function source(...names: string[]): CompositeVM<ComponentVM> {
 
 describe("COMP-028", () => {
   it("filtered visible projection applies the predicate", () => {
-    const sut = new FilteredCompositeVM(source("alpha", "beta"), { predicate: (vm) => vm.name.includes("a") });
-    expect(sut.visible.map((vm) => vm.name)).toEqual(["alpha", "beta"]);
+    const src = source("alpha", "bee", "beta", "zzz", "gamma");
+    const sut = new FilteredCompositeVM(src, { predicate: (vm) => vm.name.includes("a") });
+    // Excluded items ("bee", "zzz") are absent; source order is preserved.
+    expect(sut.visible.map((vm) => vm.name)).toEqual(["alpha", "beta", "gamma"]);
+    expect(sut.visible).toEqual([src.at(0), src.at(2), src.at(4)]);
   });
 });
 
@@ -41,10 +44,13 @@ describe("COMP-029", () => {
 
 describe("COMP-030", () => {
   it("current maps to the visible domain", () => {
-    const src = source("alpha", "bee");
+    const src = source("alpha", "bee", "gamma");
     const sut = new FilteredCompositeVM(src, { predicate: (vm) => vm.name.includes("a") });
-    sut.current = sut.visible[0]!;
-    expect(sut.current).toBe(src.at(0));
+    // Non-first visible item, at a source index different from its visible index.
+    const target = sut.visible[1]!;
+    expect(target).toBe(src.at(2));
+    sut.current = target;
+    expect(sut.current).toBe(src.at(2));
   });
 });
 
@@ -84,6 +90,13 @@ describe("COMP-034", () => {
   it("visible navigation moves previous and next", () => {
     const sut = new FilteredCompositeVM(source("alpha", "bee", "gamma"), { predicate: (vm) => vm.name.includes("a") });
     sut.current = sut.visible[0]!;
+    // Clamps at the lower bound.
+    sut.moveToPreviousVisible();
+    expect(sut.current).toBe(sut.visible[0]);
+    sut.moveToNextVisible();
+    expect(sut.current).toBe(sut.visible[1]);
+    expect(sut.current?.name).toBe("gamma");
+    // Clamps at the upper bound.
     sut.moveToNextVisible();
     expect(sut.current).toBe(sut.visible[1]);
     sut.moveToPreviousVisible();
@@ -99,14 +112,37 @@ describe("COMP-035", () => {
     src.add(child("bee"));
     expect(sut.visible.map((vm) => vm.name)).toEqual(["alpha"]);
   });
+
+  it("a disposed projection ignores its mutators", () => {
+    const src = source("alpha", "bee", "cat");
+    const sut = new FilteredCompositeVM(src, { predicate: () => true });
+    sut.current = sut.visible[0]!;
+    sut.dispose();
+    let changes = 0;
+    sut.changed.subscribe(() => changes++);
+
+    sut.setPredicate((vm) => vm.name === "cat");
+    sut.setCurrent(null);
+    sut.moveToNextVisible();
+    sut.moveToPreviousVisible();
+
+    expect(sut.visible.map((vm) => vm.name)).toEqual(["alpha", "bee", "cat"]);
+    expect(sut.current?.name).toBe("alpha");
+    expect(changes).toBe(0);
+  });
 });
 
 describe("COMP-036", () => {
   it("scored filter sorts by score with stable ties", () => {
-    const sut = new ScoredFilteredCompositeVM(source("alpha", "bee", "ax"), {
-      scorer: (vm) => vm.name.startsWith("a") ? 1 : null,
+    // Distinct scores test descending order; "ax"/"arc" tie (stable source
+    // order); "bee" has a null score and is excluded.
+    const scores = new Map<string, number | null>([
+      ["alpha", 1], ["bee", null], ["ax", 2], ["arc", 2], ["zed", 5],
+    ]);
+    const sut = new ScoredFilteredCompositeVM(source("alpha", "bee", "ax", "arc", "zed"), {
+      scorer: (vm) => scores.get(vm.name) ?? null,
     });
-    expect(sut.visible.map((vm) => vm.name)).toEqual(["alpha", "ax"]);
+    expect(sut.visible.map((vm) => vm.name)).toEqual(["zed", "ax", "arc", "alpha"]);
   });
 });
 
@@ -120,5 +156,25 @@ describe("COMP-037", () => {
     weights.set("alpha", 3);
     sut.refreshScores();
     expect(sut.visible.map((vm) => vm.name)).toEqual(["alpha", "bee"]);
+  });
+});
+
+describe("FilteredCompositeVM – throwing predicate", () => {
+  it("leaves the previous predicate, projection, and current in place", () => {
+    const src = source("alpha", "beta");
+    const sut = new FilteredCompositeVM(src, { predicate: () => true });
+    const beta = sut.visible[1]!;
+    sut.setCurrent(beta);
+
+    expect(() =>
+      sut.setPredicate(() => {
+        throw new Error("boom");
+      }),
+    ).toThrow("boom");
+
+    expect(sut.visible.map((vm) => vm.name)).toEqual(["alpha", "beta"]);
+    expect(sut.current).toBe(beta);
+    src.add(child("gamma"));
+    expect(sut.visible.map((vm) => vm.name)).toEqual(["alpha", "beta", "gamma"]);
   });
 });

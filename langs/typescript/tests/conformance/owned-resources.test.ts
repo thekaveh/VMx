@@ -78,6 +78,7 @@ describe("DISP-010", () => {
     const vm = new ProbeVM(new MessageHub());
     vm.dispose();
     vm.register(() => (calls += 1));
+    expect(calls, "cleanup runs immediately on registration after disposal").toBe(1);
     vm.dispose();
     expect(calls).toBe(1);
   });

@@ -398,3 +398,74 @@ def test_hub_none_does_not_throw_on_any_mutation() -> None:
     sut.remove("a", 1)
     sut.add("b", 2, 3.0)
     sut.clear()
+
+
+@pytest.mark.parametrize("key", [(None, 1), ("a", None)])
+def test_none_key_raises_type_error_on_item_access_and_membership(
+    key: tuple[object, object],
+) -> None:
+    d: ObservableDictionary[str, int, float] = ObservableDictionary()
+    with pytest.raises(TypeError):
+        d[key]  # type: ignore[index]
+    with pytest.raises(TypeError):
+        key in d  # noqa: B015
+
+
+def test_dispose_completes_every_stream_when_an_observer_raises() -> None:
+    d: ObservableDictionary[str, str, int] = ObservableDictionary()
+    completed: list[str] = []
+
+    def raise_on_completed() -> None:
+        raise RuntimeError("observer")
+
+    d.on_item_added.subscribe(on_completed=raise_on_completed)
+    d.on_item_removed.subscribe(on_completed=lambda: completed.append("removed"))
+    d.on_reset.subscribe(on_completed=lambda: completed.append("reset"))
+
+    with pytest.raises(RuntimeError, match="observer"):
+        d.dispose()
+
+    assert completed == ["removed", "reset"]
+
+
+def test_hub_add_index_is_captured_before_a_reentrant_add() -> None:
+    hub: MessageHub[CollectionChangedMessage[object]] = MessageHub()
+    d: ObservableDictionary[str, str, int] = ObservableDictionary(hub)
+    indices: dict[object, int] = {}
+
+    def record(message: CollectionChangedMessage[object]) -> None:
+        for item in message.new_items:
+            indices[item] = message.index
+
+    hub.messages.subscribe(record)
+
+    def add_nested(entry: tuple[str, str, int]) -> None:
+        if entry[0] == "a":
+            d.add("b", "y", 2)
+
+    d.on_item_added.subscribe(add_nested)
+    d.add("a", "x", 1)
+
+    assert indices == {("a", "x", 1): 0, ("b", "y", 2): 1}
+
+
+def test_nan_key_is_one_axis_key_like_a_dict_key() -> None:
+    sut: ObservableDictionary[float, str, int] = ObservableDictionary()
+    nan = float("nan")
+
+    sut.add(nan, "a", 1)
+    sut.add(nan, "b", 2)
+    assert sut.keys1.count == 1
+
+    sut.remove(nan, "a")
+    assert sut.keys1.count == 1
+    sut.remove(nan, "b")
+    assert sut.keys1.count == 0
+
+
+def test_key_view_contains_a_nan_key_by_identity() -> None:
+    sut: ObservableDictionary[float, str, int] = ObservableDictionary()
+    nan = float("nan")
+    sut.add(nan, "b", 1)
+
+    assert nan in sut.keys1

@@ -38,9 +38,10 @@ final class FormVMApproveTests: XCTestCase {
     /// FORM-004 — denyCommand reverts model to snapshot; isDirty == false after revert.
     func testForm004_denyCommandRevertsModelToSnapshot() {
         let initial = TestModel(name: "Alice", value: 1)
+        let recorder = PersistRecorder()
         let sut = FormVM(
             initial: initial,
-            persister: { (_: TestModel) in }
+            persister: recorder.persister
         )
 
         sut.setModel(TestModel(name: "Bob", value: 2))
@@ -49,7 +50,9 @@ final class FormVMApproveTests: XCTestCase {
         sut.denyCommand.execute()
 
         XCTAssertEqual(sut.model, initial, "model should revert to initial snapshot after deny")
+        XCTAssertEqual(sut.model, sut.snapshot, "model should equal snapshot after deny")
         XCTAssertFalse(sut.isDirty, "isDirty should be false after deny")
+        XCTAssertTrue(recorder.calls.isEmpty, "deny must not invoke the persister")
     }
 
     // ── FORM-005 ──────────────────────────────────────────────────────────────
@@ -96,6 +99,32 @@ final class FormVMApproveTests: XCTestCase {
         XCTAssertEqual(approved.count, 1, "onApproved should fire exactly once after successful approve")
         XCTAssertEqual(approved[0], TestModel(name: "Bob", value: 2), "onApproved value should match the persisted model")
 
+        cancellables.removeAll()
+    }
+
+    /// FORM-006 — a throwing persister leaves onApproved silent.
+    func testForm006_onApprovedSilentWhenPersisterThrows() async {
+        let recorder = PersistRecorder()
+        recorder.shouldThrow = true
+        var approved: [TestModel] = []
+        var cancellables = Set<AnyCancellable>()
+
+        let sut = FormVM(
+            initial: TestModel(name: "Alice", value: 1),
+            persister: recorder.persister
+        )
+        sut.onApproved.sink { approved.append($0) }.store(in: &cancellables)
+
+        sut.setModel(TestModel(name: "Bob", value: 2))
+        do {
+            try await sut.approveAsync()
+            XCTFail("approveAsync should rethrow the persister error")
+        } catch {
+            // expected
+        }
+
+        XCTAssertEqual(recorder.calls.count, 1, "persister should have been invoked once")
+        XCTAssertTrue(approved.isEmpty, "onApproved must not fire when the persister throws")
         cancellables.removeAll()
     }
 

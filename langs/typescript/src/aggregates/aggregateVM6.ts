@@ -109,21 +109,11 @@ export class AggregateVM6<
     this._notifyPropertyChanged("component5");
     this._notifyPropertyChanged("component6");
 
-    next1.construct();
-    next2.construct();
-    next3.construct();
-    next4.construct();
-    next5.construct();
-    next6.construct();
+    this._transitionChildren([next1, next2, next3, next4, next5, next6], true);
   }
 
   protected override _onDestruct(): void {
-    this.#component1?.destruct();
-    this.#component2?.destruct();
-    this.#component3?.destruct();
-    this.#component4?.destruct();
-    this.#component5?.destruct();
-    this.#component6?.destruct();
+    this._transitionChildren(this.components(), false);
   }
 
   override dispose(): void {
@@ -132,6 +122,7 @@ export class AggregateVM6<
     // transitions before the aggregate's own Disposed transition — a single
     // dispose-ordering rule across all aggregate arities.
     disposeBestEffort([
+      () => this._abandonChildTransition(),
       () => this.#component1?.dispose(),
       () => this.#component2?.dispose(),
       () => this.#component3?.dispose(),

@@ -32,17 +32,24 @@ open class AggregateVM1<C1: ComponentVMBase>: ComponentVMBase {
             component1 = c1
         }) else { return }
         _notifyPropertyChanged("component1")
-        try c1.construct()
+        // Background components defer Constructed until each is (spec/02 §6).
+        try _transitionChildren([c1] as [ComponentVMBase], construct: true)
         }
     }
 
     open override func _onDestruct() throws {
-        try component1?.destruct()
-        try super._onDestruct()
+        let slots: [ComponentVMBase?] = [
+            component1
+        ]
+        let components = slots.compactMap { $0 }
+        try _transitionChildren(components, construct: false) {
+            try super._onDestruct()
+        }
     }
 
     open override func dispose() {
         aggregateParent.withTransaction {
+        _abandonChildTransition()
         component1?.dispose()
         super.dispose()
         }

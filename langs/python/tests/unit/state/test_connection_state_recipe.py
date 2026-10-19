@@ -1,7 +1,7 @@
 """Executable form of the connection-state recipe (#575).
 
 The blocks between the docs-snippet markers are shown verbatim, dedented, in
-docs/content/primitives/state-reactive-helpers.md; `make docs-check` keeps them
+docs/content/integration/index.md; `make docs-check` keeps them
 equal. No conformance ID: this is a recipe over ComponentVMOf, not a primitive.
 """
 

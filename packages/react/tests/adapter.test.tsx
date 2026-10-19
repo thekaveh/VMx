@@ -5,6 +5,7 @@ import { renderToString } from "react-dom/server";
 import { BehaviorSubject, Observable, Subject } from "rxjs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  AsyncRelayCommand,
   AsyncResourceStatus,
   AsyncResourceVM,
   ComponentVM,
@@ -12,11 +13,16 @@ import {
   CompositeVM,
   DerivedProperty,
   FormVM,
+  HierarchicalVM,
+  HierarchicalVMBuilder,
   MessageHub,
   NullDispatcher,
   ObservableList,
   PropertyChangedMessage,
   RelayCommand,
+  RxDispatcher,
+  ViewModelType,
+  type HierarchicalVMConstructionContext,
   type IMessage,
   type IMessageHub,
 } from "@thekaveh/vmx";
@@ -58,9 +64,13 @@ describe("createVmxStore and useVmx", () => {
 
     hub.send(PropertyChangedMessage.create({}, "test", "value"));
     expect(store.getSnapshot()).toBe(initial + 2);
+    // A later message in the same drain still advances the snapshot, so a
+    // synchronous render between the two messages cannot miss the second one.
+    hub.send(PropertyChangedMessage.create({}, "test", "value"));
+    expect(store.getSnapshot()).toBe(initial + 3);
     expect(notify).not.toHaveBeenCalled();
     await Promise.resolve();
-    expect(store.getSnapshot()).toBe(initial + 2);
+    expect(store.getSnapshot()).toBe(initial + 3);
     expect(notify).toHaveBeenCalledTimes(1);
     expect(store.subscribe).toBe(subscribe);
 
@@ -68,7 +78,7 @@ describe("createVmxStore and useVmx", () => {
     store.dispose();
     store.dispose();
     hub.send(PropertyChangedMessage.create({}, "test", "value"));
-    expect(store.getSnapshot()).toBe(initial + 2);
+    expect(store.getSnapshot()).toBe(initial + 3);
   });
 
   it("disconnects, reconnects, and treats repeated cleanup or post-dispose subscribe as safe", async () => {
@@ -272,6 +282,21 @@ describe("VM and value hooks", () => {
     expect(selectorRenders).toHaveBeenCalledTimes(selectorBaseline + 1);
   });
 
+  it("re-renders whole-VM useVm on a lifecycle status change", async () => {
+    const vm = modeled(new MessageHub());
+    const renders = vi.fn();
+    function Probe(): JSX.Element {
+      const live = useVm(vm);
+      renders(live.status);
+      return <span>{String(live.status)}</span>;
+    }
+    render(<Probe />);
+    const baseline = renders.mock.calls.length;
+    await act(async () => { vm.construct(); await Promise.resolve(); });
+    expect(renders.mock.calls.length).toBeGreaterThan(baseline);
+    expect(renders.mock.calls.at(-1)?.[0]).toBe(vm.status);
+  });
+
   it("catches a focused VM mutation between render and subscription installation", () => {
     const vm = modeled(new MessageHub());
     function Probe(): JSX.Element {
@@ -355,6 +380,53 @@ describe("command and collection hooks", () => {
     act(() => button.click());
     expect(task).toHaveBeenCalledTimes(1);
     expect(renders).toHaveBeenCalledTimes(2);
+  });
+
+  it("renders a disposed async command as disabled", () => {
+    const command = AsyncRelayCommand.builder().task(async () => {}).build();
+    function Probe(): JSX.Element {
+      const binding = useCommand(command);
+      return <button disabled={!binding.canExecute}>run</button>;
+    }
+    render(<Probe />);
+    const button = screen.getByRole("button") as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+
+    act(() => command.dispose());
+
+    expect(command.canExecute()).toBe(false);
+    expect(button.disabled).toBe(true);
+  });
+
+  it("re-renders a whole-VM binding for tree-structure changes", () => {
+    class Node extends HierarchicalVM<string, Node> {
+      constructor(context: HierarchicalVMConstructionContext<string, Node>) {
+        super(context);
+      }
+
+      override get type(): ViewModelType {
+        return ViewModelType.Component;
+      }
+    }
+    const hub = new MessageHub();
+    const node = (model: string): Node =>
+      new HierarchicalVMBuilder<string, Node>()
+        .model(model)
+        .childrenFactory(() => [])
+        .services(hub, RxDispatcher.immediate())
+        .vmFactory((context) => new Node(context))
+        .build();
+    const root = node("root");
+    function Probe(): JSX.Element {
+      const count = useVm(root, (current) => current.children.length);
+      return <span data-testid="count">{count}</span>;
+    }
+    render(<Probe />);
+    expect(screen.getByTestId("count").textContent).toBe("0");
+
+    act(() => root.addChild(node("child")));
+
+    expect(screen.getByTestId("count").textContent).toBe("1");
   });
 
   it("keeps ObservableList snapshots stable and emits one render for a batch", () => {
@@ -462,5 +534,10 @@ describe("shallowEqual", () => {
     expect(shallowEqual({ a: 1 }, { a: 2 })).toBe(false);
     expect(shallowEqual({ a: 1 }, { b: 1 })).toBe(false);
     expect(shallowEqual([1], { 0: 1 })).toBe(false);
+    // Only plain objects compare by keys; other objects compare by identity.
+    expect(shallowEqual(new Date(1), new Date(2))).toBe(false);
+    expect(shallowEqual(new Map([[1, 2]]), new Map())).toBe(false);
+    expect(shallowEqual(new Set([1]), new Set())).toBe(false);
+    expect(shallowEqual(Object.create(null) as object, {})).toBe(true);
   });
 });

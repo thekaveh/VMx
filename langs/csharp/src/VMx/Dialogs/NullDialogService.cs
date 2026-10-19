@@ -38,7 +38,8 @@ public sealed class NullDialogService : IModalDialogService
     /// <inheritdoc/>
     public Task<T> Present<T>(IModalVM<T> modal, CancellationToken cancellationToken = default)
     {
+        // First result wins: an already-dismissed modal keeps its result.
         modal.Dismiss(modal.CancellationResult);
-        return Task.FromResult(modal.CancellationResult);
+        return modal.Completion;
     }
 }

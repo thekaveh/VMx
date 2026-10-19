@@ -13,8 +13,9 @@ from threading import RLock
 from typing import Generic, Literal, TypeAlias, TypeVar
 
 from vmx._asyncio_runner import post_to_loop
+from vmx._disposal import _run_disposal_steps
 from vmx.commands.async_relay_command import AsyncRelayCommand
-from vmx.commands.relay_command import RelayCommand, _run_disposal_steps
+from vmx.commands.relay_command import RelayCommand
 from vmx.components.base import _ComponentVMBase
 from vmx.components.protocols import ViewModelType
 from vmx.messages.protocols import Message

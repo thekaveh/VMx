@@ -31,23 +31,11 @@ The group itself is still a component and may be selected by its own parent.
 It implements the base [VM Collection Contract](../vm-collection-contract.md),
 not its selectable extension.
 
-Group membership uses the same exclusive ownership protocol as composites.
-Attaching a child owned by another mutable container is one atomic transfer:
-the old removal precedes the new add notification, and a failed destination
-attach restores the old index and parent link. Duplicate identity and ancestor
-cycles are rejected before mutation.
-
-Destination and old-parent membership remain isolated through hooks and
-commit/rollback. Re-entrant structural mutation is rejected, reverse-order bulk
-transfers use deterministic reservation ordering, destination disposal is
-rechecked after auto-construction, and lifecycle compensation failures are
-surfaced rather than swallowed (ADR-0118).
-
-Deferred old-parent disposal follows the same committed boundary. Successful
-transfer notifications finish before a deferred disposal failure is surfaced;
-after a failed attachment, rollback and disposal complete without replacing
-the earlier attachment error. Committed factory population remains one-shot
-even when the later disposal step fails (ADR-0122).
+Group membership uses the same exclusive ownership protocol as composites:
+attaching a child owned by another mutable container is one atomic transfer.
+See [Composite Family](composite-family.md#6252-shape-and-ownership) for the
+transfer, rollback, and deferred-disposal rules (spec/07 §1.1, mirroring
+spec/06 §4.2).
 
 ## 6.2.4.3. Lifecycle And Messaging
 
@@ -55,8 +43,12 @@ Lifecycle orchestration matches `CompositeVM`:
 
 - construct waits for all children to reach `Constructed`
 - destruct waits for all children to reach `Destructed`
-- `AutoConstructOnAdd(true)` can opt into post-construct child auto-construct
+- `AutoConstructOnAdd(true)` constructs a child added after construct starts;
+  construct then also waits for that child
 - `BatchUpdate()` suppresses per-mutation collection events and emits one reset
+
+Rust background-child settling follows the shared container rule in
+[ViewModel Families](index.md#6213-lifecycle-and-messaging).
 
 Group children are peers. Their inherited select command must stay disabled
 while the group is their parent.
@@ -74,14 +66,13 @@ while the group is their parent.
 Representative build shape:
 
 - `C#`: `GroupVM<IComponentVM>.Builder().Name("actions").Services(hub, dispatcher).Children(() => new[] { save, delete }).Build()`
-- `Python`: `GroupVMBuilder[ComponentVMProto]().name("actions").services(hub, dispatcher).children(lambda: [save, delete]).build()`
+- `Python`: `GroupVMBuilder[ComponentVM]().name("actions").services(hub, dispatcher).children(lambda: [save, delete]).build()`
 - `TypeScript`: `GroupVM.builder<ComponentVMBase>().name("actions").services(hub, dispatcher).children(() => [save, delete]).build()`
 - `Swift`: `try GroupVM<ComponentVMBase>.builder().name("actions").services(hub: hub, dispatcher: dispatcher).children { [save, delete] }.build()`
-- `Rust`: `GroupVm::<ComponentVm<_>>::builder().name("actions").services(hub, dispatcher).children(|| vec![save.clone(), delete.clone()]).build()?`
+- `Rust`: `GroupVm::<ComponentVm<_>>::builder().name("actions").services(hub, dispatcher).children(move || vec![save.clone(), delete.clone()]).build()?`
 
-Rust ships the same peer-container and builder concepts; the completed
-[Rust parity ledger](../../../maintenance/2026-07-16-rust-capability-parity.md)
-records its non-member removal evidence.
+Rust ships the same peer-container and builder concepts. The
+[Rust parity ledger](../../../maintenance/2026-07-16-rust-capability-parity.md) records its non-member removal evidence.
 
 ## 6.2.4.6. Common Pitfalls
 

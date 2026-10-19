@@ -162,3 +162,69 @@ describe("CompositeVMBuilder.onCurrentChanged(callback)", () => {
     expect(observed).toEqual([]);
   });
 });
+
+describe("CompositeVM – a throwing onCurrentChanged does not lose the collection event", () => {
+  function setUp() {
+    const hub = makeHub();
+    const children = ["a", "b"].map((n) => makeChild(hub, n));
+    let armed = false;
+    const composite = CompositeVM.builder<ComponentVM>()
+      .name("composite")
+      .services(hub, makeDisp())
+      .children(() => children)
+      .onCurrentChanged(() => {
+        if (armed) throw new Error("callback");
+      })
+      .build();
+    composite.construct();
+    composite.selectComponent(children[0]!);
+    armed = true;
+    const actions: string[] = [];
+    composite.collectionChanged.subscribe((event) => actions.push(event.action));
+    return { composite, children, actions };
+  }
+
+  it.each([
+    ["removeAt", (c: CompositeVM<ComponentVM>) => c.removeAt(0), ["remove"]],
+    ["clear", (c: CompositeVM<ComponentVM>) => c.clear(), ["reset"]],
+    [
+      "setAt",
+      (c: CompositeVM<ComponentVM>) => c.setAt(0, makeChild(makeHub(), "z")),
+      ["remove", "add"],
+    ],
+  ])("%s still emits its collection event", (_name, mutate, expected) => {
+    const { composite, actions } = setUp();
+
+    expect(() => mutate(composite)).toThrow("callback");
+
+    expect(actions).toEqual(expected);
+    expect(composite.current).toBeNull();
+  });
+});
+
+describe("CompositeVM – non-integer indices", () => {
+  it("rejects NaN and fractional indices before any change and stays usable", () => {
+    const hub = makeHub();
+    const composite = CompositeVM.builder<ComponentVM>()
+      .name("c")
+      .services(hub, makeDisp())
+      .children(() => [])
+      .build();
+    composite.construct();
+    const a = makeChild(hub, "a");
+    const b = makeChild(hub, "b");
+    composite.add(a);
+    composite.add(b);
+    const x = makeChild(hub, "x");
+
+    for (const index of [Number.NaN, 0.5]) {
+      expect(() => composite.removeAt(index)).toThrow(RangeError);
+      expect(() => composite.setAt(index, x)).toThrow(RangeError);
+      expect(() => composite.insert(index, x)).toThrow(RangeError);
+    }
+
+    expect([...composite].map((vm) => vm.name)).toEqual(["a", "b"]);
+    composite.add(x);
+    expect(composite.count).toBe(3);
+  });
+});

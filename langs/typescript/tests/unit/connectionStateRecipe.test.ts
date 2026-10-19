@@ -1,6 +1,6 @@
 /**
  * Executable form of the connection-state recipe (#575) in
- * docs/content/primitives/state-reactive-helpers.md. The docs-snippet regions
+ * docs/content/integration/index.md. The docs-snippet regions
  * are shown there verbatim, dedented, and `make docs-check` keeps them equal.
  * No conformance ID: this is a recipe over ComponentVMOf, not a primitive.
  */

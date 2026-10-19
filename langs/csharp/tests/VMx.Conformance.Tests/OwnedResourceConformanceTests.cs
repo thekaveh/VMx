@@ -62,9 +62,10 @@ public class OwnedResourceConformanceTests
         vm.Dispose();
 
         vm.Register(() => count++);
+        count.Should().Be(1, "registration after disposal cleans up immediately");
         vm.Dispose();
 
-        count.Should().Be(1);
+        count.Should().Be(1, "a later repeated disposal performs no second cleanup");
     }
 
     [Fact, Trait("Conformance", "DISP-011")]

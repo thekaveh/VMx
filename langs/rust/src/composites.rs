@@ -4,12 +4,13 @@
 
 use super::{
     begin_membership_transaction, begin_parent_transfer, catch_unwind, finish_with_first_error,
-    finish_with_first_failure, lock, resume_unwind, retain_first_error, retain_first_failure,
-    retain_parent_transfer_commit, Arc, AssertUnwindSafe, AtomicBool, ComponentCore,
-    ConstructionStatus, Dispatcher, HashSet, LifecycleOperation, MembershipDisposeDisposition,
-    MembershipTransactionControl, MembershipTransactionGuard, MessageHub, Mutex, NullDispatcher,
-    ObservableList, Ordering, ParentHandle, ParentRegistration, ParentTransfer,
-    PropertyChangedStream, RelayCommand, TreeNode, ViewModelType, VmNode, VmxError, VmxResult,
+    finish_with_first_failure, lock, replace_locked, resume_unwind, retain_first_error,
+    retain_first_failure, retain_parent_transfer_commit, Arc, AssertUnwindSafe, AtomicBool,
+    ComponentCore, ConstructionStatus, Dispatcher, HashSet, LifecycleOperation,
+    MembershipDisposeDisposition, MembershipTransactionControl, MembershipTransactionGuard,
+    MessageHub, Mutex, NullDispatcher, ObservableList, Ordering, ParentHandle, ParentRegistration,
+    ParentTransfer, PropertyChangedStream, RelayCommand, TreeNode, ViewModelType, VmNode, VmxError,
+    VmxResult,
 };
 use crate::components::ComponentCommands;
 
@@ -124,7 +125,10 @@ fn assign_current_maybe_async<T: VmNode, D: Dispatcher>(
             ) else {
                 return;
             };
-            let valid = {
+            // A container disposed before the queued selection ran stays
+            // inert (disposal contract).
+            let disposed = core_for_action.status() == ConstructionStatus::Disposed;
+            let valid = !disposed && {
                 let _gate = lock(&membership_gate);
                 next.as_ref().is_none_or(|next| {
                     items.to_vec().iter().any(|item| item.id() == next.id())
@@ -244,7 +248,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
     /// Creates an empty composite with explicit services.
     pub fn with_services(name: impl Into<String>, hub: MessageHub, dispatcher: D) -> Self {
         let core = ComponentCore::new(name, hub.clone(), dispatcher);
-        let items: ObservableList<T> = ObservableList::new(core.id(), hub);
+        let items: ObservableList<T> = ObservableList::with_owner_name(core.id(), core.name(), hub);
         let current = Arc::new(Mutex::new(None));
         let async_selection = Arc::new(Mutex::new(false));
         let current_selector: Arc<Mutex<Option<CurrentSelector<T>>>> = Arc::new(Mutex::new(None));
@@ -421,6 +425,8 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                 }
             },
         );
+        let auto_construct_on_add = Arc::new(Mutex::new(false));
+        let reconstruct_auto = Arc::clone(&auto_construct_on_add);
         let reconstruct_core = core.clone();
         let reconstruct_items = items.clone();
         let reconstruct_current = Arc::clone(&current);
@@ -436,33 +442,48 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                         None,
                     );
                     for item in reconstruct_items.to_vec() {
-                        item.destruct()?;
+                        reconstruct_core.transition_child(&item, LifecycleOperation::Destruct)?;
                     }
                     Ok(())
                 })
                 .is_ok()
             {
-                let _ = reconstruct_core.transition_with(LifecycleOperation::Construct, || {
-                    for item in reconstruct_items.to_vec() {
-                        item.construct()?;
-                    }
-                    if let Some(selector) = lock(&reconstruct_selector).clone() {
-                        if let Some(selected) = selector(reconstruct_items.to_vec()) {
-                            if reconstruct_items
-                                .to_vec()
-                                .iter()
-                                .any(|candidate| same_node(candidate, &selected))
-                            {
-                                assign_current_state(
-                                    &reconstruct_core,
-                                    &reconstruct_current,
-                                    &reconstruct_callback,
-                                    Some(selected),
-                                );
-                            }
-                        }
-                    }
-                    Ok(())
+                let core = reconstruct_core.clone();
+                let items = reconstruct_items.clone();
+                let selector_slot = Arc::clone(&reconstruct_selector);
+                let current = Arc::clone(&reconstruct_current);
+                let callback = Arc::clone(&reconstruct_callback);
+                let auto = Arc::clone(&reconstruct_auto);
+                let _ = reconstruct_core.construct_after_destruct(move || {
+                    core.transition_with(LifecycleOperation::Construct, || {
+                        let members = items.clone();
+                        let join_late = *lock(&auto);
+                        let core = core.clone();
+                        let items = items.clone();
+                        core.clone().construct_children(
+                            Arc::new(move || members.to_vec()),
+                            join_late,
+                            Box::new(move || {
+                                if let Some(selector) = lock(&selector_slot).clone() {
+                                    if let Some(selected) = selector(items.to_vec()) {
+                                        if items
+                                            .to_vec()
+                                            .iter()
+                                            .any(|candidate| same_node(candidate, &selected))
+                                        {
+                                            assign_current_state(
+                                                &core,
+                                                &current,
+                                                &callback,
+                                                Some(selected),
+                                            );
+                                        }
+                                    }
+                                }
+                                Ok(())
+                            }),
+                        )
+                    })
                 });
             }
         });
@@ -472,7 +493,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             items,
             ownership,
             current,
-            auto_construct_on_add: Arc::new(Mutex::new(false)),
+            auto_construct_on_add,
             async_selection,
             current_selector,
             on_current_changed,
@@ -511,6 +532,12 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
     /// Returns the injected message hub.
     pub fn hub(&self) -> MessageHub {
         self.core.hub()
+    }
+
+    /// Returns the hot error stream for child lifecycle failures that settle
+    /// after `construct`/`destruct` returned (background children).
+    pub fn background_errors(&self) -> crate::LifecycleErrorStream {
+        self.core.background_errors()
     }
 
     /// Registers cleanup work that runs on disposal.
@@ -594,8 +621,9 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             self.items.insert_silent(index, item.clone())?;
             index
         };
-        let should_construct =
-            *lock(&self.auto_construct_on_add) && self.status() == ConstructionStatus::Constructed;
+        let should_construct = self
+            .core
+            .auto_constructs_on_add(*lock(&self.auto_construct_on_add), item.status());
         let admission = (if should_construct {
             item.construct()
         } else {
@@ -776,8 +804,9 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             item.set_parent_handle(Some(self.ownership.handle()));
             self.items.insert_silent(index, item.clone())?;
         }
-        let should_construct =
-            *lock(&self.auto_construct_on_add) && self.status() == ConstructionStatus::Constructed;
+        let should_construct = self
+            .core
+            .auto_constructs_on_add(*lock(&self.auto_construct_on_add), item.status());
         let admission = (if should_construct {
             item.construct()
         } else {
@@ -832,6 +861,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
 
     /// Removes a child, clearing ownership and current selection if needed.
     pub fn remove(&self, item: &T) -> VmxResult<()> {
+        self.reject_if_disposed()?;
         let transaction = begin_membership_transaction(
             &self.membership_transaction_active,
             &self.membership_transaction_control,
@@ -867,6 +897,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
 
     /// Removes and returns the child at `index`.
     pub fn remove_at(&self, index: usize) -> VmxResult<T> {
+        self.reject_if_disposed()?;
         let transaction = begin_membership_transaction(
             &self.membership_transaction_active,
             &self.membership_transaction_control,
@@ -923,8 +954,9 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                 }
             }
         };
-        let should_construct =
-            *lock(&self.auto_construct_on_add) && self.status() == ConstructionStatus::Constructed;
+        let should_construct = self
+            .core
+            .auto_constructs_on_add(*lock(&self.auto_construct_on_add), item.status());
         let admission = (if should_construct {
             item.construct()
         } else {
@@ -992,6 +1024,9 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         )?;
         let changed = {
             let _gate = lock(&self.membership_gate);
+            if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
+                return Err(VmxError::Disposed);
+            }
             self.items.move_item_silent(from_index, to_index)?
         };
         if changed {
@@ -1002,13 +1037,16 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
 
     /// Clears all children, ownership links, and current selection.
     pub fn clear(&self) {
+        if self.reject_if_disposed().is_err() {
+            return;
+        }
         let Ok(_transaction) = begin_membership_transaction(
             &self.membership_transaction_active,
             &self.membership_transaction_control,
         ) else {
             return;
         };
-        let changed = {
+        let removed = {
             let _gate = lock(&self.membership_gate);
             for item in self.items() {
                 if item
@@ -1019,8 +1057,11 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
                 }
                 item.set_current_flag(false);
             }
-            self.items.clear_silent()
+            self.items.take_silent()
         };
+        // Removed children are dropped after the membership gate is released.
+        let changed = !removed.is_empty();
+        drop(removed);
         self.assign_current(None);
         if changed {
             self.items.publish_reset();
@@ -1076,7 +1117,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
     where
         F: Fn(Vec<T>) -> Option<T> + Send + Sync + 'static,
     {
-        *lock(&self.current_selector) = Some(Arc::new(selector));
+        replace_locked(&self.current_selector, Some(Arc::new(selector)));
     }
 
     /// Sets the callback invoked after effective current changes.
@@ -1084,7 +1125,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
     where
         F: Fn(Option<T>) + Send + Sync + 'static,
     {
-        *lock(&self.on_current_changed) = Some(Arc::new(callback));
+        replace_locked(&self.on_current_changed, Some(Arc::new(callback)));
     }
 
     /// Coalesces child-collection notifications produced by `action`.
@@ -1099,21 +1140,28 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
     pub fn construct(&self) -> VmxResult<()> {
         self.core
             .transition_with(LifecycleOperation::Construct, || {
-                for item in self.items() {
-                    item.construct()?;
-                }
-                if let Some(selector) = lock(&self.current_selector).clone() {
-                    if let Some(selected) = selector(self.items()) {
-                        if self
-                            .items()
-                            .iter()
-                            .any(|candidate| same_node(candidate, &selected))
-                        {
-                            self.assign_current(selected.into());
+                let members = self.items.clone();
+                let join_late = *lock(&self.auto_construct_on_add);
+                // The selector runs after every child settled (spec/02 §6).
+                let composite = self.clone();
+                self.core.construct_children(
+                    Arc::new(move || members.to_vec()),
+                    join_late,
+                    Box::new(move || {
+                        if let Some(selector) = lock(&composite.current_selector).clone() {
+                            if let Some(selected) = selector(composite.items()) {
+                                if composite
+                                    .items()
+                                    .iter()
+                                    .any(|candidate| same_node(candidate, &selected))
+                                {
+                                    composite.assign_current(selected.into());
+                                }
+                            }
                         }
-                    }
-                }
-                Ok(())
+                        Ok(())
+                    }),
+                )
             })
     }
 
@@ -1122,7 +1170,8 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         self.core.transition_with(LifecycleOperation::Destruct, || {
             self.assign_current(None);
             for item in self.items() {
-                item.destruct()?;
+                self.core
+                    .transition_child(&item, LifecycleOperation::Destruct)?;
             }
             Ok(())
         })
@@ -1130,6 +1179,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
 
     /// Disposes all children and returns the first encountered error.
     pub fn dispose(&self) -> VmxResult<()> {
+        self.core.abandon_child_settle();
         let snapshot = loop {
             let _gate = lock(&self.membership_gate);
             match self.membership_transaction_control.dispose_disposition() {
@@ -1158,9 +1208,9 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         let Some(snapshot) = snapshot else {
             let mut first_failure = None;
             retain_first_failure(&mut first_failure, || {
-                self.core.transition(LifecycleOperation::Dispose)
+                let commands = self.commands.clone();
+                self.core.dispose_then(move || commands.dispose())
             });
-            self.commands.dispose();
             return finish_with_first_failure(first_failure);
         };
         let mut first_failure = None;
@@ -1168,10 +1218,26 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
             retain_first_failure(&mut first_failure, || item.dispose());
         }
         retain_first_failure(&mut first_failure, || {
-            self.core.transition(LifecycleOperation::Dispose)
+            let commands = self.commands.clone();
+            self.core.dispose_then(move || commands.dispose())
         });
-        self.commands.dispose();
         finish_with_first_failure(first_failure)
+    }
+
+    /// Local collection-change stream of the children (see
+    /// `ObservableList::local_changes`).
+    pub(crate) fn membership_changes(&self) -> MessageHub {
+        self.items.local_changes()
+    }
+
+    /// Rejects a membership or selection change after disposal, as `add`,
+    /// `insert`, `replace`, and `move_item` do (disposal contract).
+    fn reject_if_disposed(&self) -> VmxResult<()> {
+        if self.disposal_pending() || self.status() == ConstructionStatus::Disposed {
+            Err(VmxError::Disposed)
+        } else {
+            Ok(())
+        }
     }
 
     fn disposal_pending(&self) -> bool {
@@ -1186,14 +1252,11 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
 
     /// Destructs and then constructs the composite.
     pub fn reconstruct(&self) -> VmxResult<()> {
-        if self.status() != ConstructionStatus::Constructed {
-            return Err(VmxError::InvalidLifecycleTransition {
-                from: self.status(),
-                operation: "reconstruct",
-            });
-        }
+        crate::runtime::reconstruct_admission(self.status())?;
         self.destruct()?;
-        self.construct()
+        let composite = self.clone();
+        self.core
+            .construct_after_destruct(move || composite.construct())
     }
 
     /// Reports whether the composite is constructed.
@@ -1286,6 +1349,7 @@ impl<T: VmNode, D: Dispatcher> CompositeVm<T, D> {
         require_constructed: bool,
         expected_current_id: Option<usize>,
     ) -> VmxResult<()> {
+        self.reject_if_disposed()?;
         assign_current_maybe_async(
             CurrentAssignmentContext {
                 core: &self.core,
@@ -1405,6 +1469,10 @@ impl<T: VmNode, D: Dispatcher> VmNode for CompositeVm<T, D> {
         self.core.set_current_flag(is_current);
     }
 
+    fn when_lifecycle_settled(&self, callback: crate::LifecycleSettleCallback) -> bool {
+        self.core.when_settled(callback)
+    }
+
     fn is_current(&self) -> bool {
         self.core.is_selected()
     }
@@ -1463,6 +1531,8 @@ pub struct FilteredCompositeVm<T: VmNode, D: Dispatcher = NullDispatcher> {
     cursor_policy: Arc<Mutex<FilteredCursorPolicy>>,
     disposed: Arc<Mutex<bool>>,
     frozen: Arc<Mutex<Vec<T>>>,
+    /// Source membership seen at the last reconciliation.
+    source_ids: Arc<Mutex<Vec<usize>>>,
 }
 
 impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
@@ -1484,6 +1554,7 @@ impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
             cursor_policy: Arc::new(Mutex::new(FilteredCursorPolicy::SnapToFirst)),
             disposed: Arc::new(Mutex::new(false)),
             frozen: Arc::new(Mutex::new(Vec::new())),
+            source_ids: Arc::new(Mutex::new(Vec::new())),
         };
         filtered.reconcile_current();
         filtered
@@ -1507,6 +1578,7 @@ impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
             cursor_policy: Arc::new(Mutex::new(FilteredCursorPolicy::SnapToFirst)),
             disposed: Arc::new(Mutex::new(false)),
             frozen: Arc::new(Mutex::new(Vec::new())),
+            source_ids: Arc::new(Mutex::new(Vec::new())),
         };
         filtered.reconcile_current();
         filtered
@@ -1548,12 +1620,36 @@ impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
     }
 
     /// Returns the current visible item.
+    ///
+    /// The projection does not subscribe to its source, so a read first
+    /// reconciles the selection when the source's membership changed since the
+    /// last reconciliation: a current item that the source removed follows the
+    /// cursor policy (COMP-032, COMP-033). An explicit clear stays cleared
+    /// until the next source change, predicate change, or refresh.
     pub fn current(&self) -> Option<T> {
+        self.reconcile_if_source_changed();
         lock(&self.current).clone()
+    }
+
+    /// Applies a source membership change that no read has reconciled yet,
+    /// so a later explicit assignment is not undone by it.
+    fn reconcile_if_source_changed(&self) {
+        if !*lock(&self.disposed) && *lock(&self.source_ids) != self.source_member_ids() {
+            self.reconcile_current();
+        }
+    }
+
+    fn source_member_ids(&self) -> Vec<usize> {
+        self.source.items().iter().map(VmNode::id).collect()
     }
 
     /// Assigns a visible current item or clears it.
     pub fn set_current(&self, item: Option<T>) -> VmxResult<()> {
+        // A disposed projection stays frozen (disposal contract, DISP-006).
+        if *lock(&self.disposed) {
+            return Ok(());
+        }
+        self.reconcile_if_source_changed();
         if let Some(item) = item.as_ref() {
             if !self
                 .visible()
@@ -1563,7 +1659,7 @@ impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
                 return Err(VmxError::NonChild);
             }
         }
-        *lock(&self.current) = item;
+        replace_locked(&self.current, item);
         Ok(())
     }
 
@@ -1572,30 +1668,43 @@ impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
     where
         F: Fn(&T) -> bool + Send + Sync + 'static,
     {
-        *lock(&self.predicate) = Arc::new(predicate);
+        if *lock(&self.disposed) {
+            return;
+        }
+        replace_locked(&self.predicate, Arc::new(predicate));
         self.reconcile_current();
     }
 
     /// Sets the policy for a current item hidden by filtering.
     pub fn set_cursor_policy(&self, policy: FilteredCursorPolicy) {
+        if *lock(&self.disposed) {
+            return;
+        }
         *lock(&self.cursor_policy) = policy;
     }
 
     /// Re-evaluates visibility and reconciles current selection.
     pub fn refresh(&self) {
-        self.reconcile_current();
+        if !*lock(&self.disposed) {
+            self.reconcile_current();
+        }
     }
 
     /// Re-evaluates scores and reconciles current selection.
     pub fn refresh_scores(&self) {
-        self.reconcile_current();
+        if !*lock(&self.disposed) {
+            self.reconcile_current();
+        }
     }
 
     /// Advances current within the visible projection, clamped at the end.
     pub fn move_next_visible(&self) {
+        if *lock(&self.disposed) {
+            return;
+        }
         let visible = self.visible();
         if visible.is_empty() {
-            *lock(&self.current) = None;
+            replace_locked(&self.current, None);
             return;
         }
         let next_index = self
@@ -1603,14 +1712,17 @@ impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
             .and_then(|current| visible.iter().position(|item| same_node(item, &current)))
             .map(|index| (index + 1).min(visible.len() - 1))
             .unwrap_or(0);
-        *lock(&self.current) = Some(visible[next_index].clone());
+        replace_locked(&self.current, Some(visible[next_index].clone()));
     }
 
     /// Moves current backward within the visible projection.
     pub fn move_previous_visible(&self) {
+        if *lock(&self.disposed) {
+            return;
+        }
         let visible = self.visible();
         if visible.is_empty() {
-            *lock(&self.current) = None;
+            replace_locked(&self.current, None);
             return;
         }
         let previous_index = self
@@ -1618,19 +1730,36 @@ impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
             .and_then(|current| visible.iter().position(|item| same_node(item, &current)))
             .map(|index| index.saturating_sub(1))
             .unwrap_or(0);
-        *lock(&self.current) = Some(visible[previous_index].clone());
+        replace_locked(&self.current, Some(visible[previous_index].clone()));
     }
 
     /// Freezes the current visible projection for subsequent reads.
     pub fn dispose(&self) {
-        *lock(&self.frozen) = self.visible();
+        if *lock(&self.disposed) {
+            return;
+        }
+        // Apply a source change no read has reconciled yet, so the frozen
+        // `current` is a member of the frozen `visible`, as in the flavors
+        // that subscribe to their source.
+        self.reconcile_if_source_changed();
+        let visible = self.visible();
+        let current_is_visible = lock(&self.current)
+            .as_ref()
+            .is_none_or(|current| visible.iter().any(|item| same_node(item, current)));
+        if !current_is_visible {
+            // A predicate input changed without a source change; apply the
+            // cursor policy so the frozen current item is still visible.
+            self.reconcile_current();
+        }
+        replace_locked(&self.frozen, self.visible());
         *lock(&self.disposed) = true;
     }
 
     fn reconcile_current(&self) {
+        *lock(&self.source_ids) = self.source_member_ids();
         let visible = self.visible();
-        let current_is_visible = self
-            .current()
+        let current_is_visible = lock(&self.current)
+            .clone()
             .is_some_and(|current| visible.iter().any(|item| same_node(item, &current)));
         if current_is_visible {
             return;
@@ -1639,7 +1768,7 @@ impl<T: VmNode, D: Dispatcher> FilteredCompositeVm<T, D> {
             FilteredCursorPolicy::Clear | FilteredCursorPolicy::PreserveIfVisible => None,
             FilteredCursorPolicy::SnapToFirst => visible.first().cloned(),
         };
-        *lock(&self.current) = next;
+        replace_locked(&self.current, next);
     }
 }
 
@@ -1856,6 +1985,12 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, T: VmNode, D: Dispatcher>
         self.inner.hub()
     }
 
+    /// Returns the hot error stream for child lifecycle failures that settle
+    /// after `construct`/`destruct` returned (background children).
+    pub fn background_errors(&self) -> crate::LifecycleErrorStream {
+        self.inner.background_errors()
+    }
+
     /// Registers cleanup work that runs on disposal.
     pub fn own<F>(&self, cleanup: F)
     where
@@ -1976,6 +2111,10 @@ impl<M: Clone + PartialEq + Send + Sync + 'static, T: VmNode, D: Dispatcher> VmN
 
     fn set_current_flag(&self, is_current: bool) {
         self.inner.set_current_flag(is_current);
+    }
+
+    fn when_lifecycle_settled(&self, callback: crate::LifecycleSettleCallback) -> bool {
+        self.inner.core.when_settled(callback)
     }
 
     fn is_current(&self) -> bool {

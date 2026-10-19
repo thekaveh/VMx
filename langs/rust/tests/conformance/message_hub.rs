@@ -437,21 +437,34 @@ fn dispose_during_batch_drops_queued_messages() {
     let hub = MessageHub::new();
     let received = Arc::new(Mutex::new(Vec::new()));
     let received_clone = received.clone();
-    let _subscription = hub.subscribe(move |message| {
-        received_clone
-            .lock()
-            .unwrap()
-            .push(custom_name(message).to_string());
-    });
+    let completions = Arc::new(AtomicUsize::new(0));
+    let completions_clone = completions.clone();
+    let _subscription = hub.subscribe_with_completion(
+        move |message| {
+            received_clone
+                .lock()
+                .unwrap()
+                .push(custom_name(message).to_string());
+        },
+        move || {
+            completions_clone.fetch_add(1, Ordering::SeqCst);
+        },
+    );
 
     hub.batch(|| {
         hub.send(make_msg("A"));
         hub.dispose();
         hub.send(make_msg("B"));
     });
+    assert_eq!(
+        completions.load(Ordering::SeqCst),
+        1,
+        "the stream completes exactly once"
+    );
     hub.send(make_msg("C"));
 
     assert!(received.lock().unwrap().is_empty());
+    assert_eq!(completions.load(Ordering::SeqCst), 1);
 }
 
 /// HUB-013 — Ordinary sends remain synchronous outside transactions

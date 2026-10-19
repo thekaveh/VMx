@@ -1,33 +1,38 @@
 # 9.3. WPF Integration
 
-Wire a `ComponentVM<M>` to a WPF view via `INotifyPropertyChanged` and the
-existing `RelayCommand` infrastructure. WPF is Windows-only; for
+Wire a `ComponentVM<M>` to a WPF view through `INotifyPropertyChanged` and
+`RelayCommand`. This page is the shared home of the XAML adapter that the
+Avalonia and MAUI recipes also use. WPF is Windows-only; for
 cross-platform XAML, see [avalonia.md](avalonia.md).
 
 ## 9.3.1. Reactivity primitive
 
-WPF data binding observes `INotifyPropertyChanged.PropertyChanged` events.
-`ComponentVMBase` already implements `INotifyPropertyChanged`. A setter such as
-`Model` publishes a `PropertyChangedMessage` to the hub and then raises
+WPF, Avalonia, and MAUI bindings observe `INotifyPropertyChanged.PropertyChanged`
+and `ICommand`. `ComponentVMBase` implements `INotifyPropertyChanged`. A setter
+such as `Model` publishes a `PropertyChangedMessage` to the hub and then raises
 `PropertyChanged`. A lifecycle transition publishes a
 `ConstructionStatusChangedMessage` to the hub and then raises `PropertyChanged`
-for `Status` and `IsConstructed`. `Status` is computed, so the hub never
+for both `Status` and `IsConstructed`. `Status` is computed, so the hub never
 carries a `PropertyChangedMessage` for it.
 
 ## 9.3.2. Mapping
 
-| WPF                        | VMx                                                                 |
+This mapping applies to all three XAML hosts. The Avalonia and MAUI pages add
+only their host-specific rows.
+
+| XAML host                  | VMx                                                                 |
 | -------------------------- | ------------------------------------------------------------------- |
 | `INotifyPropertyChanged`   | `ComponentVMBase.PropertyChanged` (implemented by every VM)         |
-| `ICommand`                 | `RelayCommand` / `RelayCommand<T>` (already implements `ICommand`)  |
+| `ICommand`                 | `RelayCommand` / `RelayCommand<T>` (implements `ICommand`)          |
 | `INotifyCollectionChanged` | `CollectionChangedMessage` on the hub                               |
-| Dispatcher thread          | `SynchronizationContextScheduler` created on the UI thread (`host`) |
+| WPF `Dispatcher` thread    | `SynchronizationContextScheduler` created on the UI thread (`host`) |
 
-## 9.3.3. Adapter skeleton
+## 9.3.3. XAML adapter
 
-The adapter below is the exact file that `VMx.Tests` executes
-(`Integration/XamlRecipeTests.cs`) and that CI runs against real WPF bindings
-on a Dispatcher thread (`examples/csharp/wpf/RecipeHostCheck`).
+WPF, Avalonia, and MAUI use this adapter unchanged. The adapter is
+`langs/csharp/tests/VMx.Tests/Integration/BindableVm.cs`. `XamlRecipeTests.cs`
+in the same folder executes it on test schedulers. CI also runs it against real
+WPF bindings on a Dispatcher thread (`examples/csharp/wpf/RecipeHostCheck`).
 
 <!-- checked-snippet: langs/csharp/tests/VMx.Tests/Integration/BindableVm.cs#xaml-adapter -->
 
@@ -56,10 +61,12 @@ public sealed class BindableVm<M> : INotifyPropertyChanged, IDisposable
     {
         _vm = vm;
         // ComponentVM<M> implements INotifyPropertyChanged: it raises Model on
-        // assignment and Status on every lifecycle transition, on the thread
-        // that made the change. Forward each notification on the UI thread.
-        // Hub messages are not forwarded: the hub carries no Status change,
-        // and its Model message would notify a second time.
+        // assignment, and Status and IsConstructed on every lifecycle
+        // transition, on the thread that made the change. Forward each
+        // notification on the UI thread. Hub messages are not forwarded: the
+        // hub carries status changes as ConstructionStatusChangedMessage, not
+        // as a Status PropertyChanged, and its Model message would notify a
+        // second time.
         _subscription = Observable
             .FromEventPattern<PropertyChangedEventHandler, PropertyChangedEventArgs>(
                 handler => vm.PropertyChanged += handler,
@@ -103,6 +110,8 @@ Then in XAML: `<TextBlock Text="{Binding Model.Title}"/>`,
 `<TextBlock Text="{Binding Status}"/>`, and
 `<Button Command="{Binding SaveCommand}"/>` where `SaveCommand` is a
 `RelayCommand` exposed by your domain wrapper.
+
+The four adapter rules apply on every XAML host:
 
 - **One notification path.** Forward `PropertyChanged` only. Forwarding the
   hub's `PropertyChangedMessage` as well notifies `Model` twice, and the hub

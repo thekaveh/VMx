@@ -28,20 +28,38 @@ Footer {
     height: 1fr;
 }
 
+/* Panes scroll vertically so every control stays reachable on small
+ * terminals (80x24): the form alone is taller than the space left there. */
 #notebooks_pane,
 #notes_pane,
 #form_pane {
     background: #141B2D;
     border: solid #2A3045;
-    padding: 1 1;
+    padding: 0 1;
+    overflow-y: auto;
 }
 
 #notebooks_pane {
-    width: 28;
+    width: 1fr;
+    min-width: 18;
+    max-width: 28;
+}
+
+#notebooks_tree {
+    min-height: 4;
+}
+
+#notes_list {
+    min-height: 4;
+}
+
+#form_body {
+    min-height: 5;
 }
 
 #notes_pane {
     width: 1fr;
+    min-width: 28;
 }
 
 #form_pane {
@@ -51,7 +69,7 @@ Footer {
 .pane_title {
     color: #7A86A1;
     text-style: bold;
-    padding: 0 0 1 0;
+    padding: 0;
 }
 
 Tree {
@@ -99,7 +117,9 @@ TextArea:focus {
 }
 
 #capability_actions Button {
-    margin: 0 1;
+    margin: 0;
+    min-width: 6;
+    width: auto;
 }
 
 #pagination_row {
@@ -133,9 +153,49 @@ TextArea:focus {
     border: solid #4F8CD9;
 }
 
-#tag_chip_row {
+#tag_chip_row,
+#form_mode_row,
+#form_buttons {
     height: auto;
-    padding: 0 0 1 0;
+}
+
+#tag_chip_row Input {
+    width: 1fr;
+}
+
+/* Size buttons to their labels so rows fit narrow panes. */
+#tag_chip_row Button,
+#tag_chips Button,
+#form_mode_row Button,
+#form_buttons Button,
+#global_search_controls Button {
+    width: auto;
+    min-width: 6;
+}
+
+#tag_chips {
+    height: auto;
+}
+
+/* Compact band: its natural height, not half the screen. */
+#global_search {
+    height: auto;
+    background: #141B2D;
+    border-top: solid #2A3045;
+    padding: 0 1;
+}
+
+#global_search_controls {
+    height: auto;
+}
+
+#global_search_input {
+    width: 1fr;
+}
+
+#global_search_results {
+    height: auto;
+    max-height: 3;
 }
 
 .tag_chip {

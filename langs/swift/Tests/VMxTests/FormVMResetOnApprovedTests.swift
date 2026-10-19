@@ -131,6 +131,11 @@ final class FormVMResetOnApprovedTests: XCTestCase {
             .persister { _ in persisted += 1 }
             .resetOnApproved { _ in throw ResetTestError.failed }
             .build()
+        var directApproved = 0
+        var directApproveErrors = 0
+        var directCancellables = Set<AnyCancellable>()
+        direct.onApproved.sink { _ in directApproved += 1 }.store(in: &directCancellables)
+        direct.approveErrors.sink { _ in directApproveErrors += 1 }.store(in: &directCancellables)
         direct.setModel("saved")
         do {
             try await direct.approveAsync()
@@ -139,6 +144,9 @@ final class FormVMResetOnApprovedTests: XCTestCase {
         XCTAssertEqual(persisted, 1)
         XCTAssertEqual(direct.model, "saved")
         XCTAssertEqual(direct.snapshot, "initial")
+        XCTAssertEqual(directApproved, 0, "onApproved must not fire on reset failure")
+        XCTAssertEqual(directApproveErrors, 0,
+                       "the awaiter receives e; approveErrors stays silent")
 
         let command = try FormVM<String>.builder().initial("initial")
             .persister { _ in }
@@ -198,16 +206,22 @@ final class FormVMResetOnApprovedTests: XCTestCase {
         let started = expectation(description: "persist entered")
         let gate = AsyncGate(started)
         var resetInputs: [String] = []
+        var persistInputs: [String] = []
+        var approvedPayloads: [String] = []
         let form = try FormVM<String>.builder().initial("initial")
-            .persister { _ in await gate.wait() }
+            .persister { model in persistInputs.append(model); await gate.wait() }
             .resetOnApproved { model in resetInputs.append(model); return "reset:\(model)" }.build()
+        var cancellables = Set<AnyCancellable>()
+        form.onApproved.sink { approvedPayloads.append($0) }.store(in: &cancellables)
         form.setModel("saved")
         let approval = Task { try await form.approveAsync() }
         await fulfillment(of: [started], timeout: 2)
         form.setModel("racing-edit")
         gate.release()
         try await approval.value
+        XCTAssertEqual(persistInputs, ["saved"], "persister must receive m1")
         XCTAssertEqual(resetInputs, ["saved"])
+        XCTAssertEqual(approvedPayloads, ["saved"], "onApproved payload must be m1")
         XCTAssertEqual(form.model, "reset:saved")
         XCTAssertEqual(form.snapshot, "reset:saved")
         XCTAssertFalse(form.isDirty)

@@ -14,25 +14,10 @@ ______________________________________________________________________
 
 ## 3.3.1. Install
 
-PyPI provides VMx 3.23.0, which implements this tutorial's minimum
-specification. The current 3.29.0 Python source line is not published yet;
-pin `vmx==3.23.0` when reproducing released behavior.
-
-```bash
-# Using uv (recommended)
-uv add vmx
-
-# Using pip
-pip install vmx
-```
-
-For local development from a checked-out clone:
-
-```bash
-uv add --editable path/to/VMx/langs/python
-# or
-pip install -e path/to/VMx/langs/python
-```
+Add VMx as described in [Installation](../installation.md). PyPI provides
+`vmx` 3.23.0. Examples that need a later source line state their minimum
+version; the Python tab on the installation page installs the source line from
+a checkout.
 
 ______________________________________________________________________
 
@@ -44,9 +29,10 @@ viewmodels and a dispatcher that knows about your event loop or UI thread.
 ### 3.3.2.1. Option A — immediate (console / synchronous tests)
 
 ```python
+from vmx.messages import Message
 from vmx.services import MessageHub, RxDispatcher
 
-hub = MessageHub()
+hub: MessageHub[Message] = MessageHub()
 dispatcher = RxDispatcher.immediate()
 # Both foreground and background schedulers are ImmediateScheduler — safe for
 # console scripts and pytest suites where there is no event loop.
@@ -56,14 +42,15 @@ dispatcher = RxDispatcher.immediate()
 
 ```python
 import asyncio
+from vmx.messages import Message
 from vmx.services import MessageHub, RxDispatcher
 
 async def main() -> None:
     loop = asyncio.get_running_loop()
-    hub = MessageHub()
+    hub: MessageHub[Message] = MessageHub()
     dispatcher = RxDispatcher.asyncio(loop)
-    # Source 3.23.2: foreground → AsyncIOThreadSafeScheduler(loop)
-    # background → ThreadPoolScheduler
+    # Source 3.23.2 or later maps foreground to AsyncIOThreadSafeScheduler(loop).
+    # Background stays on ThreadPoolScheduler.
     ...
 
 asyncio.run(main())
@@ -84,7 +71,7 @@ from vmx.services import RxDispatcher
 
 async def main() -> None:
     loop = asyncio.get_running_loop()
-    # Verified workaround for published vmx 3.23.0 with RxPY 4.0.4.
+    # This pairing gives vmx 3.23.0 from PyPI the thread-safe scheduler (tested with RxPY 4.0.4).
     dispatcher = RxDispatcher(
         foreground=AsyncIOThreadSafeScheduler(loop),
         background=ThreadPoolScheduler(),
@@ -104,7 +91,7 @@ participates in the lifecycle state machine
 from dataclasses import dataclass
 
 from vmx.components import ComponentVMOf
-from vmx.messages import PropertyChangedMessage
+from vmx.messages import Message, PropertyChangedMessage
 from vmx.services import MessageHub, RxDispatcher
 
 # A simple domain model — use your own real types here.
@@ -113,12 +100,12 @@ class UserModel:
     name: str
     email: str
 
-hub = MessageHub()
+hub: MessageHub[Message] = MessageHub()
 dispatcher = RxDispatcher.immediate()
 
 # Build the viewmodel — every builder setter returns a NEW builder (immutable).
 user_vm: ComponentVMOf[UserModel] = (
-    ComponentVMOf.builder()
+    ComponentVMOf[UserModel].builder()
     .name("user-card")
     .model(UserModel("Alice", "alice@example.com"))
     .services(hub, dispatcher)
@@ -134,13 +121,12 @@ user_vm: ComponentVMOf[UserModel] = (
 # Subscribe to hub messages BEFORE constructing so you don't miss any.
 # reactivex.operators has no OfType; filter by isinstance directly in the
 # subscriber.
-hub.messages.subscribe(
-    lambda msg: (
-        isinstance(msg, PropertyChangedMessage)
-        and msg.sender is user_vm
-        and print(f"Property '{msg.property_name}' changed on {msg.sender_name}")
-    )
-)
+def on_message(msg: Message) -> None:
+    if isinstance(msg, PropertyChangedMessage) and msg.sender is user_vm:
+        print(f"Property '{msg.property_name}' changed on {msg.sender_name}")
+
+
+hub.messages.subscribe(on_message)
 
 # Alternatively, subscribe via the VM's own property_changed observable,
 # which emits property name strings (snake_case).
@@ -152,12 +138,19 @@ user_vm.property_changed.subscribe(
 # This fires the VM's on_construct callback. Model assignment is already valid
 # before construction and remains valid until the terminal DISPOSED state.
 user_vm.construct()
+# stdout: "  [property_changed] status"
+# stdout: "  [property_changed] is_constructed"
 # stdout: "user-card constructed"
+# stdout: "  [property_changed] status"
+# stdout: "  [property_changed] is_constructed"
 
 # Update the model — triggers on_model_changed and publishes
 # PropertyChangedMessage for "model" (and "modeled_hint" if it changed).
 user_vm.model = UserModel("Alice Smith", "asmith@example.com")
 # stdout: "Property 'model' changed on user-card"
+# stdout: "  [property_changed] model"
+# stdout: "Property 'modeled_hint' changed on user-card"
+# stdout: "  [property_changed] modeled_hint"
 # stdout: "Model updated → Alice Smith"
 
 print(user_vm.modeled_hint)  # "Alice Smith"  (modeled_hinter result)
@@ -213,16 +206,20 @@ save_command.can_execute_changed.subscribe(
 )
 
 print(save_command.can_execute())   # True
-save_command.execute()              # prints "Saving…"
+save_command.execute()
+# stdout: "Saving…"
+# stdout: "  can_execute is now False"   (the task fires the trigger)
 print(save_command.can_execute())   # False again
 
-# Dispose to unsubscribe all trigger subscriptions.
+# Dispose to unsubscribe all trigger subscriptions. Disposal sends one final
+# can_execute_changed notification before it completes the stream.
 save_command.dispose()
+# stdout: "  can_execute is now False"
 ```
 
 > See [command families](../primitives/command-families.md) for the full command
 > contract, including the
-> "predicate-false gates execute" rule (CMD-003).
+> "predicate-false gates execute" rule (CMD-007).
 
 ______________________________________________________________________
 
@@ -237,19 +234,19 @@ from dataclasses import dataclass
 
 from vmx.components import ComponentVMOf
 from vmx.composites import CompositeVM
-from vmx.messages import PropertyChangedMessage
+from vmx.messages import Message, PropertyChangedMessage
 from vmx.services import MessageHub, RxDispatcher
 
 @dataclass(frozen=True)
 class TabModel:
     title: str
 
-hub = MessageHub()
+hub: MessageHub[Message] = MessageHub()
 dispatcher = RxDispatcher.immediate()
 
 # Build two tab children — they share the same hub and dispatcher.
 tab1: ComponentVMOf[TabModel] = (
-    ComponentVMOf.builder()
+    ComponentVMOf[TabModel].builder()
     .name("home-tab")
     .model(TabModel("Home"))
     .services(hub, dispatcher)
@@ -257,7 +254,7 @@ tab1: ComponentVMOf[TabModel] = (
 )
 
 tab2: ComponentVMOf[TabModel] = (
-    ComponentVMOf.builder()
+    ComponentVMOf[TabModel].builder()
     .name("settings-tab")
     .model(TabModel("Settings"))
     .services(hub, dispatcher)
@@ -266,7 +263,7 @@ tab2: ComponentVMOf[TabModel] = (
 
 # Build the composite. The children factory is evaluated on construct().
 tabs: CompositeVM[ComponentVMOf[TabModel]] = (
-    CompositeVM.builder()
+    CompositeVM[ComponentVMOf[TabModel]].builder()
     .name("tab-bar")
     .services(hub, dispatcher)
     .children(lambda: [tab1, tab2])
@@ -275,16 +272,17 @@ tabs: CompositeVM[ComponentVMOf[TabModel]] = (
 )
 
 # Watch for current-selection changes via the hub.
-hub.messages.subscribe(
-    lambda msg: (
+def on_message(msg: Message) -> None:
+    if (
         isinstance(msg, PropertyChangedMessage)
         and msg.sender is tabs
         and msg.property_name == "current"
-        and print(
-            f"Selected tab: {tabs.current.model.title if tabs.current else '(none)'}"
-        )
-    )
-)
+    ):
+        title = tabs.current.model.title if tabs.current else "(none)"
+        print(f"Selected tab: {title}")
+
+
+hub.messages.subscribe(on_message)
 
 # construct() cascades: the composite constructs itself then each child.
 tabs.construct()
@@ -307,9 +305,9 @@ ______________________________________________________________________
 
 ## 3.3.6. Lifecycle and cleanup
 
-Every VM follows a five-state lifecycle:
-`DESTRUCTED → CONSTRUCTING → CONSTRUCTED → DESTRUCTING → DESTRUCTED`, plus the
-terminal `DISPOSED`.
+Every VM has five lifecycle states. Four of them form a reversible cycle,
+`DESTRUCTED → CONSTRUCTING → CONSTRUCTED → DESTRUCTING → DESTRUCTED`. The fifth
+state, `DISPOSED`, is terminal.
 
 ```python
 from vmx.lifecycle.status import ConstructionStatus
@@ -333,10 +331,11 @@ print(user_vm.status)    # ConstructionStatus.DISPOSED
 
 # CompositeVM.dispose() disposes children, then itself.
 tabs.dispose()
-
-# MessageHub.dispose() completes the underlying Rx Subject.
-hub.dispose()
 ```
+
+Dispose the hub last, after every viewmodel that uses it. `MessageHub.dispose()`
+completes the underlying Rx subject. The threading examples below still use the
+hub, so the full shutdown sequence appears after them.
 
 > See [Lifecycle & Messaging](../architecture/lifecycle-messaging.md) for the
 > full transition table and the
@@ -366,19 +365,35 @@ hub.messages.pipe(
 ).subscribe(lambda msg: update_label(msg))   # safe to touch UI here
 ```
 
-For background work before constructing a VM:
+The next example loads data in the background before `construct()`. It builds
+a new viewmodel because section 3.3.6 disposed `user_vm`.
 
 ```python
 import reactivex as rx
 import reactivex.operators as ops
 
+profile_vm: ComponentVMOf[UserModel] = (
+    ComponentVMOf[UserModel].builder()
+    .name("profile")
+    .model(UserModel("", ""))
+    .services(hub, dispatcher)
+    .build()
+)
+
 def apply_remote_data(data: UserModel) -> None:
-    user_vm.model = data
-    user_vm.construct()
+    profile_vm.model = data
+    profile_vm.construct()
 
 rx.from_callable(lambda: load_from_database(), scheduler=dispatcher.background).pipe(
     ops.observe_on(dispatcher.foreground),
 ).subscribe(apply_remote_data)
+```
+
+At shutdown, dispose the viewmodels first and the hub last:
+
+```python
+profile_vm.dispose()
+hub.dispose()
 ```
 
 When using `RxDispatcher.asyncio(loop)`, the foreground scheduler is
@@ -389,15 +404,15 @@ for teardown guidance.
 
 ### 3.3.7.1. Start And Cancel An Async Resource From Synchronous Code
 
-`load_command.execute()` may be called when no asyncio loop is running on the
-caller. VMx starts the resource operation on its shared daemon loop. A later
-`cancel()` invalidates the resource state synchronously and posts native
-task/future work to that operation loop, so command settlement may follow the
-state change:
+You can call `load_command.execute()` when no asyncio loop runs on the
+caller's thread. In that case, VMx starts the resource operation on its shared
+daemon loop. A later `cancel()` call invalidates the resource state
+synchronously. It then posts native task and future work to that operation
+loop. Thus the command can settle after the state changes.
 
-This recipe requires the unreleased Python 3.29.0 source installed from a
-checkout. The current PyPI 3.23.0 package does not contain this operation-loop
-repair.
+This recipe requires source 3.29.0 or later. PyPI 3.23.0 does not include this
+operation-loop behavior. [Installation](../installation.md) shows how to
+install the source line from a checkout.
 
 ```python
 import asyncio
@@ -407,6 +422,7 @@ from vmx import (
     NULL_DISPATCHER,
     AsyncResourceStatus,
     AsyncResourceVM,
+    Message,
     MessageHub,
 )
 
@@ -416,14 +432,15 @@ cancelled = threading.Event()
 
 async def load_report() -> str:
     started.set()
+    never_ready: asyncio.Future[str] = asyncio.get_running_loop().create_future()
     try:
-        await asyncio.Future()
+        return await never_ready
     except asyncio.CancelledError:
         cancelled.set()
         raise
 
 
-hub = MessageHub()
+hub: MessageHub[Message] = MessageHub()
 report = AsyncResourceVM(
     name="report",
     loader=load_report,
@@ -442,7 +459,7 @@ hub.dispose()
 ```
 
 The corresponding
-[`langs/python/tests/unit/state/test_async_resource_threading.py`](https://github.com/thekaveh/VMx/blob/main/langs/python/tests/unit/state/test_async_resource_threading.py)
+[`langs/python/tests/unit/state/test_async_resource_threading.py`](../../../langs/python/tests/unit/state/test_async_resource_threading.py)
 also records the loop used for task cancellation, future completion, and late
 callback registration. State and cleanup notifications are not automatically
 UI-dispatched. For caller-owned loops, stop admissions, cancel, and drain while

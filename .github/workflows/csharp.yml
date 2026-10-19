@@ -16,6 +16,8 @@ on:
       - "tools/check-cobertura-threshold.py"
       - "tools/smoke-nuget-consumer.py"
       - ".github/workflows/csharp.yml"
+      - "tools/check-conformance-execution.py"
+      - "tools/check-conformance-coverage.py"
   pull_request:
     branches: [main, develop]
   workflow_dispatch:

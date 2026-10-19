@@ -2,13 +2,21 @@
 //!
 //! Spec: `spec/22-discriminator-vm.md`; ADR-0051.
 
-use super::{lock, Arc, Message, MessageHub, Mutex};
+use super::{lock, Arc, Message, MessageHub, Mutex, ValueStream};
+
+/// The active key plus a counter of its replacements, so a setter that
+/// compared keys on a copy can detect an intervening change.
+struct ActiveKey<K> {
+    key: K,
+    generation: u64,
+}
 
 #[derive(Clone)]
 /// Keyed active-mode state with LIFO modal override restoration.
 pub struct DiscriminatorVm<K: Clone + PartialEq + Send + 'static> {
-    current_key: Arc<Mutex<K>>,
+    current_key: Arc<Mutex<ActiveKey<K>>>,
     active_changed: MessageHub,
+    active_key_changes: ValueStream<K>,
     modal_stack: Arc<Mutex<Vec<K>>>,
     disposed: Arc<Mutex<bool>>,
 }
@@ -17,8 +25,12 @@ impl<K: Clone + PartialEq + Send + 'static> DiscriminatorVm<K> {
     /// Creates discriminator state with `initial` active.
     pub fn new(initial: K) -> Self {
         Self {
-            current_key: Arc::new(Mutex::new(initial)),
+            current_key: Arc::new(Mutex::new(ActiveKey {
+                key: initial.clone(),
+                generation: 0,
+            })),
             active_changed: MessageHub::new(),
+            active_key_changes: ValueStream::hot(initial),
             modal_stack: Arc::new(Mutex::new(Vec::new())),
             disposed: Arc::new(Mutex::new(false)),
         }
@@ -26,7 +38,7 @@ impl<K: Clone + PartialEq + Send + 'static> DiscriminatorVm<K> {
 
     /// Returns the current key.
     pub fn current_key(&self) -> K {
-        lock(&self.current_key).clone()
+        lock(&self.current_key).key.clone()
     }
 
     /// Returns the active key.
@@ -44,21 +56,39 @@ impl<K: Clone + PartialEq + Send + 'static> DiscriminatorVm<K> {
         if *lock(&self.disposed) {
             return;
         }
-        lock(&self.modal_stack).clear();
+        let abandoned = std::mem::take(&mut *lock(&self.modal_stack));
+        drop(abandoned);
         self.set_active_key_preserving_modals(key);
     }
 
     fn set_active_key_preserving_modals(&self, key: K) {
-        let changed = {
-            let mut current = lock(&self.current_key);
-            if *current == key {
-                false
-            } else {
-                *current = key;
-                true
+        // `PartialEq` runs on a copy with no lock held, so an `eq` may read
+        // this discriminator; the install re-checks the generation and
+        // compares again when another setter got there first.
+        let changed = loop {
+            let (generation, current) = {
+                let active = lock(&self.current_key);
+                (active.generation, active.key.clone())
+            };
+            if current == key {
+                break false;
             }
+            drop(current);
+            let replaced = {
+                let mut active = lock(&self.current_key);
+                if active.generation != generation {
+                    continue;
+                }
+                active.generation = active.generation.wrapping_add(1);
+                std::mem::replace(&mut active.key, key.clone())
+            };
+            drop(replaced);
+            break true;
         };
         if changed {
+            // The key stream goes first: a hub subscriber that changes the key
+            // again must not have its newer key overtaken by this one.
+            self.active_key_changes.send(key);
             self.active_changed.send(Message::Custom {
                 sender_id: 0,
                 sender_name: "DiscriminatorVm".to_string(),
@@ -69,12 +99,22 @@ impl<K: Clone + PartialEq + Send + 'static> DiscriminatorVm<K> {
 
     /// Reports whether `key` is active.
     pub fn is_active(&self, key: &K) -> bool {
-        lock(&self.current_key).eq(key)
+        // Compare a copy, so no lock is held while `PartialEq` runs.
+        self.current_key() == *key
     }
 
     /// Returns the hub that publishes effective active-key changes.
+    ///
+    /// Its messages carry no key; use [`active_key_changes`](Self::active_key_changes)
+    /// to receive the new key with each change.
     pub fn active_changed(&self) -> MessageHub {
         self.active_changed.clone()
+    }
+
+    /// Returns a typed stream of the new active key, one value per effective
+    /// change. It does not replay the current key to a new subscriber.
+    pub fn active_key_changes(&self) -> ValueStream<K> {
+        self.active_key_changes.clone()
     }
 
     /// Returns the number of saved modal frames.
@@ -108,7 +148,10 @@ impl<K: Clone + PartialEq + Send + 'static> DiscriminatorVm<K> {
         if *lock(&self.disposed) {
             return;
         }
-        lock(&self.modal_stack).clear();
+        // Saved keys are dropped after the lock is released: a user `Drop`
+        // may read this discriminator.
+        let frames = std::mem::take(&mut *lock(&self.modal_stack));
+        drop(frames);
     }
 
     /// Completes the change stream and makes subsequent mutations inert.
@@ -125,7 +168,9 @@ impl<K: Clone + PartialEq + Send + 'static> DiscriminatorVm<K> {
         if !should_dispose {
             return;
         }
-        lock(&self.modal_stack).clear();
+        let frames = std::mem::take(&mut *lock(&self.modal_stack));
+        drop(frames);
         self.active_changed.dispose();
+        self.active_key_changes.dispose();
     }
 }

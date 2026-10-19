@@ -45,6 +45,9 @@ Construction and destruction cascade through the slot children:
 1. each populated child is constructed
 1. the aggregate reaches `Constructed` only after every child does
 
+Rust background-child settling follows the shared container rule in
+[ViewModel Families](index.md#6213-lifecycle-and-messaging).
+
 Each successful slot population publishes a property-changed message for that
 slot (`Component1`, `component_1`, `component1`, and so on).
 
@@ -70,14 +73,15 @@ half-replaced aggregate.
 - `Python`: `AggregateVM6Builder[...]().name("workspace").services(hub, dispatcher).component_1(lambda: notebooks).component_2(lambda: notes).build()`
 - `TypeScript`: `AggregateVM6.builder<...>().name("workspace").services(hub, dispatcher).component1(() => notebooks).component2(() => notes).build()`
 - `Swift`: `try AggregateVM6<...>.builder().name("workspace").services(hub: hub, dispatcher: dispatcher).component1 { notebooks }.component2 { notes }.build()`
-- `Rust`: `AggregateVm6::<...>::builder().name("workspace").services(hub, dispatcher).component_1(|| notebooks.clone()).component_2(|| notes.clone()).build()?`
+- `Rust`: `AggregateVm6::<...>::builder().name("workspace").services(hub, dispatcher).component_1(move || notebooks.clone()).component_2(move || notes.clone()).build()?`
 
 The Notes Workspace shell uses this pattern as its six-pane root in the C#,
-Python, TypeScript, and Swift examples.
+Python, TypeScript, and Swift examples. The Rust TUI companion also uses an
+`AggregateVm6` for its workspace.
 
-Rust implements the same aggregate type and builder shape. Its slot-notification
-and construction ordering evidence is recorded in the completed
-[Rust parity ledger](../../../maintenance/2026-07-16-rust-capability-parity.md).
+Rust implements the same aggregate type and builder shape. The
+[Rust parity ledger](../../../maintenance/2026-07-16-rust-capability-parity.md) records its slot-notification and construction-ordering
+evidence.
 
 ## 6.2.3.6. Common Pitfalls
 

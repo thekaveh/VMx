@@ -17,7 +17,7 @@ namespace VMx.Forwarding;
 /// See spec/09-forwarding.md §ForwardingCompositeVM and FWD-003 in spec/12-conformance.md.
 /// </summary>
 /// <typeparam name="VM">The child viewmodel type.</typeparam>
-public abstract class ForwardingCompositeVM<VM> : ICompositeVM<VM>, IDisposable
+public abstract class ForwardingCompositeVM<VM> : ICompositeVM<VM>, IComponentVMInternals, IDisposable
     where VM : class, IComponentVM
 {
     /// <summary>The wrapped composite instance that all members delegate to by default.</summary>
@@ -25,7 +25,12 @@ public abstract class ForwardingCompositeVM<VM> : ICompositeVM<VM>, IDisposable
 
     /// <summary>Initialises the decorator with the composite to wrap.</summary>
     protected ForwardingCompositeVM(ICompositeVM<VM> wrapped)
-        => _wrappedComposite = wrapped ?? throw new ArgumentNullException(nameof(wrapped));
+    {
+        _wrappedComposite = wrapped ?? throw new ArgumentNullException(nameof(wrapped));
+        _membership = new ForwardingMembership(this, wrapped);
+    }
+
+    private readonly ForwardingMembership _membership;
 
     // ── IComponentVM: identity ─────────────────────────────────────────────
 
@@ -211,5 +216,23 @@ public abstract class ForwardingCompositeVM<VM> : ICompositeVM<VM>, IDisposable
     {
         _wrappedComposite.Dispose();
     }
+
+    // ── Parent membership (FWD-002/FWD-004): one identity with the wrapped composite ──
+
+    IParentCompositeVM? IComponentVMInternals.Parent => _membership.Parent;
+
+    IComponentVM IComponentVMInternals.OwnershipIdentity => _membership.OwnershipIdentity;
+
+    void IComponentVMInternals.SetParent(IParentCompositeVM? parent) => _membership.SetParent(parent);
+
+    void IComponentVMInternals.SetIsCurrent(bool value) => _membership.SetIsCurrent(value);
+
+    bool IComponentVMInternals.CommitIsCurrent(bool value) => _membership.CommitIsCurrent(value);
+
+    void IComponentVMInternals.PublishIsCurrent() => _membership.PublishIsCurrent();
+
+    Task IComponentVMInternals.ConstructOrJoinAsync() => _membership.ConstructOrJoinAsync();
+
+    Task IComponentVMInternals.JoinConstructAsync() => _membership.JoinConstructAsync();
 }
 #pragma warning restore CA1051

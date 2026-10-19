@@ -5,17 +5,17 @@ Global all-notes search is the scenario path that demonstrates
 
 ## 8.6.1. What It Proves
 
-- forward-only token paging through repository-backed search
-- search results that are independent of the currently focused notebook
-- source-change refresh with an unchanged search term before token paging reads
-  the new filtered projection
-- a refresh whose first page is unchanged keeps every loaded result and its
-  continuation, so Load More continues after the last visible result instead
-  of fetching page two again (spec 21 §6.2, ADR-0136)
-- explicit ownership of every lifecycle-bearing result VM created by a search,
-  including results later replaced, equality-suppressed, or returned by stale
-  asynchronous work
-- the same conceptual flow across C#, Python, TypeScript, and Swift
+- Token paging moves forward only, through repository-backed search.
+- Search results do not depend on the focused notebook.
+- A source change refreshes the results while the search term stays the same.
+  The refresh occurs before token paging reads the new filtered projection.
+- A refresh that does not change the first page keeps every loaded result and
+  its continuation. Load More then continues after the last visible result and
+  does not fetch page two again (spec 21 §6.2, ADR-0136).
+- The search explicitly owns every lifecycle-bearing result VM it creates. This
+  includes results that are later replaced, equality-suppressed, or returned by
+  stale asynchronous work.
+- C#, Python, TypeScript, and Swift use the same conceptual flow.
 
 ## 8.6.2. Where It Lives
 
@@ -54,8 +54,9 @@ lifecycle-bearing result VMs, so it does not need this registry.
 The token is opaque, and `null` / `None` / `nil` both requests the first page
 and ends paging. The showcases use string tokens. For an integer offset or
 page cursor, C# needs a token type that can hold `null`: use `int?`, where `0`
-is a valid cursor, rather than `int`, which cannot say "no next page" and is
-rejected when the composition is constructed.
+is a valid cursor, rather than `int`, which cannot say "no next page". With
+`int`, the `TokenPagedComposition` constructor throws
+`NotSupportedException`.
 
 ```csharp
 var paged = new TokenPagedComposition<NoteVM, int?>(async offset =>
@@ -66,7 +67,7 @@ var paged = new TokenPagedComposition<NoteVM, int?>(async offset =>
 });
 ```
 
-Python, TypeScript, Swift, and Rust already express an absent token with
+Python, TypeScript, Swift, and Rust express an absent token with
 `None`, `null`, `nil`, and `Option`.
 
 ## 8.6.5. Related Reading

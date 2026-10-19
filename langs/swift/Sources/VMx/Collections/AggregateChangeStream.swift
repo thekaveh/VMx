@@ -231,16 +231,26 @@ public final class AggregateChangeStream<Item: AnyObject> {
     /// Detaches aggregate-owned subscriptions and completes output once.
     public func dispose() {
         var shouldProcess = false
+        // Released after `gate` so a deinit cannot re-enter the aggregate
+        // while dispose holds it.
+        var releasedMembership: AnyCancellable?
+        var releasedEntries: [Entry] = []
+        var releasedStaged: [(Entry, EmissionClassification)] = []
+        var releasedWork: [Work] = []
         gate.lock()
         if !completed {
             completed = true
             membershipSubscription?.cancel()
+            releasedMembership = membershipSubscription
             membershipSubscription = nil
             for entry in entries.values { entry.terminate() }
+            releasedEntries = Array(entries.values)
             entries.removeAll()
             stagingLock.lock()
+            releasedStaged = stagedEmissions
             stagedEmissions.removeAll()
             stagingLock.unlock()
+            releasedWork = work
             work.removeAll()
             let recipients = Array(observers.values)
             observers.removeAll()
@@ -248,6 +258,9 @@ public final class AggregateChangeStream<Item: AnyObject> {
             shouldProcess = startProcessingLocked()
         }
         gate.unlock()
+        withExtendedLifetime(
+            (releasedMembership, releasedEntries, releasedStaged, releasedWork)
+        ) {}
         if shouldProcess { processWork() }
     }
 
@@ -546,14 +559,18 @@ public final class AggregateChangeStream<Item: AnyObject> {
 
     private func discardBufferedItems() {
         stagingLock.lock()
+        let released = stagedEmissions
         stagedEmissions.removeAll()
         stagingLock.unlock()
+        withExtendedLifetime(released) {}
     }
 
     private func purgeStagedEmissions(for entry: Entry) {
         stagingLock.lock()
+        let released = stagedEmissions
         stagedEmissions.removeAll { $0.0 === entry }
         stagingLock.unlock()
+        withExtendedLifetime(released) {}
     }
 
     private func prepend(

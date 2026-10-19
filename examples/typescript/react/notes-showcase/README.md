@@ -1,15 +1,12 @@
 # notes-showcase (TypeScript / React)
 
-VMx flagship example — Notes Workspace, the TypeScript / React flavor. A
-single-page web app on React 19 + Vite that drives a single `WorkspaceVM`
-exercising 19 distinct VMx features (see the
-[parity matrix](../../../notes-showcase-parity.md) for the full table, and
-the
-[VM hierarchy diagram](../../../assets/notes-showcase-vm-hierarchy.svg)
-plus
-[VMx component map](../../../assets/notes-showcase-vmx-components.svg)
-for the canonical visuals of how the VMs compose). The TypeScript
-host-specific diagram is
+VMx flagship example — Notes Workspace, the TypeScript / React flavor. This
+single-page web app is built on React 19 + Vite. It drives a single
+`WorkspaceVM` that exercises 19 VMx features. The
+[parity matrix](../../../notes-showcase-parity.md) has the full feature table.
+The [VM hierarchy diagram](../../../assets/notes-showcase-vm-hierarchy.svg)
+and the [VMx component map](../../../assets/notes-showcase-vmx-components.svg)
+show how the VMs compose. The TypeScript host-specific diagram is
 [`typescript-react-notes-showcase.svg`](../../../../docs/assets/diagrams/typescript-react-notes-showcase.svg)
 ([HTML](../../../../docs/assets/diagrams/typescript-react-notes-showcase.html),
 [PNG](../../../../docs/assets/diagrams/typescript-react-notes-showcase.png)).
@@ -50,13 +47,16 @@ npm run typecheck   # builds local VMx first
 
 ```
 examples/typescript/react/notes-showcase/
-├── package.json, vite.config.ts, tsconfig.json, index.html, .eslintrc.cjs
+├── package.json, vite.config.ts, tsconfig.json, index.html, eslint.config.js
 ├── src/
-│   ├── main.tsx                     ← composition root
+│   ├── main.tsx                     ← composition root; calls createWorkspace()
+│   ├── composition.ts               ← createWorkspace(): VM tree wiring
+│   ├── messages/themeChanged.ts     ← ThemeChangedMessage (row 16)
 │   ├── models/
 │   │   ├── notebookModel.ts, noteModel.ts
 │   │   ├── noteRepository.ts        ← interface
 │   │   ├── inMemoryRepository.ts, seed.ts
+│   │   └── themeModel.ts            ← ThemeVM model (row 16)
 │   ├── viewmodels/
 │   │   ├── workspaceVM.ts           ← AggregateVM6 composition
 │   │   ├── notebooksRootVM.ts, notebookVM.ts
@@ -72,14 +72,15 @@ examples/typescript/react/notes-showcase/
 │       ├── adapter/                 ← application-specific React host services
 │       │   ├── useDialogOverlay.ts
 │       │   ├── ReactDispatcher.ts, ReactDialogService.tsx
-│       │   ├── themeAdapter.ts      ← ThemeVM → CSS variables
+│       │   ├── downloadExporter.ts  ← saves Export… as a browser download
+│       │   └── themeAdapter.ts      ← ThemeVM → CSS variables
 │       ├── components/
 │       │   ├── Layout.tsx, NotebooksTree.tsx, NotesList.tsx,
 │       │   │   NoteForm.tsx, StatusBar.tsx, Notifications.tsx,
 │       │   │   CapabilityActions.tsx, GlobalSearch.tsx, DialogOverlay.tsx
-│       │   └── modals/{ConfirmModal,SaveFileModal,NotifyModal}.tsx
+│       │   └── modals/{ModalShell,ConfirmModal,SaveFileModal,NotifyModal}.tsx
 │       └── hooks/useHotkeys.ts
-└── tests/{models,viewmodels,views}/
+└── tests/{models,recipes,viewmodels,views}/, sharedScenario.test.ts, edgeCases.test.ts
 ```
 
 ## 3. Feature traceability
@@ -87,21 +88,21 @@ examples/typescript/react/notes-showcase/
 | #   | Feature                                                  | Where                                                                                                                                                                                                                                                           |
 | --- | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 1   | Notebook tree projection                                 | `viewmodels/notebooksRootVM.ts`, `viewmodels/notebookVM.ts` (flat `ComponentVM`-based adapters representing the `HierarchicalVM` capability and emitting `TreeStructureChangedMessage`)                                                                         |
-| 2   | `CompositeVM.current`                                    | `viewmodels/notesViewVM.ts` (`current` two-way binding)                                                                                                                                                                                                         |
+| 2   | App-owned `current` selection (models `CompositeVM.Current`, ch. 6) | `viewmodels/notesViewVM.ts` (app-owned `current` slot)                                                                                                                                                                                                          |
 | 3   | `ComponentVMOf<M>` modeled                               | `viewmodels/noteVM.ts`, `viewmodels/notebookVM.ts`                                                                                                                                                                                                              |
 | 4   | `FormVM` snapshot / revert / validation                  | `viewmodels/noteFormVM.ts` (owns a strict `FormVM<NoteModel>`)                                                                                                                                                                                                  |
-| 5   | `DerivedProperty`                                        | `viewmodels/statusBarVM.ts`, `noteFormVM.isDirty`, `capabilityActionsVM.actions`                                                                                                                                                                                |
+| 5   | `DerivedProperty`                                        | `viewmodels/statusBarVM.ts`, `capabilityActionsVM.actions`                                                                                                                                                                                                      |
 | 6   | `RelayCommand` + `AsyncRelayCommand` reactive            | Persistence-backed workspace, notebook, form, capability, save, and delete actions use `AsyncRelayCommand`; repository failures remain observable and success notifications follow persistence                                                              |
 | 7   | `SearchableState` + `IFilterable<TItem>`                 | `viewmodels/notesViewVM.ts` (debounced 150 ms search + `showStarredOnly`); `noteFormVM` tag suggestions                                                                                                                                                         |
 | 8   | `IPageable` + `PagedComposition`                         | `viewmodels/notesViewVM.ts` (page size 5, paging commands delegate to inner `PagedComposition`)                                                                                                                                                                 |
 | 9   | `INotificationHub` + `NotificationVM`                    | `viewmodels/notificationsVM.ts`, `views/components/Notifications.tsx`                                                                                                                                                                                           |
-| 10  | Async `construct()` + dispatcher                         | `viewmodels/workspaceVM.ts` (`construct()`), `views/adapter/ReactDispatcher.ts`                                                                                                                                                                                 |
-| 11  | `TreeStructureChangedMessage`                            | `viewmodels/notebooksRootVM.ts` (`addNotebook` / `populate`)                                                                                                                                                                                                    |
+| 10  | Async `construct()` + dispatcher                         | `viewmodels/workspaceVM.ts` (`constructAsync()`), `views/adapter/ReactDispatcher.ts`                                                                                                                                                                            |
+| 11  | `TreeStructureChangedMessage`                            | `viewmodels/notebooksRootVM.ts` (`addNotebookAsync` / `populateAsync`)                                                                                                                                                                                          |
 | 12  | `ConfirmationDecoratorCommand`                           | `viewmodels/noteVM.ts` (`deleteCommand` wraps inner delete)                                                                                                                                                                                                     |
-| 13  | `IDialogService`                                         | `viewmodels/dialogService.ts`; implemented by `views/adapter/ReactDialogService.tsx` + `views/components/modals/`                                                                                                                                               |
+| 13  | `IDialogService`                                         | `viewmodels/dialogService.ts`; implemented by `views/adapter/ReactDialogService.tsx` + `views/components/modals/`. Export saves a browser download through `views/adapter/downloadExporter.ts`                                                                  |
 | 14  | Capability-aware UI                                      | `viewmodels/capabilityActionsVM.ts` + `views/components/CapabilityActions.tsx`                                                                                                                                                                                  |
-| 15  | `AggregateVM6` (spec 2.2.0)                              | `viewmodels/workspaceVM.ts` (wraps an `AggregateVM6<…>` of the six children)                                                                                                                                                                                    |
-| 16  | `ThemeVM` scenario contract (spec 2.4.0, THEME-001..005) | `models/themeModel.ts`, `viewmodels/themeVM.ts`, `messages/themeChanged.ts`, `views/adapter/themeAdapter.ts` (workspace-owned `ThemeVM` sibling bound through the React adapter; still outside the `AggregateVM6` child list pending any future `AggregateVM7`) |
+| 15  | `AggregateVM6` (ch. 8, ADR-0034)                         | `viewmodels/workspaceVM.ts` (wraps an `AggregateVM6<…>` of the six children)                                                                                                                                                                                    |
+| 16  | `ThemeVM` scenario contract (THEME-001..005)             | `models/themeModel.ts`, `viewmodels/themeVM.ts`, `messages/themeChanged.ts`, `views/adapter/themeAdapter.ts` (workspace-owned `ThemeVM` sibling bound through the React adapter; outside the `AggregateVM6` child list; see the parity matrix theme footnote) |
 | 17  | `TokenPagedComposition`                                  | `viewmodels/globalSearchVM.ts` + repository token-paged `searchNotes`                                                                                                                                                                                           |
 | 18  | `DiscriminatorVM`                                        | `viewmodels/noteFormVM.ts` edit/preview editor mode                                                                                                                                                                                                             |
 | 19  | Tag autocomplete                                         | `viewmodels/noteFormVM.ts` composes `SearchableState<string>` over workspace tags                                                                                                                                                                               |

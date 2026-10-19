@@ -107,13 +107,20 @@ public final class AsyncRelayCommand: AsyncCommand {
     /// and fires `canExecuteChanged` on start and finish.  Handles `CancellationError`
     /// per the `throwOnCancelFlag` / first-cancellation origin (spec §10.3).
     public func executeAsync() async throws {
-        guard body != nil else { return }
+        guard admit() else { return }
+        try await runAdmitted()
+    }
+
+    /// Admits one execution: evaluates the predicate, sets `isExecuting`, and
+    /// fires the start `canExecuteChanged`. Returns `false` when gated out.
+    private func admit() -> Bool {
+        guard body != nil else { return false }
         let mayEvaluate = stateQueue.sync { () -> Bool in
             guard !disposed && !isAdmitting && !_isExecuting else { return false }
             isAdmitting = true
             return true
         }
-        guard mayEvaluate else { return }
+        guard mayEvaluate else { return false }
         let allowed = predicate?() ?? true
 
         let began = stateQueue.sync { () -> Bool in
@@ -124,10 +131,14 @@ public final class AsyncRelayCommand: AsyncCommand {
             return true
         }
         guard began else {
-            return
+            return false
         }
         raiseCanExecuteChanged()
+        return true
+    }
 
+    /// Runs the body of an execution that `admit()` accepted.
+    private func runAdmitted() async throws {
         // Wrap the body in a Task so `cancel()` can cancel it independently of
         // the calling Task's lifetime.
         let transferableBody = UncheckedSendableBox(body)
@@ -184,11 +195,13 @@ public final class AsyncRelayCommand: AsyncCommand {
     /// Non-cancellation faults from `executeAsync()` are routed to `errors`
     /// instead of being swallowed or becoming an unobserved faulted Task.
     public func execute() {
-        guard canExecute() else { return }
+        // Admit before returning, so `isExecuting` is already true and a
+        // second `execute()` is refused even before the task starts (spec §10.2).
+        guard admit() else { return }
         let command = UncheckedSendableBox(self)
         Task { [command] in
             do {
-                try await command.value.executeAsync()
+                try await command.value.runAdmitted()
             } catch is CancellationError {
                 return
             } catch {

@@ -8,10 +8,14 @@ Per ADR-0013, the distribution shape is per-flavor:
 
 - **C#**: separate assembly `VMx.Notifications` (depends on `VMx`)
 - **Python**: subpackage `vmx.notifications` (same distribution as `vmx`)
-- **TypeScript**: subpath export `vmx/notifications` (same package as `vmx`)
+- **TypeScript**: subpath export `@thekaveh/vmx/notifications` (same package
+  as `@thekaveh/vmx`)
 - **Swift**: module namespace in the `VMx` package
-- **Rust**: opt-in notification types in `vmx-rs`, using the VMx-owned hot-stream
+- **Rust**: notification types in `vmx-rs`, using the VMx-owned hot-stream
   and executor-neutral completion facades
+
+Open Rust gap: the Rust notification types are not behind a Cargo feature. The
+crate root always exports them, so Rust consumers do not opt in at build time.
 
 The asymmetry preserves "opt-in, no core surface impact" without forcing a
 TypeScript monorepo restructure.
@@ -67,6 +71,14 @@ without an async runtime. `Post` MUST return an unresolved handle and resolve it
 only from `Resolve` or hub disposal; reading the current `Pending` reaction is
 not an awaitable implementation (ADR-0106).
 
+Rust splits `Post` into three inherent methods on `NotificationHub`.
+`post(kind, message)` creates and posts a notification and returns the
+`Notification`. `post_notification(notification)` posts an existing value and
+returns its `NotificationWaiter`. `post_with_waiter(kind, message)` returns
+both. `resolve` takes the notification id. `pending()` returns the current
+snapshot, `pending_stream()` returns the replaying stream, and
+`pending_snapshots()` returns the history of committed snapshots.
+
 ### 2.1 `Post` semantics
 
 - Adds `notification` to the pending list.
@@ -106,6 +118,11 @@ variant:
 - `Resolve(notification, reaction)` is a no-op.
 - `Pending` is an observable that emits the empty list once and completes.
 
+Open Rust gap: Rust has no `INotificationHub` trait, so `NullNotificationHub`
+cannot replace `NotificationHub` at a call site. It is a unit struct with the
+associated functions `post`, `post_message`, and `pending_stream`. It has no
+`resolve` function.
+
 ## 4. Bridging command decorators
 
 The notifications package SHOULD also expose a small helper that adapts an
@@ -122,18 +139,23 @@ way to wire a UI-driven confirmation gate through the notification hub.
 
 ## 5. Distinction from `IDialogService`
 
-`INotificationHub` carries **fire-and-forget** notifications: toast/banner
-messages that the user may dismiss but is not required to respond to. The hub
-is hot — subscribers see messages as they happen.
+`INotificationHub` carries **in-app, non-modal** notifications: toast and
+banner messages, and confirmation prompts that the application renders in its
+own UI (`NotificationVM`, `ConfirmationVM`). `Post` gives the caller an
+awaitable reaction (in Rust, `post_notification` returns a `NotificationWaiter`),
+so a caller can await the user's reaction, and an informational post can be
+left unawaited. The hub is hot: subscribers see messages as they happen.
 
 `IDialogService` (chapter 19) is for **modal** host interactions where the
 consumer awaits a user response (file pick, confirm Yes/No, severity-tagged
 notify). The dialog service is request/response.
 
-A consumer-facing notification that requires user action goes through
-`IDialogService.Confirm`; an informational toast goes through
-`INotificationHub.Post`. The two services are orthogonal and may both be
-injected.
+A confirmation that the application shows in its own notification UI goes
+through the hub: post a `Confirmation` notification, or use `make_confirm`
+(§4) to gate a command. A confirmation that must block the host with a modal
+dialog goes through `IDialogService.Confirm`. An informational toast goes
+through `INotificationHub.Post`. The two services are orthogonal and may both
+be injected.
 
 ## 6. `NotificationVM`
 
@@ -218,25 +240,36 @@ action (`ApproveCommand`, `RejectCommand`, or `DismissCommand`).
 
 ### 8.1 Service-as-VM adapter (recipe)
 
-Hub state — e.g., `INotificationHub.Pending` — can be projected into a
-`CompositeVM<Notification, NotificationVM>` by supplying the observable
-collection of pending notifications as the composite's source and
-`NotificationVM` construction as the child factory.
+Hub state — e.g., `INotificationHub.Pending` — can be projected into a list of
+`NotificationVM` instances that the application owns. `NotificationVM` is not a
+component VM, so it cannot be the child type of a `CompositeVM`. Keep the VMs
+in an application-owned list or observable collection, and drive that list
+from the hub's `Pending` stream.
 
-Per-flavor idiomatic sketch (showing the actual modeled-composite builder
-methods — see chapter 10 for the full surface):
+Language-neutral sketch:
 
 ```
-pending = []                                          # cache, fed by the subscription
-hub.Pending.Subscribe(items => pending = items)       # Pending is an observable — no snapshot accessor
+vms = new ObservableList<NotificationVM>()            # application-owned list
 
-CompositeVM<Notification, NotificationVM>.Builder()
-    .ChildrenModels(() => pending)                    # cached snapshot
-    .ChildModelToChildViewModel(notif =>              # notification → VM
-        new NotificationVM(notif, hub, scheduler))
-    .Services(hub, dispatcher)
-    .Build()
+hub.Pending.Subscribe(pending =>
+    # add a VM for each new pending notification
+    for notif in pending where not vms.Any(vm => vm.Notification == notif):
+        vms.Add(new NotificationVM(notif, hub, scheduler))
+    # remove and dispose each VM whose notification is no longer pending
+    for vm in vms.ToList() where vm.Notification not in pending:
+        vms.Remove(vm)
+        vm.Dispose())
 ```
+
+The notification hub is not a message hub. Do not pass it to a builder's
+`Services(IMessageHub, …)` call. Pass it to each `NotificationVM`, which
+resolves its notification through it. A view binds to `vms`; a component VM
+that owns the list can expose it as a property.
+
+Rust exposes the stream as `pending_stream()` and the current list as
+`pending()`; the other flavors expose `Pending` as an observable. Rust builds a
+`NotificationVm` with `with_hub(notification, hub, lifespan_ms)` (no scheduler)
+and has no `dispose`, so dropping the list entry releases it.
 
 This pattern generalises to any service whose state is an observable collection
 of items. It is a documented composition recipe, not a normative spec addition —

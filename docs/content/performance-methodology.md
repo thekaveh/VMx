@@ -1,4 +1,4 @@
-# 14. Performance Methodology
+# 13. Performance Methodology
 
 VMx keeps a small benchmark suite for the TypeScript, Python, and Rust flavors
 under `benchmarks/`, committed baselines under `benchmarks/baselines/`, and a
@@ -12,7 +12,7 @@ Nothing in `benchmarks/` ships in a published package, and the harnesses use
 no benchmark libraries: each one uses its runtime's own timer and allocator
 statistics.
 
-## 14.1. Run The Suite
+## 13.1. Run The Suite
 
 Run each harness from the repository root on a clean checkout. A report records
 whether the working tree was dirty.
@@ -45,7 +45,7 @@ On the recording machine a full run took about 100 seconds for TypeScript, 40
 for Python, and 10 for Rust. Quick runs are for checking that a harness works;
 never compare one with a baseline.
 
-## 14.2. Method
+## 13.2. Method
 
 - **Warm-up.** Each case runs two discarded rounds before nine measured ones,
   so JIT compilation, interpreter caches, and allocator pools settle first.
@@ -68,7 +68,7 @@ never compare one with a baseline.
 - **Seeds.** `property.set` assigns values from a seeded generator, so every
   run assigns the same sequence and every assignment changes the model.
 
-## 14.3. Cases
+## 13.3. Cases
 
 Case ids are the same in every flavor where the workload exists, so a reader can
 line up the same workload across reports without comparing their numbers.
@@ -95,15 +95,12 @@ per operation across sizes.
 The TypeScript `hub.observer` cases reproduce the DevTools pilot
 ([2026-08-11 pilot](../maintenance/2026-08-11-typescript-devtools-daydreams-pilot.md)):
 150,000 messages, two warm-up rounds, rotated order, and the median of nine
-rounds. On the recording machine, plain, disconnected, and active measured
-1,465, 1,636, and 4,483 ns per message in one run and 1,496, 1,622, and 4,462 in
-the next: an active observer costs about three times a plain send, close to the
-pilot's 2.7. A disabled connector returns a no-op before it touches the hub, so
-`plain` and `disconnected` run the same code, yet they measured 8–12% apart.
-That gap is the harness's noise between two different cases, which is why the
-comparison tool compares each case only with itself.
+rounds. On the recording machine, an active observer costs about three times a
+plain send, close to the pilot's 2.7. A disabled connector runs the same code as
+`plain`. The two cases still measured 8–12% apart, so the comparison tool
+compares each case only with itself.
 
-## 14.4. Memory And Queue Probe
+## 13.4. Memory And Queue Probe
 
 Every full run also runs the `lifecycle.memory` probe. It builds, constructs,
 and disposes a component view-model over six batches on one hub with one
@@ -115,17 +112,16 @@ in Python, and live bytes from a counting global allocator in Rust. The first
 batch is warm-up, so growth runs from the end of the first batch to the end of
 the last.
 
-The probe reports `bounded: true` only when growth stays under its limit
-(4 MiB in TypeScript, 2 MiB in Python, 1 MiB in Rust) and the queue depth stays
-zero. It also records the hub's event-history size, because a hub that keeps
-delivered messages would hide a leak inside "expected" retention. TypeScript and
-Python hubs keep no history. Rust reports `MessageHub::history().len()`, and
-from version 0.31.0 a Rust hub retains nothing either (ADR-0141), so the probe
-also requires that size to be zero. A harness exits 1 when its probe is not
-bounded. Measured on the Rust crate from before ADR-0141, the same probe
-reports growth of 1,648,354 bytes and a history of 15,005 messages, and fails.
+The probe reports `bounded: true` only when growth stays under its limit and
+the queue depth stays zero. The growth limit is 4 MiB in TypeScript, 2 MiB in
+Python, and 1 MiB in Rust. A harness exits 1 when its probe is not bounded.
 
-## 14.5. Report Format
+The probe also records the hub's event-history size. A hub that keeps
+delivered messages would hide a leak inside "expected" retention. TypeScript and
+Python hubs keep no history. Rust reports `MessageHub::history().len()`. Rust
+hubs retain no history (ADR-0141), so the probe requires size zero.
+
+## 13.5. Report Format
 
 Every harness writes a `vmx-bench/1` JSON report:
 
@@ -140,7 +136,7 @@ Every harness writes a `vmx-bench/1` JSON report:
 | `cases`           | Per case: id, unit, parameters, operation count, median, MAD, `rel_mad`, min, max, samples. |
 | `probes`          | The `lifecycle.memory` result described above.                                              |
 
-## 14.6. Review Thresholds
+## 13.6. Review Thresholds
 
 `tools/compare-benchmarks.py BASELINE CANDIDATE` compares two reports case by
 case. Each case's band comes from the variance the two runs measured:
@@ -179,11 +175,13 @@ operation of the named case then adds a fixed spin loop, and the report records
 the setting. A harness rejects an id that names no case. Committed baselines
 never carry a slowdown.
 
-## 14.7. Baselines
+## 13.7. Baselines
 
 `benchmarks/baselines/` holds one report per flavor, recorded on a clean
-checkout of the commit named in the report. Compare a change against the
-baseline of its flavor:
+checkout of the commit named in the report. Before you compare, check the
+baseline's recorded `commit` and `package_version`. The committed baselines
+record TypeScript 3.26.0, Python 3.25.0, and Rust 0.31.0. Compare a change
+against the baseline of its flavor:
 
 ```bash
 node --expose-gc benchmarks/typescript/run.mjs --out ts.json
@@ -197,12 +195,12 @@ change against it. To replace a committed baseline, record a full run on a
 clean checkout, name the file by date and flavor, and explain in the pull
 request why the old one no longer represents the code.
 
-## 14.8. Limits
+## 13.8. Limits
 
 - The committed baselines come from a shared cloud container, not a quiet
   dedicated machine, so their bands are wider than a dedicated machine's would
   be. The method is the same on any machine; only the numbers change.
-- C# and Swift have no harness yet. Their runtimes need their own tooling
+- C# and Swift have no harness. Their runtimes need their own tooling
   (BenchmarkDotNet-style harnesses for .NET, XCTest `measure` blocks or a
   release-mode executable for Swift) and would be compared only with
   themselves.

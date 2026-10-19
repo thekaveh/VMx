@@ -53,16 +53,16 @@ final class PropertyChangedTests: XCTestCase {
         let initial = Item(id: 1, label: "Alice")
         let vm      = try makeVM(hub: hub, initial: initial)
 
+        // Catalog: zero PropertyChangedMessage emissions of ANY name.
         var modelMsgs: [PropertyChangedMessage] = []
         let cancel = hub.messages
             .compactMap { $0 as? PropertyChangedMessage }
-            .filter { $0.propertyName == "model" }
             .sink { modelMsgs.append($0) }
 
         vm.model = initial   // equal value — modelEquals(==) returns true → no emit
 
         XCTAssertEqual(modelMsgs.count, 0,
-                       "equal value must not publish a PropertyChangedMessage")
+                       "equal value must not publish any PropertyChangedMessage")
         cancel.cancel()
     }
 

@@ -94,8 +94,9 @@ def test_disp_010_registration_after_dispose_cleans_immediately_once() -> None:
     vm = ProbeVM(MessageHub())
     vm.dispose()
     vm.register(lambda: calls.append(None))
+    assert len(calls) == 1, "cleanup runs immediately on registration after disposal"
     vm.dispose()
-    assert len(calls) == 1
+    assert len(calls) == 1, "repeated disposal performs no second cleanup"
 
 
 @pytest.mark.conformance("DISP-011")

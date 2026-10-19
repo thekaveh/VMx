@@ -898,15 +898,24 @@ impl AsyncRelayCommand {
         let subscriptions = triggers
             .into_iter()
             .map(|trigger| {
-                let observed = command.clone();
-                trigger.subscribe(move |_| observed.raise_can_execute_changed())
+                // Capture only what the signal needs. A full command clone
+                // would make the trigger hub own the command that owns this
+                // subscription, so a dropped command would never be freed.
+                let disposed = command.disposed.clone();
+                let can_execute_changed = command.can_execute_changed.clone();
+                trigger.subscribe(move |_| {
+                    if !disposed.load(Ordering::SeqCst) {
+                        can_execute_changed.send(async_can_execute_changed_message());
+                    }
+                })
             })
             .collect();
         *lock(&command.trigger_subscriptions) = subscriptions;
         command
     }
 
-    /// Returns this command with an additional execution predicate.
+    /// Returns this command with `predicate` as its execution predicate. It
+    /// replaces any predicate set on the builder.
     pub fn with_can_execute<F>(mut self, predicate: F) -> Self
     where
         F: Fn() -> bool + Send + Sync + 'static,
@@ -1038,7 +1047,18 @@ impl AsyncRelayCommand {
         };
         let run = move || {
             let _guard = guard;
-            let result = action.map(|action| action(token.clone())).unwrap_or(Ok(()));
+            let result = action
+                .map(|action| {
+                    if route_fire_and_forget_errors {
+                        // A fire-and-forget fault must not be lost (spec/04
+                        // §10.4); a panic travels as its message (ADR-0137).
+                        catch_unwind(AssertUnwindSafe(|| action(token.clone())))
+                            .unwrap_or_else(|payload| Err(panic_error(&*payload)))
+                    } else {
+                        action(token.clone())
+                    }
+                })
+                .unwrap_or(Ok(()));
             #[cfg(test)]
             if let Some(collector) = collector {
                 collector.record(result.clone());
@@ -1158,11 +1178,16 @@ impl AsyncRelayCommand {
         if self.disposed.load(Ordering::SeqCst) {
             return;
         }
-        self.can_execute_changed.send(Message::Custom {
-            sender_id: 0,
-            sender_name: "AsyncRelayCommand".to_string(),
-            name: "can_execute_changed".to_string(),
-        });
+        self.can_execute_changed
+            .send(async_can_execute_changed_message());
+    }
+}
+
+fn async_can_execute_changed_message() -> Message {
+    Message::Custom {
+        sender_id: 0,
+        sender_name: "AsyncRelayCommand".to_string(),
+        name: "can_execute_changed".to_string(),
     }
 }
 
@@ -1499,11 +1524,18 @@ impl<C: Command + Clone> Command for DecoratorCommand<C> {
         }
         // The pre-action may dispose the decorator: skip the inner command but
         // keep the admitted pre/post pair balanced (spec §8.4, ADR-0134).
-        if !self.is_disposed() {
-            self.inner.execute();
-        }
+        // A panicking inner command still runs the post-action once, and the
+        // panic then continues (CMDD-013, every exit path).
+        let outcome = if self.is_disposed() {
+            Ok(())
+        } else {
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.inner.execute()))
+        };
         if let Some(post) = &self.post {
             post();
+        }
+        if let Err(panic) = outcome {
+            std::panic::resume_unwind(panic);
         }
     }
 
@@ -1877,8 +1909,14 @@ pub(crate) mod test_execution {
             .unwrap();
         let (count, raw, failures) = registration.join_all();
         assert_eq!(count, 1);
-        assert!(raw.is_empty(), "a panicking action never produced a Result");
-        assert_eq!(failures, vec!["worker panicked"]);
+        // A fire-and-forget panic becomes an error result (spec/04 §10.4).
+        assert_eq!(
+            raw,
+            vec![Err(super::VmxError::Other(
+                "command panicked: action panic for collector test".to_string()
+            ))]
+        );
+        assert!(failures.is_empty(), "the worker no longer panics");
     }
 
     impl Drop for Registration {

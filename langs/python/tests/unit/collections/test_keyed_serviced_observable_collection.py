@@ -185,3 +185,16 @@ def test_reverse_is_atomic_uses_captured_keys_and_has_documented_noops() -> None
     assert sut.get("a") is a
     assert projections == 0
     assert [message.action for message in events] == ["reset"]
+
+
+def test_empty_slice_delete_and_assign_emit_nothing() -> None:
+    sut = _keyed()
+    sut.extend([_Item("a"), _Item("b")])
+    events: list[CollectionChangedMessage[_Item]] = []
+    sut.on_collection_changed.subscribe(events.append)
+
+    del sut[1:1]
+    sut[1:1] = []
+
+    assert events == []
+    assert [item.key for item in sut] == ["a", "b"]

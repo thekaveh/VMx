@@ -56,15 +56,22 @@ fn filtered_visible_count_matches_projection_length() {
 /// COMP-030 — FilteredCompositeVM current maps to visible domain
 #[test]
 fn filtered_current_must_be_visible() {
-    let source = source_with(&[1, 2]);
-    let visible = source.items()[1].clone();
+    let source = source_with(&[1, 2, 3, 4]);
     let hidden = source.items()[0].clone();
-    let filtered = FilteredCompositeVm::new(source, |vm: &ComponentVm<i32>| vm.model() == 2);
+    let first_visible = source.items()[1].clone();
+    let visible = source.items()[3].clone();
+    let filtered =
+        FilteredCompositeVm::new(source.clone(), |vm: &ComponentVm<i32>| vm.model() % 2 == 0);
+    // Default snap-to-first lands on the first visible item; select a
+    // different (non-first) visible item so the assertion is not vacuous.
+    assert_eq!(filtered.current().unwrap().id(), first_visible.id());
 
     filtered.set_current(Some(visible.clone())).unwrap();
 
     assert_eq!(filtered.current().unwrap().id(), visible.id());
+    assert_ne!(visible.id(), first_visible.id());
     assert!(filtered.set_current(Some(hidden)).is_err());
+    assert_eq!(filtered.current().unwrap().id(), visible.id());
 }
 
 /// COMP-031 — predicate change recomputes projection
@@ -93,6 +100,74 @@ fn source_mutation_recomputes_projection() {
     source.add(child(2)).unwrap();
 
     assert_eq!(filtered.visible()[0].model(), 2);
+}
+
+/// COMP-032 — a source removal or clear reconciles the filtered current item
+#[test]
+fn source_removal_and_clear_reconcile_current() {
+    let source = source_with(&[1, 2, 3]);
+    let filtered = FilteredCompositeVm::new(source.clone(), |_| true);
+    let second = source.items()[1].clone();
+    filtered.set_current(Some(second.clone())).unwrap();
+
+    source.remove(&second).unwrap();
+    assert_eq!(filtered.current().map(|vm| vm.model()), Some(1));
+
+    source.clear();
+    assert!(filtered.current().is_none());
+
+    let source = source_with(&[1, 2]);
+    let filtered = FilteredCompositeVm::new(source.clone(), |_| true);
+    filtered.set_current(None).unwrap();
+    assert!(
+        filtered.current().is_none(),
+        "an explicit clear stays cleared"
+    );
+    source.add(child(3)).unwrap();
+    assert_eq!(filtered.current().map(|vm| vm.model()), Some(1));
+
+    // A clear made after an unread source change also sticks.
+    source.add(child(4)).unwrap();
+    filtered.set_current(None).unwrap();
+    assert!(filtered.current().is_none());
+}
+
+/// COMP-035 — a disposed projection ignores its mutators
+#[test]
+fn disposed_projection_ignores_its_mutators() {
+    let source = source_with(&[1, 2, 3]);
+    let filtered = FilteredCompositeVm::new(source.clone(), |_| true);
+    filtered.dispose();
+
+    filtered.set_predicate(|vm: &ComponentVm<i32>| vm.model() == 3);
+    filtered.set_current(None).unwrap();
+    assert_eq!(filtered.current().map(|vm| vm.model()), Some(1));
+    filtered.move_next_visible();
+    assert_eq!(filtered.current().map(|vm| vm.model()), Some(1));
+    filtered.move_previous_visible();
+
+    let visible: Vec<i32> = filtered.visible().iter().map(|vm| vm.model()).collect();
+    assert_eq!(visible, vec![1, 2, 3]);
+    assert_eq!(filtered.current().map(|vm| vm.model()), Some(1));
+}
+
+/// COMP-035 — the frozen current item is a member of the frozen projection
+#[test]
+fn dispose_freezes_a_reconciled_current_item() {
+    let source = source_with(&[1, 2, 3]);
+    let filtered = FilteredCompositeVm::new(source.clone(), |_| true);
+    let first = source.items()[0].clone();
+    source.remove(&first).unwrap();
+
+    filtered.dispose();
+    assert_eq!(filtered.current().map(|vm| vm.model()), Some(2));
+    filtered.set_cursor_policy(FilteredCursorPolicy::Clear);
+    filtered.refresh();
+    filtered.refresh_scores();
+
+    let visible: Vec<i32> = filtered.visible().iter().map(|vm| vm.model()).collect();
+    assert_eq!(visible, vec![2, 3]);
+    assert_eq!(filtered.current().map(|vm| vm.model()), Some(2));
 }
 
 /// COMP-033 — filtered cursor policies
@@ -214,4 +289,25 @@ fn scored_filter_can_recompute_ordering() {
     filtered.refresh_scores();
 
     assert_eq!(filtered.visible()[0].model(), 1);
+}
+
+/// COMP-035 — dispose applies the cursor policy when the predicate now hides current
+#[test]
+fn dispose_reconciles_a_current_item_hidden_by_its_predicate() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    let source = source_with(&[1, 2]);
+    let hide_first = Arc::new(AtomicBool::new(false));
+    let hidden = hide_first.clone();
+    let filtered = FilteredCompositeVm::new(source, move |vm: &ComponentVm<i32>| {
+        !(hidden.load(Ordering::SeqCst) && vm.model() == 1)
+    });
+    assert_eq!(filtered.current().map(|vm| vm.model()), Some(1));
+
+    hide_first.store(true, Ordering::SeqCst);
+    filtered.dispose();
+
+    let visible: Vec<i32> = filtered.visible().iter().map(|vm| vm.model()).collect();
+    assert_eq!(visible, vec![2]);
+    assert_eq!(filtered.current().map(|vm| vm.model()), Some(2));
 }

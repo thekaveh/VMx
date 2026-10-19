@@ -1,6 +1,8 @@
 using FluentAssertions;
+using VMx.Components;
 using VMx.Messages;
 using VMx.Services;
+using VMx.Tests.Helpers;
 using Xunit;
 
 namespace VMx.Tests.Messages;
@@ -106,5 +108,32 @@ public class PropertyValueChangedExtensionsTests
         source.Count = 10;
 
         snapshots.Should().Equal(5, 10);
+    }
+    [Fact]
+    public void PropertyValueChangedMessagesFor_Observes_Real_ComponentVM_Property_Changes()
+    {
+        // Real VMs publish PropertyChangedMessage<IComponentVM>, not
+        // PropertyChangedMessage<ComponentVM<M>>; matching is by reference-equal
+        // sender (spec/03 §7.1 step 1), not by the inferred TSource.
+        using var hub = new MessageHub();
+        var vm = ComponentVM<string>.Builder()
+            .Name("v1")
+            .Services(hub, new TestDispatcher())
+            .Model("0")
+            .Build();
+        var other = ComponentVM<string>.Builder()
+            .Name("v2")
+            .Services(hub, new TestDispatcher())
+            .Model("0")
+            .Build();
+        var values = new List<string?>();
+
+        using var sub = hub.PropertyValueChangedMessagesFor(vm, x => x.Model).Subscribe(values.Add);
+
+        vm.Model = "1";
+        other.Model = "x";
+        vm.Model = "2";
+
+        values.Should().Equal("1", "2");
     }
 }

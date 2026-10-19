@@ -122,24 +122,54 @@ fn parent_reaches_constructed_only_after_children() {
 fn destruct_destructs_all_children() {
     let group = vmx::GroupVm::new("group");
     let a = child("a");
+    let b = child("b");
     group.add(a.clone()).unwrap();
+    group.add(b.clone()).unwrap();
     group.construct().unwrap();
+    assert_eq!(a.status(), ConstructionStatus::Constructed);
+    assert_eq!(b.status(), ConstructionStatus::Constructed);
 
     group.destruct().unwrap();
 
     assert_eq!(a.status(), ConstructionStatus::Destructed);
+    assert_eq!(b.status(), ConstructionStatus::Destructed);
+    assert_eq!(group.status(), ConstructionStatus::Destructed);
 }
 
 /// GRP-005 — AutoConstructOnAdd(true) auto-constructs late children
 #[test]
 fn auto_construct_on_add_constructs_late_children() {
-    let group = vmx::GroupVm::new("group");
-    group.set_auto_construct_on_add(true);
+    let hub = MessageHub::new();
+    let group = vmx::GroupVm::<Child>::builder()
+        .name("group")
+        .services(hub.clone(), NullDispatcher::new())
+        .children(Vec::new)
+        .auto_construct_on_add(true)
+        .build()
+        .unwrap();
     group.construct().unwrap();
     let item = child("late");
+    assert_eq!(item.status(), ConstructionStatus::Destructed);
+    let group_id = group.id();
+    let observed = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let observed_inner = observed.clone();
+    let probe = item.clone();
+    let _subscription = hub.subscribe(move |message| {
+        if let Message::CollectionChanged(change) = message {
+            if change.sender_id == group_id && change.action == CollectionChangeAction::Add {
+                // Child status as seen inside the Add handler.
+                observed_inner.lock().unwrap().push(probe.status());
+            }
+        }
+    });
 
     group.add(item.clone()).unwrap();
 
+    assert_eq!(
+        *observed.lock().unwrap(),
+        vec![ConstructionStatus::Constructed],
+        "the child is Constructed before the one Add event is observed"
+    );
     assert_eq!(item.status(), ConstructionStatus::Constructed);
 }
 
@@ -167,8 +197,15 @@ fn group_child_remains_non_current_peer() {
     let group = vmx::GroupVm::new("group");
     let item = child("a");
     group.add(item.clone()).unwrap();
+    group.construct().unwrap();
+    assert_eq!(item.status(), ConstructionStatus::Constructed);
 
     assert_eq!(item.parent_id(), Some(group.id()));
+    assert!(!item.can_select());
+    assert!(!item.select_command().can_execute());
+
+    item.select();
+    item.select_command().execute();
     assert!(!item.is_current());
 }
 

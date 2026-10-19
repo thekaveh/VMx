@@ -157,6 +157,39 @@ describe("HIER-029", () => {
     });
     expect(failed.rejections[0]?.reason).toBe(BatchAttachRejectionReason.SelectorFailed);
   });
+
+  it("reports an attachment failure without aborting the batch", () => {
+    class FaultyRoot extends HierarchicalVM<Model, Node> {
+      constructor() {
+        super({
+          model: { key: "root", parentKey: null },
+          childrenFactory: () => { throw new Error("children factory failed"); },
+          name: "root",
+        });
+      }
+
+      override get type(): ViewModelType {
+        return ViewModelType.Component;
+      }
+    }
+    const root = new FaultyRoot();
+    const first = new Node("first");
+    const second = new Node("second");
+
+    const result = root.attachMany([first, second], {
+      keyOf: (node) => node.model.key,
+      parentKeyOf: (node) => node.model.parentKey,
+    });
+
+    expect(result.added).toEqual([]);
+    expect(result.rejections.map((r) => r.item)).toEqual([first, second]);
+    expect(result.rejections.map((r) => r.reason)).toEqual([
+      BatchAttachRejectionReason.AttachmentFailed,
+      BatchAttachRejectionReason.AttachmentFailed,
+    ]);
+    expect(first.parent).toBeNull();
+    expect(second.parent).toBeNull();
+  });
 });
 
 describe("HIER-030", () => {

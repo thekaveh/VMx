@@ -48,8 +48,8 @@ unparameterised name. Throughout this spec, statements about
 `ComponentVM<M>` apply equally to `ComponentVMOf[M]`, `ComponentVMOf<M>`, and
 `ComponentVm<M>` unless explicitly called out. The Swift flavor reached
 full library parity in v3.1.0; see
-[`langs/swift/README.md` §5](../langs/swift/README.md) for the current
-conformance matrix and documented Swift-specific divergences.
+[`langs/swift/README.md` §5](../langs/swift/README.md) for the
+conformance summary and documented Swift-specific divergences.
 
 **Rendering VMs** (opt-in sub-package, chapter 16): `NotificationVM` and `ConfirmationVM`
 are render-side VMs with auto-dismiss lifecycle, suitable for toast/banner UI.
@@ -96,7 +96,10 @@ Each `CompositeVM<VM>` has an optional `Current` child. The contract:
 Every viewmodel exposes:
 
 - `Name : string` — immutable post-construction; an identifier for the VM.
-- `Hint : string` — immutable post-construction; a human-readable hint.
+- `Hint : string` — immutable post-construction; a human-readable hint. Open
+  Rust gap: Rust types `Hint` as `Option<String>`. The builders default an unset
+  hint to `Some("")`, but the direct constructors leave it `None` instead of the
+  empty string.
 - `Type : ViewModelType` — enum (`Component`, `ReadOnlyComponent`, `Aggregate`,
   `Group`, `Composite`); immutable.
 - `IsCurrent : bool` — derived from parent's `Current` reference. Raised through
@@ -114,8 +117,10 @@ Every viewmodel exposes:
   the VM is removed (`Remove` / `RemoveAt` / `Clear`) or re-parented — see `05` §6.1
   for the precise contract and `06`/`07` for the container side. Reference
   implementations type it as a minimal internal parent interface
-  (`IParentCompositeVM` / `_ParentCompositeVM` / `IParentVM`) exposing only the
-  members the child needs for selection delegation, not the full container VM.
+  (`IParentCompositeVM` in C#, `_ParentCompositeVM` in Python, `IParentVM` in
+  TypeScript, `ParentVM` in Swift) exposing only the members the child needs for
+  selection delegation, not the full container VM. Rust uses a type-erased weak
+  `ParentHandle` whose selection operations are crate-internal.
 - The lifecycle commands: `SelectCommand`, `DeselectCommand`, `SelectNextCommand`,
   `SelectPreviousCommand`, `ReconstructCommand`. Each is an `ICommand`-equivalent
   with appropriate predicates.
@@ -162,7 +167,10 @@ the size changes (ADR-0085). `COMP-042..045` and `GRP-012..013` are normative.
 Every VM receives two cross-cutting services:
 
 - `IMessageHub` — the pub/sub hub for `IMessage` events.
-- `IDispatcher` — exposes `Foreground` and `Background` Rx schedulers.
+- `IDispatcher` — exposes `Foreground` and `Background` schedulers. C#, Python,
+  and TypeScript expose them as Rx schedulers. Swift (`scheduleForeground` /
+  `scheduleBackground`) and Rust (`dispatch` / `dispatch_background`) expose
+  closure-based scheduling methods with no Rx scheduler type.
 
 These are injected via constructor (and via the builder's `Services(hub, dispatcher)`
 call for fluent users). VMx does NOT register a global locator. See ADR-0001 and
@@ -177,15 +185,28 @@ hub they were given (`HUB-001`).
 VMx is **thread-aware but not thread-bound**:
 
 - It does not own a UI thread.
-- It uses Rx schedulers (`IDispatcher.Foreground`, `IDispatcher.Background`) to
-  dispatch work.
+- It uses the dispatcher's foreground and background targets
+  (`IDispatcher.Foreground`, `IDispatcher.Background`) to dispatch work. These
+  are Rx schedulers in C#, Python, and TypeScript, and closure-based methods in
+  Swift and Rust.
 - Subscribers that need to observe events on a specific thread (e.g., a UI thread)
   MUST inject an `IDispatcher` whose `Foreground` scheduler dispatches there.
 
-The default `IDispatcher` in each language uses the language's standard "main
-loop" scheduler for foreground (`SynchronizationContextScheduler` in .NET,
-`AsyncIOThreadSafeScheduler(loop)` in Python) and a thread/task pool scheduler
-for background.
+The default `IDispatcher` in each language uses a foreground target and a
+separate background target:
+
+- C#: `SynchronizationContextScheduler` for foreground, `TaskPoolScheduler` for
+  background.
+- Python: `AsyncIOThreadSafeScheduler(loop)` for foreground, `ThreadPoolScheduler`
+  for background.
+- TypeScript: `queueScheduler` (synchronous trampoline) for foreground,
+  `asyncScheduler` (macrotask) for background.
+- Swift: `DefaultDispatcher` runs foreground work on the main queue (inline when
+  the caller is already on the main thread, else `DispatchQueue.main.async`) and
+  background work on a global `.userInitiated` queue.
+- Rust: `DefaultDispatcher` runs foreground work on a dedicated `vmx-foreground`
+  worker thread and background work on a dedicated `vmx-background` worker
+  thread.
 
 See `11-threading.md` for the full contract.
 
@@ -228,4 +249,6 @@ This spec does not specify:
 - The lifetime of `IMessageHub` (the host decides).
 - Whether multiple `IMessageHub` instances coexist. Multiple instances MAY be created.
 - UI-framework specifics like XAML binding behaviors, accessibility, or rendering.
-- The exact Rx version each flavor uses (each flavor's `README.md` documents that).
+- The exact reactive library version each flavor uses (each flavor's `README.md`
+  documents that). C#, Python, and TypeScript use Rx libraries, Swift uses
+  Combine, and Rust uses VMx-owned stream types with no Rx library.

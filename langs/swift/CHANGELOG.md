@@ -6,6 +6,137 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `CompositeVM` selection made while another thread has the composite's
+  membership transaction open (an add, insert, replace, population or another
+  selection) now waits for that transaction and then applies (COMP-026,
+  ADR-0118). Before, `selectChild` and `deselectChild` silently did nothing,
+  `setCurrent`, `selectComponent` and `deselectComponent` threw
+  `CompositeMembershipError`, `canSetCurrent` and `canSelectComponent` returned
+  `false`, and the `current` setter trapped. Only a transaction opened by the
+  calling thread still rejects selection. While it waits, a selection no longer
+  holds the shared cross-composite coordinator, so the other thread's hooks
+  and callbacks can still select in any composite.
+
+- `HierarchicalVM` `addChild`, `reparentChild`, and `attachMany` report invalid
+  lazy children-factory output as an error instead of trapping (spec/18 §6).
+  `addChild` returns `.failure`, `reparentChild` throws the error, and
+  `attachMany` records an `attachmentFailed` rejection and continues the batch.
+  The `children` accessor, `isLeaf`, and `removeChild` still trap on such
+  output.
+
+- A user object whose `deinit` calls back into the VMx primitive that drops
+  it no longer deadlocks or traps. `MessageHub` releases delivered and dropped
+  messages after its gate unlocks (drain and `dispose()`, HUB-010/HUB-012).
+  `propertyChanged` subscription cancellation releases the subscriber after the
+  subject's lock. `TokenPagedComposition` releases replaced items and tokens
+  after its state queue in `refresh()` and `loadMore()` (COL-065).
+  `AggregateChangeStream` releases discarded staged emissions after its staging
+  lock, and `dispose()` releases its entries, staged emissions and membership
+  subscription after its gate. Before, a message whose `deinit` sent on the hub, a subscriber whose
+  `deinit` subscribed again, or an item or token whose `deinit` read the
+  composition re-entered a non-recursive lock on the same thread.
+
+- A VM wrapped by a parented `ForwardingComponentVM` or
+  `ForwardingCompositeVM` now selects through the decorator's parent:
+  `canSelect()`, `select()`, `canDeselect()`, `deselect()`, and the select and
+  deselect commands on the wrapped VM select or deselect the decorator, also
+  through a decorator of a decorator. The decorator's `selectCommand` and
+  `deselectCommand` are now always the wrapped VM's commands (spec/09 §1,
+  FWD-001).
+
+- `ForwardingCompositeVM` held by a parent now reports `isCurrent` while it
+  is the parent's current child, and selects and deselects through that
+  parent. The decorator and its wrapped composite now share one ownership
+  identity, so adding the wrapped composite to another container moves the
+  decorator out of its old one (spec/09 §1-2, FWD-002/FWD-004).
+
+- `CompositeVM` and `GroupVM` with auto-construct-on-add construct a child
+  added while the container is still `Constructing` (waiting on a background
+  child) and wait for it before reaching `Constructed` (spec/02 §6, spec/06
+  §5.1). The child walk joins such a child like a population child, so one
+  that fails while the walk waits on it rolls the container back and its hook
+  runs once. Before, the add skipped auto-construction until the container was
+  `Constructed` and the walk used a snapshot taken before the add, so the
+  container reached `Constructed` with the added child still `Destructed`.
+- `CompositeVM` and `GroupVM` join the background children that factory
+  population starts and never construct them again. A later child that fails
+  while the container waits on an earlier one rolls the container back, and
+  its construct hook runs once (spec/02 §6, LIFE-014). Before, the child walk
+  restarted the failed child and ran its hook a second time.
+- `CompositeVM`, `GroupVM`, and `AggregateVM1` to `AggregateVM6` wait for
+  background children to settle (spec/02 §6). `construct()` reaches
+  Constructed, and the composite's current selector runs, only after every
+  child is Constructed. `destruct()` reaches Destructed only after every child
+  is Destructed. `reconstruct()` waits for both phases. A background child
+  that fails rolls the container back (LIFE-014). Disposing a container while
+  it waits publishes no further status. Before, the container committed while
+  background children were still Constructing or Destructing, and stayed
+  Constructed when one failed. Children that settle synchronously keep the
+  container synchronous, with unchanged emission order.
+- A disposed `CompositeCommand`, `DecoratorCommand`, or
+  `ConfirmationDecoratorCommand` stops forwarding inner `canExecuteChanged`
+  emissions. Disposal releases the wrapper's inner subscriptions, notifies once,
+  and completes the wrapper's own stream, as a disposed `RelayCommand` does; a
+  later subscriber receives only completion. The inner streams stay open. Before,
+  the stream was the live inner publisher, so it kept emitting and never
+  completed (spec/04 §8.4).
+- A parented `ForwardingComponentVM.canDeselect()` no longer requires the
+  wrapped VM to be constructed. It follows spec/05 §6 (not disposed, parented,
+  the parent's current child), so a selected, destructed forwarding child can be
+  deselected and its `deselectCommand` is enabled, in agreement with
+  `deselect()`.
+- `BatchUpdateHandle` has a public `init(endBatch:)`, so a `VMCollection`
+  implemented outside the module can return one from `batchUpdate()`, as the
+  public protocol requires (spec/01 §1.4).
+- Code outside the module can now create an `ObservableList` (`public init()`),
+  call `dismiss()` and `resolveWith(_:)` on a `NotificationVM` (they are
+  `public`, because Swift has no `protected`; C# and TypeScript keep them
+  protected), and create `CollectionChangedEvent` values for its own
+  `VMCollection`. Before,
+  these were internal, unlike C#, Python, and TypeScript (spec/21 §3.1, spec/16).
+- `AsyncRelayCommand.execute()` admits the run before it returns, so
+  `isExecuting` is true and `canExecute()` is false straight after the call,
+  as in the other flavors (spec/04 §10.2).
+- An eager `HierarchicalVM.construct()` throws
+  `HierarchyError.invalidFactoryOutput` and rolls back when the children
+  factory returns invalid output. Before, it trapped (LIFE-014, ADR-0053).
+- `TokenPagedComposition` stops auto-constructing page items once a hook
+  disposes it or starts a newer operation (spec/21 §6).
+- `ConfirmationDecoratorCommand.canExecute` re-checks disposal after the inner
+  predicate, which may dispose the wrapper, as the other wrappers do
+  (spec/04 §8.4).
+- A disposed `ForwardingComponentVM` no longer changes its parent's
+  selection: its `select()`/`deselect()` overrides honor disposal like the
+  base (spec/02 §3).
+- A disposed `DerivedProperty` rejects writes: `canSet` returns false and
+  `setValue` throws instead of running the write-back action (spec/15 §4).
+- A disposed `NotificationVM` no longer resolves the hub from `onExpire()`
+  or `dismiss()` (DISP-004).
+- A disposed `GroupVM` ignores `remove`, `removeAt`, and `clear`, and a
+  disposed `CompositeVM` or `GroupVM` throws from `move`, as the disposal
+  contract states. Before, they still changed the children.
+- A disposed `FilteredCompositeVM` ignores `setPredicate`, `setCurrent`, and
+  the visible navigation methods, so it stays frozen as the disposal contract
+  states (DISP-006).
+- `ObservableDictionary`: the add index is captured before the local event,
+  so a subscriber that adds another entry no longer shifts the first entry's
+  reported hub index.
+- `HierarchicalVM` caches its path with weak references. Before, the cached
+  `[root, …, self]` array retained the node and its ancestors, so a tree that
+  had been read through `path` or `addChild` never deallocated.
+- `CompositeVM` and `GroupVM` complete `collectionChanged` when disposed.
+- `VirtualTimeScheduler.schedule(at:_:)` is no longer `@discardableResult`:
+  releasing the returned token cancels the action, so discarding it now warns.
+- The default `DialogService.present` returns the result of a modal that was
+  already dismissed, because the first result wins. Before, it returned the
+  cancellation result (spec/19 §3, DIA-012).
+- `HierarchicalVM.removeChild` on a node whose children are not loaded yet
+  now runs the children factory first, as the other flavors do. Before, it
+  returned without loading the children. Invalid factory output traps, as it
+  does in the `children` accessor.
+
 ## [3.30.0] — unreleased source version
 
 ### Changed

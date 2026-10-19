@@ -3,7 +3,7 @@
 The note form's tag suggestions are the smallest high-signal example of
 `SearchableState<T>` in the flagship portfolio.
 
-## 8.8.1. Current Scenario Use
+## 8.8.1. Scenario Use
 
 - the workspace maintains the available tag set
 - `NoteFormVM` composes `SearchableState<string>` over that tag list
@@ -27,10 +27,5 @@ member observation; search owns only its subscription to the resulting pulse.
 
 - Primitive guide:
   [State & Reactive Helpers](../primitives/state-reactive-helpers.md)
-- Parity matrix row:
+- Parity matrix, which links each flavor README:
   [examples/notes-showcase-parity.md](../../../examples/notes-showcase-parity.md)
-- Flavor READMEs:
-  [C#](../../../examples/csharp/avalonia/NotesShowcase/README.md),
-  [Python](../../../examples/python/textual/notes_showcase/README.md),
-  [TypeScript](../../../examples/typescript/react/notes-showcase/README.md),
-  [Swift](../../../examples/swift/notes-showcase/README.md)

@@ -33,20 +33,9 @@ import reactivex as rx
 from reactivex import operators as ops
 from reactivex.subject import Subject
 
+from vmx._disposal import _run_disposal_steps
+
 T = TypeVar("T")
-
-
-def _run_disposal_steps(*steps: Callable[[], None]) -> None:
-    """Attempt every terminal step and re-raise the first failure."""
-    first_error: BaseException | None = None
-    for step in steps:
-        try:
-            step()
-        except BaseException as error:
-            if first_error is None:
-                first_error = error
-    if first_error is not None:
-        raise first_error
 
 
 # ---------------------------------------------------------------------------

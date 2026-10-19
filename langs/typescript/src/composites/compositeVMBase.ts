@@ -55,6 +55,8 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
   #current: VM | null = null;
   readonly #collectionChangedSubject = new Subject<CollectionChangedEvent>();
   #populated = false;
+  /** Collects the children population started constructing (see `_onConstruct`). */
+  #populationJoined: Set<ComponentVMBase> | null = null;
   #batchDepth = 0;
   #batchDirty = false;
   readonly #currentSelector: ((xs: Iterable<VM>) => VM | null) | null;
@@ -293,7 +295,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     this.#beginMembershipTransaction();
     // splice would silently normalize/clamp while the emitted newIndex
     // carried the raw argument (spec/21 §3.2); `length` appends.
-    if (index < 0 || index > this._children.length) {
+    if (!Number.isInteger(index) || index < 0 || index > this._children.length) {
       this.#endMembershipTransaction();
       throw new RangeError(`Index ${String(index)} out of range`);
     }
@@ -361,32 +363,57 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     this.#beginMembershipTransaction();
     let item: VM;
     try {
-      if (index < 0 || index >= this._children.length) {
+      if (!Number.isInteger(index) || index < 0 || index >= this._children.length) {
         throw new RangeError(`Index ${String(index)} out of range`);
       }
       item = this._children[index] as VM;
-      this._children.splice(index, 1);
-      if (item._parent === this) item._parent = null;
-      if (this.#current === item) {
-        this._applyCurrentChange(null, true);
-      }
-      this._emitCollectionChanged(
-        makeCollectionChangedEvent("remove", {
-          oldItems: [item],
-          oldIndex: index,
-        }),
-      );
     } catch (error) {
       this.#endMembershipTransaction(false);
       throw error;
     }
-    this.#endMembershipTransaction();
+    this._children.splice(index, 1);
+    if (item._parent === this) item._parent = null;
+    const wasCurrent = this.#current === item;
+    this.#publishCommittedMembership([
+      () => {
+        if (wasCurrent) this._applyCurrentChange(null, true);
+      },
+      () =>
+        this._emitCollectionChanged(
+          makeCollectionChangedEvent("remove", {
+            oldItems: [item],
+            oldIndex: index,
+          }),
+        ),
+    ]);
+  }
+
+  /**
+   * Publishes a committed membership change. Every step runs even when an
+   * earlier one throws (for example a throwing `onCurrentChanged`), so the
+   * collection event is never lost; the first failure is rethrown after the
+   * membership transaction ends.
+   */
+  #publishCommittedMembership(
+    steps: readonly (() => void)[],
+    priorError?: { readonly error: unknown },
+  ): void {
+    let failure = priorError;
+    for (const step of steps) {
+      try {
+        step();
+      } catch (error) {
+        failure ??= { error };
+      }
+    }
+    this.#endMembershipTransaction(failure === undefined);
+    if (failure !== undefined) throw failure.error;
   }
 
   /** Replace the child at *index*. Emits a Remove followed by an Add (per spec). */
   setAt(index: number, value: VM): void {
     this.#beginMembershipTransaction();
-    if (index < 0 || index >= this._children.length) {
+    if (!Number.isInteger(index) || index < 0 || index >= this._children.length) {
       this.#endMembershipTransaction();
       throw new RangeError(`Index ${String(index)} out of range`);
     }
@@ -430,36 +457,35 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
       throw error;
     }
     const commitError = captureParentTransferCommit(transfer);
-    try {
-      if (this.#current === old) this._applyCurrentChange(null, true);
-      this._emitCollectionChanged(
-        makeCollectionChangedEvent("remove", { oldItems: [old], oldIndex: index }),
-      );
-      this._emitCollectionChanged(
-        makeCollectionChangedEvent("add", { newItems: [value], newIndex: index }),
-      );
-      if (commitError !== undefined) throw commitError;
-    } catch (error) {
-      this.#endMembershipTransaction(false);
-      throw error;
-    }
-    this.#endMembershipTransaction();
+    const wasCurrent = this.#current === old;
+    this.#publishCommittedMembership(
+      [
+        () => {
+          if (wasCurrent) this._applyCurrentChange(null, true);
+        },
+        () =>
+          this._emitCollectionChanged(
+            makeCollectionChangedEvent("remove", { oldItems: [old], oldIndex: index }),
+          ),
+        () =>
+          this._emitCollectionChanged(
+            makeCollectionChangedEvent("add", { newItems: [value], newIndex: index }),
+          ),
+      ],
+      commitError === undefined ? undefined : { error: commitError },
+    );
   }
 
   clear(): void {
     this.#beginMembershipTransaction();
-    try {
-      for (const child of this._children) {
-        if (child._parent === this) child._parent = null;
-      }
-      this._children = [];
-      this._applyCurrentChange(null, true);
-      this._emitCollectionChanged(makeCollectionChangedEvent("reset"));
-    } catch (error) {
-      this.#endMembershipTransaction(false);
-      throw error;
+    for (const child of this._children) {
+      if (child._parent === this) child._parent = null;
     }
-    this.#endMembershipTransaction();
+    this._children = [];
+    this.#publishCommittedMembership([
+      () => this._applyCurrentChange(null, true),
+      () => this._emitCollectionChanged(makeCollectionChangedEvent("reset")),
+    ]);
   }
 
   move(fromIndex: number, toIndex: number): void {
@@ -507,15 +533,42 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
   // (spec ch. 01 §1.4, ADR-0142). A disposed container publishes nothing.
   #deliverCollectionChanged(event: CollectionChangedEvent): void {
     this.#collectionChangedSubject.next(event);
-    if (this.#collectionChangedSubject.closed) return;
+    // A completed rxjs Subject is stopped, not closed, so check this
+    // container's own disposal: it may have been disposed before a batch
+    // closed or by a local subscriber of this very event.
+    if (this.#disposeRequested || this.#disposeDeferred) return;
     this.hub.send(collectionChangedMessageFor(this, event));
   }
 
   protected _maybeAutoConstruct(child: VM): void {
     if (!this.#autoConstructOnAdd) return;
+    if (this.status === ConstructionStatus.Constructing) {
+      // The construct walk joins a child added while it runs (#constructWalk).
+      if (child.status === ConstructionStatus.Destructed) child.construct();
+      return;
+    }
     if (this.status !== ConstructionStatus.Constructed) return;
     if (child.status === ConstructionStatus.Constructed) return;
     child.construct();
+  }
+
+  /**
+   * The construct walk's children: the membership snapshot, then (with
+   * auto-construct-on-add) each child added while the walk runs. A late child
+   * was already started by `_maybeAutoConstruct`, so it is joined like a
+   * population child and never restarted (spec/02 §6, spec/06 §5.1).
+   */
+  *#constructWalk(joined: Set<ComponentVMBase>): Generator<VM> {
+    const visited = new Set<VM>(this._children);
+    yield* [...visited];
+    if (!this.#autoConstructOnAdd) return;
+    for (;;) {
+      const late = this._children.find((child) => !visited.has(child));
+      if (late === undefined) return;
+      visited.add(late);
+      joined.add(late);
+      yield late;
+    }
   }
 
   private _validateMoveIndex(index: number): void {
@@ -528,33 +581,45 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
 
   protected override _onConstruct(): void {
     super._onConstruct();
+    // Children whose construct population started are joined, not restarted.
+    const joined = new Set<ComponentVMBase>();
     if (!this.#populated) {
-      this._populateChildren();
+      this.#populationJoined = joined;
+      try {
+        this._populateChildren();
+      } finally {
+        this.#populationJoined = null;
+      }
       this.#populated = true;
     }
-    for (const child of [...this._children]) {
-      child.construct();
-    }
-    // Apply the optional initial-current selector (spec/06 §3.2, ADR-0042).
-    // The composite is still in Constructing here; every child is Constructed.
-    // Selector returning null or an out-of-set value leaves current at its
-    // prior value and emits no notification (matches selectComponent semantics).
-    if (this.#currentSelector !== null) {
-      const initial = this.#currentSelector(this);
-      if (initial !== null && this._children.includes(initial)) {
-        this._setCurrent(initial, false);
-      }
-    }
+    // spec/02 §6: the composite settles only after every child has (a
+    // background child defers the composite's terminal status).
+    this._transitionChildren(
+      this.#constructWalk(joined),
+      true,
+      () => {
+        // Apply the optional initial-current selector (spec/06 §3.2, ADR-0042).
+        // The composite is still in Constructing here; every child is Constructed.
+        // Selector returning null or an out-of-set value leaves current at its
+        // prior value and emits no notification (matches selectComponent semantics).
+        if (this.#currentSelector !== null) {
+          const initial = this.#currentSelector(this);
+          if (initial !== null && this._children.includes(initial)) {
+            this._setCurrent(initial, false);
+          }
+        }
+      },
+      joined,
+    );
   }
 
   protected override _onDestruct(): void {
     if (this.#current !== null) {
       this._setCurrent(null, false);
     }
-    for (const child of [...this._children]) {
-      child.destruct();
-    }
-    super._onDestruct();
+    this._transitionChildren([...this._children], false, () => {
+      super._onDestruct();
+    });
   }
 
   override dispose(): void {
@@ -566,6 +631,7 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     this.#disposeRequested = true;
     // Dispose cascade (LIFE-013): depth-first dispose each child, then self.
     disposeBestEffort([
+      () => this._abandonChildTransition(),
       ...[...this._children].map((child) => () => child.dispose()),
       () => super.dispose(),
     ]);
@@ -616,6 +682,14 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
     }
   }
 
+  /** A child population left pending is joined by the child walk, never restarted. */
+  #joinIfPending(child: VM): void {
+    if (
+      child.status !== ConstructionStatus.Constructed &&
+      child.status !== ConstructionStatus.Disposed
+    ) this.#populationJoined?.add(child);
+  }
+
   protected _attachPopulation(children: Iterable<VM>): void {
     const candidates = [...children];
     if (new Set(candidates.map((child) => child._ownershipIdentity)).size !== candidates.length) {
@@ -639,11 +713,15 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
 
       // Make the entire snapshot visible before any child hook runs.
       for (const child of candidates) {
-        this._maybeAutoConstruct(child);
         if (
           this.status === ConstructionStatus.Constructing &&
           child.status !== ConstructionStatus.Constructed
-        ) child.construct();
+        ) {
+          child.construct();
+          this.#joinIfPending(child);
+        } else {
+          this._maybeAutoConstruct(child);
+        }
       }
       this.#requireTransactionCanContinue();
     } catch (error) {

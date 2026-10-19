@@ -47,7 +47,8 @@ export class NullDialogService implements IModalDialogService {
   }
 
   present<T>(modalVm: ModalVM<T>): Promise<T> {
+    // First result wins: an already-dismissed modal keeps its result.
     modalVm.dismiss(modalVm.cancellationResult);
-    return Promise.resolve(modalVm.cancellationResult);
+    return modalVm.completion;
   }
 }

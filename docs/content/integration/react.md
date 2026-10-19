@@ -19,7 +19,7 @@ default or an explicit equality function such as `shallowEqual`.
 | React binding                           | VMx source                                        |
 | --------------------------------------- | ------------------------------------------------- |
 | `createVmxStore` / `useVmx`             | one shared `IMessageHub` selector boundary        |
-| `useVm`                                 | sender-filtered component or form VM updates      |
+| `useVm`                                 | every hub message sent by one VM                  |
 | `useCommand`                            | `ICommand.canExecuteChanged` and stable execution |
 | `useObservableList` / `useVmCollection` | identity-preserving collection snapshots          |
 | `useDerivedProperty`                    | first and later derived values; unseeded state    |
@@ -117,8 +117,11 @@ function BoundEditor({ vm }: { vm: EditorVM }) {
 }
 ```
 
-The same `useVm` contract applies to `FormVM`; a shared-store selector is useful
-when a component combines form state with other application state.
+`FormVM` has no public hub, so `useVm` cannot bind it directly, and an approve
+publishes nothing on the hub (spec/20 §8). Wrap the form in an application VM
+that republishes its state, as the Notes showcase `NoteFormVM` does, or
+subscribe in an effect to `onApproved`, `approveErrors` (approve failures),
+and `errorsChanged` (validation errors).
 
 ## 9.8.5. StrictMode, SSR, hydration, and virtualization
 
@@ -141,14 +144,6 @@ while keeping only application-specific browser adapters in the example.
 The adapter follows independent SemVer under `react-v*` tags. Core releases do
 not force adapter releases unless its public API or compatibility range changes.
 See [`packages/react/RELEASING.md`](../../../packages/react/RELEASING.md).
-
-Release notes are the body between the exact bracketed version heading and the
-next level-two heading; a version is compared literally, while level-three
-headings remain part of the body. The workflow prints the extracted notes for
-review before creating the GitHub Release. After npm publication, provenance,
-and both fresh React-consumer gates succeed, a missing GitHub Release is
-metadata-only recovery; a broken package needs a new patch and tag. Follow the
-[React release runbook](../contributing-releases.md#1153-recover-react-release-metadata).
 
 ## 9.8.7. Serialize Portal Dialog Requests
 

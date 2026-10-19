@@ -13,8 +13,9 @@ import VMx
 
 /// Note-editor view-model that composes a strict-mode `FormVM<NoteModel>`.
 ///
-/// A fresh inner `FormVM` is created on each `bindTo(_:)` call and disposed
-/// by `unbind()`. All draft mutations flow through `setDraft(_:)` which calls
+/// A fresh inner `FormVM` is created on each `bindTo(_:)` call and retired
+/// by the next `bindTo(_:)` or `unbind()` (disposed once any pending save
+/// settles). All draft mutations flow through `setDraft(_:)` which calls
 /// `form.setModel` then fires property-changed signals for every derived
 /// property so two-way UI bindings stay in sync.
 public final class NoteFormVM: ComponentVMBase {
@@ -31,6 +32,16 @@ public final class NoteFormVM: ComponentVMBase {
     /// `_admissionLock`: the persister runs on the saving task's thread.
     private var _admissions = 0
     private let _admissionLock = NSLock()
+    /// Approvals still awaiting settlement, per inner form, and the forms a
+    /// rebind retired while one of their approvals was pending. `FormVM`
+    /// suppresses settlement once disposed, so disposing a retired form
+    /// mid-save would drop `onApproved` (the list row refresh) and the toast
+    /// even though the repository already holds the new note. A retired form
+    /// is disposed when its last pending approval settles instead. Guarded by
+    /// `_retireLock`.
+    private var _pendingApprovals: [ObjectIdentifier: Int] = [:]
+    private var _retiredForms: [ObjectIdentifier: (FormVM<NoteModel>, AnyCancellable?)] = [:]
+    private let _retireLock = NSLock()
     private let _editorMode = DiscriminatorVM<String>(initial: "edit")
     private var _editorModeCancellable: AnyCancellable?
     private var _tagCatalog: [String] = []
@@ -290,9 +301,7 @@ public final class NoteFormVM: ComponentVMBase {
     /// backed by the injected repository and subscribes its `onApproved`
     /// pipeline to forward to `onSaved`.
     public func bindTo(_ note: NoteModel) {
-        _form?.dispose()
-        _approvedCancellable?.cancel()
-        _approvedCancellable = nil
+        retireCurrentForm()
 
         let form = FormVM<NoteModel>(
             initial: note,
@@ -323,10 +332,7 @@ public final class NoteFormVM: ComponentVMBase {
     public func unbind() {
         let hadTagDraft = !tagDraft.isEmpty
         guard _form != nil || hadTagDraft else { return }
-        _form?.dispose()
-        _form = nil
-        _approvedCancellable?.cancel()
-        _approvedCancellable = nil
+        retireCurrentForm()
         if hadTagDraft {
             _tagLock.withLock { _tagDraft = "" }
             _notifyPropertyChanged("tagDraft")
@@ -340,13 +346,25 @@ public final class NoteFormVM: ComponentVMBase {
     /// suggestions. Mirrors C# `ApproveAsync()`.
     public func approveAsync() async throws {
         guard let form = _form else { return }
-        guard try await approveForm(form) else { return }
+        let key = ObjectIdentifier(form)
+        _retireLock.withLock { _pendingApprovals[key, default: 0] += 1 }
+        let saved: NoteModel?
+        do {
+            saved = try await approveForm(form)
+            settlePendingApproval(form)
+        } catch {
+            settlePendingApproval(form)
+            throw error
+        }
+        guard let saved else { return }
         // Marshal the INPC emit back onto the foreground
         // dispatcher: the thread that resumes after the await is not guaranteed
         // to be the UI execution target. Mirrors C# `_dispatcher.Foreground
         // .Schedule(...)`. Under `ImmediateDispatcher` (tests) this runs
         // synchronously, so callers observe the emit before `approveAsync` returns.
-        let savedTitle = snapshot.title
+        // Name the saved note, not the current snapshot: the user may have
+        // selected another note while the save was pending.
+        let savedTitle = saved.title
         await runOnForeground { [weak self] in
             self?.emitDraftChanges()
         }
@@ -361,7 +379,7 @@ public final class NoteFormVM: ComponentVMBase {
 
     // ── Private helpers ────────────────────────────────────────────────────
 
-    /// Runs one inner approval and returns `true` only when it saved.
+    /// Runs one inner approval and returns the saved note only when it saved.
     ///
     /// `FormVM` admits one approval at a time (spec/20-form-vm.md §5.3): a call
     /// made while a save is pending is refused and returns without persisting
@@ -370,14 +388,55 @@ public final class NoteFormVM: ComponentVMBase {
     /// published its approval. Both checks are needed: the pending save
     /// publishes on the thread its repository write resumes on, which can be
     /// while a refused call runs.
-    private func approveForm(_ form: FormVM<NoteModel>) async throws -> Bool {
+    private func approveForm(_ form: FormVM<NoteModel>) async throws -> NoteModel? {
         let lock = _admissionLock
-        var approved = false
-        let approvals = form.onApproved.sink { _ in lock.withLock { approved = true } }
+        var approved: NoteModel?
+        let approvals = form.onApproved.sink { model in lock.withLock { approved = model } }
         defer { approvals.cancel() }
         let admissions = lock.withLock { _admissions }
         try await form.approveAsync()
-        return lock.withLock { _admissions != admissions && approved }
+        return lock.withLock { _admissions != admissions ? approved : nil }
+    }
+
+    /// Detaches the current inner form on a rebind. It is disposed now unless
+    /// one of its approvals is still pending; then it stays alive until that
+    /// approval settles, so the save still emits `onSaved` (the list row
+    /// refresh) and its toast while the new note binds at once.
+    private func retireCurrentForm() {
+        let form = _form
+        let cancellable = _approvedCancellable
+        _form = nil
+        _approvedCancellable = nil
+        guard let form else {
+            cancellable?.cancel()
+            return
+        }
+        let deferred = _retireLock.withLock { () -> Bool in
+            guard _pendingApprovals[ObjectIdentifier(form)] != nil else { return false }
+            _retiredForms[ObjectIdentifier(form)] = (form, cancellable)
+            return true
+        }
+        guard !deferred else { return }
+        form.dispose()
+        cancellable?.cancel()
+    }
+
+    /// Settles one pending approval of `form`, disposing the form when a
+    /// rebind retired it and this was its last pending approval.
+    private func settlePendingApproval(_ form: FormVM<NoteModel>) {
+        let key = ObjectIdentifier(form)
+        let retired = _retireLock.withLock { () -> (FormVM<NoteModel>, AnyCancellable?)? in
+            let remaining = (_pendingApprovals[key] ?? 1) - 1
+            if remaining > 0 {
+                _pendingApprovals[key] = remaining
+                return nil
+            }
+            _pendingApprovals[key] = nil
+            return _retiredForms.removeValue(forKey: key)
+        }
+        guard let (retiredForm, cancellable) = retired else { return }
+        retiredForm.dispose()
+        cancellable?.cancel()
     }
 
     /// Single mutation site: calls `form.setModel` then broadcasts changes.
@@ -505,6 +564,15 @@ public final class NoteFormVM: ComponentVMBase {
         _form = nil
         _approvedCancellable?.cancel()
         _approvedCancellable = nil
+        let retired = _retireLock.withLock { () -> [(FormVM<NoteModel>, AnyCancellable?)] in
+            let forms = Array(_retiredForms.values)
+            _retiredForms.removeAll()
+            return forms
+        }
+        for (form, cancellable) in retired {
+            form.dispose()
+            cancellable?.cancel()
+        }
         approveCommand.dispose()
         denyCommand.dispose()
         addTagCommand.dispose()

@@ -79,9 +79,19 @@ fn render_notes(frame: &mut Frame<'_>, area: Rect, workspace: &WorkspaceVm) {
     );
     let items = workspace
         .notes()
-        .visible_titles()
+        .visible_rows()
         .into_iter()
-        .map(ListItem::new)
+        .map(|(title, selected)| {
+            if selected {
+                ListItem::new(Line::from(format!("> {title}"))).style(
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                )
+            } else {
+                ListItem::new(Line::from(format!("  {title}")))
+            }
+        })
         .collect::<Vec<_>>();
     frame.render_widget(
         List::new(items).block(Block::default().borders(Borders::ALL).title(title)),
@@ -91,6 +101,14 @@ fn render_notes(frame: &mut Frame<'_>, area: Rect, workspace: &WorkspaceVm) {
 
 fn render_editor(frame: &mut Frame<'_>, area: Rect, workspace: &WorkspaceVm) {
     let form = workspace.form();
+    if !form.has_note() {
+        frame.render_widget(
+            Paragraph::new("No note selected")
+                .block(Block::default().borders(Borders::ALL).title("Editor")),
+            area,
+        );
+        return;
+    }
     let mut lines = vec![
         Line::from(format!("Title: {}", form.title())),
         Line::from(format!("Tags: {}", form.tags().join(", "))),

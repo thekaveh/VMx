@@ -30,6 +30,7 @@ updates:
       - /langs/rust
       - /examples/rust/console/hello-vmx
       - /examples/rust/tui/notes-showcase
+      - /benchmarks/rust
     schedule: { interval: weekly, day: monday }
     target-branch: develop
     groups:

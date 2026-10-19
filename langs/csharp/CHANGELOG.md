@@ -8,6 +8,104 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
+- Fixed: `PropertyValueChangedMessagesFor(source, x => x.Prop)` now emits for
+  real viewmodel property changes. It matched only
+  `IPropertyChangedMessage<TSource>` for the inferred concrete type, while VMs
+  publish `PropertyChangedMessage<IComponentVM>`, so it never fired; it now
+  matches by reference-equal sender (spec/03 §7.1), as TypeScript, Python, and
+  Swift do.
+- Fixed: A raw `MessageHub.Messages` subscriber whose handler throws keeps its
+  subscription. Rx's auto-detach safeguard used to dispose it on the first
+  throw; the hub now attaches observers through an isolating observer that
+  swallows the exception (spec/03 §3.4, HUB-007) and keeps delivering. A
+  handler behind an Rx operator chain (`Where`, `OfType`) is still detached by
+  Rx on its first throw. A late subscriber after `Dispose` still receives
+  `ObjectDisposedException` through `OnError`.
+- Fixed: an abandoned child walk (its hook threw after deferring) constructs
+  no further children, as in Python and TypeScript.
+- Fixed: a construct walk over factory-started children checks each child
+  against the joined set by reference in constant time. It was a linear scan
+  per child, so quadratic in the child count.
+- Fixed: A lifecycle hook that defers completion and then throws abandons that
+  deferral. The next transition starts clean instead of adopting the stale
+  task or throwing "A lifecycle hook already deferred completion." forever, the
+  abandoned child transition never runs its continuation, and its fault is
+  observed (ADR-0109).
+- Fixed: A container whose child transition finishes asynchronously runs its
+  continuation on the foreground dispatcher. The initial `Current` selection,
+  `IsCurrent`, `OnCurrentChanged`, and the user `onDestruct` callback no longer
+  run on a pool thread (spec/11 §3).
+- Fixed: `ForwardingCompositeVM` shares parent membership with the composite it
+  wraps, as `ForwardingComponentVM` does. As a child it reports `IsCurrent`,
+  moves between parents, and never belongs to two parents at once
+  (spec/09 §1-2, FWD-002, FWD-004).
+- Fixed: `CompositeVM` and `GroupVM` with auto-construct-on-add construct a
+  child added while the container is still `Constructing` (waiting on a
+  background child) and wait for it before reaching `Constructed` (spec/02 §6,
+  spec/06 §5.1). The child walk joins such a child like a population child, so
+  one that fails while the walk waits on it rolls the container back and its
+  hook runs once. Before, the add skipped auto-construction until the
+  container was `Constructed` and the walk used a snapshot taken before the
+  add, so the container reached `Constructed` with the added child still
+  `Destructed`.
+- Fixed: a custom `IComponentVM` child that a children factory leaves
+  `Constructing` is driven through its own `ConstructAsync()`. Before, the
+  container's construct failed with "did not reach Constructed".
+- Fixed: a lifecycle hook that defers and then throws marks its child walk
+  abandoned before it releases the hook, so a child settling on another
+  thread no longer starts the next child.
+- Fixed: `CompositeVM` and `GroupVM` join the background children that
+  factory population starts and never construct them again. A later child that
+  fails while the container waits on an earlier one rolls the container back,
+  and its construct hook runs once (spec/02 §6, LIFE-014). Before, the child
+  walk restarted the failed child and ran its hook a second time.
+- Fixed: `FormVM.SetModel(null)` throws `ArgumentNullException` to the caller
+  during an approval's settlement, instead of being queued and surfacing later
+  from `ApproveAsync` (spec/20, failure-atomic).
+- Fixed: `FilteredCompositeVM.SetPredicate` and recomputation compute the
+  projection before changing it, so a throwing predicate leaves the previous
+  predicate, `Visible`, and `Current` in place, as in Python and TypeScript.
+- Fixed: `CompositeCommand` copies the inner command list and rejects null
+  entries before subscribing, so a later change to the caller's list cannot
+  desynchronize execution and unsubscription (spec/04 §8.4).
+- Fixed: `AsyncResourceVM` treats a loader that returns a null task as a failed
+  load: the state becomes `Error` and the load completes, instead of staying
+  in `Loading` and throwing `ArgumentNullException` (spec/23 §7, ARES-003).
+- Fixed: `TokenPagedComposition` stops auto-constructing page items once a
+  hook disposes it or starts a newer operation (spec/21 §6).
+- Fixed: `ConfirmationDecoratorCommand.CanExecute` re-checks disposal after the inner
+  predicate, which may dispose the wrapper, as the other wrappers do
+  (spec/04 §8.4).
+- Fixed: `AsyncResourceVM` never calls the loader for a load requested while
+  the VM publishes its Disposed status, or after an observer of the Loading
+  publication disposes it (spec/23 §4, ARES-011).
+- Fixed: a disposed view model's `Select` and `Deselect` are silent no-ops and
+  `CanDeselect` returns false, so a disposed child no longer changes its live
+  parent's selection (spec/02 §3).
+- Fixed: a disposed `DerivedProperty` rejects writes: `CanSet` returns false and
+  `SetValue` throws instead of running the write-back action (spec/15 §4).
+- Fixed: a disposed `FilteredCompositeVM` or `ScoredFilteredCompositeVM`
+  ignores `SetPredicate`, `SetCurrent`, and the visible navigation methods,
+  so it stays frozen as the disposal contract states (DISP-006).
+- Fixed: the `SelectNextCommand` and `SelectPreviousCommand` doc comments now
+  say that the base commands are never executable (spec/05 §5).
+- Fixed: `ObservableDictionary` captures the add index before the local
+  events, so a handler that adds another entry no longer shifts the first
+  entry's reported hub index.
+- Fixed: `CompositeVM` `Remove`, `RemoveAt`, `Clear`, and the indexer setter
+  raise `CollectionChanged` even when `OnCurrentChanged` throws, then rethrow.
+- Fixed: `NullDialogService.Present` and the `Present` extension return the
+  result of a modal that was already dismissed, because the first result wins.
+  Before, they returned the cancellation result (spec/19 §3, DIA-012).
+- Fixed: when a `FormVM` approval fails, a `CanExecuteChanged` handler that
+  throws during settlement no longer replaces the persister failure (§5.3
+  step 4, FORM-033).
+- Fixed: `AsyncRelayCommand.Cancel()` and `Dispose()` tag the cancellation
+  origin under the gate that swaps executions. A cancel that raced completion
+  could tag the next execution and hide its external-token cancellation.
+- Fixed: a cancelled persister on the `ApproveCommand` path is now reported on
+  `ApproveErrors` as a `TaskCanceledException`. Before, the cancellation reached
+  no channel (spec/20 §5.3).
 - The `netstandard2.0` dependency floors of all three packages move to the
   10.0.12 servicing releases of `System.Text.Json`,
   `System.Collections.Immutable`, and `Microsoft.Bcl.AsyncInterfaces` (#519).
@@ -21,6 +119,13 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx.Notifications
 
+- Fixed: when a `Pending` subscriber disposes the hub and then throws, the
+  queued completion still runs, so `Pending` completes and its subject is
+  disposed before any waiting thread wakes. Before, the abandoned queue
+  dropped it for good.
+- Fixed: `NotificationHub.Resolve` and `Dispose` complete their waiters even
+  when a `Pending` subscriber throws. The waiters had already left the hub, so
+  their `Post` tasks stayed pending forever.
 - Fixed: `NotificationVM` disposes every subscription and its dismiss command
   when one disposal throws, and `ConfirmationVM` disposes its approve and reject
   commands even when the base teardown throws. The first failure is rethrown

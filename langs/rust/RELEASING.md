@@ -8,18 +8,18 @@ The declared minimum supported Rust version (MSRV) is 1.88. Every package and
 release consumer runs on Rust 1.88 and stable. Change `rust-version` only with
 an explicit compatibility decision, changelog entry, and matching CI update.
 
+Every release follows the shared
+[release invariants](../../CONTRIBUTING.md#43-release-invariants): protected
+environment, trusted publisher, annotated immutable tags, fix-forward patches,
+and documentation updates. This runbook adds only the Rust steps.
+
 ## 1. One-time owner setup
 
 ### 1.1 Protected GitHub environment
 
-Create the `crates-rust` environment in `thekaveh/VMx`:
-
-- restrict deployment refs to `rust-v*` tags;
-- require maintainer approval; and
-- disable administrator bypass.
-
-The publish job has `id-token: write`. Store the one-time bootstrap credential
-only on this environment, never as a repository-wide secret.
+Create the `crates-rust` environment as the release invariants describe.
+Restrict its deployment refs to `rust-v*` tags. Store the one-time bootstrap
+credential only on this environment.
 
 ### 1.2 First publication bootstrap
 
@@ -43,13 +43,9 @@ main-ancestry, package, MSRV, conformance, and consumer gates as later releases.
 
 ### 1.3 Switch to trusted publishing
 
-After the first release is visible, open the crate's **Settings → Trusted Publishing** and
-add a GitHub configuration with these exact values:
-
-- repository owner: `thekaveh`;
-- repository: `VMx`;
-- workflow filename: `release.yml`; and
-- environment: `crates-rust`.
+After the first release is visible, open the crate's **Settings → Trusted
+Publishing**. Add a GitHub configuration with the shared trusted-publisher
+fields and environment `crates-rust`.
 
 Delete `CRATES_IO_TOKEN` from the GitHub environment and revoke the bootstrap
 token on crates.io. With the secret absent, the workflow invokes the official
@@ -81,13 +77,12 @@ fallback after this migration.
 1. Tag the exact verified main commit and push once:
 
    ```bash
-   git tag "rust-v${version}" origin/main
+   git tag -a "rust-v${version}" -m "vmx-rs ${version}" origin/main
    git push origin "rust-v${version}"
    ```
 
 1. Approve the `crates-rust` deployment and monitor every Release workflow
-   job. Never move, delete, or recreate a tag after crates.io accepts its
-   version or a GitHub Release exists.
+   job.
 
 The workflow is stable-version-only. Add and test explicit prerelease handling
 before using an alpha, beta, or release-candidate version.
@@ -123,25 +118,22 @@ gh release view rust-vX.Y.Z --repo thekaveh/VMx
 
 Inspect the crates.io version, docs.rs API page, owner list, workflow run, and
 GitHub Release through fresh requests. Only then update README, compatibility
-matrix, Rust README, installation guide, and Rust flavor page. Regenerate and
-verify the in-repository docs, MkDocs `.io` site, and GitHub wiki through the
-normal develop/main PR flow before marking the issue complete.
+matrix, Rust README, installation guide, and Rust flavor page, as the release
+invariants describe, before marking the issue complete.
 
 ## 5. Immutability, yank, and recovery
 
 ### 5.1 Failure before publication
 
-Fix the failure through the normal PR flow. If crates.io has not accepted the
-version and no GitHub Release exists, leave the failed tag immutable, land the
-fix on `main`, and release a new patch version and tag. Never delete, move, or
-reuse a release tag, even when publication did not start.
+Apply the immutability invariant, even when publication did not start. Leave
+the failed tag in place, land the fix on `main`, and release a
+new patch version and tag.
 
 ### 5.2 Authentication failure
 
 Confirm environment approval and the exact trusted-publisher repository,
 workflow, and environment. During the first release only, replace an expired
-`publish-new` token with another equally narrow, short-lived token. Never add a
-permanent token or bypass environment protection.
+`publish-new` token with another equally narrow, short-lived token.
 
 ### 5.3 Publication succeeded but verification failed
 

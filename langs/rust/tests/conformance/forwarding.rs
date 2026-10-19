@@ -132,13 +132,38 @@ fn forwarding_component_transfers_one_underlying_owner() {
 /// FWD-002 — Selective override replaces a single behavior
 #[test]
 fn selective_override_replaces_one_behavior() {
-    let inner = child("inner");
-    let forwarding =
-        ForwardingComponentVm::new(inner).with_hint_override(|| Some("override".to_string()));
+    let inner = Child::builder()
+        .name("inner")
+        .hint("inner-hint")
+        .model("inner")
+        .services(MessageHub::new(), NullDispatcher::new())
+        .build()
+        .unwrap();
+    let forwarding = ForwardingComponentVm::new(inner.clone())
+        .with_hint_override(|| Some("OVERRIDE".to_string()));
 
-    assert_eq!(forwarding.hint(), Some("override".to_string()));
-    assert_eq!(forwarding.name(), "inner");
-    assert_eq!(forwarding.model(), "inner");
+    assert_eq!(forwarding.hint(), Some("OVERRIDE".to_string()));
+    assert_eq!(
+        inner.hint(),
+        Some("inner-hint".to_string()),
+        "the wrapped VM is unchanged"
+    );
+
+    // Every other member still delegates to the wrapped VM.
+    assert_eq!(forwarding.id(), inner.id());
+    assert_eq!(forwarding.name(), inner.name());
+    assert_eq!(forwarding.view_model_type(), inner.view_model_type());
+    assert_eq!(forwarding.model(), inner.model());
+    assert_eq!(forwarding.parent_id(), inner.parent_id());
+    assert_eq!(forwarding.status(), inner.status());
+    forwarding.construct().unwrap();
+    assert_eq!(inner.status(), ConstructionStatus::Constructed);
+    assert_eq!(forwarding.status(), inner.status());
+    forwarding.set_model("updated");
+    assert_eq!(inner.model(), "updated");
+    assert_eq!(forwarding.model(), "updated");
+    assert_eq!(forwarding.can_select(), inner.can_select());
+    assert_eq!(forwarding.is_selected(), inner.is_selected());
 }
 
 /// FWD-003 — ForwardingCompositeVM forwards iteration

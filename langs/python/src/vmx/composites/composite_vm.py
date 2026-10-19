@@ -15,6 +15,7 @@ from reactivex import operators as ops
 from reactivex.abc import DisposableBase, SchedulerBase
 from reactivex.subject import Subject
 
+from vmx._disposal import _run_disposal_steps as _run_every_step
 from vmx.collections import BatchUpdateHandle, CollectionChangedEvent
 from vmx.collections._vm_collection_hub_message import collection_changed_message_for
 from vmx.components.base import (
@@ -30,7 +31,7 @@ from vmx.components.protocols import ViewModelType
 from vmx.lifecycle.status import ConstructionStatus
 from vmx.messages.protocols import Message
 from vmx.services.dispatcher import Dispatcher
-from vmx.services.message_hub import MessageHub
+from vmx.services.message_hub import MessageHubProto
 
 VM = TypeVar("VM", bound=_ComponentVMBase)
 M = TypeVar("M")
@@ -58,7 +59,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         *,
         name: str,
         hint: str,
-        hub: MessageHub[Message],
+        hub: MessageHubProto[Message],
         dispatcher: Dispatcher,
         async_selection: bool = False,
         auto_construct_on_add: bool = False,
@@ -81,6 +82,8 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         self._current: VM | None = None
         self._collection_changed_subject: Subject[CollectionChangedEvent] = Subject()
         self._populated: bool = False
+        # Collects the children population started constructing (see _on_construct).
+        self._population_joined: list[VM] | None = None
         self._batch_depth: int = 0
         self._batch_dirty: bool = False
         self._dispose_requested: bool = False
@@ -278,6 +281,8 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             return self._children[index]
 
     def __setitem__(self, index: int, value: VM) -> None:
+        if isinstance(index, bool):
+            raise TypeError("index must be an int, not bool")
         # Emit the actual position; a negative index counts from the end
         # (mirrors insert and ObservableList).
         self._begin_membership_transaction()
@@ -321,16 +326,33 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
             raise
         else:
             commit_error = _commit_parent_transfer(transfer)
-            if self.current is old:
-                self._apply_current_change(None, internal=True)
-            self._emit_collection_changed(
-                CollectionChangedEvent(action="remove", old_items=(old,), old_index=resolved_index)
+            was_current = self.current is old
+
+            def clear_current() -> None:
+                if was_current:
+                    self._apply_current_change(None, internal=True)
+
+            def raise_commit_error() -> None:
+                if commit_error is not None:
+                    raise commit_error
+
+            # The change is committed: every publication step runs even when
+            # an earlier one raises (e.g. on_current_changed), and the first
+            # failure is re-raised.
+            _run_every_step(
+                raise_commit_error,
+                clear_current,
+                lambda: self._emit_collection_changed(
+                    CollectionChangedEvent(
+                        action="remove", old_items=(old,), old_index=resolved_index
+                    )
+                ),
+                lambda: self._emit_collection_changed(
+                    CollectionChangedEvent(
+                        action="add", new_items=(value,), new_index=resolved_index
+                    )
+                ),
             )
-            self._emit_collection_changed(
-                CollectionChangedEvent(action="add", new_items=(value,), new_index=resolved_index)
-            )
-            if commit_error is not None:
-                raise commit_error
         finally:
             self._end_membership_transaction(propagate_dispose_failure=sys.exc_info()[0] is None)
 
@@ -351,6 +373,8 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         whose ``new_index`` is the actual insertion position (stdlib
         semantics: negatives count from the end, out-of-range clamps).
         """
+        if isinstance(index, bool):
+            raise TypeError("index must be an int, not bool")
         self._begin_membership_transaction()
         transfer: _ParentTransfer | None = None
         attached = False
@@ -460,15 +484,23 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                     removed, was_current = self._remove_at_locked(idx)
                 if was_current:
                     previous_flag_changed = removed._commit_is_current(False)
-            if was_current:
-                self._finish_current_change(
-                    removed,
-                    None,
-                    previous_flag_changed=previous_flag_changed,
-                    value_flag_changed=False,
-                )
-            self._emit_collection_changed(
-                CollectionChangedEvent(action="remove", old_items=(removed,), old_index=idx)
+
+            def finish_current() -> None:
+                if was_current:
+                    self._finish_current_change(
+                        removed,
+                        None,
+                        previous_flag_changed=previous_flag_changed,
+                        value_flag_changed=False,
+                    )
+
+            # The removal is committed: the collection event is emitted even
+            # when on_current_changed raises; the first failure is re-raised.
+            _run_every_step(
+                finish_current,
+                lambda: self._emit_collection_changed(
+                    CollectionChangedEvent(action="remove", old_items=(removed,), old_index=idx)
+                ),
             )
         finally:
             self._end_membership_transaction(propagate_dispose_failure=sys.exc_info()[0] is None)
@@ -492,14 +524,22 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                     self._children.clear()
                 if previous is not None:
                     previous_flag_changed = previous._commit_is_current(False)
-            if previous is not None:
-                self._finish_current_change(
-                    previous,
-                    None,
-                    previous_flag_changed=previous_flag_changed,
-                    value_flag_changed=False,
-                )
-            self._emit_collection_changed(CollectionChangedEvent(action="reset"))
+
+            def finish_current() -> None:
+                if previous is not None:
+                    self._finish_current_change(
+                        previous,
+                        None,
+                        previous_flag_changed=previous_flag_changed,
+                        value_flag_changed=False,
+                    )
+
+            # The clear is committed: the reset is emitted even when
+            # on_current_changed raises; the first failure is re-raised.
+            _run_every_step(
+                finish_current,
+                lambda: self._emit_collection_changed(CollectionChangedEvent(action="reset")),
+            )
         finally:
             self._end_membership_transaction(propagate_dispose_failure=sys.exc_info()[0] is None)
 
@@ -524,11 +564,22 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         )
 
     def copy_to(self, target: list[VM], array_index: int) -> None:
-        """Copy children into *target* starting at *array_index*."""
-        for i, child in enumerate(self.snapshot()):
+        """Copy children into *target* starting at *array_index*.
+
+        Validates first, like ``List<T>.CopyTo``: a negative index or a target
+        too small for every child raises before anything is written.
+        """
+        children = self.snapshot()
+        if isinstance(array_index, bool) or array_index < 0:
+            raise IndexError(f"array_index {array_index!r} must be a non-negative int")
+        if array_index + len(children) > len(target):
+            raise IndexError("target is too small for the children")
+        for i, child in enumerate(children):
             target[array_index + i] = child
 
     def _remove_at(self, index: int) -> None:
+        if isinstance(index, bool):
+            raise TypeError("index must be an int, not bool")
         self._begin_membership_transaction()
         try:
             with _current_change_coordinator:
@@ -537,15 +588,25 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                     item, was_current = self._remove_at_locked(index)
                 if was_current:
                     previous_flag_changed = item._commit_is_current(False)
-            if was_current:
-                self._finish_current_change(
-                    item,
-                    None,
-                    previous_flag_changed=previous_flag_changed,
-                    value_flag_changed=False,
-                )
-            self._emit_collection_changed(
-                CollectionChangedEvent(action="remove", old_items=(item,), old_index=resolved_index)
+
+            def finish_current() -> None:
+                if was_current:
+                    self._finish_current_change(
+                        item,
+                        None,
+                        previous_flag_changed=previous_flag_changed,
+                        value_flag_changed=False,
+                    )
+
+            # The removal is committed: the collection event is emitted even
+            # when on_current_changed raises; the first failure is re-raised.
+            _run_every_step(
+                finish_current,
+                lambda: self._emit_collection_changed(
+                    CollectionChangedEvent(
+                        action="remove", old_items=(item,), old_index=resolved_index
+                    )
+                ),
             )
         finally:
             self._end_membership_transaction(propagate_dispose_failure=sys.exc_info()[0] is None)
@@ -622,13 +683,41 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
     def _maybe_auto_construct(self, child: VM) -> None:
         if not self._auto_construct_on_add:
             return
+        if self._status is ConstructionStatus.CONSTRUCTING:
+            # The construct walk joins a child added while it runs.
+            if child.status is ConstructionStatus.DESTRUCTED:
+                child.construct()
+            return
         if self._status != ConstructionStatus.CONSTRUCTED:
             return
         if child.status == ConstructionStatus.CONSTRUCTED:
             return
         child.construct()
 
+    def _construct_walk(self, joined: list[VM]) -> Iterator[VM]:
+        """Yield the construct walk's children, extended by late additions.
+
+        The membership snapshot comes first. With auto-construct-on-add, each
+        child added while the walk runs follows; ``_maybe_auto_construct``
+        already started it, so it is joined like a population child and never
+        restarted (spec/02 §6, spec/06 §5.1).
+        """
+        snapshot = list(self.snapshot())
+        visited = {id(child) for child in snapshot}
+        yield from snapshot
+        if not self._auto_construct_on_add:
+            return
+        while True:
+            late = next((c for c in self.snapshot() if id(c) not in visited), None)
+            if late is None:
+                return
+            visited.add(id(late))
+            joined.append(late)
+            yield late
+
     def _validate_move_index(self, index: int) -> None:
+        if isinstance(index, bool):
+            raise TypeError("index must be an int, not bool")
         if index < 0 or index >= len(self._children):
             raise IndexError(f"move index {index} out of range for {len(self._children)} children")
 
@@ -644,8 +733,11 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         emits no notification — matching the select_component semantics.
         """
         super()._on_construct()
+        # Children whose construct population started are joined, not restarted.
+        joined: list[VM] = []
         if not self._populated:
             initial_count = len(self._children)
+            self._population_joined = joined
             try:
                 self._populate_children()
             except Exception:
@@ -653,6 +745,8 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                     while len(self._children) > initial_count:
                         self._remove_at(len(self._children) - 1)
                 raise
+            finally:
+                self._population_joined = None
             self._populated = True
 
         def apply_initial_current() -> None:
@@ -664,9 +758,10 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
 
         self._complete_lifecycle_hook_after(
             self._transition_children(
-                list(self.snapshot()),
+                self._construct_walk(joined),
                 construct=True,
                 after=apply_initial_current,
+                joined=joined,
             )
         )
 
@@ -768,6 +863,14 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
         Subclasses override to evaluate their factory.
         """
 
+    def _join_if_pending(self, child: VM) -> None:
+        """Record a child population left pending: the child walk joins it."""
+        if self._population_joined is not None and child.status not in (
+            ConstructionStatus.CONSTRUCTED,
+            ConstructionStatus.DISPOSED,
+        ):
+            self._population_joined.append(child)
+
     def _attach_population(self, children: Iterable[VM]) -> None:
         """Attach one factory population as an all-or-nothing transaction."""
         candidates = list(children)
@@ -801,6 +904,7 @@ class _CompositeVMBase(Generic[VM], _ComponentVMBase, _ParentCompositeVM):
                     and child.status is not ConstructionStatus.CONSTRUCTED
                 ):
                     child.construct()
+                    self._join_if_pending(child)
                 else:
                     self._maybe_auto_construct(child)
             with self._membership_gate:
@@ -997,7 +1101,7 @@ class CompositeVM(Generic[VM], _CompositeVMBase[VM]):
         *,
         name: str,
         hint: str,
-        hub: MessageHub[Message],
+        hub: MessageHubProto[Message],
         dispatcher: Dispatcher,
         async_selection: bool = False,
         auto_construct_on_add: bool = False,
@@ -1031,9 +1135,9 @@ class CompositeVM(Generic[VM], _CompositeVMBase[VM]):
         cls,
         *,
         name: str | None = None,
-        hub: MessageHub[Message] | None = None,
+        hub: MessageHubProto[Message] | None = None,
         dispatcher: Dispatcher | None = None,
-        children: Callable[[], Iterable[VM]],
+        children: Callable[[], Iterable[VM]] | None = None,
         hint: str = "",
         async_selection: bool = False,
         auto_construct_on_add: bool = False,
@@ -1046,17 +1150,19 @@ class CompositeVM(Generic[VM], _CompositeVMBase[VM]):
 
         An additive alternative to :meth:`builder` (ADR-0055 / VMX-020).
         Delegates to :class:`CompositeVMBuilder`, so required-field validation
-        (``BuilderValidationError`` on a missing ``name``/``hub``/``dispatcher``)
-        and the resulting VM are identical to the fluent path. ``children`` is a
-        required keyword (pass ``lambda: ()`` for an initially empty composite).
+        (``BuilderValidationError`` on a missing ``name``/``hub``/``dispatcher``/
+        ``children``)
+        and the resulting VM are identical to the fluent path. ``children`` is
+        required (pass ``lambda: ()`` for an initially empty composite).
         """
         builder: CompositeVMBuilder[VM] = CompositeVMBuilder()
         builder = (
             builder.hint(hint)
             .async_selection(async_selection)
             .auto_construct_on_add(auto_construct_on_add)
-            .children(children)
         )
+        if children is not None:
+            builder = builder.children(children)
         if name is not None:
             builder = builder.name(name)
         if hub is not None:
@@ -1099,7 +1205,7 @@ class CompositeVMOf(Generic[M, VM], _CompositeVMBase[VM]):
         *,
         name: str,
         hint: str,
-        hub: MessageHub[Message],
+        hub: MessageHubProto[Message],
         dispatcher: Dispatcher,
         async_selection: bool = False,
         auto_construct_on_add: bool = False,

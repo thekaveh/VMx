@@ -15,7 +15,7 @@ from vmx.components.protocols import ViewModelType
 from vmx.messages.property_changed import PropertyChangedMessage
 from vmx.messages.tree_structure_changed import TreeStructureChange, TreeStructureChangedMessage
 from vmx.services.dispatcher import Dispatcher
-from vmx.services.message_hub import MessageHub
+from vmx.services.message_hub import MessageHubProto
 
 TModel = TypeVar("TModel")
 TVM = TypeVar("TVM", bound="HierarchicalVM[Any, Any]")
@@ -117,9 +117,11 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
 
     Children are **lazy by default**: the ``children_factory`` is not invoked
     until :attr:`children` is first accessed. Eager materialization is
-    requested by passing ``eager_children=True`` at construction time, which
-    causes the full subtree to be materialized and each child constructed
-    during :meth:`_on_construct`, in depth-first order.
+    requested by passing ``eager_children=True`` at construction time: this
+    node then materializes its children and constructs each of them during
+    :meth:`_on_construct`, in depth-first order. The option applies per node
+    (spec/18 §4), so the whole subtree is eager when the factory creates eager
+    nodes.
 
     Parameters
     ----------
@@ -147,7 +149,7 @@ class HierarchicalVM(Generic[TModel, TVM], _ComponentVMBase):
         self,
         model: TModel,
         children_factory: Callable[[TVM], Iterable[TVM]],
-        hub: MessageHub[Any],
+        hub: MessageHubProto[Any],
         dispatcher: Dispatcher,
         name: str | None = None,
         hint: str = "",

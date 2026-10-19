@@ -79,7 +79,10 @@ public class FORM_001_to_010_FormVM_Tests
     public void FORM_004_DenyCommand_Reverts_To_Snapshot()
     {
         var initial = new Model("Alice", 1);
-        using var sut = MakeFormVM(initial);
+        var persisterCalls = 0;
+        using var sut = new FormVM<Model>(
+            initial,
+            _ => { persisterCalls++; return Task.CompletedTask; });
 
         sut.SetModel(new Model("Bob", 2));
         sut.IsDirty.Should().BeTrue();
@@ -87,7 +90,9 @@ public class FORM_001_to_010_FormVM_Tests
         sut.DenyCommand.Execute(null);
 
         sut.Model.Should().Be(initial, "Model reverted to Snapshot value");
+        sut.Model.Should().Be(sut.Snapshot);
         sut.IsDirty.Should().BeFalse("no longer dirty after revert");
+        persisterCalls.Should().Be(0, "deny never invokes the persister");
     }
 
     // ── FORM-005 ──────────────────────────────────────────────────────────────
@@ -134,6 +139,28 @@ public class FORM_001_to_010_FormVM_Tests
         await sut.ApproveAsync();
 
         approvedValues.Should().ContainSingle().Which.Should().Be(new Model("Bob", 2));
+    }
+
+    /// <summary>FORM-006: a throwing persister never fires OnApproved.</summary>
+    [Fact]
+    [Trait("Conformance", "FORM-006")]
+    public async Task FORM_006_OnApproved_Silent_When_Persister_Throws()
+    {
+        var approvedValues = new List<Model>();
+        var errors = new List<Exception>();
+        using var sut = new FormVM<Model>(
+            new Model("Alice", 1),
+            _ => throw new InvalidOperationException("persist failed"));
+        using var approved = sut.OnApproved.Subscribe(approvedValues.Add);
+        using var failures = sut.ApproveErrors.Subscribe(errors.Add);
+
+        sut.SetModel(new Model("Bob", 2));
+        var thrown = await Record.ExceptionAsync(() => sut.ApproveAsync());
+
+        approvedValues.Should().BeEmpty("OnApproved does not fire when the persister throws");
+        (thrown is not null || errors.Count > 0).Should().BeTrue(
+            "the persister failure is surfaced rather than reported as success");
+        sut.IsDirty.Should().BeTrue("the snapshot does not advance on a failed persist");
     }
 
     // ── FORM-007 ──────────────────────────────────────────────────────────────

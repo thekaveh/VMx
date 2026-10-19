@@ -22,8 +22,14 @@ from notes_showcase.views.modals.save_file_modal import SaveFileModal
 
 
 def _make_app(return_value: Any = None) -> MagicMock:
+    """An app whose pushed modal is dismissed at once with *return_value*."""
     app = MagicMock()
-    app.push_screen_wait = AsyncMock(return_value=return_value)
+
+    async def push_screen(screen: Any, callback: Any = None) -> None:
+        if callback is not None:
+            callback(return_value)
+
+    app.push_screen = AsyncMock(side_effect=push_screen)
     return app
 
 
@@ -39,7 +45,7 @@ async def test_pick_file_to_open_returns_none_when_no_open_flow_exists() -> None
     service = TextualDialogService(app)
 
     assert await service.pick_file_to_open() is None
-    app.push_screen_wait.assert_not_awaited()
+    app.push_screen.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -50,8 +56,8 @@ async def test_pick_file_to_save_pushes_save_modal_and_returns_path() -> None:
     result = await service.pick_file_to_save(suggested_name="out.json", title="Export")
 
     assert result == "/tmp/out.json"
-    app.push_screen_wait.assert_awaited_once()
-    (modal,), _ = app.push_screen_wait.call_args
+    app.push_screen.assert_awaited_once()
+    (modal,), _ = app.push_screen.call_args
     assert isinstance(modal, SaveFileModal)
 
 
@@ -63,7 +69,7 @@ async def test_confirm_pushes_confirm_modal_and_returns_result() -> None:
     result = await service.confirm("Delete?", title="Confirm")
 
     assert result is True
-    (modal,), _ = app.push_screen_wait.call_args
+    (modal,), _ = app.push_screen.call_args
     assert isinstance(modal, ConfirmModal)
 
 
@@ -78,5 +84,5 @@ async def test_notify_pushes_notify_modal_with_severity() -> None:
         severity=NotificationSeverity.WARNING,
     )
 
-    (modal,), _ = app.push_screen_wait.call_args
+    (modal,), _ = app.push_screen.call_args
     assert isinstance(modal, NotifyModal)

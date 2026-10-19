@@ -236,15 +236,47 @@ final class KeyedServicedObservableCollectionTests: XCTestCase {
 
     /// COL-061 — replaceAll preflights keys, snapshots self input, and emits one Reset.
     func testCOL061ReplaceAllPreflightsAndSnapshotsSelf() throws {
-        let sut = makeCollection()
+        let hub = MessageHub()
+        var projected: [String] = []
+        let sut = makeCollection(hub: hub, projections: { projected.append($0) })
         let a = KeyedItem("a", "a")
         let b = KeyedItem("b", "b")
         try [a, b].forEach(sut.append)
         var messages: [CollectionChangedMessage<KeyedItem>] = []
-        sut.collectionChanged.sink { messages.append($0) }.store(in: &cancellables)
+        var hubMessages: [CollectionChangedMessage<KeyedItem>] = []
+        var projectedAtLocal: [String] = []
+        var lookupsAtLocal: [Bool] = []
+        sut.collectionChanged.sink { message in
+            messages.append(message)
+            projectedAtLocal = projected
+            lookupsAtLocal = sut.toArray().map { sut.get($0.key) === $0 }
+        }.store(in: &cancellables)
+        hub.messages.compactMap { $0 as? CollectionChangedMessage<KeyedItem> }
+            .sink { hubMessages.append($0) }.store(in: &cancellables)
+
+        // New unique-key items: every item is projected before commit, the new
+        // ordered items and keys install atomically, exactly one Reset per channel.
+        let x = KeyedItem("x", "x")
+        let y = KeyedItem("y", "y")
+        projected.removeAll()
+        try sut.replaceAll([x, y])
+        XCTAssertEqual(messages.map(\.action), [.reset])
+        XCTAssertEqual(hubMessages.map(\.action), [.reset])
+        XCTAssertTrue(projectedAtLocal.contains("x") && projectedAtLocal.contains("y"),
+                      "every item must be projected before the Reset is observed")
+        XCTAssertEqual(lookupsAtLocal, [true, true], "keys must be installed when Reset is observed")
+        XCTAssertTrue(sut.at(0) === x && sut.at(1) === y)
+        XCTAssertTrue(sut.get("x") === x && sut.get("y") === y)
+        XCTAssertNil(sut.get("a"))
+        XCTAssertNil(sut.get("b"))
+
+        try sut.replaceAll([a, b])
+        messages.removeAll()
+        hubMessages.removeAll()
 
         try sut.replaceAll(sut)
         XCTAssertEqual(messages.map(\.action), [.reset])
+        XCTAssertEqual(hubMessages.map(\.action), [.reset])
         XCTAssertTrue(sut.get("a") === a && sut.get("b") === b)
 
         XCTAssertThrowsError(try sut.replaceAll([KeyedItem("x", "x"), KeyedItem("throw", "bad")])) {
@@ -252,6 +284,9 @@ final class KeyedServicedObservableCollectionTests: XCTestCase {
         }
         XCTAssertEqual(sut.toArray().map(\.value), ["a", "b"])
         XCTAssertEqual(messages.count, 1)
+        XCTAssertEqual(hubMessages.count, 1)
+        XCTAssertTrue(sut.get("a") === a && sut.get("b") === b)
+        XCTAssertNil(sut.get("x"))
 
         let empty = makeCollection()
         var emptyMessages = 0

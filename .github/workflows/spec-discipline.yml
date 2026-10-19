@@ -100,7 +100,7 @@ jobs:
           head_sha="${{ github.event.pull_request.head.sha }}"
 
           # Files under spec/ that don't themselves require a paired ADR:
-          # - spec/README.md, spec/VERSION (housekeeping)
+          # - spec/README.md, spec/HISTORY.md, spec/VERSION (housekeeping)
           # - spec/ADRs/** (ADRs themselves)
           # - spec/fixtures/** (machine-checkable test inputs; tweakable alongside spec text)
           # - spec/12-conformance.md (test catalog; adding IDs is governed by the
@@ -109,6 +109,7 @@ jobs:
           #   already covered by the ADR they introduced)
           changed=$(git diff --name-only "$base_sha" "$head_sha" -- spec/ \
             | grep -v '^spec/README.md$' \
+            | grep -v '^spec/HISTORY.md$' \
             | grep -v '^spec/VERSION$' \
             | grep -v '^spec/ADRs/' \
             | grep -v '^spec/fixtures/' \
@@ -223,13 +224,13 @@ jobs:
             fi
             # Swift stub presence
             if [ -d langs/swift/Tests/VMxTests ]; then
-              if ! grep -rE -q "^[[:space:]]*///?[[:space:]]+${id}([[:space:](]|$).*(—|-)" langs/swift/Tests/VMxTests; then
+              if ! grep -rE -q "^[[:space:]]*///?[[:space:]]+${id}([[:space:](]|$).*—" langs/swift/Tests/VMxTests; then
                 missing_in+=("langs/swift/Tests/VMxTests:${id}")
               fi
             fi
             # Rust stub presence
             if [ -d langs/rust/tests/conformance ]; then
-              if ! grep -rE -q "^[[:space:]]*///[[:space:]]+${id}([[:space:](]|$).*(—|-)" langs/rust/tests/conformance; then
+              if ! grep -rE -q "^[[:space:]]*///[[:space:]]+${id}([[:space:](]|$).*—" langs/rust/tests/conformance; then
                 missing_in+=("langs/rust/tests/conformance:${id}")
               fi
             fi

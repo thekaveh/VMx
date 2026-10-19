@@ -14,5 +14,14 @@ as:
 The HTML, SVG, and PNG files are generated outputs. Update the registry and
 generator together when adding, removing, renaming, or retitling a diagram.
 
-Regenerate the triplets with `python3 generate_diagrams.py`; the renderer
-requires `rsvg-convert` and `pngquant` on `PATH`.
+Run these commands from the repository root. The renderer requires
+`rsvg-convert` and `pngquant` on `PATH`.
+
+```bash
+python3 docs/assets/diagrams/generate_diagrams.py          # regenerate
+python3 docs/assets/diagrams/generate_diagrams.py --check  # verify drift (CI)
+python3 tools/generate-doc-diagrams.py --check             # root diagrams
+python3 -m scripts.docs.validate_diagrams                  # links and assets
+```
+
+`make docs-check` runs all of these checks.

@@ -146,10 +146,14 @@ public sealed class FormVM<TM> : IDisposable
         _ = ApproveInternalAsync().ContinueWith(
             t =>
             {
-                EmitApproveError(t.Exception!.GetBaseException());
+                // A cancelled persister is a non-success outcome too (spec/20
+                // §5.3); a cancelled Task carries no Exception, so report one.
+                EmitApproveError(t.IsCanceled
+                    ? new TaskCanceledException(t)
+                    : t.Exception!.GetBaseException());
             },
             CancellationToken.None,
-            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskContinuationOptions.NotOnRanToCompletion | TaskContinuationOptions.ExecuteSynchronously,
             TaskScheduler.Default);
     }
 
@@ -208,9 +212,9 @@ public sealed class FormVM<TM> : IDisposable
 
     /// <summary>
     /// Invokes the persister delegate; on success advances <see cref="Snapshot"/> and fires <see cref="OnApproved"/>.
-    /// On failure, no state mutation occurs; the persister exception is observable
-    /// via <see cref="ApproveAsync"/> only — <c>ApproveCommand.Execute()</c>
-    /// dispatches the persist call fire-and-forget (per FORM-007 and chapter 20 §2).
+    /// On failure, no state mutation occurs. <see cref="ApproveAsync"/> rethrows the
+    /// persister exception; <c>ApproveCommand.Execute()</c> routes it to
+    /// <see cref="ApproveErrors"/> (FORM-015, chapter 20 §8.2).
     /// In strict mode, <c>CanExecute</c> is <c>false</c> when <see cref="IsDirty"/> is <c>false</c>.
     /// One approval runs at a time: <c>CanExecute</c> is <c>false</c> while an approval
     /// is in flight, and <c>CanExecuteChanged</c> fires once when an approval is
@@ -278,6 +282,9 @@ public sealed class FormVM<TM> : IDisposable
             {
                 WaitForApprovalPublisher(caller);
                 if (_disposed) return;
+                // Reject a null model before any deferral, so the caller sees
+                // the error (failure-atomic).
+                ThrowHelper.ThrowIfNull(model, nameof(model));
                 if (_approvalPublishingDepth > 0 && _approvalPrePublishing)
                 {
                     _deferredApprovalModels.Enqueue(model);
@@ -285,7 +292,6 @@ public sealed class FormVM<TM> : IDisposable
                 }
                 _activeMutations++;
                 admitted = true;
-                ThrowHelper.ThrowIfNull(model, nameof(model));
 
                 // Preparation (spec/20 §5.2, §5.4) runs every consumer callback
                 // and changes no form state, so a callback failure propagates
@@ -632,6 +638,12 @@ public sealed class FormVM<TM> : IDisposable
         try
         {
             _canExecuteChangedTrigger.OnNext(Unit.Default);
+        }
+        catch (Exception)
+        {
+            // The caller rethrows the approval failure next. That failure is
+            // the first error and wins: an observer that throws from this
+            // notification must not replace it (§5.3 step 4, FORM-033).
         }
         finally
         {

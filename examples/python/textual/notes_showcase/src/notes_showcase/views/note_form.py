@@ -6,9 +6,10 @@ The widgets here two-way bind to those scalars, so typing into the Title
 ``Input`` actually writes back into the form and flips ``is_dirty`` →
 ``approve_command.can_execute``.
 
-Status-line ``editing_text`` is a :class:`DerivedProperty`, so we route it
-through ``bind_derived_property`` (Phase 5.b binding-gap #3) — the
-``PropertyChangedMessage`` channel is not used.
+The dirty marker reads the ``is_dirty`` :class:`DerivedProperty` through
+``on_derived_change`` (Phase 5.b binding-gap #3) — the
+``PropertyChangedMessage`` channel is not used. Tags render as removable
+chips bound to ``remove_tag_command``; Enter in the tag field adds the tag.
 
 Subscription hygiene (subscription ownership): every ``bind_*`` returns a
 ``Disposable`` that we collect into a ``CompositeDisposable`` and dispose
@@ -25,10 +26,49 @@ from textual.widgets import Button, Checkbox, Input, Static, TextArea
 from notes_showcase.viewmodels.note_form_vm import NoteFormVM
 from notes_showcase.views.adapter import (
     bind_command,
-    bind_derived_property,
     bind_property,
     bind_property_two_way,
+    on_derived_change,
+    on_vm_property_change,
 )
+
+
+def _dirty_text(is_dirty: object) -> str:
+    return "Unsaved changes" if is_dirty else "Saved"
+
+
+def _render_tag_chips(view: NoteFormView) -> None:
+    """Rebuild the removable tag chips when the draft's tags change.
+
+    Each chip is a button bound to ``remove_tag_command`` with its tag as the
+    parameter. ``remove_children`` is asynchronous, so the rebuild runs on the
+    widget's message pump and awaits it before mounting (see
+    ``capability_actions._rebuild_buttons``).
+    """
+    tags = view._vm.tags
+    if tags == view._rendered_tags:
+        return
+    view._rendered_tags = tags
+    view.call_later(_render_tag_chips_async, view, tags)
+
+
+async def _render_tag_chips_async(view: NoteFormView, tags: tuple[str, ...]) -> None:
+    if tags != view._rendered_tags:
+        return  # superseded by a later rebuild
+    chips = view.query_one("#tag_chips", Horizontal)
+    view._chip_bindings.dispose()
+    view._chip_bindings = CompositeDisposable()
+    await chips.remove_children()
+    for index, tag in enumerate(tags):
+        button = Button(f"✕ {tag}", id=f"tag_remove_{index}", classes="tag_chip")
+        await chips.mount(button)
+        view._chip_bindings.add(bind_command(button, view._vm.remove_tag_command, tag))
+
+
+def _submit(vm: NoteFormVM, input_id: str | None) -> None:
+    """Enter in the tag field adds the tag (when the command allows it)."""
+    if input_id == "form_tag_draft" and vm.add_tag_command.can_execute():
+        vm.add_tag_command.execute()
 
 
 def _wire_bindings(view: NoteFormView) -> CompositeDisposable:
@@ -36,7 +76,13 @@ def _wire_bindings(view: NoteFormView) -> CompositeDisposable:
     return CompositeDisposable(
         # Two-way scalar bindings (binding-gap #1 fix).
         bind_property_two_way(view.query_one("#form_title", Input), "value", vm, "title"),
-        bind_property(view.query_one("#form_title_error", Static), "renderable", vm, "title_error"),
+        bind_property(
+            view.query_one("#form_title_error", Static),
+            "renderable",
+            vm,
+            "title_error",
+            transform=lambda value: str(value) if value else "",
+        ),
         bind_property_two_way(view.query_one("#form_starred", Checkbox), "value", vm, "starred"),
         bind_property_two_way(view.query_one("#form_body", TextArea), "text", vm, "body"),
         # Tag draft (text input) + add/save/revert commands.
@@ -67,17 +113,16 @@ def _wire_bindings(view: NoteFormView) -> CompositeDisposable:
             "tag_suggestions_text",
             transform=lambda value: f"Suggestions: {value}" if str(value) else "",
         ),
-        # Tag chip strip — one-way bound to the ``tags_text``
-        # DerivedProperty[str] so the rendered string is "alpha, beta"
-        # (flattened tag binding; bound through bind_derived_property so it
-        # tracks DerivedProperty.value_changed rather than the hub).
-        bind_derived_property(
-            view.query_one("#form_tag_chips", Static), "renderable", vm.tags_text
-        ),
+        # Tag chip strip — one removable button per tag, bound to
+        # ``remove_tag_command`` (see _render_tag_chips).
+        on_vm_property_change(vm, {"tags"}, lambda _name: _render_tag_chips(view)),
         # Dirty marker ← DerivedProperty (binding-gap #3 fix). Uses the
         # bridge that subscribes to ``DerivedProperty.value_changed`` rather
         # than the hub (DerivedProperty does not publish PropertyChangedMessage).
-        bind_derived_property(view.query_one("#form_status", Static), "renderable", vm.is_dirty),
+        on_derived_change(
+            vm.is_dirty,
+            lambda value: view.query_one("#form_status", Static).update(_dirty_text(value)),
+        ),
     )
 
 
@@ -88,6 +133,8 @@ class NoteFormView(Vertical):
         super().__init__(id="form_pane")
         self._vm = vm
         self._disposables: CompositeDisposable = CompositeDisposable()
+        self._chip_bindings: CompositeDisposable = CompositeDisposable()
+        self._rendered_tags: tuple[str, ...] = ()
 
     def compose(self) -> ComposeResult:
         yield Static("Note", classes="pane_title")
@@ -100,7 +147,7 @@ class NoteFormView(Vertical):
             id="tag_chip_row",
         )
         yield Static("", id="form_tag_suggestions")
-        yield Static("", id="form_tag_chips")
+        yield Horizontal(id="tag_chips")
         yield Horizontal(
             Button("Edit", id="form_mode_edit"),
             Button("Preview", id="form_mode_preview"),
@@ -117,6 +164,11 @@ class NoteFormView(Vertical):
 
     def on_mount(self) -> None:
         self._disposables = _wire_bindings(self)
+        _render_tag_chips(self)
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        _submit(self._vm, event.input.id)
 
     def on_unmount(self) -> None:
         self._disposables.dispose()
+        self._chip_bindings.dispose()

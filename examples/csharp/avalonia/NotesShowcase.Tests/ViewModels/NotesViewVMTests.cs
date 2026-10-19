@@ -65,6 +65,20 @@ public sealed class NotesViewVMTests
     }
 
     [Fact]
+    public async Task Recomputing_the_filter_keeps_the_current_page()
+    {
+        var (vm, _) = await BuildAndBindAsync("nb-reviews");
+        vm.MoveToNextPageCommand.Execute(null);
+        Assert.Equal(1, vm.CurrentPageIndex);
+
+        // A filter that keeps every note still recomputes the filtered list.
+        vm.Filter = _ => true;
+
+        Assert.Equal(1, vm.CurrentPageIndex);
+        Assert.Equal(2, vm.VisibleItems.Count);
+    }
+
+    [Fact]
     public async Task Pagination_no_op_at_boundaries()
     {
         var (vm, _) = await BuildAndBindAsync("nb-reviews");

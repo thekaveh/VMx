@@ -13,8 +13,9 @@ Every VM participates in the same construction state machine:
 `Disposed`. Construction, destruction, reconstruction, and disposal are part of
 the framework contract rather than host-app convention.
 
-Disposal itself is framework-wide and idempotent: independent teardown paths
-may call it without consumer-side coordination. The complete per-type behavior
+Disposal is framework-wide and idempotent: independent teardown paths may call
+it without consumer-side coordination. It is valid from any state and runs a
+synchronous depth-first cascade. The complete per-type behavior
 is in the [Disposal Contract](primitives/disposal-contract.md).
 
 ## 4.3. Message Hub and Dispatcher
@@ -59,38 +60,32 @@ conformance suite, and repository tooling checks coverage before CI passes.
 
 ## 4.8. Framework Surface
 
-Every flavor exposes the same surface under its own naming idiom:
+Beyond the lifecycle, hub, ownership, and collection contracts above, every
+flavor exposes these parts under its own naming idiom:
 
-- A five-state construction lifecycle (`Destructed`, `Constructing`,
-  `Constructed`, `Destructing`, plus terminal `Disposed`) with reversible
-  `construct`/`destruct`, `reconstruct()`, and a synchronous depth-first
-  `dispose()` cascade that can be invoked from any state.
-- A reactive message hub for `PropertyChangedMessage` and
-  `ConstructionStatusChangedMessage`, plus collection-change events on
-  container VMs.
-- Four hierarchy primitives — leaf `ComponentVM`, selectable `CompositeVM`,
-  peer `GroupVM`, fixed-arity `AggregateVM1..6` — plus forwarding decorators
-  for instrumentation.
-- One shared VM collection capability for groups and composites, with
-  selection layered only onto composites and atomic identity-preserving move.
+- Collection-change events on container VMs, in addition to property and
+  lifecycle messages.
+- Forwarding decorators that wrap VMs for instrumentation.
 - A `RelayCommand` with reactive `canExecute` triggers and explicit imperative
-  re-evaluation notifications, plus the decorators `CompositeCommand`,
-  `DecoratorCommand`, and `ConfirmationDecoratorCommand`, and a modeled-CRUD
-  helper (`ModeledCrudCommands`).
+  re-evaluation notifications.
+- The command decorators `CompositeCommand`, `DecoratorCommand`, and
+  `ConfirmationDecoratorCommand`, and the modeled-CRUD helper
+  `ModeledCrudCommands`.
 - Tree utilities (`walk`, `find`, `walk_expanded`) for introspection.
 - 22 opt-in capability micro-interfaces (`ISelectable`, `IExpandable`,
-  `IClosable`, `IFilterable`, `IPageable`, …) and helper state classes
-  (`ExpandableState`, `SearchableState`) for layering behaviour onto VMs
-  additively. `SearchableState` optionally observes a source-change signal so
-  an unchanged term stays synchronized with collection or member invalidations.
-- `DerivedProperty<T>` for N-source computed values, `FormVM<T>` for
-  snapshot/revert/validation flows, `DiscriminatorVM` for single-active-key
-  coordination, `AsyncResourceVM<T>` for cancellable latest-wins acquisition,
-  `PagedComposition` / `TokenPagedComposition` for finite and cursor paging,
-  an opt-in notification sub-package (`INotificationHub`), `IDialogService`,
-  null-object service variants (`NullMessageHub`, `NullDispatcher`,
-  `NullNotificationHub`, `NullLocalizer`, `NullDialogService`), and an
-  `ILocalizer` hook for i18n.
+  `IClosable`, `IFilterable`, `IPageable`, …) that layer behavior onto VMs.
+- Helper state classes `ExpandableState` and `SearchableState`.
+  `SearchableState` can observe a source-change signal, so an unchanged term
+  stays synchronized with collection or member invalidations.
+- `DerivedProperty<T>` for computed values over N sources.
+- `FormVM<T>` for snapshot, revert, and validation flows.
+- `DiscriminatorVM` for single-active-key coordination.
+- `AsyncResourceVM<T>` for cancellable latest-wins acquisition.
+- `PagedComposition` and `TokenPagedComposition` for finite and cursor paging.
+- An opt-in notification sub-package (`INotificationHub`), `IDialogService`,
+  and an `ILocalizer` hook for i18n.
+- Null-object service variants: `NullMessageHub`, `NullDispatcher`,
+  `NullNotificationHub`, `NullLocalizer`, and `NullDialogService`.
 
 [Framework Primitives](primitives/index.md) explains when to reach for each
 family.

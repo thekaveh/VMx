@@ -367,6 +367,30 @@ public sealed class FORM_031_to_034_ApprovalAdmission_Tests
     }
 
     [Fact, Trait("Conformance", "FORM-033")]
+    public async Task FORM_033_Failed_Settlement_Keeps_The_Persister_Failure_First()
+    {
+        var persister = new GatedPersister();
+        using var form = new FormVM<Model>(new("initial"), persister.Persist);
+        form.SetModel(new("first"));
+
+        var approval = form.ApproveAsync();
+        await persister.Entered(0);
+        var throwOnce = true;
+        form.ApproveCommand.CanExecuteChanged += (_, _) =>
+        {
+            if (!throwOnce) return;
+            throwOnce = false;
+            throw new InvalidOperationException("observer-fail");
+        };
+        persister.Fail(0, new InvalidOperationException("persist-fail"));
+
+        var failure = await approval.Invoking(task => task.WaitAsync(HangGuard))
+            .Should().ThrowAsync<InvalidOperationException>();
+        failure.WithMessage("persist-fail");
+        throwOnce.Should().BeFalse("the settlement notification reached the observer");
+    }
+
+    [Fact, Trait("Conformance", "FORM-033")]
     public async Task FORM_033_Settlement_Clears_The_Mark_Before_Each_Notification()
     {
         // The model turns invalid during the persist and the reset makes it
@@ -418,6 +442,28 @@ public sealed class FORM_031_to_034_ApprovalAdmission_Tests
         trace.Skip(4).Should().Equal(("can_execute", true), ("approved", true));
         approved.Should().Equal(new Model("first"), new Model("reset:first"));
         form.Snapshot.Should().Be(new Model("reset:reset:first"));
+    }
+
+    [Fact, Trait("Conformance", "FORM-032")]
+    public async Task FORM_032_Cancelled_Command_Approval_Is_Routed_To_ApproveErrors()
+    {
+        var persister = new GatedPersister();
+        using var form = new FormVM<Model>(new("initial"), persister.Persist);
+        form.SetModel(new("edited"));
+        var errorSeen = new TaskCompletionSource<Exception>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var approved = 0;
+        using var errors = form.ApproveErrors.Subscribe(error => errorSeen.TrySetResult(error));
+        using var approvals = form.OnApproved.Subscribe(_ => Interlocked.Increment(ref approved));
+
+        form.ApproveCommand.Execute(null);
+        await persister.Entered(0);
+        persister.Cancel(0);
+
+        var error = await errorSeen.Task.WaitAsync(HangGuard);
+        error.Should().BeAssignableTo<OperationCanceledException>();
+        Volatile.Read(ref approved).Should().Be(0);
+        form.ApproveCommand.CanExecute(null).Should().BeTrue();
+        form.Snapshot.Should().Be(new Model("initial"));
     }
 
     [Fact, Trait("Conformance", "FORM-033")]

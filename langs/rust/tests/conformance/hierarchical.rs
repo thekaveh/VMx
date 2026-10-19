@@ -30,12 +30,14 @@ fn factory_hydration_is_atomic_and_retryable() {
     );
     let snapshot = Arc::new(Mutex::new(vec![first.clone(), first.clone()]));
     let captured = Arc::clone(&snapshot);
+    let hub = MessageHub::new();
+    let recorder = hub.record(1024);
     let root = HierarchicalVm::with_children_factory(
         "root",
         "root".to_string(),
         move |_| captured.lock().unwrap().clone(),
         false,
-        MessageHub::new(),
+        hub.clone(),
     );
 
     assert!(matches!(
@@ -43,6 +45,7 @@ fn factory_hydration_is_atomic_and_retryable() {
         Err(VmxError::InvalidArgument(message)) if message.contains("factory")
     ));
     assert!(first.parent().is_none());
+    assert!(recorder.messages().is_empty(), "no message on rejection");
 
     *snapshot.lock().unwrap() = vec![first.clone(), second.clone()];
     assert!(root.try_children().unwrap() == vec![first.clone(), second.clone()]);
@@ -74,17 +77,52 @@ fn factory_hydration_rejects_invalid_topology() {
     assert!(self_node.try_children().is_err());
     assert!(self_node.parent().is_none());
 
+    // An ancestor in the snapshot is rejected without any hub publication.
+    let hub = MessageHub::new();
+    let recorder = hub.record(1024);
+    let ancestor = HierarchicalVm::with_children_factory(
+        "ancestor",
+        "ancestor".to_string(),
+        |_| Vec::new(),
+        false,
+        hub.clone(),
+    );
+    let fresh = leaf("fresh");
+    let ancestor_slot = Arc::new(Mutex::new(vec![ancestor.clone()]));
+    let captured = Arc::clone(&ancestor_slot);
+    let descendant = HierarchicalVm::with_children_factory(
+        "descendant",
+        "descendant".to_string(),
+        move |_| captured.lock().unwrap().clone(),
+        false,
+        hub.clone(),
+    );
+    ancestor.add_child(descendant.clone()).unwrap();
+    let before = recorder.messages().len();
+    assert!(descendant.try_children().is_err());
+    assert_eq!(recorder.messages().len(), before, "no message on rejection");
+    assert!(ancestor.parent().is_none());
+    assert!(descendant.parent().as_ref() == Some(&ancestor));
+    assert!(ancestor.children() == vec![descendant.clone()]);
+    // A later access retries the factory.
+    *ancestor_slot.lock().unwrap() = vec![fresh.clone()];
+    assert!(descendant.try_children().unwrap() == vec![fresh.clone()]);
+    assert!(fresh.parent().as_ref() == Some(&descendant));
+
     let old_parent = leaf("old");
     let attached = leaf("attached");
     old_parent.add_child(attached.clone()).unwrap();
+    let captured_attached = attached.clone();
     let new_parent = HierarchicalVm::with_children_factory(
         "new",
         "new".to_string(),
-        move |_| vec![attached.clone()],
+        move |_| vec![captured_attached.clone()],
         false,
         MessageHub::new(),
     );
     assert!(new_parent.try_children().is_err());
+    assert!(attached.parent().as_ref() == Some(&old_parent));
+    assert!(old_parent.children() == vec![attached.clone()]);
 }
 
 /// HIER-032 — structural factory reentry rejects atomically and remains retryable.
@@ -620,24 +658,50 @@ fn concurrent_reparenting_keeps_one_parent_child_pair() {
 /// HIER-008 — Eager child loading via constructor option
 #[test]
 fn eager_construct_materializes_descendants() {
-    let calls = Arc::new(Mutex::new(0));
-    let seen = calls.clone();
-    let hub = MessageHub::new();
-    let root = HierarchicalVm::with_children_factory(
-        "root",
-        "root".to_string(),
-        move |_| {
-            *seen.lock().unwrap() += 1;
-            vec![leaf("child")]
-        },
-        true,
-        hub,
-    );
+    // root -> {a -> {a1 -> {a1x}}, b}: three levels below the root.
+    fn eager_node(name: &str, calls: Arc<Mutex<Vec<String>>>) -> HierarchicalVm<String> {
+        HierarchicalVm::with_children_factory(
+            name,
+            name.to_string(),
+            move |node| {
+                let model = node.model();
+                calls.lock().unwrap().push(model.clone());
+                let children: &[&str] = match model.as_str() {
+                    "root" => &["a", "b"],
+                    "a" => &["a1"],
+                    "a1" => &["a1x"],
+                    _ => &[],
+                };
+                children
+                    .iter()
+                    .map(|child| eager_node(child, calls.clone()))
+                    .collect()
+            },
+            true,
+            MessageHub::new(),
+        )
+    }
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let root = eager_node("root", calls.clone());
+    assert!(calls.lock().unwrap().is_empty());
 
     root.construct().unwrap();
 
-    assert_eq!(*calls.lock().unwrap(), 1);
-    assert!(root.is_children_materialized());
+    let mut invoked = calls.lock().unwrap().clone();
+    invoked.sort();
+    assert_eq!(invoked, vec!["a", "a1", "a1x", "b", "root"]);
+
+    // Every descendant is materialized before any explicit children access.
+    let mut stack = vec![root.clone()];
+    let mut visited = Vec::new();
+    while let Some(node) = stack.pop() {
+        assert!(node.is_children_materialized(), "{}", node.model());
+        visited.push(node.model());
+        stack.extend(node.children());
+    }
+    visited.sort();
+    assert_eq!(visited, vec!["a", "a1", "a1x", "b", "root"]);
+    assert_eq!(calls.lock().unwrap().len(), 5, "no factory re-invocation");
 }
 
 /// HIER-009 — Depth-first construction order (eager mode)
@@ -654,7 +718,18 @@ fn eager_construction_is_depth_first() {
             vec![HierarchicalVm::with_children_factory(
                 "child",
                 "child".to_string(),
-                move |_| vec![HierarchicalVm::new("grandchild", "grandchild".to_string())],
+                {
+                    let leaf_hub = grand_hub.clone();
+                    move |_| {
+                        vec![HierarchicalVm::with_children_factory(
+                            "grandchild",
+                            "grandchild".to_string(),
+                            |_| Vec::new(),
+                            false,
+                            leaf_hub.clone(),
+                        )]
+                    }
+                },
                 true,
                 grand_hub,
             )]
@@ -665,6 +740,8 @@ fn eager_construction_is_depth_first() {
 
     root.construct().unwrap();
 
+    let a = root.children().remove(0);
+    let aa = a.children().remove(0);
     let constructed = recorder
         .messages()
         .into_iter()
@@ -677,7 +754,71 @@ fn eager_construction_is_depth_first() {
             _ => None,
         })
         .collect::<Vec<_>>();
-    assert_eq!(constructed.last(), Some(&root.id()));
+    // Full depth-first order: AA before A, A before root, root last.
+    assert_eq!(constructed, vec![aa.id(), a.id(), root.id()]);
+    assert_eq!(aa.status(), ConstructionStatus::Constructed);
+}
+
+fn eager_tree(hub: &MessageHub) -> HierarchicalVm<String> {
+    let child_hub = hub.clone();
+    HierarchicalVm::with_children_factory(
+        "root",
+        "root".to_string(),
+        move |_| {
+            vec![HierarchicalVm::with_children_factory(
+                "child",
+                "child".to_string(),
+                |_| Vec::new(),
+                false,
+                child_hub.clone(),
+            )]
+        },
+        true,
+        hub.clone(),
+    )
+}
+
+/// HIER-009 — Eager construction enters the parent's Constructing before any child
+#[test]
+fn eager_construction_starts_the_parent_before_its_children() {
+    let hub = MessageHub::new();
+    let recorder = hub.record(1024);
+    let root = eager_tree(&hub);
+
+    root.construct().unwrap();
+
+    let first = recorder
+        .messages()
+        .into_iter()
+        .find_map(|message| match message {
+            Message::ConstructionStatusChanged(change) => Some(change.sender_id),
+            _ => None,
+        });
+    assert_eq!(first, Some(root.id()));
+}
+
+/// HIER-009 — A rejected construct does not construct eager children
+#[test]
+fn a_rejected_eager_construct_leaves_children_untouched() {
+    let hub = MessageHub::new();
+    let root = eager_tree(&hub);
+    let child = root.try_children().unwrap().remove(0);
+    root.dispose().unwrap();
+
+    assert!(root.construct().is_err());
+    assert_eq!(child.status(), ConstructionStatus::Destructed);
+}
+
+/// HIER-009 — Constructing an already-constructed eager parent is a no-op
+#[test]
+fn constructing_a_constructed_eager_parent_does_not_touch_children() {
+    let hub = MessageHub::new();
+    let root = eager_tree(&hub);
+    root.construct().unwrap();
+    let child = root.try_children().unwrap().remove(0);
+    child.dispose().unwrap();
+
+    assert_eq!(root.construct(), Ok(()));
 }
 
 /// HIER-010 — PropertyChangedMessage on Parent change
@@ -828,16 +969,77 @@ fn searchable_state_filters_materialized_nodes() {
     let root = leaf("root");
     root.add_child(leaf("alpha")).unwrap();
     root.add_child(leaf("beta")).unwrap();
-    let state = SearchableState::new(root.children(), |node, term| node.model().contains(term));
+    root.add_child(leaf("alps")).unwrap();
+    let lazy_calls = Arc::new(AtomicUsize::new(0));
+    let lazy_seen = lazy_calls.clone();
+    // A lazy node whose un-materialized child would match the term.
+    let lazy = HierarchicalVm::with_children_factory(
+        "lazy",
+        "lazy".to_string(),
+        move |_| {
+            lazy_seen.fetch_add(1, Ordering::SeqCst);
+            vec![leaf("alpine")]
+        },
+        false,
+        MessageHub::new(),
+    );
+    root.add_child(lazy.clone()).unwrap();
+    assert!(!lazy.is_children_materialized());
+
+    // Search the materialized portion only: never force a lazy factory.
+    let tree = root.clone();
+    let state = SearchableState::from_items(
+        move || {
+            let mut nodes = Vec::new();
+            let mut stack = vec![tree.clone()];
+            while let Some(node) = stack.pop() {
+                if node.is_children_materialized() {
+                    let mut children = node.children();
+                    children.reverse();
+                    stack.extend(children);
+                }
+                nodes.push(node);
+            }
+            nodes
+        },
+        |node: &HierarchicalVm<String>, term: &str| node.model().contains(term),
+    );
     state.set_search_term("alp");
 
-    assert_eq!(state.filtered()[0].model(), "alpha");
+    let filtered = state.filtered();
+    assert_eq!(filtered.len(), 2);
+    assert_eq!(
+        filtered.iter().map(|node| node.model()).collect::<Vec<_>>(),
+        vec!["alpha", "alps"]
+    );
+    assert_eq!(lazy_calls.load(Ordering::SeqCst), 0);
+    assert!(!lazy.is_children_materialized());
 }
 
 /// HIER-014 — Composition with ModeledCrudCommands mutates the tree
 #[test]
 fn modeled_crud_commands_can_mutate_tree_children() {
-    let root = leaf("root");
+    let hub = MessageHub::new();
+    let recorder = hub.record(1024);
+    let root = HierarchicalVm::with_children_factory(
+        "root",
+        "root".to_string(),
+        |_| Vec::new(),
+        false,
+        hub.clone(),
+    );
+    let tree_changes = |recorder: &vmx::MessageRecorder| {
+        recorder
+            .messages()
+            .into_iter()
+            .filter_map(|message| match message {
+                Message::TreeStructureChanged(change) => {
+                    Some((change.sender_id, change.change, change.affected_id))
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
     let current = Arc::new(Mutex::new(None::<HierarchicalVm<String>>));
     let current_for_create = current.clone();
     let root_for_create = root.clone();
@@ -859,36 +1061,59 @@ fn modeled_crud_commands_can_mutate_tree_children() {
 
     crud.create_new_command().execute();
     assert_eq!(root.children().len(), 1);
+    let created = root.children().remove(0);
+    assert_eq!(
+        tree_changes(&recorder),
+        vec![(root.id(), TreeStructureChange::Added, created.id())]
+    );
     crud.delete_current_command().execute();
     assert!(root.children().is_empty());
+    assert_eq!(
+        tree_changes(&recorder),
+        vec![
+            (root.id(), TreeStructureChange::Added, created.id()),
+            (root.id(), TreeStructureChange::Removed, created.id())
+        ]
+    );
 }
 
 /// HIER-015 — HierarchicalVMBuilder<M, VM>.Build validates required fields
 #[test]
 fn hierarchical_builder_validates_required_fields() {
-    assert!(HierarchicalVm::<String>::builder()
-        .model("root".to_string())
-        .children_factory(|_| Vec::new())
-        .build()
-        .is_err());
-    assert!(HierarchicalVm::<String>::builder()
-        .children_factory(|_| Vec::new())
-        .services(MessageHub::new(), NullDispatcher::new())
-        .build()
-        .is_err());
-    assert!(HierarchicalVm::<String>::builder()
-        .model("root".to_string())
-        .services(MessageHub::new(), NullDispatcher::new())
-        .build()
-        .is_err());
+    assert!(matches!(
+        HierarchicalVm::<String>::builder()
+            .model("root".to_string())
+            .children_factory(|_| Vec::new())
+            .build(),
+        Err(VmxError::BuilderValidation(message)) if message.contains("services")
+    ));
+    assert!(matches!(
+        HierarchicalVm::<String>::builder()
+            .children_factory(|_| Vec::new())
+            .services(MessageHub::new(), NullDispatcher::new())
+            .build(),
+        Err(VmxError::BuilderValidation(message)) if message.contains("model")
+    ));
+    assert!(matches!(
+        HierarchicalVm::<String>::builder()
+            .model("root".to_string())
+            .services(MessageHub::new(), NullDispatcher::new())
+            .build(),
+        Err(VmxError::BuilderValidation(message)) if message.contains("children_factory")
+    ));
 }
 
 /// HIER-016 — HierarchicalVMBuilder<M, VM> repeated identical Build calls
 #[test]
 fn hierarchical_builder_repeated_builds_are_distinct_equivalent() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let seen = Arc::clone(&calls);
     let builder = HierarchicalVm::builder()
         .model("root".to_string())
-        .children_factory(|_| Vec::new())
+        .children_factory(move |_| {
+            seen.fetch_add(1, Ordering::SeqCst);
+            vec![leaf("child")]
+        })
         .services(MessageHub::new(), NullDispatcher::new())
         .hint("h")
         .eager_children(true);
@@ -897,8 +1122,21 @@ fn hierarchical_builder_repeated_builds_are_distinct_equivalent() {
     let b = builder.build().unwrap();
 
     assert_ne!(a.id(), b.id());
-    assert_eq!(a.model(), b.model());
+    assert_eq!(a.model(), "root");
+    assert_eq!(b.model(), "root");
     assert_eq!(a.hint(), Some("h".to_string()));
+    assert_eq!(b.hint(), Some("h".to_string()));
+
+    // Eager children: constructing materializes each subtree without a
+    // separate children access.
+    a.construct().unwrap();
+    b.construct().unwrap();
+    assert!(a.is_children_materialized());
+    assert!(b.is_children_materialized());
+    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    assert_eq!(a.children().len(), 1);
+    assert_eq!(b.children().len(), 1);
+    assert_eq!(calls.load(Ordering::SeqCst), 2, "no re-evaluation");
 }
 
 /// HIER-017 — HierarchicalVMBuilder<M, VM> field defaults applied when not set
@@ -916,29 +1154,76 @@ fn hierarchical_builder_defaults_are_lazy() {
         .build()
         .unwrap();
 
-    assert_eq!(node.hint(), None);
+    assert_eq!(node.hint(), Some(String::new()));
+    assert_eq!(node.name(), "HierarchicalVm");
+    // Lazy default: construction does not evaluate the children factory.
+    node.construct().unwrap();
     assert_eq!(*calls.lock().unwrap(), 0);
+    assert!(!node.is_children_materialized());
     node.children();
     assert_eq!(*calls.lock().unwrap(), 1);
+    assert!(node.is_children_materialized());
 }
 
 /// HIER-018 — ReparentChild rejects self- and ancestor-reparenting
 #[test]
 fn reparent_rejects_self_and_ancestor_cycles() {
-    let root = leaf("root");
-    let mid = leaf("mid");
-    let leaf_node = leaf("leaf");
+    let hub = MessageHub::new();
+    let node = |name: &str| {
+        HierarchicalVm::with_children_factory(
+            name,
+            name.to_string(),
+            |_| Vec::new(),
+            false,
+            hub.clone(),
+        )
+    };
+    let root = node("root");
+    let mid = node("mid");
+    let leaf_node = node("leaf");
     mid.add_child(leaf_node.clone()).unwrap();
     root.add_child(mid.clone()).unwrap();
+    let shape = |n: &HierarchicalVm<String>| {
+        (
+            n.parent().map(|p| p.id()),
+            n.depth(),
+            n.path().iter().map(|p| p.id()).collect::<Vec<_>>(),
+        )
+    };
+    let before = [shape(&root), shape(&mid), shape(&leaf_node)];
+    let recorder = hub.record(1024);
+    let tree_changes = |recorder: &vmx::MessageRecorder| {
+        recorder
+            .messages()
+            .into_iter()
+            .filter_map(|message| match message {
+                Message::TreeStructureChanged(change) => Some((change.change, change.affected_id)),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
 
     assert!(leaf_node.reparent_child(&root).is_err());
     assert!(mid.reparent_child(&mid).is_err());
     assert!(leaf_node.add_child(leaf_node.clone()).is_err());
     assert!(leaf_node.add_child(root.clone()).is_err());
     assert_eq!(leaf_node.depth(), 2);
+    assert_eq!([shape(&root), shape(&mid), shape(&leaf_node)], before);
+    assert!(
+        tree_changes(&recorder).is_empty(),
+        "no message on rejection"
+    );
+
+    // A successful explicit reparent publishes `Reparented` for the child.
+    let other = node("other");
+    other.reparent_child(&leaf_node).unwrap();
+    assert!(leaf_node.parent().as_ref() == Some(&other));
+    assert!(mid.children().is_empty());
+    assert!(tree_changes(&recorder).contains(&(TreeStructureChange::Reparented, leaf_node.id())));
 
     let new_parent = leaf("new-parent");
     new_parent.add_child(leaf_node.clone()).unwrap();
+    assert!(other.children().is_empty());
     assert!(mid.children().is_empty());
     let transferred = new_parent.children();
     assert!(transferred.len() == 1 && transferred[0] == leaf_node);
@@ -1064,4 +1349,37 @@ fn dropping_a_materialized_tree_releases_parent_and_child_state() {
         released.upgrade().is_none(),
         "parent back-references must not keep an unreachable tree alive"
     );
+}
+
+/// A factory that asks its own receiver `is_leaf` re-enters materialization;
+/// `try_children` reports that as an error instead of panicking, and the
+/// node can be retried with a well-behaved factory result.
+#[test]
+fn try_children_reports_factory_is_leaf_reentry_as_error() {
+    let reenter = Arc::new(Mutex::new(true));
+    let gate = Arc::clone(&reenter);
+    let root = HierarchicalVm::with_children_factory(
+        "root",
+        "root".to_string(),
+        move |node: &HierarchicalVm<String>| {
+            if *gate.lock().unwrap() {
+                let _ = node.is_leaf();
+            }
+            vec![leaf("child")]
+        },
+        false,
+        MessageHub::new(),
+    );
+
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| root.try_children()));
+
+    let result = outcome.expect("try_children must return the re-entry error, not panic");
+    assert!(matches!(
+        result,
+        Err(VmxError::InvalidArgument(message)) if message.contains("re-entered")
+    ));
+    assert!(!root.is_children_materialized());
+
+    *reenter.lock().unwrap() = false;
+    assert_eq!(root.try_children().unwrap().len(), 1);
 }

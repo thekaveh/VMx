@@ -26,11 +26,19 @@ protocol _Batchable: AnyObject {
 /// occurred a single `.reset` event is emitted. `dispose()` is idempotent —
 /// subsequent calls are no-ops.
 public final class BatchUpdateHandle {
-    private weak var owner: (any _Batchable)?
+    private let endBatch: () -> Void
     private var disposed = false
 
     init(owner: some _Batchable) {
-        self.owner = owner
+        endBatch = { [weak owner] in owner?._exitBatch() }
+    }
+
+    /// Creates a handle that runs `endBatch` once, on the first `dispose()` or
+    /// on deallocation. A custom `VMCollection` returns one from `batchUpdate()`.
+    /// The handle holds `endBatch` strongly, so capture the collection weakly
+    /// (`[weak self]`) when the collection also keeps the handle.
+    public init(endBatch: @escaping () -> Void) {
+        self.endBatch = endBatch
     }
 
     /// End the batch. Emits a single `.reset` `CollectionChangedEvent` if any
@@ -39,7 +47,7 @@ public final class BatchUpdateHandle {
     public func dispose() {
         guard !disposed else { return }
         disposed = true
-        owner?._exitBatch()
+        endBatch()
     }
 
     /// Safety net: a handle dropped without an explicit `dispose()` still ends

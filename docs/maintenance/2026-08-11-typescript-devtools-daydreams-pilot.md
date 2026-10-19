@@ -55,3 +55,17 @@ The pilot passed without consumer behavior changes. DayDreams can replace an
 ad-hoc hub message collector with the bridge while retaining its trace format
 and adding explicit state. No replay, time-travel, inverse mutation, or generic
 state-reconstruction behavior was tested or promised.
+
+## 5. Benchmark follow-up
+
+The TypeScript `hub.observer` benchmark cases reproduce this pilot: 150,000
+messages, two warm-up rounds, rotated order, and the median of nine rounds.
+
+On the recording machine, plain, disconnected, and active measured 1,465, 1,636,
+and 4,483 ns per message in one run, and 1,496, 1,622, and 4,462 in the next.
+An active observer costs about three times a plain send, close to the pilot's
+2.7.
+
+A disabled connector returns before it touches the hub, so `plain` and
+`disconnected` run the same code, but they measured 8–12% apart. That gap is
+harness noise between two cases.

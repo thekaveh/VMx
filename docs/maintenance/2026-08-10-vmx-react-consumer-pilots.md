@@ -3,7 +3,7 @@
 ## 1. Scope and safety
 
 Issue #80 was exercised through real, disposable migrations of NNx Studio,
-Tableau, and DayDreams under `/private/tmp/vmx-issue80-pilot-*`. The source
+Tableau, and DayDreams in temporary directories. The source
 consumer repositories were not edited, committed, or pushed. Each pilot used
 VMx core 3.24.0 and adapter 0.1.0 from the issue branch; packed tarballs were
 used where the package manager otherwise linked source-only dev dependencies.
@@ -85,5 +85,6 @@ link.
 All three representative migrations are feasible with passing behavior,
 typecheck, and production-build evidence. The reusable package remains free of
 consumer rules: NNx retains `useVmList`, Tableau retains its refresh store, and
-DayDreams retains a hub-first lifetime wrapper. Public installation remains
-gated on the core npm bootstrap in issue #57.
+DayDreams retains a hub-first lifetime wrapper. At the time of the pilot, public
+installation was gated on the core npm bootstrap in issue #57. Both packages
+were published to npm on 2026-10-16.

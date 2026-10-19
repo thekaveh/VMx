@@ -7,14 +7,14 @@ Updated alongside spec and flavor releases.
 | spec  | python          | csharp          | typescript      | swift           | rust          |
 | ----- | --------------- | --------------- | --------------- | --------------- | ------------- |
 | 3.29.x | 3.29.0[^current] <!-- x-release-please-version --> | 3.29.0[^current] | 3.30.0[^current] | 3.30.0[^current] | 0.35.0[^rust] |
-| 3.28.x | —[^source-3-28] | —[^source-3-28] | —[^source-3-28] | —[^source-3-28] | 0.34.0[^source-3-28] |
-| 3.27.x | —[^source-3-27] | —[^source-3-27] | —[^source-3-27] | —[^source-3-27] | 0.33.0[^source-3-27] |
-| 3.26.x | —[^source-3-26] | —[^source-3-26] | —[^source-3-26] | —[^source-3-26] | 0.32.0[^source-3-26] |
-| 3.25.x | —[^source-3-25] | —[^source-3-25] | —[^source-3-25] | —[^source-3-25] | 0.31.0[^source-3-25] |
-| 3.24.x | —[^source-3-24] | —[^source-3-24] | —[^source-3-24] | —[^source-3-24] | 0.30.0[^source-3-24] |
-| 3.23.x | 3.23.0–3.23.1 | —[^source-3-23] | —[^source-3-23] | 3.24.0[^swift] | 0.29.0[^source-3-23] |
-| 3.22.x[^source-only] | 3.22.0–3.22.1 | 3.22.0–3.22.1 | 3.23.0–3.23.1 | 3.22.0–3.23.0 | 0.25.0–0.26.0 |
-| 3.21.x | —               | —               | —               | —               | —             |
+| 3.28.x | —[^source-3-24-28] | —[^source-3-24-28] | —[^source-3-24-28] | —[^source-3-24-28] | 0.34.0[^source-3-24-28] |
+| 3.27.x | —[^source-3-24-28] | —[^source-3-24-28] | —[^source-3-24-28] | —[^source-3-24-28] | 0.33.0[^source-3-24-28] |
+| 3.26.x | —[^source-3-24-28] | —[^source-3-24-28] | —[^source-3-24-28] | —[^source-3-24-28] | 0.32.0[^source-3-24-28] |
+| 3.25.x | —[^source-3-24-28] | —[^source-3-24-28] | —[^source-3-24-28] | —[^source-3-24-28] | 0.31.0[^source-3-24-28] |
+| 3.24.x | —[^source-3-24-28] | —[^source-3-24-28] | —[^source-3-24-28] | —[^source-3-24-28] | 0.30.0[^source-3-24-28] |
+| 3.23.x | 3.23.0–3.23.1[^python-3-23-1] | —[^source-3-23] | —[^source-3-23] | 3.24.0[^swift] | 0.29.0[^source-3-23] |
+| 3.22.x[^source-only] | 3.22.0–3.22.1 | 3.22.0–3.22.1 | 3.23.0–3.23.1 | 3.22.0–3.23.0 | 0.24.0–0.26.0 |
+| 3.21.x | —               | —               | —               | —               | 0.23.0[^rust-source] |
 | 3.20.x[^legacy-semantic-tag-only] | —               | —               | —               | 3.20.0         | 0.20.0–0.22.0[^rust-source] |
 | 3.19.x | —               | —               | —               | —               | 0.19.0[^rust-source] |
 | 3.18.x | —               | —               | —               | —               | 0.18.0[^rust-source] |
@@ -36,71 +36,17 @@ Updated alongside spec and flavor releases.
 
 ## 2. Notes
 
-A `—` cell indicates no flavor has released against that spec version. Once a
-flavor ships, its cell shows the version range that implements this spec major
-(e.g. `1.0.0` or `1.0.0–1.2.x` once minor/patch releases follow).
+A `—` cell indicates that this flavor has no version for that spec line. A
+cell shows the version range of the flavor that implements the spec line (e.g.
+`1.0.0` or `1.0.0–1.2.x` once minor/patch releases follow). A cell with a
+source footnote names an unreleased source version.
 
-The Swift flavor covers the lifecycle, leaf ComponentVM, Composite
-(`CompositeVMOf`), Group, Aggregate (arity 1–6), RelayCommand,
-`RelayCommandOf<T>`, `AsyncRelayCommand`, `CompositeCommand`,
-`DecoratorCommand`, `ConfirmationDecoratorCommand`, `ModeledCrudCommands`,
-fluent command helpers, builders, hub property accessors, null objects,
-localization, tree utilities, forwarding decorators, `DerivedProperty<T>`,
-the 22 capability micro-interfaces, observable collections
-(`ObservableList`, `ObservableDictionary`, `ServicedObservableCollection`,
-`KeyedServicedObservableCollection`,
-`PagedComposition`, collection-changed events, batch updates,
-auto-construct), `ExpandableState` + expand/collapse traversal,
-`HierarchicalVM` (tree identity, lazy/eager construction, structural
-mutation, builder, capability composition), threading contracts
-(`ManualScheduler`, `VirtualTimeScheduler`, foreground dispatch, async
-selection), `SearchableState` (composite and group contexts),
-`AsyncResourceVM` (cancellable latest-wins async acquisition), message hub
-semantics, `FormVM` (snapshot/dirty/approve/deny lifecycle), dialog
-service (`DialogService` / `NullDialogService`), and the notifications
-sub-package (`NotificationHub`, `NotificationVM`, `ConfirmationVM`,
-`makeConfirm` bridge) —
-**425 of 425 library conformance IDs + 5 `THEME-00x` scenario IDs = 430 total
-(Swift UI-backed total parity) as of ADR-0066/ADR-0067 and ADR-0068..ADR-0100** (library IDs: base 44 per
-ADR-0037/ADR-0053; +50 leaf-area IDs per ADR-0059; +30 collections IDs per
-ADR-0060; +29 hierarchical/threading/expand-collapse IDs per ADR-0061;
-+40 forms/commands/hub IDs per ADR-0062; +25 notifications/dialogs IDs per
-ADR-0063; +19 composite/group IDs per ADR-0064; +44 v3.1 library IDs per
-ADR-0068..ADR-0079; +6 hub-transaction IDs per ADR-0082; +3 dual-channel
-notification-helper IDs per ADR-0083; +6 cross-cutting disposal IDs per
-ADR-0084; +8 VM-collection move IDs per ADR-0085; +6 imperative-command-requery
-IDs per ADR-0086; +6 FormVM reset IDs per ADR-0087; +8 hierarchical batch-attach
-IDs per ADR-0088; +8 whole-list replacement IDs per ADR-0089; +7 owned-resource
-and public-hub IDs per ADR-0090; +1 inert modeled-assignment ID per ADR-0091;
-+1 settled FormVM model-publication ID per ADR-0092;
-+1 explicit modeled-component republish ID per ADR-0093;
-+4 fixed-source selected-state subscription IDs per ADR-0095;
-+8 serviced-collection parity IDs per ADR-0096;
-+9 keyed serviced-collection IDs per ADR-0097;
-+10 dynamic aggregate-change-stream IDs per ADR-0098;
-+7 searchable-source-reactivity IDs per ADR-0099;
-+11 async-resource IDs per ADR-0100;
-+4 atomic container-ownership IDs (`COMP-038..041`) per ADR-0107;
-+1 disposal/hook coordination ID (`LIFE-015`) per ADR-0126;
-+1 canonical forwarding-ownership ID per ADR-0124;
-+1 aggregate reconstruction transaction ID (`AGG-007`) per ADR-0125;
-+2 hierarchy factory-hydration IDs (`HIER-031..032`) per ADR-0127;
-+3 discriminator modal-history IDs (`DISC-007..009`) per ADR-0128;
-+3 disposed command-wrapper IDs (`CMDD-011..013`) per ADR-0134;
-+1 token refresh-cursor ID (`COL-065`) per ADR-0136;
-+6 container hub-publication IDs (`COMP-042..045`, `GRP-012..013`) per ADR-0142;
-+4 FormVM approval-admission IDs (`FORM-031..034`) per ADR-0143;
-+4 FormVM failure-atomic update IDs (`FORM-035..038`) per ADR-0144;
-+4 confirmation async-inner IDs (`CMDD-014..017`) per ADR-0145;
-THEME-001..005 covered by the
-`examples/swift/notes-showcase/` flagship — ADR-0067). This increment ledger is
-current through spec 3.29.0 / CMDD-017. Swift has member-level
-parity with C#, Python, and TypeScript. Rust 0.29.0 preserves the capability,
-structural, command, reactive, and async convergence work recorded for 0.27.0
-in `docs/maintenance/2026-07-16-rust-capability-parity.md` and corrects the
-async-resource family to expose the complete ordinary component contract, and
-adds paired dispatcher channels plus background lifecycle parity. See
-`langs/swift/README.md` §5 for the flagship scenario ledger.
+Every flavor covers all 425 library conformance IDs. The five `THEME-00x`
+scenario IDs live in the flagship example apps. `spec/HISTORY.md` records the
+release and ADR that added each group of IDs. Swift has member-level parity with C#,
+Python, and TypeScript. Rust's remaining public-surface and behavior gaps are
+the open items §12.4.7 and §12.7–§12.12 in
+`docs/maintenance/2026-07-16-rust-capability-parity.md`.
 
 [^current]: TypeScript 3.30.0 implements spec 3.29.0 and is published on npm as
 `@thekaveh/vmx` (`typescript-v3.30.0`, 2026-10-16). C# 3.29.0, Python 3.29.0,
@@ -116,10 +62,9 @@ point to the same verified `main` commit.
 
 [^rust]: Rust is a source-tree, catalog-complete flavor promoted by ADR-0081. It
 is at source version 0.35.0, declares `MIN_SPEC_VERSION = "3.29.0"`, and carries
-behavioral tests for all 425 library conformance IDs. The completed
-`docs/maintenance/2026-07-16-rust-capability-parity.md` records its focused
-member and edge-behavior convergence evidence; it has not yet been published
-to crates.io.
+behavioral tests for all 425 library conformance IDs. The parity ledger
+`docs/maintenance/2026-07-16-rust-capability-parity.md` records its member
+evidence and open items §12.4.7 and §12.7–§12.12. Rust is not published to crates.io.
 
 [^rust-source]: Rust `0.13.0`, `0.14.0`, `0.15.0`, `0.16.0`, `0.17.0`,
 `0.18.0`, and `0.19.0` record historical source-tree parity for spec 3.13.x
@@ -128,13 +73,17 @@ They were not published to crates.io and do not imply
 corresponding `rust-v*` tags or releases.
 
 The same source-only history applies to Rust `0.20.0` through `0.22.0` for
-spec 3.20.x. The untagged C# `3.20.0–3.20.1`, Python `3.20.0–3.20.1`,
-TypeScript `3.20.0–3.21.1`, and Swift `3.20.1` source lines are intentionally
-not listed as releases in the matrix.
+spec 3.20.x and to Rust `0.23.0` for spec 3.21.x. The untagged C# `3.20.0–3.20.1`, Python `3.20.0–3.20.1`,
+TypeScript `3.20.0–3.21.1`, and Swift `3.20.1` source lines, and the untagged
+spec 3.21.x lines (C# `3.21.0`, Python `3.21.0`, TypeScript `3.22.0`, and Swift
+`3.21.0`), are intentionally not listed as releases in the matrix.
 
 [^source-only]: Spec 3.22.x and its listed flavor versions were validated source
 lines but were never tagged or published. They remain compatibility history,
 not release claims.
+
+[^python-3-23-1]: Python 3.23.1 is tagged (`python-v3.23.1`) and has a GitHub
+Release, but its PyPI upload failed; PyPI's latest Python release is 3.23.0.
 
 [^source-3-23]: C# 3.23.0, Python 3.23.2–3.23.3, TypeScript 3.24.0–3.24.1, and
 Rust 0.29.0 implemented spec 3.23.x as validated source lines but were never
@@ -142,30 +91,16 @@ tagged or published, so the row lists only the tagged Python and Swift
 releases. The Rust version is recorded as source history, as for earlier Rust
 rows.
 
-[^source-3-24]: C# 3.24.0, Python 3.24.0, TypeScript 3.25.0, Swift 3.25.0, and
-Rust 0.30.0 implemented spec 3.24.x as validated source lines but were never
-tagged or published, so the row lists no releases. The Rust version is recorded
-as source history, as for earlier Rust rows.
+[^source-3-24-28]: Spec 3.24.x to 3.28.x exist only as validated source lines.
+They were never tagged or published, so these rows list no releases. The Rust
+cells record source history, as for earlier Rust rows. The other flavors'
+source versions per spec line are:
 
-[^source-3-28]: C# 3.28.0, Python 3.28.0, TypeScript 3.29.0, Swift 3.29.0, and
-Rust 0.34.0 implemented spec 3.28.x as validated source lines but were never
-tagged or published, so the row lists no releases. The Rust version is recorded
-as source history, as for earlier Rust rows.
-
-[^source-3-27]: C# 3.27.0, Python 3.27.0, TypeScript 3.28.0, Swift 3.28.0, and
-Rust 0.33.0 implemented spec 3.27.x as validated source lines but were never
-tagged or published, so the row lists no releases. The Rust version is recorded
-as source history, as for earlier Rust rows.
-
-[^source-3-26]: C# 3.26.0, Python 3.26.0, TypeScript 3.27.0, Swift 3.27.0, and
-Rust 0.32.0 implemented spec 3.26.x as validated source lines but were never
-tagged or published, so the row lists no releases. The Rust version is recorded
-as source history, as for earlier Rust rows.
-
-[^source-3-25]: C# 3.25.0, Python 3.25.0, TypeScript 3.26.0, Swift 3.26.0, and
-Rust 0.31.0 implemented spec 3.25.x as validated source lines but were never
-tagged or published, so the row lists no releases. The Rust version is recorded
-as source history, as for earlier Rust rows.
+    - 3.24.x: C# 3.24.0, Python 3.24.0, TypeScript 3.25.0, Swift 3.25.0.
+    - 3.25.x: C# 3.25.0, Python 3.25.0, TypeScript 3.26.0, Swift 3.26.0.
+    - 3.26.x: C# 3.26.0, Python 3.26.0, TypeScript 3.27.0, Swift 3.27.0.
+    - 3.27.x: C# 3.27.0, Python 3.27.0, TypeScript 3.28.0, Swift 3.28.0.
+    - 3.28.x: C# 3.28.0, Python 3.28.0, TypeScript 3.29.0, Swift 3.29.0.
 
 [^legacy-semantic-tag-only]: Spec 3.20.0 predates the canonical `spec-v*`
 namespace and has no `spec-v3.20.0` tag. The existing immutable `v3.20.0` tag

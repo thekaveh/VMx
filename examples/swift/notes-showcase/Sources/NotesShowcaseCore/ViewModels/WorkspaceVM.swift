@@ -71,6 +71,7 @@ public final class WorkspaceVM {
     private let _noteForm: NoteFormVM
     private let _statusBar: StatusBarVM
     private let _notificationsVM: NotificationsVM
+    private let _notificationClock: VirtualTimeScheduler
     private let _capabilities: CapabilityActionsVM
 
     private let _agg: AggregateVM6<
@@ -131,6 +132,10 @@ public final class WorkspaceVM {
     /// Notification list (Component5).
     public var notifications: NotificationsVM { _notificationsVM }
 
+    /// Clock that drives notification lifespans. It is virtual so tests
+    /// control time; the app host advances it in real time.
+    public var notificationClock: VirtualTimeScheduler { _notificationClock }
+
     /// Capability-action projection (Component6).
     public var capabilityActions: CapabilityActionsVM { _capabilities }
 
@@ -185,6 +190,8 @@ public final class WorkspaceVM {
         _notificationHub = notificationHub
         _hub = hub
         _dispatcher = dispatcher
+        let notificationClock = VirtualTimeScheduler()
+        _notificationClock = notificationClock
 
         // Pre-build all six children so siblings can wire to live references.
         // Each builder requires the shared hub + dispatcher so all messages
@@ -225,6 +232,7 @@ public final class WorkspaceVM {
             .name("notifications")
             .services(hub: hub, dispatcher: dispatcher)
             .notificationHub(notificationHub)
+            .scheduler(notificationClock)
             .build()
 
         // FocusCell: created as a local variable so it can be captured by the
@@ -334,6 +342,7 @@ public final class WorkspaceVM {
             .predicate({ [weak self] in
                 guard let self else { return false }
                 return self.isConstructed && self._notebooks.current != nil
+                    && !self._notesView.currentNotebookIsReadonly
             })
             .task({ [weak self] in
                 guard let self else { return }

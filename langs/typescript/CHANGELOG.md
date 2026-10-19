@@ -6,6 +6,89 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `CompositeVM` and `GroupVM` with auto-construct-on-add construct a child
+  added while the container is still `Constructing` (waiting on a background
+  child) and wait for it before reaching `Constructed` (spec/02 §6, spec/06
+  §5.1). The child walk joins such a child like a population child, so one
+  that fails while the walk waits on it rolls the container back and its hook
+  runs once. Before, the add skipped auto-construction until the container was
+  `Constructed` and the walk used a snapshot taken before the add, so the
+  container reached `Constructed` with the added child still `Destructed`.
+- `CompositeVM` and `GroupVM` join the background children that factory
+  population starts and never construct them again. A later child that fails
+  while the container waits on an earlier one rolls the container back, and
+  its construct hook runs once (spec/02 §6, LIFE-014). Before, the child walk
+  restarted the failed child and ran its hook a second time.
+- Aggregates, `CompositeVM`, `GroupVM`, and eager `HierarchicalVM` reach
+  `Constructed` or `Destructed` only after every child settles (spec/02 §6,
+  spec/08 §2-§3). Before, with a `.background(true)` child, an aggregate
+  reported `Constructed` while the child was still `Constructing`, and a
+  composite or group threw `StatusTransitionError` from `construct()`.
+- A container rolls back when a background child rolls back or is disposed.
+  The composite's initial-current selector and the composite and group
+  `onDestruct` callbacks run after the children settle. Children that settle
+  synchronously keep the whole transition synchronous.
+- A waiting container continues only after the child publishes its terminal
+  status and releases its in-flight guard. A background VM therefore rejects a
+  reentrant transition from an observer of its terminal status, as a
+  synchronous VM does.
+- When a container's deferred continuation fails, the container rolls back and
+  the error comes from the dispatcher work that settled the child, as for a
+  throwing background hook (VMX-049). Examples: a throwing `current` selector,
+  or a synchronous sibling whose construct throws after a background child.
+  Before, rxjs reported the error as an unhandled subscriber error. A container
+  whose children are all synchronous still throws from `construct()`.
+- `FilteredCompositeVM.setPredicate` restores the previous predicate when the
+  new one throws, so later source changes keep using the working predicate.
+- `CompositeVM` and `GroupVM` `insert`/`removeAt`/`setAt` reject a
+  `NaN` or fractional index with a `RangeError` before any change, like `move`.
+  Before, `removeAt(NaN)` removed a child, then threw and left the membership
+  transaction open, so every later mutation failed (spec/06 §4, spec/07 §4).
+- `FormVM`'s default deep equality compares boxed `Number`, `Boolean`,
+  `String`, and `BigInt` values by value (with `+0` equal to `-0` and `NaN`
+  equal to `NaN`, as for primitives), so `setModel` no longer drops a change to
+  one of them (spec/20 §4).
+- `AsyncResourceVM` treats a loader result that is not a promise as a failed
+  load: the state becomes `Error` and `load()` completes, instead of staying
+  in `Loading` and rejecting with a `TypeError` (spec/23 §7, ARES-003). A
+  non-native thenable is adopted, and one whose `then` throws fails the load.
+- `PagedComposition` declares the `IPageable` capability, so
+  `hasCapability(paged, "IPageable")` returns true, as for the other
+  capability types (spec/14 §2.10).
+- `ConfirmationDecoratorCommand.canExecute` re-checks disposal after the inner
+  predicate, which may dispose the wrapper, as the other wrappers do
+  (spec/04 §8.4).
+- `TokenPagedComposition` stops auto-constructing page items once a hook
+  disposes it or starts a newer operation (spec/21 §6).
+- A disposed view model's `select` and `deselect` are silent no-ops and
+  `canDeselect` returns false, so a disposed child no longer changes its live
+  parent's selection (spec/02 §3).
+- A disposed `DerivedProperty` rejects writes: `canSet` returns false and
+  `setValue` raises instead of running the write-back action (spec/15 §4).
+- A disposed `NotificationVM` ignores its internal resolution paths.
+- A disposed `FilteredCompositeVM` ignores `setPredicate`, `setCurrent`, and
+  the visible navigation methods, so it stays frozen as the disposal contract
+  states (DISP-006).
+- `ObservableDictionary`: the add index is captured before the local event,
+  so a subscriber that adds another entry no longer shifts the first entry's
+  reported hub index.
+- `CompositeVM.removeAt`, `clear`, and `setAt` emit their collection events
+  even when `onCurrentChanged` throws, then rethrow. Before, the committed
+  change reached no observer.
+- `ServicedObservableCollection.splice` resolves a fractional or `NaN` start
+  like `Array.prototype.splice` before it reports the Remove index. Before, it
+  could report `2.5` or `NaN`.
+- `NullDialogService.present` returns the result of a modal that was already
+  dismissed, because the first result wins. Before, it returned the
+  cancellation result (spec/19 §3, DIA-012).
+- A disposed `CompositeVM` or `GroupVM` no longer sends a `CollectionChangedMessage`
+  on the hub when a batch it was disposed inside closes, or when a local
+  `collectionChanged` subscriber disposes it (ADR-0142, COMP-045, GRP-012).
+- `ConfirmationDecoratorCommand` no longer calls `confirm` when the inner
+  command's `canExecute` predicate disposes the decorator (spec/04 §8.4).
+
 ## [3.30.0] — 2026-10-16
 
 First version published to npm. Earlier versions were source-only releases;

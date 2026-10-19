@@ -8,16 +8,18 @@ the core `VMx` package. The independently versioned companions use
 `csharp-dependency-injection-v<X.Y.Z>`. Every tag names exactly one package;
 equal version numbers never select multiple projects.
 
+Every release follows the shared
+[release invariants](../../CONTRIBUTING.md#43-release-invariants): protected
+environment, trusted publisher, annotated immutable tags, fix-forward patches,
+and documentation updates. This runbook adds only the C# steps.
+
 ## 1. One-time owner setup
 
 ### 1.1 Protected GitHub environment
 
-Create `nuget-csharp` in `thekaveh/VMx` with:
-
-- only `csharp-v*`, `csharp-notifications-v*`, and
-  `csharp-dependency-injection-v*` tag deployments;
-- required maintainer approval; and
-- administrator bypass disabled.
+Create `nuget-csharp` in `thekaveh/VMx` as the release invariants describe.
+Restrict its deployments to `csharp-v*`, `csharp-notifications-v*`, and
+`csharp-dependency-injection-v*` tags.
 
 Add the nuget.org profile name—not an email address—as the environment secret
 `NUGET_USER`. Although the profile name is not a credential, the environment
@@ -26,14 +28,10 @@ secret keeps account identity and approval in the same protected boundary.
 ### 1.2 NuGet trusted-publishing policy
 
 From the authenticated nuget.org account, create a trusted-publishing policy
-owned by the intended individual or organization:
+owned by the intended individual or organization. Use the shared trusted
+publisher fields with environment `nuget-csharp`.
 
-- repository owner: `thekaveh`;
-- repository: `VMx`;
-- workflow filename: `release.yml` (filename only);
-- environment: `nuget-csharp`.
-
-The publish job has `id-token: write` and uses `NuGet/login` v1.2.0 to exchange
+The publish job uses `NuGet/login` v1.2.0 to exchange
 GitHub OIDC for a one-use, one-hour API key immediately before upload. No
 long-lived NuGet API key belongs in GitHub.
 
@@ -59,12 +57,11 @@ di_tag="csharp-dependency-injection-v${di_version}"
 ```
 
 Publish core first, then Notifications, then DI after each preceding public
-artifact verifies. Both companions pack with the current core dependency floor
-(`VMx >= 3.29.0` at this source line) for net8.0 and netstandard2.0. DI
-uses packaging-only patch 2.1.1 because the old shared selector made immutable
-core tag `csharp-v2.1.0` collide with that companion version. The new
-package-specific namespace prevents future collisions; do not rewind the
-already-advanced package version, and never move or reuse the historical tag.
+artifact verifies. Both companions pack with the core dependency floor
+`VMx >= <core_version>` for net8.0 and netstandard2.0. DI is at
+packaging-only patch 2.1.1 because, before package-specific tags, DI 2.1.0
+would have reused the immutable core tag `csharp-v2.1.0`. Never rewind the DI
+version or reuse that tag.
 
 ## 3. Cutting a release
 
@@ -78,10 +75,10 @@ already-advanced package version, and never move or reuse the historical tag.
    curl -fsS https://api.nuget.org/v3-flatcontainer/vmx/index.json || true
    ```
 
-3. Create the immutable tag on verified main and push it:
+3. Create the immutable annotated tag on verified main and push it:
 
    ```bash
-   git tag "${core_tag}" origin/main
+   git tag -a "${core_tag}" -m "VMx C# ${core_version}" origin/main
    git push origin "${core_tag}"
    ```
 
@@ -146,31 +143,27 @@ roadmap item to Done.
 
 ### 5.1 Failure before upload
 
-Fix through the normal PR flow. Tags are immutable even before upload: bump to
-a new patch version on corrected `main` and create a new tag. Never move,
-delete, or recreate the failed tag.
+Apply the immutability invariant: fix through the normal PR flow, bump to a
+new patch version on corrected `main`, and create a new tag.
 
 ### 5.2 OIDC or account failure
 
 Confirm `NUGET_USER` is the profile name and that the policy matches owner,
 repository, `release.yml`, and `nuget-csharp` exactly. A pending policy may have
 a limited activation window; activate it through a successful authorized
-publish. Do not bypass the environment or add a long-lived key.
+publish.
 
 ### 5.3 Upload succeeded but verification failed
 
-NuGet versions are immutable. Diagnose the public artifact, fix forward, and
-publish a new patch. If necessary, unlist the broken version from its NuGet
+Diagnose the public artifact, fix forward, and publish a new patch. If
+necessary, unlist the broken version from its NuGet
 management page and explain the replacement in release notes. Never silently
 replace a package or reuse its tag.
 
 ## 6. Documentation and compatibility
 
 `MinSpecVersion` declares the feature/spec level while companion package
-versions remain independent. A spec major bump requires a core flavor major
-bump under `README.md` §6.1.
+versions remain independent.
 
-After all three public artifacts, symbols, exact consumers, and GitHub Releases
-verify, update canonical repository docs and regenerate the MkDocs `.io` site
-and GitHub wiki through develop and main PRs. Publication claims must never
-precede public evidence.
+After the selected package's artifact, symbols, consumers, and GitHub Release
+verify, update the documentation as the release invariants describe.

@@ -78,6 +78,8 @@ open class GroupVM<Child: ComponentVMBase>:
     private var children: [Child] = []
     private let childrenFactory: (() -> [Child])?
     private var populated = false
+    /// Collects the children population started constructing (see `_onConstruct`).
+    private var populationJoined: [ComponentVMBase]?
     private lazy var groupParent = GroupParent(group: self)
     private let _autoConstructOnAdd: Bool
     private var disposeRequested = false
@@ -262,7 +264,7 @@ open class GroupVM<Child: ComponentVMBase>:
         // non-throwing per the public API contract; failures surface through
         // assertionFailure in debug/test builds.
         // Divergence from TS (which throws on failure) is recorded in ADR-0060.
-        if _autoConstructOnAdd && isConstructed {
+        if shouldAutoConstruct(child) {
             do { try child.construct() } catch {
                 membershipGate.withLock {
                     if let attached = children.firstIndex(where: { $0 === child }) {
@@ -354,7 +356,7 @@ open class GroupVM<Child: ComponentVMBase>:
         child._parent = groupParent
         child._ownershipParent = groupParent
         membershipGate.unlock()
-        if _autoConstructOnAdd && isConstructed {
+        if shouldAutoConstruct(child) {
             do { try child.construct() } catch {
                 membershipGate.withLock {
                     if let attached = children.firstIndex(where: { $0 === child }) {
@@ -398,6 +400,8 @@ open class GroupVM<Child: ComponentVMBase>:
 
     public func remove(_ child: Child) -> Bool {
         let removed: (Child, Int)? = membershipGate.withLock {
+            // A disposed group is inert (disposal contract).
+            guard !disposeRequested && !disposeDeferred else { return nil }
             guard !membershipTransactionActive else { return nil }
             guard let index = children.firstIndex(where: { $0 === child }) else { return nil }
             let item = children.remove(at: index)
@@ -419,6 +423,7 @@ open class GroupVM<Child: ComponentVMBase>:
 
     public func removeAt(_ index: Int) {
         let child: Child? = membershipGate.withLock {
+            guard !disposeRequested && !disposeDeferred else { return nil }
             guard !membershipTransactionActive else { return nil }
             let removed = children.remove(at: index)
             if removed._ownershipParent === groupParent {
@@ -475,7 +480,7 @@ open class GroupVM<Child: ComponentVMBase>:
         child._parent = groupParent
         child._ownershipParent = groupParent
         membershipGate.unlock()
-        if _autoConstructOnAdd && isConstructed {
+        if shouldAutoConstruct(child) {
             do { try child.construct() } catch {
                 membershipGate.withLock {
                     if let attached = children.firstIndex(where: { $0 === child }) {
@@ -524,6 +529,7 @@ open class GroupVM<Child: ComponentVMBase>:
 
     public func clear() {
         let accepted: Bool = membershipGate.withLock {
+            guard !disposeRequested && !disposeDeferred else { return false }
             guard !membershipTransactionActive else { return false }
             for child in children where child._ownershipParent === groupParent {
                 child._parent = nil
@@ -538,6 +544,9 @@ open class GroupVM<Child: ComponentVMBase>:
 
     public func move(from fromIndex: Int, to toIndex: Int) throws {
         let child: Child? = try membershipGate.withLock {
+            guard !disposeRequested && !disposeDeferred else {
+                throw ContainerOwnershipError.attachmentFailed(GroupDisposalAdmissionError())
+            }
             guard !membershipTransactionActive else {
                 throw ContainerOwnershipError.attachmentFailed(GroupMembershipTransactionError())
             }
@@ -577,17 +586,52 @@ open class GroupVM<Child: ComponentVMBase>:
         hub.send(event.hubMessage(sentBy: self))
     }
 
+    /// Supplies the construct walk with each child added while it runs.
+    /// Auto-construct-on-add already started such a child, so the walk joins
+    /// it rather than restarting it (spec/02 §6, spec/06 §5.1).
+    private func lateChildSource(after snapshot: [Child]) -> LateChildSource? {
+        guard _autoConstructOnAdd else { return nil }
+        var visited = Set(snapshot.map(ObjectIdentifier.init))
+        return LateChildSource { [weak self] in
+            guard let self else { return nil }
+            let late = self.snapshot().first { !visited.contains(ObjectIdentifier($0)) }
+            if let late { visited.insert(ObjectIdentifier(late)) }
+            return late
+        }
+    }
+
+    /// Auto-construct-on-add: a `Destructed` child added while this container
+    /// is still `Constructing` starts now and the construct walk joins it.
+    private func shouldAutoConstruct(_ child: Child) -> Bool {
+        guard _autoConstructOnAdd else { return false }
+        if isConstructed { return true }
+        return status == .constructing && child.status == .destructed
+    }
+
     open override func _onConstruct() throws {
         try super._onConstruct()
+        // Children whose construct population started are joined, not restarted.
+        var joined: [ComponentVMBase] = []
         if !populated, let factory = childrenFactory {
+            populationJoined = []
+            defer {
+                joined = populationJoined ?? []
+                populationJoined = nil
+            }
             try attachPopulation(factory()).get()
             populated = true
         }
         // A peer's throwing `construct()` (ADR-0053) propagates up the cascade.
         // Snapshot first so the lifecycle iteration is stable; membership
         // mutations from population hooks are rejected until commit/rollback.
+        // A background peer defers Constructed until every peer is (spec/02 §6).
         let snapshot = snapshot()
-        for child in snapshot { try child.construct() }
+        try _transitionChildren(
+            snapshot,
+            construct: true,
+            joined: joined,
+            lateChild: lateChildSource(after: snapshot)
+        )
     }
 
     private func attachPopulation(
@@ -637,6 +681,10 @@ open class GroupVM<Child: ComponentVMBase>:
                 if _autoConstructOnAdd && isConstructed { try child.construct() }
                 if status == .constructing && child.status != .constructed {
                     try child.construct()
+                    // A child population left pending is joined, never restarted.
+                    if child.status != .constructed && child.status != .disposed {
+                        populationJoined?.append(child)
+                    }
                 }
             }
             try membershipGate.withLock { try requireTransactionCanContinueLocked() }
@@ -683,8 +731,16 @@ open class GroupVM<Child: ComponentVMBase>:
 
     open override func _onDestruct() throws {
         let snapshot = snapshot()
-        for child in snapshot { try child.destruct() }
-        try super._onDestruct()
+        try _transitionChildren(snapshot, construct: false) {
+            try super._onDestruct()
+        }
+    }
+
+    /// Completes `collectionChanged` once the container is disposed, as the
+    /// other flavors do, so derived views and sinks observe termination.
+    open override func _onDispose() {
+        super._onDispose()
+        collectionChangedSubject.send(completion: .finished)
     }
 
     open override func dispose() {
@@ -711,6 +767,8 @@ open class GroupVM<Child: ComponentVMBase>:
                 continue
             }
             guard let snapshot else { return }
+            // A disposed peer must not roll back a pending transition.
+            _abandonChildTransition()
             for child in snapshot { child.dispose() }
             super.dispose()
             return

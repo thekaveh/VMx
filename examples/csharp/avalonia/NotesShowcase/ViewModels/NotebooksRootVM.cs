@@ -40,6 +40,11 @@ public sealed class NotebooksRootVM
     private readonly IDispatcher _dispatcher;
     private readonly INotificationHub? _notificationHub;
     private readonly ObservableCollection<NotebookVM> _all = new();
+    // Stable root-level projection bound by the TreeView. Re-publishing a fresh
+    // list on every add made the tree reset and write SelectedItem = null back
+    // through the TwoWay Current binding, dropping the selected notebook.
+    private readonly ObservableCollection<NotebookVM> _roots = new();
+    private readonly ReadOnlyObservableCollection<NotebookVM> _rootsView;
     private NotebookVM? _current;
 
     /// <inheritdoc/>
@@ -51,9 +56,11 @@ public sealed class NotebooksRootVM
     /// <summary>All notebooks (flat, ordered).</summary>
     public ObservableCollection<NotebookVM> All => _all;
 
-    /// <summary>Root notebooks (no parent).</summary>
-    public IReadOnlyList<NotebookVM> Roots
-        => _all.Where(nb => nb.Model.ParentId is null).ToList();
+    /// <summary>
+    /// Root notebooks (no parent). A stable collection instance updated in
+    /// place, so a bound tree keeps its selection when a notebook is added.
+    /// </summary>
+    public IReadOnlyList<NotebookVM> Roots => _rootsView;
 
     /// <summary>Iterates every notebook in the tree (parents-before-children, repo order).</summary>
     public IEnumerable<NotebookVM> Walk() => _all;
@@ -132,7 +139,11 @@ public sealed class NotebooksRootVM
             // already-bound TreeView only re-reads it on an explicit raise.
             // Marshal to the foreground — this continuation runs off the UI
             // thread after ConfigureAwait(false).
-            _dispatcher.Foreground.Schedule(() => RaisePropertyChanged(nameof(Roots)));
+            _dispatcher.Foreground.Schedule(() =>
+            {
+                if (!_roots.Contains(vm)) _roots.Add(vm);
+                RaisePropertyChanged(nameof(Roots));
+            });
         }
         // Index is the new tail of _all (we just appended).
         Hub.Send(new TreeStructureChangedMessage(
@@ -194,7 +205,13 @@ public sealed class NotebooksRootVM
         // completed (the App sets DataContext without awaiting ConstructAsync)
         // only re-reads it on an explicit raise. Marshal to the foreground —
         // this continuation runs off the UI thread after ConfigureAwait(false).
-        _dispatcher.Foreground.Schedule(() => RaisePropertyChanged(nameof(Roots)));
+        var roots = _all.Where(nb => nb.Model.ParentId is null).ToList();
+        _dispatcher.Foreground.Schedule(() =>
+        {
+            _roots.Clear();
+            foreach (var root in roots) _roots.Add(root);
+            RaisePropertyChanged(nameof(Roots));
+        });
     }
 
     private NotebooksRootVM(
@@ -210,6 +227,7 @@ public sealed class NotebooksRootVM
         _hub = hub;
         _dispatcher = dispatcher;
         _notificationHub = notificationHub;
+        _rootsView = new ReadOnlyObservableCollection<NotebookVM>(_roots);
 
         AddNotebookCommand = AsyncRelayCommand.Builder()
             .Predicate(CanCreateNew)

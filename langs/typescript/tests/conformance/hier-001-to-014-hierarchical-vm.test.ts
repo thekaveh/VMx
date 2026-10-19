@@ -242,23 +242,40 @@ describe("HIER-007", () => {
 
 describe("HIER-008", () => {
   it("Eager child loading via eagerChildren constructor option", () => {
-    let factoryInvoked = false;
-    const leaf = leafNode();
+    // Factory records invocations per node. Tree is three levels deep:
+    // root -> [mid] -> [leafA, leafB].
+    const invocations: string[] = [];
+    const node = (name: string, kids: () => MyNode[]): MyNode =>
+      new MyNode({
+        name,
+        eagerChildren: true,
+        childrenFactory: () => {
+          invocations.push(name);
+          return kids();
+        },
+      });
 
-    const root = new MyNode({
-      childrenFactory: () => {
-        factoryInvoked = true;
-        return [leaf];
-      },
-      eagerChildren: true,
-    });
+    const leafA = node("leafA", () => []);
+    const leafB = node("leafB", () => []);
+    const mid = node("mid", () => [leafA, leafB]);
+    const root = node("root", () => [mid]);
 
-    expect(factoryInvoked).toBe(false);
+    expect(invocations).toEqual([]);
 
     root.construct();
 
-    expect(factoryInvoked).toBe(true);
-    expect(root.children).toContain(leaf);
+    // Factory invoked for every node in the tree without any explicit
+    // `children` access by the test.
+    expect([...invocations].sort()).toEqual(["leafA", "leafB", "mid", "root"]);
+    for (const n of [root, mid, leafA, leafB]) {
+      expect(n.status).toBe(ConstructionStatus.Constructed);
+    }
+
+    // Reading children now returns the materialized nodes without
+    // re-invoking any factory.
+    expect(root.children).toEqual([mid]);
+    expect(mid.children).toEqual([leafA, leafB]);
+    expect(invocations).toHaveLength(4);
   });
 });
 
@@ -460,8 +477,20 @@ describe("HIER-013", () => {
     const hub = makeHub();
     const dispatcher = makeDispatcher();
 
+    // "bandana" is a lazy grandchild under banana that is never accessed; it
+    // matches the term "an" and must NOT appear in results.
+    let lazyFactoryRuns = 0;
+    const bandana = new MyNode({ model: makeModel("bandana"), hub, dispatcher });
     const apple = new MyNode({ model: makeModel("apple"), hub, dispatcher });
-    const banana = new MyNode({ model: makeModel("banana"), hub, dispatcher });
+    const banana = new MyNode({
+      model: makeModel("banana"),
+      hub,
+      dispatcher,
+      childrenFactory: () => {
+        lazyFactoryRuns++;
+        return [bandana];
+      },
+    });
     const cherry = new MyNode({ model: makeModel("cherry"), hub, dispatcher });
     const root = parentNode([apple, banana, cherry], hub);
 
@@ -483,7 +512,14 @@ describe("HIER-013", () => {
     search.search();
 
     expect(result).toHaveLength(1);
-    expect(result[0]!.model.value).toBe("banana");
+    expect(result[0]).toBe(banana);
+    expect(result).not.toContain(bandana);
+    expect(lazyFactoryRuns, "search must not materialize lazy children").toBe(0);
+
+    search.searchTerm = "e";
+    search.search();
+    expect(result).toEqual([apple, cherry]);
+    expect(lazyFactoryRuns).toBe(0);
 
     search.dispose();
   });
@@ -500,6 +536,12 @@ describe("HIER-014", () => {
 
     const root = new MyNode({ hub, dispatcher });
     let current: MyNode | null = null;
+    const treeMsgs: TreeStructureChangedMessage<unknown, unknown>[] = [];
+    hub.messages.subscribe({
+      next: (m: unknown) => {
+        if (m instanceof TreeStructureChangedMessage) treeMsgs.push(m);
+      },
+    });
 
     const crud = new ModeledCrudCommands<MyModel, MyNode>({
       current: () => current,
@@ -525,11 +567,23 @@ describe("HIER-014", () => {
     crud.createNewCommand.execute();
     expect(root.children).toHaveLength(1);
     expect(current).not.toBeNull();
+    const created = current as MyNode | null;
+    expect(root.children[0]).toBe(created);
+    expect(treeMsgs).toHaveLength(1);
+    expect(treeMsgs[0]!.change).toBe("added");
+    expect(treeMsgs[0]!.sender).toBe(root);
+    expect(treeMsgs[0]!.affected).toBe(created);
+
+    treeMsgs.length = 0;
 
     // Delete
     crud.deleteCurrentCommand.execute();
     expect(root.children).toHaveLength(0);
     expect(current).toBeNull();
+    expect(treeMsgs).toHaveLength(1);
+    expect(treeMsgs[0]!.change).toBe("removed");
+    expect(treeMsgs[0]!.sender).toBe(root);
+    expect(treeMsgs[0]!.affected).toBe(created);
 
     crud.dispose();
   });

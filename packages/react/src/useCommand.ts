@@ -10,7 +10,12 @@ export interface UseCommandResult {
 export function useCommand(command: ICommand): UseCommandResult {
   const subscribe = useCallback(
     (notify: () => void): (() => void) => {
-      const subscription = command.canExecuteChanged.subscribe({ next: notify });
+      // Some commands only complete this stream when disposed; re-read
+      // canExecute then too, so a disposed command renders as disabled.
+      const subscription = command.canExecuteChanged.subscribe({
+        next: notify,
+        complete: notify,
+      });
       return () => subscription.unsubscribe();
     },
     [command],

@@ -140,12 +140,20 @@ impl<T: Clone + Send + Sync + 'static> SearchableState<T> {
         }
     }
 
-    /// Evaluates and returns the current filtered projection.
+    /// Evaluates and returns the current filtered projection, and announces it
+    /// on [`SearchableState::filtered_changed`], as the pushed filtered output
+    /// of the other flavors does (SRCH-005).
     pub fn search(&self) -> Vec<T> {
         if self.disposed.load(Ordering::Acquire) {
             return Vec::new();
         }
-        self.filtered()
+        let filtered = self.filtered();
+        self.filtered_changed.send(Message::Custom {
+            sender_id: 0,
+            sender_name: "SearchableState".to_string(),
+            name: "filtered".to_string(),
+        });
+        filtered
     }
 
     /// Pulls the source and returns items accepted by the current term.

@@ -469,6 +469,59 @@ public class CompositeVMConformanceTests
         disposalOrder.IndexOf("child2").Should().BeLessThan(disposalOrder.IndexOf("root"));
     }
 
+    /// <summary>
+    /// LIFE-013: a failing child disposal hook does not stop later siblings
+    /// or the parent's teardown; the first failure propagates afterwards.
+    /// </summary>
+    [Fact, Trait("Conformance", "LIFE-013")]
+    public void LIFE_013_Child_Dispose_Failure_Completes_Siblings_And_Parent_First()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var failing = new DisposeFailingVM("failing", hub, dispatcher);
+        var later = new DisposeFailingVM("later", hub, dispatcher);
+        var sibling = ComponentVM<string>.Builder()
+            .Name("sibling").Services(hub, dispatcher).Model("m").Build();
+        var root = CompositeVM<IComponentVM>.Builder()
+            .Name("root").Services(hub, dispatcher)
+            .Children(() => new IComponentVM[] { failing, sibling, later })
+            .Build();
+        root.Construct();
+        failing.Status.Should().Be(ConstructionStatus.Constructed);
+
+        var dispose = () => root.Dispose();
+
+        dispose.Should().Throw<InvalidOperationException>().WithMessage("dispose failure");
+        failing.Status.Should().Be(ConstructionStatus.Disposed);
+        sibling.Status.Should().Be(ConstructionStatus.Disposed);
+        later.Status.Should().Be(ConstructionStatus.Disposed);
+        root.Status.Should().Be(ConstructionStatus.Disposed);
+    }
+
+    /// <summary>
+    /// LIFE-013: a failing parent disposal hook still lets every child finish
+    /// disposal before the failure propagates.
+    /// </summary>
+    [Fact, Trait("Conformance", "LIFE-013")]
+    public void LIFE_013_Parent_Dispose_Hook_Failure_Still_Disposes_Children()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var parent = new DisposeFailingComposite("parent", hub, dispatcher);
+        var a = ComponentVM<string>.Builder().Name("a").Services(hub, dispatcher).Model("a").Build();
+        var b = ComponentVM<string>.Builder().Name("b").Services(hub, dispatcher).Model("b").Build();
+        parent.Add(a);
+        parent.Add(b);
+        parent.Construct();
+
+        var dispose = () => parent.Dispose();
+
+        dispose.Should().Throw<InvalidOperationException>().WithMessage("destination dispose failure");
+        a.Status.Should().Be(ConstructionStatus.Disposed);
+        b.Status.Should().Be(ConstructionStatus.Disposed);
+        parent.Status.Should().Be(ConstructionStatus.Disposed);
+    }
+
     // ── COMP-025 — Current(selector) drives initial-current during construct ──
 
     /// <summary>
@@ -486,17 +539,32 @@ public class CompositeVMConformanceTests
         var c = BuildChild(hub, dispatcher, "c");
 
         var selectorCalls = 0;
+        CompositeVM<ComponentVM<string>>? self = null;
+        var childStatusesInSelector = new List<ConstructionStatus>();
+        var compositeStatusInSelector = ConstructionStatus.Disposed;
         var composite = CompositeVM<ComponentVM<string>>.Builder()
             .Name("composite")
             .Services(hub, dispatcher)
             .Children(() => new[] { a, b, c })
-            .Current(xs => { selectorCalls++; return xs.Skip(1).First(); })
+            .Current(xs =>
+            {
+                selectorCalls++;
+                childStatusesInSelector.AddRange(xs.Select(x => x.Status));
+                compositeStatusInSelector = self!.Status;
+                return xs.Skip(1).First();
+            })
             .Build();
+        self = composite;
 
         composite.Construct();
 
         composite.Current.Should().BeSameAs(b);
         selectorCalls.Should().Be(1, "the selector must run exactly once during construct");
+        childStatusesInSelector.Should().Equal(
+            [ConstructionStatus.Constructed, ConstructionStatus.Constructed, ConstructionStatus.Constructed],
+            "the selector runs after every child reached Constructed");
+        compositeStatusInSelector.Should().Be(ConstructionStatus.Constructing,
+            "the selector runs before the composite reaches Constructed");
 
         // A null-returning selector leaves Current null and publishes no
         // PropertyChangedMessage("Current").
@@ -539,20 +607,40 @@ public class CompositeVMConformanceTests
         var dispatcher = new TestDispatcher();
         var a = BuildChild(hub, dispatcher, "a");
         var b = BuildChild(hub, dispatcher, "b");
+        var c = BuildChild(hub, dispatcher, "c");
         var observed = new List<ComponentVM<string>?>();
+        var order = new List<string>();
+        CompositeVM<ComponentVM<string>>? composite = null;
 
-        var composite = CompositeVM<ComponentVM<string>>.Builder()
+        composite = CompositeVM<ComponentVM<string>>.Builder()
             .Name("composite")
             .Services(hub, dispatcher)
-            .Children(() => new[] { a, b })
-            .OnCurrentChanged(vm => observed.Add(vm))
+            .Children(() => new[] { a, b, c })
+            .OnCurrentChanged(vm =>
+            {
+                observed.Add(vm);
+                order.Add($"callback:{vm?.Name ?? "null"}");
+            })
             .Build();
+        hub.Messages.Subscribe(m =>
+        {
+            if (m is IPropertyChangedMessage<IComponentVM> pcm
+                && pcm.PropertyName == "Current"
+                && ReferenceEquals(pcm.SenderObject, composite))
+            {
+                order.Add($"message:{composite!.Current?.Name ?? "null"}");
+            }
+        });
 
         composite.Construct();
+        composite.Current.Should().BeNull();
         composite.SelectComponent(b);
         composite.DeselectComponent(b);
 
         observed.Should().Equal(b, null);
+        order.Should().Equal(
+            ["message:b", "callback:b", "message:null", "callback:null"],
+            "each callback runs after its PropertyChangedMessage(\"Current\") is published");
 
         // Combined Current(first) + OnCurrentChanged: the initial-selector
         // assignment fires the hook exactly once with the first child.
@@ -689,6 +777,49 @@ public class CompositeVMConformanceTests
         bItem.Status.Should().Be(ConstructionStatus.Disposed);
     }
 
+    /// <summary>
+    /// COMP-026: while one child's current-flag notification is blocked, a
+    /// later assignment from another thread completes and exactly the final
+    /// current child keeps its current flag.
+    /// </summary>
+    [Fact, Trait("Conformance", "COMP-026")]
+    public async Task COMP_026_Blocked_Current_Flag_Notification_Leaves_One_Current_Flag()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var composite = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("composite").Services(hub, dispatcher).Children(() => []).Build();
+        var first = BuildChild(hub, dispatcher, "first");
+        var second = BuildChild(hub, dispatcher, "second");
+        var third = BuildChild(hub, dispatcher, "third");
+        composite.Add(first);
+        composite.Add(second);
+        composite.Add(third);
+        composite.Current = first;
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        first.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(first.IsCurrent) && !first.IsCurrent)
+            {
+                entered.Set();
+                release.Wait(HangGuard);
+            }
+        };
+
+        var selectSecond = Task.Run(() => composite.Current = second);
+        entered.Wait(HangGuard).Should().BeTrue();
+        var selectThird = Task.Run(() => composite.Current = third);
+        await selectThird.WaitAsync(HangGuard);
+        release.Set();
+        await selectSecond.WaitAsync(HangGuard);
+
+        composite.Current.Should().BeSameAs(third);
+        first.IsCurrent.Should().BeFalse();
+        second.IsCurrent.Should().BeFalse();
+        third.IsCurrent.Should().BeTrue();
+    }
+
     [Fact]
     public void Auto_Construct_Rollback_Destructs_Child_After_Destination_Disposal()
     {
@@ -755,6 +886,205 @@ public class CompositeVMConformanceTests
         add.Should().Throw<InvalidOperationException>().WithMessage("attachment failure");
         destination.Status.Should().Be(ConstructionStatus.Disposed);
         destination.Should().BeEmpty();
+    }
+
+    private sealed class HookCleanupProbeVM(
+        string name,
+        TestHub hub,
+        TestDispatcher dispatcher,
+        System.Collections.Concurrent.ConcurrentQueue<string> log,
+        Action? onConstruct = null)
+        : ComponentVMBase(name, "", hub, dispatcher, onConstruct, null)
+    {
+        private int _cleanups;
+        public int Cleanups => _cleanups;
+        public override ViewModelType Type => ViewModelType.Component;
+
+        protected override void OnDispose()
+        {
+            Interlocked.Increment(ref _cleanups);
+            log.Enqueue($"cleanup:{Name}");
+        }
+    }
+
+    /// <summary>
+    /// LIFE-015: a foreign disposal requested during an admitted construct
+    /// hook does not overlap it; cleanup runs exactly once after the hook
+    /// releases, and the container performs no post-hook lifecycle work.
+    /// </summary>
+    [Fact, Trait("Conformance", "LIFE-015")]
+    public async Task LIFE_015_Disposal_Waits_For_Admitted_Hook_And_Cleans_Once()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var log = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var composite = new CleanupProbeComposite("composite", hub, dispatcher, log, () =>
+        {
+            log.Enqueue("hook-enter");
+            entered.Set();
+            release.Wait(HangGuard).Should().BeTrue();
+            log.Enqueue("hook-exit");
+        });
+        var constructed = 0;
+        hub.Messages.Subscribe(m =>
+        {
+            if (m is IConstructionStatusChangedMessage csm
+                && csm.Status == ConstructionStatus.Constructed)
+                Interlocked.Increment(ref constructed);
+        });
+
+        var construct = Task.Factory.StartNew(
+            () => Record.Exception(composite.Construct),
+            CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        entered.Wait(HangGuard).Should().BeTrue();
+        var dispose = Task.Factory.StartNew(
+            () => Record.Exception(composite.Dispose),
+            CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        // Give the foreign disposal time to be requested while the hook is held.
+        await Task.Delay(100);
+        log.Should().NotContain("cleanup:composite",
+            "terminal cleanup must not overlap the admitted hook");
+        release.Set();
+        await Task.WhenAll(construct, dispose).WaitAsync(HangGuard);
+        (await dispose).Should().BeNull();
+        composite.Dispose();
+
+        log.Should().Equal(["hook-enter", "hook-exit", "cleanup:composite"],
+            "cleanup runs once, only after the admitted hook releases its lease");
+        composite.Cleanups.Should().Be(1);
+        composite.Status.Should().Be(ConstructionStatus.Disposed);
+        constructed.Should().Be(0,
+            "terminal supersession prevents post-hook container lifecycle work");
+    }
+
+    private sealed class CleanupProbeComposite(
+        string name,
+        TestHub hub,
+        TestDispatcher dispatcher,
+        System.Collections.Concurrent.ConcurrentQueue<string> log,
+        Action onConstruct)
+        : CompositeVMBase<IComponentVM>(
+            name, "", hub, dispatcher, false, false, onConstruct, null, null, null)
+    {
+        private int _cleanups;
+        public int Cleanups => _cleanups;
+
+        protected override void OnDispose()
+        {
+            base.OnDispose();
+            Interlocked.Increment(ref _cleanups);
+            log.Enqueue($"cleanup:{Name}");
+        }
+    }
+
+    /// <summary>
+    /// LIFE-015 (container cascade): the child cascade of a foreign disposal is
+    /// terminal cleanup too, so it must not overlap the composite's admitted
+    /// construct hook, and no child work may begin after the hook returns.
+    /// </summary>
+    [Fact(Skip = "Library defect: CompositeVMBase.Dispose cascades children before " +
+                 "publishing Disposed or waiting for the admitted construct hook " +
+                 "(CompositeVMBase.Dispose), so children are cleaned " +
+                 "while the hook runs: the log is hook-enter, cleanup:first, " +
+                 "cleanup:second, hook-exit instead of cleanup after hook-exit.")]
+    [Trait("Conformance", "LIFE-015")]
+    public async Task LIFE_015_Child_Cascade_Waits_For_Admitted_Container_Hook()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        var log = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var first = new HookCleanupProbeVM("first", hub, dispatcher, log);
+        var second = new HookCleanupProbeVM("second", hub, dispatcher, log);
+        var composite = CompositeVM<IComponentVM>.Builder()
+            .Name("composite").Services(hub, dispatcher)
+            .Children(() => Array.Empty<IComponentVM>())
+            .OnConstruct(() =>
+            {
+                log.Enqueue("hook-enter");
+                entered.Set();
+                release.Wait(HangGuard).Should().BeTrue();
+                log.Enqueue("hook-exit");
+            })
+            .Build();
+        composite.Add(first);
+        composite.Add(second);
+        var constructedNames = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        hub.Messages.Subscribe(m =>
+        {
+            if (m is IConstructionStatusChangedMessage csm
+                && csm.Status == ConstructionStatus.Constructed)
+                constructedNames.Enqueue(csm.SenderName);
+        });
+
+        var construct = Task.Factory.StartNew(
+            () => Record.Exception(composite.Construct),
+            CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        entered.Wait(HangGuard).Should().BeTrue();
+        var dispose = Task.Factory.StartNew(
+            () => Record.Exception(composite.Dispose),
+            CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+        // Give the foreign disposal time to be requested while the hook is held.
+        await Task.Delay(100);
+        log.Should().NotContain(e => e.StartsWith("cleanup:", StringComparison.Ordinal),
+            "terminal cleanup must not overlap the admitted hook");
+        release.Set();
+        await Task.WhenAll(construct, dispose).WaitAsync(HangGuard);
+        (await dispose).Should().BeNull();
+        composite.Dispose();
+
+        var entries = log.ToList();
+        entries.Should().Contain("hook-exit");
+        entries.FindIndex(e => e.StartsWith("cleanup:", StringComparison.Ordinal))
+            .Should().BeGreaterThan(entries.IndexOf("hook-exit"),
+                "terminal cleanup runs only after the admitted hook releases");
+        first.Cleanups.Should().Be(1);
+        second.Cleanups.Should().Be(1);
+        composite.Status.Should().Be(ConstructionStatus.Disposed);
+        first.Status.Should().Be(ConstructionStatus.Disposed);
+        second.Status.Should().Be(ConstructionStatus.Disposed);
+        constructedNames.Should().BeEmpty(
+            "terminal supersession prevents post-hook container lifecycle work");
+    }
+
+    /// <summary>
+    /// LIFE-015: opposing admitted hooks that each dispose the other's VM
+    /// complete without deadlock, and each VM is cleaned exactly once.
+    /// </summary>
+    [Fact, Trait("Conformance", "LIFE-015")]
+    public async Task LIFE_015_Opposing_Foreign_Hook_Disposal_Does_Not_Deadlock()
+    {
+        var log = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        using var barrier = new Barrier(2);
+        HookCleanupProbeVM? first = null;
+        HookCleanupProbeVM? second = null;
+        first = new HookCleanupProbeVM("first", new TestHub(), new TestDispatcher(), log, () =>
+        {
+            barrier.SignalAndWait(HangGuard);
+            second!.Dispose();
+        });
+        second = new HookCleanupProbeVM("second", new TestHub(), new TestDispatcher(), log, () =>
+        {
+            barrier.SignalAndWait(HangGuard);
+            first.Dispose();
+        });
+
+        var transitions = Task.WhenAll(
+            Task.Factory.StartNew(first.Construct, CancellationToken.None,
+                TaskCreationOptions.LongRunning, TaskScheduler.Default),
+            Task.Factory.StartNew(second.Construct, CancellationToken.None,
+                TaskCreationOptions.LongRunning, TaskScheduler.Default));
+        (await Task.WhenAny(transitions, Task.Delay(HangGuard)))
+            .Should().BeSameAs(transitions, "opposing foreign hook waits must not deadlock");
+        await transitions;
+
+        first.Status.Should().Be(ConstructionStatus.Disposed);
+        second.Status.Should().Be(ConstructionStatus.Disposed);
+        first.Cleanups.Should().Be(1);
+        second.Cleanups.Should().Be(1);
     }
 
     // ── COMP-027 — Add sets child Parent; Remove clears it ───────────────────
@@ -863,6 +1193,18 @@ public class CompositeVMConformanceTests
         cycle.Should().Throw<InvalidOperationException>();
         outer.Should().ContainSingle(item => ReferenceEquals(item, inner));
         inner.Should().BeEmpty();
+
+        // Self-attach is rejected with the same mutation-free guarantee.
+        var selfEvents = 0;
+        var outerStatus = outer.Status;
+        outer.CollectionChanged += (_, _) => selfEvents++;
+        Action selfAttach = () => outer.Add(outer);
+
+        selfAttach.Should().Throw<InvalidOperationException>();
+        outer.Should().ContainSingle(item => ReferenceEquals(item, inner));
+        outer.Status.Should().Be(outerStatus);
+        outer.Current.Should().BeNull();
+        selfEvents.Should().Be(0);
     }
 
     [Fact, Trait("Conformance", "COMP-039")]
@@ -943,6 +1285,96 @@ public class CompositeVMConformanceTests
         child.Status.Should().Be(ConstructionStatus.Destructed);
         destination.Should().BeEmpty();
         events.Should().BeEmpty();
+    }
+
+    [Fact, Trait("Conformance", "COMP-040")]
+    public void COMP_040_Reentrant_Structural_Mutation_Is_Rejected_Before_Mutation()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        CompositeVM<ComponentVM<string>>? oldParent = null;
+        CompositeVM<ComponentVM<string>>? destination = null;
+        var intruder = BuildChild(hub, dispatcher, "intruder");
+        var sibling = BuildChild(hub, dispatcher, "sibling");
+        var hookErrors = new List<Exception?>();
+        var moving = ComponentVM<string>.Builder()
+            .Name("moving").Services(hub, dispatcher).Model("m")
+            .OnConstruct(() =>
+            {
+                hookErrors.Add(Record.Exception(() => destination!.Add(intruder)));
+                hookErrors.Add(Record.Exception(() => oldParent!.Remove(sibling)));
+            })
+            .Build();
+        oldParent = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("old").Services(hub, dispatcher).Children(() => []).Build();
+        oldParent.Add(sibling);
+        oldParent.Add(moving);
+        destination = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("destination").Services(hub, dispatcher).Children(() => [])
+            .AutoConstructOnAdd(true).Build();
+        destination.Construct();
+
+        destination.Add(moving);
+
+        hookErrors.Should().HaveCount(2);
+        hookErrors.Should().AllSatisfy(error => error.Should().BeOfType<InvalidOperationException>(),
+            "re-entrant structural mutation of either protected container is rejected");
+        destination.Should().Equal(moving);
+        oldParent.Should().Equal(sibling);
+        intruder.Status.Should().Be(ConstructionStatus.Destructed);
+    }
+
+    [Fact, Trait("Conformance", "COMP-040")]
+    public void COMP_040_Replacement_Rollback_Precedes_Deferred_Destination_Disposal()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        CompositeVM<ComponentVM<string>>? destination = null;
+        var displaced = BuildChild(hub, dispatcher, "displaced");
+        var replacement = ComponentVM<string>.Builder()
+            .Name("replacement").Services(hub, dispatcher).Model("m")
+            .OnConstruct(() => destination!.Dispose())
+            .Build();
+        destination = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("destination").Services(hub, dispatcher).Children(() => [])
+            .AutoConstructOnAdd(true).Build();
+        destination.Construct();
+        destination.Add(displaced);
+
+        Action replace = () => destination[0] = replacement;
+
+        replace.Should().Throw<ObjectDisposedException>();
+        destination.Status.Should().Be(ConstructionStatus.Disposed);
+        displaced.Status.Should().Be(ConstructionStatus.Disposed,
+            "the displaced member is restored before the terminal membership snapshot");
+        replacement.Status.Should().Be(ConstructionStatus.Destructed,
+            "the rejected replacement is rolled back, not cascaded");
+    }
+
+    [Fact, Trait("Conformance", "COMP-040")]
+    public void COMP_040_Lifecycle_Compensation_Failure_Is_Surfaced()
+    {
+        var hub = new TestHub();
+        var dispatcher = new TestDispatcher();
+        CompositeVM<ComponentVM<string>>? destination = null;
+        var displaced = BuildChild(hub, dispatcher, "displaced");
+        var replacement = ComponentVM<string>.Builder()
+            .Name("replacement").Services(hub, dispatcher).Model("m")
+            .OnConstruct(() => destination!.Dispose())
+            .OnDestruct(() => throw new InvalidOperationException("compensation failure"))
+            .Build();
+        destination = CompositeVM<ComponentVM<string>>.Builder()
+            .Name("destination").Services(hub, dispatcher).Children(() => [])
+            .AutoConstructOnAdd(true).Build();
+        destination.Construct();
+        destination.Add(displaced);
+
+        Action replace = () => destination[0] = replacement;
+
+        var failure = replace.Should().Throw<AggregateException>().Which;
+        failure.Flatten().InnerExceptions.Should().Contain(error =>
+            error is InvalidOperationException && error.Message == "compensation failure",
+            "a failed lifecycle compensation is surfaced rather than swallowed");
     }
 
     [Fact, Trait("Conformance", "COMP-040")]

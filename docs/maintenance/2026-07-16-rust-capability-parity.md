@@ -1,6 +1,7 @@
 # 12. Rust Parity Status
 
-Filed: **2026-07-16**. Closed: **2026-07-26**.
+Filed: **2026-07-16**. Original scope closed: **2026-07-26**. Open items found
+after closure: §12.7 to §12.12, plus the "Still open" notes in §12.4.7.
 
 This record began as the evidence ledger for capability-surface and observable-
 behavior differences between Rust and the four other flavors. The Rust 0.27.0
@@ -230,6 +231,14 @@ command, and composite suites contain focused assertions for each edge.
 `relay_disposal_emits_one_final_can_execute_notification` observe terminal
 callbacks directly and assert value-before-completion ordering.
 
+Still open (recorded in spec chapter 06): `FilteredCompositeVm` has no
+`Changed` stream, and `ModeledCrudCommands` has no `confirm_update` and a
+synchronous `with_confirm_delete`, which takes no `current_changed` trigger
+(`with_current_changed` takes the trigger but no confirmation). `CompositeVm` holds its
+membership transaction across `CollectionChanged` and current-change
+publication, so a selection from those callbacks or a concurrent selection
+fails with `OwnershipTransactionInProgress` (two `COMP-026` tests are ignored).
+
 ### 12.4.8. Hot-Stream Completion And Notification Replay
 
 **Resolved.** Rust now has a typed, replaying, completion-aware VMx-owned
@@ -287,6 +296,77 @@ observable behavior covered by this review.
 
 The ADR-0120 sender representation in §12.2.1 remains the sole intentional
 flavor-specific shape in this ledger. The §12.5 editorial note applies to all
-five flavors and is not a parity backlog. Future differences still require
-spec/ADR review; this completed record is evidence of the 0.27.0 convergence,
-not permission to add undocumented divergence.
+five flavors and is not a parity backlog. §12.7 to §12.12 record the open items and differences found
+after closure. Future differences still require
+spec/ADR review. This record is evidence of the 0.27.0 convergence for the
+original scope. It is not permission to add undocumented divergence.
+
+## 12.7. Open Items: Background Child Settle
+
+Containers (`CompositeVm`, `GroupVm`, the modeled composite, and the fixed
+aggregates) now stay transient until background children settle (spec/02 §6,
+LIFE-014). `HierarchicalVm` has no background option, so it never waits. Three
+Rust-specific items remain open:
+
+- **Container `background_errors()`.** A background child failure that rolls a
+  container back is reported on the container's `background_errors()` stream.
+  This is a Rust-only container surface; the other flavors route the same
+  failure through their background-hook error path.
+- **No join of an in-flight child.** When a container constructs a child that
+  is already Constructing in the background, Rust returns
+  `ConcurrentOperation`. C# (`ConstructOrJoinAsync`), Python, TypeScript, and
+  Swift join the in-flight transition instead.
+- **Nodes that do not forward the settle hook.** See the next paragraph.
+
+Settle notification uses the documented `VmNode::when_lifecycle_settled` hook,
+which wrapper nodes should forward to the wrapped VM. A third-party node that
+keeps the default (`false`) is accepted while still Constructing/Destructing,
+matching the pre-settle-tracking behavior, so the container does not wait for
+it. A later failure of such a node therefore does not roll the container back:
+the container stays Constructed while the child ends Destructed. This is an open
+LIFE-014 gap for nodes that do not forward the hook. C# observes the child's
+status instead; Rust has no node-level hub accessor to do so without risking an
+unbounded wait on a child published elsewhere.
+
+## 12.8. Open Item: Forwarding Composite as a Child
+
+`ForwardingCompositeVm` does not implement `VmNode`, so it cannot be added to
+a composite, group, or aggregate. C#, Python, and Swift support a decorated
+composite as a child with one ownership identity (spec/09 §2). Adding the trait
+needs a forwarding `VmNode` implementation and its tests.
+
+`ForwardingCompositeVm` also forwards only part of the `CompositeVm` surface.
+It does not forward `is_current`, the selection methods and commands
+(`can_select`, `select`, `can_deselect`, `deselect`, `select_command`,
+`deselect_command`, `select_next_command`, `select_previous_command`,
+`reconstruct_command`), expansion (`expand`, `collapse`, `toggle_expansion`,
+`is_expanded`), the lifecycle hooks, `on_current_changed`, or
+`background_errors`. spec/09 §2 requires the same delegation as §1.
+
+## 12.9. Open Item: FormVm Approval Completion
+
+`FormVm::subscribe_approved` (ADR-0139) has no completion callback, so a
+subscriber is not told when the form is disposed. The other flavors complete
+`OnApproved` on dispose (spec/20 §10). `errors_changed` and `approve_errors`
+do complete in Rust.
+
+## 12.10. Recorded Difference: Notification Hub Disposal Snapshot
+
+When `NotificationHub` is disposed, Rust emits a final empty `pending` snapshot
+before completion. C#, Python, TypeScript, and Swift complete without a final
+snapshot. Waiters resolve to `Pending` in every flavor (NOTIF-017).
+
+## 12.11. Open Item: PagedComposition Notifications
+
+Rust `PagedComposition` raises no property notifications. C#, Python,
+TypeScript, and Swift publish `CurrentPageIndex`, `Items`, `PageCount`, and the
+other paging properties on every change. Rust consumers read the state after
+each call.
+
+## 12.12. Open Item: FilteredCompositeVm Initial Cursor Policy
+
+Rust `FilteredCompositeVm::new` always reconciles under `SnapToFirst`. A caller
+sets `Clear` or `PreserveIfVisible` with `set_cursor_policy` after construction,
+and that call does not reconcile again. C#, Python, TypeScript, and Swift take
+the policy at construction, so a `Clear` or `PreserveIfVisible` view starts
+with no current item; the same Rust view starts on the first visible item.

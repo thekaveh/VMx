@@ -52,6 +52,8 @@ tests/conformance/aggregate_vm.rs
 tests/conformance/async_resource_completion.rs
 tests/conformance/async_resource_vm.rs
 tests/conformance/async_value.rs
+tests/conformance/auto_construct_during_constructing.rs
+tests/conformance/background_child_settle.rs
 tests/conformance/builders.rs
 tests/conformance/capabilities.rs
 tests/conformance/collections.rs
@@ -64,6 +66,7 @@ tests/conformance/confirmation_async_inner.rs
 tests/conformance/derived_properties.rs
 tests/conformance/dialogs.rs
 tests/conformance/discriminator.rs
+tests/conformance/drop_reentry.rs
 tests/conformance/expandable.rs
 tests/conformance/expandable_support.rs
 tests/conformance/filtered_composite.rs
@@ -93,6 +96,7 @@ tests/conformance/subscribe_value.rs
 tests/conformance/threading.rs
 tests/conformance/token_refresh_cursor.rs
 tests/conformance/tree_utils.rs
+tests/conformance/user_equality_reentry.rs
 tests/conformance/value_stream.rs
 tests/conformance/vm_collection_move.rs""".splitlines()
 )

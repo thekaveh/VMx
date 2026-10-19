@@ -128,9 +128,15 @@ def test_composite_vm_create_matches_builder_and_populates() -> None:
 
 
 def test_composite_vm_create_missing_children_raises() -> None:
-    # children is a required keyword — omitting it is a TypeError at the call site.
-    with pytest.raises(TypeError):
-        CompositeVM.create(name="comp", hub=make_hub(), dispatcher=make_dispatcher())  # type: ignore[call-arg]
+    # BLD-006 / ADR-0055 §2.3: create() reports a missing children factory the
+    # same way build() does.
+    with pytest.raises(BuilderValidationError):
+        CompositeVM.create(name="comp", hub=make_hub(), dispatcher=make_dispatcher())
+
+
+def test_group_vm_create_missing_children_raises() -> None:
+    with pytest.raises(BuilderValidationError):
+        GroupVM.create(name="grp", hub=make_hub(), dispatcher=make_dispatcher())
 
 
 def test_composite_vm_create_missing_hub_raises() -> None:

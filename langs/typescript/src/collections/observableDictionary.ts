@@ -384,6 +384,8 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
     this.#key2Counts.set(key2, key2Count + 1);
     if (key2Count === 0) this.#keys2.push(key2);
 
+    // Capture the position now: a local subscriber may add another entry.
+    const index = this.#keyOrder.length - 1;
     // 1. Local granular event first.
     this.#itemAdded.next({ key1, key2, value });
     // 2. Publish to hub (if present). Element type includes both keys + value
@@ -392,7 +394,7 @@ export class ObservableDictionary<TKey1, TKey2, TValue> {
       CollectionChangedMessage.forAdd<DictionaryEntry<TKey1, TKey2, TValue>>(
         this,
         { key1, key2, value },
-        this.#keyOrder.length - 1,
+        index,
       ),
     );
   }

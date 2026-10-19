@@ -47,6 +47,26 @@ final class HierarchicalMutationTests: XCTestCase {
 
     // ── Tests ────────────────────────────────────────────────────────────
 
+    /// Supplementary path-cache check (not HIER-010, which covers the parent
+    /// PropertyChangedMessage): a cached path does not keep its nodes alive.
+    func testHier010CachedPathDoesNotRetainNodes() {
+        let hub = MessageHub()
+        weak var weakRoot: MyNode?
+        weak var weakChild: MyNode?
+        do {
+            let root = makeNode(hub, name: "root")
+            let child = makeNode(hub, name: "child")
+            _ = root.addChild(child)
+            XCTAssertEqual(child.path.count, 2)
+            XCTAssertEqual(root.path.count, 1)
+            weakRoot = root
+            weakChild = child
+        }
+
+        XCTAssertNil(weakChild, "the child's cached path must not retain it")
+        XCTAssertNil(weakRoot, "the root's cached path must not retain it")
+    }
+
     /// HIER-010 — addChild emits PropertyChangedMessage("parent") with
     /// sender === child.
     func testHier010AddChildEmitsPropertyChanged() {
