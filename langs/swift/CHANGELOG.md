@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `CompositeVM` selection made while another thread has the composite's
+  membership transaction open (an add, insert, replace, population or another
+  selection) now waits for that transaction and then applies (COMP-026,
+  ADR-0118). Before, `selectChild` and `deselectChild` silently did nothing,
+  `setCurrent`, `selectComponent` and `deselectComponent` threw
+  `CompositeMembershipError`, `canSetCurrent` and `canSelectComponent` returned
+  `false`, and the `current` setter trapped. Only a transaction opened by the
+  calling thread still rejects selection. While it waits, a selection no longer
+  holds the shared cross-composite coordinator, so the other thread's hooks
+  and callbacks can still select in any composite.
+
 - `HierarchicalVM` `addChild`, `reparentChild`, and `attachMany` report invalid
   lazy children-factory output as an error instead of trapping (spec/18 §6).
   `addChild` returns `.failure`, `reparentChild` throws the error, and
