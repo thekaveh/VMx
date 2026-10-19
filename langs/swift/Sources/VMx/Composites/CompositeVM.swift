@@ -154,7 +154,7 @@ open class CompositeVM<Child: ComponentVMBase>:
         // trap-vs-throw recoverability gap is tracked separately (ADR-0037).
         guard vm.status == .constructed else { return }
         membershipGate.lock()
-        guard !membershipTransactionActive,
+        guard !membershipTransactionHeldByCallerLocked,
               let child = children.first(where: { $0 === vm }) else {
             membershipGate.unlock()
             return
@@ -165,7 +165,7 @@ open class CompositeVM<Child: ComponentVMBase>:
 
     public func deselectChild(_ vm: ComponentVMBase) {
         membershipGate.lock()
-        let child = !membershipTransactionActive ? _current : nil
+        let child = !membershipTransactionHeldByCallerLocked ? _current : nil
         membershipGate.unlock()
         if let child, child === vm { _requestDeselect(child) }
     }
@@ -273,7 +273,7 @@ open class CompositeVM<Child: ComponentVMBase>:
     /// §3.1).
     public func canSetCurrent(_ value: Child?) -> Bool {
         membershipGate.withLock {
-            guard !membershipTransactionActive else { return false }
+            guard !membershipTransactionHeldByCallerLocked else { return false }
             guard let value else { return true }
             return children.contains(where: { $0 === value })
         }
@@ -285,7 +285,7 @@ open class CompositeVM<Child: ComponentVMBase>:
     /// or member assignment behaves exactly like `current = value`.
     public func setCurrent(_ value: Child?) throws {
         membershipGate.lock()
-        guard !membershipTransactionActive,
+        guard !membershipTransactionHeldByCallerLocked,
               value == nil || children.contains(where: { $0 === value }) else {
             membershipGate.unlock()
             throw CompositeMembershipError(
@@ -305,7 +305,7 @@ open class CompositeVM<Child: ComponentVMBase>:
     public func canSelectComponent(_ vm: Child) -> Bool {
         guard vm.status == .constructed else { return false }
         return membershipGate.withLock {
-            !membershipTransactionActive
+            !membershipTransactionHeldByCallerLocked
                 && children.contains(where: { $0 === vm })
         }
     }
@@ -322,7 +322,7 @@ open class CompositeVM<Child: ComponentVMBase>:
             throw CompositeMembershipError(memberName: vm.name, compositeName: name)
         }
         membershipGate.lock()
-        guard !membershipTransactionActive,
+        guard !membershipTransactionHeldByCallerLocked,
               children.contains(where: { $0 === vm }) else {
             membershipGate.unlock()
             throw CompositeMembershipError(memberName: vm.name, compositeName: name)
@@ -339,7 +339,7 @@ open class CompositeVM<Child: ComponentVMBase>:
     /// (ADR-0053): catchable throw rather than a trap.
     public func deselectComponent(_ vm: Child) throws {
         membershipGate.lock()
-        guard !membershipTransactionActive, _current === vm else {
+        guard !membershipTransactionHeldByCallerLocked, _current === vm else {
             membershipGate.unlock()
             throw CompositeMembershipError(memberName: vm.name, compositeName: name)
         }
@@ -992,27 +992,49 @@ open class CompositeVM<Child: ComponentVMBase>:
         _ transaction: ContainerOwnershipTransaction,
         allowJoin: Bool
     ) throws {
-        let caller = ObjectIdentifier(Thread.current)
-        while true {
-            let blocker = try membershipGate.withLock { () -> (ObjectIdentifier, DispatchGroup)? in
-                if membershipTransactionActive,
-                   !(allowJoin && membershipTransactionToken === transaction),
-                   let owner = membershipTransactionOwner, owner != caller,
-                   let completion = membershipTransactionCompletion {
-                    return (owner, completion)
-                }
-                try beginMembershipTransactionLocked(transaction, allowJoin: allowJoin)
-                return nil
-            }
-            guard let blocker else { return }
-            let (owner, completion) = blocker
-            let coordinator = MembershipTransactionWaitCoordinator.shared
-            guard coordinator.beginWait(caller: caller, owner: owner) else {
-                throw ContainerOwnershipError.attachmentFailed(ContainerMembershipTransactionError())
-            }
-            completion.wait()
-            coordinator.endWait(caller: caller)
+        while let blocker = try tryEnterMembershipTransaction(transaction, allowJoin: allowJoin) {
+            try waitForMembershipTransaction(blocker)
         }
+    }
+
+    /// Opens or joins the transaction, or returns another thread's open
+    /// transaction to wait for. Throws on a same-thread conflict (ADR-0118).
+    private func tryEnterMembershipTransaction(
+        _ transaction: ContainerOwnershipTransaction,
+        allowJoin: Bool
+    ) throws -> MembershipTransactionBlocker? {
+        let caller = ObjectIdentifier(Thread.current)
+        return try membershipGate.withLock { () -> MembershipTransactionBlocker? in
+            if membershipTransactionActive,
+               !(allowJoin && membershipTransactionToken === transaction),
+               let owner = membershipTransactionOwner, owner != caller,
+               let completion = membershipTransactionCompletion {
+                return MembershipTransactionBlocker(owner: owner, completion: completion)
+            }
+            try beginMembershipTransactionLocked(transaction, allowJoin: allowJoin)
+            return nil
+        }
+    }
+
+    /// Waits for another thread's transaction to end, unless the wait would
+    /// close a cycle (#551).
+    private func waitForMembershipTransaction(_ blocker: MembershipTransactionBlocker) throws {
+        let caller = ObjectIdentifier(Thread.current)
+        let coordinator = MembershipTransactionWaitCoordinator.shared
+        guard coordinator.beginWait(caller: caller, owner: blocker.owner) else {
+            throw ContainerOwnershipError.attachmentFailed(ContainerMembershipTransactionError())
+        }
+        blocker.completion.wait()
+        coordinator.endWait(caller: caller)
+    }
+
+    /// True while the calling thread itself has this composite's membership
+    /// transaction open. Selection is rejected only in that re-entrant case
+    /// (ADR-0118); a transaction on another thread is waited for by
+    /// `_applyCurrentChange`, so a concurrent selection is not dropped.
+    private var membershipTransactionHeldByCallerLocked: Bool {
+        membershipTransactionActive
+            && membershipTransactionOwner == ObjectIdentifier(Thread.current)
     }
 
     private func requireTransactionCanContinueLocked() throws {
@@ -1048,7 +1070,7 @@ open class CompositeVM<Child: ComponentVMBase>:
         // reaching here (VMX-026 / ADR-0053). The trap remains for the property
         // setter, which Swift cannot make `throws`.
         let allowed = membershipGate.withLock {
-            !membershipTransactionActive
+            !membershipTransactionHeldByCallerLocked
                 && (value == nil || children.contains(where: { $0 === value }))
         }
         if !allowed {
@@ -1108,8 +1130,17 @@ open class CompositeVM<Child: ComponentVMBase>:
         compositeCurrentChangeCoordinator.lock()
         var ownsTransaction = false
         if !internalTransaction {
+            let transaction = ContainerOwnershipTransaction()
             do {
-                _ = try beginMembershipTransaction()
+                // Wait for another thread's transaction without retaining the
+                // shared coordinator: that thread's hooks and callbacks may
+                // need it to select (spec/06 §4, COMP-026).
+                while let blocker = try tryEnterMembershipTransaction(transaction, allowJoin: false) {
+                    compositeCurrentChangeCoordinator.unlock()
+                    let waited = Result { try waitForMembershipTransaction(blocker) }
+                    compositeCurrentChangeCoordinator.lock()
+                    try waited.get()
+                }
                 ownsTransaction = true
             } catch {
                 compositeCurrentChangeCoordinator.unlock()
@@ -1175,6 +1206,12 @@ open class CompositeVM<Child: ComponentVMBase>:
 }
 
 private struct ContainerMembershipTransactionError: Error {}
+
+/// Another thread's open membership transaction and its completion signal.
+private struct MembershipTransactionBlocker {
+    let owner: ObjectIdentifier
+    let completion: DispatchGroup
+}
 
 /// Thrown by `CompositeVM.setCurrent(_:)` when the argument is not a member of
 /// the composite's children (spec/06 §3.1 — `Current` must be a member; cf.

@@ -131,6 +131,21 @@ is still awaited: if it then fails, the container rolls back although it no
 longer owns that child. A late child removed before the walk reaches it is
 skipped. The spec does not say which behavior is intended.
 
+### 2.9. Selecting from a composite's own structural transaction
+
+Chapter 06 §4 says a selection invoked from an existing structural transaction
+MAY reuse it. C# and Python reuse it, so a `CollectionChanged` subscriber can
+select in the composite that is publishing an add. Swift rejects that
+selection: `selectComponent` throws `CompositeMembershipError` and
+`selectChild` does nothing
+(`langs/swift/Sources/VMx/Composites/CompositeVM.swift`,
+`membershipTransactionHeldByCallerLocked`). Rust returns
+`OwnershipTransactionInProgress` (§4). For this reason the Swift COMP-026
+collection/current crossing test selects in a second composite, not in the
+composite that is publishing. It cannot run the C# and Python scenario. In every
+flavor, an add to the same composite from that subscriber's call chain is
+rejected (ADR-0118).
+
 ## 3. Swift signatures that cannot throw
 
 Swift `Command.execute()` cannot throw

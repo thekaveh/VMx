@@ -492,6 +492,12 @@ final class CompositeVMTests: XCTestCase {
     /// COMP-026 — a collection-change callback that initiates a current change
     /// while a current callback initiates collection work completes without
     /// deadlock (consumer callbacks do not retain the shared coordinator).
+    ///
+    /// Only the current callback for the thread-A selection (`l1`) adds to
+    /// `right`. The `l2` callback runs on thread B inside `right`'s own
+    /// `collectionChanged` delivery, where an add to `right` is a re-entrant
+    /// mutation that every flavor rejects (ADR-0118; see
+    /// `testCOMP026AddFromTheSameCompositesCollectionCallbackChainIsRejected`).
     func testCOMP026CollectionAndCurrentCallbacksCrossingDoNotDeadlock() throws {
         let l1 = leaf("l1")
         let l2 = leaf("l2")
@@ -504,7 +510,8 @@ final class CompositeVMTests: XCTestCase {
             .withNullServices().children { [] }.build()
         left = try CompositeVM<ComponentVM>.builder().name("left")
             .withNullServices().children { [l1, l2] }
-            .onCurrentChanged { _ in
+            .onCurrentChanged { selected in
+                guard selected === l1 else { return }
                 lock.lock()
                 let go = !currentCallbackAdded
                 currentCallbackAdded = true
@@ -542,6 +549,203 @@ final class CompositeVMTests: XCTestCase {
                        "crossing collection/current callbacks must not deadlock")
         XCTAssertNotNil(left.current)
         XCTAssertEqual(right.count, 2)
+        bag.removeAll()
+    }
+
+    /// COMP-026 — the crossing above, forced into one interleaving. Thread A's
+    /// current callback is parked until thread B's collection callback has
+    /// selected on `left`, so that selection must complete while A is still
+    /// inside `left`'s callback (callbacks retain neither the shared coordinator
+    /// nor `left`'s membership transaction). A's add starts only after B's add
+    /// is delivering its change, so it waits for B's transaction if that is
+    /// still open and always lands second.
+    func testCOMP026CollectionAndCurrentCallbacksCrossingDeterministically() throws {
+        let l1 = leaf("l1")
+        let l2 = leaf("l2")
+        let inCurrentCallback = DispatchSemaphore(value: 0)
+        let collectionCallbackSelected = DispatchSemaphore(value: 0)
+        let lock = NSLock()
+        var collectionCallbackRan = false
+        var currentCallbackAdd: Result<Void, ContainerOwnershipError>?
+        var bag = Set<AnyCancellable>()
+        var left: CompositeVM<ComponentVM>!
+        let right = try CompositeVM<ComponentVM>.builder().name("right")
+            .withNullServices().children { [] }.build()
+        left = try CompositeVM<ComponentVM>.builder().name("left")
+            .withNullServices().children { [l1, l2] }
+            .onCurrentChanged { selected in
+                guard selected === l1 else { return }
+                inCurrentCallback.signal()
+                guard collectionCallbackSelected.wait(timeout: .now() + 10) == .success else {
+                    return
+                }
+                let result = right.addResult(self.leaf("from-current-callback"))
+                lock.withLock { currentCallbackAdd = result }
+            }.build()
+        try left.construct()
+        try right.construct()
+        right.collectionChanged.sink { _ in
+            let first = lock.withLock { () -> Bool in
+                defer { collectionCallbackRan = true }
+                return !collectionCallbackRan
+            }
+            guard first else { return }
+            left.selectChild(l2)
+            collectionCallbackSelected.signal()
+        }.store(in: &bag)
+
+        let done = DispatchGroup()
+        done.enter()
+        DispatchQueue.global().async {
+            left.selectChild(l1)
+            done.leave()
+        }
+        XCTAssertEqual(inCurrentCallback.wait(timeout: .now() + 10), .success,
+                       "thread A reaches left's current callback")
+        done.enter()
+        DispatchQueue.global().async {
+            right.add(self.leaf("from-thread"))
+            done.leave()
+        }
+
+        XCTAssertEqual(done.wait(timeout: .now() + 10), .success,
+                       "crossing collection/current callbacks must not deadlock")
+        let added = lock.withLock { currentCallbackAdd }
+        guard case .success? = added else {
+            return XCTFail("the current callback's add must succeed, got \(String(describing: added))")
+        }
+        XCTAssertTrue(left.current === l2, "B's selection commits after A's")
+        XCTAssertEqual(right.snapshot().map(\.name), ["from-thread", "from-current-callback"])
+        bag.removeAll()
+    }
+
+    /// COMP-026 / ADR-0118 — a selection made while another thread holds the
+    /// composite's membership transaction waits for it and then completes. It
+    /// was dropped (`selectChild`), rejected as a non-member (`setCurrent`), or
+    /// trapped (`current =`), which also made the crossing test above flaky.
+    /// The add's construct hook parks with a timeout, so the add always ends.
+    func testCOMP026SelectionFromAnotherThreadWaitsForAnOpenMembershipTransaction() throws {
+        let a = leaf("a")
+        let b = leaf("b")
+        let c = leaf("c")
+        let composite = try CompositeVM<ComponentVM>.builder().name("composite")
+            .withNullServices().children { [a, b, c] }
+            .autoConstructOnAdd(true).build()
+        try composite.construct()
+
+        func whileAnotherThreadAdds(_ name: String, _ select: () throws -> Void) rethrows {
+            let entered = DispatchSemaphore(value: 0)
+            let release = DispatchSemaphore(value: 0)
+            let parked = try! ComponentVM.builder().name(name).withNullServices()
+                .onConstruct {
+                    entered.signal()
+                    _ = release.wait(timeout: .now() + 0.2)
+                }.build()
+            let added = DispatchGroup()
+            added.enter()
+            DispatchQueue.global().async {
+                composite.add(parked)
+                added.leave()
+            }
+            XCTAssertEqual(entered.wait(timeout: .now() + 10), .success)
+            defer {
+                release.signal()
+                XCTAssertEqual(added.wait(timeout: .now() + 10), .success)
+            }
+            try select()
+        }
+
+        whileAnotherThreadAdds("parked-1") { composite.selectChild(a) }
+        XCTAssertTrue(composite.current === a, "selectChild waits instead of being dropped")
+        try whileAnotherThreadAdds("parked-2") { try composite.setCurrent(b) }
+        XCTAssertTrue(composite.current === b, "setCurrent waits instead of throwing")
+        whileAnotherThreadAdds("parked-3") { composite.current = c }
+        XCTAssertTrue(composite.current === c, "the current setter waits instead of trapping")
+        XCTAssertEqual(composite.count, 6)
+    }
+
+    /// COMP-026 — a selection waiting for another thread's membership
+    /// transaction does not retain the shared cross-composite coordinator, so
+    /// that thread's construct hook can still select in another composite.
+    func testCOMP026SelectionWaitingForATransactionDoesNotRetainTheCoordinator() throws {
+        let a = leaf("a")
+        let o = leaf("o")
+        let other = try CompositeVM<ComponentVM>.builder().name("other")
+            .withNullServices().children { [o] }.build()
+        try other.construct()
+        let composite = try CompositeVM<ComponentVM>.builder().name("composite")
+            .withNullServices().children { [a] }
+            .autoConstructOnAdd(true).build()
+        try composite.construct()
+        let entered = DispatchSemaphore(value: 0)
+        let selectionStarted = DispatchSemaphore(value: 0)
+        let parked = try ComponentVM.builder().name("parked").withNullServices()
+            .onConstruct {
+                entered.signal()
+                // Give the other thread time to start waiting, then select.
+                _ = selectionStarted.wait(timeout: .now() + 10)
+                Thread.sleep(forTimeInterval: 0.05)
+                other.selectChild(o)
+            }.build()
+
+        let done = DispatchGroup()
+        done.enter()
+        DispatchQueue.global().async {
+            composite.add(parked)
+            done.leave()
+        }
+        XCTAssertEqual(entered.wait(timeout: .now() + 10), .success)
+        done.enter()
+        DispatchQueue.global().async {
+            selectionStarted.signal()
+            composite.selectChild(a)
+            done.leave()
+        }
+
+        XCTAssertEqual(done.wait(timeout: .now() + 10), .success,
+                       "a waiting selection must not block selection in another composite")
+        XCTAssertTrue(other.current === o)
+        XCTAssertTrue(composite.current === a)
+    }
+
+    /// COMP-026 / ADR-0118 — the ordering that made the crossing test flaky:
+    /// when the composite's own `collectionChanged` delivery selects on
+    /// another composite whose current callback adds back to the first, that
+    /// add re-enters the first composite's open membership transaction on the
+    /// same thread. It is rejected (as in C#, Python and TypeScript) without
+    /// changing membership, and the outer add still succeeds.
+    func testCOMP026AddFromTheSameCompositesCollectionCallbackChainIsRejected() throws {
+        let l1 = leaf("l1")
+        let l2 = leaf("l2")
+        var reentrant: Result<Void, ContainerOwnershipError>?
+        var selected = false
+        var bag = Set<AnyCancellable>()
+        let right = try CompositeVM<ComponentVM>.builder().name("right")
+            .withNullServices().children { [] }.build()
+        let left = try CompositeVM<ComponentVM>.builder().name("left")
+            .withNullServices().children { [l1, l2] }
+            .onCurrentChanged { _ in
+                if reentrant == nil {
+                    reentrant = right.addResult(self.leaf("from-current-callback"))
+                }
+            }.build()
+        try left.construct()
+        try right.construct()
+        right.collectionChanged.sink { _ in
+            if !selected {
+                selected = true
+                left.selectChild(l2)
+            }
+        }.store(in: &bag)
+
+        try right.addResult(leaf("from-thread")).get()
+
+        XCTAssertTrue(left.current === l2)
+        guard case let .failure(.attachmentFailed(error))? = reentrant else {
+            return XCTFail("expected a rejection, got \(String(describing: reentrant))")
+        }
+        XCTAssertTrue("\(error)".contains("MembershipTransaction"), "got \(error)")
+        XCTAssertEqual(right.snapshot().map(\.name), ["from-thread"])
         bag.removeAll()
     }
 
