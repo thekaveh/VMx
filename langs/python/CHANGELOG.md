@@ -23,6 +23,10 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ### Fixed
 
+- `_own` returns the type of the resource it receives, so
+  `self.command: RelayCommand = self._own(...)` type-checks under
+  `mypy --strict`. Before, the return type was the union of accepted shapes
+  (spec/02 §2.3) (#652).
 - An aggregate slot factory that returns `None` makes `construct()` raise
   `ValueError` before any slot is committed. Before, the aggregate constructed
   with an empty slot, which spec/08 §2 calls invalid.
