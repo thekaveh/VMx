@@ -1,6 +1,6 @@
 {
   "name": "@thekaveh/vmx-react",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Official React 18 and 19 bindings for VMx",
   "type": "module",
   "sideEffects": false,
