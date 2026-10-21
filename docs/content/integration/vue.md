@@ -17,7 +17,7 @@ message notifies watchers exactly once.
 | `shallowRef` value + `triggerRef` | `PropertyChangedMessage<T>` handler  |
 | `@click="fn"`                     | `command.execute()` in `fn`          |
 | `computed(() => ...)`             | `DerivedProperty<T>` / `fromSources` |
-| `onMounted(start)`                | subscribe to the hub                 |
+| `onBeforeMount(start)`            | subscribe to the hub                 |
 | `onScopeDispose(() => cleanup)`   | dispose the subscription             |
 
 A [`republishModel()` announcement keeps the same reference](index.md#914-republished-models-keep-their-reference).
@@ -30,8 +30,9 @@ The composable has three rules:
 - Call it inside `setup()` or an `effectScope`. Elsewhere it throws a
   `TypeError`, because no scope would release the subscription. Stopping the
   scope releases it.
-- In a component, it subscribes when the component mounts. A server render
-  never mounts, so it leaves no subscription.
+- Called in `setup()`, it subscribes just before the component's first
+  render. A server render never runs that hook, so it leaves no subscription.
+  Called after mount, for example in `onMounted`, it subscribes at once.
 - Hold view-models in `shallowRef` or `markRaw`. `ref()`, `reactive()` and
   `data()` wrap a VM in a proxy. The composable unwraps it with `toRaw`, but
   other code that reads a VM member through the proxy throws on VMx's
@@ -42,8 +43,9 @@ The composable has three rules:
 The composable and component below are the exact files run by
 `examples/typescript/integration-recipes` against `vue` 3.5.43. The tests cover
 an in-place mutation announced with `republishModel()`, replacement and scalar
-updates, one synchronous watcher run per message, proxied view-models,
-unrelated messages, unmount and effect-scope cleanup, and a server render.
+updates, one synchronous watcher run per message, proxied view-models, a
+change announced before the first mount, unrelated messages, unmount and
+effect-scope cleanup, and a server render.
 
 <!-- checked-snippet: examples/typescript/integration-recipes/src/vue/composables/useVm.ts -->
 
@@ -52,7 +54,7 @@ unrelated messages, unmount and effect-scope cleanup, and a server render.
 import {
   getCurrentInstance,
   getCurrentScope,
-  onMounted,
+  onBeforeMount,
   onScopeDispose,
   shallowRef,
   toRaw,
@@ -72,7 +74,8 @@ export function useVm<M, K extends keyof ComponentVMOf<M>>(
   hub: IMessageHub,
   property: K,
 ): Readonly<ShallowRef<ComponentVMOf<M>[K]>> {
-  if (!getCurrentScope()) {
+  const scope = getCurrentScope();
+  if (!scope) {
     throw new TypeError("useVm must be called inside setup() or an effect scope");
   }
   // A VM held in ref(), reactive() or data() arrives as a proxy. VMx reads
@@ -83,6 +86,7 @@ export function useVm<M, K extends keyof ComponentVMOf<M>>(
   const value = shallowRef(current) as ShallowRef<ComponentVMOf<M>[K]>;
   let sub: Subscription | undefined;
   const start = (): void => {
+    if (!scope.active) return;
     current = raw[property];
     value.value = current;
     sub = messages
@@ -103,8 +107,10 @@ export function useVm<M, K extends keyof ComponentVMOf<M>>(
         }
       });
   };
-  // Mounted hooks never run during a server render, so SSR subscribes nothing.
-  if (getCurrentInstance()) onMounted(start);
+  // Before the first render, subscribe just before it: a server render never
+  // runs mount hooks, so SSR subscribes nothing.
+  const instance = getCurrentInstance();
+  if (instance && !instance.isMounted) onBeforeMount(start);
   else start();
   onScopeDispose(() => sub?.unsubscribe());
   return value;

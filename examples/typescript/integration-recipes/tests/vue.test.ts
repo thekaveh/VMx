@@ -5,12 +5,14 @@ import {
   effectScope,
   h,
   nextTick,
+  onMounted,
   reactive,
   ref,
   shallowRef,
   watch,
   watchEffect,
   type Component,
+  type ShallowRef,
 } from "vue";
 import { renderToString } from "vue/server-renderer";
 import { describe, expect, it } from "vitest";
@@ -312,5 +314,68 @@ describe("Vue recipe (vue 3.5.43)", () => {
     expect(html).toContain("<h1>draft</h1>");
     expect(hub.subscriptions).toBe(hub.teardowns);
     expect(hub.subscriptions).toBe(0);
+  });
+
+  it("renders an in-place change announced by a child's setup before the first mount", async () => {
+    const hub = countingHub();
+    const note: Note = { title: "draft" };
+    const vm = constructedVm(hub, note);
+    const Child = defineComponent({
+      setup() {
+        note.title = "edited in child setup";
+        vm.republishModel();
+        return () => h("i");
+      },
+    });
+    const el = document.createElement("div");
+    createApp({
+      setup() {
+        const model = useVm(vm, hub, "model");
+        return () => h("div", [h("h1", model.value.title), h(Child)]);
+      },
+    }).mount(el);
+    await nextTick();
+
+    expect(el.querySelector("h1")?.textContent).toBe("edited in child setup");
+  });
+
+  it("subscribes at once when called from a mounted hook", async () => {
+    const hub = countingHub();
+    const vm = constructedVm<Note>(hub, { title: "draft" });
+    let model: Readonly<ShallowRef<Note>> | undefined;
+    const el = document.createElement("div");
+    const app = createApp({
+      setup() {
+        onMounted(() => {
+          model = useVm(vm, hub, "model");
+        });
+        return () => h("i");
+      },
+    });
+    app.mount(el);
+    expect(hub.subscriptions).toBe(1);
+
+    vm.model = { title: "replaced" };
+    expect(model?.value.title).toBe("replaced");
+    app.unmount();
+    expect(hub.teardowns).toBe(1);
+  });
+
+  it("does not subscribe for an effect scope stopped before the component mounts", () => {
+    const hub = countingHub();
+    const vm = constructedVm<Note>(hub, { title: "draft" });
+    const el = document.createElement("div");
+    const app = createApp({
+      setup() {
+        const scope = effectScope();
+        scope.run(() => useVm(vm, hub, "model"));
+        scope.stop();
+        return () => h("i");
+      },
+    });
+    app.mount(el);
+    app.unmount();
+
+    expect([hub.subscriptions, hub.teardowns]).toEqual([0, 0]);
   });
 });
