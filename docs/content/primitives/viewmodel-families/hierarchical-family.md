@@ -21,11 +21,12 @@ rebuild tree bookkeeping in every app.
 
 ## 6.2.6.2. Shape And Ownership
 
-A hierarchical node owns:
-
-- its `Model`
-- its recursive `Children`
-- structural metadata such as `Parent`, `Depth`, `Path`, `IsRoot`, and `IsLeaf`
+A hierarchical node owns its `Model` and its structural metadata: `Parent`,
+`Depth`, `Path`, `IsRoot`, and `IsLeaf`. It does not own the lifetimes of its
+`Children`. Destructing or disposing a node does not destruct, dispose, detach,
+or reparent its children; only eager construction cascades (spec 18 §3). The
+consumer owns child lifetimes: dispose a subtree explicitly (§6.2.6.4), or
+register cleanup through the owned-resource helper.
 
 Children are lazy by default. Eager mode applies per node. An eager node
 constructs its children depth-first. The whole tree is eager only when every
@@ -47,7 +48,49 @@ The family integrates directly with the tree walkers `walk` and
 `walk_expanded` (flavor-idiomatic spellings). See
 [Builders, Collections & Tree Utilities](../builders-collections-tree-utilities.md).
 
-## 6.2.6.4. Progressive Batch Hydration
+## 6.2.6.4. Disposing A Subtree
+
+To dispose a node with its materialized descendants, walk the subtree
+depth-first. The recipe below disposes children before their parent, keeps
+going after a failed node, and rethrows the first failure, as spec 02 §7
+requires of a container. It is TypeScript; the same walk applies in every
+flavor.
+
+<!-- checked-snippet: langs/typescript/tests/unit/hierarchicalSubtreeDisposalRecipe.test.ts#dispose-subtree -->
+
+```typescript
+interface DisposableTreeNode {
+  readonly children: readonly DisposableTreeNode[];
+  dispose(): void;
+}
+
+/** Disposes a node's materialized subtree, children first. */
+function disposeSubtree(node: DisposableTreeNode): void {
+  let failed = false;
+  let firstError: unknown;
+  const attempt = (action: () => void): void => {
+    try {
+      action();
+    } catch (error) {
+      if (!failed) {
+        failed = true;
+        firstError = error;
+      }
+    }
+  };
+  for (const child of [...node.children]) attempt(() => disposeSubtree(child));
+  attempt(() => node.dispose());
+  if (failed) throw firstError;
+}
+```
+
+Reading `children` materializes a lazy level, so the recipe builds and
+constructs children that were never shown before it disposes them. It reaches
+only the current children. A node that was reparented into another tree, or
+dropped by `invalidateChildren`, is no longer in the subtree, and its new owner
+disposes it.
+
+## 6.2.6.5. Progressive Batch Hydration
 
 Use `attachMany` / `AttachMany` / `attach_many` when windows can overlap or
 arrive out of order. The consumer supplies the domain key and parent-key
@@ -82,7 +125,7 @@ the root clears its parked set.
 Consumers still adapt domain facts that the generic tree must not own, such as
 forest roots, alias parent IDs, and creation of registered domain nodes.
 
-## 6.2.6.5. Cross-Language Surface
+## 6.2.6.6. Cross-Language Surface
 
 | Concept            | C#                                   | Python                               | TypeScript                           | Swift                                   | Rust                              |
 | ------------------ | ------------------------------------ | ------------------------------------ | ------------------------------------ | --------------------------------------- | --------------------------------- |
@@ -94,7 +137,7 @@ forest roots, alias parent IDs, and creation of registered domain nodes.
 | Root parent key    | `BatchParentKey<TKey>.Root`          | `None`                               | `null`                               | `nil`                                   | `None`                            |
 | Parked count       | `ParkedAttachCount`                  | `parked_attach_count`                | `parkedAttachCount`                  | `parkedAttachCount`                     | `parked_attach_count()`           |
 
-## 6.2.6.6. Example
+## 6.2.6.7. Example
 
 The current Notes Workspace examples do **not** subclass `HierarchicalVM` in
 any flavor. In the C#, Python, TypeScript, and Swift showcases, each
@@ -172,11 +215,13 @@ when a subclass is required.
 That split is the practical rule: use the tree primitive when the tree is real,
 not simply because the UI displays indentation.
 
-## 6.2.6.7. Common Pitfalls
+## 6.2.6.8. Common Pitfalls
 
 - Recursing `CompositeVM` instead of using the tree primitive and then having to
   rebuild `Parent`, `Depth`, and `Path` yourself.
 - Expecting lazy children to exist during construct without materializing them.
+- Expecting `dispose()` on a node to dispose its children. Dispose the subtree
+  explicitly (§6.2.6.4).
 - Treating cache invalidation as structural mutation. It is a refresh contract,
   not an add/remove event.
 - Reparenting a node under itself or its descendants. The contract rejects these
@@ -186,7 +231,7 @@ not simply because the UI displays indentation.
 - Treating `park` as a general retry queue. Only missing-parent items park;
   duplicates, cycles, and invalid links are terminal results.
 
-## 6.2.6.8. Related Primitives
+## 6.2.6.9. Related Primitives
 
 - [Composite Family](composite-family.md)
 - [State & Reactive Helpers](../state-reactive-helpers.md)
