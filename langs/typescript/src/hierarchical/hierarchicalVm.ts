@@ -99,6 +99,20 @@ export abstract class HierarchicalVM<
 
   readonly #model: TModel;
 
+  // Two overloads, not one union, so that @deprecated marks only the form
+  // without services.
+  /** Builds a node that publishes its messages on `opts.hub`. */
+  constructor(
+    opts: HierarchicalVMOptions<TModel, TVM> & { hub: IMessageHub; dispatcher: IDispatcher },
+  );
+  /**
+   * @deprecated Pass `hub` and `dispatcher`, or build the node with
+   * `HierarchicalVMBuilder`. Without them the node publishes to a private hub
+   * that no application observer sees. TypeScript 4.0 requires both
+   * (ADR-0009).
+   */
+  // eslint-disable-next-line @typescript-eslint/unified-signatures
+  constructor(opts: HierarchicalVMOptions<TModel, TVM>);
   constructor(opts: HierarchicalVMOptions<TModel, TVM>) {
     const hub = opts.hub ?? new MessageHub();
     const dispatcher = opts.dispatcher ?? RxDispatcher.immediate();
@@ -675,12 +689,12 @@ export abstract class HierarchicalVM<
  * callable. Carries the settled, validated construction options so the
  * factory can instantiate the concrete TVM subclass.
  *
- * This is a TS type alias for the canonical {@link HierarchicalVMOptions}.
- * It exists as a distinct exported name so consumers can spell the factory
- * signature without importing the broader options type.
+ * It is {@link HierarchicalVMOptions} with `hub` and `dispatcher` required:
+ * `build()` always supplies both, so `super(context)` binds the constructor
+ * overload with services rather than the deprecated one.
  */
 export type HierarchicalVMConstructionContext<TModel, TVM> =
-  HierarchicalVMOptions<TModel, TVM>;
+  HierarchicalVMOptions<TModel, TVM> & { hub: IMessageHub; dispatcher: IDispatcher };
 
 /**
  * Immutable fluent builder for {@link HierarchicalVM}.
