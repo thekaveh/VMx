@@ -268,10 +268,11 @@ TreeStructureChangedMessage:
   `parent → children[0] → children[0].children[0] → … → children[1] → …`.
 - **`ExpandableState`** (chapter 05 §8, ADR-0015): consumers may compose the
   non-generic `ExpandableState` to expose `IExpandable`. `walk_expanded`
-  (chapter 13 §5, §6) then skips the children of a collapsed node. Expansion
-  does not materialize children: they materialize on first `Children` access
-  (§4). `HierarchicalVM` does NOT auto-implement `IExpandable` — per ADR-0028
-  §3.6 and ADR-0010, capabilities are opt-in.
+  (chapter 13 §5, §6) then skips the children of a collapsed node; Rust does
+  not stop there yet (chapter 13 §6 open gap). Expansion does not materialize
+  children: they materialize on first `Children` access, or at construct time
+  with the eager option (§4). `HierarchicalVM` does NOT auto-implement
+  `IExpandable` — per ADR-0028 §3.6 and ADR-0010, capabilities are opt-in.
 - **`SearchableState`** (chapter 06 §8, ADR-0014): consumers may compose
   `SearchableState<TVM>` to provide a filtered view of a tree. The filter
   operates on the materialized portion.

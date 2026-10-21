@@ -83,3 +83,6 @@ Option 3, with the following six specific resolutions:
   17 conformance IDs.
 - **ADR-0037** (2026-06-10, spec v2.5.0) added `HIER-018` (`ReparentChild`
   rejects self/ancestor cycles). The family is now 18 conformance IDs.
+- **ADR-0150** (2026-10-21, spec v3.29.0) corrects §3 item 1: no flavor
+  materializes children on `Expand()`. Children materialize on first
+  `Children` access, or at construct time with the eager option.

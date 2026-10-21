@@ -19,32 +19,36 @@ Issue #655 found two records that disagree with the code:
 
 - Chapter 18 §9 said consumers compose `ExpandableState<TVM>` "to gate lazy
   child materialization on `Expand()`". `ExpandableState` is not generic in any
-  flavor. Expansion gates `walk_expanded` traversal (chapter 13 §5 and §6). No
-  flavor materializes children on `Expand()`: children materialize on first
-  `Children` access, or at construct time with the eager option (chapter 18
-  §4). ADR-0028 §3 item 1 also names `Expand()` as a materialization trigger.
+  flavor. Expansion gates `walk_expanded` traversal (chapter 13 §5 and §6),
+  except in Rust, whose `HierarchicalVm` never reports collapse (chapter 13 §6
+  open gap). No flavor materializes children on `Expand()`: children
+  materialize on first `Children` access, or at construct time with the eager
+  option (chapter 18 §4). ADR-0028 §3 item 1 also names `Expand()` as a
+  materialization trigger.
 - ADR-0009 records that the TypeScript `HierarchicalVM` raw constructor falls
   back to a private hub. It does not record that Rust conveniences build a
-  private `MessageHub`:
-  - `ComponentVm::new`, `CompositeVm::new` and `GroupVm::new` (with a
-    `NullDispatcher`);
-  - `HierarchicalVm::new` and `FormVm::new`;
-  - `AggregateVm1::try_new` to `AggregateVm6::try_new`;
-  - `AsyncResourceVm::new` and `AsyncResourceVm::with_options`.
+  private hub:
+  - `ComponentVm::new`, `CompositeVm::new`, `GroupVm::new`,
+    `HierarchicalVm::new` and `FormVm::new`;
+  - `AggregateVm1::new` / `try_new` to `AggregateVm6::new` / `try_new`;
+  - `AsyncResourceVm::new` and `AsyncResourceVm::with_options`;
+  - `NotificationVm::new` and `ConfirmationVm::new`, which build a private
+    `NotificationHub`.
 
 ## 2. Decision
 
 Correct the records as the code ships:
 
 - Chapter 18 §9 names a non-generic `ExpandableState` that gates
-  `walk_expanded` traversal, and states that expansion does not materialize
-  children.
-- ADR-0028 §3 item 1 keeps its text, and its status line records that
-  `Expand()` materialization is corrected by this ADR.
+  `walk_expanded` traversal, notes the Rust gap, and states that expansion does
+  not materialize children.
+- ADR-0028 §3 item 1 keeps its text. Its status line, its registry row and a
+  §5 amendment record that `Expand()` materialization is corrected by this
+  ADR.
 - ADR-0009 lists the Rust conveniences next to the TypeScript fallback. Each
-  type also has a constructor that takes the application hub:
-  `with_services`, `try_with_services`, `with_services_and_options`,
-  `with_children_factory` or `FormVm::with_options`.
+  type also has a constructor that takes the shared hub: `with_services`,
+  `try_with_services`, `with_services_and_options`, `with_children_factory`,
+  `FormVm::with_options` or `with_hub`.
 
 The change is editorial. It adds no conformance ID and no behavior, and the
 spec version stays 3.29.0.
@@ -56,4 +60,4 @@ spec version stays 3.29.0.
   it expands.
 - Audits find the Rust private-hub conveniences in ADR-0009 instead of
   re-reporting them as accidental drift. A VM built through one of them
-  publishes to a hub that no application observer sees.
+  publishes to its own hub, not the application hub.
