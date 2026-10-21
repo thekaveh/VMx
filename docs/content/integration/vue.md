@@ -7,8 +7,8 @@ Wire a `ComponentVMOf<M>` to a Vue 3 component through the Composition API
 
 Vue 3 tracks reads of a `shallowRef` value and re-renders the template when
 that value changes. `triggerRef` forces the same re-render when the value keeps
-its reference. The adapter updates a `shallowRef` from VMx hub messages and
-calls `triggerRef` on each one.
+its reference. The adapter updates a `shallowRef` from VMx hub messages. Each
+message notifies watchers exactly once.
 
 ## 9.9.2. Mapping
 
@@ -17,50 +17,102 @@ calls `triggerRef` on each one.
 | `shallowRef` value + `triggerRef` | `PropertyChangedMessage<T>` handler  |
 | `@click="fn"`                     | `command.execute()` in `fn`          |
 | `computed(() => ...)`             | `DerivedProperty<T>` / `fromSources` |
-| `onUnmounted(() => cleanup)`      | dispose the subscription             |
+| `onBeforeMount(start)`            | subscribe to the hub                 |
+| `onScopeDispose(() => cleanup)`   | dispose the subscription             |
 
-A [`republishModel()` announcement keeps the same reference](index.md#914-republished-models-keep-their-reference),
-so the composable calls `triggerRef` on every matching message. Messages for
-another VM or another property are filtered out.
+A [`republishModel()` announcement keeps the same reference](index.md#914-republished-models-keep-their-reference).
+When a matching message leaves the reference unchanged, the composable calls
+`triggerRef`. Otherwise it assigns the new value. A message for another VM or
+another property is filtered out.
+
+The composable has three rules:
+
+- Call it inside `setup()` or an `effectScope`. Elsewhere it throws a
+  `TypeError`, because no scope would release the subscription. Stopping the
+  scope releases it.
+- Called in `setup()`, it subscribes just before the component's first
+  render. A server render never runs that hook, so it leaves no subscription.
+  Called after mount, for example in `onMounted`, it subscribes at once.
+- Hold view-models in `shallowRef` or `markRaw`. `ref()`, `reactive()` and
+  `data()` wrap a VM in a proxy. The composable unwraps it with `toRaw`, but
+  other code that reads a VM member through the proxy throws on VMx's
+  `#private` fields.
 
 ## 9.9.3. Adapter skeleton
 
 The composable and component below are the exact files run by
-`examples/typescript/integration-recipes` against `vue` 3.5.43, including an
-in-place mutation announced with `republishModel()`, replacement and scalar
-updates, unrelated messages, and unmount cleanup.
+`examples/typescript/integration-recipes` against `vue` 3.5.43. The tests cover
+an in-place mutation announced with `republishModel()`, replacement and scalar
+updates, one synchronous watcher run per message, proxied view-models, a
+change announced before the first mount, unrelated messages, unmount and
+effect-scope cleanup, and a server render.
 
 <!-- checked-snippet: examples/typescript/integration-recipes/src/vue/composables/useVm.ts -->
 
 ```ts
 // composables/useVm.ts
-import { onUnmounted, shallowRef, triggerRef, type ShallowRef } from "vue";
-import { filter } from "rxjs";
+import {
+  getCurrentInstance,
+  getCurrentScope,
+  onBeforeMount,
+  onScopeDispose,
+  shallowRef,
+  toRaw,
+  triggerRef,
+  type ShallowRef,
+} from "vue";
+import { filter, type Subscription } from "rxjs";
 import { type ComponentVMOf, type IMessageHub, PropertyChangedMessage } from "@thekaveh/vmx";
 
 /**
- * Binds one VM property for the calling component's lifetime. `vm` and `hub`
- * are fixed inputs: give the component a `:key` to rebind it to another VM.
+ * Binds one VM property for the lifetime of the calling component or effect
+ * scope. `vm` and `hub` are fixed inputs: give the component a `:key` to rebind
+ * it to another VM.
  */
 export function useVm<M, K extends keyof ComponentVMOf<M>>(
   vm: ComponentVMOf<M>,
   hub: IMessageHub,
   property: K,
 ): Readonly<ShallowRef<ComponentVMOf<M>[K]>> {
-  const value = shallowRef(vm[property]) as ShallowRef<ComponentVMOf<M>[K]>;
-  const sub = hub.messages
-    .pipe(
-      filter(
-        (m): m is PropertyChangedMessage<unknown> =>
-          m instanceof PropertyChangedMessage && m.sender === vm && m.propertyName === property,
-      ),
-    )
-    .subscribe(() => {
-      value.value = vm[property];
-      // A republished model keeps its reference, so trigger explicitly.
-      triggerRef(value);
-    });
-  onUnmounted(() => sub.unsubscribe());
+  const scope = getCurrentScope();
+  if (!scope) {
+    throw new TypeError("useVm must be called inside setup() or an effect scope");
+  }
+  // A VM held in ref(), reactive() or data() arrives as a proxy. VMx reads
+  // #private fields and hub messages carry the raw object, so bind the raw one.
+  const raw = toRaw(vm);
+  const messages = toRaw(hub).messages;
+  let current = raw[property];
+  const value = shallowRef(current) as ShallowRef<ComponentVMOf<M>[K]>;
+  let sub: Subscription | undefined;
+  const start = (): void => {
+    if (!scope.active) return;
+    current = raw[property];
+    value.value = current;
+    sub = messages
+      .pipe(
+        filter(
+          (m): m is PropertyChangedMessage<unknown> =>
+            m instanceof PropertyChangedMessage && m.sender === raw && m.propertyName === property,
+        ),
+      )
+      .subscribe(() => {
+        const next = raw[property];
+        if (Object.is(next, current)) {
+          // A republished model keeps its reference, so trigger explicitly.
+          triggerRef(value);
+        } else {
+          current = next;
+          value.value = next;
+        }
+      });
+  };
+  // Before the first render, subscribe just before it: a server render never
+  // runs mount hooks, so SSR subscribes nothing.
+  const instance = getCurrentInstance();
+  if (instance && !instance.isMounted) onBeforeMount(start);
+  else start();
+  onScopeDispose(() => sub?.unsubscribe());
   return value;
 }
 ```
