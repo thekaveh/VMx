@@ -24,9 +24,11 @@ export class ComponentVMOf<M> extends ComponentVMBase {
 
   constructor(opts: {
     name: string;
-    hint: string;
+    /** Defaults to `""`. */
+    hint?: string;
     initialModel: M;
-    modeledHinter: (m: M) => string;
+    /** Defaults to a hinter that returns `""`. */
+    modeledHinter?: (m: M) => string;
     onModelChanged?: ((m: M) => void) | null;
     hub: IMessageHub;
     dispatcher: IDispatcher;
@@ -37,9 +39,9 @@ export class ComponentVMOf<M> extends ComponentVMBase {
   }) {
     super(opts);
     this.#model = opts.initialModel;
-    this.#modeledHinter = opts.modeledHinter;
+    this.#modeledHinter = opts.modeledHinter ?? (() => "");
     this.#onModelChangedCb = opts.onModelChanged ?? null;
-    this.#modeledHint = opts.modeledHinter(opts.initialModel);
+    this.#modeledHint = this.#modeledHinter(opts.initialModel);
     this.#vmType = opts.vmType ?? ViewModelType.Component;
   }
 

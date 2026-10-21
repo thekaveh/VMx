@@ -681,6 +681,21 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     }
 
     /// <summary>
+    /// Initializes the base with an empty <see cref="Hint"/>, the default the
+    /// builders use (spec/10 §4).
+    /// </summary>
+    protected ComponentVMBase(
+        string name,
+        IMessageHub hub,
+        IDispatcher dispatcher,
+        Action? onConstruct = null,
+        Action? onDestruct = null,
+        bool background = false)
+        : this(name, string.Empty, hub, dispatcher, onConstruct, onDestruct, background)
+    {
+    }
+
+    /// <summary>
     /// Builds a built-in command, wiring the status trigger so its
     /// <c>CanExecuteChanged</c> re-fires on every lifecycle transition (VMX-104).
     /// After disposal the trigger Subject is completed/disposed, so a command

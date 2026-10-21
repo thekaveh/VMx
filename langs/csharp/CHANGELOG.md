@@ -8,6 +8,12 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx
 
+- Added: `ComponentVMBase`, `ComponentVMBaseOfM<M>`, `CompositeVMBase<VM>`, and
+  `GroupVMBase<VM>` have protected constructor overloads without `hint`, which
+  default it to an empty string as the builders do (spec/10 §4). The
+  `ComponentVMBaseOfM<M>` overload also makes `modeledHinter` optional, with
+  an empty hint by default, and takes the remaining arguments as optional
+  parameters (#663).
 - Fixed: `PropertyValueChangedMessagesFor(source, x => x.Prop)` now emits for
   real viewmodel property changes. It matched only
   `IPropertyChangedMessage<TSource>` for the inferred concrete type, while VMs

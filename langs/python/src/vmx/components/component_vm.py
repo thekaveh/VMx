@@ -17,6 +17,11 @@ from vmx.services.message_hub import MessageHubProto
 M = TypeVar("M")
 
 
+def _empty_hint(_model: object) -> str:
+    """Default modeled hinter: an empty hint, as the builders default (spec/10 §4)."""
+    return ""
+
+
 # ---------------------------------------------------------------------------
 # ComponentVM — non-modeled leaf VM
 # ---------------------------------------------------------------------------
@@ -34,7 +39,7 @@ class ComponentVM(_ComponentVMBase):
         self,
         *,
         name: str,
-        hint: str,
+        hint: str = "",
         hub: MessageHubProto[Message],
         dispatcher: Dispatcher,
         on_construct: Callable[[], None] | None = None,
@@ -110,10 +115,10 @@ class ComponentVMOf(Generic[M], _ComponentVMBase):
         self,
         *,
         name: str,
-        hint: str,
+        hint: str = "",
         initial_model: M,
-        modeled_hinter: Callable[[M], str],
-        on_model_changed: Callable[[M], None] | None,
+        modeled_hinter: Callable[[M], str] | None = None,
+        on_model_changed: Callable[[M], None] | None = None,
         hub: MessageHubProto[Message],
         dispatcher: Dispatcher,
         on_construct: Callable[[], None] | None = None,
@@ -131,9 +136,11 @@ class ComponentVMOf(Generic[M], _ComponentVMBase):
             background=background,
         )
         self._model: M = initial_model
-        self._modeled_hinter: Callable[[M], str] = modeled_hinter
+        self._modeled_hinter: Callable[[M], str] = (
+            modeled_hinter if modeled_hinter is not None else _empty_hint
+        )
         self._on_model_changed_cb: Callable[[M], None] | None = on_model_changed
-        self._modeled_hint: str = modeled_hinter(initial_model)
+        self._modeled_hint: str = self._modeled_hinter(initial_model)
         self._vm_type: ViewModelType = vm_type
 
     @property
