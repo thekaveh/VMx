@@ -33,7 +33,7 @@ export class AggregateVM5<
   #component5: VM5 | null = null;
 
   constructor(opts: {
-    name: string; hint: string; hub: IMessageHub; dispatcher: IDispatcher;
+    name: string; hint?: string; hub: IMessageHub; dispatcher: IDispatcher;
     factory1: () => VM1; factory2: () => VM2; factory3: () => VM3;
     factory4: () => VM4; factory5: () => VM5;
   }) {

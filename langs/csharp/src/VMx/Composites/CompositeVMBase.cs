@@ -231,6 +231,34 @@ public abstract class CompositeVMBase<VM> : ComponentVMBase, ICompositeVM<VM>,
         _onCurrentChanged = onCurrentChanged;
     }
 
+    /// <summary>
+    /// Initializes the composite base with an empty <c>Hint</c>, the default
+    /// the builders use (spec/10 §4).
+    /// </summary>
+    protected CompositeVMBase(
+        string name,
+        IMessageHub hub,
+        IDispatcher dispatcher,
+        bool asyncSelection = false,
+        bool autoConstructOnAdd = false,
+        Action? onConstruct = null,
+        Action? onDestruct = null,
+        Func<IEnumerable<VM>, VM?>? currentSelector = null,
+        Action<VM?>? onCurrentChanged = null)
+        : this(
+            name,
+            string.Empty,
+            hub,
+            dispatcher,
+            asyncSelection,
+            autoConstructOnAdd,
+            onConstruct,
+            onDestruct,
+            currentSelector,
+            onCurrentChanged)
+    {
+    }
+
     // ── IParentCompositeVM (non-generic, used by ComponentVMBase for selection) ─
 
     IComponentVM? IParentCompositeVM.CurrentChild

@@ -18,9 +18,11 @@ export class ReadonlyComponentVMOf<M> extends ComponentVMBase {
 
   constructor(opts: {
     name: string;
-    hint: string;
+    /** Defaults to `""`. */
+    hint?: string;
     model: M;
-    modeledHinter: (m: M) => string;
+    /** Defaults to a hinter that returns `""`. */
+    modeledHinter?: (m: M) => string;
     hub: IMessageHub;
     dispatcher: IDispatcher;
     onConstruct?: (() => void) | null;
@@ -29,7 +31,7 @@ export class ReadonlyComponentVMOf<M> extends ComponentVMBase {
   }) {
     super(opts);
     this.#model = opts.model;
-    this.#modeledHint = opts.modeledHinter(opts.model);
+    this.#modeledHint = (opts.modeledHinter ?? (() => ""))(opts.model);
   }
 
   get type(): ViewModelType {

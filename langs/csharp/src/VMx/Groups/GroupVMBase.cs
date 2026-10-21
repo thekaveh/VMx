@@ -84,6 +84,21 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
         _autoConstructOnAdd = autoConstructOnAdd;
     }
 
+    /// <summary>
+    /// Initializes the group base with an empty <c>Hint</c>, the default the
+    /// builders use (spec/10 §4).
+    /// </summary>
+    protected GroupVMBase(
+        string name,
+        IMessageHub hub,
+        IDispatcher dispatcher,
+        bool autoConstructOnAdd = false,
+        Action? onConstruct = null,
+        Action? onDestruct = null)
+        : this(name, string.Empty, hub, dispatcher, autoConstructOnAdd, onConstruct, onDestruct)
+    {
+    }
+
     // ── IParentCompositeVM (non-generic; children may call Select/Deselect) ────
     // GroupVM has no selection concept; these are deliberate no-ops.
 

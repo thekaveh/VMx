@@ -11,6 +11,7 @@ from collections.abc import Callable
 from typing import Generic, TypeVar
 
 from vmx.components.base import _ComponentVMBase
+from vmx.components.component_vm import _empty_hint
 from vmx.components.protocols import ViewModelType
 from vmx.messages.protocols import Message
 from vmx.services.dispatcher import Dispatcher
@@ -32,9 +33,9 @@ class ReadonlyComponentVMOf(Generic[M], _ComponentVMBase):
         self,
         *,
         name: str,
-        hint: str,
+        hint: str = "",
         model: M,
-        modeled_hinter: Callable[[M], str],
+        modeled_hinter: Callable[[M], str] | None = None,
         hub: MessageHubProto[Message],
         dispatcher: Dispatcher,
         on_construct: Callable[[], None] | None = None,
@@ -51,7 +52,8 @@ class ReadonlyComponentVMOf(Generic[M], _ComponentVMBase):
             background=background,
         )
         self._model: M = model
-        self._modeled_hint: str = modeled_hinter(model)
+        hinter = modeled_hinter if modeled_hinter is not None else _empty_hint
+        self._modeled_hint: str = hinter(model)
 
     @property
     def type(self) -> ViewModelType:

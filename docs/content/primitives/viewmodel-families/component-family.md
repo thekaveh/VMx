@@ -102,7 +102,7 @@ after disposal cleans immediately. Reconstruct does not drain the registry.
 ```typescript
 class SearchVM extends ComponentVMBase {
   constructor(hub: IMessageHub, dispatcher: IDispatcher) {
-    super({ name: "search", hint: "", hub, dispatcher });
+    super({ name: "search", hub, dispatcher });
     this.own(hub.messages.subscribe(message => this.receive(message)));
   }
 

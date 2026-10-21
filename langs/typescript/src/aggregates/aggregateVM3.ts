@@ -27,7 +27,7 @@ export class AggregateVM3<
   #component3: VM3 | null = null;
 
   constructor(opts: {
-    name: string; hint: string; hub: IMessageHub; dispatcher: IDispatcher;
+    name: string; hint?: string; hub: IMessageHub; dispatcher: IDispatcher;
     factory1: () => VM1; factory2: () => VM2; factory3: () => VM3;
   }) {
     super(opts);

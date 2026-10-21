@@ -6,6 +6,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- The raw constructors default `hint` to `""`, as the builders do (spec/10
+  §4): `ComponentVMBase`, `ComponentVMOf`, `ReadonlyComponentVMOf`,
+  `CompositeVMBase`, `CompositeVM`, `CompositeVMOf`, `GroupVM`, and
+  `AggregateVM1` to `AggregateVM6`. `ComponentVMOf` and `ReadonlyComponentVMOf`
+  also default `modeledHinter` to a hinter that returns `""`. A subclass no
+  longer passes `hint: ""` through `super(...)` (#663).
+
 ### Fixed
 
 - `CompositeVM` and `GroupVM` with auto-construct-on-add construct a child

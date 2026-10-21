@@ -220,7 +220,8 @@ export abstract class ComponentVMBase {
 
   constructor(opts: {
     name: string;
-    hint: string;
+    /** Defaults to `""`. */
+    hint?: string;
     hub: IMessageHub;
     dispatcher: IDispatcher;
     onConstruct?: (() => void) | null;
@@ -228,7 +229,7 @@ export abstract class ComponentVMBase {
     background?: boolean;
   }) {
     this.#name = opts.name;
-    this.#hint = opts.hint;
+    this.#hint = opts.hint ?? "";
     this.#hub = opts.hub;
     this.#dispatcher = opts.dispatcher;
     this.#onConstructCb = opts.onConstruct ?? null;
