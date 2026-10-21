@@ -1,4 +1,5 @@
-import { StrictMode, useInsertionEffect, type JSX } from "react";
+import { StrictMode, useInsertionEffect, useState, type JSX } from "react";
+import { flushSync } from "react-dom";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { hydrateRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
@@ -79,6 +80,32 @@ describe("createVmxStore and useVmx", () => {
     store.dispose();
     hub.send(PropertyChangedMessage.create({}, "test", "value"));
     expect(store.getSnapshot()).toBe(initial + 3);
+  });
+
+  it("draws a change that arrives after a synchronous render in the same drain (#638)", async () => {
+    const hub = new MessageHub();
+    const store = createVmxStore(hub);
+    const state = { count: 0 };
+    let bump!: () => void;
+    function Probe(): JSX.Element {
+      const count = useVmx(store, () => state.count);
+      const [, setTick] = useState(0);
+      bump = () => setTick((tick) => tick + 1);
+      return <span data-testid="same-drain">{count}</span>;
+    }
+    render(<Probe />);
+
+    await act(async () => {
+      state.count = 1;
+      hub.send(PropertyChangedMessage.create({}, "test", "count"));
+      // React renders and memoizes the selection before the drain's flush.
+      flushSync(() => bump());
+      state.count = 2;
+      hub.send(PropertyChangedMessage.create({}, "test", "count"));
+    });
+
+    expect(screen.getByTestId("same-drain").textContent).toBe("2");
+    store.dispose();
   });
 
   it("disconnects, reconnects, and treats repeated cleanup or post-dispose subscribe as safe", async () => {
