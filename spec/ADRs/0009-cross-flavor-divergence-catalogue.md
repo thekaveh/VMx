@@ -442,6 +442,19 @@ here so audits don't reopen them prematurely:
   change deferred to the **next TypeScript major** (the conformance subclasses
   currently spread `hub`/`dispatcher` conditionally). Documented here so audits
   don't re-flag it as accidental drift.
+- **Rust conveniences that build a private hub (ADR-0150).**
+  `ComponentVm::new`, `CompositeVm::new`, `GroupVm::new`,
+  `HierarchicalVm::new`, `FormVm::new`, `AggregateVm1::new` / `try_new` to
+  `AggregateVm6::new` / `try_new`, and `AsyncResourceVm::new` / `with_options`
+  each create a fresh `MessageHub`; those that take a dispatcher use
+  `NullDispatcher`. A VM built through one of them publishes to its own hub,
+  not the application hub. Each type also has a constructor that takes the
+  application hub: `with_services`, `try_with_services`,
+  `with_services_and_options`, `with_children_factory` or
+  `FormVm::with_options`. `NotificationVm::new` and `ConfirmationVm::new`
+  likewise build a private `NotificationHub`; `with_hub` takes the shared one.
+  Removing the conveniences would break Rust callers and is not scheduled.
+  Documented here so audits don't re-flag it as accidental drift.
 - **Runtime `select_child`/`deselect_child` on a member-but-not-Constructed child.**
   The construct-time `Current(selector)` path is a non-raising validated assignment
   (spec/06 §5.4, ADR-0050), but the RUNTIME select path (`child.select()` →
