@@ -19,7 +19,7 @@ from collections import deque
 from collections.abc import Callable, Iterable, Iterator
 from concurrent.futures import Future
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Protocol, TypeVar
 
 import reactivex as rx
 from reactivex import operators as ops
@@ -111,6 +111,11 @@ _CHILD_WALK_FUTURES: weakref.WeakSet[Future[None]] = weakref.WeakSet()
 
 class _Disposable(Protocol):
     def dispose(self) -> None: ...
+
+
+# ``_own`` returns the argument's own type so an owned field can be assigned
+# inline under ``mypy --strict`` (spec/02 §2.3).
+_OwnedResourceT = TypeVar("_OwnedResourceT", bound="Callable[[], None] | _Disposable")
 
 
 class _LifecyclePublication:
@@ -1225,7 +1230,7 @@ class _ComponentVMBase(ABC):
     def _on_dispose(self) -> None:  # noqa: B027  — intentional override hook
         """Called by dispose() after status reaches Disposed. Override for cleanup."""
 
-    def _own(self, resource: Callable[[], None] | _Disposable) -> Callable[[], None] | _Disposable:
+    def _own(self, resource: _OwnedResourceT) -> _OwnedResourceT:
         """Register a callable or ``dispose()`` resource for terminal cleanup."""
         with self._lifecycle_lock:
             dispose_now = self._status == ConstructionStatus.DISPOSED
