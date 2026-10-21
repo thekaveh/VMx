@@ -89,6 +89,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `ConfirmationDecoratorCommand` no longer calls `confirm` when the inner
   command's `canExecute` predicate disposes the decorator (spec/04 §8.4).
 
+### Documentation
+
+- The Vue recipe's `useVm` notifies watchers once per hub message. Before, a
+  replacement or scalar change ran a synchronous `watch` or `watchEffect`
+  twice. It binds the raw view-model and hub, so a view-model held in `ref()`,
+  `reactive()` or `data()` works. It requires `setup()` or an effect scope,
+  releases its subscription when that scope stops, and subscribes just before
+  the first render, so a server render leaves no subscription (#651).
+
 ## [3.30.0] — 2026-10-16
 
 First version published to npm. Earlier versions were source-only releases;
