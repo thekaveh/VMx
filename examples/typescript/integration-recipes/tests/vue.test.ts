@@ -1,4 +1,18 @@
-import { createApp, defineComponent, h, nextTick, shallowRef, type Component } from "vue";
+import {
+  createApp,
+  createSSRApp,
+  defineComponent,
+  effectScope,
+  h,
+  nextTick,
+  reactive,
+  ref,
+  shallowRef,
+  watch,
+  watchEffect,
+  type Component,
+} from "vue";
+import { renderToString } from "vue/server-renderer";
 import { describe, expect, it } from "vitest";
 import { PropertyChangedMessage, type ComponentVMOf, type IMessageHub } from "@thekaveh/vmx";
 import NoteView from "../src/vue/NoteView.vue";
@@ -137,5 +151,166 @@ describe("Vue recipe (vue 3.5.43)", () => {
     view.el.querySelector("button")?.click();
 
     expect(view.save.runs()).toBe(1);
+  });
+
+  describe("synchronous watchers run once per message", () => {
+    function observe<M>(vm: ComponentVMOf<M>, hub: IMessageHub) {
+      const counts = { watch: 0, effect: 0 };
+      const scope = effectScope();
+      scope.run(() => {
+        const value = useVm(vm, hub, "model");
+        watch(value, () => (counts.watch += 1), { flush: "sync" });
+        watchEffect(() => (void value.value, (counts.effect += 1)), { flush: "sync" });
+      });
+      counts.effect = 0; // drop watchEffect's initial run
+      return { scope, counts };
+    }
+
+    it("for a replacement model", () => {
+      const hub = countingHub();
+      const vm = constructedVm<Note>(hub, { title: "draft" });
+      const { scope, counts } = observe(vm, hub);
+
+      vm.model = { title: "replaced" };
+
+      expect(counts).toEqual({ watch: 1, effect: 1 });
+      scope.stop();
+    });
+
+    it("for a scalar change", () => {
+      const hub = countingHub();
+      const vm = constructedVm(hub, 1, "count");
+      const { scope, counts } = observe(vm, hub);
+
+      vm.model = 2;
+
+      expect(counts).toEqual({ watch: 1, effect: 1 });
+      scope.stop();
+    });
+
+    it("for a same-reference republishModel()", () => {
+      const hub = countingHub();
+      const note: Note = { title: "draft" };
+      const vm = constructedVm(hub, note);
+      const { scope, counts } = observe(vm, hub);
+
+      note.title = "edited";
+      vm.republishModel();
+
+      expect(counts).toEqual({ watch: 1, effect: 1 });
+      scope.stop();
+    });
+  });
+
+  describe("binds a view-model that reaches it as a Vue proxy", () => {
+    function mountHeld(read: () => ComponentVMOf<Note>, hub: IMessageHub) {
+      const el = document.createElement("div");
+      const app = createApp({
+        render: () => h(NoteView, { vm: read(), hub, saveCommand: countingCommand().command }),
+      });
+      app.mount(el);
+      return { app, title: () => el.querySelector("h1")?.textContent };
+    }
+
+    async function expectBindsAndUpdates(
+      held: ComponentVMOf<Note>,
+      raw: ComponentVMOf<Note>,
+      hub: IMessageHub,
+    ) {
+      const view = mountHeld(() => held, hub);
+      expect(view.title()).toBe("draft");
+
+      raw.model = { title: "replaced" };
+      await nextTick();
+      expect(view.title()).toBe("replaced");
+
+      raw.model.title = "edited";
+      raw.republishModel();
+      await nextTick();
+      expect(view.title()).toBe("edited");
+      view.app.unmount();
+    }
+
+    it("from ref()", async () => {
+      const hub = countingHub();
+      const vm = constructedVm<Note>(hub, { title: "draft" });
+      const held = ref(vm).value as ComponentVMOf<Note>;
+      expect(held).not.toBe(vm);
+
+      await expectBindsAndUpdates(held, vm, hub);
+    });
+
+    it("from reactive()", async () => {
+      const hub = countingHub();
+      const vm = constructedVm<Note>(hub, { title: "draft" });
+      const held = reactive({ vm }).vm as ComponentVMOf<Note>;
+      expect(held).not.toBe(vm);
+
+      await expectBindsAndUpdates(held, vm, hub);
+    });
+
+    it("from Options API data()", async () => {
+      const hub = countingHub();
+      const vm = constructedVm<Note>(hub, { title: "draft" });
+      const el = document.createElement("div");
+      const app = createApp(
+        defineComponent({
+          data: () => ({ held: vm }),
+          render() {
+            return h(NoteView, {
+              vm: this.held as ComponentVMOf<Note>,
+              hub,
+              saveCommand: countingCommand().command,
+            });
+          },
+        }),
+      );
+      app.mount(el);
+      expect(el.querySelector("h1")?.textContent).toBe("draft");
+
+      vm.model = { title: "replaced" };
+      await nextTick();
+      expect(el.querySelector("h1")?.textContent).toBe("replaced");
+      app.unmount();
+      expect(hub.teardowns).toBe(1);
+    });
+  });
+
+  it("throws a TypeError naming the rule when called outside setup() or an effect scope", () => {
+    const hub = countingHub();
+    const vm = constructedVm<Note>(hub, { title: "draft" });
+
+    expect(() => useVm(vm, hub, "model")).toThrowError(
+      new TypeError("useVm must be called inside setup() or an effect scope"),
+    );
+    expect(hub.subscriptions).toBe(0);
+  });
+
+  it("releases its subscription when its effect scope stops", () => {
+    const hub = countingHub();
+    const vm = constructedVm<Note>(hub, { title: "draft" });
+    const scope = effectScope();
+    const value = scope.run(() => useVm(vm, hub, "model"));
+    expect([hub.subscriptions, hub.teardowns]).toEqual([1, 0]);
+
+    scope.stop();
+    vm.model = { title: "late" };
+
+    expect([hub.subscriptions, hub.teardowns]).toEqual([1, 1]);
+    expect(value?.value.title).toBe("draft");
+  });
+
+  it("leaves no hub subscription after a server render", async () => {
+    const hub = countingHub();
+    const vm = constructedVm<Note>(hub, { title: "draft" });
+    const app = createSSRApp({
+      render: () => h(NoteView, { vm, hub, saveCommand: countingCommand().command }),
+    });
+
+    const html = await renderToString(app);
+
+    expect(html).toContain("<h1>draft</h1>");
+    expect(hub.subscriptions).toBe(hub.teardowns);
+    expect(hub.subscriptions).toBe(0);
   });
 });
