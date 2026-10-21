@@ -55,6 +55,35 @@ public abstract class ComponentVMBaseOfM<M> : ComponentVMBase
     }
 
     /// <summary>
+    /// Initializes the modeled base with an empty <c>Hint</c> and, unless
+    /// <paramref name="modeledHinter"/> is supplied, an empty
+    /// <see cref="ModeledHint"/>: the defaults the builders use (spec/10 §4).
+    /// </summary>
+    protected ComponentVMBaseOfM(
+        string name,
+        M initialModel,
+        IMessageHub hub,
+        IDispatcher dispatcher,
+        Func<M, string>? modeledHinter = null,
+        Action<M>? onModelChanged = null,
+        System.Action? onConstruct = null,
+        System.Action? onDestruct = null,
+        bool background = false)
+        : this(
+            name,
+            string.Empty,
+            initialModel,
+            modeledHinter ?? (_ => string.Empty),
+            onModelChanged,
+            hub,
+            dispatcher,
+            onConstruct,
+            onDestruct,
+            background)
+    {
+    }
+
+    /// <summary>
     /// Applies equality-guarded model update:
     /// <list type="number">
     ///   <item><description>No-op before candidate work when already disposed.</description></item>

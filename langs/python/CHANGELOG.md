@@ -8,6 +8,15 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ## [3.29.0] — unreleased source version
 
+### Added
+
+- The keyword-only constructors default `hint` to `""`, as the builders do
+  (spec/10 §4): the component base, `ComponentVM`, `ComponentVMOf`,
+  `ReadonlyComponentVMOf`, the composite base, `CompositeVM`, `CompositeVMOf`,
+  `GroupVM`, and `AggregateVM1` to `AggregateVM6`. `ComponentVMOf` and
+  `ReadonlyComponentVMOf` also default `modeled_hinter` to an empty hint, and
+  `ComponentVMOf` defaults `on_model_changed` to `None` (#663).
+
 ### Changed
 
 - An awaited `execute_async()` on `ConfirmationDecoratorCommand` now completes

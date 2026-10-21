@@ -67,7 +67,8 @@ export abstract class CompositeVMBase<VM extends ComponentVMBase>
 
   constructor(opts: {
     name: string;
-    hint: string;
+    /** Defaults to `""`. */
+    hint?: string;
     hub: IMessageHub;
     dispatcher: IDispatcher;
     asyncSelection?: boolean;

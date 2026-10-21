@@ -332,7 +332,7 @@ class _ComponentVMBase(ABC):
         self,
         *,
         name: str,
-        hint: str,
+        hint: str = "",
         hub: MessageHubProto[Message],
         dispatcher: Dispatcher,
         on_construct: Callable[[], None] | None = None,

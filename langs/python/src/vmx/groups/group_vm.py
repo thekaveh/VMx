@@ -77,7 +77,7 @@ class GroupVM(Generic[VM], _ComponentVMBase):
         self,
         *,
         name: str,
-        hint: str,
+        hint: str = "",
         hub: MessageHubProto[Message],
         dispatcher: Dispatcher,
         auto_construct_on_add: bool = False,

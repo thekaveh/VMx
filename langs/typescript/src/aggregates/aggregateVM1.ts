@@ -20,7 +20,8 @@ export class AggregateVM1<VM1 extends ComponentVMBase> extends ComponentVMBase {
 
   constructor(opts: {
     name: string;
-    hint: string;
+    /** Defaults to `""`. */
+    hint?: string;
     hub: IMessageHub;
     dispatcher: IDispatcher;
     factory1: () => VM1;

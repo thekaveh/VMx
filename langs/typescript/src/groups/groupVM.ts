@@ -72,7 +72,8 @@ export class GroupVM<VM extends ComponentVMBase>
 
   constructor(opts: {
     name: string;
-    hint: string;
+    /** Defaults to `""`. */
+    hint?: string;
     hub: IMessageHub;
     dispatcher: IDispatcher;
     autoConstructOnAdd?: boolean;
