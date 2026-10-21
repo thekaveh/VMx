@@ -5,6 +5,8 @@ uses independent [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-10-21
+
 ### Fixed
 
 - `useVm` re-renders for every hub message the VM sends: property, lifecycle
@@ -19,7 +21,7 @@ uses independent [Semantic Versioning](https://semver.org/).
   instances compared equal and a selector returning them never re-rendered.
 - `createVmxStore` advances its snapshot on every hub message, not only the
   first one of a synchronous drain, so a render between two messages of the
-  same drain cannot miss the second change.
+  same drain cannot miss the second change (#638).
 
 ## [0.1.1] - 2026-10-16
 
