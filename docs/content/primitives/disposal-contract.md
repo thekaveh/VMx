@@ -60,10 +60,15 @@ model.
 - Registration after disposal cleans the resource immediately once.
 - Reconstruct and destruct do not release disposal-lifetime registrations.
   Per-construct resources remain explicit in `OnConstruct`/`OnDestruct`.
-- Parent VMs dispose owned children depth-first before their own teardown. The
-  order is children, subclass hook, LIFO owned registrations, stream
-  completion, then commands. A child reached through several teardown paths
-  has one observable terminal transition.
+- Container VMs (composites, groups, aggregates) dispose their children
+  depth-first before their own teardown (`LIFE-013`). The order is children,
+  the container's `Disposed` publication, subclass hook, LIFO owned
+  registrations, stream completion, then commands. A child reached through
+  several teardown paths has one observable terminal transition.
+- A child view-model registered with the owned-resource helper is not a
+  container child. It is disposed parent-first: the parent publishes
+  `Disposed`, runs its subclass hook, and then disposes owned registrations,
+  including that child, in LIFO order.
 - A terminal cascade does not stop at a failing child or subclass hook. The
   teardown of every sibling still runs. The base teardown of the parent also
   runs. Flavors that throw or return results report the first failure only

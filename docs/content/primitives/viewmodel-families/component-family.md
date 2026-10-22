@@ -94,33 +94,109 @@ the full contract, including disposal, null hubs, and re-entrant calls.
 
 ## 6.2.2.6. Owning Long-Lived Resources
 
-Subclass authors can register subscriptions and cleanup callbacks that should
-live until terminal VM disposal. The registry drains once in LIFO order after
-the subclass disposal hook; one cleanup failure is isolated, and registration
-after disposal cleans immediately. Reconstruct does not drain the registry.
+Subclass authors can register subscriptions, commands, child view-models, and
+cleanup callbacks that should live until terminal VM disposal. Swift and Rust
+register a closure, for example `own { child.dispose() }` (spec 02 §2.3). The
+registry drains once in LIFO order after the subclass disposal hook; one
+cleanup failure is isolated, and registration after disposal cleans
+immediately. Reconstruct does not drain the registry.
+
+The view-model below owns a child resource view-model and a built command, and
+subscribes to a tick stream for each construct:
+
+<!-- checked-snippet: langs/typescript/tests/unit/componentAuthoringRecipes.test.ts#component-authoring -->
 
 ```typescript
-class SearchVM extends ComponentVMBase {
-  constructor(hub: IMessageHub, dispatcher: IDispatcher) {
-    super({ name: "search", hub, dispatcher });
-    this.own(hub.messages.subscribe(message => this.receive(message)));
+class MetricVM extends ComponentVMBase {
+  readonly #api: MetricApi;
+  readonly resource: AsyncResourceVM<Metric[]>;
+  readonly refreshCommand: RelayCommand;
+  #tickSubscription: Subscription | null = null;
+
+  constructor(api: MetricApi, hub: IMessageHub, dispatcher: IDispatcher) {
+    super({ name: "metric", hub, dispatcher });
+    this.#api = api;
+    // The loader runs after construction, so it can read #private state.
+    this.resource = this.own(
+      new AsyncResourceVM({
+        name: "metric-data",
+        hub,
+        dispatcher,
+        loader: (signal) => this.#api.fetch(signal),
+      }),
+    );
+    // Owned: disposing MetricVM disposes the command, which is then inert.
+    this.refreshCommand = this.own(
+      RelayCommand.builder()
+        .task(() => void this.resource.load())
+        .build(),
+    );
   }
 
   get type(): ViewModelType {
     return ViewModelType.Component;
   }
 
-  private receive(message: IMessage): void {
-    // React to the message.
+  // A per-construct subscription starts on construct and ends on destruct.
+  protected override _onConstruct(): void {
+    super._onConstruct();
+    this.#tickSubscription = this.#api.ticks.subscribe(() => {
+      void this.resource.load();
+    });
+  }
+
+  protected override _onDestruct(): void {
+    this.#tickSubscription?.unsubscribe();
+    this.#tickSubscription = null;
+    super._onDestruct();
   }
 }
 ```
 
-Use `OnConstruct`/`OnDestruct` (or their flavor equivalents) for resources that
-must be replaced on every reconstruct. The helper deliberately does not expose
-two mutable lifetime bags.
+- **Own built commands.** A command that is not owned stays executable after
+  its view-model is disposed, and it keeps its trigger subscriptions until it is
+  disposed itself. In Python, TypeScript, and Swift, a trigger on the owner's
+  `propertyChanged` ends at disposal, because that stream completes; the C#
+  `PropertyChanged` event does not. A disposed command is inert (ADR-0068).
+- **Owned child view-models are disposed parent-first.** The parent publishes
+  `Disposed`, runs its disposal hook, and then disposes its owned resources in
+  reverse registration order. Containers do the opposite: they dispose their
+  children before themselves (`LIFE-013`).
+- **Per-construct resources** start in `OnConstruct` and end in `OnDestruct`
+  (or their flavor equivalents; ADR-0041 §2, §4). A resource registered with `own`
+  survives reconstruct. The helper deliberately does not expose two mutable
+  lifetime bags.
 
-## 6.2.2.7. Authoring A Mutable Property
+## 6.2.2.7. Children Of A Leaf View-Model
+
+A leaf that constructs child view-models in its own construct hook does not get
+container semantics. The hook does not wait for a background child (spec 02
+§6). If a synchronous child fails, the parent rolls back but earlier children
+stay constructed; if a background child fails, the parent stays `Constructed`.
+Use a container instead:
+
+- `GroupVM` or `CompositeVM` for children of one type.
+- `AggregateVM1` to `AggregateVM6` for up to six typed children. Built with
+  factories, they run the factories on every construct, and reconstruct
+  replaces the slots (spec 08 §2, §4).
+
+The order in which a container constructs or destructs its children is
+unspecified (spec 02 §6, ADR-0047 §2.5).
+
+## 6.2.2.8. Callbacks And Construction Order
+
+- VMx calls some callbacks only from `construct()` or `load()`: an
+  `AsyncResourceVM` loader, the children-models factory and mapper of a modeled
+  composite, and a `currentSelector`. Unless the subclass constructor itself
+  calls `construct()` or `load()`, they may capture `this` or `self`, including
+  private fields.
+- In Python and TypeScript, a `modeledHinter` runs inside the base constructor,
+  before a subclass initializes its own fields. In every flavor, it should read
+  only the model it receives.
+- `currentSelector` receives the composite in C#, Python, and TypeScript, an
+  array of children in Swift, and a `Vec` of children in Rust.
+
+## 6.2.2.9. Authoring A Mutable Property
 
 A component property has two audiences: cross-VM coordination through the
 message hub and host binding through the VM's local property-change surface.
@@ -163,7 +239,7 @@ notification order visible at the mutation site.
 The C#, Python, TypeScript, and Swift Notes Showcase viewmodels use this
 helper.
 
-## 6.2.2.8. Example
+## 6.2.2.10. Example
 
 Representative modeled leaf shape across the five source flavors:
 
@@ -176,7 +252,7 @@ Representative modeled leaf shape across the five source flavors:
 The [Quickstart](../../getting-started/index.md) uses this pattern before
 composing those leaves into a `CompositeVM`.
 
-## 6.2.2.9. Common Pitfalls
+## 6.2.2.11. Common Pitfalls
 
 - Using a component when the VM really owns a collection. Move up to
   `CompositeVM`, `GroupVM`, or `AggregateVM`.
@@ -188,10 +264,19 @@ composing those leaves into a `CompositeVM`.
   false until a container owns it.
 - Disposing `vm.hub` from the VM. Public visibility does not transfer ownership.
 - Registering per-construct work with `own`; it would survive reconstruct.
+- Redeclaring a member that the base class owns: `status`, `isConstructed`,
+  `isCurrent`, `name`, `hint`, `hub`, or `propertyChanged` (in the flavor's
+  spelling). Containers read `child.status`. Swift rejects a redeclared
+  `status`, a TypeScript `status` field does not compile, and C# only hides the
+  non-virtual `Status`. A TypeScript `get status()` or Python `status` property
+  override compiles silently, and a container that constructs the child then
+  fails. In Python, assigning `self.status` raises `AttributeError`. Name a
+  derived status differently, for example `panelStatus`, or expose it as
+  `AsyncResourceVM` does with `state.status`.
 - Treating the post-disposal model guard as task cancellation. Cancel upstream
   work to release resources; rely on the guard only to reject a late result.
 
-## 6.2.2.10. Related Primitives
+## 6.2.2.12. Related Primitives
 
 - [Composite Family](composite-family.md)
 - [Group Family](group-family.md)
