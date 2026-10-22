@@ -368,7 +368,29 @@ exists. A factory that throws fails only that read; the page index is
 unchanged. Snapshots hold item references only; the pager never disposes the
 items it pages.
 
-## 6.7.11. Example
+## 6.7.11. Token-Paged Fetch Failures
+
+`TokenPagedComposition` does not catch a failed `fetchNext`. A failed load or
+refresh leaves `items`, `currentToken`, and `hasMore` unchanged, publishes
+nothing, and reports the failure through its command (spec 21 §6.2). With
+`execute()`, the failure appears only on the command's error stream, so
+subscribe to both commands:
+
+<!-- checked-snippet: langs/typescript/tests/unit/asyncResourceRecipes.test.ts#token-paged-failures -->
+
+```typescript
+const pager = new TokenPagedComposition<Note, string>((token) => api.page(token));
+// execute() has no caller to reject, so a failed fetch arrives here.
+pager.loadMoreCommand.errors.subscribe(notify);
+pager.refreshCommand.errors.subscribe(notify);
+```
+
+An awaited `executeAsync()` rejects instead. A failed operation still
+supersedes an older load or refresh that is in progress. Unlike
+`AsyncResourceVM`, the composition has no Error state to show. In Rust the
+fetch function returns a page and cannot fail.
+
+## 6.7.12. Example
 
 Representative traversal contract:
 
@@ -379,7 +401,7 @@ Representative traversal contract:
 On the collection side, the Notes Workspace note lists and notifications layers
 are practical references for observable-list and paging composition.
 
-## 6.7.12. Common Pitfalls
+## 6.7.13. Common Pitfalls
 
 - Mutating a builder and expecting in-place changes. Builder setters return new
   instances.
@@ -399,7 +421,7 @@ are practical references for observable-list and paging composition.
 - Rewriting custom tree walkers when the built-in helpers already express the
   intended traversal semantics.
 
-## 6.7.13. Related Primitives
+## 6.7.14. Related Primitives
 
 - [Composite Family](viewmodel-families/composite-family.md)
 - [Hierarchical Family](viewmodel-families/hierarchical-family.md)

@@ -142,11 +142,106 @@ profile.dispose();
 ```
 
 Use `PagedComposition` or `TokenPagedComposition` when the domain is a page or
-cursor sequence. Keep product-specific client construction and caching outside
-this primitive and inject them through the loader closure.
+cursor sequence; a failed token-page fetch is reported differently (see
+[Token-Paged Fetch Failures](builders-collections-tree-utilities.md#6711-token-paged-fetch-failures)).
+Keep product-specific client construction and caching outside this primitive
+and inject them through the loader closure.
 
 For a pushed connection state that reconnects over time, use the connection
 state recipe in [Integration](../integration/index.md) instead.
+
+### 6.5.3.1. Retry, Polling And Cancellation
+
+A resource never starts loading at construct, and only disposal cancels its
+load automatically (ADR-0100 §2.7, §4.6). The view-model below loads when it is
+constructed, polls while it stays constructed, offers retry after a failure,
+and cancels its load at destruct:
+
+<!-- checked-snippet: langs/typescript/tests/unit/asyncResourceRecipes.test.ts#polling-panel -->
+
+```typescript
+class MetricsPanelVM extends ComponentVMBase {
+  readonly resource: AsyncResourceVM<Metric[]>;
+  readonly retryCommand: DecoratorCommand;
+  #poll: Subscription | null = null;
+
+  constructor(api: MetricsApi, hub: IMessageHub, dispatcher: IDispatcher) {
+    super({ name: "metrics-panel", hub, dispatcher });
+    this.resource = this.own(
+      new AsyncResourceVM({
+        name: "metrics",
+        hub,
+        dispatcher,
+        loader: (signal) => api.fetch(signal),
+        // A reload keeps the last value visible instead of blanking the view.
+        retention: AsyncResourceRetention.RetainPrevious,
+      }),
+    );
+    // Retry is a reload, offered only after a failure.
+    this.retryCommand = this.own(
+      wrapWith(
+        this.resource.reloadCommand,
+        () => this.resource.state.status === AsyncResourceStatus.Error,
+      ),
+    );
+  }
+
+  get type(): ViewModelType {
+    return ViewModelType.Component;
+  }
+
+  // Poll while constructed: load at once, then reload every 30 s.
+  protected override _onConstruct(): void {
+    super._onConstruct();
+    this.#poll = timer(0, 30_000, this._dispatcher.foreground).subscribe(() => {
+      const { status } = this.resource.state;
+      if (status === AsyncResourceStatus.Idle) void this.resource.load();
+      // Skip a tick while a load runs; a reload would supersede it.
+      else if (status !== AsyncResourceStatus.Loading) void this.resource.reload();
+    });
+  }
+
+  protected override _onDestruct(): void {
+    this.#poll?.unsubscribe();
+    this.#poll = null;
+    this.resource.cancel();
+    super._onDestruct();
+  }
+}
+```
+
+- **Retry from Error.** `ReloadCommand` is the retry path (spec 23 §7). The
+  wrapper hides retry while the data is current.
+- **No rejection handling.** A reload also supersedes a load that
+  `LoadCommand` started. A superseded or failed reload completes normally
+  (spec 23 §6, §7), so `void this.resource.reload()` needs no rejection
+  handler.
+- **Tick rule.** A tick loads from Idle, reloads from Ready or Error, and skips
+  Loading. Without the skip, an interval shorter than the load supersedes
+  every load, and the view never reaches Ready. A polled view needs
+  `RetainPrevious`; the default blanks the view at every reload.
+- **Cancelling at destruct.** `cancel()` cancels the current operation,
+  whichever call started it. To cancel only the loads that one construct
+  started, pass the signal of a per-construct `AbortController` to
+  `load(signal)` and abort it at destruct.
+
+### 6.5.3.2. Poll Timers By Flavor
+
+Start and stop the timer in the same construct and destruct hooks. The timer
+needs a scheduler that supports a delay:
+
+- C#: `Observable.Timer(TimeSpan.Zero, period, dispatcher.Foreground)` with a
+  real UI scheduler. `NullDispatcher` and `RxDispatcher.Immediate()` use
+  `ImmediateScheduler`, which blocks the calling thread for the delay.
+- Python: `RxDispatcher.asyncio(loop).foreground`, or an asyncio task on the
+  loop that runs the resource's operations (see
+  [Async Resource Operation Loops](services-messages-dispatching.md#6691-async-resource-operation-loops)).
+  The `ImmediateScheduler` of `NullDispatcher` and `RxDispatcher.immediate()`
+  raises `WouldBlockException` for a delayed action.
+- Swift: dispatchers take work without a delay. Use a `Timer` or a `Task` that
+  loops on `Task.sleep`.
+- Rust: dispatchers take work without a delay. Drive the tick from the host
+  event loop.
 
 ## 6.5.4. Reactive Search Sources
 
