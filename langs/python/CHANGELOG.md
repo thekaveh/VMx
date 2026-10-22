@@ -6,6 +6,17 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ## [Unreleased]
 
+## [3.30.0] — unreleased source version
+
+### Fixed
+
+- `_own()` on a `ForwardingComponentVM` or `ForwardingCompositeVM` subclass
+  registers the resource on the wrapped component. It raised `AttributeError`
+  before. The resource is released, in LIFO order with the wrapped component's
+  other resources, when that component is disposed through any decorator or
+  directly, and at once if it is already disposed (`FWD-005`, ADR-0151, spec
+  3.30.0) (#650).
+
 ## [3.29.0] — unreleased source version
 
 ### Added

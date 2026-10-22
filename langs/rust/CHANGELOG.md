@@ -6,6 +6,14 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.36.0] — unreleased source version
+
+### Changed
+
+- Implements spec 3.30.0. Forwarding decorators already registered owned
+  resources on the wrapped component; `FWD-005` now covers it, including
+  nested decorators and registration after disposal (ADR-0151) (#650).
+
 ## [0.35.0] — unreleased source version
 
 ### Added

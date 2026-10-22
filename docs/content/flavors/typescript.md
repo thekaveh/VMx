@@ -2,7 +2,7 @@
 
 ## 7.4.1. Snapshot
 
-- Current source: TypeScript 3.30.0 implementing spec 3.29.0
+- Current source: TypeScript 3.31.0 implementing spec 3.30.0
 - Install and package status: see [Installation](../installation.md) and
   [Availability](../index.md#11-availability).
 - Reactive primitive: `rxjs`

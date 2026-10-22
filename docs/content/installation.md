@@ -3,7 +3,7 @@
 This page lists every way to add VMx to a project, flavor by flavor. The
 [Availability](index.md#11-availability) table on the home page shows which
 packages are public and which source line each flavor carries. Every flavor's
-source line implements spec 3.29.0. A published package can implement an
+source line implements spec 3.30.0. A published package can implement an
 earlier spec version. The repository's
 [`compatibility-matrix.md`](../../compatibility-matrix.md) lists the spec
 version of each release.

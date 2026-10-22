@@ -87,7 +87,8 @@ model.
   deadlocks, and no post-hook child work begins after the parent becomes
   terminal.
 - A forwarding VM delegates disposal to the wrapped VM; it does not introduce
-  reference counting.
+  reference counting. Resources registered through a forwarding VM belong to
+  the wrapped VM and are released with its other registrations (`FWD-005`).
 - Command decorators and composites do not dispose caller-owned inner commands
   unless their type-specific contract explicitly says they own them.
 - `ServicedObservableCollection` and `KeyedServicedObservableCollection` never

@@ -29,7 +29,7 @@ before any flavor releases a stable version.
 - `09-forwarding.md` — forwarding decorators.
 - `10-builders.md` — builder semantics (immutability, fluent flow).
 - `11-threading.md` — foreground/background and scheduler contract.
-- `12-conformance.md` — cross-language conformance test catalog (430 IDs).
+- `12-conformance.md` — cross-language conformance test catalog (431 IDs).
 - `13-tree-utilities.md` — `walk` / `find` / `walk_expanded` tree introspection.
 - `14-capabilities.md` — 22 opt-in capability micro-interfaces.
 - `15-derived-properties.md` — `DerivedProperty<TValue>` N-source computed values.
@@ -53,10 +53,10 @@ before any flavor releases a stable version.
 
 ### 1.2 Supporting artefacts
 
-- `VERSION` — current spec SemVer (`3.29.0`).
+- `VERSION` — current spec SemVer (`3.30.0`).
 - `HISTORY.md` — the changes of each spec release.
 - `fixtures/` — machine-checkable test inputs (JSON, 4 files).
-- `ADRs/` — Architecture Decision Records (0001-0150); see
+- `ADRs/` — Architecture Decision Records (0001-0151); see
   [`ADRs/README.md`](ADRs/README.md) for the registry index.
 - `schemas/` — versioned supporting machine contracts. The consumer
   conformance v1 schema is non-normative; see ADR-0102.

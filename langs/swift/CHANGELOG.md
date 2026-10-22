@@ -137,6 +137,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   returned without loading the children. Invalid factory output traps, as it
   does in the `children` accessor.
 
+## [3.31.0] — unreleased source version
+
+### Changed
+
+- Implements spec 3.30.0. Forwarding decorators already registered owned
+  resources on the wrapped component; `FWD-005` now covers it, including
+  nested decorators and registration after disposal (ADR-0151) (#650).
+
 ## [3.30.0] — unreleased source version
 
 ### Changed

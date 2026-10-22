@@ -339,3 +339,61 @@ describe("FWD-003", () => {
     membership.unsubscribe();
   });
 });
+
+// ---------------------------------------------------------------------------
+// FWD-005
+// ---------------------------------------------------------------------------
+
+class OwningDecorator extends ForwardingComponentVM<string> {
+  register(resource: () => void): void {
+    this.own(resource);
+  }
+}
+
+describe("FWD-005", () => {
+  function makeInner() {
+    return ComponentVMOf.builder<string>()
+      .name("inner")
+      .model("m")
+      .services(makeHub(), makeDisp())
+      .build();
+  }
+
+  it("decorators register owned resources on the wrapped component", () => {
+    const inner = makeInner();
+    const first = new OwningDecorator(inner);
+    const second = new OwningDecorator(first);
+    const released: string[] = [];
+    first.register(() => released.push("r1"));
+    second.register(() => released.push("r2"));
+    inner.construct();
+
+    second.dispose();
+
+    expect(inner.status).toBe(ConstructionStatus.Disposed);
+    expect(released).toEqual(["r2", "r1"]);
+
+    first.register(() => released.push("r3"));
+    expect(released).toEqual(["r2", "r1", "r3"]);
+
+    first.dispose();
+    second.dispose();
+    inner.dispose();
+    expect(released).toEqual(["r2", "r1", "r3"]);
+  });
+
+  it("releases decorator registrations when the wrapped component is disposed directly", () => {
+    const inner = makeInner();
+    const first = new OwningDecorator(inner);
+    const second = new OwningDecorator(first);
+    const released: string[] = [];
+    first.register(() => released.push("r1"));
+    second.register(() => released.push("r2"));
+
+    inner.dispose();
+
+    expect(released).toEqual(["r2", "r1"]);
+    second.dispose();
+    expect(released).toEqual(["r2", "r1"]);
+  });
+});

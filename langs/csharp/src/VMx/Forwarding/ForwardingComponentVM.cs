@@ -11,7 +11,7 @@ namespace VMx.Forwarding;
 /// Every public member delegates to <see cref="_wrapped"/> by default.
 /// Subclasses override individual members to customize behaviour.
 ///
-/// See spec/09-forwarding.md §ForwardingComponentVM and FWD-001 through FWD-004 in spec/12-conformance.md.
+/// See spec/09-forwarding.md §ForwardingComponentVM and FWD-001 through FWD-005 in spec/12-conformance.md.
 /// </summary>
 /// <typeparam name="M">The model type.</typeparam>
 public abstract class ForwardingComponentVM<M> : IComponentVM<M>, IComponentVMInternals, IDisposable
@@ -143,6 +143,17 @@ public abstract class ForwardingComponentVM<M> : IComponentVM<M>, IComponentVMIn
     {
         _wrapped.Dispose();
     }
+
+    /// <summary>
+    /// Registers a disposable on the wrapped VM's terminal cleanup and returns it.
+    /// It is disposed when the wrapped VM is disposed, through any decorator or
+    /// directly, or at once if the wrapped VM is already disposed (ADR-0151).
+    /// </summary>
+    protected T Own<T>(T resource) where T : IDisposable => _membership.Own(resource);
+
+    /// <summary>Registers a cleanup action on the wrapped VM's terminal cleanup (ADR-0151).</summary>
+    protected IDisposable Own(Action cleanup)
+        => Own(System.Reactive.Disposables.Disposable.Create(cleanup));
 
     IParentCompositeVM? IComponentVMInternals.Parent => _membership.Parent;
 
