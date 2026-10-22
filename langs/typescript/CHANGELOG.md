@@ -15,6 +15,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   also default `modeledHinter` to a hinter that returns `""`. A subclass no
   longer passes `hint: ""` through `super(...)` (#663).
 
+### Deprecated
+
+- Building a `HierarchicalVM` subclass without `hub` and `dispatcher`. The
+  raw constructor then falls back to a private hub that no application observer
+  sees. That overload is `@deprecated`; pass both, or build through
+  `HierarchicalVMBuilder`. TypeScript 4.0 requires them (ADR-0009, #665).
+  `HierarchicalVMConstructionContext`, which the builder passes to `vmFactory`,
+  now types `hub` and `dispatcher` as required, since `build()` always
+  supplies both. A `super(context)` call therefore binds the overload with
+  services. Code that builds its own context object must supply both.
+
 ### Fixed
 
 - `CompositeVM` and `GroupVM` with auto-construct-on-add construct a child
