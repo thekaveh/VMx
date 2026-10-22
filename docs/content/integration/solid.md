@@ -27,7 +27,7 @@ filtered out.
 ## 9.11.3. Adapter skeleton
 
 This is the exact file run by `examples/typescript/integration-recipes` against
-`solid-js` 1.9.16, including an in-place mutation announced with
+`solid-js` 1.9.17, including an in-place mutation announced with
 `republishModel()`, replacement and scalar updates, unrelated messages, and
 cleanup.
 

@@ -113,8 +113,9 @@ All notable changes to the C# flavor are documented here. The format is based on
   `ApproveErrors` as a `TaskCanceledException`. Before, the cancellation reached
   no channel (spec/20 §5.3).
 - The `netstandard2.0` dependency floors of all three packages move to the
-  10.0.12 servicing releases of `System.Text.Json`,
-  `System.Collections.Immutable`, and `Microsoft.Bcl.AsyncInterfaces` (#519).
+  10.0.13 servicing releases of `System.Text.Json`,
+  `System.Collections.Immutable`, and `Microsoft.Bcl.AsyncInterfaces` (#519,
+  #646).
 - Fixed: when `FormVM` is disposed during `SetModel` or a deny and the
   mutation then throws, a failing deferred teardown no longer replaces the
   mutation's exception. Every teardown step still runs, and a teardown failure
@@ -141,8 +142,8 @@ All notable changes to the C# flavor are documented here. The format is based on
 
 ### VMx.Extensions.DependencyInjection
 
-- `Microsoft.Extensions.DependencyInjection.Abstractions` moves to 10.0.12
-  (#519).
+- `Microsoft.Extensions.DependencyInjection.Abstractions` moves to 10.0.13
+  (#519, #645).
 - The NuGet package ships its own README describing `AddVMx()` registration
   and its dependency on `VMx` (#351).
 
