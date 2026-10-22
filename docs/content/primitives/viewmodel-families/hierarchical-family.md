@@ -48,6 +48,38 @@ The family integrates directly with the tree walkers `walk` and
 `walk_expanded` (flavor-idiomatic spellings). See
 [Builders, Collections & Tree Utilities](../builders-collections-tree-utilities.md).
 
+Every node needs the application hub and dispatcher. A node built without them
+publishes its tree and property messages to a private hub that no binding
+observes. `HierarchicalVMBuilder` requires both. A subclass passes its services
+to the children that its factory creates:
+
+<!-- checked-snippet: langs/typescript/tests/unit/hierarchicalServicesRecipe.test.ts#hierarchical-services -->
+
+```typescript
+interface NavItem {
+  title: string;
+  children: NavItem[];
+}
+
+class NavNodeVM extends HierarchicalVM<NavItem, NavNodeVM> {
+  constructor(model: NavItem, hub: IMessageHub, dispatcher: IDispatcher) {
+    super({
+      model,
+      hub,
+      dispatcher,
+      // Each child gets the same services, so its messages reach `hub`.
+      childrenFactory: (parent) =>
+        parent.model.children.map((item) => new NavNodeVM(item, hub, dispatcher)),
+    });
+  }
+}
+```
+
+C#, Python, and Swift require the services. The TypeScript raw constructor still
+accepts a node without them, but that form is `@deprecated`, and TypeScript 4.0
+requires both. Rust's `HierarchicalVm::new` builds a private hub; use
+`with_children_factory` to pass the application hub (ADR-0009).
+
 ## 6.2.6.4. Disposing A Subtree
 
 To dispose a node with its materialized descendants, walk the subtree

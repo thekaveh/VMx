@@ -440,8 +440,10 @@ here so audits don't reopen them prematurely:
   (`HierarchicalVMBuilder`) always supplies services, so normal usage is safe;
   tightening the raw constructor to required is a source-breaking signature
   change deferred to the **next TypeScript major** (the conformance subclasses
-  currently spread `hub`/`dispatcher` conditionally). Documented here so audits
-  don't re-flag it as accidental drift.
+  currently spread `hub`/`dispatcher` conditionally). Until then the
+  constructor overload without services is `@deprecated`, which
+  `@typescript-eslint/no-deprecated` and editors report (#665). Documented here
+  so audits don't re-flag it as accidental drift.
 - **Rust conveniences that build a private hub (ADR-0150).**
   `ComponentVm::new`, `CompositeVm::new`, `GroupVm::new`,
   `HierarchicalVm::new`, `FormVm::new`, `AggregateVm1::new` / `try_new` to
