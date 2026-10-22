@@ -37,7 +37,7 @@ const VARIANTS = [
   ["runes component", NoteViewRunes],
 ] as const;
 
-describe.each(VARIANTS)("Svelte %s (svelte 5.57.1)", (_, component) => {
+describe.each(VARIANTS)("Svelte %s (svelte 5.57.2)", (_, component) => {
   it("renders an in-place mutation announced by republishModel", () => {
     const hub = countingHub();
     const note: Note = { title: "draft" };

@@ -18,7 +18,7 @@ afterEach(() => {
   config.onUnhandledError = null;
 });
 
-describe("Svelte store recipe (svelte 5.57.1)", () => {
+describe("Svelte store recipe (svelte 5.57.2)", () => {
   it("delivers a change made before the first subscriber at once", () => {
     const hub = countingHub();
     const vm = constructedVm<Note>(hub, { title: "draft" });
