@@ -83,12 +83,12 @@ them from a VMx checkout until their first registry release.
 
 | Flavor        | Public package                                                                                  | Source line |
 | ------------- | ----------------------------------------------------------------------------------------------- | ----------- |
-| Python        | [`vmx` 3.23.0](https://pypi.org/project/vmx/3.23.0/) on PyPI                                    | v3.29.0     |
-| Swift         | [`VMx` 3.24.0](https://github.com/thekaveh/VMx/releases/tag/swift-v3.24.0) via SwiftPM          | v3.30.0     |
-| TypeScript    | [`@thekaveh/vmx` 3.30.0](https://www.npmjs.com/package/@thekaveh/vmx/v/3.30.0) on npm           | v3.30.0     |
+| Python        | [`vmx` 3.23.0](https://pypi.org/project/vmx/3.23.0/) on PyPI                                    | v3.30.0     |
+| Swift         | [`VMx` 3.24.0](https://github.com/thekaveh/VMx/releases/tag/swift-v3.24.0) via SwiftPM          | v3.31.0     |
+| TypeScript    | [`@thekaveh/vmx` 3.30.0](https://www.npmjs.com/package/@thekaveh/vmx/v/3.30.0) on npm           | v3.31.0     |
 | React adapter | [`@thekaveh/vmx-react` 0.1.1](https://www.npmjs.com/package/@thekaveh/vmx-react/v/0.1.1) on npm | v0.1.1      |
-| C#            | Not yet published to NuGet                                                                      | v3.29.0     |
-| Rust          | Not yet published to crates.io                                                                  | v0.35.0     |
+| C#            | Not yet published to NuGet                                                                      | v3.30.0     |
+| Rust          | Not yet published to crates.io                                                                  | v0.36.0     |
 
 A source line can be ahead of its public package. The
 [`compatibility-matrix.md`](compatibility-matrix.md) ledger records which
@@ -264,16 +264,16 @@ is fully backwards compatible and ships in flavors as a minor bump.
 
 ### 6.2 Spec and flavor compatibility
 
-Every flavor's source line implements spec 3.29.0.
+Every flavor's source line implements spec 3.30.0.
 [`compatibility-matrix.md`](compatibility-matrix.md) is the canonical ledger of
 released versions and the spec version each implements.
 
 ### 6.3 Conformance catalog
 
-`spec/` holds 24 chapters, 150 ADRs, 4 JSON fixtures, and the conformance
+`spec/` holds 24 chapters, 151 ADRs, 4 JSON fixtures, and the conformance
 catalog in `spec/12-conformance.md`. All five flavors implement its
-425 library conformance IDs, and the four UI-backed flagship apps cover
-5 additional THEME scenario IDs, for **430 total**. Rust has no UI scenario
+426 library conformance IDs, and the four UI-backed flagship apps cover
+5 additional THEME scenario IDs, for **431 total**. Rust has no UI scenario
 suite yet.
 `tools/check-conformance-coverage.py` enforces full catalog coverage, and
 [Specification & Conformance](docs/content/specification-conformance.md)
@@ -296,7 +296,7 @@ python3 tools/check-conformance-coverage.py
 .
 ├── spec/                  language-neutral specification (source of truth)
 │   ├── 00-overview.md ... 23-async-resource-vm.md  (24 chapters)
-│   ├── ADRs/              architecture decision records (0001..0150)
+│   ├── ADRs/              architecture decision records (0001..0151)
 │   ├── fixtures/          JSON test inputs shared across flavors
 │   ├── schemas/           versioned supporting machine contracts
 │   ├── proposals/         mostly historical; scenario contracts may be normative
@@ -346,8 +346,8 @@ This README is the entry point; the documents below add focused detail.
   community guidelines.
 - [`compatibility-matrix.md`](compatibility-matrix.md) — spec ↔ flavor
   version pairing.
-- [`spec/README.md`](spec/README.md) — index of the 24 chapters, 150 ADRs,
-  4 fixtures, and the 430-ID conformance catalog.
+- [`spec/README.md`](spec/README.md) — index of the 24 chapters, 151 ADRs,
+  4 fixtures, and the 431-ID conformance catalog.
 - [`spec/ADRs/README.md`](spec/ADRs/README.md) — ADR catalogue index.
 - [`docs/audit/README.md`](docs/audit/README.md) — index of historical
   documentation audit reports.

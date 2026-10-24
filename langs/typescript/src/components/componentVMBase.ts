@@ -1047,6 +1047,9 @@ export abstract class ComponentVMBase {
   }
 
   protected own<T extends OwnedResource>(resource: T): T {
+    // A forwarding decorator registers on the wrapped component (ADR-0151).
+    const owner = this._ownershipIdentity;
+    if (owner !== this) return owner.own(resource);
     if (this.#status === ConstructionStatus.Disposed) {
       ComponentVMBase.#disposeOwnedResource(resource);
     } else {

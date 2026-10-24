@@ -1,12 +1,14 @@
-"""Conformance tests: FWD-001..004.
+"""Conformance tests: FWD-001..005.
 
 FWD-001: ForwardingComponentVM with no overrides delegates every member to wrapped.
 FWD-002: Selective override of ``hint`` returns "OVERRIDE"; all others still delegate.
 FWD-003: ForwardingCompositeVM iteration yields wrapped's children in order.
+FWD-005: Resources registered through a decorator belong to the wrapped component.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 from unittest.mock import MagicMock, PropertyMock
 
@@ -323,3 +325,52 @@ def test_forwarding_composite_setitem_delegates_to_wrapped() -> None:
     fwd[1] = vm3
 
     inner.__setitem__.assert_called_once_with(1, vm3)
+
+
+class _OwningDecorator(ForwardingComponentVM[str]):
+    def register(self, resource: Callable[[], None]) -> None:
+        self._own(resource)
+
+
+def _make_real_inner() -> Any:
+    return ComponentVMOfBuilder[str]().name("inner").model("m").with_null_services().build()
+
+
+@pytest.mark.conformance("FWD-005")
+def test_FWD_005_decorators_register_owned_resources_on_the_wrapped_component() -> None:
+    inner = _make_real_inner()
+    first = _OwningDecorator(inner)
+    second = _OwningDecorator(first)
+    released: list[str] = []
+    first.register(lambda: released.append("r1"))
+    second.register(lambda: released.append("r2"))
+    inner.construct()
+
+    second.dispose()
+
+    assert inner.status is ConstructionStatus.DISPOSED
+    assert released == ["r2", "r1"]
+
+    first.register(lambda: released.append("r3"))
+    assert released == ["r2", "r1", "r3"]
+
+    first.dispose()
+    second.dispose()
+    inner.dispose()
+    assert released == ["r2", "r1", "r3"]
+
+
+@pytest.mark.conformance("FWD-005")
+def test_FWD_005_disposing_the_wrapped_component_releases_decorator_resources() -> None:
+    inner = _make_real_inner()
+    first = _OwningDecorator(inner)
+    second = _OwningDecorator(first)
+    released: list[str] = []
+    first.register(lambda: released.append("r1"))
+    second.register(lambda: released.append("r2"))
+
+    inner.dispose()
+
+    assert released == ["r2", "r1"]
+    second.dispose()
+    assert released == ["r2", "r1"]

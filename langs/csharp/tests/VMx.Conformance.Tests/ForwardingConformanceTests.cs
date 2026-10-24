@@ -10,7 +10,7 @@ using Xunit;
 namespace VMx.Conformance.Tests;
 
 /// <summary>
-/// Conformance tests for the Forwarding decorators, covering FWD-001..004.
+/// Conformance tests for the Forwarding decorators, covering FWD-001..005.
 /// See spec/09-forwarding.md and spec/12-conformance.md.
 /// </summary>
 public class ForwardingConformanceTests
@@ -31,6 +31,14 @@ public class ForwardingConformanceTests
         public HintOverridingForwardingVM(IComponentVM<M> wrapped) : base(wrapped) { }
 
         public override string Hint => "OVERRIDE";
+    }
+
+    /// <summary>Exposes the protected <c>Own</c> helper for FWD-005.</summary>
+    private sealed class OwningForwardingVM<M> : ForwardingComponentVM<M>
+    {
+        public OwningForwardingVM(IComponentVM<M> wrapped) : base(wrapped) { }
+
+        public void Register(Action cleanup) => Own(cleanup);
     }
 
     /// <summary>No-op concrete subclass of ForwardingCompositeVM — no members overridden.</summary>
@@ -258,5 +266,52 @@ public class ForwardingConformanceTests
         duplicateGroup.Invoking(candidate => candidate.Construct())
             .Should().Throw<InvalidOperationException>()
             .WithMessage("*duplicate canonical child identity*");
+    }
+
+    /// <summary>
+    /// FWD-005: A resource registered through any decorator belongs to the wrapped
+    /// component. It is released in LIFO order when that component is disposed,
+    /// through a decorator or directly, and at once after that disposal.
+    /// </summary>
+    [Fact, Trait("Conformance", "FWD-005")]
+    public void FWD_005_Decorators_Register_Owned_Resources_On_The_Wrapped_Component()
+    {
+        var (inner, _, _) = BuildWrapped();
+        var first = new OwningForwardingVM<string>(inner);
+        var second = new OwningForwardingVM<string>(first);
+        var released = new List<string>();
+        first.Register(() => released.Add("r1"));
+        second.Register(() => released.Add("r2"));
+        inner.Construct();
+
+        second.Dispose();
+
+        inner.Status.Should().Be(ConstructionStatus.Disposed);
+        released.Should().Equal("r2", "r1");
+
+        first.Register(() => released.Add("r3"));
+        released.Should().Equal("r2", "r1", "r3");
+
+        first.Dispose();
+        second.Dispose();
+        inner.Dispose();
+        released.Should().Equal("r2", "r1", "r3");
+    }
+
+    [Fact, Trait("Conformance", "FWD-005")]
+    public void FWD_005_Disposing_The_Wrapped_Component_Releases_Decorator_Resources()
+    {
+        var (inner, _, _) = BuildWrapped();
+        var first = new OwningForwardingVM<string>(inner);
+        var second = new OwningForwardingVM<string>(first);
+        var released = new List<string>();
+        first.Register(() => released.Add("r1"));
+        second.Register(() => released.Add("r2"));
+
+        inner.Dispose();
+
+        released.Should().Equal("r2", "r1");
+        second.Dispose();
+        released.Should().Equal("r2", "r1");
     }
 }

@@ -6,7 +6,8 @@ Updated alongside spec and flavor releases.
 
 | spec  | python          | csharp          | typescript      | swift           | rust          |
 | ----- | --------------- | --------------- | --------------- | --------------- | ------------- |
-| 3.29.x | 3.29.0[^current] <!-- x-release-please-version --> | 3.29.0[^current] | 3.30.0[^current] | 3.30.0[^current] | 0.35.0[^rust] |
+| 3.30.x | 3.30.0[^current] <!-- x-release-please-version --> | 3.30.0[^current] | 3.31.0[^current] | 3.31.0[^current] | 0.36.0[^rust] |
+| 3.29.x | —[^source-3-29] | —[^source-3-29] | 3.30.0[^typescript-3-30] | —[^source-3-29] | 0.35.0[^source-3-29] |
 | 3.28.x | —[^source-3-24-28] | —[^source-3-24-28] | —[^source-3-24-28] | —[^source-3-24-28] | 0.34.0[^source-3-24-28] |
 | 3.27.x | —[^source-3-24-28] | —[^source-3-24-28] | —[^source-3-24-28] | —[^source-3-24-28] | 0.33.0[^source-3-24-28] |
 | 3.26.x | —[^source-3-24-28] | —[^source-3-24-28] | —[^source-3-24-28] | —[^source-3-24-28] | 0.32.0[^source-3-24-28] |
@@ -41,19 +42,25 @@ cell shows the version range of the flavor that implements the spec line (e.g.
 `1.0.0` or `1.0.0–1.2.x` once minor/patch releases follow). A cell with a
 source footnote names an unreleased source version.
 
-Every flavor covers all 425 library conformance IDs. The five `THEME-00x`
+Every flavor covers all 426 library conformance IDs. The five `THEME-00x`
 scenario IDs live in the flagship example apps. `spec/HISTORY.md` records the
 release and ADR that added each group of IDs. Swift has member-level parity with C#,
 Python, and TypeScript. Rust's remaining public-surface and behavior gaps are
 the open items §12.4.7 and §12.7–§12.12 in
 `docs/maintenance/2026-07-16-rust-capability-parity.md`.
 
-[^current]: TypeScript 3.30.0 implements spec 3.29.0 and is published on npm as
-`@thekaveh/vmx` (`typescript-v3.30.0`, 2026-10-16). C# 3.29.0, Python 3.29.0,
-and Swift 3.30.0 are the unreleased source lines implementing spec 3.29.0.
-Python 3.23.0 is publicly installable from PyPI, and Swift 3.24.0 through
-SwiftPM. The C# public package remains pending; its release job refuses to
+[^current]: C# 3.30.0, Python 3.30.0, TypeScript 3.31.0, and Swift 3.31.0 are
+the unreleased source lines implementing spec 3.30.0. Python 3.23.0 is publicly
+installable from PyPI, Swift 3.24.0 through SwiftPM, and TypeScript 3.30.0 from
+npm. The C# public package remains pending; its release job refuses to
 green-skip a publish without configured credentials.
+
+[^typescript-3-30]: TypeScript 3.30.0 implements spec 3.29.0 and is published on
+npm as `@thekaveh/vmx` (`typescript-v3.30.0`, 2026-10-16).
+
+[^source-3-29]: C# 3.29.0, Python 3.29.0, Swift 3.30.0, and Rust 0.35.0
+implemented spec 3.29.x as validated source lines but were never tagged or
+published. The Rust cell records source history, as for earlier Rust rows.
 
 [^swift]: Swift 3.24.0 is publicly installable from the repository root through
 the immutable `v3.24.0` semantic tag. The matching `swift-v3.24.0` operational
@@ -61,8 +68,8 @@ tag and [GitHub Release](https://github.com/thekaveh/VMx/releases/tag/swift-v3.2
 point to the same verified `main` commit.
 
 [^rust]: Rust is a source-tree, catalog-complete flavor promoted by ADR-0081. It
-is at source version 0.35.0, declares `MIN_SPEC_VERSION = "3.29.0"`, and carries
-behavioral tests for all 425 library conformance IDs. The parity ledger
+is at source version 0.36.0, declares `MIN_SPEC_VERSION = "3.30.0"`, and carries
+behavioral tests for all 426 library conformance IDs. The parity ledger
 `docs/maintenance/2026-07-16-rust-capability-parity.md` records its member
 evidence and open items §12.4.7 and §12.7–§12.12. Rust is not published to crates.io.
 
@@ -133,8 +140,8 @@ version it implements.
 > independently from `VMx` core, starting from 1.0.0 (per ADR-0013). The `1.2.0` shown above is not
 > a divergence from the spec — it is the companion package's own version counter. The **Spec**
 > column is the spec revision each companion's own feature surface implements; it is not the core
-> dependency floor. As built at HEAD both companions reference the `VMx` 3.29.0 core project and
-> pack with a `VMx >= 3.29.0` NuGet dependency. The DI companion uses packaging-only patch 2.1.1
+> dependency floor. As built at HEAD both companions reference the `VMx` 3.30.0 core project and
+> pack with a `VMx >= 3.30.0` NuGet dependency. The DI companion uses packaging-only patch 2.1.1
 > because the historical core tag `csharp-v2.1.0` is immutable. Future companion releases use
 > package-specific `csharp-notifications-v*` and `csharp-dependency-injection-v*` tags, preventing
 > that legacy cross-package collision; the already-advanced DI version is not rewound. These source

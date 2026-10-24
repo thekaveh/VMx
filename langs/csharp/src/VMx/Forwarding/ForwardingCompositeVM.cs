@@ -217,6 +217,17 @@ public abstract class ForwardingCompositeVM<VM> : ICompositeVM<VM>, IComponentVM
         _wrappedComposite.Dispose();
     }
 
+    /// <summary>
+    /// Registers a disposable on the wrapped VM's terminal cleanup and returns it.
+    /// It is disposed when the wrapped VM is disposed, through any decorator or
+    /// directly, or at once if the wrapped VM is already disposed (ADR-0151).
+    /// </summary>
+    protected T Own<T>(T resource) where T : IDisposable => _membership.Own(resource);
+
+    /// <summary>Registers a cleanup action on the wrapped VM's terminal cleanup (ADR-0151).</summary>
+    protected IDisposable Own(Action cleanup)
+        => Own(System.Reactive.Disposables.Disposable.Create(cleanup));
+
     // ── Parent membership (FWD-002/FWD-004): one identity with the wrapped composite ──
 
     IParentCompositeVM? IComponentVMInternals.Parent => _membership.Parent;

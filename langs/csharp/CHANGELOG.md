@@ -147,6 +147,20 @@ All notable changes to the C# flavor are documented here. The format is based on
 - The NuGet package ships its own README describing `AddVMx()` registration
   and its dependency on `VMx` (#351).
 
+## [3.30.0] — unreleased source version
+
+### Added
+
+- `ForwardingComponentVM<M>` and `ForwardingCompositeVM<VM>` have protected
+  `Own<T>(T)` and `Own(Action)` overloads. They register a resource on the
+  wrapped VM's terminal cleanup: it is disposed, in LIFO order with the wrapped
+  VM's other resources, when that VM is disposed through any decorator or
+  directly, and at once if it is already disposed. A decorator that wraps a VM
+  not derived from `ComponentVMBase` throws `InvalidOperationException`. A
+  subclass that already declares a member named `Own` with the same signature
+  now hides the new one and gets warning CS0108, which fails a build that
+  treats warnings as errors (`FWD-005`, ADR-0151, spec 3.30.0) (#650).
+
 ## [3.29.0] — unreleased source version
 
 ### Changed

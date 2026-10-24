@@ -64,6 +64,17 @@ lifecycle, current flags, and built-in selection commands remain transparent to
 the wrapped component. Multiple decorators MUST NOT make the wrapped component
 a child of more than one container.
 
+A decorator's owned-resource helper (`02-lifecycle.md` §2.3) registers each
+resource with the canonical ownership identity, not with the decorator. The
+resource is released when the wrapped component is disposed, through any
+decorator or directly, in the LIFO order shared by every registration on that
+identity (`DISP-007`). A registration through a decorator whose wrapped
+component is already disposed releases the resource at once (`DISP-010`). A
+decorator that overrides `dispose()` without forwarding keeps its registrations
+until the wrapped component is disposed. In C#, Python, and TypeScript, a
+decorator can wrap a component that does not derive from the VMx base class;
+such a decorator cannot register resources, and the call fails.
+
 ## 2. `ForwardingCompositeVM<VM>`
 
 Same pattern, but additionally forwards the `IList<VM>` surface (Add, Remove,
@@ -84,20 +95,23 @@ own the wrapped's lifetime.
 
 A forwarding composite used as a child of another container follows the §1
 ownership rules: one ownership identity with the wrapped composite, and
-transparent parent and current flags. Open gaps: the TypeScript
+transparent parent and current flags. Its owned-resource helper follows §1 in
+C#, Python, Swift, and Rust. Open gaps: the TypeScript
 `ForwardingCompositeVM` does not extend `ComponentVMBase`, and the Rust
 `ForwardingCompositeVm` does not implement `VmNode`, so neither can be added to
-a container; the type checker rejects the call.
+a container; the type checker rejects the call. The TypeScript
+`ForwardingCompositeVM` also has no owned-resource helper.
 
 ## 3. Conformance
 
-`FWD-001` through `FWD-004` in `12-conformance.md` cover:
+`FWD-001` through `FWD-005` in `12-conformance.md` cover:
 
 - default delegation of every member to the wrapped VM
 - transparent use as a composite or group child, including selection commands
 - selective override replaces a single behavior
 - ForwardingCompositeVM forwards iteration
 - pre-owned and multiply decorated components retain one transferable owner
+- resources registered through a decorator belong to the wrapped component
 
 Forwarded disposal inherits `DISP-001`: repeated wrapper disposal may reach the
 wrapped instance repeatedly at the call boundary, but the wrapped VM performs

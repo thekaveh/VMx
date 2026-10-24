@@ -97,6 +97,13 @@ internal sealed class ForwardingMembership(IComponentVM wrapper, IComponentVM wr
 
     internal IComponentVM OwnershipIdentity => _wrapped.GetOwnershipIdentity();
 
+    /// <summary>Registers a resource on the canonical ownership identity (ADR-0151).</summary>
+    internal T Own<T>(T resource) where T : IDisposable
+        => OwnershipIdentity is ComponentVMBase owner
+            ? owner.OwnForAlias(resource)
+            : throw new InvalidOperationException(
+                "A forwarding decorator must wrap a VMx ComponentVMBase to own resources.");
+
     internal void SetParent(IParentCompositeVM? parent)
     {
         _parent = parent;

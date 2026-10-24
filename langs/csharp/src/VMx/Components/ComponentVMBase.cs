@@ -1883,6 +1883,9 @@ public abstract class ComponentVMBase : IComponentVM, IComponentVMInternals
     /// <summary>Registers a cleanup action for terminal VM cleanup.</summary>
     protected IDisposable Own(Action cleanup) => Own(Disposable.Create(cleanup));
 
+    /// <summary>Registers a resource for a forwarding decorator of this VM (ADR-0151).</summary>
+    internal T OwnForAlias<T>(T resource) where T : IDisposable => Own(resource);
+
     private void DisposeOwnedResources()
     {
         IDisposable[] resources;

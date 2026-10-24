@@ -12,7 +12,7 @@ pre-publication changes.
 
 The closure was revalidated against the current Rust implementation, its
 conformance and regression tests, the canonical spec, and the four-flavor
-consensus on **2026-07-26**. All five flavors cover all 425 library IDs. The
+consensus on **2026-07-26**. All five flavors cover all 426 library IDs. The
 focused Rust tests cited below now assert the canonical member shape and edge
 behavior rather than the earlier reduced Rust surface.
 

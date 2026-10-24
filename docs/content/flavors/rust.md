@@ -7,12 +7,12 @@ Rust is the fifth VMx source flavor. It lives under `langs/rust/` as the
 
 - Package: `vmx-rs`, imported as the crate `vmx`; it ships the repository's
   Apache-2.0 text
-- Version: `vmx-rs` 0.35.0 implements spec 3.29.0; the MSRV is Rust 1.88
+- Version: `vmx-rs` 0.36.0 implements spec 3.30.0; the MSRV is Rust 1.88
 - Publication status: not published on crates.io
 - Reactive primitive: VMx-owned hot-stream facade (ADR-0103)
 - Naming: Rust type names such as `ComponentVm`, snake_case methods such as
   `construct()` and `dispose()`
-- Conformance: behavioral Rust tests cover all 425 library IDs. Rust has no UI
+- Conformance: behavioral Rust tests cover all 426 library IDs. Rust has no UI
   scenario suite for the five THEME IDs.
 - Known gaps: the public surface and some behaviors are not fully aligned with
   the other flavors. The

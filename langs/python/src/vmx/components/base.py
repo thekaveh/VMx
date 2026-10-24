@@ -1232,6 +1232,10 @@ class _ComponentVMBase(ABC):
 
     def _own(self, resource: _OwnedResourceT) -> _OwnedResourceT:
         """Register a callable or ``dispose()`` resource for terminal cleanup."""
+        # A forwarding decorator registers on the wrapped component (ADR-0151).
+        owner = self._ownership_identity
+        if owner is not self:
+            return owner._own(resource)
         with self._lifecycle_lock:
             dispose_now = self._status == ConstructionStatus.DISPOSED
             if not dispose_now:

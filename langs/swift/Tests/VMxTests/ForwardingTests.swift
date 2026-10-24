@@ -3,8 +3,9 @@
 //
 // Claimed IDs: FWD-001 (transparent delegation of every member to the wrapped
 // VM), FWD-002 (selective override replaces a single behavior), FWD-003
-// (ForwardingCompositeVM forwards iteration in wrapped order), and FWD-004
-// (one underlying identity transfers between containers). Mirrors
+// (ForwardingCompositeVM forwards iteration in wrapped order), FWD-004
+// (one underlying identity transfers between containers), and FWD-005
+// (owned resources register on the wrapped component). Mirrors
 // langs/typescript/tests/conformance/forwarding.test.ts.
 //
 // Swift port note (recorded in ADR-0059 §2.1): the TS FWD-002
@@ -125,6 +126,49 @@ final class ForwardingTests: XCTestCase {
         fwd.dispose()
 
         XCTAssertEqual(cleanupCount, 1)
+    }
+
+    /// FWD-005 — decorators register owned resources on the wrapped component:
+    /// nested decorators share its LIFO order, registration after disposal
+    /// releases at once, and repeated disposal releases nothing more.
+    func testFWD005DecoratorsRegisterOwnedResourcesOnTheWrappedComponent() throws {
+        let inner = makeInner()
+        let first = NoopForwardingComponent(inner)
+        let second = NoopForwardingComponent(first)
+        var released: [String] = []
+        first.own { released.append("r1") }
+        second.own { released.append("r2") }
+        try inner.construct()
+
+        second.dispose()
+
+        XCTAssertEqual(inner.status, .disposed)
+        XCTAssertEqual(released, ["r2", "r1"])
+
+        first.own { released.append("r3") }
+        XCTAssertEqual(released, ["r2", "r1", "r3"])
+
+        first.dispose()
+        second.dispose()
+        inner.dispose()
+        XCTAssertEqual(released, ["r2", "r1", "r3"])
+    }
+
+    /// FWD-005 — disposing the wrapped component directly releases resources
+    /// registered through its decorators.
+    func testFWD005DisposingTheWrappedComponentReleasesDecoratorResources() {
+        let inner = makeInner()
+        let first = NoopForwardingComponent(inner)
+        let second = NoopForwardingComponent(first)
+        var released: [String] = []
+        first.own { released.append("r1") }
+        second.own { released.append("r2") }
+
+        inner.dispose()
+
+        XCTAssertEqual(released, ["r2", "r1"])
+        second.dispose()
+        XCTAssertEqual(released, ["r2", "r1"])
     }
 
     func testForwardingComponentIsTransparentContainerChild() throws {
