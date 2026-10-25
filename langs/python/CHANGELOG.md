@@ -10,6 +10,13 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ### Fixed
 
+- A raising `on_collection_changed` subscriber no longer stops the rest of a
+  committed change's publication in the `GroupVM` indexer or in the
+  `GroupVM`, `CompositeVM` and `CompositeVMOf` population loops. Every local
+  event and hub message still goes out, and the first failure re-raises, as
+  the `CompositeVM` indexer already did (spec/01 §1.4). Before, `group[i] = x`
+  published only `remove`, and a population published only its first `add`
+  (#727).
 - `_own()` on a `ForwardingComponentVM` or `ForwardingCompositeVM` subclass
   registers the resource on the wrapped component. It raised `AttributeError`
   before. The resource is released, in LIFO order with the wrapped component's
