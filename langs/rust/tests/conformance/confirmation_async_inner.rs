@@ -415,8 +415,11 @@ fn fire_and_forget_inner_failure_reaches_only_the_inner_error_stream() {
 }
 
 /// Runs one fire-and-forget execution whose confirmation fails and returns the
-/// decorator's errors, the inner's errors, and the inner's run count.
-fn fire_and_forget_with_failing_confirm<F>(confirm: F) -> (Vec<VmxError>, Vec<VmxError>, usize)
+/// decorator's errors, the inner's errors, and whether the inner admitted the
+/// call. Admission is read synchronously: `AsyncRelayCommand` marks itself
+/// executing before it spawns its body, so a call that reaches the inner is
+/// visible when `execute` returns, whether or not the body has run yet.
+fn fire_and_forget_with_failing_confirm<F>(confirm: F) -> (Vec<VmxError>, Vec<VmxError>, bool)
 where
     F: Fn() -> AsyncValue<bool> + Send + Sync + 'static,
 {
@@ -426,12 +429,14 @@ where
     let inner_errors = ErrorLog::of(inner.command.error_stream());
 
     decorator.execute();
+    let admitted = inner.command.is_executing() || inner.runs() > 0;
+    if admitted {
+        // Let a wrongly admitted body finish instead of waiting out its bound.
+        inner.await_start();
+        inner.release(Ok(()));
+    }
 
-    (
-        decorator_errors.entries(),
-        inner_errors.entries(),
-        inner.runs(),
-    )
+    (decorator_errors.entries(), inner_errors.entries(), admitted)
 }
 
 /// CMDD-015 — A failing confirmation on the fire-and-forget path reaches only
@@ -449,10 +454,10 @@ fn fire_and_forget_confirm_failure_reaches_only_the_decorator_error_stream() {
         AsyncValue::ready(()).map(|()| -> bool { panic!("confirm failed") })
     });
 
-    for (decorator_errors, inner_errors, runs) in [thrown, settled_panicked] {
+    for (decorator_errors, inner_errors, admitted) in [thrown, settled_panicked] {
         assert_eq!(decorator_errors, expected);
         assert!(inner_errors.is_empty());
-        assert_eq!(runs, 0);
+        assert!(!admitted, "a failed confirmation invoked the inner");
     }
 }
 
