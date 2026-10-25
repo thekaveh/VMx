@@ -728,12 +728,7 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
         lock (_membershipGate)
         {
             if (_disposeRequested != 0) return;
-            while (_membershipTransactionActive
-                   && _membershipTransactionOwnerThreadId != Environment.CurrentManagedThreadId)
-            {
-                Monitor.Wait(_membershipGate);
-                if (_disposeRequested != 0) return;
-            }
+            if (!WaitForForeignTransactionLocked()) return;
             if (_membershipTransactionActive)
             {
                 _disposeDeferred = true;
@@ -770,6 +765,31 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
         if (_membershipTransactionActive)
             throw new InvalidOperationException(
                 "A container membership transaction is already in progress.");
+    }
+
+    /// <summary>
+    /// Waits, under <c>_membershipGate</c>, until no other thread holds this
+    /// container's membership transaction (ADR-0122). A wait that would close a
+    /// wait-for cycle records the disposal for the transaction owner instead,
+    /// which disposes this container when its transaction ends (#717). Returns
+    /// <c>false</c> when the caller has nothing left to do.
+    /// </summary>
+    private bool WaitForForeignTransactionLocked()
+    {
+        var caller = Environment.CurrentManagedThreadId;
+        var waits = MembershipTransactionWaitGraph.Shared;
+        while (_membershipTransactionActive && _membershipTransactionOwnerThreadId != caller)
+        {
+            if (!waits.TryBeginWait(_membershipGate, caller))
+            {
+                _disposeDeferred = true;
+                return false;
+            }
+            try { Monitor.Wait(_membershipGate); }
+            finally { waits.EndWait(caller); }
+            if (_disposeRequested != 0) return false;
+        }
+        return true;
     }
 
     private void BeginMembershipTransactionLocked()

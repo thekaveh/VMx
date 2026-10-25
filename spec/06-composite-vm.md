@@ -215,8 +215,14 @@ unrelated member merely because the original index changed (ADR-0118).
 Disposal MUST observe a stable membership boundary. If the transaction-owning
 thread requests disposal of a protected old parent from an attachment or
 construction hook, that terminal request is deferred until commit or rollback;
-a request from another thread waits for the same boundary. A successful transfer
-commits removal before the old parent takes its disposal snapshot. A failed
+a request from another thread waits for the same boundary. When that wait would
+close a wait-for cycle, because the transaction owner already waits, directly or
+through other threads, for the requesting thread, the request MUST NOT wait: it
+is recorded as deferred terminal intent, and the owner disposes the container
+when its transaction ends (ADR-0153). Open Python and Rust gap: their
+cross-thread disposal waits without a cycle check, so two threads that each
+hold one container's transaction and dispose the other's container hang. A
+successful transfer commits removal before the old parent takes its disposal snapshot. A failed
 transfer restores the child, parent metadata, selection, and lifecycle before
 old-parent disposal snapshots and cascades through the restored child. Once the
 request is pending, the protected container rejects any new structural admission
