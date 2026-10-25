@@ -550,3 +550,72 @@ fn component_failing_during_aggregate_action_rolls_back_once() {
     assert!(matches!(errors.try_recv(), Ok(VmxError::Other(_))));
     assert!(errors.try_recv().is_err());
 }
+
+/// Bound for the deadlock regressions below: a hang fails the test instead of
+/// stalling the suite.
+const SETTLE_BOUND: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// LIFE-014 — when a failing background child settles after the last
+/// composite handle is gone, the settle drops the queued continuation outside
+/// the hub lock, so the hub stays usable from another thread.
+#[test]
+fn dropped_composite_settling_a_failing_child_leaves_the_hub_usable() {
+    let hub = MessageHub::new();
+    let dispatcher = vmx::DefaultDispatcher::new();
+    let child = ComponentVm::builder()
+        .name("slow-failure")
+        .model(1)
+        .background(true)
+        .on_construct(|| {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            Err(VmxError::Other("child construct failed".to_string()))
+        })
+        .services(hub.clone(), dispatcher.clone())
+        .build()
+        .unwrap();
+    let composite = CompositeVm::with_services("composite", hub.clone(), dispatcher);
+    composite.add(child).unwrap();
+
+    composite.construct().unwrap();
+    drop(composite);
+    std::thread::sleep(std::time::Duration::from_millis(600));
+
+    let (sent, done) = mpsc::channel();
+    std::thread::spawn(move || {
+        hub.send(Message::Custom {
+            sender_id: 0,
+            sender_name: "probe".to_string(),
+            name: "probe".to_string(),
+        });
+        let _ = sent.send(());
+    });
+    done.recv_timeout(SETTLE_BOUND)
+        .expect("hub.send blocked: the settle dropped the composite under the hub lock");
+}
+
+/// LIFE-014 — a child removed while its construct step is queued, whose last
+/// handle the queue then owns, drops outside the hub lock when a background
+/// sibling fails and the composite rolls back.
+#[test]
+fn removed_queued_child_drops_outside_the_hub_lock_when_a_sibling_fails() {
+    let (finished, done) = mpsc::channel();
+    std::thread::spawn(move || {
+        let hub = MessageHub::new();
+        let dispatcher = ManualDispatcher::new();
+        let bad = failing_child(&hub, &dispatcher, "bad");
+        let queued = background_child(&hub, &dispatcher, "queued");
+        let composite = CompositeVm::with_services("composite", hub.clone(), dispatcher.clone());
+        composite.add(bad).unwrap();
+        composite.add(queued.clone()).unwrap();
+
+        composite.construct().unwrap();
+        composite.remove(&queued).unwrap();
+        drop(queued);
+        dispatcher.drain();
+        let _ = finished.send(composite.status());
+    });
+    let status = done
+        .recv_timeout(SETTLE_BOUND)
+        .expect("drain blocked: a queued child dropped under the hub lock");
+    assert_eq!(status, ConstructionStatus::Destructed);
+}
