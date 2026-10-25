@@ -20,7 +20,6 @@
 //
 import Foundation
 import Combine
-import Darwin
 
 /// Pub/sub hub protocol. Mirrors `IMessageHub` in the C# / Python / TS
 /// flavors. Publishes a stream of `Message`-conforming envelopes.
@@ -81,40 +80,6 @@ extension MessageHubProtocol {
     }
 }
 
-/// Process-wide wait-for graph for synchronous hub ownership. Registering a
-/// wait is cheap and lets the second edge of a true cross-hub cycle defer
-/// instead of deadlocking, while unrelated callbacks still wait synchronously.
-private final class MessageHubWaitCoordinator: @unchecked Sendable {
-    static let shared = MessageHubWaitCoordinator()
-
-    private let lock = NSLock()
-    private var waitingOn: [UInt64: UInt64] = [:]
-
-    /// Returns `false` when adding `caller -> owner` would close a cycle.
-    func beginWait(caller: UInt64, owner: UInt64) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-
-        waitingOn[caller] = owner
-        var cursor = owner
-        var visited = Set<UInt64>()
-        while visited.insert(cursor).inserted, let next = waitingOn[cursor] {
-            if next == caller {
-                waitingOn.removeValue(forKey: caller)
-                return false
-            }
-            cursor = next
-        }
-        return true
-    }
-
-    func endWait(caller: UInt64) {
-        lock.lock()
-        waitingOn.removeValue(forKey: caller)
-        lock.unlock()
-    }
-}
-
 /// Default Combine-backed `MessageHubProtocol`. Uses a
 /// `PassthroughSubject` for hot, multicast delivery.
 public final class MessageHub: TransactionalMessageHubProtocol {
@@ -134,9 +99,14 @@ public final class MessageHub: TransactionalMessageHubProtocol {
     private var borrowedBatchOwners: [UInt64: Int] = [:]
     private var completionRequested = false
     private var completionStarted = false
+    // Wait edges registered on this hub since the last release; guarded by `gate`.
+    private var registeredWaits = 0
     // Test-only synchronization seam: tests install a non-blocking callback to
     // observe the exact point at which a foreign-owner wait edge is registered.
     internal var onWaitRegisteredForTesting: (() -> Void)?
+    // Test-only seam: runs on a woken `send` waiter once no foreign owner
+    // remains, before the waiter ends its own edge. Called under `gate`.
+    internal var onWaitEndedForTesting: (() -> Void)?
 
     public init() {
         self.diagnosticHandler = nil
@@ -155,14 +125,15 @@ public final class MessageHub: TransactionalMessageHubProtocol {
         var shouldDrain = false
         gate.lock()
         while !disposed, let owner = foreignOwner(for: caller) {
-            if !MessageHubWaitCoordinator.shared.beginWait(caller: caller, owner: owner) {
+            if !registerWaitLocked(caller: caller, owner: owner) {
                 // The target owner already waits (possibly transitively) on this
                 // caller. Enqueue and return so that owner can finish its drain.
                 break
             }
             onWaitRegisteredForTesting?()
             gate.wait()
-            MessageHubWaitCoordinator.shared.endWait(caller: caller)
+            if let hook = onWaitEndedForTesting, foreignOwner(for: caller) == nil { hook() }
+            ThreadWaitGraph.shared.endWait(caller: caller)
         }
         guard !disposed else {
             gate.unlock()
@@ -191,14 +162,14 @@ public final class MessageHub: TransactionalMessageHubProtocol {
             borrowed = true
         } else {
             while !disposed, let owner = foreignOwner(for: caller) {
-                if !MessageHubWaitCoordinator.shared.beginWait(caller: caller, owner: owner) {
+                if !registerWaitLocked(caller: caller, owner: owner) {
                     borrowedBatchDepth += 1
                     borrowedBatchOwners[caller, default: 0] += 1
                     borrowed = true
                     break
                 }
                 gate.wait()
-                MessageHubWaitCoordinator.shared.endWait(caller: caller)
+                ThreadWaitGraph.shared.endWait(caller: caller)
             }
         }
         if !disposed && !borrowed {
@@ -235,7 +206,7 @@ public final class MessageHub: TransactionalMessageHubProtocol {
                     completionStarted = true
                     shouldComplete = true
                 }
-                gate.broadcast()
+                wakeWaitersLocked()
             }
             gate.unlock()
         } else if entered {
@@ -251,7 +222,7 @@ public final class MessageHub: TransactionalMessageHubProtocol {
                     completionStarted = true
                     shouldComplete = true
                 }
-                gate.broadcast()
+                wakeWaitersLocked()
             }
             gate.unlock()
         }
@@ -289,7 +260,7 @@ public final class MessageHub: TransactionalMessageHubProtocol {
                     completionStarted = true
                     shouldComplete = true
                 }
-                gate.broadcast()
+                wakeWaitersLocked()
                 gate.unlock()
                 withExtendedLifetime(released) {}
                 if shouldComplete {
@@ -317,7 +288,7 @@ public final class MessageHub: TransactionalMessageHubProtocol {
                 pending.removeAll(keepingCapacity: true)
                 pendingHead = 0
                 drainerThread = nil
-                gate.broadcast()
+                wakeWaitersLocked()
                 gate.unlock()
                 withExtendedLifetime(released) {}
                 let diagnostic = MessageHubOverflowError(
@@ -336,6 +307,26 @@ public final class MessageHub: TransactionalMessageHubProtocol {
         }
     }
 
+    /// Records `caller -> owner` on this hub in the shared wait graph.
+    private func registerWaitLocked(caller: UInt64, owner: UInt64) -> Bool {
+        guard ThreadWaitGraph.shared.beginWait(
+            caller: caller, owner: owner, resource: ObjectIdentifier(self)
+        ) else { return false }
+        registeredWaits += 1
+        return true
+    }
+
+    /// Ends every wait edge on this hub, then wakes the waiters under `gate`.
+    /// A waiter that still finds a foreign owner registers a new edge. With no
+    /// registered wait, the shared graph is not touched.
+    private func wakeWaitersLocked() {
+        if registeredWaits > 0 {
+            registeredWaits = 0
+            ThreadWaitGraph.shared.release(resource: ObjectIdentifier(self))
+        }
+        gate.broadcast()
+    }
+
     private func foreignOwner(for caller: UInt64) -> UInt64? {
         if let owner = batchOwnerThread, owner != caller { return owner }
         if let owner = drainerThread, owner != caller { return owner }
@@ -344,7 +335,7 @@ public final class MessageHub: TransactionalMessageHubProtocol {
     }
 
     private static var currentThread: UInt64 {
-        UInt64(pthread_mach_thread_np(pthread_self()))
+        ThreadWaitGraph.currentThread
     }
 
     private func completeSubject() {
@@ -358,7 +349,7 @@ public final class MessageHub: TransactionalMessageHubProtocol {
         var shouldComplete = false
         gate.lock()
         while !disposed, let owner = foreignOwner(for: caller) {
-            if !MessageHubWaitCoordinator.shared.beginWait(caller: caller, owner: owner) {
+            if !registerWaitLocked(caller: caller, owner: owner) {
                 // The owner already waits (possibly transitively) on this
                 // caller. Mark the hub disposed and let that owner claim
                 // completion when it releases its batch/drain boundary.
@@ -367,14 +358,14 @@ public final class MessageHub: TransactionalMessageHubProtocol {
                 pending.removeAll(keepingCapacity: false)
                 pendingHead = 0
                 completionRequested = true
-                gate.broadcast()
+                wakeWaitersLocked()
                 gate.unlock()
                 withExtendedLifetime(released) {}
                 return
             }
             onWaitRegisteredForTesting?()
             gate.wait()
-            MessageHubWaitCoordinator.shared.endWait(caller: caller)
+            ThreadWaitGraph.shared.endWait(caller: caller)
         }
         guard !disposed else {
             gate.unlock()
@@ -391,7 +382,7 @@ public final class MessageHub: TransactionalMessageHubProtocol {
         } else {
             completionRequested = true
         }
-        gate.broadcast()
+        wakeWaitersLocked()
         gate.unlock()
         withExtendedLifetime(released) {}
 

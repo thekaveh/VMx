@@ -1239,18 +1239,34 @@ final class ContainerOwnershipTransferTests: XCTestCase {
 
     func testMembershipWaitGraphRefusesTheEdgeThatClosesACycle() {
         // Opposing populations would each wait for the other's transaction,
-        // so the coordinator refuses the closing edge (#551).
-        let coordinator = MembershipTransactionWaitCoordinator()
-        let first = NSObject(), second = NSObject(), third = NSObject()
-        let a = ObjectIdentifier(first), b = ObjectIdentifier(second), c = ObjectIdentifier(third)
+        // so the shared wait graph refuses the closing edge (#551).
+        let graph = ThreadWaitGraph()
+        let a: UInt64 = 1, b: UInt64 = 2, c: UInt64 = 3
+        let resource = ObjectIdentifier(graph)
 
-        XCTAssertTrue(coordinator.beginWait(caller: a, owner: b))
-        XCTAssertTrue(coordinator.beginWait(caller: b, owner: c))
-        XCTAssertFalse(coordinator.beginWait(caller: c, owner: a), "c -> a closes a -> b -> c")
-        XCTAssertFalse(coordinator.beginWait(caller: b, owner: a), "b -> a closes a -> b")
+        XCTAssertTrue(graph.beginWait(caller: a, owner: b, resource: resource))
+        XCTAssertTrue(graph.beginWait(caller: b, owner: c, resource: resource))
+        XCTAssertFalse(graph.beginWait(caller: c, owner: a, resource: resource), "c -> a closes a -> b -> c")
+        XCTAssertFalse(graph.beginWait(caller: b, owner: a, resource: resource), "b -> a closes a -> b")
 
-        coordinator.endWait(caller: a)
-        XCTAssertTrue(coordinator.beginWait(caller: c, owner: a), "a no longer waits")
+        graph.endWait(caller: a)
+        XCTAssertTrue(graph.beginWait(caller: c, owner: a, resource: resource), "a no longer waits")
+    }
+
+    func testWaitGraphReleaseEndsOnlyTheEdgesOnThatResource() {
+        // The owner of one resource may still hold another, so releasing the
+        // first must keep a real cycle through the second visible (#703).
+        let graph = ThreadWaitGraph()
+        let a: UInt64 = 1, b: UInt64 = 2, c: UInt64 = 3
+        let hub = NSObject(), container = NSObject()
+
+        XCTAssertTrue(graph.beginWait(caller: a, owner: c, resource: ObjectIdentifier(hub)))
+        XCTAssertTrue(graph.beginWait(caller: b, owner: c, resource: ObjectIdentifier(container)))
+        graph.release(resource: ObjectIdentifier(hub))
+
+        XCTAssertTrue(graph.beginWait(caller: c, owner: a, resource: ObjectIdentifier(container)), "a no longer waits")
+        graph.endWait(caller: c)
+        XCTAssertFalse(graph.beginWait(caller: c, owner: b, resource: ObjectIdentifier(hub)), "b still waits on c")
     }
 
     func testReversedConcurrentPopulationCompletesWithoutSplitOwnership() throws {
