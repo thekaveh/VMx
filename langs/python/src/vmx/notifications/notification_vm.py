@@ -256,8 +256,8 @@ class NotificationVM:
         self._dismiss()
 
     def _dismiss(self) -> None:
-        """Resolve with Approve and cancel the timer. Idempotent."""
-        if self._is_resolved:
+        """Resolve with Approve and cancel the timer. Idempotent; inert once disposed."""
+        if self._disposed or self._is_resolved:
             return
         self._is_resolved = True
         self._cancel_timers()
@@ -265,8 +265,12 @@ class NotificationVM:
         self._raise_resolved_changes()
 
     def _resolve_with(self, reaction: NotificationReaction) -> None:
-        """Resolve with the given reaction and cancel the timer. Idempotent."""
-        if self._is_resolved:
+        """Resolve with the given reaction and cancel the timer.
+
+        Idempotent; inert once disposed (DISP-004), like the C# and TypeScript
+        resolution paths (#730).
+        """
+        if self._disposed or self._is_resolved:
             return
         self._is_resolved = True
         self._cancel_timers()

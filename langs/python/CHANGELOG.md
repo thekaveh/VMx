@@ -10,6 +10,12 @@ All notable changes to the Python flavor are documented here. The format is base
 
 ### Fixed
 
+- A disposed `NotificationVM` or `ConfirmationVM` no longer resolves its
+  notification on the hub. `_dismiss` and `_resolve_with` now return once the
+  VM is disposed, as the C# and TypeScript resolution paths do (DISP-004).
+  Before, a command executed from a teardown observer, or an expiry admitted
+  before `dispose()`, still resolved the notification on the hub and
+  set `is_resolved` to true (#730).
 - A raising `on_collection_changed` subscriber no longer stops the rest of a
   committed change's publication in the `GroupVM` indexer or in the
   `GroupVM`, `CompositeVM` and `CompositeVMOf` population loops. Every local
