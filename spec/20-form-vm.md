@@ -201,6 +201,10 @@ the `JSON.stringify` comparison used before v3 it:
   properties, and subclass identity are not kept by the clone and are not
   compared; a domain that needs them injects a matching `snapshotter` and
   `equals`. An error never equals a non-error;
+- compares a `DOMException` by its `name` and `message` (ADR-0152), because
+  its clone on Node 22 and later is a `DOMException` that keeps both. A
+  `DOMException` never equals another error, and its `cause` and custom
+  properties are not compared;
 - preserves an `undefined`-valued key as distinct from a missing key (matching what
   `structuredClone` preserves), and treats `NaN` as equal to `NaN` and `+0`/`-0` as
   equal, for stable dirty-tracking;

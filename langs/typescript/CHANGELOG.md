@@ -28,6 +28,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- The default `FormVM` equality compares a `DOMException` by its `name` and
+  `message`, which its clone keeps on Node 22 and later (ADR-0152). Before, any two `DOMException`
+  values compared equal, so `setModel` dropped an edit that replaced one with
+  a different one. A value that only inherits `DOMException.prototype` no
+  longer makes the comparator throw (#734).
 - A background VM whose `onConstruct` or `onDestruct` throws now rolls back
   to `Destructed` or `Constructed` and releases its in-flight guard on
   `RxDispatcher.immediate()` and `NullDispatcher`. Each of these uses rxjs
