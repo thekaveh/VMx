@@ -20,7 +20,7 @@ import time
 import tracemalloc
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -375,7 +375,7 @@ def main() -> int:
     report = {
         "schema": "vmx-bench/1",
         "flavor": "python",
-        "timestamp": datetime.now(UTC).isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "commit": git("rev-parse", "HEAD"),
         "dirty": bool(git("status", "--porcelain")),
         "package_version": package_version,
