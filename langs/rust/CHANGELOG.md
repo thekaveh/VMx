@@ -14,6 +14,15 @@ project adheres to [Semantic Versioning](https://semver.org/).
   resources on the wrapped component; `FWD-005` now covers it, including
   nested decorators and registration after disposal (ADR-0151) (#650).
 
+### Fixed
+
+- A container no longer deadlocks when a background child settles and a
+  queued child step owns the last handle to a view-model. Settling, starting a
+  transition and rolling one back now drop the cleared settle queue after the
+  hub and container locks are released. Before, dropping the composite while a
+  failing background child settled, or removing a queued child and dropping
+  its handle, blocked the hub (#701).
+
 ## [0.35.0] — unreleased source version
 
 ### Added
