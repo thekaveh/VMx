@@ -297,3 +297,82 @@ fn a_subscription_detached_mid_emission_releases_its_captures_at_once() {
     assert_eq!(*alive_after_detach.lock().unwrap(), Some(false));
     assert!(weak.upgrade().is_none());
 }
+
+/// #740 — an edit deferred during settlement still applies when an approval
+/// subscriber panics, and is not replayed over a later edit.
+#[test]
+fn a_panicking_approval_subscriber_still_applies_the_deferred_edit() {
+    let form = FormVm::new("form", 1);
+    let armed = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let _observer = form.approve_command().can_execute_changed().subscribe({
+        let form = form.clone();
+        let armed = Arc::clone(&armed);
+        // The settlement notification runs after the commit of 2.
+        move |_| {
+            if form.snapshot() == 2 && armed.swap(false, Ordering::SeqCst) {
+                form.set_model(5);
+            }
+        }
+    });
+    let panic_once = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let _subscriber = form.subscribe_approved({
+        let panic_once = Arc::clone(&panic_once);
+        move |_| {
+            if panic_once.swap(false, Ordering::SeqCst) {
+                panic!("approval subscriber panicked");
+            }
+        }
+    });
+
+    form.set_model(2);
+    let first = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| form.approve()));
+    assert!(
+        first.is_err(),
+        "the subscriber panic reaches the approve() caller"
+    );
+    assert_eq!(form.model(), 5, "the deferred edit applies");
+
+    form.set_model(7);
+    form.approve().unwrap();
+    assert_eq!(form.model(), 7);
+    assert_eq!(form.snapshot(), 7);
+    assert!(!form.is_dirty(), "no stale edit is replayed");
+}
+
+/// #740 — an edit deferred in a nested settlement applies only after the
+/// outer settlement's approval subscribers have run.
+#[test]
+fn a_nested_settlement_edit_waits_for_the_outer_subscribers() {
+    let form = FormVm::new("form", 1);
+    let notifications = Arc::new(AtomicUsize::new(0));
+    let inner_result = Arc::new(Mutex::new(None));
+    let _observer = form.approve_command().can_execute_changed().subscribe({
+        let form = form.clone();
+        let notifications = Arc::clone(&notifications);
+        let inner_result = Arc::clone(&inner_result);
+        // 1: outer admission, 2: outer settlement, 3: inner admission,
+        // 4: inner settlement.
+        move |_| match notifications.fetch_add(1, Ordering::SeqCst) + 1 {
+            2 => *inner_result.lock().unwrap() = Some(form.approve()),
+            4 => form.set_model(9),
+            _ => {}
+        }
+    });
+    let models_at_callbacks = Arc::new(Mutex::new(Vec::new()));
+    let _subscriber = form.subscribe_approved({
+        let form = form.clone();
+        let models_at_callbacks = Arc::clone(&models_at_callbacks);
+        move |_| models_at_callbacks.lock().unwrap().push(form.model())
+    });
+
+    form.set_model(2);
+    form.approve().unwrap();
+
+    assert!(matches!(*inner_result.lock().unwrap(), Some(Ok(()))));
+    assert_eq!(
+        *models_at_callbacks.lock().unwrap(),
+        vec![2, 2],
+        "both settlements' subscribers run before the deferred edit applies"
+    );
+    assert_eq!(form.model(), 9);
+}

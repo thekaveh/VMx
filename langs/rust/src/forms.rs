@@ -736,16 +736,21 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
             .iter()
             .map(|(id, _)| *id)
             .collect();
-        for id in ids {
-            let callback = lock(&self.approved_callbacks)
-                .entries
-                .iter()
-                .find(|(entry_id, _)| *entry_id == id)
-                .map(|(_, callback)| Arc::clone(callback));
-            if let Some(callback) = callback {
-                callback(model.clone());
+        // A panicking subscriber still lets the deferred edits replay, as the
+        // other flavors replay them in `finally`; the panic then continues
+        // to the approve caller (#740).
+        let published = catch_unwind(AssertUnwindSafe(|| {
+            for id in ids {
+                let callback = lock(&self.approved_callbacks)
+                    .entries
+                    .iter()
+                    .find(|(entry_id, _)| *entry_id == id)
+                    .map(|(_, callback)| Arc::clone(callback));
+                if let Some(callback) = callback {
+                    callback(model.clone());
+                }
             }
-        }
+        }));
         let deferred_models = {
             let mut publication = lock(&self.approval_publication);
             // An enclosing settlement still publishing keeps the edits until
@@ -758,6 +763,9 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
         };
         for deferred_model in deferred_models {
             self.set_model(deferred_model);
+        }
+        if let Err(payload) = published {
+            resume_unwind(payload);
         }
     }
 

@@ -16,6 +16,11 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `FormVm` replays a model edit deferred during an approval settlement even
+  when an approval subscriber panics, then lets the panic continue to the
+  `approve()` caller, as the other flavors do in `finally`. Before, the edit
+  was skipped and the next successful approval replayed it over newer edits
+  (#740).
 - `RelayCommand`s built from clones of one `RelayCommandBuilder` share their
   action, but a nested call deferred between them now uses its own command's
   disposal state. Before, a deferred call ran after
