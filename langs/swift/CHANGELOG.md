@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `FormVM` no longer deadlocks when an approval raises `canExecuteChanged`
+  while `setModel` or deny raises it on another thread, and a sink calls
+  `canExecute()` (#704). Top-level `setModel` and deny calls now send
+  `errorsChanged` and `canExecuteChanged` after they release the state gate,
+  as approval admission and settlement already did (ADR-0143). `setModel`
+  sends both, and deny sends `errorsChanged`, inside the approval
+  publication scope, so another thread's update or disposal still waits for
+  them, and `errorsChanged` values keep commit order. The strict-mode
+  approval predicate calls `equals` after it releases the gate.
 - `CompositeVM` and `GroupVM` no longer deadlock when a thread that sends on
   the hub inside a membership transaction waits for another thread's hub
   drain, and that drain waits for the transaction (#703). Hub waits,
