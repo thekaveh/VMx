@@ -2231,6 +2231,17 @@ pub(crate) fn reconstruct_admission(status: ConstructionStatus) -> VmxResult<()>
     }
 }
 
+/// Releases a component's settle waiters when dropped, so a transition body
+/// that unwinds from a panicking hook still runs them; otherwise a container
+/// waiting on the component stays transient (#738).
+struct ReleaseSettleWaiters<'a, D: Dispatcher>(&'a ComponentCore<D>);
+
+impl<D: Dispatcher> Drop for ReleaseSettleWaiters<'_, D> {
+    fn drop(&mut self) {
+        self.0.release_settle_waiters();
+    }
+}
+
 impl<D: Dispatcher> ComponentCore<D> {
     pub(crate) fn new(name: impl Into<String>, hub: MessageHub, dispatcher: D) -> Self {
         Self {
@@ -2310,9 +2321,8 @@ impl<D: Dispatcher> ComponentCore<D> {
     }
 
     pub(crate) fn reconstruct(&self) -> VmxResult<()> {
-        let result = self.reconstruct_sync();
-        self.release_settle_waiters();
-        result
+        let _release = ReleaseSettleWaiters(self);
+        self.reconstruct_sync()
     }
 
     fn run_sync_hook(&self, hook: Option<Hook>) -> thread::Result<VmxResult<()>> {
@@ -2784,9 +2794,8 @@ impl<D: Dispatcher> ComponentCore<D> {
     where
         F: FnOnce() -> VmxResult<()>,
     {
-        let result = self.transition_with_body(operation, action);
-        self.release_settle_waiters();
-        result
+        let _release = ReleaseSettleWaiters(self);
+        self.transition_with_body(operation, action)
     }
 
     fn transition_with_body<F>(&self, operation: LifecycleOperation, action: F) -> VmxResult<()>

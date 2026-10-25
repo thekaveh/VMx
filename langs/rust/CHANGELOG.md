@@ -16,6 +16,12 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A component whose lifecycle hook panics now releases its settle waiters as
+  the panic unwinds. Before, a `CompositeVm` or `GroupVm` waiting on a
+  background child whose `on_dispose` hook panicked stayed `Constructing`,
+  and its later `construct()` and `destruct()` returned
+  `ConcurrentOperation`. `transition_with` and `reconstruct` release the
+  waiters through a drop guard; the panic still reaches the caller (#738).
 - A container no longer deadlocks when a background child settles and a
   queued child step owns the last handle to a view-model. Settling, starting a
   transition and rolling one back now drop the cleared settle queue after the
