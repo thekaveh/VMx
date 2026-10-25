@@ -173,7 +173,9 @@ open class CompositeVM<Child: ComponentVMBase>:
     }
 
     var ownershipOwner: ComponentVMBase { self }
-    var ownershipOwnerParent: OwnershipParentVM? { _ownershipParent }
+    // The parent of this ownership identity, including a forwarding
+    // decorator's parent when only the decorator is parented (#724).
+    var ownershipOwnerParent: OwnershipParentVM? { _transferOwnershipParent }
 
     func containsIdentity(_ vm: ComponentVMBase) -> Bool {
         let identity = vm._ownershipIdentity

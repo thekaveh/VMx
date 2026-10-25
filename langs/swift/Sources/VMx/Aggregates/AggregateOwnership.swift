@@ -18,7 +18,7 @@ final class AggregateParent: ParentVM, OwnershipParentVM {
     func deselectChild(_ vm: ComponentVMBase) {}
 
     var ownershipOwner: ComponentVMBase { owner }
-    var ownershipOwnerParent: OwnershipParentVM? { owner._ownershipParent }
+    var ownershipOwnerParent: OwnershipParentVM? { owner._transferOwnershipParent }
     func containsIdentity(_ vm: ComponentVMBase) -> Bool {
         let identity = vm._ownershipIdentity
         return slots().contains { $0._ownershipIdentity === identity }
