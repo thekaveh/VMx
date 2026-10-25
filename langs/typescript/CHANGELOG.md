@@ -28,6 +28,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- A background VM whose `onConstruct` or `onDestruct` throws now rolls back
+  to `Destructed` or `Constructed` and releases its in-flight guard on
+  `RxDispatcher.immediate()` and `NullDispatcher`. Each of these uses rxjs
+  `queueScheduler` for both channels, and the active flush dropped the queued
+  rollback when the background action threw, so the VM stayed `Constructing`
+  or `Destructing` and later lifecycle calls failed. A top-level `construct()`
+  or `destruct()` now throws the hook error after the flush drains, so work
+  that rollback observers queue also runs; inside an outer flush, the error
+  reaches that flush's caller (#726).
 - A container that waits on a busy child now checks the child's status when
   it acts on it, as in C#, Python, and Swift (spec/02 §6). Before, a container
   whose `destruct()` joined a reconstructing child reported `Destructed` while
