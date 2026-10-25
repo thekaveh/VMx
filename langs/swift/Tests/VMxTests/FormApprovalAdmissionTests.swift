@@ -219,7 +219,9 @@ final class FormApprovalAdmissionTests: XCTestCase {
         await fulfillment(of: [probe.arrivals(1), handlerApproval], timeout: admissionTimeout)
 
         // A direct call and a command execution while the persister is blocked.
-        try await form.approveAsync()
+        let refused = ApprovalRun(form, "refused approval")
+        await fulfillment(of: [refused.finished], timeout: admissionTimeout)
+        XCTAssertNil(refused.error, "a refused call returns normally")
         form.approveCommand.execute()
 
         XCTAssertEqual(
@@ -637,7 +639,9 @@ final class FormApprovalAdmissionTests: XCTestCase {
         XCTAssertEqual(form.snapshot, "initial")
         XCTAssertEqual(form.errors, [:])
 
-        try await form.approveAsync()
+        let afterDisposal = ApprovalRun(form, "approval after disposal")
+        await fulfillment(of: [afterDisposal.finished], timeout: admissionTimeout)
+        XCTAssertNil(afterDisposal.error)
         form.approveCommand.execute()
         XCTAssertEqual(probe.calls, ["captured"], "a disposed form never invokes the persister again")
 
@@ -656,7 +660,9 @@ final class FormApprovalAdmissionTests: XCTestCase {
         commandForm.dispose()
         commandProbe.release(throwing: ApprovalTestError.persist)
         await fulfillment(of: [lateFailure], timeout: 0.3)
-        try await commandForm.approveAsync()
+        let commandAfterDisposal = ApprovalRun(commandForm, "command form approval after disposal")
+        await fulfillment(of: [commandAfterDisposal.finished], timeout: admissionTimeout)
+        XCTAssertNil(commandAfterDisposal.error)
         XCTAssertEqual(commandProbe.calls, ["captured"])
         XCTAssertEqual(commandForm.snapshot, "initial")
     }
