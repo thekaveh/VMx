@@ -8,6 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `CompositeVM` and `GroupVM` no longer deadlock when a thread that sends on
+  the hub inside a membership transaction waits for another thread's hub
+  drain, and that drain waits for the transaction (#703). Hub waits,
+  membership-transaction waits, container `dispose()` waits, lifecycle
+  publication waits and lifecycle hook-lease waits now register in one
+  process-wide wait-for graph, so the wait that would close the cycle takes
+  its escape instead (spec/03, ADR-0119). Each wait names the hub, container,
+  publication or hook lease it waits on, and the thread that frees it removes
+  those waits before it wakes the waiters. So a hub drain, hub batch or
+  membership transaction that has ended causes no refusal. On a cycle, the
+  hub enqueues the send or borrows the batch. `addResult`, `insertResult`
+  and `replaceResult` fail with `attachmentFailed`. `CompositeVM.remove`
+  returns `false`, and `CompositeVM.removeAt` and `clear` do nothing;
+  `GroupVM` `remove`, `removeAt` and `clear` already did nothing while any
+  transaction was open. `selectChild`, `deselectChild`, `setCurrent`, the
+  `current` setter, `selectComponent` and `deselectComponent` leave `current`
+  unchanged. `dispose()` records its intent and returns, and the transaction
+  owner disposes the container when its transaction ends.
+
 - `CompositeVM` selection made while another thread has the composite's
   membership transaction open (an add, insert, replace, population or another
   selection) now waits for that transaction and then applies (COMP-026,
