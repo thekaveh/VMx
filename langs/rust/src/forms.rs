@@ -276,8 +276,8 @@ pub struct FormVm<M: Clone + PartialEq + Send + 'static> {
     approved_callbacks: Arc<Mutex<ApprovedRegistry<M>>>,
     approval_publication: Arc<Mutex<ApprovalPublication<M>>>,
     approval_in_flight: Arc<AtomicBool>,
-    /// Serializes model updates, approval commits, and disposal across
-    /// threads (spec/20 §5.4, ADR-0144).
+    /// Serializes model updates, approval admission, approval commits, and
+    /// disposal across threads (spec/20 §5.4, ADR-0144).
     update_lock: Arc<UpdateLock>,
     /// Counts the commits of model, snapshot, and error state, each made
     /// under the update lock. Only a callback re-entering from the preparing
@@ -436,8 +436,9 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     /// `errors_changed`, the approve command's eligibility change, and the
     /// `"model"` hub message, in that order.
     ///
-    /// Updates are serialized: another thread's update, approval commit, or
-    /// disposal waits until this preparation and commit finish. A callback
+    /// Updates are serialized: another thread's update, approval admission,
+    /// approval commit, or disposal waits until this preparation and commit
+    /// finish. A callback
     /// may re-enter the form from this thread; when it disposes the form or
     /// commits another update, this call commits and publishes nothing, and
     /// the newer state stands.
@@ -629,14 +630,21 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     /// none in flight. Admission sets the in-flight mark before it captures
     /// the model, then raises the approve command's eligibility change once.
     fn admit_approval(&self) -> Option<(ApprovalFlight, M)> {
-        if *lock(&self.disposed) || !self.is_valid() {
-            return None;
-        }
-        let flight = ApprovalFlight::admit(&self.approval_in_flight)?;
-        if *lock(&self.disposed) {
-            return None;
-        }
-        let model = self.model();
+        // Check validity, mark the flight and capture the model under the
+        // update lock, so a `set_model` on another thread cannot commit an
+        // invalid model between the check and the capture (#719). The lock is
+        // re-entrant, and it is released before the admission observers run.
+        let (flight, model) = {
+            let _serialized = self.update_lock.acquire();
+            if *lock(&self.disposed) || !self.is_valid() {
+                return None;
+            }
+            let flight = ApprovalFlight::admit(&self.approval_in_flight)?;
+            if *lock(&self.disposed) {
+                return None;
+            }
+            (flight, self.model())
+        };
         self.raise_approve_can_execute_changed();
         // An admission observer that disposes the form prevents the persister
         // call (spec/20 §5.3). Dropping the flight clears the in-flight mark.
@@ -673,9 +681,9 @@ impl<M: Clone + PartialEq + Send + 'static> FormVm<M> {
     /// reset with its model and errors.
     ///
     /// The commit is authoritative over edits made during the approval
-    /// (spec/20 §5.1) and yields only to disposal. Only this step takes the
-    /// update lock, so it waits for an update another thread is preparing,
-    /// while the persister runs with edits unblocked (§5.3). It installs every
+    /// (spec/20 §5.1) and yields only to disposal. Admission and this step
+    /// take the update lock, so each waits for an update another thread is
+    /// preparing, while the persister runs with edits unblocked (§5.3). It installs every
     /// field in one step before the approval outcome is published, so
     /// synchronous observers cannot see a reset model paired with the previous
     /// snapshot or errors. Returns whether the effective errors changed, or
