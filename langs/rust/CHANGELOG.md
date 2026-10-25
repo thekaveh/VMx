@@ -46,6 +46,15 @@ project adheres to [Semantic Versioning](https://semver.org/).
   `set_model` also takes. Before, an edit could commit between the check and
   the capture, so the persister, the snapshotter and `on_approved` received a
   model the validators reject (#719).
+- A `TokenPagedComposition` built with `with_auto_construct_loader` no longer
+  commits a load or refresh that an item's construct hook superseded. The
+  load and refresh tasks now check the operation generation and disposal
+  before each item's construct and again before the commit. A stale operation
+  constructs no further items, commits nothing and publishes nothing
+  (spec/21 §6.2), and a construct hook that disposes the pager also stops the
+  loop. Items it already constructed are dropped without a destruct, as in
+  the other flavors. Before, the tasks checked the generation only before the
+  construct loop (#720).
 
 ## [0.35.0] — unreleased source version
 

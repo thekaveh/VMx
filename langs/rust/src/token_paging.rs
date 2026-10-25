@@ -236,6 +236,28 @@ fn is_current_operation(generation: &AtomicUsize, operation: usize) -> bool {
     generation.load(Ordering::SeqCst) == operation
 }
 
+/// Constructs `page` item by item while `operation` is current and `commit`
+/// is allowed. A construct hook can start a newer load or refresh or dispose
+/// the pager; the stale operation then constructs nothing more and returns
+/// `false`, so it commits nothing (spec 21 §6.2). Items it already
+/// constructed are dropped with the page, never destructed, as in the other
+/// flavors.
+fn construct_while_current<T: VmNode>(
+    page: &[T],
+    generation: &AtomicUsize,
+    operation: usize,
+    commit: &TokenPagerCommit,
+) -> bool {
+    let current = || commit.is_allowed() && is_current_operation(generation, operation);
+    for item in page {
+        if !current() {
+            return false;
+        }
+        let _ = item.construct();
+    }
+    current()
+}
+
 impl TokenPagerCommit {
     fn is_allowed(&self) -> bool {
         self.lifecycle.commit_allowed()
@@ -572,13 +594,7 @@ impl<T: VmNode, Token: Clone + Send + 'static> TokenPagedComposition<T, Token> {
                 let Some(commit) = load_lifecycle.begin_commit() else {
                     return Ok(());
                 };
-                if !is_current_operation(&load_generation, operation) {
-                    return Ok(());
-                }
-                for item in &page {
-                    let _ = item.construct();
-                }
-                if !commit.is_allowed() {
+                if !construct_while_current(&page, &load_generation, operation, &commit) {
                     return Ok(());
                 }
                 let changed = !page.is_empty();
@@ -635,12 +651,9 @@ impl<T: VmNode, Token: Clone + Send + 'static> TokenPagedComposition<T, Token> {
                 if !commit.is_allowed() || !is_current_operation(&refresh_generation, operation) {
                     return Ok(());
                 }
-                if plan.replace_items {
-                    for item in &page {
-                        let _ = item.construct();
-                    }
-                }
-                if !commit.is_allowed() {
+                if plan.replace_items
+                    && !construct_while_current(&page, &refresh_generation, operation, &commit)
+                {
                     return Ok(());
                 }
                 let displaced = plan.apply(
