@@ -106,7 +106,8 @@ inputs used by CI:
 
 ```bash
 dotnet test langs/csharp/tests/VMx.Tests/VMx.Tests.csproj -c Release \
-  --filter 'FullyQualifiedName~Foreign_Dispose_Waits'
+  --filter 'FullyQualifiedName~Foreign_Dispose_Waits' \
+  -- RunConfiguration.TreatNoTestsAsError=true
 UV_PYTHON=3.12 uv --directory langs/python run python \
   ../../tools/check-python-interpreter.py --venv .venv -- \
   -m pytest tests/unit/components/test_lifecycle_race.py \
