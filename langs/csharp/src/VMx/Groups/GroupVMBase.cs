@@ -126,9 +126,7 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
             index = _children.FindIndex(candidate => ReferenceEquals(candidate, vm));
             if (index < 0 || vm is not VM typed)
             {
-                _membershipTransactionActive = false;
-                _membershipTransactionOwnerThreadId = 0;
-                Monitor.PulseAll(_membershipGate);
+                ReleaseMembershipTransactionLocked();
                 throw new InvalidOperationException("The recorded parent does not contain the child identity.");
             }
             child = typed;
@@ -224,6 +222,9 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
                 }
                 try { transfer?.Rollback(); }
                 catch (Exception error) { rollbackFailures.Add(error); }
+                // A failed or refused replacement must end its transaction, or
+                // waiters on this group block forever (#718).
+                EndMembershipTransaction(propagateDisposeFailure: false);
                 if (rollbackFailures.Count > 0)
                     throw new AggregateException(
                         "Group replacement failed and rollback could not restore lifecycle state.",
@@ -767,14 +768,31 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
         // failing, mirroring Dispose(): wait for the owning thread to finish
         // before starting a new one. EnsureChildAdmission then throws only for a
         // genuine same-thread re-entrant mutation (or a disposing container).
-        while (_membershipTransactionActive
-               && _membershipTransactionOwnerThreadId != Environment.CurrentManagedThreadId)
+        // A wait that would close a wait-for cycle is refused instead, so
+        // opposing transfers fail before they mutate rather than deadlock (#718).
+        var caller = Environment.CurrentManagedThreadId;
+        var waits = MembershipTransactionWaitGraph.Shared;
+        while (_membershipTransactionActive && _membershipTransactionOwnerThreadId != caller)
         {
-            Monitor.Wait(_membershipGate);
+            if (!waits.TryBeginWait(_membershipGate, caller))
+                throw new InvalidOperationException(
+                    "A container membership transaction is already in progress on a " +
+                    "thread that waits for this one; waiting would deadlock.");
+            try { Monitor.Wait(_membershipGate); }
+            finally { waits.EndWait(caller); }
         }
         EnsureChildAdmission();
         _membershipTransactionActive = true;
-        _membershipTransactionOwnerThreadId = Environment.CurrentManagedThreadId;
+        _membershipTransactionOwnerThreadId = caller;
+        waits.Acquire(_membershipGate, caller);
+    }
+
+    private void ReleaseMembershipTransactionLocked()
+    {
+        _membershipTransactionActive = false;
+        _membershipTransactionOwnerThreadId = 0;
+        MembershipTransactionWaitGraph.Shared.Release(_membershipGate);
+        Monitor.PulseAll(_membershipGate);
     }
 
     private void BeginMembershipTransaction()
@@ -794,11 +812,9 @@ public abstract class GroupVMBase<VM> : ComponentVMBase, IGroupVM<VM>,
         bool dispose;
         lock (_membershipGate)
         {
-            _membershipTransactionActive = false;
-            _membershipTransactionOwnerThreadId = 0;
+            ReleaseMembershipTransactionLocked();
             dispose = _disposeDeferred;
             _disposeDeferred = false;
-            Monitor.PulseAll(_membershipGate);
         }
         if (dispose)
         {
